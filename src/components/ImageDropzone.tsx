@@ -1,0 +1,248 @@
+import { useCallback, useId, useRef, useState, type DragEvent, type ReactNode } from 'react'
+import { ImagePlus, Upload, X } from 'lucide-react'
+import { cn } from './ui'
+
+const ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,image/heic,image/*'
+
+function readFilesAsDataUrls(files: FileList | File[]): Promise<string[]> {
+  const list = Array.from(files).filter((f) => f.type.startsWith('image/'))
+  return Promise.all(
+    list.map(
+      (file) =>
+        new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result))
+          reader.onerror = () => reject(reader.error)
+          reader.readAsDataURL(file)
+        }),
+    ),
+  )
+}
+
+export type ImageDropzoneProps = {
+  /** Current image data URLs / sources */
+  value: string[]
+  onChange: (next: string[]) => void
+  /** Allow selecting multiple files (default true) */
+  multiple?: boolean
+  /** Max images allowed (undefined = unlimited) */
+  max?: number
+  label?: string
+  hint?: string
+  className?: string
+  /** Compact single-slot for hero/cover */
+  variant?: 'gallery' | 'cover'
+  disabled?: boolean
+}
+
+/**
+ * Click or drag-and-drop image picker. Stores images as data URLs (no remote URLs).
+ */
+export function ImageDropzone({
+  value,
+  onChange,
+  multiple = true,
+  max,
+  label = 'Photos',
+  hint = 'Drag & drop images here, or click to browse your gallery',
+  className,
+  variant = 'gallery',
+  disabled,
+}: ImageDropzoneProps) {
+  const inputId = useId()
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [dragging, setDragging] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const remaining = max == null ? Infinity : Math.max(0, max - value.length)
+  const canAdd = !disabled && remaining > 0
+
+  const addFiles = useCallback(
+    async (files: FileList | File[] | null) => {
+      if (!files || !canAdd) return
+      setError(null)
+      try {
+        const urls = await readFilesAsDataUrls(files)
+        if (urls.length === 0) {
+          setError('Choose an image file (JPEG, PNG, WebP, or GIF).')
+          return
+        }
+        const next = multiple
+          ? [...value, ...urls].slice(0, max ?? undefined)
+          : [urls[0]]
+        onChange(next)
+      } catch {
+        setError('Could not read that file. Try another image.')
+      }
+    },
+    [canAdd, max, multiple, onChange, value],
+  )
+
+  const onDrop = (e: DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragging(false)
+    if (!canAdd) return
+    void addFiles(e.dataTransfer.files)
+  }
+
+  const removeAt = (index: number) => {
+    onChange(value.filter((_, i) => i !== index))
+  }
+
+  const dropZone = (
+    <label
+      htmlFor={inputId}
+      onDragEnter={(e) => {
+        e.preventDefault()
+        if (canAdd) setDragging(true)
+      }}
+      onDragOver={(e) => {
+        e.preventDefault()
+        e.dataTransfer.dropEffect = canAdd ? 'copy' : 'none'
+      }}
+      onDragLeave={(e) => {
+        e.preventDefault()
+        if (e.currentTarget.contains(e.relatedTarget as Node)) return
+        setDragging(false)
+      }}
+      onDrop={onDrop}
+      className={cn(
+        'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-4 py-8 text-center transition-colors duration-200',
+        canAdd
+          ? dragging
+            ? 'border-primary bg-primary-50 text-primary'
+            : 'border-primary-200 bg-primary-50/40 text-ink-500 hover:border-primary hover:bg-primary-50 hover:text-primary'
+          : 'cursor-not-allowed border-primary-100 bg-surface-muted text-ink-400 opacity-70',
+        variant === 'cover' && 'min-h-[10rem]',
+        'focus-within:outline-none focus-within:ring-2 focus-within:ring-primary',
+      )}
+    >
+      <span
+        className={cn(
+          'inline-flex h-12 w-12 items-center justify-center rounded-full',
+          dragging ? 'bg-primary text-white' : 'bg-white text-primary shadow-sm',
+        )}
+        aria-hidden
+      >
+        {dragging ? (
+          <Upload className="h-5 w-5" strokeWidth={1.6} />
+        ) : (
+          <ImagePlus className="h-5 w-5" strokeWidth={1.6} />
+        )}
+      </span>
+      <span className="text-sm font-semibold text-ink">
+        {dragging ? 'Drop to upload' : multiple ? 'Add photos' : 'Choose a photo'}
+      </span>
+      <span className="max-w-xs text-xs text-ink-400">{hint}</span>
+      {max != null && (
+        <span className="tabular text-[11px] text-ink-400">
+          {value.length} / {max}
+        </span>
+      )}
+      <input
+        ref={inputRef}
+        id={inputId}
+        type="file"
+        accept={ACCEPT}
+        multiple={multiple && remaining > 1}
+        disabled={!canAdd}
+        className="sr-only"
+        onChange={(e) => {
+          void addFiles(e.target.files)
+          e.target.value = ''
+        }}
+      />
+    </label>
+  )
+
+  return (
+    <div className={cn('space-y-3', className)}>
+      {label && (
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="text-xs font-medium text-ink-500">{label}</p>
+          {value.length > 0 && canAdd && (
+            <button
+              type="button"
+              className="min-h-9 cursor-pointer text-xs font-semibold text-primary transition-colors duration-200 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              onClick={() => inputRef.current?.click()}
+            >
+              Add more
+            </button>
+          )}
+        </div>
+      )}
+
+      {value.length > 0 && (
+        <ul
+          className={cn(
+            'grid gap-2',
+            variant === 'cover' ? 'grid-cols-1' : 'grid-cols-3 sm:grid-cols-4',
+          )}
+        >
+          {value.map((src, i) => (
+            <li
+              key={`${i}-${src.slice(0, 32)}`}
+              className={cn(
+                'group relative overflow-hidden rounded-xl ring-1 ring-primary-100',
+                variant === 'cover' ? 'aspect-[16/9]' : 'aspect-square',
+              )}
+            >
+              <img src={src} alt="" className="h-full w-full object-cover" />
+              {!disabled && (
+                <button
+                  type="button"
+                  onClick={() => removeAt(i)}
+                  className="absolute right-1.5 top-1.5 inline-flex min-h-9 min-w-9 cursor-pointer items-center justify-center rounded-full bg-ink/70 text-white opacity-100 transition-opacity duration-200 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white sm:opacity-0 sm:group-hover:opacity-100"
+                  aria-label={`Remove photo ${i + 1}`}
+                >
+                  <X className="h-4 w-4" strokeWidth={1.6} />
+                </button>
+              )}
+              {variant === 'cover' && i === 0 && value.length > 1 && (
+                <span className="absolute bottom-2 left-2 rounded-md bg-ink/70 px-2 py-0.5 text-[10px] font-semibold text-white">
+                  Cover
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {canAdd && dropZone}
+
+      {error && (
+        <p role="alert" className="text-xs font-medium text-accent">
+          {error}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/** Single-image helper for forms that only need one photo. */
+export function ImageCoverField({
+  value,
+  onChange,
+  label = 'Cover photo',
+  className,
+}: {
+  value: string | null | undefined
+  onChange: (next: string | null) => void
+  label?: string
+  className?: string
+  children?: ReactNode
+}) {
+  return (
+    <ImageDropzone
+      className={className}
+      label={label}
+      value={value ? [value] : []}
+      onChange={(next) => onChange(next[0] ?? null)}
+      multiple={false}
+      max={1}
+      variant="cover"
+      hint="Drag & drop a photo, or click to open your gallery"
+    />
+  )
+}

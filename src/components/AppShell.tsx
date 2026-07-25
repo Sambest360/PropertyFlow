@@ -1,0 +1,76 @@
+import { Outlet, useLocation } from 'react-router-dom'
+import { MarketplaceFooter } from './layout/MarketplaceFooter'
+import { MarketplaceHeader } from './layout/MarketplaceHeader'
+import { BrandLogo } from './layout/BrandLogo'
+import { SpotlightSearch } from './layout/SpotlightSearch'
+import { WorkspaceHeader } from './layout/WorkspaceHeader'
+import { useWorkspaceNav, WorkspaceSidebar } from './layout/WorkspaceNav'
+import { WORKSPACE_INSET } from './layout/workspaceInset'
+import { NotificationToastHost } from './notifications/NotificationBell'
+import { useNavCollapsed } from '../hooks/useNavCollapsed'
+import { useScrollChrome } from '../hooks/useScrollChrome'
+import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
+import { cn } from './ui'
+
+/** Collapsed rail width — keep in sync with WorkspaceSidebar */
+const RAIL_WIDTH = '4.5rem'
+
+export function MarketplaceShell() {
+  return (
+    <div className="flex min-h-screen flex-col bg-white text-ink">
+      <MarketplaceHeader />
+      <main className="flex-1">
+        <Outlet />
+      </main>
+      <MarketplaceFooter />
+    </div>
+  )
+}
+
+/** Admin shell — full white background; header and pages share the same left edge */
+export function WorkspaceShell() {
+  const nav = useWorkspaceNav()
+  const { pathname } = useLocation()
+  const reducedMotion = usePrefersReducedMotion()
+  const [navCollapsed] = useNavCollapsed()
+  const { scrolled, topHeaderVisible, reducedMotion: reduceMotion } = useScrollChrome()
+  const chromeCompact = !topHeaderVisible
+
+  return (
+    <div className="relative flex min-h-screen bg-white text-ink">
+      <NotificationToastHost />
+      <WorkspaceSidebar items={nav} brandMuted={chromeCompact} />
+
+      {/* Bridging logo — soft / translucent while scrolled */}
+      {navCollapsed && (
+        <div
+          className={cn(
+            'pointer-events-none fixed top-4 z-40 hidden -translate-x-[28%] lg:block',
+            reduceMotion ? 'transition-opacity duration-150' : 'transition-opacity duration-300',
+            chromeCompact ? 'opacity-40' : 'opacity-100',
+          )}
+          style={{ left: RAIL_WIDTH }}
+        >
+          <BrandLogo to="/workspace" size="md" tone="bridge" className="pointer-events-auto" />
+        </div>
+      )}
+
+      {/* Search minimize follows absolute scroll — not header visibility — to avoid flicker */}
+      <div className="pointer-events-none fixed inset-x-0 top-3 z-50 hidden justify-center px-6 lg:flex">
+        <SpotlightSearch minimized={scrolled} className="mx-auto" />
+      </div>
+
+      <div className="relative z-0 flex min-w-0 flex-1 flex-col bg-white">
+        <WorkspaceHeader spotlightPinned topHidden={chromeCompact} />
+        <main className={`min-w-0 flex-1 overflow-x-hidden pb-6 pt-1 lg:pb-8 ${WORKSPACE_INSET}`}>
+          <div
+            key={pathname}
+            className={reducedMotion ? 'w-full' : 'w-full animate-workspace-page'}
+          >
+            <Outlet />
+          </div>
+        </main>
+      </div>
+    </div>
+  )
+}
