@@ -1,8 +1,8 @@
-import { User } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { MapPin, User } from 'lucide-react'
 import type { PaymentRecord, PropertyAsset } from '../../types/domain'
-import { Card } from '../ui'
 import { formatZAR } from '../../data/seed'
-import { PaymentPropertyLink } from '../payments/PaymentPropertyLink'
+import { DetailSection, DetailStack, FlatField, FlatFieldGrid } from '../detail/FlatFields'
 import { paymentAmountLabel } from '../payments/types'
 import { ICON_STROKE } from './types'
 
@@ -15,68 +15,78 @@ export function PaymentOverviewPanel({
   property: PropertyAsset | null
   hideParty?: boolean
 }) {
-  const rows: Array<{ label: string; value: string }> = [
-    { label: 'Payment ID', value: payment.id },
-    { label: 'Type', value: payment.type },
-    { label: 'Status', value: payment.status },
-    { label: 'Billed amount', value: formatZAR(payment.amount) },
-    { label: 'Due date', value: payment.dueDate },
-  ]
+  const sideSections = (
+    <>
+      {property ? (
+        <DetailSection title="Linked property" subtitle={`${property.suburb}, ${property.city}`}>
+          <Link
+            to={`/workspace/properties/${property.id}?tab=payments`}
+            className="group inline-flex min-h-11 max-w-full cursor-pointer items-start gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            <MapPin
+              className="mt-0.5 h-4 w-4 shrink-0 text-primary"
+              strokeWidth={ICON_STROKE}
+              aria-hidden
+            />
+            <span className="font-semibold text-primary group-hover:underline">{property.title}</span>
+          </Link>
+        </DetailSection>
+      ) : null}
 
-  if (payment.paidAt) rows.push({ label: 'Paid on', value: payment.paidAt })
-  if (payment.paidAmount != null) {
-    rows.push({ label: 'Received', value: paymentAmountLabel(payment, formatZAR) })
-  }
-  if (payment.method) rows.push({ label: 'Method', value: payment.method })
-  if (payment.reference) rows.push({ label: 'Reference', value: payment.reference })
-  if (payment.recordedByName) rows.push({ label: 'Recorded by', value: payment.recordedByName })
-  if (payment.notes) rows.push({ label: 'Notes', value: payment.notes })
+      {!hideParty ? (
+        <DetailSection
+          title="Party"
+          className={property ? 'mt-8 border-t border-primary-100 pt-8 lg:mt-8' : undefined}
+        >
+          <p className="flex items-center gap-2 text-sm font-semibold text-ink">
+            <User className="h-4 w-4 text-ink-400" strokeWidth={ICON_STROKE} aria-hidden />
+            {payment.partyName}
+          </p>
+          {payment.partyUserId ? (
+            <p className="mt-1 text-xs text-ink-500">User {payment.partyUserId}</p>
+          ) : null}
+        </DetailSection>
+      ) : null}
+    </>
+  )
+
+  const hasSide = Boolean(property) || !hideParty
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-      <Card className="p-5">
-        <h2 className="font-display text-lg font-semibold text-ink">Ledger line</h2>
-        <p className="mt-1 text-sm text-ink-500">Settlement and billing details for this payment.</p>
-        <dl className="mt-4 grid gap-3 sm:grid-cols-2">
-          {rows.map((row) => (
-            <div key={row.label} className="min-w-0">
-              <dt className="text-[10px] font-semibold uppercase tracking-wide text-ink-400">
-                {row.label}
-              </dt>
-              <dd className="mt-0.5 text-sm font-semibold tabular text-ink" title={row.value}>
-                {row.value}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      </Card>
+    <DetailStack columns={hasSide ? 2 : 1}>
+      <DetailSection
+        title="Overview"
+        subtitle="Settlement and billing details for this payment."
+      >
+        <FlatFieldGrid className="lg:grid-cols-2">
+          <FlatField label="Payment ID" value={payment.id} />
+          <FlatField label="Type" value={payment.type} />
+          <FlatField label="Status" value={payment.status} />
+          <FlatField label="Billed amount" value={formatZAR(payment.amount)} tabular />
+          <FlatField label="Due date" value={payment.dueDate} />
+          {payment.paidAt ? <FlatField label="Paid on" value={payment.paidAt} /> : null}
+          {payment.paidAmount != null ? (
+            <FlatField
+              label="Received"
+              value={paymentAmountLabel(payment, formatZAR)}
+              tabular
+            />
+          ) : null}
+          {payment.method ? <FlatField label="Method" value={payment.method} /> : null}
+          {payment.reference ? <FlatField label="Reference" value={payment.reference} /> : null}
+          {payment.recordedByName ? (
+            <FlatField label="Recorded by" value={payment.recordedByName} />
+          ) : null}
+        </FlatFieldGrid>
+        {payment.notes ? (
+          <div className="border-t border-primary-50 pt-4">
+            <p className="text-[11px] font-medium text-ink-400">Notes</p>
+            <p className="mt-1 whitespace-pre-wrap text-sm text-ink-600">{payment.notes}</p>
+          </div>
+        ) : null}
+      </DetailSection>
 
-      <div className="space-y-4">
-        {property && (
-          <Card className="p-5">
-            <h2 className="font-display text-lg font-semibold text-ink">Linked property</h2>
-            <p className="mt-1 text-sm text-ink-500">
-              {property.suburb}, {property.city}
-            </p>
-            <div className="mt-4">
-              <PaymentPropertyLink propertyId={property.id} title={property.title} />
-            </div>
-          </Card>
-        )}
-
-        {!hideParty && (
-          <Card className="p-5">
-            <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-ink">
-              <User className="h-5 w-5 text-ink-500" strokeWidth={ICON_STROKE} aria-hidden />
-              Party
-            </h2>
-            <p className="mt-2 text-sm font-semibold text-ink">{payment.partyName}</p>
-            {payment.partyUserId && (
-              <p className="mt-1 text-xs text-ink-500">User {payment.partyUserId}</p>
-            )}
-          </Card>
-        )}
-      </div>
-    </div>
+      {hasSide ? <div>{sideSections}</div> : null}
+    </DetailStack>
   )
 }

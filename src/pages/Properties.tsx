@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { Plus } from 'lucide-react'
 import { useStore } from '../context/AppStore'
-import { useAgencyScope, useAuth } from '../context/AuthContext'
-import { isFieldAgent } from '../lib/permissions'
+import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
-import { currentReturnPath, withReturnTo } from '../lib/returnTo'
 import { Button, Card, PageHeader } from '../components/ui'
+import { CreatePropertyModal } from '../components/admin/CreatePropertyModal'
+import { PropertyMap } from '../components/PropertyMap'
 import { PropertiesToolbar } from '../components/properties/PropertiesToolbar'
 import { PropertyListView } from '../components/properties/PropertyListView'
 import { PropertyPortfolioCard } from '../components/properties/PropertyPortfolioCard'
@@ -17,11 +17,13 @@ import {
   type PropertiesViewMode,
   type SortKey,
 } from '../components/properties/types'
+import { useLookupOptions } from '../hooks/useLookupOptions'
+import { VerificationPendingBanner } from '../components/auth/VerificationBanner'
 
 function readStoredView(): PropertiesViewMode {
   try {
     const v = localStorage.getItem(VIEW_STORAGE_KEY)
-    if (v === 'cards' || v === 'list') return v
+    if (v === 'cards' || v === 'list' || v === 'map') return v
   } catch {
     /* ignore */
   }
@@ -30,14 +32,13 @@ function readStoredView(): PropertiesViewMode {
 
 export default function Properties() {
   const { state } = useStore()
-  const { has } = useAuth()
-  const { scopeAgency, scopeAgent, scopeLandlord, role } = useAgencyScope()
+  const { has, user } = useAuth()
+  const { allowedPropertyIds, agencyId } = usePropertyScope()
   const reducedMotion = usePrefersReducedMotion()
-  const location = useLocation()
-  const addPropertyTo = withReturnTo(
-    '/workspace/properties/new',
-    currentReturnPath(location.pathname, location.search),
-  )
+  const propertyTypes = useLookupOptions('PROPERTY_TYPE', agencyId)
+  const propertyStatuses = useLookupOptions('PROPERTY_STATUS', agencyId)
+  const listingModes = useLookupOptions('LISTING_MODE', agencyId)
+  const [createOpen, setCreateOpen] = useState(false)
 
   const [q, setQ] = useState('')
   const [status, setStatus] = useState('All')
@@ -62,13 +63,8 @@ export default function Properties() {
   }, [view])
 
   const scoped = useMemo(() => {
-    return state.properties.filter((p) => {
-      if (!scopeAgency(p.agencyId)) return false
-      if (isFieldAgent(role) && !scopeAgent(p.agentId)) return false
-      if (role === 'landlord' && !scopeLandlord(p.landlordId)) return false
-      return true
-    })
-  }, [state.properties, scopeAgency, scopeAgent, scopeLandlord, role])
+    return state.properties.filter((p) => allowedPropertyIds.has(p.id))
+  }, [state.properties, allowedPropertyIds])
 
   const portfolio: PortfolioProperty[] = useMemo(() => {
     return scoped.map((property) => {
@@ -193,14 +189,16 @@ export default function Properties() {
         subtitle="Scan your portfolio, spot what needs attention, and open a property for full detail."
         actions={
           has('assets.manage') ? (
-            <Link to={addPropertyTo}>
-              <Button className="min-h-11">
-                <Plus className="h-4 w-4" strokeWidth={1.6} aria-hidden /> Add property
-              </Button>
-            </Link>
+            <Button className="min-h-11 cursor-pointer" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" strokeWidth={1.6} aria-hidden /> Add property
+            </Button>
           ) : undefined
         }
       />
+
+      <div className="mb-5">
+        <VerificationPendingBanner user={user} />
+      </div>
 
       <PropertiesToolbar
         query={q}
@@ -222,11 +220,32 @@ export default function Properties() {
         onViewChange={setView}
         resultLabel={resultLabel}
         reducedMotion={reducedMotion}
+        propertyTypes={propertyTypes}
+        propertyStatuses={propertyStatuses}
+        listingModes={listingModes}
       />
 
       {portfolio.length === 0 ? (
-        <Card className="p-10 text-center text-sm text-ink-500">
-          No properties in your scope for this role.
+        <Card className="p-10 text-center">
+          <p className="font-semibold text-ink">No properties yet</p>
+          <p className="mt-2 text-sm text-ink-500">
+            Create a property to start listing, or ask your agency admin to assign one to you.
+          </p>
+          {has('assets.manage') && (
+            <Button className="mt-4 cursor-pointer" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" /> Add property
+            </Button>
+          )}
+          {has('assets.manage') && (
+            <div className="mt-3">
+              <Link
+                to="/workspace/properties/new"
+                className="text-sm font-semibold text-primary hover:underline"
+              >
+                Or open full create form
+              </Link>
+            </div>
+          )}
         </Card>
       ) : filtered.length === 0 ? (
         <Card className="p-10 text-center">
@@ -246,6 +265,17 @@ export default function Properties() {
           onToggle={toggleExpand}
           reducedMotion={reducedMotion}
         />
+      ) : view === 'map' ? (
+        <Card className="overflow-hidden p-0">
+          <div className="h-[min(70vh,640px)] min-h-[360px] w-full">
+            <PropertyMap
+              properties={filtered.map((f) => f.property)}
+              mode="all"
+              detailBase="/workspace/properties"
+              className="h-full rounded-none"
+            />
+          </div>
+        </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {filtered.map((item) => (
@@ -271,6 +301,13 @@ export default function Properties() {
           </button>
         </div>
       )}
+
+      <CreatePropertyModal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        defaultAgencyId={agencyId ?? undefined}
+        lockAgency={!has('platform.manage')}
+      />
     </div>
   )
 }

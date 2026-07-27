@@ -1,21 +1,35 @@
-import { Link, Navigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Mail, Phone } from 'lucide-react'
+import { Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMemo } from 'react'
 import { useStore } from '../context/AppStore'
 import { useAgencyScope } from '../context/AuthContext'
-import { roleLabels } from '../lib/permissions'
 import { RequirePermission } from '../components/RequirePermission'
-import { Badge, Button, cn } from '../components/ui'
+import { DashboardTabs } from '../components/dashboard/DashboardTabs'
+import { HistoryTimeline } from '../components/history/HistoryTimeline'
+import { TeamDetailHeader } from '../components/team-detail/TeamDetailHeader'
+import { TeamOverviewPanel } from '../components/team-detail/TeamOverviewPanel'
+import { TeamDetailsPanel } from '../components/team-detail/TeamDetailsPanel'
+import { TeamWorkloadPanel } from '../components/team-detail/TeamWorkloadPanel'
+import { isTeamDetailTab, type TeamDetailTab } from '../components/team-detail/types'
+import type { PropertyEvent } from '../types/domain'
 
-const ICON_STROKE = 1.6
 const STAFF_ROLES = ['client_admin', 'agent_admin', 'ground_agent', 'agent', 'super_admin'] as const
 
 export default function StaffDetail() {
   const { id } = useParams()
+  const [params, setParams] = useSearchParams()
   const { state } = useStore()
   const { scopeAgency, agencyId } = useAgencyScope()
 
   const user = state.users.find((u) => u.id === id)
+
+  const tabParam = params.get('tab')
+  const tab: TeamDetailTab = isTeamDetailTab(tabParam) ? tabParam : 'overview'
+  const setTab = (next: string) => {
+    const sp = new URLSearchParams(params)
+    if (next === 'overview') sp.delete('tab')
+    else sp.set('tab', next)
+    setParams(sp, { replace: true })
+  }
 
   const inScope = useMemo(() => {
     if (!user) return false
@@ -25,19 +39,80 @@ export default function StaffDetail() {
   }, [user, scopeAgency])
 
   const stats = useMemo(() => {
-    if (!user) return { closedDeals: 0, openLeads: 0, assignedProperties: 0 }
-    return {
-      closedDeals: state.leads.filter(
-        (l) => l.agentId === user.id && ['Lease Signed', 'Sale Completed'].includes(l.stage),
-      ).length,
-      openLeads: state.leads.filter(
+    if (!user) {
+      return {
+        closedDeals: 0,
+        openLeads: [] as Array<{ lead: (typeof state.leads)[number]; propertyTitle: string }>,
+        closedCount: 0,
+        properties: [] as typeof state.properties,
+      }
+    }
+    const closed = state.leads.filter(
+      (l) => l.agentId === user.id && ['Lease Signed', 'Sale Completed'].includes(l.stage),
+    )
+    const open = state.leads
+      .filter(
         (l) =>
-          l.agentId === user.id &&
-          !['Lease Signed', 'Sale Completed', 'Rejected'].includes(l.stage),
-      ).length,
-      assignedProperties: state.properties.filter((p) => p.agentId === user.id).length,
+          l.agentId === user.id && !['Lease Signed', 'Sale Completed', 'Rejected'].includes(l.stage),
+      )
+      .map((lead) => ({
+        lead,
+        propertyTitle: state.properties.find((p) => p.id === lead.propertyId)?.title ?? lead.propertyId,
+      }))
+    const properties = state.properties.filter((p) => p.agentId === user.id)
+    return {
+      closedDeals: closed.length,
+      openLeads: open,
+      closedCount: closed.length,
+      properties,
     }
   }, [user, state.leads, state.properties])
+
+  const historyEvents = useMemo(() => {
+    if (!user) return [] as PropertyEvent[]
+    const name = user.name.toLowerCase()
+    const related = state.propertyEvents.filter(
+      (ev) => ev.actorUserId === user.id || ev.actorName.toLowerCase() === name,
+    )
+    const activities = state.activities
+      .filter(
+        (a) =>
+          a.user.toLowerCase() === name ||
+          a.text.toLowerCase().includes(name) ||
+          (user.agencyId && a.agencyId === user.agencyId && a.user === user.name),
+      )
+      .map(
+        (a): PropertyEvent => ({
+          id: `act-${a.id}`,
+          agencyId: a.agencyId ?? user.agencyId ?? '',
+          propertyId: related[0]?.propertyId ?? stats.properties[0]?.id ?? '—',
+          actorUserId: user.id,
+          actorName: a.user,
+          action: a.text,
+          at: a.at,
+        }),
+      )
+
+    const synthetic: PropertyEvent[] = [
+      {
+        id: `synth-team-${user.id}`,
+        agencyId: user.agencyId ?? '',
+        propertyId: stats.properties[0]?.id ?? '—',
+        actorUserId: null,
+        actorName: 'System',
+        action: 'added a Team member',
+        at: related[0]?.at ?? new Date().toISOString(),
+        changes: [
+          { field: 'Person', from: 'None', to: user.name },
+          { field: 'Role', from: 'None', to: user.role },
+        ],
+      },
+    ]
+
+    const byId = new Map<string, PropertyEvent>()
+    for (const ev of [...synthetic, ...related, ...activities]) byId.set(ev.id, ev)
+    return [...byId.values()]
+  }, [user, state.propertyEvents, state.activities, stats.properties])
 
   if (!user) return <Navigate to="/workspace/people/staff" replace />
   if (!inScope) return <Navigate to="/workspace/people/staff" replace />
@@ -46,72 +121,45 @@ export default function StaffDetail() {
   const agencyName =
     agency?.name ?? (user.role === 'super_admin' ? 'Platform' : agencyId ?? '—')
 
-  const rows = [
-    { label: 'Role', value: roleLabels[user.role] },
-    { label: 'Agency', value: agencyName },
-    { label: 'Closed deals', value: String(stats.closedDeals), tabular: true },
-    { label: 'Open leads', value: String(stats.openLeads), tabular: true },
-    { label: 'Properties', value: String(stats.assignedProperties), tabular: true },
+  const tabs = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'details', label: 'Details' },
+    {
+      id: 'workload',
+      label: 'Workload',
+      count: stats.openLeads.length + stats.properties.length,
+    },
+    { id: 'history', label: 'History', count: historyEvents.length },
   ]
 
   return (
     <RequirePermission permission="users.manage">
-      <div className="animate-fade-in w-full">
-        <Link
-          to="/workspace/people/staff"
-          className="mb-4 inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm text-ink-500 transition-colors duration-200 hover:text-ink"
-        >
-          <ArrowLeft className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-          All team
-        </Link>
+      <div className="animate-fade-in">
+        <TeamDetailHeader user={user} />
 
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="font-display text-2xl font-semibold tracking-tight text-ink">
-            {user.name}
-          </h1>
-          <Badge tone={user.active ? 'success' : 'warning'}>
-            {user.active ? 'Active' : 'Inactive'}
-          </Badge>
-          <Badge tone="neutral">{roleLabels[user.role]}</Badge>
+        <div className="sticky top-0 z-20 -mx-1 mb-5 bg-white/95 px-1 backdrop-blur-md">
+          <DashboardTabs tabs={tabs} value={tab} onChange={setTab} />
         </div>
-        <p className="mt-1 text-sm text-ink-500">{user.email}</p>
 
-        <dl className="mt-6 divide-y divide-primary-50 border-y border-primary-50">
-          {rows.map((row) => (
-            <div key={row.label} className="flex items-baseline justify-between gap-4 py-3">
-              <dt className="shrink-0 text-sm text-ink-500">{row.label}</dt>
-              <dd
-                className={cn(
-                  'min-w-0 text-right text-sm font-medium text-ink',
-                  row.tabular && 'tabular',
-                )}
-              >
-                {row.value}
-              </dd>
-            </div>
-          ))}
-        </dl>
-
-        <div className="mt-6 flex flex-wrap gap-2">
-          <Button
-            variant="secondary"
-            className="min-h-11"
-            onClick={() => window.open(`mailto:${user.email}`, '_self')}
-          >
-            <Mail className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-            Email
-          </Button>
-          {user.phone && (
-            <Button
-              variant="secondary"
-              className="min-h-11"
-              onClick={() => window.open(`tel:${user.phone}`, '_self')}
-            >
-              <Phone className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-              Call
-            </Button>
-          )}
-        </div>
+        {tab === 'overview' && (
+          <TeamOverviewPanel
+            user={user}
+            agencyName={agencyName}
+            closedDeals={stats.closedDeals}
+            openLeads={stats.openLeads.length}
+            assignedProperties={stats.properties.length}
+          />
+        )}
+        {tab === 'details' && <TeamDetailsPanel user={user} agencyName={agencyName} />}
+        {tab === 'workload' && (
+          <TeamWorkloadPanel openLeads={stats.openLeads} properties={stats.properties} />
+        )}
+        {tab === 'history' && (
+          <HistoryTimeline
+            events={historyEvents}
+            subtitle="Actions and notes associated with this team member."
+          />
+        )}
       </div>
     </RequirePermission>
   )

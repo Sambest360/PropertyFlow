@@ -92,7 +92,7 @@ export function OpsToolbar({
                     setOpen(false)
                   }}
                   className={cn(
-                    'flex min-h-10 w-full cursor-pointer items-center px-3 text-left text-sm transition-colors duration-150 hover:bg-primary-50',
+                    'flex min-h-11 w-full cursor-pointer items-center px-3 text-left text-sm transition-colors duration-150 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary',
                     filterValue === f.id ? 'font-semibold text-primary' : 'text-ink',
                   )}
                 >

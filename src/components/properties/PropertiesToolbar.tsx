@@ -1,4 +1,4 @@
-import { LayoutGrid, List, Search } from 'lucide-react'
+import { LayoutGrid, List, Map, Search } from 'lucide-react'
 import { cn, Input, Select } from '../ui'
 import {
   PROPERTY_STATUSES,
@@ -30,6 +30,9 @@ export function PropertiesToolbar({
   onViewChange,
   resultLabel,
   reducedMotion,
+  propertyTypes,
+  propertyStatuses,
+  listingModes,
 }: {
   query: string
   onQueryChange: (v: string) => void
@@ -50,7 +53,24 @@ export function PropertiesToolbar({
   onViewChange: (v: PropertiesViewMode) => void
   resultLabel: string
   reducedMotion?: boolean
+  propertyTypes?: Array<{ value: string; label: string }>
+  propertyStatuses?: Array<{ value: string; label: string }>
+  listingModes?: Array<{ value: string; label: string }>
 }) {
+  const typeOptions = propertyTypes?.length
+    ? propertyTypes
+    : PROPERTY_TYPES.filter((t) => t !== 'All').map((t) => ({ value: t, label: t }))
+  const statusOptions = propertyStatuses?.length
+    ? propertyStatuses
+    : PROPERTY_STATUSES.filter((s) => s !== 'All').map((s) => ({ value: s, label: s }))
+  const modeOptions = listingModes?.length
+    ? listingModes
+    : [
+        { value: 'sale', label: 'Sale' },
+        { value: 'rent', label: 'Rent' },
+        { value: 'both', label: 'Sale & rent' },
+      ]
+
   return (
     <div className="mb-5 space-y-3 rounded-[1.25rem] border border-primary-100/80 bg-white p-3 shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)] sm:p-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
@@ -106,6 +126,19 @@ export function PropertiesToolbar({
             <LayoutGrid className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
             Cards
           </button>
+          <button
+            type="button"
+            onClick={() => onViewChange('map')}
+            className={cn(
+              'inline-flex min-h-9 min-w-11 cursor-pointer items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+              reducedMotion && 'transition-none',
+              view === 'map' ? 'bg-white text-primary shadow-sm' : 'text-ink-500 hover:text-ink',
+            )}
+            aria-pressed={view === 'map'}
+          >
+            <Map className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+            Map
+          </button>
         </div>
       </div>
 
@@ -116,9 +149,14 @@ export function PropertiesToolbar({
           onChange={(e) => onStatusChange(e.target.value)}
           aria-label="Filter by status"
         >
-          {PROPERTY_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {s === 'All' ? 'All statuses' : s === 'Published' ? 'Available (Published)' : s === 'Rented' ? 'Occupied (Rented)' : s}
+          <option value="All">All statuses</option>
+          {statusOptions.map((s) => (
+            <option key={s.value} value={s.value}>
+              {s.value === 'Published'
+                ? 'Available (Published)'
+                : s.value === 'Rented'
+                  ? 'Occupied (Rented)'
+                  : s.label}
             </option>
           ))}
         </Select>
@@ -129,9 +167,10 @@ export function PropertiesToolbar({
           onChange={(e) => onTypeChange(e.target.value)}
           aria-label="Filter by type"
         >
-          {PROPERTY_TYPES.map((t) => (
-            <option key={t} value={t}>
-              {t === 'All' ? 'All types' : t}
+          <option value="All">All types</option>
+          {typeOptions.map((t) => (
+            <option key={t.value} value={t.value}>
+              {t.label}
             </option>
           ))}
         </Select>
@@ -143,9 +182,11 @@ export function PropertiesToolbar({
           aria-label="Filter by listing mode"
         >
           <option value="all">All listing modes</option>
-          <option value="sale">Sale</option>
-          <option value="rent">Rent</option>
-          <option value="both">Sale &amp; rent</option>
+          {modeOptions.map((m) => (
+            <option key={m.value} value={m.value}>
+              {m.label}
+            </option>
+          ))}
         </Select>
 
         <Select

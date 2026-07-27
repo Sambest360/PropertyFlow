@@ -130,7 +130,7 @@ export function buildApplicationActions(params: {
       method: 'PATCH',
       href: `${base}/status`,
       requires: ['applications.review'],
-      tone: 'ghost',
+      tone: 'danger',
       confirm: 'Reject this application?',
       payload_hint: { status: 'REJECTED' },
     })

@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useEffect, type ReactNode } from 'react'
+import { forwardRef, useEffect, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 
@@ -123,7 +123,7 @@ export function Button({
     danger: 'bg-accent text-white hover:bg-accent-600',
   }
   const sizes = {
-    sm: 'min-h-9 px-3.5 text-xs',
+    sm: 'min-h-11 px-3.5 text-xs',
     md: 'min-h-11 px-5 text-sm',
     lg: 'min-h-12 px-6 text-sm',
   }
@@ -142,17 +142,20 @@ export function Button({
   )
 }
 
-export function Input({ className, ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
-  return (
-    <input
-      className={cn(
-        'h-10 w-full rounded-xl border border-primary-100 bg-white px-3 text-sm text-ink placeholder:text-ink-400 focus:border-primary focus:bg-primary-50',
-        className,
-      )}
-      {...props}
-    />
-  )
-}
+export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
+  function Input({ className, ...props }, ref) {
+    return (
+      <input
+        ref={ref}
+        className={cn(
+          'h-10 w-full rounded-xl border border-primary-100 bg-white px-3 text-sm text-ink placeholder:text-ink-400 focus:border-primary focus:bg-primary-50',
+          className,
+        )}
+        {...props}
+      />
+    )
+  },
+)
 
 export function Textarea({ className, ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (

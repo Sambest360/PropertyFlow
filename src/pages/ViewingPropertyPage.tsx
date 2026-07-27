@@ -10,7 +10,7 @@ import {
   Users,
 } from 'lucide-react'
 import { useStore } from '../context/AppStore'
-import { useAgencyScope, useAuth } from '../context/AuthContext'
+import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { isFieldAgent } from '../lib/permissions'
 import { RequirePermission } from '../components/RequirePermission'
 import { Badge, Button, Card, Select, cn, statusTone } from '../components/ui'
@@ -32,7 +32,7 @@ export default function ViewingPropertyPage() {
   const { state, createViewingSlot, bookViewingSlot, createViewing, updateViewing, updateViewingSlot } =
     useStore()
   const { user, agencyId, has, role } = useAuth()
-  const { scopeAgency, scopeAgent } = useAgencyScope()
+  const { inPropertyScope, canMutate } = usePropertyScope()
 
   const property = state.properties.find((p) => p.id === propertyId)
 
@@ -52,17 +52,14 @@ export default function ViewingPropertyPage() {
     [state.users, has, agencyId],
   )
 
-  const scopedOk =
-    property &&
-    scopeAgency(property.agencyId) &&
-    (!isFieldAgent(role) || scopeAgent(property.agentId))
+  const scopedOk = Boolean(property && inPropertyScope(property.id))
 
   const slots = useMemo(() => {
     if (!property) return []
     return state.viewingSlots
-      .filter((s) => s.propertyId === property.id && scopeAgency(s.agencyId))
+      .filter((s) => s.propertyId === property.id)
       .sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`))
-  }, [state.viewingSlots, property, scopeAgency])
+  }, [state.viewingSlots, property])
 
   const standalone = useMemo(() => {
     if (!property) return []
@@ -71,11 +68,10 @@ export default function ViewingPropertyPage() {
         (v) =>
           v.propertyId === property.id &&
           !v.slotId &&
-          v.status !== 'Cancelled' &&
-          scopeAgency(v.agencyId),
+          v.status !== 'Cancelled',
       )
       .sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`))
-  }, [state.viewings, property, scopeAgency])
+  }, [state.viewings, property])
 
   const attendeesFor = (slotId: string) =>
     state.viewings.filter((v) => v.slotId === slotId && v.status !== 'Cancelled')
@@ -106,7 +102,7 @@ export default function ViewingPropertyPage() {
   }
 
   const handleCreate = (payload: CreateViewingPayload) => {
-    if (!agencyId) return
+    if (!agencyId || !canMutate(property.id)) return
     if (payload.mode === 'slot') {
       const slot = createViewingSlot({
         agencyId,

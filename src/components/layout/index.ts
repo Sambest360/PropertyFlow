@@ -9,6 +9,7 @@ export {
   getWorkspaceNav,
   filterWorkspaceNav,
   flattenNavLinks,
+  previewNavLabels,
   marketplaceCategories,
   marketplaceFooter,
 } from './navigation'

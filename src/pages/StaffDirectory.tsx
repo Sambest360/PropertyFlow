@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { ChevronRight } from 'lucide-react'
+import { useMemo, useState, Fragment } from 'react'
+import { Link } from 'react-router-dom'
+import { ArrowRight, ChevronDown, UserPlus } from 'lucide-react'
 import { useStore } from '../context/AppStore'
-import { useAgencyScope } from '../context/AuthContext'
+import { useAgencyScope, useAuth } from '../context/AuthContext'
 import { roleLabels } from '../lib/permissions'
+import { withReturnTo } from '../lib/returnTo'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
 import { RequirePermission } from '../components/RequirePermission'
 import {
@@ -13,8 +14,9 @@ import {
   PersonAvatar,
   useDirectoryView,
 } from '../components/directory/DirectoryToolbar'
-import { DirectoryStatCard } from '../components/directory/DirectoryStats'
-import { Badge, PageHeader, Select, cn } from '../components/ui'
+import { DirectoryStatGrid } from '../components/directory/DirectoryStats'
+import { DirectoryFilterSelect, directoryResultLabel } from '../components/directory/DirectoryFilters'
+import { Badge, Button, PageHeader, cn } from '../components/ui'
 import type { AppUser } from '../types/domain'
 
 const ICON_STROKE = 1.6
@@ -34,6 +36,7 @@ type AttentionFilter = 'all' | 'active' | 'inactive' | 'loaded'
 
 export default function StaffDirectory() {
   const { state } = useStore()
+  const { has } = useAuth()
   const { scopeAgency, agencyId } = useAgencyScope()
   const reducedMotion = usePrefersReducedMotion()
   const [view, setView] = useDirectoryView(VIEW_KEY)
@@ -41,9 +44,18 @@ export default function StaffDirectory() {
   const [roleFilter, setRoleFilter] = useState('all')
   const [attention, setAttention] = useState<AttentionFilter>('all')
   const [sort, setSort] = useState('name')
-  const navigate = useNavigate()
-  const openPerson = (id: string) => {
-    navigate(`/workspace/people/staff/${encodeURIComponent(id)}`)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  const isPlatform = has('platform.manage')
+  const addPersonHref = withReturnTo(
+    !isPlatform && agencyId
+      ? `/workspace/admin/users/new?intent=team&agencyId=${agencyId}`
+      : '/workspace/admin/users/new?intent=team',
+    '/workspace/people/staff',
+  )
+
+  const toggleExpand = (item: PortfolioStaff) => {
+    setExpandedId((id) => (id === item.user.id ? null : item.user.id))
   }
 
   const portfolio: PortfolioStaff[] = useMemo(() => {
@@ -110,50 +122,48 @@ export default function StaffDirectory() {
     setAttention('all')
   }
 
-  const resultLabel =
-    filtered.length === portfolio.length
-      ? `${filtered.length} ${filtered.length === 1 ? 'person' : 'people'}`
-      : `${filtered.length} of ${portfolio.length} people`
+  const resultLabel = directoryResultLabel(
+    filtered.length,
+    portfolio.length,
+    'person',
+    'people',
+  )
 
   return (
     <RequirePermission permission="users.manage">
       <div className="animate-fade-in space-y-5">
         <PageHeader
           title="Team"
-          subtitle="Staff and agents — roles, workload, and contact details."
+          subtitle="Your staff and agents — roles, workload, and contact details."
+          actions={
+            has('users.manage') ? (
+              <Link to={addPersonHref}>
+                <Button className="min-h-11 cursor-pointer">
+                  <UserPlus className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                  Add team member
+                </Button>
+              </Link>
+            ) : null
+          }
         />
 
-        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <DirectoryStatCard
-            label="On roster"
-            value={counts.total}
-            hint="All team members"
-            active={attention === 'all'}
-            onClick={() => setAttention('all')}
-          />
-          <DirectoryStatCard
-            label="Active"
-            value={counts.active}
-            hint="Can take work"
-            active={attention === 'active'}
-            onClick={() => setAttention(attention === 'active' ? 'all' : 'active')}
-          />
-          <DirectoryStatCard
-            label="Inactive"
-            value={counts.inactive}
-            hint="Disabled accounts"
-            active={attention === 'inactive'}
-            onClick={() => setAttention(attention === 'inactive' ? 'all' : 'inactive')}
-            highlight={counts.inactive > 0}
-          />
-          <DirectoryStatCard
-            label="Heavy load"
-            value={counts.loaded}
-            hint="3+ open leads"
-            active={attention === 'loaded'}
-            onClick={() => setAttention(attention === 'loaded' ? 'all' : 'loaded')}
-          />
-        </section>
+        <DirectoryStatGrid<AttentionFilter>
+          allId="all"
+          value={attention}
+          onChange={setAttention}
+          options={[
+            { id: 'all', label: 'All', value: counts.total, hint: 'Team members' },
+            { id: 'active', label: 'Active', value: counts.active, hint: 'Can take work' },
+            {
+              id: 'inactive',
+              label: 'Inactive',
+              value: counts.inactive,
+              hint: 'Disabled accounts',
+              highlight: counts.inactive > 0,
+            },
+            { id: 'loaded', label: 'Heavy load', value: counts.loaded, hint: '3+ open leads' },
+          ]}
+        />
 
         <DirectoryToolbar
           query={q}
@@ -174,8 +184,7 @@ export default function StaffDirectory() {
           reducedMotion={reducedMotion}
           filters={
             <>
-              <Select
-                className="min-h-11"
+              <DirectoryFilterSelect
                 value={attention}
                 onChange={(e) => setAttention(e.target.value as AttentionFilter)}
                 aria-label="Focus"
@@ -184,9 +193,8 @@ export default function StaffDirectory() {
                 <option value="active">Active only</option>
                 <option value="inactive">Inactive only</option>
                 <option value="loaded">Heavy workload (3+ leads)</option>
-              </Select>
-              <Select
-                className="min-h-11"
+              </DirectoryFilterSelect>
+              <DirectoryFilterSelect
                 value={roleFilter}
                 onChange={(e) => setRoleFilter(e.target.value)}
                 aria-label="Filter by role"
@@ -197,7 +205,7 @@ export default function StaffDirectory() {
                     {roleLabels[r] ?? r}
                   </option>
                 ))}
-              </Select>
+              </DirectoryFilterSelect>
             </>
           }
         />
@@ -210,85 +218,18 @@ export default function StaffDirectory() {
             action={<ClearFiltersButton onClick={clearFilters} reducedMotion={reducedMotion} />}
           />
         ) : view === 'list' ? (
-          <div className="overflow-hidden rounded-[1.25rem] border border-primary-100/80 bg-white shadow-[0_8px_24px_-16px_rgba(15,39,68,0.14)]">
-            <div className="hidden items-center gap-3 border-b border-primary-50 bg-primary-50/40 px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-ink-400 xl:flex">
-              <span className="w-1.5 shrink-0" aria-hidden />
-              <span className="min-w-0 flex-[1.4]">Person</span>
-              <span className="w-36 shrink-0">Role</span>
-              <span className="min-w-0 flex-1">Agency</span>
-              <span className="w-16 shrink-0 text-right">Closed</span>
-              <span className="w-16 shrink-0 text-right">Leads</span>
-              <span className="w-16 shrink-0 text-right">Props</span>
-              <span className="w-4 shrink-0" aria-hidden />
-            </div>
-            <ul>
-              {filtered.map((item, index) => (
-                <li key={item.user.id} className={cn(index > 0 && 'border-t border-primary-50')}>
-                  <button
-                    type="button"
-                    onClick={() => openPerson(item.user.id)}
-                    className={cn(
-                      'flex w-full min-h-12 cursor-pointer items-center gap-3 px-4 py-2.5 text-left transition-colors duration-200 hover:bg-primary-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary sm:px-5',
-                      reducedMotion && 'transition-none',
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        'h-8 w-1.5 shrink-0 rounded-full',
-                        item.user.active ? 'bg-emerald-500' : 'bg-ink-300',
-                      )}
-                      aria-hidden
-                    />
-                    <span className="min-w-0 flex-1 xl:flex-[1.4]">
-                      <span className="flex flex-wrap items-center gap-1.5">
-                        <span className="truncate text-sm font-semibold text-ink">
-                          {item.user.name}
-                        </span>
-                        {!item.user.active && <Badge tone="warning">Inactive</Badge>}
-                      </span>
-                      <span className="mt-0.5 block truncate text-xs text-ink-500">
-                        {item.user.email}
-                        <span className="xl:hidden">
-                          {' '}
-                          · {roleLabels[item.user.role]} · {item.openLeads} leads
-                        </span>
-                      </span>
-                    </span>
-                    <span className="hidden w-36 shrink-0 truncate text-sm text-ink-600 xl:block">
-                      {roleLabels[item.user.role]}
-                    </span>
-                    <span className="hidden min-w-0 flex-1 truncate text-sm text-ink-500 xl:block">
-                      {item.agencyName}
-                    </span>
-                    <span className="hidden w-16 shrink-0 text-right tabular text-sm font-semibold text-ink xl:block">
-                      {item.closedDeals}
-                    </span>
-                    <span className="hidden w-16 shrink-0 text-right tabular text-sm font-semibold text-ink xl:block">
-                      {item.openLeads}
-                    </span>
-                    <span className="hidden w-16 shrink-0 text-right tabular text-sm font-semibold text-ink xl:block">
-                      {item.assignedProperties}
-                    </span>
-                    <span className="tabular text-sm font-semibold text-ink xl:hidden">
-                      {item.openLeads}
-                    </span>
-                    <ChevronRight
-                      className="h-4 w-4 shrink-0 text-ink-300"
-                      strokeWidth={ICON_STROKE}
-                      aria-hidden
-                    />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
+          <TeamListView
+            items={filtered}
+            expandedId={expandedId}
+            onToggle={toggleExpand}
+            reducedMotion={reducedMotion}
+          />
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {filtered.map((item) => (
-              <button
+              <Link
                 key={item.user.id}
-                type="button"
-                onClick={() => openPerson(item.user.id)}
+                to={`/workspace/people/staff/${encodeURIComponent(item.user.id)}`}
                 className={cn(
                   'cursor-pointer rounded-[1.25rem] border border-primary-100/80 bg-white p-4 text-left shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)] transition-shadow duration-200 hover:shadow-[0_14px_28px_-16px_rgba(15,39,68,0.28)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
                   reducedMotion && 'transition-none',
@@ -318,7 +259,11 @@ export default function StaffDirectory() {
                     <p className="text-[10px] text-ink-400">Properties</p>
                   </div>
                 </div>
-              </button>
+                <span className="mt-3 inline-flex min-h-11 items-center gap-1.5 text-sm font-semibold text-primary">
+                  Open person
+                  <ArrowRight className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                </span>
+              </Link>
             ))}
           </div>
         )}
@@ -330,5 +275,260 @@ export default function StaffDirectory() {
         )}
       </div>
     </RequirePermission>
+  )
+}
+
+function TeamListView({
+  items,
+  expandedId,
+  onToggle,
+  reducedMotion,
+}: {
+  items: PortfolioStaff[]
+  expandedId: string | null
+  onToggle: (item: PortfolioStaff) => void
+  reducedMotion?: boolean
+}) {
+  return (
+    <>
+      <div className="hidden overflow-hidden rounded-[1.25rem] border border-primary-100/80 bg-white shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)] md:block">
+        <div className="max-h-[min(78vh,56rem)] overflow-auto [scrollbar-width:thin]">
+          <table className="w-full min-w-[48rem] border-collapse text-left text-sm">
+            <thead className="sticky top-0 z-[1] bg-white/95 backdrop-blur-md">
+              <tr className="border-b border-primary-100 text-[11px] font-semibold uppercase tracking-wide text-ink-400">
+                <th className="w-10 px-3 py-3" aria-hidden />
+                <th className="px-4 py-3 font-semibold">Person</th>
+                <th className="px-3 py-3 font-semibold">Role</th>
+                <th className="px-3 py-3 font-semibold">Agency</th>
+                <th className="px-3 py-3 font-semibold text-right">Closed</th>
+                <th className="px-3 py-3 font-semibold text-right">Leads</th>
+                <th className="px-4 py-3 font-semibold text-right">Props</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item) => {
+                const expanded = expandedId === item.user.id
+                return (
+                  <Fragment key={item.user.id}>
+                    <tr
+                      className={cn(
+                        'border-b border-primary-50',
+                        expanded && 'border-b-0 bg-primary-100',
+                      )}
+                    >
+                      <td className="px-3 py-3">
+                        <button
+                          type="button"
+                          onClick={() => onToggle(item)}
+                          aria-expanded={expanded}
+                          aria-label={expanded ? 'Collapse team member' : 'Expand team member'}
+                          className="inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-xl text-ink-400 transition-colors duration-200 hover:bg-white hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        >
+                          <ChevronDown
+                            className={cn(
+                              'h-4 w-4 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
+                              expanded && 'rotate-180',
+                              reducedMotion && 'transition-none',
+                            )}
+                            strokeWidth={ICON_STROKE}
+                            aria-hidden
+                          />
+                        </button>
+                      </td>
+                      <td className="px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={() => onToggle(item)}
+                          className="group flex min-h-11 w-full cursor-pointer items-center gap-3 rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        >
+                          <span
+                            className={cn(
+                              'h-8 w-1.5 shrink-0 rounded-full',
+                              item.user.active ? 'bg-emerald-500' : 'bg-ink-300',
+                            )}
+                            aria-hidden
+                          />
+                          <PersonAvatar name={item.user.name} />
+                          <span className="min-w-0">
+                            <span className="flex flex-wrap items-center gap-1.5">
+                              <span className="truncate font-semibold text-ink group-hover:text-primary">
+                                {item.user.name}
+                              </span>
+                              {!item.user.active && <Badge tone="warning">Inactive</Badge>}
+                            </span>
+                            <span className="mt-0.5 block truncate text-xs text-ink-500">
+                              {item.user.email}
+                            </span>
+                          </span>
+                        </button>
+                      </td>
+                      <td className="px-3 py-3">
+                        <button
+                          type="button"
+                          onClick={() => onToggle(item)}
+                          className="w-full min-h-11 cursor-pointer truncate text-left text-ink-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        >
+                          {roleLabels[item.user.role]}
+                        </button>
+                      </td>
+                      <td className="px-3 py-3">
+                        <button
+                          type="button"
+                          onClick={() => onToggle(item)}
+                          className="w-full min-h-11 cursor-pointer truncate text-left text-ink-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        >
+                          {item.agencyName}
+                        </button>
+                      </td>
+                      <td className="px-3 py-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => onToggle(item)}
+                          className="w-full cursor-pointer text-right tabular font-semibold text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        >
+                          {item.closedDeals}
+                        </button>
+                      </td>
+                      <td className="px-3 py-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => onToggle(item)}
+                          className="w-full cursor-pointer text-right tabular font-semibold text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        >
+                          {item.openLeads}
+                        </button>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => onToggle(item)}
+                          className="w-full cursor-pointer text-right tabular font-semibold text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        >
+                          {item.assignedProperties}
+                        </button>
+                      </td>
+                    </tr>
+                    {expanded && (
+                      <tr className="border-b border-primary-100 bg-primary-50/60">
+                        <td colSpan={7} className="px-4 py-4 sm:px-5">
+                          <TeamExpansion item={item} reducedMotion={reducedMotion} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <ul className="space-y-2 md:hidden">
+        {items.map((item) => {
+          const expanded = expandedId === item.user.id
+          return (
+            <li
+              key={item.user.id}
+              className={cn(
+                'overflow-hidden rounded-[1.25rem] border border-primary-100/80 bg-white shadow-[0_8px_24px_-16px_rgba(15,39,68,0.14)]',
+                expanded && 'border-primary-200 bg-primary-50/40',
+              )}
+            >
+              <button
+                type="button"
+                onClick={() => onToggle(item)}
+                aria-expanded={expanded}
+                className="flex w-full min-h-14 cursor-pointer items-center gap-3 px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+              >
+                <PersonAvatar name={item.user.name} />
+                <span className="min-w-0 flex-1">
+                  <span className="font-semibold text-ink">{item.user.name}</span>
+                  <span className="mt-1 block truncate text-xs text-ink-500">
+                    {roleLabels[item.user.role]} · {item.openLeads} leads
+                  </span>
+                </span>
+                <ChevronDown
+                  className={cn(
+                    'h-4 w-4 shrink-0 text-ink-400 transition-transform duration-300',
+                    expanded && 'rotate-180',
+                    reducedMotion && 'transition-none',
+                  )}
+                  strokeWidth={ICON_STROKE}
+                  aria-hidden
+                />
+              </button>
+              {expanded && (
+                <div className="border-t border-primary-100/80 px-4 py-4">
+                  <TeamExpansion item={item} reducedMotion={reducedMotion} />
+                </div>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </>
+  )
+}
+
+function TeamExpansion({
+  item,
+  reducedMotion,
+}: {
+  item: PortfolioStaff
+  reducedMotion?: boolean
+}) {
+  const detailTo = `/workspace/people/staff/${encodeURIComponent(item.user.id)}`
+  const metaRows: Array<{ label: string; value: string }> = [
+    { label: 'Email', value: item.user.email },
+    { label: 'Phone', value: item.user.phone || '—' },
+    { label: 'Role', value: roleLabels[item.user.role] ?? item.user.role },
+    { label: 'Agency', value: item.agencyName },
+    { label: 'Status', value: item.user.active ? 'Active' : 'Inactive' },
+    { label: 'Closed deals', value: String(item.closedDeals) },
+    { label: 'Open leads', value: String(item.openLeads) },
+    { label: 'Properties', value: String(item.assignedProperties) },
+  ]
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+      <div className="min-w-0 space-y-2">
+        <div className="flex items-center gap-3">
+          <PersonAvatar name={item.user.name} />
+          <div className="min-w-0">
+            <p className="font-display text-2xl font-semibold tracking-tight text-ink">
+              {item.user.name}
+            </p>
+            <p className="truncate text-sm text-ink-500">{item.user.id}</p>
+          </div>
+        </div>
+      </div>
+      <div className="min-w-0">
+        <dl className="grid gap-2 sm:grid-cols-2">
+          {metaRows.map((row) => (
+            <div key={row.label} className="min-w-0">
+              <dt className="text-[10px] font-semibold uppercase tracking-wide text-ink-400">
+                {row.label}
+              </dt>
+              <dd className="mt-0.5 truncate text-sm font-semibold tabular text-ink" title={row.value}>
+                {row.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+        <div
+          className={cn(
+            'mt-4 flex flex-wrap gap-2 border-t border-primary-100/80 pt-4',
+            reducedMotion && 'transition-none',
+          )}
+        >
+          <Link to={detailTo} className="inline-flex">
+            <Button className="min-h-11 cursor-pointer gap-2 rounded-2xl">
+              Open person
+              <ArrowRight className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+            </Button>
+          </Link>
+        </div>
+      </div>
+    </div>
   )
 }

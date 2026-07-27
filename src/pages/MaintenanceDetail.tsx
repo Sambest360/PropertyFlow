@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Navigate, useParams } from 'react-router-dom'
 import { useStore } from '../context/AppStore'
-import { useAgencyScope, useAuth } from '../context/AuthContext'
-import { isFieldAgent } from '../lib/permissions'
+import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
 import { scoreAssetHealth } from '../lib/api/ticketsApi'
 import { isWarrantyCovered } from '../lib/maintenanceApi'
@@ -19,6 +18,7 @@ import {
   type PortfolioTicket,
 } from '../components/maintenance/types'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
+import { isVerificationApproved } from '../lib/verification'
 
 export default function MaintenanceDetail() {
   const { id } = useParams()
@@ -29,7 +29,7 @@ export default function MaintenanceDetail() {
     addPropertyEvent,
   } = useStore()
   const { user, has, role } = useAuth()
-  const { scopeAgency, scopeAgent, agencyId } = useAgencyScope()
+  const { ticketVisible, canMutate, agencyId } = usePropertyScope()
   const alert = useSuiteAlert()
   const [completeOpen, setCompleteOpen] = useState(false)
 
@@ -60,16 +60,8 @@ export default function MaintenanceDetail() {
 
   const inScope = useMemo(() => {
     if (!item) return false
-    if (!scopeAgency(item.ticket.agencyId)) return false
-    if (
-      isFieldAgent(role) &&
-      !scopeAgent(item.property.agentId) &&
-      !scopeAgent(item.ticket.assignedAgentId)
-    ) {
-      return false
-    }
-    return true
-  }, [item, scopeAgency, scopeAgent, role])
+    return ticketVisible(item.ticket)
+  }, [item, ticketVisible])
 
   const contractors = useMemo(
     () =>
@@ -77,6 +69,7 @@ export default function MaintenanceDetail() {
         (u) =>
           u.role === 'contractor' &&
           u.active &&
+          isVerificationApproved(u.verification, u.role) &&
           (has('platform.manage') || u.agencyId === agencyId),
       ),
     [state.users, has, agencyId],
@@ -94,6 +87,7 @@ export default function MaintenanceDetail() {
     }
     const prev = state.tickets.find((t) => t.id === ticketId)
     if (!prev || prev.status === next) return
+    if (!canMutate(prev.propertyId) && role !== 'contractor' && role !== 'tenant') return
     updateTicket(ticketId, { status: next })
     addPropertyEvent({
       agencyId: prev.agencyId,

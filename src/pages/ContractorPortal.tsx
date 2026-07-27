@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { HardHat, Star, Wrench } from 'lucide-react'
 import { useStore } from '../context/AppStore'
-import { useAuth } from '../context/AuthContext'
+import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
 import {
   AttentionHero,
@@ -11,19 +11,16 @@ import {
 } from '../components/dashboard'
 import { Badge, Button, Card, Select, StatCard, statusTone } from '../components/ui'
 import { formatZAR } from '../data/seed'
+import { VerificationPendingBanner } from '../components/auth/VerificationBanner'
 
 export default function ContractorPortal() {
   const { state, updateTicket } = useStore()
   const { user } = useAuth()
+  const { ticketVisible, canMutate } = usePropertyScope()
 
   const jobs = useMemo(
-    () =>
-      state.tickets.filter(
-        (t) =>
-          t.contractorId === user.id ||
-          (user.role === 'contractor' && t.contractorId === null && t.status !== 'Completed'),
-      ),
-    [state.tickets, user],
+    () => state.tickets.filter((t) => ticketVisible(t)),
+    [state.tickets, ticketVisible],
   )
   const mine = state.tickets.filter((t) => t.contractorId === user.id)
   const completed = mine.filter((t) => t.status === 'Completed')
@@ -73,6 +70,8 @@ export default function ContractorPortal() {
           }
         />
 
+        <VerificationPendingBanner user={user} />
+
         {openAssigned.length > 0 && (
           <SectionBanner
             tone="info"
@@ -109,9 +108,10 @@ export default function ContractorPortal() {
                   {!t.contractorId && (
                     <Button
                       size="sm"
-                      onClick={() =>
+                      onClick={() => {
+                        if (!canMutate(t.propertyId)) return
                         updateTicket(t.id, { contractorId: user.id, status: 'In Progress' })
-                      }
+                      }}
                     >
                       Accept job
                     </Button>
@@ -119,9 +119,10 @@ export default function ContractorPortal() {
                   {t.contractorId === user.id && (
                     <Select
                       value={t.status}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        if (!canMutate(t.propertyId)) return
                         updateTicket(t.id, { status: e.target.value as typeof t.status })
-                      }
+                      }}
                     >
                       {['Requested', 'In Progress', 'Awaiting Parts', 'Completed', 'Cancelled'].map(
                         (s) => (

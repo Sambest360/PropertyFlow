@@ -5,11 +5,10 @@ import {
   ClipboardList,
   CreditCard,
   Eye,
-  FileText,
   HardHat,
+  Heart,
   Home,
   LayoutDashboard,
-  Search,
   Settings,
   Users,
   Wrench,
@@ -17,11 +16,10 @@ import {
   Briefcase,
   KeyRound,
   Landmark,
-  Receipt,
-  GitBranch,
   Bell,
+  MessageSquare,
 } from 'lucide-react'
-import type { Permission, Role } from '../../types/domain'
+import type { Permission } from '../../types/domain'
 
 export type FlatNavItem = {
   to: string
@@ -30,7 +28,6 @@ export type FlatNavItem = {
   permission?: Permission
   anyOf?: Permission[]
   icon: LucideIcon
-  /** Optional section heading in the sidebar */
   section?: string
 }
 
@@ -55,131 +52,65 @@ function canAccessItem(
   return true
 }
 
-/** Role-aware navigation: Dashboard + three management groups for staff. */
-export function getWorkspaceNav(role: Role): WorkspaceNavEntry[] {
-  if (role === 'super_admin') {
-    return [
-      { type: 'link', item: { to: '/workspace', label: 'Dashboard', end: true, icon: LayoutDashboard } },
-      {
-        type: 'group',
-        group: {
-          id: 'property',
-          label: 'Property Management',
-          icon: Building2,
-          children: [
-            { to: '/workspace/properties', label: 'Properties', icon: Building2 },
-            { to: '/workspace/sales/applications', label: 'Applicants', icon: ClipboardList },
-            { to: '/workspace/operations/maintenance', label: 'Maintenance', icon: Wrench },
-          ],
-        },
-      },
-      {
-        type: 'group',
-        group: {
-          id: 'admin',
-          label: 'Administration Management',
-          icon: Settings,
-          children: [
-            { to: '/workspace/platform', label: 'Agencies', end: true, icon: Landmark },
-            { to: '/workspace/platform/billing', label: 'Billing', icon: Receipt },
-            { to: '/workspace/admin/suite-alerts', label: 'Suite alerts', icon: Bell },
-            { to: '/workspace/insights/reports', label: 'Reports', icon: BarChart3 },
-          ],
-        },
-      },
-    ]
-  }
-
-  if (role === 'landlord') {
-    return [
-      { type: 'link', item: { to: '/workspace', label: 'Dashboard', end: true, icon: LayoutDashboard } },
-      {
-        type: 'group',
-        group: {
-          id: 'property',
-          label: 'Property Management',
-          icon: Building2,
-          children: [
-            { to: '/workspace/portals/owner', label: 'Owner portal', icon: KeyRound },
-            { to: '/workspace/properties', label: 'My buildings', icon: Building2 },
-            { to: '/workspace/operations/payments', label: 'Rent receipts', icon: CreditCard },
-          ],
-        },
-      },
-    ]
-  }
-
-  if (role === 'tenant') {
-    return [
-      { type: 'link', item: { to: '/workspace', label: 'Dashboard', end: true, icon: LayoutDashboard } },
-      {
-        type: 'group',
-        group: {
-          id: 'property',
-          label: 'Property Management',
-          icon: Building2,
-          children: [
-            { to: '/workspace/portals/tenant', label: 'My portal', icon: Home },
-            { to: '/workspace/operations/payments', label: 'Payments', icon: CreditCard },
-            { to: '/workspace/operations/maintenance', label: 'Maintenance', icon: Wrench },
-            { to: '/browse', label: 'Browse homes', icon: Search },
-          ],
-        },
-      },
-      {
-        type: 'group',
-        group: {
-          id: 'users',
-          label: 'User Management',
-          icon: Users,
-          children: [
-            { to: '/workspace/sales/applications', label: 'Applications', icon: FileText },
-          ],
-        },
-      },
-    ]
-  }
-
-  if (role === 'contractor') {
-    return [
-      { type: 'link', item: { to: '/workspace', label: 'Dashboard', end: true, icon: LayoutDashboard } },
-      {
-        type: 'group',
-        group: {
-          id: 'property',
-          label: 'Property Management',
-          icon: Building2,
-          children: [
-            { to: '/workspace/portals/contractor', label: 'Job board', icon: HardHat },
-            { to: '/workspace/operations/maintenance', label: 'Maintenance', icon: Wrench },
-          ],
-        },
-      },
-    ]
-  }
-
-  // Staff / agency roles
+/**
+ * Shared workspace nav tree. Groups stay; each link only appears when the
+ * user’s effective permissions allow it (role ∩ agency modules ∩ overrides).
+ * Portal links are for landlords / tenants / contractors — not staff or Super Admin.
+ */
+export function getWorkspaceNav(): WorkspaceNavEntry[] {
   return [
     { type: 'link', item: { to: '/workspace', label: 'Dashboard', end: true, icon: LayoutDashboard } },
     {
       type: 'group',
       group: {
-        id: 'property',
-        label: 'Property Management',
+        id: 'properties',
+        label: 'Properties',
         icon: Building2,
         children: [
           {
             to: '/workspace/properties',
-            label: 'Properties',
+            label: 'All properties',
             anyOf: ['assets.view', 'listings.publish'],
             icon: Building2,
           },
+        ],
+      },
+    },
+    {
+      type: 'group',
+      group: {
+        id: 'sales',
+        label: 'Sales',
+        icon: Briefcase,
+        children: [
           {
             to: '/workspace/sales/viewings',
             label: 'Viewings',
             permission: 'viewings.manage',
             icon: Eye,
           },
+          {
+            to: '/workspace/sales/crm',
+            label: 'Leads',
+            anyOf: ['leads.view', 'leads.manage'],
+            icon: Briefcase,
+          },
+          {
+            to: '/workspace/sales/applications',
+            label: 'Applicants',
+            permission: 'applications.view',
+            icon: ClipboardList,
+          },
+        ],
+      },
+    },
+    {
+      type: 'group',
+      group: {
+        id: 'operations',
+        label: 'Operations',
+        icon: Wrench,
+        children: [
           {
             to: '/workspace/operations/maintenance',
             label: 'Maintenance',
@@ -192,45 +123,88 @@ export function getWorkspaceNav(role: Role): WorkspaceNavEntry[] {
             permission: 'payments.view',
             icon: CreditCard,
           },
+          {
+            to: '/workspace/operations/communications',
+            label: 'Messages',
+            permission: 'messages.manage',
+            icon: MessageSquare,
+          },
         ],
       },
     },
     {
       type: 'group',
       group: {
-        id: 'users',
-        label: 'User Management',
+        id: 'people',
+        label: 'People',
         icon: Users,
         children: [
           {
-            to: '/workspace/sales/applications',
-            label: 'Applicants',
-            permission: 'applications.view',
-            icon: ClipboardList,
-          },
-          {
-            to: '/workspace/sales/crm',
-            label: 'Leads',
-            anyOf: ['leads.view', 'leads.manage'],
+            to: '/workspace/people/staff',
+            label: 'Team',
+            permission: 'users.manage',
             icon: Briefcase,
           },
           {
-            to: '/workspace/sales/pipeline',
-            label: 'Pipeline',
-            anyOf: ['leads.view', 'leads.manage'],
-            icon: GitBranch,
-          },
-          {
-            to: '/workspace/people/staff',
-            label: 'Staff & agents',
-            permission: 'users.manage',
-            icon: Users,
-          },
-          {
             to: '/workspace/people/tenants',
-            label: 'Occupants',
+            label: 'Tenants',
             permission: 'occupants.view',
             icon: KeyRound,
+          },
+          {
+            to: '/workspace/admin/users',
+            label: 'Users',
+            permission: 'roles.assign',
+            icon: Users,
+          },
+        ],
+      },
+    },
+    {
+      type: 'link',
+      item: {
+        to: '/workspace/admin/agencies',
+        label: 'Agencies',
+        permission: 'platform.manage',
+        icon: Landmark,
+      },
+    },
+    {
+      type: 'group',
+      group: {
+        id: 'portals',
+        label: 'My portal',
+        icon: Home,
+        children: [
+          {
+            to: '/workspace/portals/owner',
+            label: 'My portfolio',
+            permission: 'portal.owner',
+            icon: KeyRound,
+          },
+          {
+            to: '/workspace/portals/tenant',
+            label: 'My tenancy',
+            permission: 'portal.tenant',
+            icon: Home,
+          },
+          {
+            to: '/workspace/portals/tenant/applications',
+            label: 'My applications',
+            permission: 'portal.tenant',
+            icon: ClipboardList,
+          },
+          {
+            to: '/saved',
+            label: 'Wishlist',
+            permission: 'portal.tenant',
+            icon: Heart,
+          },
+          {
+            to: '/workspace/portals/contractor',
+            label: 'My jobs',
+            permission: 'portal.contractor',
+            icon: HardHat,
           },
         ],
       },
@@ -239,32 +213,50 @@ export function getWorkspaceNav(role: Role): WorkspaceNavEntry[] {
       type: 'group',
       group: {
         id: 'admin',
-        label: 'Administration Management',
+        label: 'Admin',
         icon: Settings,
         children: [
           {
-            to: '/workspace/admin',
-            label: 'Admin',
-            anyOf: ['users.manage', 'roles.assign', 'tenant.manage'],
+            to: '/workspace/admin/config',
+            label: 'Configuration',
+            anyOf: ['config.manage', 'tenant.manage', 'platform.manage'],
             icon: Settings,
+          },
+          {
+            to: '/workspace/admin/notifications',
+            label: 'Notifications',
+            anyOf: ['notifications.broadcast', 'platform.manage'],
+            icon: Bell,
           },
           {
             to: '/workspace/admin/suite-alerts',
             label: 'Suite alerts',
-            anyOf: ['users.manage', 'roles.assign', 'tenant.manage'],
+            anyOf: [
+              'users.manage',
+              'roles.assign',
+              'tenant.manage',
+              'config.manage',
+              'platform.manage',
+            ],
             icon: Bell,
-          },
-          {
-            to: '/workspace/insights/reports',
-            label: 'Reports',
-            permission: 'reports.view',
-            icon: BarChart3,
           },
         ],
       },
     },
+    {
+      type: 'link',
+      item: {
+        to: '/workspace/insights/reports',
+        label: 'Reports',
+        permission: 'reports.view',
+        icon: BarChart3,
+      },
+    },
   ]
 }
+
+/** Groups that stay as menus even with a single visible child. */
+const KEEP_GROUPED = new Set(['admin', 'portals', 'sales', 'operations', 'people'])
 
 export function filterWorkspaceNav(
   entries: WorkspaceNavEntry[],
@@ -279,38 +271,29 @@ export function filterWorkspaceNav(
     }
     const children = entry.group.children.filter((c) => canAccessItem(c, has, hasAny))
     if (children.length === 0) continue
+    // One visible child + not a primary menu → promote to a top-level link
+    if (children.length === 1 && !KEEP_GROUPED.has(entry.group.id)) {
+      result.push({
+        type: 'link',
+        item: { ...children[0], label: entry.group.label, icon: entry.group.icon },
+      })
+      continue
+    }
     result.push({ type: 'group', group: { ...entry.group, children } })
   }
   return result
 }
 
-/** Flatten leaf links for active-route helpers. */
 export function flattenNavLinks(entries: WorkspaceNavEntry[]): FlatNavItem[] {
   return entries.flatMap((entry) => (entry.type === 'link' ? [entry.item] : entry.group.children))
 }
 
-/** @deprecated use filterWorkspaceNav */
-export function filterFlatNav(
-  items: FlatNavItem[],
-  has: (p: Permission) => boolean,
-  hasAny: (p: Permission[]) => boolean,
-): FlatNavItem[] {
-  return items.filter((item) => canAccessItem(item, has, hasAny))
-}
-
-/** Group consecutive items that share the same section label. */
-export function groupNavBySection(items: FlatNavItem[]): Array<{ section: string | null; items: FlatNavItem[] }> {
-  const groups: Array<{ section: string | null; items: FlatNavItem[] }> = []
-  for (const item of items) {
-    const section = item.section ?? null
-    const last = groups[groups.length - 1]
-    if (last && last.section === section) {
-      last.items.push(item)
-    } else {
-      groups.push({ section, items: [item] })
-    }
-  }
-  return groups
+/** Labels this permission pack would unlock in the sidebar (for create-user preview). */
+export function previewNavLabels(permissions: Permission[]): string[] {
+  const set = new Set(permissions)
+  const has = (p: Permission) => set.has(p)
+  const hasAny = (ps: Permission[]) => ps.some((p) => set.has(p))
+  return flattenNavLinks(filterWorkspaceNav(getWorkspaceNav(), has, hasAny)).map((i) => i.label)
 }
 
 export type MarketplaceNavItem = {
@@ -349,7 +332,7 @@ export const marketplaceFooter = [
     title: 'For agents',
     links: [
       ['Workspace', '/workspace'],
-      ['Sales CRM', '/workspace/sales/crm'],
+      ['Leads', '/workspace/sales/crm'],
       ['Operations', '/workspace/operations/maintenance'],
     ],
   },
@@ -369,7 +352,3 @@ export function pathMatches(pathname: string, to: string, end?: boolean) {
   const pathOnly = to.split('?')[0]
   return pathname === pathOnly || pathname.startsWith(`${pathOnly}/`)
 }
-
-/** @deprecated kept for any leftover imports */
-export type NavItem = FlatNavItem | { label: string; children: FlatNavItem[]; anyOf?: Permission[] }
-export const workspaceNav: NavItem[] = flattenNavLinks(getWorkspaceNav('client_admin'))

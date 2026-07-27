@@ -5,10 +5,16 @@ import { useAuth } from '../../context/AuthContext'
 import { roleLabels } from '../../lib/permissions'
 import { cn } from '../ui'
 
+const ICON_STROKE = 1.6
+const MENU_WIDTH_PX = 320
+const MENU_GAP_PX = 8
+const VIEWPORT_PAD_PX = 8
+
 export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar' }) {
-  const { user, roleLabel, roleBlurb, switchUser, usersForSwitcher } = useAuth()
+  const { user, roleLabel, roleBlurb, switchUser, usersForSwitcher, demoSwitcherEnabled, logout } =
+    useAuth()
   const [open, setOpen] = useState(false)
-  const [menuPos, setMenuPos] = useState({ top: 0, right: 0 })
+  const [menuPos, setMenuPos] = useState({ top: 0, right: 0, maxHeight: 384 })
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -16,14 +22,21 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
     const el = triggerRef.current
     if (!el) return
     const box = el.getBoundingClientRect()
-    setMenuPos({
-      top: box.bottom + 8,
-      right: Math.max(8, window.innerWidth - box.right),
-    })
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    const right = Math.max(VIEWPORT_PAD_PX, vw - box.right)
+    const spaceBelow = vh - box.bottom - MENU_GAP_PX - VIEWPORT_PAD_PX
+    const spaceAbove = box.top - MENU_GAP_PX - VIEWPORT_PAD_PX
+    const preferBelow = spaceBelow >= 160 || spaceBelow >= spaceAbove
+    const maxHeight = Math.min(384, Math.max(160, preferBelow ? spaceBelow : spaceAbove))
+    const top = preferBelow
+      ? box.bottom + MENU_GAP_PX
+      : Math.max(VIEWPORT_PAD_PX, box.top - MENU_GAP_PX - maxHeight)
+    setMenuPos({ top, right, maxHeight })
   }
 
   useEffect(() => {
-    if (!open) return
+    if (!open || !demoSwitcherEnabled) return
     updatePosition()
     const onDoc = (e: MouseEvent) => {
       const t = e.target as Node
@@ -39,7 +52,7 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
       window.removeEventListener('resize', onReposition)
       window.removeEventListener('scroll', onReposition, true)
     }
-  }, [open])
+  }, [open, demoSwitcherEnabled])
 
   const grouped = useMemo(() => {
     const map = new Map<string, typeof usersForSwitcher>()
@@ -51,11 +64,47 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
     return [...map.entries()]
   }, [usersForSwitcher])
 
-  const initials = user.name
-    .split(' ')
-    .map((p) => p[0])
-    .join('')
-    .slice(0, 2)
+  if (!demoSwitcherEnabled) {
+    if (variant === 'avatar') {
+      return (
+        <button
+          type="button"
+          onClick={() => void logout()}
+          className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary-100 text-sm font-semibold text-primary"
+          title={`${user.name} — sign out`}
+        >
+          {user.name
+            .split(/\s+/)
+            .filter(Boolean)
+            .slice(0, 2)
+            .map((p) => p[0]?.toUpperCase() ?? '')
+            .join('') || '?'}
+        </button>
+      )
+    }
+    return (
+      <div className="rounded-2xl border border-primary-100 px-3 py-2 text-sm">
+        <p className="font-semibold text-ink">{user.name}</p>
+        <p className="text-ink-500">{roleLabel}</p>
+        <button
+          type="button"
+          className="mt-2 text-xs font-semibold text-primary hover:underline"
+          onClick={() => void logout()}
+        >
+          Sign out
+        </button>
+      </div>
+    )
+  }
+  const initials =
+    user.name
+      .replace(/\([^)]*\)/g, '')
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((p) => p[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase() || '?'
 
   const menu = open
     ? createPortal(
@@ -63,15 +112,21 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
           ref={menuRef}
           role="menu"
           aria-label="Account switcher"
-          className="fixed z-[90] max-h-[min(24rem,calc(100vh-5rem))] w-80 overflow-y-auto rounded-2xl border border-primary-100 bg-white py-2 shadow-xl shadow-ink/15 animate-fade-in"
-          style={{ top: menuPos.top, right: menuPos.right }}
+          className="fixed z-[100] overflow-y-auto rounded-2xl border border-primary-100 bg-white py-2 shadow-xl shadow-ink/15 animate-fade-in"
+          style={{
+            top: menuPos.top,
+            right: menuPos.right,
+            width: MENU_WIDTH_PX,
+            maxWidth: `calc(100vw - ${VIEWPORT_PAD_PX * 2}px)`,
+            maxHeight: menuPos.maxHeight,
+          }}
         >
           <div className="border-b border-primary-100 px-3 pb-2">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-ink-400">Signed in</p>
             <p className="mt-0.5 text-sm font-semibold text-ink">{user.name}</p>
             <p className="text-[11px] text-ink-500">{roleBlurb}</p>
             <p className="mt-2 text-[11px] text-ink-500">
-              Switching users changes your dashboard, sidebar, and permissions instantly.
+              Switching users changes sidebar and permissions for the same shared views.
             </p>
           </div>
           <p className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-ink-400">
@@ -90,7 +145,7 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
                     setOpen(false)
                   }}
                   className={cn(
-                    'flex w-full cursor-pointer flex-col px-3 py-2 text-left text-sm transition-colors duration-200 hover:bg-primary-50',
+                    'flex min-h-11 w-full cursor-pointer flex-col justify-center px-3 py-2 text-left text-sm transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary',
                     u.id === user.id && 'bg-primary-50',
                   )}
                 >
@@ -105,6 +160,16 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
       )
     : null
 
+  const avatarCircle = (
+    <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary text-[11px] font-bold text-white">
+      {user.avatar ? (
+        <img src={user.avatar} alt="" className="h-full w-full object-cover" />
+      ) : (
+        initials
+      )}
+    </span>
+  )
+
   return (
     <div className="relative">
       {variant === 'avatar' ? (
@@ -115,13 +180,17 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
           aria-haspopup="menu"
           aria-label={`Account: ${user.name}`}
           onClick={() => setOpen((o) => !o)}
-          className="inline-flex h-11 w-11 cursor-pointer items-center justify-center overflow-hidden rounded-2xl bg-primary text-xs font-bold text-white shadow-sm transition-opacity duration-200 hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+          className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-full border border-primary-100 bg-white py-1 pl-1.5 pr-2.5 shadow-sm transition-colors duration-200 hover:border-primary-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
         >
-          {user.avatar ? (
-            <img src={user.avatar} alt="" className="h-full w-full object-cover" />
-          ) : (
-            initials
-          )}
+          {avatarCircle}
+          <ChevronDown
+            className={cn(
+              'h-3.5 w-3.5 shrink-0 text-ink-500 transition-transform duration-200',
+              open && 'rotate-180',
+            )}
+            strokeWidth={ICON_STROKE}
+            aria-hidden
+          />
         </button>
       ) : (
         <button
@@ -129,17 +198,23 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
           type="button"
           aria-expanded={open}
           aria-haspopup="menu"
+          aria-label={`Account: ${user.name}`}
           onClick={() => setOpen((o) => !o)}
-          className="flex min-h-11 max-w-[220px] cursor-pointer items-center gap-2 rounded-full border border-primary-100 bg-white px-1.5 py-1 text-left shadow-sm transition-colors duration-200 hover:border-primary-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="flex min-h-11 w-full max-w-[240px] cursor-pointer items-center gap-2 rounded-full border border-primary-100 bg-white py-1 pl-1.5 pr-2.5 text-left shadow-sm transition-colors duration-200 hover:border-primary-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-white">
-            {initials}
-          </span>
-          <span className="min-w-0 hidden sm:block">
+          {avatarCircle}
+          <span className="min-w-0 flex-1">
             <span className="block truncate text-xs font-semibold text-ink">{user.name}</span>
             <span className="block truncate text-[10px] text-ink-500">{roleLabel}</span>
           </span>
-          <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 text-ink-500 transition', open && 'rotate-180')} />
+          <ChevronDown
+            className={cn(
+              'h-3.5 w-3.5 shrink-0 text-ink-500 transition-transform duration-200',
+              open && 'rotate-180',
+            )}
+            strokeWidth={ICON_STROKE}
+            aria-hidden
+          />
         </button>
       )}
       {menu}

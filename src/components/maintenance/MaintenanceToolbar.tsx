@@ -26,6 +26,7 @@ export function MaintenanceToolbar({
   onViewChange,
   resultLabel,
   reducedMotion,
+  priorities,
 }: {
   query: string
   onQueryChange: (v: string) => void
@@ -42,7 +43,12 @@ export function MaintenanceToolbar({
   onViewChange: (v: MaintenanceViewMode) => void
   resultLabel: string
   reducedMotion?: boolean
+  priorities?: Array<{ value: string; label: string }>
 }) {
+  const priorityOptions = priorities?.length
+    ? priorities
+    : TICKET_PRIORITIES.map((p) => ({ value: p, label: p }))
+
   return (
     <div className="mb-5 space-y-3 rounded-[1.25rem] border border-primary-100/80 bg-white p-3 shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)] sm:p-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
@@ -140,9 +146,9 @@ export function MaintenanceToolbar({
           aria-label="Filter by priority"
         >
           <option value="all">All priorities</option>
-          {TICKET_PRIORITIES.map((p) => (
-            <option key={p} value={p}>
-              {p}
+          {priorityOptions.map((p) => (
+            <option key={p.value} value={p.value}>
+              {p.label}
             </option>
           ))}
         </Select>

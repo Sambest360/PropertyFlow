@@ -1,16 +1,20 @@
 export type ApplicantDetailTab =
   | 'overview'
+  | 'details'
   | 'documents'
   | 'residences'
   | 'blocks'
   | 'application'
+  | 'history'
 
 export const APPLICANT_DETAIL_TABS: ApplicantDetailTab[] = [
   'overview',
+  'details',
   'documents',
   'residences',
   'blocks',
   'application',
+  'history',
 ]
 
 export function isApplicantDetailTab(v: string | null): v is ApplicantDetailTab {

@@ -1,8 +1,33 @@
 -- =============================================================================
 -- PropertyFlow — Asset OS Schema (PostgreSQL 13+)
 -- Hierarchy: Client → Buildings → Units → Rooms → Internal Assets
--- Ops: applications, leases, bookings (viewings), maintenance_tickets
--- Flexible: client_lookup_configs, event_log, automation_rules, permissions
+-- Ops: applications, leases, viewing_slots, bookings (viewings), maintenance_tickets,
+--      leads, payments, documents, media, notifications, messages
+-- Flexible: client_lookup_configs, event_log, suite_alerts, automation_rules, permissions
+-- Billing: billing_plans, client_subscriptions, invoices
+--
+-- Frontend domain mapping (no ORM — Vite AppStore + seed.ts):
+--   clients              ↔ Agency
+--   users                ↔ AppUser  (role strings differ; see CHECK vs Role)
+--   buildings + units    ↔ PropertyAsset (flat listing often mirrors a unit;
+--                          lat/lng/place_id/formatted_address/geocoded_at)
+--   rooms                ↔ Room / InfraRoom
+--   internal_assets      ↔ InternalAssetItem
+--   applications         ↔ Application
+--   leases               ↔ Tenancy
+--   viewing_slots        ↔ ViewingSlot
+--   bookings             ↔ Viewing
+--   leads                ↔ Lead
+--   payments             ↔ PaymentRecord
+--   documents            ↔ PropertyDocument / ApplicationDocument metadata
+--   media_assets         ↔ PropertyAsset.images[] + payment attachments
+--   notifications        ↔ AppNotification
+--   message_threads/msgs ↔ MessageThread / Message
+--   client_lookup_configs ↔ platformLookups / LookupConfig
+--   maintenance_tickets  ↔ MaintenanceTicket
+--   event_log            ↔ Activity + PropertyEvent (by event_type)
+--   suite_alerts         ↔ SuiteAlertRule
+--   invoices             ↔ PlatformInvoice
 -- =============================================================================
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
@@ -16,16 +41,26 @@ DROP VIEW IF EXISTS v_billing_usage CASCADE;
 
 DROP TABLE IF EXISTS automation_runs CASCADE;
 DROP TABLE IF EXISTS automation_rules CASCADE;
+DROP TABLE IF EXISTS suite_alerts CASCADE;
 DROP TABLE IF EXISTS event_log CASCADE;
+DROP TABLE IF EXISTS entity_id_map CASCADE;
 DROP TABLE IF EXISTS invoices CASCADE;
 DROP TABLE IF EXISTS client_subscriptions CASCADE;
 DROP TABLE IF EXISTS billing_plans CASCADE;
 DROP TABLE IF EXISTS role_permissions CASCADE;
 DROP TABLE IF EXISTS permissions CASCADE;
+DROP TABLE IF EXISTS messages CASCADE;
+DROP TABLE IF EXISTS message_threads CASCADE;
+DROP TABLE IF EXISTS notifications CASCADE;
+DROP TABLE IF EXISTS media_assets CASCADE;
+DROP TABLE IF EXISTS documents CASCADE;
+DROP TABLE IF EXISTS payments CASCADE;
+DROP TABLE IF EXISTS leads CASCADE;
 DROP TABLE IF EXISTS maintenance_ticket_updates CASCADE;
 DROP TABLE IF EXISTS maintenance_tickets CASCADE;
 DROP TABLE IF EXISTS vendor_category_routes CASCADE;
 DROP TABLE IF EXISTS bookings CASCADE;
+DROP TABLE IF EXISTS viewing_slots CASCADE;
 DROP TABLE IF EXISTS leases CASCADE;
 DROP TABLE IF EXISTS applications CASCADE;
 DROP TABLE IF EXISTS internal_assets CASCADE;
@@ -65,6 +100,10 @@ CREATE INDEX idx_clients_subdomain ON clients (subdomain);
 CREATE TABLE client_lookup_configs (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   client_id       UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  -- config_type examples: PROPERTY_TYPE, PROPERTY_STATUS, UNIT_STATUS, LISTING_MODE,
+  -- LEAD_STAGE, APPLICATION_STAGE, DOC_TYPE, DOC_STATUS, TICKET_CATEGORY, TICKET_STATUS,
+  -- TICKET_PRIORITY, ASSET_TYPE, ASSET_CONDITION, ROOM_KIND, PAYMENT_STATUS, PAYMENT_TYPE,
+  -- PAY_METHOD, VIEWING_STATUS, TENANCY_STATUS, AMENITY, BUILDING_GRADING
   config_type     VARCHAR(60) NOT NULL,
   key_value       VARCHAR(80) NOT NULL,
   display_label   VARCHAR(160) NOT NULL,
@@ -142,8 +181,12 @@ CREATE TABLE buildings (
   grading           CHAR(1) CHECK (grading IN ('P', 'A', 'B', 'C')),
   solar_capacity_kw NUMERIC(8,2) DEFAULT 0,
   has_borehole      BOOLEAN NOT NULL DEFAULT FALSE,
+  -- Map / geocoding (Google Places / Geocoding API)
   lat               NUMERIC(10,7),
   lng               NUMERIC(10,7),
+  place_id          VARCHAR(255),
+  formatted_address VARCHAR(500),
+  geocoded_at       TIMESTAMPTZ,
   images            JSONB DEFAULT '[]'::jsonb,
   notes             TEXT,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -177,8 +220,12 @@ CREATE TABLE units (
   featured          BOOLEAN NOT NULL DEFAULT FALSE,
   -- Deposit override (NULL → API defaults to 2× rent for rentals / 10% for sales)
   deposit_amount    NUMERIC(14,2),
+  -- Unit-level override; fall back to building lat/lng when NULL
   lat               NUMERIC(10,7),
   lng               NUMERIC(10,7),
+  place_id          VARCHAR(255),
+  formatted_address VARCHAR(500),
+  geocoded_at       TIMESTAMPTZ,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (building_id, unit_number)
@@ -324,10 +371,33 @@ CREATE INDEX idx_leases_unit_tenant ON leases (unit_id, tenant_id, status);
 CREATE INDEX idx_leases_unit_active ON leases (unit_id, status)
   WHERE status IN ('PENDING', 'ACTIVE');
 
+CREATE TABLE viewing_slots (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id           UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  unit_id             UUID NOT NULL REFERENCES units(id) ON DELETE CASCADE,
+  agent_id            UUID REFERENCES users(id) ON DELETE SET NULL,
+  slot_date           DATE NOT NULL,
+  slot_time           VARCHAR(8) NOT NULL,
+  capacity            SMALLINT NOT NULL DEFAULT 3 CHECK (capacity > 0),
+  booked_count        SMALLINT NOT NULL DEFAULT 0 CHECK (booked_count >= 0),
+  status              VARCHAR(20) NOT NULL DEFAULT 'OPEN'
+                        CHECK (status IN ('OPEN', 'FULL', 'CANCELLED')),
+  title               VARCHAR(160),
+  notes               VARCHAR(500),
+  duration_minutes    SMALLINT DEFAULT 30,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_viewing_slots_client ON viewing_slots (client_id);
+CREATE INDEX idx_viewing_slots_unit ON viewing_slots (unit_id, slot_date);
+CREATE INDEX idx_viewing_slots_agent ON viewing_slots (agent_id, slot_date);
+
 CREATE TABLE bookings (
   id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   client_id           UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
   unit_id             UUID NOT NULL REFERENCES units(id) ON DELETE CASCADE,
+  slot_id             UUID REFERENCES viewing_slots(id) ON DELETE SET NULL,
   agent_id            UUID REFERENCES users(id) ON DELETE SET NULL,
   applicant_id        UUID REFERENCES users(id) ON DELETE SET NULL,
   visitor_name        VARCHAR(160) NOT NULL,
@@ -421,6 +491,156 @@ CREATE TABLE maintenance_ticket_updates (
 CREATE INDEX idx_ticket_updates_ticket ON maintenance_ticket_updates (ticket_id);
 
 -- -----------------------------------------------------------------------------
+-- CRM / finance / content (aligns with frontend AppStore seed)
+-- -----------------------------------------------------------------------------
+
+CREATE TABLE leads (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id       UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  unit_id         UUID REFERENCES units(id) ON DELETE SET NULL,
+  agent_id        UUID REFERENCES users(id) ON DELETE SET NULL,
+  name            VARCHAR(160) NOT NULL,
+  email           VARCHAR(190),
+  phone           VARCHAR(40),
+  channel         VARCHAR(60),
+  stage           VARCHAR(80) NOT NULL DEFAULT 'New',
+  interest_type   VARCHAR(20) NOT NULL DEFAULT 'RENT'
+                    CHECK (interest_type IN ('BUY', 'RENT')),
+  value_amount    NUMERIC(14,2),
+  notes           TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_leads_client ON leads (client_id);
+CREATE INDEX idx_leads_stage ON leads (client_id, stage);
+CREATE INDEX idx_leads_agent ON leads (agent_id);
+
+CREATE TABLE payments (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id           UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  unit_id             UUID REFERENCES units(id) ON DELETE SET NULL,
+  lease_id            UUID REFERENCES leases(id) ON DELETE SET NULL,
+  application_id      UUID REFERENCES applications(id) ON DELETE SET NULL,
+  party_user_id       UUID REFERENCES users(id) ON DELETE SET NULL,
+  party_name          VARCHAR(160) NOT NULL,
+  payment_type        VARCHAR(40) NOT NULL
+                        CHECK (payment_type IN (
+                          'DEPOSIT', 'FIRST_MONTH_RENT', 'RENT', 'SALE_DEPOSIT',
+                          'COMMISSION', 'REFUND', 'OTHER'
+                        )),
+  amount              NUMERIC(14,2) NOT NULL,
+  paid_amount         NUMERIC(14,2),
+  status              VARCHAR(20) NOT NULL DEFAULT 'DUE'
+                        CHECK (status IN ('DUE', 'PAID', 'OVERDUE', 'CANCELLED')),
+  due_date            DATE NOT NULL,
+  paid_at             TIMESTAMPTZ,
+  method              VARCHAR(40),
+  reference           VARCHAR(120),
+  notes               TEXT,
+  landlord_visible    BOOLEAN NOT NULL DEFAULT TRUE,
+  recorded_by         UUID REFERENCES users(id) ON DELETE SET NULL,
+  attachments         JSONB DEFAULT '[]'::jsonb,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_payments_client ON payments (client_id);
+CREATE INDEX idx_payments_status ON payments (client_id, status);
+CREATE INDEX idx_payments_due ON payments (due_date, status);
+CREATE INDEX idx_payments_lease ON payments (lease_id);
+
+CREATE TABLE documents (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id         UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  unit_id           UUID REFERENCES units(id) ON DELETE SET NULL,
+  building_id       UUID REFERENCES buildings(id) ON DELETE SET NULL,
+  application_id    UUID REFERENCES applications(id) ON DELETE SET NULL,
+  lease_id          UUID REFERENCES leases(id) ON DELETE SET NULL,
+  uploaded_by       UUID REFERENCES users(id) ON DELETE SET NULL,
+  name              VARCHAR(255) NOT NULL,
+  category          VARCHAR(40) NOT NULL DEFAULT 'OTHER'
+                      CHECK (category IN (
+                        'TITLE', 'COMPLIANCE', 'LEASE', 'INSPECTION',
+                        'MARKETING', 'ID', 'INVOICE', 'OTHER'
+                      )),
+  status            VARCHAR(20) NOT NULL DEFAULT 'UPLOADED'
+                      CHECK (status IN ('REQUIRED', 'UPLOADED', 'VERIFIED', 'REJECTED')),
+  storage_url       VARCHAR(1000),
+  mime_type         VARCHAR(120),
+  file_size_bytes   INT,
+  note              TEXT,
+  applicant_name    VARCHAR(160),
+  uploaded_at       TIMESTAMPTZ,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_documents_client ON documents (client_id);
+CREATE INDEX idx_documents_unit ON documents (unit_id);
+CREATE INDEX idx_documents_category ON documents (client_id, category);
+
+CREATE TABLE media_assets (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id         UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  building_id       UUID REFERENCES buildings(id) ON DELETE CASCADE,
+  unit_id           UUID REFERENCES units(id) ON DELETE CASCADE,
+  kind              VARCHAR(20) NOT NULL DEFAULT 'IMAGE'
+                      CHECK (kind IN ('IMAGE', 'FLOOR_PLAN', 'VIDEO', 'OTHER')),
+  storage_url       VARCHAR(1000) NOT NULL,
+  caption           VARCHAR(255),
+  sort_order        INT NOT NULL DEFAULT 0,
+  is_primary        BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_media_client ON media_assets (client_id);
+CREATE INDEX idx_media_unit ON media_assets (unit_id);
+CREATE INDEX idx_media_building ON media_assets (building_id);
+
+CREATE TABLE notifications (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id         UUID REFERENCES clients(id) ON DELETE CASCADE,
+  user_id           UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title             VARCHAR(200) NOT NULL,
+  body              TEXT NOT NULL,
+  link_path         VARCHAR(500),
+  resource_type     VARCHAR(40),
+  action_type       VARCHAR(20),
+  broadcast_id      UUID,
+  read_at           TIMESTAMPTZ,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_notifications_user ON notifications (user_id, created_at DESC);
+CREATE INDEX idx_notifications_unread ON notifications (user_id) WHERE read_at IS NULL;
+
+CREATE TABLE message_threads (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id         UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  unit_id           UUID REFERENCES units(id) ON DELETE SET NULL,
+  application_id    UUID REFERENCES applications(id) ON DELETE SET NULL,
+  subject           VARCHAR(255) NOT NULL,
+  routes_to         VARCHAR(20) NOT NULL DEFAULT 'AGENT'
+                      CHECK (routes_to IN ('AGENCY', 'AGENT')),
+  participant_ids   JSONB NOT NULL DEFAULT '[]'::jsonb,
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_threads_client ON message_threads (client_id);
+
+CREATE TABLE messages (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  thread_id         UUID NOT NULL REFERENCES message_threads(id) ON DELETE CASCADE,
+  client_id         UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  from_user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  body              TEXT NOT NULL,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_messages_thread ON messages (thread_id, created_at);
+
+-- -----------------------------------------------------------------------------
 -- Light automation / audit (future-ready)
 -- -----------------------------------------------------------------------------
 
@@ -438,6 +658,33 @@ CREATE TABLE event_log (
 CREATE INDEX idx_event_log_client ON event_log (client_id);
 CREATE INDEX idx_event_log_type ON event_log (event_type, created_at);
 CREATE INDEX idx_event_log_subject ON event_log (subject_type, subject_id);
+
+-- Suite popup / notify rules (platform-wide when client_id IS NULL)
+CREATE TABLE suite_alerts (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id           UUID REFERENCES clients(id) ON DELETE CASCADE,
+  resource            VARCHAR(40) NOT NULL,
+  actions             JSONB NOT NULL DEFAULT '["created","updated","deleted"]'::jsonb,
+  enabled             BOOLEAN NOT NULL DEFAULT TRUE,
+  popup_enabled       BOOLEAN NOT NULL DEFAULT TRUE,
+  popup_duration_ms   INT NOT NULL DEFAULT 6000,
+  notify_roles        JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_suite_alerts_client ON suite_alerts (client_id);
+CREATE INDEX idx_suite_alerts_resource ON suite_alerts (resource);
+
+-- Frontend demo IDs ↔ Postgres UUIDs (seed aliases + runtime creates from AppStore)
+CREATE TABLE entity_id_map (
+  entity_type   VARCHAR(40) NOT NULL,
+  frontend_id   VARCHAR(120) NOT NULL,
+  backend_id    UUID NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (entity_type, frontend_id)
+);
+CREATE UNIQUE INDEX idx_entity_id_map_backend ON entity_id_map (entity_type, backend_id);
 
 CREATE TABLE automation_rules (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -551,6 +798,9 @@ SELECT
   u.amenities,
   COALESCE(u.lat, b.lat) AS lat,
   COALESCE(u.lng, b.lng) AS lng,
+  COALESCE(u.place_id, b.place_id) AS place_id,
+  COALESCE(u.formatted_address, b.formatted_address, CONCAT_WS(', ', b.address, b.suburb, b.city, b.province)) AS formatted_address,
+  COALESCE(u.geocoded_at, b.geocoded_at) AS geocoded_at,
   s.is_load_shedding_free,
   s.is_premium_tier,
   b.name AS building_name,

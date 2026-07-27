@@ -423,7 +423,7 @@ export function propertyToUnitCard(
       addressLine1: property.address,
       suburb: property.suburb,
       city: property.city,
-      province: 'Gauteng',
+      province: 'Eastern Cape',
       grading: (property.grading as Building['grading']) ?? null,
       solarCapacityKw: property.solarCapacityKw ?? 0,
       hasBorehole: property.hasBorehole ?? false,

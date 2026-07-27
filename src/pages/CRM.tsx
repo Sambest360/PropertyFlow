@@ -1,13 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useEffect, useMemo, useState, Fragment } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  ChevronRight,
+  ArrowRight,
+  ChevronDown,
   Columns3,
   Plus,
 } from 'lucide-react'
 import { useStore } from '../context/AppStore'
-import { useAgencyScope, useAuth } from '../context/AuthContext'
-import { isFieldAgent } from '../lib/permissions'
+import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
 import { RequirePermission } from '../components/RequirePermission'
 import {
@@ -22,29 +22,17 @@ import { DirectoryStatCard } from '../components/directory/DirectoryStats'
 import { Badge, Button, PageHeader, Select, cn, statusTone } from '../components/ui'
 import { formatZAR } from '../data/seed'
 import type { Lead } from '../types/domain'
+import { useLookupOptions } from '../hooks/useLookupOptions'
 
 const ICON_STROKE = 1.6
 const VIEW_KEY = 'propertyflow-crm-view'
 
-const LEAD_STAGES = [
+const FALLBACK_LEAD_STAGES = [
   'New Lead',
   'Contacted',
   'Viewing Scheduled',
   'Viewing Completed',
   'Application Submitted',
-  'Offer Sent',
-  'Deposit Paid',
-  'Lease Signed',
-  'Sale Completed',
-] as const
-
-const BOARD_STAGES = [
-  'New Lead',
-  'Contacted',
-  'Viewing Scheduled',
-  'Viewing Completed',
-  'Application Submitted',
-  'Credit Check',
   'Offer Sent',
   'Deposit Paid',
   'Lease Signed',
@@ -91,7 +79,7 @@ function isActiveStage(stage: string) {
 export default function CRM() {
   const { state, createLead, updateLeadStage } = useStore()
   const { user, has } = useAuth()
-  const { scopeAgency, scopeAgent, role, agencyId } = useAgencyScope()
+  const { dealVisible, allowedPropertyIds, agencyId, canMutate } = usePropertyScope()
   const reducedMotion = usePrefersReducedMotion()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -102,9 +90,21 @@ export default function CRM() {
   const [channel, setChannel] = useState('all')
   const [attention, setAttention] = useState<AttentionFilter>('all')
   const [sort, setSort] = useState('updated')
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  const leadStageOptions = useLookupOptions('LEAD_STAGE', agencyId)
+  const leadStages = useMemo(() => {
+    const values = leadStageOptions.map((o) => o.value)
+    return values.length ? values : [...FALLBACK_LEAD_STAGES]
+  }, [leadStageOptions])
+  const boardStages = leadStages
 
   const openLead = (id: string) => {
     navigate(`/workspace/sales/crm/${encodeURIComponent(id)}`)
+  }
+
+  const toggleExpand = (item: PortfolioLead) => {
+    setExpandedId((id) => (id === item.lead.id ? null : item.lead.id))
   }
 
   useEffect(() => {
@@ -127,11 +127,7 @@ export default function CRM() {
 
   const portfolio: PortfolioLead[] = useMemo(() => {
     return state.leads
-      .filter((l) => {
-        if (!scopeAgency(l.agencyId)) return false
-        if (isFieldAgent(role) && !scopeAgent(l.agentId)) return false
-        return true
-      })
+      .filter((l) => dealVisible(l))
       .map((lead) => {
         const property = state.properties.find((p) => p.id === lead.propertyId)
         const agent = lead.agentId ? state.users.find((u) => u.id === lead.agentId) : null
@@ -143,7 +139,7 @@ export default function CRM() {
           boardStage: boardStageFor(lead.stage),
         }
       })
-  }, [state.leads, state.properties, state.users, scopeAgency, scopeAgent, role])
+  }, [state.leads, state.properties, state.users, dealVisible])
 
   const channels = useMemo(() => {
     const set = new Set(portfolio.map((p) => p.lead.channel))
@@ -194,12 +190,12 @@ export default function CRM() {
   }
 
   const createWalkIn = () => {
-    const prop = state.properties.find((p) => scopeAgency(p.agencyId))
-    if (!prop || !agencyId) return
+    const prop = state.properties.find((p) => allowedPropertyIds.has(p.id))
+    if (!prop || !agencyId || !canMutate(prop.id)) return
     const lead = createLead({
       agencyId,
       propertyId: prop.id,
-      agentId: isFieldAgent(role) ? user.id : prop.agentId,
+      agentId: prop.agentId ?? user.id,
       name: 'New walk-in lead',
       email: 'lead@email.com',
       phone: '+27 80 000 0000',
@@ -215,8 +211,8 @@ export default function CRM() {
       openLead(item.lead.id)
       return
     }
-    const idx = BOARD_STAGES.indexOf(item.boardStage as (typeof BOARD_STAGES)[number])
-    const next = BOARD_STAGES[Math.min(idx + 1, BOARD_STAGES.length - 1)]
+    const idx = boardStages.indexOf(item.boardStage)
+    const next = boardStages[Math.min(idx < 0 ? 0 : idx + 1, boardStages.length - 1)]
     if (next && next !== item.boardStage) updateLeadStage(item.lead.id, next)
   }
 
@@ -230,7 +226,7 @@ export default function CRM() {
       <div className="animate-fade-in space-y-5">
         <PageHeader
           title="Leads"
-          subtitle="Agency lead ledger — filter, sort, and advance deals."
+          subtitle="Early enquiries before they become applicants — filter, sort, or use the board."
           actions={
             has('leads.manage') ? (
               <Button className="min-h-11" onClick={createWalkIn}>
@@ -243,9 +239,9 @@ export default function CRM() {
 
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <DirectoryStatCard
-            label="On ledger"
+            label="All"
             value={counts.total}
-            hint="All leads in scope"
+            hint="Leads in scope"
             active={attention === 'all'}
             onClick={() => setAttention('all')}
           />
@@ -260,7 +256,7 @@ export default function CRM() {
           <DirectoryStatCard
             label="In progress"
             value={counts.active}
-            hint="Active pipeline"
+            hint="Being worked"
             active={attention === 'active'}
             onClick={() => setAttention(attention === 'active' ? 'all' : 'active')}
           />
@@ -310,11 +306,17 @@ export default function CRM() {
                 aria-label="Filter by stage"
               >
                 <option value="all">All stages</option>
-                {LEAD_STAGES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
+                {leadStageOptions.length
+                  ? leadStageOptions.map((s) => (
+                      <option key={s.value} value={s.value}>
+                        {s.label}
+                      </option>
+                    ))
+                  : leadStages.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
               </Select>
               <Select
                 className="min-h-11"
@@ -379,13 +381,19 @@ export default function CRM() {
         ) : view === 'board' ? (
           <LeadBoard
             items={filtered}
+            stages={boardStages}
             canManage={has('leads.manage')}
             onAdvance={advanceBoard}
             onOpen={openLead}
             reducedMotion={reducedMotion}
           />
         ) : view === 'list' ? (
-          <LeadList items={filtered} onOpen={openLead} reducedMotion={reducedMotion} />
+          <LeadList
+            items={filtered}
+            expandedId={expandedId}
+            onToggle={toggleExpand}
+            reducedMotion={reducedMotion}
+          />
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {filtered.map((item) => (
@@ -411,12 +419,14 @@ export default function CRM() {
 
 function LeadBoard({
   items,
+  stages,
   canManage,
   onAdvance,
   onOpen,
   reducedMotion,
 }: {
   items: PortfolioLead[]
+  stages: string[]
   canManage: boolean
   onAdvance: (item: PortfolioLead) => void
   onOpen: (id: string) => void
@@ -424,7 +434,7 @@ function LeadBoard({
 }) {
   return (
     <div className="flex gap-4 overflow-x-auto pb-2 [scrollbar-width:thin]">
-      {BOARD_STAGES.map((stage) => {
+      {stages.map((stage) => {
         const cards = items.filter((i) => i.boardStage === stage)
         return (
           <section key={stage} className="w-72 shrink-0">
@@ -448,7 +458,8 @@ function LeadBoard({
                     >
                       <div className="flex items-start justify-between gap-2">
                         <p className="text-sm font-semibold text-ink">{item.lead.name}</p>
-                        <Badge tone={item.lead.type === 'Buy' ? 'accent' : 'info'}>{item.lead.type}</Badge>
+                        <Badge tone={statusTone(item.lead.stage)}>{item.lead.stage}</Badge>
+                        <span className="text-[10px] text-ink-500">{item.lead.type}</span>
                       </div>
                       <p className="mt-1 line-clamp-2 text-xs text-ink-500">{item.propertyTitle}</p>
                       <div className="mt-3 flex items-center justify-between text-xs">
@@ -481,80 +492,257 @@ function LeadBoard({
 
 function LeadList({
   items,
-  onOpen,
+  expandedId,
+  onToggle,
   reducedMotion,
 }: {
   items: PortfolioLead[]
-  onOpen: (id: string) => void
+  expandedId: string | null
+  onToggle: (item: PortfolioLead) => void
   reducedMotion?: boolean
 }) {
   return (
-    <div className="overflow-hidden rounded-[1.25rem] border border-primary-100/80 bg-white shadow-[0_8px_24px_-16px_rgba(15,39,68,0.14)]">
-      <div className="hidden items-center gap-3 border-b border-primary-50 bg-primary-50/40 px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-ink-400 xl:flex">
-        <span className="w-1.5 shrink-0" aria-hidden />
-        <span className="min-w-0 flex-[1.4]">Lead</span>
-        <span className="min-w-0 flex-[1.2]">Property</span>
-        <span className="w-36 shrink-0">Stage</span>
-        <span className="w-28 shrink-0">Agent</span>
-        <span className="w-24 shrink-0 text-right">Value</span>
-        <span className="w-4 shrink-0" aria-hidden />
+    <>
+      <div className="hidden overflow-hidden rounded-[1.25rem] border border-primary-100/80 bg-white shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)] md:block">
+        <div className="max-h-[min(78vh,56rem)] overflow-auto [scrollbar-width:thin]">
+          <table className="w-full min-w-[48rem] border-collapse text-left text-sm">
+            <thead className="sticky top-0 z-[1] bg-white/95 backdrop-blur-md">
+              <tr className="border-b border-primary-100 text-[11px] font-semibold uppercase tracking-wide text-ink-400">
+                <th className="w-10 px-3 py-3" aria-hidden />
+                <th className="px-4 py-3 font-semibold">Lead</th>
+                <th className="px-3 py-3 font-semibold">Property</th>
+                <th className="px-3 py-3 font-semibold">Stage</th>
+                <th className="px-3 py-3 font-semibold">Agent</th>
+                <th className="px-4 py-3 font-semibold text-right">Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item) => {
+                const l = item.lead
+                const expanded = expandedId === l.id
+                const isNew = l.stage === 'New Lead'
+                return (
+                  <Fragment key={l.id}>
+                    <tr
+                      className={cn(
+                        'border-b border-primary-50',
+                        expanded && 'border-b-0 bg-primary-100',
+                      )}
+                    >
+                      <td className="px-3 py-3">
+                        <button
+                          type="button"
+                          onClick={() => onToggle(item)}
+                          aria-expanded={expanded}
+                          aria-label={expanded ? 'Collapse lead details' : 'Expand lead details'}
+                          className="inline-flex min-h-9 min-w-9 cursor-pointer items-center justify-center rounded-xl text-ink-400 transition-colors duration-200 hover:bg-white hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        >
+                          <ChevronDown
+                            className={cn(
+                              'h-4 w-4 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
+                              expanded && 'rotate-180',
+                              reducedMotion && 'transition-none',
+                            )}
+                            strokeWidth={ICON_STROKE}
+                            aria-hidden
+                          />
+                        </button>
+                      </td>
+                      <td className="px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={() => onToggle(item)}
+                          className="group flex min-h-11 w-full cursor-pointer items-center gap-3 rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        >
+                          <span
+                            className={cn(
+                              'h-8 w-1.5 shrink-0 rounded-full',
+                              isNew ? 'bg-accent' : 'bg-primary',
+                            )}
+                            aria-hidden
+                          />
+                          <span className="min-w-0">
+                            <span className="flex flex-wrap items-center gap-1.5">
+                              <span className="truncate font-semibold text-ink group-hover:text-primary">
+                                {l.name}
+                              </span>
+                              <span className="text-xs text-ink-500">{l.type}</span>
+                            </span>
+                            <span className="mt-0.5 block truncate text-xs tabular text-ink-500">
+                              {l.phone} · {l.channel}
+                            </span>
+                          </span>
+                        </button>
+                      </td>
+                      <td className="px-3 py-3">
+                        <button
+                          type="button"
+                          onClick={() => onToggle(item)}
+                          className="w-full min-h-11 cursor-pointer truncate text-left text-ink-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        >
+                          {item.propertyTitle}
+                        </button>
+                      </td>
+                      <td className="px-3 py-3">
+                        <button
+                          type="button"
+                          onClick={() => onToggle(item)}
+                          className="cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        >
+                          <Badge tone={statusTone(l.stage)}>{l.stage}</Badge>
+                        </button>
+                      </td>
+                      <td className="px-3 py-3">
+                        <button
+                          type="button"
+                          onClick={() => onToggle(item)}
+                          className="w-full min-h-11 cursor-pointer truncate text-left text-ink-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        >
+                          {item.agentName ?? 'Unassigned'}
+                        </button>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => onToggle(item)}
+                          className="w-full cursor-pointer text-right tabular font-semibold text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        >
+                          {formatZAR(l.value)}
+                        </button>
+                      </td>
+                    </tr>
+                    {expanded && (
+                      <tr className="border-b border-primary-100 bg-primary-50/60">
+                        <td colSpan={6} className="px-4 py-4 sm:px-5">
+                          <LeadExpansion item={item} reducedMotion={reducedMotion} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
-      <ul>
-        {items.map((item, index) => {
+
+      <ul className="space-y-2 md:hidden">
+        {items.map((item) => {
           const l = item.lead
-          const isNew = l.stage === 'New Lead'
+          const expanded = expandedId === l.id
           return (
-            <li key={l.id} className={cn(index > 0 && 'border-t border-primary-50')}>
+            <li
+              key={l.id}
+              className={cn(
+                'overflow-hidden rounded-[1.25rem] border border-primary-100/80 bg-white shadow-[0_8px_24px_-16px_rgba(15,39,68,0.14)]',
+                expanded && 'border-primary-200 bg-primary-50/40',
+              )}
+            >
               <button
                 type="button"
-                onClick={() => onOpen(l.id)}
-                className={cn(
-                  'flex w-full min-h-12 cursor-pointer items-center gap-3 px-4 py-2.5 text-left transition-colors duration-200 hover:bg-primary-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary sm:px-5',
-                  reducedMotion && 'transition-none',
-                )}
+                onClick={() => onToggle(item)}
+                aria-expanded={expanded}
+                className="flex w-full min-h-14 cursor-pointer items-center gap-3 px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
               >
-                <span
-                  className={cn(
-                    'h-8 w-1.5 shrink-0 rounded-full',
-                    isNew ? 'bg-accent' : 'bg-primary',
-                  )}
-                  aria-hidden
-                />
-                <span className="min-w-0 flex-1 xl:flex xl:flex-[1.4] xl:flex-col">
-                  <span className="flex flex-wrap items-center gap-1.5">
-                    <span className="truncate text-sm font-semibold text-ink">{l.name}</span>
-                    <Badge tone={l.type === 'Buy' ? 'accent' : 'info'}>{l.type}</Badge>
+                <span className="min-w-0 flex-1">
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold text-ink">{l.name}</span>
+                    <Badge tone={statusTone(l.stage)}>{l.stage}</Badge>
                   </span>
-                  <span className="mt-0.5 block truncate text-xs tabular text-ink-500">
-                    {l.phone} · {l.channel}
-                    <span className="xl:hidden">
-                      {' '}
-                      · {item.propertyTitle} · {item.agentName ?? 'Unassigned'}
-                    </span>
+                  <span className="mt-1 block truncate text-xs text-ink-500">
+                    {item.propertyTitle} · {l.channel}
                   </span>
                 </span>
-                <span className="hidden min-w-0 flex-[1.2] truncate text-sm text-ink-600 xl:block">
-                  {item.propertyTitle}
-                </span>
-                <span className="hidden w-36 shrink-0 xl:block">
-                  <Badge tone={statusTone(l.stage)}>{l.stage}</Badge>
-                </span>
-                <span className="hidden w-28 shrink-0 truncate text-sm text-ink-500 xl:block">
-                  {item.agentName ?? 'Unassigned'}
-                </span>
-                <span className="w-24 shrink-0 text-right tabular text-sm font-semibold text-ink">
+                <span className="shrink-0 tabular text-sm font-semibold text-ink">
                   {formatZAR(l.value)}
                 </span>
-                <ChevronRight
-                  className="h-4 w-4 shrink-0 text-ink-300"
+                <ChevronDown
+                  className={cn(
+                    'h-4 w-4 shrink-0 text-ink-400 transition-transform duration-300',
+                    expanded && 'rotate-180',
+                    reducedMotion && 'transition-none',
+                  )}
                   strokeWidth={ICON_STROKE}
                   aria-hidden
                 />
               </button>
+              {expanded && (
+                <div className="border-t border-primary-100/80 px-4 py-4">
+                  <LeadExpansion item={item} reducedMotion={reducedMotion} />
+                </div>
+              )}
             </li>
           )
         })}
       </ul>
+    </>
+  )
+}
+
+function LeadExpansion({
+  item,
+  reducedMotion,
+}: {
+  item: PortfolioLead
+  reducedMotion?: boolean
+}) {
+  const l = item.lead
+  const detailTo = `/workspace/sales/crm/${encodeURIComponent(l.id)}`
+  const metaRows: Array<{ label: string; value: string }> = [
+    { label: 'Email', value: l.email },
+    { label: 'Phone', value: l.phone },
+    { label: 'Property', value: item.propertyTitle },
+    { label: 'Area', value: item.propertySuburb },
+    { label: 'Stage', value: l.stage },
+    { label: 'Type', value: l.type },
+    { label: 'Channel', value: l.channel },
+    { label: 'Agent', value: item.agentName ?? 'Unassigned' },
+    { label: 'Value', value: formatZAR(l.value) },
+    { label: 'Updated', value: l.updatedAt },
+  ]
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+      <div className="min-w-0 space-y-2">
+        <div className="flex items-center gap-3">
+          <PersonAvatar name={l.name} />
+          <div className="min-w-0">
+            <p className="font-display text-2xl font-semibold tracking-tight text-ink">{l.name}</p>
+            <p className="truncate text-sm text-ink-500">{l.id}</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <Badge tone={statusTone(l.stage)}>{l.stage}</Badge>
+          <span className="text-xs text-ink-500">{l.type}</span>
+        </div>
+      </div>
+      <div className="min-w-0">
+        <dl className="grid gap-2 sm:grid-cols-2">
+          {metaRows.map((row) => (
+            <div key={row.label} className="min-w-0">
+              <dt className="text-[10px] font-semibold uppercase tracking-wide text-ink-400">
+                {row.label}
+              </dt>
+              <dd className="mt-0.5 truncate text-sm font-semibold tabular text-ink" title={row.value}>
+                {row.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+        <div
+          className={cn(
+            'mt-4 flex flex-wrap gap-2 border-t border-primary-100/80 pt-4',
+            reducedMotion && 'transition-none',
+          )}
+        >
+          <Link to={detailTo} className="inline-flex">
+            <Button className="min-h-11 cursor-pointer gap-2 rounded-2xl">
+              Open lead
+              <ArrowRight className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+            </Button>
+          </Link>
+        </div>
+      </div>
     </div>
   )
 }
@@ -587,11 +775,17 @@ function LeadCard({
           </div>
           <p className="mt-1 truncate text-xs text-ink-500">{item.propertyTitle}</p>
           <p className="mt-2 tabular text-lg font-semibold text-ink">{formatZAR(l.value)}</p>
-          <div className="mt-3 flex flex-wrap gap-1.5 border-t border-primary-50 pt-3">
-            <Badge tone={l.type === 'Buy' ? 'accent' : 'info'}>{l.type}</Badge>
-            <Badge tone="neutral">{l.channel}</Badge>
-            <span className="text-xs font-medium text-ink-500">{item.agentName ?? 'Unassigned'}</span>
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-primary-50 pt-3 text-xs text-ink-500">
+            <span>{l.type}</span>
+            <span aria-hidden>·</span>
+            <span>{l.channel}</span>
+            <span aria-hidden>·</span>
+            <span>{item.agentName ?? 'Unassigned'}</span>
           </div>
+          <span className="mt-3 inline-flex min-h-11 items-center gap-1.5 text-sm font-semibold text-primary">
+            Open lead
+            <ArrowRight className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+          </span>
         </div>
       </div>
     </button>

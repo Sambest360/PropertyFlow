@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { CalendarDays, Plus, Search } from 'lucide-react'
 import { useStore } from '../context/AppStore'
-import { useAgencyScope, useAuth } from '../context/AuthContext'
+import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { isFieldAgent } from '../lib/permissions'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
 import { RequirePermission } from '../components/RequirePermission'
@@ -28,7 +28,7 @@ const ICON_STROKE = 1.6
 export default function Viewings() {
   const { state, createViewingSlot, bookViewingSlot, createViewing } = useStore()
   const { user, agencyId, has, role } = useAuth()
-  const { scopeAgency, scopeAgent } = useAgencyScope()
+  const { dealVisible, allowedPropertyIds, canMutate } = usePropertyScope()
   const reducedMotion = usePrefersReducedMotion()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -86,13 +86,8 @@ export default function Viewings() {
   }
 
   const properties = useMemo(
-    () =>
-      state.properties.filter((p) => {
-        if (!scopeAgency(p.agencyId)) return false
-        if (isFieldAgent(role) && !scopeAgent(p.agentId)) return false
-        return true
-      }),
-    [state.properties, scopeAgency, scopeAgent, role],
+    () => state.properties.filter((p) => allowedPropertyIds.has(p.id)),
+    [state.properties, allowedPropertyIds],
   )
 
   const agents = useMemo(
@@ -107,11 +102,7 @@ export default function Viewings() {
 
   const portfolio: PortfolioViewing[] = useMemo(() => {
     const bookings: PortfolioViewing[] = state.viewings
-      .filter((v) => {
-        if (!scopeAgency(v.agencyId)) return false
-        if (isFieldAgent(role) && !scopeAgent(v.agentId)) return false
-        return Boolean(state.properties.find((p) => p.id === v.propertyId))
-      })
+      .filter((v) => dealVisible(v) && Boolean(state.properties.find((p) => p.id === v.propertyId)))
       .map((viewing) => {
         const property = state.properties.find((p) => p.id === viewing.propertyId)!
         const slot = viewing.slotId
@@ -128,11 +119,7 @@ export default function Viewings() {
       })
 
     const slots: PortfolioViewing[] = state.viewingSlots
-      .filter((s) => {
-        if (!scopeAgency(s.agencyId)) return false
-        if (isFieldAgent(role) && !scopeAgent(s.agentId)) return false
-        return Boolean(state.properties.find((p) => p.id === s.propertyId))
-      })
+      .filter((s) => dealVisible(s) && Boolean(state.properties.find((p) => p.id === s.propertyId)))
       .map((slot) => {
         const property = state.properties.find((p) => p.id === slot.propertyId)!
         const slotBookings = state.viewings.filter(
@@ -154,9 +141,7 @@ export default function Viewings() {
     state.viewingSlots,
     state.properties,
     state.users,
-    scopeAgency,
-    scopeAgent,
-    role,
+    dealVisible,
   ])
 
   const countsByDate = useMemo(() => {
@@ -225,7 +210,7 @@ export default function Viewings() {
   const handleCreate = (payload: CreateViewingPayload) => {
     if (!agencyId) return
     const prop = properties.find((p) => p.id === payload.propertyId)
-    if (!prop) return
+    if (!prop || !canMutate(prop.id)) return
 
     if (payload.mode === 'slot') {
       const slot = createViewingSlot({

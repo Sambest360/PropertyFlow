@@ -8,7 +8,7 @@ import { BrandLogo } from './BrandLogo'
 import { MobileDrawer } from './MobileDrawer'
 import { RoleSwitcher } from './RoleSwitcher'
 import { SpotlightSearch } from './SpotlightSearch'
-import { useWorkspaceNav, WorkspaceMobileNav, WorkspaceNavBar } from './WorkspaceNav'
+import { useWorkspaceNav, WorkspaceMobileNav } from './WorkspaceNav'
 import { NotificationBell } from '../notifications/NotificationBell'
 import { cn } from '../ui'
 
@@ -24,19 +24,17 @@ function welcomeName(fullName: string): string {
 
 /** Main-column admin header — hides on scroll; side nav stays in the shell */
 export function WorkspaceHeader({
-  showMobileBar = true,
   spotlightPinned = false,
   topHidden = false,
 }: {
-  showMobileBar?: boolean
   /** When true, desktop search lives in the shell — don't duplicate it here */
   spotlightPinned?: boolean
-  /** Hide welcome / actions / mobile top nav while scrolling */
+  /** Hide welcome / actions while scrolling */
   topHidden?: boolean
 }) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [navCollapsed] = useNavCollapsed()
-  const { roleLabel, user } = useAuth()
+  const { roleLabel, user, logout } = useAuth()
   const nav = useWorkspaceNav()
   const { pathname } = useLocation()
   const isDashboard = pathname === '/workspace' || pathname === '/workspace/'
@@ -64,29 +62,22 @@ export function WorkspaceHeader({
           topHidden && 'bg-transparent backdrop-blur-none',
         )}
       >
-        {/* Mobile: logo + menu — hide on scroll; search stays */}
+        {/* Mobile: logo + menu — keep hamburger reachable while scrolled */}
         <div className={`flex flex-col gap-3 py-4 lg:hidden ${WORKSPACE_INSET}`}>
-          {!topHidden && (
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                className="inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-2xl border border-primary-100 bg-white text-ink transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                onClick={() => setMobileOpen(true)}
-                aria-label="Open navigation"
-              >
-                <Menu className="h-5 w-5" strokeWidth={ICON_STROKE} />
-              </button>
-              <BrandLogo to="/workspace" size="sm" />
-              <div className="ml-auto">
-                <NotificationBell />
-              </div>
-            </div>
-          )}
-          {topHidden && (
-            <div className="flex justify-end">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-2xl border border-primary-100 bg-white text-ink transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              onClick={() => setMobileOpen(true)}
+              aria-label="Open navigation"
+            >
+              <Menu className="h-5 w-5" strokeWidth={ICON_STROKE} />
+            </button>
+            {!topHidden && <BrandLogo to="/workspace" size="sm" />}
+            <div className="ml-auto">
               <NotificationBell />
             </div>
-          )}
+          </div>
           <SpotlightSearch minimized={topHidden} />
         </div>
 
@@ -132,34 +123,34 @@ export function WorkspaceHeader({
         {reserveSpotlight && (
           <div className="hidden h-[3.75rem] lg:block" aria-hidden />
         )}
-
-        {showMobileBar && !topHidden && (
-          <div className="lg:hidden">
-            <WorkspaceNavBar items={nav} />
-          </div>
-        )}
       </header>
 
       <MobileDrawer open={mobileOpen} onClose={() => setMobileOpen(false)} title="Menu" side="left">
         <div className="mb-5 px-1">
           <BrandLogo to="/workspace" size="sm" />
           <p className="mt-3 text-sm text-ink-500">{roleLabel}</p>
+          <div className="mt-3">
+            <RoleSwitcher variant="full" />
+          </div>
         </div>
         <WorkspaceMobileNav items={nav} onNavigate={() => setMobileOpen(false)} />
         <div className="mt-6 space-y-1 border-t border-primary-100 pt-4">
           <Link
             to="/workspace/admin"
             onClick={() => setMobileOpen(false)}
-            className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-ink-500 transition-colors duration-200 hover:bg-primary-50"
+            className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-ink-500 transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             Help
           </Link>
           <Link
             to="/"
-            onClick={() => setMobileOpen(false)}
-            className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-ink-500 transition-colors duration-200 hover:bg-primary-50"
+            onClick={() => {
+              setMobileOpen(false)
+              void logout()
+            }}
+            className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-ink-500 transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
-            Log Out
+            Sign out
           </Link>
         </div>
       </MobileDrawer>

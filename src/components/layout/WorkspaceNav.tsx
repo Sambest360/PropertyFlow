@@ -3,6 +3,9 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronDown,
   CircleHelp,
+  ClipboardList,
+  Heart,
+  LayoutDashboard,
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
@@ -27,8 +30,69 @@ const ICON_STROKE = 1.6
 const ACTIVE_OVERLAP_PX = 10
 
 export function useWorkspaceNav(): WorkspaceNavEntry[] {
-  const { role, has, hasAny } = useAuth()
-  return useMemo(() => filterWorkspaceNav(getWorkspaceNav(role), has, hasAny), [role, has, hasAny])
+  const { has, hasAny, role } = useAuth()
+  return useMemo(() => {
+    const filtered = filterWorkspaceNav(getWorkspaceNav(), has, hasAny)
+    // Portal actors: Dashboard is their portal home — drop the redundant Portals group.
+    const portalHome =
+      role === 'contractor' && has('portal.contractor')
+        ? '/workspace/portals/contractor'
+        : role === 'landlord' && has('portal.owner')
+          ? '/workspace/portals/owner'
+          : role === 'tenant' && has('portal.tenant')
+            ? '/workspace/portals/tenant'
+            : null
+    if (!portalHome) return filtered
+
+    // Tenants: surface Applications + Wishlist as top-level links (ops stay permission-gated).
+    if (role === 'tenant') {
+      const dashboard: WorkspaceNavEntry = {
+        type: 'link',
+        item: {
+          to: portalHome,
+          label: 'Dashboard',
+          end: true,
+          icon: LayoutDashboard,
+        },
+      }
+      const applications: WorkspaceNavEntry = {
+        type: 'link',
+        item: {
+          to: '/workspace/portals/tenant/applications',
+          label: 'My applications',
+          permission: 'portal.tenant',
+          icon: ClipboardList,
+        },
+      }
+      const wishlist: WorkspaceNavEntry = {
+        type: 'link',
+        item: {
+          to: '/saved',
+          label: 'Wishlist',
+          permission: 'portal.tenant',
+          icon: Heart,
+        },
+      }
+      const rest = filtered.filter((entry) => {
+        if (entry.type === 'group' && entry.group.id === 'portals') return false
+        if (entry.type === 'link' && entry.item.to === '/workspace' && entry.item.end) return false
+        return true
+      })
+      return [dashboard, applications, wishlist, ...rest]
+    }
+
+    return filtered
+      .map((entry) => {
+        if (entry.type === 'link' && entry.item.to === '/workspace' && entry.item.end) {
+          return {
+            type: 'link' as const,
+            item: { ...entry.item, to: portalHome, end: true, label: 'Dashboard' },
+          }
+        }
+        return entry
+      })
+      .filter((entry) => !(entry.type === 'group' && entry.group.id === 'portals'))
+  }, [has, hasAny, role])
 }
 
 function NavItemLink({
@@ -323,7 +387,7 @@ export function WorkspaceNavBar({ items }: { items: WorkspaceNavEntry[] }) {
                 />
               </button>
               {open && (
-                <div className="absolute left-0 top-full z-50 mt-1 min-w-[12.5rem] overflow-hidden rounded-2xl border border-primary-100 bg-white py-1 shadow-lg shadow-ink/10 animate-fade-in">
+                <div className="absolute left-0 top-full z-50 mt-1 min-w-[12.5rem] max-w-[min(100vw-1.5rem,18rem)] overflow-hidden rounded-2xl border border-primary-100 bg-white py-1 shadow-lg shadow-ink/10 animate-fade-in max-sm:fixed max-sm:left-3 max-sm:right-3 max-sm:max-w-none">
                   {group.children.map((child) => {
                     const Icon = child.icon
                     const isActive = pathMatches(pathname, child.to, child.end)
@@ -331,8 +395,9 @@ export function WorkspaceNavBar({ items }: { items: WorkspaceNavEntry[] }) {
                       <Link
                         key={child.to}
                         to={child.to}
+                        onClick={() => setOpenId(null)}
                         className={cn(
-                          'flex min-h-11 cursor-pointer items-center gap-2.5 px-3 text-sm font-medium transition-colors duration-150',
+                          'flex min-h-11 cursor-pointer items-center gap-2.5 px-3 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary',
                           isActive ? 'bg-primary-50 text-primary' : 'text-ink-600 hover:bg-primary-50/70',
                         )}
                       >

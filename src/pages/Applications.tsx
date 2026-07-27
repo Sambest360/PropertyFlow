@@ -1,52 +1,44 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { ChevronRight, MapPin, Zap } from 'lucide-react'
 import { useStore } from '../context/AppStore'
-import { useAgencyScope, useAuth } from '../context/AuthContext'
-import { isFieldAgent } from '../lib/permissions'
+import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
 import { RequirePermission } from '../components/RequirePermission'
 import {
   ClearFiltersButton,
   DirectoryEmpty,
   DirectoryToolbar,
-  PersonAvatar,
   useDirectoryView,
 } from '../components/directory/DirectoryToolbar'
-import { Badge, PageHeader, Select, cn, statusTone } from '../components/ui'
+import { DirectoryStatCard } from '../components/directory/DirectoryStats'
+import { ApplicantsListView } from '../components/applicants/ApplicantsListView'
+import { ApplicantPortfolioCard } from '../components/applicants/ApplicantPortfolioCard'
+import {
+  matchesApplicantAttention,
+  type ApplicantAttentionFilter,
+  type PortfolioApplicant,
+  VIEW_STORAGE_KEY,
+} from '../components/applicants/types'
+import { PageHeader, Select } from '../components/ui'
 import { APPLICATION_STAGES } from '../lib/workflow'
-import type { Application } from '../types/domain'
-
-const ICON_STROKE = 1.6
-const VIEW_KEY = 'propertyflow-applications-view'
-
-type PortfolioApp = {
-  application: Application
-  propertyTitle: string
-  agentName: string | null
-  gridIndependent: boolean
-  premium: boolean
-}
 
 export default function Applications() {
   const { state } = useStore()
-  const { user } = useAuth()
-  const { scopeAgency, scopeAgent, role } = useAgencyScope()
+  const { user, role } = useAuth()
+  const { dealVisible } = usePropertyScope()
   const reducedMotion = usePrefersReducedMotion()
-  const navigate = useNavigate()
-  const [view, setView] = useDirectoryView(VIEW_KEY)
+  const [view, setView] = useDirectoryView(VIEW_STORAGE_KEY)
   const [q, setQ] = useState('')
   const [stage, setStage] = useState('all')
   const [type, setType] = useState('all')
+  const [attention, setAttention] = useState<ApplicantAttentionFilter>('all')
   const [sort, setSort] = useState('updated')
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
-  const portfolio: PortfolioApp[] = useMemo(() => {
+  const portfolio: PortfolioApplicant[] = useMemo(() => {
     return state.applications
       .filter((a) => {
         if (role === 'tenant') return a.applicantUserId === user.id || a.email === user.email
-        if (!scopeAgency(a.agencyId)) return false
-        if (isFieldAgent(role) && !scopeAgent(a.agentId)) return false
-        return true
+        return dealVisible(a)
       })
       .map((application) => {
         const prop = state.properties.find((p) => p.id === application.propertyId)
@@ -77,16 +69,24 @@ export default function Applications() {
     state.users,
     state.units,
     state.buildings,
-    scopeAgency,
-    scopeAgent,
+    dealVisible,
     role,
     user,
   ])
+
+  const counts = useMemo(() => {
+    const progress = portfolio.filter((p) => matchesApplicantAttention(p, 'progress')).length
+    const credit = portfolio.filter((p) => matchesApplicantAttention(p, 'credit')).length
+    const tenancy = portfolio.filter((p) => matchesApplicantAttention(p, 'tenancy')).length
+    const rejected = portfolio.filter((p) => matchesApplicantAttention(p, 'rejected')).length
+    return { progress, credit, tenancy, rejected, total: portfolio.length }
+  }, [portfolio])
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
     let rows = portfolio.filter((item) => {
       const a = item.application
+      if (!matchesApplicantAttention(item, attention)) return false
       if (stage !== 'all' && a.stage !== stage) return false
       if (type !== 'all' && a.type !== type) return false
       if (!needle) return true
@@ -112,13 +112,15 @@ export default function Applications() {
       return b.application.updatedAt.localeCompare(a.application.updatedAt)
     })
     return rows
-  }, [portfolio, q, stage, type, sort])
+  }, [portfolio, q, stage, type, attention, sort])
 
-  const filtersActive = Boolean(q.trim()) || stage !== 'all' || type !== 'all'
+  const filtersActive =
+    Boolean(q.trim()) || stage !== 'all' || type !== 'all' || attention !== 'all'
   const clearFilters = () => {
     setQ('')
     setStage('all')
     setType('all')
+    setAttention('all')
   }
 
   const resultLabel =
@@ -126,17 +128,49 @@ export default function Applications() {
       ? `${filtered.length} ${filtered.length === 1 ? 'applicant' : 'applicants'}`
       : `${filtered.length} of ${portfolio.length} applicants`
 
-  const openApplicant = (id: string) => {
-    navigate(`/workspace/sales/applications/${id}`)
+  const toggleExpand = (item: PortfolioApplicant) => {
+    setExpandedId((id) => (id === item.application.id ? null : item.application.id))
   }
 
   return (
     <RequirePermission permission="applications.view">
-      <div className="animate-fade-in">
+      <div className="animate-fade-in space-y-5">
         <PageHeader
           title="Applicants"
-          subtitle="Scan the portfolio, then open an applicant for personal details, documents, residences, blocks, and lifecycle."
+          subtitle="People who have applied — review progress, then open an applicant for full detail."
         />
+
+        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <DirectoryStatCard
+            label="All"
+            value={counts.total}
+            hint="Applicants in scope"
+            active={attention === 'all'}
+            onClick={() => setAttention('all')}
+          />
+          <DirectoryStatCard
+            label="In progress"
+            value={counts.progress}
+            hint="Still moving through stages"
+            active={attention === 'progress'}
+            onClick={() => setAttention(attention === 'progress' ? 'all' : 'progress')}
+          />
+          <DirectoryStatCard
+            label="Credit check"
+            value={counts.credit}
+            hint="Awaiting credit outcome"
+            active={attention === 'credit'}
+            onClick={() => setAttention(attention === 'credit' ? 'all' : 'credit')}
+            highlight={counts.credit > 0}
+          />
+          <DirectoryStatCard
+            label="Active tenancy"
+            value={counts.tenancy}
+            hint="Lease live"
+            active={attention === 'tenancy'}
+            onClick={() => setAttention(attention === 'tenancy' ? 'all' : 'tenancy')}
+          />
+        </section>
 
         <DirectoryToolbar
           query={q}
@@ -159,6 +193,18 @@ export default function Applications() {
             <>
               <Select
                 className="min-h-11"
+                value={attention}
+                onChange={(e) => setAttention(e.target.value as ApplicantAttentionFilter)}
+                aria-label="Focus"
+              >
+                <option value="all">All applicants</option>
+                <option value="progress">In progress</option>
+                <option value="credit">Credit check</option>
+                <option value="tenancy">Active tenancy</option>
+                <option value="rejected">Rejected / blocked</option>
+              </Select>
+              <Select
+                className="min-h-11"
                 value={stage}
                 onChange={(e) => setStage(e.target.value)}
                 aria-label="Filter by stage"
@@ -169,6 +215,8 @@ export default function Applications() {
                     {s}
                   </option>
                 ))}
+                <option value="Rejected">Rejected</option>
+                <option value="Blocked">Blocked</option>
               </Select>
               <Select
                 className="min-h-11"
@@ -192,90 +240,21 @@ export default function Applications() {
             action={<ClearFiltersButton onClick={clearFilters} reducedMotion={reducedMotion} />}
           />
         ) : view === 'list' ? (
-          <ul className="overflow-hidden rounded-[1.25rem] border border-primary-100/80 bg-white shadow-[0_8px_24px_-16px_rgba(15,39,68,0.14)]">
-            {filtered.map((item, index) => {
-              const a = item.application
-              return (
-                <li key={a.id} className={cn(index > 0 && 'border-t border-primary-50')}>
-                  <button
-                    type="button"
-                    onClick={() => openApplicant(a.id)}
-                    className={cn(
-                      'flex w-full min-h-14 cursor-pointer items-center gap-3 px-4 py-3 text-left transition-colors duration-200 hover:bg-primary-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary sm:px-5',
-                      reducedMotion && 'transition-none',
-                    )}
-                  >
-                    <PersonAvatar name={a.applicantName} />
-                    <span className="min-w-0 flex-1">
-                      <span className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold text-ink">{a.applicantName}</span>
-                        <Badge tone="brand">{a.type}</Badge>
-                        <Badge tone={statusTone(a.stage)}>{a.stage}</Badge>
-                        {item.gridIndependent && (
-                          <Badge tone="success">
-                            <Zap className="mr-0.5 inline h-3 w-3" strokeWidth={ICON_STROKE} aria-hidden />
-                            Grid
-                          </Badge>
-                        )}
-                      </span>
-                      <span className="mt-1 flex flex-wrap gap-x-2 text-xs text-ink-500">
-                        <span className="inline-flex items-center gap-1">
-                          <MapPin className="h-3 w-3" strokeWidth={ICON_STROKE} aria-hidden />
-                          {item.propertyTitle}
-                        </span>
-                        <span>· {a.email}</span>
-                      </span>
-                    </span>
-                    <span className="hidden text-right sm:block">
-                      <span className="block text-xs text-ink-400">Progress</span>
-                      <span className="tabular text-sm font-semibold text-ink">{a.progress}%</span>
-                    </span>
-                    <ChevronRight className="h-4 w-4 text-primary" strokeWidth={ICON_STROKE} aria-hidden />
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
+          <ApplicantsListView
+            items={filtered}
+            expandedId={expandedId}
+            onToggle={toggleExpand}
+            reducedMotion={reducedMotion}
+          />
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {filtered.map((item) => {
-              const a = item.application
-              return (
-                <button
-                  key={a.id}
-                  type="button"
-                  onClick={() => openApplicant(a.id)}
-                  className={cn(
-                    'cursor-pointer rounded-[1.25rem] border border-primary-100/80 bg-white p-4 text-left shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)] transition-shadow duration-200 hover:shadow-[0_14px_28px_-16px_rgba(15,39,68,0.28)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-                    reducedMotion && 'transition-none',
-                  )}
-                >
-                  <div className="flex items-start gap-3">
-                    <PersonAvatar name={a.applicantName} />
-                    <div className="min-w-0">
-                      <h3 className="font-semibold text-ink">{a.applicantName}</h3>
-                      <p className="truncate text-xs text-ink-500">{item.propertyTitle}</p>
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        <Badge tone={statusTone(a.stage)}>{a.stage}</Badge>
-                        <Badge tone="brand">{a.type}</Badge>
-                      </div>
-                      <div className="mt-3">
-                        <div className="mb-1 flex justify-between text-[11px] text-ink-400">
-                          <span>Progress</span>
-                          <span className="tabular font-medium text-ink">{a.progress}%</span>
-                        </div>
-                        <div className="h-2 overflow-hidden rounded-full bg-primary-50">
-                          <div
-                            className="h-full rounded-full bg-primary"
-                            style={{ width: `${a.progress}%` }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </button>
-              )
-            })}
+            {filtered.map((item) => (
+              <ApplicantPortfolioCard
+                key={item.application.id}
+                item={item}
+                reducedMotion={reducedMotion}
+              />
+            ))}
           </div>
         )}
 

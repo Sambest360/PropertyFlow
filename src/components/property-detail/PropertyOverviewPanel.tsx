@@ -4,10 +4,12 @@ import type { PropertyAsset, AppUser } from '../../types/domain'
 import { ImageDropzone } from '../ImageDropzone'
 import { PropertyFeaturePicker } from '../property-features/PropertyFeaturePicker'
 import { PropertyFeaturesDisplay } from '../property-features/PropertyFeaturesDisplay'
+import { PlacesAddressInput } from '../PlacesAddressInput'
 import { Badge, Button, Input, Modal, Select, Textarea, cn } from '../ui'
 import { formatZAR } from '../../data/seed'
 import { pruneAmenitiesForMode } from '../../lib/propertyFeatures'
 import { resolvePortfolioStatus } from '../../lib/propertyStatus'
+import { PropertyMap, PropertyMapPlaceholder } from '../PropertyMap'
 import { ICON_STROKE } from './types'
 
 const STATUSES: PropertyAsset['status'][] = [
@@ -72,28 +74,50 @@ export function PropertyOverviewPanel({
   }
 
   const save = () => {
-    onSave({
-      title: draft.title.trim(),
-      description: draft.description.trim(),
-      address: draft.address.trim(),
-      suburb: draft.suburb.trim(),
-      city: draft.city.trim(),
-      type: draft.type,
-      listingMode: draft.listingMode,
-      status: draft.status,
-      price: draft.price,
-      rent: draft.rent,
-      beds: draft.beds,
-      baths: draft.baths,
-      parking: draft.parking,
-      area: draft.area,
-      agentId: draft.agentId,
-      landlordId: draft.landlordId,
-      amenities: draft.amenities,
-      images: draft.images,
-      floorPlan: draft.floorPlan,
-    })
-    onEditOpenChange(false)
+    void (async () => {
+      const address = draft.address.trim()
+      const suburb = draft.suburb.trim()
+      const city = draft.city.trim()
+      let geoPatch: Partial<PropertyAsset> = {}
+      if (
+        address !== property.address ||
+        suburb !== property.suburb ||
+        city !== property.city
+      ) {
+        const { geocodeAddress } = await import('../../lib/api/geocoding')
+        const geo = await geocodeAddress({ address, suburb, city })
+        geoPatch = {
+          lat: geo.lat,
+          lng: geo.lng,
+          placeId: geo.placeId,
+          formattedAddress: geo.formattedAddress,
+          geocodedAt: geo.geocodedAt,
+        }
+      }
+      onSave({
+        title: draft.title.trim(),
+        description: draft.description.trim(),
+        address,
+        suburb,
+        city,
+        type: draft.type,
+        listingMode: draft.listingMode,
+        status: draft.status,
+        price: draft.price,
+        rent: draft.rent,
+        beds: draft.beds,
+        baths: draft.baths,
+        parking: draft.parking,
+        area: draft.area,
+        agentId: draft.agentId,
+        landlordId: draft.landlordId,
+        amenities: draft.amenities,
+        images: draft.images,
+        floorPlan: draft.floorPlan,
+        ...geoPatch,
+      })
+      onEditOpenChange(false)
+    })()
   }
 
   return (
@@ -195,7 +219,7 @@ export function PropertyOverviewPanel({
               </p>
               <p className="flex items-center gap-2">
                 <MapPin className="h-4 w-4 shrink-0" strokeWidth={ICON_STROKE} aria-hidden />
-                {property.address}
+                {property.formattedAddress ?? property.address}
               </p>
               <p>
                 Agent: <strong>{agent?.name ?? '—'}</strong>
@@ -207,6 +231,21 @@ export function PropertyOverviewPanel({
           </section>
         </div>
       </div>
+
+      <section>
+        <h2 className="mb-3 font-semibold text-ink">Location</h2>
+        <div className="h-56 overflow-hidden rounded-xl border border-primary-100 sm:h-72">
+          {Number.isFinite(property.lat) && Number.isFinite(property.lng) ? (
+            <PropertyMap
+              properties={[property]}
+              detailBase="/workspace/properties"
+              className="h-full rounded-none"
+            />
+          ) : (
+            <PropertyMapPlaceholder property={property} className="h-full border-0" />
+          )}
+        </div>
+      </section>
 
       <section className="grid grid-cols-3 gap-2 border-t border-primary-100 pt-6 text-center">
         <div>
@@ -273,10 +312,23 @@ export function PropertyOverviewPanel({
           </label>
           <label className="block text-xs font-medium text-ink-500">
             Address
-            <Input
+            <PlacesAddressInput
               className="mt-1 min-h-11"
               value={draft.address}
-              onChange={(e) => setDraft({ ...draft, address: e.target.value })}
+              onChange={(address) => setDraft({ ...draft, address })}
+              onPlaceSelect={(place) =>
+                setDraft({
+                  ...draft,
+                  address: place.address,
+                  suburb: place.suburb ?? draft.suburb,
+                  city: place.city ?? draft.city,
+                  lat: place.lat ?? draft.lat,
+                  lng: place.lng ?? draft.lng,
+                  placeId: place.placeId ?? draft.placeId,
+                  formattedAddress: place.formattedAddress ?? draft.formattedAddress,
+                  geocodedAt: place.placeId ? new Date().toISOString() : draft.geocodedAt,
+                })
+              }
             />
           </label>
           <label className="block text-xs font-medium text-ink-500">

@@ -1,10 +1,13 @@
 import { useCallback, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { Filter, Map as MapIcon } from 'lucide-react'
+import { useLocation, useSearchParams } from 'react-router-dom'
+import { Filter, Heart, Map as MapIcon } from 'lucide-react'
 import { usePublicProperties, useStore } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
 import { PropertyCard } from '../../components/PropertyCard'
 import { PropertyMap } from '../../components/PropertyMap'
+import { WishlistListView } from '../../components/wishlist/WishlistListView'
+import { AreaSearch } from '../../components/AreaSearch'
+import { usePrefersReducedMotion } from '../../hooks/useScrollMotion'
 import {
   BrowseFiltersBar,
   BrowseFiltersPanel,
@@ -18,6 +21,13 @@ import {
   type UnitCardPayload,
 } from '../../lib/api/unitsApi'
 import { blockedPropertyIdsForApplicant } from '../../lib/blockedApplicants'
+import { useWishlist } from '../../hooks/useWishlist'
+import {
+  encodeAreasParam,
+  parseAreasParam,
+  propertyMatchesAreas,
+  type Place,
+} from '../../lib/placeCatalog'
 
 function listingAmount(p: PropertyAsset, mode: string): number | null {
   if (mode === 'rent') return p.rent
@@ -25,15 +35,24 @@ function listingAmount(p: PropertyAsset, mode: string): number | null {
   return p.price ?? p.rent
 }
 
-function matchesFilters(p: PropertyAsset, q: string, mode: string, f: BrowseFilterState): boolean {
+function matchesFilters(
+  p: PropertyAsset,
+  q: string,
+  mode: string,
+  f: BrowseFilterState,
+  areas: readonly Place[],
+): boolean {
   if (['Draft', 'Archived', 'Maintenance'].includes(p.status)) return false
+
+  if (!propertyMatchesAreas(p, areas)) return false
 
   const matchQ =
     !q ||
     p.title.toLowerCase().includes(q.toLowerCase()) ||
-    p.city.toLowerCase().includes(q.toLowerCase()) ||
-    p.suburb.toLowerCase().includes(q.toLowerCase()) ||
-    p.type.toLowerCase().includes(q.toLowerCase())
+    p.type.toLowerCase().includes(q.toLowerCase()) ||
+    (!areas.length &&
+      (p.city.toLowerCase().includes(q.toLowerCase()) ||
+        p.suburb.toLowerCase().includes(q.toLowerCase())))
 
   if (!matchQ) return false
 
@@ -99,37 +118,57 @@ function browseSortToApi(sort: BrowseFilterState['sort'], mode: string) {
 export default function BrowsePage() {
   const publicProperties = usePublicProperties()
   const { state } = useStore()
-  const { user } = useAuth()
+  const { user, isAuthenticated } = useAuth()
+  const location = useLocation()
+  const savedOnly = location.pathname === '/saved' || location.pathname.endsWith('/saved')
+  const { ids: wishlistIds } = useWishlist(isAuthenticated ? user.id : 'guest')
   const [params, setParams] = useSearchParams()
   const q = params.get('q') ?? ''
   const mode = params.get('mode') ?? 'all'
+  const areas = useMemo(() => parseAreasParam(params.get('areas')), [params])
   const [filters, setFilters] = useState<BrowseFilterState>(defaultBrowseFilters)
   const [panelOpen, setPanelOpen] = useState(false)
-  const [showMap, setShowMap] = useState(true)
+  const [showMap, setShowMap] = useState(!savedOnly)
   const [cursor, setCursor] = useState<string | null>(null)
+  const [expandedWishlistId, setExpandedWishlistId] = useState<string | null>(null)
+  const reducedMotion = usePrefersReducedMotion()
 
   const blockedIds = useMemo(
     () => blockedPropertyIdsForApplicant(state.applications, user),
     [state.applications, user],
   )
 
-  const properties = useMemo(
-    () => publicProperties.filter((p) => !blockedIds.has(p.id)),
-    [publicProperties, blockedIds],
-  )
+  const properties = useMemo(() => {
+    const base = publicProperties.filter((p) => !blockedIds.has(p.id))
+    if (!savedOnly) return base
+    const wish = new Set(wishlistIds)
+    return base.filter((p) => wish.has(p.id))
+  }, [publicProperties, blockedIds, savedOnly, wishlistIds])
 
   const visibleStoreProperties = useMemo(
-    () => state.properties.filter((p) => !blockedIds.has(p.id)),
-    [state.properties, blockedIds],
+    () => publicProperties.filter((p) => !blockedIds.has(p.id) && propertyMatchesAreas(p, areas)),
+    [publicProperties, blockedIds, areas],
   )
 
   const filtered = useMemo(() => {
-    const list = properties.filter((p) => matchesFilters(p, q, mode, filters))
+    const list = properties.filter((p) => matchesFilters(p, q, mode, filters, areas))
     return sortProperties(list, filters.sort, mode)
-  }, [properties, q, mode, filters])
+  }, [properties, q, mode, filters, areas])
+
+  const setAreas = useCallback(
+    (nextAreas: Place[]) => {
+      const next = new URLSearchParams(params)
+      if (nextAreas.length) next.set('areas', encodeAreasParam(nextAreas))
+      else next.delete('areas')
+      setParams(next)
+      setCursor(null)
+    },
+    [params, setParams],
+  )
 
   /** Prefer infra units feed when units exist — cursor-paginated, card-ready. */
   const unitsFeed = useMemo(() => {
+    if (savedOnly) return null
     if (!state.units.length) return null
     return searchUnitsFeed({
       units: state.units,
@@ -156,7 +195,7 @@ export default function BrowsePage() {
         limit: 24,
       },
     })
-  }, [state.units, state.buildings, visibleStoreProperties, q, mode, filters, cursor])
+  }, [state.units, state.buildings, visibleStoreProperties, q, mode, filters, cursor, savedOnly, areas])
 
   const cards: UnitCardPayload[] = useMemo(() => {
     const raw = unitsFeed
@@ -167,12 +206,22 @@ export default function BrowsePage() {
             : undefined
           return propertyToUnitCard(p, building)
         })
-    return raw.filter((c) => !c.property_id || !blockedIds.has(c.property_id))
-  }, [unitsFeed, filtered, state.buildings, blockedIds])
+    const areaFiltered = raw.filter((c) => {
+      if (!c.property_id) return true
+      if (blockedIds.has(c.property_id)) return false
+      if (!areas.length) return true
+      const prop =
+        state.properties.find((p) => p.id === c.property_id) ??
+        properties.find((p) => p.id === c.property_id)
+      return prop ? propertyMatchesAreas(prop, areas) : false
+    })
+    return areaFiltered
+  }, [unitsFeed, filtered, state.buildings, state.properties, properties, blockedIds, areas])
 
   const getCount = useCallback(
-    (draft: BrowseFilterState) => properties.filter((p) => matchesFilters(p, q, mode, draft)).length,
-    [properties, q, mode],
+    (draft: BrowseFilterState) =>
+      properties.filter((p) => matchesFilters(p, q, mode, draft, areas)).length,
+    [properties, q, mode, areas],
   )
 
   const setMode = (m: string) => {
@@ -196,6 +245,21 @@ export default function BrowsePage() {
       .filter(Boolean) as PropertyAsset[]
   }, [cards, state.properties, properties])
 
+  const wishlistProperties = useMemo(() => {
+    if (!savedOnly) return [] as PropertyAsset[]
+    return cards
+      .map(
+        (c) =>
+          state.properties.find((p) => p.id === c.property_id) ??
+          properties.find((p) => p.id === c.property_id || p.unitId === c.id),
+      )
+      .filter(Boolean) as PropertyAsset[]
+  }, [savedOnly, cards, state.properties, properties])
+
+  const toggleWishlistExpand = (property: PropertyAsset) => {
+    setExpandedWishlistId((id) => (id === property.id ? null : property.id))
+  }
+
   return (
     <div className="min-h-[70vh] bg-primary-50/60">
       <div className="border-b border-primary-100 bg-white">
@@ -203,12 +267,29 @@ export default function BrowsePage() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h1 className="font-display text-2xl font-semibold text-ink">
-                {q ? `Results for “${q}”` : 'Browse properties'}
+                {savedOnly
+                  ? 'Wishlist'
+                  : areas.length
+                    ? `Homes in ${areas.map((a) => a.label).join(', ')}`
+                    : q
+                      ? `Results for “${q}”`
+                      : 'Browse properties'}
               </h1>
               <p className="text-sm text-ink-500">
-                {unitsFeed?.pagination.total_estimate ?? cards.length} places
-                {unitsFeed?.pagination.has_more ? ' · scroll for more' : ''}
+                {savedOnly
+                  ? `${cards.length} saved home${cards.length === 1 ? '' : 's'}`
+                  : `${unitsFeed?.pagination.total_estimate ?? cards.length} places${unitsFeed?.pagination.has_more ? ' · scroll for more' : ''}`}
               </p>
+              {savedOnly && cards.length === 0 && (
+                <p className="mt-2 flex items-center gap-1.5 text-sm text-ink-500">
+                  <Heart className="h-4 w-4 text-accent" /> Tap the heart on any listing to save it here.
+                </p>
+              )}
+              {!savedOnly && areas.length > 0 && cards.length === 0 && (
+                <p className="mt-2 text-sm text-ink-500">
+                  No homes in {areas.map((a) => a.label).join(', ')} — clear areas or broaden filters.
+                </p>
+              )}
             </div>
             <div className="flex flex-wrap gap-2">
               {[
@@ -240,6 +321,27 @@ export default function BrowsePage() {
               </button>
             </div>
           </div>
+
+          {!savedOnly && (
+            <div className="mt-4">
+              <AreaSearch
+                value={areas}
+                onChange={setAreas}
+                compact
+                showNearMe
+                placeholder="Add suburbs or city…"
+                onSubmit={({ areas: next, keyword }) => {
+                  setAreas(next)
+                  const nextParams = new URLSearchParams(params)
+                  if (keyword) nextParams.set('q', keyword)
+                  else nextParams.delete('q')
+                  if (next.length) nextParams.set('areas', encodeAreasParam(next))
+                  else nextParams.delete('areas')
+                  setParams(nextParams)
+                }}
+              />
+            </div>
+          )}
 
           <BrowseFiltersBar
             filters={filters}
@@ -276,8 +378,10 @@ export default function BrowsePage() {
           {cards.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-primary-100 bg-white p-10 text-center">
               <Filter className="mx-auto h-8 w-8 text-ink-400" />
-              <p className="mt-3 font-semibold">No properties match</p>
-              <p className="mt-1 text-sm text-ink-500">Try clearing some filters or broadening your search.</p>
+              <p className="mt-3 font-semibold">No listings yet</p>
+              <p className="mt-1 text-sm text-ink-500">
+                Agencies haven’t published homes here yet — check back soon, or clear filters if you’re searching.
+              </p>
               <button
                 type="button"
                 onClick={() => {
@@ -289,6 +393,13 @@ export default function BrowsePage() {
                 Clear all filters
               </button>
             </div>
+          ) : savedOnly ? (
+            <WishlistListView
+              properties={wishlistProperties}
+              expandedId={expandedWishlistId}
+              onToggle={toggleWishlistExpand}
+              reducedMotion={reducedMotion}
+            />
           ) : (
             <>
               <div className={`grid gap-5 ${showMap ? 'sm:grid-cols-2' : 'sm:grid-cols-2 lg:grid-cols-3'}`}>

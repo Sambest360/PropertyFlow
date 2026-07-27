@@ -5,7 +5,7 @@ Two schemas ship side-by-side:
 | Path | Engine | Role |
 |------|--------|------|
 | `database/schema.sql` + `database/seed.sql` | **MySQL 8** | Legacy Property24-style PMS (clients → agencies → properties) |
-| `database/postgres/schema.sql` + `database/postgres/seed.sql` | **PostgreSQL 13+** | **New Asset OS** (clients → buildings → units → rooms → internal assets) |
+| `database/postgres/schema.sql` + `seed_empty.sql` (default) / `seed.sql` + `seed_pe_bulk.sql` (demo) | **PostgreSQL 13+** | **Asset OS** — empty-start by default; optional demo personas + PE bulk |
 
 **Do not treat them as drop-in replacements.** MySQL remains for older tooling; PostgreSQL is the forward schema for the Asset OS product.
 
@@ -23,9 +23,90 @@ clients
             └─ internal_assets  (appliances, furniture, …)
 ```
 
-Also includes: `client_lookup_configs`, `users`, `applications`, `leases`, `bookings` (viewings), `maintenance_tickets`, `vendor_category_routes`, optional `permissions` / `role_permissions`, plus light `event_log` + `automation_rules`, and the **billing engine** (`billing_plans`, `client_subscriptions`, `invoices`, `v_billing_usage`).
+Also includes: `client_lookup_configs`, `users`, `applications`, `leases`, `viewing_slots`, `bookings` (viewings), `maintenance_tickets`, `leads`, `payments`, `documents`, `media_assets`, `notifications`, `message_threads` / `messages`, `vendor_category_routes`, optional `permissions` / `role_permissions`, plus `event_log` (activity feed + property timeline), `suite_alerts`, `automation_rules`, and the **billing engine** (`billing_plans`, `client_subscriptions`, `invoices`, `v_billing_usage`).
 
-### API UX contracts (demo TypeScript mirrors)
+**Geocoding / maps:** `buildings` and `units` store `lat`, `lng`, `place_id`, `formatted_address`, `geocoded_at`. Frontend flat listings (`PropertyAsset`) mirror these fields; see the mapping comment block at the top of `postgres/schema.sql`.
+
+### Frontend domain mapping (no ORM)
+
+| Postgres | Vite `types/domain` / seed |
+|----------|----------------------------|
+| `clients` | `Agency` |
+| `users` | `AppUser` |
+| `buildings` + `units` | `PropertyAsset` (+ infra `Building` / `Unit`) |
+| `leases` | `Tenancy` |
+| `viewing_slots` | `ViewingSlot` |
+| `bookings` | `Viewing` |
+| `documents` / `media_assets` | `PropertyDocument` / `images[]` |
+| `payments` | `PaymentRecord` |
+| `notifications` | `AppNotification` |
+| `event_log` (`activity`) | `Activity` |
+| `event_log` (`property_event`) | `PropertyEvent` |
+| `suite_alerts` | `SuiteAlertRule` |
+| `invoices` | `PlatformInvoice` |
+
+The Vite app hydrates from Postgres when the local API is running (`npm run dev` starts API + Vite). Domain mapping is documented at the top of `postgres/schema.sql`.
+
+### Local API (Hono + `pg`)
+
+```bash
+# From repo root — uses DATABASE_URL from .env.local (see .env.example)
+npm run dev:api          # http://127.0.0.1:8787
+curl http://127.0.0.1:8787/api/health
+curl http://127.0.0.1:8787/api/counts
+curl http://127.0.0.1:8787/api/bootstrap | head
+```
+
+Vite proxies `/api` → `:8787`. AppStore merges bootstrap entities into state when the API is reachable; otherwise local seed/localStorage is used.
+
+### Supabase (hosted Postgres) + Vercel
+
+**Primary PMS database is Postgres** (local or Supabase). Do not use Firebase/Firestore or the Supabase JS Data API as the app’s system of record.
+
+1. Create a Supabase project → run `database/postgres/schema.sql` then `seed.sql` (SQL editor or `psql`).
+2. Enable RLS on public tables and revoke `anon` / `authenticated` table grants so only the server role can read/write. Do **not** use `FORCE ROW LEVEL SECURITY` if the API connects as `postgres` (FORCE would lock the server out).
+3. Set `DATABASE_URL` to the **Transaction pooler** URI (`…pooler.supabase.com:6543`, user `postgres.<project-ref>`), not the direct `db.*.supabase.co:5432` URL, for serverless. Prefer **Session** pooler (`:5432` on the pooler host) for long local bootstrap sessions if transaction mode stalls.
+4. Local / Vercel env checklist:
+   - `DATABASE_URL` — pooler URI with `sslmode=require` (server rewrites to libpq-compat)
+   - `AUTH_SECRET` — long random string
+   - `NODEJS_HELPERS=0` — on Vercel (Hono POST body compatibility)
+   - Optional: `CORS_ORIGINS`, `DATABASE_SSL=1`
+5. Deploy: Vite SPA + `api/[[...route]].ts` (Hono via `hono/vercel`). `vercel.json` SPA rewrite excludes `/api/`.
+6. Verify:
+
+```bash
+npm test                              # unit + scoped bootstrap filters
+PF_API_SMOKE=1 npm test               # live health / bootstrap / persist (API must be up)
+curl -sS "$PREVIEW_URL/api/health"
+```
+
+**Writes:** AppStore mutations call `POST /api/persist` (also REST: `POST|PATCH|DELETE /api/{agencies|users|buildings|properties|leads|applications|payments|tickets|viewing-slots|suite-alerts|activities|property-events|invoices|…}`). Frontend demo IDs (`ag-horizon`, `PR-1001`, …) are mapped to UUIDs via `entity_id_map` + seed aliases in `server/idMap.ts`. On API failure the UI keeps optimistic state + localStorage (degraded mode). Application approve uses `POST /api/applications/:id/approve` (transaction: application + lease + unit OCCUPIED).
+
+```bash
+curl -s -X POST http://127.0.0.1:8787/api/persist \
+  -H 'Content-Type: application/json' \
+  -d '{"resource":"lead","action":"upsert","id":"LD-demo","data":{"agencyId":"ag-horizon","propertyId":"PR-1001","name":"Demo","stage":"New","type":"Rent"}}'
+
+# Viewing slot / invoice examples
+curl -s -X POST http://127.0.0.1:8787/api/persist \
+  -H 'Content-Type: application/json' \
+  -d '{"resource":"viewing_slot","action":"upsert","id":"VS-demo","data":{"agencyId":"ag-horizon","propertyId":"PR-1002","agentId":"u-james","date":"2026-07-28","time":"15:00","capacity":3,"booked":0,"status":"Open"}}'
+```
+
+### Incremental DDL (existing DB without full reset)
+
+If you already have a populated local DB and prefer not to wipe it:
+
+```sql
+CREATE TABLE IF NOT EXISTS viewing_slots ( ... ); -- see postgres/schema.sql
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS slot_id UUID REFERENCES viewing_slots(id) ON DELETE SET NULL;
+CREATE TABLE IF NOT EXISTS suite_alerts ( ... );
+-- then: npm run db:seed  (or re-insert only the new seed blocks)
+```
+
+Prefer `npm run db:reset` for an empty platform, or `npm run db:reset:demo` for personas + PE bulk.
+
+### Demo API UX contracts (TypeScript mirrors)
 
 | Endpoint | Module | Notes |
 |----------|--------|-------|
@@ -78,16 +159,19 @@ psql -h 127.0.0.1 -U postgres -d propertyflow -f database/postgres/schema.sql
 psql -h 127.0.0.1 -U postgres -d propertyflow -f database/postgres/seed.sql
 ```
 
-### Seed story (South Africa)
+### Seed story (Port Elizabeth / Gqeberha, Eastern Cape)
 
 | Client | Subdomain | Focus |
 |--------|-----------|--------|
-| Horizon Realty | `horizon` | Midrand / Sandton / Rosebank |
-| Cape Coastal Estates | `cape-coastal` | V&A Waterfront + Constantia |
+| Horizon Realty | `horizon` | Walmer / Humewood / Mill Park / Summerstrand |
+| Algoa Bay Estates | `algoa-bay` (`ag-cape`) | Newton Park + Mount Pleasant + Richmond Hill |
+| Bayview Property Group | `bayview` (`ag-garden`) | Framesby cottage |
 
 Horizon users: Amelia (`AGENCY_ADMIN`), Lerato (`AGENT_ADMIN`), James & Priya (`GROUND_AGENT`), 2 landlords, Lucas (tenant), Nomsa & Fatima (applicants).
 
-Cape Coastal: Sipho (`AGENCY_ADMIN`), Anya (`GROUND_AGENT`), 2 landlords.
+Algoa Bay: Sipho (`AGENCY_ADMIN`), Zane / Nandi / Theo / Anya, landlords, Aya (tenant), BayFix.
+
+Bayview: Gita (`AGENCY_ADMIN`), Leigh (`GROUND_AGENT`), Mia (tenant), Coastal Fix.
 
 ### Fixed UUID prefixes (Postgres seed)
 
@@ -111,19 +195,25 @@ Cape Coastal: Sipho (`AGENCY_ADMIN`), Anya (`GROUND_AGENT`), 2 landlords.
 Examples:
 
 - Horizon client: `a1000001-0001-4000-8000-000000000001`
-- Carlswald house unit: `a4000001-0001-4000-8000-000000000001`
-- Skyline B12 (leased): `a4000001-0001-4000-8000-000000000002`
+- Walmer house unit: `a4000001-0001-4000-8000-000000000001`
+- Humewood B12 (leased): `a4000001-0001-4000-8000-000000000002`
 - B12 microwave asset (ticket): `a6000001-0001-4000-8000-000000000012`
 
 ### Demo password
 
-All seeded `password_hash` values use the **same bcrypt-looking placeholder**:
+**Super admin (seeded):**
+
+| Email | Password |
+|-------|----------|
+| `sambampo200@gmail.com` | `secret` |
+
+Other seeded users still use the shared bcrypt-looking placeholder:
 
 ```text
 $2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy
 ```
 
-Documented plaintext intent: `demo-password`. This is **not** a production-ready verified hash — replace with a real bcrypt/argon2 hash before enabling app auth.
+Documented plaintext intent for those rows: `demo-password`. Replace with real bcrypt/argon2 hashes before production auth for non-admin demo accounts.
 
 ### Useful Postgres queries
 
@@ -168,7 +258,7 @@ Or use `database/load.sh` if the `mysql` CLI is available.
 | `lerato@horizonrealty.co.za` | Agent | Horizon |
 | `james@horizonrealty.co.za` | Agent | Horizon |
 | `lucas@email.com` | Tenant | Horizon |
-| `sipho@capecoastal.co.za` | Client Admin | Cape Coastal |
+| `sipho@capecoastal.co.za` | Client Admin | Algoa Bay Estates |
 
 ---
 

@@ -4,17 +4,26 @@ import { useState, type FormEvent } from 'react'
 import { BrandLogo } from './BrandLogo'
 import { MobileDrawer } from './MobileDrawer'
 import { marketplaceCategories } from './navigation'
+import { useAuth } from '../../context/AuthContext'
+import { initials } from '../dashboard/formatShortDate'
 import { cn } from '../ui'
 
 export function MarketplaceHeader() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [q, setQ] = useState('')
   const navigate = useNavigate()
+  const { user, isAuthenticated, logout } = useAuth()
 
   const submitSearch = (e: FormEvent) => {
     e.preventDefault()
     navigate(`/browse?q=${encodeURIComponent(q.trim())}`)
   }
+
+  const handleSignOut = () => {
+    void logout().then(() => navigate('/'))
+  }
+
+  const avatarInitials = initials(user?.name ?? '')
 
   return (
     <>
@@ -62,18 +71,50 @@ export function MarketplaceHeader() {
             >
               <Heart className="h-4 w-4" />
             </Link>
-            <Link
-              to="/workspace"
-              className="hidden min-h-11 cursor-pointer items-center rounded-full px-3.5 text-sm font-semibold text-ink-600 transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:inline-flex"
-            >
-              Agent login
-            </Link>
+
+            {!isAuthenticated ? (
+              <>
+                <Link
+                  to="/login"
+                  className="hidden min-h-11 cursor-pointer items-center rounded-full px-3.5 text-sm font-semibold text-ink-600 transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:inline-flex"
+                >
+                  Sign in
+                </Link>
+                <Link
+                  to="/register"
+                  className="hidden min-h-11 cursor-pointer items-center rounded-full px-3.5 text-sm font-semibold text-primary hover:bg-primary-50 sm:inline-flex"
+                >
+                  Register
+                </Link>
+              </>
+            ) : null}
+
             <Link
               to="/browse"
               className="inline-flex min-h-11 cursor-pointer items-center rounded-full bg-primary px-4 text-sm font-semibold text-white transition-colors duration-200 hover:bg-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
             >
               Find a home
             </Link>
+
+            {isAuthenticated ? (
+              <>
+                <button
+                  type="button"
+                  className="hidden min-h-11 cursor-pointer items-center rounded-full px-3.5 text-sm font-semibold text-ink-500 transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:inline-flex"
+                  onClick={handleSignOut}
+                >
+                  Sign out
+                </button>
+                <Link
+                  to="/workspace"
+                  aria-label="Go to your dashboard"
+                  className="hidden min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-full bg-primary-100 text-sm font-semibold text-primary transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:inline-flex"
+                >
+                  {avatarInitials || '?'}
+                </Link>
+              </>
+            ) : null}
+
             <button
               type="button"
               className="inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-full border border-primary-100 transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary md:hidden"
@@ -114,13 +155,60 @@ export function MarketplaceHeader() {
               </Link>
             )
           })}
-          <Link
-            to="/workspace"
-            onClick={() => setMobileOpen(false)}
-            className="mt-4 flex min-h-11 cursor-pointer items-center justify-center rounded-xl bg-primary px-3 py-3 text-center text-sm font-semibold text-white transition-colors duration-200 hover:bg-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          >
-            Agent Workspace
-          </Link>
+
+          {isAuthenticated ? (
+            <>
+              <Link
+                to="/browse"
+                onClick={() => setMobileOpen(false)}
+                className="mt-4 flex min-h-11 cursor-pointer items-center justify-center rounded-xl bg-primary px-3 py-3 text-center text-sm font-semibold text-white transition-colors duration-200 hover:bg-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                Find a home
+              </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileOpen(false)
+                  handleSignOut()
+                }}
+                className="flex min-h-11 w-full cursor-pointer items-center justify-center rounded-xl px-3 py-3 text-sm font-semibold text-ink-500 transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                Sign out
+              </button>
+              <Link
+                to="/workspace"
+                onClick={() => setMobileOpen(false)}
+                aria-label="Go to your dashboard"
+                className="mx-auto flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-full bg-primary-100 text-sm font-semibold text-primary transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                {avatarInitials || '?'}
+              </Link>
+            </>
+          ) : (
+            <>
+              <Link
+                to="/login"
+                onClick={() => setMobileOpen(false)}
+                className="mt-4 flex min-h-11 cursor-pointer items-center justify-center rounded-xl px-3 py-3 text-sm font-semibold text-ink-600 transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                Sign in
+              </Link>
+              <Link
+                to="/register"
+                onClick={() => setMobileOpen(false)}
+                className="flex min-h-11 cursor-pointer items-center justify-center rounded-xl px-3 py-3 text-sm font-semibold text-primary transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                Register
+              </Link>
+              <Link
+                to="/browse"
+                onClick={() => setMobileOpen(false)}
+                className="flex min-h-11 cursor-pointer items-center justify-center rounded-xl bg-primary px-3 py-3 text-center text-sm font-semibold text-white transition-colors duration-200 hover:bg-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                Find a home
+              </Link>
+            </>
+          )}
         </div>
       </MobileDrawer>
     </>

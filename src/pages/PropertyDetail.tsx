@@ -1,7 +1,7 @@
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMemo, useState } from 'react'
 import { useStore } from '../context/AppStore'
-import { useAuth } from '../context/AuthContext'
+import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { DashboardTabs } from '../components/dashboard/DashboardTabs'
 import { Card } from '../components/ui'
 import { STAGE_PROGRESS } from '../lib/workflow'
@@ -22,6 +22,7 @@ import {
 } from '../components/property-detail/types'
 import type { ApplicationStage } from '../types/domain'
 import type { AssetCondition } from '../data/infrastructure'
+import { isVerificationApproved } from '../lib/verification'
 
 export default function PropertyDetail() {
   const { id } = useParams()
@@ -56,9 +57,15 @@ export default function PropertyDetail() {
     addPropertyEvent,
   } = useStore()
   const { has, user } = useAuth()
+  const { inPropertyScope, canMutate } = usePropertyScope()
 
   const [editOpen, setEditOpen] = useState(false)
   const p = state.properties.find((x) => x.id === id)
+
+  const inScope = useMemo(() => {
+    if (!p) return false
+    return inPropertyScope(p.id)
+  }, [p, inPropertyScope])
 
   const tabParam = params.get('tab')
   const tab: PropertyDetailTab = isPropertyDetailTab(tabParam) ? tabParam : 'overview'
@@ -131,11 +138,18 @@ export default function PropertyDetail() {
         u.role === 'client_admin'),
   )
   const landlords = state.users.filter(
-    (u) => u.active && (u.role === 'landlord' || u.id === p?.landlordId),
+    (u) =>
+      u.active &&
+      (u.role === 'landlord' || u.id === p?.landlordId) &&
+      (u.agencyId === p?.agencyId || u.id === p?.landlordId),
   )
 
   const contractors = state.users.filter(
-    (u) => u.active && u.role === 'contractor' && (u.agencyId === p?.agencyId || !u.agencyId),
+    (u) =>
+      u.active &&
+      u.role === 'contractor' &&
+      isVerificationApproved(u.verification, u.role) &&
+      (u.agencyId === p?.agencyId || !u.agencyId),
   )
 
   const canManage = has('assets.manage')
@@ -154,6 +168,10 @@ export default function PropertyDetail() {
         </Link>
       </Card>
     )
+  }
+
+  if (!inScope) {
+    return <Navigate to="/workspace/properties" replace />
   }
 
   const openTickets = tickets.filter((t) => t.status !== 'Completed' && t.status !== 'Cancelled').length
@@ -220,6 +238,7 @@ export default function PropertyDetail() {
           editOpen={editOpen}
           onEditOpenChange={setEditOpen}
           onSave={(patch) => {
+            if (!canMutate(p.id)) return
             const { status, ...rest } = patch
             updateProperty(p.id, rest)
             if (status && status !== p.status) publishProperty(p.id, status)
@@ -504,6 +523,7 @@ export default function PropertyDetail() {
 
       {tab === 'documents' && canDocs && (
         <PropertyDocumentsPanel
+          propertyDocuments={state.propertyDocuments.filter((d) => d.propertyId === p.id)}
           applications={apps}
           canManage={canManage}
           onUpdateDoc={(applicationId, key, status, note) =>

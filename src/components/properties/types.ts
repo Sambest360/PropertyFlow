@@ -1,7 +1,7 @@
 import type { PropertyAsset } from '../../types/domain'
 import { STANDARD_PROPERTY_STATUSES } from '../../lib/propertyStatus'
 
-export type PropertiesViewMode = 'list' | 'cards'
+export type PropertiesViewMode = 'list' | 'cards' | 'map'
 
 export type AttentionFilter = 'all' | 'any' | 'tickets' | 'viewings' | 'apps'
 export type SortKey = 'name' | 'suburb' | 'status' | 'price' | 'attention'

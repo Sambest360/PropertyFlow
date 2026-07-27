@@ -37,10 +37,21 @@ import StaffDirectory from './pages/StaffDirectory'
 import StaffDetail from './pages/StaffDetail'
 import TenantDirectory from './pages/TenantDirectory'
 import OccupantDetail from './pages/OccupantDetail'
-import Admin from './pages/Admin'
-import TenantsAdmin from './pages/TenantsAdmin'
+import AdminHub from './pages/admin/AdminHub'
+import AdminUsersPage from './pages/admin/AdminUsersPage'
+import AdminUserDetailPage from './pages/admin/AdminUserDetailPage'
+import AdminUserCreatePage from './pages/admin/AdminUserCreatePage'
+import AdminAgenciesPage from './pages/admin/AdminAgenciesPage'
+import AdminAgencyCreatePage from './pages/admin/AdminAgencyCreatePage'
+import AgencyDetailPage from './pages/admin/AgencyDetailPage'
+import AdminConfigPage from './pages/admin/AdminConfigPage'
+import AdminNotificationsPage from './pages/admin/AdminNotificationsPage'
 import PlatformBilling from './pages/PlatformBilling'
 import SuiteAlerts from './pages/SuiteAlerts'
+
+import LoginPage from './pages/auth/LoginPage'
+import RegisterPage from './pages/auth/RegisterPage'
+import { RequireAuth } from './components/RequireAuth'
 
 function Guard({
   permission,
@@ -72,6 +83,9 @@ export default function App() {
           <BrowserRouter>
             <ScrollToTop />
             <Routes>
+              <Route path="login" element={<LoginPage />} />
+              <Route path="register" element={<RegisterPage />} />
+
               <Route element={<MarketplaceShell />}>
                 <Route index element={<MarketHome />} />
                 <Route path="browse" element={<BrowsePage />} />
@@ -80,7 +94,14 @@ export default function App() {
                 <Route path="calculators/*" element={<CalculatorsPage />} />
               </Route>
 
-              <Route path="workspace" element={<WorkspaceShell />}>
+              <Route
+                path="workspace"
+                element={
+                  <RequireAuth>
+                    <WorkspaceShell />
+                  </RequireAuth>
+                }
+              >
                 <Route index element={<Dashboard />} />
 
                 {/* Properties — one list, one detail (no infra/listings tab maze) */}
@@ -92,8 +113,30 @@ export default function App() {
                     </Guard>
                   }
                 />
-                <Route path="properties/new" element={<AssetCreate />} />
-                <Route path="properties/:id" element={<PropertyDetail />} />
+                <Route
+                  path="properties/new"
+                  element={
+                    <Guard permission="assets.manage">
+                      <AssetCreate />
+                    </Guard>
+                  }
+                />
+                <Route
+                  path="properties/:id"
+                  element={
+                    <Guard
+                      anyOf={[
+                        'assets.view',
+                        'listings.publish',
+                        'portal.owner',
+                        'portal.tenant',
+                        'portal.contractor',
+                      ]}
+                    >
+                      <PropertyDetail />
+                    </Guard>
+                  }
+                />
 
                 {/* Sales — flat routes */}
                 <Route path="sales/crm" element={<Guard anyOf={['leads.view', 'leads.manage']}><CRM /></Guard>} />
@@ -122,6 +165,7 @@ export default function App() {
                 {/* Portals */}
                 <Route path="portals/owner" element={<Guard permission="portal.owner"><OwnerPortal /></Guard>} />
                 <Route path="portals/tenant" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
+                <Route path="portals/tenant/applications" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
                 <Route path="portals/contractor" element={<Guard permission="portal.contractor"><ContractorPortal /></Guard>} />
 
                 {/* People */}
@@ -131,9 +175,18 @@ export default function App() {
                 <Route path="people/tenants/:id" element={<Guard permission="occupants.view"><OccupantDetail /></Guard>} />
 
                 <Route path="insights/reports" element={<Guard permission="reports.view"><Reports /></Guard>} />
-                <Route path="admin" element={<Guard anyOf={['users.manage', 'roles.assign', 'tenant.manage']}><Admin /></Guard>} />
-                <Route path="admin/suite-alerts" element={<Guard anyOf={['users.manage', 'roles.assign', 'tenant.manage', 'platform.manage']}><SuiteAlerts /></Guard>} />
-                <Route path="platform" element={<Guard permission="platform.manage"><TenantsAdmin /></Guard>} />
+                <Route path="admin" element={<Guard anyOf={['users.manage', 'roles.assign', 'tenant.manage', 'config.manage', 'platform.manage']}><AdminHub /></Guard>} />
+                <Route path="admin/users" element={<Guard permission="roles.assign"><AdminUsersPage /></Guard>} />
+                <Route path="admin/users/new" element={<Guard anyOf={['users.manage', 'roles.assign']}><AdminUserCreatePage /></Guard>} />
+                <Route path="admin/users/:id" element={<Guard permission="roles.assign"><AdminUserDetailPage /></Guard>} />
+                <Route path="admin/agencies" element={<Guard permission="platform.manage"><AdminAgenciesPage /></Guard>} />
+                <Route path="admin/agencies/new" element={<Guard permission="platform.manage"><AdminAgencyCreatePage /></Guard>} />
+                <Route path="admin/agencies/:id" element={<Guard permission="platform.manage"><AgencyDetailPage /></Guard>} />
+                <Route path="admin/config" element={<Guard anyOf={['config.manage', 'tenant.manage', 'platform.manage']}><AdminConfigPage /></Guard>} />
+                <Route path="admin/roles" element={<Navigate to="/workspace/admin/users" replace />} />
+                <Route path="admin/notifications" element={<Guard anyOf={['notifications.broadcast', 'platform.manage']}><AdminNotificationsPage /></Guard>} />
+                <Route path="admin/suite-alerts" element={<Guard anyOf={['users.manage', 'roles.assign', 'tenant.manage', 'platform.manage', 'config.manage']}><SuiteAlerts /></Guard>} />
+                <Route path="platform" element={<Navigate to="/workspace/admin/agencies" replace />} />
                 <Route path="platform/billing" element={<Guard permission="platform.manage"><PlatformBilling /></Guard>} />
 
                 {/* Legacy redirects */}

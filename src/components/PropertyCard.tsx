@@ -11,6 +11,8 @@ import {
   type UnitCardPayload,
 } from '../lib/api/unitsApi'
 import type { Building, Unit } from '../data/infrastructure'
+import { useAuth } from '../context/AuthContext'
+import { useWishlist } from '../hooks/useWishlist'
 
 export function PropertyCard({
   property,
@@ -26,6 +28,10 @@ export function PropertyCard({
   card?: UnitCardPayload
   className?: string
 }) {
+  const { user, isAuthenticated } = useAuth()
+  const { saved, toggle } = useWishlist(isAuthenticated ? user.id : 'guest')
+  const wishlisted = saved(property.id)
+
   const loadFree =
     card?.is_load_shedding_free ??
     (building
@@ -93,11 +99,16 @@ export function PropertyCard({
           </div>
           <button
             type="button"
-            onClick={(e) => e.preventDefault()}
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              toggle(property.id)
+            }}
             className="absolute right-3 top-3 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-white/95 text-ink shadow-sm transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            aria-label="Save"
+            aria-label={wishlisted ? 'Remove from wishlist' : 'Save to wishlist'}
+            aria-pressed={wishlisted}
           >
-            <Heart className="h-4 w-4" />
+            <Heart className={cn('h-4 w-4', wishlisted && 'fill-accent text-accent')} />
           </button>
           {featured && (
             <div className="absolute bottom-3 left-3 rounded-full bg-accent px-2.5 py-1 text-[11px] font-semibold text-white">

@@ -295,10 +295,15 @@
   }
 }
 
-/* Leaflet map — price pins + preview popup */
+/* Leaflet map — PropertyFlow soft canvas + branded price pins */
 .pf-leaflet-map.leaflet-container {
   font: inherit;
-  background: #e8eef5;
+  background: #f0f4fb;
+}
+
+.pf-leaflet-map .leaflet-tile-pane {
+  /* Soften Positron toward primary-50 canvas */
+  filter: saturate(0.88) contrast(0.96) brightness(1.02);
 }
 
 .pf-map-marker {
@@ -310,6 +315,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  min-height: 44px;
+  min-width: 44px;
   transform: translate(-50%, -50%);
   white-space: nowrap;
   border-radius: 999px;
@@ -318,19 +325,30 @@
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.01em;
-  padding: 6px 10px;
+  padding: 8px 12px;
   box-shadow: 0 8px 18px -10px rgba(15, 39, 68, 0.55);
   border: 2px solid #fff;
   cursor: pointer;
-  transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease, outline-color 0.2s ease;
 }
 
-.pf-price-pill:hover,
+.pf-price-pill:hover {
+  background: #163a5c;
+  transform: translate(-50%, -50%) scale(1.04);
+}
+
 .pf-price-pill.is-active {
   background: #0b63c8;
   transform: translate(-50%, -50%) scale(1.08);
   box-shadow: 0 10px 22px -8px rgba(11, 99, 200, 0.55);
+  outline: 2px solid #f04332;
+  outline-offset: 2px;
   z-index: 2;
+}
+
+.pf-price-pill:focus-visible {
+  outline: 2px solid #0b63c8;
+  outline-offset: 3px;
 }
 
 .pf-map-popup .leaflet-popup-content-wrapper {
@@ -382,9 +400,9 @@
 }
 
 .pf-leaflet-map .leaflet-control-zoom a {
-  width: 36px !important;
-  height: 36px !important;
-  line-height: 36px !important;
+  width: 44px !important;
+  height: 44px !important;
+  line-height: 44px !important;
   color: #0f2744 !important;
   background: #ffffff !important;
   border-bottom-color: #dceaf8 !important;
@@ -396,16 +414,36 @@
 }
 
 .pf-leaflet-map .leaflet-control-attribution {
-  background: rgba(255, 255, 255, 0.85) !important;
+  background: rgba(240, 244, 251, 0.92) !important;
   color: #6b7c93 !important;
   font-size: 10px !important;
   border-radius: 8px 0 0 0;
   max-width: 55%;
 }
 
+/* Google Maps price labels */
+.pf-gmap-price-label {
+  background: #0f2744 !important;
+  color: #fff !important;
+  border-radius: 999px !important;
+  border: 2px solid #fff !important;
+  padding: 4px 8px !important;
+  font-family: inherit !important;
+  box-shadow: 0 8px 18px -10px rgba(15, 39, 68, 0.55);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pf-price-pill {
     transition: none;
+  }
+
+  .pf-price-pill:hover,
+  .pf-price-pill.is-active {
+    transform: translate(-50%, -50%);
+  }
+
+  .pf-leaflet-map .leaflet-tile-pane {
+    filter: none;
   }
 }
 

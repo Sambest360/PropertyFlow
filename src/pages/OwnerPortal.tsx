@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { Banknote, Building, Home, TrendingUp, Wrench } from 'lucide-react'
 import { useStore } from '../context/AppStore'
-import { useAuth } from '../context/AuthContext'
+import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
 import {
   AttentionHero,
@@ -16,17 +16,16 @@ import { formatZAR } from '../data/seed'
 export default function OwnerPortal() {
   const { state } = useStore()
   const { user } = useAuth()
+  const { allowedPropertyIds } = usePropertyScope()
 
   const scoped = useMemo(() => {
-    if (user.role === 'landlord') return state.properties.filter((p) => p.landlordId === user.id)
-    return state.properties.filter((p) => p.agencyId === user.agencyId || user.role === 'super_admin')
-  }, [state.properties, user])
+    return state.properties.filter((p) => allowedPropertyIds.has(p.id))
+  }, [state.properties, allowedPropertyIds])
 
   const payments = state.payments.filter((p) => {
     const prop = state.properties.find((x) => x.id === p.propertyId)
     if (!prop || !p.landlordVisible) return false
-    if (user.role === 'landlord') return prop.landlordId === user.id
-    return true
+    return allowedPropertyIds.has(p.propertyId)
   })
   const collected = payments.filter((p) => p.status === 'Paid').reduce((n, p) => n + p.amount, 0)
   const due = payments.filter((p) => p.status === 'Due' || p.status === 'Overdue').reduce((n, p) => n + p.amount, 0)
@@ -123,7 +122,18 @@ export default function OwnerPortal() {
             )
           })}
           {scoped.length === 0 && (
-            <Card className="p-6 text-sm text-ink-500">No properties linked to this landlord yet.</Card>
+            <Card className="p-8 text-center">
+              <p className="font-semibold text-ink">No properties yet</p>
+              <p className="mt-2 text-sm text-ink-500">
+                Add a property to your portfolio and publish it so applicants can find it on the marketplace.
+              </p>
+              <Link
+                to="/workspace/properties/new"
+                className="mt-4 inline-flex min-h-11 cursor-pointer items-center justify-center rounded-2xl bg-primary px-4 text-sm font-semibold text-white transition-colors duration-200 hover:bg-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                Add property
+              </Link>
+            </Card>
           )}
         </div>
       </DashboardPage>

@@ -30,7 +30,7 @@ export function CreateMenu({ items }: { items: CreateMenuItem[] }) {
               key={`${item.label}-${item.to}`}
               to={withReturnTo(item.to, returnHere)}
               onClick={() => setOpen(false)}
-              className="flex min-h-10 w-full cursor-pointer items-center px-3 text-sm text-ink transition-colors duration-150 hover:bg-primary-50 hover:text-primary"
+              className="flex min-h-11 w-full cursor-pointer items-center px-3 text-sm text-ink transition-colors duration-150 hover:bg-primary-50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
             >
               {item.label}
             </Link>
@@ -53,7 +53,7 @@ export function FilterClearHint({
       Filter: <span className="font-semibold text-ink">{label}</span>
       <button
         type="button"
-        className="ml-2 cursor-pointer font-semibold text-primary hover:underline"
+        className="ml-2 inline-flex min-h-11 cursor-pointer items-center px-1 font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         onClick={onClear}
       >
         Clear

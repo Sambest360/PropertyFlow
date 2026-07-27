@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -18,10 +19,13 @@ import type {
   Message,
   MessageThread,
   AppNotification,
+  NotificationBroadcast,
   PaymentRecord,
   PropertyAsset,
   PropertyDocument,
   PropertyEvent,
+  Review,
+  ReviewTargetType,
   Role,
   Room,
   SuiteAlertAction,
@@ -32,35 +36,15 @@ import type {
   ViewingSlot,
   Activity,
 } from '../types/domain'
+import { isPubliclyListed } from '../lib/publicListings'
 import {
-  seedAgencies,
-  seedApplications,
-  seedActivities,
-  seedLeads,
-  seedMessages,
-  seedNotifications,
-  seedPayments,
-  seedProperties,
-  seedPropertyDocuments,
-  seedTenancies,
-  seedThreads,
-  seedTickets,
-  seedUsers,
-  seedViewingSlots,
-  seedViewings,
   uid,
 } from '../data/seed'
-import {
-  seedBuildings,
-  seedInfraRooms,
-  seedInternalAssets,
-  seedLookups,
-  seedUnits,
-  propertiesFromInfrastructure,
-} from '../data/infraSeed'
-import type { MarkPaymentPaidDetails } from '../components/payments/types'
 import type { AssetCondition, Building, InfraRoom, InternalAsset, LookupConfig, RoomKind, Unit, UnitTemplate } from '../data/infrastructure'
 import { UNIT_TEMPLATES } from '../data/infrastructure'
+import type { MarkPaymentPaidDetails } from '../components/payments/types'
+import { isRequiredLookupKey, GLOBAL_CLIENT_ID } from '../data/platformLookups'
+import { DEFAULT_AGENCY_PERMISSIONS, defaultLicenseStatus, rolePermissions, userBasePermissions } from '../lib/permissions'
 import {
   allDocsUploaded,
   buildDocumentChecklist,
@@ -68,7 +52,6 @@ import {
 } from '../lib/workflow'
 import {
   SEED_BILLING_PLANS,
-  SEED_SUBSCRIPTIONS,
   runBillingCycle,
   type BillingPlan,
   type ClientSubscription,
@@ -101,8 +84,6 @@ import {
   type PatchApplicationStatusRequest,
   type PatchApplicationStatusResult,
 } from '../lib/api/applicationStatusApi'
-import { rolePermissions } from '../lib/permissions'
-import { buildSeedPropertyEvents } from '../lib/propertyHistory'
 import {
   buildDefaultSuiteAlerts,
   DEFAULT_POPUP_DURATION_MS,
@@ -114,8 +95,83 @@ import {
   isApplicantBlockedOnProperty,
   viewingBelongsToApplication,
 } from '../lib/blockedApplicants'
+import { fetchPostgresBootstrap, type PostgresBootstrap } from '../lib/api/postgresClient'
+import { readStoredAuthUserId, type DemoActor } from '../lib/api/actorAuth'
+import {
+  persistApproveApplication,
+  persistMarkNotificationsRead,
+  queueDelete,
+  queuePersistBatch,
+  queueUpsert,
+} from '../lib/api/persist'
 
-const STORAGE_KEY = 'propertyflow-v9'
+/**
+ * App state persistence key.
+ * Bump when seed content must refresh for existing browsers.
+ * When the local Postgres API is up, AppStore hydrates core entities from `/api/bootstrap`
+ * and still mirrors into localStorage for offline edits.
+ */
+const STORAGE_KEY = 'propertyflow-v17'
+const PG_HYDRATED_FLAG = 'propertyflow-pg-source'
+
+function actorFromUsers(
+  users: AppUser[],
+  override?: DemoActor | null,
+): DemoActor | null {
+  if (override) return override
+  const id = readStoredAuthUserId()
+  const u = id ? users.find((x) => x.id === id) : null
+  if (!u) return null
+  return { userId: u.id, role: u.role, agencyId: u.agencyId }
+}
+
+/** When Postgres bootstrap succeeds, replace collections (empty product = empty arrays). */
+function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppState {
+  const agencies = ((boot.agencies as Agency[]) ?? []).map((a) => ({
+    ...a,
+    enabledPermissions:
+      Array.isArray(a.enabledPermissions) && a.enabledPermissions.length
+        ? a.enabledPermissions
+        : [...DEFAULT_AGENCY_PERMISSIONS],
+  }))
+  const users = (boot.users as AppUser[]) ?? []
+
+  const replaceLinked = Boolean(boot.scoped)
+  const pick = <T extends { id: string }>(baseList: T[], bootList: T[] | undefined): T[] => {
+    if (!bootList) return replaceLinked ? [] : baseList
+    return replaceLinked ? bootList : bootList
+  }
+
+  return {
+    ...base,
+    agencies,
+    users,
+    properties: pick(base.properties, boot.properties as PropertyAsset[]),
+    buildings: pick(base.buildings, boot.buildings as Building[]),
+    units: pick(base.units, boot.units as Unit[]),
+    leads: pick(base.leads, boot.leads as Lead[]),
+    applications: pick(base.applications, boot.applications as Application[]),
+    tenancies: pick(base.tenancies, boot.tenancies as Tenancy[]),
+    viewings: pick(base.viewings, boot.viewings as Viewing[]),
+    payments: pick(base.payments, boot.payments as PaymentRecord[]),
+    propertyDocuments: pick(
+      base.propertyDocuments,
+      boot.propertyDocuments as PropertyDocument[],
+    ),
+    tickets: pick(base.tickets, boot.tickets as MaintenanceTicket[]),
+    threads: pick(base.threads, boot.threads as MessageThread[]),
+    messages: pick(base.messages, boot.messages as Message[]),
+    notifications: pick(base.notifications, boot.notifications as AppNotification[]),
+    viewingSlots: pick(base.viewingSlots, (boot.viewingSlots ?? []) as ViewingSlot[]),
+    suiteAlerts: pick(base.suiteAlerts, (boot.suiteAlerts ?? []) as SuiteAlertRule[]),
+    activities: pick(base.activities, (boot.activities ?? []) as Activity[]),
+    propertyEvents: pick(
+      base.propertyEvents,
+      (boot.propertyEvents ?? []) as PropertyEvent[],
+    ),
+    invoices: pick(base.invoices, (boot.invoices ?? []) as PlatformInvoice[]),
+  }
+}
 
 export type AppState = {
   agencies: Agency[]
@@ -135,11 +191,13 @@ export type AppState = {
   threads: MessageThread[]
   messages: Message[]
   notifications: AppNotification[]
+  notificationBroadcasts: NotificationBroadcast[]
   suiteAlerts: SuiteAlertRule[]
   tickets: MaintenanceTicket[]
   activities: Activity[]
   propertyDocuments: PropertyDocument[]
   propertyEvents: PropertyEvent[]
+  reviews: Review[]
   billingPlans: BillingPlan[]
   clientSubscriptions: ClientSubscription[]
   invoices: PlatformInvoice[]
@@ -149,11 +207,32 @@ export type AppState = {
 type StoreContextValue = {
   state: AppState
   resetDemo: () => void
-  createAgency: (input: Omit<Agency, 'id' | 'createdAt' | 'status'> & { status?: Agency['status'] }) => Agency
+  /** Re-fetch /api/bootstrap for the given (or current) demo actor. */
+  refreshBootstrap: (actor?: DemoActor | null) => Promise<void>
+  createAgency: (input: Omit<Agency, 'id' | 'createdAt' | 'status'> & { status?: Agency['status']; enabledPermissions?: Agency['enabledPermissions'] }) => Agency
   updateAgency: (id: string, patch: Partial<Agency>) => void
-  createUser: (input: Omit<AppUser, 'id' | 'active'> & { active?: boolean }) => AppUser
+  createUser: (input: Omit<AppUser, 'id' | 'active'> & {
+    active?: boolean
+    /** Plain password for invite / staff create (hashed server-side). */
+    password?: string
+    tempPassword?: string
+  }) => AppUser
   updateUser: (id: string, patch: Partial<AppUser>) => void
+  updateTenancy: (id: string, patch: Partial<Tenancy>) => void
   assignRole: (userId: string, role: Role, agencyId?: string | null) => void
+  createLookup: (input: Omit<LookupConfig, 'id' | 'sortOrder' | 'isActive'> & { sortOrder?: number; isActive?: boolean }) => LookupConfig
+  updateLookup: (id: string, patch: Partial<Pick<LookupConfig, 'displayLabel' | 'isActive' | 'sortOrder' | 'keyValue'>>) => void
+  reorderLookups: (clientId: string, configType: string, orderedIds: string[]) => void
+  deactivateLookup: (id: string) => boolean
+  broadcastNotification: (input: {
+    title: string
+    body: string
+    link?: string
+    audience: 'everyone' | 'agency' | 'person'
+    agencyId?: string | null
+    userId?: string | null
+    createdByUserId: string
+  }) => NotificationBroadcast
   createProperty: (input: Omit<PropertyAsset, 'id' | 'createdAt' | 'rooms' | 'images'> & { images?: string[]; rooms?: Room[] }) => PropertyAsset
   updateProperty: (id: string, patch: Partial<PropertyAsset>) => void
   setPropertyRooms: (id: string, rooms: Room[]) => void
@@ -196,6 +275,16 @@ type StoreContextValue = {
   updatePropertyDocument: (id: string, patch: Partial<PropertyDocument>) => void
   removePropertyDocument: (id: string) => void
   addPropertyEvent: (input: Omit<PropertyEvent, 'id' | 'at'> & { at?: string }) => PropertyEvent
+  createReview: (input: {
+    targetType: ReviewTargetType
+    targetId: string
+    propertyId?: string | null
+    agencyId?: string | null
+    authorUserId: string
+    authorName: string
+    rating: number
+    body: string
+  }) => Review | { error: string }
   createLead: (input: Omit<Lead, 'id' | 'createdAt' | 'updatedAt' | 'notes' | 'stage'> & { stage?: string; notes?: string }) => Lead
   updateLeadStage: (id: string, stage: string) => void
   createApplication: (input: {
@@ -280,40 +369,33 @@ type StoreContextValue = {
   toasts: NotificationToast[]
 }
 
-const INFRA_PROPERTY_IDS = new Set(propertiesFromInfrastructure().map((p) => p.id))
-
 const defaultState = (): AppState => ({
-  agencies: seedAgencies,
-  users: seedUsers,
-  properties: [
-    ...propertiesFromInfrastructure(),
-    ...seedProperties.filter((p) => !INFRA_PROPERTY_IDS.has(p.id) && p.id !== 'PR-1008'),
-  ],
-  buildings: seedBuildings,
-  units: seedUnits,
-  infraRooms: seedInfraRooms,
-  internalAssets: seedInternalAssets,
-  lookups: seedLookups,
-  leads: seedLeads,
-  applications: seedApplications,
-  viewingSlots: seedViewingSlots,
-  viewings: seedViewings,
-  payments: seedPayments,
-  tenancies: seedTenancies,
-  threads: seedThreads,
-  messages: seedMessages,
-  notifications: seedNotifications,
-  suiteAlerts: [
-    ...buildDefaultSuiteAlerts(null),
-    ...buildDefaultSuiteAlerts('ag-horizon'),
-    ...buildDefaultSuiteAlerts('ag-cape'),
-  ],
-  tickets: seedTickets,
-  activities: seedActivities,
-  propertyDocuments: seedPropertyDocuments,
-  propertyEvents: buildSeedPropertyEvents(),
+  agencies: [],
+  users: [],
+  properties: [],
+  buildings: [],
+  units: [],
+  infraRooms: [],
+  internalAssets: [],
+  lookups: [],
+  leads: [],
+  applications: [],
+  viewingSlots: [],
+  viewings: [],
+  payments: [],
+  tenancies: [],
+  threads: [],
+  messages: [],
+  notifications: [],
+  notificationBroadcasts: [],
+  suiteAlerts: buildDefaultSuiteAlerts(null),
+  tickets: [],
+  activities: [],
+  propertyDocuments: [],
+  propertyEvents: [],
+  reviews: [],
   billingPlans: SEED_BILLING_PLANS,
-  clientSubscriptions: SEED_SUBSCRIPTIONS,
+  clientSubscriptions: [],
   invoices: [],
   vendorRoutes: SEED_VENDOR_ROUTES,
 })
@@ -327,23 +409,30 @@ function loadState(): AppState {
     return {
       ...base,
       ...parsed,
-      buildings: parsed.buildings?.length ? parsed.buildings : base.buildings,
-      units: parsed.units?.length ? parsed.units : base.units,
-      infraRooms: parsed.infraRooms?.length ? parsed.infraRooms : base.infraRooms,
-      internalAssets: parsed.internalAssets?.length ? parsed.internalAssets : base.internalAssets,
-      lookups: parsed.lookups?.length ? parsed.lookups : base.lookups,
+      buildings: parsed.buildings ?? base.buildings,
+      units: parsed.units ?? base.units,
+      infraRooms: parsed.infraRooms ?? base.infraRooms,
+      internalAssets: parsed.internalAssets ?? base.internalAssets,
+      lookups: parsed.lookups ?? base.lookups,
       billingPlans: parsed.billingPlans?.length ? parsed.billingPlans : base.billingPlans,
-      clientSubscriptions: parsed.clientSubscriptions?.length
-        ? parsed.clientSubscriptions
-        : base.clientSubscriptions,
+      clientSubscriptions: parsed.clientSubscriptions ?? base.clientSubscriptions,
       invoices: parsed.invoices ?? base.invoices,
       vendorRoutes: parsed.vendorRoutes?.length ? parsed.vendorRoutes : base.vendorRoutes,
-      propertyDocuments: parsed.propertyDocuments?.length
-        ? parsed.propertyDocuments
-        : base.propertyDocuments,
-      propertyEvents: parsed.propertyEvents?.length ? parsed.propertyEvents : base.propertyEvents,
+      propertyDocuments: parsed.propertyDocuments ?? base.propertyDocuments,
+      propertyEvents: parsed.propertyEvents ?? base.propertyEvents,
+      reviews: parsed.reviews ?? base.reviews,
       suiteAlerts: parsed.suiteAlerts?.length ? parsed.suiteAlerts : base.suiteAlerts,
       notifications: parsed.notifications ?? base.notifications,
+      notificationBroadcasts: parsed.notificationBroadcasts ?? base.notificationBroadcasts,
+      agencies: (parsed.agencies ?? base.agencies).map((a) => ({
+        ...a,
+        enabledPermissions:
+          'enabledPermissions' in a && Array.isArray(a.enabledPermissions) && a.enabledPermissions.length
+            ? a.enabledPermissions
+            : [...DEFAULT_AGENCY_PERMISSIONS],
+      })),
+      users: parsed.users ?? base.users,
+      properties: parsed.properties ?? base.properties,
     }
   } catch {
     return base
@@ -355,6 +444,44 @@ const StoreContext = createContext<StoreContextValue | null>(null)
 export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>(() => loadState())
   const [toasts, setToasts] = useState<NotificationToast[]>([])
+  const stateRef = useRef(state)
+  stateRef.current = state
+
+  const refreshBootstrap = useCallback(async (actor?: DemoActor | null) => {
+    const resolved =
+      actor === undefined ? actorFromUsers(stateRef.current.users) : actor
+    const boot = await fetchPostgresBootstrap(8000, resolved)
+    if (!boot) return
+    setState((prev) => applyPostgresBootstrap(prev, boot))
+    try {
+      localStorage.setItem(PG_HYDRATED_FLAG, 'postgres')
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const actor = actorFromUsers(stateRef.current.users)
+      const boot = await fetchPostgresBootstrap(8000, actor)
+      if (cancelled || !boot) return
+      setState((prev) => applyPostgresBootstrap(prev, boot))
+      try {
+        localStorage.setItem(PG_HYDRATED_FLAG, 'postgres')
+      } catch {
+        /* ignore */
+      }
+      console.info(
+        '[AppStore] hydrated from Postgres API',
+        boot.fetchedAt,
+        boot.scoped ? `(scoped ${boot.actor?.userId})` : '(full/agency)',
+      )
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
@@ -362,6 +489,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
   const patch = useCallback((fn: (s: AppState) => AppState) => {
     setState((s) => fn(s))
+  }, [])
+
+  /** Optimistic local write + fire-and-forget Postgres persist (degrades to localStorage). */
+  const persistUpsert = useCallback(
+    (resource: Parameters<typeof queueUpsert>[0], id: string, data: Record<string, unknown>) => {
+      queueUpsert(resource, id, data)
+    },
+    [],
+  )
+  const persistDelete = useCallback((resource: Parameters<typeof queueDelete>[0], id: string) => {
+    queueDelete(resource, id)
   }, [])
 
   const pushToast = useCallback((toast: NotificationToast) => {
@@ -382,6 +520,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         at: new Date().toISOString(),
       }
       patch((s) => ({ ...s, activities: [activity, ...s.activities].slice(0, 200) }))
+      queueUpsert('activity', activity.id, activity as unknown as Record<string, unknown>)
     },
     [patch],
   )
@@ -397,6 +536,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ...s,
         propertyEvents: [event, ...s.propertyEvents].slice(0, 400),
       }))
+      queueUpsert('property_event', event.id, event as unknown as Record<string, unknown>)
       return event
     },
     [patch],
@@ -418,6 +558,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         read: input.read ?? false,
       }
       patch((s) => ({ ...s, notifications: [n, ...s.notifications].slice(0, 300) }))
+      queueUpsert('notification', n.id, n as unknown as Record<string, unknown>)
       if (!silent) {
         pushToast({
           id: uid('toast'),
@@ -514,10 +655,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const value = useMemo<StoreContextValue>(() => ({
     state,
     toasts,
+    refreshBootstrap,
     resetDemo: () => {
       localStorage.removeItem(STORAGE_KEY)
+      localStorage.removeItem(PG_HYDRATED_FLAG)
       setState(defaultState())
       setToasts([])
+      const actor = actorFromUsers(defaultState().users)
+      void fetchPostgresBootstrap(8000, actor).then((boot) => {
+        if (!boot) return
+        setState((prev) => applyPostgresBootstrap(prev, boot))
+        localStorage.setItem(PG_HYDRATED_FLAG, 'postgres')
+      })
     },
     createAgency: (input) => {
       const agency: Agency = {
@@ -527,25 +676,247 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         name: input.name,
         slug: input.slug,
         city: input.city,
+        enabledPermissions: input.enabledPermissions?.length
+          ? input.enabledPermissions
+          : [...DEFAULT_AGENCY_PERMISSIONS],
       }
-      patch((s) => ({ ...s, agencies: [...s.agencies, agency] }))
-      addActivity(`Agency created: ${agency.name}`, 'Super Admin', null)
-      return agency
-    },
-    updateAgency: (id, p) => patch((s) => ({ ...s, agencies: s.agencies.map((a) => (a.id === id ? { ...a, ...p } : a)) })),
-    createUser: (input) => {
-      const user: AppUser = { ...input, id: uid('u'), active: input.active ?? true }
-      patch((s) => ({ ...s, users: [...s.users, user] }))
-      return user
-    },
-    updateUser: (id, p) => patch((s) => ({ ...s, users: s.users.map((u) => (u.id === id ? { ...u, ...p } : u)) })),
-    assignRole: (userId, role, agencyId) =>
+      const defaultAlerts = buildDefaultSuiteAlerts(agency.id)
       patch((s) => ({
         ...s,
-        users: s.users.map((u) =>
-          u.id === userId ? { ...u, role, agencyId: agencyId === undefined ? u.agencyId : agencyId } : u,
-        ),
+        agencies: [...s.agencies, agency],
+        suiteAlerts: [...s.suiteAlerts, ...defaultAlerts],
+      }))
+      addActivity(`Agency created: ${agency.name}`, 'Super Admin', null)
+      persistUpsert('agency', agency.id, agency as unknown as Record<string, unknown>)
+      for (const alert of defaultAlerts) {
+        persistUpsert('suite_alert', alert.id, alert as unknown as Record<string, unknown>)
+      }
+      return agency
+    },
+    updateAgency: (id, p) => {
+      patch((s) => ({ ...s, agencies: s.agencies.map((a) => (a.id === id ? { ...a, ...p } : a)) }))
+      const next = { ...state.agencies.find((a) => a.id === id), ...p, id }
+      persistUpsert('agency', id, next as Record<string, unknown>)
+    },
+    createUser: (input) => {
+      const { password, tempPassword, ...rest } = input as typeof input & {
+        password?: string
+        tempPassword?: string
+      }
+      const user: AppUser = {
+        ...rest,
+        id: uid('u'),
+        active: input.active ?? true,
+        enabledPermissions:
+          input.role === 'super_admin'
+            ? undefined
+            : input.enabledPermissions?.length
+              ? input.enabledPermissions
+              : undefined,
+      }
+      patch((s) => ({ ...s, users: [...s.users, user] }))
+      persistUpsert('user', user.id, {
+        ...(user as unknown as Record<string, unknown>),
+        ...(password ? { password } : {}),
+        ...(tempPassword ? { tempPassword } : {}),
+        ...(!password && !tempPassword ? { tempPassword: 'ChangeMe123!' } : {}),
+      })
+      return user
+    },
+    updateUser: (id, p) => {
+      patch((s) => ({ ...s, users: s.users.map((u) => (u.id === id ? { ...u, ...p } : u)) }))
+      const next = { ...state.users.find((u) => u.id === id), ...p, id }
+      persistUpsert('user', id, next as Record<string, unknown>)
+    },
+    updateTenancy: (id, p) => {
+      patch((s) => ({
+        ...s,
+        tenancies: s.tenancies.map((t) => (t.id === id ? { ...t, ...p } : t)),
+      }))
+      const next = { ...state.tenancies.find((t) => t.id === id), ...p, id }
+      persistUpsert('tenancy', id, next as Record<string, unknown>)
+    },
+    assignRole: (userId, role, agencyId) => {
+      patch((s) => ({
+        ...s,
+        users: s.users.map((u) => {
+          if (u.id !== userId) return u
+          const roleChanged = u.role !== role
+          const nextAgencyId =
+            role === 'super_admin' ? null : agencyId === undefined ? u.agencyId : agencyId
+          return {
+            ...u,
+            role,
+            agencyId: nextAgencyId,
+            enabledPermissions:
+              role === 'super_admin' ? undefined : roleChanged ? undefined : u.enabledPermissions,
+            licenseStatus: roleChanged ? defaultLicenseStatus(role) : u.licenseStatus,
+            mentorId: roleChanged
+              ? role === 'agent'
+                ? u.mentorId
+                : null
+              : u.mentorId,
+            commissionSharePct: roleChanged
+              ? role === 'ground_agent' || role === 'agent'
+                ? u.commissionSharePct ?? (role === 'ground_agent' ? 70 : 50)
+                : undefined
+              : u.commissionSharePct,
+          }
+        }),
+      }))
+      const u = state.users.find((x) => x.id === userId)
+      if (u) {
+        const roleChanged = u.role !== role
+        const nextAgencyId =
+          role === 'super_admin' ? null : agencyId === undefined ? u.agencyId : agencyId
+        persistUpsert('user', userId, {
+          ...u,
+          role,
+          agencyId: nextAgencyId,
+          enabledPermissions:
+            role === 'super_admin' ? undefined : roleChanged ? undefined : u.enabledPermissions,
+          licenseStatus: roleChanged ? defaultLicenseStatus(role) : u.licenseStatus,
+        } as unknown as Record<string, unknown>)
+      }
+    },
+    createLookup: (input) => {
+      const clientId = input.clientId || GLOBAL_CLIENT_ID
+      let created: LookupConfig | null = null
+      patch((s) => {
+        const siblings = s.lookups.filter((l) => l.clientId === clientId && l.configType === input.configType)
+        if (siblings.some((l) => l.keyValue === input.keyValue)) return s
+        const sortOrder = input.sortOrder ?? (siblings.reduce((m, l) => Math.max(m, l.sortOrder), -1) + 1)
+        created = {
+          id: uid('lk'),
+          clientId,
+          configType: input.configType,
+          keyValue: input.keyValue,
+          displayLabel: input.displayLabel,
+          isActive: input.isActive ?? true,
+          sortOrder,
+        }
+        return { ...s, lookups: [...s.lookups, created] }
+      })
+      if (!created) {
+        throw new Error('Lookup key already exists for this client and type')
+      }
+      persistUpsert('lookup', created.id, created as unknown as Record<string, unknown>)
+      return created
+    },
+    updateLookup: (id, p) => {
+      patch((s) => ({
+        ...s,
+        lookups: s.lookups.map((l) => {
+          if (l.id !== id) return l
+          if (p.isActive === false && isRequiredLookupKey(l.configType, l.keyValue)) return l
+          return { ...l, ...p }
+        }),
+      }))
+      const next = { ...state.lookups.find((l) => l.id === id), ...p, id }
+      persistUpsert('lookup', id, next as Record<string, unknown>)
+    },
+    reorderLookups: (clientId, configType, orderedIds) =>
+      patch((s) => ({
+        ...s,
+        lookups: s.lookups.map((l) => {
+          if (l.clientId !== clientId || l.configType !== configType) return l
+          const idx = orderedIds.indexOf(l.id)
+          if (idx < 0) return l
+          return { ...l, sortOrder: idx }
+        }),
       })),
+    deactivateLookup: (id) => {
+      let ok = false
+      patch((s) => {
+        const target = s.lookups.find((l) => l.id === id)
+        if (!target) return s
+        if (isRequiredLookupKey(target.configType, target.keyValue)) return s
+        ok = true
+        return {
+          ...s,
+          lookups: s.lookups.map((l) => (l.id === id ? { ...l, isActive: false } : l)),
+        }
+      })
+      return ok
+    },
+    broadcastNotification: (input) => {
+      const broadcastId = uid('nb')
+      const at = new Date().toISOString()
+      const creator = state.users.find((u) => u.id === input.createdByUserId)
+      const creatorIsPlatform = Boolean(
+        creator &&
+          userBasePermissions(creator.role, creator.enabledPermissions).includes('platform.manage'),
+      )
+
+      const deniedBroadcast = (): NotificationBroadcast => ({
+        id: broadcastId,
+        title: input.title,
+        body: input.body,
+        link: input.link,
+        audience: input.audience,
+        agencyId: input.agencyId ?? null,
+        userId: input.userId ?? null,
+        createdByUserId: input.createdByUserId,
+        createdAt: at,
+        recipientCount: 0,
+      })
+
+      if (!creatorIsPlatform) {
+        if (input.audience === 'everyone') return deniedBroadcast()
+        if (input.audience === 'agency') {
+          if (!input.agencyId || input.agencyId !== creator?.agencyId) return deniedBroadcast()
+        }
+        if (input.audience === 'person') {
+          const target = state.users.find((u) => u.id === input.userId)
+          if (!target || !creator?.agencyId || target.agencyId !== creator.agencyId) {
+            return deniedBroadcast()
+          }
+        }
+      }
+
+      let recipients: AppUser[] = []
+      if (input.audience === 'everyone') {
+        recipients = state.users.filter((u) => u.active)
+      } else if (input.audience === 'agency' && input.agencyId) {
+        recipients = state.users.filter((u) => u.active && u.agencyId === input.agencyId)
+      } else if (input.audience === 'person' && input.userId) {
+        recipients = state.users.filter((u) => u.id === input.userId)
+      }
+      const notes: AppNotification[] = recipients.map((u) => ({
+        id: uid('n'),
+        userId: u.id,
+        agencyId: u.agencyId,
+        title: input.title,
+        body: input.body,
+        at,
+        read: false,
+        link: input.link,
+        broadcastId,
+      }))
+      const broadcast: NotificationBroadcast = {
+        id: broadcastId,
+        title: input.title,
+        body: input.body,
+        link: input.link,
+        audience: input.audience,
+        agencyId: input.agencyId ?? null,
+        userId: input.userId ?? null,
+        createdByUserId: input.createdByUserId,
+        createdAt: at,
+        recipientCount: notes.length,
+      }
+      patch((s) => ({
+        ...s,
+        notifications: [...notes, ...s.notifications].slice(0, 500),
+        notificationBroadcasts: [broadcast, ...s.notificationBroadcasts].slice(0, 100),
+      }))
+      addActivity(
+        `Broadcast: ${input.title} → ${input.audience} (${notes.length})`,
+        'Admin',
+        input.agencyId ?? null,
+      )
+      return broadcast
+    },
     createProperty: (input) => {
       const property: PropertyAsset = {
         ...input,
@@ -564,10 +935,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         body: `“${property.title}” was added to the portfolio.`,
         link: `/workspace/properties/${property.id}`,
       })
+      persistUpsert('property', property.id, property as unknown as Record<string, unknown>)
       return property
     },
     updateProperty: (id, p) => {
       const prev = state.properties.find((x) => x.id === id)
+      let pe: PropertyEvent | null = null
       patch((s) => {
         const current = s.properties.find((x) => x.id === id)
         const properties = s.properties.map((x) => (x.id === id ? { ...x, ...p } : x))
@@ -586,8 +959,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             to: p.featured ? 'Yes' : 'No',
           })
         }
+        if (p.agentId !== undefined && p.agentId !== current.agentId) {
+          const fromName =
+            s.users.find((u) => u.id === current.agentId)?.name ?? (current.agentId ? 'Assigned' : 'Unassigned')
+          const toName =
+            s.users.find((u) => u.id === p.agentId)?.name ?? (p.agentId ? 'Assigned' : 'Unassigned')
+          changes.push({ field: 'Agent', from: fromName, to: toName })
+        }
         if (!changes.length) return { ...s, properties }
-        const event: PropertyEvent = {
+        pe = {
           id: uid('pe'),
           agencyId: current.agencyId,
           propertyId: id,
@@ -597,7 +977,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           at: new Date().toISOString(),
           changes,
         }
-        return { ...s, properties, propertyEvents: [event, ...s.propertyEvents].slice(0, 400) }
+        return { ...s, properties, propertyEvents: [pe, ...s.propertyEvents].slice(0, 400) }
       })
       if (prev) {
         emitSuiteEvent({
@@ -609,6 +989,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           link: `/workspace/properties/${id}`,
         })
       }
+      persistUpsert('property', id, { ...prev, ...p, id } as Record<string, unknown>)
+      if (pe) persistUpsert('property_event', pe.id, pe as unknown as Record<string, unknown>)
     },
     setPropertyRooms: (id, rooms) => {
       const beds = rooms.reduce((n, r) => n + r.beds, 0)
@@ -617,32 +999,39 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ...s,
         properties: s.properties.map((x) => (x.id === id ? { ...x, rooms, beds, baths } : x)),
       }))
+      const prev = state.properties.find((x) => x.id === id)
+      if (prev) persistUpsert('property', id, { ...prev, rooms, beds, baths } as unknown as Record<string, unknown>)
     },
-    publishProperty: (id, status = 'Published') =>
+    publishProperty: (id, status = 'Published') => {
+      let pe: PropertyEvent | null = null
+      const prev = state.properties.find((x) => x.id === id)
       patch((s) => {
-        const prev = s.properties.find((x) => x.id === id)
-        if (!prev || prev.status === status) {
+        const current = s.properties.find((x) => x.id === id)
+        if (!current || current.status === status) {
           return {
             ...s,
             properties: s.properties.map((x) => (x.id === id ? { ...x, status } : x)),
           }
         }
-        const event: PropertyEvent = {
+        pe = {
           id: uid('pe'),
-          agencyId: prev.agencyId,
+          agencyId: current.agencyId,
           propertyId: id,
           actorUserId: null,
           actorName: 'System',
           action: 'changed the Status',
           at: new Date().toISOString(),
-          changes: [{ field: 'Status', from: prev.status, to: status }],
+          changes: [{ field: 'Status', from: current.status, to: status }],
         }
         return {
           ...s,
           properties: s.properties.map((x) => (x.id === id ? { ...x, status } : x)),
-          propertyEvents: [event, ...s.propertyEvents].slice(0, 400),
+          propertyEvents: [pe!, ...s.propertyEvents].slice(0, 400),
         }
-      }),
+      })
+      if (prev) persistUpsert('property', id, { ...prev, status, id } as Record<string, unknown>)
+      if (pe) persistUpsert('property_event', pe.id, pe as unknown as Record<string, unknown>)
+    },
     createBuilding: (input) => {
       const building: Building = {
         ...input,
@@ -652,6 +1041,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }
       patch((s) => ({ ...s, buildings: [building, ...s.buildings] }))
       addActivity(`Building created: ${building.name}`, 'System', building.clientId)
+      persistUpsert('building', building.id, building as unknown as Record<string, unknown>)
       return building
     },
     createUnitFromTemplate: (input) => {
@@ -889,19 +1279,87 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         action: 'added a Document',
         changes: [{ field: 'Document', from: 'None', to: doc.name }],
       })
+      persistUpsert('document', doc.id, doc as unknown as Record<string, unknown>)
       return doc
     },
-    updatePropertyDocument: (id, docPatch) =>
+    updatePropertyDocument: (id, docPatch) => {
       patch((s) => ({
         ...s,
         propertyDocuments: s.propertyDocuments.map((d) => (d.id === id ? { ...d, ...docPatch } : d)),
-      })),
-    removePropertyDocument: (id) =>
+      }))
+      const next = { ...state.propertyDocuments.find((d) => d.id === id), ...docPatch, id }
+      persistUpsert('document', id, next as Record<string, unknown>)
+    },
+    removePropertyDocument: (id) => {
       patch((s) => ({
         ...s,
         propertyDocuments: s.propertyDocuments.filter((d) => d.id !== id),
-      })),
+      }))
+      persistDelete('document', id)
+    },
     addPropertyEvent,
+    createReview: (input) => {
+      const rating = Math.round(input.rating)
+      if (rating < 1 || rating > 5) return { error: 'Rating must be between 1 and 5.' }
+      const body = input.body.trim()
+      if (body.length < 8) return { error: 'Please write a short review (at least 8 characters).' }
+
+      if (input.targetType === 'property') {
+        const prop = state.properties.find((p) => p.id === input.targetId)
+        if (!prop) return { error: 'Property not found.' }
+      }
+      if (input.targetType === 'application') {
+        const app = state.applications.find((a) => a.id === input.targetId)
+        if (!app) return { error: 'Application not found.' }
+        if (app.applicantUserId && app.applicantUserId !== input.authorUserId) {
+          return { error: 'You can only review your own application.' }
+        }
+      }
+      if (input.targetType === 'agent') {
+        const agent = state.users.find((u) => u.id === input.targetId)
+        if (!agent) return { error: 'Agent not found.' }
+      }
+
+      const duplicate = state.reviews.find(
+        (r) =>
+          r.authorUserId === input.authorUserId &&
+          r.targetType === input.targetType &&
+          r.targetId === input.targetId,
+      )
+      if (duplicate) return { error: 'You already reviewed this.' }
+
+      let propertyId = input.propertyId ?? null
+      let agencyId = input.agencyId ?? null
+      if (input.targetType === 'property') {
+        const prop = state.properties.find((p) => p.id === input.targetId)
+        propertyId = prop?.id ?? null
+        agencyId = prop?.agencyId ?? agencyId
+      }
+      if (input.targetType === 'application') {
+        const app = state.applications.find((a) => a.id === input.targetId)
+        propertyId = app?.propertyId ?? propertyId
+        agencyId = app?.agencyId ?? agencyId
+      }
+      if (input.targetType === 'agent' && propertyId) {
+        const prop = state.properties.find((p) => p.id === propertyId)
+        agencyId = prop?.agencyId ?? agencyId
+      }
+
+      const review: Review = {
+        id: uid('RV'),
+        targetType: input.targetType,
+        targetId: input.targetId,
+        propertyId,
+        agencyId,
+        authorUserId: input.authorUserId,
+        authorName: input.authorName,
+        rating,
+        body,
+        createdAt: new Date().toISOString(),
+      }
+      patch((s) => ({ ...s, reviews: [review, ...s.reviews] }))
+      return review
+    },
     createLead: (input) => {
       const lead: Lead = {
         ...input,
@@ -912,16 +1370,33 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         updatedAt: new Date().toISOString().slice(0, 10),
       }
       patch((s) => ({ ...s, leads: [lead, ...s.leads] }))
+      persistUpsert('lead', lead.id, lead as unknown as Record<string, unknown>)
       return lead
     },
-    updateLeadStage: (id, stage) =>
+    updateLeadStage: (id, stage) => {
+      const updatedAt = new Date().toISOString().slice(0, 10)
       patch((s) => ({
         ...s,
-        leads: s.leads.map((l) => (l.id === id ? { ...l, stage, updatedAt: new Date().toISOString().slice(0, 10) } : l)),
-      })),
+        leads: s.leads.map((l) => (l.id === id ? { ...l, stage, updatedAt } : l)),
+      }))
+      const prev = state.leads.find((l) => l.id === id)
+      if (prev) persistUpsert('lead', id, { ...prev, stage, updatedAt } as unknown as Record<string, unknown>)
+    },
     createApplication: (input) => {
       const property = state.properties.find((p) => p.id === input.propertyId)
       const unit = resolveUnitForProperty(property, state.units)
+
+      if (
+        !input.skipGuards &&
+        property &&
+        !isPubliclyListed(property, { units: state.units, users: state.users })
+      ) {
+        return {
+          status: 'ERROR',
+          error: 'This property is not listed and cannot accept applications.',
+          httpStatus: 422,
+        } as SubmitApplicationResult
+      }
 
       if (
         isApplicantBlockedOnProperty(state.applications, input.propertyId, {
@@ -1003,6 +1478,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         })
       })
 
+      persistUpsert('application', app.id, app as unknown as Record<string, unknown>)
       return app
     },
     updateApplication: (id, p) => {
@@ -1022,6 +1498,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           body: `${prev.applicantName}: ${prev.stage} → ${p.stage}`,
           link: `/workspace/properties/${prev.propertyId}?tab=applicants`,
         })
+      }
+      if (prev) {
+        persistUpsert('application', id, {
+          ...prev,
+          ...p,
+          updatedAt: new Date().toISOString().slice(0, 10),
+        } as unknown as Record<string, unknown>)
       }
     },
     setDocumentStatus: (applicationId, key, status, note) => {
@@ -1047,6 +1530,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           }
         }),
       }))
+      const prev = state.applications.find((a) => a.id === applicationId)
+      if (prev) {
+        const documents = prev.documents.map((d) =>
+          d.key === key ? { ...d, status, ...(note !== undefined ? { note } : {}) } : d,
+        )
+        persistUpsert('application', applicationId, {
+          ...prev,
+          documents,
+          updatedAt: new Date().toISOString().slice(0, 10),
+        } as unknown as Record<string, unknown>)
+      }
     },
     advanceApplication: (id, to) => {
       patch((s) => ({
@@ -1057,6 +1551,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           return { ...a, stage, progress: STAGE_PROGRESS[stage] ?? a.progress, updatedAt: new Date().toISOString().slice(0, 10) }
         }),
       }))
+      const prev = state.applications.find((a) => a.id === id)
+      if (prev) {
+        const stage = to ?? prev.stage
+        persistUpsert('application', id, {
+          ...prev,
+          stage,
+          progress: STAGE_PROGRESS[stage] ?? prev.progress,
+          updatedAt: new Date().toISOString().slice(0, 10),
+        } as unknown as Record<string, unknown>)
+      }
     },
     approveApplication: (id) => {
       const app = state.applications.find((a) => a.id === id)
@@ -1072,7 +1576,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         httpStatus: 404,
         error: 'Application not found',
         code: 'NOT_FOUND',
-      }
+      } as PatchApplicationStatusResult
+      let createdNotifications: AppNotification[] = []
 
       setState((s) => {
         const current = s.applications.find((a) => a.id === id)
@@ -1105,9 +1610,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
         if (result.status === 'ERROR') return s
         const ok = result
-        const notifications: AppNotification[] = []
+        createdNotifications = []
         if (current?.applicantUserId) {
-          notifications.push({
+          createdNotifications.push({
             id: uid('N'),
             userId: current.applicantUserId,
             agencyId: current.agencyId,
@@ -1151,21 +1656,49 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               ? { ...v, status: 'Cancelled' as const }
               : v,
           ),
-          notifications: [...notifications, ...s.notifications],
-          activities: [
-            {
-              id: uid('act'),
-              agencyId: current?.agencyId ?? null,
-              text:
-                ok.layout.headline +
-                (ok.checkout ? ` · ${ok.checkout.provider} checkout ${ok.checkout.payment_id}` : ''),
-              user: actor?.name ?? 'Agency',
-              at: new Date().toISOString(),
-            },
-            ...s.activities,
-          ],
+          notifications: [...createdNotifications, ...s.notifications],
         }
       })
+
+      if (result.status === 'SUCCESS') {
+        const ok = result
+        void persistApproveApplication({
+          applicationId: id,
+          actorUserId: actorUser?.id,
+          tenancy: ok.side_effects.lease
+            ? (ok.side_effects.lease as unknown as Record<string, unknown>)
+            : undefined,
+        })
+        persistUpsert('application', id, ok.application as unknown as Record<string, unknown>)
+        for (const pay of ok.side_effects.payments) {
+          persistUpsert('payment', pay.id, pay as unknown as Record<string, unknown>)
+        }
+        if (ok.side_effects.lease) {
+          persistUpsert(
+            'tenancy',
+            ok.side_effects.lease.id,
+            ok.side_effects.lease as unknown as Record<string, unknown>,
+          )
+        }
+        for (const n of createdNotifications) {
+          persistUpsert('notification', n.id, n as unknown as Record<string, unknown>)
+        }
+        if (app?.propertyId) {
+          const prop = state.properties.find((p) => p.id === app.propertyId)
+          if (prop) {
+            persistUpsert('property', prop.id, {
+              ...prop,
+              status: app.type === 'Rental' ? 'Rented' : prop.status,
+            } as unknown as Record<string, unknown>)
+          }
+        }
+        addActivity(
+          ok.layout.headline +
+            (ok.checkout ? ` · ${ok.checkout.provider} checkout ${ok.checkout.payment_id}` : ''),
+          actorUser?.name ?? 'Agency',
+          app?.agencyId ?? null,
+        )
+      }
 
       return result
     },
@@ -1175,7 +1708,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         httpStatus: 404,
         error: 'Application not found',
         code: 'NOT_FOUND',
-      }
+      } as PatchApplicationStatusResult
+      let createdNotifications: AppNotification[] = []
 
       setState((s) => {
         const app = s.applications.find((a) => a.id === applicationId)
@@ -1211,9 +1745,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         if (result.status === 'ERROR') return s
 
         const ok = result
-        const notifications: AppNotification[] = []
+        createdNotifications = []
         if (ok.api_status === 'APPROVED' && app?.applicantUserId) {
-          notifications.push({
+          createdNotifications.push({
             id: uid('N'),
             userId: app.applicantUserId,
             agencyId: app.agencyId,
@@ -1261,135 +1795,158 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               ? { ...v, status: 'Cancelled' as const }
               : v,
           ),
-          notifications: [...notifications, ...s.notifications],
-          activities: [
-            {
-              id: uid('act'),
-              agencyId: app?.agencyId ?? null,
-              text:
-                ok.layout.headline +
-                (ok.checkout ? ` · ${ok.checkout.provider} checkout ${ok.checkout.payment_id}` : ''),
-              user: actorUser?.name ?? 'Agency',
-              at: new Date().toISOString(),
-            },
-            ...s.activities,
-          ],
+          notifications: [...createdNotifications, ...s.notifications],
         }
       })
+
+      if (result.status === 'SUCCESS') {
+        const ok = result
+        if (ok.api_status === 'APPROVED') {
+          void persistApproveApplication({
+            applicationId,
+            actorUserId,
+            tenancy: ok.side_effects.lease
+              ? (ok.side_effects.lease as unknown as Record<string, unknown>)
+              : undefined,
+          })
+        } else {
+          persistUpsert(
+            'application',
+            applicationId,
+            ok.application as unknown as Record<string, unknown>,
+          )
+        }
+        for (const pay of ok.side_effects.payments) {
+          persistUpsert('payment', pay.id, pay as unknown as Record<string, unknown>)
+        }
+        if (ok.side_effects.lease) {
+          persistUpsert(
+            'tenancy',
+            ok.side_effects.lease.id,
+            ok.side_effects.lease as unknown as Record<string, unknown>,
+          )
+        }
+        for (const n of createdNotifications) {
+          persistUpsert('notification', n.id, n as unknown as Record<string, unknown>)
+        }
+        const app = state.applications.find((a) => a.id === applicationId)
+        const actorUser = state.users.find((u) => u.id === actorUserId)
+        addActivity(
+          ok.layout.headline +
+            (ok.checkout ? ` · ${ok.checkout.provider} checkout ${ok.checkout.payment_id}` : ''),
+          actorUser?.name ?? 'Agency',
+          app?.agencyId ?? null,
+        )
+      }
 
       return result
     },
     scheduleMoveIn: (id, moveInDate, keyCollection) => {
+      const app = state.applications.find((a) => a.id === id)
+      if (!app) return
+      const withEmail = { ...keyCollection, emailSentAt: new Date().toISOString() }
+      const updatedApp: Application = {
+        ...app,
+        stage: 'Move-In Scheduled',
+        progress: STAGE_PROGRESS['Move-In Scheduled'],
+        moveInDate,
+        keyCollection: withEmail,
+        updatedAt: new Date().toISOString().slice(0, 10),
+      }
+      const notifications: AppNotification[] = []
+      if (app.applicantUserId) {
+        notifications.push({
+          id: uid('N'),
+          userId: app.applicantUserId,
+          agencyId: app.agencyId,
+          title: 'Move-in & key collection',
+          body: `Collect keys at ${keyCollection.location} on ${moveInDate}. ${keyCollection.instructions}`,
+          at: new Date().toISOString(),
+          read: false,
+          link: '/workspace/portals/tenant',
+        })
+      }
       setState((s) => {
-        const app = s.applications.find((a) => a.id === id)
-        if (!app) return s
-        const withEmail = { ...keyCollection, emailSentAt: new Date().toISOString() }
-        const notifications: AppNotification[] = []
-        if (app.applicantUserId) {
-          notifications.push({
-            id: uid('N'),
-            userId: app.applicantUserId,
-            agencyId: app.agencyId,
-            title: 'Move-in & key collection',
-            body: `Collect keys at ${keyCollection.location} on ${moveInDate}. ${keyCollection.instructions}`,
-            at: new Date().toISOString(),
-            read: false,
-            link: '/workspace/portals/tenant',
-          })
-        }
+        if (!s.applications.some((a) => a.id === id)) return s
         return {
           ...s,
-          applications: s.applications.map((a) =>
-            a.id === id
-              ? {
-                  ...a,
-                  stage: 'Move-In Scheduled' as ApplicationStage,
-                  progress: STAGE_PROGRESS['Move-In Scheduled'],
-                  moveInDate,
-                  keyCollection: withEmail,
-                  updatedAt: new Date().toISOString().slice(0, 10),
-                }
-              : a,
-          ),
+          applications: s.applications.map((a) => (a.id === id ? updatedApp : a)),
           notifications: [...notifications, ...s.notifications],
-          activities: [
-            {
-              id: uid('act'),
-              agencyId: app.agencyId,
-              text: `Key handover email sent to ${app.applicantName}`,
-              user: 'System',
-              at: new Date().toISOString(),
-            },
-            ...s.activities,
-          ],
         }
       })
+      persistUpsert('application', id, updatedApp as unknown as Record<string, unknown>)
+      for (const n of notifications) {
+        persistUpsert('notification', n.id, n as unknown as Record<string, unknown>)
+      }
+      addActivity(`Key handover email sent to ${app.applicantName}`, 'System', app.agencyId)
     },
     completeKeyHandover: (id) => {
+      const app = state.applications.find((a) => a.id === id)
+      if (!app) return
+      const prop = state.properties.find((p) => p.id === app.propertyId)
+      const existing = state.tenancies.find((t) => t.applicationId === app.id)
+      const tenancy: Tenancy = existing
+        ? {
+            ...existing,
+            status: 'Active',
+            startDate: app.moveInDate ?? existing.startDate,
+            keyCollection: app.keyCollection ?? existing.keyCollection,
+          }
+        : {
+            id: uid('TN'),
+            agencyId: app.agencyId,
+            propertyId: app.propertyId,
+            landlordId: prop?.landlordId ?? '',
+            agentId: app.agentId,
+            applicationId: app.id,
+            tenantUserId: app.applicantUserId,
+            tenantName: app.applicantName,
+            tenantEmail: app.email,
+            startDate: app.moveInDate ?? new Date().toISOString().slice(0, 10),
+            endDate: null,
+            rent: prop?.rent ?? 0,
+            deposit: (prop?.rent ?? 0) * 2,
+            status: 'Active',
+            keyCollection: app.keyCollection ?? {
+              location: 'Agency office',
+              instructions: 'Collect from reception',
+              contactName: 'Agent',
+              contactPhone: '',
+            },
+          }
+      const updatedApp: Application = {
+        ...app,
+        stage: 'Active Tenancy',
+        progress: 100,
+        updatedAt: new Date().toISOString().slice(0, 10),
+      }
+      const updatedProp =
+        prop && app.type === 'Rental' ? { ...prop, status: 'Rented' as const } : null
+
       setState((s) => {
-        const app = s.applications.find((a) => a.id === id)
-        if (!app) return s
-        const prop = s.properties.find((p) => p.id === app.propertyId)
-        const existing = s.tenancies.find((t) => t.applicationId === app.id)
-        const tenancy: Tenancy = existing
-          ? {
-              ...existing,
-              status: 'Active',
-              startDate: app.moveInDate ?? existing.startDate,
-              keyCollection: app.keyCollection ?? existing.keyCollection,
-            }
-          : {
-              id: uid('TN'),
-              agencyId: app.agencyId,
-              propertyId: app.propertyId,
-              landlordId: prop?.landlordId ?? '',
-              agentId: app.agentId,
-              applicationId: app.id,
-              tenantUserId: app.applicantUserId,
-              tenantName: app.applicantName,
-              tenantEmail: app.email,
-              startDate: app.moveInDate ?? new Date().toISOString().slice(0, 10),
-              endDate: null,
-              rent: prop?.rent ?? 0,
-              deposit: (prop?.rent ?? 0) * 2,
-              status: 'Active',
-              keyCollection: app.keyCollection ?? {
-                location: 'Agency office',
-                instructions: 'Collect from reception',
-                contactName: 'Agent',
-                contactPhone: '',
-              },
-            }
+        const current = s.applications.find((a) => a.id === id)
+        if (!current) return s
         return {
           ...s,
-          applications: s.applications.map((a) =>
-            a.id === id
-              ? {
-                  ...a,
-                  stage: 'Active Tenancy' as ApplicationStage,
-                  progress: 100,
-                  updatedAt: new Date().toISOString().slice(0, 10),
-                }
-              : a,
-          ),
+          applications: s.applications.map((a) => (a.id === id ? updatedApp : a)),
           tenancies: existing
             ? s.tenancies.map((t) => (t.id === existing.id ? tenancy : t))
             : [tenancy, ...s.tenancies],
-          properties: s.properties.map((p) =>
-            p.id === app.propertyId && app.type === 'Rental' ? { ...p, status: 'Rented' as const } : p,
-          ),
-          activities: [
-            {
-              id: uid('act'),
-              agencyId: app.agencyId,
-              text: `Keys handed over — ${app.applicantName} is now an active occupant`,
-              user: 'Agency',
-              at: new Date().toISOString(),
-            },
-            ...s.activities,
-          ],
+          properties: updatedProp
+            ? s.properties.map((p) => (p.id === updatedProp.id ? updatedProp : p))
+            : s.properties,
         }
       })
+      persistUpsert('application', id, updatedApp as unknown as Record<string, unknown>)
+      persistUpsert('tenancy', tenancy.id, tenancy as unknown as Record<string, unknown>)
+      if (updatedProp) {
+        persistUpsert('property', updatedProp.id, updatedProp as unknown as Record<string, unknown>)
+      }
+      addActivity(
+        `Keys handed over — ${app.applicantName} is now an active occupant`,
+        'Agency',
+        app.agencyId,
+      )
     },
     createViewingSlot: (input) => {
       if (!input.propertyId) {
@@ -1404,6 +1961,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         status: 'Open',
       }
       patch((s) => ({ ...s, viewingSlots: [slot, ...s.viewingSlots] }))
+      persistUpsert('viewing_slot', slot.id, slot as unknown as Record<string, unknown>)
       addPropertyEvent({
         agencyId: slot.agencyId,
         propertyId: slot.propertyId,
@@ -1431,6 +1989,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ...s,
         viewingSlots: s.viewingSlots.map((slot) => (slot.id === id ? { ...slot, ...p } : slot)),
       }))
+      if (prev) {
+        persistUpsert('viewing_slot', id, { ...prev, ...p, id } as unknown as Record<string, unknown>)
+      }
       if (prev && p.status && p.status !== prev.status) {
         emitSuiteEvent({
           agencyId: prev.agencyId,
@@ -1444,6 +2005,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     },
     removeViewing: (id) => {
       const viewing = state.viewings.find((v) => v.id === id)
+      let updatedSlot: ViewingSlot | null = null
       setState((s) => {
         const row = s.viewings.find((v) => v.id === id)
         if (!row) return s
@@ -1452,11 +2014,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           viewingSlots = viewingSlots.map((slot) => {
             if (slot.id !== row.slotId) return slot
             const booked = Math.max(0, slot.booked - 1)
-            return {
+            const next = {
               ...slot,
               booked,
               status: slot.status === 'Full' && booked < slot.capacity ? ('Open' as const) : slot.status,
             }
+            updatedSlot = next
+            return next
           })
         }
         return {
@@ -1465,6 +2029,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           viewingSlots,
         }
       })
+      persistDelete('viewing', id)
+      if (updatedSlot) {
+        persistUpsert(
+          'viewing_slot',
+          updatedSlot.id,
+          updatedSlot as unknown as Record<string, unknown>,
+        )
+      }
       if (viewing) {
         emitSuiteEvent({
           agencyId: viewing.agencyId,
@@ -1478,6 +2050,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     },
     removeViewingSlot: (id) => {
       const slot = state.viewingSlots.find((s) => s.id === id)
+      const linked = state.viewings.filter((v) => v.slotId === id)
       patch((s) => ({
         ...s,
         viewingSlots: s.viewingSlots.filter((row) => row.id !== id),
@@ -1485,6 +2058,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           v.slotId === id ? { ...v, slotId: null, status: 'Cancelled' as const } : v,
         ),
       }))
+      persistDelete('viewing_slot', id)
+      for (const v of linked) {
+        persistUpsert('viewing', v.id, {
+          ...v,
+          slotId: null,
+          status: 'Cancelled',
+        } as unknown as Record<string, unknown>)
+      }
       if (slot) {
         emitSuiteEvent({
           agencyId: slot.agencyId,
@@ -1500,6 +2081,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       let ok = false
       let agencyId: string | null = null
       let propertyId = ''
+      let fromNext: ViewingSlot | null = null
+      let toNext: ViewingSlot | null = null
+      let movedViewings: Viewing[] = []
       setState((s) => {
         const from = s.viewingSlots.find((slot) => slot.id === fromSlotId)
         const to = s.viewingSlots.find((slot) => slot.id === toSlotId)
@@ -1514,6 +2098,20 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         agencyId = from.agencyId
         propertyId = from.propertyId
         const moverIds = new Set(movers.map((m) => m.id))
+        fromNext = { ...from, booked: 0, status: 'Cancelled' as const }
+        const booked = to.booked + movers.length
+        toNext = {
+          ...to,
+          booked,
+          status: booked >= to.capacity ? ('Full' as const) : to.status,
+        }
+        movedViewings = movers.map((v) => ({
+          ...v,
+          slotId: toSlotId,
+          date: to.date,
+          time: to.time,
+          agentId: to.agentId,
+        }))
         return {
           ...s,
           viewings: s.viewings.map((v) =>
@@ -1522,22 +2120,22 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               : v,
           ),
           viewingSlots: s.viewingSlots.map((slot) => {
-            if (slot.id === fromSlotId) {
-              return { ...slot, booked: 0, status: 'Cancelled' as const }
-            }
-            if (slot.id === toSlotId) {
-              const booked = slot.booked + movers.length
-              return {
-                ...slot,
-                booked,
-                status: booked >= slot.capacity ? ('Full' as const) : slot.status,
-              }
-            }
+            if (slot.id === fromSlotId) return fromNext!
+            if (slot.id === toSlotId) return toNext!
             return slot
           }),
         }
       })
       if (ok) {
+        if (fromNext) {
+          persistUpsert('viewing_slot', fromNext.id, fromNext as unknown as Record<string, unknown>)
+        }
+        if (toNext) {
+          persistUpsert('viewing_slot', toNext.id, toNext as unknown as Record<string, unknown>)
+        }
+        for (const v of movedViewings) {
+          persistUpsert('viewing', v.id, v as unknown as Record<string, unknown>)
+        }
         emitSuiteEvent({
           agencyId,
           resource: 'viewing_slot',
@@ -1607,6 +2205,37 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             : s.applications,
         }
       })
+      if (created) {
+        const slot = state.viewingSlots.find((x) => x.id === slotId)
+        const booked = (slot?.booked ?? 0) + 1
+        const slotPatch = slot
+          ? {
+              ...slot,
+              booked,
+              status: booked >= slot.capacity ? ('Full' as const) : slot.status,
+            }
+          : null
+        persistUpsert('viewing', created.id, created as unknown as Record<string, unknown>)
+        if (slotPatch) {
+          persistUpsert(
+            'viewing_slot',
+            slotPatch.id,
+            slotPatch as unknown as Record<string, unknown>,
+          )
+        }
+        if (applicationId) {
+          const app = state.applications.find((a) => a.id === applicationId)
+          if (app) {
+            persistUpsert('application', applicationId, {
+              ...app,
+              viewingSlotId: slotId,
+              stage: 'Viewing Booked',
+              progress: STAGE_PROGRESS['Viewing Booked'],
+              updatedAt: new Date().toISOString().slice(0, 10),
+            } as unknown as Record<string, unknown>)
+          }
+        }
+      }
       return created
     },
     createViewing: (input) => {
@@ -1629,25 +2258,37 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           { field: 'Status', from: 'None', to: viewing.status },
         ],
       })
+      persistUpsert('viewing', viewing.id, viewing as unknown as Record<string, unknown>)
       return viewing
     },
-    updateViewing: (id, p) =>
+    updateViewing: (id, p) => {
+      const prev = state.viewings.find((v) => v.id === id)
+      let statusEvent: PropertyEvent | null = null
       patch((s) => {
-        const prev = s.viewings.find((v) => v.id === id)
+        const row = s.viewings.find((v) => v.id === id)
         const viewings = s.viewings.map((v) => (v.id === id ? { ...v, ...p } : v))
-        if (!prev || !p.status || p.status === prev.status) return { ...s, viewings }
-        const event: PropertyEvent = {
+        if (!row || !p.status || p.status === row.status) return { ...s, viewings }
+        statusEvent = {
           id: uid('pe'),
-          agencyId: prev.agencyId,
-          propertyId: prev.propertyId,
-          actorUserId: prev.agentId,
-          actorName: actorNameFromState(s, prev.agentId, 'Agent'),
+          agencyId: row.agencyId,
+          propertyId: row.propertyId,
+          actorUserId: row.agentId,
+          actorName: actorNameFromState(s, row.agentId, 'Agent'),
           action: 'changed the Viewing status',
           at: new Date().toISOString(),
-          changes: [{ field: 'Status', from: prev.status, to: p.status }],
+          changes: [{ field: 'Status', from: row.status, to: p.status }],
         }
-        return { ...s, viewings, propertyEvents: [event, ...s.propertyEvents].slice(0, 400) }
-      }),
+        return { ...s, viewings, propertyEvents: [statusEvent!, ...s.propertyEvents].slice(0, 400) }
+      })
+      if (prev) persistUpsert('viewing', id, { ...prev, ...p, id } as Record<string, unknown>)
+      if (statusEvent) {
+        persistUpsert(
+          'property_event',
+          statusEvent.id,
+          statusEvent as unknown as Record<string, unknown>,
+        )
+      }
+    },
     createPayment: (input) => {
       const payment: PaymentRecord = {
         status: 'Due',
@@ -1676,6 +2317,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         body: `${payment.type} · ${payment.partyName} is due.`,
         link: `/workspace/properties/${payment.propertyId}?tab=payments`,
       })
+      persistUpsert('payment', payment.id, payment as unknown as Record<string, unknown>)
       return payment
     },
     markPaymentPaid: (id, details = 'EFT') => {
@@ -1684,6 +2326,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const method = opts.method ?? 'EFT'
       const paidAt = opts.paidAt ?? new Date().toISOString().slice(0, 10)
       const before = state.payments.find((p) => p.id === id)
+      let paidEvent: PropertyEvent | null = null
       setState((s) => {
         const payment = s.payments.find((p) => p.id === id)
         if (!payment) return s
@@ -1730,6 +2373,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           at: new Date().toISOString(),
           changes: [{ field: 'Status', from: payment.status, to: 'Paid' }],
         }
+        paidEvent = event
         return {
           ...s,
           payments,
@@ -1746,6 +2390,25 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           body: `${before.type} · ${before.partyName} was marked paid.`,
           link: `/workspace/properties/${before.propertyId}?tab=payments`,
         })
+        persistUpsert('payment', id, {
+          ...before,
+          status: 'Paid',
+          paidAt,
+          method,
+          reference: opts.reference ?? before.reference ?? null,
+          paidAmount: opts.paidAmount ?? before.amount,
+          notes: opts.notes ?? before.notes ?? null,
+          attachments: opts.attachments ?? before.attachments ?? [],
+          recordedByUserId: opts.recordedByUserId ?? before.recordedByUserId ?? null,
+          recordedByName: opts.recordedByName ?? before.recordedByName ?? null,
+        } as unknown as Record<string, unknown>)
+      }
+      if (paidEvent) {
+        persistUpsert(
+          'property_event',
+          paidEvent.id,
+          paidEvent as unknown as Record<string, unknown>,
+        )
       }
     },
     removePayment: (id) => {
@@ -1755,6 +2418,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ...s,
         payments: s.payments.filter((p) => p.id !== id),
       }))
+      persistDelete('payment', id)
       emitSuiteEvent({
         agencyId: payment.agencyId,
         resource: 'payment',
@@ -1772,6 +2436,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ...s,
         payments: s.payments.map((pay) => (pay.id === id ? { ...pay, ...p } : pay)),
       }))
+      persistUpsert('payment', id, { ...before, ...p, id } as Record<string, unknown>)
       if (p.status && p.status !== before.status) {
         addPropertyEvent({
           agencyId: before.agencyId,
@@ -1815,6 +2480,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         threads: [thread, ...s.threads],
         messages: [message, ...s.messages],
       }))
+      queuePersistBatch([
+        { resource: 'thread', action: 'upsert', id: thread.id, data: thread as unknown as Record<string, unknown> },
+        { resource: 'message', action: 'upsert', id: message.id, data: message as unknown as Record<string, unknown> },
+      ])
       return thread
     },
     sendMessage: (threadId, fromUserId, body) => {
@@ -1831,6 +2500,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         messages: [...s.messages, message],
         threads: s.threads.map((t) => (t.id === threadId ? { ...t, updatedAt: message.at } : t)),
       }))
+      persistUpsert('message', message.id, message as unknown as Record<string, unknown>)
       const thread = state.threads.find((t) => t.id === threadId)
       if (thread) {
         emitSuiteEvent({
@@ -1906,6 +2576,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           }),
         )
       }
+      persistUpsert('ticket', ticket.id, ticket as unknown as Record<string, unknown>)
       return ticket
     },
     createMaintenanceTicket: ({ actorUserId, request, propertyId }) => {
@@ -1985,6 +2656,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           )
       }
 
+      persistUpsert('ticket', ticket.id, ticket as unknown as Record<string, unknown>)
       return {
         status: 'TICKET_CREATED',
         ticket_id: ticket.id,
@@ -1996,6 +2668,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }
     },
     updateTicket: (id, p) => {
+      const before = state.tickets.find((t) => t.id === id)
       patch((s) => {
         const ticket = s.tickets.find((t) => t.id === id)
         if (!ticket) return s
@@ -2028,6 +2701,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           internalAssets: assets,
         }
       })
+      if (before) {
+        persistUpsert('ticket', id, { ...before, ...p, id } as Record<string, unknown>)
+      }
     },
     removeTicket: (id) => {
       const ticket = state.tickets.find((t) => t.id === id)
@@ -2044,6 +2720,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         body: `“${ticket.title}” was removed before work started.`,
         link: `/workspace/properties/${ticket.propertyId}?tab=maintenance`,
       })
+      persistDelete('ticket', id)
       return true
     },
     patchMaintenanceTicket: ({ actorUserId, ticketId, patch: body }) => {
@@ -2106,6 +2783,21 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ticket.agencyId,
       )
 
+      persistUpsert('ticket', ticketId, next as unknown as Record<string, unknown>)
+      if (resolved && ticket.internalAssetId && condition) {
+        const asset = state.internalAssets.find((a) => a.id === ticket.internalAssetId)
+        if (asset) {
+          persistUpsert('asset', asset.id, {
+            ...asset,
+            condition,
+            lastInspectedAt: new Date().toISOString().slice(0, 10),
+            agencyId: ticket.agencyId,
+            propertyId: ticket.propertyId,
+            unitId: ticket.unitId,
+          } as unknown as Record<string, unknown>)
+        }
+      }
+
       return {
         status: 'WORKFLOW_UPDATED',
         message: 'Operational steps recorded and linked physical configurations synchronized successfully.',
@@ -2115,47 +2807,51 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }
     },
     runEmergencyEscalations: () => {
-      let count = 0
       const now = new Date()
-      setState((s) => {
-        const notifications: AppNotification[] = []
-        const tickets = s.tickets.map((t) => {
-          if (!needsEmergencyEscalationPrecise(t, now)) return t
-          count += 1
-          const managers = s.users.filter(
-            (u) => u.agencyId === t.agencyId && u.active && u.role === 'client_admin',
-          )
-          managers.forEach((m) => {
-            notifications.push({
-              id: uid('N'),
-              userId: m.id,
-              agencyId: t.agencyId,
-              title: 'EMERGENCY SLA breach',
-              body: `SMS/Push: ${t.title} still OPEN > 2h. Escalate immediately.`,
-              at: now.toISOString(),
-              read: false,
-              link: '/workspace/operations/maintenance',
-            })
+      const escalatedTickets: MaintenanceTicket[] = []
+      const notifications: AppNotification[] = []
+
+      for (const t of state.tickets) {
+        if (!needsEmergencyEscalationPrecise(t, now)) continue
+        const next = { ...t, escalatedAt: now.toISOString() }
+        escalatedTickets.push(next)
+        const managers = state.users.filter(
+          (u) => u.agencyId === t.agencyId && u.active && u.role === 'client_admin',
+        )
+        managers.forEach((m) => {
+          notifications.push({
+            id: uid('N'),
+            userId: m.id,
+            agencyId: t.agencyId,
+            title: 'EMERGENCY SLA breach',
+            body: `SMS/Push: ${t.title} still OPEN > 2h. Escalate immediately.`,
+            at: now.toISOString(),
+            read: false,
+            link: '/workspace/operations/maintenance',
           })
-          return { ...t, escalatedAt: now.toISOString() }
         })
-        if (!count) return s
-        return {
-          ...s,
-          tickets,
-          notifications: [...notifications, ...s.notifications],
-          activities: [
-            {
-              id: uid('act'),
-              agencyId: null,
-              text: `Escalated ${count} emergency maintenance to portfolio managers`,
-              user: 'Escalation worker',
-              at: now.toISOString(),
-            },
-            ...s.activities,
-          ],
-        }
-      })
+      }
+
+      const count = escalatedTickets.length
+      if (!count) return 0
+
+      const escalatedById = new Map(escalatedTickets.map((t) => [t.id, t]))
+      setState((s) => ({
+        ...s,
+        tickets: s.tickets.map((t) => escalatedById.get(t.id) ?? t),
+        notifications: [...notifications, ...s.notifications],
+      }))
+      for (const t of escalatedTickets) {
+        persistUpsert('ticket', t.id, t as unknown as Record<string, unknown>)
+      }
+      for (const n of notifications) {
+        persistUpsert('notification', n.id, n as unknown as Record<string, unknown>)
+      }
+      addActivity(
+        `Escalated ${count} emergency maintenance to portfolio managers`,
+        'Escalation worker',
+        null,
+      )
       return count
     },
     notify,
@@ -2190,6 +2886,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         invoiceId: uid('INV'),
       })
       patch((s) => ({ ...s, invoices: [invoice, ...s.invoices] }))
+      persistUpsert('invoice', invoice.id, invoice as unknown as Record<string, unknown>)
       addActivity(
         `Billing cycle invoiced ${formatClient(clientId)} — ${invoice.totalAmountDue.toFixed(2)} ZAR`,
         'Billing engine',
@@ -2198,33 +2895,53 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       return invoice
     },
     markInvoicePaid: (invoiceId) => {
+      const prev = state.invoices.find((inv) => inv.id === invoiceId)
       patch((s) => ({
         ...s,
         invoices: s.invoices.map((inv) =>
           inv.id === invoiceId ? { ...inv, paymentStatus: 'PAID' as const } : inv,
         ),
       }))
+      if (prev) {
+        persistUpsert('invoice', invoiceId, {
+          ...prev,
+          paymentStatus: 'PAID',
+        } as unknown as Record<string, unknown>)
+      }
     },
     emitSuiteEvent,
-    markNotificationRead: (id) =>
+    markNotificationRead: (id) => {
       patch((s) => ({
         ...s,
         notifications: s.notifications.map((n) => (n.id === id ? { ...n, read: true } : n)),
-      })),
-    markAllNotificationsRead: (userId) =>
+      }))
+      void persistMarkNotificationsRead({ ids: [id] })
+    },
+    markAllNotificationsRead: (userId) => {
       patch((s) => ({
         ...s,
         notifications: s.notifications.map((n) =>
           n.userId === userId ? { ...n, read: true } : n,
         ),
-      })),
+      }))
+      void persistMarkNotificationsRead({ userId, all: true })
+    },
     dismissToast,
-    updateSuiteAlert: (id, alertPatch) =>
+    updateSuiteAlert: (id, alertPatch) => {
+      const prev = state.suiteAlerts.find((r) => r.id === id)
       patch((s) => ({
         ...s,
         suiteAlerts: s.suiteAlerts.map((r) => (r.id === id ? { ...r, ...alertPatch } : r)),
-      })),
-  }), [state, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast])
+      }))
+      if (prev) {
+        persistUpsert('suite_alert', id, {
+          ...prev,
+          ...alertPatch,
+          id,
+        } as unknown as Record<string, unknown>)
+      }
+    },
+  }), [state, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, persistUpsert, persistDelete, refreshBootstrap])
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }
@@ -2246,5 +2963,7 @@ export function useStore() {
 
 export function usePublicProperties() {
   const { state } = useStore()
-  return state.properties.filter((p) => ['Published', 'Featured', 'Under Offer'].includes(p.status))
+  return state.properties.filter((p) =>
+    isPubliclyListed(p, { units: state.units, users: state.users }),
+  )
 }

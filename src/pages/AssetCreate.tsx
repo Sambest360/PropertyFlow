@@ -7,19 +7,27 @@ import { RequirePermission } from '../components/RequirePermission'
 import { ImageCoverField, ImageDropzone } from '../components/ImageDropzone'
 import { PropertyFeaturePicker } from '../components/property-features/PropertyFeaturePicker'
 import { Button, Card, Input, PageHeader, Select } from '../components/ui'
+import { PlacesAddressInput } from '../components/PlacesAddressInput'
 import { uid } from '../data/seed'
 import { isFieldAgent } from '../lib/permissions'
 import { pruneAmenitiesForMode } from '../lib/propertyFeatures'
 import { readReturnTo } from '../lib/returnTo'
+import { isVerificationApproved } from '../lib/verification'
 import type { Room } from '../types/domain'
+import { useLookupOptions } from '../hooks/useLookupOptions'
 
 export default function AssetCreate() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const returnTo = readReturnTo(searchParams) ?? '/workspace/properties'
-  const { state, createProperty } = useStore()
+  const { state, createProperty, publishProperty } = useStore()
   const { user, agencyId, has, role } = useAuth()
   const { scopeAgency } = useAgencyScope()
+  const isLandlord = role === 'landlord'
+  const landlordVerified = isVerificationApproved(user.verification, user.role)
+  const canPublish = has('listings.publish') && landlordVerified
+  const propertyTypes = useLookupOptions('PROPERTY_TYPE', agencyId)
+  const listingModes = useLookupOptions('LISTING_MODE', agencyId)
 
   const agencies = state.agencies.filter((a) => scopeAgency(a.id) || has('platform.manage'))
   const landlords = state.users.filter((u) => u.role === 'landlord' && (has('platform.manage') || u.agencyId === agencyId))
@@ -40,12 +48,13 @@ export default function AssetCreate() {
     address: '',
     area: '80',
     parking: '1',
-    agencyId: agencyId ?? agencies[0]?.id ?? '',
-    landlordId: landlords[0]?.id ?? '',
-    agentId: isFieldAgent(role) ? user.id : agents[0]?.id ?? '',
+    agencyId: isLandlord ? (agencyId ?? '') : agencyId ?? agencies[0]?.id ?? '',
+    landlordId: isLandlord ? user.id : landlords[0]?.id ?? '',
+    agentId: isLandlord ? '' : isFieldAgent(role) ? user.id : agents[0]?.id ?? '',
     description: '',
     amenities: ['Fibre', 'Parking'] as string[],
   })
+  const [publishAfterSave, setPublishAfterSave] = useState(isLandlord)
   const [images, setImages] = useState<string[]>([])
   const [floorPlan, setFloorPlan] = useState<string | null>(null)
   const [rooms, setRooms] = useState<Room[]>([
@@ -57,12 +66,14 @@ export default function AssetCreate() {
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault()
-    if (!form.title.trim() || !form.agencyId || !form.landlordId) return
+    const resolvedAgencyId = isLandlord ? (user.agencyId ?? form.agencyId) : form.agencyId
+    const resolvedLandlordId = isLandlord ? user.id : form.landlordId
+    if (!form.title.trim() || !resolvedAgencyId || !resolvedLandlordId) return
     if (images.length === 0) return
-    createProperty({
-      agencyId: form.agencyId,
-      landlordId: form.landlordId,
-      agentId: form.agentId || null,
+    const created = createProperty({
+      agencyId: resolvedAgencyId,
+      landlordId: resolvedLandlordId,
+      agentId: isLandlord ? null : form.agentId || null,
       title: form.title.trim(),
       type: form.type,
       status: 'Draft',
@@ -73,11 +84,11 @@ export default function AssetCreate() {
       baths,
       parking: Number(form.parking) || 0,
       area: Number(form.area) || 0,
-      city: form.city.trim() || 'Johannesburg',
+      city: form.city.trim() || 'Port Elizabeth',
       suburb: form.suburb.trim() || 'Central',
       address: form.address.trim() || form.suburb,
-      lat: -26.2,
-      lng: 28.0,
+      lat: -33.96,
+      lng: 25.6,
       amenities: form.amenities,
       description: form.description.trim() || `${form.type} in ${form.suburb}`,
       featured: false,
@@ -85,15 +96,22 @@ export default function AssetCreate() {
       rooms,
       floorPlan: floorPlan ?? undefined,
     })
-    navigate(returnTo)
+    if (publishAfterSave && canPublish) {
+      publishProperty(created.id, 'Published')
+    }
+    navigate(isLandlord ? `/workspace/properties/${created.id}` : returnTo)
   }
 
   return (
     <RequirePermission permission="assets.manage">
       <div className="animate-fade-in">
         <PageHeader
-          title="Add property asset"
-          subtitle="Infrastructure record first — rooms, beds, images, floor plan — then publish as a listing."
+          title={isLandlord ? 'List a property' : 'Add property asset'}
+          subtitle={
+            isLandlord
+              ? 'Add your home, then publish it so applicants can find it on the marketplace.'
+              : 'Infrastructure record first — rooms, beds, images, floor plan — then publish as a listing.'
+          }
           actions={
             <Link to={returnTo}>
               <Button variant="secondary">Cancel</Button>
@@ -106,8 +124,22 @@ export default function AssetCreate() {
             <Input placeholder="Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
             <div className="grid gap-3 sm:grid-cols-3">
               <Select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
-                {['House', 'Apartment', 'Townhouse', 'Commercial', 'Office', 'Vacant Land', 'Farm', 'Student Accommodation'].map((t) => (
-                  <option key={t}>{t}</option>
+                {(
+                  propertyTypes.length
+                    ? propertyTypes
+                    : [
+                        'House',
+                        'Apartment',
+                        'Townhouse',
+                        'Commercial',
+                        'Office',
+                        'Vacant Land',
+                        'Student Accommodation',
+                      ].map((t) => ({ value: t, label: t }))
+                ).map((t: { value: string; label: string }) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
                 ))}
               </Select>
               <Select
@@ -123,9 +155,19 @@ export default function AssetCreate() {
                   })
                 }}
               >
-                <option value="sale">For sale</option>
-                <option value="rent">To rent</option>
-                <option value="both">Sale or rent</option>
+                {(
+                  listingModes.length
+                    ? listingModes
+                    : [
+                        { value: 'sale', label: 'For sale' },
+                        { value: 'rent', label: 'To rent' },
+                        { value: 'both', label: 'Sale or rent' },
+                      ]
+                ).map((m: { value: string; label: string }) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
               </Select>
               <Input placeholder="Parking bays" value={form.parking} onChange={(e) => setForm({ ...form, parking: e.target.value })} />
             </div>
@@ -152,7 +194,19 @@ export default function AssetCreate() {
               <Input placeholder="Suburb" value={form.suburb} onChange={(e) => setForm({ ...form, suburb: e.target.value })} />
               <Input placeholder="Area m²" value={form.area} onChange={(e) => setForm({ ...form, area: e.target.value })} />
             </div>
-            <Input placeholder="Street address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+            <PlacesAddressInput
+              placeholder="Street address"
+              value={form.address}
+              onChange={(address) => setForm({ ...form, address })}
+              onPlaceSelect={(place) =>
+                setForm({
+                  ...form,
+                  address: place.address,
+                  suburb: place.suburb ?? form.suburb,
+                  city: place.city ?? form.city,
+                })
+              }
+            />
             <ImageDropzone
               label="Property photos"
               value={images}
@@ -239,36 +293,74 @@ export default function AssetCreate() {
 
           <div className="space-y-4">
             <Card className="space-y-3 p-5">
-              <h3 className="font-semibold">Ownership & assignment</h3>
-              <label className="block text-xs font-medium text-ink-500">Agency</label>
-              <Select value={form.agencyId} onChange={(e) => setForm({ ...form, agencyId: e.target.value })}>
-                {agencies.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-              </Select>
-              <label className="block text-xs font-medium text-ink-500">Landlord</label>
-              <Select value={form.landlordId} onChange={(e) => setForm({ ...form, landlordId: e.target.value })}>
-                {landlords.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.name}
-                  </option>
-                ))}
-              </Select>
-              <label className="block text-xs font-medium text-ink-500">Assigned agent</label>
-              <Select value={form.agentId} onChange={(e) => setForm({ ...form, agentId: e.target.value })}>
-                {agents.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-              </Select>
+              <h3 className="font-semibold">{isLandlord ? 'Your listing' : 'Ownership & assignment'}</h3>
+              {isLandlord ? (
+                <p className="rounded-xl bg-primary-50 px-3 py-2 text-xs text-ink-600">
+                  Listed under your portfolio as <span className="font-semibold">{user.name}</span>.
+                  {user.agencyId
+                    ? ` Agency: ${state.agencies.find((a) => a.id === user.agencyId)?.name ?? 'Personal portfolio'}.`
+                    : ''}
+                </p>
+              ) : (
+                <>
+                  <label className="block text-xs font-medium text-ink-500">Agency</label>
+                  <Select value={form.agencyId} onChange={(e) => setForm({ ...form, agencyId: e.target.value })}>
+                    {agencies.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </Select>
+                  <label className="block text-xs font-medium text-ink-500">Landlord</label>
+                  <Select value={form.landlordId} onChange={(e) => setForm({ ...form, landlordId: e.target.value })}>
+                    {landlords.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.name}
+                      </option>
+                    ))}
+                  </Select>
+                  <label className="block text-xs font-medium text-ink-500">Assigned agent</label>
+                  <Select value={form.agentId} onChange={(e) => setForm({ ...form, agentId: e.target.value })}>
+                    {agents.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </Select>
+                </>
+              )}
+              {has('listings.publish') && (
+                <label
+                  className={`flex min-h-11 items-start gap-3 rounded-xl border border-primary-100 bg-white px-3 py-3 ${
+                    canPublish ? 'cursor-pointer' : 'cursor-not-allowed opacity-70'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4"
+                    checked={publishAfterSave && canPublish}
+                    disabled={!canPublish}
+                    onChange={(e) => setPublishAfterSave(e.target.checked)}
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-ink">Publish to marketplace</span>
+                    <span className="mt-0.5 block text-xs text-ink-500">
+                      {canPublish
+                        ? 'Applicants can browse and apply once published.'
+                        : 'Your landlord account is pending document review — publish unlocks after approval.'}
+                    </span>
+                  </span>
+                </label>
+              )}
               {images.length === 0 && (
                 <p className="text-xs font-medium text-accent">Add at least one property photo to save.</p>
               )}
-              <Button type="submit" className="w-full" disabled={images.length === 0}>
-                Save asset
+              <Button
+                type="submit"
+                className="w-full cursor-pointer"
+                disabled={images.length === 0}
+              >
+                {publishAfterSave && canPublish ? 'Save & publish' : 'Save asset'}
               </Button>
             </Card>
             {images[0] && (

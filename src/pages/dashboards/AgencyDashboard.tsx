@@ -1,14 +1,15 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   AlertTriangle,
   ArrowRight,
   CalendarDays,
   ClipboardList,
   Users,
+  UserCog,
   Wrench,
 } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
-import { useAgencyScope } from '../../context/AuthContext'
+import { useAgencyScope, useAuth } from '../../context/AuthContext'
 import { priorityTone, statusTone } from '../../components/ui'
 import { OpsPreviewModal, type PreviewTarget } from '../../components/admin/OpsPreviewModal'
 import {
@@ -37,7 +38,6 @@ import {
   type CalendarMarker,
   type OpsListItemData,
 } from '../../components/dashboard'
-import type { Application, MaintenanceTicket, PropertyAsset, Viewing } from '../../types/domain'
 
 type DashTab = 'overview' | 'properties' | 'maintenance' | 'viewings' | 'applications'
 type ListFilter = 'all' | 'attention' | 'high' | 'scheduled' | 'awaiting' | 'listed'
@@ -93,6 +93,31 @@ function requestByLabel(item: OpsItem) {
 export function AgencyDashboard() {
   const { state } = useStore()
   const { scopeAgency } = useAgencyScope()
+  const { has, role } = useAuth()
+
+  const canProperties = has('assets.view') || has('listings.publish')
+  const canMaintenance = has('maintenance.view')
+  const canViewings = has('viewings.manage')
+  const canApplications = has('applications.view')
+  const canManageAssets = has('assets.manage')
+  const canManageMaintenance = has('maintenance.manage')
+  const canManageLeads = has('leads.view') || has('leads.manage')
+  const canManageUsers = has('users.manage')
+  const isPrincipal = role === 'client_admin'
+  const isAgencyAdmin = role === 'agent_admin'
+  const homeLabel = isPrincipal
+    ? 'Principal home'
+    : isAgencyAdmin
+      ? 'Office ops home'
+      : 'Agency home'
+  const homeEyebrow = isPrincipal
+    ? 'Agency leadership'
+    : isAgencyAdmin
+      ? 'Day-to-day ops'
+      : 'Agency desk'
+  const searchPlaceholder = isPrincipal
+    ? 'Search portfolio risk, applications, or viewings…'
+    : 'Search properties, maintenance, viewings…'
 
   const [tab, setTab] = useState<DashTab>('overview')
   const [query, setQuery] = useState('')
@@ -103,20 +128,28 @@ export function AgencyDashboard() {
   const [calendarOpen, setCalendarOpen] = useState(true)
 
   const properties = useMemo(
-    () => state.properties.filter((p) => scopeAgency(p.agencyId)),
-    [state.properties, scopeAgency],
+    () =>
+      canProperties
+        ? state.properties.filter((p) => scopeAgency(p.agencyId))
+        : [],
+    [state.properties, scopeAgency, canProperties],
   )
   const apps = useMemo(
-    () => state.applications.filter((a) => scopeAgency(a.agencyId)),
-    [state.applications, scopeAgency],
+    () =>
+      canApplications
+        ? state.applications.filter((a) => scopeAgency(a.agencyId))
+        : [],
+    [state.applications, scopeAgency, canApplications],
   )
   const tickets = useMemo(
-    () => state.tickets.filter((t) => scopeAgency(t.agencyId)),
-    [state.tickets, scopeAgency],
+    () =>
+      canMaintenance ? state.tickets.filter((t) => scopeAgency(t.agencyId)) : [],
+    [state.tickets, scopeAgency, canMaintenance],
   )
   const viewings = useMemo(
-    () => state.viewings.filter((v) => scopeAgency(v.agencyId)),
-    [state.viewings, scopeAgency],
+    () =>
+      canViewings ? state.viewings.filter((v) => scopeAgency(v.agencyId)) : [],
+    [state.viewings, scopeAgency, canViewings],
   )
   const users = state.users
 
@@ -262,26 +295,149 @@ export function AgencyDashboard() {
     }
   }, [openTickets, scheduledViewings, awaitingApps, properties])
 
-  const tabs = useMemo(
-    () => [
-      { id: 'overview', label: 'Overview', count: sectionCounts.overview },
-      { id: 'properties', label: 'Properties', count: sectionCounts.properties },
-      { id: 'maintenance', label: 'Maintenance', count: sectionCounts.maintenance },
-      { id: 'viewings', label: 'Viewings', count: sectionCounts.viewings },
-      { id: 'applications', label: 'Applications', count: sectionCounts.applications },
-    ],
-    [sectionCounts],
-  )
+  const tabs = useMemo(() => {
+    const all: Array<{ id: DashTab; label: string; count: number; show: boolean }> = [
+      { id: 'overview', label: 'Overview', count: sectionCounts.overview, show: true },
+      {
+        id: 'properties',
+        label: 'Properties',
+        count: sectionCounts.properties,
+        show: canProperties,
+      },
+      {
+        id: 'maintenance',
+        label: 'Maintenance',
+        count: sectionCounts.maintenance,
+        show: canMaintenance,
+      },
+      {
+        id: 'viewings',
+        label: 'Viewings',
+        count: sectionCounts.viewings,
+        show: canViewings,
+      },
+      {
+        id: 'applications',
+        label: 'Applications',
+        count: sectionCounts.applications,
+        show: canApplications,
+      },
+    ]
+    return all.filter((t) => t.show).map(({ id, label, count }) => ({ id, label, count }))
+  }, [sectionCounts, canProperties, canMaintenance, canViewings, canApplications])
+
+  useEffect(() => {
+    if (!tabs.some((t) => t.id === tab)) {
+      setTab((tabs[0]?.id as DashTab) ?? 'overview')
+    }
+  }, [tabs, tab])
+
+  const createMenuItems = useMemo(() => {
+    const items: Array<{ to: string; label: string }> = []
+    if ((isPrincipal || isAgencyAdmin) && canManageUsers) {
+      items.push({ to: '/workspace/admin/users/new?intent=team', label: 'Add team member' })
+    }
+    if (canManageAssets) items.push({ to: '/workspace/properties/new', label: 'New property' })
+    if (canManageMaintenance) {
+      items.push({ to: '/workspace/operations/maintenance?create=1', label: 'Log maintenance' })
+    }
+    if (canViewings) items.push({ to: '/workspace/sales/viewings?create=1', label: 'Book viewing' })
+    if (canApplications) {
+      items.push({
+        to: '/workspace/sales/applications',
+        label: isAgencyAdmin ? 'Review applications' : 'New application',
+      })
+    }
+    if (isAgencyAdmin && canManageLeads) {
+      items.push({ to: '/workspace/sales/crm', label: 'Open CRM pipeline' })
+    }
+    return items
+  }, [
+    isPrincipal,
+    isAgencyAdmin,
+    canManageUsers,
+    canManageAssets,
+    canManageMaintenance,
+    canViewings,
+    canApplications,
+    canManageLeads,
+  ])
+
+  const quickLinks = useMemo(() => {
+    const items: Array<{
+      to: string
+      label: string
+      icon: ReactNode
+      tone?: 'accent'
+    }> = []
+    if ((isPrincipal || isAgencyAdmin) && canManageUsers) {
+      items.push({
+        to: '/workspace/people/staff',
+        label: 'Team roster',
+        icon: <UserCog className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
+      })
+    }
+    if (canViewings) {
+      items.push({
+        to: '/workspace/sales/viewings',
+        label: `${scheduledViewings.length} viewings`,
+        icon: <CalendarDays className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
+      })
+    }
+    if (canMaintenance) {
+      items.push({
+        to: '/workspace/operations/maintenance',
+        label: `${openTickets.length} open issues`,
+        icon: <Wrench className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
+        tone: 'accent',
+      })
+      items.push({
+        to: '/workspace/operations/maintenance',
+        label: `${openTickets.filter((t) => t.priority === 'High' || t.priority === 'Urgent' || t.priority === 'Emergency').length} urgent`,
+        icon: <AlertTriangle className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
+        tone: 'accent',
+      })
+    }
+    if (canApplications) {
+      items.push({
+        to: '/workspace/sales/applications',
+        label: `${awaitingApps.length} apps`,
+        icon: <ClipboardList className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
+      })
+    }
+    if (canManageLeads) {
+      items.push({
+        to: '/workspace/sales/crm',
+        label: isPrincipal ? 'Pipeline health' : 'CRM board',
+        icon: <Users className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
+      })
+    }
+    return items
+  }, [
+    isPrincipal,
+    isAgencyAdmin,
+    canManageUsers,
+    canViewings,
+    canMaintenance,
+    canApplications,
+    canManageLeads,
+    scheduledViewings.length,
+    openTickets,
+    awaitingApps.length,
+  ])
 
   const banner = useMemo(() => {
     switch (tab) {
       case 'overview':
-        return sectionCounts.overview > 0
-          ? {
-              tone: 'warning' as const,
-              text: `You have ${sectionCounts.overview} open items across maintenance, viewings, and applications.`,
-            }
-          : null
+        if (sectionCounts.overview <= 0) return null
+        return {
+          tone: 'warning' as const,
+          text: isPrincipal
+            ? `${sectionCounts.overview} items need leadership attention across maintenance, viewings, and applications.`
+            : isAgencyAdmin
+              ? `${sectionCounts.overview} office queue items — clear maintenance, viewings, and app reviews today.`
+              : `You have ${sectionCounts.overview} open items across maintenance, viewings, and applications.`,
+        }
       case 'properties':
         return sectionCounts.properties > 0
           ? {
@@ -307,13 +463,15 @@ export function AgencyDashboard() {
         return sectionCounts.applications > 0
           ? {
               tone: 'warning' as const,
-              text: `${sectionCounts.applications} ${sectionCounts.applications === 1 ? 'application is' : 'applications are'} waiting for review.`,
+              text: isAgencyAdmin
+                ? `${sectionCounts.applications} ${sectionCounts.applications === 1 ? 'application awaits' : 'applications await'} your office review.`
+                : `${sectionCounts.applications} ${sectionCounts.applications === 1 ? 'application is' : 'applications are'} waiting for review.`,
             }
           : null
       default:
         return null
     }
-  }, [tab, sectionCounts])
+  }, [tab, sectionCounts, isPrincipal, isAgencyAdmin])
 
   const availableFilters = FILTERS.filter((f) => !f.tabs || f.tabs.includes(tab))
 
@@ -434,20 +592,33 @@ export function AgencyDashboard() {
       <DashboardBreadcrumb
         items={[
           { label: 'Dashboard', to: '/workspace' },
-          { label: 'Overview' },
+          { label: homeLabel },
         ]}
       />
 
       {hero && (
         <AttentionHero
           {...hero}
+          eyebrow={homeEyebrow}
+          secondaryBadge={isPrincipal ? 'Principal' : isAgencyAdmin ? 'Agency Admin' : hero.secondaryBadge}
           cta={
             hero.cta
               ? {
                   ...hero.cta,
+                  label:
+                    isPrincipal && hero.kind === 'issue'
+                      ? 'Escalate maintenance'
+                      : isAgencyAdmin && hero.kind === 'application'
+                        ? 'Review now'
+                        : hero.cta.label,
                   icon: <CtaIcon className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
                 }
               : undefined
+          }
+          secondaryCta={
+            isPrincipal && canManageUsers
+              ? { label: 'Review team', to: '/workspace/people/staff' }
+              : hero.secondaryCta
           }
         />
       )}
@@ -478,19 +649,12 @@ export function AgencyDashboard() {
             <OpsToolbar
               query={query}
               onQueryChange={setQuery}
-              placeholder="Search properties, maintenance, viewings…"
+              placeholder={searchPlaceholder}
               filters={availableFilters}
               filterValue={listFilter}
               onFilterChange={(id) => setListFilter(id as ListFilter)}
               actions={
-                <CreateMenu
-                  items={[
-                    { to: '/workspace/properties/new', label: 'New property' },
-                    { to: '/workspace/operations/maintenance?create=1', label: 'Log maintenance' },
-                    { to: '/workspace/sales/viewings?create=1', label: 'Book viewing' },
-                    { to: '/workspace/sales/applications', label: 'New application' },
-                  ]}
-                />
+                createMenuItems.length > 0 ? <CreateMenu items={createMenuItems} /> : undefined
               }
             />
 
@@ -511,7 +675,13 @@ export function AgencyDashboard() {
                   const item = opsItems.find((i) => i.kind === parsed.kind && i.id === parsed.id)
                   if (item) openPreview(item)
                 }}
-                empty="No matches — clear search or filters."
+                empty={
+                  isPrincipal
+                    ? 'Portfolio looks clear — check Team or CRM if you need a deeper pulse.'
+                    : isAgencyAdmin
+                      ? 'Office queue is clear — book a viewing or log maintenance when work lands.'
+                      : 'No matches — clear search or filters.'
+                }
                 limit={5}
                 showMoreTo={
                   tab === 'properties'
@@ -568,39 +738,7 @@ export function AgencyDashboard() {
                     : statusTone(focusEvent.status)
                   : undefined
               }
-              chips={
-                <QuickLinkChips
-                  items={[
-                    {
-                      to: '/workspace/sales/viewings',
-                      label: `${scheduledViewings.length} viewings`,
-                      icon: <CalendarDays className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
-                    },
-                    {
-                      to: '/workspace/operations/maintenance',
-                      label: `${openTickets.length} open issues`,
-                      icon: <Wrench className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
-                      tone: 'accent',
-                    },
-                    {
-                      to: '/workspace/operations/maintenance',
-                      label: `${openTickets.filter((t) => t.priority === 'High' || t.priority === 'Urgent' || t.priority === 'Emergency').length} urgent`,
-                      icon: <AlertTriangle className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
-                      tone: 'accent',
-                    },
-                    {
-                      to: '/workspace/sales/applications',
-                      label: `${awaitingApps.length} apps`,
-                      icon: <ClipboardList className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
-                    },
-                    {
-                      to: '/workspace/sales/crm',
-                      label: 'CRM',
-                      icon: <Users className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
-                    },
-                  ]}
-                />
-              }
+              chips={quickLinks.length > 0 ? <QuickLinkChips items={quickLinks} /> : undefined}
             >
               <EventCycleNav
                 index={eventIndex}
@@ -617,27 +755,4 @@ export function AgencyDashboard() {
       <OpsPreviewModal target={preview} onClose={() => setPreview(null)} />
     </DashboardPage>
   )
-}
-
-/** Shared helper for role dashboards that need scoped agency data. */
-export function useAgencyOpsData() {
-  const { state } = useStore()
-  const { scopeAgency } = useAgencyScope()
-  const properties = useMemo(
-    () => state.properties.filter((p: PropertyAsset) => scopeAgency(p.agencyId)),
-    [state.properties, scopeAgency],
-  )
-  const apps = useMemo(
-    () => state.applications.filter((a: Application) => scopeAgency(a.agencyId)),
-    [state.applications, scopeAgency],
-  )
-  const tickets = useMemo(
-    () => state.tickets.filter((t: MaintenanceTicket) => scopeAgency(t.agencyId)),
-    [state.tickets, scopeAgency],
-  )
-  const viewings = useMemo(
-    () => state.viewings.filter((v: Viewing) => scopeAgency(v.agencyId)),
-    [state.viewings, scopeAgency],
-  )
-  return { state, properties, apps, tickets, viewings }
 }

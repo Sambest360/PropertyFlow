@@ -2,16 +2,17 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, Plus } from 'lucide-react'
 import { useStore } from '../context/AppStore'
-import { useAgencyScope, useAuth } from '../context/AuthContext'
-import { isFieldAgent } from '../lib/permissions'
+import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
 import { scoreAssetHealth } from '../lib/api/ticketsApi'
 import { isWarrantyCovered } from '../lib/maintenanceApi'
+import { getLookups, getLookupOptions } from '../lib/lookups'
 import type { AssetCondition } from '../data/infrastructure'
 import type { MaintenanceTicket } from '../types/domain'
 import type { TicketCompletionFields } from '../lib/maintenanceApi'
 import { Button, Card, PageHeader } from '../components/ui'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
+import { isVerificationApproved } from '../lib/verification'
 import { MaintenanceToolbar } from '../components/maintenance/MaintenanceToolbar'
 import { MaintenanceListView } from '../components/maintenance/MaintenanceListView'
 import { MaintenancePortfolioCard } from '../components/maintenance/MaintenancePortfolioCard'
@@ -56,8 +57,8 @@ export default function Maintenance() {
     runEmergencyEscalations,
     addPropertyEvent,
   } = useStore()
-  const { user, has, role, agencyId } = useAuth()
-  const { scopeAgency, scopeAgent } = useAgencyScope()
+  const { user, has, agencyId } = useAuth()
+  const { allowedPropertyIds, ticketVisible, canMutate } = usePropertyScope()
   const reducedMotion = usePrefersReducedMotion()
   const alert = useSuiteAlert()
   const navigate = useNavigate()
@@ -121,13 +122,8 @@ export default function Maintenance() {
   }
 
   const properties = useMemo(
-    () =>
-      state.properties.filter((p) => {
-        if (!scopeAgency(p.agencyId)) return false
-        if (isFieldAgent(role) && !scopeAgent(p.agentId)) return false
-        return true
-      }),
-    [state.properties, scopeAgency, scopeAgent, role],
+    () => state.properties.filter((p) => allowedPropertyIds.has(p.id)),
+    [state.properties, allowedPropertyIds],
   )
 
   const contractors = useMemo(
@@ -136,33 +132,25 @@ export default function Maintenance() {
         (u) =>
           u.role === 'contractor' &&
           u.active &&
+          isVerificationApproved(u.verification, u.role) &&
           (has('platform.manage') || u.agencyId === agencyId),
       ),
     [state.users, has, agencyId],
   )
 
   const categories = useMemo(
-    () =>
-      state.lookups.filter(
-        (l) =>
-          l.configType === 'TICKET_CATEGORY' &&
-          (!agencyId || l.clientId === agencyId) &&
-          l.isActive,
-      ),
+    () => getLookups(state.lookups, agencyId, 'TICKET_CATEGORY'),
+    [state.lookups, agencyId],
+  )
+
+  const ticketPriorities = useMemo(
+    () => getLookupOptions(state.lookups, agencyId, 'TICKET_PRIORITY'),
     [state.lookups, agencyId],
   )
 
   const portfolio: PortfolioTicket[] = useMemo(() => {
     return state.tickets
-      .filter((t) => {
-        if (!scopeAgency(t.agencyId)) return false
-        const prop = state.properties.find((p) => p.id === t.propertyId)
-        if (!prop) return false
-        if (isFieldAgent(role) && !scopeAgent(prop.agentId) && !scopeAgent(t.assignedAgentId)) {
-          return false
-        }
-        return true
-      })
+      .filter((t) => ticketVisible(t))
       .map((ticket) => {
         const property = state.properties.find((p) => p.id === ticket.propertyId)!
         const asset = ticket.internalAssetId
@@ -184,14 +172,13 @@ export default function Maintenance() {
           ageHours,
         }
       })
+      .filter((item) => Boolean(item.property))
   }, [
     state.tickets,
     state.properties,
     state.internalAssets,
     state.users,
-    scopeAgency,
-    scopeAgent,
-    role,
+    ticketVisible,
   ])
 
   const filtered = useMemo(() => {
@@ -330,6 +317,7 @@ export default function Maintenance() {
   }) => {
     const prop = properties.find((p) => p.id === input.propertyId)
     if (!prop?.unitId) return 'Property has no linked unit.'
+    if (!canMutate(input.propertyId)) return 'Property is outside your assigned book.'
     const result = createMaintenanceTicket({
       actorUserId: user.id,
       propertyId: input.propertyId,
@@ -428,6 +416,7 @@ export default function Maintenance() {
         onViewChange={setView}
         resultLabel={resultLabel}
         reducedMotion={reducedMotion}
+        priorities={ticketPriorities}
       />
 
       {portfolio.length === 0 ? (

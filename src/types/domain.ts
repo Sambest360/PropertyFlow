@@ -3,17 +3,22 @@ export type Role =
   | 'client_admin'
   | 'agent_admin'
   | 'ground_agent'
-  /** @deprecated use ground_agent — kept for older demo rows */
+  /** Candidate / intern agent (also used for older demo rows previously labeled “agent”). */
   | 'agent'
   | 'landlord'
   | 'tenant'
   | 'contractor'
+
+export type LicenseStatus = 'principal' | 'full' | 'candidate' | 'n/a'
 
 export type Permission =
   | 'platform.manage'
   | 'tenant.manage'
   | 'users.manage'
   | 'roles.assign'
+  | 'users.impersonate'
+  | 'config.manage'
+  | 'notifications.broadcast'
   | 'assets.view'
   | 'assets.manage'
   | 'listings.publish'
@@ -69,6 +74,8 @@ export type Agency = {
   city: string
   status: 'Active' | 'Suspended'
   createdAt: string
+  /** Modules this agency’s staff may use (intersected with role permissions). */
+  enabledPermissions: Permission[]
 }
 
 export type AppUser = {
@@ -78,8 +85,45 @@ export type AppUser = {
   role: Role
   agencyId: string | null
   phone?: string
+  /** SA ID or passport — used for compliance identity. */
+  idNumberOrPassport?: string
+  /** ISO date YYYY-MM-DD — derived from SA ID when applicable, or entered manually. */
+  dateOfBirth?: string
+  /** Employer / brokerage / trading name when relevant. */
+  company?: string
   active: boolean
   avatar?: string
+  /**
+   * When set, replaces the role’s default permission pack for this user
+   * (still intersected with the agency’s enabledPermissions).
+   */
+  enabledPermissions?: Permission[]
+  /** Candidate / intern agents train under a principal or full agent. */
+  mentorId?: string | null
+  /** Licensing posture for compliance tracking. */
+  licenseStatus?: LicenseStatus
+  /** Share of fee retained by the agent (rest to the agency). */
+  commissionSharePct?: number
+  /**
+   * Landlord / contractor onboarding review.
+   * Omitted or missing on seeded users ⇒ treated as approved.
+   */
+  verification?: {
+    status: 'pending' | 'approved' | 'rejected' | 'not_required'
+    submittedAt?: string
+    reviewedAt?: string
+    reviewedBy?: string | null
+    rejectNote?: string
+    profile?: Record<string, unknown>
+    documents?: Array<{
+      key: string
+      label: string
+      name: string
+      mimeType: string
+      dataUrl: string
+      uploadedAt: string
+    }>
+  }
 }
 
 export type Room = {
@@ -125,6 +169,12 @@ export type PropertyAsset = {
   address: string
   lat: number
   lng: number
+  /** Google Places place_id when geocoded */
+  placeId?: string | null
+  /** Canonical address from geocoder */
+  formattedAddress?: string | null
+  /** ISO timestamp of last successful geocode */
+  geocodedAt?: string | null
   images: string[]
   floorPlan?: string
   rooms: Room[]
@@ -353,6 +403,21 @@ export type AppNotification = {
   link?: string
   resource?: SuiteAlertResource
   action?: SuiteAlertAction
+  /** Set when created via admin broadcast */
+  broadcastId?: string
+}
+
+export type NotificationBroadcast = {
+  id: string
+  title: string
+  body: string
+  link?: string
+  audience: 'everyone' | 'agency' | 'person'
+  agencyId: string | null
+  userId: string | null
+  createdByUserId: string
+  createdAt: string
+  recipientCount: number
 }
 
 export type MaintenanceTicket = {
@@ -424,4 +489,26 @@ export type PropertyEvent = {
   action: string
   at: string
   changes?: PropertyEventChange[]
+}
+
+/** Applicant / tenant feedback targets */
+export type ReviewTargetType = 'property' | 'application' | 'agent'
+
+/**
+ * Public reviews — property & application reviews surface on the listing page;
+ * agent reviews attach to the listing agent (and agent profile when present).
+ */
+export type Review = {
+  id: string
+  targetType: ReviewTargetType
+  /** Property id, application id, or agent user id */
+  targetId: string
+  /** Always set for property/application reviews; optional for agent-only */
+  propertyId: string | null
+  agencyId: string | null
+  authorUserId: string
+  authorName: string
+  rating: number
+  body: string
+  createdAt: string
 }

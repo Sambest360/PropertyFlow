@@ -30,6 +30,8 @@ export function PaymentsToolbar({
   onViewChange,
   resultLabel,
   reducedMotion,
+  paymentStatuses,
+  paymentTypes,
 }: {
   query: string
   onQueryChange: (v: string) => void
@@ -48,7 +50,16 @@ export function PaymentsToolbar({
   onViewChange: (v: PaymentsViewMode) => void
   resultLabel: string
   reducedMotion?: boolean
+  paymentStatuses?: Array<{ value: string; label: string }>
+  paymentTypes?: Array<{ value: string; label: string }>
 }) {
+  const statusOptions = paymentStatuses?.length
+    ? paymentStatuses
+    : PAYMENT_STATUSES.map((s) => ({ value: s, label: s }))
+  const typeOptions = paymentTypes?.length
+    ? paymentTypes
+    : PAYMENT_TYPES.map((t) => ({ value: t, label: t }))
+
   return (
     <div className="mb-5 space-y-3 rounded-[1.25rem] border border-primary-100/80 bg-white p-3 shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)] sm:p-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
@@ -128,9 +139,9 @@ export function PaymentsToolbar({
           aria-label="Filter by status"
         >
           <option value="all">All statuses</option>
-          {PAYMENT_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {s}
+          {statusOptions.map((s) => (
+            <option key={s.value} value={s.value}>
+              {s.label}
             </option>
           ))}
         </Select>
@@ -142,9 +153,9 @@ export function PaymentsToolbar({
           aria-label="Filter by type"
         >
           <option value="all">All types</option>
-          {PAYMENT_TYPES.map((t) => (
-            <option key={t} value={t}>
-              {t}
+          {typeOptions.map((t) => (
+            <option key={t.value} value={t.value}>
+              {t.label}
             </option>
           ))}
         </Select>

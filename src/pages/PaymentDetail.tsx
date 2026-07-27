@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useStore } from '../context/AppStore'
-import { useAgencyScope, useAuth } from '../context/AuthContext'
+import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
 import { DashboardTabs } from '../components/dashboard/DashboardTabs'
 import { Card } from '../components/ui'
@@ -22,7 +22,7 @@ export default function PaymentDetail() {
   const [params, setParams] = useSearchParams()
   const { state, markPaymentPaid, updatePayment, removePayment } = useStore()
   const { user, has, role } = useAuth()
-  const { scopeAgency } = useAgencyScope()
+  const { paymentVisible, canMutate } = usePropertyScope()
   const alert = useSuiteAlert()
 
   const [markPaidOpen, setMarkPaidOpen] = useState(false)
@@ -46,14 +46,11 @@ export default function PaymentDetail() {
 
   const inScope = useMemo(() => {
     if (!payment) return false
-    if (role === 'tenant') {
-      return payment.partyUserId === user.id || payment.partyName === user.name
-    }
-    if (role === 'landlord') {
-      return property?.landlordId === user.id && payment.landlordVisible
-    }
-    return scopeAgency(payment.agencyId)
-  }, [payment, role, user, property, scopeAgency])
+    return paymentVisible(payment, {
+      viewerName: user.name,
+      propertyLandlordId: property?.landlordId,
+    })
+  }, [payment, paymentVisible, user.name, property?.landlordId])
 
   const hideParty = role === 'landlord'
   const canMaintain = has('payments.manage')
@@ -65,6 +62,7 @@ export default function PaymentDetail() {
 
   const handleMarkPaid = (details: MarkPaymentPaidDetails) => {
     if (!payment) return
+    if (!canMutate(payment.propertyId) && role !== 'tenant') return
     markPaymentPaid(payment.id, {
       ...details,
       recordedByUserId: user.id,

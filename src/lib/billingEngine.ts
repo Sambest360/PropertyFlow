@@ -199,4 +199,12 @@ export const SEED_SUBSCRIPTIONS: ClientSubscription[] = [
     status: 'ACTIVE',
     updatedAt: '2026-07-01',
   },
+  {
+    id: 'sub-garden',
+    clientId: 'ag-garden',
+    planId: 'plan-standard',
+    billingCycleAnchorDay: 5,
+    status: 'ACTIVE',
+    updatedAt: '2026-07-01',
+  },
 ]

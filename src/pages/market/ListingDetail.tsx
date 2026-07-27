@@ -1,36 +1,77 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Bath, BedDouble, Car, Heart, MapPin, Share2, Star } from 'lucide-react'
-import { useStore } from '../../context/AppStore'
+import { usePublicProperties, useStore } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
-import { Badge, Button, Input } from '../../components/ui'
+import { Badge, Button, Input, cn } from '../../components/ui'
 import { PropertyFeaturesDisplay } from '../../components/property-features/PropertyFeaturesDisplay'
 import { formatZAR } from '../../data/seed'
 import { PropertyCard } from '../../components/PropertyCard'
+import { PropertyMap } from '../../components/PropertyMap'
+import { ListingPhotoGallery } from '../../components/listing/ListingPhotoGallery'
+import { ListingReviewsSection } from '../../components/reviews/ListingReviewsSection'
+import { averageRating } from '../../components/reviews/StarRating'
 import { minimumRequiredIncome, resolveUnitForProperty } from '../../lib/applicationApi'
 import {
   blockedPropertyIdsForApplicant,
   isApplicantBlockedOnProperty,
 } from '../../lib/blockedApplicants'
+import { useWishlist } from '../../hooks/useWishlist'
+import { hasMappedCoordinates } from '../../lib/mapCoords'
+import { isPubliclyListed } from '../../lib/publicListings'
 
 export default function ListingDetail() {
   const { id } = useParams()
   const { state, createApplication, createLead, bookViewingSlot } = useStore()
-  const { user } = useAuth()
-  const p = state.properties.find((x) => x.id === id) ?? state.properties[0]
+  const publicProperties = usePublicProperties()
+  const { user, isAuthenticated } = useAuth()
+  const p = state.properties.find((x) => x.id === id)
+  const { saved, toggle } = useWishlist(isAuthenticated ? user.id : 'guest')
+  const wishlisted = p ? saved(p.id) : false
+
+  const [name, setName] = useState('')
+  const [contact, setContact] = useState('')
+  const [note, setNote] = useState('')
+  const [slotId, setSlotId] = useState('')
+  const [income, setIncome] = useState('')
+  const [idNumber, setIdNumber] = useState('')
+  const [done, setDone] = useState('')
+
+  useEffect(() => {
+    if (isAuthenticated && user.email) {
+      setContact((c) => c || user.email)
+      setName((n) => n || user.name)
+    }
+  }, [isAuthenticated, user.email, user.name])
+
   const blockedIds = useMemo(
     () => blockedPropertyIdsForApplicant(state.applications, user),
     [state.applications, user],
   )
+
+  const isListed =
+    p != null && isPubliclyListed(p, { units: state.units, users: state.users })
+
+  if (!p || !isListed) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-16 text-center">
+        <p className="font-semibold text-ink">Listing not found</p>
+        <p className="mt-2 text-sm text-ink-500">It may have been unpublished or the link is outdated.</p>
+        <Link to="/browse" className="mt-6 inline-block text-sm font-semibold text-primary hover:underline">
+          Back to browse
+        </Link>
+      </div>
+    )
+  }
+
   const isBlockedForUser = blockedIds.has(p.id)
   const unit = resolveUnitForProperty(p, state.units)
   const agent = state.users.find((u) => u.id === p.agentId)
-  const similar = state.properties
+  const similar = publicProperties
     .filter(
       (x) =>
         x.id !== p.id &&
         x.city === p.city &&
-        ['Published', 'Featured', 'Under Offer'].includes(x.status) &&
         !blockedIds.has(x.id),
     )
     .slice(0, 3)
@@ -43,13 +84,13 @@ export default function ListingDetail() {
     !['Rented', 'Sold', 'Archived'].includes(p.status) &&
     (!unit || (unit.listingType !== 'not_listed' && unit.statusKey !== 'OCCUPIED'))
 
-  const [name, setName] = useState('')
-  const [contact, setContact] = useState('')
-  const [note, setNote] = useState('')
-  const [slotId, setSlotId] = useState('')
-  const [income, setIncome] = useState('')
-  const [idNumber, setIdNumber] = useState('')
-  const [done, setDone] = useState('')
+  const listingReviewAvg = averageRating(
+    state.reviews.filter(
+      (r) =>
+        r.propertyId === p.id &&
+        (r.targetType === 'property' || r.targetType === 'application'),
+    ),
+  )
 
   const emailOf = () =>
     contact.includes('@') ? contact.trim() : `${name.replace(/\s+/g, '.').toLowerCase()}@email.com`
@@ -103,6 +144,10 @@ export default function ListingDetail() {
   }
 
   const submitApplication = () => {
+    if (!isAuthenticated) {
+      setDone('Create an account or sign in to apply.')
+      return
+    }
     if (!name.trim() || !contact.trim()) {
       setDone('Please enter your name and email/phone first.')
       return
@@ -115,6 +160,7 @@ export default function ListingDetail() {
       agencyId: p.agencyId,
       propertyId: p.id,
       agentId: p.agentId,
+      applicantUserId: user.id,
       applicantName: name.trim(),
       email: emailOf(),
       phone: phoneOf(),
@@ -146,8 +192,10 @@ export default function ListingDetail() {
       value: p.price ?? p.rent ?? 0,
       stage: 'Application Submitted',
     })
-    setDone('Application submitted to the agency review workflow. Continue in the Tenant portal after signing in.')
+    setDone('Application submitted. Track it in your Tenant portal under Applications.')
   }
+
+  const applyHref = `/register?next=${encodeURIComponent(`/listing/${p.id}`)}`
 
   return (
     <div className="bg-white">
@@ -160,9 +208,21 @@ export default function ListingDetail() {
           <div>
             <h1 className="font-display text-2xl font-semibold text-ink sm:text-3xl">{p.title}</h1>
             <p className="mt-1 flex flex-wrap items-center gap-3 text-sm text-ink-500">
-              <span className="inline-flex items-center gap-1 font-semibold text-ink">
-                <Star className="h-4 w-4 fill-accent text-accent" /> 4.8
-              </span>
+              {listingReviewAvg != null ? (
+                <a
+                  href="#reviews"
+                  className="inline-flex cursor-pointer items-center gap-1 font-semibold text-ink hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  <Star className="h-4 w-4 fill-accent text-accent" aria-hidden /> {listingReviewAvg}
+                </a>
+              ) : (
+                <a
+                  href="#reviews"
+                  className="inline-flex cursor-pointer items-center gap-1 font-semibold text-ink-500 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  <Star className="h-4 w-4 text-ink-300" aria-hidden /> No reviews yet
+                </a>
+              )}
               <span className="inline-flex items-center gap-1">
                 <MapPin className="h-4 w-4" />
                 {p.suburb}, {p.city}
@@ -173,21 +233,20 @@ export default function ListingDetail() {
             <button type="button" className="inline-flex items-center gap-2 rounded-full border border-primary-100 px-4 py-2 text-sm font-semibold hover:bg-primary-50">
               <Share2 className="h-4 w-4" /> Share
             </button>
-            <button type="button" className="inline-flex items-center gap-2 rounded-full border border-primary-100 px-4 py-2 text-sm font-semibold hover:bg-primary-50">
-              <Heart className="h-4 w-4" /> Save
+            <button
+              type="button"
+              onClick={() => p && toggle(p.id)}
+              className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-primary-100 px-4 py-2 text-sm font-semibold transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              aria-pressed={wishlisted}
+            >
+              <Heart className={cn('h-4 w-4', wishlisted && 'fill-accent text-accent')} />
+              {wishlisted ? 'Saved' : 'Save'}
             </button>
           </div>
         </div>
 
-        <div className="mt-6 grid gap-2 overflow-hidden rounded-3xl sm:h-[420px] sm:grid-cols-4 sm:grid-rows-2">
-          <div className="sm:col-span-2 sm:row-span-2">
-            <img src={p.images[0]} alt="" className="h-56 w-full object-cover sm:h-full" />
-          </div>
-          {(p.images.length > 1 ? p.images.slice(1, 5) : [p.images[0], p.images[0], p.images[0], p.images[0]]).map((src, i) => (
-            <div key={i} className="hidden overflow-hidden sm:block">
-              <img src={src} alt="" className="h-full w-full object-cover" />
-            </div>
-          ))}
+        <div className="mt-6">
+          <ListingPhotoGallery images={p.images} title={p.title} />
         </div>
 
         <div className="mt-8 grid gap-10 lg:grid-cols-[1fr_380px]">
@@ -245,17 +304,39 @@ export default function ListingDetail() {
               </div>
             </div>
 
+            <ListingReviewsSection
+              propertyId={p.id}
+              agencyId={p.agencyId}
+              agentId={p.agentId}
+              agentName={agent?.name}
+            />
+
             <div className="py-6">
               <h2 className="text-lg font-semibold">Location</h2>
-              <div className="mt-4 flex h-48 items-center justify-center rounded-2xl bg-primary-100">
-                <div className="rounded-2xl bg-white/90 px-5 py-4 text-center shadow">
-                  <MapPin className="mx-auto h-6 w-6 text-ink-500" />
-                  <p className="mt-1 font-semibold">{p.address}</p>
-                  <p className="text-xs text-ink-500">
-                    {p.suburb}, {p.city}
-                  </p>
+              <p className="mt-1 text-sm text-ink-500">
+                {p.formattedAddress ?? p.address}
+                {(p.suburb || p.city) && (
+                  <>
+                    {' · '}
+                    {[p.suburb, p.city].filter(Boolean).join(', ')}
+                  </>
+                )}
+              </p>
+              {hasMappedCoordinates(p) ? (
+                <div className="mt-4 h-64 overflow-hidden rounded-2xl sm:h-80">
+                  <PropertyMap properties={[p]} mode={p.listingMode === 'sale' ? 'buy' : 'rent'} className="h-full" />
                 </div>
-              </div>
+              ) : (
+                <div className="mt-4 flex h-48 items-center justify-center rounded-2xl bg-primary-100">
+                  <div className="rounded-2xl bg-white/90 px-5 py-4 text-center shadow">
+                    <MapPin className="mx-auto h-6 w-6 text-ink-500" />
+                    <p className="mt-1 font-semibold">{p.address}</p>
+                    <p className="text-xs text-ink-500">
+                      {p.suburb}, {p.city}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -328,9 +409,25 @@ export default function ListingDetail() {
                 <Button type="submit" className="w-full" disabled={!accepting}>
                   Book viewing slot
                 </Button>
-                <Button type="button" variant="secondary" className="w-full" onClick={submitApplication} disabled={!accepting}>
-                  Submit application
-                </Button>
+                {!isAuthenticated ? (
+                  <div className="space-y-2">
+                    <Link to={applyHref}>
+                      <Button type="button" variant="secondary" className="w-full" disabled={!accepting}>
+                        Register to apply
+                      </Button>
+                    </Link>
+                    <Link
+                      to={`/login?next=${encodeURIComponent(`/listing/${p.id}`)}`}
+                      className="block text-center text-xs font-semibold text-primary hover:underline"
+                    >
+                      Already have an account? Sign in
+                    </Link>
+                  </div>
+                ) : (
+                  <Button type="button" variant="secondary" className="w-full" onClick={submitApplication} disabled={!accepting}>
+                    Submit application
+                  </Button>
+                )}
               </div>
               <p className="mt-4 text-center text-xs text-ink-400">
                 Instant income check · Agent: {agent?.name ?? 'Assigned soon'}

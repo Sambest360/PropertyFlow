@@ -2,13 +2,14 @@ import { useMemo, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { CreditCard, Wallet } from 'lucide-react'
 import { useStore } from '../context/AppStore'
-import { useAgencyScope, useAuth } from '../context/AuthContext'
-import { isFieldAgent, rolePermissions } from '../lib/permissions'
+import { useAuth, usePropertyScope } from '../context/AuthContext'
+import { rolePermissions } from '../lib/permissions'
 import { RequirePermission } from '../components/RequirePermission'
 import { DashboardTabs } from '../components/dashboard/DashboardTabs'
 import { Badge, Button, Card } from '../components/ui'
 import { ApplicantDetailHeader } from '../components/applicant-detail/ApplicantDetailHeader'
 import { ApplicantOverviewPanel } from '../components/applicant-detail/ApplicantOverviewPanel'
+import { ApplicantDetailsPanel } from '../components/applicant-detail/ApplicantDetailsPanel'
 import { ApplicantDocumentsPanel } from '../components/applicant-detail/ApplicantDocumentsPanel'
 import {
   ApplicantResidencesPanel,
@@ -19,6 +20,7 @@ import {
   buildBlockRecords,
 } from '../components/applicant-detail/ApplicantBlocksPanel'
 import { ApplicantApplicationPanel } from '../components/applicant-detail/ApplicantApplicationPanel'
+import { ApplicantHistoryTimeline } from '../components/applicant-detail/ApplicantHistoryTimeline'
 import { BlockApplicantModal } from '../components/applicant-detail/BlockApplicantModal'
 import {
   isApplicantDetailTab,
@@ -26,10 +28,21 @@ import {
 } from '../components/applicant-detail/types'
 import { buildCheckoutBridge, type PatchApplicationStatusResult } from '../lib/api/applicationStatusApi'
 import type { HateoasAction } from '../lib/api/contracts'
+import type { PropertyEvent } from '../types/domain'
 import { formatZAR } from '../data/seed'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
 
 const ICON_STROKE = 1.6
+
+function isApplicantRelatedEvent(ev: PropertyEvent, applicantName: string, applicationId: string) {
+  const hay = `${ev.action} ${(ev.changes ?? []).map((c) => `${c.field} ${c.from} ${c.to}`).join(' ')}`.toLowerCase()
+  const name = applicantName.toLowerCase()
+  return (
+    /applicant|application|stage|document|lease|move-in|key|credit|block/i.test(ev.action) ||
+    hay.includes(name) ||
+    hay.includes(applicationId.toLowerCase())
+  )
+}
 
 export default function ApplicantDetail() {
   const { id } = useParams()
@@ -44,7 +57,7 @@ export default function ApplicantDetail() {
     addPropertyEvent,
   } = useStore()
   const { user, has } = useAuth()
-  const { scopeAgency, scopeAgent, role } = useAgencyScope()
+  const { dealVisible, role } = usePropertyScope()
   const alert = useSuiteAlert()
 
   const [blockOpen, setBlockOpen] = useState(false)
@@ -79,10 +92,8 @@ export default function ApplicantDetail() {
     if (role === 'tenant') {
       return application.applicantUserId === user.id || application.email === user.email
     }
-    if (!scopeAgency(application.agencyId)) return false
-    if (isFieldAgent(role) && !scopeAgent(application.agentId)) return false
-    return true
-  }, [application, role, user, scopeAgency, scopeAgent])
+    return dealVisible(application)
+  }, [application, role, user, dealVisible])
 
   const property = useMemo(
     () =>
@@ -116,6 +127,66 @@ export default function ApplicantDetail() {
     })
   }, [application, state.applications, state.properties])
 
+  const historyEvents = useMemo(() => {
+    if (!application) return [] as PropertyEvent[]
+    const related = state.propertyEvents.filter(
+      (ev) =>
+        ev.propertyId === application.propertyId &&
+        isApplicantRelatedEvent(ev, application.applicantName, application.id),
+    )
+
+    const synthetic: PropertyEvent[] = [
+      {
+        id: `synth-submit-${application.id}`,
+        agencyId: application.agencyId,
+        propertyId: application.propertyId,
+        actorUserId: application.applicantUserId,
+        actorName: application.applicantName,
+        action: 'submitted an Application',
+        at: application.submittedAt,
+        changes: [
+          { field: 'Application', from: 'None', to: application.id },
+          { field: 'Type', from: 'None', to: application.type },
+        ],
+      },
+    ]
+
+    if (application.updatedAt !== application.submittedAt) {
+      synthetic.push({
+        id: `synth-stage-${application.id}`,
+        agencyId: application.agencyId,
+        propertyId: application.propertyId,
+        actorUserId: application.agentId,
+        actorName: agentName ?? 'Agency',
+        action: 'updated the Application',
+        at: application.updatedAt,
+        changes: [{ field: 'Stage', from: '—', to: application.stage }],
+      })
+    }
+
+    if (application.stage === 'Blocked' && application.blockedAt) {
+      synthetic.push({
+        id: `synth-block-${application.id}`,
+        agencyId: application.agencyId,
+        propertyId: application.propertyId,
+        actorUserId: null,
+        actorName: agentName ?? 'Agency',
+        action: 'blocked an Applicant',
+        at: application.blockedAt,
+        changes: [
+          { field: 'Stage', from: '—', to: 'Blocked' },
+          ...(application.blockReason
+            ? [{ field: 'Reason', from: '—', to: application.blockReason }]
+            : []),
+        ],
+      })
+    }
+
+    const byId = new Map<string, PropertyEvent>()
+    for (const ev of [...synthetic, ...related]) byId.set(ev.id, ev)
+    return [...byId.values()]
+  }, [application, state.propertyEvents, agentName])
+
   if (!application) {
     return (
       <RequirePermission permission="applications.view">
@@ -139,10 +210,23 @@ export default function ApplicantDetail() {
   const canReview = has('applications.review')
   const isTenant = role === 'tenant'
 
+  const logStageChange = (from: string, to: string, action = 'changed the Application stage') => {
+    addPropertyEvent({
+      agencyId: application.agencyId,
+      propertyId: application.propertyId,
+      actorUserId: user.id,
+      actorName: user.name,
+      action,
+      changes: [{ field: 'Stage', from, to }],
+    })
+  }
+
   const runAction = (action: HateoasAction) => {
     const status = action.payload_hint?.status
     if (action.key === 'COMPLETE_KEY_HANDOVER') {
+      const prev = application.stage
       completeKeyHandover(application.id)
+      logStageChange(prev, 'Keys Handed Over', 'completed key handover')
       setFlash(null)
       return
     }
@@ -197,6 +281,7 @@ export default function ApplicantDetail() {
       return
     }
     if (!status) return
+    const prevStage = application.stage
     const result = patchApplicationStatus({
       applicationId: application.id,
       actorUserId: user.id,
@@ -206,29 +291,30 @@ export default function ApplicantDetail() {
         payment_provider: 'auto',
       },
     })
+    if (result.status === 'SUCCESS') {
+      logStageChange(prevStage, result.application.stage)
+    }
     setFlash(result)
   }
 
   const tabs = [
     { id: 'overview', label: 'Overview' },
+    { id: 'details', label: 'Details' },
     { id: 'documents', label: 'Documents', count: application.documents.length },
     { id: 'residences', label: 'Residences', count: residences.length },
     { id: 'blocks', label: 'Blocks', count: blocks.length },
     { id: 'application', label: 'Application' },
+    { id: 'history', label: 'History', count: historyEvents.length },
   ]
 
   return (
     <RequirePermission permission="applications.view">
       <div className="animate-fade-in">
-        <ApplicantDetailHeader
-          application={application}
-          propertyTitle={property?.title ?? application.propertyId}
-          isBlocked={blocks.length > 0}
-          canReview={canReview}
-          onBlock={() => setBlockOpen(true)}
-        />
+        <ApplicantDetailHeader application={application} />
 
-        <DashboardTabs tabs={tabs} value={tab} onChange={setTab} className="mb-5" />
+        <div className="sticky top-0 z-20 -mx-1 mb-5 bg-white/95 px-1 backdrop-blur-md">
+          <DashboardTabs tabs={tabs} value={tab} onChange={setTab} />
+        </div>
 
         {flash?.status === 'SUCCESS' && (
           <Card className="mb-5 border-primary-100 bg-primary-50/80 p-4">
@@ -279,6 +365,9 @@ export default function ApplicantDetail() {
             agentName={agentName}
           />
         )}
+        {tab === 'details' && (
+          <ApplicantDetailsPanel application={application} agentName={agentName} />
+        )}
         {tab === 'documents' && (
           <ApplicantDocumentsPanel
             application={application}
@@ -288,7 +377,17 @@ export default function ApplicantDetail() {
           />
         )}
         {tab === 'residences' && <ApplicantResidencesPanel items={residences} />}
-        {tab === 'blocks' && <ApplicantBlocksPanel blocks={blocks} />}
+        {tab === 'blocks' && (
+          <ApplicantBlocksPanel
+            blocks={blocks}
+            canReview={
+              canReview &&
+              application.stage !== 'Blocked' &&
+              application.stage !== 'Active Tenancy'
+            }
+            onBlock={() => setBlockOpen(true)}
+          />
+        )}
         {tab === 'application' && (
           <ApplicantApplicationPanel
             application={application}
@@ -304,6 +403,7 @@ export default function ApplicantDetail() {
             onRunAction={runAction}
             onOpenMoveIn={() => setMoveInOpen(true)}
             onConfirmMoveIn={() => {
+              const prev = application.stage
               const agent = application.agentId
                 ? state.users.find((u) => u.id === application.agentId)
                 : null
@@ -313,10 +413,12 @@ export default function ApplicantDetail() {
                 contactName: agent?.name ?? 'Agency office',
                 contactPhone: agent?.phone ?? '',
               })
+              logStageChange(prev, 'Move-In Scheduled', 'scheduled move-in')
               setMoveInOpen(false)
             }}
           />
         )}
+        {tab === 'history' && <ApplicantHistoryTimeline events={historyEvents} />}
 
         <BlockApplicantModal
           open={blockOpen}

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { LayoutGrid, List, Search } from 'lucide-react'
-import { cn, Input, Select } from '../ui'
+import { cn, Input } from '../ui'
+import { DirectoryFilterSelect } from './DirectoryFilters'
 
 const ICON_STROKE = 1.6
 
@@ -42,23 +43,29 @@ export function DirectoryToolbar({
   reducedMotion,
   filters,
   extraViews,
+  showViewToggle = true,
 }: {
   query: string
   onQueryChange: (v: string) => void
   searchPlaceholder: string
   searchLabel?: string
-  view: DirectoryViewMode | string
-  onViewChange: (v: DirectoryViewMode) => void
-  sort: string
-  onSortChange: (v: string) => void
-  sortOptions: Array<{ value: string; label: string }>
+  view?: DirectoryViewMode | string
+  onViewChange?: (v: DirectoryViewMode) => void
+  sort?: string
+  onSortChange?: (v: string) => void
+  sortOptions?: Array<{ value: string; label: string }>
   resultLabel: string
   reducedMotion?: boolean
   /** Extra filter selects / controls */
   filters?: ReactNode
   /** Optional extra view mode buttons (e.g. Board) */
   extraViews?: ReactNode
+  /** When false, hide list/cards toggle (e.g. Users account list). */
+  showViewToggle?: boolean
 }) {
+  const hasSort = Boolean(sort != null && onSortChange && sortOptions?.length)
+  const hasView = showViewToggle && Boolean(view != null && onViewChange)
+
   return (
     <div className="mb-5 space-y-3 rounded-[1.25rem] border border-primary-100/80 bg-white p-3 shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)] sm:p-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
@@ -83,56 +90,69 @@ export function DirectoryToolbar({
           </span>
         </div>
 
-        <div
-          className="inline-flex min-h-11 shrink-0 rounded-2xl border border-primary-100 bg-primary-50/40 p-1"
-          role="group"
-          aria-label="View density"
-        >
-          <button
-            type="button"
-            onClick={() => onViewChange('list')}
-            className={cn(
-              'inline-flex min-h-9 min-w-11 cursor-pointer items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-              reducedMotion && 'transition-none',
-              view === 'list' ? 'bg-white text-primary shadow-sm' : 'text-ink-500 hover:text-ink',
-            )}
-            aria-pressed={view === 'list'}
+        {hasView ? (
+          <div
+            className="inline-flex min-h-11 shrink-0 rounded-2xl border border-primary-100 bg-primary-50/40 p-1"
+            role="group"
+            aria-label="View density"
           >
-            <List className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-            List
-          </button>
-          <button
-            type="button"
-            onClick={() => onViewChange('cards')}
-            className={cn(
-              'inline-flex min-h-9 min-w-11 cursor-pointer items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-              reducedMotion && 'transition-none',
-              view === 'cards' ? 'bg-white text-primary shadow-sm' : 'text-ink-500 hover:text-ink',
-            )}
-            aria-pressed={view === 'cards'}
+            <button
+              type="button"
+              onClick={() => onViewChange!('list')}
+              className={cn(
+                'inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                reducedMotion && 'transition-none',
+                view === 'list' ? 'bg-white text-primary shadow-sm' : 'text-ink-500 hover:text-ink',
+              )}
+              aria-pressed={view === 'list'}
+            >
+              <List className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+              List
+            </button>
+            <button
+              type="button"
+              onClick={() => onViewChange!('cards')}
+              className={cn(
+                'inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                reducedMotion && 'transition-none',
+                view === 'cards' ? 'bg-white text-primary shadow-sm' : 'text-ink-500 hover:text-ink',
+              )}
+              aria-pressed={view === 'cards'}
+            >
+              <LayoutGrid className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+              Cards
+            </button>
+            {extraViews}
+          </div>
+        ) : extraViews ? (
+          <div
+            className="inline-flex min-h-11 shrink-0 rounded-2xl border border-primary-100 bg-primary-50/40 p-1"
+            role="group"
+            aria-label="View options"
           >
-            <LayoutGrid className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-            Cards
-          </button>
-          {extraViews}
-        </div>
+            {extraViews}
+          </div>
+        ) : null}
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        {filters}
-        <Select
-          className="min-h-11"
-          value={sort}
-          onChange={(e) => onSortChange(e.target.value)}
-          aria-label="Sort"
-        >
-          {sortOptions.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </Select>
-      </div>
+      {(filters || hasSort) && (
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          {filters}
+          {hasSort ? (
+            <DirectoryFilterSelect
+              value={sort}
+              onChange={(e) => onSortChange!(e.target.value)}
+              aria-label="Sort"
+            >
+              {sortOptions!.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </DirectoryFilterSelect>
+          ) : null}
+        </div>
+      )}
 
       <p className="text-xs font-medium tabular text-ink-400">{resultLabel}</p>
     </div>
@@ -165,6 +185,7 @@ export function PersonAvatar({
   className?: string
 }) {
   const initials = name
+    .replace(/\([^)]*\)/g, '')
     .split(/\s+/)
     .filter(Boolean)
     .map((p) => p[0])

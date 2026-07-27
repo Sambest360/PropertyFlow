@@ -49,7 +49,7 @@ export function AttentionHero({
             {propertyLink ? (
               <Link
                 to={propertyLink.to}
-                className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-xl border border-white/40 bg-white/15 px-3 text-sm font-medium text-white backdrop-blur-sm transition-colors duration-200 hover:bg-white/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-white/40 bg-white/15 px-3 text-sm font-medium text-white backdrop-blur-sm transition-colors duration-200 hover:bg-white/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
               >
                 <Pencil className="h-3.5 w-3.5" strokeWidth={1.6} aria-hidden />
                 {propertyLink.label ?? 'Edit Profile'}

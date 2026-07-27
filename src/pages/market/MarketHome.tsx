@@ -1,9 +1,15 @@
-import { useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowDown, ArrowRight, Search } from 'lucide-react'
+import { ArrowDown, ArrowRight } from 'lucide-react'
 import { usePublicProperties } from '../../context/AppStore'
 import { PropertyCard } from '../../components/PropertyCard'
+import { AreaSearch } from '../../components/AreaSearch'
 import { cn } from '../../components/ui'
+import {
+  buildBrowseSearchUrl,
+  parseAreasParam,
+  type Place,
+} from '../../lib/placeCatalog'
 import {
   useElementTravel,
   useInView,
@@ -11,7 +17,7 @@ import {
   useScrollProgress,
 } from '../../hooks/useScrollMotion'
 
-const cities = ['Johannesburg', 'Sandton', 'Cape Town', 'Pretoria', 'Durban', 'Stellenbosch', 'Midrand']
+const popularAreas = ['Gqeberha', 'Summerstrand', 'Walmer', 'Humewood', 'Newton Park', 'Mill Park', 'Bluewater Bay']
 
 const storyImages = {
   listings: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=1200&q=80',
@@ -123,7 +129,7 @@ function StoryChapter({
 export default function MarketHome() {
   const navigate = useNavigate()
   const properties = usePublicProperties()
-  const [q, setQ] = useState('')
+  const [areas, setAreas] = useState<Place[]>([])
   const [mode, setMode] = useState<'buy' | 'rent'>('buy')
   const reduced = usePrefersReducedMotion()
   const heroRef = useRef<HTMLElement | null>(null)
@@ -132,9 +138,8 @@ export default function MarketHome() {
   const liveListings = properties.filter((p) => !['Draft', 'Archived', 'Maintenance'].includes(p.status))
   const featured = liveListings.filter((p) => p.featured).concat(liveListings.filter((p) => !p.featured))
 
-  const onSearch = (e: FormEvent) => {
-    e.preventDefault()
-    navigate(`/browse?mode=${mode}&q=${encodeURIComponent(q.trim())}`)
+  const goBrowse = (nextAreas: Place[], keyword = '') => {
+    navigate(buildBrowseSearchUrl({ mode, areas: nextAreas, q: keyword || undefined }))
   }
 
   const parallaxY = reduced ? 0 : progress * 120
@@ -215,8 +220,7 @@ export default function MarketHome() {
             Search homes for sale and to rent, then manage viewings, applications, and leases in one place.
           </p>
 
-          <form
-            onSubmit={onSearch}
+          <div
             className="mt-8 max-w-2xl rounded-2xl bg-white p-2 shadow-[0_24px_60px_-28px_rgba(15,39,68,0.55)] sm:rounded-3xl sm:p-2.5"
           >
             <div className="mb-2 flex gap-1" role="tablist" aria-label="Listing type">
@@ -236,41 +240,28 @@ export default function MarketHome() {
               ))}
             </div>
 
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <label className="relative min-w-0 flex-1">
-                <span className="sr-only">City, suburb, or estate</span>
-                <Search
-                  className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400"
-                  aria-hidden
-                />
-                <input
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                  placeholder="City, suburb, or estate"
-                  autoComplete="address-level2"
-                  className="h-12 w-full cursor-text rounded-xl border-0 bg-primary-50 pl-11 pr-4 text-base text-ink outline-none transition-colors duration-200 placeholder:text-ink-400 focus:bg-white focus-visible:ring-2 focus-visible:ring-primary sm:h-14 sm:rounded-2xl"
-                />
-              </label>
-              <button
-                type="submit"
-                className="inline-flex h-12 min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary px-6 text-sm font-semibold text-white transition-colors duration-200 hover:bg-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 sm:h-14 sm:rounded-2xl sm:px-7"
-              >
-                Search
-                <ArrowRight className="h-4 w-4" aria-hidden />
-              </button>
-            </div>
-          </form>
+            <AreaSearch
+              value={areas}
+              onChange={setAreas}
+              onSubmit={({ areas: next, keyword }) => goBrowse(next, keyword)}
+              submitLabel="Search"
+              placeholder="Search suburbs or city…"
+            />
+          </div>
 
           <div className="mt-5">
             <p className="mb-2.5 text-xs font-medium text-white/75">Popular areas</p>
             <div className="flex flex-wrap gap-2">
-              {cities.map((city) => (
+              {popularAreas.map((label) => (
                 <Link
-                  key={city}
-                  to={`/browse?q=${encodeURIComponent(city)}`}
+                  key={label}
+                  to={buildBrowseSearchUrl({
+                    mode,
+                    areas: parseAreasParam(label),
+                  })}
                   className="inline-flex min-h-11 cursor-pointer items-center rounded-full border border-white/25 bg-white/15 px-3.5 text-sm font-medium text-white backdrop-blur-sm transition-colors duration-200 hover:bg-white/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
                 >
-                  {city}
+                  {label === 'Gqeberha' ? 'Port Elizabeth' : label}
                 </Link>
               ))}
             </div>
@@ -311,7 +302,7 @@ export default function MarketHome() {
           <Reveal className="mb-10 flex items-end justify-between gap-4">
             <div>
               <h2 className="font-display text-2xl font-semibold text-ink sm:text-3xl">Featured homes</h2>
-              <p className="mt-1 text-sm text-ink-500">Fresh listings across Gauteng, Cape Town, and KZN</p>
+              <p className="mt-1 text-sm text-ink-500">Fresh listings across Port Elizabeth and the Eastern Cape</p>
             </div>
             <Link
               to="/browse"

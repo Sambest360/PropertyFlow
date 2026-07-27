@@ -11,6 +11,9 @@ dist-ssr/
 .env.*
 !.env.example
 
+# Vercel local link metadata
+.vercel/
+
 # Logs & debug
 logs/
 *.log
@@ -30,3 +33,4 @@ pnpm-debug.log*
 # TypeScript / Vite
 *.tsbuildinfo
 .vite/
+.firebase

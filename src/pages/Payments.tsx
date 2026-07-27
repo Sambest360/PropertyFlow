@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../context/AppStore'
-import { useAgencyScope, useAuth } from '../context/AuthContext'
+import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
 import { RequirePermission } from '../components/RequirePermission'
 import { Card, PageHeader } from '../components/ui'
@@ -20,6 +20,7 @@ import {
   type PaymentsViewMode,
   type PortfolioPayment,
 } from '../components/payments/types'
+import { useLookupOptions } from '../hooks/useLookupOptions'
 
 function readStoredView(): PaymentsViewMode {
   try {
@@ -34,9 +35,11 @@ function readStoredView(): PaymentsViewMode {
 export default function Payments() {
   const { state } = useStore()
   const { user, role } = useAuth()
-  const { scopeAgency } = useAgencyScope()
+  const { paymentVisible, allowedPropertyIds, agencyId } = usePropertyScope()
   const reducedMotion = usePrefersReducedMotion()
   const navigate = useNavigate()
+  const paymentStatuses = useLookupOptions('PAYMENT_STATUS', agencyId)
+  const paymentTypes = useLookupOptions('PAYMENT_TYPE', agencyId)
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [q, setQ] = useState('')
@@ -82,21 +85,20 @@ export default function Payments() {
   const properties = useMemo(
     () =>
       state.properties
-        .filter((p) => scopeAgency(p.agencyId))
+        .filter((p) => allowedPropertyIds.has(p.id))
         .map((p) => ({ id: p.id, title: p.title }))
         .sort((a, b) => a.title.localeCompare(b.title)),
-    [state.properties, scopeAgency],
+    [state.properties, allowedPropertyIds],
   )
 
   const portfolio: PortfolioPayment[] = useMemo(() => {
     return state.payments
       .filter((p) => {
-        if (role === 'tenant') return p.partyUserId === user.id || p.partyName === user.name
-        if (role === 'landlord') {
-          const prop = state.properties.find((x) => x.id === p.propertyId)
-          return prop?.landlordId === user.id && p.landlordVisible
-        }
-        return scopeAgency(p.agencyId)
+        const prop = state.properties.find((x) => x.id === p.propertyId)
+        return paymentVisible(p, {
+          viewerName: user.name,
+          propertyLandlordId: prop?.landlordId,
+        })
       })
       .map((payment) => {
         const property = state.properties.find((x) => x.id === payment.propertyId) ?? null
@@ -110,7 +112,7 @@ export default function Payments() {
           attentionScore: paymentAttentionScore(payment, daysOverdue, attachmentCount),
         }
       })
-  }, [state.payments, state.properties, scopeAgency, role, user])
+  }, [state.payments, state.properties, paymentVisible, user.name])
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
@@ -195,6 +197,8 @@ export default function Payments() {
           onViewChange={setView}
           resultLabel={resultLabel}
           reducedMotion={reducedMotion}
+          paymentStatuses={paymentStatuses}
+          paymentTypes={paymentTypes}
         />
 
         {portfolio.length === 0 ? (
