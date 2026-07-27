@@ -3,7 +3,7 @@ import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { buildBootstrap } from './bootstrap.js'
-import { pool, query } from './db.js'
+import { databaseConfigError, databaseConfigured, pool, query } from './db.js'
 import { ensureEntityMapTable } from './entityMap.js'
 import {
   actorRequiredError,
@@ -106,12 +106,37 @@ async function requireActorAndGate(c: Parameters<typeof parseDemoActor>[0], body
 }
 
 app.get('/api/health', async (c) => {
+  if (!databaseConfigured) {
+    return c.json(
+      {
+        ok: false,
+        database: 'unconfigured',
+        error: databaseConfigError || 'DATABASE_URL is not set',
+        at: new Date().toISOString(),
+      },
+      503,
+    )
+  }
   try {
     await query('SELECT 1 AS ok')
-    return c.json({ ok: true, database: 'up', at: new Date().toISOString() })
+    return c.json({
+      ok: true,
+      database: 'up',
+      pool: Boolean(pool),
+      at: new Date().toISOString(),
+    })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    return c.json({ ok: false, database: 'down', error: message }, 503)
+    return c.json(
+      {
+        ok: false,
+        database: 'down',
+        error: message,
+        hint: 'Use the Supabase Transaction pooler URI (port 6543) and redeploy after setting DATABASE_URL.',
+        at: new Date().toISOString(),
+      },
+      503,
+    )
   }
 })
 
@@ -465,9 +490,18 @@ app.post('/api/notifications/mark-read', async (c) => {
   }
 })
 
-void ensureEntityMapTable()
-  .then(() => console.log('[propertyflow-api] entity_id_map ready'))
-  .catch((err) => console.warn('[propertyflow-api] entity_id_map init failed', err))
+void (async () => {
+  if (!databaseConfigured) {
+    console.warn('[propertyflow-api]', databaseConfigError || 'DATABASE_URL not configured')
+    return
+  }
+  try {
+    await ensureEntityMapTable()
+    console.log('[propertyflow-api] entity_id_map ready')
+  } catch (err) {
+    console.warn('[propertyflow-api] entity_id_map init failed', err)
+  }
+})()
 
 const shouldListen =
   !process.env.VERCEL && process.env.PF_SKIP_SERVE !== '1'
@@ -478,7 +512,7 @@ if (shouldListen) {
   serve({ fetch: app.fetch, port: PORT, hostname: '127.0.0.1' })
 
   process.on('SIGINT', async () => {
-    await pool.end()
+    await pool?.end()
     process.exit(0)
   })
 }

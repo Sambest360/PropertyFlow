@@ -3,7 +3,7 @@
  * Seed aliases live in idMap.ts; runtime creates land in entity_id_map.
  */
 import { randomUUID } from 'node:crypto'
-import { pool, query } from './db.js'
+import { query } from './db.js'
 import {
   AGENCY_TO_CLIENT,
   BUILDING_TO_FRONTEND,
@@ -140,7 +140,7 @@ let ensured = false
 
 export async function ensureEntityMapTable(): Promise<void> {
   if (ensured) return
-  await pool.query(`
+  await query(`
     CREATE TABLE IF NOT EXISTS entity_id_map (
       entity_type   VARCHAR(40) NOT NULL,
       frontend_id   VARCHAR(120) NOT NULL,
@@ -149,7 +149,7 @@ export async function ensureEntityMapTable(): Promise<void> {
       PRIMARY KEY (entity_type, frontend_id)
     )
   `)
-  await pool.query(`
+  await query(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_entity_id_map_backend
       ON entity_id_map (entity_type, backend_id)
   `)
@@ -179,7 +179,7 @@ export async function ensureEntityMapTable(): Promise<void> {
       values.push(type, fe, uuid)
     })
     try {
-      await pool.query(
+      await query(
         `INSERT INTO entity_id_map (entity_type, frontend_id, backend_id)
          VALUES ${placeholders.join(', ')}
          ON CONFLICT DO NOTHING`,

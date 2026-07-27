@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   connectionStringForPool,
+  connectionTimeoutMsForRuntime,
   isRemoteDatabaseUrl,
   poolMaxForRuntime,
+  resolveDatabaseUrl,
 } from './dbConfig'
 
 describe('isRemoteDatabaseUrl', () => {
@@ -57,11 +59,45 @@ describe('connectionStringForPool', () => {
 
 describe('poolMaxForRuntime', () => {
   it('uses a tiny pool on Vercel or Lambda', () => {
-    expect(poolMaxForRuntime({ vercel: '1' })).toBe(2)
-    expect(poolMaxForRuntime({ lambda: 'fn' })).toBe(2)
+    expect(poolMaxForRuntime({ vercel: '1' })).toBe(1)
+    expect(poolMaxForRuntime({ lambda: 'fn' })).toBe(1)
   })
 
   it('uses a larger pool for local Node', () => {
     expect(poolMaxForRuntime({})).toBe(8)
   })
 })
+
+describe('connectionTimeoutMsForRuntime', () => {
+  it('fails faster on serverless', () => {
+    expect(connectionTimeoutMsForRuntime({ vercel: '1' })).toBe(5_000)
+    expect(connectionTimeoutMsForRuntime({})).toBe(15_000)
+  })
+})
+
+describe('resolveDatabaseUrl', () => {
+  it('requires DATABASE_URL on Vercel', () => {
+    const r = resolveDatabaseUrl({ vercel: '1' })
+    expect(r.configured).toBe(false)
+    expect(r.error).toMatch(/DATABASE_URL/)
+  })
+
+  it('rejects localhost URLs on Vercel', () => {
+    const r = resolveDatabaseUrl({
+      vercel: '1',
+      envUrl: 'postgresql://u@127.0.0.1:5432/db',
+    })
+    expect(r.configured).toBe(false)
+    expect(r.error).toMatch(/localhost/)
+  })
+
+  it('accepts a pooler URI', () => {
+    const r = resolveDatabaseUrl({
+      vercel: '1',
+      envUrl:
+        'postgresql://postgres.abc:pass@aws-0-eu-west-1.pooler.supabase.com:6543/postgres',
+    })
+    expect(r.configured).toBe(true)
+  })
+})
+
