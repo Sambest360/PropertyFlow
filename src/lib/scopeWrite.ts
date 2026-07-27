@@ -4,16 +4,16 @@
  * agency-wide roles may mutate within their agency (platform for super_admin).
  */
 
-import { canSeeAgency, type PropertyAccessSubject } from './agencyScope'
-import { isFieldAgent } from './permissions'
+import { canSeeAgency, type PropertyAccessSubject } from './agencyScope.js'
+import { isFieldAgent } from './permissions.js'
 import {
   canMutateProperty,
   isAgencyWideRole,
   propertyInScope,
   ticketInScope,
   type PropertyScope,
-} from './scope'
-import type { Role } from '../types/domain'
+} from './scope.js'
+import type { Role } from '../types/domain.js'
 
 export type WriteGateInput = {
   resource: string

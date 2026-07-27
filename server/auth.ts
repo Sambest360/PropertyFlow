@@ -548,10 +548,14 @@ export function sessionToPublic(user: SessionUser) {
   }
 }
 
-export function actorFromSession(user: SessionUser) {
+export function actorFromSession(user: SessionUser): {
+  userId: string
+  role: import('../src/types/domain.js').Role
+  agencyId: string | null
+} {
   return {
     userId: user.frontendId,
-    role: user.role,
+    role: user.role as import('../src/types/domain.js').Role,
     agencyId: user.agencyId,
   }
 }

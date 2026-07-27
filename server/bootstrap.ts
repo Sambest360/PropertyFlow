@@ -347,7 +347,7 @@ export async function buildBootstrap() {
     const feRole =
       typeof meta.frontend_role === 'string' && meta.frontend_role
         ? meta.frontend_role
-        : ROLE_MAP[u.role] ?? 'tenant'
+        : ROLE_MAP[u.role as RoleDb] ?? 'tenant'
     const verification =
       meta.verification && typeof meta.verification === 'object' ? meta.verification : undefined
     const profile =

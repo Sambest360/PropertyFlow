@@ -1,4 +1,4 @@
-import type { LicenseStatus, Permission, Role } from '../types/domain'
+import type { LicenseStatus, Permission, Role } from '../types/domain.js'
 
 /** Staff / platform capabilities — portals are actor-specific, not staff tools. */
 const STAFF: Permission[] = [

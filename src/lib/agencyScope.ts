@@ -1,4 +1,4 @@
-import type { Role } from '../types/domain'
+import type { Role } from '../types/domain.js'
 
 /** Agency boundary: super admin sees all; suspended / unscoped agencies see nothing. */
 export function canSeeAgency(

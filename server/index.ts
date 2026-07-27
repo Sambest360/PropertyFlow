@@ -1,3 +1,4 @@
+import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
@@ -78,10 +79,10 @@ app.use(
   }),
 )
 
-function errStatus(err: unknown): number {
+function errStatus(err: unknown): ContentfulStatusCode {
   if (err && typeof err === 'object' && 'status' in err) {
     const s = Number((err as { status: unknown }).status)
-    if (s >= 400 && s < 600) return s
+    if (s >= 400 && s < 600) return s as ContentfulStatusCode
   }
   return 500
 }

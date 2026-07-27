@@ -26,10 +26,10 @@ import {
   toPropertyLinks,
   type PropertyScope,
   type ScopeLinksInput,
-} from '../src/lib/scope.ts'
-import { canWriteEntity } from '../src/lib/scopeWrite.ts'
-import type { PropertyAccessSubject } from '../src/lib/agencyScope.ts'
-import type { Role } from '../src/types/domain.ts'
+} from '../src/lib/scope.js'
+import { canWriteEntity } from '../src/lib/scopeWrite.js'
+import type { PropertyAccessSubject } from '../src/lib/agencyScope.js'
+import type { Role } from '../src/types/domain.js'
 
 type FePropertyRow = PropertyAccessSubject & { id: string }
 
@@ -118,7 +118,12 @@ async function loadScopeLinks(): Promise<ScopeLinksInput> {
     LEFT JOIN users u ON u.id = a.applicant_id
   `)
 
-  const applications: NonNullable<ScopeLinksInput['applications']> = []
+  const applications: Array<{
+    applicantUserId: string | null
+    email: string
+    propertyId: string
+    stage: NonNullable<ScopeLinksInput['applications']>[number]['stage']
+  }> = []
   for (const a of appRows) {
     const propertyId = (await fePropertyFromUnit(a.unit_id)) ?? ''
     const metaStage = typeof a.metadata?.stage === 'string' ? a.metadata.stage : null
@@ -157,14 +162,24 @@ async function loadScopeLinks(): Promise<ScopeLinksInput> {
     SELECT contractor_id, unit_id, client_id, status, assigned_to
     FROM maintenance_tickets
   `)
-  const tickets = []
+  const tickets: Array<{
+    contractorId: string | null
+    propertyId: string
+    agencyId: string
+    status: 'Cancelled' | 'In Progress' | 'Awaiting Parts' | 'Completed' | 'Requested'
+    assignedAgentId: string | null
+  }> = []
   for (const t of ticketRows) {
     const status =
       t.status === 'COMPLETED' || t.status === 'RESOLVED'
-        ? 'Completed'
+        ? ('Completed' as const)
         : t.status === 'CANCELLED'
-          ? 'Cancelled'
-          : 'Open'
+          ? ('Cancelled' as const)
+          : t.status === 'IN_PROGRESS'
+            ? ('In Progress' as const)
+            : t.status === 'AWAITING_PARTS'
+              ? ('Awaiting Parts' as const)
+              : ('Requested' as const)
     tickets.push({
       contractorId: await feUserId(t.contractor_id),
       propertyId: (await fePropertyFromUnit(t.unit_id)) ?? '',
@@ -476,9 +491,7 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
     propertyId: spec.unitCol ? await fePropertyFromUnit(r[spec.unitCol] as string | null) : null,
     agencyId: spec.clientCol
       ? mapAgency(r[spec.clientCol] as string | null)
-      : resource === 'agency'
-        ? feId
-        : null,
+      : null,
     agentId: spec.agentCol ? await feUserId(r[spec.agentCol] as string | null) : null,
   }
 }

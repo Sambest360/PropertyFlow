@@ -2,7 +2,7 @@
  * Demo actor parsing for API requests (headers or body fields).
  */
 import type { Context } from 'hono'
-import type { Role } from '../src/types/domain.ts'
+import type { Role } from '../src/types/domain.js'
 
 export const ACTOR_USER_HEADER = 'X-User-Id'
 export const ACTOR_ROLE_HEADER = 'X-Role'

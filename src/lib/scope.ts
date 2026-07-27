@@ -16,15 +16,15 @@ import {
   canSeeAgency,
   type PropertyAccessSubject,
   type PropertyAccessViewer,
-} from './agencyScope'
+} from './agencyScope.js'
 import type {
   Application,
   MaintenanceTicket,
   PropertyAsset,
   Role,
   Tenancy,
-} from '../types/domain'
-import { isFieldAgent } from './permissions'
+} from '../types/domain.js'
+import { isFieldAgent } from './permissions.js'
 
 export type PropertyLink = PropertyAccessSubject & { id: string }
 
