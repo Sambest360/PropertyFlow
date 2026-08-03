@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { cn } from '../ui'
-import { StepDots } from './CreatePropertyModal'
+import { StepDots } from '../wizard/StepDots'
 
 export type WizardStepMeta = {
   id: string
@@ -27,6 +27,7 @@ export function CreateWizardShell({
   children,
   footer,
   aside,
+  preview,
 }: {
   title: string
   subtitle?: string
@@ -43,6 +44,8 @@ export function CreateWizardShell({
   footer: ReactNode
   /** Optional extra content under the tip (e.g. live role blurb). */
   aside?: ReactNode
+  /** Sticky live preview panel (desktop xl+). */
+  preview?: ReactNode
 }) {
   const activeTip = tip ?? steps[stepIndex]?.tip ?? ''
   const labels = steps.map((s) => s.label)
@@ -56,7 +59,14 @@ export function CreateWizardShell({
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(14rem,18rem)_minmax(0,1fr)] lg:gap-8">
+    <div
+      className={cn(
+        'grid gap-6',
+        preview
+          ? 'lg:grid-cols-[minmax(14rem,18rem)_minmax(0,1fr)] xl:grid-cols-[minmax(14rem,18rem)_minmax(0,1fr)_minmax(16rem,20rem)] lg:gap-8'
+          : 'lg:grid-cols-[minmax(14rem,18rem)_minmax(0,1fr)] lg:gap-8',
+      )}
+    >
       {/* Side rail — desktop */}
       <aside className="hidden lg:block">
         <div className="sticky top-20 space-y-6">
@@ -135,6 +145,12 @@ export function CreateWizardShell({
           </div>
         </div>
       </div>
+
+      {preview ? (
+        <aside className="hidden xl:block">
+          <div className="sticky top-20">{preview}</div>
+        </aside>
+      ) : null}
     </div>
   )
 }

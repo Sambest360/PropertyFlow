@@ -132,6 +132,12 @@ async function upsertAgency(id: string, data: Record<string, unknown>): Promise<
     settings: {
       frontend_id: id,
       enabledPermissions: data.enabledPermissions ?? [],
+      trading_as: str(data.tradingAs) || undefined,
+      email: str(data.email) || undefined,
+      phone: str(data.phone) || undefined,
+      province: str(data.province) || undefined,
+      country_code: str(data.countryCode) || undefined,
+      timezone: str(data.timezone) || undefined,
     },
     updated_at: new Date().toISOString(),
   })
@@ -403,9 +409,95 @@ async function upsertDocument(id: string, data: Record<string, unknown>): Promis
   })
 }
 
+async function upsertBuilding(id: string, data: Record<string, unknown>): Promise<void> {
+  const supabase = createClient()
+  const uuid = await ensureUuid('building', id)
+  const clientId = await clientUuid(data.clientId)
+  await supabase.from('buildings').upsert({
+    id: uuid,
+    client_id: clientId,
+    landlord_id: await userUuid(data.landlordId),
+    name: str(data.name, 'Building'),
+    address: str(data.addressLine1 ?? data.address, 'Address TBC'),
+    city: str(data.city, 'Port Elizabeth'),
+    province: str(data.province, 'Eastern Cape'),
+    suburb: str(data.suburb) || null,
+    grading: data.grading ? str(data.grading).charAt(0) : null,
+    solar_capacity_kw: num(data.solarCapacityKw) ?? 0,
+    has_borehole: Boolean(data.hasBorehole),
+    lat: num(data.lat),
+    lng: num(data.lng),
+    place_id: str(data.placeId) || null,
+    formatted_address: str(data.formattedAddress) || null,
+    images: data.images ?? [],
+    updated_at: new Date().toISOString(),
+  })
+}
+
+async function upsertUnit(id: string, data: Record<string, unknown>): Promise<void> {
+  const supabase = createClient()
+  const uuid = await ensureUuid('unit', id)
+  const buildingUuid = await resolveUuid('building', str(data.buildingId))
+  if (!buildingUuid) return
+  const listingRaw = str(data.listingType ?? data.listingMode, 'rent').toUpperCase()
+  const listingType =
+    listingRaw === 'RENT' || listingRaw === 'SALE' || listingRaw === 'BOTH' || listingRaw === 'NOT_LISTED'
+      ? listingRaw
+      : 'RENT'
+  await supabase.from('units').upsert({
+    id: uuid,
+    client_id: await clientUuid(data.clientId ?? data.agencyId),
+    building_id: buildingUuid,
+    unit_number: str(data.unitNumber, 'MAIN'),
+    title: str(data.title),
+    square_meters: num(data.squareMeters ?? data.area),
+    bedrooms: num(data.bedrooms ?? data.beds) ?? 0,
+    bathrooms: num(data.bathrooms ?? data.baths) ?? 0,
+    parking: num(data.parking) ?? 0,
+    listing_type: listingType,
+    price: num(data.price),
+    rent: num(data.rent),
+    status_config_key: str(data.statusKey ?? data.status, 'DRAFT').toUpperCase(),
+    agent_id: await userUuid(data.agentId),
+    description: str(data.description) || null,
+    amenities: data.amenities ?? [],
+    images: data.images ?? [],
+    featured: Boolean(data.featured),
+    lat: num(data.lat),
+    lng: num(data.lng),
+    place_id: str(data.placeId) || null,
+    formatted_address: str(data.formattedAddress) || null,
+    updated_at: new Date().toISOString(),
+  })
+}
+
+async function upsertRoom(id: string, data: Record<string, unknown>): Promise<void> {
+  const supabase = createClient()
+  const uuid = await ensureUuid('room', id)
+  const unitUuid = await resolveUuid('unit', str(data.unitId))
+  if (!unitUuid) return
+  const layout = data.layout as { x?: number; y?: number; w?: number; h?: number } | undefined
+  await supabase.from('rooms').upsert({
+    id: uuid,
+    unit_id: unitUuid,
+    client_id: await clientUuid(data.clientId),
+    name: str(data.name, 'Room'),
+    room_kind: str(data.kind, 'other'),
+    beds: num(data.beds) ?? 0,
+    baths: num(data.baths) ?? 0,
+    area_sqm: num(data.areaSqm ?? data.area),
+    layout_x: layout?.x ?? null,
+    layout_y: layout?.y ?? null,
+    layout_w: layout?.w ?? null,
+    layout_h: layout?.h ?? null,
+  })
+}
+
 async function upsertProperty(id: string, data: Record<string, unknown>): Promise<void> {
   const supabase = createClient()
-  const unitUuidVal = await ensureUuid('property', id)
+  const unitFe = str(data.unitId)
+  const unitUuidVal =
+    (unitFe ? await resolveUuid('unit', unitFe) : null) ?? (await ensureUuid('property', id))
   const clientId = await clientUuid(data.agencyId)
   const buildingFe = str(data.buildingId)
   const buildingUuid = buildingFe ? await resolveUuid('building', buildingFe) : null
@@ -415,8 +507,9 @@ async function upsertProperty(id: string, data: Record<string, unknown>): Promis
       id: unitUuidVal,
       client_id: clientId,
       building_id: buildingUuid,
-      unit_number: str(data.unitId, 'MAIN').replace(/^unt-/, ''),
+      unit_number: str(data.unitNumber ?? data.unitId, 'MAIN').replace(/^unt-/, ''),
       title: str(data.title),
+      square_meters: num(data.area),
       bedrooms: num(data.beds) ?? 0,
       bathrooms: num(data.baths),
       parking: num(data.parking),
@@ -428,12 +521,18 @@ async function upsertProperty(id: string, data: Record<string, unknown>): Promis
           ? 'OCCUPIED'
           : str(data.status) === 'Maintenance'
             ? 'MAINTENANCE'
-            : 'AVAILABLE',
+            : str(data.status) === 'Draft'
+              ? 'DRAFT'
+              : 'AVAILABLE',
       agent_id: await userUuid(data.agentId),
       description: str(data.description),
       amenities: data.amenities ?? [],
       images: data.images ?? [],
       featured: Boolean(data.featured),
+      lat: num(data.lat),
+      lng: num(data.lng),
+      place_id: str(data.placeId) || null,
+      formatted_address: str(data.formattedAddress) || null,
       updated_at: new Date().toISOString(),
     })
   }
@@ -501,6 +600,12 @@ async function upsertEntity(
       return upsertTenancy(id, data)
     case 'document':
       return upsertDocument(id, data)
+    case 'building':
+      return upsertBuilding(id, data)
+    case 'unit':
+      return upsertUnit(id, data)
+    case 'room':
+      return upsertRoom(id, data)
     case 'property':
       return upsertProperty(id, data)
     default:

@@ -76,6 +76,12 @@ export type Agency = {
   createdAt: string
   /** Modules this agency’s staff may use (intersected with role permissions). */
   enabledPermissions: Permission[]
+  tradingAs?: string
+  email?: string
+  phone?: string
+  province?: string
+  countryCode?: string
+  timezone?: string
 }
 
 export type AppUser = {

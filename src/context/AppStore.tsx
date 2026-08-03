@@ -236,6 +236,45 @@ type StoreContextValue = {
     createdByUserId: string
   }) => NotificationBroadcast
   createProperty: (input: Omit<PropertyAsset, 'id' | 'createdAt' | 'rooms' | 'images'> & { images?: string[]; rooms?: Room[] }) => PropertyAsset
+  createPropertyBundle: (input: {
+    existingBuildingId?: string
+    building?: Omit<Building, 'id' | 'createdAt' | 'images'> & { images?: string[] }
+    unitTemplateId?: import('../data/infrastructure').UnitTemplateId
+    unit: {
+      unitNumber: string
+      title: string
+      listingType: import('../data/infrastructure').UnitListingType
+      price: number | null
+      rent: number | null
+      agentId: string | null
+      squareMeters?: number
+      bedrooms?: number
+      bathrooms?: number
+      parking?: number
+      description?: string
+      amenities?: string[]
+    }
+    rooms: Array<{
+      name: string
+      kind: RoomKind
+      beds: number
+      baths: number
+      areaSqm?: number
+      layout?: InfraRoom['layout']
+    }>
+    property: Omit<PropertyAsset, 'id' | 'createdAt' | 'buildingId' | 'unitId' | 'rooms' | 'images' | 'beds' | 'baths'> & {
+      images?: string[]
+      rooms?: Room[]
+      unitNumber?: string
+    }
+    starterAssets?: Array<{
+      roomName: string
+      itemName: string
+      assetTypeKey: string
+      brand?: string
+      condition: AssetCondition
+    }>
+  }) => PropertyAsset
   updateProperty: (id: string, patch: Partial<PropertyAsset>) => void
   setPropertyRooms: (id: string, rooms: Room[]) => void
   publishProperty: (id: string, status?: PropertyAsset['status']) => void
@@ -707,6 +746,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         enabledPermissions: input.enabledPermissions?.length
           ? input.enabledPermissions
           : [...DEFAULT_AGENCY_PERMISSIONS],
+        tradingAs: input.tradingAs,
+        email: input.email,
+        phone: input.phone,
+        province: input.province,
+        countryCode: input.countryCode,
+        timezone: input.timezone,
       }
       const defaultAlerts = buildDefaultSuiteAlerts(agency.id)
       patch((s) => ({
@@ -964,6 +1009,162 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         link: `/workspace/properties/${property.id}`,
       })
       persistUpsert('property', property.id, property as unknown as Record<string, unknown>)
+      return property
+    },
+    createPropertyBundle: (input) => {
+      const template =
+        input.unitTemplateId && input.unitTemplateId !== 'custom'
+          ? UNIT_TEMPLATES.find((t) => t.id === input.unitTemplateId)
+          : undefined
+
+      const existingBuilding = input.existingBuildingId
+        ? state.buildings.find((b) => b.id === input.existingBuildingId)
+        : undefined
+
+      if (!existingBuilding && !input.building) {
+        throw new Error('createPropertyBundle requires building or existingBuildingId')
+      }
+
+      const building: Building = existingBuilding ?? {
+        ...(input.building as Omit<Building, 'id' | 'createdAt' | 'images'>),
+        id: uid('bld'),
+        images: input.building?.images?.length ? input.building.images : [],
+        createdAt: new Date().toISOString().slice(0, 10),
+      }
+
+      const unitId = uid('unt')
+      const clientId = building.clientId
+      const unit: Unit = {
+        id: unitId,
+        clientId,
+        buildingId: building.id,
+        agentId: input.unit.agentId,
+        unitNumber: input.unit.unitNumber,
+        title: input.unit.title,
+        squareMeters: input.unit.squareMeters ?? template?.squareMeters ?? 0,
+        bedrooms: input.unit.bedrooms ?? template?.bedrooms ?? 0,
+        bathrooms: input.unit.bathrooms ?? template?.bathrooms ?? 0,
+        parking: input.unit.parking ?? template?.parking ?? 0,
+        listingType: input.unit.listingType,
+        price: input.unit.price,
+        rent: input.unit.rent,
+        statusKey: 'DRAFT',
+        description: input.unit.description ?? template?.blurb ?? '',
+        amenities: input.unit.amenities?.length ? input.unit.amenities : ['Fibre'],
+        images: input.property.images?.length ? input.property.images : building.images,
+        featured: false,
+        lat: building.lat,
+        lng: building.lng,
+        createdAt: new Date().toISOString().slice(0, 10),
+      }
+
+      const roomDrafts =
+        input.rooms.length > 0
+          ? input.rooms
+          : (template?.rooms ?? []).map((r) => ({ ...r }))
+
+      const infraRooms: InfraRoom[] = roomDrafts.map((r, i) => ({
+        id: uid('rm'),
+        clientId,
+        unitId,
+        name: r.name,
+        kind: r.kind,
+        beds: r.beds,
+        baths: r.baths,
+        areaSqm: r.areaSqm,
+        layout:
+          r.layout ??
+          ({
+            x: 5 + (i % 2) * 48,
+            y: 5 + Math.floor(i / 2) * 32,
+            w: 42,
+            h: 28,
+          } as InfraRoom['layout']),
+      }))
+
+      const beds = infraRooms.reduce((n, r) => n + r.beds, 0)
+      const baths = infraRooms.reduce((n, r) => n + r.baths, 0)
+      const propertyRooms: Room[] = infraRooms.map((r) => ({
+        id: r.id,
+        name: r.name,
+        beds: r.beds,
+        baths: r.baths,
+        area: r.areaSqm,
+        kind: r.kind,
+        layout: r.layout,
+      }))
+
+      const starterSource =
+        input.starterAssets ??
+        (template?.starterAssets ?? []).map((a) => ({
+          roomName: a.roomName,
+          itemName: a.itemName,
+          assetTypeKey: a.assetTypeKey,
+          brand: a.brand,
+          condition: a.condition,
+        }))
+
+      const assets: InternalAsset[] = starterSource.map((a) => {
+        const room = infraRooms.find((r) => r.name === a.roomName)
+        return {
+          id: uid('ia'),
+          clientId,
+          unitId,
+          roomId: room?.id ?? null,
+          itemName: a.itemName,
+          assetTypeKey: a.assetTypeKey,
+          brand: a.brand,
+          condition: a.condition,
+        }
+      })
+
+      const property: PropertyAsset = {
+        ...input.property,
+        id: uid('PR'),
+        buildingId: building.id,
+        unitId,
+        beds,
+        baths,
+        createdAt: new Date().toISOString().slice(0, 10),
+        images: input.property.images?.length ? input.property.images : [],
+        rooms: input.property.rooms?.length ? input.property.rooms : propertyRooms,
+      }
+
+      patch((s) => ({
+        ...s,
+        buildings: existingBuilding ? s.buildings : [building, ...s.buildings],
+        units: [unit, ...s.units],
+        infraRooms: [...infraRooms, ...s.infraRooms],
+        internalAssets: [...assets, ...s.internalAssets],
+        properties: [property, ...s.properties],
+      }))
+
+      addActivity(`Asset created: ${property.title}`, 'Agent', property.agencyId)
+      emitSuiteEvent({
+        agencyId: property.agencyId,
+        resource: 'property',
+        action: 'created',
+        title: 'Property created',
+        body: `“${property.title}” was added to the portfolio.`,
+        link: `/workspace/properties/${property.id}`,
+      })
+
+      if (!existingBuilding) {
+        persistUpsert('building', building.id, building as unknown as Record<string, unknown>)
+      }
+      persistUpsert('unit', unit.id, {
+        ...unit,
+        agencyId: property.agencyId,
+        unitNumber: input.unit.unitNumber,
+      } as unknown as Record<string, unknown>)
+      for (const room of infraRooms) {
+        persistUpsert('room', room.id, room as unknown as Record<string, unknown>)
+      }
+      persistUpsert('property', property.id, {
+        ...property,
+        unitNumber: input.unit.unitNumber,
+      } as unknown as Record<string, unknown>)
+
       return property
     },
     updateProperty: (id, p) => {

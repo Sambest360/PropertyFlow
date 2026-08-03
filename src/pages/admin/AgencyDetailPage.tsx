@@ -12,7 +12,6 @@ import { useStore } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
 import { RequirePermission } from '../../components/RequirePermission'
 import { AgencyCapabilityChecklist } from '../../components/admin/AgencyCapabilityChecklist'
-import { CreatePropertyModal } from '../../components/admin/CreatePropertyModal'
 import { Badge, Button, Card, Modal, PageHeader, Select, cn } from '../../components/ui'
 import { roleLabels } from '../../lib/permissions'
 import { withReturnTo } from '../../lib/returnTo'
@@ -28,11 +27,14 @@ export default function AgencyDetailPage() {
   const { state, updateAgency, updateProperty, updateUser } = useStore()
   const { has } = useAuth()
   const [tab, setTab] = useState<Tab>('overview')
-  const [addPropertyOpen, setAddPropertyOpen] = useState(false)
   const [capsOpen, setCapsOpen] = useState(false)
   const [caps, setCaps] = useState<Permission[]>([])
   const addUserHref = withReturnTo(
     `/workspace/admin/users/new?agencyId=${id ?? ''}`,
+    `/workspace/admin/agencies/${id ?? ''}`,
+  )
+  const addPropertyHref = withReturnTo(
+    `/workspace/properties/new?agencyId=${id ?? ''}`,
     `/workspace/admin/agencies/${id ?? ''}`,
   )
 
@@ -156,15 +158,16 @@ export default function AgencyDetailPage() {
                     Add user
                   </Button>
                 </Link>
-                <Button
-                  className="min-h-11 cursor-pointer"
-                  variant="secondary"
-                  onClick={() => setAddPropertyOpen(true)}
-                  disabled={!has('assets.manage') && !has('platform.manage')}
-                >
-                  <Plus className="h-4 w-4" strokeWidth={ICON_STROKE} />
-                  Add property
-                </Button>
+                <Link to={addPropertyHref}>
+                  <Button
+                    className="min-h-11 cursor-pointer"
+                    variant="secondary"
+                    disabled={!has('assets.manage') && !has('platform.manage')}
+                  >
+                    <Plus className="h-4 w-4" strokeWidth={ICON_STROKE} />
+                    Add property
+                  </Button>
+                </Link>
                 <Button variant="secondary" className="min-h-11 cursor-pointer" onClick={openCaps}>
                   Edit modules
                 </Button>
@@ -262,10 +265,12 @@ export default function AgencyDetailPage() {
                 <Building2 className="h-4 w-4 text-ink-400" strokeWidth={ICON_STROKE} />
                 <h2 className="font-semibold text-ink">Agency properties</h2>
               </div>
-              <Button className="min-h-11 cursor-pointer" onClick={() => setAddPropertyOpen(true)}>
-                <Plus className="h-4 w-4" strokeWidth={ICON_STROKE} />
-                Add property
-              </Button>
+              <Link to={addPropertyHref}>
+                <Button className="min-h-11 cursor-pointer">
+                  <Plus className="h-4 w-4" strokeWidth={ICON_STROKE} />
+                  Add property
+                </Button>
+              </Link>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[44rem] text-left text-sm">
@@ -328,13 +333,6 @@ export default function AgencyDetailPage() {
             </div>
           </Card>
         ) : null}
-
-        <CreatePropertyModal
-          open={addPropertyOpen}
-          onClose={() => setAddPropertyOpen(false)}
-          defaultAgencyId={agency.id}
-          lockAgency
-        />
 
         <Modal
           open={capsOpen}

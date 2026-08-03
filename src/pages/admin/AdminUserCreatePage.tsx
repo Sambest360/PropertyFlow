@@ -8,7 +8,9 @@ import {
   CreateWizardShell,
   type WizardStepMeta,
 } from '../../components/admin/CreateWizardShell'
-import { Badge, Button, Input, Select, cn } from '../../components/ui'
+import { LiveUserPreview } from '../../components/wizard/LiveUserPreview'
+import { DocUploadSlot } from '../../components/auth/DocUploadSlot'
+import type { VerificationDocument } from '../../lib/verification'
 import { previewNavLabels } from '../../components/layout/navigation'
 import {
   AGENCY_HIERARCHY_ROLES,
@@ -23,6 +25,7 @@ import {
 import { readReturnTo } from '../../lib/returnTo'
 import { formatDisplayDob, parseIdentityDocument } from '../../lib/saId'
 import { formatZAR } from '../../data/seed'
+import { Badge, Button, Input, Select, cn } from '../../components/ui'
 import type { Agency, Permission, Role } from '../../types/domain'
 
 const ALL_ROLES: Role[] = [
@@ -56,7 +59,13 @@ const TEAM_ROLES: Role[] = [
 
 const OTHER_ROLES: Role[] = ['landlord', 'tenant', 'contractor', 'super_admin']
 
-type StepId = 'identity' | 'role' | 'setup' | 'review'
+type StepId = 'personal' | 'contact' | 'compliance' | 'role' | 'setup' | 'review'
+
+const USER_DRAFT_KEY = 'propertyflow:user-create'
+
+function needsComplianceStep(role: Role) {
+  return role === 'landlord' || role === 'contractor'
+}
 
 function clampToAgency(role: Role, agency: Agency | undefined): Permission[] {
   const base = userBasePermissions(role)
@@ -105,15 +114,29 @@ export default function AdminUserCreatePage() {
 
   const defaultAgencyId = queryAgencyId ?? scopeAgencyId ?? state.agencies[0]?.id ?? ''
 
-  const [stepId, setStepId] = useState<StepId>('identity')
+  const [stepId, setStepId] = useState<StepId>(() => {
+    try {
+      const raw = sessionStorage.getItem(`${USER_DRAFT_KEY}:step`)
+      if (raw === 'personal' || raw === 'contact' || raw === 'compliance' || raw === 'role' || raw === 'setup' || raw === 'review') {
+        return raw
+      }
+    } catch {
+      /* ignore */
+    }
+    return 'personal'
+  })
   const [furthestIndex, setFurthestIndex] = useState(0)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
+  const [streetAddress, setStreetAddress] = useState('')
+  const [addressCity, setAddressCity] = useState('')
+  const [addressProvince, setAddressProvince] = useState('Eastern Cape')
   const [idNumberOrPassport, setIdNumberOrPassport] = useState('')
   const [dateOfBirth, setDateOfBirth] = useState('')
   const [dobFromId, setDobFromId] = useState(false)
   const [company, setCompany] = useState('')
+  const [complianceDocs, setComplianceDocs] = useState<Record<string, VerificationDocument | null>>({})
   const [role, setRole] = useState<Role>(
     creatableRoles.includes('ground_agent') ? 'ground_agent' : creatableRoles[0],
   )
@@ -159,10 +182,20 @@ export default function AdminUserCreatePage() {
   const needsCommission = role === 'ground_agent' || role === 'agent'
 
   const wizardSteps: WizardStepMeta[] = useMemo(() => {
-    const identity: WizardStepMeta = {
-      id: 'identity',
-      label: 'Identity',
-      tip: 'Capture who they are — name, contact, ID, and optional company. Role comes next.',
+    const personal: WizardStepMeta = {
+      id: 'personal',
+      label: 'Personal',
+      tip: 'Legal name, ID or passport, and date of birth.',
+    }
+    const contact: WizardStepMeta = {
+      id: 'contact',
+      label: 'Contact',
+      tip: 'Email, phone, and physical address for compliance records.',
+    }
+    const compliance: WizardStepMeta = {
+      id: 'compliance',
+      label: 'Compliance',
+      tip: 'Optional verification documents for landlords and contractors.',
     }
     const roleStep: WizardStepMeta = {
       id: 'role',
@@ -188,9 +221,10 @@ export default function AdminUserCreatePage() {
       label: 'Review',
       tip: 'Confirm details and send a simulated invitation email to their inbox.',
     }
-    return needsSetupStep(role)
-      ? [identity, roleStep, setup, review]
-      : [identity, roleStep, review]
+    const tail = needsSetupStep(role) ? [roleStep, setup, review] : [roleStep, review]
+    return needsComplianceStep(role)
+      ? [personal, contact, compliance, ...tail]
+      : [personal, contact, ...tail]
   }, [intentTeam, role])
 
   const stepIndex = Math.max(
@@ -239,6 +273,49 @@ export default function AdminUserCreatePage() {
   useEffect(() => {
     setAgencyId(defaultAgencyId)
   }, [defaultAgencyId])
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(`${USER_DRAFT_KEY}:step`, stepId)
+    } catch {
+      /* ignore */
+    }
+  }, [stepId])
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(
+        `${USER_DRAFT_KEY}:draft`,
+        JSON.stringify({
+          name,
+          email,
+          phone,
+          streetAddress,
+          addressCity,
+          addressProvince,
+          idNumberOrPassport,
+          dateOfBirth,
+          company,
+          role,
+          agencyId,
+        }),
+      )
+    } catch {
+      /* ignore */
+    }
+  }, [
+    name,
+    email,
+    phone,
+    streetAddress,
+    addressCity,
+    addressProvince,
+    idNumberOrPassport,
+    dateOfBirth,
+    company,
+    role,
+    agencyId,
+  ])
 
   useEffect(() => {
     if (!creatableRoles.includes(role)) {
@@ -329,6 +406,20 @@ export default function AdminUserCreatePage() {
       commissionSharePct: commission,
       active: true,
       tempPassword: tempPassword.trim() || 'ChangeMe123!',
+      verification: needsComplianceStep(role)
+        ? {
+            status: 'pending',
+            submittedAt: new Date().toISOString(),
+            profile: {
+              streetAddress: streetAddress.trim() || undefined,
+              city: addressCity.trim() || undefined,
+              province: addressProvince.trim() || undefined,
+            },
+            documents: Object.values(complianceDocs).filter(
+              (d): d is VerificationDocument => d != null,
+            ),
+          }
+        : undefined,
     })
 
     if (role === 'tenant' && tenancyId) {
@@ -366,14 +457,20 @@ export default function AdminUserCreatePage() {
     }
 
     navigate(`/workspace/admin/users/${created.id}?tab=access`)
+    try {
+      sessionStorage.removeItem(`${USER_DRAFT_KEY}:draft`)
+      sessionStorage.removeItem(`${USER_DRAFT_KEY}:step`)
+    } catch {
+      /* ignore */
+    }
   }
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
 
-    if (stepId === 'identity') {
-      if (!name.trim() || !email.trim()) {
-        setError('Name and email are required.')
+    if (stepId === 'personal') {
+      if (!name.trim()) {
+        setError('Full name is required.')
         return
       }
       const idResult = parseIdentityDocument(idNumberOrPassport)
@@ -388,6 +485,22 @@ export default function AdminUserCreatePage() {
       } else if (idResult.kind === 'passport') {
         setIdNumberOrPassport(idResult.normalized)
       }
+      setError('')
+      goNext()
+      return
+    }
+
+    if (stepId === 'contact') {
+      if (!email.trim()) {
+        setError('Email is required.')
+        return
+      }
+      setError('')
+      goNext()
+      return
+    }
+
+    if (stepId === 'compliance') {
       setError('')
       goNext()
       return
@@ -418,9 +531,13 @@ export default function AdminUserCreatePage() {
 
   const pageTitle = intentTeam ? 'Add team member' : 'Add user'
   const pageSubtitle =
-    stepId === 'identity'
+    stepId === 'personal'
       ? 'Who are you adding?'
-      : stepId === 'role'
+      : stepId === 'contact'
+        ? 'How can they be reached?'
+        : stepId === 'compliance'
+          ? 'Optional verification documents.'
+          : stepId === 'role'
         ? 'What should they be able to do?'
         : stepId === 'setup'
           ? 'Finish role-specific setup.'
@@ -454,6 +571,18 @@ export default function AdminUserCreatePage() {
           maxReachableIndex={furthestIndex}
           onStepSelect={goToStep}
           aside={roleAside}
+          preview={
+            <LiveUserPreview
+              name={name}
+              email={email}
+              phone={phone}
+              role={role}
+              agencyName={selectedAgency?.name}
+              permissionCount={effectivePerms.length}
+              addressLine={streetAddress}
+              city={addressCity}
+            />
+          }
           footer={
             <>
               {stepIndex > 0 ? (
@@ -483,13 +612,11 @@ export default function AdminUserCreatePage() {
               </p>
             ) : null}
 
-            {stepId === 'identity' ? (
+            {stepId === 'personal' ? (
               <section className="space-y-4">
                 <div>
-                  <h2 className="font-display text-lg font-semibold text-ink">Person details</h2>
-                  <p className="mt-1 text-sm text-ink-500">
-                    Contact and compliance identity — role and access come next.
-                  </p>
+                  <h2 className="font-display text-lg font-semibold text-ink">Personal details</h2>
+                  <p className="mt-1 text-sm text-ink-500">Legal identity — contact details come next.</p>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field label="Full name" htmlFor="user-name">
@@ -501,29 +628,6 @@ export default function AdminUserCreatePage() {
                       onChange={(e) => setName(e.target.value)}
                       required
                       autoComplete="name"
-                    />
-                  </Field>
-                  <Field label="Email" htmlFor="user-email">
-                    <Input
-                      id="user-email"
-                      className="min-h-11"
-                      type="email"
-                      placeholder="name@agency.co.za"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
-                      autoComplete="email"
-                    />
-                  </Field>
-                  <Field label="Phone" htmlFor="user-phone">
-                    <Input
-                      id="user-phone"
-                      className="min-h-11"
-                      type="tel"
-                      placeholder="+27 …"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      autoComplete="tel"
                     />
                   </Field>
                   <Field label="ID or passport" htmlFor="user-id">
@@ -580,6 +684,91 @@ export default function AdminUserCreatePage() {
                       onChange={(e) => setCompany(e.target.value)}
                     />
                   </Field>
+                </div>
+              </section>
+            ) : null}
+
+            {stepId === 'contact' ? (
+              <section className="space-y-4">
+                <div>
+                  <h2 className="font-display text-lg font-semibold text-ink">Contact & address</h2>
+                  <p className="mt-1 text-sm text-ink-500">Email, phone, and physical address.</p>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Email" htmlFor="user-email">
+                    <Input
+                      id="user-email"
+                      className="min-h-11"
+                      type="email"
+                      placeholder="name@agency.co.za"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                      autoComplete="email"
+                    />
+                  </Field>
+                  <Field label="Phone" htmlFor="user-phone">
+                    <Input
+                      id="user-phone"
+                      className="min-h-11"
+                      type="tel"
+                      placeholder="+27 …"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      autoComplete="tel"
+                    />
+                  </Field>
+                  <Field label="Street address" htmlFor="user-street" className="sm:col-span-2">
+                    <Input
+                      id="user-street"
+                      className="min-h-11"
+                      placeholder="Street and number"
+                      value={streetAddress}
+                      onChange={(e) => setStreetAddress(e.target.value)}
+                      autoComplete="street-address"
+                    />
+                  </Field>
+                  <Field label="City" htmlFor="user-city">
+                    <Input
+                      id="user-city"
+                      className="min-h-11"
+                      value={addressCity}
+                      onChange={(e) => setAddressCity(e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Province" htmlFor="user-province">
+                    <Input
+                      id="user-province"
+                      className="min-h-11"
+                      value={addressProvince}
+                      onChange={(e) => setAddressProvince(e.target.value)}
+                    />
+                  </Field>
+                </div>
+              </section>
+            ) : null}
+
+            {stepId === 'compliance' ? (
+              <section className="space-y-4">
+                <div>
+                  <h2 className="font-display text-lg font-semibold text-ink">Compliance documents</h2>
+                  <p className="mt-1 text-sm text-ink-500">
+                    Optional uploads for {roleLabels[role].toLowerCase()} verification — can be added later.
+                  </p>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <DocUploadSlot
+                    docKey="id_document"
+                    label="ID document"
+                    value={complianceDocs.id_document ?? null}
+                    onChange={(doc) => setComplianceDocs((d) => ({ ...d, id_document: doc }))}
+                  />
+                  <DocUploadSlot
+                    docKey="proof_of_address"
+                    label="Proof of address"
+                    value={complianceDocs.proof_of_address ?? null}
+                    onChange={(doc) => setComplianceDocs((d) => ({ ...d, proof_of_address: doc }))}
+                  />
                 </div>
               </section>
             ) : null}

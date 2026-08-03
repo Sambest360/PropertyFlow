@@ -5,7 +5,7 @@ import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
 import { Button, Card, PageHeader } from '../components/ui'
-import { CreatePropertyModal } from '../components/admin/CreatePropertyModal'
+import { withReturnTo } from '../lib/returnTo'
 import { PropertyMap } from '../components/PropertyMap'
 import { PropertiesToolbar } from '../components/properties/PropertiesToolbar'
 import { PropertyListView } from '../components/properties/PropertyListView'
@@ -38,8 +38,12 @@ export default function Properties() {
   const propertyTypes = useLookupOptions('PROPERTY_TYPE', agencyId)
   const propertyStatuses = useLookupOptions('PROPERTY_STATUS', agencyId)
   const listingModes = useLookupOptions('LISTING_MODE', agencyId)
-  const [createOpen, setCreateOpen] = useState(false)
-
+  const createPropertyHref = withReturnTo(
+    agencyId && !has('platform.manage')
+      ? `/workspace/properties/new?agencyId=${agencyId}`
+      : '/workspace/properties/new',
+    '/workspace/properties',
+  )
   const [q, setQ] = useState('')
   const [status, setStatus] = useState('All')
   const [type, setType] = useState('All')
@@ -189,9 +193,11 @@ export default function Properties() {
         subtitle="Scan your portfolio, spot what needs attention, and open a property for full detail."
         actions={
           has('assets.manage') ? (
-            <Button className="min-h-11 cursor-pointer" onClick={() => setCreateOpen(true)}>
-              <Plus className="h-4 w-4" strokeWidth={1.6} aria-hidden /> Add property
-            </Button>
+            <Link to={createPropertyHref}>
+              <Button className="min-h-11 cursor-pointer">
+                <Plus className="h-4 w-4" strokeWidth={1.6} aria-hidden /> Add property
+              </Button>
+            </Link>
           ) : undefined
         }
       />
@@ -232,14 +238,16 @@ export default function Properties() {
             Create a property to start listing, or ask your agency admin to assign one to you.
           </p>
           {has('assets.manage') && (
-            <Button className="mt-4 cursor-pointer" onClick={() => setCreateOpen(true)}>
-              <Plus className="h-4 w-4" /> Add property
-            </Button>
+            <Link to={createPropertyHref}>
+              <Button className="mt-4 cursor-pointer">
+                <Plus className="h-4 w-4" /> Add property
+              </Button>
+            </Link>
           )}
           {has('assets.manage') && (
             <div className="mt-3">
               <Link
-                to="/workspace/properties/new"
+                to={createPropertyHref}
                 className="text-sm font-semibold text-primary hover:underline"
               >
                 Or open full create form
@@ -301,13 +309,6 @@ export default function Properties() {
           </button>
         </div>
       )}
-
-      <CreatePropertyModal
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        defaultAgencyId={agencyId ?? undefined}
-        lockAgency={!has('platform.manage')}
-      />
     </div>
   )
 }
