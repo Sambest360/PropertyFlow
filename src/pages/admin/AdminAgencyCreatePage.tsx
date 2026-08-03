@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'import { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../../context/AppStore'
 import { RequirePermission } from '../../components/RequirePermission'
