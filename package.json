@@ -15,6 +15,7 @@
     "test:watch": "vitest",
     "preview": "vite preview",
     "db:schema": "psql -h 127.0.0.1 -d propertyflow -f database/postgres/schema.sql",
+    "db:schema:remote": "psql \"$DIRECT_URL\" -f database/postgres/schema.sql",
     "db:migrate": "psql -h 127.0.0.1 -d propertyflow -f database/postgres/migrations/001_performance_indexes.sql",
     "db:seed": "psql -h 127.0.0.1 -d propertyflow -f database/postgres/seed_empty.sql",
     "db:seed:demo": "psql -h 127.0.0.1 -d propertyflow -f database/postgres/seed.sql && psql -h 127.0.0.1 -d propertyflow -f database/postgres/seed_pe_bulk.sql",
@@ -28,6 +29,8 @@
   "dependencies": {
     "@hono/node-server": "^2.0.12",
     "@react-google-maps/api": "^2.20.8",
+    "@supabase/ssr": "^0.12.4",
+    "@supabase/supabase-js": "^2.112.0",
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
     "concurrently": "^10.0.4",

@@ -36,6 +36,7 @@ import {
   markNotificationsRead,
   type PersistBody,
 } from './writes.js'
+import { supabaseSessionMiddleware } from './supabase/middleware.js'
 
 const app = new Hono()
 const PORT = Number(process.env.API_PORT || 8787)
@@ -79,6 +80,8 @@ app.use(
     exposeHeaders: ['Content-Type'],
   }),
 )
+
+app.use('*', supabaseSessionMiddleware)
 
 function errStatus(err: unknown): ContentfulStatusCode {
   if (err && typeof err === 'object' && 'status' in err) {
