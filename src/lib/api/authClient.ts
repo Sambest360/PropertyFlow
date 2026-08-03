@@ -2,6 +2,7 @@
  * Client auth API (login / register / session).
  */
 import { setApiActor, type DemoActor } from './actorAuth'
+import { isApiEnabled } from './config'
 import type { UserVerification, VerificationDocument, VerificationProfile } from '../verification'
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''
@@ -152,13 +153,16 @@ export async function apiLogout(): Promise<void> {
   }
 }
 
-export async function apiMe(): Promise<AuthUserDto | null> {
+export async function apiMe(timeoutMs = 3000): Promise<AuthUserDto | null> {
   const token = readAuthToken()
   if (!token) return null
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
     const res = await fetch(`${API_BASE}/api/auth/me`, {
       credentials: 'include',
       headers: { ...authHeaders() },
+      signal: ctrl.signal,
     })
     if (res.status === 401) {
       writeAuthToken(null)
@@ -170,19 +174,27 @@ export async function apiMe(): Promise<AuthUserDto | null> {
     return data.user
   } catch {
     return null
+  } finally {
+    clearTimeout(t)
   }
 }
 
-export async function apiAuthBootstrapNeeded(): Promise<boolean> {
+export async function apiAuthBootstrapNeeded(timeoutMs = 2000): Promise<boolean> {
+  if (!isApiEnabled) return false
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
     const res = await fetch(`${API_BASE}/api/auth/bootstrap-needed`, {
       credentials: 'include',
+      signal: ctrl.signal,
     })
     if (!res.ok) return false
     const data = (await res.json()) as { needed?: boolean }
     return Boolean(data.needed)
   } catch {
     return false
+  } finally {
+    clearTimeout(t)
   }
 }
 

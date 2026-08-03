@@ -96,6 +96,7 @@ import {
   viewingBelongsToApplication,
 } from '../lib/blockedApplicants'
 import { fetchPostgresBootstrap, type PostgresBootstrap } from '../lib/api/postgresClient'
+import { isApiEnabled } from '../lib/api/config'
 import { readStoredAuthUserId, type DemoActor } from '../lib/api/actorAuth'
 import {
   persistApproveApplication,
@@ -448,9 +449,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   stateRef.current = state
 
   const refreshBootstrap = useCallback(async (actor?: DemoActor | null) => {
+    if (!isApiEnabled) return
     const resolved =
       actor === undefined ? actorFromUsers(stateRef.current.users) : actor
-    const boot = await fetchPostgresBootstrap(8000, resolved)
+    const boot = await fetchPostgresBootstrap(undefined, resolved)
     if (!boot) return
     setState((prev) => applyPostgresBootstrap(prev, boot))
     try {
@@ -461,10 +463,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
+    if (!isApiEnabled) return
     let cancelled = false
     ;(async () => {
       const actor = actorFromUsers(stateRef.current.users)
-      const boot = await fetchPostgresBootstrap(8000, actor)
+      const boot = await fetchPostgresBootstrap(undefined, actor)
       if (cancelled || !boot) return
       setState((prev) => applyPostgresBootstrap(prev, boot))
       try {
@@ -662,7 +665,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       setState(defaultState())
       setToasts([])
       const actor = actorFromUsers(defaultState().users)
-      void fetchPostgresBootstrap(8000, actor).then((boot) => {
+      if (!isApiEnabled) return
+      void fetchPostgresBootstrap(undefined, actor).then((boot) => {
         if (!boot) return
         setState((prev) => applyPostgresBootstrap(prev, boot))
         localStorage.setItem(PG_HYDRATED_FLAG, 'postgres')

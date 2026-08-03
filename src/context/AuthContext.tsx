@@ -15,6 +15,7 @@ import {
   syncActorFromUser,
   type AuthUserDto,
 } from '../lib/api/authClient'
+import { isApiEnabled } from '../lib/api/config'
 import { blockedPropertyIdsForApplicant } from '../lib/blockedApplicants'
 import { effectiveCan, roleLabels, roleBlurbs } from '../lib/permissions'
 import {
@@ -111,6 +112,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false
     ;(async () => {
+      if (!isApiEnabled) {
+        setAuthReady(true)
+        return
+      }
       const me = await apiMe()
       if (cancelled) return
       if (me) {
@@ -172,6 +177,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [isAuthenticated, user.id, user.role, user.agencyId])
 
   useEffect(() => {
+    if (!isApiEnabled) return
     if (!isAuthenticated || !user || user.id === 'guest') return
     void refreshBootstrap({
       userId: user.id,

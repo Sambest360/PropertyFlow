@@ -4,6 +4,7 @@
  */
 import { actorHeaders } from './actorAuth'
 import { authHeaders } from './authClient'
+import { isApiEnabled } from './config'
 import type { EntityType } from './persistTypes'
 
 export type { EntityType } from './persistTypes'
@@ -31,6 +32,7 @@ function jsonHeaders(): Record<string, string> {
 }
 
 async function quickHealth(): Promise<boolean> {
+  if (!isApiEnabled) return false
   const now = Date.now()
   if (apiLikelyUp != null && now - lastHealthCheck < 15_000) return apiLikelyUp
   lastHealthCheck = now

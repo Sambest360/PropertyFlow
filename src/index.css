@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* Limit scanning to app source — avoids crawling .agents/, database/, docs/, etc. */
+@source "./**/*.{html,js,ts,jsx,tsx}";
 
 @custom-variant dark (&:where(.dark, .dark *));
 

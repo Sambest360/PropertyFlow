@@ -5,6 +5,7 @@
 
 import { actorHeaders, type DemoActor } from './actorAuth'
 import { authHeaders } from './authClient'
+import { isApiEnabled } from './config'
 
 export type PostgresBootstrap = {
   source: 'postgres'
@@ -36,7 +37,8 @@ export type PostgresBootstrap = {
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''
 
-export async function fetchApiHealth(timeoutMs = 1200): Promise<boolean> {
+export async function fetchApiHealth(timeoutMs = 800): Promise<boolean> {
+  if (!isApiEnabled) return false
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
@@ -52,9 +54,13 @@ export async function fetchApiHealth(timeoutMs = 1200): Promise<boolean> {
 }
 
 export async function fetchPostgresBootstrap(
-  timeoutMs = 8000,
+  timeoutMs = 2500,
   actor?: DemoActor | null,
 ): Promise<PostgresBootstrap | null> {
+  if (!isApiEnabled) return null
+  const healthy = await fetchApiHealth(Math.min(800, timeoutMs))
+  if (!healthy) return null
+
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), timeoutMs)
   try {

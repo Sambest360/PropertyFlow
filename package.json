@@ -4,7 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n api,vite -c cyan,magenta \"npm run dev:api\" \"npm run dev:vite\"",
+    "dev": "vite",
+    "dev:full": "concurrently -k -n api,vite -c cyan,magenta \"npm run dev:api\" \"npm run dev:vite\"",
     "dev:vite": "vite",
     "dev:api": "tsx server/index.ts",
     "dev:web": "vite",
@@ -14,6 +15,7 @@
     "test:watch": "vitest",
     "preview": "vite preview",
     "db:schema": "psql -h 127.0.0.1 -d propertyflow -f database/postgres/schema.sql",
+    "db:migrate": "psql -h 127.0.0.1 -d propertyflow -f database/postgres/migrations/001_performance_indexes.sql",
     "db:seed": "psql -h 127.0.0.1 -d propertyflow -f database/postgres/seed_empty.sql",
     "db:seed:demo": "psql -h 127.0.0.1 -d propertyflow -f database/postgres/seed.sql && psql -h 127.0.0.1 -d propertyflow -f database/postgres/seed_pe_bulk.sql",
     "db:reset": "npm run db:schema && npm run db:seed",

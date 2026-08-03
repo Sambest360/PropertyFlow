@@ -6,14 +6,17 @@ import { query } from './db.js'
 import {
   APP_REF_TO_ID,
   CLIENT_TO_AGENCY,
-  EMAIL_TO_USER,
   LEASE_IDS,
   mapAgency,
-  mapProperty,
   TICKET_IDS,
   UNIT_TO_PROPERTY,
 } from './idMap.js'
 import { resolveUuid, ensureEntityMapTable } from './entityMap.js'
+import {
+  fePropertyFromUnitCache,
+  feUserFromCache,
+  loadIdMapCache,
+} from './idMapCache.js'
 import type { EntityType } from './entityMap.js'
 import type { PersistBody } from './writes.js'
 import type { DemoActor } from './actor.js'
@@ -34,53 +37,16 @@ import type { Role } from '../src/types/domain.js'
 type FePropertyRow = PropertyAccessSubject & { id: string }
 
 async function feUserId(uuid: string | null | undefined): Promise<string | null> {
-  if (!uuid) return null
-  const mapped = await resolveUuidReverseUser(uuid)
-  return mapped
-}
-
-/** Prefer entity_id_map / email seed map for FE user ids. */
-async function resolveUuidReverseUser(uuid: string): Promise<string | null> {
-  try {
-    const rows = await query<{ frontend_id: string }>(
-      `SELECT frontend_id FROM entity_id_map
-       WHERE entity_type = 'user' AND backend_id = $1::uuid LIMIT 1`,
-      [uuid],
-    )
-    if (rows[0]) return rows[0].frontend_id
-  } catch {
-    /* map table may be empty */
-  }
-  const emailRows = await query<{ email: string }>(
-    `SELECT email FROM users WHERE id = $1::uuid LIMIT 1`,
-    [uuid],
-  )
-  const email = emailRows[0]?.email?.toLowerCase()
-  if (email && EMAIL_TO_USER[email]) return EMAIL_TO_USER[email]!
-  return uuid
+  const cache = await loadIdMapCache()
+  return feUserFromCache(cache, uuid)
 }
 
 async function fePropertyFromUnit(unitUuid: string | null | undefined): Promise<string | null> {
-  if (!unitUuid) return null
-  try {
-    const rows = await query<{ frontend_id: string }>(
-      `SELECT frontend_id FROM entity_id_map
-       WHERE entity_type IN ('property', 'unit') AND backend_id = $1::uuid
-       ORDER BY CASE entity_type WHEN 'property' THEN 0 ELSE 1 END
-       LIMIT 1`,
-      [unitUuid],
-    )
-    if (rows[0]) {
-      const fe = rows[0].frontend_id
-      return fe.startsWith('unt-') ? fe.slice(4) : fe
-    }
-  } catch {
-    /* ignore */
-  }
-  return mapProperty(unitUuid)
+  const cache = await loadIdMapCache()
+  return fePropertyFromUnitCache(cache, unitUuid)
 }
 
-async function loadPropertyRows(): Promise<FePropertyRow[]> {
+async function loadPropertyRows(cache: Awaited<ReturnType<typeof loadIdMapCache>>): Promise<FePropertyRow[]> {
   const rows = await query<{
     unit_id: string
     client_id: string
@@ -91,19 +57,19 @@ async function loadPropertyRows(): Promise<FePropertyRow[]> {
     FROM units u
     JOIN buildings b ON b.id = u.building_id
   `)
-  const out: FePropertyRow[] = []
-  for (const r of rows) {
-    const id = (await fePropertyFromUnit(r.unit_id)) ?? UNIT_TO_PROPERTY[r.unit_id] ?? r.unit_id
+  return rows.map((r) => {
+    const id =
+      fePropertyFromUnitCache(cache, r.unit_id) ?? UNIT_TO_PROPERTY[r.unit_id] ?? r.unit_id
     const agencyId = mapAgency(r.client_id) ?? CLIENT_TO_AGENCY[r.client_id] ?? r.client_id
-    const agentId = await feUserId(r.agent_id)
-    const landlordId = (await feUserId(r.landlord_id)) ?? 'u-owner1'
-    out.push({ id, agencyId, agentId, landlordId })
-  }
-  return out
+    const agentId = feUserFromCache(cache, r.agent_id)
+    const landlordId = feUserFromCache(cache, r.landlord_id) ?? 'u-owner1'
+    return { id, agencyId, agentId, landlordId }
+  })
 }
 
 async function loadScopeLinks(): Promise<ScopeLinksInput> {
-  const properties = await loadPropertyRows()
+  const cache = await loadIdMapCache()
+  const properties = await loadPropertyRows(cache)
 
   const appRows = await query<{
     applicant_id: string | null
@@ -125,7 +91,7 @@ async function loadScopeLinks(): Promise<ScopeLinksInput> {
     stage: NonNullable<ScopeLinksInput['applications']>[number]['stage']
   }> = []
   for (const a of appRows) {
-    const propertyId = (await fePropertyFromUnit(a.unit_id)) ?? ''
+    const propertyId = fePropertyFromUnitCache(cache, a.unit_id) ?? ''
     const metaStage = typeof a.metadata?.stage === 'string' ? a.metadata.stage : null
     const stage = (metaStage ??
       (a.status === 'REJECTED'
@@ -134,7 +100,7 @@ async function loadScopeLinks(): Promise<ScopeLinksInput> {
           ? 'Approved'
           : 'Under Review')) as NonNullable<ScopeLinksInput['applications']>[number]['stage']
     applications.push({
-      applicantUserId: await feUserId(a.applicant_id),
+      applicantUserId: feUserFromCache(cache, a.applicant_id),
       email: a.email ?? '',
       propertyId,
       stage,
@@ -144,13 +110,10 @@ async function loadScopeLinks(): Promise<ScopeLinksInput> {
   const leaseRows = await query<{ tenant_id: string | null; unit_id: string }>(
     `SELECT tenant_id, unit_id FROM leases`,
   )
-  const tenancies = []
-  for (const l of leaseRows) {
-    tenancies.push({
-      tenantUserId: (await feUserId(l.tenant_id)) ?? '',
-      propertyId: (await fePropertyFromUnit(l.unit_id)) ?? '',
-    })
-  }
+  const tenancies = leaseRows.map((l) => ({
+    tenantUserId: feUserFromCache(cache, l.tenant_id) ?? '',
+    propertyId: fePropertyFromUnitCache(cache, l.unit_id) ?? '',
+  }))
 
   const ticketRows = await query<{
     contractor_id: string | null
@@ -181,11 +144,11 @@ async function loadScopeLinks(): Promise<ScopeLinksInput> {
               ? ('Awaiting Parts' as const)
               : ('Requested' as const)
     tickets.push({
-      contractorId: await feUserId(t.contractor_id),
-      propertyId: (await fePropertyFromUnit(t.unit_id)) ?? '',
+      contractorId: feUserFromCache(cache, t.contractor_id),
+      propertyId: fePropertyFromUnitCache(cache, t.unit_id) ?? '',
       agencyId: mapAgency(t.client_id) ?? t.client_id,
       status,
-      assignedAgentId: await feUserId(t.assigned_to),
+      assignedAgentId: feUserFromCache(cache, t.assigned_to),
     })
   }
 

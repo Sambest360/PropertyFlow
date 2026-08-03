@@ -5,6 +5,7 @@ import { cors } from 'hono/cors'
 import { buildBootstrap } from './bootstrap.js'
 import { databaseConfigError, databaseConfigured, pool, query } from './db.js'
 import { ensureEntityMapTable } from './entityMap.js'
+import { fetchUnitsPage } from './unitsFeed.js'
 import {
   actorRequiredError,
   parseDemoActor,
@@ -141,6 +142,9 @@ app.get('/api/health', async (c) => {
 })
 
 app.get('/api/auth/bootstrap-needed', async (c) => {
+  if (!databaseConfigured) {
+    return c.json({ needed: false, database: 'unconfigured' })
+  }
   try {
     const rows = await query<{ n: string }>('SELECT COUNT(*)::text AS n FROM users')
     return c.json({ needed: Number(rows[0]?.n ?? 0) === 0 })
@@ -251,9 +255,30 @@ app.get('/api/auth/me', async (c) => {
 })
 
 app.get('/api/bootstrap', async (c) => {
+  if (!databaseConfigured) {
+    return c.json(
+      {
+        error: 'database_unconfigured',
+        message: databaseConfigError || 'DATABASE_URL is not set',
+      },
+      503,
+    )
+  }
   try {
     await ensureEntityMapTable()
-    const data = await buildBootstrap()
+    const rowLimit = Math.min(Math.max(Number(c.req.query('limit') || 250), 1), 500)
+    const data = await buildBootstrap({
+      limits: {
+        units: rowLimit,
+        messages: rowLimit,
+        notifications: rowLimit,
+        leads: rowLimit,
+        applications: rowLimit,
+        tickets: rowLimit,
+        payments: rowLimit,
+        documents: rowLimit,
+      },
+    })
     const rawActor = await resolveRequestActor(c, null)
     if (!rawActor) {
       return c.json({ ...data, scoped: false, actor: null })
@@ -270,6 +295,32 @@ app.get('/api/bootstrap', async (c) => {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[api/bootstrap]', message)
     return c.json({ error: 'bootstrap_failed', message }, 500)
+  }
+})
+
+app.get('/api/v1/units', async (c) => {
+  if (!databaseConfigured) {
+    return c.json(
+      {
+        error: 'database_unconfigured',
+        message: databaseConfigError || 'DATABASE_URL is not set',
+      },
+      503,
+    )
+  }
+  try {
+    const limit = Math.min(Math.max(Number(c.req.query('limit') || 24), 1), 100)
+    const cursor = c.req.query('cursor') ?? null
+    const clientId = c.req.query('client_id') ?? null
+    const page = await fetchUnitsPage({ limit, cursor, clientId })
+    return c.json({
+      items: page.items,
+      next_cursor: page.nextCursor,
+      has_more: page.hasMore,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'units_feed_failed', message }, 500)
   }
 })
 

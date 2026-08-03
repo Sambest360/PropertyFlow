@@ -71,7 +71,7 @@ describe('poolMaxForRuntime', () => {
 describe('connectionTimeoutMsForRuntime', () => {
   it('fails faster on serverless', () => {
     expect(connectionTimeoutMsForRuntime({ vercel: '1' })).toBe(5_000)
-    expect(connectionTimeoutMsForRuntime({})).toBe(15_000)
+    expect(connectionTimeoutMsForRuntime({})).toBe(3_000)
   })
 })
 
@@ -99,5 +99,12 @@ describe('resolveDatabaseUrl', () => {
     })
     expect(r.configured).toBe(true)
   })
-})
 
+  it('uses the local fallback when DATABASE_URL is unset on a dev machine', () => {
+    const r = resolveDatabaseUrl({
+      localFallback: 'postgresql://dev@127.0.0.1:5432/propertyflow',
+    })
+    expect(r.configured).toBe(true)
+    expect(r.url).toBe('postgresql://dev@127.0.0.1:5432/propertyflow')
+  })
+})

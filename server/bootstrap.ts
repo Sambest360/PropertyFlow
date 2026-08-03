@@ -1,5 +1,6 @@
 import { query } from './db.js'
 import { mapPool } from './mapPool.js'
+import { loadIdMapCache } from './idMapCache.js'
 import {
   ACTIVITY_IDS,
   APP_REF_TO_ID,
@@ -155,7 +156,30 @@ function appStage(status: string): string {
   return map[status] ?? 'Under Review'
 }
 
-export async function buildBootstrap() {
+export type BootstrapLimits = {
+  units?: number
+  messages?: number
+  notifications?: number
+  leads?: number
+  applications?: number
+  tickets?: number
+  payments?: number
+  documents?: number
+}
+
+const DEFAULT_BOOTSTRAP_LIMITS: Required<BootstrapLimits> = {
+  units: 250,
+  messages: 300,
+  notifications: 200,
+  leads: 200,
+  applications: 200,
+  tickets: 200,
+  payments: 200,
+  documents: 200,
+}
+
+export async function buildBootstrap(opts?: { limits?: BootstrapLimits }) {
+  const limits = { ...DEFAULT_BOOTSTRAP_LIMITS, ...opts?.limits }
   const [
     clients,
     users,
@@ -252,7 +276,7 @@ export async function buildBootstrap() {
           formatted_address: string | null
           geocoded_at: Date | null
           created_at: Date
-        }>('SELECT * FROM units ORDER BY created_at'),
+        }>('SELECT * FROM units ORDER BY created_at DESC LIMIT $1', [limits.units]),
       () =>
         query<{
           id: string
@@ -280,17 +304,28 @@ export async function buildBootstrap() {
           condition_status: string
           brand: string | null
         }>('SELECT * FROM internal_assets'),
-      () => query('SELECT * FROM leads ORDER BY created_at'),
-      () => query('SELECT * FROM applications ORDER BY submitted_at NULLS LAST'),
+      () => query('SELECT * FROM leads ORDER BY created_at DESC LIMIT $1', [limits.leads]),
+      () =>
+        query('SELECT * FROM applications ORDER BY submitted_at NULLS LAST LIMIT $1', [
+          limits.applications,
+        ]),
       () => query('SELECT * FROM leases ORDER BY start_date'),
       () => query('SELECT * FROM bookings ORDER BY starts_at'),
       () => query('SELECT * FROM viewing_slots ORDER BY slot_date, slot_time'),
-      () => query('SELECT * FROM payments ORDER BY due_date'),
-      () => query('SELECT * FROM documents ORDER BY uploaded_at NULLS LAST'),
-      () => query('SELECT * FROM maintenance_tickets ORDER BY created_at'),
+      () => query('SELECT * FROM payments ORDER BY due_date LIMIT $1', [limits.payments]),
+      () =>
+        query('SELECT * FROM documents ORDER BY uploaded_at NULLS LAST LIMIT $1', [
+          limits.documents,
+        ]),
+      () => query('SELECT * FROM maintenance_tickets ORDER BY created_at DESC LIMIT $1', [
+        limits.tickets,
+      ]),
       () => query('SELECT * FROM message_threads ORDER BY updated_at DESC'),
-      () => query('SELECT * FROM messages ORDER BY created_at'),
-      () => query('SELECT * FROM notifications ORDER BY created_at DESC'),
+      () => query('SELECT * FROM messages ORDER BY created_at DESC LIMIT $1', [limits.messages]),
+      () =>
+        query('SELECT * FROM notifications ORDER BY created_at DESC LIMIT $1', [
+          limits.notifications,
+        ]),
       () => query('SELECT * FROM suite_alerts ORDER BY created_at'),
       () =>
         query(
@@ -302,7 +337,7 @@ export async function buildBootstrap() {
         ),
       () => query('SELECT * FROM invoices ORDER BY created_at DESC'),
     ] as const,
-    3,
+    8,
     (load) => load(),
   )
 
@@ -313,19 +348,19 @@ export async function buildBootstrap() {
     const fe = fromMeta ?? EMAIL_TO_USER[u.email.toLowerCase()] ?? u.id
     userByUuid.set(u.id, fe)
   }
+  for (const [backendId, fe] of idCache.userBackendToFe) {
+    userByUuid.set(backendId, fe)
+  }
 
-  // Runtime + seed aliases from entity_id_map (API ensure on boot / writes)
+  // Runtime + seed aliases from entity_id_map (shared cache — no N+1)
+  const idCache = await loadIdMapCache()
   const mapCache = new Map<string, string>()
-  try {
-    const idRows = await query<{ entity_type: string; frontend_id: string; backend_id: string }>(
-      `SELECT entity_type, frontend_id, backend_id::text FROM entity_id_map`,
-    )
-    for (const row of idRows) {
-      mapCache.set(`${row.entity_type}:${row.backend_id}`, row.frontend_id)
-      if (row.entity_type === 'user') userByUuid.set(row.backend_id, row.frontend_id)
-    }
-  } catch {
-    /* table may not exist yet before first API boot */
+  for (const [backendId, fe] of idCache.userBackendToFe) {
+    mapCache.set(`user:${backendId}`, fe)
+  }
+  for (const [backendId, fe] of idCache.unitBackendToPropertyFe) {
+    mapCache.set(`property:${backendId}`, fe)
+    mapCache.set(`unit:${backendId}`, fe)
   }
   const mappedFe = (entityType: string, uuid: string, fallback: string) =>
     mapCache.get(`${entityType}:${uuid}`) ?? fallback

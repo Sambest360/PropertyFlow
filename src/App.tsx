@@ -1,5 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom'
-import type { ReactNode } from 'react'
+import { lazy, Suspense, type ReactNode } from 'react'
 import { ThemeProvider } from './context/ThemeContext'
 import { AppStoreProvider } from './context/AppStore'
 import { AuthProvider } from './context/AuthContext'
@@ -13,45 +13,53 @@ import BrowsePage from './pages/market/BrowsePage'
 import ListingDetail from './pages/market/ListingDetail'
 import CalculatorsPage from './pages/market/CalculatorsPage'
 
-import Dashboard from './pages/Dashboard'
-import Properties from './pages/Properties'
-import PropertyDetail from './pages/PropertyDetail'
-import AssetCreate from './pages/AssetCreate'
-import CRM from './pages/CRM'
-import LeadDetail from './pages/LeadDetail'
-import Applications from './pages/Applications'
-import ApplicantDetail from './pages/ApplicantDetail'
-import Viewings from './pages/Viewings'
-import ViewingPropertyPage from './pages/ViewingPropertyPage'
-import Maintenance from './pages/Maintenance'
-import MaintenanceDetail from './pages/MaintenanceDetail'
-import Documents from './pages/Documents'
-import Communications from './pages/Communications'
-import Payments from './pages/Payments'
-import PaymentDetail from './pages/PaymentDetail'
-import Reports from './pages/Reports'
-import OwnerPortal from './pages/OwnerPortal'
-import TenantPortal from './pages/TenantPortal'
-import ContractorPortal from './pages/ContractorPortal'
-import StaffDirectory from './pages/StaffDirectory'
-import StaffDetail from './pages/StaffDetail'
-import TenantDirectory from './pages/TenantDirectory'
-import OccupantDetail from './pages/OccupantDetail'
-import AdminHub from './pages/admin/AdminHub'
-import AdminUsersPage from './pages/admin/AdminUsersPage'
-import AdminUserDetailPage from './pages/admin/AdminUserDetailPage'
-import AdminUserCreatePage from './pages/admin/AdminUserCreatePage'
-import AdminAgenciesPage from './pages/admin/AdminAgenciesPage'
-import AdminAgencyCreatePage from './pages/admin/AdminAgencyCreatePage'
-import AgencyDetailPage from './pages/admin/AgencyDetailPage'
-import AdminConfigPage from './pages/admin/AdminConfigPage'
-import AdminNotificationsPage from './pages/admin/AdminNotificationsPage'
-import PlatformBilling from './pages/PlatformBilling'
-import SuiteAlerts from './pages/SuiteAlerts'
-
 import LoginPage from './pages/auth/LoginPage'
 import RegisterPage from './pages/auth/RegisterPage'
 import { RequireAuth } from './components/RequireAuth'
+
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Properties = lazy(() => import('./pages/Properties'))
+const PropertyDetail = lazy(() => import('./pages/PropertyDetail'))
+const AssetCreate = lazy(() => import('./pages/AssetCreate'))
+const CRM = lazy(() => import('./pages/CRM'))
+const LeadDetail = lazy(() => import('./pages/LeadDetail'))
+const Applications = lazy(() => import('./pages/Applications'))
+const ApplicantDetail = lazy(() => import('./pages/ApplicantDetail'))
+const Viewings = lazy(() => import('./pages/Viewings'))
+const ViewingPropertyPage = lazy(() => import('./pages/ViewingPropertyPage'))
+const Maintenance = lazy(() => import('./pages/Maintenance'))
+const MaintenanceDetail = lazy(() => import('./pages/MaintenanceDetail'))
+const Documents = lazy(() => import('./pages/Documents'))
+const Communications = lazy(() => import('./pages/Communications'))
+const Payments = lazy(() => import('./pages/Payments'))
+const PaymentDetail = lazy(() => import('./pages/PaymentDetail'))
+const Reports = lazy(() => import('./pages/Reports'))
+const OwnerPortal = lazy(() => import('./pages/OwnerPortal'))
+const TenantPortal = lazy(() => import('./pages/TenantPortal'))
+const ContractorPortal = lazy(() => import('./pages/ContractorPortal'))
+const StaffDirectory = lazy(() => import('./pages/StaffDirectory'))
+const StaffDetail = lazy(() => import('./pages/StaffDetail'))
+const TenantDirectory = lazy(() => import('./pages/TenantDirectory'))
+const OccupantDetail = lazy(() => import('./pages/OccupantDetail'))
+const AdminHub = lazy(() => import('./pages/admin/AdminHub'))
+const AdminUsersPage = lazy(() => import('./pages/admin/AdminUsersPage'))
+const AdminUserDetailPage = lazy(() => import('./pages/admin/AdminUserDetailPage'))
+const AdminUserCreatePage = lazy(() => import('./pages/admin/AdminUserCreatePage'))
+const AdminAgenciesPage = lazy(() => import('./pages/admin/AdminAgenciesPage'))
+const AdminAgencyCreatePage = lazy(() => import('./pages/admin/AdminAgencyCreatePage'))
+const AgencyDetailPage = lazy(() => import('./pages/admin/AgencyDetailPage'))
+const AdminConfigPage = lazy(() => import('./pages/admin/AdminConfigPage'))
+const AdminNotificationsPage = lazy(() => import('./pages/admin/AdminNotificationsPage'))
+const PlatformBilling = lazy(() => import('./pages/PlatformBilling'))
+const SuiteAlerts = lazy(() => import('./pages/SuiteAlerts'))
+
+function PageFallback() {
+  return (
+    <div className="flex min-h-[40vh] items-center justify-center text-sm text-ink-500">
+      Loading…
+    </div>
+  )
+}
 
 function Guard({
   permission,
@@ -98,7 +106,9 @@ export default function App() {
                 path="workspace"
                 element={
                   <RequireAuth>
-                    <WorkspaceShell />
+                    <Suspense fallback={<PageFallback />}>
+                      <WorkspaceShell />
+                    </Suspense>
                   </RequireAuth>
                 }
               >

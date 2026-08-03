@@ -45,7 +45,7 @@ export function connectionTimeoutMsForRuntime(opts: {
   vercel?: string | undefined
   lambda?: string | undefined
 }): number {
-  return opts.vercel || opts.lambda ? 5_000 : 15_000
+  return opts.vercel || opts.lambda ? 5_000 : 3_000
 }
 
 export function isLocalhostDatabaseUrl(url: string): boolean {
@@ -88,8 +88,6 @@ export function resolveDatabaseUrl(opts: {
         'DATABASE_URL is not set. Add the Supabase Transaction pooler URI in Vercel → Settings → Environment Variables, then redeploy.',
     }
   }
-  return {
-    url: opts.localFallback || 'postgresql://127.0.0.1:5432/propertyflow',
-    configured: false,
-  }
+  const url = opts.localFallback || 'postgresql://127.0.0.1:5432/propertyflow'
+  return { url, configured: true }
 }
