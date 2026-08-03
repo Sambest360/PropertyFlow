@@ -467,7 +467,8 @@ function strField(data: Record<string, unknown> | undefined, key: string): strin
 
 async function propertySubject(propertyId: string | null): Promise<PropertyAccessSubject | null> {
   if (!propertyId) return null
-  const rows = await loadPropertyRows()
+  const cache = await loadIdMapCache()
+  const rows = await loadPropertyRows(cache)
   return rows.find((p) => p.id === propertyId) ?? null
 }
 

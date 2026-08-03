@@ -348,12 +348,13 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits }) {
     const fe = fromMeta ?? EMAIL_TO_USER[u.email.toLowerCase()] ?? u.id
     userByUuid.set(u.id, fe)
   }
+
+  // Runtime + seed aliases from entity_id_map (shared cache — no N+1)
+  const idCache = await loadIdMapCache()
   for (const [backendId, fe] of idCache.userBackendToFe) {
     userByUuid.set(backendId, fe)
   }
 
-  // Runtime + seed aliases from entity_id_map (shared cache — no N+1)
-  const idCache = await loadIdMapCache()
   const mapCache = new Map<string, string>()
   for (const [backendId, fe] of idCache.userBackendToFe) {
     mapCache.set(`user:${backendId}`, fe)
