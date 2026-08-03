@@ -1,11 +1,16 @@
 /**
- * Fire-and-forget persistence to the local Hono API.
- * Optimistic UI stays in AppStore; localStorage remains the degraded fallback.
+ * Fire-and-forget persistence — Supabase in production, Hono API locally.
  */
 import { actorHeaders } from './actorAuth'
 import { authHeaders } from './authClient'
-import { isApiEnabled } from './config'
+import { isApiEnabled, isSupabaseMode } from './config'
 import type { EntityType } from './persistTypes'
+import {
+  persistBatchToSupabase,
+  persistToSupabase,
+  supabaseApproveApplication,
+  supabaseMarkNotificationsRead,
+} from '../supabase/persist'
 
 export type { EntityType } from './persistTypes'
 
@@ -50,6 +55,7 @@ async function quickHealth(): Promise<boolean> {
 }
 
 export async function persistToApi(op: PersistOp): Promise<boolean> {
+  if (isSupabaseMode) return persistToSupabase(op)
   if (!(await quickHealth())) return false
   try {
     const res = await fetch(`${API_BASE}/api/persist`, {
@@ -73,6 +79,7 @@ export async function persistToApi(op: PersistOp): Promise<boolean> {
 
 export async function persistBatchToApi(ops: PersistOp[]): Promise<boolean> {
   if (!ops.length) return true
+  if (isSupabaseMode) return persistBatchToSupabase(ops)
   if (!(await quickHealth())) return false
   try {
     const res = await fetch(`${API_BASE}/api/persist/batch`, {
@@ -97,6 +104,12 @@ export async function persistApproveApplication(params: {
   actorUserId?: string
   tenancy?: Record<string, unknown>
 }): Promise<boolean> {
+  if (isSupabaseMode) {
+    return supabaseApproveApplication({
+      applicationId: params.applicationId,
+      tenancy: params.tenancy,
+    })
+  }
   if (!(await quickHealth())) return false
   try {
     const res = await fetch(
@@ -122,6 +135,7 @@ export async function persistMarkNotificationsRead(params: {
   userId?: string
   all?: boolean
 }): Promise<boolean> {
+  if (isSupabaseMode) return supabaseMarkNotificationsRead(params)
   if (!(await quickHealth())) return false
   try {
     const res = await fetch(`${API_BASE}/api/notifications/mark-read`, {

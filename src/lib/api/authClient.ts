@@ -2,7 +2,8 @@
  * Client auth API (login / register / session).
  */
 import { setApiActor, type DemoActor } from './actorAuth'
-import { isApiEnabled } from './config'
+import { isApiEnabled, isSupabaseMode } from './config'
+import { appUserToDto, supabaseUpdateUserVerification } from '../supabase/auth'
 import type { UserVerification, VerificationDocument, VerificationProfile } from '../verification'
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''
@@ -129,6 +130,10 @@ export async function apiUpdateUserVerification(input: {
   status: 'approved' | 'rejected'
   rejectNote?: string
 }): Promise<AuthUserDto> {
+  if (isSupabaseMode) {
+    const user = await supabaseUpdateUserVerification(input)
+    return appUserToDto(user)
+  }
   const res = await fetch(
     `${API_BASE}/api/admin/users/${encodeURIComponent(input.userId)}/verification`,
     {

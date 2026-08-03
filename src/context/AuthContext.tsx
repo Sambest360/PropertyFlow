@@ -15,7 +15,7 @@ import {
   syncActorFromUser,
   type AuthUserDto,
 } from '../lib/api/authClient'
-import { isApiEnabled } from '../lib/api/config'
+import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
 import { blockedPropertyIdsForApplicant } from '../lib/blockedApplicants'
 import { effectiveCan, roleLabels, roleBlurbs } from '../lib/permissions'
 import {
@@ -35,6 +35,14 @@ import {
   type PropertyScope,
 } from '../lib/scope'
 import { useStore } from './AppStore'
+import {
+  appUserToDto,
+  onSupabaseAuthChange,
+  supabaseGetSessionUser,
+  supabaseSignIn,
+  supabaseSignOut,
+  supabaseSignUp,
+} from '../lib/supabase/auth'
 
 const AUTH_KEY = 'propertyflow-auth-user'
 const REAL_AUTH_KEY = 'propertyflow-auth-real-user'
@@ -112,6 +120,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false
     ;(async () => {
+      if (isSupabaseMode) {
+        const profile = await supabaseGetSessionUser()
+        if (cancelled) return
+        if (profile) {
+          setSessionUser(profile)
+          setUserId(profile.id)
+          localStorage.setItem(AUTH_KEY, profile.id)
+          syncActorFromUser(appUserToDto(profile))
+        } else {
+          setSessionUser(null)
+        }
+        setAuthReady(true)
+        return
+      }
       if (!isApiEnabled) {
         setAuthReady(true)
         return
@@ -123,7 +145,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSessionUser(appUser)
         setUserId(appUser.id)
         localStorage.setItem(AUTH_KEY, appUser.id)
-        // Clear stale demo localStorage from prior versions on first real login.
         try {
           const legacy = ['propertyflow-v15', 'propertyflow-v16']
           for (const k of legacy) localStorage.removeItem(k)
@@ -138,6 +159,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
+  }, [])
+
+  useEffect(() => {
+    if (!isSupabaseMode) return
+    const { unsubscribe } = onSupabaseAuthChange((profile) => {
+      if (profile) {
+        setSessionUser(profile)
+        setUserId(profile.id)
+        syncActorFromUser(appUserToDto(profile))
+      } else {
+        setSessionUser(null)
+        setUserId('')
+      }
+    })
+    return unsubscribe
   }, [])
 
   useEffect(() => {
@@ -177,7 +213,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [isAuthenticated, user.id, user.role, user.agencyId])
 
   useEffect(() => {
-    if (!isApiEnabled) return
+    if (!isApiEnabled && !isSupabaseMode) return
     if (!isAuthenticated || !user || user.id === 'guest') return
     void refreshBootstrap({
       userId: user.id,
@@ -225,6 +261,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isImpersonating,
       demoSwitcherEnabled: DEMO_SWITCHER,
       login: async (email, password) => {
+        if (isSupabaseMode) {
+          const appUser = await supabaseSignIn(email, password)
+          setSessionUser(appUser)
+          setUserId(appUser.id)
+          setRealUserId(null)
+          syncActorFromUser(appUserToDto(appUser))
+          void refreshBootstrap({
+            userId: appUser.id,
+            role: appUser.role,
+            agencyId: appUser.agencyId,
+          })
+          return appUser
+        }
         const res = await apiLogin({ email, password })
         const appUser = dtoToAppUser(res.user)
         setSessionUser(appUser)
@@ -239,6 +288,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return appUser
       },
       register: async (input) => {
+        if (isSupabaseMode) {
+          const res = await supabaseSignUp(input)
+          setSessionUser(res.user)
+          setUserId(res.user.id)
+          setRealUserId(null)
+          syncActorFromUser(appUserToDto(res.user))
+          void refreshBootstrap({
+            userId: res.user.id,
+            role: res.user.role,
+            agencyId: res.user.agencyId,
+          })
+          return { user: res.user, bootstrap: res.bootstrap }
+        }
         const res = await apiRegister(input)
         const appUser = dtoToAppUser(res.user)
         setSessionUser(appUser)
@@ -253,7 +315,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { user: appUser, bootstrap: Boolean(res.bootstrap) }
       },
       logout: async () => {
-        await apiLogout()
+        if (isSupabaseMode) await supabaseSignOut()
+        else await apiLogout()
         setSessionUser(null)
         setUserId('')
         setRealUserId(null)

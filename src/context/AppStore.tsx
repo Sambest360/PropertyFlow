@@ -96,7 +96,8 @@ import {
   viewingBelongsToApplication,
 } from '../lib/blockedApplicants'
 import { fetchPostgresBootstrap, type PostgresBootstrap } from '../lib/api/postgresClient'
-import { isApiEnabled } from '../lib/api/config'
+import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
+import { fetchSupabaseBootstrap } from '../lib/supabase/data'
 import { readStoredAuthUserId, type DemoActor } from '../lib/api/actorAuth'
 import {
   persistApproveApplication,
@@ -449,11 +450,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   stateRef.current = state
 
   const refreshBootstrap = useCallback(async (actor?: DemoActor | null, opts?: { full?: boolean }) => {
-    if (!isApiEnabled) return
+    if (!isApiEnabled && !isSupabaseMode) return
     const resolved =
       actor === undefined ? actorFromUsers(stateRef.current.users) : actor
-    const timeoutMs = opts?.full ? 20_000 : 10_000
-    const boot = await fetchPostgresBootstrap(timeoutMs, resolved, !opts?.full)
+    const lite = !opts?.full
+    let boot: PostgresBootstrap | null = null
+    if (isSupabaseMode) {
+      boot = await fetchSupabaseBootstrap(lite)
+    } else {
+      const timeoutMs = opts?.full ? 20_000 : 10_000
+      boot = await fetchPostgresBootstrap(timeoutMs, resolved, lite)
+    }
     if (!boot) return
     setState((prev) => applyPostgresBootstrap(prev, boot))
     try {
@@ -461,7 +468,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     } catch {
       /* ignore */
     }
-    if (!opts?.full) {
+    if (!opts?.full && isSupabaseMode) {
+      void fetchSupabaseBootstrap(false).then((full) => {
+        if (!full) return
+        setState((prev) => applyPostgresBootstrap(prev, full))
+      })
+    } else if (!opts?.full && isApiEnabled) {
       void fetchPostgresBootstrap(25_000, resolved, false).then((full) => {
         if (!full) return
         setState((prev) => applyPostgresBootstrap(prev, full))
@@ -470,11 +482,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    if (!isApiEnabled) return
+    if (!isApiEnabled && !isSupabaseMode) return
     let cancelled = false
     ;(async () => {
       const actor = actorFromUsers(stateRef.current.users)
-      const boot = await fetchPostgresBootstrap(10_000, actor, true)
+      const boot = isSupabaseMode
+        ? await fetchSupabaseBootstrap(true)
+        : await fetchPostgresBootstrap(10_000, actor, true)
       if (cancelled || !boot) return
       setState((prev) => applyPostgresBootstrap(prev, boot))
       try {
@@ -483,7 +497,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         /* ignore */
       }
       console.info(
-        '[AppStore] hydrated from Postgres API',
+        '[AppStore] hydrated from Postgres',
         boot.fetchedAt,
         boot.scoped ? `(scoped ${boot.actor?.userId})` : '(full/agency)',
       )
@@ -672,8 +686,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       setState(defaultState())
       setToasts([])
       const actor = actorFromUsers(defaultState().users)
-      if (!isApiEnabled) return
-      void fetchPostgresBootstrap(undefined, actor).then((boot) => {
+      if (!isApiEnabled && !isSupabaseMode) return
+      const load = isSupabaseMode
+        ? fetchSupabaseBootstrap(false)
+        : fetchPostgresBootstrap(undefined, actor)
+      void load.then((boot) => {
         if (!boot) return
         setState((prev) => applyPostgresBootstrap(prev, boot))
         localStorage.setItem(PG_HYDRATED_FLAG, 'postgres')

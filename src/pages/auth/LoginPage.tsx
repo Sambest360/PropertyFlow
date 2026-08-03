@@ -5,6 +5,8 @@ import { PasswordField } from '../../components/auth/PasswordField'
 import { Button, Input } from '../../components/ui'
 import { useAuth } from '../../context/AuthContext'
 import { apiAuthBootstrapNeeded } from '../../lib/api/authClient'
+import { supabaseBootstrapNeeded } from '../../lib/supabase/auth'
+import { isSupabaseMode } from '../../lib/api/config'
 
 export default function LoginPage() {
   const { login, isAuthenticated, authReady } = useAuth()
@@ -20,7 +22,7 @@ export default function LoginPage() {
   const [bootstrapNeeded, setBootstrapNeeded] = useState(false)
 
   useEffect(() => {
-    void apiAuthBootstrapNeeded().then(setBootstrapNeeded)
+    void (isSupabaseMode ? supabaseBootstrapNeeded() : apiAuthBootstrapNeeded()).then(setBootstrapNeeded)
   }, [])
 
   if (authReady && isAuthenticated) {

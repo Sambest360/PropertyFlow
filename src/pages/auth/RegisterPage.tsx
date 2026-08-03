@@ -7,6 +7,8 @@ import { PasswordField } from '../../components/auth/PasswordField'
 import { Button, Input, cn } from '../../components/ui'
 import { useAuth } from '../../context/AuthContext'
 import { apiAuthBootstrapNeeded } from '../../lib/api/authClient'
+import { supabaseBootstrapNeeded } from '../../lib/supabase/auth'
+import { isSupabaseMode } from '../../lib/api/config'
 import {
   CONTRACTOR_REQUIRED_DOCS,
   CONTRACTOR_TRADES,
@@ -114,7 +116,7 @@ export default function RegisterPage() {
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    void apiAuthBootstrapNeeded().then(setBootstrapNeeded)
+    void (isSupabaseMode ? supabaseBootstrapNeeded() : apiAuthBootstrapNeeded()).then(setBootstrapNeeded)
   }, [])
 
   const documents = useMemo(() => Object.values(docsByKey), [docsByKey])
