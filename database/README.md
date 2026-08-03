@@ -71,7 +71,7 @@ Vite proxies `/api` → `:8787`. AppStore merges bootstrap entities into state w
    - `AUTH_SECRET` — long random string
    - `NODEJS_HELPERS=0` — on Vercel (Hono POST body compatibility)
    - Optional: `CORS_ORIGINS`, `DATABASE_SSL=1`
-5. Deploy: Vite SPA + `api/[[...route]].ts` (Hono via `hono/vercel`). `vercel.json` SPA rewrite excludes `/api/`.
+5. Deploy: Vite SPA + `api/index.ts` (Hono via `hono/vercel`). `vercel.json` rewrites `/api/*` to the function and SPA routes to `/index.html`.
 6. Verify:
 
 ```bash
