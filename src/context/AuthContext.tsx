@@ -231,7 +231,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUserId(appUser.id)
         setRealUserId(null)
         syncActorFromUser(res.user)
-        await refreshBootstrap({
+        void refreshBootstrap({
           userId: appUser.id,
           role: appUser.role,
           agencyId: appUser.agencyId,
@@ -245,7 +245,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUserId(appUser.id)
         setRealUserId(null)
         syncActorFromUser(res.user)
-        await refreshBootstrap({
+        void refreshBootstrap({
           userId: appUser.id,
           role: appUser.role,
           agencyId: appUser.agencyId,

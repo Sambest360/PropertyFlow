@@ -158,6 +158,15 @@ app.get('/api/auth/bootstrap-needed', async (c) => {
 })
 
 app.post('/api/auth/register', async (c) => {
+  if (!databaseConfigured) {
+    return c.json(
+      {
+        error: 'database_unconfigured',
+        message: databaseConfigError || 'DATABASE_URL is not set',
+      },
+      503,
+    )
+  }
   try {
     const body = (await c.req.json()) as {
       email?: string
@@ -230,6 +239,15 @@ app.patch('/api/admin/users/:userId/verification', async (c) => {
 })
 
 app.post('/api/auth/login', async (c) => {
+  if (!databaseConfigured) {
+    return c.json(
+      {
+        error: 'database_unconfigured',
+        message: databaseConfigError || 'DATABASE_URL is not set',
+      },
+      503,
+    )
+  }
   try {
     const body = (await c.req.json()) as { email?: string; password?: string }
     const user = await loginUser(String(body.email ?? ''), String(body.password ?? ''))
@@ -268,9 +286,12 @@ app.get('/api/bootstrap', async (c) => {
     )
   }
   try {
-    await ensureEntityMapTable()
-    const rowLimit = Math.min(Math.max(Number(c.req.query('limit') || 250), 1), 500)
+    const lite = c.req.query('lite') === '1' || c.req.query('lite') === 'true'
+    const rowLimit = lite
+      ? 60
+      : Math.min(Math.max(Number(c.req.query('limit') || 250), 1), 500)
     const data = await buildBootstrap({
+      lite,
       limits: {
         units: rowLimit,
         messages: rowLimit,
@@ -543,19 +564,6 @@ app.post('/api/notifications/mark-read', async (c) => {
     return c.json({ error: 'mark_read_failed', message }, errStatus(err))
   }
 })
-
-void (async () => {
-  if (!databaseConfigured) {
-    console.warn('[propertyflow-api]', databaseConfigError || 'DATABASE_URL not configured')
-    return
-  }
-  try {
-    await ensureEntityMapTable()
-    console.log('[propertyflow-api] entity_id_map ready')
-  } catch (err) {
-    console.warn('[propertyflow-api] entity_id_map init failed', err)
-  }
-})()
 
 const shouldListen =
   !process.env.VERCEL && process.env.PF_SKIP_SERVE !== '1'

@@ -137,10 +137,13 @@ const STATIC_UUID_TO_FE: Partial<Record<EntityType, Record<string, string>>> = {
 }
 
 let ensured = false
+let ensuring: Promise<void> | null = null
 
 export async function ensureEntityMapTable(): Promise<void> {
   if (ensured) return
-  await query(`
+  if (ensuring) return ensuring
+  ensuring = (async () => {
+    await query(`
     CREATE TABLE IF NOT EXISTS entity_id_map (
       entity_type   VARCHAR(40) NOT NULL,
       frontend_id   VARCHAR(120) NOT NULL,
@@ -192,6 +195,12 @@ export async function ensureEntityMapTable(): Promise<void> {
     }
   }
   ensured = true
+  })()
+  try {
+    await ensuring
+  } finally {
+    ensuring = null
+  }
 }
 
 export async function resolveUuid(

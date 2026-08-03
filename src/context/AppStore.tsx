@@ -448,17 +448,24 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const stateRef = useRef(state)
   stateRef.current = state
 
-  const refreshBootstrap = useCallback(async (actor?: DemoActor | null) => {
+  const refreshBootstrap = useCallback(async (actor?: DemoActor | null, opts?: { full?: boolean }) => {
     if (!isApiEnabled) return
     const resolved =
       actor === undefined ? actorFromUsers(stateRef.current.users) : actor
-    const boot = await fetchPostgresBootstrap(undefined, resolved)
+    const timeoutMs = opts?.full ? 20_000 : 10_000
+    const boot = await fetchPostgresBootstrap(timeoutMs, resolved, !opts?.full)
     if (!boot) return
     setState((prev) => applyPostgresBootstrap(prev, boot))
     try {
       localStorage.setItem(PG_HYDRATED_FLAG, 'postgres')
     } catch {
       /* ignore */
+    }
+    if (!opts?.full) {
+      void fetchPostgresBootstrap(25_000, resolved, false).then((full) => {
+        if (!full) return
+        setState((prev) => applyPostgresBootstrap(prev, full))
+      })
     }
   }, [])
 
@@ -467,7 +474,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     let cancelled = false
     ;(async () => {
       const actor = actorFromUsers(stateRef.current.users)
-      const boot = await fetchPostgresBootstrap(undefined, actor)
+      const boot = await fetchPostgresBootstrap(10_000, actor, true)
       if (cancelled || !boot) return
       setState((prev) => applyPostgresBootstrap(prev, boot))
       try {

@@ -56,6 +56,7 @@ export async function fetchApiHealth(timeoutMs = 800): Promise<boolean> {
 export async function fetchPostgresBootstrap(
   timeoutMs = 2500,
   actor?: DemoActor | null,
+  lite = true,
 ): Promise<PostgresBootstrap | null> {
   if (!isApiEnabled) return null
   const healthy = await fetchApiHealth(Math.min(800, timeoutMs))
@@ -64,7 +65,10 @@ export async function fetchPostgresBootstrap(
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
-    const res = await fetch(`${API_BASE}/api/bootstrap`, {
+    const params = new URLSearchParams()
+    if (lite) params.set('lite', '1')
+    const qs = params.toString()
+    const res = await fetch(`${API_BASE}/api/bootstrap${qs ? `?${qs}` : ''}`, {
       signal: ctrl.signal,
       headers: { ...actorHeaders(actor), ...authHeaders() },
       credentials: 'include',

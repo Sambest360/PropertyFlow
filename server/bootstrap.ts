@@ -178,8 +178,22 @@ const DEFAULT_BOOTSTRAP_LIMITS: Required<BootstrapLimits> = {
   documents: 200,
 }
 
-export async function buildBootstrap(opts?: { limits?: BootstrapLimits }) {
-  const limits = { ...DEFAULT_BOOTSTRAP_LIMITS, ...opts?.limits }
+const LITE_BOOTSTRAP_LIMITS: Required<BootstrapLimits> = {
+  units: 60,
+  messages: 80,
+  notifications: 80,
+  leads: 80,
+  applications: 80,
+  tickets: 80,
+  payments: 80,
+  documents: 80,
+}
+
+export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: boolean }) {
+  const lite = Boolean(opts?.lite)
+  const baseLimits = lite ? LITE_BOOTSTRAP_LIMITS : DEFAULT_BOOTSTRAP_LIMITS
+  const limits = { ...baseLimits, ...opts?.limits }
+  const skipHeavy = lite
   const [
     clients,
     users,
@@ -278,32 +292,59 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits }) {
           created_at: Date
         }>('SELECT * FROM units ORDER BY created_at DESC LIMIT $1', [limits.units]),
       () =>
-        query<{
-          id: string
-          unit_id: string
-          client_id: string
-          name: string
-          room_kind: string
-          beds: number
-          baths: string | null
-          area_sqm: string | null
-          layout_x: number | null
-          layout_y: number | null
-          layout_w: number | null
-          layout_h: number | null
-        }>('SELECT * FROM rooms'),
+        skipHeavy
+          ? Promise.resolve([] as Array<{
+              id: string
+              unit_id: string
+              client_id: string
+              name: string
+              room_kind: string
+              beds: number
+              baths: string | null
+              area_sqm: string | null
+              layout_x: number | null
+              layout_y: number | null
+              layout_w: number | null
+              layout_h: number | null
+            }>)
+          : query<{
+              id: string
+              unit_id: string
+              client_id: string
+              name: string
+              room_kind: string
+              beds: number
+              baths: string | null
+              area_sqm: string | null
+              layout_x: number | null
+              layout_y: number | null
+              layout_w: number | null
+              layout_h: number | null
+            }>('SELECT * FROM rooms'),
       () =>
-        query<{
-          id: string
-          room_id: string | null
-          unit_id: string
-          client_id: string
-          item_name: string
-          serial_number: string | null
-          asset_type_key: string
-          condition_status: string
-          brand: string | null
-        }>('SELECT * FROM internal_assets'),
+        skipHeavy
+          ? Promise.resolve([] as Array<{
+              id: string
+              room_id: string | null
+              unit_id: string
+              client_id: string
+              item_name: string
+              serial_number: string | null
+              asset_type_key: string
+              condition_status: string
+              brand: string | null
+            }>)
+          : query<{
+              id: string
+              room_id: string | null
+              unit_id: string
+              client_id: string
+              item_name: string
+              serial_number: string | null
+              asset_type_key: string
+              condition_status: string
+              brand: string | null
+            }>('SELECT * FROM internal_assets'),
       () => query('SELECT * FROM leads ORDER BY created_at DESC LIMIT $1', [limits.leads]),
       () =>
         query('SELECT * FROM applications ORDER BY submitted_at NULLS LAST LIMIT $1', [
@@ -320,24 +361,36 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits }) {
       () => query('SELECT * FROM maintenance_tickets ORDER BY created_at DESC LIMIT $1', [
         limits.tickets,
       ]),
-      () => query('SELECT * FROM message_threads ORDER BY updated_at DESC'),
+      () => query('SELECT * FROM message_threads ORDER BY updated_at DESC LIMIT $1', [
+        skipHeavy ? 80 : 500,
+      ]),
       () => query('SELECT * FROM messages ORDER BY created_at DESC LIMIT $1', [limits.messages]),
       () =>
         query('SELECT * FROM notifications ORDER BY created_at DESC LIMIT $1', [
           limits.notifications,
         ]),
-      () => query('SELECT * FROM suite_alerts ORDER BY created_at'),
       () =>
-        query(
-          `SELECT * FROM event_log WHERE event_type = 'activity' ORDER BY created_at DESC LIMIT 200`,
-        ),
+        skipHeavy
+          ? Promise.resolve([] as Array<Record<string, unknown>>)
+          : query('SELECT * FROM suite_alerts ORDER BY created_at'),
       () =>
-        query(
-          `SELECT * FROM event_log WHERE event_type = 'property_event' ORDER BY created_at DESC LIMIT 400`,
-        ),
-      () => query('SELECT * FROM invoices ORDER BY created_at DESC'),
+        skipHeavy
+          ? Promise.resolve([] as Array<Record<string, unknown>>)
+          : query(
+              `SELECT * FROM event_log WHERE event_type = 'activity' ORDER BY created_at DESC LIMIT 200`,
+            ),
+      () =>
+        skipHeavy
+          ? Promise.resolve([] as Array<Record<string, unknown>>)
+          : query(
+              `SELECT * FROM event_log WHERE event_type = 'property_event' ORDER BY created_at DESC LIMIT 400`,
+            ),
+      () =>
+        skipHeavy
+          ? Promise.resolve([] as Array<Record<string, unknown>>)
+          : query('SELECT * FROM invoices ORDER BY created_at DESC'),
     ] as const,
-    8,
+    process.env.VERCEL ? 3 : 8,
     (load) => load(),
   )
 

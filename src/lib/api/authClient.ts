@@ -69,6 +69,27 @@ async function parseJson<T>(res: Response): Promise<T> {
   return data
 }
 
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs = 15000,
+): Promise<Response> {
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal })
+  } catch (err) {
+    if (ctrl.signal.aborted) {
+      throw new Error(
+        'Request timed out. If this is production, confirm DATABASE_URL is set on Vercel and redeploy.',
+      )
+    }
+    throw err
+  } finally {
+    clearTimeout(t)
+  }
+}
+
 export async function apiRegister(input: {
   email: string
   password: string
@@ -81,7 +102,7 @@ export async function apiRegister(input: {
   profile?: VerificationProfile
   documents?: VerificationDocument[]
 }): Promise<AuthResponse> {
-  const res = await fetch(`${API_BASE}/api/auth/register`, {
+  const res = await fetchWithTimeout(`${API_BASE}/api/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
@@ -128,7 +149,7 @@ export async function apiLogin(input: {
   email: string
   password: string
 }): Promise<AuthResponse> {
-  const res = await fetch(`${API_BASE}/api/auth/login`, {
+  const res = await fetchWithTimeout(`${API_BASE}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
