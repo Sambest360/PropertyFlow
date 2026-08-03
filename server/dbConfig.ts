@@ -29,6 +29,10 @@ export function connectionStringForPool(url: string, remote: boolean): string {
     if (!u.searchParams.has('connect_timeout')) {
       u.searchParams.set('connect_timeout', '5')
     }
+    // Transaction pooler (6543) — required for serverless; tells drivers not to use prepared statements.
+    if (u.port === '6543' && !u.searchParams.has('pgbouncer')) {
+      u.searchParams.set('pgbouncer', 'true')
+    }
     return u.toString()
   } catch {
     return url

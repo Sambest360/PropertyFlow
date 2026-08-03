@@ -1,12 +1,10 @@
 /**
- * Vercel serverless gateway — responds instantly for health checks, lazy-loads
- * the full Hono app on first auth/data request (avoids 30s cold-start timeouts).
+ * Vercel catch-all for /api/* (except dedicated files like api/health.ts).
+ * Lazy-loads the Hono app so auth routes don't pay bootstrap import cost up front.
  */
-import { handle } from 'hono/vercel'
 import { Hono } from 'hono'
+import { handle } from 'hono/vercel'
 import type { Hono as HonoApp } from 'hono'
-
-const gateway = new Hono()
 
 let mainApp: HonoApp | null = null
 let mainLoading: Promise<HonoApp> | null = null
@@ -20,18 +18,7 @@ async function getMainApp(): Promise<HonoApp> {
   return mainLoading
 }
 
-gateway.get('/api/health', async (c) => {
-  if (c.req.query('db') === '0') {
-    const configured = Boolean(process.env.DATABASE_URL?.trim())
-    return c.json({
-      ok: configured,
-      database: configured ? 'configured' : 'unconfigured',
-      at: new Date().toISOString(),
-    }, configured ? 200 : 503)
-  }
-  const app = await getMainApp()
-  return app.fetch(c.req.raw)
-})
+const gateway = new Hono()
 
 gateway.all('*', async (c) => {
   const app = await getMainApp()
@@ -42,4 +29,5 @@ export default handle(gateway)
 
 export const config = {
   runtime: 'nodejs',
+  maxDuration: 30,
 }

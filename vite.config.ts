@@ -4,7 +4,8 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  const apiEnabled = env.VITE_ENABLE_API === '1' || env.VITE_ENABLE_API === 'true'
+  const apiEnabled = env.VITE_ENABLE_API === '1' || env.VITE_ENABLE_API === 'true' ||
+    (mode === 'production' && env.VITE_ENABLE_API !== '0')
 
   return {
     plugins: [react(), tailwindcss()],
