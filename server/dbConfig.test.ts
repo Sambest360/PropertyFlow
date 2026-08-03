@@ -50,6 +50,7 @@ describe('connectionStringForPool', () => {
     const parsed = new URL(out)
     expect(parsed.searchParams.get('sslmode')).toBe('require')
     expect(parsed.searchParams.get('uselibpqcompat')).toBe('true')
+    expect(parsed.searchParams.get('connect_timeout')).toBe('5')
   })
 
   it('returns the raw string when URL parsing fails', () => {

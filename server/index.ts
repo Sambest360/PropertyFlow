@@ -1,11 +1,14 @@
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
-import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { buildBootstrap } from './bootstrap.js'
-import { databaseConfigError, databaseConfigured, pool, query } from './db.js'
-import { ensureEntityMapTable } from './entityMap.js'
-import { fetchUnitsPage } from './unitsFeed.js'
+import {
+  databaseConfigError,
+  databaseConfigWarning,
+  databaseConfigured,
+  pingDatabase,
+  pool,
+  query,
+} from './db.js'
 import {
   actorRequiredError,
   parseDemoActor,
@@ -26,17 +29,30 @@ import {
 } from './auth.js'
 import {
   assertPersistAllowed,
-  buildActorPropertyScope,
   enrichActor,
-  filterBootstrapForActor,
 } from './scopeGate.js'
-import {
-  approveApplicationTx,
-  handlePersist,
-  markNotificationsRead,
-  type PersistBody,
-} from './writes.js'
 import { supabaseSessionMiddleware } from './supabase/middleware.js'
+import type { PersistBody } from './writes.js'
+
+function productionAuthSecretMissing(): boolean {
+  return process.env.NODE_ENV === 'production' && !process.env.AUTH_SECRET?.trim()
+}
+
+async function loadBootstrapModule() {
+  return import('./bootstrap.js')
+}
+
+async function loadScopeGateModule() {
+  return import('./scopeGate.js')
+}
+
+async function loadWritesModule() {
+  return import('./writes.js')
+}
+
+async function loadUnitsFeedModule() {
+  return import('./unitsFeed.js')
+}
 
 const app = new Hono()
 const PORT = Number(process.env.API_PORT || 8787)
@@ -121,11 +137,22 @@ app.get('/api/health', async (c) => {
       503,
     )
   }
+  const skipDb = c.req.query('db') === '0'
+  if (skipDb) {
+    return c.json({
+      ok: true,
+      database: 'configured',
+      warning: databaseConfigWarning,
+      pool: Boolean(pool),
+      at: new Date().toISOString(),
+    })
+  }
   try {
-    await query('SELECT 1 AS ok')
+    await pingDatabase(4_000)
     return c.json({
       ok: true,
       database: 'up',
+      warning: databaseConfigWarning,
       pool: Boolean(pool),
       at: new Date().toISOString(),
     })
@@ -136,6 +163,7 @@ app.get('/api/health', async (c) => {
         ok: false,
         database: 'down',
         error: message,
+        warning: databaseConfigWarning,
         hint: 'Use the Supabase Transaction pooler URI (port 6543) and redeploy after setting DATABASE_URL.',
         at: new Date().toISOString(),
       },
@@ -163,6 +191,15 @@ app.post('/api/auth/register', async (c) => {
       {
         error: 'database_unconfigured',
         message: databaseConfigError || 'DATABASE_URL is not set',
+      },
+      503,
+    )
+  }
+  if (productionAuthSecretMissing()) {
+    return c.json(
+      {
+        error: 'auth_secret_missing',
+        message: 'Set AUTH_SECRET in Vercel environment variables, then redeploy.',
       },
       503,
     )
@@ -248,6 +285,15 @@ app.post('/api/auth/login', async (c) => {
       503,
     )
   }
+  if (productionAuthSecretMissing()) {
+    return c.json(
+      {
+        error: 'auth_secret_missing',
+        message: 'Set AUTH_SECRET in Vercel environment variables, then redeploy.',
+      },
+      503,
+    )
+  }
   try {
     const body = (await c.req.json()) as { email?: string; password?: string }
     const user = await loginUser(String(body.email ?? ''), String(body.password ?? ''))
@@ -290,6 +336,7 @@ app.get('/api/bootstrap', async (c) => {
     const rowLimit = lite
       ? 60
       : Math.min(Math.max(Number(c.req.query('limit') || 250), 1), 500)
+    const { buildBootstrap } = await loadBootstrapModule()
     const data = await buildBootstrap({
       lite,
       limits: {
@@ -308,6 +355,7 @@ app.get('/api/bootstrap', async (c) => {
       return c.json({ ...data, scoped: false, actor: null })
     }
     const actor = await enrichActor(rawActor)
+    const { buildActorPropertyScope, filterBootstrapForActor } = await loadScopeGateModule()
     const scope = await buildActorPropertyScope(actor)
     const filtered = filterBootstrapForActor(
       data as Parameters<typeof filterBootstrapForActor>[0],
@@ -336,6 +384,7 @@ app.get('/api/v1/units', async (c) => {
     const limit = Math.min(Math.max(Number(c.req.query('limit') || 24), 1), 100)
     const cursor = c.req.query('cursor') ?? null
     const clientId = c.req.query('client_id') ?? null
+    const { fetchUnitsPage } = await loadUnitsFeedModule()
     const page = await fetchUnitsPage({ limit, cursor, clientId })
     return c.json({
       items: page.items,
@@ -382,6 +431,7 @@ app.post('/api/persist', async (c) => {
   try {
     const body = (await c.req.json()) as PersistBody
     await requireActorAndGate(c, body)
+    const { handlePersist } = await loadWritesModule()
     const result = await handlePersist(body)
     return c.json(result)
   } catch (err) {
@@ -396,6 +446,7 @@ app.post('/api/persist/batch', async (c) => {
   try {
     const body = (await c.req.json()) as { ops?: PersistBody[] }
     const ops = Array.isArray(body.ops) ? body.ops : []
+    const { handlePersist } = await loadWritesModule()
     const results = []
     for (const op of ops) {
       await requireActorAndGate(c, op)
@@ -472,7 +523,8 @@ for (const plural of restResources) {
       if (!id) return c.json({ error: 'id_required' }, 400)
       const body: PersistBody = { resource, action: 'upsert', id, data }
       await requireActorAndGate(c, body)
-      const result = await handlePersist(body)
+      const { handlePersist } = await loadWritesModule()
+    const result = await handlePersist(body)
       return c.json(result, 201)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -491,7 +543,8 @@ for (const plural of restResources) {
         data: { ...data, id },
       }
       await requireActorAndGate(c, body)
-      const result = await handlePersist(body)
+      const { handlePersist } = await loadWritesModule()
+    const result = await handlePersist(body)
       return c.json(result)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -504,7 +557,8 @@ for (const plural of restResources) {
       const id = c.req.param('id')
       const body: PersistBody = { resource, action: 'delete', id }
       await requireActorAndGate(c, body)
-      const result = await handlePersist(body)
+      const { handlePersist } = await loadWritesModule()
+    const result = await handlePersist(body)
       return c.json(result)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -526,6 +580,7 @@ app.post('/api/applications/:id/approve', async (c) => {
       id: applicationId,
       data: { id: applicationId, stage: 'Approved' },
     })
+    const { approveApplicationTx } = await loadWritesModule()
     const result = await approveApplicationTx({
       applicationId,
       actorUserId: body.actorUserId,
@@ -557,6 +612,7 @@ app.post('/api/notifications/mark-read', async (c) => {
     ) {
       return c.json({ error: 'forbidden', message: 'Cannot mark another user notifications' }, 403)
     }
+    const { markNotificationsRead } = await loadWritesModule()
     const result = await markNotificationsRead(body)
     return c.json({ ok: true, ...result })
   } catch (err) {
@@ -569,9 +625,11 @@ const shouldListen =
   !process.env.VERCEL && process.env.PF_SKIP_SERVE !== '1'
 
 if (shouldListen) {
-  console.log(`[propertyflow-api] listening on http://127.0.0.1:${PORT}`)
-  console.log(`[propertyflow-api] DATABASE_URL host from env or default local trust auth`)
-  serve({ fetch: app.fetch, port: PORT, hostname: '127.0.0.1' })
+  void import('@hono/node-server').then(({ serve }) => {
+    console.log(`[propertyflow-api] listening on http://127.0.0.1:${PORT}`)
+    console.log(`[propertyflow-api] DATABASE_URL host from env or default local trust auth`)
+    serve({ fetch: app.fetch, port: PORT, hostname: '127.0.0.1' })
+  })
 
   process.on('SIGINT', async () => {
     await pool?.end()

@@ -4,6 +4,7 @@ import pg from 'pg'
 import {
   connectionStringForPool,
   connectionTimeoutMsForRuntime,
+  databaseUrlRuntimeWarning,
   isRemoteDatabaseUrl,
   poolMaxForRuntime,
   resolveDatabaseUrl,
@@ -26,6 +27,10 @@ const resolved = resolveDatabaseUrl({
 
 export const databaseConfigured = resolved.configured
 export const databaseConfigError = resolved.error
+export const databaseConfigWarning =
+  resolved.configured && (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME)
+    ? databaseUrlRuntimeWarning(resolved.url)
+    : undefined
 
 const isRemote = resolved.configured && isRemoteDatabaseUrl(resolved.url)
 const DATABASE_URL = resolved.configured
@@ -71,6 +76,16 @@ export async function query<T extends pg.QueryResultRow = pg.QueryResultRow>(
 ): Promise<T[]> {
   const result = await requirePool().query<T>(text, params)
   return result.rows
+}
+
+/** Fail fast when Postgres is slow or unreachable (serverless cold starts). */
+export async function pingDatabase(timeoutMs = 4_000): Promise<void> {
+  await Promise.race([
+    query('SELECT 1 AS ok'),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('database ping timed out')), timeoutMs),
+    ),
+  ])
 }
 
 export async function withTransaction<T>(

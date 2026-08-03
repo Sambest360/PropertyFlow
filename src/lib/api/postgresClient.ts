@@ -42,7 +42,7 @@ export async function fetchApiHealth(timeoutMs = 800): Promise<boolean> {
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
-    const res = await fetch(`${API_BASE}/api/health`, { signal: ctrl.signal })
+    const res = await fetch(`${API_BASE}/api/health?db=0`, { signal: ctrl.signal })
     if (!res.ok) return false
     const json = (await res.json()) as { ok?: boolean }
     return Boolean(json.ok)

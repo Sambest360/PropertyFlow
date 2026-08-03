@@ -26,10 +26,26 @@ export function connectionStringForPool(url: string, remote: boolean): string {
     u.searchParams.delete('sslmode')
     u.searchParams.set('sslmode', 'require')
     u.searchParams.set('uselibpqcompat', 'true')
+    if (!u.searchParams.has('connect_timeout')) {
+      u.searchParams.set('connect_timeout', '5')
+    }
     return u.toString()
   } catch {
     return url
   }
+}
+
+/** Transaction pooler (6543) is required for Vercel/serverless runtime. */
+export function databaseUrlRuntimeWarning(url: string): string | undefined {
+  try {
+    const port = new URL(url).port
+    if (port === '5432') {
+      return 'DATABASE_URL uses port 5432 (session/direct). On Vercel use the Transaction pooler on port 6543.'
+    }
+  } catch {
+    /* ignore */
+  }
+  return undefined
 }
 
 /** Serverless (Vercel / Lambda) should use a tiny pool; local Node can use more. */
