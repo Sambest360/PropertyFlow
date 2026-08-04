@@ -1,12 +1,14 @@
-import { useId, useRef, useState } from 'react'
+import { useId, useRef } from 'react'
 import { FileText, Upload, X } from 'lucide-react'
 import type { VerificationDocument } from '../../lib/verification'
+import { REGISTRATION_DOC_MAX_BYTES } from '../../lib/auth/registrationDocs'
+import { showAuthWarning } from '../../lib/sweetAlert'
 import { cn } from '../ui'
 
 const ICON_STROKE = 1.6
 const ACCEPT =
   'image/jpeg,image/png,image/webp,application/pdf,.pdf,.jpg,.jpeg,.png,.webp'
-const MAX_BYTES = 2.5 * 1024 * 1024
+const MAX_KB = Math.round(REGISTRATION_DOC_MAX_BYTES / 1024)
 
 function readFile(file: File): Promise<{ name: string; mimeType: string; dataUrl: string }> {
   return new Promise((resolve, reject) => {
@@ -37,13 +39,11 @@ export function DocUploadSlot({
 }) {
   const inputId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
-  const [error, setError] = useState<string | null>(null)
 
   const onPick = async (file: File | null) => {
-    setError(null)
     if (!file) return
-    if (file.size > MAX_BYTES) {
-      setError('File must be under 2.5 MB')
+    if (file.size > REGISTRATION_DOC_MAX_BYTES) {
+      await showAuthWarning(`File must be under ${MAX_KB} KB. Try a smaller PDF or image.`)
       return
     }
     try {
@@ -57,7 +57,7 @@ export function DocUploadSlot({
         uploadedAt: new Date().toISOString(),
       })
     } catch {
-      setError('Could not read file')
+      await showAuthWarning('Could not read that file — try a different PDF or image.')
     }
   }
 
@@ -109,7 +109,7 @@ export function DocUploadSlot({
           )}
         >
           <Upload className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-          Upload PDF or image
+          Upload PDF or image (max {MAX_KB} KB)
         </button>
       )}
 
@@ -121,7 +121,6 @@ export function DocUploadSlot({
         className="sr-only"
         onChange={(e) => void onPick(e.target.files?.[0] ?? null)}
       />
-      {error ? <p className="mt-1.5 text-xs text-accent-700">{error}</p> : null}
     </div>
   )
 }

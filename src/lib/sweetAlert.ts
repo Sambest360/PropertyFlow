@@ -1,4 +1,5 @@
 import Swal, { type SweetAlertIcon, type SweetAlertOptions, type SweetAlertResult } from 'sweetalert2'
+import { formatAuthError } from './auth/authMessages.js'
 
 const baseOptions = {
   customClass: {
@@ -39,6 +40,17 @@ export async function sweetInfo(title: string, text?: string) {
 
 export async function sweetWarning(title: string, text?: string) {
   return fire({ icon: 'warning', title, text, confirmButtonText: 'OK' })
+}
+
+export async function showAuthError(message: string) {
+  if (!message.trim()) return
+  const { title, text } = formatAuthError(message)
+  await sweetError(title, text)
+}
+
+export async function showAuthWarning(message: string) {
+  if (!message.trim()) return
+  await sweetWarning('Check your details', message)
 }
 
 export async function sweetConfirm(

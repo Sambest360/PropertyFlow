@@ -2,7 +2,7 @@ import { createClient } from '../../utils/supabase/client'
 import { isSupabaseConfigured } from '../../utils/supabase/env'
 import { RegistrationRedirectError } from '../auth/registrationErrors'
 import type { AppUser, Role } from '../../types/domain'
-import type { UserVerification } from '../verification'
+import type { UserVerification, VerificationDocument } from '../verification'
 import { ROLE_FROM_DB } from './idMap.js'
 import type { AuthUserDto } from '../api/authClient'
 
@@ -216,12 +216,72 @@ export type SupabaseRegisterInput = {
   documents?: unknown[]
 }
 
+async function attachRegistrationDocuments(
+  authUserId: string,
+  role: string,
+  profile: Record<string, unknown> | undefined,
+  documents: VerificationDocument[],
+): Promise<AppUser | null> {
+  if (!documents.length || (role !== 'landlord' && role !== 'contractor')) {
+    return loadProfileForSession(authUserId)
+  }
+
+  const supabase = createClient()
+  const { data: row, error: readErr } = await supabase
+    .from('users')
+    .select('metadata')
+    .eq('auth_user_id', authUserId)
+    .maybeSingle()
+
+  if (readErr || !row) return loadProfileForSession(authUserId)
+
+  const meta = (row.metadata as Record<string, unknown> | null) ?? {}
+  const nextMeta: Record<string, unknown> = {
+    ...meta,
+    verification: {
+      status: 'pending',
+      submittedAt: new Date().toISOString(),
+      profile: profile ?? {},
+      documents,
+    },
+  }
+  if (typeof profile?.company === 'string' && profile.company.trim()) {
+    nextMeta.company = profile.company.trim()
+  }
+  if (typeof profile?.idNumberOrPassport === 'string' && profile.idNumberOrPassport.trim()) {
+    nextMeta.idNumberOrPassport = profile.idNumberOrPassport.trim()
+  }
+
+  const { error: updateErr } = await supabase
+    .from('users')
+    .update({ metadata: nextMeta, updated_at: new Date().toISOString() })
+    .eq('auth_user_id', authUserId)
+
+  if (updateErr) throw new Error(updateErr.message)
+  return loadProfileForSession(authUserId)
+}
+
+export async function supabaseAttachPendingRegistrationDocs(input: {
+  authUserId: string
+  role: string
+  profile?: Record<string, unknown>
+  documents: VerificationDocument[]
+}): Promise<AppUser | null> {
+  return attachRegistrationDocuments(
+    input.authUserId,
+    input.role,
+    input.profile,
+    input.documents,
+  )
+}
+
 export async function supabaseSignUp(
   input: SupabaseRegisterInput,
 ): Promise<{ user: AppUser; bootstrap: boolean }> {
   const bootstrap = await supabaseBootstrapNeeded()
   const supabase = createClient()
   const role = bootstrap ? 'super_admin' : input.role ?? 'tenant'
+  const documents = (input.documents ?? []) as VerificationDocument[]
 
   const { data, error } = await supabase.auth.signUp({
     email: input.email.trim(),
@@ -233,7 +293,6 @@ export async function supabaseSignUp(
         phone: input.phone?.trim() ?? '',
         role,
         profile: input.profile ?? {},
-        documents: input.documents ?? [],
       },
     },
   })
@@ -254,6 +313,12 @@ export async function supabaseSignUp(
     profile = await loadProfileForSession(authUserId)
   }
   if (!profile) throw new Error('Account created but profile sync failed — try signing in')
+
+  if (documents.length > 0) {
+    profile =
+      (await attachRegistrationDocuments(authUserId, role, input.profile, documents)) ?? profile
+  }
+
   return { user: profile, bootstrap }
 }
 

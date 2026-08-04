@@ -1,7 +1,7 @@
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Building2, Check, HardHat, Home } from 'lucide-react'
-import { AuthError, AuthField, AuthShell } from '../../components/auth/AuthShell'
+import { AuthField, AuthShell } from '../../components/auth/AuthShell'
 import { DocUploadSlot } from '../../components/auth/DocUploadSlot'
 import { PasswordField } from '../../components/auth/PasswordField'
 import { Button, Input, cn } from '../../components/ui'
@@ -11,7 +11,13 @@ import { supabaseBootstrapNeeded, supabaseSignOut } from '../../lib/supabase/aut
 import { isSupabaseMode } from '../../lib/api/config'
 import { isRegistrationRedirectError } from '../../lib/auth/registrationErrors'
 import {
+  stashPendingRegistrationDocs,
+  validateRegistrationDocSizes,
+} from '../../lib/auth/registrationDocs'
+import {
   redirectToLogin,
+  showAuthError,
+  showAuthWarning,
   showRegistrationCompleteAlert,
 } from '../../lib/sweetAlert'
 import {
@@ -117,7 +123,6 @@ export default function RegisterPage() {
   const [docsByKey, setDocsByKey] = useState<Record<string, VerificationDocument>>({})
 
   const [bootstrapNeeded, setBootstrapNeeded] = useState(false)
-  const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -157,6 +162,28 @@ export default function RegisterPage() {
     return custom ? [...preset, custom] : preset
   }
 
+  const buildProfile = () =>
+    role === 'landlord'
+      ? {
+          company: company.trim() || undefined,
+          idNumberOrPassport: idNumber.trim(),
+        }
+      : role === 'contractor'
+        ? {
+            company: company.trim(),
+            idNumberOrPassport: idNumber.trim(),
+            trades: resolveContractorTrades(),
+            serviceAreas: [serviceAddress.trim()],
+            taxNumberOrTcsPin: taxPin.trim() || undefined,
+          }
+        : undefined
+
+  const warnValidation = async (message: string | null) => {
+    if (!message) return false
+    await showAuthWarning(message)
+    return true
+  }
+
   const validateStep1 = (): string | null => {
     if (!firstName.trim() || !lastName.trim()) return 'First name and surname are required'
     if (!email.trim() || !email.includes('@')) return 'Valid email is required'
@@ -177,17 +204,15 @@ export default function RegisterPage() {
     }
     const missing = missingRequiredDocs(role, documents)
     if (missing.length) return `Upload required documents: ${missing.join(', ')}`
+    if (isSupabaseMode && (role === 'landlord' || role === 'contractor')) {
+      return validateRegistrationDocSizes(documents)
+    }
     return null
   }
 
-  const goNext = () => {
-    setError('')
+  const goNext = async () => {
     if (step === 1) {
-      const err = validateStep1()
-      if (err) {
-        setError(err)
-        return
-      }
+      if (await warnValidation(validateStep1())) return
       if (bootstrapNeeded) {
         void submitBootstrap()
         return
@@ -202,7 +227,6 @@ export default function RegisterPage() {
   }
 
   const goBack = () => {
-    setError('')
     setStep((s) => Math.max(1, s - 1))
   }
 
@@ -211,6 +235,14 @@ export default function RegisterPage() {
     try {
       if (isSupabaseMode) await supabaseSignOut()
       sessionStorage.setItem('pf-register-email', err.email)
+      if (role !== 'tenant' && documents.length > 0) {
+        stashPendingRegistrationDocs({
+          email: err.email,
+          role,
+          profile: buildProfile(),
+          documents,
+        })
+      }
     } catch {
       /* ignore */
     }
@@ -236,7 +268,7 @@ export default function RegisterPage() {
       navigate(postRegisterPath('super_admin', result.bootstrap, next), { replace: true })
     } catch (err) {
       if (await handleRegistrationRedirect(err)) return
-      setError(err instanceof Error ? err.message : 'Registration failed')
+      await showAuthError(err instanceof Error ? err.message : 'Registration failed')
     } finally {
       setBusy(false)
     }
@@ -244,42 +276,19 @@ export default function RegisterPage() {
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault()
-    setError('')
     if (bootstrapNeeded) {
-      const err = validateStep1()
-      if (err) {
-        setError(err)
-        return
-      }
+      if (await warnValidation(validateStep1())) return
       await submitBootstrap()
       return
     }
     if (step < 3) {
-      goNext()
+      await goNext()
       return
     }
-    const err = validateStep3()
-    if (err) {
-      setError(err)
-      return
-    }
+    if (await warnValidation(validateStep3())) return
     setBusy(true)
     try {
-      const profile =
-        role === 'landlord'
-          ? {
-              company: company.trim() || undefined,
-              idNumberOrPassport: idNumber.trim(),
-            }
-          : role === 'contractor'
-            ? {
-                company: company.trim(),
-                idNumberOrPassport: idNumber.trim(),
-                trades: resolveContractorTrades(),
-                serviceAreas: [serviceAddress.trim()],
-                taxNumberOrTcsPin: taxPin.trim() || undefined,
-              }
-            : undefined
+      const profile = buildProfile()
 
       const result = await register({
         firstName: firstName.trim(),
@@ -294,7 +303,7 @@ export default function RegisterPage() {
       navigate(postRegisterPath(role, result.bootstrap, next), { replace: true })
     } catch (err) {
       if (await handleRegistrationRedirect(err)) return
-      setError(err instanceof Error ? err.message : 'Registration failed')
+      await showAuthError(err instanceof Error ? err.message : 'Registration failed')
     } finally {
       setBusy(false)
     }
@@ -625,8 +634,6 @@ export default function RegisterPage() {
           </div>
         )}
 
-        <AuthError message={error} />
-
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
           {!bootstrapNeeded && step > 1 ? (
             <Button
@@ -653,7 +660,7 @@ export default function RegisterPage() {
             <Button
               type="button"
               className="min-h-11 cursor-pointer sm:min-w-44"
-              onClick={goNext}
+              onClick={() => void goNext()}
               disabled={busy}
             >
               Continue

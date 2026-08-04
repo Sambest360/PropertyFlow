@@ -1,13 +1,22 @@
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useEffect, useState, type FormEvent } from 'react'
 import { CheckCircle2 } from 'lucide-react'
-import { AuthError, AuthField, AuthShell } from '../../components/auth/AuthShell'
+import { AuthField, AuthShell } from '../../components/auth/AuthShell'
 import { PasswordField } from '../../components/auth/PasswordField'
 import { Button, Input } from '../../components/ui'
 import { useAuth } from '../../context/AuthContext'
 import { apiAuthBootstrapNeeded } from '../../lib/api/authClient'
-import { supabaseBootstrapNeeded } from '../../lib/supabase/auth.js'
+import {
+  supabaseAttachPendingRegistrationDocs,
+  supabaseBootstrapNeeded,
+} from '../../lib/supabase/auth.js'
 import { isSupabaseMode } from '../../lib/api/config'
+import {
+  clearPendingRegistrationDocs,
+  readPendingRegistrationDocs,
+} from '../../lib/auth/registrationDocs'
+import { showAuthError } from '../../lib/sweetAlert'
+import { createClient } from '../../utils/supabase/client'
 
 const ICON_STROKE = 1.6
 
@@ -20,7 +29,6 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [bootstrapNeeded, setBootstrapNeeded] = useState(false)
   const registered = params.get('registered')
@@ -47,13 +55,34 @@ export default function LoginPage() {
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault()
-    setError('')
     setBusy(true)
     try {
-      await login(email.trim(), password)
+      const trimmedEmail = email.trim()
+      await login(trimmedEmail, password)
+
+      if (isSupabaseMode) {
+        const pending = readPendingRegistrationDocs(trimmedEmail)
+        if (pending?.documents.length) {
+          const { data: { session } } = await createClient().auth.getSession()
+          if (session?.user?.id) {
+            try {
+              await supabaseAttachPendingRegistrationDocs({
+                authUserId: session.user.id,
+                role: pending.role,
+                profile: pending.profile,
+                documents: pending.documents,
+              })
+            } catch {
+              /* docs can be re-submitted from profile later */
+            }
+            clearPendingRegistrationDocs()
+          }
+        }
+      }
+
       navigate(next, { replace: true })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sign-in failed')
+      await showAuthError(err instanceof Error ? err.message : 'Sign-in failed')
     } finally {
       setBusy(false)
     }
@@ -116,7 +145,6 @@ export default function LoginPage() {
             required
           />
         </AuthField>
-        <AuthError message={error} />
         <Button type="submit" className="min-h-11 w-full cursor-pointer" disabled={busy}>
           {busy ? 'Signing in…' : 'Sign in'}
         </Button>
