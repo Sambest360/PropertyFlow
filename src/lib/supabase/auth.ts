@@ -98,8 +98,38 @@ export async function loadProfileForSession(authUserId: string): Promise<AppUser
     .eq('auth_user_id', authUserId)
     .maybeSingle()
 
-  if (error || !data) return null
+  if (error || !data) {
+    const { data: sessionData } = await supabase.auth.getSession()
+    if (sessionData.session?.user?.id === authUserId) {
+      await supabase.rpc('ensure_user_profile')
+      const retry = await supabase
+        .from('users')
+        .select('email, first_name, last_name, phone, role, active, client_id, metadata')
+        .eq('auth_user_id', authUserId)
+        .maybeSingle()
+      if (!retry.error && retry.data) {
+        return rowToAppUserFromRow(retry.data, supabase)
+      }
+    }
+    return null
+  }
 
+  return rowToAppUserFromRow(data, supabase)
+}
+
+async function rowToAppUserFromRow(
+  data: {
+    email: string
+    first_name: string
+    last_name: string
+    phone: string | null
+    role: string
+    active: boolean
+    client_id: string | null
+    metadata: Record<string, unknown> | null
+  },
+  supabase: ReturnType<typeof createClient>,
+): Promise<AppUser> {
   let agencySettings: Record<string, unknown> | null = null
   if (data.client_id) {
     const { data: clientRow } = await supabase
@@ -114,6 +144,33 @@ export async function loadProfileForSession(authUserId: string): Promise<AppUser
     ...data,
     clients: agencySettings ? { settings: agencySettings } : null,
   })
+}
+
+async function ensureSessionAfterSignUp(
+  supabase: ReturnType<typeof createClient>,
+  email: string,
+  password: string,
+  signUpSession: { access_token: string } | null,
+  authUserId: string,
+): Promise<string> {
+  if (signUpSession) return authUserId
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: email.trim(),
+    password,
+  })
+  if (error) {
+    const lower = error.message.toLowerCase()
+    if (
+      lower.includes('confirm') ||
+      lower.includes('not confirmed') ||
+      lower.includes('verification')
+    ) {
+      throw new Error('Account created — check your email to confirm, then sign in.')
+    }
+    throw new Error('Account created — sign in with your email and password to continue.')
+  }
+  return data.user?.id ?? authUserId
 }
 
 export async function supabaseBootstrapNeeded(): Promise<boolean> {
@@ -182,10 +239,18 @@ export async function supabaseSignUp(
   if (error) throw new Error(error.message)
   if (!data.user) throw new Error('Registration failed')
 
-  let profile = await loadProfileForSession(data.user.id)
+  const authUserId = await ensureSessionAfterSignUp(
+    supabase,
+    input.email,
+    input.password,
+    data.session,
+    data.user.id,
+  )
+
+  let profile = await loadProfileForSession(authUserId)
   for (let i = 0; i < 5 && !profile; i++) {
     await new Promise((r) => setTimeout(r, 300))
-    profile = await loadProfileForSession(data.user.id)
+    profile = await loadProfileForSession(authUserId)
   }
   if (!profile) throw new Error('Account created but profile sync failed — try signing in')
   return { user: profile, bootstrap }
