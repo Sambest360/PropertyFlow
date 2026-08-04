@@ -20,6 +20,7 @@
     "db:migrate:auth": "psql \"$DIRECT_URL\" -f database/postgres/migrations/002_supabase_auth.sql && psql \"$DIRECT_URL\" -f database/postgres/migrations/003_rls_bootstrap.sql && psql \"$DIRECT_URL\" -f database/postgres/migrations/004_ensure_user_profile.sql",
     "db:setup:remote:empty": "psql \"$DIRECT_URL\" -f database/postgres/schema.sql && psql \"$DIRECT_URL\" -f database/postgres/migrations/001_performance_indexes.sql && psql \"$DIRECT_URL\" -f database/postgres/migrations/002_supabase_auth.sql && psql \"$DIRECT_URL\" -f database/postgres/migrations/003_rls_bootstrap.sql && psql \"$DIRECT_URL\" -f database/postgres/migrations/004_ensure_user_profile.sql",
     "db:super-admin": "tsx scripts/create-super-admin.ts",
+    "db:seed:supabase": "tsx scripts/seed-supabase-demo.ts",
     "db:seed": "psql -h 127.0.0.1 -d propertyflow -f database/postgres/seed_empty.sql",
     "db:seed:demo": "psql -h 127.0.0.1 -d propertyflow -f database/postgres/seed.sql && psql -h 127.0.0.1 -d propertyflow -f database/postgres/seed_pe_bulk.sql",
     "db:reset": "npm run db:schema && npm run db:seed",
