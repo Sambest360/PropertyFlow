@@ -1,4 +1,4 @@
-import type { AppUser, Role } from '../types/domain.js'import type { AppUser, Permission, Role } from '../types/domain.js'
+import type { AppUser, Permission, Role } from '../types/domain.js'
 import { effectiveCan } from './permissions.js'
 import { canImpersonateTarget } from './agencyScope.js'
 
