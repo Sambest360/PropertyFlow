@@ -16,12 +16,13 @@ import {
   readPendingRegistrationDocs,
 } from '../../lib/auth/registrationDocs'
 import { showAuthError } from '../../lib/sweetAlert'
+import { resolvePostLoginPath } from '../../lib/workspaceRoutes'
 import { createClient } from '../../utils/supabase/client'
 
 const ICON_STROKE = 1.6
 
 export default function LoginPage() {
-  const { login, isAuthenticated, authReady } = useAuth()
+  const { login, isAuthenticated, authReady, user } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [params] = useSearchParams()
@@ -50,7 +51,7 @@ export default function LoginPage() {
   }, [])
 
   if (authReady && isAuthenticated) {
-    return <Navigate to={next} replace />
+    return <Navigate to={resolvePostLoginPath(user.role, next)} replace />
   }
 
   const onSubmit = async (e: FormEvent) => {
@@ -58,7 +59,7 @@ export default function LoginPage() {
     setBusy(true)
     try {
       const trimmedEmail = email.trim()
-      await login(trimmedEmail, password)
+      const appUser = await login(trimmedEmail, password)
 
       if (isSupabaseMode) {
         const pending = readPendingRegistrationDocs(trimmedEmail)
@@ -80,7 +81,7 @@ export default function LoginPage() {
         }
       }
 
-      navigate(next, { replace: true })
+      navigate(resolvePostLoginPath(appUser.role, next), { replace: true })
     } catch (err) {
       await showAuthError(err instanceof Error ? err.message : 'Sign-in failed')
     } finally {

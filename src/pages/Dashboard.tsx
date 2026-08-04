@@ -1,8 +1,8 @@
 import { Navigate } from 'react-router-dom'
 import { AgencyDashboard } from './dashboards/AgencyDashboard'
 import { GroundAgentDashboard } from './dashboards/GroundAgentDashboard'
-import { SuperAdminDashboard } from './dashboards/SuperAdminDashboard'
 import { useAuth } from '../context/AuthContext'
+import { defaultWorkspacePath } from '../lib/workspaceRoutes'
 
 /**
  * Workspace home — one purposeful surface per role.
@@ -24,7 +24,7 @@ export default function Dashboard() {
   }
 
   if (role === 'super_admin') {
-    return <SuperAdminDashboard />
+    return <Navigate to={defaultWorkspacePath('super_admin')} replace />
   }
 
   if (role === 'ground_agent' || role === 'agent') {
