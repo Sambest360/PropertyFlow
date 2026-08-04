@@ -48,6 +48,39 @@ const AUTH_KEY = 'propertyflow-auth-user'
 const REAL_AUTH_KEY = 'propertyflow-auth-real-user'
 const DEMO_SWITCHER = import.meta.env.VITE_DEMO_SWITCHER === '1'
 
+/** Restore client-side impersonation after auth session resolves. */
+function resolveActiveUserId(sessionUserId: string): {
+  activeUserId: string
+  realUserId: string | null
+} {
+  const storedReal = localStorage.getItem(REAL_AUTH_KEY)
+  const storedActive = localStorage.getItem(AUTH_KEY)
+  if (
+    storedReal &&
+    storedReal === sessionUserId &&
+    storedActive &&
+    storedActive !== sessionUserId
+  ) {
+    return { activeUserId: storedActive, realUserId: storedReal }
+  }
+  localStorage.removeItem(REAL_AUTH_KEY)
+  localStorage.setItem(AUTH_KEY, sessionUserId)
+  return { activeUserId: sessionUserId, realUserId: null }
+}
+
+function applySessionUser(
+  profile: AppUser,
+  setSessionUser: (u: AppUser) => void,
+  setUserId: (id: string) => void,
+  setRealUserId: (id: string | null) => void,
+) {
+  setSessionUser(profile)
+  const { activeUserId, realUserId } = resolveActiveUserId(profile.id)
+  setUserId(activeUserId)
+  setRealUserId(realUserId)
+  syncActorFromUser(appUserToDto(profile))
+}
+
 const GUEST_USER: AppUser = {
   id: 'guest',
   name: 'Guest',
@@ -124,10 +157,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const profile = await supabaseGetSessionUser()
         if (cancelled) return
         if (profile) {
-          setSessionUser(profile)
-          setUserId(profile.id)
-          localStorage.setItem(AUTH_KEY, profile.id)
-          syncActorFromUser(appUserToDto(profile))
+          applySessionUser(profile, setSessionUser, setUserId, setRealUserId)
         } else {
           setSessionUser(null)
         }
@@ -142,9 +172,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (cancelled) return
       if (me) {
         const appUser = dtoToAppUser(me)
-        setSessionUser(appUser)
-        setUserId(appUser.id)
-        localStorage.setItem(AUTH_KEY, appUser.id)
+        applySessionUser(appUser, setSessionUser, setUserId, setRealUserId)
         try {
           const legacy = ['propertyflow-v15', 'propertyflow-v16']
           for (const k of legacy) localStorage.removeItem(k)
@@ -165,12 +193,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!isSupabaseMode) return
     const { unsubscribe } = onSupabaseAuthChange((profile) => {
       if (profile) {
-        setSessionUser(profile)
-        setUserId(profile.id)
-        syncActorFromUser(appUserToDto(profile))
+        applySessionUser(profile, setSessionUser, setUserId, setRealUserId)
       } else {
         setSessionUser(null)
         setUserId('')
+        setRealUserId(null)
       }
     })
     return unsubscribe
@@ -321,6 +348,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUserId('')
         setRealUserId(null)
         localStorage.removeItem(AUTH_KEY)
+        localStorage.removeItem(REAL_AUTH_KEY)
       },
       switchUser: (id: string) => {
         if (!DEMO_SWITCHER) return
@@ -341,6 +369,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         ) {
           return false
         }
+        if (actor.id === target.id) return false
         if (!canImpersonateTarget(actor, target)) return false
         if (!realUserId) setRealUserId(actor.id)
         setUserId(target.id)

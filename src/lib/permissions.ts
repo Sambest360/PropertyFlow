@@ -45,6 +45,7 @@ const PRINCIPAL: Permission[] = [...STAFF]
  */
 const AGENCY_ADMIN: Permission[] = [
   'users.manage',
+  'users.impersonate',
   'config.manage',
   'notifications.broadcast',
   'assets.view',

@@ -13,6 +13,7 @@ import {
 import { DirectoryStatGrid } from '../../components/directory/DirectoryStats'
 import { DirectoryFilterSelect, directoryResultLabel } from '../../components/directory/DirectoryFilters'
 import { VerificationStatusBadge } from '../../components/auth/VerificationBanner'
+import { ImpersonateUserButton } from '../../components/admin/ImpersonateUserButton'
 import { Badge, Button, Card, PageHeader, cn } from '../../components/ui'
 import { roleLabels } from '../../lib/permissions'
 import { usePrefersReducedMotion } from '../../hooks/useScrollMotion'
@@ -184,7 +185,7 @@ export default function AdminUsersPage() {
   const resultLabel = directoryResultLabel(filtered.length, portfolio.length, 'user', 'users')
 
   return (
-    <RequirePermission permission="roles.assign">
+    <RequirePermission anyOf={['roles.assign', 'users.manage']}>
       <div className="animate-fade-in space-y-5">
         <PageHeader
           title="Users & access"
@@ -298,45 +299,52 @@ export default function AdminUsersPage() {
             <ul className="divide-y divide-primary-50" role="list">
               {filtered.map((item) => (
                 <li key={item.user.id}>
-                  <Link
-                    to={`/workspace/admin/users/${item.user.id}`}
-                    className={cn(
-                      'flex min-h-14 cursor-pointer items-center gap-3 px-4 py-3 hover:bg-primary-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary sm:px-5',
-                      !reducedMotion && 'transition-colors duration-200',
-                    )}
-                  >
-                    <PersonAvatar name={item.user.name} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-semibold text-ink">{item.user.name}</p>
-                        <Badge tone={item.user.active ? 'success' : 'danger'}>
-                          {item.user.active ? 'Active' : 'Disabled'}
-                        </Badge>
-                        <VerificationStatusBadge user={item.user} />
+                  <div className="flex items-center gap-1">
+                    <Link
+                      to={`/workspace/admin/users/${item.user.id}`}
+                      className={cn(
+                        'flex min-h-14 flex-1 cursor-pointer items-center gap-3 px-4 py-3 hover:bg-primary-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary sm:px-5',
+                        !reducedMotion && 'transition-colors duration-200',
+                      )}
+                    >
+                      <PersonAvatar name={item.user.name} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-semibold text-ink">{item.user.name}</p>
+                          <Badge tone={item.user.active ? 'success' : 'danger'}>
+                            {item.user.active ? 'Active' : 'Disabled'}
+                          </Badge>
+                          <VerificationStatusBadge user={item.user} />
+                        </div>
+                        <p className="truncate text-sm text-ink-500">
+                          {roleLabels[item.user.role]}
+                          {isPlatform ? ` · ${item.agencyName}` : ''}
+                          {' · '}
+                          {item.user.email}
+                        </p>
+                        {item.hint !== '—' ? (
+                          <Badge tone={item.hintTone} className="mt-1.5 sm:hidden">
+                            {item.hint}
+                          </Badge>
+                        ) : null}
                       </div>
-                      <p className="truncate text-sm text-ink-500">
-                        {roleLabels[item.user.role]}
-                        {isPlatform ? ` · ${item.agencyName}` : ''}
-                        {' · '}
-                        {item.user.email}
-                      </p>
                       {item.hint !== '—' ? (
-                        <Badge tone={item.hintTone} className="mt-1.5 sm:hidden">
+                        <Badge tone={item.hintTone} className="hidden shrink-0 sm:inline-flex">
                           {item.hint}
                         </Badge>
                       ) : null}
-                    </div>
-                    {item.hint !== '—' ? (
-                      <Badge tone={item.hintTone} className="hidden shrink-0 sm:inline-flex">
-                        {item.hint}
-                      </Badge>
-                    ) : null}
-                    <ChevronRight
-                      className="h-4 w-4 shrink-0 text-ink-400"
-                      strokeWidth={ICON_STROKE}
-                      aria-hidden
+                      <ChevronRight
+                        className="h-4 w-4 shrink-0 text-ink-400"
+                        strokeWidth={ICON_STROKE}
+                        aria-hidden
+                      />
+                    </Link>
+                    <ImpersonateUserButton
+                      target={item.user}
+                      variant="compact"
+                      className="mr-3 shrink-0"
                     />
-                  </Link>
+                  </div>
                 </li>
               ))}
             </ul>

@@ -12,6 +12,7 @@ import { useStore } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
 import { RequirePermission } from '../../components/RequirePermission'
 import { AgencyCapabilityChecklist } from '../../components/admin/AgencyCapabilityChecklist'
+import { ImpersonateUserButton } from '../../components/admin/ImpersonateUserButton'
 import { Badge, Button, Card, Modal, PageHeader, Select, cn } from '../../components/ui'
 import { roleLabels } from '../../lib/permissions'
 import { withReturnTo } from '../../lib/returnTo'
@@ -234,13 +235,16 @@ export default function AgencyDetailPage() {
                         </td>
                         <td className="px-3 py-3 tabular">{assigned}</td>
                         <td className="px-4 py-3 text-right">
-                          <button
-                            type="button"
-                            className="min-h-11 cursor-pointer rounded-xl border border-primary-100 px-3 text-xs font-semibold hover:bg-primary-50"
-                            onClick={() => updateUser(u.id, { active: !u.active })}
-                          >
-                            {u.active ? 'Disable' : 'Enable'}
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                            <ImpersonateUserButton target={u} variant="compact" />
+                            <button
+                              type="button"
+                              className="min-h-11 cursor-pointer rounded-xl border border-primary-100 px-3 text-xs font-semibold hover:bg-primary-50"
+                              onClick={() => updateUser(u.id, { active: !u.active })}
+                            >
+                              {u.active ? 'Disable' : 'Enable'}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     )

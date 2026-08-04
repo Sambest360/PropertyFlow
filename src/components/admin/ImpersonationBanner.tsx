@@ -1,12 +1,19 @@
 import { UserRoundSearch, X } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { Button } from '../ui'
 
 const ICON_STROKE = 1.6
 
 export function ImpersonationBanner() {
+  const navigate = useNavigate()
   const { isImpersonating, user, realUser, stopImpersonation } = useAuth()
   if (!isImpersonating) return null
+
+  const exit = () => {
+    stopImpersonation()
+    navigate('/workspace', { replace: true })
+  }
 
   return (
     <div
@@ -23,7 +30,7 @@ export function ImpersonationBanner() {
         size="sm"
         variant="secondary"
         className="min-h-11 cursor-pointer"
-        onClick={stopImpersonation}
+        onClick={exit}
       >
         <X className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
         Exit impersonation

@@ -5,6 +5,7 @@ import { useStore } from '../context/AppStore'
 import { usePropertyScope } from '../context/AuthContext'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
 import { RequirePermission } from '../components/RequirePermission'
+import { ImpersonateUserButton } from '../components/admin/ImpersonateUserButton'
 import {
   ClearFiltersButton,
   DirectoryEmpty,
@@ -249,9 +250,9 @@ function TenantsListView({
   return (
     <>
       <div className="hidden overflow-hidden rounded-[1.25rem] border border-primary-100/80 bg-white shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)] md:block">
-        <div className="max-h-[min(78vh,56rem)] overflow-auto [scrollbar-width:thin]">
-          <table className="w-full min-w-[48rem] border-collapse text-left text-sm">
-            <thead className="sticky top-0 z-[1] bg-white/95 backdrop-blur-md">
+        <div className="max-h-[min(78vh,56rem)] overflow-auto scrollbar-thin">
+          <table className="w-full min-w-3xl border-collapse text-left text-sm">
+            <thead className="sticky top-0 z-1 bg-white/95 backdrop-blur-md">
               <tr className="border-b border-primary-100 text-[11px] font-semibold uppercase tracking-wide text-ink-400">
                 <th className="w-10 px-3 py-3" aria-hidden />
                 <th className="px-4 py-3 font-semibold">Tenant</th>
@@ -431,7 +432,15 @@ function TenantExpansion({
   item: PortfolioTenant
   reducedMotion?: boolean
 }) {
+  const { state } = useStore()
   const t = item.tenancy
+  const tenantUser =
+    (t.tenantUserId ? state.users.find((u) => u.id === t.tenantUserId) : null) ??
+    state.users.find(
+      (u) =>
+        u.role === 'tenant' &&
+        u.email.toLowerCase() === t.tenantEmail.toLowerCase(),
+    )
   const detailTo = `/workspace/people/tenants/${encodeURIComponent(t.id)}`
   const metaRows: Array<{ label: string; value: string }> = [
     { label: 'Email', value: t.tenantEmail },
@@ -491,6 +500,7 @@ function TenantExpansion({
               Property
             </Button>
           </Link>
+          {tenantUser ? <ImpersonateUserButton target={tenantUser} /> : null}
         </div>
       </div>
     </div>

@@ -8,12 +8,12 @@ import {
   FileText,
   Mail,
   Phone,
-  UserRoundSearch,
   Wrench,
 } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
 import { useAgencyScope, useAuth } from '../../context/AuthContext'
 import { RequirePermission } from '../../components/RequirePermission'
+import { ImpersonateUserButton } from '../../components/admin/ImpersonateUserButton'
 import { AgencyCapabilityChecklist } from '../../components/admin/AgencyCapabilityChecklist'
 import { VerificationStatusBadge } from '../../components/auth/VerificationBanner'
 import { DashboardTabs } from '../../components/dashboard/DashboardTabs'
@@ -65,12 +65,11 @@ export default function AdminUserDetailPage() {
   const { id } = useParams()
   const [params, setParams] = useSearchParams()
   const { state, assignRole, updateUser } = useStore()
-  const { has, impersonate, user: authUser } = useAuth()
+  const { has } = useAuth()
   const { scopeAgency } = useAgencyScope()
   const reducedMotion = usePrefersReducedMotion()
 
   const isPlatform = has('platform.manage')
-  const canImpersonate = has('users.impersonate')
   const hasRolesAssign = has('roles.assign')
   const canEditPermissions = has('users.manage') || has('roles.assign')
   const assignableRoles = isPlatform ? ALL_ROLES : AGENCY_ROLES
@@ -192,17 +191,7 @@ export default function AdminUserDetailPage() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              {canImpersonate && mutable && user.id !== authUser.id ? (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="min-h-11 cursor-pointer"
-                  onClick={() => impersonate(user.id)}
-                >
-                  <UserRoundSearch className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                  Impersonate
-                </Button>
-              ) : null}
+              <ImpersonateUserButton target={user} />
               {mutable ? (
                 <Button
                   type="button"

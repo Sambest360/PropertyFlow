@@ -201,13 +201,46 @@ describe('canImpersonateTarget', () => {
     ).toBe(true)
   })
 
-  it('allows same-agency impersonation for agency admins', () => {
+  it('allows same-agency impersonation for principals', () => {
     expect(
       canImpersonateTarget(
         { role: 'client_admin', agencyId: 'ag-a' },
         { role: 'ground_agent', agencyId: 'ag-a', active: true },
       ),
     ).toBe(true)
+    expect(
+      canImpersonateTarget(
+        { role: 'client_admin', agencyId: 'ag-a' },
+        { role: 'landlord', agencyId: 'ag-a', active: true },
+      ),
+    ).toBe(true)
+  })
+
+  it('limits agency administrators to agents, landlords, and portal users', () => {
+    expect(
+      canImpersonateTarget(
+        { role: 'agent_admin', agencyId: 'ag-a' },
+        { role: 'ground_agent', agencyId: 'ag-a', active: true },
+      ),
+    ).toBe(true)
+    expect(
+      canImpersonateTarget(
+        { role: 'agent_admin', agencyId: 'ag-a' },
+        { role: 'landlord', agencyId: 'ag-a', active: true },
+      ),
+    ).toBe(true)
+    expect(
+      canImpersonateTarget(
+        { role: 'agent_admin', agencyId: 'ag-a' },
+        { role: 'client_admin', agencyId: 'ag-a', active: true },
+      ),
+    ).toBe(false)
+    expect(
+      canImpersonateTarget(
+        { role: 'agent_admin', agencyId: 'ag-a' },
+        { role: 'agent_admin', agencyId: 'ag-a', active: true },
+      ),
+    ).toBe(false)
   })
 })
 

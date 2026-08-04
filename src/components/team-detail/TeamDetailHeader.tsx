@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { ArrowLeft, Mail, Phone } from 'lucide-react'
 import type { AppUser } from '../../types/domain'
 import { Button } from '../ui'
+import { ImpersonateUserButton } from '../admin/ImpersonateUserButton'
 import { ICON_STROKE } from './types'
 
 export function TeamDetailHeader({ user }: { user: AppUser }) {
@@ -35,6 +36,7 @@ export function TeamDetailHeader({ user }: { user: AppUser }) {
         </div>
 
         <div className="flex flex-wrap gap-2">
+          <ImpersonateUserButton target={user} />
           <Button
             variant="secondary"
             className="min-h-11"

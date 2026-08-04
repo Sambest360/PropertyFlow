@@ -82,15 +82,32 @@ export function canAccessProperty(
   return true
 }
 
-/** Impersonation target must be active, same agency (unless platform), and not escalate to super_admin. */
+/** Roles an Agency Administrator may impersonate within their agency. */
+const AGENCY_ADMIN_IMPERSONATABLE: Role[] = [
+  'ground_agent',
+  'agent',
+  'landlord',
+  'tenant',
+  'contractor',
+]
+
+/**
+ * Impersonation target must be active, in scope for the actor's role,
+ * same agency (unless platform), and must not escalate to super_admin.
+ */
 export function canImpersonateTarget(
   actor: { role: Role; agencyId: string | null },
   target: { role: Role; agencyId: string | null; active: boolean },
 ): boolean {
   if (!target.active) return false
   if (target.role === 'super_admin' && actor.role !== 'super_admin') return false
-  if (actor.role !== 'super_admin' && target.agencyId !== actor.agencyId) return false
-  return true
+  if (actor.role === 'super_admin') return true
+  if (target.agencyId !== actor.agencyId) return false
+  if (actor.role === 'agent_admin') {
+    return AGENCY_ADMIN_IMPERSONATABLE.includes(target.role)
+  }
+  if (actor.role === 'client_admin') return target.role !== 'super_admin'
+  return false
 }
 
 export type ScopedDocument = {
