@@ -1,7 +1,13 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type pg from 'pg'
-import { AGENCY, AGENCY_FE_ID, AGENCY_ID, LOOKUP_CONFIGS } from './data/agency.js'
+import { AGENCY, AGENCY_FE_ID, AGENCY_ID } from './data/agency.js'
 import { CONTRACTORS, contractorMetadata } from './data/contractors.js'
+import {
+  buildLookupRows,
+  GLOBAL_CLIENT_FE_ID,
+  GLOBAL_CLIENT_ROW,
+  GLOBAL_CLIENT_UUID,
+} from './data/lookups.js'
 import { PROPERTIES } from './data/properties.js'
 import { APPLICATION_DEFS, LEASE_ASSIGNMENTS, TENANTS, TENANT_DB_ROLE } from './data/tenants.js'
 import { AGENCY_ADMIN, AGENTS } from './data/users.js'
@@ -33,6 +39,22 @@ export async function seedDemo(
   const unitByFe = new Map<string, { unitId: string; buildingId: string; agentFeId: string; rent: number | null }>()
   const credentials: SeedResult['credentials'] = []
 
+  // --- Global config client + platform lookup catalogue ---
+  const { error: globalClientErr } = await admin.from('clients').insert({
+    ...GLOBAL_CLIENT_ROW,
+    updated_at: new Date().toISOString(),
+  })
+  if (globalClientErr) throw globalClientErr
+  await upsertEntityMap(admin, 'agency', GLOBAL_CLIENT_FE_ID, GLOBAL_CLIENT_UUID)
+
+  const globalLookups = buildLookupRows(GLOBAL_CLIENT_UUID, GLOBAL_CLIENT_FE_ID, 'b1100000')
+
+  for (let i = 0; i < globalLookups.length; i += 50) {
+    const chunk = globalLookups.slice(i, i + 50)
+    const { error } = await admin.from('client_lookup_configs').insert(chunk)
+    if (error) throw error
+  }
+
   // --- Agency ---
   const { error: clientErr } = await admin.from('clients').insert({
     id: AGENCY_ID,
@@ -54,17 +76,10 @@ export async function seedDemo(
 
   await upsertEntityMap(admin, 'agency', AGENCY_FE_ID, AGENCY_ID)
 
-  for (let i = 0; i < LOOKUP_CONFIGS.length; i++) {
-    const lc = LOOKUP_CONFIGS[i]
-    const { error } = await admin.from('client_lookup_configs').insert({
-      id: fixedUuid('b1100001', i + 1),
-      client_id: AGENCY_ID,
-      config_type: lc.config_type,
-      key_value: lc.key_value,
-      display_label: lc.display_label,
-      is_active: true,
-      sort_order: lc.sort_order,
-    })
+  const agencyLookups = buildLookupRows(AGENCY_ID, AGENCY_FE_ID, 'b1100001')
+  for (let i = 0; i < agencyLookups.length; i += 50) {
+    const chunk = agencyLookups.slice(i, i + 50)
+    const { error } = await admin.from('client_lookup_configs').insert(chunk)
     if (error) throw error
   }
 

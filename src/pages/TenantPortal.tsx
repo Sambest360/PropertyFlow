@@ -1,5 +1,13 @@
-import { useMemo, useState, type FormEvent } from 'react'
-import { Bell, CreditCard, FileCheck2, FileText, Heart, Home, KeyRound, MessageCircle, Wrench } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import {
+  AlertTriangle,
+  Bell,
+  FileCheck2,
+  Heart,
+  KeyRound,
+  MessageCircle,
+  Wrench,
+} from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { usePublicProperties, useStore } from '../context/AppStore'
 import { useAuth } from '../context/AuthContext'
@@ -10,115 +18,64 @@ import {
   DashboardPage,
   SectionBanner,
 } from '../components/dashboard'
-import { Badge, Button, Card, Input, Select, StatCard, statusTone } from '../components/ui'
+import { Badge, Button, Card, statusTone } from '../components/ui'
 import { WishlistListView } from '../components/wishlist/WishlistListView'
 import { formatZAR } from '../data/seed'
-import { blockedPropertyIdsForApplicant } from '../lib/blockedApplicants'
-import { tenantHasApprovedOccupancy } from '../lib/tenantOccupancy'
+import { ACCOUNT_WISHLIST_PATH } from '../lib/accountRoutes'
+import { useTenantPortalState } from '../hooks/useTenantPortalState'
 import { useWishlist } from '../hooks/useWishlist'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
 import type { Application, PropertyAsset } from '../types/domain'
+import { TenantComplaintsView } from './tenant/TenantComplaintsView'
+import { TenantMaintenanceView } from './tenant/TenantMaintenanceView'
+import { TenantMessagesView } from './tenant/TenantMessagesView'
+import { TenantPortalTabs } from './tenant/TenantPortalTabs'
+
+type TenantView = 'home' | 'applications' | 'maintenance' | 'messages' | 'complaints'
+
+function resolveTenantView(pathname: string): TenantView {
+  if (pathname.includes('/applications')) return 'applications'
+  if (pathname.includes('/maintenance')) return 'maintenance'
+  if (pathname.includes('/messages')) return 'messages'
+  if (pathname.includes('/complaints')) return 'complaints'
+  return 'home'
+}
 
 export default function TenantPortal() {
-  const { state, createMaintenanceTicket, markPaymentPaid, setDocumentStatus } = useStore()
+  const { state, markPaymentPaid, setDocumentStatus } = useStore()
   const publicProperties = usePublicProperties()
-  const { user, agencyId, has } = useAuth()
+  const { user, has } = useAuth()
   const location = useLocation()
-  const applicationsOnly = location.pathname.endsWith('/applications')
+  const view = resolveTenantView(location.pathname)
+  const portal = useTenantPortalState()
   const { ids: wishlistIds } = useWishlist(user.id)
-  const [title, setTitle] = useState('')
-  const [assetLabel, setAssetLabel] = useState('Kitchen tap')
-  const [priority, setPriority] = useState<'Low' | 'Medium' | 'High' | 'Urgent' | 'Emergency'>('Medium')
-  const [done, setDone] = useState('')
-
-  const occupancyReady = tenantHasApprovedOccupancy(state.applications, state.tenancies, user)
-  const canOps = occupancyReady && has('payments.view')
-
-  const blockedIds = useMemo(
-    () => blockedPropertyIdsForApplicant(state.applications, user),
-    [state.applications, user],
-  )
-
-  const apps = useMemo(
-    () =>
-      state.applications.filter(
-        (a) =>
-          (a.applicantUserId === user.id || a.email === user.email) &&
-          a.stage !== 'Blocked' &&
-          !blockedIds.has(a.propertyId),
-      ),
-    [state.applications, user, blockedIds],
-  )
-  const app = apps.find((a) => a.stage !== 'Active Tenancy') ?? apps[0]
-  const tenancy = state.tenancies.find(
-    (t) => t.tenantUserId === user.id && !blockedIds.has(t.propertyId),
-  )
-  const tickets = state.tickets.filter((t) => t.reportedByUserId === user.id || t.reportedBy === user.name)
-  const payments = state.payments.filter((p) => p.partyUserId === user.id || p.partyName === user.name)
-  const notes = state.notifications.filter((n) => n.userId === user.id)
-  const property = app
-    ? state.properties.find((p) => p.id === app.propertyId)
-    : tenancy
-      ? state.properties.find((p) => p.id === tenancy.propertyId)
-      : null
 
   const wishlistProperties = useMemo(
     () =>
-      publicProperties.filter((p) => wishlistIds.includes(p.id) && !blockedIds.has(p.id)),
-    [publicProperties, wishlistIds, blockedIds],
+      publicProperties.filter((p) => wishlistIds.includes(p.id) && !portal.blockedIds.has(p.id)),
+    [publicProperties, wishlistIds, portal.blockedIds],
   )
 
-  const submitTicket = (e: FormEvent) => {
-    e.preventDefault()
-    if (!title.trim() || !agencyId) return
-    const propId = tenancy?.propertyId ?? property?.id
-    if (!propId) {
-      setDone('No property linked to your tenancy or application yet.')
-      return
-    }
-    const prop = state.properties.find((p) => p.id === propId)
-    if (!prop?.unitId) {
-      setDone('No unit linked to your occupancy yet.')
-      return
-    }
-    const matchedAsset = state.internalAssets.find(
-      (a) =>
-        a.unitId === prop.unitId &&
-        a.itemName.toLowerCase().includes(assetLabel.trim().toLowerCase().split(' ')[0] || ''),
-    )
-    const category = /microwave|fridge|washer|appliance/i.test(assetLabel + title)
-      ? 'APPLIANCE_FAILURE'
-      : /tap|geyser|plumb|leak/i.test(assetLabel + title)
-        ? 'PLUMBING'
-        : /intercom|plug|light|electric/i.test(assetLabel + title)
-          ? 'ELECTRICAL'
-          : 'GENERAL'
-    const result = createMaintenanceTicket({
-      actorUserId: user.id,
-      propertyId: propId,
-      request: {
-        unit_id: prop.unitId,
-        internal_asset_id: matchedAsset?.id ?? null,
-        category_key: category,
-        priority:
-          priority === 'Emergency'
-            ? 'EMERGENCY'
-            : (priority.toUpperCase() as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'),
-        title: title.trim(),
-        description: `Tenant-reported via portal (${assetLabel}). Routed to agency/agent — not the landlord. ${title.trim()}`,
-      },
-    })
-    if (result.status === 'ERROR') {
-      setDone(result.error)
-      return
-    }
-    setDone(
-      `Request ${result.ticket_id} sent${result.warrantyCovered ? ' · warranty detected' : ''}${result.ticket.contractorId ? ' · vendor auto-routed' : ''}.`,
-    )
-    setTitle('')
-  }
+  const duePayments = portal.payments.filter((p) => p.status === 'Due' || p.status === 'Overdue')
+  const openMaintenance = portal.tickets.filter(
+    (t) => t.status !== 'Completed' && !t.title.startsWith('Complaint:'),
+  ).length
+  const openComplaints = portal.tickets.filter(
+    (t) => t.status !== 'Completed' && t.title.startsWith('Complaint:'),
+  ).length
 
-  const duePayments = payments.filter((p) => p.status === 'Due' || p.status === 'Overdue')
+  const breadcrumbLabel =
+    view === 'applications'
+      ? 'My applications'
+      : view === 'maintenance'
+        ? 'Maintenance'
+        : view === 'messages'
+          ? 'Messages'
+          : view === 'complaints'
+            ? 'Complaints'
+            : portal.occupancyReady
+              ? 'Tenant portal'
+              : 'Applicant home'
 
   return (
     <RequirePermission permission="portal.tenant">
@@ -126,206 +83,242 @@ export default function TenantPortal() {
         <DashboardBreadcrumb
           items={[
             { label: 'Dashboard', to: '/workspace/portals/tenant' },
-            ...(applicationsOnly
-              ? [{ label: 'My applications' }]
-              : [{ label: occupancyReady ? 'Tenant portal' : 'Applicant home' }]),
+            ...(view !== 'home' ? [{ label: breadcrumbLabel }] : []),
           ]}
         />
 
-        <AttentionHero
-          image={property?.images[0] ?? wishlistProperties[0]?.images[0]}
-          eyebrow={occupancyReady ? 'Tenant portal' : 'Applicant home'}
-          title={
-            occupancyReady
-              ? (property?.title ?? `Welcome, ${user.name.split(' ')[0]}`)
-              : `Hi ${user.name.split(' ')[0]}`
-          }
-          detail={
-            occupancyReady
-              ? 'Pay deposits, report maintenance, and message your agency — never the landlord.'
-              : 'Track every place you’ve applied for, and keep a wishlist of homes you want to revisit. Payments and maintenance unlock once you’re approved.'
-          }
-          badge={app?.stage ?? tenancy?.status ?? 'Applicant'}
-          badgeTone={occupancyReady ? 'brand' : 'warning'}
-          secondaryBadge={app?.type}
-          stats={
-            occupancyReady
-              ? [
-                  { label: 'Applications', value: String(apps.length) },
-                  { label: 'Due', value: String(duePayments.length) },
-                  {
-                    label: 'Tickets',
-                    value: String(tickets.filter((t) => t.status !== 'Completed').length),
-                  },
-                ]
-              : [
-                  { label: 'Applications', value: String(apps.length) },
-                  { label: 'Wishlist', value: String(wishlistIds.length) },
-                  { label: 'Approved', value: 'Not yet' },
-                ]
-          }
-          cta={{
-            label: apps.length ? 'View applications' : 'Browse homes',
-            to: apps.length ? '/workspace/portals/tenant/applications' : '/browse',
-            icon: <FileCheck2 className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
-          }}
-          secondaryCta={{ label: 'Wishlist', to: '/saved' }}
-          propertyLink={
-            property
-              ? { to: `/listing/${property.id}`, label: 'Your listing' }
-              : { to: '/browse', label: 'Browse' }
-          }
-        />
+        <div className="mb-5">
+          <TenantPortalTabs occupancyReady={portal.occupancyReady} />
+        </div>
 
-        {canOps && duePayments.length > 0 && (
-          <SectionBanner
-            tone="danger"
-            text={`You have ${duePayments.length} payment${duePayments.length === 1 ? '' : 's'} due — pay the agency only.`}
-          />
-        )}
+        {view === 'maintenance' ? (
+          <TenantMaintenanceView portal={portal} />
+        ) : view === 'messages' ? (
+          <TenantMessagesView portal={portal} />
+        ) : view === 'complaints' ? (
+          <TenantComplaintsView portal={portal} />
+        ) : (
+          <>
+            {view === 'home' && (
+              <>
+                <AttentionHero
+                  image={portal.property?.images[0] ?? wishlistProperties[0]?.images[0]}
+                  eyebrow={portal.occupancyReady ? 'Tenant portal' : 'Applicant home'}
+                  title={
+                    portal.occupancyReady
+                      ? (portal.property?.title ?? `Welcome, ${user.name.split(' ')[0]}`)
+                      : `Hi ${user.name.split(' ')[0]}`
+                  }
+                  detail={
+                    portal.occupancyReady
+                      ? 'Pay deposits, report maintenance, message your agency, and lodge complaints — never the landlord.'
+                      : 'Track every place you’ve applied for, and keep a wishlist of homes you want to revisit. Tenant tools unlock once you’re approved.'
+                  }
+                  badge={portal.app?.stage ?? portal.tenancy?.status ?? 'Applicant'}
+                  badgeTone={portal.occupancyReady ? 'brand' : 'warning'}
+                  secondaryBadge={portal.app?.type}
+                  stats={
+                    portal.occupancyReady
+                      ? [
+                          { label: 'Applications', value: String(portal.apps.length) },
+                          { label: 'Due', value: String(duePayments.length) },
+                          { label: 'Open tickets', value: String(openMaintenance) },
+                        ]
+                      : [
+                          { label: 'Applications', value: String(portal.apps.length) },
+                          { label: 'Wishlist', value: String(wishlistIds.length) },
+                          { label: 'Approved', value: portal.occupancyReady ? 'Yes' : 'Not yet' },
+                        ]
+                  }
+                  cta={{
+                    label: portal.apps.length ? 'View applications' : 'Browse homes',
+                    to: portal.apps.length
+                      ? '/workspace/portals/tenant/applications'
+                      : '/browse',
+                    icon: <FileCheck2 className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
+                  }}
+                  secondaryCta={{ label: 'Wishlist', to: ACCOUNT_WISHLIST_PATH }}
+                  propertyLink={
+                    portal.property
+                      ? { to: `/listing/${portal.property.id}`, label: 'Your listing' }
+                      : { to: '/browse', label: 'Browse' }
+                  }
+                />
 
-        {!occupancyReady && !applicationsOnly && (
-          <div className="grid gap-5 lg:grid-cols-2">
-            <ApplicationsPanel
-              apps={apps}
-              properties={state.properties}
-              onUpload={(appId, key) => setDocumentStatus(appId, key, 'uploaded')}
-            />
-            <WishlistPanel properties={wishlistProperties} emptyTo="/browse" />
-          </div>
-        )}
+                {portal.occupancyReady && duePayments.length > 0 && (
+                  <SectionBanner
+                    tone="danger"
+                    text={`You have ${duePayments.length} payment${duePayments.length === 1 ? '' : 's'} due — pay the agency only.`}
+                  />
+                )}
 
-        {(applicationsOnly || (occupancyReady && !applicationsOnly)) && (
-          <div className={applicationsOnly ? 'space-y-5' : 'contents'}>
-            {applicationsOnly && (
+                {portal.occupancyReady ? (
+                  <OccupancyQuickLinks
+                    openMaintenance={openMaintenance}
+                    openComplaints={openComplaints}
+                    unread={portal.notes.filter((n) => !n.read).length}
+                    threadCount={portal.threads.length}
+                  />
+                ) : (
+                  <div className="grid gap-5 lg:grid-cols-2">
+                    <ApplicationsPanel
+                      apps={portal.apps}
+                      properties={state.properties}
+                      onUpload={(appId, key) => setDocumentStatus(appId, key, 'uploaded')}
+                    />
+                    <WishlistPanel properties={wishlistProperties} emptyTo="/browse" />
+                  </div>
+                )}
+
+                {portal.occupancyReady && (
+                  <div className="mt-5 grid gap-5 lg:grid-cols-2">
+                    <ApplicationsPanel
+                      apps={portal.apps}
+                      properties={state.properties}
+                      onUpload={(appId, key) => setDocumentStatus(appId, key, 'uploaded')}
+                    />
+                    <PaymentsPanel
+                      payments={portal.payments}
+                      onPay={markPaymentPaid}
+                      canPay={has('payments.manage')}
+                    />
+                  </div>
+                )}
+              </>
+            )}
+
+            {view === 'applications' && (
               <ApplicationsPanel
-                apps={apps}
+                apps={portal.apps}
                 properties={state.properties}
                 onUpload={(appId, key) => setDocumentStatus(appId, key, 'uploaded')}
                 expanded
               />
             )}
-          </div>
-        )}
-
-        {occupancyReady && !applicationsOnly && (
-          <>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <StatCard label="Applications" value={apps.length} icon={<Home className="h-5 w-5" />} />
-              <StatCard
-                label="Latest stage"
-                value={app?.stage ?? tenancy?.status ?? '—'}
-                icon={<CreditCard className="h-5 w-5" />}
-              />
-              <StatCard
-                label="Open maintenance"
-                value={tickets.filter((t) => t.status !== 'Completed').length}
-                icon={<Wrench className="h-5 w-5" />}
-              />
-              <StatCard
-                label="Unread updates"
-                value={notes.filter((n) => !n.read).length}
-                icon={<Bell className="h-5 w-5" />}
-              />
-            </div>
-
-            <div className="grid gap-5 lg:grid-cols-2">
-              <ApplicationsPanel
-                apps={apps}
-                properties={state.properties}
-                onUpload={(appId, key) => setDocumentStatus(appId, key, 'uploaded')}
-              />
-
-              <Card className="p-5">
-                <h2 className="font-display text-lg font-semibold">Payments due</h2>
-                <ul className="mt-3 space-y-2">
-                  {payments.slice(0, 5).map((p) => (
-                    <li
-                      key={p.id}
-                      className="flex items-center justify-between rounded-xl bg-primary-50 px-3 py-2 text-sm"
-                    >
-                      <div>
-                        <p className="font-medium">{p.type}</p>
-                        <p className="text-xs text-ink-400">Due {p.dueDate}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="tabular font-semibold">{formatZAR(p.amount)}</span>
-                        {p.status === 'Paid' ? (
-                          <Badge tone="success">Paid</Badge>
-                        ) : (
-                          <Button size="sm" onClick={() => markPaymentPaid(p.id)}>
-                            Pay
-                          </Button>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                  {payments.length === 0 && <li className="text-sm text-ink-400">No payments yet.</li>}
-                </ul>
-              </Card>
-
-              <Card className="p-5">
-                <h2 className="font-display text-lg font-semibold">Report maintenance</h2>
-                <p className="mt-1 text-xs text-ink-400">Goes to your agency/agent — not the landlord.</p>
-                <form className="mt-3 space-y-3" onSubmit={submitTicket}>
-                  <Input
-                    placeholder="What's broken?"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                  />
-                  <Input
-                    placeholder="Asset (e.g. geyser)"
-                    value={assetLabel}
-                    onChange={(e) => setAssetLabel(e.target.value)}
-                  />
-                  <Select
-                    value={priority}
-                    onChange={(e) => setPriority(e.target.value as typeof priority)}
-                  >
-                    {['Low', 'Medium', 'High', 'Urgent', 'Emergency'].map((p) => (
-                      <option key={p} value={p}>
-                        {p}
-                      </option>
-                    ))}
-                  </Select>
-                  <Button type="submit" size="sm">
-                    Submit to agency
-                  </Button>
-                  {done && <p className="text-xs text-ink-500">{done}</p>}
-                </form>
-              </Card>
-
-              <Card className="p-5">
-                <h2 className="mb-3 flex items-center gap-2 font-display text-lg font-semibold">
-                  <Bell className="h-5 w-5 text-accent" /> Updates
-                </h2>
-                <ul className="space-y-2">
-                  {notes.map((n) => (
-                    <li key={n.id} className="rounded-xl border border-primary-100 px-3 py-2 text-sm">
-                      <p className="font-medium text-ink">{n.title}</p>
-                      <p className="text-ink-500">{n.body}</p>
-                    </li>
-                  ))}
-                  {notes.length === 0 && <li className="text-sm text-ink-400">No notifications yet.</li>}
-                </ul>
-                {has('messages.manage') && (
-                  <Link
-                    to="/workspace/operations/communications"
-                    className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-primary"
-                  >
-                    <MessageCircle className="h-4 w-4" /> Message agency
-                  </Link>
-                )}
-                <p className="mt-4 flex items-center gap-1 text-xs text-ink-400">
-                  <FileText className="h-3.5 w-3.5" /> Occupancy:{' '}
-                  {tenancy ? `${tenancy.status} from ${tenancy.startDate}` : 'Not yet active'}
-                </p>
-              </Card>
-            </div>
           </>
         )}
       </DashboardPage>
     </RequirePermission>
+  )
+}
+
+function OccupancyQuickLinks({
+  openMaintenance,
+  openComplaints,
+  unread,
+  threadCount,
+}: {
+  openMaintenance: number
+  openComplaints: number
+  unread: number
+  threadCount: number
+}) {
+  const links = [
+    {
+      to: '/workspace/portals/tenant/maintenance',
+      label: 'Maintenance',
+      detail: 'Report repairs and track open requests',
+      icon: Wrench,
+      stat: `${openMaintenance} open`,
+    },
+    {
+      to: '/workspace/portals/tenant/messages',
+      label: 'Messages',
+      detail: 'Chat directly with your agency or agent',
+      icon: MessageCircle,
+      stat: `${threadCount} thread${threadCount === 1 ? '' : 's'}`,
+    },
+    {
+      to: '/workspace/portals/tenant/complaints',
+      label: 'Complaints',
+      detail: 'Escalate service or conduct issues',
+      icon: AlertTriangle,
+      stat: `${openComplaints} open`,
+    },
+    {
+      to: ACCOUNT_WISHLIST_PATH,
+      label: 'Wishlist',
+      detail: 'Saved homes you are still considering',
+      icon: Heart,
+      stat: 'Saved listings',
+    },
+  ]
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {links.map((link) => {
+        const Icon = link.icon
+        return (
+          <Link
+            key={link.to}
+            to={link.to}
+            className="group cursor-pointer rounded-2xl border border-primary-100 bg-white p-4 shadow-sm transition-colors duration-200 hover:border-primary-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            <Icon className="h-5 w-5 text-primary" strokeWidth={1.6} aria-hidden />
+            <p className="mt-3 font-semibold text-ink group-hover:text-primary">{link.label}</p>
+            <p className="mt-1 text-xs text-ink-500">{link.detail}</p>
+            <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-ink-400">
+              {link.stat}
+            </p>
+          </Link>
+        )
+      })}
+      <Card className="p-4 sm:col-span-2 xl:col-span-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <Bell className="h-5 w-5 text-accent" strokeWidth={1.6} aria-hidden />
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-ink">Agency updates</p>
+            <p className="text-sm text-ink-500">
+              {unread > 0
+                ? `${unread} unread notification${unread === 1 ? '' : 's'}`
+                : 'You are up to date with agency notifications.'}
+            </p>
+          </div>
+        </div>
+      </Card>
+    </div>
+  )
+}
+
+function PaymentsPanel({
+  payments,
+  onPay,
+  canPay,
+}: {
+  payments: ReturnType<typeof useTenantPortalState>['payments']
+  onPay: (id: string) => void
+  canPay: boolean
+}) {
+  return (
+    <Card className="p-5">
+      <h2 className="font-display text-lg font-semibold">Payments due</h2>
+      <ul className="mt-3 space-y-2">
+        {payments.slice(0, 5).map((p) => (
+          <li
+            key={p.id}
+            className="flex items-center justify-between rounded-xl bg-primary-50 px-3 py-2 text-sm"
+          >
+            <div>
+              <p className="font-medium">{p.type}</p>
+              <p className="text-xs text-ink-400">Due {p.dueDate}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="tabular font-semibold">{formatZAR(p.amount)}</span>
+              {p.status === 'Paid' ? (
+                <Badge tone="success">Paid</Badge>
+              ) : canPay ? (
+                <Button size="sm" className="cursor-pointer" onClick={() => onPay(p.id)}>
+                  Pay
+                </Button>
+              ) : (
+                <Badge tone="warning">{p.status}</Badge>
+              )}
+            </div>
+          </li>
+        ))}
+        {payments.length === 0 && <li className="text-sm text-ink-400">No payments yet.</li>}
+      </ul>
+    </Card>
   )
 }
 
@@ -392,7 +385,12 @@ function ApplicationsPanel({
                         <div className="flex items-center gap-2">
                           <Badge tone={statusTone(d.status)}>{d.status}</Badge>
                           {d.status === 'required' && (
-                            <Button size="sm" variant="secondary" onClick={() => onUpload(a.id, d.key)}>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="cursor-pointer"
+                              onClick={() => onUpload(a.id, d.key)}
+                            >
                               Upload
                             </Button>
                           )}
@@ -441,11 +439,11 @@ function WishlistPanel({
     <Card className="p-5">
       <div className="flex items-start justify-between gap-3">
         <h2 className="flex items-center gap-2 font-display text-lg font-semibold">
-          <Heart className="h-5 w-5 text-accent" /> Wishlist
+          <Heart className="h-5 w-5 text-accent" strokeWidth={1.6} aria-hidden /> Wishlist
         </h2>
         <Link
-          to="/saved"
-          className="min-h-11 cursor-pointer inline-flex items-center text-sm font-semibold text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          to={ACCOUNT_WISHLIST_PATH}
+          className="inline-flex min-h-11 cursor-pointer items-center text-sm font-semibold text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           Open wishlist
         </Link>
@@ -460,7 +458,7 @@ function WishlistPanel({
       ) : (
         <div className="mt-4">
           <WishlistListView
-            properties={properties}
+            properties={properties.slice(0, 4)}
             expandedId={expandedId}
             onToggle={(p) => setExpandedId((id) => (id === p.id ? null : p.id))}
             reducedMotion={reducedMotion}

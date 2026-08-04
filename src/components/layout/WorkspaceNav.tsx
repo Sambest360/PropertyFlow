@@ -7,8 +7,11 @@ import {
   Heart,
   LayoutDashboard,
   LogOut,
+  MessageCircle,
   PanelLeftClose,
   PanelLeftOpen,
+  Wrench,
+  AlertTriangle,
 } from 'lucide-react'
 import { BrandLogo } from './BrandLogo'
 import { cn } from '../ui'
@@ -22,6 +25,9 @@ import {
   type WorkspaceNavEntry,
 } from './navigation'
 import { useAuth } from '../../context/AuthContext'
+import { useStore } from '../../context/AppStore'
+import { ACCOUNT_WISHLIST_PATH } from '../../lib/accountRoutes'
+import { tenantHasApprovedOccupancy } from '../../lib/tenantOccupancy'
 import { usePrefersReducedMotion } from '../../hooks/useScrollMotion'
 import { useNavCollapsed } from '../../hooks/useNavCollapsed'
 
@@ -30,7 +36,8 @@ const ICON_STROKE = 1.6
 const ACTIVE_OVERLAP_PX = 10
 
 export function useWorkspaceNav(): WorkspaceNavEntry[] {
-  const { has, hasAny, role } = useAuth()
+  const { has, hasAny, role, user } = useAuth()
+  const { state } = useStore()
   return useMemo(() => {
     const filtered = filterWorkspaceNav(getWorkspaceNav(), has, hasAny)
     // Portal actors: Dashboard is their portal home — drop the redundant Portals group.
@@ -46,6 +53,7 @@ export function useWorkspaceNav(): WorkspaceNavEntry[] {
 
     // Tenants: surface Applications + Wishlist as top-level links (ops stay permission-gated).
     if (role === 'tenant') {
+      const occupancyReady = tenantHasApprovedOccupancy(state.applications, state.tenancies, user)
       const dashboard: WorkspaceNavEntry = {
         type: 'link',
         item: {
@@ -67,18 +75,49 @@ export function useWorkspaceNav(): WorkspaceNavEntry[] {
       const wishlist: WorkspaceNavEntry = {
         type: 'link',
         item: {
-          to: '/saved',
+          to: ACCOUNT_WISHLIST_PATH,
           label: 'Wishlist',
           permission: 'portal.tenant',
           icon: Heart,
         },
       }
+      const occupancyLinks: WorkspaceNavEntry[] = occupancyReady
+        ? [
+            {
+              type: 'link',
+              item: {
+                to: '/workspace/portals/tenant/maintenance',
+                label: 'Maintenance',
+                permission: 'maintenance.view',
+                icon: Wrench,
+              },
+            },
+            {
+              type: 'link',
+              item: {
+                to: '/workspace/portals/tenant/messages',
+                label: 'Messages',
+                permission: 'messages.manage',
+                icon: MessageCircle,
+              },
+            },
+            {
+              type: 'link',
+              item: {
+                to: '/workspace/portals/tenant/complaints',
+                label: 'Complaints',
+                permission: 'maintenance.view',
+                icon: AlertTriangle,
+              },
+            },
+          ]
+        : []
       const rest = filtered.filter((entry) => {
         if (entry.type === 'group' && entry.group.id === 'portals') return false
         if (entry.type === 'link' && entry.item.to === '/workspace' && entry.item.end) return false
         return true
       })
-      return [dashboard, applications, wishlist, ...rest]
+      return [dashboard, applications, wishlist, ...occupancyLinks, ...rest]
     }
 
     return filtered
@@ -92,7 +131,7 @@ export function useWorkspaceNav(): WorkspaceNavEntry[] {
         return entry
       })
       .filter((entry) => !(entry.type === 'group' && entry.group.id === 'portals'))
-  }, [has, hasAny, role])
+  }, [has, hasAny, role, user, state.applications, state.tenancies])
 }
 
 function NavItemLink({

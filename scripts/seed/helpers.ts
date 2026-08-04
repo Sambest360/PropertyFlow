@@ -57,7 +57,20 @@ export function loadSeedEnv(): SeedEnv {
 }
 
 export function createPgPool(directUrl: string): pg.Pool {
-  return new pg.Pool({ connectionString: directUrl, ssl: directUrl.includes('supabase') ? { rejectUnauthorized: false } : undefined })
+  const isLocal = /@(localhost|127\.0\.0\.1)(:|\/|$)/.test(directUrl)
+  if (isLocal) {
+    return new pg.Pool({ connectionString: directUrl })
+  }
+
+  // Strip sslmode from URL so pg uses our ssl config (avoids cert chain errors on Supabase pooler).
+  const connectionString = directUrl
+    .replace(/([?&])sslmode=[^&]*&?/g, (_, sep) => (sep === '?' ? '?' : ''))
+    .replace(/[?&]$/, '')
+
+  return new pg.Pool({
+    connectionString,
+    ssl: { rejectUnauthorized: false },
+  })
 }
 
 export function createAdminClient(env: SeedEnv): SupabaseClient {
@@ -207,10 +220,15 @@ export async function upsertEntityMap(
   frontendId: string,
   backendId: string,
 ) {
-  const { error } = await admin.from('entity_id_map').upsert(
-    { entity_type: entityType, frontend_id: frontendId, backend_id: backendId },
-    { onConflict: 'entity_type,frontend_id' },
-  )
+  // Auth trigger may insert a random frontend_id — replace mapping for this backend row.
+  await admin.from('entity_id_map').delete().eq('entity_type', entityType).eq('backend_id', backendId)
+  await admin.from('entity_id_map').delete().eq('entity_type', entityType).eq('frontend_id', frontendId)
+
+  const { error } = await admin.from('entity_id_map').insert({
+    entity_type: entityType,
+    frontend_id: frontendId,
+    backend_id: backendId,
+  })
   if (error) throw error
 }
 

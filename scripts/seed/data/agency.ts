@@ -51,31 +51,3 @@ export const AGENCY = {
     focus: ['Tamboerskloof', 'Gardens', 'Oranjezicht', 'Vredehoek', 'De Waterkant'],
   },
 }
-
-export const LOOKUP_CONFIGS: Array<{
-  config_type: string
-  key_value: string
-  display_label: string
-  sort_order: number
-}> = [
-  { config_type: 'PROPERTY_STATUS', key_value: 'ACTIVE', display_label: 'Active', sort_order: 1 },
-  { config_type: 'PROPERTY_STATUS', key_value: 'UNDER_MANAGEMENT', display_label: 'Under management', sort_order: 2 },
-  { config_type: 'PROPERTY_STATUS', key_value: 'ARCHIVED', display_label: 'Archived', sort_order: 3 },
-  { config_type: 'UNIT_STATUS', key_value: 'AVAILABLE', display_label: 'Available', sort_order: 1 },
-  { config_type: 'UNIT_STATUS', key_value: 'RESERVED', display_label: 'Reserved', sort_order: 2 },
-  { config_type: 'UNIT_STATUS', key_value: 'OCCUPIED', display_label: 'Occupied', sort_order: 3 },
-  { config_type: 'UNIT_STATUS', key_value: 'MAINTENANCE', display_label: 'Maintenance', sort_order: 4 },
-  { config_type: 'UNIT_STATUS', key_value: 'OFF_MARKET', display_label: 'Off market', sort_order: 5 },
-  { config_type: 'TICKET_CATEGORY', key_value: 'PLUMBING', display_label: 'Plumbing', sort_order: 1 },
-  { config_type: 'TICKET_CATEGORY', key_value: 'ELECTRICAL', display_label: 'Electrical', sort_order: 2 },
-  { config_type: 'TICKET_CATEGORY', key_value: 'HVAC', display_label: 'HVAC', sort_order: 3 },
-  { config_type: 'TICKET_CATEGORY', key_value: 'GENERAL', display_label: 'General', sort_order: 4 },
-  { config_type: 'TICKET_CATEGORY', key_value: 'APPLIANCE', display_label: 'Appliance', sort_order: 5 },
-  { config_type: 'ROOM_KIND', key_value: 'bedroom', display_label: 'Bedroom', sort_order: 1 },
-  { config_type: 'ROOM_KIND', key_value: 'bathroom', display_label: 'Bathroom', sort_order: 2 },
-  { config_type: 'ROOM_KIND', key_value: 'kitchen', display_label: 'Kitchen', sort_order: 3 },
-  { config_type: 'ROOM_KIND', key_value: 'living', display_label: 'Living / Lounge', sort_order: 4 },
-  { config_type: 'ASSET_TYPE', key_value: 'APPLIANCE', display_label: 'Appliance', sort_order: 1 },
-  { config_type: 'ASSET_TYPE', key_value: 'FURNITURE', display_label: 'Furniture', sort_order: 2 },
-  { config_type: 'ASSET_TYPE', key_value: 'ELECTRONICS', display_label: 'Electronics', sort_order: 3 },
-]

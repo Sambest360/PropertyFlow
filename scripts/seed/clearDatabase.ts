@@ -129,6 +129,22 @@ async function resolveSuperAdmin(
   }
 
   if (!appUserId) {
+    console.warn(`Repairing missing public.users row for super admin ${email}`)
+    const { rows: inserted } = await pool.query<{ id: string }>(
+      `INSERT INTO users (
+         id, auth_user_id, client_id, email, first_name, last_name, role, active, metadata, updated_at
+       ) VALUES (
+         gen_random_uuid(), $1, NULL, lower($2), 'Super', 'Admin', 'SUPER_ADMIN', TRUE,
+         '{"frontend_id":"u-super","frontend_role":"super_admin","mustChangePassword":false}'::jsonb,
+         NOW()
+       )
+       RETURNING id`,
+      [authUser.id, email],
+    )
+    appUserId = inserted[0]?.id
+  }
+
+  if (!appUserId) {
     throw new Error(`Super admin public.users row not found for ${email}`)
   }
 

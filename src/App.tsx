@@ -10,6 +10,7 @@ import { RequirePermission } from './components/RequirePermission'
 
 import MarketHome from './pages/market/MarketHome'
 import BrowsePage from './pages/market/BrowsePage'
+import SavedPage from './pages/market/SavedPage'
 import ListingDetail from './pages/market/ListingDetail'
 import CalculatorsPage from './pages/market/CalculatorsPage'
 
@@ -36,6 +37,7 @@ const PaymentDetail = lazy(() => import('./pages/PaymentDetail'))
 const Reports = lazy(() => import('./pages/Reports'))
 const OwnerPortal = lazy(() => import('./pages/OwnerPortal'))
 const TenantPortal = lazy(() => import('./pages/TenantPortal'))
+const AccountWishlistPage = lazy(() => import('./pages/account/AccountWishlistPage'))
 const ContractorPortal = lazy(() => import('./pages/ContractorPortal'))
 const StaffDirectory = lazy(() => import('./pages/StaffDirectory'))
 const StaffDetail = lazy(() => import('./pages/StaffDetail'))
@@ -98,7 +100,7 @@ export default function App() {
                 <Route index element={<MarketHome />} />
                 <Route path="browse" element={<BrowsePage />} />
                 <Route path="listing/:id" element={<ListingDetail />} />
-                <Route path="saved" element={<BrowsePage />} />
+                <Route path="saved" element={<SavedPage />} />
                 <Route path="calculators/*" element={<CalculatorsPage />} />
               </Route>
 
@@ -176,6 +178,10 @@ export default function App() {
                 <Route path="portals/owner" element={<Guard permission="portal.owner"><OwnerPortal /></Guard>} />
                 <Route path="portals/tenant" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
                 <Route path="portals/tenant/applications" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
+                <Route path="portals/tenant/maintenance" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
+                <Route path="portals/tenant/messages" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
+                <Route path="portals/tenant/complaints" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
+                <Route path="account/wishlist" element={<AccountWishlistPage />} />
                 <Route path="portals/contractor" element={<Guard permission="portal.contractor"><ContractorPortal /></Guard>} />
 
                 {/* People */}

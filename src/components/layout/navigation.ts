@@ -20,6 +20,7 @@ import {
   MessageSquare,
 } from 'lucide-react'
 import type { Permission } from '../../types/domain'
+import { ACCOUNT_WISHLIST_PATH } from '../../lib/accountRoutes'
 
 export type FlatNavItem = {
   to: string
@@ -195,7 +196,7 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
             icon: ClipboardList,
           },
           {
-            to: '/saved',
+            to: ACCOUNT_WISHLIST_PATH,
             label: 'Wishlist',
             permission: 'portal.tenant',
             icon: Heart,

@@ -1,8 +1,10 @@
 /**
  * Supabase bootstrap — mirrors server/bootstrap.ts for AppStore hydration.
  */
-import { createClient } from '../../utils/supabase/client'
+import { GLOBAL_CLIENT_ID } from '../../data/platformLookups'
+import type { LookupConfig } from '../../data/infrastructure'
 import type { PostgresBootstrap } from '../api/postgresClient'
+import { createClient } from '../../utils/supabase/client'
 import {
   buildIdMapCache,
   EMAIL_TO_USER,
@@ -196,6 +198,7 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
     activitiesRes,
     propertyEventsRes,
     invoicesRes,
+    lookupsRes,
   ] = await Promise.all([
     supabase.from('entity_id_map').select('entity_type, backend_id, frontend_id'),
     supabase.from('clients').select('id, company_name, subdomain, status, city, created_at, settings'),
@@ -245,6 +248,11 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
     skipHeavy
       ? Promise.resolve({ data: [] as Record<string, unknown>[] })
       : supabase.from('invoices').select('*').order('created_at', { ascending: false }),
+    supabase
+      .from('client_lookup_configs')
+      .select('id, client_id, config_type, key_value, display_label, is_active, sort_order, meta')
+      .order('config_type')
+      .order('sort_order'),
   ])
 
   const clients = clientsRes.data ?? []
@@ -265,7 +273,12 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
   const mapAgencyFe = (id: string | null | undefined) => mapAgency(cache, id)
   const mapPropertyFe = (id: string | null | undefined) => mapProperty(cache, id)
 
-  const agencies = clients.map((c) => ({
+  const agencies = clients
+    .filter((c) => {
+      const settings = (c.settings as Record<string, unknown> | null) ?? {}
+      return settings.frontend_id !== GLOBAL_CLIENT_ID && !settings.isGlobalConfigClient
+    })
+    .map((c) => ({
     id: mappedFe(cache, 'agency', c.id, c.id),
     name: c.company_name,
     slug: c.subdomain,
@@ -324,7 +337,9 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
     createdAt: dateOnly(b.created_at),
   }))
 
-  const buildingByUuid = new Map((buildingsRes.data ?? []).map((b) => [b.id, b]))
+  const buildingByUuid = new Map(
+    (buildingsRes.data ?? []).map((b) => [b.id, b] as [string, (typeof buildingsRes.data)[number]]),
+  )
   const feBuildingByUuid = new Map(
     (buildingsRes.data ?? []).map((b) => [b.id, mappedFe(cache, 'building', b.id, b.id)]),
   )
@@ -728,6 +743,27 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
     createdAt: iso(inv.created_at as string)!,
   }))
 
+  const lookups: LookupConfig[] = (lookupsRes.data ?? []).map((row, i) => {
+    const meta = (row.meta as Record<string, unknown> | null) ?? {}
+    const feClient =
+      typeof meta.frontend_client_id === 'string' && meta.frontend_client_id
+        ? meta.frontend_client_id
+        : mapAgencyFe(row.client_id as string) ?? GLOBAL_CLIENT_ID
+    const feId =
+      typeof meta.frontend_id === 'string' && meta.frontend_id
+        ? meta.frontend_id
+        : mappedFe(cache, 'lookup', row.id as string, `lk-pg-${i + 1}`)
+    return {
+      id: feId,
+      clientId: feClient,
+      configType: String(row.config_type),
+      keyValue: String(row.key_value),
+      displayLabel: String(row.display_label),
+      isActive: Boolean(row.is_active),
+      sortOrder: Number(row.sort_order) || 0,
+    }
+  })
+
   return {
     source: 'postgres',
     fetchedAt: new Date().toISOString(),
@@ -751,5 +787,6 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
     activities,
     propertyEvents,
     invoices,
+    lookups,
   }
 }

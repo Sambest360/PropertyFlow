@@ -4,6 +4,7 @@
 import { createClient } from '../../utils/supabase/client'
 import type { EntityType } from '../api/persistTypes'
 import type { PersistAction, PersistOp } from '../api/persist'
+import { GLOBAL_CLIENT_ID } from '../../data/platformLookups'
 import { ROLE_TO_DB } from './idMap'
 
 const UUID_RE =
@@ -52,7 +53,11 @@ async function resolveUuid(entityType: EntityType | 'agency', frontendId: string
 
 async function clientUuid(agencyId: unknown): Promise<string | null> {
   if (!agencyId) return null
-  return resolveUuid('agency', String(agencyId))
+  const feId = String(agencyId)
+  if (feId === GLOBAL_CLIENT_ID) {
+    return resolveUuid('agency', GLOBAL_CLIENT_ID)
+  }
+  return resolveUuid('agency', feId)
 }
 
 async function userUuid(feId: unknown): Promise<string | null> {
@@ -566,6 +571,31 @@ async function deleteEntity(resource: EntityType, id: string): Promise<void> {
   await supabase.from(table).delete().eq('id', uuid)
 }
 
+async function upsertLookup(id: string, data: Record<string, unknown>): Promise<void> {
+  const supabase = createClient()
+  const uuid = await ensureUuid('lookup', id)
+  const clientId = await clientUuid(data.clientId)
+  if (!clientId) throw new Error('lookup requires a valid clientId / agencyId')
+
+  const { error } = await supabase.from('client_lookup_configs').upsert(
+    {
+      id: uuid,
+      client_id: clientId,
+      config_type: str(data.configType, 'CUSTOM'),
+      key_value: str(data.keyValue, id),
+      display_label: str(data.displayLabel, str(data.keyValue, id)),
+      is_active: data.isActive !== false,
+      sort_order: num(data.sortOrder) ?? 0,
+      meta: {
+        frontend_id: id,
+        frontend_client_id: String(data.clientId ?? ''),
+      },
+    },
+    { onConflict: 'id' },
+  )
+  if (error) throw error
+}
+
 async function upsertEntity(
   resource: EntityType,
   id: string,
@@ -608,6 +638,8 @@ async function upsertEntity(
       return upsertRoom(id, data)
     case 'property':
       return upsertProperty(id, data)
+    case 'lookup':
+      return upsertLookup(id, data)
     default:
       console.warn('[supabase/persist] unhandled resource', resource, id)
   }

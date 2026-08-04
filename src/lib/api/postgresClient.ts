@@ -33,6 +33,7 @@ export type PostgresBootstrap = {
   activities?: unknown[]
   propertyEvents?: unknown[]
   invoices?: unknown[]
+  lookups?: unknown[]
 }
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''

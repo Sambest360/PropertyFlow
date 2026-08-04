@@ -166,6 +166,13 @@ export const CONFIG_TYPE_DEFS: ConfigTypeDef[] = [
     requiredKeys: ['Pending Move-In', 'Active', 'Ended'],
   },
   {
+    type: 'MEDIA_KIND',
+    label: 'Media / image types',
+    description: 'Listing gallery media kinds (photo, floor plan, video).',
+    group: 'property',
+    requiredKeys: ['IMAGE'],
+  },
+  {
     type: 'AMENITY',
     label: 'Amenities',
     description: 'Property amenity tags.',
@@ -183,7 +190,7 @@ export const CONFIG_TYPE_DEFS: ConfigTypeDef[] = [
 
 type SeedItem = { key: string; label: string }
 
-const PLATFORM_CATALOGUE: Record<string, SeedItem[]> = {
+export const PLATFORM_CATALOGUE: Record<string, SeedItem[]> = {
   PROPERTY_TYPE: [
     { key: 'House', label: 'House' },
     { key: 'Apartment', label: 'Apartment' },
@@ -342,6 +349,12 @@ const PLATFORM_CATALOGUE: Record<string, SeedItem[]> = {
     { key: 'Pending Move-In', label: 'Pending Move-In' },
     { key: 'Active', label: 'Active' },
     { key: 'Ended', label: 'Ended' },
+  ],
+  MEDIA_KIND: [
+    { key: 'IMAGE', label: 'Photo' },
+    { key: 'FLOOR_PLAN', label: 'Floor plan' },
+    { key: 'VIDEO', label: 'Video' },
+    { key: 'OTHER', label: 'Other' },
   ],
   AMENITY: [
     { key: 'Fibre', label: 'Fibre' },

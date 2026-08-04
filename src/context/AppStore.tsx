@@ -172,6 +172,9 @@ function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppSta
       (boot.propertyEvents ?? []) as PropertyEvent[],
     ),
     invoices: pick(base.invoices, (boot.invoices ?? []) as PlatformInvoice[]),
+    lookups: boot.lookups?.length
+      ? (boot.lookups as LookupConfig[])
+      : base.lookups,
   }
 }
 
@@ -888,28 +891,38 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const next = { ...state.lookups.find((l) => l.id === id), ...p, id }
       persistUpsert('lookup', id, next as Record<string, unknown>)
     },
-    reorderLookups: (clientId, configType, orderedIds) =>
+    reorderLookups: (clientId, configType, orderedIds) => {
+      const toPersist: LookupConfig[] = []
       patch((s) => ({
         ...s,
         lookups: s.lookups.map((l) => {
           if (l.clientId !== clientId || l.configType !== configType) return l
           const idx = orderedIds.indexOf(l.id)
           if (idx < 0) return l
-          return { ...l, sortOrder: idx }
+          const next = { ...l, sortOrder: idx }
+          toPersist.push(next)
+          return next
         }),
-      })),
+      }))
+      for (const row of toPersist) {
+        persistUpsert('lookup', row.id, row as unknown as Record<string, unknown>)
+      }
+    },
     deactivateLookup: (id) => {
       let ok = false
+      let next: LookupConfig | undefined
       patch((s) => {
         const target = s.lookups.find((l) => l.id === id)
         if (!target) return s
         if (isRequiredLookupKey(target.configType, target.keyValue)) return s
         ok = true
+        next = { ...target, isActive: false }
         return {
           ...s,
-          lookups: s.lookups.map((l) => (l.id === id ? { ...l, isActive: false } : l)),
+          lookups: s.lookups.map((l) => (l.id === id ? next! : l)),
         }
       })
+      if (ok && next) persistUpsert('lookup', id, next as unknown as Record<string, unknown>)
       return ok
     },
     broadcastNotification: (input) => {

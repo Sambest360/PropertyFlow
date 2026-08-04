@@ -5,6 +5,7 @@ import { BrandLogo } from './BrandLogo'
 import { MobileDrawer } from './MobileDrawer'
 import { marketplaceCategories } from './navigation'
 import { useAuth } from '../../context/AuthContext'
+import { ACCOUNT_WISHLIST_PATH, PUBLIC_SAVED_PATH } from '../../lib/accountRoutes'
 import { initials } from '../dashboard/formatShortDate'
 import { cn } from '../ui'
 
@@ -24,6 +25,7 @@ export function MarketplaceHeader() {
   }
 
   const avatarInitials = initials(user?.name ?? '')
+  const savedPath = isAuthenticated ? ACCOUNT_WISHLIST_PATH : PUBLIC_SAVED_PATH
 
   return (
     <>
@@ -65,7 +67,7 @@ export function MarketplaceHeader() {
 
           <div className={cn('flex items-center gap-1.5 md:ml-0', !q && 'lg:ml-2')}>
             <Link
-              to="/saved"
+              to={savedPath}
               className="hidden min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-full text-ink-500 transition-colors duration-200 hover:bg-primary-50 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:inline-flex"
               aria-label="Saved homes"
             >
