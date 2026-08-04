@@ -7,8 +7,13 @@ import { PasswordField } from '../../components/auth/PasswordField'
 import { Button, Input, cn } from '../../components/ui'
 import { useAuth } from '../../context/AuthContext'
 import { apiAuthBootstrapNeeded } from '../../lib/api/authClient'
-import { supabaseBootstrapNeeded } from '../../lib/supabase/auth'
+import { supabaseBootstrapNeeded, supabaseSignOut } from '../../lib/supabase/auth.js'
 import { isSupabaseMode } from '../../lib/api/config'
+import { isRegistrationRedirectError } from '../../lib/auth/registrationErrors'
+import {
+  redirectToLogin,
+  showRegistrationCompleteAlert,
+} from '../../lib/sweetAlert'
 import {
   CONTRACTOR_REQUIRED_DOCS,
   CONTRACTOR_TRADES,
@@ -201,6 +206,22 @@ export default function RegisterPage() {
     setStep((s) => Math.max(1, s - 1))
   }
 
+  const handleRegistrationRedirect = async (err: unknown) => {
+    if (!isRegistrationRedirectError(err)) return false
+    try {
+      if (isSupabaseMode) await supabaseSignOut()
+      sessionStorage.setItem('pf-register-email', err.email)
+    } catch {
+      /* ignore */
+    }
+    await showRegistrationCompleteAlert({ email: err.email, kind: err.kind })
+    redirectToLogin(
+      params.get('next'),
+      err.kind === 'email_confirmation' ? 'confirm-email' : 'ready',
+    )
+    return true
+  }
+
   const submitBootstrap = async () => {
     setBusy(true)
     try {
@@ -214,6 +235,7 @@ export default function RegisterPage() {
       })
       navigate(postRegisterPath('super_admin', result.bootstrap, next), { replace: true })
     } catch (err) {
+      if (await handleRegistrationRedirect(err)) return
       setError(err instanceof Error ? err.message : 'Registration failed')
     } finally {
       setBusy(false)
@@ -271,6 +293,7 @@ export default function RegisterPage() {
       })
       navigate(postRegisterPath(role, result.bootstrap, next), { replace: true })
     } catch (err) {
+      if (await handleRegistrationRedirect(err)) return
       setError(err instanceof Error ? err.message : 'Registration failed')
     } finally {
       setBusy(false)

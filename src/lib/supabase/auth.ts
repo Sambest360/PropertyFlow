@@ -1,8 +1,9 @@
 import { createClient } from '../../utils/supabase/client'
 import { isSupabaseConfigured } from '../../utils/supabase/env'
+import { RegistrationRedirectError } from '../auth/registrationErrors'
 import type { AppUser, Role } from '../../types/domain'
 import type { UserVerification } from '../verification'
-import { ROLE_FROM_DB } from './idMap'
+import { ROLE_FROM_DB } from './idMap.js'
 import type { AuthUserDto } from '../api/authClient'
 
 export function supabaseAuthEnabled(): boolean {
@@ -166,9 +167,9 @@ async function ensureSessionAfterSignUp(
       lower.includes('not confirmed') ||
       lower.includes('verification')
     ) {
-      throw new Error('Account created — check your email to confirm, then sign in.')
+      throw new RegistrationRedirectError('email_confirmation', email.trim())
     }
-    throw new Error('Account created — sign in with your email and password to continue.')
+    throw new RegistrationRedirectError('sign_in_required', email.trim())
   }
   return data.user?.id ?? authUserId
 }

@@ -1,12 +1,15 @@
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useEffect, useState, type FormEvent } from 'react'
+import { CheckCircle2 } from 'lucide-react'
 import { AuthError, AuthField, AuthShell } from '../../components/auth/AuthShell'
 import { PasswordField } from '../../components/auth/PasswordField'
 import { Button, Input } from '../../components/ui'
 import { useAuth } from '../../context/AuthContext'
 import { apiAuthBootstrapNeeded } from '../../lib/api/authClient'
-import { supabaseBootstrapNeeded } from '../../lib/supabase/auth'
+import { supabaseBootstrapNeeded } from '../../lib/supabase/auth.js'
 import { isSupabaseMode } from '../../lib/api/config'
+
+const ICON_STROKE = 1.6
 
 export default function LoginPage() {
   const { login, isAuthenticated, authReady } = useAuth()
@@ -20,9 +23,22 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [bootstrapNeeded, setBootstrapNeeded] = useState(false)
+  const registered = params.get('registered')
 
   useEffect(() => {
     void (isSupabaseMode ? supabaseBootstrapNeeded() : apiAuthBootstrapNeeded()).then(setBootstrapNeeded)
+  }, [])
+
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem('pf-register-email')
+      if (saved) {
+        setEmail(saved)
+        sessionStorage.removeItem('pf-register-email')
+      }
+    } catch {
+      /* ignore */
+    }
   }, [])
 
   if (authReady && isAuthenticated) {
@@ -56,7 +72,19 @@ export default function LoginPage() {
         'Listings live on the public marketplace',
       ]}
       bootstrapBanner={
-        bootstrapNeeded ? (
+        registered === 'confirm-email' ? (
+          <p className="mt-4 flex items-start gap-2.5 rounded-2xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-ink-700">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" strokeWidth={ICON_STROKE} aria-hidden />
+            <span>
+              Account created — check your email to confirm, then sign in below.
+            </span>
+          </p>
+        ) : registered === 'ready' ? (
+          <p className="mt-4 flex items-start gap-2.5 rounded-2xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-ink-700">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" strokeWidth={ICON_STROKE} aria-hidden />
+            <span>Your account is ready — sign in with the email and password you created.</span>
+          </p>
+        ) : bootstrapNeeded ? (
           <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             No users yet —{' '}
             <Link to="/register" className="font-semibold underline">
