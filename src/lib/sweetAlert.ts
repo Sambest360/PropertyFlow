@@ -1,4 +1,4 @@
-import Swal, { type SweetAlertIcon, type SweetAlertOptions } from 'sweetalert2'import Swal, { type SweetAlertIcon, type SweetAlertOptions, type SweetAlertResult } from 'sweetalert2'
+import Swal, { type SweetAlertIcon, type SweetAlertOptions, type SweetAlertResult } from 'sweetalert2'
 
 const baseOptions = {
   customClass: {
