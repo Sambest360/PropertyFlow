@@ -54,6 +54,30 @@ export const CLIENT_TO_AGENCY: Record<string, string> = {
     END_USER: 'tenant',
     CONTRACTOR: 'contractor',
   }
+
+  /** Staff DB roles must not be demoted by stale metadata (e.g. after self-registration). */
+  const DB_ROLE_OVERRIDES_META = new Set([
+    'SUPER_ADMIN',
+    'AGENCY_ADMIN',
+    'AGENT_ADMIN',
+    'GROUND_AGENT',
+  ])
+
+  export function resolveFrontendRole(
+    dbRole: string,
+    meta: Record<string, unknown> | null | undefined,
+  ): string {
+    const fromDb = ROLE_FROM_DB[dbRole]
+    if (fromDb && DB_ROLE_OVERRIDES_META.has(dbRole)) {
+      return fromDb
+    }
+    const metaRole =
+      typeof meta?.frontend_role === 'string' && meta.frontend_role.trim()
+        ? meta.frontend_role.trim()
+        : ''
+    if (metaRole) return metaRole
+    return fromDb ?? 'tenant'
+  }
   
   export const ROLE_TO_DB: Record<string, string> = {
     super_admin: 'SUPER_ADMIN',

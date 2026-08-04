@@ -12,7 +12,7 @@ import {
   mapAgency,
   mapProperty,
   mapUser,
-  ROLE_FROM_DB,
+  resolveFrontendRole,
   type IdMapCache,
 } from './idMap'
 
@@ -290,10 +290,7 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
 
   const appUsers = users.map((u) => {
     const meta = (u.metadata as Record<string, unknown> | null) ?? {}
-    const feRole =
-      typeof meta.frontend_role === 'string' && meta.frontend_role
-        ? meta.frontend_role
-        : ROLE_FROM_DB[u.role as RoleDb] ?? 'tenant'
+    const feRole = resolveFrontendRole(u.role as RoleDb, meta)
     const verification =
       meta.verification && typeof meta.verification === 'object' ? meta.verification : undefined
     return {

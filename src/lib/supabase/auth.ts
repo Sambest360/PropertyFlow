@@ -3,7 +3,7 @@ import { isSupabaseConfigured } from '../../utils/supabase/env'
 import { RegistrationRedirectError } from '../auth/registrationErrors'
 import type { AppUser, Role } from '../../types/domain'
 import type { UserVerification, VerificationDocument } from '../verification'
-import { EMAIL_TO_USER, ROLE_FROM_DB } from './idMap.js'
+import { EMAIL_TO_USER, resolveFrontendRole } from './idMap.js'
 import type { AuthUserDto } from '../api/authClient'
 
 export function supabaseAuthEnabled(): boolean {
@@ -26,10 +26,7 @@ function rowToAppUser(row: {
     typeof meta.frontend_id === 'string' && meta.frontend_id
       ? meta.frontend_id
       : EMAIL_TO_USER[row.email.toLowerCase()] ?? ''
-  const feRole =
-    typeof meta.frontend_role === 'string' && meta.frontend_role
-      ? meta.frontend_role
-      : ROLE_FROM_DB[row.role] ?? 'tenant'
+  const feRole = resolveFrontendRole(row.role, meta)
   const verification =
     meta.verification && typeof meta.verification === 'object'
       ? (meta.verification as UserVerification)
