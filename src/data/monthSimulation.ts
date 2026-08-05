@@ -21,7 +21,6 @@ import type {
   ViewingSlot,
 } from '../types/domain'
 import { DEMO_SAMPLE_FILES } from '../lib/api/documents'
-import { buildDocumentChecklist } from '../lib/workflow'
 
 /** Anchor “today” for the demo month (matches user_info / seed). */
 export const SIM_TODAY = '2026-07-26'
@@ -94,57 +93,7 @@ export const monthLeads: Lead[] = [
   },
 ]
 
-export const monthApplications: Application[] = [
-  {
-    id: 'APP-904',
-    agencyId: 'ag-cape',
-    propertyId: 'PR-1005',
-    agentId: 'u-zane',
-    applicantUserId: null,
-    applicantName: 'Riaan Botha',
-    email: 'riaan.b@email.com',
-    phone: '+27 82 333 4411',
-    type: 'Rental',
-    stage: 'Documents Pending',
-    progress: 25,
-    income: 52_000,
-    employment: 'NMU — Lecturer',
-    creditCheck: 'Not Started',
-    creditConsent: false,
-    documents: buildDocumentChecklist('Rental').map((d, i) => ({
-      ...d,
-      status: i < 1 ? 'uploaded' : 'required',
-    })),
-    docs: ['ID'],
-    viewingSlotId: null,
-    notes: 'Summerstrand student block enquiry.',
-    submittedAt: '2026-07-08',
-    updatedAt: '2026-07-15',
-  },
-  {
-    id: 'APP-905',
-    agencyId: 'ag-garden',
-    propertyId: 'PR-1011',
-    agentId: 'u-leigh',
-    applicantUserId: null,
-    applicantName: 'Sarie du Plessis',
-    email: 'sarie.dp@email.com',
-    phone: '+27 44 555 9911',
-    type: 'Purchase',
-    stage: 'Credit Check',
-    progress: 60,
-    income: 95_000,
-    employment: 'Self-employed — tourism',
-    creditCheck: 'In Progress',
-    creditConsent: true,
-    documents: buildDocumentChecklist('Purchase').map((d) => ({ ...d, status: 'uploaded' })),
-    docs: ['ID', 'Payslips', 'Bank Statements'],
-    viewingSlotId: 'VS-4',
-    notes: 'Bond application with Absa.',
-    submittedAt: '2026-07-12',
-    updatedAt: '2026-07-22',
-  },
-]
+export const monthApplications: Application[] = []
 
 export const monthViewingSlots: ViewingSlot[] = [
   {

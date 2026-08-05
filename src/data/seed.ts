@@ -16,7 +16,6 @@ import type {
   AppNotification,
   Activity,
 } from '../types/domain'
-import { buildDocumentChecklist } from '../lib/workflow'
 import { DEMO_SAMPLE_FILES } from '../lib/api/documents'
 import {
   monthActivities,
@@ -656,89 +655,8 @@ export const seedLeads: Lead[] = [
   ...monthLeads,
 ]
 
-export const seedApplications: Application[] = [
-  {
-    id: 'APP-901',
-    agencyId: 'ag-horizon',
-    propertyId: 'PR-1001',
-    agentId: 'u-lerato',
-    applicantUserId: null,
-    applicantName: 'Nomsa Dlamini',
-    email: 'nomsa.d@email.com',
-    phone: '+27 71 883 1102',
-    type: 'Purchase',
-    stage: 'Under Review',
-    progress: 55,
-    income: 85_000,
-    employment: 'Absa — Senior Analyst',
-    creditCheck: 'Consent Received',
-    creditConsent: true,
-    documents: buildDocumentChecklist('Purchase').map((d, i) => ({
-      ...d,
-      status: i < 4 ? 'uploaded' : 'required',
-    })),
-    docs: ['ID', 'Payslips', 'Bank Statements'],
-    viewingSlotId: null,
-    notes: '',
-    submittedAt: '2026-07-21',
-    updatedAt: '2026-07-21',
-  },
-  {
-    id: 'APP-902',
-    agencyId: 'ag-horizon',
-    propertyId: 'PR-1002',
-    agentId: 'u-james',
-    applicantUserId: null,
-    applicantName: 'Fatima Jacobs',
-    email: 'fatima.j@email.com',
-    phone: '+27 84 112 7788',
-    type: 'Rental',
-    stage: 'Credit Check',
-    progress: 65,
-    income: 48_000,
-    employment: 'Deloitte — Consultant',
-    creditCheck: 'In Progress',
-    creditConsent: true,
-    documents: buildDocumentChecklist('Rental').map((d) => ({ ...d, status: 'uploaded' })),
-    docs: ['ID', 'Payslips', 'Employment Letter', 'Bank Statements', 'Credit consent'],
-    viewingSlotId: 'VS-1',
-    notes: '',
-    submittedAt: '2026-07-19',
-    updatedAt: '2026-07-22',
-  },
-  {
-    id: 'APP-903',
-    agencyId: 'ag-horizon',
-    propertyId: 'PR-1002',
-    agentId: 'u-james',
-    applicantUserId: 'u-lucas',
-    applicantName: 'Lucas Pretorius',
-    email: 'lucas@email.com',
-    phone: '+27 82 100 2000',
-    type: 'Rental',
-    stage: 'Active Tenancy',
-    progress: 100,
-    income: 42_000,
-    employment: 'Retail manager',
-    creditCheck: 'Passed',
-    creditConsent: true,
-    documents: buildDocumentChecklist('Rental').map((d) => ({ ...d, status: 'verified' })),
-    docs: ['All verified'],
-    viewingSlotId: null,
-    notes: 'Moved in successfully',
-    moveInDate: '2026-06-01',
-    keyCollection: {
-      location: 'Horizon Realty — Walmer office',
-      instructions: 'Bring ID and signed lease. Collect keys from reception after 09:00.',
-      contactName: 'James Okonkwo',
-      contactPhone: '+27 11 555 0102',
-      emailSentAt: '2026-05-28T10:00:00.000Z',
-    },
-    submittedAt: '2026-05-10',
-    updatedAt: '2026-06-01',
-  },
-  ...monthApplications,
-]
+/** Empty by default — apply from the marketplace with your own account. */
+export const seedApplications: Application[] = [...monthApplications]
 
 export const seedViewingSlots: ViewingSlot[] = [
   {
