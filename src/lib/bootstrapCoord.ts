@@ -22,11 +22,14 @@ export function shouldSkipAuthBootstrapRefresh(): boolean {
 export function dedupeBootstrapFetch(
   lite: boolean,
   fetcher: () => Promise<PostgresBootstrap | null>,
+  opts?: { force?: boolean },
 ): Promise<PostgresBootstrap | null> {
   if (lite) {
-    if (inflightLite) return inflightLite
-    if (Date.now() - lastLiteAt < LITE_COOLDOWN_MS) {
-      return Promise.resolve(null)
+    if (!opts?.force) {
+      if (inflightLite) return inflightLite
+      if (Date.now() - lastLiteAt < LITE_COOLDOWN_MS) {
+        return Promise.resolve(null)
+      }
     }
     inflightLite = fetcher()
       .then((boot) => {
@@ -39,9 +42,11 @@ export function dedupeBootstrapFetch(
     return inflightLite
   }
 
-  if (inflightFull) return inflightFull
-  if (Date.now() - lastFullAt < FULL_COOLDOWN_MS) {
-    return Promise.resolve(null)
+  if (!opts?.force) {
+    if (inflightFull) return inflightFull
+    if (Date.now() - lastFullAt < FULL_COOLDOWN_MS) {
+      return Promise.resolve(null)
+    }
   }
   inflightFull = fetcher()
     .then((boot) => {

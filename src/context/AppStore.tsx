@@ -110,6 +110,7 @@ import {
   queuePersistBatch,
   queueUpsert,
 } from '../lib/api/persist'
+import { diffNewNotifications, toastsForNewNotifications } from '../lib/notificationSync'
 
 /**
  * App state persistence key.
@@ -216,8 +217,11 @@ export type AppState = {
 type StoreContextValue = {
   state: AppState
   resetDemo: () => void
-  /** Re-fetch /api/bootstrap for the given (or current) demo actor. */
-  refreshBootstrap: (actor?: DemoActor | null) => Promise<void>
+  /** Re-fetch bootstrap for the given (or current) actor. */
+  refreshBootstrap: (
+    actor?: DemoActor | null,
+    opts?: { full?: boolean; force?: boolean; ingestNotifications?: boolean },
+  ) => Promise<void>
   createAgency: (input: Omit<Agency, 'id' | 'createdAt' | 'status'> & { status?: Agency['status']; enabledPermissions?: Agency['enabledPermissions'] }) => Agency
   updateAgency: (id: string, patch: Partial<Agency>) => void
   createUser: (input: Omit<AppUser, 'id' | 'active'> & {
@@ -560,23 +564,43 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const refreshBootstrap = useCallback(async (actor?: DemoActor | null, opts?: { full?: boolean }) => {
+  const refreshBootstrap = useCallback(
+    async (
+      actor?: DemoActor | null,
+      opts?: { full?: boolean; force?: boolean; ingestNotifications?: boolean },
+    ) => {
     const resolved =
       actor === undefined ? actorFromUsers(stateRef.current.users) : actor
     const lite = !opts?.full
     const fetchBoot = () => fetchBootstrapFromApi(lite, resolved, opts?.full ? 20_000 : 10_000)
+    const prevNotifications = stateRef.current.notifications
+    const prevSuiteAlerts = stateRef.current.suiteAlerts
+    const ingestUserId = opts?.ingestNotifications ? resolved?.userId : undefined
 
     if (!isApiEnabled && !isSupabaseMode) {
       setState((prev) => ensureGuestMarketplace(prev))
       return
     }
 
-    const boot = await dedupeBootstrapFetch(lite, fetchBoot)
+    const boot = await dedupeBootstrapFetch(lite, fetchBoot, { force: opts?.force })
     if (!boot) {
       setState((prev) => ensureGuestMarketplace(prev))
       return
     }
     setState((prev) => ensureGuestMarketplace(applyPostgresBootstrap(prev, boot)))
+    if (ingestUserId) {
+      const nextNotes = (boot.notifications as AppNotification[]) ?? []
+      const fresh = diffNewNotifications(prevNotifications, nextNotes, ingestUserId)
+      const newToasts = toastsForNewNotifications(fresh, prevSuiteAlerts)
+      if (newToasts.length) {
+        setToasts((prev) =>
+          [...newToasts, ...prev.filter((t) => !newToasts.some((n) => n.notificationId === t.notificationId))].slice(
+            0,
+            6,
+          ),
+        )
+      }
+    }
     try {
       localStorage.setItem(PG_HYDRATED_FLAG, 'postgres')
     } catch {
@@ -601,7 +625,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         )
       })
     }
-  }, [])
+  },
+  [],
+)
 
   useEffect(() => {
     if (!isApiEnabled && !isSupabaseMode) {
@@ -1726,6 +1752,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       if (input.persist !== false) {
         persistUpsert('lead', lead.id, lead as unknown as Record<string, unknown>)
       }
+      const property = state.properties.find((p) => p.id === lead.propertyId)
+      emitSuiteEvent({
+        agencyId: lead.agencyId,
+        resource: 'applicant',
+        action: 'created',
+        title: 'New lead',
+        body: `${lead.name} — ${property?.title ?? 'property enquiry'}.`,
+        link: `/workspace/sales/crm/leads/${encodeURIComponent(lead.id)}`,
+      })
       return lead
     },
     recordGuestEnquiry: (input) => {
@@ -1772,6 +1807,29 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         }
         return { ...s, leads: [lead, ...s.leads], viewingSlots, viewings }
       })
+      const property = state.properties.find((p) => p.id === lead.propertyId)
+      emitSuiteEvent({
+        agencyId: lead.agencyId,
+        resource: 'applicant',
+        action: 'created',
+        title: input.viewing ? 'Viewing enquiry' : 'New lead',
+        body: `${lead.name} — ${property?.title ?? 'listing'}.`,
+        link: input.viewing
+          ? '/workspace/sales/viewings'
+          : `/workspace/sales/crm/leads/${encodeURIComponent(lead.id)}`,
+      })
+      if (input.viewing) {
+        emitSuiteEvent({
+          agencyId: input.viewing.agencyId,
+          resource: 'viewing',
+          action: 'created',
+          title: 'Viewing booked',
+          body: `${input.viewing.applicantName} scheduled for ${property?.title ?? 'a listing'}.`,
+          link: '/workspace/sales/viewings',
+          includeActor: false,
+        })
+      }
+      persistUpsert('lead', lead.id, lead as unknown as Record<string, unknown>)
     },
     updateLeadStage: (id, stage) => {
       const updatedAt = new Date().toISOString().slice(0, 10)
@@ -1781,6 +1839,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }))
       const prev = state.leads.find((l) => l.id === id)
       if (prev) persistUpsert('lead', id, { ...prev, stage, updatedAt } as unknown as Record<string, unknown>)
+      if (prev && stage !== prev.stage) {
+        emitSuiteEvent({
+          agencyId: prev.agencyId,
+          resource: 'applicant',
+          action: 'updated',
+          title: 'Lead stage changed',
+          body: `${prev.name}: ${prev.stage} → ${stage}`,
+          link: `/workspace/sales/crm/leads/${encodeURIComponent(id)}`,
+        })
+      }
     },
     createApplication: (input) => {
       const property = state.properties.find((p) => p.id === input.propertyId)
@@ -1861,22 +1929,27 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       patch((s) => ({ ...s, applications: [app, ...s.applications] }))
       addActivity(`Application started: ${app.applicantName}`, app.applicantName, app.agencyId)
 
-      // Real-time alert to agency staff (demo: notify client_admin / agent_admin)
-      const recipients = state.users.filter(
-        (u) =>
-          u.agencyId === input.agencyId &&
-          u.active &&
-          (u.role === 'client_admin' || u.role === 'agent_admin' || u.role === 'agent'),
-      )
-      recipients.slice(0, 3).forEach((u) => {
-        notify({
-          userId: u.id,
-          agencyId: input.agencyId,
-          title: 'New application',
-          body: `New ${input.type.toLowerCase()} application for ${property?.title ?? input.propertyId} from ${input.applicantName}.`,
-          link: '/workspace/sales/applications',
-        })
+      emitSuiteEvent({
+        agencyId: input.agencyId,
+        resource: 'applicant',
+        action: 'created',
+        title: 'New application',
+        body: `${input.applicantName} applied for ${property?.title ?? input.propertyId} (${input.type}).`,
+        link: `/workspace/sales/applications/${encodeURIComponent(app.id)}`,
+        actorUserId: input.applicantUserId ?? null,
+        includeActor: false,
       })
+      if (input.applicantUserId) {
+        notify({
+          userId: input.applicantUserId,
+          agencyId: input.agencyId,
+          title: 'Application submitted',
+          body: `Your ${input.type.toLowerCase()} application for ${property?.title ?? 'the listing'} was received.`,
+          link: '/workspace/portals/tenant/applications',
+          resource: 'applicant',
+          action: 'created',
+        })
+      }
 
       persistUpsert('application', app.id, app as unknown as Record<string, unknown>)
       return app
@@ -1896,8 +1969,19 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           action: 'updated',
           title: 'Applicant stage changed',
           body: `${prev.applicantName}: ${prev.stage} → ${p.stage}`,
-          link: `/workspace/properties/${prev.propertyId}?tab=applicants`,
+          link: `/workspace/sales/applications/${encodeURIComponent(id)}`,
         })
+        if (prev.applicantUserId) {
+          notify({
+            userId: prev.applicantUserId,
+            agencyId: prev.agencyId,
+            title: 'Application update',
+            body: `Your application for ${state.properties.find((x) => x.id === prev.propertyId)?.title ?? 'a listing'} is now: ${p.stage}.`,
+            link: '/workspace/portals/tenant/applications',
+            resource: 'applicant',
+            action: 'updated',
+          })
+        }
       }
       if (prev) {
         persistUpsert('application', id, {

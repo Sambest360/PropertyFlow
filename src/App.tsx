@@ -4,6 +4,7 @@ import { SpeedInsights } from '@vercel/speed-insights/react'
 import { ThemeProvider } from './context/ThemeContext'
 import { AppStoreProvider } from './context/AppStore'
 import { AuthProvider } from './context/AuthContext'
+import { LiveSyncBridge } from './hooks/useLiveSync'
 import { SuiteAlertProvider } from './components/alerts/SuiteAlert'
 import { MarketplaceShell, WorkspaceShell } from './components/AppShell'
 import { ScrollToTop } from './components/ScrollToTop'
@@ -90,6 +91,7 @@ export default function App() {
     <ThemeProvider>
       <AppStoreProvider>
         <AuthProvider>
+          <LiveSyncBridge />
           <SuiteAlertProvider>
           <BrowserRouter>
             <ScrollToTop />

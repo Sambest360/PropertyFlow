@@ -1,4 +1,5 @@
-/** Postgres/Hono API: opt-in locally; always on in production builds (Vercel). */import { isSupabaseConfigured } from '../../utils/supabase/env'
+/** Postgres/Hono API: opt-in locally; always on in production builds (Vercel). */
+import { isSupabaseConfigured } from '../../utils/supabase/env'
 
 /** When Supabase env is set, auth + data use the browser client (no Vercel /api). */
 export const isSupabaseMode = isSupabaseConfigured()
