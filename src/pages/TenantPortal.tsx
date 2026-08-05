@@ -8,7 +8,7 @@ import {
   MessageCircle,
   Wrench,
 } from 'lucide-react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, Navigate, useLocation } from 'react-router-dom'
 import { usePublicProperties, useStore } from '../context/AppStore'
 import { useAuth } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
@@ -22,6 +22,7 @@ import { Badge, Button, Card, statusTone } from '../components/ui'
 import { WishlistListView } from '../components/wishlist/WishlistListView'
 import { formatZAR } from '../data/seed'
 import { ACCOUNT_WISHLIST_PATH } from '../lib/accountRoutes'
+import { defaultWorkspacePath } from '../lib/workspaceRoutes'
 import { useTenantPortalState } from '../hooks/useTenantPortalState'
 import { useWishlist } from '../hooks/useWishlist'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
@@ -76,6 +77,10 @@ export default function TenantPortal() {
             : portal.occupancyReady
               ? 'Tenant portal'
               : 'Applicant home'
+
+  if (user.role === 'super_admin') {
+    return <Navigate to={defaultWorkspacePath('super_admin')} replace />
+  }
 
   return (
     <RequirePermission permission="portal.tenant">

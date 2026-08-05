@@ -55,6 +55,12 @@ export const CLIENT_TO_AGENCY: Record<string, string> = {
     CONTRACTOR: 'contractor',
   }
 
+  /** Designated platform super-admin emails — never demote to applicant when DB row is stale. */
+  export const SUPER_ADMIN_EMAILS = new Set([
+    'sambampo200@gmail.com',
+    'super@propertyflow.app',
+  ])
+
   /** Staff DB roles must not be demoted by stale metadata (e.g. after self-registration). */
   const DB_ROLE_OVERRIDES_META = new Set([
     'SUPER_ADMIN',
@@ -66,7 +72,16 @@ export const CLIENT_TO_AGENCY: Record<string, string> = {
   export function resolveFrontendRole(
     dbRole: string,
     meta: Record<string, unknown> | null | undefined,
+    email?: string | null,
   ): string {
+    const normalizedEmail = email?.trim().toLowerCase() ?? ''
+
+    if (normalizedEmail && SUPER_ADMIN_EMAILS.has(normalizedEmail)) {
+      if (dbRole === 'SUPER_ADMIN') return 'super_admin'
+      // Self-registration can leave END_USER + applicant metadata on the super-admin email.
+      return 'super_admin'
+    }
+
     const fromDb = ROLE_FROM_DB[dbRole]
     if (fromDb && DB_ROLE_OVERRIDES_META.has(dbRole)) {
       return fromDb

@@ -68,6 +68,21 @@ function resolveActiveUserId(sessionUserId: string): {
   return { activeUserId: sessionUserId, realUserId: null }
 }
 
+/** Auth session profile wins over bootstrap store for identity fields. */
+function mergeAuthUser(session: AppUser, fromStore: AppUser | null | undefined): AppUser {
+  if (!fromStore || fromStore.id !== session.id) return session
+  return {
+    ...fromStore,
+    ...session,
+    role: session.role,
+    email: session.email,
+    name: session.name,
+    active: session.active,
+    agencyId: session.agencyId,
+    enabledPermissions: session.enabledPermissions ?? fromStore.enabledPermissions,
+  }
+}
+
 function applySessionUser(
   profile: AppUser,
   setSessionUser: (u: AppUser) => void,
@@ -212,19 +227,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     else localStorage.removeItem(REAL_AUTH_KEY)
   }, [realUserId])
 
+  useEffect(() => {
+    if (!isSupabaseMode || !sessionUser) return
+    const impersonating =
+      Boolean(realUserId && realUserId === sessionUser.id && userId && userId !== sessionUser.id)
+    if (impersonating) return
+    if (userId !== sessionUser.id) {
+      setUserId(sessionUser.id)
+      setRealUserId(null)
+      localStorage.setItem(AUTH_KEY, sessionUser.id)
+      localStorage.removeItem(REAL_AUTH_KEY)
+    }
+  }, [sessionUser?.id, userId, realUserId])
+
   const isAuthenticated = Boolean(sessionUser)
 
-  const resolvedFromStore =
-    (userId ? state.users.find((u) => u.id === userId) : null) ??
-    (sessionUser ? state.users.find((u) => u.id === sessionUser.id) : null) ??
-    sessionUser
+  const impersonating =
+    Boolean(sessionUser && realUserId && userId && realUserId === sessionUser.id && userId !== sessionUser.id)
 
-  const user = isAuthenticated ? (resolvedFromStore ?? sessionUser ?? GUEST_USER) : GUEST_USER
+  const storeUser = userId ? state.users.find((u) => u.id === userId) : null
+
+  const user = useMemo(() => {
+    if (!isAuthenticated || !sessionUser) return GUEST_USER
+    if (impersonating && storeUser) return storeUser
+    const fromStore =
+      state.users.find((u) => u.id === sessionUser.id) ??
+      (userId && userId !== sessionUser.id ? storeUser : null)
+    return mergeAuthUser(sessionUser, fromStore)
+  }, [isAuthenticated, sessionUser, impersonating, storeUser, state.users, userId])
+
   const realUser =
     (realUserId ? state.users.find((u) => u.id === realUserId) : null) ??
     sessionUser ??
     user
-  const isImpersonating = Boolean(isAuthenticated && realUserId && realUserId !== user.id)
+  const isImpersonating = impersonating
   const agency = state.agencies.find((a) => a.id === user.agencyId) ?? null
 
   useEffect(() => {

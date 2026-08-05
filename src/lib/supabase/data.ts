@@ -290,7 +290,7 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
 
   const appUsers = users.map((u) => {
     const meta = (u.metadata as Record<string, unknown> | null) ?? {}
-    const feRole = resolveFrontendRole(u.role as RoleDb, meta)
+    const feRole = resolveFrontendRole(u.role as RoleDb, meta, u.email)
     const verification =
       meta.verification && typeof meta.verification === 'object' ? meta.verification : undefined
     return {

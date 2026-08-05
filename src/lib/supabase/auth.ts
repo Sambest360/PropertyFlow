@@ -26,7 +26,7 @@ function rowToAppUser(row: {
     typeof meta.frontend_id === 'string' && meta.frontend_id
       ? meta.frontend_id
       : EMAIL_TO_USER[row.email.toLowerCase()] ?? ''
-  const feRole = resolveFrontendRole(row.role, meta)
+  const feRole = resolveFrontendRole(row.role, meta, row.email)
   const verification =
     meta.verification && typeof meta.verification === 'object'
       ? (meta.verification as UserVerification)
