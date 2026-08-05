@@ -75,7 +75,11 @@ export function CreateWizardShell({
             {subtitle ? <p className="mt-1 text-sm text-ink-500">{subtitle}</p> : null}
           </div>
 
-          <ol className="space-y-0.5 border-l border-primary-100" aria-label="Progress">
+          <ol
+            className="space-y-0.5 border-l border-primary-100"
+            aria-label="Progress"
+            data-tip-target="wizard-steps"
+          >
             {steps.map((s, i) => {
               const active = i === stepIndex
               const done = i < stepIndex
@@ -108,7 +112,10 @@ export function CreateWizardShell({
             })}
           </ol>
 
-          <div className="rounded-lg border border-primary-100 bg-primary-50/50 p-4">
+          <div
+            className="rounded-lg border border-primary-100 bg-primary-50/50 p-4"
+            data-tip-target="wizard-step-tip"
+          >
             <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">
               This step
             </p>
@@ -124,7 +131,7 @@ export function CreateWizardShell({
         <div className="lg:hidden">
           <h1 className="font-display text-2xl font-semibold tracking-tight text-ink">{title}</h1>
           {subtitle ? <p className="mt-1 text-sm text-ink-500">{subtitle}</p> : null}
-          <div className="mt-4">
+          <div className="mt-4" data-tip-target="wizard-steps">
             <StepDots
               step={stepIndex + 1}
               total={steps.length}
@@ -133,12 +140,18 @@ export function CreateWizardShell({
               onStepSelect={onStepSelect ? (n) => handleSelect(n - 1) : undefined}
             />
           </div>
-          <p className="mt-3 rounded-lg border border-primary-100 bg-primary-50/50 px-3 py-2 text-sm text-ink-600">
+          <p
+            className="mt-3 rounded-lg border border-primary-100 bg-primary-50/50 px-3 py-2 text-sm text-ink-600"
+            data-tip-target="wizard-step-tip"
+          >
             {activeTip}
           </p>
         </div>
 
-        <div className="rounded-xl border border-primary-100/80 bg-white p-5 sm:p-6">
+        <div
+          className="rounded-xl border border-primary-100/80 bg-white p-5 sm:p-6"
+          data-tip-target="wizard-form"
+        >
           {children}
           <div className="mt-6 flex flex-wrap justify-end gap-2 border-t border-primary-100 pt-4">
             {footer}
@@ -147,7 +160,7 @@ export function CreateWizardShell({
       </div>
 
       {preview ? (
-        <aside className="hidden xl:block">
+        <aside className="hidden xl:block" data-tip-target="wizard-preview">
           <div className="sticky top-20">{preview}</div>
         </aside>
       ) : null}

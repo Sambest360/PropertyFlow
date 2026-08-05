@@ -14,6 +14,8 @@ import type {
   HateoasAction,
 } from './contracts'
 import { buildDisplayMetadata, formatZARLabel } from './displayMetadata'
+import type { AppUser } from '../../types/domain'
+import { isPublicMarketplaceUnit } from '../publicListings'
 
 export type UnitSearchFilters = {
   /** Free-text across title, suburb, city, unit number */
@@ -45,6 +47,8 @@ export type UnitSearchFilters = {
   near_lng?: number
   near_radius_km?: number
   client_id?: string
+  /** When true, hide draft/occupied/off-market units from public browse feeds. */
+  marketplace_public?: boolean
   cursor?: string | null
   limit?: number
   sort?: 'featured' | 'rent_asc' | 'rent_desc' | 'price_asc' | 'price_desc' | 'newest' | 'beds_desc'
@@ -280,8 +284,9 @@ export function searchUnitsFeed(params: {
   filters: UnitSearchFilters
   actor?: ActorContext | null
   now?: Date
+  users?: AppUser[]
 }): CursorFeedResponse<UnitCardPayload> {
-  const { units, buildings, properties = [], filters, actor, now } = params
+  const { units, buildings, properties = [], filters, actor, now, users = [] } = params
   const buildingById = new Map(buildings.map((b) => [b.id, b]))
   const propertyByUnit = new Map(
     properties.filter((p) => p.unitId).map((p) => [p.unitId as string, p]),
@@ -290,6 +295,10 @@ export function searchUnitsFeed(params: {
   let rows = units.filter((unit) => {
     const building = buildingById.get(unit.buildingId)
     if (!building) return false
+    const property = propertyByUnit.get(unit.id)
+    if (filters.marketplace_public && !isPublicMarketplaceUnit(unit, property, { users })) {
+      return false
+    }
     if (filters.client_id && unit.clientId !== filters.client_id) return false
     if (!listingMatches(unit, filters.listing_type)) return false
 

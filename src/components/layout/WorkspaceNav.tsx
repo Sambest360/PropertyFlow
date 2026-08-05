@@ -601,6 +601,7 @@ export function WorkspaceSidebar({
 
   return (
     <aside
+      data-tip-target="workspace-nav"
       className={cn(
         'sticky top-0 z-20 hidden h-screen shrink-0 flex-col self-stretch overflow-visible ease-out lg:flex',
         reducedMotion

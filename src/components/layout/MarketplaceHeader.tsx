@@ -33,7 +33,11 @@ export function MarketplaceHeader() {
         <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:gap-4 sm:px-6 lg:px-8">
           <BrandLogo />
 
-          <nav className="hidden items-center gap-0.5 md:flex" aria-label="Marketplace">
+          <nav
+            className="hidden items-center gap-0.5 md:flex"
+            aria-label="Marketplace"
+            data-tip-target="market-nav"
+          >
             {marketplaceCategories.map((c) => {
               const Icon = c.icon
               return (
@@ -52,6 +56,7 @@ export function MarketplaceHeader() {
           <form
             onSubmit={submitSearch}
             className="relative ml-auto hidden min-w-0 max-w-sm flex-1 lg:block"
+            data-tip-target="market-search"
           >
             <Search
               className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400"
@@ -65,9 +70,13 @@ export function MarketplaceHeader() {
             />
           </form>
 
-          <div className={cn('flex items-center gap-1.5 md:ml-0', !q && 'lg:ml-2')}>
+          <div
+            className={cn('flex items-center gap-1.5 md:ml-0', !q && 'lg:ml-2')}
+            data-tip-target="market-auth"
+          >
             <Link
               to={savedPath}
+              data-tip-target="market-saved"
               className="hidden min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-full text-ink-500 transition-colors duration-200 hover:bg-primary-50 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:inline-flex"
               aria-label="Saved homes"
             >

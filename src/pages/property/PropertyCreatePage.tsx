@@ -26,6 +26,7 @@ import { ImageCoverField, ImageDropzone } from '../../components/ImageDropzone'
 import { PropertyFeaturePicker } from '../../components/property-features/PropertyFeaturePicker'
 import { PlacesAddressInput } from '../../components/PlacesAddressInput'
 import { Button, Input, Select } from '../../components/ui'
+import { FormLabel, FieldHelp } from '../../components/onboarding/FieldHelp'
 import { uid } from '../../data/seed'
 import { UNIT_TEMPLATES, roomKindLabel, type BuildingGrading, type RoomKind, type UnitTemplateId } from '../../data/infrastructure'
 import { isFieldAgent } from '../../lib/permissions'
@@ -412,7 +413,14 @@ export default function PropertyCreatePage() {
         return (
           <WizardSectionCard title="Listing mode & type" description="How will this property be marketed?">
             <div>
-              <p className="mb-2 text-sm font-medium text-ink">Listing mode</p>
+              <FormLabel
+                help={{
+                  title: 'Listing mode',
+                  body: 'Choose rent for monthly tenancies, sale for purchase listings, or both if the owner is open to either. This controls which price fields appear later.',
+                }}
+              >
+                Listing mode
+              </FormLabel>
               <TypeCardGrid
                 options={listingOptions}
                 value={draft.listingMode}
@@ -427,7 +435,14 @@ export default function PropertyCreatePage() {
               />
             </div>
             <div>
-              <p className="mb-2 text-sm font-medium text-ink">Property type</p>
+              <FormLabel
+                help={{
+                  title: 'Property type',
+                  body: 'Pick the category buyers and tenants filter by — house, apartment, commercial, student accommodation, and so on.',
+                }}
+              >
+                Property type
+              </FormLabel>
               <TypeCardGrid
                 options={typeOptions}
                 value={draft.propertyType}
@@ -436,7 +451,14 @@ export default function PropertyCreatePage() {
               />
             </div>
             <div>
-              <p className="mb-2 text-sm font-medium text-ink">Unit template</p>
+              <FormLabel
+                help={{
+                  title: 'Unit template',
+                  body: 'Templates pre-fill room counts and sizes for common layouts (studio, one-bed, etc.). Choose Custom if the floor plan does not match a preset.',
+                }}
+              >
+                Unit template
+              </FormLabel>
               <Select
                 className="min-h-11"
                 value={draft.unitTemplateId}
@@ -456,7 +478,16 @@ export default function PropertyCreatePage() {
         return (
           <WizardSectionCard title="Location" description="Building and street address for this asset.">
             {scopedBuildings.length > 0 ? (
-              <Select
+              <>
+                <FormLabel
+                  help={{
+                    title: 'Existing building',
+                    body: 'Link to a building already in your portfolio to reuse its address and grading. Choose New building when listing a standalone property.',
+                  }}
+                >
+                  Building
+                </FormLabel>
+                <Select
                 className="min-h-11"
                 value={draft.existingBuildingId}
                 onChange={(e) => {
@@ -482,6 +513,7 @@ export default function PropertyCreatePage() {
                   </option>
                 ))}
               </Select>
+              </>
             ) : null}
             {!draft.existingBuildingId ? (
               <Input
@@ -535,7 +567,17 @@ export default function PropertyCreatePage() {
         return (
           <WizardSectionCard title="Building details" description="Optional sustainability and grading fields.">
             <div className="grid gap-3 sm:grid-cols-3">
-              <Select
+              <div>
+                <FormLabel
+                  help={{
+                    title: 'Building grading',
+                    body: 'Optional quality tier (P = premium, A–C = standard bands). Helps agents filter stock and set tenant expectations.',
+                  }}
+                  className="mb-1.5"
+                >
+                  Grading
+                </FormLabel>
+                <Select
                 className="min-h-11"
                 value={draft.grading ?? ''}
                 onChange={(e) =>
@@ -551,7 +593,18 @@ export default function PropertyCreatePage() {
                 <option value="B">B</option>
                 <option value="C">C</option>
               </Select>
-              <Input
+              </div>
+              <div>
+                <FormLabel
+                  help={{
+                    title: 'Solar capacity',
+                    body: 'Enter installed solar in kilowatts if the building has backup or green power — useful for load-shedding-sensitive tenants.',
+                  }}
+                  className="mb-1.5"
+                >
+                  Solar kW
+                </FormLabel>
+                <Input
                 className="min-h-11"
                 type="number"
                 min={0}
@@ -560,6 +613,7 @@ export default function PropertyCreatePage() {
                 value={draft.solarCapacityKw}
                 onChange={(e) => setDraft((d) => ({ ...d, solarCapacityKw: e.target.value }))}
               />
+              </div>
               <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-primary-100 px-3 text-sm">
                 <input
                   type="checkbox"
@@ -764,36 +818,80 @@ export default function PropertyCreatePage() {
           <WizardSectionCard title="Pricing & availability">
             <div className="grid gap-3 sm:grid-cols-2">
               {(draft.listingMode === 'rent' || draft.listingMode === 'both') && (
-                <Input
+                <div>
+                  <FormLabel
+                    help={{
+                      title: 'Monthly rent',
+                      body: 'Enter the asking rental in ZAR per month, excluding utilities unless your agency bundles them.',
+                    }}
+                    className="mb-1.5"
+                  >
+                    Monthly rent
+                  </FormLabel>
+                  <Input
                   className="min-h-11"
                   type="number"
                   placeholder="Monthly rent (ZAR)"
                   value={draft.rent}
                   onChange={(e) => setDraft((d) => ({ ...d, rent: e.target.value }))}
                 />
+                </div>
               )}
               {(draft.listingMode === 'sale' || draft.listingMode === 'both') && (
-                <Input
+                <div>
+                  <FormLabel
+                    help={{
+                      title: 'Sale price',
+                      body: 'The listed purchase price in ZAR. Leave negotiable notes in the description if the owner is flexible.',
+                    }}
+                    className="mb-1.5"
+                  >
+                    Sale price
+                  </FormLabel>
+                  <Input
                   className="min-h-11"
                   type="number"
                   placeholder="Sale price (ZAR)"
                   value={draft.price}
                   onChange={(e) => setDraft((d) => ({ ...d, price: e.target.value }))}
                 />
+                </div>
               )}
-              <Input
+              <div>
+                <FormLabel
+                  help={{
+                    title: 'Deposit hint',
+                    body: 'Optional guidance shown to applicants — e.g. one month rent plus admin fee. Not a legal contract amount.',
+                  }}
+                  className="mb-1.5"
+                >
+                  Deposit hint
+                </FormLabel>
+                <Input
                 className="min-h-11"
                 placeholder="Deposit hint (optional)"
                 value={draft.depositHint}
                 onChange={(e) => setDraft((d) => ({ ...d, depositHint: e.target.value }))}
               />
-              <Input
+              </div>
+              <div>
+                <FormLabel
+                  help={{
+                    title: 'Minimum stay',
+                    body: 'Shortest lease period you will accept, in days. Common values are 30 for month-to-month or 365 for annual leases.',
+                  }}
+                  className="mb-1.5"
+                >
+                  Minimum stay (days)
+                </FormLabel>
+                <Input
                 className="min-h-11"
                 type="number"
                 placeholder="Minimum stay (days)"
                 value={draft.minStayDays}
                 onChange={(e) => setDraft((d) => ({ ...d, minStayDays: e.target.value }))}
               />
+              </div>
             </div>
             <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm text-ink-600">
               <input
@@ -802,6 +900,10 @@ export default function PropertyCreatePage() {
                 onChange={(e) => setDraft((d) => ({ ...d, instantBook: e.target.checked }))}
               />
               Allow instant booking (when published)
+              <FieldHelp
+                title="Instant booking"
+                body="When enabled, qualified tenants can apply immediately without waiting for agent approval on the listing slot."
+              />
             </label>
           </WizardSectionCard>
         )

@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom'
 import { lazy, Suspense, type ReactNode } from 'react'
+import { SpeedInsights } from '@vercel/speed-insights/react'
 import { ThemeProvider } from './context/ThemeContext'
 import { AppStoreProvider } from './context/AppStore'
 import { AuthProvider } from './context/AuthContext'
@@ -8,15 +9,15 @@ import { MarketplaceShell, WorkspaceShell } from './components/AppShell'
 import { ScrollToTop } from './components/ScrollToTop'
 import { RequirePermission } from './components/RequirePermission'
 
-import MarketHome from './pages/market/MarketHome'
-import BrowsePage from './pages/market/BrowsePage'
-import SavedPage from './pages/market/SavedPage'
-import ListingDetail from './pages/market/ListingDetail'
-import CalculatorsPage from './pages/market/CalculatorsPage'
-
-import LoginPage from './pages/auth/LoginPage'
-import RegisterPage from './pages/auth/RegisterPage'
 import { RequireAuth } from './components/RequireAuth'
+
+const MarketHome = lazy(() => import('./pages/market/MarketHome'))
+const BrowsePage = lazy(() => import('./pages/market/BrowsePage'))
+const SavedPage = lazy(() => import('./pages/market/SavedPage'))
+const ListingDetail = lazy(() => import('./pages/market/ListingDetail'))
+const CalculatorsPage = lazy(() => import('./pages/market/CalculatorsPage'))
+const LoginPage = lazy(() => import('./pages/auth/LoginPage'))
+const RegisterPage = lazy(() => import('./pages/auth/RegisterPage'))
 
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Properties = lazy(() => import('./pages/Properties'))
@@ -92,16 +93,66 @@ export default function App() {
           <SuiteAlertProvider>
           <BrowserRouter>
             <ScrollToTop />
+            <SpeedInsights />
             <Routes>
-              <Route path="login" element={<LoginPage />} />
-              <Route path="register" element={<RegisterPage />} />
+              <Route
+                path="login"
+                element={
+                  <Suspense fallback={<PageFallback />}>
+                    <LoginPage />
+                  </Suspense>
+                }
+              />
+              <Route
+                path="register"
+                element={
+                  <Suspense fallback={<PageFallback />}>
+                    <RegisterPage />
+                  </Suspense>
+                }
+              />
 
               <Route element={<MarketplaceShell />}>
-                <Route index element={<MarketHome />} />
-                <Route path="browse" element={<BrowsePage />} />
-                <Route path="listing/:id" element={<ListingDetail />} />
-                <Route path="saved" element={<SavedPage />} />
-                <Route path="calculators/*" element={<CalculatorsPage />} />
+                <Route
+                  index
+                  element={
+                    <Suspense fallback={<PageFallback />}>
+                      <MarketHome />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="browse"
+                  element={
+                    <Suspense fallback={<PageFallback />}>
+                      <BrowsePage />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="listing/:id"
+                  element={
+                    <Suspense fallback={<PageFallback />}>
+                      <ListingDetail />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="saved"
+                  element={
+                    <Suspense fallback={<PageFallback />}>
+                      <SavedPage />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="calculators/*"
+                  element={
+                    <Suspense fallback={<PageFallback />}>
+                      <CalculatorsPage />
+                    </Suspense>
+                  }
+                />
               </Route>
 
               <Route

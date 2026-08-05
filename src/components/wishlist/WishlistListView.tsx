@@ -41,12 +41,6 @@ function listingStatusTone(p: PropertyAsset): 'brand' | 'info' | 'neutral' {
   return 'neutral'
 }
 
-function isAcceptingApplications(p: PropertyAsset, blocked: boolean) {
-  if (blocked) return false
-  if (['Rented', 'Sold', 'Archived'].includes(p.status)) return false
-  return true
-}
-
 function WishlistExpansion({
   property,
   canApply,
@@ -161,7 +155,7 @@ export function WishlistListView({
 
   const canApplyFor = (p: PropertyAsset) => {
     const blocked = blockedIds.has(p.id)
-    if (!isAcceptingApplications(p, blocked)) return false
+    if (blocked) return false
     const unit = resolveUnitForProperty(p, state.units)
     if (unit && (unit.listingType === 'not_listed' || unit.statusKey === 'OCCUPIED')) return false
     return true

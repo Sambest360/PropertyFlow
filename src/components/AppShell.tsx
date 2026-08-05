@@ -8,7 +8,7 @@ import { useWorkspaceNav, WorkspaceSidebar } from './layout/WorkspaceNav'
 import { WORKSPACE_INSET } from './layout/workspaceInset'
 import { NotificationToastHost } from './notifications/NotificationBell'
 import { ImpersonationBanner } from './admin/ImpersonationBanner'
-import { PageTipBanner } from './onboarding/PageTipBanner'
+import { PageTipWalkthrough } from './onboarding/PageTipWalkthrough'
 import { useNavCollapsed } from '../hooks/useNavCollapsed'
 import { useScrollChrome } from '../hooks/useScrollChrome'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
@@ -20,11 +20,9 @@ const RAIL_WIDTH = '4.5rem'
 export function MarketplaceShell() {
   return (
     <div className="flex min-h-screen flex-col bg-white text-ink">
+      <PageTipWalkthrough />
       <MarketplaceHeader />
       <main className="flex-1">
-        <div className="mx-auto max-w-[1400px] px-4 pt-4 sm:px-6 lg:px-8">
-          <PageTipBanner />
-        </div>
         <Outlet />
       </main>
       <MarketplaceFooter />
@@ -43,6 +41,7 @@ export function WorkspaceShell() {
 
   return (
     <div className="relative flex min-h-screen bg-white text-ink">
+      <PageTipWalkthrough />
       <NotificationToastHost />
       <WorkspaceSidebar items={nav} brandMuted={chromeCompact} />
 
@@ -61,7 +60,10 @@ export function WorkspaceShell() {
       )}
 
       {/* Search minimize follows absolute scroll — not header visibility — to avoid flicker */}
-      <div className="pointer-events-none fixed inset-x-0 top-3 z-50 hidden justify-center px-6 lg:flex">
+      <div
+        className="pointer-events-none fixed inset-x-0 top-3 z-50 hidden justify-center px-6 lg:flex"
+        data-tip-target="workspace-search"
+      >
         <SpotlightSearch minimized={scrolled} className="mx-auto" />
       </div>
 
@@ -69,7 +71,6 @@ export function WorkspaceShell() {
         <ImpersonationBanner />
         <WorkspaceHeader spotlightPinned topHidden={chromeCompact} />
         <main className={`min-w-0 flex-1 overflow-x-hidden pb-6 pt-1 lg:pb-8 ${WORKSPACE_INSET}`}>
-          <PageTipBanner />
           <div
             key={pathname}
             className={reducedMotion ? 'w-full' : 'w-full animate-workspace-page'}

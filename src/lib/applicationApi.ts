@@ -94,38 +94,8 @@ export function validateApplicationSubmission(params: {
     return { status: 'ERROR', error: 'Property unit not found', httpStatus: 404 }
   }
 
-  if (unit) {
-    if (!isUnitAcceptingApplications(unit)) {
-      return {
-        status: 'ERROR',
-        error: 'This property is not accepting applications',
-        httpStatus: 400,
-      }
-    }
-  } else if (property) {
-    if (property.status === 'Rented' || property.status === 'Sold' || property.status === 'Archived') {
-      return {
-        status: 'ERROR',
-        error: 'This property is not accepting applications',
-        httpStatus: 400,
-      }
-    }
-  }
-
   const isRent = request.application_type === 'RENT'
   const rent = unit?.rent ?? property?.rent ?? 0
-  if (isRent && !meetsIncomeRequirement('RENT', request.monthly_income_declared, rent)) {
-    return {
-      status: 'ERROR',
-      error:
-        'Application declined. Declared monthly income does not meet the minimum requirement for this property tier.',
-      httpStatus: 422,
-    }
-  }
-
-  if (!request.id_number_or_passport?.trim()) {
-    return { status: 'ERROR', error: 'ID number or passport is required', httpStatus: 400 }
-  }
 
   return {
     status: 'OK',

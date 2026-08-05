@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link, Navigate, useParams } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Bath, BedDouble, Car, Heart, MapPin, Share2, Star } from 'lucide-react'
 import { usePublicProperties, useStore } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
@@ -11,7 +11,6 @@ import { PropertyMap } from '../../components/PropertyMap'
 import { ListingPhotoGallery } from '../../components/listing/ListingPhotoGallery'
 import { ListingReviewsSection } from '../../components/reviews/ListingReviewsSection'
 import { averageRating } from '../../components/reviews/StarRating'
-import { minimumRequiredIncome, resolveUnitForProperty } from '../../lib/applicationApi'
 import {
   blockedPropertyIdsForApplicant,
   isApplicantBlockedOnProperty,
@@ -19,38 +18,61 @@ import {
 import { useWishlist } from '../../hooks/useWishlist'
 import { hasMappedCoordinates } from '../../lib/mapCoords'
 import { isPubliclyListed } from '../../lib/publicListings'
+import { submitListingEnquiry } from '../../lib/api/listingEnquiryApi'
+import { sweetError, sweetInfo, sweetSuccess, sweetWarning } from '../../lib/sweetAlert'
+import { usePageMeta } from '../../hooks/usePageMeta'
+
+type EnquiryIntent = 'lead' | 'viewing'
 
 export default function ListingDetail() {
   const { id } = useParams()
-  const { state, createApplication, createLead, bookViewingSlot } = useStore()
+  const navigate = useNavigate()
+  const { state, createApplication, createLead, recordGuestEnquiry } = useStore()
   const publicProperties = usePublicProperties()
   const { user, isAuthenticated } = useAuth()
   const p = state.properties.find((x) => x.id === id)
   const { saved, toggle } = useWishlist(isAuthenticated ? user.id : 'guest')
   const wishlisted = p ? saved(p.id) : false
 
-  const [name, setName] = useState('')
-  const [contact, setContact] = useState('')
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
+  const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
   const [note, setNote] = useState('')
   const [slotId, setSlotId] = useState('')
   const [income, setIncome] = useState('')
   const [idNumber, setIdNumber] = useState('')
-  const [done, setDone] = useState('')
+  const [intent, setIntent] = useState<EnquiryIntent>('lead')
+  const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     if (isAuthenticated && user.email) {
-      setContact((c) => c || user.email)
-      setName((n) => n || user.name)
+      setEmail((e) => e || user.email)
+      const parts = user.name.trim().split(/\s+/)
+      setFirstName((f) => f || parts[0] || '')
+      setLastName((l) => l || parts.slice(1).join(' ') || '')
     }
   }, [isAuthenticated, user.email, user.name])
 
-  const blockedIds = useMemo(
-    () => blockedPropertyIdsForApplicant(state.applications, user),
-    [state.applications, user],
-  )
+  const blockedIds = useMemo(() => {
+    if (!isAuthenticated || user.id === 'guest') return new Set<string>()
+    return blockedPropertyIdsForApplicant(state.applications, user)
+  }, [isAuthenticated, state.applications, user])
 
   const isListed =
     p != null && isPubliclyListed(p, { units: state.units, users: state.users })
+
+  const listingDescription = p
+    ? `${p.type} in ${p.suburb}, ${p.city}. ${p.description.trim().slice(0, 155)}${p.description.length > 155 ? '…' : ''}`
+    : undefined
+
+  usePageMeta({
+    title: p?.title ?? 'Listing not found',
+    description: listingDescription,
+    image: p?.images[0],
+    path: id ? `/listing/${id}` : undefined,
+    preloadImage: p?.images[0],
+  })
 
   if (!p || !isListed) {
     return (
@@ -65,7 +87,6 @@ export default function ListingDetail() {
   }
 
   const isBlockedForUser = blockedIds.has(p.id)
-  const unit = resolveUnitForProperty(p, state.units)
   const agent = state.users.find((u) => u.id === p.agentId)
   const similar = publicProperties
     .filter(
@@ -77,12 +98,7 @@ export default function ListingDetail() {
     .slice(0, 3)
   const openSlots = state.viewingSlots.filter((s) => s.propertyId === p.id && s.status === 'Open')
   const isRent = p.listingMode !== 'sale'
-  const rent = p.rent ?? unit?.rent ?? 0
-  const minIncome = rent > 0 ? minimumRequiredIncome(rent) : 0
-  const accepting =
-    !isBlockedForUser &&
-    !['Rented', 'Sold', 'Archived'].includes(p.status) &&
-    (!unit || (unit.listingType !== 'not_listed' && unit.statusKey !== 'OCCUPIED'))
+  const fullName = `${firstName.trim()} ${lastName.trim()}`.trim()
 
   const listingReviewAvg = averageRating(
     state.reviews.filter(
@@ -92,78 +108,137 @@ export default function ListingDetail() {
     ),
   )
 
-  const emailOf = () =>
-    contact.includes('@') ? contact.trim() : `${name.replace(/\s+/g, '.').toLowerCase()}@email.com`
-  const phoneOf = () => (contact.includes('@') ? '' : contact.trim())
-
   if (isBlockedForUser) {
     return <Navigate to="/browse" replace />
   }
 
-  const submitViewing = (e: FormEvent) => {
+  const submitEnquiry = async (e: FormEvent) => {
     e.preventDefault()
-    if (!name.trim() || !contact.trim()) return
-    if (!accepting) {
-      setDone('This property is not accepting viewings or applications.')
+    if (!firstName.trim() || !lastName.trim() || !email.trim()) {
+      await sweetWarning('Missing details', 'Please enter your name, surname, and email.')
+      return
+    }
+    if (!phone.trim()) {
+      await sweetWarning('Missing phone', 'Please enter a phone number so an agent can reach you.')
       return
     }
     if (
       isApplicantBlockedOnProperty(state.applications, p.id, {
         userId: user.id,
-        email: emailOf(),
-        name: name.trim(),
+        email: email.trim(),
+        name: fullName,
       })
     ) {
-      setDone('You are blocked from viewing or applying to this property.')
+      await sweetError('Unable to submit', 'You are blocked from viewing or applying to this property.')
       return
     }
-    const slot = openSlots.find((s) => s.id === (slotId || openSlots[0]?.id))
-    createLead({
-      agencyId: p.agencyId,
-      propertyId: p.id,
-      agentId: p.agentId,
-      name: name.trim(),
-      email: emailOf(),
-      phone: phoneOf(),
-      channel: 'Web Form',
-      type: p.listingMode === 'sale' ? 'Buy' : 'Rent',
-      value: p.price ?? p.rent ?? 0,
-      stage: 'Viewing Scheduled',
-    })
-    if (slot) {
-      const booked = bookViewingSlot(slot.id, name.trim(), emailOf())
-      if (!booked) {
-        setDone('Unable to book this viewing — you may be blocked for this property.')
+
+    const action: EnquiryIntent = intent
+    const selectedSlot =
+      action === 'viewing' && openSlots.length > 0
+        ? openSlots.find((s) => s.id === (slotId || openSlots[0]?.id))
+        : null
+
+    if (action === 'viewing' && openSlots.length > 0 && !selectedSlot) {
+      await sweetWarning('Pick a slot', 'Choose an available viewing time or register interest instead.')
+      return
+    }
+
+    setSubmitting(true)
+    try {
+      const result = await submitListingEnquiry({
+        propertyId: p.id,
+        agencyId: p.agencyId,
+        agentId: p.agentId,
+        action,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        notes: note.trim() || undefined,
+        slotId: selectedSlot?.id ?? null,
+        monthlyIncome: isRent && income ? Number(income) : null,
+        idNumber: idNumber.trim() || undefined,
+        interestType: p.listingMode === 'sale' ? 'Buy' : 'Rent',
+        value: p.price ?? p.rent ?? 0,
+      })
+
+      if (!result.ok) {
+        await sweetError('Could not save enquiry', 'error' in result ? result.error : 'Unknown error')
         return
       }
-      setDone(`Viewing booked for ${slot.date} at ${slot.time}. The agency will confirm.`)
-    } else {
-      setDone('No open slots — an agent will contact you to schedule.')
+
+      recordGuestEnquiry({
+        lead: {
+          id: result.leadId,
+          agencyId: p.agencyId,
+          propertyId: p.id,
+          agentId: p.agentId,
+          name: fullName,
+          email: email.trim(),
+          phone: phone.trim(),
+          channel: 'Web Form',
+          type: p.listingMode === 'sale' ? 'Buy' : 'Rent',
+          value: p.price ?? p.rent ?? 0,
+          stage: result.stage,
+          notes: note.trim(),
+        },
+        viewing:
+          action === 'viewing' && selectedSlot
+            ? {
+                id: result.bookingId ?? undefined,
+                agencyId: p.agencyId,
+                propertyId: p.id,
+                agentId: p.agentId,
+                slotId: selectedSlot.id,
+                applicantName: fullName,
+                applicantEmail: email.trim(),
+                date: selectedSlot.date,
+                time: selectedSlot.time,
+              }
+            : null,
+      })
+
+      if (action === 'viewing' && selectedSlot) {
+        await sweetSuccess(
+          'Viewing booked',
+          `Your slot is ${selectedSlot.date} at ${selectedSlot.time}. ${agent?.name ?? 'The agency'} will confirm shortly.`,
+        )
+      } else if (action === 'viewing') {
+        await sweetInfo(
+          'Viewing request sent',
+          'No open slots right now — an agent will contact you to schedule a time.',
+        )
+      } else {
+        await sweetSuccess(
+          'Interest registered',
+          `${agent?.name ?? 'The agency'} will follow up on this property. No account needed.`,
+        )
+      }
+      setNote('')
+    } finally {
+      setSubmitting(false)
     }
-    setNote('')
   }
 
-  const submitApplication = () => {
+  const submitApplication = async () => {
     if (!isAuthenticated) {
-      setDone('Create an account or sign in to apply.')
+      navigate(`/register?next=${encodeURIComponent(`/listing/${p.id}`)}`)
       return
     }
-    if (!name.trim() || !contact.trim()) {
-      setDone('Please enter your name and email/phone first.')
+    if (!fullName || !email.trim()) {
+      await sweetWarning('Missing details', 'Please enter your name and email.')
       return
     }
-    if (!accepting) {
-      setDone('This property is not accepting applications.')
-      return
-    }
-    const result = createApplication({
+
+    const appResult = createApplication({
       agencyId: p.agencyId,
       propertyId: p.id,
       agentId: p.agentId,
       applicantUserId: user.id,
-      applicantName: name.trim(),
-      email: emailOf(),
-      phone: phoneOf(),
+      applicantName: fullName,
+      email: email.trim(),
+      phone: phone.trim(),
       type: isRent ? 'Rental' : 'Purchase',
       income: Number(income) || 0,
       employment: 'Declared on application',
@@ -175,8 +250,8 @@ export default function ListingDetail() {
       },
     })
 
-    if (result && 'status' in result && result.status === 'ERROR') {
-      setDone(result.error)
+    if (appResult && 'status' in appResult && appResult.status === 'ERROR') {
+      await sweetError('Application not submitted', appResult.error)
       return
     }
 
@@ -184,15 +259,20 @@ export default function ListingDetail() {
       agencyId: p.agencyId,
       propertyId: p.id,
       agentId: p.agentId,
-      name: name.trim(),
-      email: emailOf(),
-      phone: phoneOf(),
+      name: fullName,
+      email: email.trim(),
+      phone: phone.trim(),
       channel: 'Web Form',
       type: isRent ? 'Rent' : 'Buy',
       value: p.price ?? p.rent ?? 0,
       stage: 'Application Submitted',
+      notes: note.trim(),
     })
-    setDone('Application submitted. Track it in your Tenant portal under Applications.')
+
+    await sweetSuccess(
+      'Application submitted',
+      'Track progress in your tenant portal under Applications.',
+    )
   }
 
   const applyHref = `/register?next=${encodeURIComponent(`/listing/${p.id}`)}`
@@ -341,7 +421,7 @@ export default function ListingDetail() {
           </div>
 
           <aside className="lg:sticky lg:top-24 lg:self-start">
-            <form onSubmit={submitViewing} className="rounded-3xl border border-primary-100 bg-white p-5 shadow-lg shadow-ink/5">
+            <form onSubmit={submitEnquiry} className="rounded-3xl border border-primary-100 bg-white p-5 shadow-lg shadow-ink/5">
               <p className="tabular text-2xl font-bold text-ink">
                 {p.listingMode === 'rent' || (p.listingMode === 'both' && !p.price) ? (
                   <>
@@ -361,30 +441,76 @@ export default function ListingDetail() {
                 {p.listingMode === 'both' ? 'Sale or rent' : p.listingMode === 'sale' ? 'For sale' : 'To rent'}
               </Badge>
 
-              {!accepting && (
-                <p className="mt-3 rounded-xl bg-accent/10 px-3 py-2 text-xs text-ink">
-                  Not accepting applications (occupied or unlisted).
-                </p>
-              )}
-              {done && <p className="mt-3 rounded-xl bg-primary-50 px-3 py-2 text-xs text-ink">{done}</p>}
+              <p className="mt-4 text-xs text-ink-500">
+                No account needed — your details are saved so an agent can follow up.
+              </p>
+
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIntent('lead')}
+                  className={cn(
+                    'rounded-xl border px-3 py-2 text-left text-xs font-semibold transition-colors',
+                    intent === 'lead'
+                      ? 'border-primary bg-primary-50 text-primary'
+                      : 'border-primary-100 text-ink-600 hover:bg-primary-50/60',
+                  )}
+                >
+                  Register interest
+                  <span className="mt-0.5 block font-normal text-ink-500">Create a lead — no viewing required</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIntent('viewing')}
+                  className={cn(
+                    'rounded-xl border px-3 py-2 text-left text-xs font-semibold transition-colors',
+                    intent === 'viewing'
+                      ? 'border-primary bg-primary-50 text-primary'
+                      : 'border-primary-100 text-ink-600 hover:bg-primary-50/60',
+                  )}
+                >
+                  {openSlots.length > 0 ? 'Book a viewing' : 'Request viewing'}
+                  <span className="mt-0.5 block font-normal text-ink-500">
+                    {openSlots.length > 0
+                      ? 'Pick an agent slot below'
+                      : 'No slots yet — we will schedule with you'}
+                  </span>
+                </button>
+              </div>
 
               <div className="mt-4 space-y-3">
-                <Input placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)} required />
-                <Input placeholder="Email or phone" value={contact} onChange={(e) => setContact(e.target.value)} required />
+                <div className="grid grid-cols-2 gap-2">
+                  <Input placeholder="First name" value={firstName} onChange={(e) => setFirstName(e.target.value)} required />
+                  <Input placeholder="Surname" value={lastName} onChange={(e) => setLastName(e.target.value)} required />
+                </div>
+                <Input
+                  type="email"
+                  placeholder="Email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+                <Input
+                  type="tel"
+                  placeholder="Phone"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  required
+                />
                 {isRent && (
                   <Input
                     type="number"
-                    placeholder={minIncome ? `Monthly income (min ${formatZAR(minIncome)})` : 'Monthly income (ZAR)'}
+                    placeholder="Monthly income (optional)"
                     value={income}
                     onChange={(e) => setIncome(e.target.value)}
                   />
                 )}
                 <Input
-                  placeholder="SA ID or passport"
+                  placeholder="SA ID or passport (optional)"
                   value={idNumber}
                   onChange={(e) => setIdNumber(e.target.value)}
                 />
-                {openSlots.length > 0 ? (
+                {intent === 'viewing' && openSlots.length > 0 && (
                   <select
                     className="h-10 w-full rounded-xl border border-primary-100 bg-white px-3 text-sm"
                     value={slotId || openSlots[0]?.id}
@@ -396,8 +522,6 @@ export default function ListingDetail() {
                       </option>
                     ))}
                   </select>
-                ) : (
-                  <p className="rounded-xl bg-primary-50 px-3 py-2 text-xs text-ink-500">No open slots yet — request and the agent will schedule.</p>
                 )}
                 <textarea
                   className="w-full rounded-xl border border-primary-100 px-3 py-2 text-sm"
@@ -406,14 +530,20 @@ export default function ListingDetail() {
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
                 />
-                <Button type="submit" className="w-full" disabled={!accepting}>
-                  Book viewing slot
+                <Button type="submit" className="w-full" disabled={submitting}>
+                  {submitting
+                    ? 'Saving…'
+                    : intent === 'lead'
+                      ? 'Register interest'
+                      : openSlots.length > 0
+                        ? 'Book viewing slot'
+                        : 'Request viewing'}
                 </Button>
                 {!isAuthenticated ? (
                   <div className="space-y-2">
                     <Link to={applyHref}>
-                      <Button type="button" variant="secondary" className="w-full" disabled={!accepting}>
-                        Register to apply
+                      <Button type="button" variant="secondary" className="w-full">
+                        Register to apply formally
                       </Button>
                     </Link>
                     <Link
@@ -424,14 +554,11 @@ export default function ListingDetail() {
                     </Link>
                   </div>
                 ) : (
-                  <Button type="button" variant="secondary" className="w-full" onClick={submitApplication} disabled={!accepting}>
-                    Submit application
+                  <Button type="button" variant="secondary" className="w-full" onClick={submitApplication}>
+                    Submit full application
                   </Button>
                 )}
               </div>
-              <p className="mt-4 text-center text-xs text-ink-400">
-                Instant income check · Agent: {agent?.name ?? 'Assigned soon'}
-              </p>
             </form>
           </aside>
         </div>

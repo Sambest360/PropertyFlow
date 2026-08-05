@@ -567,6 +567,31 @@ for (const plural of restResources) {
   })
 }
 
+app.post('/api/public/listing-enquiry', async (c) => {
+  try {
+    const body = (await c.req.json()) as Record<string, unknown>
+    const { submitPublicListingEnquiry } = await import('./publicEnquiry.js')
+    const result = await submitPublicListingEnquiry({
+      propertyId: String(body.propertyId ?? ''),
+      action: body.action === 'viewing' ? 'viewing' : 'lead',
+      firstName: String(body.firstName ?? ''),
+      lastName: String(body.lastName ?? ''),
+      email: String(body.email ?? ''),
+      phone: body.phone ? String(body.phone) : undefined,
+      notes: body.notes ? String(body.notes) : undefined,
+      slotId: body.slotId ? String(body.slotId) : null,
+      monthlyIncome: body.monthlyIncome != null ? Number(body.monthlyIncome) : null,
+      idNumber: body.idNumber ? String(body.idNumber) : null,
+      interestType: body.interestType === 'Buy' ? 'Buy' : 'Rent',
+    })
+    return c.json(result, 201)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[api/public/listing-enquiry]', message)
+    return c.json({ error: 'enquiry_failed', message }, errStatus(err))
+  }
+})
+
 app.post('/api/applications/:id/approve', async (c) => {
   try {
     const applicationId = c.req.param('id')

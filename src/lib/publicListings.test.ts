@@ -47,6 +47,12 @@ describe('isPubliclyListed', () => {
     expect(isPubliclyListed(property, { units })).toBe(false)
   })
 
+  it('hides draft unit status keys', () => {
+    const property = baseProperty({ status: 'Published', unitId: 'un1' })
+    const units = [{ id: 'un1', listingType: 'rent', statusKey: 'DRAFT' } as Unit]
+    expect(isPubliclyListed(property, { units })).toBe(false)
+  })
+
   it('hides pending landlord verification', () => {
     const property = baseProperty({ landlordId: 'll1' })
     expect(

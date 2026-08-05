@@ -92,6 +92,10 @@ export function PropertyCard({
           <img
             src={image}
             alt=""
+            width={400}
+            height={300}
+            loading="lazy"
+            decoding="async"
             className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
           />
           <div className="absolute left-3 top-3 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-ink shadow-sm">

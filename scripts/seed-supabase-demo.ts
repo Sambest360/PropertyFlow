@@ -34,6 +34,8 @@ function printSummary(input: {
   propertyCount: number
   applicantCount: number
   applicationCount: number
+  contractorCount: number
+  maintenanceTicketCount: number
   userCount: number
   credentials: Array<{ email: string; role: string; note?: string }>
 }) {
@@ -42,7 +44,9 @@ function printSummary(input: {
   console.log(`Properties: ${input.propertyCount}`)
   console.log(`Applicants: ${input.applicantCount}`)
   console.log(`Applications: ${input.applicationCount}`)
-  console.log(`Staff + applicants: ${input.userCount}`)
+  console.log(`Contractors: ${input.contractorCount}`)
+  console.log(`Maintenance tickets: ${input.maintenanceTicketCount}`)
+  console.log(`Staff + applicants + contractors: ${input.userCount}`)
   console.log(`\nSuper admins (password: ${input.demoPassword}):`)
   for (const sa of SUPER_ADMINS) {
     console.log(`  ${sa.email}`)
@@ -92,6 +96,8 @@ async function main() {
       propertyCount: result.propertyCount,
       applicantCount: result.applicantCount,
       applicationCount: result.applicationCount,
+      contractorCount: result.contractorCount,
+      maintenanceTicketCount: result.maintenanceTicketCount,
       userCount: result.userCount,
       credentials: result.credentials,
     })

@@ -101,7 +101,8 @@ import {
   dedupeBootstrapFetch,
   scheduleDeferredFullBootstrap,
 } from '../lib/bootstrapCoord'
-import { readStoredAuthUserId, type DemoActor } from '../lib/api/actorAuth'
+import { readStoredAuthUserId, getApiActor, type DemoActor } from '../lib/api/actorAuth'
+import { buildPublicMarketplaceDemoBootstrap } from '../lib/publicMarketplaceDemo'
 import {
   persistApproveApplication,
   persistMarkNotificationsRead,
@@ -332,7 +333,22 @@ type StoreContextValue = {
     rating: number
     body: string
   }) => Review | { error: string }
-  createLead: (input: Omit<Lead, 'id' | 'createdAt' | 'updatedAt' | 'notes' | 'stage'> & { stage?: string; notes?: string }) => Lead
+  createLead: (input: Omit<Lead, 'id' | 'createdAt' | 'updatedAt' | 'notes' | 'stage'> & { stage?: string; notes?: string; id?: string; persist?: boolean }) => Lead
+  /** Local-only CRM update after a guest enquiry was saved server-side. */
+  recordGuestEnquiry: (input: {
+    lead: Omit<Lead, 'createdAt' | 'updatedAt'> & { createdAt?: string; updatedAt?: string }
+    viewing?: {
+      id?: string
+      agencyId: string
+      propertyId: string
+      agentId: string | null
+      slotId: string
+      applicantName: string
+      applicantEmail?: string
+      date: string
+      time: string
+    } | null
+  }) => void
   updateLeadStage: (id: string, stage: string) => void
   createApplication: (input: {
     agencyId: string
@@ -489,12 +505,37 @@ function loadState(): AppState {
 const StoreContext = createContext<StoreContextValue | null>(null)
 
 async function fetchBootstrapFromApi(lite: boolean, actor: DemoActor | null, fullTimeoutMs = 10_000) {
+  const guest = !actor?.userId && !readStoredAuthUserId()
+
+  if (isSupabaseMode && guest) {
+    const { fetchPublicMarketplaceBootstrap } = await import('../lib/supabase/publicMarketplace')
+    const pub = await fetchPublicMarketplaceBootstrap(lite)
+    if (pub?.properties?.length) return pub
+    return buildPublicMarketplaceDemoBootstrap()
+  }
+
   if (isSupabaseMode) {
     const { fetchSupabaseBootstrap } = await import('../lib/supabase/data')
     return fetchSupabaseBootstrap(lite)
   }
+
   const { fetchPostgresBootstrap } = await import('../lib/api/postgresClient')
-  return fetchPostgresBootstrap(fullTimeoutMs, actor, lite)
+  const boot = await fetchPostgresBootstrap(fullTimeoutMs, actor, lite)
+  if (boot) return boot
+  if (guest) return buildPublicMarketplaceDemoBootstrap()
+  return null
+}
+
+function guestHasBrowseListings(state: AppState): boolean {
+  return state.properties.some((p) =>
+    isPubliclyListed(p, { units: state.units, users: state.users }),
+  )
+}
+
+function ensureGuestMarketplace(state: AppState): AppState {
+  const guest = !readStoredAuthUserId() && !getApiActor()?.userId
+  if (!guest || guestHasBrowseListings(state)) return state
+  return applyPostgresBootstrap(state, buildPublicMarketplaceDemoBootstrap())
 }
 
 export function AppStoreProvider({ children }: { children: ReactNode }) {
@@ -507,7 +548,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     let cancelled = false
     const id = window.requestAnimationFrame(() => {
       try {
-        const cached = loadState()
+        const cached = ensureGuestMarketplace(loadState())
         if (!cancelled) setState(cached)
       } catch {
         /* keep defaultState */
@@ -520,15 +561,22 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const refreshBootstrap = useCallback(async (actor?: DemoActor | null, opts?: { full?: boolean }) => {
-    if (!isApiEnabled && !isSupabaseMode) return
     const resolved =
       actor === undefined ? actorFromUsers(stateRef.current.users) : actor
     const lite = !opts?.full
     const fetchBoot = () => fetchBootstrapFromApi(lite, resolved, opts?.full ? 20_000 : 10_000)
 
+    if (!isApiEnabled && !isSupabaseMode) {
+      setState((prev) => ensureGuestMarketplace(prev))
+      return
+    }
+
     const boot = await dedupeBootstrapFetch(lite, fetchBoot)
-    if (!boot) return
-    setState((prev) => applyPostgresBootstrap(prev, boot))
+    if (!boot) {
+      setState((prev) => ensureGuestMarketplace(prev))
+      return
+    }
+    setState((prev) => ensureGuestMarketplace(applyPostgresBootstrap(prev, boot)))
     try {
       localStorage.setItem(PG_HYDRATED_FLAG, 'postgres')
     } catch {
@@ -556,7 +604,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    if (!isApiEnabled && !isSupabaseMode) return
+    if (!isApiEnabled && !isSupabaseMode) {
+      setState((prev) => ensureGuestMarketplace(prev))
+      return
+    }
     let cancelled = false
     const hasCachedHydration =
       localStorage.getItem(PG_HYDRATED_FLAG) === 'postgres' &&
@@ -565,8 +616,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     const run = async () => {
       const actor = actorFromUsers(stateRef.current.users)
       const boot = await dedupeBootstrapFetch(true, () => fetchBootstrapFromApi(true, actor, 10_000))
-      if (cancelled || !boot) return
-      setState((prev) => applyPostgresBootstrap(prev, boot))
+      if (cancelled) return
+      if (!boot) {
+        setState((prev) => ensureGuestMarketplace(prev))
+        return
+      }
+      setState((prev) => ensureGuestMarketplace(applyPostgresBootstrap(prev, boot)))
       try {
         localStorage.setItem(PG_HYDRATED_FLAG, 'postgres')
       } catch {
@@ -1661,15 +1716,62 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     createLead: (input) => {
       const lead: Lead = {
         ...input,
-        id: uid('LD'),
+        id: input.id ?? uid('LD'),
         stage: input.stage ?? 'New Lead',
         notes: input.notes ?? '',
         createdAt: new Date().toISOString().slice(0, 10),
         updatedAt: new Date().toISOString().slice(0, 10),
       }
       patch((s) => ({ ...s, leads: [lead, ...s.leads] }))
-      persistUpsert('lead', lead.id, lead as unknown as Record<string, unknown>)
+      if (input.persist !== false) {
+        persistUpsert('lead', lead.id, lead as unknown as Record<string, unknown>)
+      }
       return lead
+    },
+    recordGuestEnquiry: (input) => {
+      const today = new Date().toISOString().slice(0, 10)
+      const lead: Lead = {
+        ...input.lead,
+        notes: input.lead.notes ?? '',
+        createdAt: input.lead.createdAt ?? today,
+        updatedAt: input.lead.updatedAt ?? today,
+      }
+      patch((s) => {
+        let viewingSlots = s.viewingSlots
+        let viewings = s.viewings
+        if (input.viewing) {
+          const slot = s.viewingSlots.find((x) => x.id === input.viewing!.slotId)
+          if (slot && slot.status === 'Open' && slot.booked < slot.capacity) {
+            const booked = slot.booked + 1
+            viewingSlots = s.viewingSlots.map((x) =>
+              x.id === slot.id
+                ? {
+                    ...x,
+                    booked,
+                    status: booked >= x.capacity ? ('Full' as const) : x.status,
+                  }
+                : x,
+            )
+            viewings = [
+              {
+                id: input.viewing.id ?? uid('VW'),
+                agencyId: input.viewing.agencyId,
+                propertyId: input.viewing.propertyId,
+                agentId: input.viewing.agentId ?? '',
+                slotId: input.viewing.slotId,
+                applicantName: input.viewing.applicantName,
+                applicantEmail: input.viewing.applicantEmail,
+                date: input.viewing.date,
+                time: input.viewing.time,
+                status: 'Scheduled' as const,
+                attendance: '—',
+              },
+              ...s.viewings,
+            ]
+          }
+        }
+        return { ...s, leads: [lead, ...s.leads], viewingSlots, viewings }
+      })
     },
     updateLeadStage: (id, stage) => {
       const updatedAt = new Date().toISOString().slice(0, 10)

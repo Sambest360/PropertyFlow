@@ -9,6 +9,14 @@ export const PUBLIC_LISTING_STATUSES: readonly PropertyAsset['status'][] = [
   'Under Offer',
 ]
 
+/** Unit occupancy keys eligible for public rent/buy browse (excludes draft / occupied / maintenance). */
+export const PUBLIC_UNIT_STATUS_KEYS = new Set([
+  'PUBLISHED',
+  'FEATURED',
+  'VACANT',
+  'UNDER_OFFER',
+])
+
 /**
  * Whether an applicant / marketplace visitor may see this property.
  * Drafts, archived, maintenance, sold/rented, and units marked not_listed stay hidden.
@@ -26,6 +34,7 @@ export function isPubliclyListed(
   if (opts?.units?.length) {
     const unit = resolveUnitForProperty(property, opts.units)
     if (unit?.listingType === 'not_listed') return false
+    if (unit && !PUBLIC_UNIT_STATUS_KEYS.has(unit.statusKey)) return false
   }
 
   if (opts?.users?.length && property.landlordId) {
@@ -35,4 +44,16 @@ export function isPubliclyListed(
   }
 
   return true
+}
+
+/** Whether a unit row may appear in public rent/buy browse feeds. */
+export function isPublicMarketplaceUnit(
+  unit: Unit,
+  property?: PropertyAsset | null,
+  opts?: { users?: AppUser[] },
+): boolean {
+  if (unit.listingType === 'not_listed') return false
+  if (!PUBLIC_UNIT_STATUS_KEYS.has(unit.statusKey)) return false
+  if (!property) return true
+  return isPubliclyListed(property, { units: [unit], users: opts?.users })
 }

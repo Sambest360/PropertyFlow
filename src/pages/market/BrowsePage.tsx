@@ -28,6 +28,7 @@ import {
   propertyMatchesAreas,
   type Place,
 } from '../../lib/placeCatalog'
+import { usePageMeta } from '../../hooks/usePageMeta'
 
 function listingAmount(p: PropertyAsset, mode: string): number | null {
   if (mode === 'rent') return p.rent
@@ -133,10 +134,30 @@ export default function BrowsePage() {
   const [expandedWishlistId, setExpandedWishlistId] = useState<string | null>(null)
   const reducedMotion = usePrefersReducedMotion()
 
-  const blockedIds = useMemo(
-    () => blockedPropertyIdsForApplicant(state.applications, user),
-    [state.applications, user],
-  )
+  const browseTitle = savedOnly
+    ? 'Saved homes'
+    : areas.length
+      ? `Homes in ${areas.map((a) => a.label).join(', ')}`
+      : q
+        ? `Results for “${q}”`
+        : mode === 'rent'
+          ? 'Properties to rent'
+          : mode === 'buy'
+            ? 'Properties for sale'
+            : 'Browse properties'
+
+  usePageMeta({
+    title: browseTitle,
+    description: savedOnly
+      ? 'Your saved property wishlist on PropertyFlow.'
+      : 'Filter buy, rent, and commercial listings by area, price, beds, and amenities across South Africa.',
+    path: savedOnly ? '/saved' : '/browse',
+  })
+
+  const blockedIds = useMemo(() => {
+    if (!isAuthenticated || user.id === 'guest') return new Set<string>()
+    return blockedPropertyIdsForApplicant(state.applications, user)
+  }, [isAuthenticated, state.applications, user])
 
   const properties = useMemo(() => {
     const base = publicProperties.filter((p) => !blockedIds.has(p.id))
@@ -174,9 +195,11 @@ export default function BrowsePage() {
       units: state.units,
       buildings: state.buildings,
       properties: visibleStoreProperties,
+      users: state.users,
       filters: {
         q: q || undefined,
         listing_type: mode === 'rent' ? 'rent' : mode === 'buy' ? 'sale' : 'all',
+        marketplace_public: true,
         min_rent: mode === 'rent' && filters.minPrice ? Number(filters.minPrice) : undefined,
         max_rent: mode === 'rent' && filters.maxPrice ? Number(filters.maxPrice) : undefined,
         min_price: mode !== 'rent' && filters.minPrice ? Number(filters.minPrice) : undefined,
@@ -195,7 +218,7 @@ export default function BrowsePage() {
         limit: 24,
       },
     })
-  }, [state.units, state.buildings, visibleStoreProperties, q, mode, filters, cursor, savedOnly, areas])
+  }, [state.units, state.buildings, state.users, visibleStoreProperties, q, mode, filters, cursor, savedOnly, areas])
 
   const cards: UnitCardPayload[] = useMemo(() => {
     const raw = unitsFeed
@@ -291,7 +314,7 @@ export default function BrowsePage() {
                 </p>
               )}
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2" data-tip-target="browse-modes">
               {[
                 ['all', 'All'],
                 ['buy', 'For sale'],
@@ -313,6 +336,7 @@ export default function BrowsePage() {
               ))}
               <button
                 type="button"
+                data-tip-target="browse-map"
                 onClick={() => setShowMap((s) => !s)}
                 className="inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-full border border-primary-100 bg-white px-3.5 py-1.5 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
@@ -343,7 +367,8 @@ export default function BrowsePage() {
             </div>
           )}
 
-          <BrowseFiltersBar
+          <div data-tip-target="browse-filters">
+            <BrowseFiltersBar
             filters={filters}
             onOpen={() => setPanelOpen(true)}
             onClear={() => {
@@ -370,6 +395,7 @@ export default function BrowsePage() {
               }))
             }
           />
+          </div>
         </div>
       </div>
 

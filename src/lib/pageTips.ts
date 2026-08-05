@@ -7,6 +7,178 @@ export type PageTipContent = {
   body: string
 }
 
+export type PageTourStep = {
+  title: string
+  body: string
+  /** CSS selector for spotlight + anchor; omit for centered welcome step */
+  target?: string
+  placement?: 'center' | 'above' | 'below'
+}
+
+export type PageTour = {
+  id: string
+  steps: PageTourStep[]
+}
+
+/** Multi-step walkthroughs (shown before single-step route tips). */
+const WALKTHROUGH_RULES: Array<{
+  match: (pathname: string) => boolean
+  roles?: Role[]
+  tour: (role: Role | null) => PageTour
+}> = [
+  {
+    match: exact('/'),
+    tour: () => ({
+      id: 'tour-market-home',
+      steps: [
+        {
+          title: 'Welcome to PropertyFlow',
+          body: 'Browse buy, rent, and commercial listings across South Africa. This quick tour shows where to search, save favourites, and sign in when you are ready to apply.',
+          placement: 'center',
+        },
+        {
+          title: 'Buy & rent',
+          body: 'Switch between sale and rental inventory — or explore commercial and bond calculators from the top navigation.',
+          target: '[data-tip-target="market-nav"]',
+          placement: 'below',
+        },
+        {
+          title: 'Search by area',
+          body: 'Enter a suburb, city, or keyword to jump straight into filtered results on the browse page.',
+          target: '[data-tip-target="market-search"]',
+          placement: 'below',
+        },
+        {
+          title: 'Saved homes',
+          body: 'Heart listings to keep them on your wishlist. Sign in to sync saves across devices.',
+          target: '[data-tip-target="market-saved"]',
+          placement: 'below',
+        },
+        {
+          title: 'Apply when ready',
+          body: 'Browsing is free — create an account only when you want to apply for a property or track an application.',
+          target: '[data-tip-target="market-auth"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: prefix('/browse'),
+    tour: () => ({
+      id: 'tour-market-browse',
+      steps: [
+        {
+          title: 'Refine your search',
+          body: 'Use these tabs to switch between all listings, properties for sale, rentals, or commercial stock.',
+          target: '[data-tip-target="browse-modes"]',
+          placement: 'below',
+        },
+        {
+          title: 'Filters & sort',
+          body: 'Open filters for price, beds, amenities, and grading — then sort by featured, price, or newest.',
+          target: '[data-tip-target="browse-filters"]',
+          placement: 'below',
+        },
+        {
+          title: 'Map view',
+          body: 'Toggle the map to compare suburbs and spot clusters of available homes.',
+          target: '[data-tip-target="browse-map"]',
+          placement: 'below',
+        },
+        {
+          title: 'Open a listing',
+          body: 'Tap any card for photos, fees, and viewing slots. You only need an account when you apply.',
+          placement: 'center',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace'),
+    roles: ['client_admin', 'agent_admin', 'ground_agent', 'agent'],
+    tour: (role) => ({
+      id: 'tour-workspace-home',
+      steps: [
+        {
+          title: role === 'ground_agent' || role === 'agent' ? 'Your day at a glance' : 'Agency command centre',
+          body:
+            role === 'ground_agent' || role === 'agent'
+              ? 'Viewings, tickets, and follow-ups assigned to you surface here first.'
+              : 'Start with the overview tab for items needing attention, then jump into properties, sales, or operations.',
+          placement: 'center',
+        },
+        {
+          title: 'Navigation',
+          body: 'The sidebar groups properties, sales pipeline, operations, and people — only modules your role can access are shown.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+        {
+          title: 'Quick search',
+          body: 'Use spotlight search to jump to a property, lead, tenant, or page anywhere in the workspace.',
+          target: '[data-tip-target="workspace-search"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/properties/new'),
+    tour: () => ({
+      id: 'tour-property-create',
+      steps: [
+        {
+          title: 'Add a property',
+          body: 'This wizard walks you through building, unit, and listing details in order. You can save a draft at any time and publish when ready.',
+          placement: 'center',
+        },
+        {
+          title: 'Step-by-step progress',
+          body: 'Each step unlocks the next. Click a completed step in the sidebar to jump back and edit without losing your work.',
+          target: '[data-tip-target="wizard-steps"]',
+          placement: 'below',
+        },
+        {
+          title: 'Guidance for this step',
+          body: 'The panel on the left explains what the current step needs. It updates as you move through type, location, rooms, media, and pricing.',
+          target: '[data-tip-target="wizard-step-tip"]',
+          placement: 'below',
+        },
+        {
+          title: 'Live preview',
+          body: 'See how your listing will look on the marketplace as you fill in photos, pricing, and title.',
+          target: '[data-tip-target="wizard-preview"]',
+          placement: 'below',
+        },
+        {
+          title: 'Need help on a field?',
+          body: 'Look for the ? icons next to labels — tap them for quick explanations of what to enter. Use Continue when each step is complete.',
+          target: '[data-tip-target="wizard-form"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+]
+
+export function resolvePageTour(pathname: string, role: Role | null): PageTour | null {
+  const normalized = pathname.replace(/\/+$/, '') || '/'
+
+  for (const rule of WALKTHROUGH_RULES) {
+    if (!rule.match(normalized)) continue
+    if (rule.roles && (!role || !rule.roles.includes(role))) continue
+    return rule.tour(role)
+  }
+
+  const single = resolvePageTip(normalized, role)
+  if (!single) return null
+  return {
+    id: single.id,
+    steps: [{ title: single.title, body: single.body, placement: 'center' }],
+  }
+}
+
 type TipRule = {
   match: (pathname: string) => boolean
   /** When set, only these roles see this tip (others get no tip for this route). */
@@ -443,7 +615,7 @@ export function resolvePageTip(pathname: string, role: Role | null): PageTipCont
   return null
 }
 
-const STORAGE_KEY = 'pf-page-tips-v1'
+const STORAGE_KEY = 'pf-page-tips-v2'
 
 type SeenMap = Record<string, string[]>
 

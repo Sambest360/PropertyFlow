@@ -44,6 +44,11 @@ export function ListingPhotoGallery({
               <img
                 src={photos[0]}
                 alt=""
+                width={800}
+                height={600}
+                fetchPriority="high"
+                loading="eager"
+                decoding="async"
                 className={cn(
                   'h-56 w-full object-cover sm:h-full',
                   !reducedMotion && 'transition-transform duration-300 group-hover:scale-[1.02]',
@@ -68,6 +73,10 @@ export function ListingPhotoGallery({
                 <img
                   src={src}
                   alt=""
+                  width={400}
+                  height={300}
+                  loading="lazy"
+                  decoding="async"
                   className={cn(
                     'h-full w-full object-cover',
                     !reducedMotion && 'transition-transform duration-300 group-hover:scale-[1.03]',

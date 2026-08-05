@@ -126,8 +126,20 @@ function StoryChapter({
   )
 }
 
+import { usePageMeta } from '../../hooks/usePageMeta'
+
+const HERO_LCP =
+  'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1800&q=80'
+
 export default function MarketHome() {
   const navigate = useNavigate()
+  usePageMeta({
+    title: 'Buy & rent property in South Africa',
+    description:
+      'Search homes for sale and rent across South Africa. Filter by area, price, and property type — then book viewings or apply online.',
+    path: '/',
+    preloadImage: HERO_LCP,
+  })
   const properties = usePublicProperties()
   const [areas, setAreas] = useState<Place[]>([])
   const [mode, setMode] = useState<'buy' | 'rent'>('buy')
@@ -192,8 +204,7 @@ export default function MarketHome() {
         <div
           className="absolute inset-0 -z-20 scale-110 bg-cover bg-center will-change-transform"
           style={{
-            backgroundImage:
-              'url(https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1800&q=80)',
+            backgroundImage: `url(${HERO_LCP})`,
             transform: `translate3d(0, ${parallaxY}px, 0)`,
           }}
           aria-hidden

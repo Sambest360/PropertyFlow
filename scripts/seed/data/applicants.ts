@@ -8,7 +8,7 @@ export type ApplicantDef = {
   phone: string
 }
 
-/** Applicant portal users — no active tenancies or leases. */
+/** Applicant portal users — applications only; no viewing slot bookings or tenancies. */
 export const APPLICANTS: ApplicantDef[] = [
   {
     feId: 'u-applicant-riaan',

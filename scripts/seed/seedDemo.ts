@@ -9,6 +9,8 @@ import {
 } from './data/lookups.js'
 import { PROPERTIES } from './data/properties.js'
 import { APPLICANTS, APPLICATION_DEFS, APPLICANT_DB_ROLE } from './data/applicants.js'
+import { CONTRACTORS, contractorMetadata } from './data/contractors.js'
+import { MAINTENANCE_TICKETS } from './data/maintenance.js'
 import { AGENCY_ADMIN, AGENTS } from './data/users.js'
 import {
   createAuthUser,
@@ -26,6 +28,8 @@ export type SeedResult = {
   propertyCount: number
   applicantCount: number
   applicationCount: number
+  contractorCount: number
+  maintenanceTicketCount: number
   credentials: Array<{ email: string; role: string; note?: string }>
 }
 
@@ -138,6 +142,45 @@ export async function seedDemo(
     })
   }
 
+  // --- Contractors (approved + pending verification) ---
+  for (const contractor of CONTRACTORS) {
+    const authId = await createAuthUser(admin, {
+      email: contractor.email,
+      firstName: contractor.firstName,
+      lastName: contractor.lastName,
+      phone: contractor.phone,
+      dbRole: 'CONTRACTOR',
+      feId: contractor.feId,
+      clientId: AGENCY_ID,
+      password: env.demoPassword,
+      metadata: contractorMetadata(contractor),
+    })
+    const appUserId = await getAppUserIdByAuth(admin, authId)
+    users.set(contractor.feId, { appUserId, email: contractor.email, dbRole: 'CONTRACTOR' })
+    const note =
+      contractor.verificationStatus === 'approved' ? 'approved' : 'pending verification'
+    credentials.push({ email: contractor.email, role: 'contractor', note })
+  }
+
+  // --- Vendor category routing (preferred contractors per trade) ---
+  let vendorRouteIdx = 0
+  for (const contractor of CONTRACTORS) {
+    if (contractor.verificationStatus !== 'approved' || !contractor.vendorCategories?.length) continue
+    const contractorUser = users.get(contractor.feId)
+    if (!contractorUser) continue
+    for (const categoryKey of contractor.vendorCategories) {
+      vendorRouteIdx += 1
+      const { error } = await admin.from('vendor_category_routes').insert({
+        id: fixedUuid('b9010001', vendorRouteIdx),
+        client_id: AGENCY_ID,
+        category_key: categoryKey,
+        contractor_user_id: contractorUser.appUserId,
+        is_active: true,
+      })
+      if (error) throw error
+    }
+  }
+
   // --- Applicants (no tenants / leases) ---
   for (const applicant of APPLICANTS) {
     const authId = await createAuthUser(admin, {
@@ -248,6 +291,67 @@ export async function seedDemo(
     }
   }
 
+  // --- Viewing slots on first published listings (for marketplace booking demos) ---
+  const slotBase = new Date()
+  slotBase.setDate(slotBase.getDate() + 3)
+  let slotIdx = 0
+  for (const p of PROPERTIES) {
+    if (p.statusKey === 'DRAFT' || slotIdx >= 6) continue
+    const unit = unitByFe.get(p.feId)
+    if (!unit) continue
+    const agent = users.get(unit.agentFeId)
+    slotIdx += 1
+    const slotId = fixedUuid('b8010001', slotIdx)
+    const slotFeId = `VS-SCB-${String(slotIdx).padStart(3, '0')}`
+    const slotDate = new Date(slotBase)
+    slotDate.setDate(slotDate.getDate() + slotIdx)
+    const dateStr = slotDate.toISOString().slice(0, 10)
+
+    const { error: slotErr } = await admin.from('viewing_slots').insert({
+      id: slotId,
+      client_id: AGENCY_ID,
+      unit_id: unit.unitId,
+      agent_id: agent?.appUserId ?? null,
+      slot_date: dateStr,
+      slot_time: slotIdx % 2 === 0 ? '10:00' : '14:30',
+      capacity: 3,
+      booked_count: 0,
+      status: 'OPEN',
+      title: `Open viewing — ${p.title.slice(0, 40)}`,
+      duration_minutes: 30,
+      updated_at: new Date().toISOString(),
+    })
+    if (slotErr) throw slotErr
+    await upsertEntityMap(admin, 'viewing_slot', slotFeId, slotId)
+  }
+
+  // --- Maintenance tickets (assigned + claimable jobs for contractor portal demos) ---
+  for (let i = 0; i < MAINTENANCE_TICKETS.length; i++) {
+    const ticket = MAINTENANCE_TICKETS[i]
+    const unit = unitByFe.get(ticket.propertyFeId)
+    if (!unit) throw new Error(`Maintenance ticket property missing: ${ticket.propertyFeId}`)
+    const agent = users.get(ticket.agentFeId)
+    const contractor = ticket.contractorFeId ? users.get(ticket.contractorFeId) : undefined
+
+    const { error } = await admin.from('maintenance_tickets').insert({
+      id: fixedUuid('b9020001', i + 1),
+      client_id: AGENCY_ID,
+      unit_id: unit.unitId,
+      assigned_to: agent?.appUserId ?? null,
+      contractor_id: contractor?.appUserId ?? null,
+      category_key: ticket.categoryKey,
+      title: ticket.title,
+      description: ticket.description,
+      priority: ticket.priority,
+      status: ticket.status,
+      warranty_covered: ticket.warrantyCovered ?? false,
+      photos: [],
+      updated_at: new Date().toISOString(),
+    })
+    if (error) throw error
+    await upsertEntityMap(admin, 'maintenance_ticket', ticket.feId, fixedUuid('b9020001', i + 1))
+  }
+
   // --- Pipeline applications (no leases) ---
   for (let i = 0; i < APPLICATION_DEFS.length; i++) {
     const app = APPLICATION_DEFS[i]
@@ -280,7 +384,12 @@ export async function seedDemo(
   console.log(
     `Seeded ${PROPERTIES.length} properties (${rentCount} for rent, ${saleCount} for sale, ${draftCount} draft/unpublished)`,
   )
-  console.log(`Seeded ${APPLICANTS.length} applicants, ${APPLICATION_DEFS.length} applications (no tenants or leases)`)
+  console.log(
+    `Seeded ${APPLICANTS.length} applicants, ${APPLICATION_DEFS.length} applications (no tenants, leases, or slot bookings)`,
+  )
+  console.log(
+    `Seeded ${CONTRACTORS.length} contractors (${CONTRACTORS.filter((c) => c.verificationStatus === 'approved').length} approved), ${MAINTENANCE_TICKETS.length} maintenance tickets`,
+  )
 
   return {
     agencyName: AGENCY.company_name,
@@ -289,6 +398,8 @@ export async function seedDemo(
     propertyCount: PROPERTIES.length,
     applicantCount: APPLICANTS.length,
     applicationCount: APPLICATION_DEFS.length,
+    contractorCount: CONTRACTORS.length,
+    maintenanceTicketCount: MAINTENANCE_TICKETS.length,
     credentials,
   }
 }

@@ -5,6 +5,8 @@ export function blockedPropertyIdsForApplicant(
   applications: Application[],
   user: Pick<AppUser, 'id' | 'email'>,
 ): Set<string> {
+  if (!user.id || user.id === 'guest') return new Set()
+  if (!user.email?.trim()) return new Set()
   return new Set(
     applications
       .filter(
