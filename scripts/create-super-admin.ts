@@ -1,17 +1,19 @@
 /**
- * Bootstrap Super Admin via Supabase Auth Admin API.
- * Creates the user if missing, or updates password if the email already exists.
- * Always repairs public.users + entity_id_map so the account is SUPER_ADMIN (not applicant).
+ * Bootstrap super admin account(s) via Supabase Auth Admin API.
  *
- * Usage: set -a && source .env.local && set +a && npx tsx scripts/create-super-admin.ts
+ * Usage (all configured super admins):
+ *   set -a && source .env.local && set +a && npx tsx scripts/create-super-admin.ts
+ *
+ * Usage (single account):
+ *   SUPER_ADMIN_EMAIL=sambampo200@gmail.com npx tsx scripts/create-super-admin.ts
  */
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { SUPER_ADMINS, superAdminByEmail, type SuperAdminDef } from './seed/superAdmins.js'
 
 const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL
 const secret = process.env.SUPABASE_SECRET_KEY
-const email = process.env.SUPER_ADMIN_EMAIL ?? 'ephraimbampo317@gmail.com'
 const password = process.env.SUPER_ADMIN_PASSWORD ?? 'secret'
-const SUPER_FE_ID = 'u-super'
+const singleEmail = process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase()
 
 if (!url || !secret) {
   console.error('Missing SUPABASE_URL and SUPABASE_SECRET_KEY')
@@ -40,17 +42,21 @@ function isExistingUserError(message: string) {
   return lower.includes('already been registered') || lower.includes('already exists')
 }
 
-async function ensurePublicSuperAdmin(authUserId: string) {
+export async function ensurePublicSuperAdmin(
+  client: SupabaseClient,
+  def: SuperAdminDef,
+  authUserId: string,
+): Promise<string> {
   const metadata = {
-    frontend_id: SUPER_FE_ID,
+    frontend_id: def.feId,
     frontend_role: 'super_admin',
     mustChangePassword: false,
   }
 
-  const { data: existing, error: fetchErr } = await admin
+  const { data: existing, error: fetchErr } = await client
     .from('users')
     .select('id')
-    .ilike('email', email)
+    .ilike('email', def.email)
     .maybeSingle()
 
   if (fetchErr) throw fetchErr
@@ -58,14 +64,14 @@ async function ensurePublicSuperAdmin(authUserId: string) {
   let appUserId = existing?.id as string | undefined
 
   if (appUserId) {
-    const { error: updateErr } = await admin
+    const { error: updateErr } = await client
       .from('users')
       .update({
         auth_user_id: authUserId,
         client_id: null,
         role: 'SUPER_ADMIN',
-        first_name: 'Super',
-        last_name: 'Admin',
+        first_name: def.firstName,
+        last_name: def.lastName,
         active: true,
         metadata,
         updated_at: new Date().toISOString(),
@@ -74,13 +80,13 @@ async function ensurePublicSuperAdmin(authUserId: string) {
     if (updateErr) throw updateErr
   } else {
     appUserId = crypto.randomUUID()
-    const { error: insertErr } = await admin.from('users').insert({
+    const { error: insertErr } = await client.from('users').insert({
       id: appUserId,
       auth_user_id: authUserId,
       client_id: null,
-      email: email.toLowerCase(),
-      first_name: 'Super',
-      last_name: 'Admin',
+      email: def.email.toLowerCase(),
+      first_name: def.firstName,
+      last_name: def.lastName,
       role: 'SUPER_ADMIN',
       active: true,
       metadata,
@@ -89,40 +95,43 @@ async function ensurePublicSuperAdmin(authUserId: string) {
     if (insertErr) throw insertErr
   }
 
-  await admin.from('entity_id_map').delete().eq('entity_type', 'user').eq('backend_id', appUserId)
-  await admin.from('entity_id_map').delete().eq('entity_type', 'user').eq('frontend_id', SUPER_FE_ID)
+  await client.from('entity_id_map').delete().eq('entity_type', 'user').eq('backend_id', appUserId)
+  await client.from('entity_id_map').delete().eq('entity_type', 'user').eq('frontend_id', def.feId)
 
-  const { error: mapInsertErr } = await admin.from('entity_id_map').insert({
+  const { error: mapInsertErr } = await client.from('entity_id_map').insert({
     entity_type: 'user',
     backend_id: appUserId,
-    frontend_id: SUPER_FE_ID,
+    frontend_id: def.feId,
   })
   if (mapInsertErr) throw mapInsertErr
 
   return appUserId
 }
 
-async function main() {
-  let authUser = await findUserByEmail(email)
+export async function ensureSuperAdminAccount(
+  client: SupabaseClient,
+  def: SuperAdminDef,
+  accountPassword: string,
+): Promise<{ action: 'created' | 'password_updated'; authUserId: string; appUserId: string }> {
+  let authUser = await findUserByEmail(def.email)
   let action: 'created' | 'password_updated' = 'password_updated'
 
   if (!authUser) {
-    const { data, error } = await admin.auth.admin.createUser({
-      email,
-      password,
+    const { data, error } = await client.auth.admin.createUser({
+      email: def.email,
+      password: accountPassword,
       email_confirm: true,
       user_metadata: {
-        first_name: 'Super',
-        last_name: 'Admin',
+        first_name: def.firstName,
+        last_name: def.lastName,
         role: 'super_admin',
       },
     })
     if (error) {
       if (!isExistingUserError(error.message)) {
-        console.error('createUser failed:', error.message)
-        process.exit(1)
+        throw new Error(`createUser ${def.email}: ${error.message}`)
       }
-      authUser = await findUserByEmail(email)
+      authUser = await findUserByEmail(def.email)
     } else {
       authUser = data.user ?? null
       action = 'created'
@@ -130,41 +139,62 @@ async function main() {
   }
 
   if (!authUser) {
-    console.error('Could not resolve auth user for', email)
-    process.exit(1)
+    throw new Error(`Could not resolve auth user for ${def.email}`)
   }
 
-  const { error: updateError } = await admin.auth.admin.updateUserById(authUser.id, {
-    password,
+  const { error: updateError } = await client.auth.admin.updateUserById(authUser.id, {
+    password: accountPassword,
     email_confirm: true,
     user_metadata: {
       ...(authUser.user_metadata as Record<string, unknown>),
-      first_name: 'Super',
-      last_name: 'Admin',
+      first_name: def.firstName,
+      last_name: def.lastName,
       role: 'super_admin',
     },
   })
   if (updateError) {
-    console.error('updateUserById failed:', updateError.message)
-    process.exit(1)
+    throw new Error(`updateUserById ${def.email}: ${updateError.message}`)
   }
 
-  const appUserId = await ensurePublicSuperAdmin(authUser.id)
-
-  console.log(
-    JSON.stringify({
-      ok: true,
-      action,
-      authUserId: authUser.id,
-      appUserId,
-      frontendId: SUPER_FE_ID,
-      email,
-      role: 'SUPER_ADMIN',
-    }),
-  )
+  const appUserId = await ensurePublicSuperAdmin(client, def, authUser.id)
+  return { action, authUserId: authUser.id, appUserId }
 }
 
-main().catch((err) => {
-  console.error(err)
-  process.exit(1)
-})
+async function main() {
+  const targets = singleEmail
+    ? (() => {
+        const def = superAdminByEmail(singleEmail)
+        if (!def) {
+          throw new Error(
+            `Unknown SUPER_ADMIN_EMAIL: ${singleEmail}. Configured: ${SUPER_ADMINS.map((a) => a.email).join(', ')}`,
+          )
+        }
+        return [def]
+      })()
+    : SUPER_ADMINS
+
+  const results = []
+  for (const def of targets) {
+    const result = await ensureSuperAdminAccount(admin, def, password)
+    results.push({
+      ok: true,
+      ...result,
+      frontendId: def.feId,
+      email: def.email,
+      role: 'SUPER_ADMIN',
+    })
+    console.log(JSON.stringify(results[results.length - 1]))
+  }
+}
+
+const isMain =
+  typeof process.argv[1] === 'string' &&
+  (process.argv[1].endsWith('create-super-admin.ts') ||
+    process.argv[1].endsWith('create-super-admin.js'))
+
+if (isMain) {
+  main().catch((err) => {
+    console.error(err)
+    process.exit(1)
+  })
+}

@@ -14,6 +14,7 @@ export const AGENCY_TO_CLIENT: Record<string, string> = Object.fromEntries(
 
 /** Postgres seed email → frontend seed.ts user id. */
 export const EMAIL_TO_USER: Record<string, string> = {
+  'ephraimbampo317@gmail.com': 'u-super-ephraim',
   'sambampo200@gmail.com': 'u-super',
   'super@propertyflow.app': 'u-super',
   'amelia@horizonrealty.co.za': 'u-amelia',

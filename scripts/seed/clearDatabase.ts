@@ -7,11 +7,13 @@ import {
   upsertEntityMap,
   type SeedEnv,
 } from './helpers.js'
+import { SUPER_ADMINS, type SuperAdminDef } from './superAdmins.js'
 
 export type SuperAdminRefs = {
   authUserId: string
   appUserId: string
   email: string
+  feId: string
 }
 
 const TRUNCATE_TABLES = [
@@ -106,11 +108,11 @@ async function ensurePermissions(pool: pg.Pool) {
 async function resolveSuperAdmin(
   pool: pg.Pool,
   admin: SupabaseClient,
-  email: string,
+  def: SuperAdminDef,
 ): Promise<SuperAdminRefs> {
-  const authUser = await findAuthUserByEmail(admin, email)
+  const authUser = await findAuthUserByEmail(admin, def.email)
   if (!authUser) {
-    throw new Error(`Super admin auth user not found: ${email}. Run npm run db:super-admin first.`)
+    throw new Error(`Super admin auth user not found: ${def.email}. Run npm run db:super-admin first.`)
   }
 
   const { rows } = await pool.query<{ id: string }>(
@@ -122,70 +124,86 @@ async function resolveSuperAdmin(
   if (!appUserId) {
     const { rows: byEmail } = await pool.query<{ id: string }>(
       `SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1`,
-      [email],
+      [def.email],
     )
     appUserId = byEmail[0]?.id
   }
 
   if (!appUserId) {
-    console.warn(`Repairing missing public.users row for super admin ${email}`)
+    console.warn(`Repairing missing public.users row for super admin ${def.email}`)
     const { rows: inserted } = await pool.query<{ id: string }>(
       `INSERT INTO users (
          id, auth_user_id, client_id, email, first_name, last_name, role, active, metadata, updated_at
        ) VALUES (
-         gen_random_uuid(), $1, NULL, lower($2), 'Super', 'Admin', 'SUPER_ADMIN', TRUE,
-         '{"frontend_id":"u-super","frontend_role":"super_admin","mustChangePassword":false}'::jsonb,
+         gen_random_uuid(), $1, NULL, lower($2), $3, $4, 'SUPER_ADMIN', TRUE,
+         jsonb_build_object(
+           'frontend_id', $5,
+           'frontend_role', 'super_admin',
+           'mustChangePassword', false
+         ),
          NOW()
        )
        RETURNING id`,
-      [authUser.id, email],
+      [authUser.id, def.email, def.firstName, def.lastName, def.feId],
     )
     appUserId = inserted[0]?.id
   }
 
   if (!appUserId) {
-    throw new Error(`Super admin public.users row not found for ${email}`)
+    throw new Error(`Super admin public.users row not found for ${def.email}`)
   }
 
-  return { authUserId: authUser.id, appUserId, email }
+  return { authUserId: authUser.id, appUserId, email: def.email, feId: def.feId }
 }
 
 async function ensureSuperAdminRow(
   pool: pg.Pool,
   admin: SupabaseClient,
   refs: SuperAdminRefs,
+  def: SuperAdminDef,
 ) {
   await pool.query(
     `UPDATE users SET
        role = 'SUPER_ADMIN',
        client_id = NULL,
        active = TRUE,
-       first_name = COALESCE(NULLIF(first_name, ''), 'Super'),
-       last_name = COALESCE(NULLIF(last_name, ''), 'Admin'),
+       first_name = COALESCE(NULLIF(first_name, ''), $3),
+       last_name = COALESCE(NULLIF(last_name, ''), $4),
        auth_user_id = $2,
        metadata = jsonb_build_object(
-         'frontend_id', 'u-super',
+         'frontend_id', $5,
          'frontend_role', 'super_admin',
          'mustChangePassword', false
        ),
        updated_at = NOW()
      WHERE id = $1`,
-    [refs.appUserId, refs.authUserId],
+    [refs.appUserId, refs.authUserId, def.firstName, def.lastName, def.feId],
   )
 
-  await upsertEntityMap(admin, 'user', 'u-super', refs.appUserId)
+  await upsertEntityMap(admin, 'user', def.feId, refs.appUserId)
 }
 
 export async function clearDatabase(
   pool: pg.Pool,
   admin: SupabaseClient,
-  env: SeedEnv,
-): Promise<SuperAdminRefs> {
-  const refs = await resolveSuperAdmin(pool, admin, env.superAdminEmail)
-  console.log(`Keeping super admin: ${refs.email} (${refs.authUserId})`)
+  _env: SeedEnv,
+): Promise<SuperAdminRefs[]> {
+  const refsList: SuperAdminRefs[] = []
+  for (const def of SUPER_ADMINS) {
+    refsList.push(await resolveSuperAdmin(pool, admin, def))
+  }
 
-  const deletedAuth = await deleteAllAuthUsersExcept(admin, refs.authUserId)
+  console.log(
+    `Keeping super admins: ${refsList.map((r) => `${r.email} (${r.authUserId})`).join(', ')}`,
+  )
+
+  const deletedAuth = await deleteAllAuthUsersExcept(
+    admin,
+    refsList.map((r) => r.authUserId),
+  )
   console.log(`Deleted ${deletedAuth} auth user(s)`)
+
+  const keepUserIds = refsList.map((r) => r.appUserId)
 
   const client = await pool.connect()
   try {
@@ -195,7 +213,7 @@ export async function clearDatabase(
     }
     await client.query(`DELETE FROM client_lookup_configs WHERE client_id != $1`, [GLOBAL_CLIENT_UUID])
     await client.query(`DELETE FROM clients WHERE id != $1`, [GLOBAL_CLIENT_UUID])
-    await client.query(`DELETE FROM users WHERE id != $1`, [refs.appUserId])
+    await client.query(`DELETE FROM users WHERE NOT (id = ANY($1::uuid[]))`, [keepUserIds])
     await client.query('COMMIT')
   } catch (err) {
     await client.query('ROLLBACK')
@@ -204,9 +222,11 @@ export async function clearDatabase(
     client.release()
   }
 
-  await ensureSuperAdminRow(pool, admin, refs)
+  for (let i = 0; i < refsList.length; i++) {
+    await ensureSuperAdminRow(pool, admin, refsList[i], SUPER_ADMINS[i])
+  }
   await ensurePermissions(pool)
 
-  console.log('Database cleared (super admin + global configuration preserved)')
-  return refs
+  console.log('Database cleared (super admins + global configuration preserved)')
+  return refsList
 }

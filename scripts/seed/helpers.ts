@@ -93,7 +93,8 @@ export async function findAuthUserByEmail(admin: SupabaseClient, email: string) 
   }
 }
 
-export async function deleteAllAuthUsersExcept(admin: SupabaseClient, keepAuthId: string) {
+export async function deleteAllAuthUsersExcept(admin: SupabaseClient, keepAuthIds: string | string[]) {
+  const keep = new Set(Array.isArray(keepAuthIds) ? keepAuthIds : [keepAuthIds])
   let page = 1
   const perPage = 200
   let deleted = 0
@@ -101,7 +102,7 @@ export async function deleteAllAuthUsersExcept(admin: SupabaseClient, keepAuthId
     const { data, error } = await admin.auth.admin.listUsers({ page, perPage })
     if (error) throw error
     for (const user of data.users) {
-      if (user.id === keepAuthId) continue
+      if (keep.has(user.id)) continue
       const { error: delErr } = await admin.auth.admin.deleteUser(user.id)
       if (delErr) throw delErr
       deleted += 1
