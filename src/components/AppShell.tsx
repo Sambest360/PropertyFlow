@@ -8,7 +8,7 @@ import { useWorkspaceNav, WorkspaceSidebar } from './layout/WorkspaceNav'
 import { WORKSPACE_INSET } from './layout/workspaceInset'
 import { NotificationToastHost } from './notifications/NotificationBell'
 import { ImpersonationBanner } from './admin/ImpersonationBanner'
-import { PageTipWalkthrough } from './onboarding/PageTipWalkthrough'
+import { OnboardingLayer } from './onboarding/OnboardingLayer'
 import { useNavCollapsed } from '../hooks/useNavCollapsed'
 import { useScrollChrome } from '../hooks/useScrollChrome'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
@@ -20,7 +20,7 @@ const RAIL_WIDTH = '4.5rem'
 export function MarketplaceShell() {
   return (
     <div className="flex min-h-screen flex-col bg-white text-ink">
-      <PageTipWalkthrough />
+      <OnboardingLayer />
       <MarketplaceHeader />
       <main className="flex-1">
         <Outlet />
@@ -41,7 +41,7 @@ export function WorkspaceShell() {
 
   return (
     <div className="relative flex min-h-screen bg-white text-ink">
-      <PageTipWalkthrough />
+      <OnboardingLayer />
       <NotificationToastHost />
       <WorkspaceSidebar items={nav} brandMuted={chromeCompact} />
 

@@ -92,7 +92,7 @@ type PageTourStep = import('../../lib/pageTips').PageTourStep
 
 export function PageTipWalkthrough() {
   const { user } = useAuth()
-  const { step, stepIndex, totalSteps, isFirst, isLast, next, skipAll } = usePageTour()
+  const { step, stepIndex, totalSteps, isFirst, isLast, next, skipAll, disableAllTips } = usePageTour()
   const reducedMotion = usePrefersReducedMotion()
   const [targetRect, setTargetRect] = useState<Rect | null>(null)
 
@@ -202,21 +202,32 @@ export function PageTipWalkthrough() {
           {step.body}
         </p>
 
-        <div className="mt-5 flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={skipAll}
-            className="cursor-pointer text-sm font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
-          >
-            {isFirst ? 'Nevermind' : 'Skip all'}
-          </button>
-          <button
-            type="button"
-            onClick={next}
-            className="cursor-pointer rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
-          >
-            {isLast ? 'Done' : isFirst ? 'Start' : 'Next tip'}
-          </button>
+        <div className="mt-5 flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={skipAll}
+              className="cursor-pointer text-sm font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+            >
+              {isFirst ? 'Skip this tour' : 'Skip all'}
+            </button>
+            <button
+              type="button"
+              onClick={next}
+              className="cursor-pointer rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+            >
+              {isLast ? 'Done' : isFirst ? 'Start' : 'Next tip'}
+            </button>
+          </div>
+          {user?.id && user.id !== 'guest' && (
+            <button
+              type="button"
+              onClick={disableAllTips}
+              className="cursor-pointer self-start text-xs font-medium text-ink-400 underline-offset-2 hover:text-ink-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+            >
+              Turn off all page tips
+            </button>
+          )}
         </div>
       </div>
     </div>,

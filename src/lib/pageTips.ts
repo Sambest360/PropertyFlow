@@ -171,12 +171,7 @@ export function resolvePageTour(pathname: string, role: Role | null): PageTour |
     return rule.tour(role)
   }
 
-  const single = resolvePageTip(normalized, role)
-  if (!single) return null
-  return {
-    id: single.id,
-    steps: [{ title: single.title, body: single.body, placement: 'center' }],
-  }
+  return null
 }
 
 type TipRule = {
@@ -616,10 +611,18 @@ export function resolvePageTip(pathname: string, role: Role | null): PageTipCont
 }
 
 const STORAGE_KEY = 'pf-page-tips-v2'
+const PREFS_KEY = 'pf-page-tips-prefs-v1'
+const SESSION_COOLDOWN_KEY = 'pf-page-tips-cooldown'
+/** Minimum gap between walkthroughs in the same browser session. */
+export const TOUR_SESSION_COOLDOWN_MS = 20 * 60 * 1000
 
 type SeenMap = Record<string, string[]>
+type TipsPrefs = { disabled: boolean; decidedAt: string }
+type PrefsMap = Record<string, TipsPrefs>
 
 const memorySeen = new Map<string, SeenMap>()
+const memoryPrefs = new Map<string, PrefsMap>()
+let memoryCooldownAt: number | null = null
 
 function readSeenMap(): SeenMap {
   if (typeof localStorage !== 'undefined') {
@@ -659,6 +662,83 @@ export function markPageTipSeen(userId: string, tipId: string): void {
   if (seen.includes(tipId)) return
   map[userId] = [...seen, tipId]
   writeSeenMap(map)
+  markTourSessionCooldown()
+}
+
+function readPrefsMap(): PrefsMap {
+  if (typeof localStorage !== 'undefined') {
+    try {
+      const raw = localStorage.getItem(PREFS_KEY)
+      if (raw) {
+        const parsed = JSON.parse(raw) as PrefsMap
+        return parsed && typeof parsed === 'object' ? parsed : {}
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+  return memoryPrefs.get(PREFS_KEY) ?? {}
+}
+
+function writePrefsMap(map: PrefsMap) {
+  memoryPrefs.set(PREFS_KEY, map)
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(map))
+  } catch {
+    /* memory already updated */
+  }
+}
+
+export function hasPageTipsPreference(userId: string): boolean {
+  if (!userId || userId === 'anon') return true
+  return Boolean(readPrefsMap()[userId])
+}
+
+export function arePageTipsDisabled(userId: string): boolean {
+  if (!userId) return true
+  return readPrefsMap()[userId]?.disabled === true
+}
+
+export function setPageTipsPreference(userId: string, disabled: boolean): void {
+  if (!userId || userId === 'anon') return
+  const map = readPrefsMap()
+  map[userId] = { disabled, decidedAt: new Date().toISOString() }
+  writePrefsMap(map)
+}
+
+export function markTourSessionCooldown(): void {
+  memoryCooldownAt = Date.now()
+  if (typeof sessionStorage === 'undefined') return
+  try {
+    sessionStorage.setItem(SESSION_COOLDOWN_KEY, String(memoryCooldownAt))
+  } catch {
+    /* ignore */
+  }
+}
+
+export function isTourSessionCooldownActive(
+  cooldownMs = TOUR_SESSION_COOLDOWN_MS,
+): boolean {
+  let ts = memoryCooldownAt
+  if (typeof sessionStorage !== 'undefined') {
+    try {
+      const raw = sessionStorage.getItem(SESSION_COOLDOWN_KEY)
+      if (raw) ts = Number(raw)
+    } catch {
+      /* use memory */
+    }
+  }
+  if (ts == null || !Number.isFinite(ts)) return false
+  memoryCooldownAt = ts
+  return Date.now() - ts < cooldownMs
+}
+
+/** Test helper — clears preference for a user. */
+export function clearPageTipsPreference(userId: string): void {
+  const map = readPrefsMap()
+  delete map[userId]
+  writePrefsMap(map)
 }
 
 /** Test helper — clears stored tips for a user. */
@@ -671,9 +751,19 @@ export function clearPageTipsForUser(userId: string): void {
 /** Test helper — clears all stored tips. */
 export function clearAllPageTips(): void {
   memorySeen.delete(STORAGE_KEY)
+  memoryPrefs.delete(PREFS_KEY)
+  memoryCooldownAt = null
   if (typeof localStorage !== 'undefined') {
     try {
       localStorage.removeItem(STORAGE_KEY)
+      localStorage.removeItem(PREFS_KEY)
+    } catch {
+      /* ignore */
+    }
+  }
+  if (typeof sessionStorage !== 'undefined') {
+    try {
+      sessionStorage.removeItem(SESSION_COOLDOWN_KEY)
     } catch {
       /* ignore */
     }

@@ -2,9 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
+  arePageTipsDisabled,
+  hasPageTipsPreference,
   hasSeenPageTip,
+  isTourSessionCooldownActive,
   markPageTipSeen,
+  markTourSessionCooldown,
   resolvePageTour,
+  setPageTipsPreference,
   type PageTour,
   type PageTourStep,
 } from '../lib/pageTips'
@@ -20,6 +25,7 @@ export function usePageTour(): {
   isLast: boolean
   next: () => void
   skipAll: () => void
+  disableAllTips: () => void
 } {
   const { pathname } = useLocation()
   const { user, isImpersonating } = useAuth()
@@ -27,11 +33,14 @@ export function usePageTour(): {
   const [skippedLocal, setSkippedLocal] = useState(false)
 
   const userId = user?.id || ANON_USER_ID
+  const tipsAllowed = userId === ANON_USER_ID || hasPageTipsPreference(userId)
+  const tipsDisabled = arePageTipsDisabled(userId)
 
   const tour = useMemo(() => {
-    if (isImpersonating) return null
+    if (isImpersonating || tipsDisabled) return null
+    if (!tipsAllowed && userId !== ANON_USER_ID) return null
     return resolvePageTour(pathname, user?.role ?? null)
-  }, [pathname, user?.role, isImpersonating])
+  }, [pathname, user?.role, isImpersonating, tipsDisabled, tipsAllowed, userId])
 
   useEffect(() => {
     setStepIndex(0)
@@ -39,7 +48,9 @@ export function usePageTour(): {
   }, [pathname, tour?.id])
 
   const alreadySeen = tour ? hasSeenPageTip(userId, tour.id) : true
-  const activeTour = tour && !alreadySeen && !skippedLocal ? tour : null
+  const sessionPaused = isTourSessionCooldownActive()
+  const activeTour =
+    tour && !alreadySeen && !skippedLocal && !sessionPaused ? tour : null
   const totalSteps = activeTour?.steps.length ?? 0
   const step = activeTour?.steps[stepIndex] ?? null
   const isFirst = stepIndex === 0
@@ -64,6 +75,15 @@ export function usePageTour(): {
     finish()
   }, [finish])
 
+  const disableAllTips = useCallback(() => {
+    if (userId !== ANON_USER_ID) {
+      setPageTipsPreference(userId, true)
+    }
+    if (tour) markPageTipSeen(userId, tour.id)
+    else markTourSessionCooldown()
+    setSkippedLocal(true)
+  }, [tour, userId])
+
   return {
     tour: activeTour,
     step,
@@ -73,5 +93,6 @@ export function usePageTour(): {
     isLast,
     next,
     skipAll,
+    disableAllTips,
   }
 }
