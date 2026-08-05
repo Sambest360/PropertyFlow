@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>PropertyFlow — QA User Roles &amp; Test Guide (Live)</title>
+  <style>
+    @page { margin: 2.54cm; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: Calibri, "Segoe UI", Arial, sans-serif;
+      font-size: 11pt;
+      line-height: 1.45;
+      color: #1a1a1a;
+      max-width: 21cm;
+      margin: 0 auto;
+      padding: 2cm 2.5cm 3cm;
+      background: #fff;
+    }
+    a { color: #0563c1; text-decoration: underline; }
+    a:visited { color: #954f72; }
+    .cover {
+      text-align: center;
+      padding: 4cm 1cm 3cm;
+      page-break-after: always;
+    }
+    .cover h1 {
+      font-size: 28pt;
+      font-weight: 700;
+      color: #0f3d5c;
+      margin: 0 0 0.4em;
+      line-height: 1.2;
+    }
+    .cover .subtitle { font-size: 14pt; color: #444; margin-bottom: 2em; }
+    .cover .meta { font-size: 10pt; color: #666; text-align: left; max-width: 14cm; margin: 2em auto 0; border-top: 1px solid #ccc; padding-top: 1em; }
+    .cover .meta dt { font-weight: 700; float: left; width: 8em; clear: left; }
+    .cover .meta dd { margin: 0 0 0.5em 8em; }
+    .callout {
+      background: #f0f6fc;
+      border: 1px solid #b8d4ea;
+      border-left: 4px solid #0f3d5c;
+      padding: 0.75em 1em;
+      margin: 1em 0;
+    }
+    .callout-warn {
+      background: #fff8e6;
+      border-color: #e6c200;
+      border-left-color: #b8860b;
+    }
+    h1.doc-section {
+      font-size: 18pt;
+      color: #0f3d5c;
+      border-bottom: 2px solid #0f3d5c;
+      padding-bottom: 0.2em;
+      margin-top: 1.5em;
+      page-break-before: always;
+    }
+    h1.doc-section:first-of-type { page-break-before: avoid; }
+    h2 { font-size: 14pt; color: #0f3d5c; margin-top: 1.25em; }
+    h3 { font-size: 12pt; color: #333; margin-top: 1em; }
+    h4 { font-size: 11pt; color: #444; margin-top: 0.75em; }
+    p { margin: 0.5em 0 0.75em; }
+    ul, ol { margin: 0.4em 0 0.75em; padding-left: 1.5em; }
+    li { margin-bottom: 0.25em; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.75em 0 1em;
+      font-size: 10pt;
+    }
+    th, td {
+      border: 1px solid #999;
+      padding: 6px 8px;
+      vertical-align: top;
+      text-align: left;
+    }
+    th { background: #e8eef3; font-weight: 700; }
+    tr:nth-child(even) td { background: #f9fafb; }
+    .toc { page-break-after: always; }
+    .toc h2 { border: none; }
+    .toc ol { list-style: none; padding-left: 0; }
+    .toc li { margin: 0.35em 0; }
+    .toc a { text-decoration: none; font-weight: 500; }
+    .toc a:hover { text-decoration: underline; }
+    .toc .toc-h3 { padding-left: 1.5em; font-weight: normal; font-size: 10pt; }
+    code, .mono { font-family: Consolas, "Courier New", monospace; font-size: 9.5pt; background: #f4f4f4; padding: 1px 4px; }
+    .pass { color: #107c10; font-weight: 700; }
+    .fail { color: #a4262c; font-weight: 700; }
+    .warn { color: #8a6914; font-weight: 700; }
+    .test-block {
+      border: 1px solid #ddd;
+      padding: 0.75em 1em;
+      margin: 1em 0;
+      background: #fafafa;
+    }
+    .test-block h3 { margin-top: 0; }
+    .footer-note { font-size: 9pt; color: #666; margin-top: 2em; border-top: 1px solid #ccc; padding-top: 0.75em; }
+    @media print {
+      body { padding: 0; }
+      a { color: #0563c1; }
+      .no-print { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══ COVER ═══ -->
+<div class="cover" id="top">
+  <h1>PropertyFlow</h1>
+  <p class="subtitle">QA User Roles &amp; Test Guide<br /><strong>Live Environment</strong></p>
+  <p style="font-size:11pt;color:#555;max-width:16cm;margin:0 auto;">
+    Complete reference for testers: accounts, roles, permissions, navigation, and step-by-step test scripts.
+  </p>
+  <dl class="meta">
+    <dt>Document type</dt><dd>QA / UAT test guide</dd>
+    <dt>Environment</dt><dd>Live / staging (browser only)</dd>
+    <dt>Live site</dt><dd><a id="live-base-link" href="/">(your live site)</a> — app links below use the current domain automatically</dd>
+    <dt>Demo password</dt><dd><code>secret</code> (all test accounts below)</dd>
+    <dt>Demo agency</dt><dd>Seeff City Bowl &amp; Tamboerskloof (16 properties)</dd>
+    <dt>Version</dt><dd>1.1 — July 2026 (includes CRUD tests)</dd>
+  </dl>
+</div>
+
+<!-- ═══ TABLE OF CONTENTS ═══ -->
+<div class="toc" id="toc">
+  <h2>Table of Contents</h2>
+  <ol>
+    <li><a href="#s1">1. Test Environment Setup</a></li>
+    <li><a href="#s2">2. Complete User Roster</a>
+      <div class="toc-h3"><a href="#s2-platform">Platform · Staff · Tenants · Contractors</a></div>
+    </li>
+    <li><a href="#s3">3. Role Definitions &amp; Permission Matrix</a></li>
+    <li><a href="#s4">4. Tenant Lifecycle (Occupancy Gating)</a></li>
+    <li><a href="#s5">5. Detailed Test Scripts by Role</a>
+      <div class="toc-h3">
+        <a href="#s5-a">A Super Admin</a> ·
+        <a href="#s5-b">B Agency Admin</a> ·
+        <a href="#s5-c">C Full Agent</a> ·
+        <a href="#s5-d">D Active Tenant</a> ·
+        <a href="#s5-e">E Applicant</a> ·
+        <a href="#s5-f">F Approved Applicant</a> ·
+        <a href="#s5-g">G Contractor</a> ·
+        <a href="#s5-h">H Pending Contractor</a> ·
+        <a href="#s5-i">I Landlord</a> ·
+        <a href="#s5-j">J Guest</a>
+      </div>
+    </li>
+    <li><a href="#s6">6. Cross-Role End-to-End Workflows</a></li>
+    <li><a href="#s7">7. UI &amp; Navigation Checklist</a></li>
+    <li><a href="#s8">8. Known Issues &amp; What to Do</a></li>
+    <li><a href="#s9">9. Property ↔ Tenant Quick Reference</a></li>
+    <li><a href="#s10">10. Suggested QA Test Order</a></li>
+    <li><a href="#s11">11. CRUD Tests (Create · Read · Update · Delete)</a>
+      <div class="toc-h3">
+        <a href="#s11-matrix">CRUD matrix</a> ·
+        <a href="#s11-agencies">Agencies</a> ·
+        <a href="#s11-users">Users</a> ·
+        <a href="#s11-properties">Properties</a> ·
+        <a href="#s11-config">Configuration</a> ·
+        <a href="#s11-leads">Leads</a> ·
+        <a href="#s11-applications">Applications</a> ·
+        <a href="#s11-viewings">Viewings</a> ·
+        <a href="#s11-maintenance">Maintenance</a> ·
+        <a href="#s11-payments">Payments</a> ·
+        <a href="#s11-messages">Messages</a> ·
+        <a href="#s11-notifications">Notifications</a> ·
+        <a href="#s11-wishlist">Wishlist</a> ·
+        <a href="#s11-negative">Negative CRUD</a>
+      </div>
+    </li>
+    <li><a href="#appendix">Appendix: Reporting Bugs</a></li>
+  </ol>
+  <div class="callout">
+    <strong>How to use this document in Microsoft Word:</strong> Open this file in Word (<em>File → Open</em>), then <em>Save As → Word Document (.docx)</em>. All links and tables will be preserved.
+  </div>
+</div>
+
+<!-- ═══ SECTION 1 ═══ -->
+<h1 class="doc-section" id="s1">1. Test Environment Setup</h1>
+
+<h2>1.1 Live site links</h2>
+<p>Use the links below on the live site. Replace the base URL if your project team gave you a different one.</p>
+<table>
+  <thead><tr><th>Area</th><th>Path</th><th>Link</th></tr></thead>
+  <tbody>
+    <tr><td>Public marketplace (home)</td><td><code>/</code></td><td><a class="app-link" href="/">Home</a></td></tr>
+    <tr><td>Browse listings</td><td><code>/browse</code></td><td><a class="app-link" href="/browse">Browse</a></td></tr>
+    <tr><td>Browse — rent only</td><td><code>/browse?mode=rent</code></td><td><a class="app-link" href="/browse?mode=rent">Rent listings</a></td></tr>
+    <tr><td>Login</td><td><code>/login</code></td><td><a class="app-link" href="/login">Login</a></td></tr>
+    <tr><td>Register</td><td><code>/register</code></td><td><a class="app-link" href="/register">Register</a></td></tr>
+    <tr><td>Workspace (after login)</td><td><code>/workspace</code></td><td><a class="app-link" href="/workspace">Workspace</a></td></tr>
+    <tr><td>Super Admin landing</td><td><code>/workspace/admin/agencies</code></td><td><a class="app-link" href="/workspace/admin/agencies">Agencies admin</a></td></tr>
+    <tr><td>Tenant portal</td><td><code>/workspace/portals/tenant</code></td><td><a class="app-link" href="/workspace/portals/tenant">Tenant portal</a></td></tr>
+    <tr><td>Contractor portal</td><td><code>/workspace/portals/contractor</code></td><td><a class="app-link" href="/workspace/portals/contractor">Contractor portal</a></td></tr>
+    <tr><td>Account wishlist (logged in)</td><td><code>/workspace/account/wishlist</code></td><td><a class="app-link" href="/workspace/account/wishlist">Wishlist</a></td></tr>
+    <tr><td>Public saved (guest)</td><td><code>/saved</code></td><td><a class="app-link" href="/saved">Saved (guest)</a></td></tr>
+  </tbody>
+</table>
+<p><strong>Recommended browsers:</strong> Latest Chrome, Firefox, or Safari. Test on desktop first; spot-check mobile where noted in Section 7.</p>
+
+<h2>1.2 Login credentials</h2>
+<table>
+  <thead><tr><th>Account type</th><th>Email</th><th>Password</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Super Admin</strong></td><td><code>sambampo200@gmail.com</code></td><td><code>secret</code></td></tr>
+    <tr><td><strong>All other test users</strong></td><td>See Section 2</td><td><code>secret</code></td></tr>
+  </tbody>
+</table>
+
+<h2>1.3 Demo data on live</h2>
+<ul>
+  <li><strong>Agency:</strong> Seeff City Bowl &amp; Tamboerskloof</li>
+  <li><strong>Properties:</strong> 16 (<code>PR-SCB-001</code> through <code>PR-SCB-016</code>)</li>
+  <li><strong>Test users:</strong> 20 + super admin</li>
+  <li><strong>Modules:</strong> All enabled (properties, sales, operations, portals, admin config)</li>
+</ul>
+
+<h2>1.4 Before you start testing</h2>
+<ol>
+  <li><strong>Log out fully</strong> between role switches (avatar menu → <strong>Sign out</strong>), or use separate browsers / incognito windows.</li>
+  <li><strong>Hard refresh</strong> (Ctrl+Shift+R / Cmd+Shift+R) if the sidebar or role badge looks wrong after login.</li>
+  <li>If data does not match this guide, <strong>stop and report to the dev team</strong> with account email, expected vs actual, and a screenshot.</li>
+  <li>For <strong>registration tests</strong> (landlord / contractor), use a <strong>new email</strong> you control — do not overwrite <code>@propertyflow.demo</code> accounts.</li>
+</ol>
+
+<h2>1.5 How to verify the correct role</h2>
+<ul>
+  <li>Check the <strong>badge</strong> on the dashboard or portal hero (e.g. “Super Admin”, “Agency Administrator”, “Applicant”).</li>
+  <li>Open the <strong>avatar menu</strong> (top right) — shows role label and navigation links.</li>
+  <li>Confirm the <strong>left sidebar</strong> matches Section 3.3 for that role.</li>
+</ul>
+
+<!-- ═══ SECTION 2 ═══ -->
+<h1 class="doc-section" id="s2">2. Complete User Roster</h1>
+
+<h2 id="s2-platform">2.1 Platform — Super Admin</h2>
+<table>
+  <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>After login goes to</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Samuel (Super Admin)</td>
+      <td><code>sambampo200@gmail.com</code></td>
+      <td>Super Admin</td>
+      <td><a class="app-link" href="/workspace/admin/agencies">/workspace/admin/agencies</a></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>2.2 Agency staff — Seeff City Bowl</h2>
+<table>
+  <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td>Lerato Nkosi</td><td><code>lerato.nkosi@propertyflow.demo</code></td><td>Agency Administrator</td><td>Full office ops; can impersonate staff</td></tr>
+    <tr><td>James Okonkwo</td><td><code>james.okonkwo@propertyflow.demo</code></td><td>Full Agent</td><td><strong>1 property</strong> (PR-SCB-001)</td></tr>
+    <tr><td>Priya Naidoo</td><td><code>priya.naidoo@propertyflow.demo</code></td><td>Full Agent</td><td><strong>2 properties</strong> (PR-SCB-002–003)</td></tr>
+    <tr><td>Themba Maseko</td><td><code>themba.maseko@propertyflow.demo</code></td><td>Full Agent</td><td><strong>4 properties</strong> (PR-SCB-004–007)</td></tr>
+    <tr><td>Nadia van Wyk</td><td><code>nadia.vanwyk@propertyflow.demo</code></td><td>Full Agent</td><td><strong>6 properties</strong> (PR-SCB-008–013)</td></tr>
+    <tr><td>Chris Daniels</td><td><code>chris.daniels@propertyflow.demo</code></td><td>Full Agent</td><td><strong>3 properties</strong> (PR-SCB-014–016); candidate license on profile</td></tr>
+  </tbody>
+</table>
+<div class="callout callout-warn">
+  <strong>Note:</strong> There is no pre-loaded <strong>Principal/Broker</strong> or <strong>Landlord</strong> account. Create those via <a class="app-link" href="/register">Register</a> or ask an admin to invite you.
+</div>
+
+<h2>2.3 Tenants &amp; applicants</h2>
+<table>
+  <thead><tr><th>Name</th><th>Email</th><th>Situation</th><th>Maintenance / Messages / Complaints?</th></tr></thead>
+  <tbody>
+    <tr><td>Lucas Pretorius</td><td><code>lucas.pretorius@propertyflow.demo</code></td><td>Active lease PR-SCB-001 (SCB-LS-001)</td><td class="pass">Yes</td></tr>
+    <tr><td>Nomsa Dlamini</td><td><code>nomsa.dlamini@propertyflow.demo</code></td><td>Active lease PR-SCB-002</td><td class="pass">Yes</td></tr>
+    <tr><td>Fatima Jacobs</td><td><code>fatima.jacobs@propertyflow.demo</code></td><td>Active lease PR-SCB-003</td><td class="pass">Yes</td></tr>
+    <tr><td>Aya Daniels</td><td><code>aya.daniels@propertyflow.demo</code></td><td>Active lease PR-SCB-004</td><td class="pass">Yes</td></tr>
+    <tr><td>Mia Fortuin</td><td><code>mia.fortuin@propertyflow.demo</code></td><td>Active lease PR-SCB-005</td><td class="pass">Yes</td></tr>
+    <tr><td>Riaan Botha</td><td><code>riaan.botha@propertyflow.demo</code></td><td>Application <strong>Submitted</strong> PR-SCB-006 (APP-SCB-901)</td><td class="fail">No — applicant only</td></tr>
+    <tr><td>Elena Costa</td><td><code>elena.costa@propertyflow.demo</code></td><td>Application <strong>Under review</strong> PR-SCB-007 (APP-SCB-902)</td><td class="fail">No — applicant only</td></tr>
+    <tr><td>Sarie du Plessis</td><td><code>sarie.duplessis@propertyflow.demo</code></td><td>Application <strong>Approved</strong> (purchase) PR-SCB-008 (APP-SCB-903)</td><td class="pass">Yes — no lease yet</td></tr>
+  </tbody>
+</table>
+
+<h2>2.4 Contractors</h2>
+<table>
+  <thead><tr><th>Company</th><th>Email</th><th>Verification</th><th>Expected behaviour</th></tr></thead>
+  <tbody>
+    <tr><td>AquaFix Plumbing</td><td><code>jobs@aquafix.propertyflow.demo</code></td><td class="pass">Approved</td><td>Receives plumbing jobs</td></tr>
+    <tr><td>VoltPro Electrical</td><td><code>jobs@voltpro.propertyflow.demo</code></td><td class="pass">Approved</td><td>Electrical jobs</td></tr>
+    <tr><td>CoolAir HVAC</td><td><code>jobs@coolair.propertyflow.demo</code></td><td class="pass">Approved</td><td>HVAC jobs</td></tr>
+    <tr><td>Handyman Cape</td><td><code>jobs@handymancape.propertyflow.demo</code></td><td class="pass">Approved</td><td>General maintenance</td></tr>
+    <tr><td>PaintWorks CT</td><td><code>jobs@paintworks.propertyflow.demo</code></td><td class="warn">Pending</td><td>Yellow pending banner; limited jobs</td></tr>
+    <tr><td>GreenScape Gardens</td><td><code>jobs@greenscape.propertyflow.demo</code></td><td class="warn">Pending</td><td>Same as above</td></tr>
+  </tbody>
+</table>
+
+<!-- ═══ SECTION 3 ═══ -->
+<h1 class="doc-section" id="s3">3. Role Definitions &amp; Permission Matrix</h1>
+
+<h2>3.1 Role hierarchy</h2>
+<table>
+  <thead><tr><th>System role</th><th>Label in UI</th><th>Scope</th></tr></thead>
+  <tbody>
+    <tr><td><code>super_admin</code></td><td>Super Admin</td><td>Entire platform, all agencies</td></tr>
+    <tr><td><code>client_admin</code></td><td>Principal / Broker</td><td>Full agency control <em>(not pre-loaded)</em></td></tr>
+    <tr><td><code>agent_admin</code></td><td>Agency Administrator</td><td>Office ops, team, config, broadcasts</td></tr>
+    <tr><td><code>ground_agent</code></td><td>Full Agent</td><td>Own listings + deals on assigned properties</td></tr>
+    <tr><td><code>agent</code></td><td>Candidate / Intern Agent</td><td>Supervised field work <em>(not pre-loaded)</em></td></tr>
+    <tr><td><code>landlord</code></td><td>Landlord</td><td>Own assets only <em>(register on live)</em></td></tr>
+    <tr><td><code>tenant</code></td><td>Applicant / Tenant</td><td>Own applications, lease, wishlist</td></tr>
+    <tr><td><code>contractor</code></td><td>Contractor</td><td>Assigned / claimable maintenance jobs</td></tr>
+  </tbody>
+</table>
+
+<h2>3.2 Capability matrix</h2>
+<p><span class="pass">✓</span> = allowed &nbsp; <span class="fail">✗</span> = not allowed &nbsp; <span class="warn">⚠</span> = limited</p>
+<table>
+  <thead>
+    <tr>
+      <th>Capability</th>
+      <th>Super Admin</th>
+      <th>Agency Admin</th>
+      <th>Full Agent</th>
+      <th>Active tenant</th>
+      <th>Applicant only</th>
+      <th>Approved applicant</th>
+      <th>Contractor OK</th>
+      <th>Contractor pending</th>
+      <th>Landlord</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>Manage all agencies</td><td class="pass">✓</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td></tr>
+    <tr><td>Platform billing</td><td class="pass">✓</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td></tr>
+    <tr><td>Configuration</td><td class="pass">✓</td><td class="pass">✓</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td></tr>
+    <tr><td>Team / impersonate</td><td class="pass">✓</td><td class="pass">✓</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td></tr>
+    <tr><td>All agency properties</td><td class="pass">✓</td><td class="pass">✓</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td></tr>
+    <tr><td>Create / edit properties</td><td class="pass">✓</td><td class="pass">✓</td><td class="pass">✓</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="pass">✓</td></tr>
+    <tr><td>Publish listings</td><td class="pass">✓</td><td class="pass">✓</td><td class="pass">✓</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="pass">✓</td></tr>
+    <tr><td>CRM / Leads</td><td class="pass">✓</td><td class="pass">✓</td><td class="pass">✓</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td></tr>
+    <tr><td>Review applications</td><td class="pass">✓</td><td class="pass">✓</td><td class="pass">✓</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td></tr>
+    <tr><td>Agency maintenance queue</td><td class="pass">✓</td><td class="pass">✓</td><td class="pass">✓</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td>Assigned</td><td class="warn">⚠</td><td class="fail">✗</td></tr>
+    <tr><td>Tenant portal</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="pass">✓</td><td>Limited</td><td class="pass">✓</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td></tr>
+    <tr><td>Submit maintenance (tenant)</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="pass">✓</td><td class="fail">✗</td><td class="pass">✓</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td></tr>
+    <tr><td>Message agency (tenant)</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="pass">✓</td><td class="fail">✗</td><td class="pass">✓</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td></tr>
+    <tr><td>Contractor portal / jobs</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="pass">✓</td><td class="warn">⚠</td><td class="fail">✗</td></tr>
+    <tr><td>Owner / landlord portal</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="fail">✗</td><td class="pass">✓</td></tr>
+    <tr><td>Public browse &amp; apply</td><td class="pass">✓</td><td class="pass">✓</td><td class="pass">✓</td><td class="pass">✓</td><td class="pass">✓</td><td class="pass">✓</td><td class="pass">✓</td><td class="pass">✓</td><td class="pass">✓</td></tr>
+    <tr><td>Account wishlist (logged in)</td><td class="pass">✓</td><td class="pass">✓</td><td class="pass">✓</td><td class="pass">✓</td><td class="pass">✓</td><td class="pass">✓</td><td class="pass">✓</td><td class="pass">✓</td><td class="pass">✓</td></tr>
+  </tbody>
+</table>
+
+<h2>3.3 Expected sidebar navigation by role</h2>
+<h3>Super Admin</h3>
+<ul>
+  <li>Agencies, Configuration, Notifications, Suite alerts, Reports</li>
+  <li><strong>Not shown:</strong> “My portal” (tenant / contractor / owner links)</li>
+</ul>
+<h3>Agency Administrator (Lerato)</h3>
+<ul>
+  <li>Dashboard, Properties, Sales (Viewings, Leads, Applicants), Operations (Maintenance, Payments, Messages), People (Team, Tenants, Users), Admin (Configuration, Notifications, Suite alerts), Reports</li>
+</ul>
+<h3>Full Agent (James — 1 property)</h3>
+<ul>
+  <li>Same as admin except: no Users admin, no Configuration / Notifications / Suite alerts</li>
+  <li><strong>Properties list shows only assigned properties</strong> (1 for James, 6 for Nadia)</li>
+</ul>
+<h3>Active tenant (Lucas)</h3>
+<ul>
+  <li>Dashboard → <strong>My portal:</strong> My tenancy, My applications, Wishlist, Maintenance, Messages, Complaints</li>
+</ul>
+<h3>Applicant only (Riaan)</h3>
+<ul>
+  <li>My portal: Home (Applicant home), My applications, Wishlist</li>
+  <li><strong>Hidden until approved:</strong> Maintenance, Messages, Complaints</li>
+</ul>
+<h3>Contractor — approved (AquaFix)</h3>
+<ul>
+  <li>Dashboard, My portal → My jobs</li>
+</ul>
+<h3>Guest (not logged in)</h3>
+<ul>
+  <li>Marketplace: Browse, Calculators, Login, Register</li>
+  <li>Wishlist heart → <a class="app-link" href="/saved">/saved</a> (browser storage)</li>
+</ul>
+
+<!-- ═══ SECTION 4 ═══ -->
+<h1 class="doc-section" id="s4">4. Tenant Lifecycle (Occupancy Gating)</h1>
+<p>Tenants unlock <strong>Maintenance</strong>, <strong>Messages</strong>, <strong>Complaints</strong>, and rent payments only when <strong>occupancy is ready</strong>.</p>
+<table>
+  <thead><tr><th>Condition</th><th>Unlocked?</th></tr></thead>
+  <tbody>
+    <tr><td>Active or Pending Move-In <strong>tenancy</strong></td><td class="pass">Yes</td></tr>
+    <tr><td>Application stage: Approved, Awaiting Payment, Deposit Paid, Lease Signed, Move-In Scheduled, Keys Handed Over, Active Tenancy</td><td class="pass">Yes</td></tr>
+    <tr><td>Application stage: Started, Documents Pending, Under Review, Credit Check</td><td class="fail">No</td></tr>
+    <tr><td>Application: Rejected, Withdrawn, Blocked</td><td class="fail">No</td></tr>
+  </tbody>
+</table>
+<h2>4.1 Test personas for each state</h2>
+<table>
+  <thead><tr><th>Login as</th><th>Expected portal title</th><th>Tabs visible</th></tr></thead>
+  <tbody>
+    <tr><td><code>lucas.pretorius@propertyflow.demo</code></td><td><strong>Tenant portal</strong></td><td>Home, Applications, Wishlist, Maintenance, Messages, Complaints</td></tr>
+    <tr><td><code>riaan.botha@propertyflow.demo</code></td><td><strong>Applicant home</strong></td><td>Home, Applications, Wishlist only</td></tr>
+    <tr><td><code>elena.costa@propertyflow.demo</code></td><td><strong>Applicant home</strong></td><td>Same as Riaan</td></tr>
+    <tr><td><code>sarie.duplessis@propertyflow.demo</code></td><td><strong>Tenant portal</strong> (approved, no lease)</td><td>All tabs including Maintenance / Messages / Complaints</td></tr>
+  </tbody>
+</table>
+
+<!-- ═══ SECTION 5 ═══ -->
+<h1 class="doc-section" id="s5">5. Detailed Test Scripts by Role</h1>
+
+<div class="test-block" id="s5-a">
+  <h3>A. Super Admin — <code>sambampo200@gmail.com</code></h3>
+  <p><strong>Should be able to:</strong> Manage all agencies; create agencies; platform config and billing. Should <em>not</em> land on Applicant home.</p>
+  <p><strong>Quick login:</strong> <a class="app-link" href="/login">Login</a> → expect redirect to <a class="app-link" href="/workspace/admin/agencies">Agencies admin</a></p>
+  <ol>
+    <li><strong>Login redirect</strong> — After sign-in, URL is <code>/workspace/admin/agencies</code> (not Applicant home).</li>
+    <li><strong>Agencies list</strong> — Sidebar → Agencies. See “Seeff City Bowl &amp; Tamboerskloof”, status Active. Open detail → verify modules.</li>
+    <li><strong>Create agency (optional)</strong> — Add agency → save → appears in list.</li>
+    <li><strong>Configuration</strong> — <a class="app-link" href="/workspace/admin/config">Admin → Configuration</a>. Lists populated. Add lookup → save → refresh → persists.</li>
+    <li><strong>Contractor verification</strong> — Approve PaintWorks or GreenScape → log in as that contractor → pending banner gone.</li>
+    <li><strong>Avatar menu</strong> — Click avatar → dropdown with Sign out (not instant logout).</li>
+    <li><strong>Negative</strong> — Badge must not say “Applicant” unless impersonating.</li>
+  </ol>
+</div>
+
+<div class="test-block" id="s5-b">
+  <h3>B. Agency Administrator — <code>lerato.nkosi@propertyflow.demo</code></h3>
+  <p><strong>Should be able to:</strong> Full agency ops; all 16 properties; team, CRM, applications, maintenance, payments, messaging, config.</p>
+  <ol>
+    <li><strong>Login</strong> — Lands on <a class="app-link" href="/workspace">/workspace</a>. Badge: Agency Administrator.</li>
+    <li><strong>Properties</strong> — <a class="app-link" href="/workspace/properties">All properties</a> → 16 visible.</li>
+    <li><strong>Create property</strong> — <a class="app-link" href="/workspace/properties/new">Add property</a> → save → appears in list.</li>
+    <li><strong>Applications</strong> — <a class="app-link" href="/workspace/sales/applications">Sales → Applicants</a>. See Riaan, Elena, Sarie. Open APP-SCB-901 → approve → Riaan gets maintenance tabs.</li>
+    <li><strong>Tenants</strong> — <a class="app-link" href="/workspace/people/tenants">People → Tenants</a> → active leases (SCB-LS-001, etc.).</li>
+    <li><strong>Team</strong> — <a class="app-link" href="/workspace/people/staff">People → Team</a> → 5 agents + Lerato.</li>
+    <li><strong>Maintenance</strong> — <a class="app-link" href="/workspace/operations/maintenance">Operations → Maintenance</a> → assign ticket to AquaFix.</li>
+    <li><strong>Configuration</strong> — Add agency lookup → persists after reload.</li>
+    <li><strong>Notifications</strong> — <a class="app-link" href="/workspace/admin/notifications">Broadcast</a> → tenant sees bell notification.</li>
+  </ol>
+</div>
+
+<div class="test-block" id="s5-c">
+  <h3>C. Full Agent (scoped) — <code>james.okonkwo@propertyflow.demo</code></h3>
+  <p><strong>Should be able to:</strong> Only PR-SCB-001 and related CRM/maintenance. <strong>Cannot</strong> see all 16 properties or admin config.</p>
+  <ol>
+    <li><strong>Property scope</strong> — <a class="app-link" href="/workspace/properties">Properties</a> → <strong>1 property</strong> only. Lerato sees 16.</li>
+    <li><strong>Property detail</strong> — Open PR-SCB-001 → documents, tenant Lucas, maintenance.</li>
+    <li><strong>Applications</strong> — <a class="app-link" href="/workspace/sales/applications">Applicants</a> → scoped to James’s properties.</li>
+    <li><strong>Publish</strong> — Publish listing → visible on <a class="app-link" href="/browse">/browse</a>.</li>
+    <li><strong>Viewings</strong> — <a class="app-link" href="/workspace/sales/viewings">Sales → Viewings</a> → create slot.</li>
+    <li><strong>Negative</strong> — <a class="app-link" href="/workspace/admin/config">/workspace/admin/config</a> and <a class="app-link" href="/workspace/people/staff">/workspace/people/staff</a> → denied.</li>
+  </ol>
+  <p><strong>Spot-check:</strong> <code>nadia.vanwyk@propertyflow.demo</code> → 6 properties.</p>
+</div>
+
+<div class="test-block" id="s5-d">
+  <h3>D. Active tenant — <code>lucas.pretorius@propertyflow.demo</code></h3>
+  <p><strong>Should be able to:</strong> Full tenant portal on PR-SCB-001 — maintenance, messages, complaints, wishlist.</p>
+  <ol>
+    <li><strong>Login</strong> — <a class="app-link" href="/workspace/portals/tenant">Tenant portal</a>. Hero: “Tenant portal”, not Applicant home.</li>
+    <li><strong>Tabs</strong> — Home, Applications, Wishlist, Maintenance, Messages, Complaints.</li>
+    <li><strong>Maintenance</strong> — <a class="app-link" href="/workspace/portals/tenant/maintenance">Maintenance tab</a> → “Leaking kitchen tap” → submit → ticket ID shown. Lerato sees it in Operations.</li>
+    <li><strong>Messages</strong> — <a class="app-link" href="/workspace/portals/tenant/messages">Messages tab</a> → send to agency → Lerato sees in Communications.</li>
+    <li><strong>Complaints</strong> — <a class="app-link" href="/workspace/portals/tenant/complaints">Complaints tab</a> → ticket prefixed “Complaint:”.</li>
+    <li><strong>Wishlist</strong> — Save listing on <a class="app-link" href="/browse">browse</a> → header wishlist → <a class="app-link" href="/workspace/account/wishlist">/workspace/account/wishlist</a> (not /saved).</li>
+    <li><strong>Payments</strong> — Mark paid if shown on portal home.</li>
+  </ol>
+</div>
+
+<div class="test-block" id="s5-e">
+  <h3>E. Applicant only — <code>riaan.botha@propertyflow.demo</code></h3>
+  <p><strong>Should be able to:</strong> Applications + wishlist. <strong>Cannot</strong> maintenance / messages / complaints.</p>
+  <ol>
+    <li><strong>Login</strong> — “Hi Riaan”, badge Documents Pending / Submitted.</li>
+    <li><strong>Tabs</strong> — Home, Applications, Wishlist only.</li>
+    <li><strong>Direct URL</strong> — <a class="app-link" href="/workspace/portals/tenant/maintenance">/workspace/portals/tenant/maintenance</a> → unlock message, not form.</li>
+    <li><strong>Applications</strong> — <a class="app-link" href="/workspace/portals/tenant/applications">My applications</a> → APP-SCB-901, PR-SCB-006.</li>
+  </ol>
+</div>
+
+<div class="test-block" id="s5-f">
+  <h3>F. Approved applicant — <code>sarie.duplessis@propertyflow.demo</code></h3>
+  <ol>
+    <li>Login → Tenant portal (not Applicant home).</li>
+    <li>All occupancy tabs visible.</li>
+    <li>Submit maintenance on PR-SCB-008 → succeeds.</li>
+    <li>Applications → APP-SCB-903, stage Approved (purchase).</li>
+  </ol>
+</div>
+
+<div class="test-block" id="s5-g">
+  <h3>G. Contractor (approved) — <code>jobs@aquafix.propertyflow.demo</code></h3>
+  <ol>
+    <li><strong>Login</strong> — <a class="app-link" href="/workspace/portals/contractor">Contractor portal</a>. No pending banner.</li>
+    <li><strong>Jobs</strong> — Assigned and/or claimable open jobs.</li>
+    <li><strong>Update status</strong> — In Progress → Completed → earnings update.</li>
+    <li><strong>Plumbing routing</strong> — Lucas submits tap leak → AquaFix receives job.</li>
+    <li><strong>Negative</strong> — Electrical jobs go to VoltPro, not AquaFix.</li>
+  </ol>
+</div>
+
+<div class="test-block" id="s5-h">
+  <h3>H. Contractor (pending) — <code>jobs@paintworks.propertyflow.demo</code></h3>
+  <ol>
+    <li>Login → yellow “Contractor verification pending” banner.</li>
+    <li>Fewer/no jobs vs AquaFix.</li>
+    <li>After super admin approves → banner gone, jobs available.</li>
+  </ol>
+</div>
+
+<div class="test-block" id="s5-i">
+  <h3>I. Landlord — register on live</h3>
+  <ol>
+    <li><a class="app-link" href="/register">Register</a> → Landlord → upload documents.</li>
+    <li>Before approval: draft property not on marketplace.</li>
+    <li>After super admin approval: publish → visible on browse.</li>
+    <li><a class="app-link" href="/workspace/portals/owner">Owner portal</a> → own assets only.</li>
+    <li>Cannot access agency CRM or other landlords’ data.</li>
+  </ol>
+</div>
+
+<div class="test-block" id="s5-j">
+  <h3>J. Guest (not logged in)</h3>
+  <ol>
+    <li><a class="app-link" href="/browse?mode=rent">Browse rent</a> → search/filter.</li>
+    <li>Listing detail → Apply redirects to login/register.</li>
+    <li>Save heart → <a class="app-link" href="/saved">/saved</a>.</li>
+    <li>Log in as tenant → wishlist → <a class="app-link" href="/workspace/account/wishlist">account wishlist</a>.</li>
+  </ol>
+</div>
+
+<!-- ═══ SECTION 6 ═══ -->
+<h1 class="doc-section" id="s6">6. Cross-Role End-to-End Workflows</h1>
+
+<h2>Workflow 1: Application → approval → tenant tools</h2>
+<table>
+  <thead><tr><th>Step</th><th>Actor</th><th>Action</th><th>Expected</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>Riaan</td><td>Login</td><td>Applicant home; no maintenance tab</td></tr>
+    <tr><td>2</td><td>Lerato</td><td>Applicants → APP-SCB-901 → Approve</td><td>Stage = Approved</td></tr>
+    <tr><td>3</td><td>Riaan</td><td>Re-login / refresh</td><td>Maintenance, Messages, Complaints tabs appear</td></tr>
+    <tr><td>4</td><td>Riaan</td><td>Submit maintenance</td><td>Ticket in agency queue</td></tr>
+    <tr><td>5</td><td>Lerato</td><td>Assign to Handyman Cape</td><td>Contractor sees job</td></tr>
+  </tbody>
+</table>
+
+<h2>Workflow 2: Maintenance → contractor completion</h2>
+<table>
+  <thead><tr><th>Step</th><th>Actor</th><th>Action</th><th>Expected</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>Lucas</td><td>Submit plumbing ticket</td><td>Routes to AquaFix</td></tr>
+    <tr><td>2</td><td>AquaFix</td><td>Mark In Progress</td><td>Status updates</td></tr>
+    <tr><td>3</td><td>AquaFix</td><td>Mark Completed</td><td>Earnings update</td></tr>
+    <tr><td>4</td><td>Lerato</td><td>Maintenance detail</td><td>Shows completed</td></tr>
+  </tbody>
+</table>
+
+<h2>Workflow 3: Agent property isolation</h2>
+<table>
+  <thead><tr><th>Step</th><th>Actor</th><th>Expected property count</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>James</td><td>1</td></tr>
+    <tr><td>2</td><td>Nadia</td><td>6</td></tr>
+    <tr><td>3</td><td>Lerato</td><td>16</td></tr>
+    <tr><td>4</td><td>James opens Nadia’s property URL</td><td>Denied or not found</td></tr>
+  </tbody>
+</table>
+
+<h2>Workflow 4: Configuration persistence</h2>
+<table>
+  <thead><tr><th>Step</th><th>Actor</th><th>Action</th><th>Expected</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>Lerato</td><td>Add “Test Status” in Configuration</td><td>Saves</td></tr>
+    <tr><td>2</td><td>Lerato</td><td>Hard refresh</td><td>Still present</td></tr>
+    <tr><td>3</td><td>James</td><td>Create property</td><td>New status in dropdown</td></tr>
+  </tbody>
+</table>
+
+<h2>Workflow 5: Logged-in wishlist</h2>
+<table>
+  <thead><tr><th>Step</th><th>Actor</th><th>Expected</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>Mia</td><td>Save listing → heart filled</td></tr>
+    <tr><td>2</td><td>Mia</td><td>Header wishlist → /workspace/account/wishlist</td></tr>
+    <tr><td>3</td><td>Guest</td><td>Same click → stays on /saved</td></tr>
+  </tbody>
+</table>
+
+<!-- ═══ SECTION 7–10 ═══ -->
+<h1 class="doc-section" id="s7">7. UI &amp; Navigation Checklist</h1>
+<table>
+  <thead><tr><th>Check</th><th>Steps</th><th>Pass criteria</th></tr></thead>
+  <tbody>
+    <tr><td>Avatar dropdown</td><td>Click avatar top-right</td><td>Menu opens; Sign out inside menu</td></tr>
+    <tr><td>Role badge</td><td>View portal hero</td><td>Matches account role</td></tr>
+    <tr><td>Permission gates</td><td>Open guarded URL without permission</td><td>Graceful deny, not crash</td></tr>
+    <tr><td>Sidebar filtering</td><td>Compare Lerato vs James</td><td>Admin sees more items</td></tr>
+    <tr><td>Post-login redirect</td><td>Login without ?next=</td><td>Super admin → agencies; tenant → tenant portal</td></tr>
+    <tr><td>Deep link</td><td>Login with ?next=/workspace/sales/applications</td><td>Lands on applicants if permitted</td></tr>
+    <tr><td>Mobile nav</td><td>Narrow viewport</td><td>Portal tabs scroll horizontally</td></tr>
+  </tbody>
+</table>
+
+<h1 class="doc-section" id="s8">8. Known Issues &amp; What to Do</h1>
+<table>
+  <thead><tr><th>Symptom</th><th>Try this</th><th>Report a bug if…</th></tr></thead>
+  <tbody>
+    <tr><td>Super admin shows Applicant home</td><td>Log out → hard refresh → sign in</td><td>Still wrong — send email + screenshot</td></tr>
+    <tr><td>Configuration empty or Add fails</td><td>Hard refresh; wait 1 min</td><td>Still broken — send screen recording</td></tr>
+    <tr><td>Wrong role / missing sidebar</td><td>Confirm email; log out/in</td><td>Persists — report expected role</td></tr>
+    <tr><td>Tenant can’t submit maintenance</td><td>Use Lucas or Sarie, not Riaan</td><td>Lucas/Sarie still blocked</td></tr>
+    <tr><td>Contractor sees no jobs</td><td>Use approved AquaFix</td><td>No jobs after tenant submits ticket</td></tr>
+    <tr><td>Wishlist goes to /saved when logged in</td><td>Log out and back in</td><td>Should go to account wishlist</td></tr>
+    <tr><td>Login fails</td><td>Password <code>secret</code>, check caps lock</td><td>Still fails — report email</td></tr>
+  </tbody>
+</table>
+
+<h1 class="doc-section" id="s9">9. Property ↔ Tenant Quick Reference</h1>
+<table>
+  <thead><tr><th>Property ID</th><th>Status</th><th>Listing agent</th><th>Tenant / applicant</th></tr></thead>
+  <tbody>
+    <tr><td>PR-SCB-001</td><td>Occupied</td><td>James</td><td>Lucas (lease SCB-LS-001)</td></tr>
+    <tr><td>PR-SCB-002</td><td>Occupied</td><td>Priya</td><td>Nomsa</td></tr>
+    <tr><td>PR-SCB-003</td><td>Occupied</td><td>Priya</td><td>Fatima</td></tr>
+    <tr><td>PR-SCB-004</td><td>Occupied</td><td>Themba</td><td>Aya</td></tr>
+    <tr><td>PR-SCB-005</td><td>Occupied</td><td>Themba</td><td>Mia</td></tr>
+    <tr><td>PR-SCB-006</td><td>Reserved</td><td>Themba</td><td>Riaan (submitted)</td></tr>
+    <tr><td>PR-SCB-007</td><td>Reserved</td><td>Themba</td><td>Elena (under review)</td></tr>
+    <tr><td>PR-SCB-008</td><td>Available</td><td>Nadia</td><td>Sarie (approved purchase)</td></tr>
+    <tr><td>PR-SCB-009–016</td><td>Mixed</td><td>Nadia / Chris</td><td>—</td></tr>
+  </tbody>
+</table>
+
+<h1 class="doc-section" id="s10">10. Suggested QA Test Order</h1>
+<ol>
+  <li>Guest marketplace browse</li>
+  <li>Super admin — agencies + configuration CRUD</li>
+  <li>Lerato — full agency smoke test + property / user CRUD</li>
+  <li>James vs Nadia — property scope (1 vs 6) + scoped CRUD</li>
+  <li>Lucas — tenant portal CRUD (maintenance, messages, complaints, wishlist)</li>
+  <li>Riaan vs Sarie — occupancy gating</li>
+  <li>AquaFix vs PaintWorks — contractor job update CRUD</li>
+  <li>Cross-role application approval (Workflow 1)</li>
+  <li>Section 11 — full CRUD matrix pass</li>
+  <li>Landlord registration (optional)</li>
+  <li>Avatar menu + logout on each role</li>
+</ol>
+
+<!-- ═══ SECTION 11 — CRUD ═══ -->
+<h1 class="doc-section" id="s11">11. CRUD Tests (Create · Read · Update · Delete)</h1>
+
+<p>Every test below follows the same pattern: perform the action on live, then <strong>hard refresh</strong> and confirm the change persisted (where applicable). Use unique labels like <code>QA-TEST-{your initials}-{date}</code> so test data is easy to spot and clean up.</p>
+
+<div class="callout">
+  <strong>Legend:</strong>
+  <span class="pass">C</span> Create &nbsp;
+  <span class="pass">R</span> Read &nbsp;
+  <span class="pass">U</span> Update &nbsp;
+  <span class="pass">D</span> Delete / deactivate &nbsp;
+  <span class="fail">—</span> Not allowed &nbsp;
+  <span class="warn">~</span> Soft delete / deactivate only (record hidden, not destroyed)
+</div>
+
+<h2 id="s11-matrix">11.1 CRUD permission matrix</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Entity</th>
+      <th>Super Admin</th>
+      <th>Agency Admin (Lerato)</th>
+      <th>Full Agent (James)</th>
+      <th>Active tenant (Lucas)</th>
+      <th>Applicant (Riaan)</th>
+      <th>Contractor (AquaFix)</th>
+      <th>Guest</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td><strong>Agencies</strong></td><td>C R U</td><td>R</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+    <tr><td><strong>Users / team</strong></td><td>C R U D~</td><td>C R U D~</td><td>R</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+    <tr><td><strong>Properties (listing)</strong></td><td>C R U</td><td>C R U</td><td>C R U (scoped)</td><td>R (own)</td><td>R (applied)</td><td>R (job site)</td><td>R (public)</td></tr>
+    <tr><td><strong>Configuration lookups</strong></td><td>C R U D~</td><td>C R U D~</td><td>R</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+    <tr><td><strong>Leads (CRM)</strong></td><td>C R U</td><td>C R U</td><td>C R U (scoped)</td><td>—</td><td>—</td><td>—</td><td>C (inquiry on listing)</td></tr>
+    <tr><td><strong>Applications</strong></td><td>C R U</td><td>C R U</td><td>C R U (scoped)</td><td>C R</td><td>C R</td><td>—</td><td>—</td></tr>
+    <tr><td><strong>Viewings / slots</strong></td><td>C R U D</td><td>C R U D</td><td>C R U D (scoped)</td><td>R</td><td>R</td><td>—</td><td>C (book slot)</td></tr>
+    <tr><td><strong>Maintenance tickets</strong></td><td>C R U D</td><td>C R U D</td><td>C R U D (scoped)</td><td>C R</td><td>—</td><td>R U</td><td>—</td></tr>
+    <tr><td><strong>Payments</strong></td><td>C R U D~</td><td>C R U D~</td><td>C R U (scoped)</td><td>R U</td><td>—</td><td>—</td><td>—</td></tr>
+    <tr><td><strong>Messages / threads</strong></td><td>C R</td><td>C R</td><td>C R</td><td>C R</td><td>—</td><td>—</td><td>—</td></tr>
+    <tr><td><strong>Notifications (broadcast)</strong></td><td>C R</td><td>C R</td><td>—</td><td>R</td><td>R</td><td>R</td><td>—</td></tr>
+    <tr><td><strong>Wishlist</strong></td><td>C R D</td><td>C R D</td><td>C R D</td><td>C R D</td><td>C R D</td><td>C R D</td><td>C R D</td></tr>
+    <tr><td><strong>Property rooms / assets</strong></td><td>C R U D</td><td>C R U D</td><td>C R U D (scoped)</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+    <tr><td><strong>Applicant documents</strong></td><td>R U</td><td>R U</td><td>R U (scoped)</td><td>R</td><td>R</td><td>—</td><td>—</td></tr>
+    <tr><td><strong>Contractor verification</strong></td><td>R U</td><td>—</td><td>—</td><td>—</td><td>—</td><td>R</td><td>—</td></tr>
+  </tbody>
+</table>
+<p><em>D~ = deactivate or remove unpaid records; platform does not hard-delete agencies, users, or leased properties from the UI.</em></p>
+
+<h2 id="s11-agencies">11.2 Agencies — Super Admin</h2>
+<p><strong>Account:</strong> <code>sambampo200@gmail.com</code> · <strong>Page:</strong> <a class="app-link" href="/workspace/admin/agencies">Agencies admin</a></p>
+<table>
+  <thead><tr><th>Op</th><th>Steps</th><th>Pass criteria</th></tr></thead>
+  <tbody>
+    <tr><td><strong>C</strong> Create</td><td>Agencies → <strong>Add agency</strong> → fill company name, email, city → Save</td><td>New row appears in list; detail page opens</td></tr>
+    <tr><td><strong>R</strong> Read</td><td>Open Seeff agency detail</td><td>Name, status Active, enabled modules, people/properties tabs load</td></tr>
+    <tr><td><strong>U</strong> Update</td><td>Change agency status or toggle an enabled module → Save</td><td>Change visible after refresh</td></tr>
+    <tr><td><strong>U</strong> Assign</td><td>Agency detail → Properties tab → change listing agent on a property</td><td>Agent name updates; James sees property only if assigned to him</td></tr>
+    <tr><td><strong>D</strong> Delete</td><td>—</td><td>No hard delete in UI (expected). Suspend/disable via status update instead.</td></tr>
+  </tbody>
+</table>
+
+<h2 id="s11-users">11.3 Users &amp; team — Agency Admin</h2>
+<p><strong>Account:</strong> <code>lerato.nkosi@propertyflow.demo</code></p>
+<table>
+  <thead><tr><th>Op</th><th>Steps</th><th>Pass criteria</th></tr></thead>
+  <tbody>
+    <tr><td><strong>C</strong> Create user</td><td><a class="app-link" href="/workspace/admin/users/new">Admin → Users → Add user</a> → pick role pack → create</td><td>User appears in list; temp password notification shown</td></tr>
+    <tr><td><strong>C</strong> Create team member</td><td><a class="app-link" href="/workspace/people/staff">People → Team → Add team member</a></td><td>Staff row created under Seeff agency</td></tr>
+    <tr><td><strong>R</strong> Read</td><td>Open James from Team → profile tabs (overview, access, license)</td><td>Commission %, license status, role visible</td></tr>
+    <tr><td><strong>U</strong> Update role</td><td>User detail → change role or permissions → Save</td><td>Sidebar updates when that user logs in</td></tr>
+    <tr><td><strong>U</strong> Deactivate</td><td>User detail → toggle <strong>Active</strong> off</td><td>User cannot log in; still visible as inactive in admin</td></tr>
+    <tr><td><strong>U</strong> Verification</td><td>Super admin → approve pending contractor (PaintWorks)</td><td>Contractor banner clears on next login</td></tr>
+    <tr><td><strong>D</strong> Delete</td><td>—</td><td>No permanent delete — deactivate only (expected)</td></tr>
+  </tbody>
+</table>
+
+<h2 id="s11-properties">11.4 Properties &amp; sub-resources</h2>
+<p><strong>Create account:</strong> Lerato or James · <strong>Read/Update on:</strong> <a class="app-link" href="/workspace/properties">Properties list</a> → open a property</p>
+
+<h3>11.4.1 Property (main record)</h3>
+<table>
+  <thead><tr><th>Op</th><th>Steps</th><th>Pass criteria</th></tr></thead>
+  <tbody>
+    <tr><td><strong>C</strong> Create</td><td><a class="app-link" href="/workspace/properties/new">Add property</a> → complete building, unit, rooms, photos → Save</td><td>Property in list with correct agent assignment</td></tr>
+    <tr><td><strong>R</strong> Read</td><td>Open PR-SCB-001 as James</td><td>Only James’s property(ies) visible in list</td></tr>
+    <tr><td><strong>U</strong> Update details</td><td>Property detail → edit title, rent, description → Save</td><td>Changes persist after refresh</td></tr>
+    <tr><td><strong>U</strong> Publish</td><td>Property detail → set status to <strong>Published</strong></td><td>Listing appears on <a class="app-link" href="/browse">public browse</a></td></tr>
+    <tr><td><strong>U</strong> Unpublish</td><td>Change status away from Published</td><td>Listing removed from public browse</td></tr>
+    <tr><td><strong>U</strong> Reassign agent</td><td>Lerato: agency detail or property → assign different agent</td><td>Property moves between agent scopes</td></tr>
+  </tbody>
+</table>
+
+<h3>11.4.2 Rooms, assets, documents (property detail tabs)</h3>
+<table>
+  <thead><tr><th>Op</th><th>Steps</th><th>Pass criteria</th></tr></thead>
+  <tbody>
+    <tr><td><strong>C</strong> Room</td><td>Property detail → Infrastructure / Rooms → Add room</td><td>Room listed with name and type</td></tr>
+    <tr><td><strong>U</strong> Room</td><td>Edit room name or bed count → Save</td><td>Update persists</td></tr>
+    <tr><td><strong>D</strong> Room</td><td>Remove room → confirm</td><td>Room gone after refresh; activity log entry</td></tr>
+    <tr><td><strong>C</strong> Internal asset</td><td>Assets tab → Add asset (e.g. geyser, appliance)</td><td>Asset appears; available for maintenance routing</td></tr>
+    <tr><td><strong>U</strong> Asset</td><td>Edit condition or warranty date</td><td>Saved correctly</td></tr>
+    <tr><td><strong>D</strong> Asset</td><td>Remove asset</td><td>Removed from list</td></tr>
+    <tr><td><strong>U</strong> Document status</td><td>Documents tab → verify / reject uploaded doc</td><td>Status badge updates</td></tr>
+  </tbody>
+</table>
+
+<h2 id="s11-config">11.5 Configuration lookups</h2>
+<p><strong>Account:</strong> Lerato or Super Admin · <strong>Page:</strong> <a class="app-link" href="/workspace/admin/config">Configuration</a></p>
+<table>
+  <thead><tr><th>Op</th><th>Steps</th><th>Pass criteria</th></tr></thead>
+  <tbody>
+    <tr><td><strong>C</strong> Create</td><td>Pick catalogue type (e.g. Property status) → enter label → <strong>Add</strong></td><td>Row appears in active list</td></tr>
+    <tr><td><strong>R</strong> Read</td><td>Browse catalogues; toggle “Show inactive”</td><td>Seeded types (rent, sale, media kinds) visible</td></tr>
+    <tr><td><strong>U</strong> Update</td><td>Rename a test lookup label → Save</td><td>Label changes after refresh</td></tr>
+    <tr><td><strong>U</strong> Reorder</td><td>Use move up / move down arrows on a row</td><td>Sort order changes in dropdowns site-wide</td></tr>
+    <tr><td><strong>D</strong> Deactivate</td><td>Click <strong>Deactivate</strong> on a test row (not required system keys)</td><td>Row moves to inactive; hidden from new forms</td></tr>
+    <tr><td><strong>U</strong> Reactivate</td><td>Toggle inactive row → <strong>Activate</strong></td><td>Row available again</td></tr>
+  </tbody>
+</table>
+
+<h2 id="s11-leads">11.6 Leads (CRM)</h2>
+<p><strong>Account:</strong> Lerato or James · <strong>Page:</strong> <a class="app-link" href="/workspace/sales/crm">Sales → Leads</a></p>
+<table>
+  <thead><tr><th>Op</th><th>Steps</th><th>Pass criteria</th></tr></thead>
+  <tbody>
+    <tr><td><strong>C</strong> Create (CRM)</td><td>Leads → <strong>Add lead</strong> → name, property, channel → Save</td><td>Lead in list / board view</td></tr>
+    <tr><td><strong>C</strong> Create (marketplace)</td><td>Guest or tenant → listing detail → <strong>Enquire</strong> / contact form</td><td>Lead appears in agency CRM</td></tr>
+    <tr><td><strong>R</strong> Read</td><td>Open lead detail; switch list / cards / board views</td><td>Correct property, stage, agent shown</td></tr>
+    <tr><td><strong>U</strong> Update stage</td><td>Move lead stage (e.g. New Lead → Contacted) on board or detail</td><td>Stage persists; board column updates</td></tr>
+    <tr><td><strong>D</strong> Delete</td><td>—</td><td>No delete button (expected) — move to Rejected stage if available</td></tr>
+  </tbody>
+</table>
+
+<h2 id="s11-applications">11.7 Applications (applicants)</h2>
+<table>
+  <thead><tr><th>Op</th><th>Who</th><th>Steps</th><th>Pass criteria</th></tr></thead>
+  <tbody>
+    <tr><td><strong>C</strong> Create</td><td>Tenant / guest</td><td><a class="app-link" href="/browse">Browse</a> → open available listing → <strong>Apply</strong> → submit form</td><td>Application ref generated; visible in tenant portal</td></tr>
+    <tr><td><strong>R</strong> Read</td><td>Lerato</td><td><a class="app-link" href="/workspace/sales/applications">Applicants</a> → open APP-SCB-901</td><td>Overview, documents, history tabs load</td></tr>
+    <tr><td><strong>R</strong> Read</td><td>Riaan</td><td><a class="app-link" href="/workspace/portals/tenant/applications">My applications</a></td><td>Own applications only</td></tr>
+    <tr><td><strong>U</strong> Update stage</td><td>Lerato</td><td>Applicant detail → advance stage (Submitted → Under Review → Approved)</td><td>Stage badge updates; tenant tabs unlock at Approved</td></tr>
+    <tr><td><strong>U</strong> Documents</td><td>Lerato</td><td>Documents tab → mark doc Verified / Rejected</td><td>Status saved; applicant sees update</td></tr>
+    <tr><td><strong>U</strong> Block</td><td>Lerato</td><td>Block applicant with reason</td><td>Stage Blocked; tenant loses access to that property</td></tr>
+    <tr><td><strong>D</strong> Delete</td><td>—</td><td>—</td><td>Withdraw / Reject flows instead of hard delete</td></tr>
+  </tbody>
+</table>
+
+<h2 id="s11-viewings">11.8 Viewings &amp; slots</h2>
+<p><strong>Page:</strong> <a class="app-link" href="/workspace/sales/viewings">Sales → Viewings</a> or property detail → Viewings tab</p>
+<table>
+  <thead><tr><th>Op</th><th>Steps</th><th>Pass criteria</th></tr></thead>
+  <tbody>
+    <tr><td><strong>C</strong> Create slot</td><td>Select property → Add viewing slot (date, time, capacity)</td><td>Slot listed as Open</td></tr>
+    <tr><td><strong>C</strong> Book</td><td>Guest/tenant on listing → book open slot</td><td>Slot capacity decreases; booking in viewings list</td></tr>
+    <tr><td><strong>R</strong> Read</td><td>Viewings calendar / property viewings tab</td><td>Correct property, agent, attendance</td></tr>
+    <tr><td><strong>U</strong> Update slot</td><td>Change time or capacity</td><td>Updates persist</td></tr>
+    <tr><td><strong>U</strong> Attendance</td><td>Mark attendee as attended / no-show</td><td>Status saved on viewing record</td></tr>
+    <tr><td><strong>D</strong> Delete slot</td><td>Remove empty viewing slot from property detail</td><td>Slot removed; no orphan bookings</td></tr>
+  </tbody>
+</table>
+
+<h2 id="s11-maintenance">11.9 Maintenance tickets</h2>
+<table>
+  <thead><tr><th>Op</th><th>Who</th><th>Steps</th><th>Pass criteria</th></tr></thead>
+  <tbody>
+    <tr><td><strong>C</strong> Create</td><td>Lucas</td><td><a class="app-link" href="/workspace/portals/tenant/maintenance">Tenant maintenance</a> → title + asset + priority → Submit</td><td>Ticket ID returned; in agency queue</td></tr>
+    <tr><td><strong>C</strong> Create</td><td>Lucas</td><td><a class="app-link" href="/workspace/portals/tenant/complaints">Complaints</a> → lodge complaint</td><td>Ticket with “Complaint:” prefix</td></tr>
+    <tr><td><strong>C</strong> Create</td><td>Lerato</td><td>Property detail → Maintenance tab → Add ticket</td><td>Ticket on property timeline</td></tr>
+    <tr><td><strong>R</strong> Read</td><td>Lerato</td><td><a class="app-link" href="/workspace/operations/maintenance">Operations → Maintenance</a> → open ticket</td><td>Priority, property, reporter, status shown</td></tr>
+    <tr><td><strong>U</strong> Assign</td><td>Lerato</td><td>Maintenance detail → assign contractor (AquaFix for plumbing)</td><td>Contractor portal shows job</td></tr>
+    <tr><td><strong>U</strong> Status</td><td>AquaFix</td><td>Contractor portal → In Progress → Completed</td><td>Status syncs to agency view; earnings update</td></tr>
+    <tr><td><strong>U</strong> Priority</td><td>Lerato</td><td>Change priority on open ticket</td><td>Badge updates</td></tr>
+    <tr><td><strong>D</strong> Delete</td><td>Lerato</td><td>Property detail → remove test ticket → confirm</td><td>Ticket gone from list and detail</td></tr>
+  </tbody>
+</table>
+
+<h2 id="s11-payments">11.10 Payments</h2>
+<p><strong>Page:</strong> <a class="app-link" href="/workspace/operations/payments">Operations → Payments</a> or property detail → Payments tab</p>
+<table>
+  <thead><tr><th>Op</th><th>Who</th><th>Steps</th><th>Pass criteria</th></tr></thead>
+  <tbody>
+    <tr><td><strong>C</strong> Create</td><td>Lerato</td><td>Property detail → Payments → Add payment (rent, due date, amount)</td><td>Payment row with status Due</td></tr>
+    <tr><td><strong>R</strong> Read</td><td>Lucas</td><td>Tenant portal home → due payments list</td><td>Only Lucas’s payments visible</td></tr>
+    <tr><td><strong>R</strong> Read</td><td>Lerato</td><td>Payment detail page</td><td>Party, property, amount, status</td></tr>
+    <tr><td><strong>U</strong> Mark paid</td><td>Lucas or Lerato</td><td>Mark payment as Paid / record method</td><td>Status Paid; paid date set</td></tr>
+    <tr><td><strong>U</strong> Edit</td><td>Lerato</td><td>Update amount or due date on unpaid row</td><td>Changes persist</td></tr>
+    <tr><td><strong>D</strong> Delete</td><td>Lerato</td><td>Payment detail → Remove (unpaid only) → confirm</td><td>Payment removed; cannot remove Paid rows</td></tr>
+  </tbody>
+</table>
+
+<h2 id="s11-messages">11.11 Messages &amp; threads</h2>
+<table>
+  <thead><tr><th>Op</th><th>Who</th><th>Steps</th><th>Pass criteria</th></tr></thead>
+  <tbody>
+    <tr><td><strong>C</strong> Create thread</td><td>Lucas</td><td><a class="app-link" href="/workspace/portals/tenant/messages">Tenant messages</a> → new subject → send</td><td>Thread appears in tenant list</td></tr>
+    <tr><td><strong>C</strong> Reply</td><td>Lerato</td><td><a class="app-link" href="/workspace/operations/communications">Operations → Messages</a> → reply</td><td>Reply visible to tenant on refresh</td></tr>
+    <tr><td><strong>R</strong> Read</td><td>Both</td><td>Open thread</td><td>Full message history, correct participants</td></tr>
+    <tr><td><strong>U</strong> / <strong>D</strong></td><td>—</td><td>—</td><td>Edit/delete messages not exposed (expected)</td></tr>
+  </tbody>
+</table>
+
+<h2 id="s11-notifications">11.12 Notifications (broadcast)</h2>
+<p><strong>Page:</strong> <a class="app-link" href="/workspace/admin/notifications">Admin → Notifications</a></p>
+<table>
+  <thead><tr><th>Op</th><th>Steps</th><th>Pass criteria</th></tr></thead>
+  <tbody>
+    <tr><td><strong>C</strong> Create</td><td>Fill title + body → audience Agency → Send</td><td>Success flash; entry in broadcast history</td></tr>
+    <tr><td><strong>R</strong> Read</td><td>Log in as agency staff → notifications bell</td><td>Broadcast appears in inbox</td></tr>
+    <tr><td><strong>U</strong> / <strong>D</strong></td><td>—</td><td>Broadcasts are immutable (expected)</td></tr>
+  </tbody>
+</table>
+
+<h2 id="s11-wishlist">11.13 Wishlist</h2>
+<table>
+  <thead><tr><th>Op</th><th>Who</th><th>Steps</th><th>Pass criteria</th></tr></thead>
+  <tbody>
+    <tr><td><strong>C</strong> Add</td><td>Lucas</td><td><a class="app-link" href="/browse">Browse</a> → heart icon on listing</td><td>Heart filled; count increases</td></tr>
+    <tr><td><strong>R</strong> Read</td><td>Lucas</td><td><a class="app-link" href="/workspace/account/wishlist">Account wishlist</a></td><td>Saved listings listed with photos/prices</td></tr>
+    <tr><td><strong>D</strong> Remove</td><td>Lucas</td><td>Wishlist page or browse → un-heart listing</td><td>Listing removed from wishlist</td></tr>
+    <tr><td><strong>C/R/D</strong> Guest</td><td>Guest</td><td>Save on browse → <a class="app-link" href="/saved">/saved</a></td><td>Persists in browser until cleared</td></tr>
+  </tbody>
+</table>
+
+<h2 id="s11-negative">11.14 Negative CRUD tests (permission boundaries)</h2>
+<p>Confirm these actions are <strong>blocked</strong> (access denied, redirect, or read-only message — not a crash).</p>
+<table>
+  <thead><tr><th>Actor</th><th>Attempt</th><th>Expected result</th></tr></thead>
+  <tbody>
+    <tr><td>James (agent)</td><td><strong>C</strong> agency at <a class="app-link" href="/workspace/admin/agencies/new">/workspace/admin/agencies/new</a></td><td>Denied</td></tr>
+    <tr><td>James</td><td><strong>C</strong> user at <a class="app-link" href="/workspace/admin/users/new">/workspace/admin/users/new</a></td><td>Denied</td></tr>
+    <tr><td>James</td><td><strong>U</strong> configuration at <a class="app-link" href="/workspace/admin/config">/workspace/admin/config</a></td><td>Denied or read-only</td></tr>
+    <tr><td>James</td><td><strong>R/U</strong> Nadia’s property (direct URL)</td><td>Not found or denied</td></tr>
+    <tr><td>Riaan (applicant)</td><td><strong>C</strong> maintenance ticket</td><td>Form blocked / unlock message</td></tr>
+    <tr><td>Riaan</td><td><strong>C</strong> message thread to agency</td><td>Tab hidden or blocked</td></tr>
+    <tr><td>Lucas (tenant)</td><td><strong>C</strong> property at <a class="app-link" href="/workspace/properties/new">/workspace/properties/new</a></td><td>Denied</td></tr>
+    <tr><td>Lucas</td><td><strong>R</strong> another tenant’s application</td><td>Not visible</td></tr>
+    <tr><td>AquaFix (contractor)</td><td><strong>U</strong> ticket not assigned to them</td><td>Read-only or hidden</td></tr>
+    <tr><td>PaintWorks (pending)</td><td><strong>C/U</strong> claim assigned job</td><td>Blocked or empty pool</td></tr>
+    <tr><td>Guest</td><td><strong>R</strong> <a class="app-link" href="/workspace">/workspace</a></td><td>Redirect to login</td></tr>
+  </tbody>
+</table>
+
+<h2>11.15 CRUD smoke checklist (sign-off)</h2>
+<p>Use this checklist for a single end-to-end CRUD pass. Mark each row Pass / Fail.</p>
+<table>
+  <thead><tr><th>#</th><th>Test</th><th>Account</th><th>Pass?</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>Create + read agency</td><td>Super Admin</td><td></td></tr>
+    <tr><td>2</td><td>Create + deactivate lookup</td><td>Lerato</td><td></td></tr>
+    <tr><td>3</td><td>Create + publish property</td><td>Lerato</td><td></td></tr>
+    <tr><td>4</td><td>Add + remove room on property</td><td>James</td><td></td></tr>
+    <tr><td>5</td><td>Create + move lead stage</td><td>Lerato</td><td></td></tr>
+    <tr><td>6</td><td>Apply + approve application</td><td>Riaan → Lerato</td><td></td></tr>
+    <tr><td>7</td><td>Create + delete viewing slot</td><td>James</td><td></td></tr>
+    <tr><td>8</td><td>Create + complete maintenance ticket</td><td>Lucas → AquaFix</td><td></td></tr>
+    <tr><td>9</td><td>Create + mark paid + remove unpaid payment</td><td>Lerato</td><td></td></tr>
+    <tr><td>10</td><td>Create thread + agency reply</td><td>Lucas → Lerato</td><td></td></tr>
+    <tr><td>11</td><td>Broadcast notification</td><td>Lerato</td><td></td></tr>
+    <tr><td>12</td><td>Add + remove wishlist item</td><td>Lucas</td><td></td></tr>
+    <tr><td>13</td><td>Negative: agent blocked from admin config</td><td>James</td><td></td></tr>
+  </tbody>
+</table>
+
+<h1 class="doc-section" id="appendix">Appendix: Reporting Bugs</h1>
+<p>When filing an issue, include:</p>
+<ol>
+  <li><strong>Live URL</strong> — full page path</li>
+  <li><strong>Account</strong> — email + role you expected</li>
+  <li><strong>Steps to reproduce</strong> — numbered</li>
+  <li><strong>Expected vs actual</strong> result</li>
+  <li><strong>Screenshot or screen recording</strong></li>
+  <li><strong>Browser &amp; device</strong> (e.g. Chrome 131, macOS)</li>
+</ol>
+<div class="callout callout-warn">
+  <strong>Confidential:</strong> Do not share the demo password outside this internal QA pack. All <code>@propertyflow.demo</code> accounts use password <code>secret</code>.
+</div>
+
+<p class="footer-note">
+  <a href="#top">Back to top</a> · <a href="#toc">Table of contents</a><br />
+  PropertyFlow QA Guide — Live Environment — Document version 1.1
+</p>
+
+<script>
+(function () {
+  var origin = window.location.origin.replace(/\/$/, '');
+  var base = document.getElementById('live-base-link');
+  if (base) {
+    base.setAttribute('href', origin + '/');
+    base.textContent = origin;
+  }
+  document.querySelectorAll('a.app-link').forEach(function (a) {
+    var path = a.getAttribute('href');
+    if (path && path.charAt(0) === '/') {
+      a.href = origin + path;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+    }
+  });
+})();
+</script>
+</body>
+</html>

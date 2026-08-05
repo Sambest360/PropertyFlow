@@ -3,5 +3,8 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "rewrites": [{ "source": "/((?!assets/).*)", "destination": "/index.html" }]
+  "rewrites": [
+    { "source": "/qa-guide", "destination": "/qa-guide.html" },
+    { "source": "/((?!assets/).*)", "destination": "/index.html" }
+  ]
 }
