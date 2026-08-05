@@ -10,12 +10,24 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react(), tailwindcss()],
     server: {
+      warmup: {
+        clientFiles: [
+          './index.html',
+          './src/main.tsx',
+          './src/App.tsx',
+          './src/index.css',
+        ],
+      },
       watch: {
         ignored: [
           '**/.agents/**',
+          '**/.git/**',
           '**/database/**',
+          '**/dist/**',
           '**/docs/**',
           '**/scripts/**',
+          '**/server/**',
+          '**/supabase/**',
           '**/propertyflow/**',
         ],
       },
@@ -32,7 +44,16 @@ export default defineConfig(({ mode }) => {
         : {}),
     },
     optimizeDeps: {
-      include: ['react', 'react-dom', 'react-router-dom', 'clsx', 'lucide-react'],
+      include: [
+        'react',
+        'react-dom',
+        'react-router-dom',
+        'clsx',
+        'lucide-react',
+        '@supabase/supabase-js',
+        '@supabase/ssr',
+        'sweetalert2',
+      ],
     },
     build: {
       rollupOptions: {

@@ -57,6 +57,7 @@ export const CLIENT_TO_AGENCY: Record<string, string> = {
 
   /** Designated platform super-admin emails — never demote to applicant when DB row is stale. */
   export const SUPER_ADMIN_EMAILS = new Set([
+    'ephraimbampo317@gmail.com',
     'sambampo200@gmail.com',
     'super@propertyflow.app',
   ])

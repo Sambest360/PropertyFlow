@@ -16,6 +16,7 @@ import {
   type AuthUserDto,
 } from '../lib/api/authClient'
 import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
+import { shouldSkipAuthBootstrapRefresh } from '../lib/bootstrapCoord'
 import { blockedPropertyIdsForApplicant } from '../lib/blockedApplicants'
 import { effectiveCan, roleLabels, roleBlurbs } from '../lib/permissions'
 import {
@@ -278,6 +279,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isApiEnabled && !isSupabaseMode) return
     if (!isAuthenticated || !user || user.id === 'guest') return
+    if (shouldSkipAuthBootstrapRefresh()) return
     void refreshBootstrap({
       userId: user.id,
       role: user.role,

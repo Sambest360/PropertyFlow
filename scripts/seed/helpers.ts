@@ -47,7 +47,7 @@ export function loadSeedEnv(): SeedEnv {
   const directUrl = process.env.DIRECT_URL ?? process.env.DATABASE_URL
   const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL
   const supabaseSecret = process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY
-  const superAdminEmail = process.env.SUPER_ADMIN_EMAIL ?? 'sambampo200@gmail.com'
+  const superAdminEmail = process.env.SUPER_ADMIN_EMAIL ?? 'ephraimbampo317@gmail.com'
   const demoPassword = process.env.SEED_DEMO_PASSWORD ?? process.env.SUPER_ADMIN_PASSWORD ?? 'secret'
 
   if (!directUrl) throw new Error('Missing DIRECT_URL or DATABASE_URL')

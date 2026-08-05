@@ -35,6 +35,11 @@ const LITE_LIMITS = {
   payments: 80,
   documents: 80,
   threads: 80,
+  leases: 120,
+  bookings: 80,
+  viewingSlots: 80,
+  lookups: 400,
+  buildings: 80,
 }
 
 const FULL_LIMITS = {
@@ -203,7 +208,7 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
     supabase.from('entity_id_map').select('entity_type, backend_id, frontend_id'),
     supabase.from('clients').select('id, company_name, subdomain, status, city, created_at, settings'),
     supabase.from('users').select('id, client_id, email, first_name, last_name, phone, role, active, metadata'),
-    supabase.from('buildings').select('*').order('name'),
+    supabase.from('buildings').select('*').order('name').limit(lite ? LITE_LIMITS.buildings : 10_000),
     supabase.from('units').select('*').order('created_at', { ascending: false }).limit(limits.units),
     skipHeavy
       ? Promise.resolve({ data: [] as Record<string, unknown>[] })
@@ -217,9 +222,21 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
       .select('*')
       .order('submitted_at', { ascending: false, nullsFirst: false })
       .limit(limits.applications),
-    supabase.from('leases').select('*').order('start_date'),
-    supabase.from('bookings').select('*').order('starts_at'),
-    supabase.from('viewing_slots').select('*').order('slot_date'),
+    supabase
+      .from('leases')
+      .select('*')
+      .order('start_date')
+      .limit(lite ? LITE_LIMITS.leases : 10_000),
+    supabase
+      .from('bookings')
+      .select('*')
+      .order('starts_at')
+      .limit(lite ? LITE_LIMITS.bookings : 10_000),
+    supabase
+      .from('viewing_slots')
+      .select('*')
+      .order('slot_date')
+      .limit(lite ? LITE_LIMITS.viewingSlots : 10_000),
     supabase.from('payments').select('*').order('due_date').limit(limits.payments),
     supabase.from('documents').select('*').order('uploaded_at', { ascending: false, nullsFirst: false }).limit(limits.documents),
     supabase.from('maintenance_tickets').select('*').order('created_at', { ascending: false }).limit(limits.tickets),
@@ -252,7 +269,8 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
       .from('client_lookup_configs')
       .select('id, client_id, config_type, key_value, display_label, is_active, sort_order, meta')
       .order('config_type')
-      .order('sort_order'),
+      .order('sort_order')
+      .limit(lite ? LITE_LIMITS.lookups : 10_000),
   ])
 
   const clients = clientsRes.data ?? []
@@ -383,13 +401,17 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
     const unitAssets = assets.filter((a) => a.unit_id === u._unitUuid)
     const statusKey = u.statusKey
     const status =
-      statusKey === 'OCCUPIED'
-        ? 'Rented'
-        : statusKey === 'MAINTENANCE'
-          ? 'Maintenance'
-          : u.featured
-            ? 'Featured'
-            : 'Published'
+      statusKey === 'DRAFT'
+        ? 'Draft'
+        : statusKey === 'OCCUPIED'
+          ? 'Rented'
+          : statusKey === 'MAINTENANCE'
+            ? 'Maintenance'
+            : statusKey === 'UNDER_OFFER'
+              ? 'Under Offer'
+              : statusKey === 'FEATURED' || u.featured
+                ? 'Featured'
+                : 'Published'
 
     return {
       id: u._propertyId,

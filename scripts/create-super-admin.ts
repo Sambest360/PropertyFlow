@@ -9,7 +9,7 @@ import { createClient } from '@supabase/supabase-js'
 
 const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL
 const secret = process.env.SUPABASE_SECRET_KEY
-const email = process.env.SUPER_ADMIN_EMAIL ?? 'sambampo200@gmail.com'
+const email = process.env.SUPER_ADMIN_EMAIL ?? 'ephraimbampo317@gmail.com'
 const password = process.env.SUPER_ADMIN_PASSWORD ?? 'secret'
 const SUPER_FE_ID = 'u-super'
 
@@ -89,15 +89,15 @@ async function ensurePublicSuperAdmin(authUserId: string) {
     if (insertErr) throw insertErr
   }
 
-  const { error: mapErr } = await admin.from('entity_id_map').upsert(
-    {
-      entity_type: 'user',
-      backend_id: appUserId,
-      frontend_id: SUPER_FE_ID,
-    },
-    { onConflict: 'entity_type,backend_id' },
-  )
-  if (mapErr) throw mapErr
+  await admin.from('entity_id_map').delete().eq('entity_type', 'user').eq('backend_id', appUserId)
+  await admin.from('entity_id_map').delete().eq('entity_type', 'user').eq('frontend_id', SUPER_FE_ID)
+
+  const { error: mapInsertErr } = await admin.from('entity_id_map').insert({
+    entity_type: 'user',
+    backend_id: appUserId,
+    frontend_id: SUPER_FE_ID,
+  })
+  if (mapInsertErr) throw mapInsertErr
 
   return appUserId
 }

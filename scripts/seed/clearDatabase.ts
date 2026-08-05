@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type pg from 'pg'
+import { GLOBAL_CLIENT_UUID } from './data/lookups.js'
 import {
   deleteAllAuthUsersExcept,
   findAuthUserByEmail,
@@ -39,8 +40,6 @@ const TRUNCATE_TABLES = [
   'rooms',
   'units',
   'buildings',
-  'client_lookup_configs',
-  'clients',
   'entity_id_map',
 ] as const
 
@@ -194,6 +193,8 @@ export async function clearDatabase(
     for (const table of TRUNCATE_TABLES) {
       await client.query(`TRUNCATE TABLE ${table} RESTART IDENTITY CASCADE`)
     }
+    await client.query(`DELETE FROM client_lookup_configs WHERE client_id != $1`, [GLOBAL_CLIENT_UUID])
+    await client.query(`DELETE FROM clients WHERE id != $1`, [GLOBAL_CLIENT_UUID])
     await client.query(`DELETE FROM users WHERE id != $1`, [refs.appUserId])
     await client.query('COMMIT')
   } catch (err) {
@@ -206,6 +207,6 @@ export async function clearDatabase(
   await ensureSuperAdminRow(pool, admin, refs)
   await ensurePermissions(pool)
 
-  console.log('Database cleared (super admin preserved)')
+  console.log('Database cleared (super admin + global configuration preserved)')
   return refs
 }

@@ -8,6 +8,7 @@ import { useWorkspaceNav, WorkspaceSidebar } from './layout/WorkspaceNav'
 import { WORKSPACE_INSET } from './layout/workspaceInset'
 import { NotificationToastHost } from './notifications/NotificationBell'
 import { ImpersonationBanner } from './admin/ImpersonationBanner'
+import { PageTipBanner } from './onboarding/PageTipBanner'
 import { useNavCollapsed } from '../hooks/useNavCollapsed'
 import { useScrollChrome } from '../hooks/useScrollChrome'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
@@ -21,6 +22,9 @@ export function MarketplaceShell() {
     <div className="flex min-h-screen flex-col bg-white text-ink">
       <MarketplaceHeader />
       <main className="flex-1">
+        <div className="mx-auto max-w-[1400px] px-4 pt-4 sm:px-6 lg:px-8">
+          <PageTipBanner />
+        </div>
         <Outlet />
       </main>
       <MarketplaceFooter />
@@ -65,6 +69,7 @@ export function WorkspaceShell() {
         <ImpersonationBanner />
         <WorkspaceHeader spotlightPinned topHidden={chromeCompact} />
         <main className={`min-w-0 flex-1 overflow-x-hidden pb-6 pt-1 lg:pb-8 ${WORKSPACE_INSET}`}>
+          <PageTipBanner />
           <div
             key={pathname}
             className={reducedMotion ? 'w-full' : 'w-full animate-workspace-page'}

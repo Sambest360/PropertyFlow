@@ -17,7 +17,7 @@ export const AGENCY_ADMIN: StaffUserDef = {
   firstName: 'Lerato',
   lastName: 'Nkosi',
   phone: '+27 82 400 1001',
-  dbRole: 'AGENT_ADMIN',
+  dbRole: 'AGENCY_ADMIN',
 }
 
 export const AGENTS: StaffUserDef[] = [

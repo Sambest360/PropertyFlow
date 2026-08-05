@@ -95,9 +95,12 @@ import {
   isApplicantBlockedOnProperty,
   viewingBelongsToApplication,
 } from '../lib/blockedApplicants'
-import { fetchPostgresBootstrap, type PostgresBootstrap } from '../lib/api/postgresClient'
+import type { PostgresBootstrap } from '../lib/api/postgresClient'
 import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
-import { fetchSupabaseBootstrap } from '../lib/supabase/data'
+import {
+  dedupeBootstrapFetch,
+  scheduleDeferredFullBootstrap,
+} from '../lib/bootstrapCoord'
 import { readStoredAuthUserId, type DemoActor } from '../lib/api/actorAuth'
 import {
   persistApproveApplication,
@@ -485,24 +488,45 @@ function loadState(): AppState {
 
 const StoreContext = createContext<StoreContextValue | null>(null)
 
+async function fetchBootstrapFromApi(lite: boolean, actor: DemoActor | null, fullTimeoutMs = 10_000) {
+  if (isSupabaseMode) {
+    const { fetchSupabaseBootstrap } = await import('../lib/supabase/data')
+    return fetchSupabaseBootstrap(lite)
+  }
+  const { fetchPostgresBootstrap } = await import('../lib/api/postgresClient')
+  return fetchPostgresBootstrap(fullTimeoutMs, actor, lite)
+}
+
 export function AppStoreProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AppState>(() => loadState())
+  const [state, setState] = useState<AppState>(() => defaultState())
   const [toasts, setToasts] = useState<NotificationToast[]>([])
   const stateRef = useRef(state)
   stateRef.current = state
+
+  useEffect(() => {
+    let cancelled = false
+    const id = window.requestAnimationFrame(() => {
+      try {
+        const cached = loadState()
+        if (!cancelled) setState(cached)
+      } catch {
+        /* keep defaultState */
+      }
+    })
+    return () => {
+      cancelled = true
+      window.cancelAnimationFrame(id)
+    }
+  }, [])
 
   const refreshBootstrap = useCallback(async (actor?: DemoActor | null, opts?: { full?: boolean }) => {
     if (!isApiEnabled && !isSupabaseMode) return
     const resolved =
       actor === undefined ? actorFromUsers(stateRef.current.users) : actor
     const lite = !opts?.full
-    let boot: PostgresBootstrap | null = null
-    if (isSupabaseMode) {
-      boot = await fetchSupabaseBootstrap(lite)
-    } else {
-      const timeoutMs = opts?.full ? 20_000 : 10_000
-      boot = await fetchPostgresBootstrap(timeoutMs, resolved, lite)
-    }
+    const fetchBoot = () => fetchBootstrapFromApi(lite, resolved, opts?.full ? 20_000 : 10_000)
+
+    const boot = await dedupeBootstrapFetch(lite, fetchBoot)
     if (!boot) return
     setState((prev) => applyPostgresBootstrap(prev, boot))
     try {
@@ -511,14 +535,22 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       /* ignore */
     }
     if (!opts?.full && isSupabaseMode) {
-      void fetchSupabaseBootstrap(false).then((full) => {
-        if (!full) return
-        setState((prev) => applyPostgresBootstrap(prev, full))
+      scheduleDeferredFullBootstrap(() => {
+        void dedupeBootstrapFetch(false, () => fetchBootstrapFromApi(false, resolved, 25_000)).then(
+          (full) => {
+            if (!full) return
+            setState((prev) => applyPostgresBootstrap(prev, full))
+          },
+        )
       })
     } else if (!opts?.full && isApiEnabled) {
-      void fetchPostgresBootstrap(25_000, resolved, false).then((full) => {
-        if (!full) return
-        setState((prev) => applyPostgresBootstrap(prev, full))
+      scheduleDeferredFullBootstrap(() => {
+        void dedupeBootstrapFetch(false, () => fetchBootstrapFromApi(false, resolved, 25_000)).then(
+          (full) => {
+            if (!full) return
+            setState((prev) => applyPostgresBootstrap(prev, full))
+          },
+        )
       })
     }
   }, [])
@@ -526,11 +558,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isApiEnabled && !isSupabaseMode) return
     let cancelled = false
-    ;(async () => {
+    const hasCachedHydration =
+      localStorage.getItem(PG_HYDRATED_FLAG) === 'postgres' &&
+      stateRef.current.properties.length > 0
+
+    const run = async () => {
       const actor = actorFromUsers(stateRef.current.users)
-      const boot = isSupabaseMode
-        ? await fetchSupabaseBootstrap(true)
-        : await fetchPostgresBootstrap(10_000, actor, true)
+      const boot = await dedupeBootstrapFetch(true, () => fetchBootstrapFromApi(true, actor, 10_000))
       if (cancelled || !boot) return
       setState((prev) => applyPostgresBootstrap(prev, boot))
       try {
@@ -543,14 +577,39 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         boot.fetchedAt,
         boot.scoped ? `(scoped ${boot.actor?.userId})` : '(full/agency)',
       )
-    })()
+      scheduleDeferredFullBootstrap(() => {
+        if (cancelled) return
+        void dedupeBootstrapFetch(false, () => fetchBootstrapFromApi(false, actor, 25_000)).then(
+          (full) => {
+            if (cancelled || !full) return
+            setState((prev) => applyPostgresBootstrap(prev, full))
+          },
+        )
+      })
+    }
+
+    if (hasCachedHydration) {
+      scheduleDeferredFullBootstrap(() => {
+        if (!cancelled) void run()
+      })
+    } else {
+      void run()
+    }
+
     return () => {
       cancelled = true
     }
   }, [])
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+    const timer = window.setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+      } catch {
+        /* ignore quota errors */
+      }
+    }, 900)
+    return () => window.clearTimeout(timer)
   }, [state])
 
   const patch = useCallback((fn: (s: AppState) => AppState) => {
@@ -729,10 +788,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       setToasts([])
       const actor = actorFromUsers(defaultState().users)
       if (!isApiEnabled && !isSupabaseMode) return
-      const load = isSupabaseMode
-        ? fetchSupabaseBootstrap(false)
-        : fetchPostgresBootstrap(undefined, actor)
-      void load.then((boot) => {
+      void fetchBootstrapFromApi(false, actor).then((boot) => {
         if (!boot) return
         setState((prev) => applyPostgresBootstrap(prev, boot))
         localStorage.setItem(PG_HYDRATED_FLAG, 'postgres')

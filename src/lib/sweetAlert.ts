@@ -1,6 +1,13 @@
 import Swal, { type SweetAlertIcon, type SweetAlertOptions, type SweetAlertResult } from 'sweetalert2'
 import { formatAuthError } from './auth/authMessages.js'
 
+let stylesLoaded = false
+function ensureSwalStyles() {
+  if (stylesLoaded) return
+  stylesLoaded = true
+  void import('sweetalert2/dist/sweetalert2.min.css')
+}
+
 const baseOptions = {
   customClass: {
     popup: 'pf-swal-popup',
@@ -16,6 +23,7 @@ const baseOptions = {
 } satisfies SweetAlertOptions
 
 function fire(options: SweetAlertOptions): Promise<SweetAlertResult> {
+  ensureSwalStyles()
   return Swal.fire({
     ...baseOptions,
     ...options,
