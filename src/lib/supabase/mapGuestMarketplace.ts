@@ -52,7 +52,10 @@ export function mapGuestMarketplacePayload(payload: {
   const users = payload.users ?? []
   const buildingsRaw = payload.buildings ?? []
   const unitsRawInput = payload.units ?? []
-  const cache = buildIdMapCache(payload.entity_id_map ?? [], clients)
+  const cache = buildIdMapCache(
+    payload.entity_id_map ?? [],
+    clients as Array<{ id: string; settings: Record<string, unknown> | null }>,
+  )
 
   const userByUuid = new Map<string, string>()
   for (const u of users) {
