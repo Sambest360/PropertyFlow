@@ -1,5 +1,4 @@
-≈import { query } from './db.js'
-import { ensureUuid, resolveUuid } from './entityMap.js'import { isApiEnabled, isSupabaseMode } from './config'
+import { isApiEnabled, isSupabaseMode } from './config'
 import { createClient } from '../../utils/supabase/client'
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''
