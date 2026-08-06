@@ -3,11 +3,30 @@ import { Plus } from 'lucide-react'
 import type { PropertyAsset } from '../../types/domain'
 import type { InternalAsset, LookupConfig } from '../../data/infrastructure'
 import { PropertySearchPicker } from '../PropertySearchPicker'
-import { Button, Input, Modal, Select, Textarea } from '../ui'
+import { ImageDropzone } from '../ImageDropzone'
+import { ContractorPicker } from '../contractors/ContractorPicker'
+import { Button, Input, Modal, Select, Textarea, cn } from '../ui'
 
 const ICON_STROKE = 1.6
+const TAGS = ['leak', 'no hot water', 'electrical', 'access', 'safety', 'noise', 'pest', 'structural']
 
 type Priority = 'Low' | 'Medium' | 'High' | 'Urgent' | 'Emergency'
+
+export type CreateTicketInput = {
+  propertyId: string
+  title: string
+  description: string
+  priority: Priority
+  categoryKey: string
+  assetId: string | null
+  contractorId?: string | null
+  locationDetail?: string
+  accessNotes?: string
+  preferredSchedule?: string
+  issueTags?: string[]
+  photoUrls?: string[]
+  estimatedCost?: number | null
+}
 
 export function CreateTicketModal({
   open,
@@ -15,6 +34,7 @@ export function CreateTicketModal({
   properties,
   assets,
   categories,
+  agencyId,
   onCreate,
 }: {
   open: boolean
@@ -22,14 +42,8 @@ export function CreateTicketModal({
   properties: PropertyAsset[]
   assets: InternalAsset[]
   categories: LookupConfig[]
-  onCreate: (input: {
-    propertyId: string
-    title: string
-    description: string
-    priority: Priority
-    categoryKey: string
-    assetId: string | null
-  }) => string | null
+  agencyId: string | null
+  onCreate: (input: CreateTicketInput) => string | null
 }) {
   const [propertyId, setPropertyId] = useState('')
   const [title, setTitle] = useState('')
@@ -37,6 +51,13 @@ export function CreateTicketModal({
   const [priority, setPriority] = useState<Priority>('Medium')
   const [category, setCategory] = useState('GENERAL')
   const [assetId, setAssetId] = useState('')
+  const [contractorId, setContractorId] = useState('')
+  const [locationDetail, setLocationDetail] = useState('')
+  const [accessNotes, setAccessNotes] = useState('')
+  const [preferredSchedule, setPreferredSchedule] = useState('')
+  const [estimatedCost, setEstimatedCost] = useState('')
+  const [issueTags, setIssueTags] = useState<string[]>([])
+  const [photoUrls, setPhotoUrls] = useState<string[]>([])
   const [error, setError] = useState('')
 
   const selected = properties.find((p) => p.id === propertyId)
@@ -45,17 +66,6 @@ export function CreateTicketModal({
     [assets, selected?.unitId],
   )
 
-  useEffect(() => {
-    if (!open) return
-    setPropertyId('')
-    setTitle('')
-    setDescription('')
-    setPriority('Medium')
-    setCategory('GENERAL')
-    setAssetId('')
-    setError('')
-  }, [open])
-
   const reset = () => {
     setPropertyId('')
     setTitle('')
@@ -63,7 +73,23 @@ export function CreateTicketModal({
     setPriority('Medium')
     setCategory('GENERAL')
     setAssetId('')
+    setContractorId('')
+    setLocationDetail('')
+    setAccessNotes('')
+    setPreferredSchedule('')
+    setEstimatedCost('')
+    setIssueTags([])
+    setPhotoUrls([])
     setError('')
+  }
+
+  useEffect(() => {
+    if (!open) return
+    reset()
+  }, [open])
+
+  const toggleTag = (tag: string) => {
+    setIssueTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]))
   }
 
   const submit = (e: FormEvent) => {
@@ -83,6 +109,13 @@ export function CreateTicketModal({
       priority,
       categoryKey: category,
       assetId: assetId || null,
+      contractorId: contractorId || null,
+      locationDetail: locationDetail.trim() || undefined,
+      accessNotes: accessNotes.trim() || undefined,
+      preferredSchedule: preferredSchedule.trim() || undefined,
+      issueTags,
+      photoUrls,
+      estimatedCost: estimatedCost ? Number(estimatedCost) : null,
     })
     if (err) {
       setError(err)
@@ -100,7 +133,7 @@ export function CreateTicketModal({
         onClose()
       }}
       title="Log maintenance"
-      description="Link the issue to a property and optional internal asset so ops can route warranty and vendors."
+      description="Capture the fault in detail — photos, location, linked assets, and book an approved contractor immediately."
       size="lg"
       footer={
         <>
@@ -150,7 +183,7 @@ export function CreateTicketModal({
             className="mt-1 min-h-[5rem]"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="What failed, where, and any access notes…"
+            placeholder="What failed, when it started, symptoms, and anything already tried…"
           />
         </label>
         <label className="block text-xs font-medium text-ink-500">
@@ -183,6 +216,33 @@ export function CreateTicketModal({
           </Select>
         </label>
         <label className="block text-xs font-medium text-ink-500 sm:col-span-2">
+          Location on site
+          <Input
+            className="mt-1 min-h-11"
+            value={locationDetail}
+            onChange={(e) => setLocationDetail(e.target.value)}
+            placeholder="e.g. Main bathroom — geyser cupboard"
+          />
+        </label>
+        <label className="block text-xs font-medium text-ink-500 sm:col-span-2">
+          Access notes
+          <Textarea
+            className="mt-1 min-h-[4rem]"
+            value={accessNotes}
+            onChange={(e) => setAccessNotes(e.target.value)}
+            placeholder="Gate code, pets, concierge, best time to access…"
+          />
+        </label>
+        <label className="block text-xs font-medium text-ink-500 sm:col-span-2">
+          Preferred attendance
+          <Input
+            className="mt-1 min-h-11"
+            value={preferredSchedule}
+            onChange={(e) => setPreferredSchedule(e.target.value)}
+            placeholder="e.g. Weekdays 09:00–12:00"
+          />
+        </label>
+        <label className="block text-xs font-medium text-ink-500 sm:col-span-2">
           Internal asset (optional)
           <Select
             className="mt-1 min-h-11 w-full"
@@ -199,6 +259,58 @@ export function CreateTicketModal({
             ))}
           </Select>
         </label>
+        <label className="block text-xs font-medium text-ink-500">
+          Book contractor (optional)
+          <div className="mt-1">
+            <ContractorPicker
+              agencyId={agencyId}
+              categoryKey={category}
+              value={contractorId}
+              onChange={setContractorId}
+              placeholder="Assign later…"
+            />
+          </div>
+        </label>
+        <label className="block text-xs font-medium text-ink-500">
+          Estimated cost (ZAR)
+          <Input
+            className="mt-1 min-h-11 tabular"
+            type="number"
+            min={0}
+            value={estimatedCost}
+            onChange={(e) => setEstimatedCost(e.target.value)}
+            placeholder="Optional quote"
+          />
+        </label>
+        <div className="sm:col-span-2">
+          <p className="text-xs font-medium text-ink-500">Issue tags</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {TAGS.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => toggleTag(tag)}
+                className={cn(
+                  'rounded-full border px-3 py-1 text-xs font-medium capitalize',
+                  issueTags.includes(tag)
+                    ? 'border-primary bg-primary-50 text-primary'
+                    : 'border-primary-100 text-ink-500',
+                )}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="sm:col-span-2">
+          <ImageDropzone
+            value={photoUrls}
+            onChange={setPhotoUrls}
+            max={8}
+            label="Issue photos"
+            hint="Upload clear photos of the fault, damage, or meter readings"
+          />
+        </div>
         {error && (
           <p
             role="alert"

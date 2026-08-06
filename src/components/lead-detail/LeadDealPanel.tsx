@@ -2,7 +2,7 @@ import { Check } from 'lucide-react'
 import type { Lead, PropertyAsset } from '../../types/domain'
 import { Select, cn } from '../ui'
 import { formatZAR } from '../../data/seed'
-import { DetailSection, FlatField, FlatFieldGrid } from '../detail/FlatFields'
+import { DetailSection, AgentAssigneeField, FlatField, FlatFieldGrid } from '../detail/FlatFields'
 import { LEAD_STAGES, ICON_STROKE } from './types'
 import { useLookupOptions } from '../../hooks/useLookupOptions'
 
@@ -51,7 +51,7 @@ export function LeadDealPanel({
             label="Current step"
             value={`${stepNumber} of ${total} · ${stageLabels[lead.stage] ?? lead.stage}`}
           />
-          <FlatField label="Agent" value={agentName ?? 'Unassigned'} />
+          <AgentAssigneeField agentId={lead.agentId} agentName={agentName} />
           <FlatField label="Expected value" value={formatZAR(lead.value)} tabular />
         </FlatFieldGrid>
 

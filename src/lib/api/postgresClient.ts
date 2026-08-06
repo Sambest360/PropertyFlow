@@ -26,6 +26,7 @@ export type PostgresBootstrap = {
   payments: unknown[]
   propertyDocuments: unknown[]
   tickets: unknown[]
+  agencyContractors?: unknown[]
   threads: unknown[]
   messages: unknown[]
   notifications: unknown[]

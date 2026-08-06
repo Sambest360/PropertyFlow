@@ -4,89 +4,164 @@ import {
   ChevronRight,
   CircleDollarSign,
   FileSignature,
+  GitBranch,
   KeyRound,
   ShieldCheck,
   Upload,
   Wallet,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import type { Application, ApplicationStage, PropertyAsset } from '../../types/domain'
+import type { Application, PropertyAsset } from '../../types/domain'
 import { Badge, Button, Card, Input, cn, statusTone } from '../ui'
-import { APPLICATION_STAGES } from '../../lib/workflow'
 import { buildApplicationActions } from '../../lib/api/actions'
 import type { HateoasAction } from '../../lib/api/contracts'
+import {
+  getStageDef,
+  resolveWorkflowStatus,
+  stageVisualState,
+  workflowBranchOutcomes,
+  workflowCategoryLabel,
+  workflowProgress,
+  workflowStageLabel,
+  workflowStagesByCategory,
+  type WorkflowCategory,
+} from '../../lib/applicationWorkflow'
 import { ICON_STROKE } from './types'
+import { useAgentDisplay } from '../../hooks/useAgentDisplay'
 
-function ApplicationLifecycleRail({
-  stages,
-  current,
+function WorkflowLifecycleMap({
+  application,
 }: {
-  stages: ApplicationStage[]
-  current: ApplicationStage
+  application: Application
 }) {
-  const index = Math.max(0, stages.indexOf(current))
+  const status = resolveWorkflowStatus(application)
+  const grouped = workflowStagesByCategory(application.type)
+  const categories = (Object.keys(grouped) as WorkflowCategory[]).filter(
+    (cat) => grouped[cat].length > 0,
+  )
 
   return (
-    <nav
-      aria-label="Application lifecycle"
-      className="overflow-x-auto rounded-2xl border border-primary-100 bg-primary-50/40 p-4 [scrollbar-width:thin]"
-    >
-      <ol className="flex min-w-[46rem] items-start">
-        {stages.map((stage, i) => {
-          const done = i < index
-          const isCurrent = i === index
-          const upcoming = i > index
-          return (
-            <li key={stage} className="relative flex min-w-0 flex-1 flex-col items-center">
-              {i > 0 && (
-                <span
-                  aria-hidden
-                  className={cn(
-                    'absolute left-0 right-1/2 top-4 h-0.5 -translate-y-1/2',
-                    i <= index ? 'bg-primary' : 'bg-primary-100',
-                  )}
-                />
-              )}
-              {i < stages.length - 1 && (
-                <span
-                  aria-hidden
-                  className={cn(
-                    'absolute left-1/2 right-0 top-4 h-0.5 -translate-y-1/2',
-                    i < index ? 'bg-primary' : 'bg-primary-100',
-                  )}
-                />
-              )}
+    <div className="space-y-4">
+      {categories.map((category) => {
+        const stages = grouped[category]
+        const hasCurrent = stages.some((s) => s.key === status)
+        const hasCompleted = stages.some(
+          (s) => stageVisualState(application.type, status, s.key) === 'completed',
+        )
+        if (!hasCurrent && !hasCompleted && category !== 'closure') {
+          const minOrder = stages[0]?.order ?? 0
+          const currentOrder = getStageDef(application.type, status)?.order ?? 0
+          if (minOrder > currentOrder + 5) return null
+        }
 
-              <span
-                className={cn(
-                  'relative z-[1] inline-flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold transition-colors duration-200',
-                  done && 'bg-primary text-white',
-                  isCurrent && 'bg-primary text-white ring-4 ring-primary-100',
-                  upcoming && 'border-2 border-primary-200 bg-white text-ink-400',
-                )}
-                aria-current={isCurrent ? 'step' : undefined}
-              >
-                {done ? (
-                  <CheckCircle2 className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                ) : (
-                  <span className="tabular">{i + 1}</span>
-                )}
-              </span>
-              <span
-                className={cn(
-                  'mt-2 max-w-[4.75rem] text-center text-[10px] font-medium leading-snug',
-                  isCurrent && 'font-semibold text-primary',
-                  done && 'text-ink-600',
-                  upcoming && 'text-ink-400',
-                )}
-              >
-                {stage}
-              </span>
-            </li>
-          )
-        })}
-      </ol>
-    </nav>
+        return (
+          <section
+            key={category}
+            className={cn(
+              'rounded-2xl border p-3 sm:p-4',
+              hasCurrent ? 'border-primary-200 bg-primary-50/50' : 'border-primary-100 bg-white',
+            )}
+          >
+            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">
+              {workflowCategoryLabel(category)}
+            </h3>
+            <ol className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {stages.map((stageDef) => {
+                const visual = stageVisualState(application.type, status, stageDef.key)
+                if (visual === 'skipped' && !stageDef.terminal) return null
+                const isCurrent = visual === 'current'
+                const isDone = visual === 'completed'
+                const isTerminal = stageDef.terminal && stageDef.key === status
+                return (
+                  <li
+                    key={stageDef.key}
+                    className={cn(
+                      'flex min-h-11 items-start gap-2 rounded-xl px-2.5 py-2 text-sm',
+                      isCurrent && 'bg-white ring-1 ring-primary-200',
+                      isTerminal && 'bg-accent-50 ring-1 ring-accent-200',
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold',
+                        isDone && 'bg-primary text-white',
+                        isCurrent && 'bg-primary text-white ring-2 ring-primary-100',
+                        isTerminal && 'bg-accent text-white',
+                        !isDone && !isCurrent && !isTerminal && 'border border-primary-200 bg-white text-ink-400',
+                      )}
+                      aria-hidden
+                    >
+                      {isDone ? (
+                        <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} />
+                      ) : (
+                        '·'
+                      )}
+                    </span>
+                    <span className="min-w-0">
+                      <span
+                        className={cn(
+                          'block font-medium leading-snug',
+                          isCurrent && 'text-primary',
+                          isTerminal && 'text-accent-800',
+                          !isCurrent && !isTerminal && 'text-ink-600',
+                        )}
+                      >
+                        {stageDef.label}
+                      </span>
+                      {stageDef.parallel ? (
+                        <span className="mt-0.5 block text-[10px] text-ink-400">May run in parallel</span>
+                      ) : null}
+                    </span>
+                  </li>
+                )
+              })}
+            </ol>
+          </section>
+        )
+      })}
+    </div>
+  )
+}
+
+function BranchOutcomesPanel({ application }: { application: Application }) {
+  const status = resolveWorkflowStatus(application)
+  const outcomes = workflowBranchOutcomes(application.type)
+  const currentTerminal = getStageDef(application.type, status)?.terminal
+
+  return (
+    <Card className="border-primary-100 bg-white p-4">
+      <div className="flex items-start gap-2">
+        <GitBranch className="mt-0.5 h-4 w-4 shrink-0 text-ink-400" strokeWidth={ICON_STROKE} aria-hidden />
+        <div className="min-w-0">
+          <h3 className="font-display text-sm font-semibold text-ink">Alternate outcomes</h3>
+          <p className="mt-1 text-xs text-ink-500">
+            Applications can exit the happy path at several points — withdraw, reject, cancel, or renew.
+          </p>
+          <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+            {outcomes.map((o) => {
+              const active = status === o.key
+              return (
+                <li
+                  key={o.key}
+                  className={cn(
+                    'rounded-xl border px-3 py-2 text-xs',
+                    active ? 'border-accent-200 bg-accent-50 text-accent-900' : 'border-primary-100 text-ink-600',
+                  )}
+                >
+                  <span className="font-semibold">{o.label}</span>
+                  <span className="mt-0.5 block text-ink-500">{o.description}</span>
+                </li>
+              )
+            })}
+          </ul>
+          {currentTerminal ? (
+            <p className="mt-3 text-xs font-medium text-accent-800">
+              This file is at a terminal stage: {workflowStageLabel(application.type, status)}.
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </Card>
   )
 }
 
@@ -99,10 +174,24 @@ type ActionVisual = {
 
 function resolveTone(action: HateoasAction): NonNullable<HateoasAction['tone']> {
   if (action.tone) return action.tone
-  if (action.key === 'OPEN_CHECKOUT' || action.key === 'APPROVE_CREDIT' || action.key === 'COMPLETE_KEY_HANDOVER') {
+  if (
+    action.key === 'OPEN_CHECKOUT' ||
+    action.key === 'ISSUE_DEPOSIT_INVOICE' ||
+    action.key === 'APPROVE_CREDIT' ||
+    action.key === 'COMPLETE_KEY_HANDOVER' ||
+    action.key === 'ACTIVATE_TENANCY'
+  ) {
     return 'primary'
   }
-  if (action.key === 'DECLINE_INCOME' || action.key === 'REJECT_APPLICATION') return 'danger'
+  if (
+    action.key === 'DECLINE_INCOME' ||
+    action.key === 'REJECT_APPLICATION' ||
+    action.key === 'DECLINE_CREDIT' ||
+    action.key === 'LANDLORD_REJECTED' ||
+    action.key === 'CANCEL_NO_DEPOSIT'
+  ) {
+    return 'danger'
+  }
   return 'secondary'
 }
 
@@ -110,19 +199,35 @@ function actionIcon(action: HateoasAction): LucideIcon {
   switch (action.key) {
     case 'COMPLETE_KEY_HANDOVER':
     case 'SCHEDULE_MOVE_IN':
+    case 'HANDOVER_KEYS':
+    case 'KEYS_READY':
       return KeyRound
     case 'MARK_LEASE_SIGNED':
+    case 'GENERATE_LEASE':
+    case 'SEND_LEASE':
+    case 'TENANT_SIGNED':
+    case 'LANDLORD_SIGNED':
+    case 'SIGN_SALE_AGREEMENT':
       return FileSignature
     case 'START_CREDIT_CHECK':
+    case 'START_FICA':
+    case 'VERIFY_EMPLOYMENT':
+    case 'VERIFY_INCOME':
       return ShieldCheck
     case 'UPLOAD_DOCS':
       return Upload
     case 'OPEN_CHECKOUT':
+    case 'ISSUE_DEPOSIT_INVOICE':
+    case 'CONFIRM_DEPOSIT':
       return Wallet
     case 'DECLINE_INCOME':
     case 'REJECT_APPLICATION':
+    case 'DECLINE_CREDIT':
+    case 'WITHDRAW':
       return Ban
     case 'APPROVE_CREDIT':
+    case 'CONDITIONALLY_APPROVE':
+    case 'ACTIVATE_TENANCY':
       return CheckCircle2
     default:
       return CircleDollarSign
@@ -160,28 +265,20 @@ function actionVisual(action: HateoasAction): ActionVisual {
 }
 
 function actionHint(action: HateoasAction): string {
-  switch (action.key) {
-    case 'UPLOAD_DOCS':
-      return 'Attach ID, proof of income, and supporting files'
-    case 'START_CREDIT_CHECK':
-      return 'Run screening before approve or decline'
-    case 'APPROVE_CREDIT':
-      return 'Advance to deposit / payment request'
-    case 'DECLINE_INCOME':
-      return 'Notify the applicant and close this path'
-    case 'MARK_LEASE_SIGNED':
-      return 'Record the signed lease on file'
-    case 'SCHEDULE_MOVE_IN':
-      return 'Set move-in date and key collection'
-    case 'COMPLETE_KEY_HANDOVER':
-      return 'Confirm keys collected — start tenancy'
-    case 'OPEN_CHECKOUT':
-      return 'Collect deposit to unlock the lease step'
-    case 'REJECT_APPLICATION':
-      return action.confirm ?? 'End this application'
-    default:
-      return 'Continue this application workflow'
+  const hints: Record<string, string> = {
+    UPLOAD_DOCS: 'All required files received — advance to screening',
+    START_FICA: 'Verify identity against FICA requirements',
+    START_CREDIT_CHECK: 'Run bureau check with POPIA consent',
+    VERIFY_DEPOSIT: 'Finance confirms cleared deposit funds',
+    VERIFY_RENT: 'Finance clears first month rental payment',
+    ISSUE_DEPOSIT_INVOICE: 'Create deposit invoice and reserve the unit',
+    OPEN_CHECKOUT: 'Collect deposit via PayFast / Peach',
+    SCHEDULE_MOVE_IN: 'Book ingoing condition inspection',
+    COMPLETE_KEY_HANDOVER: 'Confirm keys collected — activate tenancy',
+    REJECT_APPLICATION: 'Decline after manual review',
+    WITHDRAW: 'Applicant cancelled the application',
   }
+  return hints[action.key] ?? 'Continue this application workflow'
 }
 
 const TONE_SORT: Record<NonNullable<HateoasAction['tone']>, number> = {
@@ -197,7 +294,7 @@ function sortWorkflowActions(actions: HateoasAction[]): HateoasAction[] {
   )
 }
 
-/** Workflow + lifecycle only — personal details live on the Details tab. */
+/** Workflow + lifecycle — personal details live on the Details tab. */
 export function ApplicantApplicationPanel({
   application,
   property,
@@ -232,12 +329,13 @@ export function ApplicantApplicationPanel({
   onConfirmMoveIn: () => void
   onOpenMoveIn: () => void
 }) {
+  const { label: agentLabel } = useAgentDisplay()
+  const assignedAgent = agentLabel(application.agentId, agentName)
+  const workflowStatus = resolveWorkflowStatus(application)
+  const progress = workflowProgress(application.type, workflowStatus)
   const actions = sortWorkflowActions(
     buildApplicationActions({
-      applicationId: application.id,
-      stage: application.stage,
-      creditCheck: application.creditCheck,
-      creditConsent: application.creditConsent,
+      application,
       actor: actor as Parameters<typeof buildApplicationActions>[0]['actor'],
     }),
   )
@@ -248,22 +346,22 @@ export function ApplicantApplicationPanel({
         <div className="border-b border-primary-100 bg-primary-50/50 px-5 py-4">
           <h2 className="font-display text-lg font-semibold text-ink">Lifecycle</h2>
           <p className="mt-1 text-sm text-ink-500">
-            Where this application sits in the screening-to-move-in path
-            {property ? ` for ${property.title}` : ''}.
+            {application.type === 'Purchase'
+              ? 'South African purchase workflow — offer through transfer and registration'
+              : 'South African rental workflow — enquiry through tenancy and closure'}
+            {property ? ` · ${property.title}` : ''}.
           </p>
         </div>
 
         <div className="space-y-4 p-5">
-          <dl className="grid gap-4 sm:grid-cols-3">
-            <Meta label="Stage" value={application.stage} />
-            <Meta label="Agent" value={agentName ?? 'Unassigned'} />
-            <Meta label="Progress" value={`${application.progress}%`} tabular />
+          <dl className="grid gap-4 sm:grid-cols-4">
+            <Meta label="Stage" value={workflowStageLabel(application.type, workflowStatus)} />
+            <Meta label="Status code" value={workflowStatus} tabular />
+            {assignedAgent ? <Meta label="Agent" value={assignedAgent} /> : null}
+            <Meta label="Progress" value={`${progress}%`} tabular />
           </dl>
 
-          <ApplicationLifecycleRail
-            stages={[...APPLICATION_STAGES]}
-            current={application.stage}
-          />
+          <WorkflowLifecycleMap application={application} />
 
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone={statusTone(application.stage)}>{application.stage}</Badge>
@@ -283,11 +381,16 @@ export function ApplicantApplicationPanel({
         </div>
       </Card>
 
+      <BranchOutcomesPanel application={application} />
+
       {canReview && (
         <Card className="overflow-hidden border-primary-100 p-0">
           <div className="border-b border-primary-100 bg-primary-50/50 px-5 py-4">
             <h2 className="font-display text-lg font-semibold text-ink">Workflow actions</h2>
-            <p className="mt-1 text-sm text-ink-500">Advance or resolve this application.</p>
+            <p className="mt-1 text-sm text-ink-500">
+              Valid next steps from{' '}
+              <span className="font-medium text-ink">{workflowStageLabel(application.type, workflowStatus)}</span>.
+            </p>
           </div>
 
           <div className="space-y-2 p-4 sm:p-5">
@@ -297,7 +400,7 @@ export function ApplicantApplicationPanel({
               const hint = actionHint(action)
               return (
                 <button
-                  key={action.key}
+                  key={`${action.key}-${action.payload_hint?.workflowStatus ?? ''}`}
                   type="button"
                   className={cn(
                     'flex w-full min-h-12 cursor-pointer items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2',
@@ -347,7 +450,10 @@ export function ApplicantApplicationPanel({
               )
             })}
             {!actions.length && (
-              <p className="text-sm text-ink-500">No actions available at this stage.</p>
+              <p className="text-sm text-ink-500">
+                No actions available at this stage
+                {getStageDef(application.type, workflowStatus)?.terminal ? ' (file closed).' : '.'}
+              </p>
             )}
           </div>
 
@@ -366,7 +472,7 @@ export function ApplicantApplicationPanel({
                 placeholder="Key collection location"
               />
               <Button className="min-h-11 w-full" onClick={onConfirmMoveIn}>
-                Confirm move-in
+                Confirm move-in inspection
               </Button>
             </div>
           )}

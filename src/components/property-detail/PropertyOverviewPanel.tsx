@@ -3,13 +3,15 @@ import { Bath, BedDouble, Car, ChevronLeft, ChevronRight, MapPin } from 'lucide-
 import type { PropertyAsset, AppUser } from '../../types/domain'
 import { ImageDropzone } from '../ImageDropzone'
 import { PropertyFeaturePicker } from '../property-features/PropertyFeaturePicker'
+import { ExpandableDescription } from '../listing/ExpandableDescription'
+import { ListingDescriptionEditor } from '../listing/ListingDescriptionEditor'
 import { PropertyFeaturesDisplay } from '../property-features/PropertyFeaturesDisplay'
 import { PlacesAddressInput } from '../PlacesAddressInput'
-import { Badge, Button, Input, Modal, Select, Textarea, cn } from '../ui'
+import { Badge, Button, Input, Modal, Select, cn } from '../ui'
 import { formatZAR } from '../../data/seed'
+import { useAgentDisplay } from '../../hooks/useAgentDisplay'
 import { pruneAmenitiesForMode } from '../../lib/propertyFeatures'
 import { resolvePortfolioStatus } from '../../lib/propertyStatus'
-import { PropertyMap, PropertyMapPlaceholder } from '../PropertyMap'
 import { ICON_STROKE } from './types'
 
 const STATUSES: PropertyAsset['status'][] = [
@@ -52,6 +54,7 @@ export function PropertyOverviewPanel({
 }) {
   const [draft, setDraft] = useState(property)
   const [photoIndex, setPhotoIndex] = useState(0)
+  const { label: agentLabel } = useAgentDisplay()
   const resolved = resolvePortfolioStatus(property.status, occupancy)
   const photos = property.images.length ? property.images : []
   const current = photos[photoIndex] ?? null
@@ -180,7 +183,7 @@ export function PropertyOverviewPanel({
         <div className="flex min-w-0 flex-col gap-6">
           <section>
             <h2 className="font-semibold text-ink">About</h2>
-            <p className="mt-2 text-sm leading-relaxed text-ink-600">{property.description}</p>
+            <ExpandableDescription text={property.description} className="mt-2" />
             <div className="mt-4">
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-400">
                 Features
@@ -213,17 +216,27 @@ export function PropertyOverviewPanel({
                 <BedDouble className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
                 <span className="tabular">{property.beds}</span> beds ·{' '}
                 <Bath className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                <span className="tabular">{property.baths}</span> baths ·{' '}
+                <span className="tabular">{property.baths}</span> baths
+                {(property.garages ?? 0) > 0 ? (
+                  <>
+                    {' · '}
+                    <Car className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                    <span className="tabular">{property.garages}</span> garages
+                  </>
+                ) : null}
+                {' · '}
                 <Car className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                <span className="tabular">{property.parking}</span>
+                <span className="tabular">{property.parking}</span> parking
               </p>
               <p className="flex items-center gap-2">
                 <MapPin className="h-4 w-4 shrink-0" strokeWidth={ICON_STROKE} aria-hidden />
                 {property.formattedAddress ?? property.address}
               </p>
-              <p>
-                Agent: <strong>{agent?.name ?? '—'}</strong>
-              </p>
+              {agentLabel(property.agentId, agent?.name, '—') ? (
+                <p>
+                  Agent: <strong>{agentLabel(property.agentId, agent?.name, '—')}</strong>
+                </p>
+              ) : null}
               <p>
                 Landlord: <strong>{landlord?.name ?? '—'}</strong>
               </p>
@@ -231,21 +244,6 @@ export function PropertyOverviewPanel({
           </section>
         </div>
       </div>
-
-      <section>
-        <h2 className="mb-3 font-semibold text-ink">Location</h2>
-        <div className="h-56 overflow-hidden rounded-xl border border-primary-100 sm:h-72">
-          {Number.isFinite(property.lat) && Number.isFinite(property.lng) ? (
-            <PropertyMap
-              properties={[property]}
-              detailBase="/workspace/properties"
-              className="h-full rounded-none"
-            />
-          ) : (
-            <PropertyMapPlaceholder property={property} className="h-full border-0" />
-          )}
-        </div>
-      </section>
 
       <section className="grid grid-cols-3 gap-2 border-t border-primary-100 pt-6 text-center">
         <div>
@@ -302,14 +300,12 @@ export function PropertyOverviewPanel({
               onChange={(e) => setDraft({ ...draft, title: e.target.value })}
             />
           </label>
-          <label className="block text-xs font-medium text-ink-500 sm:col-span-2">
-            Description
-            <Textarea
-              className="mt-1 min-h-28"
+          <div className="sm:col-span-2">
+            <ListingDescriptionEditor
               value={draft.description}
-              onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+              onChange={(description) => setDraft({ ...draft, description })}
             />
-          </label>
+          </div>
           <label className="block text-xs font-medium text-ink-500">
             Address
             <PlacesAddressInput

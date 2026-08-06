@@ -229,6 +229,7 @@ export default function Properties() {
         propertyTypes={propertyTypes}
         propertyStatuses={propertyStatuses}
         listingModes={listingModes}
+        onClearFilters={filtersActive ? clearFilters : undefined}
       />
 
       {portfolio.length === 0 ? (

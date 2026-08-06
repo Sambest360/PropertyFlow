@@ -85,6 +85,7 @@ export function MiniCalendar({
   onClose,
   dayViewTo,
   className,
+  layout = 'auto',
 }: {
   selected: Date
   onSelect: (d: Date) => void
@@ -94,6 +95,8 @@ export function MiniCalendar({
   /** Link to full day view for the selected date */
   dayViewTo?: string
   className?: string
+  /** Panel dashboards stack months; auto uses side-by-side from lg up */
+  layout?: 'auto' | 'stack' | 'row'
 }) {
   const [cursor, setCursor] = useState(() => startOfMonth(selected))
   const markerMap = useMemo(() => {
@@ -113,6 +116,13 @@ export function MiniCalendar({
     () => Array.from({ length: months }, (_, i) => addMonths(cursor, i)),
     [cursor, months],
   )
+
+  const monthGridClass =
+    layout === 'stack'
+      ? 'grid-cols-1'
+      : layout === 'row'
+        ? 'grid-cols-2'
+        : cn(months === 2 && 'lg:grid-cols-2', 'grid-cols-1')
 
   return (
     <div
@@ -168,7 +178,7 @@ export function MiniCalendar({
         </div>
       </div>
 
-      <div className={cn('grid gap-6', months === 2 && 'sm:grid-cols-2')}>
+      <div className={cn('grid gap-6', monthGridClass)}>
         {monthList.map((month) => {
           const cells = monthCells(month)
           const label = new Intl.DateTimeFormat('en-ZA', { month: 'long', year: 'numeric' }).format(month)

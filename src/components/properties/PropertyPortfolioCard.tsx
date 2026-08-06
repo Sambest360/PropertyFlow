@@ -11,7 +11,10 @@ import {
   Wrench,
 } from 'lucide-react'
 import { Badge, Button, Card, cn } from '../ui'
+import { AgentAssigneeText } from '../detail/FlatFields'
 import { formatZAR } from '../../data/seed'
+import { appendAgentMetaRow } from '../../lib/agentDisplay'
+import { useAgentDisplay, useHideAgentColumn } from '../../hooks/useAgentDisplay'
 import { resolvePortfolioStatus } from '../../lib/propertyStatus'
 import { listingModeLabel, priceLabel, type PortfolioProperty } from './types'
 
@@ -40,14 +43,19 @@ function PropertyCardExpansion({
 }) {
   const p = item.property
   const detailId = `/workspace/properties/${p.id}`
+  const { viewerId } = useAgentDisplay()
 
-  const facts: Array<{ label: string; value: string }> = [
-    { label: 'Address', value: p.address },
-    { label: 'Type', value: p.type },
-    { label: 'Market', value: listingModeLabel(p.listingMode) },
-    { label: 'Size', value: p.area > 0 ? `${p.area} m²` : '—' },
-    { label: 'Agent', value: item.agentName ?? 'Unassigned' },
-  ]
+  const facts: Array<{ label: string; value: string }> = appendAgentMetaRow(
+    [
+      { label: 'Address', value: p.address },
+      { label: 'Type', value: p.type },
+      { label: 'Market', value: listingModeLabel(p.listingMode) },
+      { label: 'Size', value: p.area > 0 ? `${p.area} m²` : '—' },
+    ],
+    viewerId,
+    p.agentId,
+    item.agentName,
+  )
 
   return (
     <div className="space-y-3">
@@ -148,6 +156,7 @@ export function PropertyPortfolioCard({
 }) {
   const p = item.property
   const resolved = resolvePortfolioStatus(p.status, item.occupancy)
+  const hideAgent = useHideAgentColumn()
 
   return (
     <div
@@ -227,9 +236,13 @@ export function PropertyPortfolioCard({
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-primary-50 pt-3">
                   <AttentionBadges item={item} />
-                  <span className="text-xs font-medium text-ink-500">
-                    {item.agentName ?? 'Unassigned'}
-                  </span>
+                  {!hideAgent ? (
+                    <AgentAssigneeText
+                      agentId={p.agentId}
+                      agentName={item.agentName}
+                      className="text-xs font-medium text-ink-500"
+                    />
+                  ) : null}
                 </div>
               </>
             )}

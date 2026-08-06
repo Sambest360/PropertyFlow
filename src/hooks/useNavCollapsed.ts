@@ -6,10 +6,10 @@ export const NAV_COLLAPSE_EVENT = 'propertyflow-nav-collapse'
 function readCollapsed(): boolean {
   try {
     const stored = localStorage.getItem(NAV_COLLAPSE_KEY)
-    if (stored == null) return true
+    if (stored == null) return false
     return stored === '1'
   } catch {
-    return true
+    return false
   }
 }
 

@@ -9,6 +9,7 @@ import type { AssetCondition } from '../data/infrastructure'
 import type { MaintenanceTicket } from '../types/domain'
 import type { TicketCompletionFields } from '../lib/maintenanceApi'
 import { CompleteTicketModal } from '../components/maintenance/CompleteTicketModal'
+import { EditTicketModal } from '../components/maintenance/EditTicketModal'
 import { MaintenanceDetailHeader } from '../components/maintenance-detail/MaintenanceDetailHeader'
 import { MaintenanceOverviewPanel } from '../components/maintenance-detail/MaintenanceOverviewPanel'
 import {
@@ -18,7 +19,8 @@ import {
   type PortfolioTicket,
 } from '../components/maintenance/types'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
-import { isVerificationApproved } from '../lib/verification'
+import { listApprovedContractors } from '../lib/contractors'
+import { getLookups } from '../lib/lookups'
 
 export default function MaintenanceDetail() {
   const { id } = useParams()
@@ -27,11 +29,14 @@ export default function MaintenanceDetail() {
     patchMaintenanceTicket,
     updateTicket,
     addPropertyEvent,
+    assignContractorToTicket,
+    updateMaintenanceTicketDetails,
   } = useStore()
-  const { user, has, role } = useAuth()
-  const { ticketVisible, canMutate, agencyId } = usePropertyScope()
+  const { user, has, role, agencyId } = useAuth()
+  const { ticketVisible, canMutate } = usePropertyScope()
   const alert = useSuiteAlert()
   const [completeOpen, setCompleteOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
 
   const ticket = state.tickets.find((t) => t.id === id)
 
@@ -64,21 +69,25 @@ export default function MaintenanceDetail() {
   }, [item, ticketVisible])
 
   const contractors = useMemo(
-    () =>
-      state.users.filter(
-        (u) =>
-          u.role === 'contractor' &&
-          u.active &&
-          isVerificationApproved(u.verification, u.role) &&
-          (has('platform.manage') || u.agencyId === agencyId),
-      ),
-    [state.users, has, agencyId],
+    () => listApprovedContractors(state.agencyContractors, state.users, agencyId, item?.ticket.categoryKey),
+    [state.agencyContractors, state.users, agencyId, item?.ticket.categoryKey],
+  )
+
+  const categories = useMemo(
+    () => getLookups(state.lookups, agencyId, 'TICKET_CATEGORY'),
+    [state.lookups, agencyId],
   )
 
   if (!ticket || !item) return <Navigate to="/workspace/operations/maintenance" replace />
   if (!inScope) return <Navigate to="/workspace/operations/maintenance" replace />
 
-  const canManage = has('maintenance.manage')
+  const canManage = has('maintenance.manage') && (canMutate(ticket.propertyId) || role === 'contractor')
+  const canAssignContractor =
+    has('contractors.manage') || has('maintenance.manage') || role === 'contractor'
+  const canEdit =
+    canManage ||
+    (has('contractors.manage') && canMutate(ticket.propertyId)) ||
+    (role === 'tenant' && ticket.reportedByUserId === user.id)
 
   const changeStatus = (ticketId: string, next: MaintenanceTicket['status']) => {
     if (next === 'Completed') {
@@ -99,8 +108,38 @@ export default function MaintenanceDetail() {
     })
   }
 
+  const handleAssignContractor = (ticketId: string, contractorUserId: string | null) => {
+    if (contractorUserId) {
+      const ok = assignContractorToTicket({
+        ticketId,
+        contractorUserId,
+        actorUserId: user.id,
+      })
+      if (!ok) {
+        void alert.success({
+          title: 'Contractor not approved',
+          text: 'That vendor is not on the agency approved roster. Add them from the Contractors page first.',
+          tone: 'danger',
+        })
+        return false
+      }
+      void alert.success({
+        title: 'Contractor booked',
+        text: 'The contractor was notified about this job.',
+      })
+      return true
+    }
+    updateTicket(ticketId, { contractorId: null, contractorAssignedAt: null })
+    return true
+  }
+
   const submitCompletion = (fields: TicketCompletionFields): string | null => {
     const prev = item.ticket
+    const mergedPhotos = fields.completionPhotoUrls?.length
+      ? [...(prev.photoUrls ?? []), ...fields.completionPhotoUrls]
+      : prev.photoUrls
+    const photoCount = fields.completionPhotoUrls?.length ?? fields.photos
+
     const result = patchMaintenanceTicket({
       actorUserId: user.id,
       ticketId: prev.id,
@@ -109,11 +148,19 @@ export default function MaintenanceDetail() {
         actual_cost: fields.cost,
         resolution_notes: fields.workNotes.trim(),
         contractor_id: fields.contractorId,
-        photos: fields.photos,
+        photos: photoCount,
         internal_asset_condition: fields.condition,
       },
     })
     if (result.status === 'ERROR') return result.error
+
+    if (mergedPhotos && mergedPhotos.length !== (prev.photoUrls?.length ?? 0)) {
+      updateMaintenanceTicketDetails(prev.id, {
+        photoUrls: mergedPhotos,
+        photos: mergedPhotos.length,
+      })
+    }
+
     addPropertyEvent({
       agencyId: prev.agencyId,
       propertyId: prev.propertyId,
@@ -139,18 +186,33 @@ export default function MaintenanceDetail() {
         <MaintenanceDetailHeader
           item={item}
           canManage={canManage}
+          canEdit={canEdit}
           onComplete={() => setCompleteOpen(true)}
+          onEdit={() => setEditOpen(true)}
         />
 
         <MaintenanceOverviewPanel
           item={item}
           canManage={canManage}
-          contractors={contractors}
+          canAssignContractor={canAssignContractor && canMutate(ticket.propertyId)}
+          agencyId={agencyId}
           onUpdateStatus={changeStatus}
-          onAssignContractor={(ticketId, contractorId) =>
-            updateTicket(ticketId, { contractorId })
-          }
+          onAssignContractor={handleAssignContractor}
           onRequestComplete={() => setCompleteOpen(true)}
+          onEdit={canEdit ? () => setEditOpen(true) : undefined}
+        />
+
+        <EditTicketModal
+          open={editOpen}
+          ticket={item.ticket}
+          agencyId={agencyId}
+          assets={state.internalAssets}
+          categories={categories}
+          onClose={() => setEditOpen(false)}
+          onSave={(patch) => updateMaintenanceTicketDetails(item.ticket.id, patch)}
+          onAssignContractor={(contractorUserId) =>
+            handleAssignContractor(item.ticket.id, contractorUserId)
+          }
         />
 
         <CompleteTicketModal
@@ -158,6 +220,7 @@ export default function MaintenanceDetail() {
           ticket={item.ticket}
           propertyTitle={item.property.title}
           contractors={contractors}
+          agencyId={agencyId}
           defaultCondition={
             (item.assetHealth.condition as AssetCondition | null | undefined) ?? 'Good'
           }

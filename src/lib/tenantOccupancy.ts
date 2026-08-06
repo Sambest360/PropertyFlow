@@ -1,7 +1,7 @@
-import type { Application, ApplicationStage, Tenancy } from '../types/domain'
+import type { Application, Tenancy } from '../types/domain'
 
 /** Application stages that unlock tenancy ops (payments, maintenance). */
-export const TENANT_OCCUPANCY_STAGES: ReadonlySet<ApplicationStage> = new Set([
+export const TENANT_OCCUPANCY_STAGES: ReadonlySet<string> = new Set([
   'Approved',
   'Awaiting Payment',
   'Deposit Paid',

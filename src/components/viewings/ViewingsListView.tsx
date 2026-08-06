@@ -11,11 +11,15 @@ import {
 } from 'lucide-react'
 import type { Viewing } from '../../types/domain'
 import { Badge, Button, Select, cn, statusTone } from '../ui'
+import { AgentAssigneeText } from '../detail/FlatFields'
+import { appendAgentMetaRow } from '../../lib/agentDisplay'
+import { useAgentDisplay, useHideAgentColumn } from '../../hooks/useAgentDisplay'
 import {
   VIEWING_BOOKING_STATUSES,
   viewingPrimaryLabel,
   viewingStatus,
   viewingWhenLabel,
+  viewingAgentId,
   type PortfolioViewing,
 } from './types'
 
@@ -75,31 +79,37 @@ export function ViewingExpansion({
   const p = item.property
   const detailId = `/workspace/properties/${p.id}?tab=viewings`
   const [walkIn, setWalkIn] = useState('Walk-in applicant')
+  const { viewerId } = useAgentDisplay()
+  const agentId = viewingAgentId(item)
 
-  const metaRows: Array<{ label: string; value: string }> = [
-    { label: 'Property', value: p.title },
-    { label: 'Address', value: `${p.address} · ${p.suburb}` },
-    { label: 'When', value: viewingWhenLabel(item) },
-    { label: 'Agent', value: item.agentName ?? 'Unassigned' },
-    ...(item.kind === 'booking'
-      ? [
-          { label: 'Applicant', value: item.viewing.applicantName },
-          { label: 'Email', value: item.viewing.applicantEmail ?? '—' },
-          { label: 'Attendance', value: item.viewing.attendance || '—' },
-          { label: 'Notes', value: item.viewing.notes?.trim() || item.viewing.feedback || '—' },
-        ]
-      : [
-          {
-            label: 'Capacity',
-            value: `${item.slot.booked} / ${item.slot.capacity} booked`,
-          },
-          {
-            label: 'Duration',
-            value: item.slot.durationMinutes ? `${item.slot.durationMinutes} min` : '—',
-          },
-          { label: 'Notes', value: item.slot.notes?.trim() || '—' },
-        ]),
-  ]
+  const metaRows: Array<{ label: string; value: string }> = appendAgentMetaRow(
+    [
+      { label: 'Property', value: p.title },
+      { label: 'Address', value: `${p.address} · ${p.suburb}` },
+      { label: 'When', value: viewingWhenLabel(item) },
+      ...(item.kind === 'booking'
+        ? [
+            { label: 'Applicant', value: item.viewing.applicantName },
+            { label: 'Email', value: item.viewing.applicantEmail ?? '—' },
+            { label: 'Attendance', value: item.viewing.attendance || '—' },
+            { label: 'Notes', value: item.viewing.notes?.trim() || item.viewing.feedback || '—' },
+          ]
+        : [
+            {
+              label: 'Capacity',
+              value: `${item.slot.booked} / ${item.slot.capacity} booked`,
+            },
+            {
+              label: 'Duration',
+              value: item.slot.durationMinutes ? `${item.slot.durationMinutes} min` : '—',
+            },
+            { label: 'Notes', value: item.slot.notes?.trim() || '—' },
+          ]),
+    ],
+    viewerId,
+    agentId,
+    item.agentName,
+  )
 
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
@@ -236,6 +246,8 @@ export function ViewingsListView({
   onBookSlot?: (slotId: string, applicantName: string) => void
   reducedMotion?: boolean
 }) {
+  const hideAgentColumn = useHideAgentColumn()
+  const colSpan = hideAgentColumn ? 5 : 6
   return (
     <>
       <div className="hidden overflow-hidden rounded-[1.25rem] border border-primary-100/80 bg-white shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)] md:block">
@@ -248,7 +260,7 @@ export function ViewingsListView({
                 <th className="px-3 py-3 font-semibold">When</th>
                 <th className="px-3 py-3 font-semibold">Who / slot</th>
                 <th className="px-3 py-3 font-semibold">Status</th>
-                <th className="px-4 py-3 font-semibold">Agent</th>
+                {!hideAgentColumn ? <th className="px-4 py-3 font-semibold">Agent</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -332,18 +344,23 @@ export function ViewingsListView({
                           <Badge tone={statusTone(viewingStatus(item))}>{viewingStatus(item)}</Badge>
                         </button>
                       </td>
-                      <td className="px-4 py-3">
-                        <button
-                          type="button"
-                          onClick={() => onToggle(item)}
-                          className="w-full cursor-pointer text-left font-medium text-ink-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                        >
-                          {item.agentName ?? 'Unassigned'}
-                        </button>
-                      </td>
+                      {!hideAgentColumn ? (
+                        <td className="px-4 py-3">
+                          <button
+                            type="button"
+                            onClick={() => onToggle(item)}
+                            className="w-full cursor-pointer text-left font-medium text-ink-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                          >
+                            <AgentAssigneeText
+                              agentId={viewingAgentId(item)}
+                              agentName={item.agentName}
+                            />
+                          </button>
+                        </td>
+                      ) : null}
                     </tr>
                     <tr className={cn(!expanded && 'border-b border-primary-50')}>
-                      <td colSpan={6} className="p-0">
+                      <td colSpan={colSpan} className="p-0">
                         <div
                           className={cn(
                             'grid transition-[grid-template-rows] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',

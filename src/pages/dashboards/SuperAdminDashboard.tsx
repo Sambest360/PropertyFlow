@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { Building2, CreditCard } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
+import { useAuth } from '../../context/AuthContext'
+import { useSeenOpsItems } from '../../hooks/useSeenOpsItems'
 import { Button, statusTone } from '../../components/ui'
 import {
   AttentionHero,
@@ -73,6 +75,8 @@ function superToListItem(item: SuperOpsItem): OpsListItemData {
 
 export function SuperAdminDashboard() {
   const { state, runClientBillingCycle, markInvoicePaid } = useStore()
+  const { user } = useAuth()
+  const { isSeen, markSeen } = useSeenOpsItems(user.id)
   const unpaid = state.invoices.filter((i) => i.paymentStatus === 'UNPAID')
   const emergencies = state.tickets.filter(
     (t) => t.priority === 'Emergency' && t.status === 'Requested',
@@ -82,7 +86,7 @@ export function SuperAdminDashboard() {
   const [query, setQuery] = useState('')
   const [listFilter, setListFilter] = useState<SuperFilter>('all')
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
-  const [selectedDay, setSelectedDay] = useState(() => new Date(2026, 6, 23))
+  const [selectedDay, setSelectedDay] = useState(() => new Date())
   const [calendarOpen, setCalendarOpen] = useState(true)
 
   const heroProperty = state.properties[0]
@@ -252,17 +256,14 @@ export function SuperAdminDashboard() {
   const availableFilters = SUPER_FILTERS.filter((f) => !f.tabs || f.tabs.includes(tab))
 
   const activeItem = useMemo(() => {
-    if (selectedKey) {
-      const parsed = parseListId(selectedKey)
-      if (parsed) {
-        const found = opsItems.find((i) => i.kind === parsed.kind && i.id === parsed.id)
-        if (found) return found
-      }
-    }
-    return opsItems[0] ?? null
+    if (!selectedKey) return null
+    const parsed = parseListId(selectedKey)
+    if (!parsed) return null
+    return opsItems.find((i) => i.kind === parsed.kind && i.id === parsed.id) ?? null
   }, [opsItems, selectedKey])
 
   const selectItem = (item: SuperOpsItem) => {
+    markSeen(listKey(item.kind, item.id))
     setSelectedKey(listKey(item.kind, item.id))
     setSelectedDay(parseDay(item.date, selectedDay))
     setCalendarOpen(true)
@@ -312,7 +313,14 @@ export function SuperAdminDashboard() {
       ? state.invoices.find((i) => i.id === focusEvent.id)
       : undefined
 
-  const listItems = opsItems.map(superToListItem)
+  const listItems = useMemo(
+    () =>
+      opsItems.map((item) => {
+        const id = listKey(item.kind, item.id)
+        return { ...superToListItem(item), unread: !isSeen(id) }
+      }),
+    [opsItems, isSeen],
+  )
 
   return (
     <DashboardPage>
@@ -419,9 +427,10 @@ export function SuperAdminDashboard() {
                   onSelect={setSelectedDay}
                   markers={calendarMarkers}
                   months={2}
+                  layout="stack"
                   onClose={() => setCalendarOpen(false)}
                   dayViewTo={`/workspace/platform/billing?date=${dayKey}`}
-                  className="h-full rounded-none border-0 shadow-none"
+                  className="rounded-none border-0 shadow-none"
                 />
               </DashboardCalendarShell>
             </CalendarToggle>

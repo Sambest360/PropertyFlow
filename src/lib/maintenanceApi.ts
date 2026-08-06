@@ -57,6 +57,7 @@ export type TicketCompletionFields = {
   workNotes: string
   contractorId: string
   photos: number
+  completionPhotoUrls?: string[]
   condition: AssetCondition
 }
 
@@ -75,8 +76,9 @@ export function validateTicketCompletion(
   if (!fields.contractorId) {
     return 'Assign the technician / contractor who completed the work.'
   }
-  if (!Number.isFinite(fields.photos) || fields.photos < 1) {
-    return 'Record at least 1 photo of the completed work.'
+  const photoCount = fields.completionPhotoUrls?.length ?? fields.photos
+  if (!Number.isFinite(photoCount) || photoCount < 1) {
+    return 'Upload at least 1 photo of the completed work.'
   }
   if (ticket.internalAssetId && !fields.condition) {
     return 'Update the asset condition after the work.'

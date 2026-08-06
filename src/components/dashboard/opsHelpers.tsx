@@ -30,7 +30,7 @@ export function parseListId(composite: string): { kind: string; id: string } | n
   }
 }
 
-export function parseDay(iso: string, fallback = new Date(2026, 6, 23)) {
+export function parseDay(iso: string, fallback = new Date()) {
   const [y, m, d] = iso.split('-').map(Number)
   if (!y || !m || !d) return fallback
   return new Date(y, m - 1, d)

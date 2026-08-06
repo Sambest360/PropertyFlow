@@ -1,10 +1,17 @@
 import { Link } from 'react-router-dom'
 import { ArrowRight, MapPin } from 'lucide-react'
 import { Badge, Button, cn, statusTone } from '../ui'
+import { AgentAssigneeText } from '../detail/FlatFields'
+import { appendAgentMetaRow } from '../../lib/agentDisplay'
+import { useAgentDisplay, useHideAgentColumn } from '../../hooks/useAgentDisplay'
 import { PersonAvatar } from '../directory/DirectoryToolbar'
 import type { PortfolioApplicant } from './types'
 
 const ICON_STROKE = 1.6
+
+function applicantDetailPath(id: string) {
+  return `/workspace/sales/applications/${encodeURIComponent(id)}`
+}
 
 export function ApplicantPortfolioCard({
   item,
@@ -14,7 +21,8 @@ export function ApplicantPortfolioCard({
   reducedMotion?: boolean
 }) {
   const a = item.application
-  const detailTo = `/workspace/sales/applications/${encodeURIComponent(a.id)}`
+  const detailTo = applicantDetailPath(a.id)
+  const hideAgent = useHideAgentColumn()
 
   return (
     <Link
@@ -42,10 +50,16 @@ export function ApplicantPortfolioCard({
               <div className="h-full rounded-full bg-primary" style={{ width: `${a.progress}%` }} />
             </div>
           </div>
-          <p className="mt-3 flex items-center gap-1 truncate text-xs text-ink-500">
-            <MapPin className="h-3 w-3 shrink-0" strokeWidth={ICON_STROKE} aria-hidden />
-            {item.agentName ?? 'Unassigned agent'}
-          </p>
+          {!hideAgent ? (
+            <p className="mt-3 flex items-center gap-1 truncate text-xs text-ink-500">
+              <MapPin className="h-3 w-3 shrink-0" strokeWidth={ICON_STROKE} aria-hidden />
+              <AgentAssigneeText
+                agentId={a.agentId}
+                agentName={item.agentName}
+                fallback="Unassigned agent"
+              />
+            </p>
+          ) : null}
           <span className="mt-3 inline-flex min-h-11 items-center gap-1.5 text-sm font-semibold text-primary">
             Open applicant
             <ArrowRight className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
@@ -64,18 +78,23 @@ export function ApplicantExpansion({
   reducedMotion?: boolean
 }) {
   const a = item.application
-  const detailTo = `/workspace/sales/applications/${encodeURIComponent(a.id)}`
+  const detailTo = applicantDetailPath(a.id)
+  const { viewerId } = useAgentDisplay()
 
-  const metaRows: Array<{ label: string; value: string }> = [
-    { label: 'Email', value: a.email },
-    { label: 'Phone', value: a.phone || '—' },
-    { label: 'Property', value: item.propertyTitle },
-    { label: 'Type', value: a.type },
-    { label: 'Stage', value: a.stage },
-    { label: 'Progress', value: `${a.progress}%` },
-    { label: 'Agent', value: item.agentName ?? 'Unassigned' },
-    { label: 'Updated', value: a.updatedAt },
-  ]
+  const metaRows: Array<{ label: string; value: string }> = appendAgentMetaRow(
+    [
+      { label: 'Email', value: a.email },
+      { label: 'Phone', value: a.phone || '—' },
+      { label: 'Property', value: item.propertyTitle },
+      { label: 'Type', value: a.type },
+      { label: 'Stage', value: a.stage },
+      { label: 'Progress', value: `${a.progress}%` },
+      { label: 'Updated', value: a.updatedAt },
+    ],
+    viewerId,
+    a.agentId,
+    item.agentName,
+  )
 
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">

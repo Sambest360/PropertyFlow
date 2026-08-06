@@ -3,20 +3,24 @@ import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { CalendarDays, Plus, Search } from 'lucide-react'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
-import { isFieldAgent } from '../lib/permissions'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
 import { RequirePermission } from '../components/RequirePermission'
-import { Button, Card, Input, PageHeader, Select, cn } from '../components/ui'
+import { Button, Card, Input, PageHeader, Select, cn, statusTone } from '../components/ui'
 import {
   CreateViewingModal,
   type CreateViewingPayload,
 } from '../components/viewings/CreateViewingModal'
 import { ViewingsAgenda } from '../components/viewings/ViewingsAgenda'
 import { ViewingsDayStrip, todayIso } from '../components/viewings/ViewingsDayStrip'
+import { MiniCalendar, dateKey } from '../components/admin/MiniCalendar'
+import { toMarkerTone } from '../components/dashboard/opsHelpers'
+import { buildCalendarMarkers, countsByDateFromEvents, mergeCalendarEvents, type CalendarEvent } from '../lib/calendarEvents'
 import {
   resolveAgentName,
   viewingStatus,
   viewingWhenLabel,
+  viewingPrimaryLabel,
+  agendaPortfolioItems,
   type PortfolioViewing,
   type ViewingKindFilter,
   type ViewingStatusFilter,
@@ -27,7 +31,7 @@ const ICON_STROKE = 1.6
 
 export default function Viewings() {
   const { state, createViewingSlot, bookViewingSlot, createViewing } = useStore()
-  const { user, agencyId, has, role } = useAuth()
+  const { agencyId, has } = useAuth()
   const { dealVisible, allowedPropertyIds, canMutate } = usePropertyScope()
   const reducedMotion = usePrefersReducedMotion()
   const navigate = useNavigate()
@@ -66,17 +70,28 @@ export default function Viewings() {
   }
 
   const deskRedirect = useMemo(() => {
+    const slotParam = searchParams.get('slot')
+    const bookingParam = searchParams.get('booking')
+    const query = slotParam
+      ? `?slot=${encodeURIComponent(slotParam)}`
+      : bookingParam
+        ? `?booking=${encodeURIComponent(bookingParam)}`
+        : ''
+
     if (propertyParam) {
-      return `/workspace/sales/viewings/property/${encodeURIComponent(propertyParam)}`
+      return `/workspace/sales/viewings/property/${encodeURIComponent(propertyParam)}${query}`
     }
     if (viewingParam) {
       const booking = state.viewings.find((v) => v.id === viewingParam)
       if (booking?.propertyId) {
-        return `/workspace/sales/viewings/property/${encodeURIComponent(booking.propertyId)}`
+        const focus = booking.slotId
+          ? `?slot=${encodeURIComponent(booking.slotId)}`
+          : `?booking=${encodeURIComponent(booking.id)}`
+        return `/workspace/sales/viewings/property/${encodeURIComponent(booking.propertyId)}${focus}`
       }
     }
     return null
-  }, [propertyParam, viewingParam, state.viewings])
+  }, [propertyParam, viewingParam, searchParams, state.viewings])
 
   const selectDate = (date: string) => {
     setSelectedDate(date)
@@ -144,18 +159,51 @@ export default function Viewings() {
     dealVisible,
   ])
 
-  const countsByDate = useMemo(() => {
-    const map: Record<string, number> = {}
-    for (const item of portfolio) {
-      const date = item.kind === 'booking' ? item.viewing.date : item.slot.date
-      map[date] = (map[date] ?? 0) + 1
-    }
-    return map
-  }, [portfolio])
+  const agendaItems = useMemo(() => agendaPortfolioItems(portfolio), [portfolio])
+
+  const calendarEvents: CalendarEvent[] = useMemo(
+    () =>
+      mergeCalendarEvents(
+        agendaItems.map((item) => {
+          const date = item.kind === 'booking' ? item.viewing.date : item.slot.date
+          const time = item.kind === 'booking' ? item.viewing.time : item.slot.time
+          const st = viewingStatus(item)
+          return {
+            kind: item.kind === 'booking' ? ('viewing' as const) : ('viewing_slot' as const),
+            id: item.kind === 'booking' ? item.viewing.id : item.slot.id,
+            title:
+              item.kind === 'booking'
+                ? `Viewing · ${time}`
+                : `Open slot · ${time}`,
+            meta: `${item.property.title} · ${viewingPrimaryLabel(item)}`,
+            status: st,
+            date,
+            propertyId: item.property.id,
+            time,
+          }
+        }),
+      ),
+    [agendaItems],
+  )
+
+  const calendarMarkers = useMemo(
+    () =>
+      buildCalendarMarkers(calendarEvents, (event) =>
+        toMarkerTone(statusTone(event.status as never)),
+      ),
+    [calendarEvents],
+  )
+
+  const countsByDate = useMemo(() => countsByDateFromEvents(calendarEvents), [calendarEvents])
+
+  const selectedDateObj = useMemo(() => {
+    const [y, m, d] = selectedDate.split('-').map(Number)
+    return new Date(y, (m ?? 1) - 1, d ?? 1)
+  }, [selectedDate])
 
   const dayItems = useMemo(() => {
     const needle = q.trim().toLowerCase()
-    return portfolio
+    return agendaItems
       .filter((item) => {
         const date = item.kind === 'booking' ? item.viewing.date : item.slot.date
         if (date !== selectedDate) return false
@@ -180,16 +228,16 @@ export default function Viewings() {
         return hay.includes(needle)
       })
       .sort((a, b) => viewingWhenLabel(a).localeCompare(viewingWhenLabel(b)))
-  }, [portfolio, selectedDate, q, kind, status])
+  }, [agendaItems, selectedDate, q, kind, status])
 
   const weekAhead = useMemo(() => {
     const props = new Set<string>()
-    for (const item of portfolio) {
+    for (const item of agendaItems) {
       const date = item.kind === 'booking' ? item.viewing.date : item.slot.date
       if (date >= selectedDate) props.add(item.property.id)
     }
     return props.size
-  }, [portfolio, selectedDate])
+  }, [agendaItems, selectedDate])
 
   const formattedDay = useMemo(() => {
     try {
@@ -288,12 +336,23 @@ export default function Viewings() {
           </div>
         </section>
 
-        <ViewingsDayStrip
-          selectedDate={selectedDate}
-          onSelectDate={selectDate}
-          countsByDate={countsByDate}
-          reducedMotion={reducedMotion}
-        />
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(280px,340px)]">
+          <ViewingsDayStrip
+            selectedDate={selectedDate}
+            onSelectDate={selectDate}
+            countsByDate={countsByDate}
+            reducedMotion={reducedMotion}
+          />
+          <MiniCalendar
+            selected={selectedDateObj}
+            onSelect={(d) => selectDate(dateKey(d))}
+            markers={calendarMarkers}
+            months={1}
+            layout="stack"
+            dayViewTo={`/workspace/sales/viewings?date=${selectedDate}`}
+            className="h-fit"
+          />
+        </div>
 
         <div className="flex flex-col gap-3 rounded-[1.25rem] border border-primary-100/80 bg-white p-3 shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)] sm:flex-row sm:items-center sm:p-4">
           <div className="relative min-w-0 flex-1" role="search" aria-label="Filter agenda">
@@ -386,7 +445,6 @@ export default function Viewings() {
           properties={properties}
           agents={agents}
           defaultDate={selectedDate}
-          defaultAgentId={isFieldAgent(role) ? user.id : undefined}
           onSubmit={handleCreate}
         />
       </div>

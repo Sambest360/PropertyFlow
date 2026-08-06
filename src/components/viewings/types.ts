@@ -69,3 +69,33 @@ export function resolveAgentName(
   if (!agentId) return null
   return users.find((u) => u.id === agentId)?.name ?? null
 }
+
+export function viewingAgentId(item: PortfolioViewing): string | null {
+  return item.kind === 'booking' ? item.viewing.agentId : item.slot.agentId
+}
+
+/** Bookings tied to a slot appear under that slot — not as separate agenda rows. */
+export function isStandaloneAgendaBooking(item: PortfolioViewing): boolean {
+  return item.kind === 'booking' && !item.viewing.slotId
+}
+
+export function agendaPortfolioItems(items: PortfolioViewing[]): PortfolioViewing[] {
+  return items.filter((item) => item.kind === 'slot' || isStandaloneAgendaBooking(item))
+}
+
+export function viewingDeskPath(item: PortfolioViewing): string {
+  const base = `/workspace/sales/viewings/property/${encodeURIComponent(item.property.id)}`
+  if (item.kind === 'slot') {
+    return `${base}?slot=${encodeURIComponent(item.slot.id)}`
+  }
+  if (item.viewing.slotId) {
+    return `${base}?slot=${encodeURIComponent(item.viewing.slotId)}`
+  }
+  return `${base}?booking=${encodeURIComponent(item.viewing.id)}`
+}
+
+export function viewingDeskLinkLabel(item: PortfolioViewing): string {
+  if (item.kind === 'slot') return 'Open slot'
+  if (item.viewing.slotId) return 'Open slot'
+  return 'View invite'
+}

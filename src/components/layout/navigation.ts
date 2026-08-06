@@ -119,6 +119,12 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
             icon: Wrench,
           },
           {
+            to: '/workspace/operations/contractors',
+            label: 'Contractors',
+            permission: 'contractors.view',
+            icon: HardHat,
+          },
+          {
             to: '/workspace/operations/payments',
             label: 'Payments',
             permission: 'payments.view',
@@ -153,10 +159,10 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
             icon: KeyRound,
           },
           {
-            to: '/workspace/admin/users',
-            label: 'Users',
-            permission: 'roles.assign',
-            icon: Users,
+            to: '/workspace/people/landlords',
+            label: 'Landlords',
+            anyOf: ['users.manage', 'assets.manage'],
+            icon: KeyRound,
           },
         ],
       },
@@ -229,18 +235,6 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
             anyOf: ['notifications.broadcast', 'platform.manage'],
             icon: Bell,
           },
-          {
-            to: '/workspace/admin/suite-alerts',
-            label: 'Suite alerts',
-            anyOf: [
-              'users.manage',
-              'roles.assign',
-              'tenant.manage',
-              'config.manage',
-              'platform.manage',
-            ],
-            icon: Bell,
-          },
         ],
       },
     },
@@ -256,8 +250,43 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
   ]
 }
 
-/** Groups that stay as menus even with a single visible child. */
+/** When visible links ≤ this count, show a flat sidebar (no collapsible groups). */
+export const NAV_SMART_FLATTEN_MAX = 10
+
+/** Groups that stay as menus when the nav is large enough to warrant grouping. */
 const KEEP_GROUPED = new Set(['admin', 'portals', 'sales', 'operations', 'people'])
+
+export function flattenAllNavGroups(entries: WorkspaceNavEntry[]): WorkspaceNavEntry[] {
+  return entries.flatMap((entry) => {
+    if (entry.type === 'link') return [entry]
+    return entry.group.children.map((child) => ({
+      type: 'link' as const,
+      item: child,
+    }))
+  })
+}
+
+export function findActiveNavGroupId(
+  entries: WorkspaceNavEntry[],
+  pathname: string,
+): string | null {
+  for (const entry of entries) {
+    if (entry.type !== 'group') continue
+    if (entry.group.children.some((c) => pathMatches(pathname, c.to, c.end))) {
+      return entry.group.id
+    }
+  }
+  return null
+}
+
+export function findActiveNavLink(
+  entries: WorkspaceNavEntry[],
+  pathname: string,
+): FlatNavItem | null {
+  return (
+    flattenNavLinks(entries).find((item) => pathMatches(pathname, item.to, item.end)) ?? null
+  )
+}
 
 export function filterWorkspaceNav(
   entries: WorkspaceNavEntry[],
@@ -281,6 +310,10 @@ export function filterWorkspaceNav(
       continue
     }
     result.push({ type: 'group', group: { ...entry.group, children } })
+  }
+
+  if (flattenNavLinks(result).length <= NAV_SMART_FLATTEN_MAX) {
+    return flattenAllNavGroups(result)
   }
   return result
 }

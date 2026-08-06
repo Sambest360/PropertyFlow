@@ -118,7 +118,7 @@ export function AdminVerificationLink({ count }: { count: number }) {
   if (count <= 0) return null
   return (
     <Link
-      to="/workspace/admin/users?status=pending_verification"
+      to="/workspace/people/staff?scope=all&status=pending_verification"
       className="inline-flex min-h-11 cursor-pointer items-center rounded-2xl border border-amber-200 bg-amber-50 px-3.5 text-sm font-semibold text-amber-950 transition-colors duration-200 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
     >
       {count} pending verification{count === 1 ? '' : 's'}

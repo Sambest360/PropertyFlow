@@ -17,6 +17,8 @@ export const APPLICANT_DETAIL_TABS: ApplicantDetailTab[] = [
   'history',
 ]
 
+export const DEFAULT_APPLICANT_DETAIL_TAB: ApplicantDetailTab = 'application'
+
 export function isApplicantDetailTab(v: string | null): v is ApplicantDetailTab {
   return Boolean(v && (APPLICANT_DETAIL_TABS as string[]).includes(v))
 }

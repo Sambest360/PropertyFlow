@@ -2,6 +2,8 @@ import type { LucideIcon } from 'lucide-react'
 import {
   Building2,
   Briefcase,
+  CreditCard,
+  HardHat,
   LayoutDashboard,
   Menu,
   Wrench,
@@ -18,6 +20,8 @@ export type BottomNavTab = {
   action?: 'more'
   isActive: (pathname: string) => boolean
 }
+
+export const BOTTOM_NAV_MAX = 5
 
 export function resolveWorkspaceBottomNavTabs(input: {
   has: (p: Permission) => boolean
@@ -48,43 +52,83 @@ export function resolveWorkspaceBottomNavTabs(input: {
     })
   }
 
-  let salesTo: string | null = null
-  if (has('applications.view')) salesTo = '/workspace/sales/applications'
-  else if (hasAny(['leads.view', 'leads.manage'])) salesTo = '/workspace/sales/crm'
-  else if (has('viewings.manage')) salesTo = '/workspace/sales/viewings'
-
-  if (salesTo) {
+  if (has('applications.view')) {
     tabs.push({
-      id: 'sales',
-      label: 'Sales',
+      id: 'applications',
+      label: 'Applicants',
       icon: Briefcase,
-      to: salesTo,
-      isActive: (p) => pathMatches(p, '/workspace/sales'),
+      to: '/workspace/sales/applications',
+      isActive: (p) => pathMatches(p, '/workspace/sales/applications'),
     })
-  }
-
-  let opsTo: string | null = null
-  if (has('maintenance.view')) opsTo = '/workspace/operations/maintenance'
-  else if (has('messages.manage')) opsTo = '/workspace/people/communications'
-  else if (has('payments.view')) opsTo = '/workspace/operations/payments'
-
-  if (opsTo) {
+  } else if (hasAny(['leads.view', 'leads.manage'])) {
     tabs.push({
-      id: 'operations',
-      label: 'Ops',
-      icon: Wrench,
-      to: opsTo,
-      isActive: (p) => pathMatches(p, '/workspace/operations') || pathMatches(p, '/workspace/people/communications'),
+      id: 'leads',
+      label: 'Leads',
+      icon: Briefcase,
+      to: '/workspace/sales/crm',
+      isActive: (p) => pathMatches(p, '/workspace/sales/crm'),
+    })
+  } else if (has('viewings.manage')) {
+    tabs.push({
+      id: 'viewings',
+      label: 'Viewings',
+      icon: Briefcase,
+      to: '/workspace/sales/viewings',
+      isActive: (p) => pathMatches(p, '/workspace/sales/viewings'),
     })
   }
 
-  tabs.push({
+  if (has('maintenance.view')) {
+    tabs.push({
+      id: 'maintenance',
+      label: 'Maintenance',
+      icon: Wrench,
+      to: '/workspace/operations/maintenance',
+      isActive: (p) => pathMatches(p, '/workspace/operations/maintenance'),
+    })
+  }
+
+  if (has('payments.view')) {
+    tabs.push({
+      id: 'payments',
+      label: 'Payments',
+      icon: CreditCard,
+      to: '/workspace/operations/payments',
+      isActive: (p) => pathMatches(p, '/workspace/operations/payments'),
+    })
+  }
+
+  if (has('contractors.view')) {
+    tabs.push({
+      id: 'contractors',
+      label: 'Contractors',
+      icon: HardHat,
+      to: '/workspace/operations/contractors',
+      isActive: (p) => pathMatches(p, '/workspace/operations/contractors'),
+    })
+  }
+
+  if (has('messages.manage')) {
+    tabs.push({
+      id: 'messages',
+      label: 'Messages',
+      icon: Briefcase,
+      to: '/workspace/operations/communications',
+      isActive: (p) => pathMatches(p, '/workspace/operations/communications'),
+    })
+  }
+
+  if (tabs.length <= BOTTOM_NAV_MAX) {
+    return tabs
+  }
+
+  const primary = tabs.slice(0, BOTTOM_NAV_MAX - 1)
+  primary.push({
     id: 'more',
     label: 'More',
     icon: Menu,
     action: 'more',
     isActive: () => false,
   })
-
-  return tabs.slice(0, 5)
+  return primary
 }

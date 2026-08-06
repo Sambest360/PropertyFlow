@@ -14,6 +14,8 @@ export type OpsListItemData = {
   badgeTone?: 'neutral' | 'success' | 'warning' | 'danger' | 'info' | 'brand' | 'accent'
   photos?: number
   people?: AvatarPerson[]
+  /** Shows the blue “new” rail until the user opens this item */
+  unread?: boolean
 }
 
 const DEFAULT_LIMIT = 5
@@ -38,7 +40,7 @@ export function OpsListItem({
           : 'border-primary-100/80 hover:border-primary-200 hover:shadow-sm',
       )}
     >
-      {active && (
+      {item.unread && (
         <span className="absolute inset-y-3 left-0 w-1 rounded-r-full bg-primary" aria-hidden />
       )}
       <div className="min-w-0 flex-1 pl-1">

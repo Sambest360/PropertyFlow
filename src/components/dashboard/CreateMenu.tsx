@@ -68,7 +68,7 @@ export function DashboardCalendarShell({
   children: ReactNode
 }) {
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-[1.25rem] border border-primary-100 bg-white shadow-[0_18px_40px_-24px_rgba(15,39,68,0.35)]">
+    <div className="shrink-0 overflow-visible rounded-[1.25rem] border border-primary-100 bg-white shadow-[0_18px_40px_-24px_rgba(15,39,68,0.35)]">
       {children}
     </div>
   )

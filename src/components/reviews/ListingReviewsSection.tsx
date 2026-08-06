@@ -6,6 +6,7 @@ import { useStore } from '../../context/AppStore'
 import type { Application, Review, ReviewTargetType } from '../../types/domain'
 import { StarRating, averageRating } from './StarRating'
 import { Link } from 'react-router-dom'
+import { useAgentDisplay } from '../../hooks/useAgentDisplay'
 
 function formatReviewDate(iso: string) {
   try {
@@ -38,6 +39,8 @@ export function ListingReviewsSection({
 }) {
   const { state, createReview } = useStore()
   const { user, isAuthenticated } = useAuth()
+  const { label: agentLabel } = useAgentDisplay()
+  const agentFeedback = agentLabel(agentId, agentName)
   const [rating, setRating] = useState(5)
   const [body, setBody] = useState('')
   const [targetType, setTargetType] = useState<ReviewTargetType>('property')
@@ -124,7 +127,7 @@ export function ListingReviewsSection({
           </h2>
           <p className="mt-1 text-sm text-ink-500">
             Property and application experiences for this home
-            {agentName ? ` · agent feedback for ${agentName}` : ''}.
+            {agentFeedback ? ` · agent feedback for ${agentFeedback}` : ''}.
           </p>
         </div>
         {avg != null ? (

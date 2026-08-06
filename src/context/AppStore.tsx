@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { summarizeRooms } from '../lib/roomSummary'
 import type {
   Agency,
   AppUser,
@@ -16,6 +17,7 @@ import type {
   ApplicationStage,
   Lead,
   MaintenanceTicket,
+  AgencyContractor,
   Message,
   MessageThread,
   AppNotification,
@@ -39,6 +41,7 @@ import type {
 import { isPubliclyListed } from '../lib/publicListings'
 import {
   uid,
+  seedAgencyContractors,
 } from '../data/seed'
 import type { AssetCondition, Building, InfraRoom, InternalAsset, LookupConfig, RoomKind, Unit, UnitTemplate } from '../data/infrastructure'
 import { UNIT_TEMPLATES } from '../data/infrastructure'
@@ -50,6 +53,17 @@ import {
   buildDocumentChecklist,
   STAGE_PROGRESS,
 } from '../lib/workflow'
+import {
+  applyWorkflowTransition,
+  getAvailableTransitions,
+  normalizeApplication,
+  resolveWorkflowStatus,
+  type WorkflowStatusKey,
+} from '../lib/applicationWorkflow'
+import {
+  isContractorApprovedForAgency,
+  syncTicketPhotoCount,
+} from '../lib/contractors'
 import {
   SEED_BILLING_PLANS,
   runBillingCycle,
@@ -111,6 +125,19 @@ import {
   queueUpsert,
 } from '../lib/api/persist'
 import { diffNewNotifications, toastsForNewNotifications } from '../lib/notificationSync'
+import {
+  collectViewingAttendeeUserIds,
+  describeViewingBookingChanges,
+  describeViewingSlotChanges,
+  slotPatchIsMaterial,
+  viewingNotificationLink,
+} from '../lib/viewingNotifications'
+import {
+  notifyMaintenanceOpened,
+  notifyMaintenanceStatusChanged,
+  notifyViewingScheduled,
+  notifyViewingStatusChanged,
+} from '../lib/eventNotifications'
 
 /**
  * App state persistence key.
@@ -118,7 +145,7 @@ import { diffNewNotifications, toastsForNewNotifications } from '../lib/notifica
  * When the local Postgres API is up, AppStore hydrates core entities from `/api/bootstrap`
  * and still mirrors into localStorage for offline edits.
  */
-const STORAGE_KEY = 'propertyflow-v17'
+const STORAGE_KEY = 'propertyflow-v18'
 const PG_HYDRATED_FLAG = 'propertyflow-pg-source'
 
 function actorFromUsers(
@@ -157,7 +184,7 @@ function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppSta
     buildings: pick(base.buildings, boot.buildings as Building[]),
     units: pick(base.units, boot.units as Unit[]),
     leads: pick(base.leads, boot.leads as Lead[]),
-    applications: pick(base.applications, boot.applications as Application[]),
+    applications: pick(base.applications, boot.applications as Application[]).map(normalizeApplication),
     tenancies: pick(base.tenancies, boot.tenancies as Tenancy[]),
     viewings: pick(base.viewings, boot.viewings as Viewing[]),
     payments: pick(base.payments, boot.payments as PaymentRecord[]),
@@ -166,6 +193,10 @@ function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppSta
       boot.propertyDocuments as PropertyDocument[],
     ),
     tickets: pick(base.tickets, boot.tickets as MaintenanceTicket[]),
+    agencyContractors: pick(
+      base.agencyContractors,
+      (boot.agencyContractors as AgencyContractor[] | undefined) ?? base.agencyContractors,
+    ),
     threads: pick(base.threads, boot.threads as MessageThread[]),
     messages: pick(base.messages, boot.messages as Message[]),
     notifications: pick(base.notifications, boot.notifications as AppNotification[]),
@@ -212,6 +243,7 @@ export type AppState = {
   clientSubscriptions: ClientSubscription[]
   invoices: PlatformInvoice[]
   vendorRoutes: VendorCategoryRoute[]
+  agencyContractors: AgencyContractor[]
 }
 
 type StoreContextValue = {
@@ -273,7 +305,7 @@ type StoreContextValue = {
       areaSqm?: number
       layout?: InfraRoom['layout']
     }>
-    property: Omit<PropertyAsset, 'id' | 'createdAt' | 'buildingId' | 'unitId' | 'rooms' | 'images' | 'beds' | 'baths'> & {
+    property: Omit<PropertyAsset, 'id' | 'createdAt' | 'buildingId' | 'unitId' | 'rooms' | 'images' | 'beds' | 'baths' | 'garages'> & {
       images?: string[]
       rooms?: Room[]
       unitNumber?: string
@@ -380,6 +412,12 @@ type StoreContextValue = {
   advanceApplication: (id: string, to?: ApplicationStage) => void
   approveApplication: (id: string) => PatchApplicationStatusResult
   /** Mirrors PATCH /api/v1/applications/{id}/status */
+  /** Advance via configurable rental / purchase workflow template */
+  advanceApplicationWorkflow: (params: {
+    applicationId: string
+    actorUserId: string
+    targetStatus: WorkflowStatusKey
+  }) => PatchApplicationStatusResult | { status: 'SUCCESS'; application: Application }
   patchApplicationStatus: (params: {
     applicationId: string
     actorUserId: string
@@ -403,6 +441,14 @@ type StoreContextValue = {
     propertyId?: string
   }) => CreateTicketResult
   updateTicket: (id: string, patch: Partial<MaintenanceTicket>) => void
+  assignContractorToTicket: (params: {
+    ticketId: string
+    contractorUserId: string | null
+    actorUserId: string
+  }) => boolean
+  updateMaintenanceTicketDetails: (id: string, patch: Partial<MaintenanceTicket>) => void
+  addAgencyContractor: (input: Omit<AgencyContractor, 'id'>) => AgencyContractor
+  updateAgencyContractor: (id: string, patch: Partial<AgencyContractor>) => void
   patchMaintenanceTicket: (params: {
     actorUserId: string
     ticketId: string
@@ -429,7 +475,6 @@ type StoreContextValue = {
   markNotificationRead: (id: string) => void
   markAllNotificationsRead: (userId: string) => void
   dismissToast: (id: string) => void
-  updateSuiteAlert: (id: string, patch: Partial<SuiteAlertRule>) => void
   addActivity: (text: string, user: string, agencyId: string | null) => void
   runClientBillingCycle: (clientId: string, periodStart?: string, periodEnd?: string) => PlatformInvoice | null
   markInvoicePaid: (invoiceId: string) => void
@@ -465,6 +510,7 @@ const defaultState = (): AppState => ({
   clientSubscriptions: [],
   invoices: [],
   vendorRoutes: SEED_VENDOR_ROUTES,
+  agencyContractors: seedAgencyContractors,
 })
 
 function loadState(): AppState {
@@ -485,6 +531,9 @@ function loadState(): AppState {
       clientSubscriptions: parsed.clientSubscriptions ?? base.clientSubscriptions,
       invoices: parsed.invoices ?? base.invoices,
       vendorRoutes: parsed.vendorRoutes?.length ? parsed.vendorRoutes : base.vendorRoutes,
+      agencyContractors: parsed.agencyContractors?.length
+        ? parsed.agencyContractors
+        : base.agencyContractors,
       propertyDocuments: parsed.propertyDocuments ?? base.propertyDocuments,
       propertyEvents: parsed.propertyEvents ?? base.propertyEvents,
       reviews: parsed.reviews ?? base.reviews,
@@ -1184,6 +1233,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
       const unitId = uid('unt')
       const clientId = building.clientId
+
+      const roomDrafts =
+        input.rooms.length > 0
+          ? input.rooms
+          : (template?.rooms ?? []).map((r) => ({ ...r }))
+
+      const roomTotals = summarizeRooms(
+        roomDrafts.map((r) => ({ kind: r.kind, beds: r.beds, baths: r.baths })),
+      )
+
       const unit: Unit = {
         id: unitId,
         clientId,
@@ -1192,8 +1251,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         unitNumber: input.unit.unitNumber,
         title: input.unit.title,
         squareMeters: input.unit.squareMeters ?? template?.squareMeters ?? 0,
-        bedrooms: input.unit.bedrooms ?? template?.bedrooms ?? 0,
-        bathrooms: input.unit.bathrooms ?? template?.bathrooms ?? 0,
+        bedrooms: input.unit.bedrooms ?? roomTotals.bedrooms,
+        bathrooms: input.unit.bathrooms ?? roomTotals.bathrooms,
         parking: input.unit.parking ?? template?.parking ?? 0,
         listingType: input.unit.listingType,
         price: input.unit.price,
@@ -1207,11 +1266,6 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         lng: building.lng,
         createdAt: new Date().toISOString().slice(0, 10),
       }
-
-      const roomDrafts =
-        input.rooms.length > 0
-          ? input.rooms
-          : (template?.rooms ?? []).map((r) => ({ ...r }))
 
       const infraRooms: InfraRoom[] = roomDrafts.map((r, i) => ({
         id: uid('rm'),
@@ -1232,8 +1286,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           } as InfraRoom['layout']),
       }))
 
-      const beds = infraRooms.reduce((n, r) => n + r.beds, 0)
-      const baths = infraRooms.reduce((n, r) => n + r.baths, 0)
+      const beds = roomTotals.bedrooms
+      const baths = roomTotals.bathrooms
       const propertyRooms: Room[] = infraRooms.map((r) => ({
         id: r.id,
         name: r.name,
@@ -1275,6 +1329,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         unitId,
         beds,
         baths,
+        garages: roomTotals.garages,
         createdAt: new Date().toISOString().slice(0, 10),
         images: input.property.images?.length ? input.property.images : [],
         rooms: input.property.rooms?.length ? input.property.rooms : propertyRooms,
@@ -1911,7 +1966,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         email: input.email,
         phone: input.phone,
         type: input.type,
-        stage: 'Documents Pending',
+        workflowStatus: 'documents_requested',
+        stage: 'Documents requested',
         progress: STAGE_PROGRESS['Documents Pending'],
         income: input.income ?? 0,
         employment: input.employment ?? 'To be completed',
@@ -2000,14 +2056,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             d.key === key ? { ...d, status, ...(note !== undefined ? { note } : {}) } : d,
           )
           const uploaded = allDocsUploaded(documents)
-          const stage: ApplicationStage =
-            uploaded && ['Started', 'Documents Pending'].includes(a.stage) ? 'Documents Submitted' : a.stage
+          let next = { ...a, documents }
+          if (uploaded && resolveWorkflowStatus(a) === 'documents_requested') {
+            next = applyWorkflowTransition({ ...next, documents }, 'documents_uploaded')
+          } else {
+            next = normalizeApplication({ ...next, documents })
+          }
           return {
-            ...a,
-            documents,
+            ...next,
             docs: documents.filter((d) => d.status !== 'required').map((d) => d.label),
-            stage,
-            progress: STAGE_PROGRESS[stage],
             creditConsent: key === 'credit_consent' && status !== 'required' ? true : a.creditConsent,
             creditCheck: key === 'credit_consent' && status !== 'required' ? 'Consent Received' : a.creditCheck,
             updatedAt: new Date().toISOString().slice(0, 10),
@@ -2185,6 +2242,125 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }
 
       return result
+    },
+    advanceApplicationWorkflow: ({ applicationId, actorUserId, targetStatus }) => {
+      const app = state.applications.find((a) => a.id === applicationId)
+      if (!app) {
+        return {
+          status: 'ERROR',
+          httpStatus: 404,
+          error: 'Application not found',
+          code: 'NOT_FOUND',
+        } as PatchApplicationStatusResult
+      }
+
+      const actorUser = state.users.find((u) => u.id === actorUserId)
+      const permissions = rolePermissions[actorUser?.role ?? 'client_admin'] ?? []
+      const transition = getAvailableTransitions(app, permissions).find((t) => t.to === targetStatus)
+      if (!transition) {
+        return {
+          status: 'ERROR',
+          httpStatus: 422,
+          error: `Cannot advance to ${targetStatus}`,
+          code: 'INVALID_TRANSITION',
+        } as PatchApplicationStatusResult
+      }
+
+      if (transition.effect === 'approve') {
+        let result: PatchApplicationStatusResult = {
+          status: 'ERROR',
+          httpStatus: 404,
+          error: 'Application not found',
+          code: 'NOT_FOUND',
+        } as PatchApplicationStatusResult
+
+        setState((s) => {
+          const current = s.applications.find((a) => a.id === applicationId)
+          const property = current ? s.properties.find((p) => p.id === current.propertyId) : undefined
+          const unitId = current?.unitId ?? property?.unitId ?? null
+          const unit = unitId ? s.units.find((u) => u.id === unitId) : undefined
+          const building = unit
+            ? s.buildings.find((b) => b.id === unit.buildingId)
+            : property?.buildingId
+              ? s.buildings.find((b) => b.id === property.buildingId)
+              : undefined
+
+          result = patchApplicationStatus({
+            application: current,
+            property,
+            unit,
+            building,
+            viewings: s.viewings,
+            slots: s.viewingSlots,
+            existingTenancies: s.tenancies,
+            request: { status: 'APPROVED', payment_provider: 'auto' },
+            actor: {
+              userId: actorUserId,
+              role: actorUser?.role ?? ('client_admin' as Role),
+              agencyId: actorUser?.agencyId ?? current?.agencyId ?? null,
+              permissions,
+            },
+          })
+
+          if (result.status === 'ERROR') return s
+
+          const normalized = normalizeApplication({
+            ...result.application,
+            workflowStatus: 'deposit_invoice_sent',
+          })
+
+          return {
+            ...s,
+            applications: s.applications.map((a) => (a.id === applicationId ? normalized : a)),
+            payments: result.side_effects.payments.length
+              ? [...result.side_effects.payments, ...s.payments]
+              : s.payments,
+            tenancies: result.side_effects.lease ? [result.side_effects.lease, ...s.tenancies] : s.tenancies,
+          }
+        })
+
+        if (result.status === 'SUCCESS') {
+          const normalized = normalizeApplication({
+            ...result.application,
+            workflowStatus: 'deposit_invoice_sent',
+          })
+          persistUpsert('application', applicationId, normalized as unknown as Record<string, unknown>)
+          return { ...result, application: normalized }
+        }
+        return result
+      }
+
+      if (transition.effect === 'key_handover') {
+        const stepped = normalizeApplication(applyWorkflowTransition(app, 'keys_handed_over'))
+        patch((s) => ({
+          ...s,
+          applications: s.applications.map((a) => (a.id === applicationId ? stepped : a)),
+        }))
+        const updatedApp = normalizeApplication({
+          ...stepped,
+          workflowStatus: 'active_tenancy',
+        })
+        patch((s) => ({
+          ...s,
+          applications: s.applications.map((a) => (a.id === applicationId ? updatedApp : a)),
+        }))
+        persistUpsert('application', applicationId, updatedApp as unknown as Record<string, unknown>)
+        addActivity(`Key handover completed for ${updatedApp.applicantName}`, actorUser?.name ?? 'Agency', updatedApp.agencyId)
+        return { status: 'SUCCESS', application: updatedApp }
+      }
+
+      const updated = normalizeApplication(applyWorkflowTransition(app, targetStatus))
+      patch((s) => ({
+        ...s,
+        applications: s.applications.map((a) => (a.id === applicationId ? updated : a)),
+      }))
+      persistUpsert('application', applicationId, updated as unknown as Record<string, unknown>)
+      addActivity(
+        `${updated.applicantName}: ${updated.stage}`,
+        actorUser?.name ?? 'Agency',
+        updated.agencyId,
+      )
+      return { status: 'SUCCESS', application: updated }
     },
     patchApplicationStatus: ({ applicationId, actorUserId, request }) => {
       let result: PatchApplicationStatusResult = {
@@ -2398,12 +2574,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               contactPhone: '',
             },
           }
-      const updatedApp: Application = {
+      const updatedApp: Application = normalizeApplication({
         ...app,
-        stage: 'Active Tenancy',
-        progress: 100,
-        updatedAt: new Date().toISOString().slice(0, 10),
-      }
+        workflowStatus: 'active_tenancy',
+      })
       const updatedProp =
         prop && app.type === 'Rental' ? { ...prop, status: 'Rented' as const } : null
 
@@ -2469,14 +2643,64 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     },
     updateViewingSlot: (id, p) => {
       const prev = state.viewingSlots.find((slot) => slot.id === id)
-      patch((s) => ({
-        ...s,
-        viewingSlots: s.viewingSlots.map((slot) => (slot.id === id ? { ...slot, ...p } : slot)),
-      }))
-      if (prev) {
-        persistUpsert('viewing_slot', id, { ...prev, ...p, id } as unknown as Record<string, unknown>)
+      if (!prev) return
+
+      const next: ViewingSlot = { ...prev, ...p }
+      const scheduleChanged =
+        (p.date !== undefined && p.date !== prev.date) ||
+        (p.time !== undefined && p.time !== prev.time)
+      const material = slotPatchIsMaterial(prev, p)
+      const property = state.properties.find((row) => row.id === prev.propertyId)
+      const linkedBefore = state.viewings.filter(
+        (v) => v.slotId === id && v.status !== 'Cancelled',
+      )
+      const syncedViewings: Viewing[] = []
+
+      patch((s) => {
+        const viewingSlots = s.viewingSlots.map((slot) => (slot.id === id ? next : slot))
+        let viewings = s.viewings
+        if (scheduleChanged) {
+          viewings = s.viewings.map((v) => {
+            if (v.slotId !== id || v.status === 'Cancelled') return v
+            const updated = { ...v, date: next.date, time: next.time }
+            syncedViewings.push(updated)
+            return updated
+          })
+        }
+        return { ...s, viewingSlots, viewings }
+      })
+
+      persistUpsert('viewing_slot', id, next as unknown as Record<string, unknown>)
+      for (const v of syncedViewings) {
+        persistUpsert('viewing', v.id, v as unknown as Record<string, unknown>)
       }
-      if (prev && p.status && p.status !== prev.status) {
+
+      if (material && linkedBefore.length > 0) {
+        const message = describeViewingSlotChanges(prev, p, property)
+        const recipientIds = collectViewingAttendeeUserIds(
+          state.users,
+          state.applications,
+          linkedBefore,
+        )
+        for (const userId of recipientIds) {
+          const sample = linkedBefore.find(
+            (v) =>
+              state.users.find((u) => u.id === userId)?.email.toLowerCase() ===
+                v.applicantEmail?.toLowerCase(),
+          ) ?? linkedBefore[0]
+          notify({
+            userId,
+            agencyId: prev.agencyId,
+            title: message.title,
+            body: message.body,
+            link: viewingNotificationLink(state.applications, sample),
+            resource: 'viewing_slot',
+            action: 'updated',
+          })
+        }
+      }
+
+      if (p.status && p.status !== prev.status) {
         emitSuiteEvent({
           agencyId: prev.agencyId,
           resource: 'viewing_slot',
@@ -2485,6 +2709,38 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           body: `${prev.title?.trim() || 'Viewing'} is now ${p.status}.`,
           link: `/workspace/sales/viewings/property/${prev.propertyId}`,
         })
+      } else if (material) {
+        emitSuiteEvent({
+          agencyId: prev.agencyId,
+          resource: 'viewing_slot',
+          action: 'updated',
+          title: 'Viewing slot updated',
+          body: `${prev.title?.trim() || 'Viewing'} · ${next.date} ${next.time}`,
+          link: `/workspace/sales/viewings/property/${prev.propertyId}`,
+        })
+      }
+
+      if (material) {
+        const changes: PropertyEvent['changes'] = []
+        if (p.date !== undefined && p.date !== prev.date) {
+          changes.push({ field: 'Date', from: prev.date, to: p.date })
+        }
+        if (p.time !== undefined && p.time !== prev.time) {
+          changes.push({ field: 'Time', from: prev.time, to: p.time })
+        }
+        if (p.title !== undefined && p.title !== prev.title) {
+          changes.push({ field: 'Title', from: prev.title ?? '—', to: p.title ?? '—' })
+        }
+        if (changes.length) {
+          addPropertyEvent({
+            agencyId: prev.agencyId,
+            propertyId: prev.propertyId,
+            actorUserId: prev.agentId,
+            actorName: actorNameFromState(state, prev.agentId, 'Agent'),
+            action: 'updated a Viewing slot',
+            changes,
+          })
+        }
       }
     },
     removeViewing: (id) => {
@@ -2719,6 +2975,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             } as unknown as Record<string, unknown>)
           }
         }
+        const property = state.properties.find((p) => p.id === created.propertyId)
+        emitSuiteEvent({
+          agencyId: created.agencyId,
+          resource: 'viewing',
+          action: 'created',
+          title: 'Viewing booked',
+          body: `${applicantName} booked ${property?.title ?? 'a viewing'} · ${created.date} ${created.time}`,
+          link: `/workspace/sales/viewings/property/${encodeURIComponent(created.propertyId)}?booking=${encodeURIComponent(created.id)}`,
+        })
+        notifyViewingScheduled(notify, state.users, state.applications, created, property)
       }
       return created
     },
@@ -2743,11 +3009,29 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ],
       })
       persistUpsert('viewing', viewing.id, viewing as unknown as Record<string, unknown>)
+      const property = state.properties.find((p) => p.id === viewing.propertyId)
+      emitSuiteEvent({
+        agencyId: viewing.agencyId,
+        resource: 'viewing',
+        action: 'created',
+        title: 'Viewing scheduled',
+        body: `${viewing.applicantName} · ${property?.title ?? viewing.propertyId} · ${viewing.date} ${viewing.time}`,
+        link: `/workspace/sales/viewings/property/${encodeURIComponent(viewing.propertyId)}?booking=${encodeURIComponent(viewing.id)}`,
+        actorUserId: viewing.agentId,
+      })
+      notifyViewingScheduled(notify, state.users, state.applications, viewing, property, {
+        excludeUserId: viewing.agentId,
+      })
       return viewing
     },
     updateViewing: (id, p) => {
       const prev = state.viewings.find((v) => v.id === id)
+      if (!prev) return
+
       let statusEvent: PropertyEvent | null = null
+      const property = state.properties.find((row) => row.id === prev.propertyId)
+      const bookingMessage = describeViewingBookingChanges(prev, p, property)
+
       patch((s) => {
         const row = s.viewings.find((v) => v.id === id)
         const viewings = s.viewings.map((v) => (v.id === id ? { ...v, ...p } : v))
@@ -2764,13 +3048,78 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         }
         return { ...s, viewings, propertyEvents: [statusEvent!, ...s.propertyEvents].slice(0, 400) }
       })
-      if (prev) persistUpsert('viewing', id, { ...prev, ...p, id } as Record<string, unknown>)
+
+      const next = { ...prev, ...p, id }
+      persistUpsert('viewing', id, next as Record<string, unknown>)
+
       if (statusEvent) {
         persistUpsert(
           'property_event',
           statusEvent.id,
           statusEvent as unknown as Record<string, unknown>,
         )
+      }
+
+      if (bookingMessage && prev.status !== 'Cancelled') {
+        const userId = collectViewingAttendeeUserIds(state.users, state.applications, [prev])[0]
+        if (userId) {
+          notify({
+            userId,
+            agencyId: prev.agencyId,
+            title: bookingMessage.title,
+            body: bookingMessage.body,
+            link: viewingNotificationLink(state.applications, prev),
+            resource: 'viewing',
+            action: 'updated',
+          })
+        }
+        emitSuiteEvent({
+          agencyId: prev.agencyId,
+          resource: 'viewing',
+          action: 'updated',
+          title: bookingMessage.title,
+          body: bookingMessage.body,
+          link: prev.propertyId
+            ? `/workspace/sales/viewings/property/${prev.propertyId}`
+            : '/workspace/sales/viewings',
+        })
+      }
+
+      if (
+        bookingMessage &&
+        ((p.date !== undefined && p.date !== prev.date) ||
+          (p.time !== undefined && p.time !== prev.time))
+      ) {
+        addPropertyEvent({
+          agencyId: prev.agencyId,
+          propertyId: prev.propertyId,
+          actorUserId: prev.agentId,
+          actorName: actorNameFromState(state, prev.agentId, 'Agent'),
+          action: 'rescheduled a Viewing',
+          changes: [
+            ...(p.date !== undefined && p.date !== prev.date
+              ? [{ field: 'Date', from: prev.date, to: p.date }]
+              : []),
+            ...(p.time !== undefined && p.time !== prev.time
+              ? [{ field: 'Time', from: prev.time, to: p.time }]
+              : []),
+          ],
+        })
+      }
+
+      const nextStatus = (p.status ?? prev.status) as Viewing['status']
+      if (p.status && p.status !== prev.status && !bookingMessage) {
+        notifyViewingStatusChanged(notify, state.users, state.applications, prev, nextStatus, property)
+        emitSuiteEvent({
+          agencyId: prev.agencyId,
+          resource: 'viewing',
+          action: 'updated',
+          title: `Viewing ${nextStatus.toLowerCase()}`,
+          body: `${prev.applicantName} · ${property?.title ?? prev.propertyId} · ${prev.date} ${prev.time}`,
+          link: prev.propertyId
+            ? `/workspace/sales/viewings/property/${prev.propertyId}?booking=${encodeURIComponent(prev.id)}`
+            : '/workspace/sales/viewings',
+        })
       }
     },
     createPayment: (input) => {
@@ -2801,6 +3150,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         body: `${payment.type} · ${payment.partyName} is due.`,
         link: `/workspace/properties/${payment.propertyId}?tab=payments`,
       })
+      if (payment.partyUserId) {
+        notify({
+          userId: payment.partyUserId,
+          agencyId: payment.agencyId,
+          title: 'Payment due',
+          body: `${payment.type} of ${payment.amount} is due for ${state.properties.find((p) => p.id === payment.propertyId)?.title ?? 'your property'}.`,
+          link: '/workspace/portals/tenant',
+          resource: 'payment',
+          action: 'created',
+        })
+      }
       persistUpsert('payment', payment.id, payment as unknown as Record<string, unknown>)
       return payment
     },
@@ -2874,6 +3234,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           body: `${before.type} · ${before.partyName} was marked paid.`,
           link: `/workspace/properties/${before.propertyId}?tab=payments`,
         })
+        if (before.partyUserId) {
+          notify({
+            userId: before.partyUserId,
+            agencyId: before.agencyId,
+            title: 'Payment received',
+            body: `Your ${before.type.toLowerCase()} payment was recorded as paid.`,
+            link: '/workspace/portals/tenant',
+            resource: 'payment',
+            action: 'updated',
+          })
+        }
         persistUpsert('payment', id, {
           ...before,
           status: 'Paid',
@@ -3141,6 +3512,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }
 
       persistUpsert('ticket', ticket.id, ticket as unknown as Record<string, unknown>)
+      notifyMaintenanceOpened(notify, state.users, ticket, prop, actor.id)
       return {
         status: 'TICKET_CREATED',
         ticket_id: ticket.id,
@@ -3167,10 +3539,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               condition: 'Good',
             },
           )
-          // Incomplete close attempts must use the completion form / patchMaintenanceTicket
           if (err) return s
         }
-        const merged = { ...ticket, ...p }
+        const merged = syncTicketPhotoCount({ ...ticket, ...p })
         let assets = s.internalAssets
         if (p.status === 'Completed' && ticket.internalAssetId && p.cost != null) {
           assets = s.internalAssets.map((a) =>
@@ -3187,7 +3558,100 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       })
       if (before) {
         persistUpsert('ticket', id, { ...before, ...p, id } as Record<string, unknown>)
+        const merged = syncTicketPhotoCount({ ...before, ...p })
+        if (p.status && p.status !== before.status) {
+          const property = state.properties.find((row) => row.id === before.propertyId)
+          notifyMaintenanceStatusChanged(notify, state.users, before, merged, property)
+          emitSuiteEvent({
+            agencyId: before.agencyId,
+            resource: 'maintenance',
+            action: 'updated',
+            title: 'Maintenance status changed',
+            body: `“${merged.title}” is now ${merged.status}.`,
+            link: `/workspace/operations/maintenance/${encodeURIComponent(id)}`,
+          })
+        }
       }
+    },
+    assignContractorToTicket: ({ ticketId, contractorUserId, actorUserId }) => {
+      const ticket = state.tickets.find((t) => t.id === ticketId)
+      const actor = state.users.find((u) => u.id === actorUserId)
+      if (!ticket || !actor) return false
+      if (
+        contractorUserId &&
+        !isContractorApprovedForAgency(state.agencyContractors, ticket.agencyId, contractorUserId)
+      ) {
+        return false
+      }
+      const contractor = contractorUserId
+        ? state.users.find((u) => u.id === contractorUserId)
+        : null
+      const now = new Date().toISOString()
+      const patchBody: Partial<MaintenanceTicket> = {
+        contractorId: contractorUserId,
+        contractorAssignedAt: contractorUserId ? now : null,
+        status:
+          contractorUserId && ticket.status === 'Requested' ? 'In Progress' : ticket.status,
+      }
+      patch((s) => ({
+        ...s,
+        tickets: s.tickets.map((t) =>
+          t.id === ticketId ? syncTicketPhotoCount({ ...t, ...patchBody }) : t,
+        ),
+      }))
+      persistUpsert('ticket', ticketId, {
+        ...ticket,
+        ...patchBody,
+      } as Record<string, unknown>)
+      if (contractorUserId && contractor) {
+        notify({
+          userId: contractorUserId,
+          agencyId: ticket.agencyId,
+          title: 'New maintenance job assigned',
+          body: `${ticket.title} · ${ticket.priority} priority — ${ticket.assetLabel}`,
+          link: `/workspace/operations/maintenance/${encodeURIComponent(ticketId)}`,
+          resource: 'maintenance',
+          action: 'updated',
+        })
+        addPropertyEvent({
+          agencyId: ticket.agencyId,
+          propertyId: ticket.propertyId,
+          actorUserId: actor.id,
+          actorName: actor.name,
+          action: 'assigned a contractor to maintenance',
+          changes: [
+            { field: 'Contractor', from: ticket.contractorId ?? '—', to: contractor.name },
+          ],
+        })
+        addActivity(
+          `Contractor ${contractor.name} linked to ${ticket.title}`,
+          actor.name,
+          ticket.agencyId,
+        )
+      }
+      return true
+    },
+    updateMaintenanceTicketDetails: (id, p) => {
+      const before = state.tickets.find((t) => t.id === id)
+      if (!before) return
+      const merged = syncTicketPhotoCount({ ...before, ...p })
+      patch((s) => ({
+        ...s,
+        tickets: s.tickets.map((t) => (t.id === id ? merged : t)),
+      }))
+      persistUpsert('ticket', id, merged as unknown as Record<string, unknown>)
+    },
+    addAgencyContractor: (input) => {
+      const row: AgencyContractor = { ...input, id: uid('AC') }
+      patch((s) => ({ ...s, agencyContractors: [row, ...s.agencyContractors] }))
+      addActivity(`Contractor added to roster`, actorNameFromState(state, input.addedByUserId, 'Agency'), input.agencyId)
+      return row
+    },
+    updateAgencyContractor: (id, p) => {
+      patch((s) => ({
+        ...s,
+        agencyContractors: s.agencyContractors.map((r) => (r.id === id ? { ...r, ...p } : r)),
+      }))
     },
     removeTicket: (id) => {
       const ticket = state.tickets.find((t) => t.id === id)
@@ -3411,20 +3875,6 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       void persistMarkNotificationsRead({ userId, all: true })
     },
     dismissToast,
-    updateSuiteAlert: (id, alertPatch) => {
-      const prev = state.suiteAlerts.find((r) => r.id === id)
-      patch((s) => ({
-        ...s,
-        suiteAlerts: s.suiteAlerts.map((r) => (r.id === id ? { ...r, ...alertPatch } : r)),
-      }))
-      if (prev) {
-        persistUpsert('suite_alert', id, {
-          ...prev,
-          ...alertPatch,
-          id,
-        } as unknown as Record<string, unknown>)
-      }
-    },
   }), [state, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, persistUpsert, persistDelete, refreshBootstrap])
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>

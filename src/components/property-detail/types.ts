@@ -1,5 +1,6 @@
 export const PROPERTY_DETAIL_TABS = [
   'overview',
+  'map',
   'floorplan',
   'inventory',
   'applicants',

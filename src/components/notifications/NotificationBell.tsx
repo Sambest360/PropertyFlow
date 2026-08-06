@@ -6,7 +6,6 @@ import {
   CircleAlert,
   CircleCheck,
   CircleDot,
-  Settings2,
   Trash2,
   X,
 } from 'lucide-react'
@@ -19,7 +18,7 @@ import { Button, cn } from '../ui'
 const ICON_STROKE = 1.6
 
 export function NotificationBell({ className }: { className?: string }) {
-  const { user, hasAny } = useAuth()
+  const { user } = useAuth()
   const { state, markNotificationRead, markAllNotificationsRead } = useStore()
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -33,7 +32,6 @@ export function NotificationBell({ className }: { className?: string }) {
     [state.notifications, user.id],
   )
   const unread = mine.filter((n) => !n.read).length
-  const canConfigure = hasAny(['users.manage', 'roles.assign', 'tenant.manage', 'platform.manage'])
 
   useEffect(() => {
     if (!open) return
@@ -92,20 +90,6 @@ export function NotificationBell({ className }: { className?: string }) {
                 >
                   <CheckCheck className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
                   <span className="sr-only sm:not-sr-only sm:ml-1">Mark all read</span>
-                </Button>
-              )}
-              {canConfigure && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="min-h-11 w-11 px-0"
-                  aria-label="Suite alert settings"
-                  onClick={() => {
-                    setOpen(false)
-                    navigate('/workspace/admin/suite-alerts')
-                  }}
-                >
-                  <Settings2 className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
                 </Button>
               )}
             </div>

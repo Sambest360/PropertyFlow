@@ -2,7 +2,8 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { CalendarDays, DoorOpen, Users } from 'lucide-react'
 import type { AppUser, PropertyAsset } from '../../types/domain'
 import { PropertySearchPicker } from '../PropertySearchPicker'
-import { Button, Input, Modal, Select, Textarea, cn } from '../ui'
+import { PropertyAgentField } from './PropertyAgentField'
+import { Button, Input, Modal, Textarea, cn } from '../ui'
 import { GuestListEditor, type ViewingGuest } from './GuestListEditor'
 
 const ICON_STROKE = 1.6
@@ -40,7 +41,6 @@ export function CreateViewingModal({
   agents,
   defaultPropertyId,
   defaultDate,
-  defaultAgentId,
   lockProperty,
   onSubmit,
 }: {
@@ -50,7 +50,6 @@ export function CreateViewingModal({
   agents: AppUser[]
   defaultPropertyId?: string | null
   defaultDate?: string | null
-  defaultAgentId?: string | null
   /** When true, property cannot be changed (property workspace). */
   lockProperty?: boolean
   onSubmit: (payload: CreateViewingPayload) => void
@@ -86,15 +85,16 @@ export function CreateViewingModal({
     setGuests([])
     setError(null)
     const prop = properties.find((p) => p.id === initialProp)
-    setAgentId(defaultAgentId || prop?.agentId || agents[0]?.id || '')
-  }, [open, defaultPropertyId, defaultDate, defaultAgentId, properties, agents])
+    setAgentId(prop?.agentId ?? '')
+  }, [open, defaultPropertyId, defaultDate, properties])
 
   useEffect(() => {
-    if (!selected) return
-    if (selected.agentId && agents.some((a) => a.id === selected.agentId)) {
+    if (selected?.agentId) {
       setAgentId(selected.agentId)
+    } else {
+      setAgentId('')
     }
-  }, [selected?.id, selected?.agentId, agents])
+  }, [selected?.id, selected?.agentId])
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
@@ -103,7 +103,11 @@ export function CreateViewingModal({
       return
     }
     if (!agentId) {
-      setError('Assign an agent for this viewing.')
+      setError(
+        selected?.agentId
+          ? 'Assign an agent for this viewing.'
+          : 'This property has no linked agent. Assign one on the property before scheduling.',
+      )
       return
     }
     if (!date || !time) {
@@ -233,22 +237,14 @@ export function CreateViewingModal({
               required
             />
           </label>
-          <label className="block text-xs font-medium text-ink-500 sm:col-span-2">
-            Agent <span className="text-accent">*</span>
-            <Select
-              className="mt-1 min-h-11 w-full"
-              value={agentId}
-              onChange={(e) => setAgentId(e.target.value)}
-              required
-            >
-              <option value="">Select agent</option>
-              {agents.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </Select>
-          </label>
+          <PropertyAgentField
+            propertyAgentId={selected?.agentId}
+            agents={agents}
+            value={agentId}
+            onChange={setAgentId}
+            required
+            className="sm:col-span-2"
+          />
         </div>
 
         {mode === 'slot' && (

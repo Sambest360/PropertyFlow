@@ -4,6 +4,7 @@ import type { AppUser, MaintenanceTicket } from '../../types/domain'
 import { Badge, Button, Card, Input, Modal, Select, Textarea, cn, priorityTone, statusTone } from '../ui'
 import { formatZAR } from '../../data/seed'
 import { useSuiteAlert } from '../alerts/SuiteAlert'
+import { useAgentDisplay } from '../../hooks/useAgentDisplay'
 import { CompleteTicketModal } from '../maintenance/CompleteTicketModal'
 import { ListPagination, paginate } from './ListPagination'
 import { ICON_STROKE } from './types'
@@ -75,6 +76,7 @@ export function PropertyMaintenancePanel({
   const [modalOpen, setModalOpen] = useState(false)
   const [completeId, setCompleteId] = useState<string | null>(null)
   const alert = useSuiteAlert()
+  const { label: agentLabel } = useAgentDisplay()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState<TicketDraft>({
     title: '',
@@ -177,6 +179,7 @@ export function PropertyMaintenancePanel({
           const open = expandedId === t.id
           const contractor = contractors.find((c) => c.id === t.contractorId)
           const agent = agents.find((a) => a.id === t.assignedAgentId)
+          const assignedAgent = agentLabel(t.assignedAgentId, agent?.name, '—')
           const canDelete = canManage && t.status === 'Requested'
           return (
             <li
@@ -215,10 +218,12 @@ export function PropertyMaintenancePanel({
                       <dt className="text-xs text-ink-400">Contractor</dt>
                       <dd className="font-medium">{contractor?.name ?? 'Unassigned'}</dd>
                     </div>
-                    <div>
-                      <dt className="text-xs text-ink-400">Assigned agent</dt>
-                      <dd className="font-medium">{agent?.name ?? '—'}</dd>
-                    </div>
+                    {assignedAgent ? (
+                      <div>
+                        <dt className="text-xs text-ink-400">Assigned agent</dt>
+                        <dd className="font-medium">{assignedAgent}</dd>
+                      </div>
+                    ) : null}
                     <div>
                       <dt className="text-xs text-ink-400">Cost</dt>
                       <dd className="font-medium tabular">{formatZAR(t.cost)}</dd>

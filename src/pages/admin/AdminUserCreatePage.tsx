@@ -84,6 +84,10 @@ function needsSetupStep(role: Role) {
   return role !== 'super_admin'
 }
 
+function fullDisplayName(first: string, last: string): string {
+  return `${first.trim()} ${last.trim()}`.trim()
+}
+
 export default function AdminUserCreatePage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -93,15 +97,22 @@ export default function AdminUserCreatePage() {
   const isPlatform = has('platform.manage')
   /** Agency admins can add team members only — not full Users/portal create. */
   const teamOnly = has('users.manage') && !has('roles.assign') && !isPlatform
-  const intentTeam = searchParams.get('intent') === 'team' || teamOnly
+  const intentLandlord = searchParams.get('intent') === 'landlord'
+  const intentTeam = (searchParams.get('intent') === 'team' || teamOnly) && !intentLandlord
   const returnTo =
     readReturnTo(searchParams) ??
-    (intentTeam ? '/workspace/people/staff' : '/workspace/admin/users')
+    (intentLandlord
+      ? '/workspace/people/landlords'
+      : intentTeam
+        ? '/workspace/people/staff'
+        : '/workspace/admin/users')
 
   const baseCreatable = isPlatform ? ALL_ROLES : AGENCY_ADMIN_CREATABLE
-  const creatableRoles = intentTeam
-    ? TEAM_ROLES.filter((r) => baseCreatable.includes(r) || (r === 'super_admin' && isPlatform))
-    : baseCreatable
+  const creatableRoles = intentLandlord
+    ? (['landlord'] as Role[]).filter((r) => baseCreatable.includes(r) || isPlatform)
+    : intentTeam
+      ? TEAM_ROLES.filter((r) => baseCreatable.includes(r) || (r === 'super_admin' && isPlatform))
+      : baseCreatable
 
   const queryAgencyId = searchParams.get('agencyId')
   const lockAgency = Boolean(queryAgencyId) || !isPlatform
@@ -126,7 +137,8 @@ export default function AdminUserCreatePage() {
     return 'personal'
   })
   const [furthestIndex, setFurthestIndex] = useState(0)
-  const [name, setName] = useState('')
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [streetAddress, setStreetAddress] = useState('')
@@ -137,8 +149,12 @@ export default function AdminUserCreatePage() {
   const [dobFromId, setDobFromId] = useState(false)
   const [company, setCompany] = useState('')
   const [complianceDocs, setComplianceDocs] = useState<Record<string, VerificationDocument | null>>({})
-  const [role, setRole] = useState<Role>(
-    creatableRoles.includes('ground_agent') ? 'ground_agent' : creatableRoles[0],
+  const [role, setRole] = useState<Role>(() =>
+    searchParams.get('intent') === 'landlord'
+      ? 'landlord'
+      : creatableRoles.includes('ground_agent')
+        ? 'ground_agent'
+        : creatableRoles[0] ?? 'landlord',
   )
   const [agencyId, setAgencyId] = useState(defaultAgencyId)
   const [mentorId, setMentorId] = useState('')
@@ -221,11 +237,17 @@ export default function AdminUserCreatePage() {
       label: 'Review',
       tip: 'Confirm details and send a simulated invitation email to their inbox.',
     }
-    const tail = needsSetupStep(role) ? [roleStep, setup, review] : [roleStep, review]
+    const tail = intentLandlord
+      ? needsSetupStep(role)
+        ? [setup, review]
+        : [review]
+      : needsSetupStep(role)
+        ? [roleStep, setup, review]
+        : [roleStep, review]
     return needsComplianceStep(role)
       ? [personal, contact, compliance, ...tail]
       : [personal, contact, ...tail]
-  }, [intentTeam, role])
+  }, [intentLandlord, intentTeam, role])
 
   const stepIndex = Math.max(
     0,
@@ -287,7 +309,8 @@ export default function AdminUserCreatePage() {
       sessionStorage.setItem(
         `${USER_DRAFT_KEY}:draft`,
         JSON.stringify({
-          name,
+          firstName,
+          lastName,
           email,
           phone,
           streetAddress,
@@ -304,7 +327,8 @@ export default function AdminUserCreatePage() {
       /* ignore */
     }
   }, [
-    name,
+    firstName,
+    lastName,
     email,
     phone,
     streetAddress,
@@ -389,7 +413,9 @@ export default function AdminUserCreatePage() {
         : undefined
 
     const created = createUser({
-      name: name.trim(),
+      name: fullDisplayName(firstName, lastName),
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
       email: email.trim(),
       phone: phone.trim() || undefined,
       idNumberOrPassport:
@@ -469,8 +495,12 @@ export default function AdminUserCreatePage() {
     e.preventDefault()
 
     if (stepId === 'personal') {
-      if (!name.trim()) {
-        setError('Full name is required.')
+      if (!firstName.trim()) {
+        setError('First name is required.')
+        return
+      }
+      if (!lastName.trim()) {
+        setError('Surname is required.')
         return
       }
       const idResult = parseIdentityDocument(idNumberOrPassport)
@@ -529,7 +559,7 @@ export default function AdminUserCreatePage() {
     finish()
   }
 
-  const pageTitle = intentTeam ? 'Add team member' : 'Add user'
+  const pageTitle = intentLandlord ? 'Add landlord' : intentTeam ? 'Add team member' : 'Add user'
   const pageSubtitle =
     stepId === 'personal'
       ? 'Who are you adding?'
@@ -573,7 +603,7 @@ export default function AdminUserCreatePage() {
           aside={roleAside}
           preview={
             <LiveUserPreview
-              name={name}
+              name={fullDisplayName(firstName, lastName)}
               email={email}
               phone={phone}
               role={role}
@@ -619,18 +649,29 @@ export default function AdminUserCreatePage() {
                   <p className="mt-1 text-sm text-ink-500">Legal identity — contact details come next.</p>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Full name" htmlFor="user-name">
+                  <Field label="First name" htmlFor="user-first-name">
                     <Input
-                      id="user-name"
+                      id="user-first-name"
                       className="min-h-11"
-                      placeholder="e.g. Thandi Nkosi"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
+                      placeholder="e.g. Thandi"
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
                       required
-                      autoComplete="name"
+                      autoComplete="given-name"
                     />
                   </Field>
-                  <Field label="ID or passport" htmlFor="user-id">
+                  <Field label="Surname" htmlFor="user-last-name">
+                    <Input
+                      id="user-last-name"
+                      className="min-h-11"
+                      placeholder="e.g. Nkosi"
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                      required
+                      autoComplete="family-name"
+                    />
+                  </Field>
+                  <Field label="ID or passport" htmlFor="user-id" className="sm:col-span-2">
                     <Input
                       id="user-id"
                       className="min-h-11"
@@ -1015,7 +1056,8 @@ export default function AdminUserCreatePage() {
                 </div>
 
                 <dl className="grid gap-4 sm:grid-cols-2">
-                  <ReviewItem label="Name" value={name.trim()} />
+                  <ReviewItem label="First name" value={firstName.trim()} />
+                  <ReviewItem label="Surname" value={lastName.trim()} />
                   <ReviewItem label="Email" value={email.trim()} />
                   <ReviewItem label="Phone" value={phone.trim() || '—'} />
                   <ReviewItem label="ID / passport" value={idNumberOrPassport.trim() || '—'} />

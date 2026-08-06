@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Bath, BedDouble, Car, Heart, MapPin, Share2, Star } from 'lucide-react'
+import { roomKindLabel } from '../../data/infrastructure'
 import { usePublicProperties, useStore } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
 import { Badge, Button, Input, cn } from '../../components/ui'
 import { PropertyFeaturesDisplay } from '../../components/property-features/PropertyFeaturesDisplay'
+import { ExpandableDescription } from '../../components/listing/ExpandableDescription'
 import { formatZAR } from '../../data/seed'
 import { PropertyCard } from '../../components/PropertyCard'
 import { PropertyMap } from '../../components/PropertyMap'
@@ -21,6 +23,7 @@ import { isPubliclyListed } from '../../lib/publicListings'
 import { submitListingEnquiry } from '../../lib/api/listingEnquiryApi'
 import { sweetError, sweetInfo, sweetSuccess, sweetWarning } from '../../lib/sweetAlert'
 import { usePageMeta } from '../../hooks/usePageMeta'
+import { useAgentDisplay } from '../../hooks/useAgentDisplay'
 import { StickyMobileActionBar } from '../../components/layout/mobile/StickyMobileActionBar'
 import { FullScreenSheet } from '../../components/layout/mobile/FullScreenSheet'
 
@@ -32,6 +35,7 @@ export default function ListingDetail() {
   const { state, createApplication, createLead, recordGuestEnquiry } = useStore()
   const publicProperties = usePublicProperties()
   const { user, isAuthenticated } = useAuth()
+  const { listedBy } = useAgentDisplay()
   const p = state.properties.find((x) => x.id === id)
   const { saved, toggle } = useWishlist(isAuthenticated ? user.id : 'guest')
   const wishlisted = p ? saved(p.id) : false
@@ -492,7 +496,10 @@ export default function ListingDetail() {
           <div>
             <div className="border-b border-primary-100 pb-6">
               <p className="text-lg font-semibold text-ink">
-                {p.type} · listed by {agent?.name ?? 'Agency agent'}
+                {(() => {
+                  const by = listedBy(p.agentId, agent?.name)
+                  return by ? `${p.type} · listed by ${by}` : p.type
+                })()}
               </p>
               <p className="text-sm text-ink-500">
                 {[p.beds > 0 && `${p.beds} bedrooms`, p.baths > 0 && `${p.baths} bathrooms`, `${p.parking} parking`, `${p.area} m²`, `${p.rooms.length} configured rooms`]
@@ -501,10 +508,13 @@ export default function ListingDetail() {
               </p>
             </div>
 
-            <div className="grid gap-4 border-b border-primary-100 py-6 sm:grid-cols-3">
+            <div className="grid gap-4 border-b border-primary-100 py-6 sm:grid-cols-2 lg:grid-cols-4">
               {[
                 { icon: BedDouble, label: 'Bedrooms', value: p.beds || '—' },
                 { icon: Bath, label: 'Bathrooms', value: p.baths || '—' },
+                ...(p.garages != null && p.garages > 0
+                  ? [{ icon: Car, label: 'Garages', value: p.garages }]
+                  : []),
                 { icon: Car, label: 'Parking', value: p.parking },
               ].map((s) => (
                 <div key={s.label} className="rounded-2xl bg-primary-50 p-4">
@@ -517,7 +527,7 @@ export default function ListingDetail() {
 
             <div className="border-b border-primary-100 py-6">
               <h2 className="text-lg font-semibold">About this property</h2>
-              <p className="mt-3 text-sm leading-relaxed text-ink-600">{p.description}</p>
+              <ExpandableDescription text={p.description} className="mt-3" />
             </div>
 
             {p.rooms.length > 0 && (
@@ -528,7 +538,12 @@ export default function ListingDetail() {
                     <li key={r.id} className="flex justify-between rounded-xl bg-primary-50 px-3 py-2 text-sm">
                       <span>{r.name}</span>
                       <span className="text-ink-500">
-                        {r.beds} bed · {r.baths} bath
+                        {r.kind === 'bedroom' && `${r.beds} bed${r.beds === 1 ? '' : 's'}`}
+                        {r.kind === 'bathroom' && `${r.baths} bath${r.baths === 1 ? '' : 's'}`}
+                        {r.kind === 'garage' && 'Garage'}
+                        {r.kind && !['bedroom', 'bathroom', 'garage'].includes(r.kind) &&
+                          roomKindLabel(r.kind as Parameters<typeof roomKindLabel>[0])}
+                        {!r.kind && (r.beds > 0 || r.baths > 0) && `${r.beds} bed · ${r.baths} bath`}
                       </span>
                     </li>
                   ))}

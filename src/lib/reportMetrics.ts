@@ -146,6 +146,81 @@ export function buildReportMetrics(
     a.dueDate.localeCompare(b.dueDate),
   )
 
+  const propertiesBySuburb = Object.entries(
+    properties.reduce<Record<string, number>>((acc, p) => {
+      const key = p.suburb?.trim() || 'Unknown'
+      acc[key] = (acc[key] ?? 0) + 1
+      return acc
+    }, {}),
+  )
+    .map(([suburb, count]) => ({ suburb, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6)
+
+  const collectionsBreakdown = [
+    { name: 'Collected', value: paidTotal, tone: 'primary' as const },
+    { name: 'Due', value: dueTotal, tone: 'warning' as const },
+    { name: 'Overdue', value: overdueTotal, tone: 'danger' as const },
+  ].filter((row) => row.value > 0)
+
+  const collectionsTotal = paidTotal + dueTotal + overdueTotal
+
+  const weekKey = (iso: string | undefined) => {
+    if (!iso) return 'unknown'
+    const d = new Date(iso)
+    if (Number.isNaN(d.getTime())) return iso.slice(0, 10)
+    const start = new Date(d)
+    start.setDate(d.getDate() - d.getDay())
+    return start.toISOString().slice(0, 10)
+  }
+  const openPipelineByWeek = (() => {
+    const open = leads.filter(
+      (l) => !['Lease Signed', 'Sale Completed', 'Rejected'].includes(l.stage),
+    )
+    const map = new Map<string, number>()
+    for (const l of open) {
+      const key = weekKey(l.createdAt)
+      map.set(key, (map.get(key) ?? 0) + 1)
+    }
+    return Array.from(map.entries())
+      .map(([week, count]) => ({ week, count }))
+      .sort((a, b) => a.week.localeCompare(b.week))
+      .slice(-4)
+  })()
+
+  const agentUtilization = (() => {
+    let busy = 0
+    let active = 0
+    let idle = 0
+    for (const row of agentRows) {
+      if (row.openLeads >= 3 || row.openTickets > 0) busy += 1
+      else if (row.openLeads > 0 || row.properties > 0 || row.viewings > 0) active += 1
+      else idle += 1
+    }
+    const total = Math.max(busy + active + idle, 1)
+    return {
+      busy,
+      active,
+      idle,
+      busyPct: Math.round((busy / total) * 100),
+      activePct: Math.round((active / total) * 100),
+      idlePct: Math.round((idle / total) * 100),
+    }
+  })()
+
+  const monthTrend = (() => {
+    if (revenueByMonth.length < 2) return { paid: 0, overdue: 0, collection: 0 }
+    const prev = revenueByMonth[revenueByMonth.length - 2]
+    const last = revenueByMonth[revenueByMonth.length - 1]
+    const pct = (cur: number, prevVal: number) =>
+      prevVal > 0 ? Math.round(((cur - prevVal) / prevVal) * 100) : cur > 0 ? 100 : 0
+    return {
+      paid: pct(last.paid, prev.paid),
+      overdue: pct(last.overdue, prev.overdue),
+      collection: collectionPct,
+    }
+  })()
+
   return {
     kpis: {
       properties: properties.length,
@@ -174,5 +249,11 @@ export function buildReportMetrics(
     revenueByMonth,
     agentRows,
     outstandingPayments: outstandingPayments.slice(0, 50),
+    propertiesBySuburb,
+    collectionsBreakdown,
+    collectionsTotal,
+    openPipelineByWeek,
+    agentUtilization,
+    monthTrend,
   }
 }

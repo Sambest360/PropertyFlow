@@ -29,6 +29,8 @@ export type Permission =
   | 'viewings.manage'
   | 'maintenance.view'
   | 'maintenance.manage'
+  | 'contractors.view'
+  | 'contractors.manage'
   | 'documents.view'
   | 'payments.view'
   | 'payments.manage'
@@ -87,6 +89,9 @@ export type Agency = {
 export type AppUser = {
   id: string
   name: string
+  /** When set, persisted as separate columns — `name` remains the display label. */
+  firstName?: string
+  lastName?: string
   email: string
   role: Role
   agencyId: string | null
@@ -169,6 +174,8 @@ export type PropertyAsset = {
   beds: number
   baths: number
   parking: number
+  /** Enclosed garage bays (from garage rooms) */
+  garages?: number
   area: number
   city: string
   suburb: string
@@ -231,7 +238,10 @@ export type Application = {
   email: string
   phone: string
   type: 'Purchase' | 'Rental'
-  stage: ApplicationStage
+  /** Machine-readable workflow position — see applicationWorkflow.ts */
+  workflowStatus?: string
+  /** Human-readable stage label (derived from workflow template) */
+  stage: string
   progress: number
   income: number
   employment: string
@@ -442,16 +452,45 @@ export type MaintenanceTicket = {
   contractorId: string | null
   assignedAgentId: string | null
   cost: number
+  /** Count of attached issue photos (kept in sync with photoUrls). */
   photos: number
   openedAt: string
   /** Precise open timestamp for SLA / emergency escalation */
   openedAtIso?: string
   description: string
+  /** Where on site — room, unit area, access point */
+  locationDetail?: string
+  /** Gate codes, pet on premises, best time to access */
+  accessNotes?: string
+  /** Tenant / owner preferred attendance window */
+  preferredSchedule?: string
+  /** Quick tags e.g. leak, no hot water, safety */
+  issueTags?: string[]
+  /** Issue photos as data URLs or hosted paths */
+  photoUrls?: string[]
   /** Work performed notes captured when closing the ticket */
   resolutionNotes?: string | null
   resolvedAt?: string | null
   warrantyCovered?: boolean
   escalatedAt?: string | null
+  contractorAssignedAt?: string | null
+  estimatedCost?: number | null
+}
+
+/** Agency-approved vendor linked to maintenance routing. */
+export type AgencyContractor = {
+  id: string
+  agencyId: string
+  contractorUserId: string
+  status: 'approved' | 'pending' | 'suspended'
+  /** Trade / category keys this vendor handles */
+  trades: string[]
+  notes?: string
+  addedAt: string
+  addedByUserId: string | null
+  /** Optional rating 1–5 from completed jobs */
+  rating?: number | null
+  jobsCompleted?: number
 }
 
 export type Activity = {

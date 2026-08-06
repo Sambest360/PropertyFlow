@@ -1,6 +1,8 @@
 import { Children, isValidElement, type ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '../ui'
+import { agentAssigneeLabel } from '../../lib/agentDisplay'
+import { useAgentDisplay } from '../../hooks/useAgentDisplay'
 
 const ICON_STROKE = 1.6
 
@@ -106,4 +108,42 @@ export function FlatFieldGrid({
       {children}
     </dl>
   )
+}
+
+/** Agent / assignee row — omitted when the signed-in user is that agent. */
+export function AgentAssigneeField({
+  agentId,
+  agentName,
+  label = 'Agent',
+  fallback = 'Unassigned',
+  tabular,
+}: {
+  agentId?: string | null
+  agentName?: string | null
+  label?: string
+  fallback?: string
+  tabular?: boolean
+}) {
+  const { viewerId } = useAgentDisplay()
+  const value = agentAssigneeLabel(viewerId, agentId, agentName, fallback)
+  if (value === null) return null
+  return <FlatField label={label} value={value} tabular={tabular} />
+}
+
+/** Inline agent name — omitted when the signed-in user is that agent. */
+export function AgentAssigneeText({
+  agentId,
+  agentName,
+  fallback = 'Unassigned',
+  className,
+}: {
+  agentId?: string | null
+  agentName?: string | null
+  fallback?: string
+  className?: string
+}) {
+  const { viewerId } = useAgentDisplay()
+  const value = agentAssigneeLabel(viewerId, agentId, agentName, fallback)
+  if (value === null) return null
+  return <span className={className}>{value}</span>
 }

@@ -1,5 +1,5 @@
-import { useCallback, useId, useRef, useState, type DragEvent, type ReactNode } from 'react'
-import { ImagePlus, Upload, X } from 'lucide-react'
+import { useCallback, useId, useRef, useState, type DragEvent } from 'react'
+import { GripVertical, ImagePlus, Upload, X } from 'lucide-react'
 import { cn } from './ui'
 
 const ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,image/heic,image/*'
@@ -19,6 +19,16 @@ function readFilesAsDataUrls(files: FileList | File[]): Promise<string[]> {
   )
 }
 
+function reorderList<T>(items: T[], from: number, to: number): T[] {
+  if (from === to || from < 0 || to < 0 || from >= items.length || to >= items.length) {
+    return items
+  }
+  const next = [...items]
+  const [moved] = next.splice(from, 1)
+  next.splice(to, 0, moved)
+  return next
+}
+
 export type ImageDropzoneProps = {
   /** Current image data URLs / sources */
   value: string[]
@@ -33,6 +43,8 @@ export type ImageDropzoneProps = {
   /** Compact single-slot for hero/cover */
   variant?: 'gallery' | 'cover'
   disabled?: boolean
+  /** Drag thumbnails to set gallery order (first image = cover) */
+  reorderable?: boolean
 }
 
 /**
@@ -48,11 +60,14 @@ export function ImageDropzone({
   className,
   variant = 'gallery',
   disabled,
+  reorderable = false,
 }: ImageDropzoneProps) {
   const inputId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
+  const [dropIndex, setDropIndex] = useState<number | null>(null)
 
   const remaining = max == null ? Infinity : Math.max(0, max - value.length)
   const canAdd = !disabled && remaining > 0
@@ -88,6 +103,13 @@ export function ImageDropzone({
 
   const removeAt = (index: number) => {
     onChange(value.filter((_, i) => i !== index))
+  }
+
+  const finishReorder = (from: number, to: number) => {
+    setDragIndex(null)
+    setDropIndex(null)
+    if (from === to) return
+    onChange(reorderList(value, from, to))
   }
 
   const dropZone = (
@@ -158,20 +180,11 @@ export function ImageDropzone({
 
   return (
     <div className={cn('space-y-3', className)}>
-      {label && (
-        <div className="flex items-baseline justify-between gap-2">
-          <p className="text-xs font-medium text-ink-500">{label}</p>
-          {value.length > 0 && canAdd && (
-            <button
-              type="button"
-              className="min-h-9 cursor-pointer text-xs font-semibold text-primary transition-colors duration-200 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              onClick={() => inputRef.current?.click()}
-            >
-              Add more
-            </button>
-          )}
-        </div>
-      )}
+      {label ? <p className="text-xs font-medium text-ink-500">{label}</p> : null}
+
+      {reorderable && value.length > 1 ? (
+        <p className="text-xs text-ink-400">Drag photos to set display order. The first photo is the cover.</p>
+      ) : null}
 
       {value.length > 0 && (
         <ul
@@ -182,13 +195,47 @@ export function ImageDropzone({
         >
           {value.map((src, i) => (
             <li
-              key={`${i}-${src.slice(0, 32)}`}
+              key={src}
+              draggable={reorderable && !disabled}
+              onDragStart={(e) => {
+                if (!reorderable || disabled) return
+                setDragIndex(i)
+                e.dataTransfer.effectAllowed = 'move'
+                e.dataTransfer.setData('text/plain', String(i))
+              }}
+              onDragOver={(e) => {
+                if (!reorderable || dragIndex == null) return
+                e.preventDefault()
+                e.dataTransfer.dropEffect = 'move'
+                setDropIndex(i)
+              }}
+              onDragLeave={() => {
+                if (dropIndex === i) setDropIndex(null)
+              }}
+              onDrop={(e) => {
+                if (!reorderable || dragIndex == null) return
+                e.preventDefault()
+                e.stopPropagation()
+                finishReorder(dragIndex, i)
+              }}
+              onDragEnd={() => {
+                setDragIndex(null)
+                setDropIndex(null)
+              }}
               className={cn(
                 'group relative overflow-hidden rounded-xl ring-1 ring-primary-100',
                 variant === 'cover' ? 'aspect-[16/9]' : 'aspect-square',
+                reorderable && !disabled && 'cursor-grab active:cursor-grabbing',
+                dragIndex === i && 'opacity-60',
+                dropIndex === i && dragIndex != null && dragIndex !== i && 'ring-2 ring-primary',
               )}
             >
-              <img src={src} alt="" className="h-full w-full object-cover" />
+              <img src={src} alt="" className="h-full w-full object-cover" draggable={false} />
+              {reorderable && !disabled ? (
+                <span className="absolute left-1.5 top-1.5 inline-flex min-h-8 min-w-8 items-center justify-center rounded-full bg-ink/70 text-white">
+                  <GripVertical className="h-4 w-4" aria-hidden />
+                </span>
+              ) : null}
               {!disabled && (
                 <button
                   type="button"
@@ -199,11 +246,11 @@ export function ImageDropzone({
                   <X className="h-4 w-4" strokeWidth={1.6} />
                 </button>
               )}
-              {variant === 'cover' && i === 0 && value.length > 1 && (
+              {i === 0 && value.length > 0 && (reorderable || (variant === 'cover' && value.length > 1)) ? (
                 <span className="absolute bottom-2 left-2 rounded-md bg-ink/70 px-2 py-0.5 text-[10px] font-semibold text-white">
                   Cover
                 </span>
-              )}
+              ) : null}
             </li>
           ))}
         </ul>
@@ -231,7 +278,6 @@ export function ImageCoverField({
   onChange: (next: string | null) => void
   label?: string
   className?: string
-  children?: ReactNode
 }) {
   return (
     <ImageDropzone

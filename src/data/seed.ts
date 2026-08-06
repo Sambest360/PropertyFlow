@@ -1,6 +1,7 @@
 import { DEFAULT_AGENCY_PERMISSIONS } from '../lib/permissions'
 import type {
   Agency,
+  AgencyContractor,
   AppUser,
   Application,
   Lead,
@@ -965,6 +966,53 @@ export const seedNotifications: AppNotification[] = [
   ...monthNotifications,
 ]
 
+export const seedAgencyContractors: AgencyContractor[] = [
+  {
+    id: 'AC-horizon-aqua',
+    agencyId: 'ag-horizon',
+    contractorUserId: 'u-aqua',
+    status: 'approved',
+    trades: ['PLUMBING', 'APPLIANCE_FAILURE', 'HVAC'],
+    notes: 'Preferred for geyser and appliance warranty work.',
+    addedAt: '2026-01-10',
+    addedByUserId: 'u-samuel',
+    rating: 4.8,
+    jobsCompleted: 42,
+  },
+  {
+    id: 'AC-cape-bayfix',
+    agencyId: 'ag-cape',
+    contractorUserId: 'u-bayfix',
+    status: 'approved',
+    trades: ['ELECTRICAL', 'GENERAL', 'SECURITY'],
+    addedAt: '2026-02-15',
+    addedByUserId: 'u-theo',
+    rating: 4.6,
+    jobsCompleted: 28,
+  },
+  {
+    id: 'AC-garden-coastal',
+    agencyId: 'ag-garden',
+    contractorUserId: 'u-coastal-fix',
+    status: 'approved',
+    trades: ['GENERAL', 'PLUMBING', 'PAINTING'],
+    addedAt: '2026-03-01',
+    addedByUserId: 'u-gita',
+    rating: 4.5,
+    jobsCompleted: 19,
+  },
+  {
+    id: 'AC-horizon-coastal-pending',
+    agencyId: 'ag-horizon',
+    contractorUserId: 'u-coastal-fix',
+    status: 'pending',
+    trades: ['GENERAL'],
+    notes: 'Awaiting COID document upload.',
+    addedAt: '2026-07-18',
+    addedByUserId: 'u-james',
+  },
+]
+
 export const seedTickets: MaintenanceTicket[] = [
   {
     id: 'MT-4401',
@@ -986,6 +1034,11 @@ export const seedTickets: MaintenanceTicket[] = [
     openedAt: '2026-07-22',
     openedAtIso: '2026-07-22T08:00:00.000Z',
     description: 'Linked to internal asset ia-s12-micro (SN SM-8811). Warranty covered — routed to AquaFix via APPLIANCE_FAILURE vendor route.',
+    locationDetail: 'Unit B12 kitchen — above-counter microwave',
+    accessNotes: 'Tenant home after 17:00. Intercom code 4412.',
+    preferredSchedule: 'Weekdays 09:00–16:00',
+    issueTags: ['appliance', 'safety', 'warranty'],
+    photoUrls: [],
     warrantyCovered: true,
     escalatedAt: null,
   },
@@ -1008,7 +1061,11 @@ export const seedTickets: MaintenanceTicket[] = [
     photos: 1,
     openedAt: '2026-07-21',
     openedAtIso: '2026-07-21T14:00:00.000Z',
-    description: 'Front gate intercom not ringing.',
+    description: 'Front gate intercom not ringing — visitors must phone tenant.',
+    locationDetail: 'Main entrance intercom panel',
+    accessNotes: 'Keys with concierge; call tenant before entry.',
+    issueTags: ['access', 'electrical'],
+    photoUrls: [],
     warrantyCovered: false,
     escalatedAt: null,
   },

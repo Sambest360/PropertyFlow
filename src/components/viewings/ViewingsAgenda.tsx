@@ -1,18 +1,18 @@
 import { Link } from 'react-router-dom'
 import { ArrowUpRight, DoorOpen, MapPin, Users } from 'lucide-react'
 import { Badge, cn, statusTone } from '../ui'
+import { useAgentDisplay } from '../../hooks/useAgentDisplay'
 import {
   viewingPrimaryLabel,
   viewingRowKey,
   viewingStatus,
+  viewingAgentId,
+  viewingDeskPath,
+  viewingDeskLinkLabel,
   type PortfolioViewing,
 } from './types'
 
 const ICON_STROKE = 1.6
-
-function propertyDeskPath(propertyId: string) {
-  return `/workspace/sales/viewings/property/${propertyId}`
-}
 
 export function ViewingsAgenda({
   items,
@@ -64,6 +64,18 @@ export function ViewingsAgenda({
   )
 }
 
+function AgendaAgent({ item }: { item: PortfolioViewing }) {
+  const { label } = useAgentDisplay()
+  const text = label(viewingAgentId(item), item.agentName)
+  if (!text) return null
+  return (
+    <>
+      <span aria-hidden>·</span>
+      <span>{text}</span>
+    </>
+  )
+}
+
 function AgendaRow({
   item,
   reducedMotion,
@@ -72,7 +84,8 @@ function AgendaRow({
   reducedMotion?: boolean
 }) {
   const st = viewingStatus(item)
-  const to = propertyDeskPath(item.property.id)
+  const to = viewingDeskPath(item)
+  const linkLabel = viewingDeskLinkLabel(item)
   const peopleLabel =
     item.kind === 'slot'
       ? `${item.slot.booked}/${item.slot.capacity} booked`
@@ -115,19 +128,14 @@ function AgendaRow({
               </span>
               <span aria-hidden>·</span>
               <span>{viewingPrimaryLabel(item)}</span>
-              {item.agentName ? (
-                <>
-                  <span aria-hidden>·</span>
-                  <span>{item.agentName}</span>
-                </>
-              ) : null}
+              <AgendaAgent item={item} />
             </span>
           </span>
           <span className="hidden tabular text-xs font-medium text-ink-500 sm:block">
             {peopleLabel}
           </span>
           <span className="inline-flex items-center gap-1 text-xs font-semibold text-primary opacity-80 group-hover:opacity-100">
-            Open desk
+            {linkLabel}
             <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} aria-hidden />
           </span>
         </span>

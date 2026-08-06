@@ -13,9 +13,17 @@ function mockAuth(perms: Permission[], role: Role = 'ground_agent') {
 }
 
 describe('resolveWorkspaceBottomNavTabs', () => {
-  it('always includes Home and More', () => {
+  it('shows only Home when no other permissions', () => {
     const tabs = resolveWorkspaceBottomNavTabs(mockAuth([]))
-    expect(tabs.map((t) => t.id)).toEqual(['dashboard', 'more'])
+    expect(tabs.map((t) => t.id)).toEqual(['dashboard'])
+  })
+
+  it('omits More when everything fits in five slots', () => {
+    const tabs = resolveWorkspaceBottomNavTabs(
+      mockAuth(['assets.view', 'applications.view', 'maintenance.view']),
+    )
+    expect(tabs.some((t) => t.id === 'more')).toBe(false)
+    expect(tabs.length).toBeLessThanOrEqual(5)
   })
 
   it('includes Properties when assets permission is granted', () => {
@@ -24,24 +32,26 @@ describe('resolveWorkspaceBottomNavTabs', () => {
     expect(tabs.find((t) => t.id === 'properties')?.to).toBe('/workspace/properties')
   })
 
-  it('prefers applications route for Sales tab', () => {
+  it('prefers applications route for applicants tab', () => {
     const tabs = resolveWorkspaceBottomNavTabs(
       mockAuth(['applications.view', 'leads.view']),
     )
-    expect(tabs.find((t) => t.id === 'sales')?.to).toBe('/workspace/sales/applications')
+    expect(tabs.find((t) => t.id === 'applications')?.to).toBe('/workspace/sales/applications')
   })
 
-  it('caps at five tabs including More', () => {
+  it('adds More only when tabs would overflow', () => {
     const tabs = resolveWorkspaceBottomNavTabs(
       mockAuth([
         'assets.view',
         'applications.view',
         'maintenance.view',
-        'messages.manage',
         'payments.view',
+        'contractors.view',
+        'messages.manage',
+        'reports.view',
       ]),
     )
-    expect(tabs.length).toBeLessThanOrEqual(5)
+    expect(tabs.length).toBe(5)
     expect(tabs[tabs.length - 1]?.id).toBe('more')
   })
 })

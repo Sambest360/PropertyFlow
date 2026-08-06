@@ -12,10 +12,12 @@ import {
 } from '../components/dashboard'
 import { Badge, Card, StatCard, statusTone } from '../components/ui'
 import { formatZAR } from '../data/seed'
+import { useAgentDisplay } from '../hooks/useAgentDisplay'
 
 export default function OwnerPortal() {
   const { state } = useStore()
   const { user } = useAuth()
+  const { listedBy } = useAgentDisplay()
   const { allowedPropertyIds } = usePropertyScope()
 
   const scoped = useMemo(() => {
@@ -89,6 +91,7 @@ export default function OwnerPortal() {
         <div className="grid gap-4 lg:grid-cols-2">
           {scoped.map((p) => {
             const agent = state.users.find((u) => u.id === p.agentId)
+            const managedBy = listedBy(p.agentId, agent?.name, 'agency')
             const propPay = payments.filter((x) => x.propertyId === p.id)
             const monthRent = propPay
               .filter((x) => x.type === 'Rent' && x.status === 'Paid')
@@ -108,7 +111,8 @@ export default function OwnerPortal() {
                       <Badge tone={statusTone(p.status)}>{p.status}</Badge>
                     </div>
                     <p className="mt-1 text-xs text-ink-500">
-                      {p.suburb} · Managed by {agent?.name ?? 'agency'}
+                      {p.suburb}
+                      {managedBy ? ` · Managed by ${managedBy}` : null}
                     </p>
                     <p className="mt-2 tabular text-sm font-semibold text-ink">
                       {p.rent ? `${formatZAR(p.rent)}/mo` : formatZAR(p.price)}

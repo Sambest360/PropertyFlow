@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import { MapPin } from 'lucide-react'
 import type { Application, PropertyAsset } from '../../types/domain'
 import { formatZAR } from '../../data/seed'
-import { DetailSection, DetailStack, FlatField, FlatFieldGrid } from '../detail/FlatFields'
+import { DetailSection, DetailStack, AgentAssigneeField, FlatField, FlatFieldGrid } from '../detail/FlatFields'
 import { ICON_STROKE } from './types'
 
 /** Lean at-a-glance view — flat text; linked property is a simple link. */
@@ -26,7 +26,7 @@ export function ApplicantOverviewPanel({
           <FlatField label="Type" value={application.type} />
           <FlatField label="Stage" value={application.stage} />
           <FlatField label="Progress" value={`${application.progress}%`} tabular />
-          <FlatField label="Agent" value={agentName ?? 'Unassigned'} />
+          <AgentAssigneeField agentId={application.agentId} agentName={agentName} />
           <FlatField label="Submitted" value={application.submittedAt} />
           <FlatField label="Updated" value={application.updatedAt} />
         </FlatFieldGrid>

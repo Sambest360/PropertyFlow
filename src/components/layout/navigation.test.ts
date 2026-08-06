@@ -24,11 +24,12 @@ describe('workspace nav permission filtering', () => {
     expect(flat).not.toContain('Agencies')
   })
 
-  it('shows Users only with roles.assign; Team with users.manage', () => {
+  it('shows Team with users.manage; Users nav merged into Team page', () => {
     expect(previewNavLabels(['users.manage'])).toContain('Team')
     expect(previewNavLabels(['users.manage'])).not.toContain('Users')
     expect(previewNavLabels(['users.manage'])).not.toContain('Tenants')
-    expect(previewNavLabels(['roles.assign'])).toContain('Users')
+    expect(previewNavLabels(['roles.assign'])).not.toContain('Users')
+    expect(previewNavLabels(['roles.assign', 'users.manage'])).toContain('Team')
     expect(previewNavLabels(['occupants.view'])).toContain('Tenants')
   })
 
@@ -69,5 +70,15 @@ describe('workspace nav permission filtering', () => {
     expect(labels).toContain('My tenancy')
     expect(labels).toContain('My applications')
     expect(labels).toContain('Wishlist')
+  })
+
+  it('flattens small nav trees into top-level links', () => {
+    const entries = filterWorkspaceNav(
+      getWorkspaceNav(),
+      (p) => ['payments.view', 'maintenance.view', 'reports.view'].includes(p),
+      (ps) => ps.some((p) => ['payments.view', 'maintenance.view', 'reports.view'].includes(p)),
+    )
+    expect(entries.every((e) => e.type === 'link')).toBe(true)
+    expect(entries.some((e) => e.type === 'link' && e.item.label === 'Payments')).toBe(true)
   })
 })

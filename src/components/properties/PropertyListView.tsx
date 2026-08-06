@@ -14,7 +14,10 @@ import {
   Wrench,
 } from 'lucide-react'
 import { Badge, Button, cn } from '../ui'
+import { AgentAssigneeText } from '../detail/FlatFields'
 import { formatZAR } from '../../data/seed'
+import { appendAgentMetaRow } from '../../lib/agentDisplay'
+import { useAgentDisplay, useHideAgentColumn } from '../../hooks/useAgentDisplay'
 import { resolvePortfolioStatus } from '../../lib/propertyStatus'
 import { listingModeLabel, priceLabel, type PortfolioProperty } from './types'
 
@@ -70,17 +73,22 @@ export function PropertyExpansion({
   const detailId = `/workspace/properties/${p.id}`
   const current = photos[Math.min(activePhoto, Math.max(photos.length - 1, 0))]
   const resolved = resolvePortfolioStatus(p.status, item.occupancy)
+  const { viewerId } = useAgentDisplay()
 
-  const metaRows: Array<{ label: string; value: string }> = [
-    { label: 'Address', value: p.address },
-    { label: 'Area', value: `${p.suburb}, ${p.city}` },
-    { label: 'Type', value: p.type },
-    { label: 'Market', value: listingModeLabel(p.listingMode) },
-    { label: 'Price', value: priceLabel(p, formatZAR) },
-    { label: 'Beds / baths / parking', value: `${p.beds} / ${p.baths} / ${p.parking}` },
-    { label: 'Size', value: p.area > 0 ? `${p.area} m²` : '—' },
-    { label: 'Agent', value: item.agentName ?? 'Unassigned' },
-  ]
+  const metaRows: Array<{ label: string; value: string }> = appendAgentMetaRow(
+    [
+      { label: 'Address', value: p.address },
+      { label: 'Area', value: `${p.suburb}, ${p.city}` },
+      { label: 'Type', value: p.type },
+      { label: 'Market', value: listingModeLabel(p.listingMode) },
+      { label: 'Price', value: priceLabel(p, formatZAR) },
+      { label: 'Beds / baths / parking', value: `${p.beds} / ${p.baths} / ${p.parking}` },
+      { label: 'Size', value: p.area > 0 ? `${p.area} m²` : '—' },
+    ],
+    viewerId,
+    p.agentId,
+    item.agentName,
+  )
 
   const prevPhoto = () => setActivePhoto((i) => (i - 1 + photos.length) % photos.length)
   const nextPhoto = () => setActivePhoto((i) => (i + 1) % photos.length)
@@ -271,6 +279,8 @@ export function PropertyListView({
   onToggle: (item: PortfolioProperty) => void
   reducedMotion?: boolean
 }) {
+  const hideAgentColumn = useHideAgentColumn()
+  const colSpan = hideAgentColumn ? 5 : 6
   return (
     <>
       <div className="hidden overflow-hidden rounded-[1.25rem] border border-primary-100/80 bg-white shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)] md:block">
@@ -283,7 +293,7 @@ export function PropertyListView({
                 <th className="px-3 py-3 font-semibold">Price</th>
                 <th className="px-3 py-3 font-semibold">Status</th>
                 <th className="px-3 py-3 font-semibold">Attention</th>
-                <th className="px-4 py-3 font-semibold">Agent</th>
+                {!hideAgentColumn ? <th className="px-4 py-3 font-semibold">Agent</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -372,18 +382,24 @@ export function PropertyListView({
                           <AttentionBadges item={item} />
                         </button>
                       </td>
-                      <td className="px-4 py-3">
-                        <button
-                          type="button"
-                          onClick={() => onToggle(item)}
-                          className="w-full cursor-pointer text-left font-medium text-ink-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                        >
-                          {item.agentName ?? 'Unassigned'}
-                        </button>
-                      </td>
+                      {!hideAgentColumn ? (
+                        <td className="px-4 py-3">
+                          <button
+                            type="button"
+                            onClick={() => onToggle(item)}
+                            className="w-full cursor-pointer text-left font-medium text-ink-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                          >
+                            <AgentAssigneeText
+                              agentId={p.agentId}
+                              agentName={item.agentName}
+                              className="font-medium text-ink-600"
+                            />
+                          </button>
+                        </td>
+                      ) : null}
                     </tr>
                     <tr className={cn(!expanded && 'border-b border-primary-50')}>
-                      <td colSpan={6} className="p-0">
+                      <td colSpan={colSpan} className="p-0">
                         <div
                           className={cn(
                             'grid transition-[grid-template-rows] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
@@ -466,9 +482,11 @@ export function PropertyListView({
                     <StatusBadge item={item} />
                     <AttentionBadges item={item} />
                   </div>
-                  <p className="mt-1.5 text-xs font-medium text-ink-500">
-                    {item.agentName ?? 'Unassigned'}
-                  </p>
+                  {!hideAgentColumn ? (
+                    <p className="mt-1.5 text-xs font-medium text-ink-500">
+                      <AgentAssigneeText agentId={p.agentId} agentName={item.agentName} />
+                    </p>
+                  ) : null}
                 </div>
               </button>
               <div

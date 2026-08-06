@@ -9,6 +9,10 @@ import {
   GraduationCap,
   KeyRound,
   Tag,
+  BedDouble,
+  Bath,
+  Car,
+  Warehouse,
 } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
 import { useAgencyScope, useAuth } from '../../context/AuthContext'
@@ -22,13 +26,15 @@ import { WizardFooter } from '../../components/wizard/WizardFooter'
 import { TypeCardGrid } from '../../components/wizard/TypeCardGrid'
 import { CounterPillRow } from '../../components/wizard/CounterPillRow'
 import { LiveListingPreview } from '../../components/wizard/LiveListingPreview'
-import { ImageCoverField, ImageDropzone } from '../../components/ImageDropzone'
+import { ImageDropzone } from '../../components/ImageDropzone'
+import { ListingDescriptionEditor } from '../../components/listing/ListingDescriptionEditor'
+import { ExpandableDescription } from '../../components/listing/ExpandableDescription'
 import { PropertyFeaturePicker } from '../../components/property-features/PropertyFeaturePicker'
 import { PlacesAddressInput } from '../../components/PlacesAddressInput'
 import { Button, Input, Select } from '../../components/ui'
 import { FormLabel, FieldHelp } from '../../components/onboarding/FieldHelp'
 import { uid } from '../../data/seed'
-import { UNIT_TEMPLATES, roomKindLabel, type BuildingGrading, type RoomKind, type UnitTemplateId } from '../../data/infrastructure'
+import { roomKindLabel, type BuildingGrading, type RoomKind } from '../../data/infrastructure'
 import { isFieldAgent } from '../../lib/permissions'
 import { pruneAmenitiesForMode } from '../../lib/propertyFeatures'
 import { readReturnTo } from '../../lib/returnTo'
@@ -36,18 +42,29 @@ import { isVerificationApproved } from '../../lib/verification'
 import { useWizardDraft, useWizardSteps } from '../../hooks/useWizardSteps'
 import { useLookupOptions } from '../../hooks/useLookupOptions'
 import { formatZAR } from '../../data/seed'
+import {
+  gradingLabel,
+  inferSolarCapacityKw,
+  resolveBuildingGrading,
+} from '../../lib/buildingGrading'
+import { sanitizeRoomCounts, summarizeRooms } from '../../lib/roomSummary'
+import {
+  LandlordPicker,
+  resolveLandlordAssignment,
+  validateLandlordAssignment,
+  type LandlordDraft,
+} from '../../components/wizard/LandlordPicker'
 
 const DRAFT_KEY = 'propertyflow:property-create'
 
 const STEPS: WizardStepMeta[] = [
-  { id: 'type', label: 'Property type', tip: 'Choose how this asset will be listed and pick a unit layout template.' },
+  { id: 'type', label: 'Property type', tip: 'Choose how this asset will be listed and what type of property it is.' },
   { id: 'location', label: 'Location', tip: 'Set the building name and street address. Geocoding improves map search.' },
-  { id: 'building', label: 'Building', tip: 'Optional grading, solar, borehole, and building-level photos.' },
-  { id: 'rooms', label: 'Unit & rooms', tip: 'Configure the unit number, size, and room breakdown for the floor plan.' },
+  { id: 'building', label: 'Building', tip: 'Add listing photos here — they appear on the marketplace. Grade is calculated automatically.' },
+  { id: 'rooms', label: 'Unit & rooms', tip: 'Bedrooms, bathrooms, and garages are counted from room kinds — parking bays are set separately.' },
   { id: 'amenities', label: 'Amenities', tip: 'Select features grouped by category — safety, living, kitchen, and more.' },
-  { id: 'media', label: 'Media', tip: 'Add at least one photo. Five or more is recommended for marketplace listings.' },
   { id: 'pricing', label: 'Pricing', tip: 'Set rent and/or sale price, deposit guidance, and availability rules.' },
-  { id: 'assignment', label: 'Assignment', tip: 'Link the listing to an agency, landlord, and field agent.' },
+  { id: 'assignment', label: 'Assignment', tip: 'Set the agency and field agent. Link a landlord only when the property is privately owned.' },
   { id: 'review', label: 'Review', tip: 'Confirm everything before saving as draft or publishing.' },
 ]
 
@@ -79,7 +96,6 @@ type RoomDraft = {
 type PropertyDraft = {
   listingMode: 'rent' | 'sale' | 'both'
   propertyType: string
-  unitTemplateId: UnitTemplateId
   buildingName: string
   existingBuildingId: string
   address: string
@@ -95,15 +111,10 @@ type PropertyDraft = {
   solarCapacityKw: string
   hasBorehole: boolean
   buildingImages: string[]
-  unitNumber: string
-  unitTitle: string
   title: string
-  area: string
   parking: number
   rooms: RoomDraft[]
   amenities: string[]
-  images: string[]
-  floorPlan: string | null
   price: string
   rent: string
   depositHint: string
@@ -112,20 +123,48 @@ type PropertyDraft = {
   description: string
   agencyId: string
   landlordId: string
+  linkLandlord: boolean
+  landlordManualName: string
+  landlordManualEmail: string
+  landlordManualPhone: string
+  landlordEntryMode: 'search' | 'manual'
   agentId: string
   publishAfterSave: boolean
+  /** Server draft created via “Save & continue later” */
+  draftPropertyId: string
 }
 
-function defaultRooms(templateId: UnitTemplateId): RoomDraft[] {
-  const template = UNIT_TEMPLATES.find((t) => t.id === templateId) ?? UNIT_TEMPLATES[1]
-  return template.rooms.map((r) => ({
-    id: uid('r'),
-    name: r.name,
-    kind: r.kind,
-    beds: r.beds,
-    baths: r.baths,
-    areaSqm: r.areaSqm != null ? String(r.areaSqm) : '',
-  }))
+function defaultUnitNumber(propertyType: string): string {
+  if (['House', 'Townhouse', 'Vacant Land', 'Student Accommodation'].includes(propertyType)) {
+    return 'Main'
+  }
+  return '1'
+}
+
+function totalAreaFromRooms(rooms: RoomDraft[]): number {
+  return rooms.reduce((sum, room) => sum + (Number(room.areaSqm) || 0), 0)
+}
+
+function roomCountsForKind(
+  kind: RoomKind,
+  current: { beds: number; baths: number },
+): { beds: number; baths: number } {
+  if (kind === 'bedroom') {
+    return { beds: current.beds > 0 ? current.beds : 1, baths: 0 }
+  }
+  if (kind === 'bathroom') {
+    return { beds: 0, baths: current.baths > 0 ? current.baths : 1 }
+  }
+  return { beds: 0, baths: 0 }
+}
+
+function defaultRooms(): RoomDraft[] {
+  return [
+    { id: uid('r'), name: 'Bedroom', kind: 'bedroom', beds: 1, baths: 0, areaSqm: '' },
+    { id: uid('r'), name: 'Bathroom', kind: 'bathroom', beds: 0, baths: 1, areaSqm: '' },
+    { id: uid('r'), name: 'Kitchen', kind: 'kitchen', beds: 0, baths: 0, areaSqm: '' },
+    { id: uid('r'), name: 'Lounge', kind: 'living', beds: 0, baths: 0, areaSqm: '' },
+  ]
 }
 
 export default function PropertyCreatePage() {
@@ -134,20 +173,21 @@ export default function PropertyCreatePage() {
   const returnTo = readReturnTo(searchParams) ?? '/workspace/properties'
   const queryAgencyId = searchParams.get('agencyId') ?? ''
 
-  const { state, createPropertyBundle, publishProperty } = useStore()
+  const { state, createPropertyBundle, publishProperty, updateProperty, createUser } = useStore()
   const { user, agencyId, has, role } = useAuth()
   const { scopeAgency } = useAgencyScope()
   const isLandlord = role === 'landlord'
   const landlordVerified = isVerificationApproved(user.verification, user.role)
   const canPublish = has('listings.publish') && landlordVerified
 
-  const propertyTypes = useLookupOptions('PROPERTY_TYPE', agencyId)
-  const listingModes = useLookupOptions('LISTING_MODE', agencyId)
+  const isPlatformAdmin = has('platform.manage')
+  const isAgencyManager = role === 'agent_admin' || role === 'client_admin'
+  const isAgentCreator = isFieldAgent(role)
+  const showAgencyPicker = isPlatformAdmin && !queryAgencyId
+  const showAgentPicker = (isPlatformAdmin || isAgencyManager) && !isAgentCreator
+  const showLandlordPicker = !isLandlord && (isPlatformAdmin || isAgencyManager || isAgentCreator)
 
   const agencies = state.agencies.filter((a) => scopeAgency(a.id) || has('platform.manage'))
-  const landlords = state.users.filter(
-    (u) => u.role === 'landlord' && (has('platform.manage') || u.agencyId === agencyId),
-  )
   const agents = state.users.filter(
     (u) =>
       (u.role === 'ground_agent' || u.role === 'agent_admin' || u.role === 'agent') &&
@@ -159,10 +199,12 @@ export default function PropertyCreatePage() {
 
   const defaultAgencyId = queryAgencyId || (isLandlord ? user.agencyId ?? '' : agencyId ?? agencies[0]?.id ?? '')
 
+  const propertyTypes = useLookupOptions('PROPERTY_TYPE', agencyId)
+  const listingModes = useLookupOptions('LISTING_MODE', agencyId)
+
   const initialDraft: PropertyDraft = {
     listingMode: 'rent',
     propertyType: 'Apartment',
-    unitTemplateId: 'one_bed',
     buildingName: '',
     existingBuildingId: '',
     address: '',
@@ -178,15 +220,10 @@ export default function PropertyCreatePage() {
     solarCapacityKw: '0',
     hasBorehole: false,
     buildingImages: [],
-    unitNumber: '1',
-    unitTitle: '',
     title: '',
-    area: '80',
     parking: 1,
-    rooms: defaultRooms('one_bed'),
+    rooms: defaultRooms(),
     amenities: ['Fibre', 'Parking'],
-    images: [],
-    floorPlan: null,
     price: '',
     rent: '',
     depositHint: '',
@@ -194,12 +231,20 @@ export default function PropertyCreatePage() {
     instantBook: false,
     description: '',
     agencyId: defaultAgencyId,
-    landlordId: isLandlord ? user.id : landlords[0]?.id ?? '',
+    landlordId: isLandlord ? user.id : '',
+    linkLandlord: false,
+    landlordManualName: '',
+    landlordManualEmail: '',
+    landlordManualPhone: '',
+    landlordEntryMode: 'search',
     agentId: isLandlord ? '' : isFieldAgent(role) ? user.id : agents[0]?.id ?? '',
     publishAfterSave: isLandlord,
+    draftPropertyId: '',
   }
 
-  const { draft, setDraft, clearDraft } = useWizardDraft<PropertyDraft>(DRAFT_KEY, initialDraft)
+  const { draft, setDraft, clearDraft } = useWizardDraft<PropertyDraft>(DRAFT_KEY, initialDraft, {
+    omitFromPersist: ['buildingImages'],
+  })
   const { stepIndex, maxReachableIndex, goNext, goBack, goTo, markReachable, isFirst, isLast } =
     useWizardSteps({ totalSteps: STEPS.length, storageKey: DRAFT_KEY })
 
@@ -212,8 +257,89 @@ export default function PropertyCreatePage() {
     }
   }, [queryAgencyId, draft.agencyId, setDraft])
 
-  const beds = useMemo(() => draft.rooms.reduce((n, r) => n + r.beds, 0), [draft.rooms])
-  const baths = useMemo(() => draft.rooms.reduce((n, r) => n + r.baths, 0), [draft.rooms])
+  useEffect(() => {
+    if (isLandlord) return
+    if (isAgentCreator) {
+      setDraft((d) => ({
+        ...d,
+        agentId: user.id,
+        agencyId: queryAgencyId || user.agencyId || d.agencyId,
+      }))
+      return
+    }
+    if (isAgencyManager && !isPlatformAdmin) {
+      setDraft((d) => ({
+        ...d,
+        agencyId: queryAgencyId || user.agencyId || d.agencyId,
+      }))
+    }
+  }, [
+    isLandlord,
+    isAgentCreator,
+    isAgencyManager,
+    isPlatformAdmin,
+    user.id,
+    user.agencyId,
+    queryAgencyId,
+    setDraft,
+  ])
+
+  const listingAgencyId = draft.agencyId || queryAgencyId || agencyId || ''
+  const landlordsForAgency = useMemo(
+    () =>
+      state.users.filter(
+        (u) =>
+          u.role === 'landlord' &&
+          (isPlatformAdmin || u.agencyId === listingAgencyId),
+      ),
+    [state.users, listingAgencyId, isPlatformAdmin],
+  )
+  const agentsForAgency = useMemo(
+    () =>
+      state.users.filter(
+        (u) =>
+          (u.role === 'ground_agent' || u.role === 'agent_admin' || u.role === 'agent') &&
+          (isPlatformAdmin || u.agencyId === listingAgencyId),
+      ),
+    [state.users, listingAgencyId, isPlatformAdmin],
+  )
+  const assignedAgencyName =
+    agencies.find((a) => a.id === listingAgencyId)?.name ??
+    state.agencies.find((a) => a.id === agencyId)?.name
+
+  const roomSummary = useMemo(
+    () => summarizeRooms(draft.rooms.map((r) => ({ kind: r.kind, beds: r.beds, baths: r.baths }))),
+    [draft.rooms],
+  )
+  const totalAreaSqm = useMemo(() => totalAreaFromRooms(draft.rooms), [draft.rooms])
+
+  const computedGrading = useMemo(
+    () =>
+      resolveBuildingGrading({
+        hasBorehole: draft.hasBorehole,
+        amenities: draft.amenities,
+        propertyType: draft.propertyType,
+      }),
+    [draft.hasBorehole, draft.amenities, draft.propertyType],
+  )
+
+  const computedSolarKw = useMemo(() => inferSolarCapacityKw(draft.amenities), [draft.amenities])
+
+  const previewImages = useMemo(() => {
+    if (draft.buildingImages.length) return draft.buildingImages
+    if (draft.existingBuildingId) {
+      return state.buildings.find((b) => b.id === draft.existingBuildingId)?.images ?? []
+    }
+    return []
+  }, [draft.buildingImages, draft.existingBuildingId, state.buildings])
+
+  function listingImagesForSubmit(): string[] {
+    if (draft.buildingImages.length) return draft.buildingImages
+    if (draft.existingBuildingId) {
+      return state.buildings.find((b) => b.id === draft.existingBuildingId)?.images ?? []
+    }
+    return []
+  }
 
   const typeOptions = useMemo(() => {
     if (!propertyTypes.length) return TYPE_OPTIONS
@@ -242,18 +368,6 @@ export default function PropertyCreatePage() {
     }))
   }, [listingModes])
 
-  function applyTemplate(templateId: UnitTemplateId) {
-    const template = UNIT_TEMPLATES.find((t) => t.id === templateId)
-    if (!template) return
-    setDraft((d) => ({
-      ...d,
-      unitTemplateId: templateId,
-      area: String(template.squareMeters),
-      parking: template.parking,
-      rooms: defaultRooms(templateId),
-    }))
-  }
-
   function validateStep(index: number): string | null {
     switch (index) {
       case 0:
@@ -264,24 +378,30 @@ export default function PropertyCreatePage() {
         if (!draft.address.trim()) return 'Street address is required.'
         if (!draft.city.trim()) return 'City is required.'
         return null
-      case 2:
+      case 2: {
+        const existingPhotos = draft.existingBuildingId
+          ? state.buildings.find((b) => b.id === draft.existingBuildingId)?.images ?? []
+          : []
+        if (draft.buildingImages.length === 0 && existingPhotos.length === 0) {
+          return 'Add at least one listing photo.'
+        }
         return null
-      case 3:
-        if (!draft.unitNumber.trim()) return 'Unit number is required.'
+      }
+      case 3: {
         if (draft.rooms.length === 0) return 'Add at least one room.'
+        const unnamed = draft.rooms.find((room) => !room.name.trim())
+        if (unnamed) return 'Every room needs a name.'
         return null
+      }
       case 5:
-        if (draft.images.length === 0) return 'Add at least one photo.'
-        return null
-      case 6:
         if (draft.listingMode !== 'sale' && !draft.rent.trim()) return 'Monthly rent is required for rental listings.'
         if (draft.listingMode !== 'rent' && !draft.price.trim()) return 'Sale price is required for sale listings.'
         return null
-      case 7: {
+      case 6: {
         const resolvedAgency = isLandlord ? user.agencyId ?? draft.agencyId : draft.agencyId
-        const resolvedLandlord = isLandlord ? user.id : draft.landlordId
         if (!resolvedAgency) return 'Agency is required.'
-        if (!resolvedLandlord) return 'Landlord is required.'
+        const landlordErr = validateLandlordAssignment(landlordDraftFrom(draft), isLandlord)
+        if (landlordErr) return landlordErr
         if (!draft.title.trim()) return 'Listing title is required.'
         return null
       }
@@ -306,23 +426,97 @@ export default function PropertyCreatePage() {
     submitProperty('Draft', false)
   }
 
-  function submitProperty(status: 'Draft' | 'Published', fromReview: boolean) {
-    const resolvedAgencyId = isLandlord ? user.agencyId ?? draft.agencyId : draft.agencyId
-    const resolvedLandlordId = isLandlord ? user.id : draft.landlordId
-    const err = validateStep(7)
-    if (err) {
-      setError(err)
-      if (fromReview) goTo(7)
-      return
-    }
-    if (draft.images.length === 0) {
-      setError('Add at least one photo.')
-      goTo(5)
-      return
-    }
+  function canSyncServerDraft(): boolean {
+    return Boolean(
+      draft.propertyType &&
+        (draft.existingBuildingId || draft.buildingName.trim() || draft.address.trim()),
+    )
+  }
 
-    setBusy(true)
-    const title = draft.title.trim() || draft.unitTitle.trim() || `${draft.propertyType} in ${draft.suburb || draft.city}`
+  function landlordDraftFrom(d: PropertyDraft): LandlordDraft {
+    return {
+      linkLandlord: d.linkLandlord,
+      landlordId: d.landlordId,
+      landlordManualName: d.landlordManualName,
+      landlordManualEmail: d.landlordManualEmail,
+      landlordManualPhone: d.landlordManualPhone,
+      landlordEntryMode: d.landlordEntryMode,
+    }
+  }
+
+  function patchLandlordDraft(partial: Partial<LandlordDraft>) {
+    setDraft((d) => ({ ...d, ...partial }))
+  }
+
+  function buildSubmitContext() {
+    const resolvedAgencyId = isLandlord ? user.agencyId ?? draft.agencyId : draft.agencyId
+    const resolvedLandlordId = resolveLandlordAssignment(landlordDraftFrom(draft), {
+      isLandlordUser: isLandlord,
+      currentUserId: user.id,
+      agencyId: resolvedAgencyId,
+      users: state.users,
+      createUser,
+    })
+    const title = draft.title.trim() || `${draft.propertyType} in ${draft.suburb || draft.city || 'draft'}`
+    const unitNumber = defaultUnitNumber(draft.propertyType)
+    const listingImages = listingImagesForSubmit()
+    const roomRows = draft.rooms.length > 0 ? draft.rooms : defaultRooms()
+
+    return { resolvedAgencyId, resolvedLandlordId, title, unitNumber, listingImages, roomRows }
+  }
+
+  function buildPropertyPatch(listingImages: string[]) {
+    const { resolvedAgencyId, resolvedLandlordId, title, unitNumber, roomRows } = buildSubmitContext()
+    return {
+      agencyId: resolvedAgencyId,
+      landlordId: resolvedLandlordId,
+      agentId: isLandlord ? null : draft.agentId || null,
+      title,
+      type: draft.propertyType,
+      listingMode: draft.listingMode,
+      price: draft.price ? Number(draft.price) : null,
+      rent: draft.rent ? Number(draft.rent) : null,
+      parking: draft.parking,
+      area: totalAreaSqm,
+      city: draft.city.trim() || 'Port Elizabeth',
+      suburb: draft.suburb.trim() || 'Central',
+      address: draft.address.trim() || draft.suburb || 'Address pending',
+      lat: draft.lat,
+      lng: draft.lng,
+      placeId: draft.placeId || null,
+      formattedAddress: draft.formattedAddress || null,
+      amenities: draft.amenities,
+      description: draft.description.trim() || `${draft.propertyType} in ${draft.suburb || draft.city || 'draft'}`,
+      images: listingImages,
+      solarCapacityKw: computedSolarKw,
+      hasBorehole: draft.hasBorehole,
+      grading: computedGrading,
+      unitNumber,
+      beds: roomSummary.bedrooms,
+      baths: roomSummary.bathrooms,
+      garages: roomSummary.garages,
+      rooms: roomRows.map((r) => {
+        const clean = sanitizeRoomCounts(r)
+        return {
+          id: r.id,
+          name: clean.name,
+          kind: clean.kind,
+          beds: clean.beds,
+          baths: clean.baths,
+          area: clean.areaSqm ? Number(clean.areaSqm) : undefined,
+        }
+      }),
+    }
+  }
+
+  function syncServerDraft(): string {
+    const { resolvedAgencyId, resolvedLandlordId, title, unitNumber, listingImages, roomRows } =
+      buildSubmitContext()
+
+    if (draft.draftPropertyId && state.properties.some((p) => p.id === draft.draftPropertyId)) {
+      updateProperty(draft.draftPropertyId, buildPropertyPatch(listingImages))
+      return draft.draftPropertyId
+    }
 
     const created = createPropertyBundle({
       existingBuildingId: draft.existingBuildingId || undefined,
@@ -330,81 +524,164 @@ export default function PropertyCreatePage() {
         ? undefined
         : {
             clientId: resolvedAgencyId,
-            landlordId: resolvedLandlordId,
-            name: draft.buildingName.trim(),
-            addressLine1: draft.address.trim(),
+            landlordId: resolvedLandlordId || null,
+            name: draft.buildingName.trim() || 'Draft building',
+            addressLine1: draft.address.trim() || 'Address pending',
             suburb: draft.suburb.trim() || 'Central',
             city: draft.city.trim() || 'Port Elizabeth',
             province: draft.province.trim() || 'Eastern Cape',
-            grading: draft.grading,
-            solarCapacityKw: Number(draft.solarCapacityKw) || 0,
+            grading: computedGrading,
+            solarCapacityKw: computedSolarKw,
             hasBorehole: draft.hasBorehole,
             lat: draft.lat,
             lng: draft.lng,
             images: draft.buildingImages,
           },
-      unitTemplateId: draft.unitTemplateId,
+      unitTemplateId: 'custom',
       unit: {
-        unitNumber: draft.unitNumber.trim(),
-        title: draft.unitTitle.trim() || title,
+        unitNumber,
+        title,
         listingType: draft.listingMode,
         price: draft.price ? Number(draft.price) : null,
         rent: draft.rent ? Number(draft.rent) : null,
         agentId: isLandlord ? null : draft.agentId || null,
-        squareMeters: Number(draft.area) || 0,
-        bedrooms: beds,
-        bathrooms: baths,
+        squareMeters: totalAreaSqm,
+        bedrooms: roomSummary.bedrooms,
+        bathrooms: roomSummary.bathrooms,
         parking: draft.parking,
         description: draft.description.trim(),
         amenities: draft.amenities,
       },
-      rooms: draft.rooms.map((r) => ({
-        name: r.name,
-        kind: r.kind,
-        beds: r.beds,
-        baths: r.baths,
-        areaSqm: r.areaSqm ? Number(r.areaSqm) : undefined,
-      })),
+      rooms: roomRows.map((r) => {
+        const clean = sanitizeRoomCounts(r)
+        return {
+          name: clean.name,
+          kind: clean.kind,
+          beds: clean.beds,
+          baths: clean.baths,
+          areaSqm: clean.areaSqm ? Number(clean.areaSqm) : undefined,
+        }
+      }),
       property: {
-        agencyId: resolvedAgencyId,
-        landlordId: resolvedLandlordId,
-        agentId: isLandlord ? null : draft.agentId || null,
-        title,
-        type: draft.propertyType,
+        ...buildPropertyPatch(listingImages),
         status: 'Draft',
-        listingMode: draft.listingMode,
-        price: draft.price ? Number(draft.price) : null,
-        rent: draft.rent ? Number(draft.rent) : null,
-        parking: draft.parking,
-        area: Number(draft.area) || 0,
-        city: draft.city.trim() || 'Port Elizabeth',
-        suburb: draft.suburb.trim() || 'Central',
-        address: draft.address.trim() || draft.suburb,
-        lat: draft.lat,
-        lng: draft.lng,
-        placeId: draft.placeId || null,
-        formattedAddress: draft.formattedAddress || null,
-        amenities: draft.amenities,
-        description: draft.description.trim() || `${draft.propertyType} in ${draft.suburb || draft.city}`,
         featured: false,
-        images: draft.images,
-        floorPlan: draft.floorPlan ?? undefined,
-        solarCapacityKw: Number(draft.solarCapacityKw) || 0,
-        hasBorehole: draft.hasBorehole,
-        grading: draft.grading,
-        unitNumber: draft.unitNumber.trim(),
       },
     })
+
+    return created.id
+  }
+
+  function handleSaveAndContinueLater() {
+    setError('')
+    setBusy(true)
+    try {
+      if (canSyncServerDraft()) {
+        const id = syncServerDraft()
+        setDraft((d) => ({ ...d, draftPropertyId: id }))
+      }
+      navigate(returnTo)
+    } catch {
+      setError('Could not save your progress. Try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function submitProperty(status: 'Draft' | 'Published', fromReview: boolean) {
+    const err = validateStep(6)
+    if (err) {
+      setError(err)
+      if (fromReview) goTo(6)
+      return
+    }
+    const listingImages = listingImagesForSubmit()
+    if (listingImages.length === 0) {
+      setError('Add at least one listing photo.')
+      goTo(2)
+      return
+    }
+
+    setBusy(true)
+    const patch = buildPropertyPatch(listingImages)
+    const existingDraftId =
+      draft.draftPropertyId && state.properties.some((p) => p.id === draft.draftPropertyId)
+        ? draft.draftPropertyId
+        : null
+
+    let propertyId: string
+    if (existingDraftId) {
+      updateProperty(existingDraftId, patch)
+      propertyId = existingDraftId
+    } else {
+      const { resolvedAgencyId, resolvedLandlordId, title, unitNumber, roomRows } = buildSubmitContext()
+      const created = createPropertyBundle({
+        existingBuildingId: draft.existingBuildingId || undefined,
+        building: draft.existingBuildingId
+          ? undefined
+          : {
+              clientId: resolvedAgencyId,
+              landlordId: resolvedLandlordId || null,
+              name: draft.buildingName.trim(),
+              addressLine1: draft.address.trim(),
+              suburb: draft.suburb.trim() || 'Central',
+              city: draft.city.trim() || 'Port Elizabeth',
+              province: draft.province.trim() || 'Eastern Cape',
+              grading: computedGrading,
+              solarCapacityKw: computedSolarKw,
+              hasBorehole: draft.hasBorehole,
+              lat: draft.lat,
+              lng: draft.lng,
+              images: draft.buildingImages,
+            },
+        unitTemplateId: 'custom',
+        unit: {
+          unitNumber,
+          title,
+          listingType: draft.listingMode,
+          price: draft.price ? Number(draft.price) : null,
+          rent: draft.rent ? Number(draft.rent) : null,
+          agentId: isLandlord ? null : draft.agentId || null,
+          squareMeters: totalAreaSqm,
+          bedrooms: roomSummary.bedrooms,
+          bathrooms: roomSummary.bathrooms,
+          parking: draft.parking,
+          description: draft.description.trim(),
+          amenities: draft.amenities,
+        },
+        rooms: roomRows.map((r) => {
+          const clean = sanitizeRoomCounts(r)
+          return {
+            name: clean.name,
+            kind: clean.kind,
+            beds: clean.beds,
+            baths: clean.baths,
+            areaSqm: clean.areaSqm ? Number(clean.areaSqm) : undefined,
+          }
+        }),
+        property: {
+          ...patch,
+          status: 'Draft',
+          featured: false,
+        },
+      })
+      propertyId = created.id
+    }
 
     const shouldPublish =
       (fromReview && draft.publishAfterSave && canPublish) || (status === 'Published' && canPublish)
     if (shouldPublish) {
-      publishProperty(created.id, 'Published')
+      publishProperty(propertyId, 'Published')
     }
 
     clearDraft()
+    try {
+      sessionStorage.removeItem(`${DRAFT_KEY}:step`)
+    } catch {
+      /* ignore */
+    }
     setBusy(false)
-    navigate(isLandlord ? `/workspace/properties/${created.id}` : returnTo)
+    navigate(isLandlord ? `/workspace/properties/${propertyId}` : returnTo)
   }
 
   function renderStep() {
@@ -450,28 +727,6 @@ export default function PropertyCreatePage() {
                 columns={3}
               />
             </div>
-            <div>
-              <FormLabel
-                help={{
-                  title: 'Unit template',
-                  body: 'Templates pre-fill room counts and sizes for common layouts (studio, one-bed, etc.). Choose Custom if the floor plan does not match a preset.',
-                }}
-              >
-                Unit template
-              </FormLabel>
-              <Select
-                className="min-h-11"
-                value={draft.unitTemplateId}
-                onChange={(e) => applyTemplate(e.target.value as UnitTemplateId)}
-              >
-                {UNIT_TEMPLATES.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.label} — {t.blurb}
-                  </option>
-                ))}
-                <option value="custom">Custom layout</option>
-              </Select>
-            </div>
           </WizardSectionCard>
         )
       case 1:
@@ -503,6 +758,7 @@ export default function PropertyCreatePage() {
                     province: b?.province ?? d.province,
                     lat: b?.lat ?? d.lat,
                     lng: b?.lng ?? d.lng,
+                    hasBorehole: b?.hasBorehole ?? d.hasBorehole,
                   }))
                 }}
               >
@@ -565,55 +821,8 @@ export default function PropertyCreatePage() {
         )
       case 2:
         return (
-          <WizardSectionCard title="Building details" description="Optional sustainability and grading fields.">
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div>
-                <FormLabel
-                  help={{
-                    title: 'Building grading',
-                    body: 'Optional quality tier (P = premium, A–C = standard bands). Helps agents filter stock and set tenant expectations.',
-                  }}
-                  className="mb-1.5"
-                >
-                  Grading
-                </FormLabel>
-                <Select
-                className="min-h-11"
-                value={draft.grading ?? ''}
-                onChange={(e) =>
-                  setDraft((d) => ({
-                    ...d,
-                    grading: (e.target.value || null) as BuildingGrading,
-                  }))
-                }
-              >
-                <option value="">Grading (optional)</option>
-                <option value="P">P — Premium</option>
-                <option value="A">A</option>
-                <option value="B">B</option>
-                <option value="C">C</option>
-              </Select>
-              </div>
-              <div>
-                <FormLabel
-                  help={{
-                    title: 'Solar capacity',
-                    body: 'Enter installed solar in kilowatts if the building has backup or green power — useful for load-shedding-sensitive tenants.',
-                  }}
-                  className="mb-1.5"
-                >
-                  Solar kW
-                </FormLabel>
-                <Input
-                className="min-h-11"
-                type="number"
-                min={0}
-                step={0.1}
-                placeholder="Solar kW"
-                value={draft.solarCapacityKw}
-                onChange={(e) => setDraft((d) => ({ ...d, solarCapacityKw: e.target.value }))}
-              />
-              </div>
+          <WizardSectionCard title="Building details" description="Sustainability features and listing photos for the marketplace.">
+            <div className="flex flex-wrap items-start gap-4">
               <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-primary-100 px-3 text-sm">
                 <input
                   type="checkbox"
@@ -622,49 +831,59 @@ export default function PropertyCreatePage() {
                 />
                 Borehole on site
               </label>
+              <div className="rounded-lg border border-primary-100 bg-primary-50/40 px-4 py-3">
+                <p className="text-xs font-medium text-ink-500">Building grade</p>
+                <p className="mt-1 text-sm font-semibold text-ink">{gradingLabel(computedGrading)}</p>
+                <p className="mt-1 text-xs text-ink-400">
+                  Calculated from borehole, amenities, and property type — updates as you complete the wizard.
+                </p>
+              </div>
             </div>
             <ImageDropzone
-              label="Building photos (optional)"
+              label="Listing photos"
               value={draft.buildingImages}
               onChange={(buildingImages) => setDraft((d) => ({ ...d, buildingImages }))}
-              max={6}
+              max={12}
+              reorderable
             />
           </WizardSectionCard>
         )
       case 3:
         return (
-          <WizardSectionCard title="Unit & rooms" description="Unit metadata and room rows power the floor plan.">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Input
-                className="min-h-11"
-                placeholder="Unit number"
-                value={draft.unitNumber}
-                onChange={(e) => setDraft((d) => ({ ...d, unitNumber: e.target.value }))}
-              />
-              <Input
-                className="min-h-11"
-                placeholder="Unit title (optional)"
-                value={draft.unitTitle}
-                onChange={(e) => setDraft((d) => ({ ...d, unitTitle: e.target.value }))}
-              />
-              <Input
-                className="min-h-11"
-                type="number"
-                placeholder="Size m²"
-                value={draft.area}
-                onChange={(e) => setDraft((d) => ({ ...d, area: e.target.value }))}
-              />
+          <WizardSectionCard
+            title="Unit & rooms"
+            description="Add each room by name and kind. Bedrooms, bathrooms, and garages are counted automatically for listing features."
+          >
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                { icon: BedDouble, label: 'Bedrooms', value: roomSummary.bedrooms },
+                { icon: Bath, label: 'Bathrooms', value: roomSummary.bathrooms },
+                { icon: Warehouse, label: 'Garages', value: roomSummary.garages },
+                { icon: Car, label: 'Parking bays', value: draft.parking },
+              ].map((item) => (
+                <div
+                  key={item.label}
+                  className="rounded-xl border border-primary-100 bg-primary-50/50 px-4 py-3"
+                >
+                  <item.icon className="h-4 w-4 text-primary" strokeWidth={1.6} aria-hidden />
+                  <p className="mt-2 text-xs text-ink-500">{item.label}</p>
+                  <p className="tabular text-lg font-semibold text-ink">{item.value}</p>
+                </div>
+              ))}
             </div>
-            <CounterPillRow label="Parking bays" value={draft.parking} onChange={(parking) => setDraft((d) => ({ ...d, parking }))} />
+            <p className="text-xs text-ink-400">
+              Add bedroom, bathroom, and garage rooms below — other room kinds (kitchen, lounge, etc.) do not affect these counts.
+            </p>
+            <CounterPillRow label="Open parking bays" value={draft.parking} onChange={(parking) => setDraft((d) => ({ ...d, parking }))} />
             <div className="overflow-x-auto rounded-lg border border-primary-100">
               <table className="min-w-full text-sm">
                 <thead className="bg-primary-50/60 text-left text-xs uppercase tracking-wide text-ink-500">
                   <tr>
-                    <th className="px-3 py-2">Room</th>
+                    <th className="px-3 py-2">Room name</th>
                     <th className="px-3 py-2">Kind</th>
                     <th className="px-3 py-2">Beds</th>
                     <th className="px-3 py-2">Baths</th>
-                    <th className="px-3 py-2">m²</th>
+                    <th className="px-3 py-2">m² (optional)</th>
                     <th className="px-3 py-2" />
                   </tr>
                 </thead>
@@ -674,7 +893,10 @@ export default function PropertyCreatePage() {
                       <td className="px-2 py-2">
                         <Input
                           className="min-h-10"
+                          placeholder="Room name"
                           value={room.name}
+                          required
+                          aria-required
                           onChange={(e) =>
                             setDraft((d) => ({
                               ...d,
@@ -687,14 +909,15 @@ export default function PropertyCreatePage() {
                         <Select
                           className="min-h-10"
                           value={room.kind}
-                          onChange={(e) =>
+                          onChange={(e) => {
+                            const kind = e.target.value as RoomKind
                             setDraft((d) => ({
                               ...d,
                               rooms: d.rooms.map((r, i) =>
-                                i === idx ? { ...r, kind: e.target.value as RoomKind } : r,
+                                i === idx ? { ...r, kind, ...roomCountsForKind(kind, r) } : r,
                               ),
                             }))
-                          }
+                          }}
                         >
                           {(['bedroom', 'bathroom', 'kitchen', 'living', 'dining', 'study', 'garage', 'other'] as RoomKind[]).map(
                             (k) => (
@@ -706,44 +929,60 @@ export default function PropertyCreatePage() {
                         </Select>
                       </td>
                       <td className="px-2 py-2">
-                        <Input
-                          className="min-h-10 w-16"
-                          type="number"
-                          min={0}
-                          value={room.beds}
-                          onChange={(e) =>
-                            setDraft((d) => ({
-                              ...d,
-                              rooms: d.rooms.map((r, i) =>
-                                i === idx ? { ...r, beds: Number(e.target.value) || 0 } : r,
-                              ),
-                            }))
-                          }
-                        />
+                        {room.kind === 'bedroom' ? (
+                          <Input
+                            className="min-h-10 w-16"
+                            type="number"
+                            min={1}
+                            value={room.beds}
+                            aria-label={`Beds in ${room.name || 'room'}`}
+                            onChange={(e) =>
+                              setDraft((d) => ({
+                                ...d,
+                                rooms: d.rooms.map((r, i) =>
+                                  i === idx ? { ...r, beds: Math.max(1, Number(e.target.value) || 1) } : r,
+                                ),
+                              }))
+                            }
+                          />
+                        ) : (
+                          <span className="block px-2 text-ink-300" aria-hidden>
+                            —
+                          </span>
+                        )}
                       </td>
                       <td className="px-2 py-2">
-                        <Input
-                          className="min-h-10 w-16"
-                          type="number"
-                          min={0}
-                          step={0.5}
-                          value={room.baths}
-                          onChange={(e) =>
-                            setDraft((d) => ({
-                              ...d,
-                              rooms: d.rooms.map((r, i) =>
-                                i === idx ? { ...r, baths: Number(e.target.value) || 0 } : r,
-                              ),
-                            }))
-                          }
-                        />
+                        {room.kind === 'bathroom' ? (
+                          <Input
+                            className="min-h-10 w-16"
+                            type="number"
+                            min={1}
+                            step={0.5}
+                            value={room.baths}
+                            aria-label={`Baths in ${room.name || 'room'}`}
+                            onChange={(e) =>
+                              setDraft((d) => ({
+                                ...d,
+                                rooms: d.rooms.map((r, i) =>
+                                  i === idx ? { ...r, baths: Math.max(1, Number(e.target.value) || 1) } : r,
+                                ),
+                              }))
+                            }
+                          />
+                        ) : (
+                          <span className="block px-2 text-ink-300" aria-hidden>
+                            —
+                          </span>
+                        )}
                       </td>
                       <td className="px-2 py-2">
                         <Input
                           className="min-h-10 w-20"
                           type="number"
                           min={0}
+                          placeholder="Optional"
                           value={room.areaSqm}
+                          aria-label={`Size of ${room.name || 'room'} in square metres`}
                           onChange={(e) =>
                             setDraft((d) => ({
                               ...d,
@@ -798,22 +1037,6 @@ export default function PropertyCreatePage() {
           </WizardSectionCard>
         )
       case 5:
-        return (
-          <WizardSectionCard title="Photos & floor plan" description="Minimum one listing photo required.">
-            <ImageDropzone
-              label="Listing photos"
-              value={draft.images}
-              onChange={(images) => setDraft((d) => ({ ...d, images }))}
-              max={12}
-            />
-            <ImageCoverField
-              label="Floor plan (optional)"
-              value={draft.floorPlan}
-              onChange={(floorPlan) => setDraft((d) => ({ ...d, floorPlan }))}
-            />
-          </WizardSectionCard>
-        )
-      case 6:
         return (
           <WizardSectionCard title="Pricing & availability">
             <div className="grid gap-3 sm:grid-cols-2">
@@ -907,9 +1130,18 @@ export default function PropertyCreatePage() {
             </label>
           </WizardSectionCard>
         )
-      case 7:
+      case 6:
         return (
           <WizardSectionCard title="Assignment" description="Who owns and manages this listing?">
+            {!isLandlord ? (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 text-sm text-emerald-950">
+                <p className="font-semibold">Landlord is optional</p>
+                <p className="mt-1 text-emerald-900/90">
+                  Choose <strong>Agency-owned</strong> below if this is your agency’s stock — you do not need a landlord
+                  on file to save. Use <strong>People → Landlords</strong> in the sidebar to manage owners separately.
+                </p>
+              </div>
+            ) : null}
             <Input
               className="min-h-11"
               placeholder="Listing title"
@@ -917,49 +1149,80 @@ export default function PropertyCreatePage() {
               onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
               required
             />
-            <Input
-              className="min-h-11"
-              placeholder="Description"
+            <ListingDescriptionEditor
+              id="property-create-description"
               value={draft.description}
-              onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
+              onChange={(description) => setDraft((d) => ({ ...d, description }))}
             />
+            {draft.description.trim() ? (
+              <div className="rounded-xl border border-primary-100 bg-primary-50/40 p-4">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-400">Listing preview</p>
+                <ExpandableDescription text={draft.description} fadeFromClassName="from-primary-50/40" />
+              </div>
+            ) : null}
             {!isLandlord ? (
               <>
-                <Select
-                  className="min-h-11"
-                  value={draft.agencyId}
-                  disabled={Boolean(queryAgencyId)}
-                  onChange={(e) => setDraft((d) => ({ ...d, agencyId: e.target.value }))}
-                >
-                  {agencies.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
-                  ))}
-                </Select>
-                <Select
-                  className="min-h-11"
-                  value={draft.landlordId}
-                  onChange={(e) => setDraft((d) => ({ ...d, landlordId: e.target.value }))}
-                >
-                  {landlords.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name}
-                    </option>
-                  ))}
-                </Select>
-                <Select
-                  className="min-h-11"
-                  value={draft.agentId}
-                  onChange={(e) => setDraft((d) => ({ ...d, agentId: e.target.value }))}
-                >
-                  <option value="">Unassigned agent</option>
-                  {agents.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name}
-                    </option>
-                  ))}
-                </Select>
+                {isAgentCreator ? (
+                  <div className="rounded-xl border border-primary-100 bg-primary-50/50 px-4 py-3 text-sm">
+                    <p className="text-xs font-medium text-ink-500">Assigned to you</p>
+                    <p className="mt-1 font-semibold text-ink">{user.name}</p>
+                    <p className="mt-1 text-ink-500">{assignedAgencyName ?? 'Your agency'}</p>
+                  </div>
+                ) : null}
+                {showAgencyPicker ? (
+                  <div>
+                    <FormLabel className="mb-1.5">Agency</FormLabel>
+                    <Select
+                      className="min-h-11"
+                      value={draft.agencyId}
+                      onChange={(e) =>
+                        setDraft((d) => ({
+                          ...d,
+                          agencyId: e.target.value,
+                          landlordId: '',
+                          linkLandlord: false,
+                          landlordManualName: '',
+                          landlordManualEmail: '',
+                          landlordManualPhone: '',
+                          agentId: '',
+                        }))
+                      }
+                    >
+                      {agencies.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                ) : null}
+                {showLandlordPicker ? (
+                  <div>
+                    <FormLabel className="mb-1.5">Landlord</FormLabel>
+                    <LandlordPicker
+                      landlords={landlordsForAgency}
+                      value={landlordDraftFrom(draft)}
+                      onChange={patchLandlordDraft}
+                    />
+                  </div>
+                ) : null}
+                {showAgentPicker ? (
+                  <div>
+                    <FormLabel className="mb-1.5">Field agent</FormLabel>
+                    <Select
+                      className="min-h-11"
+                      value={draft.agentId}
+                      onChange={(e) => setDraft((d) => ({ ...d, agentId: e.target.value }))}
+                    >
+                      <option value="">Unassigned agent</option>
+                      {agentsForAgency.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                ) : null}
               </>
             ) : null}
             {canPublish ? (
@@ -974,13 +1237,13 @@ export default function PropertyCreatePage() {
             ) : null}
           </WizardSectionCard>
         )
-      case 8:
+      case 7:
         return (
           <WizardSectionCard title="Review & submit" description="Confirm details before creating the listing.">
             <dl className="grid gap-2 text-sm sm:grid-cols-2">
               <div>
                 <dt className="text-ink-400">Title</dt>
-                <dd className="font-medium text-ink">{draft.title || draft.unitTitle || '—'}</dd>
+                <dd className="font-medium text-ink">{draft.title || '—'}</dd>
               </div>
               <div>
                 <dt className="text-ink-400">Type</dt>
@@ -995,7 +1258,15 @@ export default function PropertyCreatePage() {
               <div>
                 <dt className="text-ink-400">Rooms</dt>
                 <dd className="font-medium text-ink">
-                  {beds} beds · {baths} baths · {draft.parking} parking
+                  {roomSummary.bedrooms} bed · {roomSummary.bathrooms} bath
+                  {roomSummary.garages > 0 ? ` · ${roomSummary.garages} garage` : ''}
+                  {draft.parking > 0 ? ` · ${draft.parking} parking` : ''}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-ink-400">Total size</dt>
+                <dd className="font-medium text-ink">
+                  {totalAreaSqm > 0 ? `${totalAreaSqm.toLocaleString()} m²` : '—'}
                 </dd>
               </div>
               <div>
@@ -1008,7 +1279,19 @@ export default function PropertyCreatePage() {
               </div>
               <div>
                 <dt className="text-ink-400">Photos</dt>
-                <dd className="font-medium text-ink">{draft.images.length} uploaded</dd>
+                <dd className="font-medium text-ink">{previewImages.length} uploaded</dd>
+              </div>
+              <div>
+                <dt className="text-ink-400">Landlord</dt>
+                <dd className="font-medium text-ink">
+                  {isLandlord
+                    ? user.name
+                    : draft.linkLandlord
+                      ? draft.landlordId
+                        ? (landlordsForAgency.find((u) => u.id === draft.landlordId)?.name ?? 'Linked landlord')
+                        : draft.landlordManualName.trim() || 'New landlord (on save)'
+                      : 'Agency-owned'}
+                </dd>
               </div>
             </dl>
           </WizardSectionCard>
@@ -1031,31 +1314,44 @@ export default function PropertyCreatePage() {
 
         <CreateWizardShell
           title={isLandlord ? 'List a property' : 'Add property'}
-          subtitle="Multi-step wizard — building, unit, rooms, and listing in one flow."
+          subtitle="Multi-step wizard — save and continue later at any time. Your progress is kept until you finish."
           steps={STEPS}
           stepIndex={stepIndex}
           maxReachableIndex={maxReachableIndex}
           onStepSelect={goTo}
           preview={
             <LiveListingPreview
-              title={draft.title || draft.unitTitle}
+              title={draft.title}
               type={draft.propertyType}
+              buildingName={draft.buildingName}
               address={draft.address}
               suburb={draft.suburb}
               city={draft.city}
-              beds={beds}
-              baths={baths}
+              beds={roomSummary.bedrooms}
+              baths={roomSummary.bathrooms}
+              garages={roomSummary.garages}
               parking={draft.parking}
+              area={totalAreaSqm}
               rent={draft.rent ? Number(draft.rent) : null}
               price={draft.price ? Number(draft.price) : null}
               listingMode={draft.listingMode}
-              coverImage={draft.images[0] ?? null}
+              images={previewImages}
+              amenities={draft.amenities}
+              description={draft.description}
+              grading={computedGrading}
+              solarCapacityKw={computedSolarKw}
+              hasBorehole={draft.hasBorehole}
+              instantBook={draft.instantBook}
+              minStayDays={draft.minStayDays ? Number(draft.minStayDays) : null}
+              depositHint={draft.depositHint}
             />
           }
           footer={
             <WizardFooter
               showBack={!isFirst}
               onBack={goBack}
+              showSaveAndContinueLater
+              onSaveAndContinueLater={handleSaveAndContinueLater}
               showContinue={!isLast}
               onContinue={handleContinue}
               showSaveDraft={isLast}
@@ -1068,6 +1364,11 @@ export default function PropertyCreatePage() {
           }
         >
           {error ? <p className="mb-4 text-sm text-accent-600">{error}</p> : null}
+          {(stepIndex > 0 || draft.draftPropertyId) && (
+            <p className="mb-4 rounded-lg border border-primary-100 bg-primary-50/60 px-3 py-2 text-sm text-ink-600">
+              Progress is saved automatically. Use <strong>Save &amp; continue later</strong> to exit and pick up where you left off.
+            </p>
+          )}
           {renderStep()}
         </CreateWizardShell>
       </div>

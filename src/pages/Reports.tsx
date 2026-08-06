@@ -9,28 +9,44 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { Download } from 'lucide-react'
+import { Download, Sparkles } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
-import { Button, Card, PageHeader, Select, cn } from '../components/ui'
 import { ResponsiveDataList } from '../components/data/ResponsiveDataList'
+import {
+  AgentOverviewCard,
+  CollectionsDonutCard,
+  OccupancyStrip,
+  OpenPipelineChart,
+  PortfolioPerformanceSummary,
+  PropertiesBySuburbChart,
+} from '../components/reports/ReportCharts'
+import {
+  ReportSectionCard,
+  ReportTabBar,
+  ReportsPageHeader,
+  firstName,
+  timeGreeting,
+} from '../components/reports/ReportShell'
+import { Button, Select, cn } from '../components/ui'
 import { formatZAR } from '../data/seed'
+import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
 import { buildReportMetrics, type ReportTab } from '../lib/reportMetrics'
 
 type Audience = 'platform' | 'agency' | 'owner'
 
 const AGENCY_TABS: Array<{ id: ReportTab; label: string }> = [
-  { id: 'overview', label: 'Agency pulse' },
+  { id: 'overview', label: 'General report' },
   { id: 'pipeline', label: 'Pipeline' },
-  { id: 'team', label: 'Team' },
+  { id: 'team', label: 'Team report' },
   { id: 'collections', label: 'Collections' },
   { id: 'operations', label: 'Operations' },
 ]
 
 const PLATFORM_TABS: Array<{ id: ReportTab; label: string }> = [
-  { id: 'overview', label: 'Overview' },
+  { id: 'overview', label: 'General report' },
   { id: 'sales', label: 'Sales / leads' },
   { id: 'occupancy', label: 'Occupancy' },
   { id: 'payments', label: 'Payments' },
@@ -39,7 +55,7 @@ const PLATFORM_TABS: Array<{ id: ReportTab; label: string }> = [
 ]
 
 const OWNER_TABS: Array<{ id: ReportTab; label: string }> = [
-  { id: 'overview', label: 'Overview' },
+  { id: 'overview', label: 'General report' },
   { id: 'occupancy', label: 'Occupancy' },
   { id: 'payments', label: 'Payments' },
 ]
@@ -57,8 +73,9 @@ function downloadCsv(filename: string, rows: string[][]) {
 
 export default function Reports() {
   const { state } = useStore()
-  const { has, role, agencyName } = useAuth()
+  const { has, role, agencyName, user } = useAuth()
   const { agencyId, scopeAgency, allowedPropertyIds, agencyWide } = usePropertyScope()
+  const reducedMotion = usePrefersReducedMotion()
   const isPlatform = has('platform.manage')
 
   const audience: Audience = isPlatform
@@ -83,19 +100,12 @@ export default function Reports() {
     )
   }, [state, isPlatform, agencyFilter, agencyId, scopeAgency, allowedPropertyIds, agencyWide])
 
-  const title =
-    audience === 'agency'
-      ? 'Agency reports'
-      : audience === 'owner'
-        ? 'Owner reports'
-        : 'Reports & analytics'
-
   const subtitle =
     audience === 'agency'
-      ? `What your office needs: pipeline, team load, collections, and ops${agencyName ? ` · ${agencyName}` : ''}.`
+      ? `Insights into portfolio performance, pipeline health, and collections${agencyName ? ` for ${agencyName}` : ''}.`
       : audience === 'owner'
         ? 'Occupancy and rent collection for your portfolio.'
-        : 'Live metrics across agencies — filter by agency or view the platform total.'
+        : 'Platform-wide metrics — filter by agency or view totals.'
 
   const exportCurrent = () => {
     if (activeTab === 'payments' || activeTab === 'collections') {
@@ -143,7 +153,6 @@ export default function Reports() {
     ])
   }
 
-  const showPulse = activeTab === 'overview' || activeTab === 'occupancy'
   const showPipeline =
     activeTab === 'overview' ||
     activeTab === 'pipeline' ||
@@ -157,15 +166,22 @@ export default function Reports() {
     activeTab === 'overview' ||
     activeTab === 'operations' ||
     activeTab === 'maintenance'
+  const showOccupancy =
+    activeTab === 'overview' || activeTab === 'occupancy'
 
   return (
     <RequirePermission permission="reports.view">
-      <div className="animate-fade-in space-y-5">
-        <PageHeader
-          title={title}
+      <div
+        className={cn(
+          'animate-fade-in space-y-6',
+          !reducedMotion && 'motion-safe:space-y-6',
+        )}
+      >
+        <ReportsPageHeader
+          greeting={`${timeGreeting()}, ${firstName(user.name)}`}
           subtitle={subtitle}
           actions={
-            <div className="flex flex-wrap gap-2">
+            <>
               {isPlatform ? (
                 <Select
                   className="min-h-11 cursor-pointer"
@@ -186,78 +202,49 @@ export default function Reports() {
                 className="min-h-11 cursor-pointer"
                 onClick={exportCurrent}
               >
-                <Download className="h-4 w-4" />
-                Export CSV
+                <Download className="h-4 w-4" strokeWidth={1.6} aria-hidden />
+                Download report
               </Button>
-            </div>
+              <Button className="min-h-11 cursor-pointer">
+                <Sparkles className="h-4 w-4" strokeWidth={1.6} aria-hidden />
+                Insights
+              </Button>
+            </>
           }
         />
 
-        <div className="flex flex-wrap gap-2">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className={cn(
-                'min-h-11 cursor-pointer rounded-2xl border px-4 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-                activeTab === t.id
-                  ? 'border-primary bg-primary text-white'
-                  : 'border-primary-100 bg-white text-ink-600 hover:border-primary-200',
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        <ReportTabBar tabs={tabs} active={activeTab} onChange={(id) => setTab(id)} />
 
-        {showPulse && audience === 'agency' && (
-          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <Kpi label="Occupancy" value={`${metrics.kpis.occupancyPct}%`} />
-            <Kpi label="Vacant units" value={String(metrics.kpis.vacantUnits)} />
-            <Kpi label="Active listings" value={String(metrics.kpis.activeListings)} />
-            <Kpi label="Team size" value={String(metrics.kpis.teamSize)} />
-            <Kpi label="Pipeline conversion" value={`${metrics.kpis.conversionPct}%`} />
-            <Kpi label="Collection rate" value={`${metrics.kpis.collectionPct}%`} />
-            <Kpi
-              label="Apps awaiting review"
-              value={String(metrics.kpis.awaitingApps)}
-              highlight={metrics.kpis.awaitingApps > 0}
-            />
-            <Kpi
-              label="High-priority tickets"
-              value={String(metrics.kpis.highPriorityTickets)}
-              highlight={metrics.kpis.highPriorityTickets > 0}
-            />
-          </section>
+        {activeTab === 'overview' ? (
+          <>
+            <div className="grid gap-5 xl:grid-cols-5">
+              <div className="xl:col-span-3">
+                <PortfolioPerformanceSummary metrics={metrics} />
+              </div>
+              <div className="xl:col-span-2">
+                <OpenPipelineChart metrics={metrics} />
+              </div>
+            </div>
+
+            <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-3">
+              {audience !== 'owner' ? <AgentOverviewCard metrics={metrics} /> : null}
+              <PropertiesBySuburbChart metrics={metrics} />
+              <CollectionsDonutCard metrics={metrics} />
+            </div>
+
+            {showOccupancy ? <OccupancyStrip metrics={metrics} /> : null}
+          </>
+        ) : null}
+
+        {activeTab !== 'overview' && showOccupancy && (
+          <OccupancyStrip metrics={metrics} />
         )}
 
-        {showPulse && audience !== 'agency' && (
-          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <Kpi label="Properties" value={String(metrics.kpis.properties)} />
-            <Kpi label="Occupancy" value={`${metrics.kpis.occupancyPct}%`} />
-            <Kpi label="Open leads" value={String(metrics.kpis.openLeads)} />
-            <Kpi label="Closed deals" value={String(metrics.kpis.closedDeals)} />
-            <Kpi label="Paid (period proxy)" value={formatZAR(metrics.kpis.paidTotal)} />
-            <Kpi label="Overdue" value={formatZAR(metrics.kpis.overdueTotal)} highlight />
-            <Kpi label="Open tickets" value={String(metrics.kpis.openTickets)} />
-            <Kpi label="Active tenancies" value={String(metrics.kpis.activeTenancies)} />
-          </section>
-        )}
-
-        {showPipeline && (
-          <div className="grid gap-6 xl:grid-cols-2">
+        {showPipeline && activeTab !== 'overview' && (
+          <div className="grid gap-5 xl:grid-cols-2">
             {audience !== 'owner' ? (
-              <Card className="p-5">
-                <h2 className="font-display text-lg font-semibold">
-                  {audience === 'agency' ? 'Leads by stage' : 'Leads by stage'}
-                </h2>
-                <p className="mt-1 text-sm text-ink-500">
-                  {audience === 'agency'
-                    ? 'Where your sales pipeline is stuck — follow up stages with the most volume.'
-                    : 'Lead distribution across stages.'}
-                </p>
-                <div className="mt-4 h-72">
+              <ReportSectionCard title="Leads by stage" subtitle="Where the pipeline is concentrated.">
+                <div className="h-72">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={metrics.leadsByStage} layout="vertical">
                       <CartesianGrid strokeDasharray="3 3" className="stroke-primary-100" />
@@ -273,19 +260,15 @@ export default function Reports() {
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
-              </Card>
+              </ReportSectionCard>
             ) : null}
 
-            <Card className={cn('p-5', audience === 'owner' && 'xl:col-span-2')}>
-              <h2 className="font-display text-lg font-semibold">
-                {audience === 'agency' ? 'Rent collected vs overdue' : 'Revenue proxy (paid payments)'}
-              </h2>
-              <p className="mt-1 text-sm text-ink-500">
-                {audience === 'agency'
-                  ? 'Month-by-month collection health for your agency.'
-                  : 'Paid vs overdue totals by month.'}
-              </p>
-              <div className="mt-4 h-72">
+            <ReportSectionCard
+              title="Rent collected vs overdue"
+              subtitle="Month-by-month collection health."
+              className={cn(audience === 'owner' && 'xl:col-span-2')}
+            >
+              <div className="h-72">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={metrics.revenueByMonth}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-primary-100" />
@@ -308,19 +291,19 @@ export default function Reports() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-            </Card>
+            </ReportSectionCard>
 
-            {audience === 'agency' && (activeTab === 'pipeline' || activeTab === 'overview') ? (
-              <Card className="p-5 xl:col-span-2">
-                <h2 className="font-display text-lg font-semibold">Viewings & applications</h2>
-                <p className="mt-1 text-sm text-ink-500">
-                  Field activity and application queue — typical daily focus for an agency office.
-                </p>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  <Kpi label="Scheduled viewings" value={String(metrics.kpis.scheduledViewings)} />
-                  <Kpi label="Completed viewings" value={String(metrics.kpis.completedViewings)} />
-                  <Kpi label="No-shows" value={String(metrics.kpis.noShowViewings)} />
-                  <Kpi
+            {audience === 'agency' && (activeTab === 'pipeline' || activeTab === 'sales') ? (
+              <ReportSectionCard
+                title="Viewings & applications"
+                subtitle="Field activity and application queue."
+                className="xl:col-span-2"
+              >
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <MiniKpi label="Scheduled viewings" value={String(metrics.kpis.scheduledViewings)} />
+                  <MiniKpi label="Completed viewings" value={String(metrics.kpis.completedViewings)} />
+                  <MiniKpi label="No-shows" value={String(metrics.kpis.noShowViewings)} />
+                  <MiniKpi
                     label="Apps awaiting"
                     value={String(metrics.kpis.awaitingApps)}
                     highlight={metrics.kpis.awaitingApps > 0}
@@ -346,10 +329,7 @@ export default function Reports() {
                   <Link className="font-semibold text-primary hover:underline" to="/workspace/sales/crm">
                     Open CRM
                   </Link>
-                  <Link
-                    className="font-semibold text-primary hover:underline"
-                    to="/workspace/sales/viewings"
-                  >
+                  <Link className="font-semibold text-primary hover:underline" to="/workspace/sales/viewings">
                     Viewings
                   </Link>
                   <Link
@@ -359,21 +339,16 @@ export default function Reports() {
                     Applications
                   </Link>
                 </div>
-              </Card>
+              </ReportSectionCard>
             ) : null}
           </div>
         )}
 
-        {showTeam && audience !== 'owner' && (
-          <Card className="p-5">
-            <h2 className="mb-1 font-display text-lg font-semibold">
-              {audience === 'agency' ? 'Team performance' : 'Agent performance'}
-            </h2>
-            <p className="mb-4 text-sm text-ink-500">
-              {audience === 'agency'
-                ? 'Closed deals, open pipeline, assigned properties, viewings, and open tickets per agent.'
-                : 'Closed deals and open leads by agent.'}
-            </p>
+        {showTeam && audience !== 'owner' && activeTab !== 'overview' && (
+          <ReportSectionCard
+            title={audience === 'agency' ? 'Team performance' : 'Agent performance'}
+            subtitle="Closed deals, pipeline, properties, viewings, and tickets per agent."
+          >
             <ResponsiveDataList
               embedded
               rows={metrics.agentRows}
@@ -425,7 +400,7 @@ export default function Reports() {
                   : []),
               ]}
               renderMobileCard={(r) => (
-                <Card className="p-4">
+                <div className="rounded-xl border border-primary-100 p-4">
                   <p className="font-semibold text-ink">{r.name}</p>
                   <dl className="mt-2 grid grid-cols-2 gap-2 text-xs">
                     <div>
@@ -436,54 +411,29 @@ export default function Reports() {
                       <dt className="text-ink-400">Open leads</dt>
                       <dd className="tabular font-semibold">{r.openLeads}</dd>
                     </div>
-                    <div>
-                      <dt className="text-ink-400">Properties</dt>
-                      <dd className="tabular font-semibold">{r.properties}</dd>
-                    </div>
-                    {audience === 'agency' ? (
-                      <>
-                        <div>
-                          <dt className="text-ink-400">Viewings</dt>
-                          <dd className="tabular font-semibold">{r.viewings}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-ink-400">Open tickets</dt>
-                          <dd className="tabular font-semibold">{r.openTickets}</dd>
-                        </div>
-                      </>
-                    ) : null}
                   </dl>
-                </Card>
+                </div>
               )}
-              empty={
-                <p className="py-6 text-center text-ink-400">No agents in scope</p>
-              }
+              empty={<p className="py-6 text-center text-ink-400">No agents in scope</p>}
             />
-          </Card>
+          </ReportSectionCard>
         )}
 
-        {showCollections && (
-          <Card className="p-5">
-            <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <h2 className="font-display text-lg font-semibold">
-                  {audience === 'agency' ? 'Arrears & due rent' : 'Outstanding payments'}
-                </h2>
-                <p className="mt-1 text-sm text-ink-500">
-                  {audience === 'agency'
-                    ? `Collection rate ${metrics.kpis.collectionPct}% · overdue ${formatZAR(metrics.kpis.overdueTotal)} · due ${formatZAR(metrics.kpis.dueTotal)}`
-                    : 'Due and overdue payment records.'}
-                </p>
-              </div>
-              {audience === 'agency' ? (
+        {showCollections && activeTab !== 'overview' && (
+          <ReportSectionCard
+            title={audience === 'agency' ? 'Arrears & due rent' : 'Outstanding payments'}
+            subtitle={`Collection rate ${metrics.kpis.collectionPct}% · overdue ${formatZAR(metrics.kpis.overdueTotal)}`}
+            action={
+              audience === 'agency' ? (
                 <Link
                   className="text-sm font-semibold text-primary hover:underline"
                   to="/workspace/operations/payments"
                 >
                   Open payments
                 </Link>
-              ) : null}
-            </div>
+              ) : null
+            }
+          >
             <ResponsiveDataList
               embedded
               minTableWidth="36rem"
@@ -524,51 +474,40 @@ export default function Reports() {
                 },
               ]}
               renderMobileCard={(p) => (
-                <Card className="p-4">
+                <div className="rounded-xl border border-primary-100 p-4">
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <p className="font-semibold text-ink">{p.partyName}</p>
-                      <p className="text-xs text-ink-500">{p.status} · due {p.dueDate}</p>
+                      <p className="text-xs text-ink-500">
+                        {p.status} · due {p.dueDate}
+                      </p>
                     </div>
                     <p className="tabular font-semibold text-ink">{formatZAR(p.amount)}</p>
                   </div>
-                  <Link
-                    className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-primary hover:underline"
-                    to={`/workspace/operations/payments/${p.id}`}
-                  >
-                    Open payment
-                  </Link>
-                </Card>
+                </div>
               )}
               empty={
                 <p className="py-6 text-center text-ink-400">No outstanding payments in scope</p>
               }
             />
-          </Card>
+          </ReportSectionCard>
         )}
 
-        {showOps && audience !== 'owner' && (
-          <Card className="p-5">
-            <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <h2 className="font-display text-lg font-semibold">
-                  {audience === 'agency' ? 'Maintenance workload' : 'Tickets by status'}
-                </h2>
-                <p className="mt-1 text-sm text-ink-500">
-                  {audience === 'agency'
-                    ? `${metrics.kpis.openTickets} open · ${metrics.kpis.highPriorityTickets} high priority`
-                    : 'Ticket distribution by status.'}
-                </p>
-              </div>
-              {audience === 'agency' ? (
+        {showOps && audience !== 'owner' && activeTab !== 'overview' && (
+          <ReportSectionCard
+            title={audience === 'agency' ? 'Maintenance workload' : 'Tickets by status'}
+            subtitle={`${metrics.kpis.openTickets} open · ${metrics.kpis.highPriorityTickets} high priority`}
+            action={
+              audience === 'agency' ? (
                 <Link
                   className="text-sm font-semibold text-primary hover:underline"
                   to="/workspace/operations/maintenance"
                 >
                   Open maintenance
                 </Link>
-              ) : null}
-            </div>
+              ) : null
+            }
+          >
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={metrics.ticketsByStatus}>
@@ -585,18 +524,31 @@ export default function Reports() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
-          </Card>
+          </ReportSectionCard>
         )}
       </div>
     </RequirePermission>
   )
 }
 
-function Kpi({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+function MiniKpi({
+  label,
+  value,
+  highlight,
+}: {
+  label: string
+  value: string
+  highlight?: boolean
+}) {
   return (
-    <Card className={cn('p-4', highlight && 'border-accent-100 bg-accent-50/40')}>
+    <div
+      className={cn(
+        'rounded-xl border border-primary-100 bg-primary-50/30 p-4',
+        highlight && 'border-accent-100 bg-accent-50/40',
+      )}
+    >
       <p className="text-xs text-ink-500">{label}</p>
-      <p className="mt-1 tabular text-2xl font-semibold text-ink">{value}</p>
-    </Card>
+      <p className="mt-1 tabular text-xl font-semibold text-ink">{value}</p>
+    </div>
   )
 }

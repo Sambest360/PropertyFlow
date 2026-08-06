@@ -1,5 +1,5 @@
 import { useMemo, useState, Fragment } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { ArrowRight, ChevronDown, UserPlus } from 'lucide-react'
 import { useStore } from '../context/AppStore'
 import { useAgencyScope, useAuth } from '../context/AuthContext'
@@ -17,6 +17,7 @@ import {
 } from '../components/directory/DirectoryToolbar'
 import { DirectoryStatGrid } from '../components/directory/DirectoryStats'
 import { DirectoryFilterSelect, directoryResultLabel } from '../components/directory/DirectoryFilters'
+import { AllAccountsDirectory } from '../components/directory/AllAccountsDirectory'
 import { Badge, Button, PageHeader, cn } from '../components/ui'
 import type { AppUser } from '../types/domain'
 
@@ -36,6 +37,86 @@ type PortfolioStaff = {
 type AttentionFilter = 'all' | 'active' | 'inactive' | 'loaded'
 
 export default function StaffDirectory() {
+  const { has } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const canViewAllAccounts = has('roles.assign')
+  const scope =
+    canViewAllAccounts && searchParams.get('scope') === 'all' ? ('all' as const) : ('staff' as const)
+
+  const setScope = (next: 'staff' | 'all') => {
+    const sp = new URLSearchParams(searchParams)
+    if (next === 'staff') {
+      sp.delete('scope')
+      sp.delete('status')
+    } else {
+      sp.set('scope', 'all')
+    }
+    setSearchParams(sp, { replace: true })
+  }
+
+  if (scope === 'all') {
+    return (
+      <RequirePermission permission="users.manage">
+        <div className="animate-fade-in space-y-5">
+          <PageHeader
+            title="Team"
+            subtitle="All accounts in your agency — staff, landlords, tenants, and contractors."
+          />
+          <PeopleScopeTabs scope={scope} onChange={setScope} showAllTab={canViewAllAccounts} />
+          <AllAccountsDirectory />
+        </div>
+      </RequirePermission>
+    )
+  }
+
+  return <StaffDirectoryView onShowAllAccounts={canViewAllAccounts ? () => setScope('all') : undefined} />
+}
+
+function PeopleScopeTabs({
+  scope,
+  onChange,
+  showAllTab,
+}: {
+  scope: 'staff' | 'all'
+  onChange: (scope: 'staff' | 'all') => void
+  showAllTab: boolean
+}) {
+  if (!showAllTab) return null
+  return (
+    <div className="flex flex-wrap gap-2" role="tablist" aria-label="People views">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={scope === 'staff'}
+        className={cn(
+          'min-h-10 cursor-pointer rounded-full border px-4 text-sm font-semibold transition',
+          scope === 'staff'
+            ? 'border-primary bg-primary-50 text-primary'
+            : 'border-primary-100 text-ink-600 hover:border-primary',
+        )}
+        onClick={() => onChange('staff')}
+      >
+        Staff
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={scope === 'all'}
+        className={cn(
+          'min-h-10 cursor-pointer rounded-full border px-4 text-sm font-semibold transition',
+          scope === 'all'
+            ? 'border-primary bg-primary-50 text-primary'
+            : 'border-primary-100 text-ink-600 hover:border-primary',
+        )}
+        onClick={() => onChange('all')}
+      >
+        All accounts
+      </button>
+    </div>
+  )
+}
+
+function StaffDirectoryView({ onShowAllAccounts }: { onShowAllAccounts?: () => void }) {
   const { state } = useStore()
   const { has } = useAuth()
   const { scopeAgency, agencyId } = useAgencyScope()
@@ -147,6 +228,10 @@ export default function StaffDirectory() {
             ) : null
           }
         />
+
+        {onShowAllAccounts ? (
+          <PeopleScopeTabs scope="staff" onChange={(next) => next === 'all' && onShowAllAccounts()} showAllTab />
+        ) : null}
 
         <DirectoryStatGrid<AttentionFilter>
           allId="all"

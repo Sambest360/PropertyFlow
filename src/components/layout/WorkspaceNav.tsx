@@ -17,7 +17,8 @@ import { BrandLogo } from './BrandLogo'
 import { cn } from '../ui'
 import {
   filterWorkspaceNav,
-  flattenNavLinks,
+  findActiveNavGroupId,
+  findActiveNavLink,
   getWorkspaceNav,
   pathMatches,
   type FlatNavItem,
@@ -202,6 +203,7 @@ function NavGroupBlock({
   onToggle,
   onNavigate,
   itemRef,
+  headerRef,
   flyoutOpen,
   onFlyoutToggle,
   reducedMotion = false,
@@ -214,6 +216,7 @@ function NavGroupBlock({
   onToggle: () => void
   onNavigate?: () => void
   itemRef?: (to: string, el: HTMLAnchorElement | null) => void
+  headerRef?: (el: HTMLButtonElement | null) => void
   flyoutOpen?: boolean
   onFlyoutToggle?: () => void
   reducedMotion?: boolean
@@ -287,6 +290,7 @@ function NavGroupBlock({
   return (
     <div>
       <button
+        ref={headerRef}
         type="button"
         aria-expanded={open}
         onClick={onToggle}
@@ -464,16 +468,12 @@ export function WorkspaceMobileNav({
 }) {
   const { pathname } = useLocation()
   const reducedMotion = usePrefersReducedMotion()
-  const [openId, setOpenId] = useState<string | null>(null)
+  const activeGroupId = useMemo(() => findActiveNavGroupId(items, pathname), [items, pathname])
+  const [openId, setOpenId] = useState<string | null>(activeGroupId)
 
   useEffect(() => {
-    const activeGroup = items.find(
-      (entry) =>
-        entry.type === 'group' &&
-        entry.group.children.some((c) => pathMatches(pathname, c.to, c.end)),
-    )
-    setOpenId(activeGroup?.type === 'group' ? activeGroup.group.id : null)
-  }, [pathname, items])
+    setOpenId(activeGroupId)
+  }, [pathname, activeGroupId])
 
   return (
     <div className="space-y-0.5">
@@ -496,7 +496,9 @@ export function WorkspaceMobileNav({
             open={openId === entry.group.id}
             reducedMotion={reducedMotion}
             onToggle={() =>
-              setOpenId((current) => (current === entry.group.id ? null : entry.group.id))
+              setOpenId((current) =>
+                current === entry.group.id ? null : entry.group.id,
+              )
             }
             onNavigate={onNavigate}
           />
@@ -524,34 +526,40 @@ export function WorkspaceSidebar({
   const navRef = useRef<HTMLElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const itemRefs = useRef<Map<string, HTMLAnchorElement>>(new Map())
+  const groupHeaderRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
   const [pill, setPill] = useState({ top: 0, height: 44, ready: false })
   const [collapsed, setCollapsed] = useNavCollapsed()
   const [openId, setOpenId] = useState<string | null>(null)
   const [flyoutId, setFlyoutId] = useState<string | null>(null)
   const rail = collapsed
-  const flatLinks = useMemo(() => flattenNavLinks(items), [items])
 
-  const activeItem = flatLinks.find((item) => pathMatches(pathname, item.to, item.end))
+  const activeGroupId = useMemo(() => findActiveNavGroupId(items, pathname), [items, pathname])
+  const activeItem = useMemo(() => findActiveNavLink(items, pathname), [items, pathname])
+  const activeChildVisible =
+    Boolean(activeGroupId && activeItem && openId === activeGroupId)
 
   useEffect(() => {
-    const activeGroup = items.find(
-      (entry) =>
-        entry.type === 'group' &&
-        entry.group.children.some((c) => pathMatches(pathname, c.to, c.end)),
-    )
-    setOpenId(activeGroup?.type === 'group' ? activeGroup.group.id : null)
+    setOpenId(activeGroupId)
     setFlyoutId(null)
-  }, [pathname, items])
+  }, [pathname, activeGroupId])
 
   const updatePill = () => {
     if (rail) {
       setPill((p) => ({ ...p, ready: false }))
       return
     }
-    const el = activeItem ? itemRefs.current.get(activeItem.to) : null
-    const list = listRef.current
+
+    let el: HTMLElement | null = null
+    if (activeChildVisible && activeItem) {
+      el = itemRefs.current.get(activeItem.to) ?? null
+    } else if (activeGroupId) {
+      el = groupHeaderRefs.current.get(activeGroupId) ?? null
+    } else if (activeItem) {
+      el = itemRefs.current.get(activeItem.to) ?? null
+    }
+
     const nav = navRef.current
-    if (!el || !list || !nav) {
+    if (!el || !nav) {
       setPill((p) => ({ ...p, ready: false }))
       return
     }
@@ -559,20 +567,20 @@ export function WorkspaceSidebar({
     const itemBox = el.getBoundingClientRect()
     setPill({
       top: itemBox.top - navBox.top,
-      height: itemBox.height,
+      height: Math.max(itemBox.height, 44),
       ready: true,
     })
   }
 
   useLayoutEffect(() => {
     updatePill()
-  }, [activeItem, pathname, collapsed, items, rail, openId])
+  }, [activeItem, activeGroupId, activeChildVisible, pathname, collapsed, items, rail, openId])
 
   useEffect(() => {
     if (rail || reducedMotion) return
     const t = window.setTimeout(updatePill, 320)
     return () => window.clearTimeout(t)
-  }, [openId, rail, reducedMotion])
+  }, [openId, rail, reducedMotion, activeChildVisible])
 
   useEffect(() => {
     const list = listRef.current
@@ -583,7 +591,7 @@ export function WorkspaceSidebar({
       list.removeEventListener('scroll', updatePill)
       window.removeEventListener('resize', updatePill)
     }
-  }, [activeItem, rail, openId])
+  }, [activeItem, activeGroupId, activeChildVisible, rail, openId])
 
   const footerClass = (isCollapsed: boolean) =>
     cn(
@@ -685,8 +693,14 @@ export function WorkspaceSidebar({
                 open={openId === entry.group.id}
                 reducedMotion={reducedMotion}
                 onToggle={() =>
-                  setOpenId((current) => (current === entry.group.id ? null : entry.group.id))
+                  setOpenId((current) =>
+                    current === entry.group.id ? null : entry.group.id,
+                  )
                 }
+                headerRef={(el) => {
+                  if (el) groupHeaderRefs.current.set(entry.group.id, el)
+                  else groupHeaderRefs.current.delete(entry.group.id)
+                }}
                 flyoutOpen={flyoutId === entry.group.id}
                 onFlyoutToggle={() =>
                   setFlyoutId((id) => (id === entry.group.id ? null : entry.group.id))
@@ -703,7 +717,7 @@ export function WorkspaceSidebar({
 
       <div
         className={cn(
-          'mt-auto shrink-0 space-y-1 py-3',
+          'relative z-20 mt-auto shrink-0 space-y-1 py-3',
           rail ? 'border-t border-white/15 px-2' : 'border-t border-primary-100/60',
         )}
       >

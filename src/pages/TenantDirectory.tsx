@@ -16,6 +16,9 @@ import {
 import { DirectoryStatGrid } from '../components/directory/DirectoryStats'
 import { DirectoryFilterSelect, directoryResultLabel } from '../components/directory/DirectoryFilters'
 import { Badge, Button, PageHeader, cn, statusTone } from '../components/ui'
+import { AgentAssigneeText } from '../components/detail/FlatFields'
+import { appendAgentMetaRow } from '../lib/agentDisplay'
+import { useAgentDisplay, useHideAgentColumn } from '../hooks/useAgentDisplay'
 import { formatZAR } from '../data/seed'
 import type { Tenancy } from '../types/domain'
 
@@ -247,6 +250,8 @@ function TenantsListView({
   onToggle: (item: PortfolioTenant) => void
   reducedMotion?: boolean
 }) {
+  const hideAgentColumn = useHideAgentColumn()
+  const colSpan = hideAgentColumn ? 5 : 6
   return (
     <>
       <div className="hidden overflow-hidden rounded-[1.25rem] border border-primary-100/80 bg-white shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)] md:block">
@@ -258,7 +263,7 @@ function TenantsListView({
                 <th className="px-4 py-3 font-semibold">Tenant</th>
                 <th className="px-3 py-3 font-semibold">Property</th>
                 <th className="px-3 py-3 font-semibold">Status</th>
-                <th className="px-3 py-3 font-semibold">Agent</th>
+                {!hideAgentColumn ? <th className="px-3 py-3 font-semibold">Agent</th> : null}
                 <th className="px-4 py-3 font-semibold text-right">Rent</th>
               </tr>
             </thead>
@@ -341,15 +346,20 @@ function TenantsListView({
                           <Badge tone={statusTone(item.tenancy.status)}>{item.tenancy.status}</Badge>
                         </button>
                       </td>
-                      <td className="px-3 py-3">
-                        <button
-                          type="button"
-                          onClick={() => onToggle(item)}
-                          className="w-full min-h-11 cursor-pointer truncate text-left text-ink-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                        >
-                          {item.agentName ?? 'Unassigned'}
-                        </button>
-                      </td>
+                      {!hideAgentColumn ? (
+                        <td className="px-3 py-3">
+                          <button
+                            type="button"
+                            onClick={() => onToggle(item)}
+                            className="w-full min-h-11 cursor-pointer truncate text-left text-ink-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                          >
+                            <AgentAssigneeText
+                              agentId={item.tenancy.agentId}
+                              agentName={item.agentName}
+                            />
+                          </button>
+                        </td>
+                      ) : null}
                       <td className="px-4 py-3 text-right">
                         <button
                           type="button"
@@ -362,7 +372,7 @@ function TenantsListView({
                     </tr>
                     {expanded && (
                       <tr className="border-b border-primary-100 bg-primary-50/60">
-                        <td colSpan={6} className="px-4 py-4 sm:px-5">
+                        <td colSpan={colSpan} className="px-4 py-4 sm:px-5">
                           <TenantExpansion item={item} reducedMotion={reducedMotion} />
                         </td>
                       </tr>
@@ -442,16 +452,21 @@ function TenantExpansion({
         u.email.toLowerCase() === t.tenantEmail.toLowerCase(),
     )
   const detailTo = `/workspace/people/tenants/${encodeURIComponent(t.id)}`
-  const metaRows: Array<{ label: string; value: string }> = [
-    { label: 'Email', value: t.tenantEmail },
-    { label: 'Property', value: item.propertyTitle },
-    { label: 'Area', value: item.propertyArea },
-    { label: 'Status', value: t.status },
-    { label: 'Rent', value: `${formatZAR(t.rent)}/mo` },
-    { label: 'Start', value: t.startDate },
-    { label: 'End', value: t.endDate || '—' },
-    { label: 'Agent', value: item.agentName ?? 'Unassigned' },
-  ]
+  const { viewerId } = useAgentDisplay()
+  const metaRows: Array<{ label: string; value: string }> = appendAgentMetaRow(
+    [
+      { label: 'Email', value: t.tenantEmail },
+      { label: 'Property', value: item.propertyTitle },
+      { label: 'Area', value: item.propertyArea },
+      { label: 'Status', value: t.status },
+      { label: 'Rent', value: `${formatZAR(t.rent)}/mo` },
+      { label: 'Start', value: t.startDate },
+      { label: 'End', value: t.endDate || '—' },
+    ],
+    viewerId,
+    t.agentId,
+    item.agentName,
+  )
 
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">

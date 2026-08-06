@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
 import { useAgencyScope, useAuth } from '../../context/AuthContext'
+import { useSeenOpsItems } from '../../hooks/useSeenOpsItems'
 import { priorityTone, statusTone } from '../../components/ui'
 import { OpsPreviewModal, type PreviewTarget } from '../../components/admin/OpsPreviewModal'
 import {
@@ -38,6 +39,15 @@ import {
   type CalendarMarker,
   type OpsListItemData,
 } from '../../components/dashboard'
+import {
+  buildCalendarMarkers,
+  buildMaintenanceCalendarEvents,
+  buildViewingBookingCalendarEvents,
+  buildViewingSlotCalendarEvents,
+  calendarEventAction,
+  mergeCalendarEvents,
+  type CalendarEvent,
+} from '../../lib/calendarEvents'
 
 type DashTab = 'overview' | 'properties' | 'maintenance' | 'viewings' | 'applications'
 type ListFilter = 'all' | 'attention' | 'high' | 'scheduled' | 'awaiting' | 'listed'
@@ -47,13 +57,6 @@ type OpsItem =
   | { kind: 'ticket'; id: string; title: string; meta: string; status: string; date: string; propertyId: string; photos: number; agentIds: string[]; priority: string }
   | { kind: 'application'; id: string; title: string; meta: string; status: string; date: string; propertyId: string; photos: number; agentIds: string[] }
   | { kind: 'property'; id: string; title: string; meta: string; status: string; date: string; propertyId: string; photos: number; agentIds: string[] }
-
-const KIND_LABEL: Record<OpsItem['kind'], string> = {
-  viewing: 'Viewing',
-  ticket: 'Maintenance',
-  application: 'Application',
-  property: 'Property',
-}
 
 const FILTERS: { id: ListFilter; label: string; tabs?: DashTab[] }[] = [
   { id: 'all', label: 'All items' },
@@ -83,17 +86,11 @@ function toListItem(
   }
 }
 
-function requestByLabel(item: OpsItem) {
-  if (item.kind === 'application') return item.title
-  if (item.kind === 'viewing') return item.meta.split('·')[0]?.trim() ?? '—'
-  if (item.kind === 'property') return item.meta
-  return item.meta.split('·').pop()?.trim() ?? '—'
-}
-
 export function AgencyDashboard() {
   const { state } = useStore()
   const { scopeAgency } = useAgencyScope()
-  const { has, role } = useAuth()
+  const { has, role, user } = useAuth()
+  const { isSeen, markSeen } = useSeenOpsItems(user.id)
 
   const canProperties = has('assets.view') || has('listings.publish')
   const canMaintenance = has('maintenance.view')
@@ -124,7 +121,7 @@ export function AgencyDashboard() {
   const [listFilter, setListFilter] = useState<ListFilter>('all')
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [preview, setPreview] = useState<PreviewTarget | null>(null)
-  const [selectedDay, setSelectedDay] = useState(() => new Date(2026, 6, 23))
+  const [selectedDay, setSelectedDay] = useState(() => new Date())
   const [calendarOpen, setCalendarOpen] = useState(true)
 
   const properties = useMemo(
@@ -150,6 +147,11 @@ export function AgencyDashboard() {
     () =>
       canViewings ? state.viewings.filter((v) => scopeAgency(v.agencyId)) : [],
     [state.viewings, scopeAgency, canViewings],
+  )
+  const viewingSlots = useMemo(
+    () =>
+      canViewings ? state.viewingSlots.filter((s) => scopeAgency(s.agencyId)) : [],
+    [state.viewingSlots, scopeAgency, canViewings],
   )
   const users = state.users
 
@@ -476,17 +478,14 @@ export function AgencyDashboard() {
   const availableFilters = FILTERS.filter((f) => !f.tabs || f.tabs.includes(tab))
 
   const activeItem = useMemo(() => {
-    if (selectedKey) {
-      const parsed = parseListId(selectedKey)
-      if (parsed) {
-        const found = opsItems.find((i) => i.kind === parsed.kind && i.id === parsed.id)
-        if (found) return found
-      }
-    }
-    return opsItems[0] ?? null
+    if (!selectedKey) return null
+    const parsed = parseListId(selectedKey)
+    if (!parsed) return null
+    return opsItems.find((i) => i.kind === parsed.kind && i.id === parsed.id) ?? null
   }, [opsItems, selectedKey])
 
   const openPreview = (item: OpsItem) => {
+    markSeen(listKey(item.kind, item.id))
     setSelectedKey(listKey(item.kind, item.id))
     const prop = properties.find((p) => p.id === item.propertyId)
     if (item.kind === 'ticket') {
@@ -506,58 +505,30 @@ export function AgencyDashboard() {
     setCalendarOpen(true)
   }
 
-  const calendarMarkers: CalendarMarker[] = useMemo(() => {
-    const markers: CalendarMarker[] = []
-    for (const v of viewings) {
-      markers.push({ date: v.date, tone: toMarkerTone(statusTone(v.status)) })
-    }
-    for (const t of openTickets) {
-      markers.push({ date: t.openedAt, tone: toMarkerTone(priorityTone(t.priority)) })
-    }
-    for (const a of awaitingApps) {
-      markers.push({
-        date: a.updatedAt.slice(0, 10),
-        tone: toMarkerTone(statusTone(a.stage)),
-      })
-    }
-    return markers
-  }, [viewings, openTickets, awaitingApps])
-
   const dayKey = dateKey(selectedDay)
 
-  const calendarEvents = useMemo(() => {
-    const events: OpsItem[] = []
-    for (const v of viewings) {
-      const prop = properties.find((p) => p.id === v.propertyId)
-      events.push({
-        kind: 'viewing',
-        id: v.id,
-        title: `Viewing · ${v.time}`,
-        meta: `${v.applicantName} · ${prop?.title ?? 'Property'}`,
-        status: v.status,
-        date: v.date,
-        propertyId: v.propertyId,
-        photos: 0,
-        agentIds: v.agentId ? [v.agentId] : [],
-      })
-    }
-    for (const t of openTickets) {
-      const prop = properties.find((p) => p.id === t.propertyId)
-      events.push({
-        kind: 'ticket',
-        id: t.id,
-        title: t.title,
-        meta: `${prop?.title ?? t.assetLabel} · ${t.reportedBy}`,
-        status: t.status,
-        date: t.openedAt,
-        propertyId: t.propertyId,
-        photos: t.photos,
-        agentIds: t.assignedAgentId ? [t.assignedAgentId] : [],
-        priority: t.priority,
-      })
-    }
-    return events.sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title))
-  }, [viewings, openTickets, properties])
+  const calendarEvents: CalendarEvent[] = useMemo(
+    () =>
+      mergeCalendarEvents(
+        buildViewingBookingCalendarEvents(viewings.filter((v) => v.status === 'Scheduled'), properties),
+        buildViewingSlotCalendarEvents(
+          viewingSlots.filter((s) => s.status === 'Open' || s.status === 'Full'),
+          properties,
+        ),
+        buildMaintenanceCalendarEvents(openTickets, properties),
+      ),
+    [viewings, viewingSlots, openTickets, properties],
+  )
+
+  const calendarMarkers: CalendarMarker[] = useMemo(
+    () =>
+      buildCalendarMarkers(calendarEvents, (event) =>
+        event.kind === 'ticket'
+          ? toMarkerTone(priorityTone((event.priority ?? 'Medium') as never))
+          : toMarkerTone(statusTone(event.status as never)),
+      ),
+    [calendarEvents],
+  )
 
   const dayEvents = useMemo(
     () => calendarEvents.filter((e) => e.date === dayKey),
@@ -575,6 +546,11 @@ export function AgencyDashboard() {
   const focusProperty = focusEvent
     ? properties.find((p) => p.id === focusEvent.propertyId)
     : undefined
+  const focusAction =
+    calendarEventAction(focusEvent) ??
+    (focusProperty
+      ? { label: 'Open property', to: `/workspace/properties/${focusProperty.id}` }
+      : { label: 'View schedule', to: `/workspace/sales/viewings?date=${dayKey}` })
 
   const CtaIcon =
     hero?.kind === 'issue'
@@ -585,7 +561,14 @@ export function AgencyDashboard() {
           ? ClipboardList
           : ArrowRight
 
-  const listItems = opsItems.map((item) => toListItem(item, users))
+  const listItems = useMemo(
+    () =>
+      opsItems.map((item) => {
+        const id = listKey(item.kind, item.id)
+        return { ...toListItem(item, users), unread: !isSeen(id) }
+      }),
+    [opsItems, users, isSeen],
+  )
 
   return (
     <DashboardPage>
@@ -708,34 +691,45 @@ export function AgencyDashboard() {
                   onSelect={setSelectedDay}
                   markers={calendarMarkers}
                   months={2}
+                  layout="stack"
                   onClose={() => setCalendarOpen(false)}
                   dayViewTo={`/workspace/sales/viewings?date=${dayKey}`}
-                  className="h-full rounded-none border-0 shadow-none"
+                  className="rounded-none border-0 shadow-none"
                 />
               </DashboardCalendarShell>
             </CalendarToggle>
 
             <OpsDetailPanel
               className="flex min-h-0 flex-1 flex-col"
-              eyebrow={focusEvent ? KIND_LABEL[focusEvent.kind] : 'Day events'}
+              eyebrow={
+                focusEvent
+                  ? focusEvent.kind === 'viewing_slot'
+                    ? 'Open slot'
+                    : focusEvent.kind === 'viewing'
+                      ? 'Viewing'
+                      : 'Maintenance'
+                  : 'Day events'
+              }
               title={focusEvent?.title ?? 'No events this day'}
               subtitle={
                 focusProperty
                   ? `${focusProperty.address} · ${focusProperty.suburb}`
                   : focusEvent?.meta
               }
-              action={
-                focusProperty
-                  ? { label: 'Edit Profile', to: `/workspace/properties/${focusProperty.id}` }
-                  : undefined
+              action={focusAction}
+              requestBy={
+                focusEvent?.kind === 'viewing'
+                  ? focusEvent.meta.split('·')[0]?.trim()
+                  : focusEvent?.kind === 'ticket'
+                    ? focusEvent.meta.split('·').pop()?.trim()
+                    : undefined
               }
-              requestBy={focusEvent ? requestByLabel(focusEvent) : undefined}
-              status={focusEvent?.status}
+              status={focusEvent?.kind === 'ticket' ? focusEvent.priority : focusEvent?.status}
               statusTone={
                 focusEvent
                   ? focusEvent.kind === 'ticket'
-                    ? priorityTone(focusEvent.priority)
-                    : statusTone(focusEvent.status)
+                    ? priorityTone((focusEvent.priority ?? 'Medium') as never)
+                    : statusTone(focusEvent.status as never)
                   : undefined
               }
               chips={quickLinks.length > 0 ? <QuickLinkChips items={quickLinks} /> : undefined}

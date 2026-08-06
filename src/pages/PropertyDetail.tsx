@@ -7,6 +7,7 @@ import { Card } from '../components/ui'
 import { STAGE_PROGRESS } from '../lib/workflow'
 import { PropertyDetailHeader } from '../components/property-detail/PropertyDetailHeader'
 import { PropertyOverviewPanel } from '../components/property-detail/PropertyOverviewPanel'
+import { PropertyMapPanel } from '../components/property-detail/PropertyMapPanel'
 import { PropertyFloorPlanPanel } from '../components/property-detail/PropertyFloorPlanPanel'
 import { PropertyInventoryPanel } from '../components/property-detail/PropertyInventoryPanel'
 import { PropertyApplicantsPanel } from '../components/property-detail/PropertyApplicantsPanel'
@@ -194,6 +195,7 @@ export default function PropertyDetail() {
 
   const tabs = [
     { id: 'overview', label: 'Overview' },
+    { id: 'map', label: 'Map' },
     { id: 'floorplan', label: 'Floor plan', count: rooms.length },
     { id: 'inventory', label: 'Inventory', count: assets.length },
     { id: 'applicants', label: 'Applicants', count: waitingApps },
@@ -245,6 +247,8 @@ export default function PropertyDetail() {
           }}
         />
       )}
+
+      {tab === 'map' && <PropertyMapPanel property={p} />}
 
       {tab === 'floorplan' && (
         <PropertyFloorPlanPanel

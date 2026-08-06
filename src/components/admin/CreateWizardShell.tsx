@@ -64,7 +64,7 @@ export function CreateWizardShell({
       className={cn(
         'grid gap-6',
         preview
-          ? 'lg:grid-cols-[minmax(14rem,18rem)_minmax(0,1fr)] xl:grid-cols-[minmax(14rem,18rem)_minmax(0,1fr)_minmax(16rem,20rem)] lg:gap-8'
+          ? 'lg:grid-cols-[minmax(14rem,18rem)_minmax(0,1fr)_minmax(16rem,20rem)] lg:gap-8'
           : 'lg:grid-cols-[minmax(14rem,18rem)_minmax(0,1fr)] lg:gap-8',
       )}
     >
@@ -158,6 +158,12 @@ export function CreateWizardShell({
             {footer}
           </div>
         </div>
+
+        {preview ? (
+          <div className="lg:hidden" data-tip-target="wizard-preview-mobile">
+            {preview}
+          </div>
+        ) : null}
       </div>
 
       <StickyMobileActionBar aboveBottomNav className="lg:hidden">
@@ -165,7 +171,7 @@ export function CreateWizardShell({
       </StickyMobileActionBar>
 
       {preview ? (
-        <aside className="hidden xl:block" data-tip-target="wizard-preview">
+        <aside className="hidden lg:block" data-tip-target="wizard-preview">
           <div className="sticky top-20">{preview}</div>
         </aside>
       ) : null}

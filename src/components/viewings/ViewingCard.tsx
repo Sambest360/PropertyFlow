@@ -2,11 +2,14 @@ import { Link } from 'react-router-dom'
 import { Building2, CalendarDays, ChevronDown, MapPin } from 'lucide-react'
 import type { Viewing } from '../../types/domain'
 import { Badge, cn, statusTone } from '../ui'
+import { AgentAssigneeText } from '../detail/FlatFields'
+import { useHideAgentColumn } from '../../hooks/useAgentDisplay'
 import { ViewingExpansion } from './ViewingsListView'
 import {
   viewingPrimaryLabel,
   viewingStatus,
   viewingWhenLabel,
+  viewingAgentId,
   type PortfolioViewing,
 } from './types'
 
@@ -28,6 +31,7 @@ export function ViewingCard({
   reducedMotion?: boolean
 }) {
   const p = item.property
+  const hideAgent = useHideAgentColumn()
   return (
     <article
       className={cn(
@@ -65,7 +69,14 @@ export function ViewingCard({
               {viewingWhenLabel(item)}
             </p>
             <p className="mt-1 text-sm font-medium text-ink-600">{viewingPrimaryLabel(item)}</p>
-            <p className="mt-1 text-xs text-ink-500">{item.agentName ?? 'Unassigned'}</p>
+            {!hideAgent ? (
+              <p className="mt-1 text-xs text-ink-500">
+                <AgentAssigneeText
+                  agentId={viewingAgentId(item)}
+                  agentName={item.agentName}
+                />
+              </p>
+            ) : null}
           </div>
           <ChevronDown
             className={cn(

@@ -306,10 +306,7 @@ export function patchApplicationStatus(params: {
         now,
       }),
       actions: buildApplicationActions({
-        applicationId: nextApp.id,
-        stage: nextApp.stage,
-        creditCheck: nextApp.creditCheck,
-        creditConsent: nextApp.creditConsent,
+        application: nextApp,
         actor,
       }),
       building: building ? buildBuildingContext(building, unit?.amenities ?? property?.amenities ?? []) : null,
@@ -538,10 +535,7 @@ export function patchApplicationStatus(params: {
       now,
     }),
     actions: buildApplicationActions({
-      applicationId: nextApp.id,
-      stage: nextApp.stage,
-      creditCheck: nextApp.creditCheck,
-      creditConsent: nextApp.creditConsent,
+      application: nextApp,
       actor,
     }),
     building: buildingCtx,

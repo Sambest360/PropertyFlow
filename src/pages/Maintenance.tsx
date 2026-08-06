@@ -12,7 +12,6 @@ import type { MaintenanceTicket } from '../types/domain'
 import type { TicketCompletionFields } from '../lib/maintenanceApi'
 import { Button, Card, PageHeader } from '../components/ui'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
-import { isVerificationApproved } from '../lib/verification'
 import { MaintenanceToolbar } from '../components/maintenance/MaintenanceToolbar'
 import { MaintenanceListView } from '../components/maintenance/MaintenanceListView'
 import { MaintenancePortfolioCard } from '../components/maintenance/MaintenancePortfolioCard'
@@ -20,7 +19,7 @@ import {
   MaintenanceBoardView,
   type BoardColumnKey,
 } from '../components/maintenance/MaintenanceBoardView'
-import { CreateTicketModal } from '../components/maintenance/CreateTicketModal'
+import { CreateTicketModal, type CreateTicketInput } from '../components/maintenance/CreateTicketModal'
 import { CompleteTicketModal } from '../components/maintenance/CompleteTicketModal'
 import {
   isOpenStatus,
@@ -35,6 +34,7 @@ import {
   type SortKey,
 } from '../components/maintenance/types'
 import { readReturnTo } from '../lib/returnTo'
+import { listApprovedContractors } from '../lib/contractors'
 
 const ICON_STROKE = 1.6
 
@@ -56,6 +56,8 @@ export default function Maintenance() {
     updateTicket,
     runEmergencyEscalations,
     addPropertyEvent,
+    assignContractorToTicket,
+    updateMaintenanceTicketDetails,
   } = useStore()
   const { user, has, agencyId } = useAuth()
   const { allowedPropertyIds, ticketVisible, canMutate } = usePropertyScope()
@@ -68,6 +70,7 @@ export default function Maintenance() {
   const [q, setQ] = useState('')
   const [priority, setPriority] = useState<PriorityFilter>('all')
   const [propertyId, setPropertyId] = useState(() => searchParams.get('property') || 'all')
+  const [contractorFilter, setContractorFilter] = useState(() => searchParams.get('contractor') || 'all')
   const [attention, setAttention] = useState<AttentionFilter>('all')
   const [sort, setSort] = useState<SortKey>('priority')
   const [view, setView] = useState<MaintenanceViewMode>(() => readStoredView())
@@ -92,6 +95,8 @@ export default function Maintenance() {
     const prop = searchParams.get('property')
     const ticket = searchParams.get('ticket')
     if (prop) setPropertyId(prop)
+    const contractor = searchParams.get('contractor')
+    if (contractor) setContractorFilter(contractor)
     if (ticket) {
       navigate(`/workspace/operations/maintenance/${encodeURIComponent(ticket)}`, {
         replace: true,
@@ -127,15 +132,8 @@ export default function Maintenance() {
   )
 
   const contractors = useMemo(
-    () =>
-      state.users.filter(
-        (u) =>
-          u.role === 'contractor' &&
-          u.active &&
-          isVerificationApproved(u.verification, u.role) &&
-          (has('platform.manage') || u.agencyId === agencyId),
-      ),
-    [state.users, has, agencyId],
+    () => listApprovedContractors(state.agencyContractors, state.users, agencyId),
+    [state.agencyContractors, state.users, agencyId],
   )
 
   const categories = useMemo(
@@ -187,6 +185,7 @@ export default function Maintenance() {
       const t = item.ticket
       if (priority !== 'all' && t.priority !== priority) return false
       if (propertyId !== 'all' && t.propertyId !== propertyId) return false
+      if (contractorFilter !== 'all' && t.contractorId !== contractorFilter) return false
 
       if (attention === 'open' && !isOpenStatus(t.status)) return false
       if (attention === 'emergency' && t.priority !== 'Emergency') return false
@@ -215,12 +214,13 @@ export default function Maintenance() {
     })
 
     return rows
-  }, [portfolio, q, priority, propertyId, attention, sort])
+  }, [portfolio, q, priority, propertyId, contractorFilter, attention, sort])
 
   const filtersActive =
     Boolean(q.trim()) ||
     priority !== 'all' ||
     propertyId !== 'all' ||
+    contractorFilter !== 'all' ||
     attention !== 'all'
 
   const clearFilters = () => {
@@ -272,6 +272,7 @@ export default function Maintenance() {
   const submitCompletion = (fields: TicketCompletionFields): string | null => {
     if (!completeId) return 'No maintenance selected.'
     const prev = state.tickets.find((t) => t.id === completeId)
+    const photoCount = fields.completionPhotoUrls?.length ?? fields.photos
     const result = patchMaintenanceTicket({
       actorUserId: user.id,
       ticketId: completeId,
@@ -280,11 +281,15 @@ export default function Maintenance() {
         actual_cost: fields.cost,
         resolution_notes: fields.workNotes.trim(),
         contractor_id: fields.contractorId,
-        photos: fields.photos,
+        photos: photoCount,
         internal_asset_condition: fields.condition,
       },
     })
     if (result.status === 'ERROR') return result.error
+    if (prev && fields.completionPhotoUrls?.length) {
+      const merged = [...(prev.photoUrls ?? []), ...fields.completionPhotoUrls]
+      updateMaintenanceTicketDetails(completeId, { photoUrls: merged, photos: merged.length })
+    }
     if (prev) {
       addPropertyEvent({
         agencyId: prev.agencyId,
@@ -307,14 +312,7 @@ export default function Maintenance() {
     return null
   }
 
-  const onCreate = (input: {
-    propertyId: string
-    title: string
-    description: string
-    priority: MaintenanceTicket['priority']
-    categoryKey: string
-    assetId: string | null
-  }) => {
+  const onCreate = (input: CreateTicketInput) => {
     const prop = properties.find((p) => p.id === input.propertyId)
     if (!prop?.unitId) return 'Property has no linked unit.'
     if (!canMutate(input.propertyId)) return 'Property is outside your assigned book.'
@@ -334,20 +332,47 @@ export default function Maintenance() {
       },
     })
     if (result.status === 'ERROR') return result.error
+
+    const ticketId = result.ticket_id
+    const selectedAsset = input.assetId
+      ? state.internalAssets.find((a) => a.id === input.assetId)
+      : undefined
+    updateMaintenanceTicketDetails(ticketId, {
+      locationDetail: input.locationDetail,
+      accessNotes: input.accessNotes,
+      preferredSchedule: input.preferredSchedule,
+      issueTags: input.issueTags,
+      photoUrls: input.photoUrls,
+      photos: input.photoUrls?.length ?? 0,
+      estimatedCost: input.estimatedCost ?? null,
+      assetLabel: selectedAsset?.itemName,
+    })
+
+    if (input.contractorId) {
+      const assigned = assignContractorToTicket({
+        ticketId,
+        contractorUserId: input.contractorId,
+        actorUserId: user.id,
+      })
+      if (!assigned) {
+        return 'Maintenance was created, but the contractor is not on the approved roster.'
+      }
+    }
+
     if (returnTo) {
       void alert.success({
         title: 'Maintenance logged',
-        text: `"${input.title}" was created.`,
+        text: `"${input.title}" was created${input.contractorId ? ' and the contractor was notified.' : '.'}`,
       })
       navigate(returnTo)
       return null
     }
-    setFlash(`Maintenance ${result.ticket_id} created`)
+    setFlash(`Maintenance ${ticketId} created`)
     void alert.success({
       title: 'Maintenance logged',
-      text: `"${input.title}" was created.`,
+      text: `"${input.title}" was created${input.contractorId ? ' and the contractor was notified.' : '.'}`,
     })
-    navigate(`/workspace/operations/maintenance/${encodeURIComponent(result.ticket_id)}`)
+    navigate(`/workspace/operations/maintenance/${encodeURIComponent(ticketId)}`)
     return null
   }
 
@@ -480,6 +505,7 @@ export default function Maintenance() {
         ticket={completeTicket?.ticket ?? null}
         propertyTitle={completeTicket?.property.title}
         contractors={contractors}
+        agencyId={agencyId}
         defaultCondition={
           (completeTicket?.assetHealth.condition as AssetCondition | null | undefined) ?? 'Good'
         }
@@ -493,6 +519,7 @@ export default function Maintenance() {
         properties={properties}
         assets={state.internalAssets}
         categories={categories}
+        agencyId={agencyId}
         onCreate={onCreate}
       />
     </div>

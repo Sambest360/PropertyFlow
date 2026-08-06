@@ -20,7 +20,15 @@ import {
 } from '../components/directory/DirectoryToolbar'
 import { DirectoryStatCard } from '../components/directory/DirectoryStats'
 import { Badge, Button, PageHeader, Select, cn, statusTone } from '../components/ui'
+import { AgentAssigneeText } from '../components/detail/FlatFields'
+import { appendAgentMetaRow } from '../lib/agentDisplay'
+import { useAgentDisplay, useHideAgentColumn } from '../hooks/useAgentDisplay'
 import { formatZAR } from '../data/seed'
+import {
+  formatLeadTime,
+  isClosedLeadStage,
+  isOpenLeadStage,
+} from '../lib/leadLifecycle'
 import type { Lead } from '../types/domain'
 import { useLookupOptions } from '../hooks/useLookupOptions'
 
@@ -50,6 +58,7 @@ type PortfolioLead = {
 }
 
 type AttentionFilter = 'all' | 'new' | 'active' | 'closing'
+type LeadTab = 'active' | 'history'
 
 function boardStageFor(stage: string) {
   if (['Credit Check', 'Documents Verified', 'Approved'].includes(stage)) return 'Credit Check'
@@ -89,8 +98,12 @@ export default function CRM() {
   const [type, setType] = useState('all')
   const [channel, setChannel] = useState('all')
   const [attention, setAttention] = useState<AttentionFilter>('all')
-  const [sort, setSort] = useState('updated')
+  const [leadTab, setLeadTab] = useState<LeadTab>(() =>
+    searchParams.get('tab') === 'history' ? 'history' : 'active',
+  )
+  const [sort, setSort] = useState('created')
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const hideAgentColumn = useHideAgentColumn()
 
   const leadStageOptions = useLookupOptions('LEAD_STAGE', agencyId)
   const leadStages = useMemo(() => {
@@ -112,6 +125,11 @@ export default function CRM() {
     if (v === 'list' || v === 'cards' || v === 'board') setView(v)
   }, [searchParams])
 
+  useEffect(() => {
+    if (searchParams.get('tab') === 'history') setLeadTab('history')
+    else if (searchParams.get('tab') === 'active') setLeadTab('active')
+  }, [searchParams])
+
   const setViewPersist = (next: LeadView) => {
     setView(next)
     try {
@@ -122,6 +140,16 @@ export default function CRM() {
     const params = new URLSearchParams(searchParams)
     if (next === 'board') params.set('view', 'board')
     else params.delete('view')
+    setSearchParams(params, { replace: true })
+  }
+
+  const setLeadTabPersist = (tab: LeadTab) => {
+    setLeadTab(tab)
+    setExpandedId(null)
+    if (tab === 'history' && view === 'board') setViewPersist('list')
+    const params = new URLSearchParams(searchParams)
+    if (tab === 'history') params.set('tab', 'history')
+    else params.delete('tab')
     setSearchParams(params, { replace: true })
   }
 
@@ -147,22 +175,36 @@ export default function CRM() {
   }, [portfolio])
 
   const counts = useMemo(() => {
-    const neu = portfolio.filter((p) => p.lead.stage === 'New Lead').length
-    const active = portfolio.filter((p) => isActiveStage(p.lead.stage)).length
-    const closing = portfolio.filter((p) => isClosingStage(p.lead.stage)).length
-    return { neu, active, closing, total: portfolio.length }
+    const open = portfolio.filter((p) => isOpenLeadStage(p.lead.stage))
+    const closed = portfolio.filter((p) => isClosedLeadStage(p.lead.stage))
+    const neu = open.filter((p) => p.lead.stage === 'New Lead').length
+    const active = open.filter((p) => isActiveStage(p.lead.stage)).length
+    const closing = open.filter((p) => isClosingStage(p.lead.stage)).length
+    return {
+      neu,
+      active,
+      closing,
+      open: open.length,
+      closed: closed.length,
+      total: portfolio.length,
+    }
   }, [portfolio])
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
     let rows = portfolio.filter((item) => {
       const l = item.lead
+      const inTab =
+        leadTab === 'active' ? isOpenLeadStage(l.stage) : isClosedLeadStage(l.stage)
+      if (!inTab) return false
       if (stage !== 'all' && l.stage !== stage) return false
       if (type !== 'all' && l.type !== type) return false
       if (channel !== 'all' && l.channel !== channel) return false
-      if (attention === 'new' && l.stage !== 'New Lead') return false
-      if (attention === 'active' && !isActiveStage(l.stage)) return false
-      if (attention === 'closing' && !isClosingStage(l.stage)) return false
+      if (leadTab === 'active') {
+        if (attention === 'new' && l.stage !== 'New Lead') return false
+        if (attention === 'active' && !isActiveStage(l.stage)) return false
+        if (attention === 'closing' && !isClosingStage(l.stage)) return false
+      }
       if (!needle) return true
       const hay = [l.name, l.email, l.phone, l.id, item.propertyTitle, item.agentName, l.channel, l.stage]
         .filter(Boolean)
@@ -174,10 +216,11 @@ export default function CRM() {
       if (sort === 'name') return a.lead.name.localeCompare(b.lead.name)
       if (sort === 'value') return b.lead.value - a.lead.value
       if (sort === 'stage') return a.lead.stage.localeCompare(b.lead.stage)
-      return b.lead.updatedAt.localeCompare(a.lead.updatedAt)
+      if (sort === 'updated') return b.lead.updatedAt.localeCompare(a.lead.updatedAt)
+      return b.lead.createdAt.localeCompare(a.lead.createdAt)
     })
     return rows
-  }, [portfolio, q, stage, type, channel, attention, sort])
+  }, [portfolio, q, stage, type, channel, attention, sort, leadTab])
 
   const filtersActive =
     Boolean(q.trim()) || stage !== 'all' || type !== 'all' || channel !== 'all' || attention !== 'all'
@@ -217,9 +260,9 @@ export default function CRM() {
   }
 
   const resultLabel =
-    filtered.length === portfolio.length
+    filtered.length === (leadTab === 'active' ? counts.open : counts.closed)
       ? `${filtered.length} ${filtered.length === 1 ? 'lead' : 'leads'}`
-      : `${filtered.length} of ${portfolio.length} leads`
+      : `${filtered.length} of ${leadTab === 'active' ? counts.open : counts.closed} leads`
 
   return (
     <RequirePermission permission="leads.view">
@@ -237,35 +280,54 @@ export default function CRM() {
           }
         />
 
-        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <DirectoryStatCard
-            label="All"
-            value={counts.total}
-            hint="Leads in scope"
-            active={attention === 'all'}
-            onClick={() => setAttention('all')}
+            label="Active"
+            value={counts.open}
+            hint="Open enquiries"
+            active={leadTab === 'active' && attention === 'all'}
+            onClick={() => {
+              setLeadTabPersist('active')
+              setAttention('all')
+            }}
           />
           <DirectoryStatCard
             label="New"
             value={counts.neu}
             hint="Awaiting first contact"
-            active={attention === 'new'}
-            onClick={() => setAttention(attention === 'new' ? 'all' : 'new')}
+            active={leadTab === 'active' && attention === 'new'}
+            onClick={() => {
+              setLeadTabPersist('active')
+              setAttention(attention === 'new' ? 'all' : 'new')
+            }}
             highlight={counts.neu > 0}
           />
           <DirectoryStatCard
             label="In progress"
             value={counts.active}
             hint="Being worked"
-            active={attention === 'active'}
-            onClick={() => setAttention(attention === 'active' ? 'all' : 'active')}
+            active={leadTab === 'active' && attention === 'active'}
+            onClick={() => {
+              setLeadTabPersist('active')
+              setAttention(attention === 'active' ? 'all' : 'active')
+            }}
           />
           <DirectoryStatCard
             label="Closing"
             value={counts.closing}
             hint="Offer through complete"
-            active={attention === 'closing'}
-            onClick={() => setAttention(attention === 'closing' ? 'all' : 'closing')}
+            active={leadTab === 'active' && attention === 'closing'}
+            onClick={() => {
+              setLeadTabPersist('active')
+              setAttention(attention === 'closing' ? 'all' : 'closing')
+            }}
+          />
+          <DirectoryStatCard
+            label="History"
+            value={counts.closed}
+            hint="Completed or rejected"
+            active={leadTab === 'history'}
+            onClick={() => setLeadTabPersist(leadTab === 'history' ? 'active' : 'history')}
           />
         </section>
 
@@ -279,6 +341,7 @@ export default function CRM() {
           sort={sort}
           onSortChange={setSort}
           sortOptions={[
+            { value: 'created', label: 'Sort: Newest first' },
             { value: 'updated', label: 'Sort: Recently updated' },
             { value: 'name', label: 'Sort: Name' },
             { value: 'value', label: 'Sort: Value' },
@@ -293,6 +356,7 @@ export default function CRM() {
                 value={attention}
                 onChange={(e) => setAttention(e.target.value as AttentionFilter)}
                 aria-label="Focus"
+                disabled={leadTab === 'history'}
               >
                 <option value="all">All leads</option>
                 <option value="new">New only</option>
@@ -344,19 +408,21 @@ export default function CRM() {
             </>
           }
           extraViews={
-            <button
-              type="button"
-              onClick={() => setViewPersist('board')}
-              className={cn(
-                'inline-flex min-h-9 min-w-11 cursor-pointer items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-                reducedMotion && 'transition-none',
-                view === 'board' ? 'bg-white text-primary shadow-sm' : 'text-ink-500 hover:text-ink',
-              )}
-              aria-pressed={view === 'board'}
-            >
-              <Columns3 className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-              Board
-            </button>
+            leadTab === 'active' ? (
+              <button
+                type="button"
+                onClick={() => setViewPersist('board')}
+                className={cn(
+                  'inline-flex min-h-9 min-w-11 cursor-pointer items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                  reducedMotion && 'transition-none',
+                  view === 'board' ? 'bg-white text-primary shadow-sm' : 'text-ink-500 hover:text-ink',
+                )}
+                aria-pressed={view === 'board'}
+              >
+                <Columns3 className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                Board
+              </button>
+            ) : null
           }
         />
 
@@ -375,10 +441,19 @@ export default function CRM() {
           />
         ) : filtered.length === 0 ? (
           <DirectoryEmpty
-            title="No leads match these filters"
-            action={<ClearFiltersButton onClick={clearFilters} reducedMotion={reducedMotion} />}
+            title={leadTab === 'history' ? 'No leads in history yet' : 'No leads match these filters'}
+            hint={
+              leadTab === 'history'
+                ? 'Completed and rejected leads appear here once a deal is closed.'
+                : undefined
+            }
+            action={
+              leadTab === 'active' ? (
+                <ClearFiltersButton onClick={clearFilters} reducedMotion={reducedMotion} />
+              ) : null
+            }
           />
-        ) : view === 'board' ? (
+        ) : view === 'board' && leadTab === 'active' ? (
           <LeadBoard
             items={filtered}
             stages={boardStages}
@@ -393,6 +468,9 @@ export default function CRM() {
             expandedId={expandedId}
             onToggle={toggleExpand}
             reducedMotion={reducedMotion}
+            hideAgentColumn={hideAgentColumn}
+            timeField={leadTab === 'history' ? 'updatedAt' : 'createdAt'}
+            timeLabel={leadTab === 'history' ? 'Closed' : 'Received'}
           />
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -402,6 +480,8 @@ export default function CRM() {
                 item={item}
                 onOpen={() => openLead(item.lead.id)}
                 reducedMotion={reducedMotion}
+                hideAgent={hideAgentColumn}
+                timeField={leadTab === 'history' ? 'updatedAt' : 'createdAt'}
               />
             ))}
           </div>
@@ -414,6 +494,59 @@ export default function CRM() {
         )}
       </div>
     </RequirePermission>
+  )
+}
+
+function LeadBoardCard({
+  item,
+  canManage,
+  onAdvance,
+  onOpen,
+  reducedMotion,
+}: {
+  item: PortfolioLead
+  canManage: boolean
+  onAdvance: (item: PortfolioLead) => void
+  onOpen: (id: string) => void
+  reducedMotion?: boolean
+}) {
+  const { label: agentLabel } = useAgentDisplay()
+  const agentShort = agentLabel(item.lead.agentId, item.agentName)?.split(' ')[0]
+  return (
+    <li>
+      <div
+        className={cn(
+          'rounded-xl border border-primary-100 bg-white p-3 transition-colors duration-150 hover:border-primary-200',
+          reducedMotion && 'transition-none',
+        )}
+      >
+        <button
+          type="button"
+          onClick={() => onOpen(item.lead.id)}
+          className="w-full cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-sm font-semibold text-ink">{item.lead.name}</p>
+            <Badge tone={statusTone(item.lead.stage)}>{item.lead.stage}</Badge>
+            <span className="text-[10px] text-ink-500">{item.lead.type}</span>
+          </div>
+          <p className="mt-1 line-clamp-2 text-xs text-ink-500">{item.propertyTitle}</p>
+          <div className="mt-3 flex items-center justify-between text-xs">
+            <span className="text-ink-400">{agentShort}</span>
+            <span className="tabular font-semibold text-ink">{formatZAR(item.lead.value)}</span>
+          </div>
+        </button>
+        {canManage && (
+          <button
+            type="button"
+            className="mt-2 min-h-11 text-[10px] font-semibold uppercase tracking-wide text-primary hover:underline"
+            onClick={() => onAdvance(item)}
+          >
+            Advance stage
+          </button>
+        )}
+      </div>
+    </li>
   )
 }
 
@@ -444,40 +577,14 @@ function LeadBoard({
             </div>
             <ul className="min-h-[20rem] space-y-2 rounded-2xl border border-dashed border-primary-100 bg-primary-50/30 p-2">
               {cards.map((item) => (
-                <li key={item.lead.id}>
-                  <div
-                    className={cn(
-                      'rounded-xl border border-primary-100 bg-white p-3 transition-colors duration-150 hover:border-primary-200',
-                      reducedMotion && 'transition-none',
-                    )}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => onOpen(item.lead.id)}
-                      className="w-full cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm font-semibold text-ink">{item.lead.name}</p>
-                        <Badge tone={statusTone(item.lead.stage)}>{item.lead.stage}</Badge>
-                        <span className="text-[10px] text-ink-500">{item.lead.type}</span>
-                      </div>
-                      <p className="mt-1 line-clamp-2 text-xs text-ink-500">{item.propertyTitle}</p>
-                      <div className="mt-3 flex items-center justify-between text-xs">
-                        <span className="text-ink-400">{item.agentName?.split(' ')[0] ?? '—'}</span>
-                        <span className="tabular font-semibold text-ink">{formatZAR(item.lead.value)}</span>
-                      </div>
-                    </button>
-                    {canManage && (
-                      <button
-                        type="button"
-                        className="mt-2 min-h-11 text-[10px] font-semibold uppercase tracking-wide text-primary hover:underline"
-                        onClick={() => onAdvance(item)}
-                      >
-                        Advance stage
-                      </button>
-                    )}
-                  </div>
-                </li>
+                <LeadBoardCard
+                  key={item.lead.id}
+                  item={item}
+                  canManage={canManage}
+                  onAdvance={onAdvance}
+                  onOpen={onOpen}
+                  reducedMotion={reducedMotion}
+                />
               ))}
               {cards.length === 0 && (
                 <li className="px-3 py-8 text-center text-xs text-ink-400">Empty stage</li>
@@ -495,12 +602,19 @@ function LeadList({
   expandedId,
   onToggle,
   reducedMotion,
+  hideAgentColumn,
+  timeField,
+  timeLabel,
 }: {
   items: PortfolioLead[]
   expandedId: string | null
   onToggle: (item: PortfolioLead) => void
   reducedMotion?: boolean
+  hideAgentColumn?: boolean
+  timeField: 'createdAt' | 'updatedAt'
+  timeLabel: string
 }) {
+  const colSpan = hideAgentColumn ? 6 : 7
   return (
     <>
       <div className="hidden overflow-hidden rounded-[1.25rem] border border-primary-100/80 bg-white shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)] md:block">
@@ -512,7 +626,8 @@ function LeadList({
                 <th className="px-4 py-3 font-semibold">Lead</th>
                 <th className="px-3 py-3 font-semibold">Property</th>
                 <th className="px-3 py-3 font-semibold">Stage</th>
-                <th className="px-3 py-3 font-semibold">Agent</th>
+                <th className="px-3 py-3 font-semibold">{timeLabel}</th>
+                {!hideAgentColumn ? <th className="px-3 py-3 font-semibold">Agent</th> : null}
                 <th className="px-4 py-3 font-semibold text-right">Value</th>
               </tr>
             </thead>
@@ -569,7 +684,7 @@ function LeadList({
                               <span className="text-xs text-ink-500">{l.type}</span>
                             </span>
                             <span className="mt-0.5 block truncate text-xs tabular text-ink-500">
-                              {l.phone} · {l.channel}
+                              {l.phone} · {l.channel} · {formatLeadTime(l.createdAt, 'relative')}
                             </span>
                           </span>
                         </button>
@@ -596,11 +711,23 @@ function LeadList({
                         <button
                           type="button"
                           onClick={() => onToggle(item)}
-                          className="w-full min-h-11 cursor-pointer truncate text-left text-ink-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                          className="w-full min-h-11 cursor-pointer truncate text-left text-xs tabular text-ink-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                          title={formatLeadTime(l[timeField], 'absolute')}
                         >
-                          {item.agentName ?? 'Unassigned'}
+                          {formatLeadTime(l[timeField], 'relative')}
                         </button>
                       </td>
+                      {!hideAgentColumn ? (
+                        <td className="px-3 py-3">
+                          <button
+                            type="button"
+                            onClick={() => onToggle(item)}
+                            className="w-full min-h-11 cursor-pointer truncate text-left text-ink-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                          >
+                            <AgentAssigneeText agentId={l.agentId} agentName={item.agentName} />
+                          </button>
+                        </td>
+                      ) : null}
                       <td className="px-4 py-3 text-right">
                         <button
                           type="button"
@@ -613,7 +740,7 @@ function LeadList({
                     </tr>
                     {expanded && (
                       <tr className="border-b border-primary-100 bg-primary-50/60">
-                        <td colSpan={6} className="px-4 py-4 sm:px-5">
+                        <td colSpan={colSpan} className="px-4 py-4 sm:px-5">
                           <LeadExpansion item={item} reducedMotion={reducedMotion} />
                         </td>
                       </tr>
@@ -650,7 +777,7 @@ function LeadList({
                     <Badge tone={statusTone(l.stage)}>{l.stage}</Badge>
                   </span>
                   <span className="mt-1 block truncate text-xs text-ink-500">
-                    {item.propertyTitle} · {l.channel}
+                    {item.propertyTitle} · {formatLeadTime(l[timeField], 'relative')}
                   </span>
                 </span>
                 <span className="shrink-0 tabular text-sm font-semibold text-ink">
@@ -688,18 +815,24 @@ function LeadExpansion({
 }) {
   const l = item.lead
   const detailTo = `/workspace/sales/crm/${encodeURIComponent(l.id)}`
-  const metaRows: Array<{ label: string; value: string }> = [
-    { label: 'Email', value: l.email },
-    { label: 'Phone', value: l.phone },
-    { label: 'Property', value: item.propertyTitle },
-    { label: 'Area', value: item.propertySuburb },
-    { label: 'Stage', value: l.stage },
-    { label: 'Type', value: l.type },
-    { label: 'Channel', value: l.channel },
-    { label: 'Agent', value: item.agentName ?? 'Unassigned' },
-    { label: 'Value', value: formatZAR(l.value) },
-    { label: 'Updated', value: l.updatedAt },
-  ]
+  const { viewerId } = useAgentDisplay()
+  const metaRows: Array<{ label: string; value: string }> = appendAgentMetaRow(
+    [
+      { label: 'Email', value: l.email },
+      { label: 'Phone', value: l.phone },
+      { label: 'Property', value: item.propertyTitle },
+      { label: 'Area', value: item.propertySuburb },
+      { label: 'Stage', value: l.stage },
+      { label: 'Type', value: l.type },
+      { label: 'Channel', value: l.channel },
+      { label: 'Received', value: formatLeadTime(l.createdAt) },
+      { label: 'Updated', value: formatLeadTime(l.updatedAt) },
+      { label: 'Value', value: formatZAR(l.value) },
+    ],
+    viewerId,
+    l.agentId,
+    item.agentName,
+  )
 
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
@@ -751,12 +884,18 @@ function LeadCard({
   item,
   onOpen,
   reducedMotion,
+  hideAgent,
+  timeField,
 }: {
   item: PortfolioLead
   onOpen: () => void
   reducedMotion?: boolean
+  hideAgent?: boolean
+  timeField: 'createdAt' | 'updatedAt'
 }) {
   const l = item.lead
+  const { label: agentLabel } = useAgentDisplay()
+  const agent = hideAgent ? null : agentLabel(l.agentId, item.agentName)
   return (
     <button
       type="button"
@@ -774,13 +913,20 @@ function LeadCard({
             <Badge tone={statusTone(l.stage)}>{l.stage}</Badge>
           </div>
           <p className="mt-1 truncate text-xs text-ink-500">{item.propertyTitle}</p>
+          <p className="mt-1 text-xs tabular text-ink-400">
+            {formatLeadTime(l[timeField], 'relative')}
+          </p>
           <p className="mt-2 tabular text-lg font-semibold text-ink">{formatZAR(l.value)}</p>
           <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-primary-50 pt-3 text-xs text-ink-500">
             <span>{l.type}</span>
             <span aria-hidden>·</span>
             <span>{l.channel}</span>
-            <span aria-hidden>·</span>
-            <span>{item.agentName ?? 'Unassigned'}</span>
+            {agent ? (
+              <>
+                <span aria-hidden>·</span>
+                <span>{agent}</span>
+              </>
+            ) : null}
           </div>
           <span className="mt-3 inline-flex min-h-11 items-center gap-1.5 text-sm font-semibold text-primary">
             Open lead

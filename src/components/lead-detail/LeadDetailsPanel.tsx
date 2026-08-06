@@ -1,13 +1,15 @@
 import { Mail, Phone } from 'lucide-react'
 import type { Lead } from '../../types/domain'
-import { DetailSection, FlatField, FlatFieldGrid } from '../detail/FlatFields'
+import { DetailSection, AgentAssigneeField, FlatField, FlatFieldGrid } from '../detail/FlatFields'
 
 export function LeadDetailsPanel({
   lead,
   agentName,
+  agentId,
 }: {
   lead: Lead
   agentName: string | null
+  agentId?: string | null
 }) {
   return (
     <div className="space-y-10">
@@ -18,7 +20,11 @@ export function LeadDetailsPanel({
           <FlatField icon={Phone} label="Phone" value={lead.phone || '—'} />
           <FlatField label="Channel" value={lead.channel} />
           <FlatField label="Type" value={lead.type} />
-          <FlatField label="Assigned agent" value={agentName ?? 'Unassigned'} />
+          <AgentAssigneeField
+            agentId={agentId ?? lead.agentId}
+            agentName={agentName}
+            label="Assigned agent"
+          />
         </FlatFieldGrid>
       </DetailSection>
 

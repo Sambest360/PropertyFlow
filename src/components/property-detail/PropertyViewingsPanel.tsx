@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowUpRight, CalendarDays, ChevronDown, Plus, Search, Users } from 'lucide-react'
+import { ArrowUpRight, CalendarDays, ChevronDown, Pencil, Plus, Search, Users } from 'lucide-react'
 import type { AppUser, Viewing, ViewingSlot } from '../../types/domain'
 import { Badge, Button, Card, Input, Modal, Select, Textarea, cn, statusTone } from '../ui'
+import { PropertyAgentField } from '../viewings/PropertyAgentField'
+import {
+  EditViewingSlotModal,
+  type EditViewingSlotPayload,
+} from '../viewings/EditViewingSlotModal'
 import { useSuiteAlert } from '../alerts/SuiteAlert'
 import { ListPagination, paginate } from './ListPagination'
 import { ICON_STROKE } from './types'
@@ -49,6 +54,7 @@ export function PropertyViewingsPanel({
   const [page, setPage] = useState(1)
   const [transferTo, setTransferTo] = useState<Record<string, string>>({})
   const [modalOpen, setModalOpen] = useState(false)
+  const [editSlotId, setEditSlotId] = useState<string | null>(null)
   const alert = useSuiteAlert()
   const [draft, setDraft] = useState<SlotDraft>({
     title: '',
@@ -99,6 +105,13 @@ export function PropertyViewingsPanel({
     )
   }
 
+  const editSlot = editSlotId ? propertySlots.find((s) => s.id === editSlotId) ?? null : null
+
+  const saveSlotEdit = (payload: EditViewingSlotPayload) => {
+    if (!editSlot) return
+    onUpdateSlot(editSlot.id, payload)
+  }
+
   return (
     <Card className="p-5">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -145,7 +158,7 @@ export function PropertyViewingsPanel({
                   capacity: '4',
                   durationMinutes: '45',
                   notes: '',
-                  agentId: agentId ?? agents[0]?.id ?? '',
+                  agentId: agentId ?? '',
                 })
                 setModalOpen(true)
               }}
@@ -249,6 +262,16 @@ export function PropertyViewingsPanel({
                   {canManage && (
                     <div className="space-y-3 border-t border-primary-50 pt-3">
                       <div className="flex flex-wrap gap-2">
+                        {slot.status !== 'Cancelled' && (
+                          <Button
+                            variant="secondary"
+                            className="min-h-11 gap-1.5"
+                            onClick={() => setEditSlotId(slot.id)}
+                          >
+                            <Pencil className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                            Edit slot
+                          </Button>
+                        )}
                         {slot.status === 'Open' && (
                           <Button
                             variant="secondary"
@@ -440,21 +463,12 @@ export function PropertyViewingsPanel({
               />
             </label>
           </div>
-          <label className="block text-xs font-medium text-ink-500">
-            Agent
-            <Select
-              className="mt-1 min-h-11 w-full"
-              value={draft.agentId}
-              onChange={(e) => setDraft({ ...draft, agentId: e.target.value })}
-            >
-              <option value="">Select agent…</option>
-              {agents.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </Select>
-          </label>
+          <PropertyAgentField
+            propertyAgentId={agentId}
+            agents={agents}
+            value={draft.agentId}
+            onChange={(id) => setDraft({ ...draft, agentId: id })}
+          />
           <label className="block text-xs font-medium text-ink-500">
             Notes
             <Textarea
@@ -465,6 +479,13 @@ export function PropertyViewingsPanel({
           </label>
         </div>
       </Modal>
+
+      <EditViewingSlotModal
+        open={Boolean(editSlot)}
+        slot={editSlot}
+        onClose={() => setEditSlotId(null)}
+        onSave={saveSlotEdit}
+      />
     </Card>
   )
 }

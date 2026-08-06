@@ -10,5 +10,5 @@ export default function AdminHub() {
   if (has('users.manage') && !has('roles.assign')) {
     return <Navigate to="/workspace/people/staff" replace />
   }
-  return <Navigate to="/workspace/admin/users" replace />
+  return <Navigate to="/workspace/people/staff?scope=all" replace />
 }

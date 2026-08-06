@@ -576,14 +576,6 @@ const RULES: TipRule[] = [
     }),
   },
   {
-    match: exact('/workspace/admin/suite-alerts'),
-    content: () => ({
-      id: 'admin-suite-alerts',
-      title: 'Suite alerts',
-      body: 'Configure system-wide banners shown to users at login. Use sparingly for maintenance windows or policy updates.',
-    }),
-  },
-  {
     match: exact('/workspace/platform/billing'),
     roles: ['super_admin'],
     content: () => ({

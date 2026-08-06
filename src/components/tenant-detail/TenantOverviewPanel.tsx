@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import { MapPin } from 'lucide-react'
 import type { PropertyAsset, Tenancy } from '../../types/domain'
 import { formatZAR } from '../../data/seed'
-import { DetailSection, DetailStack, FlatField, FlatFieldGrid } from '../detail/FlatFields'
+import { DetailSection, DetailStack, AgentAssigneeField, FlatField, FlatFieldGrid } from '../detail/FlatFields'
 import { ICON_STROKE } from './types'
 
 export function TenantOverviewPanel({
@@ -27,7 +27,7 @@ export function TenantOverviewPanel({
           <FlatField label="Deposit" value={formatZAR(tenancy.deposit)} tabular />
           <FlatField label="Start" value={tenancy.startDate} />
           <FlatField label="End" value={tenancy.endDate ?? 'Open-ended'} />
-          <FlatField label="Agent" value={agentName ?? 'Unassigned'} />
+          <AgentAssigneeField agentId={tenancy.agentId} agentName={agentName} />
         </FlatFieldGrid>
       </DetailSection>
 

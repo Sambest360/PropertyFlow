@@ -23,6 +23,7 @@ import { ApplicantApplicationPanel } from '../components/applicant-detail/Applic
 import { ApplicantHistoryTimeline } from '../components/applicant-detail/ApplicantHistoryTimeline'
 import { BlockApplicantModal } from '../components/applicant-detail/BlockApplicantModal'
 import {
+  DEFAULT_APPLICANT_DETAIL_TAB,
   isApplicantDetailTab,
   type ApplicantDetailTab,
 } from '../components/applicant-detail/types'
@@ -47,15 +48,7 @@ function isApplicantRelatedEvent(ev: PropertyEvent, applicantName: string, appli
 export default function ApplicantDetail() {
   const { id } = useParams()
   const [params, setParams] = useSearchParams()
-  const {
-    state,
-    setDocumentStatus,
-    patchApplicationStatus,
-    scheduleMoveIn,
-    completeKeyHandover,
-    blockApplication,
-    addPropertyEvent,
-  } = useStore()
+  const { state, setDocumentStatus, patchApplicationStatus, advanceApplicationWorkflow, scheduleMoveIn, blockApplication, addPropertyEvent } = useStore()
   const { user, has } = useAuth()
   const { dealVisible, role } = usePropertyScope()
   const alert = useSuiteAlert()
@@ -69,10 +62,12 @@ export default function ApplicantDetail() {
   const application = state.applications.find((a) => a.id === id)
 
   const tabParam = params.get('tab')
-  const tab: ApplicantDetailTab = isApplicantDetailTab(tabParam) ? tabParam : 'overview'
+  const tab: ApplicantDetailTab = isApplicantDetailTab(tabParam)
+    ? tabParam
+    : DEFAULT_APPLICANT_DETAIL_TAB
   const setTab = (next: string) => {
     const sp = new URLSearchParams(params)
-    if (next === 'overview') sp.delete('tab')
+    if (next === DEFAULT_APPLICANT_DETAIL_TAB) sp.delete('tab')
     else sp.set('tab', next)
     setParams(sp, { replace: true })
   }
@@ -222,15 +217,45 @@ export default function ApplicantDetail() {
   }
 
   const runAction = (action: HateoasAction) => {
+    const workflowTarget = action.payload_hint?.workflowStatus as string | undefined
+    const effect = action.payload_hint?.effect as string | undefined
     const status = action.payload_hint?.status
-    if (action.key === 'COMPLETE_KEY_HANDOVER') {
+
+    if (action.key === 'COMPLETE_KEY_HANDOVER' || effect === 'key_handover') {
       const prev = application.stage
-      completeKeyHandover(application.id)
-      logStageChange(prev, 'Keys Handed Over', 'completed key handover')
+      const result = advanceApplicationWorkflow({
+        applicationId: application.id,
+        actorUserId: user.id,
+        targetStatus: (workflowTarget ?? 'keys_handed_over') as import('../lib/applicationWorkflow').WorkflowStatusKey,
+      })
+      if ('application' in result && result.status === 'SUCCESS') {
+        logStageChange(prev, result.application.stage, 'completed key handover')
+      }
       setFlash(null)
       return
     }
-    if (action.key === 'OPEN_CHECKOUT') {
+
+    if (workflowTarget && !status) {
+      const prevStage = application.stage
+      const result = advanceApplicationWorkflow({
+        applicationId: application.id,
+        actorUserId: user.id,
+        targetStatus: workflowTarget as import('../lib/applicationWorkflow').WorkflowStatusKey,
+      })
+      if ('application' in result && result.status === 'SUCCESS') {
+        logStageChange(prevStage, result.application.stage)
+        if (effect === 'approve' && 'checkout' in result && result.checkout) {
+          setFlash(result as PatchApplicationStatusResult)
+          return
+        }
+      } else if ('error' in result && result.error) {
+        window.alert(result.error)
+      }
+      setFlash(null)
+      return
+    }
+
+    if (action.key === 'OPEN_CHECKOUT' || effect === 'open_checkout') {
       const duePayments = state.payments.filter(
         (p) => p.applicationId === application.id && p.status === 'Due',
       )

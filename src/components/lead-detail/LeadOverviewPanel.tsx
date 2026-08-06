@@ -2,17 +2,19 @@ import { Link } from 'react-router-dom'
 import { MapPin } from 'lucide-react'
 import type { Lead, PropertyAsset } from '../../types/domain'
 import { formatZAR } from '../../data/seed'
-import { DetailSection, DetailStack, FlatField, FlatFieldGrid } from '../detail/FlatFields'
+import { DetailSection, DetailStack, AgentAssigneeField, FlatField, FlatFieldGrid } from '../detail/FlatFields'
 import { ICON_STROKE } from './types'
 
 export function LeadOverviewPanel({
   lead,
   property,
   agentName,
+  agentId,
 }: {
   lead: Lead
   property: PropertyAsset | null
   agentName: string | null
+  agentId?: string | null
 }) {
   return (
     <DetailStack columns={2}>
@@ -26,7 +28,7 @@ export function LeadOverviewPanel({
           <FlatField label="Stage" value={lead.stage} />
           <FlatField label="Channel" value={lead.channel} />
           <FlatField label="Value" value={formatZAR(lead.value)} tabular />
-          <FlatField label="Agent" value={agentName ?? 'Unassigned'} />
+          <AgentAssigneeField agentId={agentId ?? lead.agentId} agentName={agentName} />
           <FlatField label="Created" value={lead.createdAt} />
           <FlatField label="Updated" value={lead.updatedAt} />
         </FlatFieldGrid>

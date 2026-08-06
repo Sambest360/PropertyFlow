@@ -3,6 +3,7 @@ import type { Application } from '../../types/domain'
 import { formatZAR } from '../../data/seed'
 import { statusTone } from '../ui'
 import { DetailSection, FlatField, FlatFieldGrid } from '../detail/FlatFields'
+import { useAgentDisplay } from '../../hooks/useAgentDisplay'
 import { ICON_STROKE } from './types'
 
 /** Personal / screening details — flat text, no nested cards. */
@@ -13,6 +14,8 @@ export function ApplicantDetailsPanel({
   application: Application
   agentName: string | null
 }) {
+  const { label: agentLabel } = useAgentDisplay()
+  const assignedAgent = agentLabel(application.agentId, agentName)
   return (
     <div className="space-y-10">
       <DetailSection
@@ -66,8 +69,12 @@ export function ApplicantDetailsPanel({
             </p>
           </div>
           <div>
-            <p className="text-[11px] font-medium text-ink-400">Assigned agent</p>
-            <p className="mt-1 text-sm font-semibold text-ink">{agentName ?? 'Unassigned'}</p>
+            {assignedAgent ? (
+              <>
+                <p className="text-[11px] font-medium text-ink-400">Assigned agent</p>
+                <p className="mt-1 text-sm font-semibold text-ink">{assignedAgent}</p>
+              </>
+            ) : null}
             <p className="mt-1 text-xs text-ink-500">
               Submitted {application.submittedAt} · Updated {application.updatedAt}
             </p>

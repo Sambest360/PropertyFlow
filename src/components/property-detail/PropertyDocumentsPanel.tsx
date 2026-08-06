@@ -3,14 +3,13 @@ import { ChevronDown, Download, Eye, FileText, Pencil, Search } from 'lucide-rea
 import type {
   Application,
   ApplicationDocument,
-  ApplicationStage,
   PropertyDocument,
 } from '../../types/domain'
 import { Badge, Button, Card, Input, Modal, Select, Textarea, cn, statusTone } from '../ui'
 import { resolveDocumentUrl } from '../../lib/api/documents'
 import { ICON_STROKE } from './types'
 
-const ACCEPTED_STAGES: ApplicationStage[] = [
+const ACCEPTED_STAGES: string[] = [
   'Approved',
   'Awaiting Payment',
   'Deposit Paid',
@@ -25,7 +24,7 @@ export type AcceptedDocRow = {
   applicationId: string
   applicantName: string
   email: string
-  stage: ApplicationStage
+  stage: string
   label: string
   status: ApplicationDocument['status']
   note?: string

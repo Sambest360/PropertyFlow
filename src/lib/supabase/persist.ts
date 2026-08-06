@@ -166,12 +166,14 @@ async function upsertUser(id: string, data: Record<string, unknown>): Promise<vo
   }
   const name = str(data.name, 'User')
   const parts = name.trim().split(/\s+/)
+  const firstName = str(data.firstName) || parts[0] || 'User'
+  const lastName = str(data.lastName) || parts.slice(1).join(' ') || firstName
   await supabase.from('users').upsert({
     id: uuid,
     client_id: clientId,
     email: str(data.email, `${id}@propertyflow.local`).toLowerCase(),
-    first_name: parts[0] ?? 'User',
-    last_name: parts.slice(1).join(' ') || (parts[0] ?? 'User'),
+    first_name: firstName,
+    last_name: lastName,
     phone: str(data.phone) || null,
     role: ROLE_TO_DB[roleFe] ?? 'END_USER',
     active: data.active !== false,

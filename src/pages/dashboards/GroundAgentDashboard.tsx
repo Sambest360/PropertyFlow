@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { CalendarDays, ClipboardList, FileCheck2, Wrench } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
 import { useAuth, usePropertyScope } from '../../context/AuthContext'
+import { useSeenOpsItems } from '../../hooks/useSeenOpsItems'
 import { Button, priorityTone, statusTone } from '../../components/ui'
 import { OpsPreviewModal, type PreviewTarget } from '../../components/admin/OpsPreviewModal'
 import {
@@ -28,9 +29,17 @@ import {
   pickAttentionHero,
   toMarkerTone,
   useEventCycle,
-  type CalendarMarker,
   type OpsListItemData,
 } from '../../components/dashboard'
+import {
+  buildCalendarMarkers,
+  buildMaintenanceCalendarEvents,
+  buildViewingBookingCalendarEvents,
+  buildViewingSlotCalendarEvents,
+  calendarEventAction,
+  mergeCalendarEvents,
+  type CalendarEvent,
+} from '../../lib/calendarEvents'
 
 type AgentTab = 'overview' | 'viewings' | 'tickets'
 type AgentFilter = 'all' | 'attention' | 'scheduled' | 'high'
@@ -84,6 +93,7 @@ function agentToListItem(
 export function GroundAgentDashboard() {
   const { state, updateViewing } = useStore()
   const { user } = useAuth()
+  const { isSeen, markSeen } = useSeenOpsItems(user.id)
   const { allowedPropertyIds, dealVisible, ticketVisible, role } = usePropertyScope()
   const isCandidate = role === 'agent'
   const fieldLabel = isCandidate ? 'Candidate desk' : 'Field agent home'
@@ -97,11 +107,12 @@ export function GroundAgentDashboard() {
   const [listFilter, setListFilter] = useState<AgentFilter>('all')
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [preview, setPreview] = useState<PreviewTarget | null>(null)
-  const [selectedDay, setSelectedDay] = useState(() => new Date(2026, 6, 23))
+  const [selectedDay, setSelectedDay] = useState(() => new Date())
   const [calendarOpen, setCalendarOpen] = useState(true)
 
   const props = state.properties.filter((p) => allowedPropertyIds.has(p.id))
   const viewings = state.viewings.filter((v) => dealVisible(v))
+  const viewingSlots = state.viewingSlots.filter((s) => dealVisible(s))
   const apps = state.applications.filter((a) => dealVisible(a))
   const tickets = state.tickets.filter((t) => ticketVisible(t))
 
@@ -215,17 +226,14 @@ export function GroundAgentDashboard() {
   const availableFilters = AGENT_FILTERS.filter((f) => !f.tabs || f.tabs.includes(tab))
 
   const activeItem = useMemo(() => {
-    if (selectedKey) {
-      const parsed = parseListId(selectedKey)
-      if (parsed) {
-        const found = opsItems.find((i) => i.kind === parsed.kind && i.id === parsed.id)
-        if (found) return found
-      }
-    }
-    return opsItems[0] ?? null
+    if (!selectedKey) return null
+    const parsed = parseListId(selectedKey)
+    if (!parsed) return null
+    return opsItems.find((i) => i.kind === parsed.kind && i.id === parsed.id) ?? null
   }, [opsItems, selectedKey])
 
   const openPreview = (item: AgentOpsItem) => {
+    markSeen(listKey(item.kind, item.id))
     setSelectedKey(listKey(item.kind, item.id))
     const prop = state.properties.find((p) => p.id === item.propertyId)
     if (item.kind === 'ticket') {
@@ -239,48 +247,30 @@ export function GroundAgentDashboard() {
     setCalendarOpen(true)
   }
 
-  const calendarMarkers: CalendarMarker[] = useMemo(() => {
-    const markers: CalendarMarker[] = []
-    for (const v of scheduled) {
-      markers.push({ date: v.date, tone: toMarkerTone(statusTone(v.status)) })
-    }
-    for (const t of openTickets) {
-      markers.push({ date: t.openedAt, tone: toMarkerTone(priorityTone(t.priority)) })
-    }
-    return markers
-  }, [scheduled, openTickets])
-
   const dayKey = dateKey(selectedDay)
 
-  const calendarEvents: AgentOpsItem[] = useMemo(() => {
-    const events: AgentOpsItem[] = []
-    for (const v of scheduled) {
-      const prop = state.properties.find((p) => p.id === v.propertyId)
-      events.push({
-        kind: 'viewing',
-        id: v.id,
-        title: `Viewing · ${v.time}`,
-        meta: `${v.applicantName} · ${prop?.title ?? 'Property'}`,
-        status: v.status,
-        date: v.date,
-        propertyId: v.propertyId,
-      })
-    }
-    for (const t of openTickets) {
-      events.push({
-        kind: 'ticket',
-        id: t.id,
-        title: t.title,
-        meta: `${t.assetLabel} · ${t.reportedBy}`,
-        status: t.status,
-        date: t.openedAt,
-        propertyId: t.propertyId,
-        priority: t.priority,
-        photos: t.photos,
-      })
-    }
-    return events.sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title))
-  }, [scheduled, openTickets, state.properties])
+  const calendarEvents: CalendarEvent[] = useMemo(
+    () =>
+      mergeCalendarEvents(
+        buildViewingBookingCalendarEvents(scheduled, state.properties),
+        buildViewingSlotCalendarEvents(
+          viewingSlots.filter((s) => s.status === 'Open' || s.status === 'Full'),
+          state.properties,
+        ),
+        buildMaintenanceCalendarEvents(openTickets, state.properties),
+      ),
+    [scheduled, viewingSlots, openTickets, state.properties],
+  )
+
+  const calendarMarkers = useMemo(
+    () =>
+      buildCalendarMarkers(calendarEvents, (event) =>
+        event.kind === 'ticket'
+          ? toMarkerTone(priorityTone((event.priority ?? 'Medium') as never))
+          : toMarkerTone(statusTone(event.status as never)),
+      ),
+    [calendarEvents],
+  )
 
   const dayEvents = useMemo(
     () => calendarEvents.filter((e) => e.date === dayKey),
@@ -300,6 +290,11 @@ export function GroundAgentDashboard() {
     : undefined
   const focusViewing =
     focusEvent?.kind === 'viewing' ? scheduled.find((v) => v.id === focusEvent.id) : undefined
+  const focusAction = calendarEventAction(focusEvent) ?? (
+    focusProperty
+      ? { label: 'Open property', to: `/workspace/properties/${focusProperty.id}` }
+      : { label: 'Viewings calendar', to: `/workspace/sales/viewings?date=${dayKey}` }
+  )
 
   const CtaIcon =
     heroBase?.kind === 'issue'
@@ -310,8 +305,19 @@ export function GroundAgentDashboard() {
           ? ClipboardList
           : CalendarDays
 
-  const listItems = opsItems.map((item) =>
-    agentToListItem(item, item.kind === 'viewing' ? [{ id: user.id, name: user.name }] : []),
+  const listItems = useMemo(
+    () =>
+      opsItems.map((item) => {
+        const id = listKey(item.kind, item.id)
+        return {
+          ...agentToListItem(
+            item,
+            item.kind === 'viewing' ? [{ id: user.id, name: user.name }] : [],
+          ),
+          unread: !isSeen(id),
+        }
+      }),
+    [opsItems, user.id, user.name, isSeen],
   )
 
   return (
@@ -454,9 +460,10 @@ export function GroundAgentDashboard() {
                   onSelect={setSelectedDay}
                   markers={calendarMarkers}
                   months={2}
+                  layout="stack"
                   onClose={() => setCalendarOpen(false)}
                   dayViewTo={`/workspace/sales/viewings?date=${dayKey}`}
-                  className="h-full rounded-none border-0 shadow-none"
+                  className="rounded-none border-0 shadow-none"
                 />
               </DashboardCalendarShell>
             </CalendarToggle>
@@ -465,9 +472,11 @@ export function GroundAgentDashboard() {
               className="flex min-h-0 flex-1 flex-col"
               eyebrow={
                 focusEvent
-                  ? focusEvent.kind === 'viewing'
-                    ? 'Viewing'
-                    : 'Maintenance'
+                  ? focusEvent.kind === 'viewing_slot'
+                    ? 'Open slot'
+                    : focusEvent.kind === 'viewing'
+                      ? 'Viewing'
+                      : 'Maintenance'
                   : 'Day events'
               }
               title={focusEvent?.title ?? 'No events this day'}
@@ -476,11 +485,7 @@ export function GroundAgentDashboard() {
                   ? `${focusProperty.address} · ${focusProperty.suburb}`
                   : focusEvent?.meta
               }
-              action={
-                focusProperty
-                  ? { label: 'Open property', to: `/workspace/properties/${focusProperty.id}` }
-                  : { label: 'Viewings calendar', to: '/workspace/sales/viewings' }
-              }
+              action={focusAction}
               requestBy={
                 focusEvent?.kind === 'viewing'
                   ? focusEvent.meta.split('·')[0]?.trim()
@@ -488,12 +493,14 @@ export function GroundAgentDashboard() {
                     ? focusEvent.meta.split('·').pop()?.trim()
                     : undefined
               }
-              status={focusEvent?.kind === 'ticket' ? focusEvent.priority : focusEvent?.status}
+              status={
+                focusEvent?.kind === 'ticket' ? focusEvent.priority : focusEvent?.status
+              }
               statusTone={
                 focusEvent
                   ? focusEvent.kind === 'ticket'
-                    ? priorityTone(focusEvent.priority)
-                    : statusTone(focusEvent.status)
+                    ? priorityTone((focusEvent.priority ?? 'Medium') as never)
+                    : statusTone(focusEvent.status as never)
                   : undefined
               }
               chips={

@@ -20,7 +20,9 @@ export function DashboardSplit({
       )}
     >
       <section className="flex min-h-0 min-w-0 flex-col">{left}</section>
-      <section className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 xl:min-h-[36rem]">{right}</section>
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto xl:min-h-[36rem] xl:max-h-[calc(100dvh-10rem)]">
+        {right}
+      </section>
     </div>
   )
 }
@@ -45,7 +47,7 @@ export function CalendarToggle({
   children: ReactNode
 }) {
   if (open) {
-    return <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+    return <div className="shrink-0">{children}</div>
   }
   return (
     <button

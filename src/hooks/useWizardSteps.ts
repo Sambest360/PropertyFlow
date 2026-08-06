@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 export function useWizardSteps(opts: {
   totalSteps: number
@@ -87,24 +87,42 @@ export function useWizardSteps(opts: {
   }
 }
 
-export function useWizardDraft<T>(storageKey: string, initial: T) {
+export function useWizardDraft<T extends object>(
+  storageKey: string,
+  initial: T,
+  options?: { omitFromPersist?: (keyof T)[] },
+) {
+  const omitFromPersist = options?.omitFromPersist ?? []
+  const initialRef = useRef(initial)
+  initialRef.current = initial
+
   const [draft, setDraft] = useState<T>(() => {
     try {
       const raw = sessionStorage.getItem(`${storageKey}:draft`)
-      if (raw) return { ...initial, ...JSON.parse(raw) } as T
+      if (raw) {
+        const loaded = { ...initialRef.current, ...JSON.parse(raw) } as T
+        for (const key of omitFromPersist) {
+          loaded[key] = initialRef.current[key]
+        }
+        return loaded
+      }
     } catch {
       /* ignore */
     }
-    return initial
+    return initialRef.current
   })
 
   useEffect(() => {
     try {
-      sessionStorage.setItem(`${storageKey}:draft`, JSON.stringify(draft))
+      const toPersist = { ...draft }
+      for (const key of omitFromPersist) {
+        toPersist[key] = initialRef.current[key]
+      }
+      sessionStorage.setItem(`${storageKey}:draft`, JSON.stringify(toPersist))
     } catch {
       /* ignore */
     }
-  }, [draft, storageKey])
+  }, [draft, omitFromPersist, storageKey])
 
   const clearDraft = useCallback(() => {
     try {

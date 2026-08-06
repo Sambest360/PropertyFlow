@@ -1,23 +1,31 @@
-import { useMemo, useState } from 'react'
-import { Link, Navigate, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft,
   CalendarDays,
   ChevronDown,
   MapPin,
+  Pencil,
   Plus,
   UserPlus,
   Users,
 } from 'lucide-react'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
-import { isFieldAgent } from '../lib/permissions'
 import { RequirePermission } from '../components/RequirePermission'
 import { Badge, Button, Card, Select, cn, statusTone } from '../components/ui'
 import {
   CreateViewingModal,
   type CreateViewingPayload,
 } from '../components/viewings/CreateViewingModal'
+import {
+  EditViewingSlotModal,
+  type EditViewingSlotPayload,
+} from '../components/viewings/EditViewingSlotModal'
+import {
+  EditViewingBookingModal,
+  type EditViewingBookingPayload,
+} from '../components/viewings/EditViewingBookingModal'
 import {
   GuestListEditor,
   type ViewingGuest,
@@ -29,18 +37,48 @@ const ICON_STROKE = 1.6
 
 export default function ViewingPropertyPage() {
   const { propertyId } = useParams()
+  const [searchParams] = useSearchParams()
   const { state, createViewingSlot, bookViewingSlot, createViewing, updateViewing, updateViewingSlot } =
     useStore()
-  const { user, agencyId, has, role } = useAuth()
+  const { agencyId, has } = useAuth()
   const { inPropertyScope, canMutate } = usePropertyScope()
 
   const property = state.properties.find((p) => p.id === propertyId)
 
   const [createOpen, setCreateOpen] = useState(false)
+  const [editSlotId, setEditSlotId] = useState<string | null>(null)
+  const [editBookingId, setEditBookingId] = useState<string | null>(null)
   const [expandedSlotId, setExpandedSlotId] = useState<string | null>(null)
   const [inviteSlotId, setInviteSlotId] = useState<string | null>(null)
   const [inviteGuests, setInviteGuests] = useState<ViewingGuest[]>([])
   const [inviteError, setInviteError] = useState<string | null>(null)
+
+  const slotFocus = searchParams.get('slot')
+  const bookingFocus = searchParams.get('booking')
+
+  useEffect(() => {
+    let resolvedSlotId = slotFocus
+    if (!resolvedSlotId && bookingFocus) {
+      const booking = state.viewings.find((v) => v.id === bookingFocus)
+      if (booking?.slotId) resolvedSlotId = booking.slotId
+    }
+
+    const targetId = resolvedSlotId
+      ? `viewing-slot-${resolvedSlotId}`
+      : bookingFocus
+        ? `viewing-booking-${bookingFocus}`
+        : null
+    if (!targetId) return
+
+    if (resolvedSlotId) {
+      setExpandedSlotId(resolvedSlotId)
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [slotFocus, bookingFocus, propertyId, state.viewings])
 
   const agents = useMemo(
     () =>
@@ -153,6 +191,21 @@ export default function ViewingPropertyPage() {
     setInviteError(null)
   }
 
+  const editSlot = editSlotId ? slots.find((s) => s.id === editSlotId) ?? null : null
+  const editBooking = editBookingId
+    ? standalone.find((v) => v.id === editBookingId) ?? null
+    : null
+
+  const saveSlotEdit = (payload: EditViewingSlotPayload) => {
+    if (!editSlot) return
+    updateViewingSlot(editSlot.id, payload)
+  }
+
+  const saveBookingEdit = (payload: EditViewingBookingPayload) => {
+    if (!editBooking) return
+    updateViewing(editBooking.id, payload)
+  }
+
   return (
     <RequirePermission permission="viewings.manage">
       <div className="animate-fade-in space-y-5">
@@ -258,9 +311,11 @@ export default function ViewingPropertyPage() {
                 return (
                   <li
                     key={slot.id}
+                    id={`viewing-slot-${slot.id}`}
                     className={cn(
                       'overflow-hidden rounded-[1.25rem] border transition-colors duration-200',
                       open ? 'border-primary-200 bg-primary-50/40' : 'border-primary-100 bg-white',
+                      slotFocus === slot.id && 'ring-2 ring-primary/30',
                     )}
                   >
                     <button
@@ -389,6 +444,16 @@ export default function ViewingPropertyPage() {
 
                         {has('viewings.manage') && (
                           <div className="flex flex-wrap gap-2 border-t border-primary-50 pt-3">
+                            {slot.status !== 'Cancelled' && (
+                              <Button
+                                variant="secondary"
+                                className="min-h-11 gap-1.5"
+                                onClick={() => setEditSlotId(slot.id)}
+                              >
+                                <Pencil className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                                Edit slot
+                              </Button>
+                            )}
                             {slot.status === 'Open' && (
                               <Button
                                 variant="secondary"
@@ -428,7 +493,11 @@ export default function ViewingPropertyPage() {
               {standalone.map((v) => (
                 <li
                   key={v.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-[1.25rem] border border-primary-100 bg-white px-4 py-3"
+                  id={`viewing-booking-${v.id}`}
+                  className={cn(
+                    'flex flex-wrap items-center justify-between gap-3 rounded-[1.25rem] border border-primary-100 bg-white px-4 py-3',
+                    bookingFocus === v.id && 'ring-2 ring-primary/30',
+                  )}
                 >
                   <div className="min-w-0">
                     <p className="font-semibold text-ink">{v.applicantName}</p>
@@ -439,7 +508,16 @@ export default function ViewingPropertyPage() {
                     </p>
                   </div>
                   {has('viewings.manage') ? (
-                    <Select
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="secondary"
+                        className="min-h-11 gap-1.5"
+                        onClick={() => setEditBookingId(v.id)}
+                      >
+                        <Pencil className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                        Edit
+                      </Button>
+                      <Select
                       className="min-h-11"
                       value={v.status}
                       onChange={(e) =>
@@ -460,6 +538,7 @@ export default function ViewingPropertyPage() {
                         </option>
                       ))}
                     </Select>
+                    </div>
                   ) : (
                     <Badge tone={statusTone(v.status)}>{v.status}</Badge>
                   )}
@@ -475,9 +554,22 @@ export default function ViewingPropertyPage() {
           properties={[property]}
           agents={agents}
           defaultPropertyId={property.id}
-          defaultAgentId={isFieldAgent(role) ? user.id : property.agentId}
           lockProperty
           onSubmit={handleCreate}
+        />
+
+        <EditViewingSlotModal
+          open={Boolean(editSlot)}
+          slot={editSlot}
+          onClose={() => setEditSlotId(null)}
+          onSave={saveSlotEdit}
+        />
+
+        <EditViewingBookingModal
+          open={Boolean(editBooking)}
+          viewing={editBooking}
+          onClose={() => setEditBookingId(null)}
+          onSave={saveBookingEdit}
         />
       </div>
     </RequirePermission>
