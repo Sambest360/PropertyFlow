@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, Plus } from 'lucide-react'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
 import { scoreAssetHealth } from '../lib/api/ticketsApi'
 import { isWarrantyCovered } from '../lib/maintenanceApi'
-import { getLookups, getLookupOptions } from '../lib/lookups'
+import { getLookupOptions } from '../lib/lookups'
 import type { AssetCondition } from '../data/infrastructure'
 import type { MaintenanceTicket } from '../types/domain'
 import type { TicketCompletionFields } from '../lib/maintenanceApi'
@@ -19,8 +19,8 @@ import {
   MaintenanceBoardView,
   type BoardColumnKey,
 } from '../components/maintenance/MaintenanceBoardView'
-import { CreateTicketModal, type CreateTicketInput } from '../components/maintenance/CreateTicketModal'
 import { CompleteTicketModal } from '../components/maintenance/CompleteTicketModal'
+import { maintenanceCreateHref } from './maintenance/MaintenanceCreatePage'
 import {
   isOpenStatus,
   resolveUserName,
@@ -51,16 +51,14 @@ function readStoredView(): MaintenanceViewMode {
 export default function Maintenance() {
   const {
     state,
-    createMaintenanceTicket,
     patchMaintenanceTicket,
     updateTicket,
     runEmergencyEscalations,
     addPropertyEvent,
-    assignContractorToTicket,
     updateMaintenanceTicketDetails,
   } = useStore()
   const { user, has, agencyId } = useAuth()
-  const { allowedPropertyIds, ticketVisible, canMutate } = usePropertyScope()
+  const { allowedPropertyIds, ticketVisible } = usePropertyScope()
   const reducedMotion = usePrefersReducedMotion()
   const alert = useSuiteAlert()
   const navigate = useNavigate()
@@ -75,7 +73,6 @@ export default function Maintenance() {
   const [sort, setSort] = useState<SortKey>('priority')
   const [view, setView] = useState<MaintenanceViewMode>(() => readStoredView())
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [createOpen, setCreateOpen] = useState(() => searchParams.get('create') === '1')
   const [completeId, setCompleteId] = useState<string | null>(null)
   const [flash, setFlash] = useState('')
 
@@ -102,21 +99,16 @@ export default function Maintenance() {
         replace: true,
       })
     }
-    if (searchParams.get('create') === '1') setCreateOpen(true)
-  }, [searchParams, navigate])
-
-  const closeCreateModal = () => {
-    setCreateOpen(false)
-    if (returnTo && searchParams.get('create') === '1') {
-      navigate(returnTo)
-      return
-    }
     if (searchParams.get('create') === '1') {
-      const next = new URLSearchParams(searchParams)
-      next.delete('create')
-      setSearchParams(next, { replace: true })
+      navigate(
+        maintenanceCreateHref({
+          propertyId: searchParams.get('property') ?? undefined,
+          returnTo,
+        }),
+        { replace: true },
+      )
     }
-  }
+  }, [searchParams, navigate, returnTo])
 
   const setPropertyFilter = (id: string) => {
     setPropertyId(id)
@@ -134,11 +126,6 @@ export default function Maintenance() {
   const contractors = useMemo(
     () => listApprovedContractors(state.agencyContractors, state.users, agencyId),
     [state.agencyContractors, state.users, agencyId],
-  )
-
-  const categories = useMemo(
-    () => getLookups(state.lookups, agencyId, 'TICKET_CATEGORY'),
-    [state.lookups, agencyId],
   )
 
   const ticketPriorities = useMemo(
@@ -312,69 +299,10 @@ export default function Maintenance() {
     return null
   }
 
-  const onCreate = (input: CreateTicketInput) => {
-    const prop = properties.find((p) => p.id === input.propertyId)
-    if (!prop?.unitId) return 'Property has no linked unit.'
-    if (!canMutate(input.propertyId)) return 'Property is outside your assigned book.'
-    const result = createMaintenanceTicket({
-      actorUserId: user.id,
-      propertyId: input.propertyId,
-      request: {
-        unit_id: prop.unitId,
-        internal_asset_id: input.assetId,
-        category_key: input.categoryKey,
-        priority:
-          input.priority === 'Emergency'
-            ? 'EMERGENCY'
-            : (input.priority.toUpperCase() as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'),
-        title: input.title,
-        description: input.description,
-      },
-    })
-    if (result.status === 'ERROR') return result.error
-
-    const ticketId = result.ticket_id
-    const selectedAsset = input.assetId
-      ? state.internalAssets.find((a) => a.id === input.assetId)
-      : undefined
-    updateMaintenanceTicketDetails(ticketId, {
-      locationDetail: input.locationDetail,
-      accessNotes: input.accessNotes,
-      preferredSchedule: input.preferredSchedule,
-      issueTags: input.issueTags,
-      photoUrls: input.photoUrls,
-      photos: input.photoUrls?.length ?? 0,
-      estimatedCost: input.estimatedCost ?? null,
-      assetLabel: selectedAsset?.itemName,
-    })
-
-    if (input.contractorId) {
-      const assigned = assignContractorToTicket({
-        ticketId,
-        contractorUserId: input.contractorId,
-        actorUserId: user.id,
-      })
-      if (!assigned) {
-        return 'Maintenance was created, but the contractor is not on the approved roster.'
-      }
-    }
-
-    if (returnTo) {
-      void alert.success({
-        title: 'Maintenance logged',
-        text: `"${input.title}" was created${input.contractorId ? ' and the contractor was notified.' : '.'}`,
-      })
-      navigate(returnTo)
-      return null
-    }
-    setFlash(`Maintenance ${ticketId} created`)
-    void alert.success({
-      title: 'Maintenance logged',
-      text: `"${input.title}" was created${input.contractorId ? ' and the contractor was notified.' : '.'}`,
-    })
-    navigate(`/workspace/operations/maintenance/${encodeURIComponent(ticketId)}`)
-    return null
-  }
+  const createHref = maintenanceCreateHref({
+    propertyId: propertyId !== 'all' ? propertyId : undefined,
+    returnTo: '/workspace/operations/maintenance',
+  })
 
   const openTicketDetail = (id: string) => {
     navigate(`/workspace/operations/maintenance/${encodeURIComponent(id)}`)
@@ -410,10 +338,12 @@ export default function Maintenance() {
               </Button>
             )}
             {has('maintenance.manage') && (
-              <Button className="min-h-11" onClick={() => setCreateOpen(true)}>
-                <Plus className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                Log maintenance
-              </Button>
+              <Link to={createHref}>
+                <Button className="min-h-11 cursor-pointer">
+                  <Plus className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                  Log maintenance
+                </Button>
+              </Link>
             )}
           </div>
         }
@@ -511,16 +441,6 @@ export default function Maintenance() {
         }
         onClose={() => setCompleteId(null)}
         onComplete={submitCompletion}
-      />
-
-      <CreateTicketModal
-        open={createOpen}
-        onClose={closeCreateModal}
-        properties={properties}
-        assets={state.internalAssets}
-        categories={categories}
-        agencyId={agencyId}
-        onCreate={onCreate}
       />
     </div>
   )

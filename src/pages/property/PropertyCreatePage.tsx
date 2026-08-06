@@ -34,7 +34,7 @@ import { PlacesAddressInput } from '../../components/PlacesAddressInput'
 import { Button, Input, Select } from '../../components/ui'
 import { FormLabel, FieldHelp } from '../../components/onboarding/FieldHelp'
 import { uid } from '../../data/seed'
-import { roomKindLabel, type BuildingGrading, type RoomKind } from '../../data/infrastructure'
+import { roomKindLabel, type RoomKind } from '../../data/infrastructure'
 import { isFieldAgent } from '../../lib/permissions'
 import { pruneAmenitiesForMode } from '../../lib/propertyFeatures'
 import { readReturnTo } from '../../lib/returnTo'
@@ -54,6 +54,12 @@ import {
   validateLandlordAssignment,
   type LandlordDraft,
 } from '../../components/wizard/LandlordPicker'
+import {
+  draftFromProperty,
+  defaultWizardRooms,
+  type PropertyWizardDraft as PropertyDraft,
+  type WizardRoomDraft as RoomDraft,
+} from '../../lib/propertyWizardDraft'
 
 const DRAFT_KEY = 'propertyflow:property-create'
 
@@ -84,56 +90,6 @@ const TYPE_OPTIONS = [
   { value: 'Student Accommodation', label: 'Student', icon: GraduationCap },
 ]
 
-type RoomDraft = {
-  id: string
-  name: string
-  kind: RoomKind
-  beds: number
-  baths: number
-  areaSqm: string
-}
-
-type PropertyDraft = {
-  listingMode: 'rent' | 'sale' | 'both'
-  propertyType: string
-  buildingName: string
-  existingBuildingId: string
-  address: string
-  suburb: string
-  city: string
-  province: string
-  postalCode: string
-  lat: number
-  lng: number
-  placeId: string
-  formattedAddress: string
-  grading: BuildingGrading
-  solarCapacityKw: string
-  hasBorehole: boolean
-  buildingImages: string[]
-  title: string
-  parking: number
-  rooms: RoomDraft[]
-  amenities: string[]
-  price: string
-  rent: string
-  depositHint: string
-  minStayDays: string
-  instantBook: boolean
-  description: string
-  agencyId: string
-  landlordId: string
-  linkLandlord: boolean
-  landlordManualName: string
-  landlordManualEmail: string
-  landlordManualPhone: string
-  landlordEntryMode: 'search' | 'manual'
-  agentId: string
-  publishAfterSave: boolean
-  /** Server draft created via “Save & continue later” */
-  draftPropertyId: string
-}
-
 function defaultUnitNumber(propertyType: string): string {
   if (['House', 'Townhouse', 'Vacant Land', 'Student Accommodation'].includes(propertyType)) {
     return 'Main'
@@ -159,21 +115,18 @@ function roomCountsForKind(
 }
 
 function defaultRooms(): RoomDraft[] {
-  return [
-    { id: uid('r'), name: 'Bedroom', kind: 'bedroom', beds: 1, baths: 0, areaSqm: '' },
-    { id: uid('r'), name: 'Bathroom', kind: 'bathroom', beds: 0, baths: 1, areaSqm: '' },
-    { id: uid('r'), name: 'Kitchen', kind: 'kitchen', beds: 0, baths: 0, areaSqm: '' },
-    { id: uid('r'), name: 'Lounge', kind: 'living', beds: 0, baths: 0, areaSqm: '' },
-  ]
+  return defaultWizardRooms()
 }
 
-export default function PropertyCreatePage() {
+export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string }) {
+  const isEdit = Boolean(editPropertyId)
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const returnTo = readReturnTo(searchParams) ?? '/workspace/properties'
+  const editReturnTo = editPropertyId ? `/workspace/properties/${editPropertyId}` : '/workspace/properties'
+  const returnTo = readReturnTo(searchParams) ?? editReturnTo
   const queryAgencyId = searchParams.get('agencyId') ?? ''
 
-  const { state, createPropertyBundle, publishProperty, updateProperty, createUser } = useStore()
+  const { state, createPropertyBundle, publishProperty, updateProperty, setPropertyRooms, createUser } = useStore()
   const { user, agencyId, has, role } = useAuth()
   const { scopeAgency } = useAgencyScope()
   const isLandlord = role === 'landlord'
@@ -202,7 +155,18 @@ export default function PropertyCreatePage() {
   const propertyTypes = useLookupOptions('PROPERTY_TYPE', agencyId)
   const listingModes = useLookupOptions('LISTING_MODE', agencyId)
 
-  const initialDraft: PropertyDraft = {
+  const editProperty = isEdit
+    ? state.properties.find((p) => p.id === editPropertyId)
+    : undefined
+  const editBuilding = editProperty?.buildingId
+    ? state.buildings.find((b) => b.id === editProperty.buildingId)
+    : undefined
+  const editInfraRooms =
+    editProperty?.unitId != null
+      ? state.infraRooms.filter((r) => r.unitId === editProperty.unitId)
+      : []
+
+  const createInitialDraft: PropertyDraft = {
     listingMode: 'rent',
     propertyType: 'Apartment',
     buildingName: '',
@@ -242,22 +206,31 @@ export default function PropertyCreatePage() {
     draftPropertyId: '',
   }
 
-  const { draft, setDraft, clearDraft } = useWizardDraft<PropertyDraft>(DRAFT_KEY, initialDraft, {
+  const seedDraft =
+    isEdit && editProperty
+      ? draftFromProperty(editProperty, editBuilding, editInfraRooms)
+      : createInitialDraft
+
+  const wizardStorageKey = isEdit ? `${DRAFT_KEY}:edit:${editPropertyId}` : DRAFT_KEY
+
+  const { draft, setDraft, clearDraft } = useWizardDraft<PropertyDraft>(wizardStorageKey, seedDraft, {
     omitFromPersist: ['buildingImages'],
   })
   const { stepIndex, maxReachableIndex, goNext, goBack, goTo, markReachable, isFirst, isLast } =
-    useWizardSteps({ totalSteps: STEPS.length, storageKey: DRAFT_KEY })
+    useWizardSteps({ totalSteps: STEPS.length, storageKey: wizardStorageKey })
 
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
+    if (isEdit) return
     if (queryAgencyId && draft.agencyId !== queryAgencyId) {
       setDraft((d) => ({ ...d, agencyId: queryAgencyId }))
     }
   }, [queryAgencyId, draft.agencyId, setDraft])
 
   useEffect(() => {
+    if (isEdit) return
     if (isLandlord) return
     if (isAgentCreator) {
       setDraft((d) => ({
@@ -513,9 +486,32 @@ export default function PropertyCreatePage() {
     const { resolvedAgencyId, resolvedLandlordId, title, unitNumber, listingImages, roomRows } =
       buildSubmitContext()
 
+    const persistExisting = (id: string) => {
+      const patch = buildPropertyPatch(listingImages)
+      const { rooms, ...rest } = patch
+      updateProperty(id, rest)
+      if (rooms?.length) {
+        setPropertyRooms(
+          id,
+          rooms.map((r) => ({
+            id: r.id,
+            name: r.name,
+            beds: r.beds,
+            baths: r.baths,
+            area: r.area,
+            kind: r.kind,
+          })),
+        )
+      }
+      return id
+    }
+
+    if (isEdit && editPropertyId) {
+      return persistExisting(editPropertyId)
+    }
+
     if (draft.draftPropertyId && state.properties.some((p) => p.id === draft.draftPropertyId)) {
-      updateProperty(draft.draftPropertyId, buildPropertyPatch(listingImages))
-      return draft.draftPropertyId
+      return persistExisting(draft.draftPropertyId)
     }
 
     const created = createPropertyBundle({
@@ -604,14 +600,29 @@ export default function PropertyCreatePage() {
 
     setBusy(true)
     const patch = buildPropertyPatch(listingImages)
-    const existingDraftId =
-      draft.draftPropertyId && state.properties.some((p) => p.id === draft.draftPropertyId)
+    const existingDraftId = isEdit
+      ? editPropertyId!
+      : draft.draftPropertyId && state.properties.some((p) => p.id === draft.draftPropertyId)
         ? draft.draftPropertyId
         : null
 
     let propertyId: string
     if (existingDraftId) {
-      updateProperty(existingDraftId, patch)
+      const { rooms, ...rest } = patch
+      updateProperty(existingDraftId, rest)
+      if (rooms?.length) {
+        setPropertyRooms(
+          existingDraftId,
+          rooms.map((r) => ({
+            id: r.id,
+            name: r.name,
+            beds: r.beds,
+            baths: r.baths,
+            area: r.area,
+            kind: r.kind,
+          })),
+        )
+      }
       propertyId = existingDraftId
     } else {
       const { resolvedAgencyId, resolvedLandlordId, title, unitNumber, roomRows } = buildSubmitContext()
@@ -676,12 +687,12 @@ export default function PropertyCreatePage() {
 
     clearDraft()
     try {
-      sessionStorage.removeItem(`${DRAFT_KEY}:step`)
+      sessionStorage.removeItem(`${wizardStorageKey}:step`)
     } catch {
       /* ignore */
     }
     setBusy(false)
-    navigate(isLandlord ? `/workspace/properties/${propertyId}` : returnTo)
+    navigate(isEdit || isLandlord ? `/workspace/properties/${propertyId}` : returnTo)
   }
 
   function renderStep() {
@@ -1313,8 +1324,12 @@ export default function PropertyCreatePage() {
         </div>
 
         <CreateWizardShell
-          title={isLandlord ? 'List a property' : 'Add property'}
-          subtitle="Multi-step wizard — save and continue later at any time. Your progress is kept until you finish."
+          title={isEdit ? 'Edit property' : isLandlord ? 'List a property' : 'Add property'}
+          subtitle={
+            isEdit
+              ? 'Update listing details across the same steps as create. Progress is saved until you finish.'
+              : 'Multi-step wizard — save and continue later at any time. Your progress is kept until you finish.'
+          }
           steps={STEPS}
           stepIndex={stepIndex}
           maxReachableIndex={maxReachableIndex}
@@ -1354,10 +1369,18 @@ export default function PropertyCreatePage() {
               onSaveAndContinueLater={handleSaveAndContinueLater}
               showContinue={!isLast}
               onContinue={handleContinue}
-              showSaveDraft={isLast}
+              showSaveDraft={isLast && !isEdit}
               onSaveDraft={saveDraftOnly}
               showSubmit={isLast}
-              submitLabel={draft.publishAfterSave && canPublish ? 'Publish listing' : 'Create listing'}
+              submitLabel={
+                isEdit
+                  ? draft.publishAfterSave && canPublish
+                    ? 'Save & publish'
+                    : 'Save changes'
+                  : draft.publishAfterSave && canPublish
+                    ? 'Publish listing'
+                    : 'Create listing'
+              }
               onSubmit={() => submitProperty('Draft', true)}
               busy={busy}
             />
@@ -1374,4 +1397,8 @@ export default function PropertyCreatePage() {
       </div>
     </RequirePermission>
   )
+}
+
+export default function PropertyCreatePage() {
+  return <PropertyWizardPage />
 }

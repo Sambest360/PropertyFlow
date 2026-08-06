@@ -1,21 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import { ChevronDown, Plus, Search, Wrench } from 'lucide-react'
 import type { AppUser, MaintenanceTicket } from '../../types/domain'
-import { Badge, Button, Card, Input, Modal, Select, Textarea, cn, priorityTone, statusTone } from '../ui'
+import { Badge, Button, Card, Input, Select, cn, priorityTone, statusTone } from '../ui'
 import { formatZAR } from '../../data/seed'
 import { useSuiteAlert } from '../alerts/SuiteAlert'
 import { useAgentDisplay } from '../../hooks/useAgentDisplay'
 import { CompleteTicketModal } from '../maintenance/CompleteTicketModal'
+import { maintenanceCreateHref } from '../../pages/maintenance/MaintenanceCreatePage'
+import { maintenanceEditHref } from '../../pages/maintenance/MaintenanceEditPage'
+import { currentReturnPath } from '../../lib/returnTo'
 import { ListPagination, paginate } from './ListPagination'
 import { ICON_STROKE } from './types'
 
-const PRIORITIES: MaintenanceTicket['priority'][] = [
-  'Low',
-  'Medium',
-  'High',
-  'Urgent',
-  'Emergency',
-]
 const STATUSES: MaintenanceTicket['status'][] = [
   'Requested',
   'In Progress',
@@ -23,40 +20,23 @@ const STATUSES: MaintenanceTicket['status'][] = [
   'Cancelled',
 ]
 
-type TicketDraft = {
-  title: string
-  description: string
-  priority: MaintenanceTicket['priority']
-  categoryKey: string
-  contractorId: string
-  assignedAgentId: string
-  cost: string
-}
-
 export function PropertyMaintenancePanel({
+  propertyId,
   tickets,
   unitId,
   agents,
   contractors,
   canManage,
-  onCreate,
   onUpdate,
   onRemove,
   onComplete,
 }: {
+  propertyId: string
   tickets: MaintenanceTicket[]
   unitId: string | null | undefined
   agents: AppUser[]
   contractors: AppUser[]
   canManage: boolean
-  onCreate: (draft: {
-    title: string
-    description: string
-    priority: MaintenanceTicket['priority']
-    categoryKey: string
-    contractorId: string | null
-    assignedAgentId: string | null
-  }) => void
   onUpdate: (id: string, patch: Partial<MaintenanceTicket>) => void
   onRemove: (id: string) => boolean
   onComplete?: (
@@ -70,23 +50,16 @@ export function PropertyMaintenancePanel({
     },
   ) => string | null
 }) {
+  const location = useLocation()
+  const returnTo = currentReturnPath(location.pathname, location.search || '?tab=maintenance')
+  const createHref = maintenanceCreateHref({ propertyId, returnTo })
+
   const [query, setQuery] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [page, setPage] = useState(1)
-  const [modalOpen, setModalOpen] = useState(false)
   const [completeId, setCompleteId] = useState<string | null>(null)
   const alert = useSuiteAlert()
   const { label: agentLabel } = useAgentDisplay()
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [draft, setDraft] = useState<TicketDraft>({
-    title: '',
-    description: '',
-    priority: 'Medium',
-    categoryKey: 'GENERAL',
-    contractorId: '',
-    assignedAgentId: '',
-    cost: '0',
-  })
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -110,34 +83,6 @@ export function PropertyMaintenancePanel({
     if (page !== paged.page) setPage(paged.page)
   }, [page, paged.page])
 
-  const openCreate = () => {
-    setEditingId(null)
-    setDraft({
-      title: '',
-      description: '',
-      priority: 'Medium',
-      categoryKey: 'GENERAL',
-      contractorId: '',
-      assignedAgentId: agents[0]?.id ?? '',
-      cost: '0',
-    })
-    setModalOpen(true)
-  }
-
-  const openEdit = (t: MaintenanceTicket) => {
-    setEditingId(t.id)
-    setDraft({
-      title: t.title,
-      description: t.description,
-      priority: t.priority,
-      categoryKey: t.categoryKey ?? 'GENERAL',
-      contractorId: t.contractorId ?? '',
-      assignedAgentId: t.assignedAgentId ?? '',
-      cost: String(t.cost ?? 0),
-    })
-    setModalOpen(true)
-  }
-
   return (
     <Card className="p-5">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -160,10 +105,12 @@ export function PropertyMaintenancePanel({
             />
           </div>
           {canManage && unitId && (
-            <Button className="min-h-11" onClick={openCreate}>
-              <Plus className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-              Log maintenance
-            </Button>
+            <Link to={createHref}>
+              <Button className="min-h-11 cursor-pointer">
+                <Plus className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                Log maintenance
+              </Button>
+            </Link>
           )}
         </div>
       </div>
@@ -256,9 +203,11 @@ export function PropertyMaintenancePanel({
                           Complete work…
                         </Button>
                       )}
-                      <Button variant="secondary" className="min-h-11" onClick={() => openEdit(t)}>
-                        Edit details
-                      </Button>
+                      <Link to={maintenanceEditHref(t.id, returnTo)}>
+                        <Button variant="secondary" className="min-h-11 cursor-pointer">
+                          Edit details
+                        </Button>
+                      </Link>
                       {canDelete && (
                         <Button
                           variant="danger"
@@ -300,138 +249,6 @@ export function PropertyMaintenancePanel({
         onPageChange={setPage}
         label="maintenance"
       />
-
-      <Modal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title={editingId ? 'Edit maintenance' : 'Log maintenance'}
-        description="Capture priority, description, and assign a maintenance contractor."
-        size="lg"
-        footer={
-          <>
-            <Button variant="secondary" className="min-h-11" onClick={() => setModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              className="min-h-11"
-              disabled={!draft.title.trim()}
-              onClick={() => {
-                if (editingId) {
-                  onUpdate(editingId, {
-                    title: draft.title.trim(),
-                    description: draft.description.trim(),
-                    priority: draft.priority,
-                    categoryKey: draft.categoryKey,
-                    contractorId: draft.contractorId || null,
-                    assignedAgentId: draft.assignedAgentId || null,
-                    cost: Number(draft.cost) || 0,
-                  })
-                } else {
-                  onCreate({
-                    title: draft.title.trim(),
-                    description: draft.description.trim() || `Logged from property desk`,
-                    priority: draft.priority,
-                    categoryKey: draft.categoryKey,
-                    contractorId: draft.contractorId || null,
-                    assignedAgentId: draft.assignedAgentId || null,
-                  })
-                }
-                setModalOpen(false)
-              }}
-            >
-              {editingId ? 'Save changes' : 'Create maintenance'}
-            </Button>
-          </>
-        }
-      >
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block text-xs font-medium text-ink-500 sm:col-span-2">
-            Title
-            <Input
-              className="mt-1 min-h-11"
-              value={draft.title}
-              onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-            />
-          </label>
-          <label className="block text-xs font-medium text-ink-500 sm:col-span-2">
-            Description
-            <Textarea
-              className="mt-1 min-h-24"
-              value={draft.description}
-              onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-            />
-          </label>
-          <label className="block text-xs font-medium text-ink-500">
-            Priority
-            <Select
-              className="mt-1 min-h-11 w-full"
-              value={draft.priority}
-              onChange={(e) =>
-                setDraft({ ...draft, priority: e.target.value as MaintenanceTicket['priority'] })
-              }
-            >
-              {PRIORITIES.map((p) => (
-                <option key={p}>{p}</option>
-              ))}
-            </Select>
-          </label>
-          <label className="block text-xs font-medium text-ink-500">
-            Category
-            <Select
-              className="mt-1 min-h-11 w-full"
-              value={draft.categoryKey}
-              onChange={(e) => setDraft({ ...draft, categoryKey: e.target.value })}
-            >
-              {['GENERAL', 'APPLIANCE_FAILURE', 'ELECTRICAL', 'PLUMBING', 'HVAC', 'STRUCTURAL'].map(
-                (c) => (
-                  <option key={c}>{c}</option>
-                ),
-              )}
-            </Select>
-          </label>
-          <label className="block text-xs font-medium text-ink-500">
-            Maintenance person
-            <Select
-              className="mt-1 min-h-11 w-full"
-              value={draft.contractorId}
-              onChange={(e) => setDraft({ ...draft, contractorId: e.target.value })}
-            >
-              <option value="">Unassigned</option>
-              {contractors.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </Select>
-          </label>
-          <label className="block text-xs font-medium text-ink-500">
-            Assigned agent
-            <Select
-              className="mt-1 min-h-11 w-full"
-              value={draft.assignedAgentId}
-              onChange={(e) => setDraft({ ...draft, assignedAgentId: e.target.value })}
-            >
-              <option value="">Unassigned</option>
-              {agents.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </Select>
-          </label>
-          {editingId && (
-            <label className="block text-xs font-medium text-ink-500 sm:col-span-2">
-              Cost (ZAR)
-              <Input
-                type="number"
-                className="mt-1 min-h-11 tabular"
-                value={draft.cost}
-                onChange={(e) => setDraft({ ...draft, cost: e.target.value })}
-              />
-            </label>
-          )}
-        </div>
-      </Modal>
 
       <CompleteTicketModal
         open={Boolean(completeId)}

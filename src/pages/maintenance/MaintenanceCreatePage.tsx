@@ -1,0 +1,145 @@
+import { useMemo, useState } from 'react'
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
+import { ArrowLeft, Plus } from 'lucide-react'
+import { useStore } from '../../context/AppStore'
+import { useAuth, usePropertyScope } from '../../context/AuthContext'
+import { RequirePermission } from '../../components/RequirePermission'
+import { MaintenanceTicketForm, type CreateTicketInput } from '../../components/maintenance/MaintenanceTicketForm'
+import { Button, Card } from '../../components/ui'
+import { getLookups } from '../../lib/lookups'
+import { readReturnTo, withReturnTo } from '../../lib/returnTo'
+import { createMaintenanceFromInput } from '../../lib/maintenanceTicketFlow'
+import { useSuiteAlert } from '../../components/alerts/SuiteAlert'
+
+const FORM_ID = 'maintenance-create-form'
+const ICON_STROKE = 1.6
+
+export default function MaintenanceCreatePage() {
+  const { state, createMaintenanceTicket, updateMaintenanceTicketDetails, assignContractorToTicket } =
+    useStore()
+  const { user, has, agencyId } = useAuth()
+  const { allowedPropertyIds, canMutate } = usePropertyScope()
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const alert = useSuiteAlert()
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const returnTo = readReturnTo(searchParams) ?? '/workspace/operations/maintenance'
+  const initialPropertyId = searchParams.get('property') ?? undefined
+  const lockProperty = Boolean(initialPropertyId)
+
+  const properties = useMemo(
+    () => state.properties.filter((p) => allowedPropertyIds.has(p.id) && !p.deletedAt),
+    [state.properties, allowedPropertyIds],
+  )
+
+  const categories = useMemo(
+    () => getLookups(state.lookups, agencyId, 'TICKET_CATEGORY'),
+    [state.lookups, agencyId],
+  )
+
+  if (!has('maintenance.manage')) {
+    return <Navigate to={returnTo} replace />
+  }
+
+  const handleSubmit = (input: CreateTicketInput) => {
+    setBusy(true)
+    const result = createMaintenanceFromInput(input, {
+      properties,
+      internalAssets: state.internalAssets,
+      canMutate,
+      createMaintenanceTicket,
+      updateMaintenanceTicketDetails,
+      assignContractorToTicket,
+      actorUserId: user.id,
+    })
+    setBusy(false)
+
+    if (result.ok === false) {
+      setError(result.error)
+      return
+    }
+
+    void alert.success({
+      title: 'Maintenance logged',
+      text: `"${input.title}" was created${input.contractorId ? ' and the contractor was notified.' : '.'}`,
+    })
+    navigate(
+      returnTo.includes('/operations/maintenance') && !returnTo.includes('/new')
+        ? `/workspace/operations/maintenance/${encodeURIComponent(result.ticketId)}`
+        : returnTo,
+    )
+  }
+
+  return (
+    <RequirePermission permission="maintenance.manage">
+      <div className="animate-fade-in">
+        <Link
+          to={returnTo}
+          className="mb-4 inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm text-ink-500 transition-colors duration-200 hover:text-ink"
+        >
+          <ArrowLeft className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+          Back
+        </Link>
+
+        <div className="mb-6">
+          <h1 className="font-display text-2xl font-semibold tracking-tight text-ink sm:text-[1.75rem]">
+            Log maintenance
+          </h1>
+          <p className="mt-1 max-w-2xl text-sm text-ink-500">
+            Capture the fault in detail — photos, location, linked assets, and book an approved contractor.
+          </p>
+        </div>
+
+        <Card className="overflow-hidden p-0">
+          <div className="border-b border-primary-100 bg-primary-50/40 px-5 py-4">
+            <h2 className="font-display text-base font-semibold text-ink">Issue details</h2>
+            <p className="mt-0.5 text-sm text-ink-500">
+              All fields save to the maintenance record and appear on the contractor job card.
+            </p>
+          </div>
+          <div className="p-5 sm:p-6">
+            <MaintenanceTicketForm
+              mode="create"
+              formId={FORM_ID}
+              properties={properties}
+              assets={state.internalAssets}
+              categories={categories}
+              agencyId={agencyId}
+              initialPropertyId={initialPropertyId}
+              lockProperty={lockProperty}
+              onSubmitCreate={handleSubmit}
+              error={error}
+            />
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-primary-100 bg-primary-50/30 px-5 py-4">
+            <Link to={returnTo}>
+              <Button variant="secondary" className="min-h-11 cursor-pointer" disabled={busy}>
+                Cancel
+              </Button>
+            </Link>
+            <Button className="min-h-11 cursor-pointer" form={FORM_ID} type="submit" disabled={busy}>
+              <Plus className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+              {busy ? 'Creating…' : 'Create maintenance'}
+            </Button>
+          </div>
+        </Card>
+      </div>
+    </RequirePermission>
+  )
+}
+
+export function maintenanceCreateHref(opts?: {
+  propertyId?: string
+  returnTo?: string
+}): string {
+  let path = '/workspace/operations/maintenance/new'
+  if (opts?.propertyId) {
+    path += `?property=${encodeURIComponent(opts.propertyId)}`
+  }
+  if (opts?.returnTo) {
+    path = withReturnTo(path, opts.returnTo)
+  }
+  return path
+}

@@ -18,8 +18,9 @@ import {
   readDirectoryView,
   type DirectoryViewMode,
 } from '../components/directory/DirectoryToolbar'
+import { DirectoryFilterSelect } from '../components/directory/DirectoryFilters'
 import { DirectoryStatCard } from '../components/directory/DirectoryStats'
-import { Badge, Button, PageHeader, Select, cn, statusTone } from '../components/ui'
+import { Badge, Button, PageHeader, cn, statusTone } from '../components/ui'
 import { AgentAssigneeText } from '../components/detail/FlatFields'
 import { appendAgentMetaRow } from '../lib/agentDisplay'
 import { useAgentDisplay, useHideAgentColumn } from '../hooks/useAgentDisplay'
@@ -224,6 +225,12 @@ export default function CRM() {
 
   const filtersActive =
     Boolean(q.trim()) || stage !== 'all' || type !== 'all' || channel !== 'all' || attention !== 'all'
+  const activeFilterCount =
+    (stage !== 'all' ? 1 : 0) +
+    (type !== 'all' ? 1 : 0) +
+    (channel !== 'all' ? 1 : 0) +
+    (attention !== 'all' ? 1 : 0) +
+    (sort !== 'created' ? 1 : 0)
   const clearFilters = () => {
     setQ('')
     setStage('all')
@@ -334,25 +341,26 @@ export default function CRM() {
         <DirectoryToolbar
           query={q}
           onQueryChange={setQ}
-          searchPlaceholder="Filter by name, email, phone, property, or agent…"
+          searchPlaceholder="Search leads…"
           searchLabel="Filter leads"
           view={view === 'board' ? 'list' : view}
           onViewChange={(v) => setViewPersist(v)}
           sort={sort}
           onSortChange={setSort}
           sortOptions={[
-            { value: 'created', label: 'Sort: Newest first' },
-            { value: 'updated', label: 'Sort: Recently updated' },
-            { value: 'name', label: 'Sort: Name' },
-            { value: 'value', label: 'Sort: Value' },
-            { value: 'stage', label: 'Sort: Stage' },
+            { value: 'created', label: 'Newest first' },
+            { value: 'updated', label: 'Recently updated' },
+            { value: 'name', label: 'Name' },
+            { value: 'value', label: 'Value' },
+            { value: 'stage', label: 'Stage' },
           ]}
           resultLabel={resultLabel}
           reducedMotion={reducedMotion}
+          activeFilterCount={activeFilterCount}
+          onClearFilters={clearFilters}
           filters={
             <>
-              <Select
-                className="min-h-11"
+              <DirectoryFilterSelect
                 value={attention}
                 onChange={(e) => setAttention(e.target.value as AttentionFilter)}
                 aria-label="Focus"
@@ -362,9 +370,8 @@ export default function CRM() {
                 <option value="new">New only</option>
                 <option value="active">In progress</option>
                 <option value="closing">Closing</option>
-              </Select>
-              <Select
-                className="min-h-11"
+              </DirectoryFilterSelect>
+              <DirectoryFilterSelect
                 value={stage}
                 onChange={(e) => setStage(e.target.value)}
                 aria-label="Filter by stage"
@@ -381,9 +388,8 @@ export default function CRM() {
                         {s}
                       </option>
                     ))}
-              </Select>
-              <Select
-                className="min-h-11"
+              </DirectoryFilterSelect>
+              <DirectoryFilterSelect
                 value={type}
                 onChange={(e) => setType(e.target.value)}
                 aria-label="Filter by type"
@@ -391,9 +397,8 @@ export default function CRM() {
                 <option value="all">Buy & rent</option>
                 <option value="Buy">Buy</option>
                 <option value="Rent">Rent</option>
-              </Select>
-              <Select
-                className="min-h-11"
+              </DirectoryFilterSelect>
+              <DirectoryFilterSelect
                 value={channel}
                 onChange={(e) => setChannel(e.target.value)}
                 aria-label="Filter by channel"
@@ -404,7 +409,7 @@ export default function CRM() {
                     {c}
                   </option>
                 ))}
-              </Select>
+              </DirectoryFilterSelect>
             </>
           }
           extraViews={
@@ -413,14 +418,16 @@ export default function CRM() {
                 type="button"
                 onClick={() => setViewPersist('board')}
                 className={cn(
-                  'inline-flex min-h-9 min-w-11 cursor-pointer items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                  'inline-flex min-h-9 min-w-9 cursor-pointer items-center justify-center gap-1 rounded-lg px-2 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:px-2.5',
                   reducedMotion && 'transition-none',
                   view === 'board' ? 'bg-white text-primary shadow-sm' : 'text-ink-500 hover:text-ink',
                 )}
                 aria-pressed={view === 'board'}
+                aria-label="Board view"
+                title="Board"
               >
                 <Columns3 className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                Board
+                <span className="hidden sm:inline">Board</span>
               </button>
             ) : null
           }

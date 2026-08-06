@@ -11,6 +11,10 @@ export const LIVE_SYNC_TABLES = [
   'viewing_slots',
   'leases',
   'units',
+  'buildings',
+  'rooms',
+  'event_log',
+  'documents',
   'media_assets',
 ] as const
 

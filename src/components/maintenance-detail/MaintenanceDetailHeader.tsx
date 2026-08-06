@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { ArrowLeft, CheckCircle2, Pencil } from 'lucide-react'
 import { Badge, Button, priorityTone, statusTone } from '../ui'
 import { formatAge, isOpenStatus, type PortfolioTicket } from '../maintenance/types'
+import { maintenanceEditHref } from '../../pages/maintenance/MaintenanceEditPage'
 
 const ICON_STROKE = 1.6
 
@@ -10,13 +11,11 @@ export function MaintenanceDetailHeader({
   canManage,
   canEdit,
   onComplete,
-  onEdit,
 }: {
   item: PortfolioTicket
   canManage: boolean
   canEdit?: boolean
   onComplete: () => void
-  onEdit?: () => void
 }) {
   const t = item.ticket
   const open = isOpenStatus(t.status)
@@ -49,11 +48,13 @@ export function MaintenanceDetailHeader({
 
         {open && (canManage || canEdit) && (
           <div className="flex flex-wrap items-center gap-2">
-            {canEdit && onEdit ? (
-              <Button variant="secondary" className="min-h-11" onClick={onEdit}>
-                <Pencil className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                Edit record
-              </Button>
+            {canEdit ? (
+              <Link to={maintenanceEditHref(t.id, `/workspace/operations/maintenance/${encodeURIComponent(t.id)}`)}>
+                <Button variant="secondary" className="min-h-11 cursor-pointer">
+                  <Pencil className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                  Edit record
+                </Button>
+              </Link>
             ) : null}
             {canManage ? (
               <Button className="min-h-11" onClick={onComplete}>

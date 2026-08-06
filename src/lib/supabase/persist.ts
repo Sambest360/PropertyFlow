@@ -520,22 +520,26 @@ async function upsertProperty(id: string, data: Record<string, unknown>): Promis
       bedrooms: num(data.beds) ?? 0,
       bathrooms: num(data.baths),
       parking: num(data.parking),
-      listing_type: str(data.listingMode, 'rent').toUpperCase(),
+      listing_type: data.deletedAt
+        ? 'NOT_LISTED'
+        : str(data.listingMode, 'rent').toUpperCase(),
       price: num(data.price),
       rent: num(data.rent),
       status_config_key:
-        str(data.status) === 'Rented'
-          ? 'OCCUPIED'
-          : str(data.status) === 'Maintenance'
-            ? 'MAINTENANCE'
-            : str(data.status) === 'Draft'
-              ? 'DRAFT'
-              : 'AVAILABLE',
+        data.deletedAt
+          ? 'DELETED'
+          : str(data.status) === 'Rented'
+            ? 'OCCUPIED'
+            : str(data.status) === 'Maintenance'
+              ? 'MAINTENANCE'
+              : str(data.status) === 'Draft'
+                ? 'DRAFT'
+                : 'AVAILABLE',
       agent_id: await userUuid(data.agentId),
       description: str(data.description),
       amenities: data.amenities ?? [],
       images: data.images ?? [],
-      featured: Boolean(data.featured),
+      featured: data.deletedAt ? false : Boolean(data.featured),
       lat: num(data.lat),
       lng: num(data.lng),
       place_id: str(data.placeId) || null,

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus } from 'lucide-react'
+import { Plus, Archive } from 'lucide-react'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
@@ -19,6 +19,7 @@ import {
 } from '../components/properties/types'
 import { useLookupOptions } from '../hooks/useLookupOptions'
 import { VerificationPendingBanner } from '../components/auth/VerificationBanner'
+import { canDeletePropertyRole, isPropertyDeleted } from '../lib/propertyDeletion'
 
 function readStoredView(): PropertiesViewMode {
   try {
@@ -67,8 +68,18 @@ export default function Properties() {
   }, [view])
 
   const scoped = useMemo(() => {
-    return state.properties.filter((p) => allowedPropertyIds.has(p.id))
+    return state.properties.filter(
+      (p) => allowedPropertyIds.has(p.id) && !isPropertyDeleted(p),
+    )
   }, [state.properties, allowedPropertyIds])
+
+  const deletedCount = useMemo(() => {
+    return state.properties.filter(
+      (p) => allowedPropertyIds.has(p.id) && isPropertyDeleted(p),
+    ).length
+  }, [state.properties, allowedPropertyIds])
+
+  const canViewArchive = has('assets.manage') && canDeletePropertyRole(user.role)
 
   const portfolio: PortfolioProperty[] = useMemo(() => {
     return scoped.map((property) => {
@@ -192,13 +203,23 @@ export default function Properties() {
         title="Properties"
         subtitle="Scan your portfolio, spot what needs attention, and open a property for full detail."
         actions={
-          has('assets.manage') ? (
-            <Link to={createPropertyHref}>
-              <Button className="min-h-11 cursor-pointer">
-                <Plus className="h-4 w-4" strokeWidth={1.6} aria-hidden /> Add property
-              </Button>
-            </Link>
-          ) : undefined
+          <div className="flex flex-wrap items-center gap-2">
+            {canViewArchive ? (
+              <Link to="/workspace/properties/archive">
+                <Button variant="secondary" className="min-h-11 cursor-pointer">
+                  <Archive className="h-4 w-4" aria-hidden />
+                  Deleted{deletedCount > 0 ? ` (${deletedCount})` : ''}
+                </Button>
+              </Link>
+            ) : null}
+            {has('assets.manage') ? (
+              <Link to={createPropertyHref}>
+                <Button className="min-h-11 cursor-pointer">
+                  <Plus className="h-4 w-4" strokeWidth={1.6} aria-hidden /> Add property
+                </Button>
+              </Link>
+            ) : null}
+          </div>
         }
       />
 

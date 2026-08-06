@@ -8,7 +8,7 @@ export function DirectoryFilterSelect({
   ...props
 }: SelectHTMLAttributes<HTMLSelectElement> & { children: ReactNode }) {
   return (
-    <Select className={cn('min-h-11 cursor-pointer', className)} {...props}>
+    <Select className={cn('min-h-10 cursor-pointer text-sm', className)} {...props}>
       {children}
     </Select>
   )

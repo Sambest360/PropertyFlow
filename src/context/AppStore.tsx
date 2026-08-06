@@ -138,6 +138,8 @@ import {
   notifyViewingScheduled,
   notifyViewingStatusChanged,
 } from '../lib/eventNotifications'
+import { mergeEntityLists } from '../lib/bootstrapMerge'
+import { getPropertyDeleteBlockReason } from '../lib/propertyDeletion'
 
 /**
  * App state persistence key.
@@ -159,7 +161,7 @@ function actorFromUsers(
   return { userId: u.id, role: u.role, agencyId: u.agencyId }
 }
 
-/** When Postgres bootstrap succeeds, replace collections (empty product = empty arrays). */
+/** When Postgres bootstrap succeeds, merge server rows with recent local writes. */
 function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppState {
   const agencies = ((boot.agencies as Agency[]) ?? []).map((a) => ({
     ...a,
@@ -171,43 +173,50 @@ function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppSta
   const users = (boot.users as AppUser[]) ?? []
 
   const replaceLinked = Boolean(boot.scoped)
-  const pick = <T extends { id: string }>(baseList: T[], bootList: T[] | undefined): T[] => {
-    if (!bootList) return replaceLinked ? [] : baseList
-    return replaceLinked ? bootList : bootList
-  }
+  const mergeOpts = { replaceWhenMissing: replaceLinked }
+  const pick = <T extends { id: string }>(
+    baseList: T[],
+    bootList: T[] | undefined,
+    collectionKey: string,
+  ): T[] => mergeEntityLists(baseList, bootList, collectionKey, mergeOpts)
 
   return {
     ...base,
     agencies,
     users,
-    properties: pick(base.properties, boot.properties as PropertyAsset[]),
-    buildings: pick(base.buildings, boot.buildings as Building[]),
-    units: pick(base.units, boot.units as Unit[]),
-    leads: pick(base.leads, boot.leads as Lead[]),
-    applications: pick(base.applications, boot.applications as Application[]).map(normalizeApplication),
-    tenancies: pick(base.tenancies, boot.tenancies as Tenancy[]),
-    viewings: pick(base.viewings, boot.viewings as Viewing[]),
-    payments: pick(base.payments, boot.payments as PaymentRecord[]),
+    properties: pick(base.properties, boot.properties as PropertyAsset[], 'properties'),
+    buildings: pick(base.buildings, boot.buildings as Building[], 'buildings'),
+    units: pick(base.units, boot.units as Unit[], 'units'),
+    leads: pick(base.leads, boot.leads as Lead[], 'leads'),
+    applications: pick(base.applications, boot.applications as Application[], 'applications').map(
+      normalizeApplication,
+    ),
+    tenancies: pick(base.tenancies, boot.tenancies as Tenancy[], 'tenancies'),
+    viewings: pick(base.viewings, boot.viewings as Viewing[], 'viewings'),
+    payments: pick(base.payments, boot.payments as PaymentRecord[], 'payments'),
     propertyDocuments: pick(
       base.propertyDocuments,
       boot.propertyDocuments as PropertyDocument[],
+      'propertyDocuments',
     ),
-    tickets: pick(base.tickets, boot.tickets as MaintenanceTicket[]),
+    tickets: pick(base.tickets, boot.tickets as MaintenanceTicket[], 'tickets'),
     agencyContractors: pick(
       base.agencyContractors,
-      (boot.agencyContractors as AgencyContractor[] | undefined) ?? base.agencyContractors,
+      boot.agencyContractors as AgencyContractor[] | undefined,
+      'agencyContractors',
     ),
-    threads: pick(base.threads, boot.threads as MessageThread[]),
-    messages: pick(base.messages, boot.messages as Message[]),
-    notifications: pick(base.notifications, boot.notifications as AppNotification[]),
-    viewingSlots: pick(base.viewingSlots, (boot.viewingSlots ?? []) as ViewingSlot[]),
-    suiteAlerts: pick(base.suiteAlerts, (boot.suiteAlerts ?? []) as SuiteAlertRule[]),
-    activities: pick(base.activities, (boot.activities ?? []) as Activity[]),
+    threads: pick(base.threads, boot.threads as MessageThread[], 'threads'),
+    messages: pick(base.messages, boot.messages as Message[], 'messages'),
+    notifications: pick(base.notifications, boot.notifications as AppNotification[], 'notifications'),
+    viewingSlots: pick(base.viewingSlots, boot.viewingSlots as ViewingSlot[] | undefined, 'viewingSlots'),
+    suiteAlerts: pick(base.suiteAlerts, boot.suiteAlerts as SuiteAlertRule[] | undefined, 'suiteAlerts'),
+    activities: pick(base.activities, boot.activities as Activity[] | undefined, 'activities'),
     propertyEvents: pick(
       base.propertyEvents,
-      (boot.propertyEvents ?? []) as PropertyEvent[],
+      boot.propertyEvents as PropertyEvent[] | undefined,
+      'propertyEvents',
     ),
-    invoices: pick(base.invoices, (boot.invoices ?? []) as PlatformInvoice[]),
+    invoices: pick(base.invoices, boot.invoices as PlatformInvoice[] | undefined, 'invoices'),
     lookups: boot.lookups?.length
       ? (boot.lookups as LookupConfig[])
       : base.lookups,
@@ -321,6 +330,8 @@ type StoreContextValue = {
   updateProperty: (id: string, patch: Partial<PropertyAsset>) => void
   setPropertyRooms: (id: string, rooms: Room[]) => void
   publishProperty: (id: string, status?: PropertyAsset['status']) => void
+  deleteProperty: (id: string) => { ok: true } | { ok: false; reason: string }
+  restoreProperty: (id: string) => { ok: true } | { ok: false; reason: string }
   createBuilding: (input: Omit<Building, 'id' | 'createdAt' | 'images'> & { images?: string[] }) => Building
   createUnitFromTemplate: (input: {
     buildingId: string
@@ -677,6 +688,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   },
   [],
 )
+
+  const refreshAfterMutationRef = useRef<number | null>(null)
+  const scheduleBootstrapRefreshAfterMutation = useCallback(() => {
+    if (refreshAfterMutationRef.current != null) {
+      window.clearTimeout(refreshAfterMutationRef.current)
+    }
+    refreshAfterMutationRef.current = window.setTimeout(() => {
+      refreshAfterMutationRef.current = null
+      const actor = actorFromUsers(stateRef.current.users)
+      void refreshBootstrap(actor, { force: true })
+    }, 1500)
+  }, [refreshBootstrap])
 
   useEffect(() => {
     if (!isApiEnabled && !isSupabaseMode) {
@@ -1425,6 +1448,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }
       persistUpsert('property', id, { ...prev, ...p, id } as Record<string, unknown>)
       if (pe) persistUpsert('property_event', pe.id, pe as unknown as Record<string, unknown>)
+      scheduleBootstrapRefreshAfterMutation()
     },
     setPropertyRooms: (id, rooms) => {
       const beds = rooms.reduce((n, r) => n + r.beds, 0)
@@ -1435,6 +1459,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }))
       const prev = state.properties.find((x) => x.id === id)
       if (prev) persistUpsert('property', id, { ...prev, rooms, beds, baths } as unknown as Record<string, unknown>)
+      scheduleBootstrapRefreshAfterMutation()
     },
     publishProperty: (id, status = 'Published') => {
       let pe: PropertyEvent | null = null
@@ -1465,6 +1490,124 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       })
       if (prev) persistUpsert('property', id, { ...prev, status, id } as Record<string, unknown>)
       if (pe) persistUpsert('property_event', pe.id, pe as unknown as Record<string, unknown>)
+      scheduleBootstrapRefreshAfterMutation()
+    },
+    deleteProperty: (id) => {
+      const property = stateRef.current.properties.find((x) => x.id === id)
+      if (!property) return { ok: false, reason: 'Property not found.' }
+
+      const blockReason = getPropertyDeleteBlockReason(
+        property,
+        stateRef.current.tenancies,
+        stateRef.current.applications,
+      )
+      if (blockReason) return { ok: false, reason: blockReason }
+
+      const deletedAt = new Date().toISOString()
+      const pe: PropertyEvent = {
+        id: uid('pe'),
+        agencyId: property.agencyId,
+        propertyId: id,
+        actorUserId: null,
+        actorName: 'System',
+        action: 'removed the Property',
+        at: deletedAt,
+        changes: [{ field: 'Status', from: property.status, to: 'Deleted' }],
+      }
+
+      patch((s) => ({
+        ...s,
+        properties: s.properties.map((x) =>
+          x.id === id
+            ? { ...x, deletedAt, status: 'Archived', featured: false }
+            : x,
+        ),
+        propertyEvents: [pe, ...s.propertyEvents].slice(0, 400),
+        units: property.unitId
+          ? s.units.map((u) =>
+              u.id === property.unitId
+                ? { ...u, statusKey: 'DELETED', listingType: 'not_listed' }
+                : u,
+            )
+          : s.units,
+      }))
+
+      emitSuiteEvent({
+        agencyId: property.agencyId,
+        resource: 'property',
+        action: 'deleted',
+        title: 'Property deleted',
+        body: `“${property.title}” was moved to the archive.`,
+        link: '/workspace/properties/archive',
+      })
+
+      persistUpsert('property', id, {
+        ...property,
+        deletedAt,
+        status: 'Archived',
+        featured: false,
+        statusKey: 'DELETED',
+        listingMode: 'not_listed',
+      } as Record<string, unknown>)
+      persistUpsert('property_event', pe.id, pe as unknown as Record<string, unknown>)
+      scheduleBootstrapRefreshAfterMutation()
+      return { ok: true }
+    },
+    restoreProperty: (id) => {
+      const property = stateRef.current.properties.find((x) => x.id === id)
+      if (!property?.deletedAt) {
+        return { ok: false, reason: 'Property is not in the archive.' }
+      }
+
+      const pe: PropertyEvent = {
+        id: uid('pe'),
+        agencyId: property.agencyId,
+        propertyId: id,
+        actorUserId: null,
+        actorName: 'System',
+        action: 'restored the Property',
+        at: new Date().toISOString(),
+        changes: [{ field: 'Status', from: 'Deleted', to: 'Draft' }],
+      }
+
+      patch((s) => ({
+        ...s,
+        properties: s.properties.map((x) =>
+          x.id === id ? { ...x, deletedAt: null, status: 'Draft', featured: false } : x,
+        ),
+        propertyEvents: [pe, ...s.propertyEvents].slice(0, 400),
+        units: property.unitId
+          ? s.units.map((u) =>
+              u.id === property.unitId
+                ? {
+                    ...u,
+                    statusKey: 'DRAFT',
+                    listingType: u.listingType === 'not_listed' ? 'rent' : u.listingType,
+                  }
+                : u,
+            )
+          : s.units,
+      }))
+
+      emitSuiteEvent({
+        agencyId: property.agencyId,
+        resource: 'property',
+        action: 'updated',
+        title: 'Property restored',
+        body: `“${property.title}” is back as a draft.`,
+        link: `/workspace/properties/${id}`,
+      })
+
+      persistUpsert('property', id, {
+        ...property,
+        deletedAt: null,
+        status: 'Draft',
+        featured: false,
+        statusKey: 'DRAFT',
+      } as Record<string, unknown>)
+      persistUpsert('property_event', pe.id, pe as unknown as Record<string, unknown>)
+      scheduleBootstrapRefreshAfterMutation()
+      return { ok: true }
     },
     createBuilding: (input) => {
       const building: Building = {
@@ -3875,7 +4018,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       void persistMarkNotificationsRead({ userId, all: true })
     },
     dismissToast,
-  }), [state, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, persistUpsert, persistDelete, refreshBootstrap])
+  }), [state, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, persistUpsert, persistDelete, refreshBootstrap, scheduleBootstrapRefreshAfterMutation])
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }

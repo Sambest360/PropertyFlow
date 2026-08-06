@@ -11,6 +11,7 @@ import {
   supabaseApproveApplication,
   supabaseMarkNotificationsRead,
 } from '../supabase/persist'
+import { markLocalPersistWrite } from '../bootstrapMerge'
 
 export type { EntityType } from './persistTypes'
 
@@ -165,6 +166,7 @@ export function queueUpsert(
   id: string,
   data: Record<string, unknown>,
 ): void {
+  markLocalPersistWrite(resource, id)
   queuePersist({ resource, action: 'upsert', id, data: { ...data, id } })
 }
 

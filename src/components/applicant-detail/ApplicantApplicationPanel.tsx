@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   Ban,
   CheckCircle2,
@@ -11,140 +12,47 @@ import {
   Wallet,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import type { Application, PropertyAsset } from '../../types/domain'
-import { Badge, Button, Card, Input, cn, statusTone } from '../ui'
+import type { Application, ApplicationDocument, PropertyAsset } from '../../types/domain'
+import { Badge, Card, cn, statusTone } from '../ui'
 import { buildApplicationActions } from '../../lib/api/actions'
 import type { HateoasAction } from '../../lib/api/contracts'
 import {
   getStageDef,
   resolveWorkflowStatus,
-  stageVisualState,
   workflowBranchOutcomes,
-  workflowCategoryLabel,
   workflowProgress,
   workflowStageLabel,
-  workflowStagesByCategory,
-  type WorkflowCategory,
 } from '../../lib/applicationWorkflow'
+import { actionNeedsModal, type WorkflowActionCapture } from '../../lib/workflowActionForms'
+import { WorkflowLifecycleTrack } from '../workflow/WorkflowLifecycleTrack'
+import { WorkflowActionModal } from '../workflow/WorkflowActionModal'
 import { ICON_STROKE } from './types'
 import { useAgentDisplay } from '../../hooks/useAgentDisplay'
-
-function WorkflowLifecycleMap({
-  application,
-}: {
-  application: Application
-}) {
-  const status = resolveWorkflowStatus(application)
-  const grouped = workflowStagesByCategory(application.type)
-  const categories = (Object.keys(grouped) as WorkflowCategory[]).filter(
-    (cat) => grouped[cat].length > 0,
-  )
-
-  return (
-    <div className="space-y-4">
-      {categories.map((category) => {
-        const stages = grouped[category]
-        const hasCurrent = stages.some((s) => s.key === status)
-        const hasCompleted = stages.some(
-          (s) => stageVisualState(application.type, status, s.key) === 'completed',
-        )
-        if (!hasCurrent && !hasCompleted && category !== 'closure') {
-          const minOrder = stages[0]?.order ?? 0
-          const currentOrder = getStageDef(application.type, status)?.order ?? 0
-          if (minOrder > currentOrder + 5) return null
-        }
-
-        return (
-          <section
-            key={category}
-            className={cn(
-              'rounded-2xl border p-3 sm:p-4',
-              hasCurrent ? 'border-primary-200 bg-primary-50/50' : 'border-primary-100 bg-white',
-            )}
-          >
-            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">
-              {workflowCategoryLabel(category)}
-            </h3>
-            <ol className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {stages.map((stageDef) => {
-                const visual = stageVisualState(application.type, status, stageDef.key)
-                if (visual === 'skipped' && !stageDef.terminal) return null
-                const isCurrent = visual === 'current'
-                const isDone = visual === 'completed'
-                const isTerminal = stageDef.terminal && stageDef.key === status
-                return (
-                  <li
-                    key={stageDef.key}
-                    className={cn(
-                      'flex min-h-11 items-start gap-2 rounded-xl px-2.5 py-2 text-sm',
-                      isCurrent && 'bg-white ring-1 ring-primary-200',
-                      isTerminal && 'bg-accent-50 ring-1 ring-accent-200',
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        'mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold',
-                        isDone && 'bg-primary text-white',
-                        isCurrent && 'bg-primary text-white ring-2 ring-primary-100',
-                        isTerminal && 'bg-accent text-white',
-                        !isDone && !isCurrent && !isTerminal && 'border border-primary-200 bg-white text-ink-400',
-                      )}
-                      aria-hidden
-                    >
-                      {isDone ? (
-                        <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} />
-                      ) : (
-                        '·'
-                      )}
-                    </span>
-                    <span className="min-w-0">
-                      <span
-                        className={cn(
-                          'block font-medium leading-snug',
-                          isCurrent && 'text-primary',
-                          isTerminal && 'text-accent-800',
-                          !isCurrent && !isTerminal && 'text-ink-600',
-                        )}
-                      >
-                        {stageDef.label}
-                      </span>
-                      {stageDef.parallel ? (
-                        <span className="mt-0.5 block text-[10px] text-ink-400">May run in parallel</span>
-                      ) : null}
-                    </span>
-                  </li>
-                )
-              })}
-            </ol>
-          </section>
-        )
-      })}
-    </div>
-  )
-}
+import { useSuiteAlert } from '../alerts/SuiteAlert'
 
 function BranchOutcomesPanel({ application }: { application: Application }) {
   const status = resolveWorkflowStatus(application)
   const outcomes = workflowBranchOutcomes(application.type)
-  const currentTerminal = getStageDef(application.type, status)?.terminal
 
   return (
-    <Card className="border-primary-100 bg-white p-4">
-      <div className="flex items-start gap-2">
-        <GitBranch className="mt-0.5 h-4 w-4 shrink-0 text-ink-400" strokeWidth={ICON_STROKE} aria-hidden />
-        <div className="min-w-0">
+    <Card className="border-primary-100 bg-white p-4 sm:p-5">
+      <div className="flex items-start gap-3">
+        <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary">
+          <GitBranch className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+        </span>
+        <div className="min-w-0 flex-1">
           <h3 className="font-display text-sm font-semibold text-ink">Alternate outcomes</h3>
           <p className="mt-1 text-xs text-ink-500">
-            Applications can exit the happy path at several points — withdraw, reject, cancel, or renew.
+            Applications can exit the happy path — withdraw, reject, cancel, or renew.
           </p>
-          <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+          <ul className="mt-4 grid gap-2 sm:grid-cols-2">
             {outcomes.map((o) => {
               const active = status === o.key
               return (
                 <li
                   key={o.key}
                   className={cn(
-                    'rounded-xl border px-3 py-2 text-xs',
+                    'rounded-xl border px-3 py-2.5 text-xs transition-colors duration-200',
                     active ? 'border-accent-200 bg-accent-50 text-accent-900' : 'border-primary-100 text-ink-600',
                   )}
                 >
@@ -154,11 +62,6 @@ function BranchOutcomesPanel({ application }: { application: Application }) {
               )
             })}
           </ul>
-          {currentTerminal ? (
-            <p className="mt-3 text-xs font-medium text-accent-800">
-              This file is at a terminal stage: {workflowStageLabel(application.type, status)}.
-            </p>
-          ) : null}
         </div>
       </div>
     </Card>
@@ -184,11 +87,10 @@ function resolveTone(action: HateoasAction): NonNullable<HateoasAction['tone']> 
     return 'primary'
   }
   if (
-    action.key === 'DECLINE_INCOME' ||
-    action.key === 'REJECT_APPLICATION' ||
-    action.key === 'DECLINE_CREDIT' ||
-    action.key === 'LANDLORD_REJECTED' ||
-    action.key === 'CANCEL_NO_DEPOSIT'
+    action.key.includes('DECLINE') ||
+    action.key.includes('REJECT') ||
+    action.key.includes('CANCEL') ||
+    action.key === 'WITHDRAW'
   ) {
     return 'danger'
   }
@@ -220,9 +122,6 @@ function actionIcon(action: HateoasAction): LucideIcon {
     case 'ISSUE_DEPOSIT_INVOICE':
     case 'CONFIRM_DEPOSIT':
       return Wallet
-    case 'DECLINE_INCOME':
-    case 'REJECT_APPLICATION':
-    case 'DECLINE_CREDIT':
     case 'WITHDRAW':
       return Ban
     case 'APPROVE_CREDIT':
@@ -266,14 +165,14 @@ function actionVisual(action: HateoasAction): ActionVisual {
 
 function actionHint(action: HateoasAction): string {
   const hints: Record<string, string> = {
-    UPLOAD_DOCS: 'All required files received — advance to screening',
+    UPLOAD_DOCS: 'Upload FICA and income docs — confirm when complete',
     START_FICA: 'Verify identity against FICA requirements',
     START_CREDIT_CHECK: 'Run bureau check with POPIA consent',
     VERIFY_DEPOSIT: 'Finance confirms cleared deposit funds',
     VERIFY_RENT: 'Finance clears first month rental payment',
-    ISSUE_DEPOSIT_INVOICE: 'Create deposit invoice and reserve the unit',
-    OPEN_CHECKOUT: 'Collect deposit via PayFast / Peach',
-    SCHEDULE_MOVE_IN: 'Book ingoing condition inspection',
+    TENANT_SIGNED: 'Capture tenant digital signature on lease',
+    LANDLORD_SIGNED: 'Capture landlord signature on lease',
+    SCHEDULE_MOVE_IN: 'Book ingoing condition inspection + keys',
     COMPLETE_KEY_HANDOVER: 'Confirm keys collected — activate tenancy',
     REJECT_APPLICATION: 'Decline after manual review',
     WITHDRAW: 'Applicant cancelled the application',
@@ -301,14 +200,8 @@ export function ApplicantApplicationPanel({
   agentName,
   actor,
   canReview,
-  moveInOpen,
-  moveInDate,
-  keyLoc,
-  onMoveInDate,
-  onKeyLoc,
   onRunAction,
-  onConfirmMoveIn,
-  onOpenMoveIn,
+  onSetDocument,
 }: {
   application: Application
   property: PropertyAsset | null
@@ -320,15 +213,10 @@ export function ApplicantApplicationPanel({
     permissions: string[]
   }
   canReview: boolean
-  moveInOpen: boolean
-  moveInDate: string
-  keyLoc: string
-  onMoveInDate: (v: string) => void
-  onKeyLoc: (v: string) => void
-  onRunAction: (action: HateoasAction) => void
-  onConfirmMoveIn: () => void
-  onOpenMoveIn: () => void
+  onRunAction: (action: HateoasAction, capture?: WorkflowActionCapture) => void
+  onSetDocument?: (key: string, status: ApplicationDocument['status']) => void
 }) {
+  const alert = useSuiteAlert()
   const { label: agentLabel } = useAgentDisplay()
   const assignedAgent = agentLabel(application.agentId, agentName)
   const workflowStatus = resolveWorkflowStatus(application)
@@ -340,10 +228,41 @@ export function ApplicantApplicationPanel({
     }),
   )
 
+  const [modalAction, setModalAction] = useState<HateoasAction | null>(null)
+  const [modalBusy, setModalBusy] = useState(false)
+
+  const handleActionClick = async (action: HateoasAction) => {
+    if (actionNeedsModal(action.key)) {
+      setModalAction(action)
+      return
+    }
+    if (action.confirm) {
+      const ok = await alert.confirm({
+        title: action.label,
+        text: action.confirm,
+        confirmLabel: action.label,
+        tone: resolveTone(action) === 'danger' ? 'danger' : 'info',
+      })
+      if (!ok) return
+    }
+    onRunAction(action)
+  }
+
+  const handleModalConfirm = async (capture: WorkflowActionCapture) => {
+    if (!modalAction) return
+    setModalBusy(true)
+    try {
+      onRunAction(modalAction, capture)
+      setModalAction(null)
+    } finally {
+      setModalBusy(false)
+    }
+  }
+
   return (
     <div className="space-y-5">
       <Card className="overflow-hidden border-primary-100 p-0">
-        <div className="border-b border-primary-100 bg-primary-50/50 px-5 py-4">
+        <div className="border-b border-primary-100 bg-gradient-to-r from-primary-50/70 via-white to-brand-50/40 px-5 py-4">
           <h2 className="font-display text-lg font-semibold text-ink">Lifecycle</h2>
           <p className="mt-1 text-sm text-ink-500">
             {application.type === 'Purchase'
@@ -353,22 +272,22 @@ export function ApplicantApplicationPanel({
           </p>
         </div>
 
-        <div className="space-y-4 p-5">
-          <dl className="grid gap-4 sm:grid-cols-4">
+        <div className="space-y-5 p-5">
+          <dl className="grid gap-4 rounded-2xl border border-primary-100 bg-white p-4 sm:grid-cols-4">
             <Meta label="Stage" value={workflowStageLabel(application.type, workflowStatus)} />
-            <Meta label="Status code" value={workflowStatus} tabular />
+            <Meta label="Status code" value={workflowStatus} tabular mono />
             {assignedAgent ? <Meta label="Agent" value={assignedAgent} /> : null}
             <Meta label="Progress" value={`${progress}%`} tabular />
           </dl>
 
-          <WorkflowLifecycleMap application={application} />
+          <WorkflowLifecycleTrack application={application} />
 
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone={statusTone(application.stage)}>{application.stage}</Badge>
             <span className="text-xs text-ink-500">{application.type}</span>
           </div>
 
-          {application.keyCollection && (
+          {application.keyCollection ? (
             <div className="rounded-xl border border-primary-100 bg-primary-50/60 p-3 text-sm">
               <p className="font-semibold text-ink">
                 <KeyRound className="mr-1 inline h-4 w-4 text-primary" strokeWidth={ICON_STROKE} aria-hidden />
@@ -377,19 +296,20 @@ export function ApplicantApplicationPanel({
               <p className="mt-1 text-ink-600">{application.keyCollection.location}</p>
               <p className="text-ink-500">{application.keyCollection.instructions}</p>
             </div>
-          )}
+          ) : null}
         </div>
       </Card>
 
       <BranchOutcomesPanel application={application} />
 
-      {canReview && (
+      {canReview ? (
         <Card className="overflow-hidden border-primary-100 p-0">
           <div className="border-b border-primary-100 bg-primary-50/50 px-5 py-4">
             <h2 className="font-display text-lg font-semibold text-ink">Workflow actions</h2>
             <p className="mt-1 text-sm text-ink-500">
               Valid next steps from{' '}
               <span className="font-medium text-ink">{workflowStageLabel(application.type, workflowStatus)}</span>.
+              Steps may require confirmation, signatures, or document uploads.
             </p>
           </div>
 
@@ -398,6 +318,7 @@ export function ApplicantApplicationPanel({
               const visual = actionVisual(action)
               const Icon = visual.Icon
               const hint = actionHint(action)
+              const needsCapture = actionNeedsModal(action.key)
               return (
                 <button
                   key={`${action.key}-${action.payload_hint?.workflowStatus ?? ''}`}
@@ -406,14 +327,7 @@ export function ApplicantApplicationPanel({
                     'flex w-full min-h-12 cursor-pointer items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2',
                     visual.className,
                   )}
-                  onClick={() => {
-                    if (action.key === 'SCHEDULE_MOVE_IN') {
-                      onOpenMoveIn()
-                      return
-                    }
-                    if (action.confirm && !window.confirm(action.confirm)) return
-                    onRunAction(action)
-                  }}
+                  onClick={() => void handleActionClick(action)}
                 >
                   <span
                     className={cn(
@@ -433,7 +347,7 @@ export function ApplicantApplicationPanel({
                         resolveTone(action) === 'danger' && 'text-accent-700/80',
                       )}
                     >
-                      {hint}
+                      {needsCapture ? `${hint} · opens capture form` : hint}
                     </span>
                   </span>
                   {visual.showChevron ? (
@@ -449,35 +363,25 @@ export function ApplicantApplicationPanel({
                 </button>
               )
             })}
-            {!actions.length && (
+            {!actions.length ? (
               <p className="text-sm text-ink-500">
                 No actions available at this stage
                 {getStageDef(application.type, workflowStatus)?.terminal ? ' (file closed).' : '.'}
               </p>
-            )}
+            ) : null}
           </div>
-
-          {moveInOpen && (
-            <div className="mx-5 mb-5 space-y-2 rounded-2xl border border-primary-100 bg-primary-50/60 p-3">
-              <Input
-                type="date"
-                className="min-h-11"
-                value={moveInDate}
-                onChange={(e) => onMoveInDate(e.target.value)}
-              />
-              <Input
-                className="min-h-11"
-                value={keyLoc}
-                onChange={(e) => onKeyLoc(e.target.value)}
-                placeholder="Key collection location"
-              />
-              <Button className="min-h-11 w-full" onClick={onConfirmMoveIn}>
-                Confirm move-in inspection
-              </Button>
-            </div>
-          )}
         </Card>
-      )}
+      ) : null}
+
+      <WorkflowActionModal
+        open={modalAction != null}
+        action={modalAction}
+        application={application}
+        busy={modalBusy}
+        onClose={() => setModalAction(null)}
+        onConfirm={handleModalConfirm}
+        onSetDocument={onSetDocument}
+      />
     </div>
   )
 }
@@ -486,15 +390,25 @@ function Meta({
   label,
   value,
   tabular,
+  mono,
 }: {
   label: string
   value: string
   tabular?: boolean
+  mono?: boolean
 }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[11px] font-medium text-ink-400">{label}</dt>
-      <dd className={cn('mt-0.5 text-sm font-semibold text-ink', tabular && 'tabular')}>{value}</dd>
+      <dt className="text-[11px] font-medium uppercase tracking-wide text-ink-400">{label}</dt>
+      <dd
+        className={cn(
+          'mt-0.5 text-sm font-semibold text-ink',
+          tabular && 'tabular-nums',
+          mono && 'font-mono text-xs font-medium text-ink-600',
+        )}
+      >
+        {value}
+      </dd>
     </div>
   )
 }

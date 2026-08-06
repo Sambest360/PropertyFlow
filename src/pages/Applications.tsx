@@ -9,6 +9,7 @@ import {
   DirectoryToolbar,
   useDirectoryView,
 } from '../components/directory/DirectoryToolbar'
+import { DirectoryFilterSelect } from '../components/directory/DirectoryFilters'
 import { DirectoryStatCard } from '../components/directory/DirectoryStats'
 import { ApplicantsListView } from '../components/applicants/ApplicantsListView'
 import { ApplicantPortfolioCard } from '../components/applicants/ApplicantPortfolioCard'
@@ -18,7 +19,7 @@ import {
   type PortfolioApplicant,
   VIEW_STORAGE_KEY,
 } from '../components/applicants/types'
-import { PageHeader, Select } from '../components/ui'
+import { PageHeader } from '../components/ui'
 import { APPLICATION_STAGES } from '../lib/workflow'
 
 export default function Applications() {
@@ -116,6 +117,11 @@ export default function Applications() {
 
   const filtersActive =
     Boolean(q.trim()) || stage !== 'all' || type !== 'all' || attention !== 'all'
+  const activeFilterCount =
+    (stage !== 'all' ? 1 : 0) +
+    (type !== 'all' ? 1 : 0) +
+    (attention !== 'all' ? 1 : 0) +
+    (sort !== 'updated' ? 1 : 0)
   const clearFilters = () => {
     setQ('')
     setStage('all')
@@ -175,24 +181,25 @@ export default function Applications() {
         <DirectoryToolbar
           query={q}
           onQueryChange={setQ}
-          searchPlaceholder="Filter by applicant, email, property, or stage…"
+          searchPlaceholder="Search applicants…"
           searchLabel="Filter applicants"
           view={view}
           onViewChange={setView}
           sort={sort}
           onSortChange={setSort}
           sortOptions={[
-            { value: 'updated', label: 'Sort: Recently updated' },
-            { value: 'name', label: 'Sort: Name' },
-            { value: 'progress', label: 'Sort: Progress' },
-            { value: 'stage', label: 'Sort: Stage' },
+            { value: 'updated', label: 'Recently updated' },
+            { value: 'name', label: 'Name' },
+            { value: 'progress', label: 'Progress' },
+            { value: 'stage', label: 'Stage' },
           ]}
           resultLabel={resultLabel}
           reducedMotion={reducedMotion}
+          activeFilterCount={activeFilterCount}
+          onClearFilters={clearFilters}
           filters={
             <>
-              <Select
-                className="min-h-11"
+              <DirectoryFilterSelect
                 value={attention}
                 onChange={(e) => setAttention(e.target.value as ApplicantAttentionFilter)}
                 aria-label="Focus"
@@ -202,9 +209,8 @@ export default function Applications() {
                 <option value="credit">Credit check</option>
                 <option value="tenancy">Active tenancy</option>
                 <option value="rejected">Rejected / blocked</option>
-              </Select>
-              <Select
-                className="min-h-11"
+              </DirectoryFilterSelect>
+              <DirectoryFilterSelect
                 value={stage}
                 onChange={(e) => setStage(e.target.value)}
                 aria-label="Filter by stage"
@@ -217,9 +223,8 @@ export default function Applications() {
                 ))}
                 <option value="Rejected">Rejected</option>
                 <option value="Blocked">Blocked</option>
-              </Select>
-              <Select
-                className="min-h-11"
+              </DirectoryFilterSelect>
+              <DirectoryFilterSelect
                 value={type}
                 onChange={(e) => setType(e.target.value)}
                 aria-label="Filter by type"
@@ -227,7 +232,7 @@ export default function Applications() {
                 <option value="all">Purchase & rental</option>
                 <option value="Purchase">Purchase</option>
                 <option value="Rental">Rental</option>
-              </Select>
+              </DirectoryFilterSelect>
             </>
           }
         />

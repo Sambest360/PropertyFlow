@@ -5,6 +5,7 @@ import { useAuth, usePropertyScope } from '../../context/AuthContext'
 import { useSeenOpsItems } from '../../hooks/useSeenOpsItems'
 import { Button, priorityTone, statusTone } from '../../components/ui'
 import { OpsPreviewModal, type PreviewTarget } from '../../components/admin/OpsPreviewModal'
+import { maintenanceCreateHref } from '../maintenance/MaintenanceCreatePage'
 import {
   AttentionHero,
   CalendarToggle,
@@ -358,7 +359,7 @@ export function GroundAgentDashboard() {
               ? { label: 'My applications', to: '/workspace/sales/applications' }
               : heroBase.secondaryCta ?? {
                   label: 'Log maintenance',
-                  to: '/workspace/operations/maintenance?create=1',
+                  to: maintenanceCreateHref({ returnTo: '/workspace/dashboard' }),
                 }
           }
         />
@@ -401,14 +402,14 @@ export function GroundAgentDashboard() {
                       ? [
                           { to: '/workspace/sales/viewings?create=1', label: 'Request viewing slot' },
                           {
-                            to: '/workspace/operations/maintenance?create=1',
+                            to: maintenanceCreateHref({ returnTo: '/workspace/dashboard' }),
                             label: 'Report site issue',
                           },
                         ]
                       : [
                           { to: '/workspace/sales/viewings?create=1', label: 'Book viewing' },
                           {
-                            to: '/workspace/operations/maintenance?create=1',
+                            to: maintenanceCreateHref({ returnTo: '/workspace/dashboard' }),
                             label: 'Log maintenance',
                           },
                           { to: '/workspace/properties/new', label: 'New property' },

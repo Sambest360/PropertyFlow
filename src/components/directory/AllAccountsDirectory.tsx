@@ -178,6 +178,10 @@ export function AllAccountsDirectory() {
     roleFilter !== 'all' ||
     status !== 'all' ||
     (isPlatform && agencyFilter !== 'all')
+  const activeFilterCount =
+    (roleFilter !== 'all' ? 1 : 0) +
+    (status !== 'all' ? 1 : 0) +
+    (isPlatform && agencyFilter !== 'all' ? 1 : 0)
 
   function clearFilters() {
     setQ('')
@@ -235,11 +239,13 @@ export function AllAccountsDirectory() {
       <DirectoryToolbar
         query={q}
         onQueryChange={setQ}
-        searchPlaceholder="Search by name or email…"
+        searchPlaceholder="Search accounts…"
         searchLabel="Search accounts"
         showViewToggle={false}
         resultLabel={resultLabel}
         reducedMotion={reducedMotion}
+        activeFilterCount={activeFilterCount}
+        onClearFilters={clearFilters}
         filters={
           <>
             <DirectoryFilterSelect

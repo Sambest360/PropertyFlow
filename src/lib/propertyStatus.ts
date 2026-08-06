@@ -49,3 +49,14 @@ export function propertyStatusTone(label: string): StatusTone {
   if (s === 'archived' || s === 'quiet') return 'neutral'
   return 'neutral'
 }
+
+/** Returns a user-facing reason when a draft cannot go live yet. */
+export function validatePropertyReadyToPublish(property: PropertyAsset): string | null {
+  if (property.status !== 'Draft') return null
+  if (!property.title?.trim()) return 'Add a listing title before publishing.'
+  if (!property.images?.length) return 'Add at least one listing photo before publishing.'
+  if (!property.address?.trim() && !property.suburb?.trim()) {
+    return 'Add a street address or suburb before publishing.'
+  }
+  return null
+}

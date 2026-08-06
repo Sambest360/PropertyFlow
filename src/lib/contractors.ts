@@ -58,6 +58,21 @@ export function listApprovedContractors(
   }).map((p) => p.user)
 }
 
+/** Contractors not yet on this agency's roster (any agency — vendors can serve multiple agencies). */
+export function listContractorsAvailableForRoster(
+  roster: AgencyContractor[],
+  users: AppUser[],
+  agencyId: string | null,
+): AppUser[] {
+  if (!agencyId) return []
+  const onRoster = new Set(
+    roster.filter((r) => r.agencyId === agencyId).map((r) => r.contractorUserId),
+  )
+  return users
+    .filter((u) => u.role === 'contractor' && u.active && !onRoster.has(u.id))
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
 export function isContractorApprovedForAgency(
   roster: AgencyContractor[],
   agencyId: string,

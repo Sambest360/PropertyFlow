@@ -35,6 +35,10 @@ function baseProperty(overrides: Partial<PropertyAsset> = {}): PropertyAsset {
 }
 
 describe('isPubliclyListed', () => {
+  it('hides deleted properties from marketplace', () => {
+    expect(isPubliclyListed(baseProperty({ deletedAt: '2026-01-02T00:00:00.000Z' }))).toBe(false)
+  })
+
   it('hides drafts and archived', () => {
     expect(isPubliclyListed(baseProperty({ status: 'Draft' }))).toBe(false)
     expect(isPubliclyListed(baseProperty({ status: 'Archived' }))).toBe(false)

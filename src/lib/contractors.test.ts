@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AgencyContractor, AppUser } from '../types/domain'
-import { isContractorApprovedForAgency, listApprovedContractors } from './contractors'
+import { isContractorApprovedForAgency, listApprovedContractors, listContractorsAvailableForRoster } from './contractors'
 
 const users: AppUser[] = [
   {
@@ -9,6 +9,14 @@ const users: AppUser[] = [
     email: 'a@x.com',
     role: 'contractor',
     agencyId: 'ag-1',
+    active: true,
+  },
+  {
+    id: 'c2',
+    name: 'Bayfix',
+    email: 'b@x.com',
+    role: 'contractor',
+    agencyId: 'ag-2',
     active: true,
   },
 ]
@@ -34,5 +42,10 @@ describe('contractors', () => {
   it('checks roster approval', () => {
     expect(isContractorApprovedForAgency(roster, 'ag-1', 'c1')).toBe(true)
     expect(isContractorApprovedForAgency(roster, 'ag-1', 'other')).toBe(false)
+  })
+
+  it('lists contractors available for roster including other agencies', () => {
+    expect(listContractorsAvailableForRoster(roster, users, 'ag-1')).toEqual([users[1]])
+    expect(listContractorsAvailableForRoster(roster, users, 'ag-2')).toEqual(users)
   })
 })

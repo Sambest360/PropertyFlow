@@ -98,21 +98,26 @@ export default function AdminUserCreatePage() {
   /** Agency admins can add team members only — not full Users/portal create. */
   const teamOnly = has('users.manage') && !has('roles.assign') && !isPlatform
   const intentLandlord = searchParams.get('intent') === 'landlord'
-  const intentTeam = (searchParams.get('intent') === 'team' || teamOnly) && !intentLandlord
+  const intentContractor = searchParams.get('intent') === 'contractor'
+  const intentTeam = (searchParams.get('intent') === 'team' || teamOnly) && !intentLandlord && !intentContractor
   const returnTo =
     readReturnTo(searchParams) ??
     (intentLandlord
       ? '/workspace/people/landlords'
-      : intentTeam
-        ? '/workspace/people/staff'
-        : '/workspace/admin/users')
+      : intentContractor
+        ? '/workspace/operations/contractors'
+        : intentTeam
+          ? '/workspace/people/staff'
+          : '/workspace/admin/users')
 
   const baseCreatable = isPlatform ? ALL_ROLES : AGENCY_ADMIN_CREATABLE
   const creatableRoles = intentLandlord
     ? (['landlord'] as Role[]).filter((r) => baseCreatable.includes(r) || isPlatform)
-    : intentTeam
-      ? TEAM_ROLES.filter((r) => baseCreatable.includes(r) || (r === 'super_admin' && isPlatform))
-      : baseCreatable
+    : intentContractor
+      ? (['contractor'] as Role[]).filter((r) => baseCreatable.includes(r) || isPlatform)
+      : intentTeam
+        ? TEAM_ROLES.filter((r) => baseCreatable.includes(r) || (r === 'super_admin' && isPlatform))
+        : baseCreatable
 
   const queryAgencyId = searchParams.get('agencyId')
   const lockAgency = Boolean(queryAgencyId) || !isPlatform
@@ -152,9 +157,11 @@ export default function AdminUserCreatePage() {
   const [role, setRole] = useState<Role>(() =>
     searchParams.get('intent') === 'landlord'
       ? 'landlord'
-      : creatableRoles.includes('ground_agent')
-        ? 'ground_agent'
-        : creatableRoles[0] ?? 'landlord',
+      : searchParams.get('intent') === 'contractor'
+        ? 'contractor'
+        : creatableRoles.includes('ground_agent')
+          ? 'ground_agent'
+          : creatableRoles[0] ?? 'landlord',
   )
   const [agencyId, setAgencyId] = useState(defaultAgencyId)
   const [mentorId, setMentorId] = useState('')
@@ -559,7 +566,13 @@ export default function AdminUserCreatePage() {
     finish()
   }
 
-  const pageTitle = intentLandlord ? 'Add landlord' : intentTeam ? 'Add team member' : 'Add user'
+  const pageTitle = intentLandlord
+    ? 'Add landlord'
+    : intentContractor
+      ? 'Add contractor'
+      : intentTeam
+        ? 'Add team member'
+        : 'Add user'
   const pageSubtitle =
     stepId === 'personal'
       ? 'Who are you adding?'

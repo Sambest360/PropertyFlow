@@ -23,6 +23,8 @@ const RegisterPage = lazy(() => import('./pages/auth/RegisterPage'))
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Properties = lazy(() => import('./pages/Properties'))
 const PropertyDetail = lazy(() => import('./pages/PropertyDetail'))
+const PropertyArchive = lazy(() => import('./pages/PropertyArchive'))
+const PropertyEditPage = lazy(() => import('./pages/property/PropertyEditPage'))
 const AssetCreate = lazy(() => import('./pages/AssetCreate'))
 const CRM = lazy(() => import('./pages/CRM'))
 const LeadDetail = lazy(() => import('./pages/LeadDetail'))
@@ -31,6 +33,8 @@ const ApplicantDetail = lazy(() => import('./pages/ApplicantDetail'))
 const Viewings = lazy(() => import('./pages/Viewings'))
 const ViewingPropertyPage = lazy(() => import('./pages/ViewingPropertyPage'))
 const Maintenance = lazy(() => import('./pages/Maintenance'))
+const MaintenanceCreatePage = lazy(() => import('./pages/maintenance/MaintenanceCreatePage'))
+const MaintenanceEditPage = lazy(() => import('./pages/maintenance/MaintenanceEditPage'))
 const MaintenanceDetail = lazy(() => import('./pages/MaintenanceDetail'))
 const ContractorsDirectory = lazy(() => import('./pages/ContractorsDirectory'))
 const Documents = lazy(() => import('./pages/Documents'))
@@ -188,6 +192,22 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="properties/archive"
+                  element={
+                    <Guard permission="assets.manage">
+                      <PropertyArchive />
+                    </Guard>
+                  }
+                />
+                <Route
+                  path="properties/:id/edit"
+                  element={
+                    <Guard permission="assets.manage">
+                      <PropertyEditPage />
+                    </Guard>
+                  }
+                />
+                <Route
                   path="properties/:id"
                   element={
                     <Guard
@@ -222,6 +242,22 @@ export default function App() {
 
                 {/* Operations */}
                 <Route path="operations/maintenance" element={<Guard permission="maintenance.view"><Maintenance /></Guard>} />
+                <Route
+                  path="operations/maintenance/new"
+                  element={
+                    <Guard permission="maintenance.manage">
+                      <MaintenanceCreatePage />
+                    </Guard>
+                  }
+                />
+                <Route
+                  path="operations/maintenance/:id/edit"
+                  element={
+                    <Guard permission="maintenance.view">
+                      <MaintenanceEditPage />
+                    </Guard>
+                  }
+                />
                 <Route path="operations/maintenance/:id" element={<Guard permission="maintenance.view"><MaintenanceDetail /></Guard>} />
                 <Route path="operations/contractors" element={<Guard permission="contractors.view"><ContractorsDirectory /></Guard>} />
                 <Route path="operations/documents" element={<Guard permission="documents.view"><Documents /></Guard>} />

@@ -111,6 +111,7 @@ export default function TenantDirectory() {
   }, [portfolio, q, attention, sort])
 
   const filtersActive = Boolean(q.trim()) || attention !== 'all'
+  const activeFilterCount = (attention !== 'all' ? 1 : 0) + (sort !== 'name' ? 1 : 0)
   const clearFilters = () => {
     setQ('')
     setAttention('all')
@@ -152,20 +153,22 @@ export default function TenantDirectory() {
         <DirectoryToolbar
           query={q}
           onQueryChange={setQ}
-          searchPlaceholder="Filter by name, email, property, or agent…"
+          searchPlaceholder="Search tenants…"
           searchLabel="Filter tenants"
           view={view}
           onViewChange={setView}
           sort={sort}
           onSortChange={setSort}
           sortOptions={[
-            { value: 'name', label: 'Sort: Name' },
-            { value: 'property', label: 'Sort: Property' },
-            { value: 'rent', label: 'Sort: Rent' },
-            { value: 'start', label: 'Sort: Start date' },
+            { value: 'name', label: 'Name' },
+            { value: 'property', label: 'Property' },
+            { value: 'rent', label: 'Rent' },
+            { value: 'start', label: 'Start date' },
           ]}
           resultLabel={resultLabel}
           reducedMotion={reducedMotion}
+          activeFilterCount={activeFilterCount}
+          onClearFilters={clearFilters}
           filters={
             <DirectoryFilterSelect
               value={attention}

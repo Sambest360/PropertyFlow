@@ -29,6 +29,7 @@ export function isPubliclyListed(
     users?: AppUser[]
   },
 ): boolean {
+  if (property.deletedAt) return false
   if (!PUBLIC_LISTING_STATUSES.includes(property.status)) return false
 
   if (opts?.units?.length) {

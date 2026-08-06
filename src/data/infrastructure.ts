@@ -23,6 +23,7 @@ export type UnitStatusKey =
   | 'DRAFT'
   | 'PUBLISHED'
   | 'FEATURED'
+  | 'DELETED'
 
 export type BuildingGrading = 'P' | 'A' | 'B' | 'C' | null
 

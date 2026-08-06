@@ -105,17 +105,17 @@ export function PropertiesToolbar({
   const toggleFilters = () => setFiltersOpen((open) => !open)
 
   return (
-    <div className="mb-5 rounded-[1.25rem] border border-primary-100/80 bg-white shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)]">
-      <div className="flex flex-col gap-2 p-3 sm:p-4">
+    <div className="mb-4 rounded-2xl border border-primary-100/80 bg-white shadow-[0_4px_16px_-12px_rgba(15,39,68,0.16)]">
+      <div className="flex flex-col gap-2 p-2.5 sm:p-3">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-0 flex-1 basis-[14rem]" role="search" aria-label="Search properties">
+          <div className="relative min-w-0 flex-1 basis-[12rem]" role="search" aria-label="Search properties">
             <Search
-              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400"
+              className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400"
               strokeWidth={ICON_STROKE}
               aria-hidden
             />
             <Input
-              className="min-h-11 pl-9"
+              className="min-h-10 pl-8 text-sm"
               placeholder="Search properties…"
               value={query}
               onChange={(e) => onQueryChange(e.target.value)}
@@ -127,7 +127,7 @@ export function PropertiesToolbar({
             type="button"
             onClick={toggleFilters}
             className={cn(
-              'inline-flex min-h-11 shrink-0 cursor-pointer items-center gap-2 rounded-2xl border px-3.5 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+              'inline-flex min-h-10 shrink-0 cursor-pointer items-center gap-1.5 rounded-xl border px-3 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
               reducedMotion && 'transition-none',
               filtersOpen || activeCount > 0
                 ? 'border-primary-200 bg-primary-50 text-primary'

@@ -156,7 +156,8 @@ function listingType(mode: unknown): string {
   return 'RENT'
 }
 
-function unitStatusFromProperty(status: unknown): string {
+function unitStatusFromProperty(status: unknown, deletedAt?: unknown): string {
+  if (deletedAt) return 'DELETED'
   const s = String(status ?? '')
   if (s === 'Rented' || s === 'Occupied') return 'OCCUPIED'
   if (s === 'Maintenance') return 'MAINTENANCE'
@@ -613,10 +614,10 @@ async function upsertProperty(feId: string, d: Record<string, unknown>): Promise
       num(d.beds) ?? num(d.bedrooms) ?? 0,
       num(d.baths) ?? num(d.bathrooms) ?? 0,
       num(d.parking) ?? 0,
-      listingType(d.listingMode ?? d.listingType),
+      listingType(d.deletedAt ? 'not_listed' : (d.listingMode ?? d.listingType)),
       num(d.price),
       num(d.rent),
-      str(d.statusKey) || unitStatusFromProperty(d.status),
+      str(d.statusKey) || unitStatusFromProperty(d.status, d.deletedAt),
       agent,
       str(d.title, unitNumber),
       str(d.description),

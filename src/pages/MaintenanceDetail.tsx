@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Navigate, useParams } from 'react-router-dom'
+import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
@@ -9,7 +9,7 @@ import type { AssetCondition } from '../data/infrastructure'
 import type { MaintenanceTicket } from '../types/domain'
 import type { TicketCompletionFields } from '../lib/maintenanceApi'
 import { CompleteTicketModal } from '../components/maintenance/CompleteTicketModal'
-import { EditTicketModal } from '../components/maintenance/EditTicketModal'
+import { maintenanceEditHref } from './maintenance/MaintenanceEditPage'
 import { MaintenanceDetailHeader } from '../components/maintenance-detail/MaintenanceDetailHeader'
 import { MaintenanceOverviewPanel } from '../components/maintenance-detail/MaintenanceOverviewPanel'
 import {
@@ -20,7 +20,6 @@ import {
 } from '../components/maintenance/types'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
 import { listApprovedContractors } from '../lib/contractors'
-import { getLookups } from '../lib/lookups'
 
 export default function MaintenanceDetail() {
   const { id } = useParams()
@@ -35,8 +34,8 @@ export default function MaintenanceDetail() {
   const { user, has, role, agencyId } = useAuth()
   const { ticketVisible, canMutate } = usePropertyScope()
   const alert = useSuiteAlert()
+  const navigate = useNavigate()
   const [completeOpen, setCompleteOpen] = useState(false)
-  const [editOpen, setEditOpen] = useState(false)
 
   const ticket = state.tickets.find((t) => t.id === id)
 
@@ -71,11 +70,6 @@ export default function MaintenanceDetail() {
   const contractors = useMemo(
     () => listApprovedContractors(state.agencyContractors, state.users, agencyId, item?.ticket.categoryKey),
     [state.agencyContractors, state.users, agencyId, item?.ticket.categoryKey],
-  )
-
-  const categories = useMemo(
-    () => getLookups(state.lookups, agencyId, 'TICKET_CATEGORY'),
-    [state.lookups, agencyId],
   )
 
   if (!ticket || !item) return <Navigate to="/workspace/operations/maintenance" replace />
@@ -188,7 +182,6 @@ export default function MaintenanceDetail() {
           canManage={canManage}
           canEdit={canEdit}
           onComplete={() => setCompleteOpen(true)}
-          onEdit={() => setEditOpen(true)}
         />
 
         <MaintenanceOverviewPanel
@@ -199,19 +192,10 @@ export default function MaintenanceDetail() {
           onUpdateStatus={changeStatus}
           onAssignContractor={handleAssignContractor}
           onRequestComplete={() => setCompleteOpen(true)}
-          onEdit={canEdit ? () => setEditOpen(true) : undefined}
-        />
-
-        <EditTicketModal
-          open={editOpen}
-          ticket={item.ticket}
-          agencyId={agencyId}
-          assets={state.internalAssets}
-          categories={categories}
-          onClose={() => setEditOpen(false)}
-          onSave={(patch) => updateMaintenanceTicketDetails(item.ticket.id, patch)}
-          onAssignContractor={(contractorUserId) =>
-            handleAssignContractor(item.ticket.id, contractorUserId)
+          onEdit={
+            canEdit
+              ? () => navigate(maintenanceEditHref(ticket.id, `/workspace/operations/maintenance/${encodeURIComponent(ticket.id)}`))
+              : undefined
           }
         />
 

@@ -13,6 +13,7 @@ import { useAgencyScope, useAuth } from '../../context/AuthContext'
 import { useSeenOpsItems } from '../../hooks/useSeenOpsItems'
 import { priorityTone, statusTone } from '../../components/ui'
 import { OpsPreviewModal, type PreviewTarget } from '../../components/admin/OpsPreviewModal'
+import { maintenanceCreateHref } from '../maintenance/MaintenanceCreatePage'
 import {
   AttentionHero,
   CalendarToggle,
@@ -341,7 +342,10 @@ export function AgencyDashboard() {
     }
     if (canManageAssets) items.push({ to: '/workspace/properties/new', label: 'New property' })
     if (canManageMaintenance) {
-      items.push({ to: '/workspace/operations/maintenance?create=1', label: 'Log maintenance' })
+      items.push({
+        to: maintenanceCreateHref({ returnTo: '/workspace/dashboard' }),
+        label: 'Log maintenance',
+      })
     }
     if (canViewings) items.push({ to: '/workspace/sales/viewings?create=1', label: 'Book viewing' })
     if (canApplications) {

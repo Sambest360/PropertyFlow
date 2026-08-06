@@ -1,4 +1,4 @@
-import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMemo, useState } from 'react'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
@@ -24,21 +24,30 @@ import {
 import type { ApplicationStage } from '../types/domain'
 import type { AssetCondition } from '../data/infrastructure'
 import { isVerificationApproved } from '../lib/verification'
+import { validatePropertyReadyToPublish } from '../lib/propertyStatus'
+import {
+  canDeletePropertyRole,
+  getPropertyDeleteBlockReason,
+  isPropertyDeleted,
+} from '../lib/propertyDeletion'
+import { sweetConfirm, sweetSuccess, sweetWarning } from '../lib/sweetAlert'
 
 export default function PropertyDetail() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const {
     state,
     updateProperty,
     publishProperty,
+    deleteProperty,
+    restoreProperty,
     updateInternalAsset,
     addInternalAsset,
     removeInternalAsset,
     updateInfraRoom,
     addInfraRoom,
     removeInfraRoom,
-    createMaintenanceTicket,
     patchMaintenanceTicket,
     updateTicket,
     removeTicket,
@@ -58,9 +67,8 @@ export default function PropertyDetail() {
     addPropertyEvent,
   } = useStore()
   const { has, user } = useAuth()
-  const { inPropertyScope, canMutate } = usePropertyScope()
+  const { inPropertyScope } = usePropertyScope()
 
-  const [editOpen, setEditOpen] = useState(false)
   const p = state.properties.find((x) => x.id === id)
 
   const inScope = useMemo(() => {
@@ -138,12 +146,6 @@ export default function PropertyDetail() {
         u.role === 'agent_admin' ||
         u.role === 'client_admin'),
   )
-  const landlords = state.users.filter(
-    (u) =>
-      u.active &&
-      (u.role === 'landlord' || u.id === p?.landlordId) &&
-      (u.agencyId === p?.agencyId || u.id === p?.landlordId),
-  )
 
   const contractors = state.users.filter(
     (u) =>
@@ -154,6 +156,13 @@ export default function PropertyDetail() {
   )
 
   const canManage = has('assets.manage')
+  const canAdminDelete = canManage && canDeletePropertyRole(user.role)
+  const deleteBlockedReason = p
+    ? getPropertyDeleteBlockReason(p, state.tenancies, state.applications)
+    : null
+  const canPublishListing = has('listings.publish') && isVerificationApproved(user.verification, user.role)
+  const [publishBusy, setPublishBusy] = useState(false)
+  const [deleteBusy, setDeleteBusy] = useState(false)
   const canReview = has('applications.review')
   const canMaintenance = has('maintenance.manage')
   const canPayments = has('payments.manage')
@@ -207,6 +216,68 @@ export default function PropertyDetail() {
     { id: 'history', label: 'History', count: events.length },
   ]
 
+  const publishBlockedReason = validatePropertyReadyToPublish(p)
+
+  const handleMakeLive = async () => {
+    const blockReason = validatePropertyReadyToPublish(p)
+    if (blockReason) {
+      await sweetWarning('Not ready to publish', blockReason)
+      return
+    }
+    setPublishBusy(true)
+    try {
+      publishProperty(p.id, 'Published')
+      await sweetSuccess('Listing is live', `${p.title} is now visible on the marketplace.`)
+    } finally {
+      setPublishBusy(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (deleteBlockedReason) {
+      await sweetWarning('Cannot delete', deleteBlockedReason)
+      return
+    }
+    const ok = await sweetConfirm(
+      'Delete property?',
+      `“${p.title}” will be removed from your active portfolio. You can restore it from Deleted properties.`,
+      'Delete property',
+    )
+    if (!ok) return
+    setDeleteBusy(true)
+    try {
+      const result = deleteProperty(p.id)
+      if (result.ok === false) {
+        await sweetWarning('Could not delete', result.reason)
+        return
+      }
+      await sweetSuccess('Property deleted', `${p.title} was moved to the archive.`)
+      navigate('/workspace/properties/archive')
+    } finally {
+      setDeleteBusy(false)
+    }
+  }
+
+  const handleRestore = async () => {
+    const ok = await sweetConfirm(
+      'Restore property?',
+      `“${p.title}” will return as a draft listing.`,
+      'Restore',
+    )
+    if (!ok) return
+    setDeleteBusy(true)
+    try {
+      const result = restoreProperty(p.id)
+      if (result.ok === false) {
+        await sweetWarning('Could not restore', result.reason)
+        return
+      }
+      await sweetSuccess('Property restored', `${p.title} is back as a draft.`)
+    } finally {
+      setDeleteBusy(false)
+    }
+  }
+
   return (
     <div className="animate-fade-in">
       <PropertyDetailHeader
@@ -215,10 +286,15 @@ export default function PropertyDetail() {
         unitLabel={unit?.unitNumber}
         buildingName={building?.name}
         canManage={canManage}
-        onEdit={() => {
-          setTab('overview')
-          setEditOpen(true)
-        }}
+        canPublish={canPublishListing}
+        publishBlockedReason={publishBlockedReason}
+        onPublish={handleMakeLive}
+        publishBusy={publishBusy}
+        canDelete={canAdminDelete}
+        deleteBlockedReason={deleteBlockedReason}
+        onDelete={handleDelete}
+        onRestore={isPropertyDeleted(p) ? handleRestore : undefined}
+        deleteBusy={deleteBusy}
         onToggleFeatured={() => updateProperty(p.id, { featured: !p.featured })}
       />
 
@@ -232,19 +308,9 @@ export default function PropertyDetail() {
           occupancy={unit?.statusKey}
           agent={agent}
           landlord={landlord}
-          agents={agents}
-          landlords={landlords}
           roomCount={rooms.length}
           assetCount={assets.length}
           appCount={apps.length}
-          editOpen={editOpen}
-          onEditOpenChange={setEditOpen}
-          onSave={(patch) => {
-            if (!canMutate(p.id)) return
-            const { status, ...rest } = patch
-            updateProperty(p.id, rest)
-            if (status && status !== p.status) publishProperty(p.id, status)
-          }}
         />
       )}
 
@@ -425,37 +491,12 @@ export default function PropertyDetail() {
 
       {tab === 'maintenance' && (
         <PropertyMaintenancePanel
+          propertyId={p.id}
           tickets={tickets}
           unitId={p.unitId}
           agents={agents}
           contractors={contractors}
           canManage={canMaintenance}
-          onCreate={(draft) => {
-            if (!unit) return
-            const result = createMaintenanceTicket({
-              actorUserId: user.id,
-              propertyId: p.id,
-              request: {
-                unit_id: unit.id,
-                internal_asset_id: assets[0]?.id ?? null,
-                category_key: draft.categoryKey,
-                priority: draft.priority.toUpperCase() as
-                  | 'LOW'
-                  | 'MEDIUM'
-                  | 'HIGH'
-                  | 'URGENT'
-                  | 'EMERGENCY',
-                title: draft.title,
-                description: draft.description,
-              },
-            })
-            if (result.status === 'TICKET_CREATED') {
-              updateTicket(result.ticket_id, {
-                contractorId: draft.contractorId,
-                assignedAgentId: draft.assignedAgentId,
-              })
-            }
-          }}
           onUpdate={(ticketId, patch) => {
             const prev = tickets.find((t) => t.id === ticketId)
             updateTicket(ticketId, patch)

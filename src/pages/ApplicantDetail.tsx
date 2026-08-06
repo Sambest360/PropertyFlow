@@ -29,6 +29,7 @@ import {
 } from '../components/applicant-detail/types'
 import { buildCheckoutBridge, type PatchApplicationStatusResult } from '../lib/api/applicationStatusApi'
 import type { HateoasAction } from '../lib/api/contracts'
+import type { WorkflowActionCapture } from '../lib/workflowActionForms'
 import type { PropertyEvent } from '../types/domain'
 import { formatZAR } from '../data/seed'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
@@ -54,9 +55,6 @@ export default function ApplicantDetail() {
   const alert = useSuiteAlert()
 
   const [blockOpen, setBlockOpen] = useState(false)
-  const [moveInOpen, setMoveInOpen] = useState(false)
-  const [moveInDate, setMoveInDate] = useState('2026-08-01')
-  const [keyLoc, setKeyLoc] = useState('Agency reception')
   const [flash, setFlash] = useState<PatchApplicationStatusResult | null>(null)
 
   const application = state.applications.find((a) => a.id === id)
@@ -216,10 +214,27 @@ export default function ApplicantDetail() {
     })
   }
 
-  const runAction = (action: HateoasAction) => {
+  const runAction = (action: HateoasAction, capture?: WorkflowActionCapture) => {
     const workflowTarget = action.payload_hint?.workflowStatus as string | undefined
     const effect = action.payload_hint?.effect as string | undefined
     const status = action.payload_hint?.status
+
+    if (action.key === 'SCHEDULE_MOVE_IN' && capture?.moveInDate) {
+      const prev = application.stage
+      const agent = application.agentId
+        ? state.users.find((u) => u.id === application.agentId)
+        : null
+      scheduleMoveIn(application.id, capture.moveInDate, {
+        location: capture.keyLocation ?? 'Agency reception',
+        instructions:
+          capture.notes ?? 'Bring ID and signed lease. Collect keys from reception.',
+        contactName: agent?.name ?? 'Agency office',
+        contactPhone: agent?.phone ?? '',
+      })
+      logStageChange(prev, 'Move-In Scheduled', 'scheduled move-in')
+      setFlash(null)
+      return
+    }
 
     if (action.key === 'COMPLETE_KEY_HANDOVER' || effect === 'key_handover') {
       const prev = application.stage
@@ -420,27 +435,7 @@ export default function ApplicantDetail() {
             agentName={agentName}
             actor={actor}
             canReview={canReview}
-            moveInOpen={moveInOpen}
-            moveInDate={moveInDate}
-            keyLoc={keyLoc}
-            onMoveInDate={setMoveInDate}
-            onKeyLoc={setKeyLoc}
             onRunAction={runAction}
-            onOpenMoveIn={() => setMoveInOpen(true)}
-            onConfirmMoveIn={() => {
-              const prev = application.stage
-              const agent = application.agentId
-                ? state.users.find((u) => u.id === application.agentId)
-                : null
-              scheduleMoveIn(application.id, moveInDate, {
-                location: keyLoc,
-                instructions: 'Bring ID and signed lease. Collect keys from reception.',
-                contactName: agent?.name ?? 'Agency office',
-                contactPhone: agent?.phone ?? '',
-              })
-              logStageChange(prev, 'Move-In Scheduled', 'scheduled move-in')
-              setMoveInOpen(false)
-            }}
           />
         )}
         {tab === 'history' && <ApplicantHistoryTimeline events={historyEvents} />}

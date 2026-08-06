@@ -288,8 +288,9 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
           lng: string | null
           place_id: string | null
           formatted_address: string | null
-          geocoded_at: Date | null
-          created_at: Date
+      geocoded_at: Date | null
+      created_at: Date
+      updated_at: Date
         }>('SELECT * FROM units ORDER BY created_at DESC LIMIT $1', [limits.units]),
       () =>
         skipHeavy
@@ -530,6 +531,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
       formattedAddress: u.formatted_address ?? b?.formatted_address ?? null,
       geocodedAt: iso(u.geocoded_at) ?? iso(b?.geocoded_at ?? null),
       createdAt: dateOnly(u.created_at),
+      updatedAt: iso(u.updated_at),
       _propertyId: mappedFe('property', u.id, mapProperty(u.id)!),
       _buildingUuid: u.building_id,
       _unitUuid: u.id,
@@ -541,14 +543,17 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     const unitRooms = rooms.filter((r) => r.unit_id === u._unitUuid)
     const unitAssets = assets.filter((a) => a.unit_id === u._unitUuid)
     const statusKey = u.statusKey
+    const deletedAt = statusKey === 'DELETED' ? u.updatedAt : null
     const status =
-      statusKey === 'OCCUPIED'
-        ? 'Rented'
-        : statusKey === 'MAINTENANCE'
-          ? 'Maintenance'
-          : u.featured
-            ? 'Featured'
-            : 'Published'
+      statusKey === 'DELETED'
+        ? 'Archived'
+        : statusKey === 'OCCUPIED'
+          ? 'Rented'
+          : statusKey === 'MAINTENANCE'
+            ? 'Maintenance'
+            : u.featured
+              ? 'Featured'
+              : 'Published'
 
     return {
       id: u._propertyId,
@@ -560,6 +565,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
       title: u.title,
       type: u.bedrooms === 0 ? 'Office' : u.bedrooms >= 3 ? 'House' : 'Apartment',
       status,
+      deletedAt,
       listingMode: u.listingType === 'sale' || u.listingType === 'rent' || u.listingType === 'both'
         ? u.listingType
         : 'rent',

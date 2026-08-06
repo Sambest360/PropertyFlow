@@ -1,16 +1,15 @@
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { HardHat, Mail, Phone, Plus, Star, Wrench } from 'lucide-react'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
 import { DirectoryStatCard } from '../components/directory/DirectoryStats'
-import {
-  CONTRACTOR_TRADES,
-  listAgencyContractorRoster,
-  tradeLabel,
-} from '../lib/contractors'
-import { Badge, Button, Card, Modal, PageHeader, Select, Textarea, cn } from '../components/ui'
+import { CONTRACTOR_TRADES, listAgencyContractorRoster, tradeLabel } from '../lib/contractors'
+import { AddContractorToRosterModal } from '../components/contractors/AddContractorToRosterModal'
+import { currentReturnPath } from '../lib/returnTo'
+import { useSuiteAlert } from '../components/alerts/SuiteAlert'
+import { Badge, Button, Card, PageHeader, Select } from '../components/ui'
 
 const ICON_STROKE = 1.6
 
@@ -18,11 +17,10 @@ export default function ContractorsDirectory() {
   const { state, addAgencyContractor, updateAgencyContractor } = useStore()
   const { user, has, agencyId } = useAuth()
   const { ticketVisible } = usePropertyScope()
+  const location = useLocation()
+  const alert = useSuiteAlert()
   const [trade, setTrade] = useState('all')
   const [addOpen, setAddOpen] = useState(false)
-  const [pickUserId, setPickUserId] = useState('')
-  const [pickTrades, setPickTrades] = useState<string[]>(['GENERAL'])
-  const [notes, setNotes] = useState('')
 
   const roster = useMemo(
     () =>
@@ -50,38 +48,29 @@ export default function ContractorsDirectory() {
     }
   }, [state.agencyContractors, state.users, state.tickets, agencyId, ticketVisible])
 
-  const availableToAdd = useMemo(() => {
-    const onRoster = new Set(state.agencyContractors.filter((r) => r.agencyId === agencyId).map((r) => r.contractorUserId))
-    return state.users.filter(
-      (u) =>
-        u.role === 'contractor' &&
-        u.active &&
-        !onRoster.has(u.id) &&
-        (has('platform.manage') || u.agencyId === agencyId),
-    )
-  }, [state.users, state.agencyContractors, agencyId, has])
-
   const canManage = has('contractors.manage')
+  const canCreateUser = has('users.manage') || has('roles.assign')
+  const returnTo = currentReturnPath(location.pathname, location.search)
 
-  const submitAdd = () => {
-    if (!pickUserId || !agencyId) return
+  const submitAdd = (input: { contractorUserId: string; trades: string[]; notes: string }) => {
+    if (!agencyId) return
+    const contractor = state.users.find((u) => u.id === input.contractorUserId)
     addAgencyContractor({
       agencyId,
-      contractorUserId: pickUserId,
+      contractorUserId: input.contractorUserId,
       status: canManage ? 'approved' : 'pending',
-      trades: pickTrades.length ? pickTrades : ['GENERAL'],
-      notes: notes.trim() || undefined,
+      trades: input.trades.length ? input.trades : ['GENERAL'],
+      notes: input.notes || undefined,
       addedAt: new Date().toISOString().slice(0, 10),
       addedByUserId: user.id,
     })
     setAddOpen(false)
-    setPickUserId('')
-    setNotes('')
-    setPickTrades(['GENERAL'])
-  }
-
-  const togglePickTrade = (key: string) => {
-    setPickTrades((prev) => (prev.includes(key) ? prev.filter((t) => t !== key) : [...prev, key]))
+    void alert.success({
+      title: 'Contractor added',
+      text: contractor
+        ? `${contractor.name} is on your maintenance roster.`
+        : 'The contractor was added to your roster.',
+    })
   }
 
   return (
@@ -233,60 +222,17 @@ export default function ContractorsDirectory() {
           </Card>
         )}
 
-        <Modal
+        <AddContractorToRosterModal
           open={addOpen}
           onClose={() => setAddOpen(false)}
-          title="Add contractor to roster"
-          description="Only approved contractors appear when booking maintenance."
-          footer={
-            <>
-              <Button variant="secondary" onClick={() => setAddOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={submitAdd} disabled={!pickUserId}>
-                Add to roster
-              </Button>
-            </>
-          }
-        >
-          <div className="space-y-4">
-            <label className="block text-xs font-medium text-ink-500">
-              Contractor
-              <Select className="mt-1 min-h-11 w-full" value={pickUserId} onChange={(e) => setPickUserId(e.target.value)}>
-                <option value="">Choose…</option>
-                {availableToAdd.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name} · {u.email}
-                  </option>
-                ))}
-              </Select>
-            </label>
-            <div>
-              <p className="text-xs font-medium text-ink-500">Trades</p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {CONTRACTOR_TRADES.map((t) => (
-                  <button
-                    key={t.key}
-                    type="button"
-                    onClick={() => togglePickTrade(t.key)}
-                    className={cn(
-                      'rounded-full border px-3 py-1 text-xs font-medium',
-                      pickTrades.includes(t.key)
-                        ? 'border-primary bg-primary-50 text-primary'
-                        : 'border-primary-100 text-ink-500',
-                    )}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <label className="block text-xs font-medium text-ink-500">
-              Notes
-              <Textarea className="mt-1" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="COID expiry, service areas…" />
-            </label>
-          </div>
-        </Modal>
+          agencyId={agencyId}
+          agencies={state.agencies}
+          roster={state.agencyContractors}
+          users={state.users}
+          canCreateUser={canCreateUser}
+          returnTo={returnTo}
+          onSubmit={submitAdd}
+        />
       </div>
     </RequirePermission>
   )

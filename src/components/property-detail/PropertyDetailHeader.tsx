@@ -1,8 +1,9 @@
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Pencil, Star } from 'lucide-react'
+import { ArrowLeft, Globe, Pencil, Star, Trash2, RotateCcw } from 'lucide-react'
 import type { PropertyAsset } from '../../types/domain'
 import { Badge, Button } from '../ui'
 import { resolvePortfolioStatus } from '../../lib/propertyStatus'
+import { isPropertyDeleted } from '../../lib/propertyDeletion'
 import { canEditPropertyListing, ICON_STROKE } from './types'
 
 export function PropertyDetailHeader({
@@ -11,28 +12,50 @@ export function PropertyDetailHeader({
   unitLabel,
   buildingName,
   canManage,
-  onEdit,
+  canPublish,
+  publishBlockedReason,
+  onPublish,
   onToggleFeatured,
+  publishBusy,
+  canDelete,
+  deleteBlockedReason,
+  onDelete,
+  onRestore,
+  deleteBusy,
 }: {
   property: PropertyAsset
   occupancy?: string | null
   unitLabel?: string
   buildingName?: string
   canManage: boolean
-  onEdit: () => void
+  canPublish?: boolean
+  publishBlockedReason?: string | null
+  onPublish?: () => void
   onToggleFeatured: () => void
+  publishBusy?: boolean
+  canDelete?: boolean
+  deleteBlockedReason?: string | null
+  onDelete?: () => void
+  onRestore?: () => void
+  deleteBusy?: boolean
 }) {
-  const resolved = resolvePortfolioStatus(property.status, occupancy)
-  const editable = canEditPropertyListing(property.status)
+  const deleted = isPropertyDeleted(property)
+  const resolved = deleted
+    ? { label: 'Deleted' as const, tone: 'neutral' as const }
+    : resolvePortfolioStatus(property.status, occupancy)
+  const editable = canEditPropertyListing(property.status) && !deleted
+  const isDraft = property.status === 'Draft' && !deleted
+  const showMakeLive =
+    isDraft && canManage && canPublish && Boolean(onPublish) && !publishBlockedReason
 
   return (
     <div className="mb-5">
       <Link
-        to="/workspace/properties"
+        to={deleted ? '/workspace/properties/archive' : '/workspace/properties'}
         className="mb-4 inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm text-ink-500 transition-colors duration-200 hover:text-ink"
       >
         <ArrowLeft className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-        All properties
+        {deleted ? 'Deleted properties' : 'All properties'}
       </Link>
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -52,31 +75,118 @@ export function PropertyDetailHeader({
 
         {canManage && (
           <div className="flex flex-wrap items-center gap-2">
-            {editable && (
-              <Button className="min-h-11" onClick={onEdit}>
-                <Pencil className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                Edit property
+            {showMakeLive ? (
+              <Button
+                className="min-h-11 cursor-pointer"
+                onClick={onPublish}
+                disabled={publishBusy}
+              >
+                <Globe className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                Make live
               </Button>
+            ) : null}
+            {editable && (
+              <Link to={`/workspace/properties/${property.id}/edit`}>
+                <Button variant={showMakeLive ? 'secondary' : 'primary'} className="min-h-11 cursor-pointer">
+                  <Pencil className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                  Edit property
+                </Button>
+              </Link>
             )}
-            <Button
-              variant="secondary"
-              className="min-h-11"
-              onClick={onToggleFeatured}
-              aria-pressed={property.featured}
-            >
-              <Star
-                className="h-4 w-4"
-                strokeWidth={ICON_STROKE}
-                fill={property.featured ? 'currentColor' : 'none'}
-                aria-hidden
-              />
-              {property.featured ? 'Unfeature' : 'Feature'}
-            </Button>
+            {!isDraft && !deleted ? (
+              <Button
+                variant="secondary"
+                className="min-h-11"
+                onClick={onToggleFeatured}
+                aria-pressed={property.featured}
+              >
+                <Star
+                  className="h-4 w-4"
+                  strokeWidth={ICON_STROKE}
+                  fill={property.featured ? 'currentColor' : 'none'}
+                  aria-hidden
+                />
+                {property.featured ? 'Unfeature' : 'Feature'}
+              </Button>
+            ) : null}
+            {canDelete && !deleted && onDelete ? (
+              <Button
+                variant="secondary"
+                className="min-h-11 cursor-pointer text-accent-700 ring-accent-200 hover:bg-accent-50"
+                onClick={onDelete}
+                disabled={deleteBusy || Boolean(deleteBlockedReason)}
+                title={deleteBlockedReason ?? undefined}
+              >
+                <Trash2 className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                Delete
+              </Button>
+            ) : null}
+            {canDelete && deleted && onRestore ? (
+              <Button
+                className="min-h-11 cursor-pointer"
+                onClick={onRestore}
+                disabled={deleteBusy}
+              >
+                <RotateCcw className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                Restore
+              </Button>
+            ) : null}
           </div>
         )}
       </div>
 
-      {!editable && (
+      {deleted ? (
+        <div
+          className="mt-4 rounded-2xl border border-ink-200 bg-ink-50 px-4 py-3 text-sm text-ink-700"
+          role="status"
+        >
+          This property was deleted and is kept here for reference only. Restore it to edit or
+          publish again.
+        </div>
+      ) : null}
+
+      {deleteBlockedReason && canDelete && !deleted ? (
+        <p className="mt-3 text-sm text-ink-500">{deleteBlockedReason}</p>
+      ) : null}
+
+      {isDraft && canManage ? (
+        <div
+          className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+          role="status"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-semibold text-amber-950">This listing is still a draft</p>
+              <p className="mt-0.5 text-amber-900/90">
+                It is not visible on the marketplace yet.
+                {publishBlockedReason ? ` ${publishBlockedReason}` : null}
+              </p>
+            </div>
+            {showMakeLive ? (
+              <Button
+                className="min-h-11 shrink-0 cursor-pointer"
+                onClick={onPublish}
+                disabled={publishBusy}
+              >
+                <Globe className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                Make live
+              </Button>
+            ) : publishBlockedReason && editable ? (
+              <Link to={`/workspace/properties/${property.id}/edit`}>
+                <Button variant="secondary" className="min-h-11 shrink-0 cursor-pointer">
+                  Finish setup
+                </Button>
+              </Link>
+            ) : canPublish ? null : (
+              <p className="text-xs font-medium text-amber-900/80">
+                You need listing publish permission to make this live.
+              </p>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {!editable && !isDraft && (
         <p
           className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
           role="status"

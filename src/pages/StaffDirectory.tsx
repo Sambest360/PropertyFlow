@@ -198,6 +198,8 @@ function StaffDirectoryView({ onShowAllAccounts }: { onShowAllAccounts?: () => v
   }, [portfolio, q, roleFilter, attention, sort])
 
   const filtersActive = Boolean(q.trim()) || roleFilter !== 'all' || attention !== 'all'
+  const activeFilterCount =
+    (roleFilter !== 'all' ? 1 : 0) + (attention !== 'all' ? 1 : 0) + (sort !== 'name' ? 1 : 0)
   const clearFilters = () => {
     setQ('')
     setRoleFilter('all')
@@ -254,20 +256,22 @@ function StaffDirectoryView({ onShowAllAccounts }: { onShowAllAccounts?: () => v
         <DirectoryToolbar
           query={q}
           onQueryChange={setQ}
-          searchPlaceholder="Filter by name, email, phone, role, or agency…"
+          searchPlaceholder="Search team…"
           searchLabel="Filter team"
           view={view}
           onViewChange={setView}
           sort={sort}
           onSortChange={setSort}
           sortOptions={[
-            { value: 'name', label: 'Sort: Name' },
-            { value: 'role', label: 'Sort: Role' },
-            { value: 'deals', label: 'Sort: Closed deals' },
-            { value: 'leads', label: 'Sort: Open leads' },
+            { value: 'name', label: 'Name' },
+            { value: 'role', label: 'Role' },
+            { value: 'deals', label: 'Closed deals' },
+            { value: 'leads', label: 'Open leads' },
           ]}
           resultLabel={resultLabel}
           reducedMotion={reducedMotion}
+          activeFilterCount={activeFilterCount}
+          onClearFilters={clearFilters}
           filters={
             <>
               <DirectoryFilterSelect

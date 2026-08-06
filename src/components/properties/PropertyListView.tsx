@@ -98,16 +98,16 @@ export function PropertyExpansion({
   }, [p.id])
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-      <div className="flex min-w-0 flex-col gap-2">
+    <div className="flex min-w-0 flex-col gap-5 xl:grid xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] xl:items-start">
+      <div className="min-w-0">
         {current ? (
           <>
-            <div className="relative flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-xl bg-white ring-1 ring-primary-100/80">
+            <div className="relative mx-auto aspect-[16/10] max-h-64 w-full overflow-hidden rounded-xl bg-primary-100 ring-1 ring-primary-100/80 sm:max-h-72 xl:max-h-80">
               <img
                 src={current}
                 alt=""
                 className={cn(
-                  'max-h-full max-w-full object-contain',
+                  'h-full w-full object-cover',
                   !reducedMotion && 'transition-opacity duration-200',
                 )}
               />
@@ -117,61 +117,61 @@ export function PropertyExpansion({
                     type="button"
                     onClick={prevPhoto}
                     aria-label="Previous photo"
-                    className="absolute left-2 top-1/2 inline-flex min-h-11 min-w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border border-primary-100 bg-white/95 text-ink shadow-sm transition-colors duration-200 hover:bg-primary-50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    className="absolute left-2 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border border-primary-100/80 bg-white/95 text-ink shadow-sm transition-colors duration-200 hover:bg-white hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   >
-                    <ChevronLeft className="h-5 w-5" strokeWidth={ICON_STROKE} aria-hidden />
+                    <ChevronLeft className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
                   </button>
                   <button
                     type="button"
                     onClick={nextPhoto}
                     aria-label="Next photo"
-                    className="absolute right-2 top-1/2 inline-flex min-h-11 min-w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border border-primary-100 bg-white/95 text-ink shadow-sm transition-colors duration-200 hover:bg-primary-50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    className="absolute right-2 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border border-primary-100/80 bg-white/95 text-ink shadow-sm transition-colors duration-200 hover:bg-white hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   >
-                    <ChevronRight className="h-5 w-5" strokeWidth={ICON_STROKE} aria-hidden />
+                    <ChevronRight className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
                   </button>
+                  <p className="absolute bottom-2 right-2 rounded-full bg-ink/70 px-2 py-0.5 text-[10px] font-medium tabular text-white">
+                    {activePhoto + 1} / {photos.length}
+                  </p>
                 </>
               )}
             </div>
             {photos.length > 1 && (
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-0.5 [scrollbar-width:thin]">
-                  {photos.map((src, i) => (
-                    <button
-                      key={`${src}-${i}`}
-                      type="button"
-                      onClick={() => setActivePhoto(i)}
-                      aria-label={`Show photo ${i + 1}`}
-                      aria-pressed={i === activePhoto}
-                      className={cn(
-                        'relative h-14 w-20 shrink-0 cursor-pointer overflow-hidden rounded-lg ring-2 transition-shadow duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
-                        i === activePhoto ? 'ring-primary' : 'ring-transparent hover:ring-primary-200',
-                        reducedMotion && 'transition-none',
-                      )}
-                    >
-                      <img src={src} alt="" className="h-full w-full object-cover" />
-                    </button>
-                  ))}
-                </div>
-                <p className="shrink-0 text-[11px] tabular text-ink-400">
-                  {activePhoto + 1} / {photos.length}
-                </p>
+              <div className="mt-2 flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:thin]">
+                {photos.map((src, i) => (
+                  <button
+                    key={`${src}-${i}`}
+                    type="button"
+                    onClick={() => setActivePhoto(i)}
+                    aria-label={`Show photo ${i + 1}`}
+                    aria-pressed={i === activePhoto}
+                    className={cn(
+                      'relative h-12 w-16 shrink-0 cursor-pointer overflow-hidden rounded-md ring-2 transition-shadow duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
+                      i === activePhoto ? 'ring-primary' : 'ring-transparent hover:ring-primary-200',
+                      reducedMotion && 'transition-none',
+                    )}
+                  >
+                    <img src={src} alt="" className="h-full w-full object-cover" />
+                  </button>
+                ))}
               </div>
             )}
           </>
         ) : (
-          <div className="flex aspect-[4/3] items-center justify-center rounded-xl bg-white text-sm text-ink-400 ring-1 ring-primary-100/80">
+          <div className="flex aspect-[16/10] max-h-48 items-center justify-center rounded-xl bg-primary-50 text-sm text-ink-400 ring-1 ring-primary-100/80">
             No photos
           </div>
         )}
       </div>
 
       <div className="flex min-w-0 flex-col">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div className="min-w-0">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
             <p className="font-display text-lg font-semibold tracking-tight text-ink">{p.title}</p>
-            <p className="mt-0.5 flex items-center gap-1 text-sm text-ink-500">
-              <MapPin className="h-3.5 w-3.5 shrink-0" strokeWidth={ICON_STROKE} aria-hidden />
-              {p.suburb}, {p.city}
+            <p className="mt-0.5 flex items-start gap-1 text-sm text-ink-500">
+              <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={ICON_STROKE} aria-hidden />
+              <span className="min-w-0 break-words">
+                {p.suburb}, {p.city}
+              </span>
             </p>
             <div className="mt-2 flex flex-wrap gap-3 text-xs text-ink-500">
               {p.beds > 0 && (
@@ -192,20 +192,20 @@ export function PropertyExpansion({
               </span>
             </div>
           </div>
-          <div className="flex flex-col items-end gap-1.5">
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
             <Badge tone={resolved.tone}>{resolved.label}</Badge>
             <AttentionBadges item={item} />
           </div>
         </div>
 
-        <dl className="mt-4 space-y-2">
+        <dl className="mt-4 grid gap-x-4 gap-y-2 sm:grid-cols-2">
           {metaRows.map((row) => (
             <div
               key={row.label}
-              className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 border-b border-primary-50 pb-2 last:border-b-0"
+              className="min-w-0 border-b border-primary-50 pb-2 last:border-b-0 sm:last:border-b sm:[&:nth-last-child(-n+2)]:border-b-0"
             >
-              <dt className="shrink-0 text-xs font-medium text-ink-400">{row.label}</dt>
-              <dd className="min-w-0 text-sm font-semibold tabular text-ink">{row.value}</dd>
+              <dt className="text-[11px] font-medium text-ink-400">{row.label}</dt>
+              <dd className="mt-0.5 break-words text-sm font-semibold tabular text-ink">{row.value}</dd>
             </div>
           ))}
         </dl>
@@ -218,19 +218,19 @@ export function PropertyExpansion({
             <Link to={`/workspace/operations/maintenance?property=${encodeURIComponent(p.id)}`}>
               <Button
                 variant={item.openTickets > 0 ? 'danger' : 'secondary'}
-                className="min-h-11 rounded-2xl"
+                className="min-h-10 rounded-xl px-3 text-sm"
               >
                 <Wrench className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                Log maintenance
+                Maintenance
                 {item.openTickets > 0 && (
                   <span className="tabular opacity-90">({item.openTickets})</span>
                 )}
               </Button>
             </Link>
             <Link to={`/workspace/sales/viewings/property/${encodeURIComponent(p.id)}`}>
-              <Button variant="primary" className="min-h-11 rounded-2xl">
+              <Button variant="primary" className="min-h-10 rounded-xl px-3 text-sm">
                 <CalendarDays className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                Book viewing
+                Viewing
                 {item.scheduledViewings > 0 && (
                   <span className="tabular opacity-90">({item.scheduledViewings})</span>
                 )}
@@ -240,7 +240,7 @@ export function PropertyExpansion({
               <Button
                 variant="secondary"
                 className={cn(
-                  'min-h-11 rounded-2xl',
+                  'min-h-10 rounded-xl px-3 text-sm',
                   item.waitingApps > 0 &&
                     'border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100',
                 )}
@@ -255,9 +255,9 @@ export function PropertyExpansion({
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="mt-4">
           <Link to={detailId} className="inline-flex">
-            <Button className="min-h-11 cursor-pointer gap-2 rounded-2xl">
+            <Button className="min-h-10 cursor-pointer gap-2 rounded-xl px-4 text-sm">
               Open full details
               <ArrowRight className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
             </Button>

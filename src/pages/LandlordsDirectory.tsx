@@ -97,6 +97,7 @@ export default function LandlordsDirectory() {
     setQ('')
     setAttention('all')
   }
+  const activeFilterCount = (attention !== 'all' ? 1 : 0) + (sort !== 'name' ? 1 : 0)
 
   return (
     <RequirePermission anyOf={['users.manage', 'assets.manage']}>
@@ -144,19 +145,21 @@ export default function LandlordsDirectory() {
         <DirectoryToolbar
           query={q}
           onQueryChange={setQ}
-          searchPlaceholder="Filter by name, email, phone, or agency…"
+          searchPlaceholder="Search landlords…"
           searchLabel="Filter landlords"
           view={view}
           onViewChange={setView}
           sort={sort}
           onSortChange={setSort}
           sortOptions={[
-            { value: 'name', label: 'Sort: Name' },
-            { value: 'email', label: 'Sort: Email' },
-            { value: 'properties', label: 'Sort: Property count' },
+            { value: 'name', label: 'Name' },
+            { value: 'email', label: 'Email' },
+            { value: 'properties', label: 'Property count' },
           ]}
           resultLabel={resultLabel}
           reducedMotion={reducedMotion}
+          activeFilterCount={activeFilterCount}
+          onClearFilters={clearFilters}
         />
 
         {portfolio.length === 0 ? (

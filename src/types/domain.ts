@@ -197,6 +197,8 @@ export type PropertyAsset = {
   description: string
   featured: boolean
   createdAt: string
+  /** Soft-delete timestamp — removed from active portfolio but kept in archive. */
+  deletedAt?: string | null
   /** Green infrastructure (SA-relevant) */
   solarCapacityKw?: number
   hasBorehole?: boolean

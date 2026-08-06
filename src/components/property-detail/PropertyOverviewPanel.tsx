@@ -1,58 +1,31 @@
 import { useEffect, useState } from 'react'
 import { Bath, BedDouble, Car, ChevronLeft, ChevronRight, MapPin } from 'lucide-react'
 import type { PropertyAsset, AppUser } from '../../types/domain'
-import { ImageDropzone } from '../ImageDropzone'
-import { PropertyFeaturePicker } from '../property-features/PropertyFeaturePicker'
 import { ExpandableDescription } from '../listing/ExpandableDescription'
-import { ListingDescriptionEditor } from '../listing/ListingDescriptionEditor'
 import { PropertyFeaturesDisplay } from '../property-features/PropertyFeaturesDisplay'
-import { PlacesAddressInput } from '../PlacesAddressInput'
-import { Badge, Button, Input, Modal, Select, cn } from '../ui'
+import { Badge, cn } from '../ui'
 import { formatZAR } from '../../data/seed'
 import { useAgentDisplay } from '../../hooks/useAgentDisplay'
-import { pruneAmenitiesForMode } from '../../lib/propertyFeatures'
 import { resolvePortfolioStatus } from '../../lib/propertyStatus'
 import { ICON_STROKE } from './types'
-
-const STATUSES: PropertyAsset['status'][] = [
-  'Draft',
-  'Published',
-  'Featured',
-  'Under Offer',
-  'Sold',
-  'Rented',
-  'Archived',
-  'Maintenance',
-]
 
 export function PropertyOverviewPanel({
   property,
   occupancy,
   agent,
   landlord,
-  agents,
-  landlords,
   roomCount,
   assetCount,
   appCount,
-  editOpen,
-  onEditOpenChange,
-  onSave,
 }: {
   property: PropertyAsset
   occupancy?: string | null
   agent?: AppUser
   landlord?: AppUser
-  agents: AppUser[]
-  landlords: AppUser[]
   roomCount: number
   assetCount: number
   appCount: number
-  editOpen: boolean
-  onEditOpenChange: (open: boolean) => void
-  onSave: (patch: Partial<PropertyAsset>) => void
 }) {
-  const [draft, setDraft] = useState(property)
   const [photoIndex, setPhotoIndex] = useState(0)
   const { label: agentLabel } = useAgentDisplay()
   const resolved = resolvePortfolioStatus(property.status, occupancy)
@@ -63,10 +36,6 @@ export function PropertyOverviewPanel({
     setPhotoIndex(0)
   }, [property.id])
 
-  useEffect(() => {
-    if (editOpen) setDraft(property)
-  }, [editOpen, property])
-
   const prevPhoto = () => {
     if (photos.length < 2) return
     setPhotoIndex((i) => (i - 1 + photos.length) % photos.length)
@@ -74,53 +43,6 @@ export function PropertyOverviewPanel({
   const nextPhoto = () => {
     if (photos.length < 2) return
     setPhotoIndex((i) => (i + 1) % photos.length)
-  }
-
-  const save = () => {
-    void (async () => {
-      const address = draft.address.trim()
-      const suburb = draft.suburb.trim()
-      const city = draft.city.trim()
-      let geoPatch: Partial<PropertyAsset> = {}
-      if (
-        address !== property.address ||
-        suburb !== property.suburb ||
-        city !== property.city
-      ) {
-        const { geocodeAddress } = await import('../../lib/api/geocoding')
-        const geo = await geocodeAddress({ address, suburb, city })
-        geoPatch = {
-          lat: geo.lat,
-          lng: geo.lng,
-          placeId: geo.placeId,
-          formattedAddress: geo.formattedAddress,
-          geocodedAt: geo.geocodedAt,
-        }
-      }
-      onSave({
-        title: draft.title.trim(),
-        description: draft.description.trim(),
-        address,
-        suburb,
-        city,
-        type: draft.type,
-        listingMode: draft.listingMode,
-        status: draft.status,
-        price: draft.price,
-        rent: draft.rent,
-        beds: draft.beds,
-        baths: draft.baths,
-        parking: draft.parking,
-        area: draft.area,
-        agentId: draft.agentId,
-        landlordId: draft.landlordId,
-        amenities: draft.amenities,
-        images: draft.images,
-        floorPlan: draft.floorPlan,
-        ...geoPatch,
-      })
-      onEditOpenChange(false)
-    })()
   }
 
   return (
@@ -259,228 +181,6 @@ export function PropertyOverviewPanel({
           <p className="text-[11px] text-ink-500">Apps</p>
         </div>
       </section>
-
-      <Modal
-        open={editOpen}
-        onClose={() => onEditOpenChange(false)}
-        title="Edit property"
-        description="Update listing details and status."
-        size="lg"
-        footer={
-          <>
-            <Button variant="secondary" className="min-h-11" onClick={() => onEditOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button className="min-h-11" onClick={save}>
-              Save changes
-            </Button>
-          </>
-        }
-      >
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block text-xs font-medium text-ink-500 sm:col-span-2">
-            Status
-            <Select
-              className="mt-1 min-h-11 w-full"
-              value={draft.status}
-              onChange={(e) =>
-                setDraft({ ...draft, status: e.target.value as PropertyAsset['status'] })
-              }
-            >
-              {STATUSES.map((s) => (
-                <option key={s}>{s}</option>
-              ))}
-            </Select>
-          </label>
-          <label className="block text-xs font-medium text-ink-500 sm:col-span-2">
-            Title
-            <Input
-              className="mt-1 min-h-11"
-              value={draft.title}
-              onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-            />
-          </label>
-          <div className="sm:col-span-2">
-            <ListingDescriptionEditor
-              value={draft.description}
-              onChange={(description) => setDraft({ ...draft, description })}
-            />
-          </div>
-          <label className="block text-xs font-medium text-ink-500">
-            Address
-            <PlacesAddressInput
-              className="mt-1 min-h-11"
-              value={draft.address}
-              onChange={(address) => setDraft({ ...draft, address })}
-              onPlaceSelect={(place) =>
-                setDraft({
-                  ...draft,
-                  address: place.address,
-                  suburb: place.suburb ?? draft.suburb,
-                  city: place.city ?? draft.city,
-                  lat: place.lat ?? draft.lat,
-                  lng: place.lng ?? draft.lng,
-                  placeId: place.placeId ?? draft.placeId,
-                  formattedAddress: place.formattedAddress ?? draft.formattedAddress,
-                  geocodedAt: place.placeId ? new Date().toISOString() : draft.geocodedAt,
-                })
-              }
-            />
-          </label>
-          <label className="block text-xs font-medium text-ink-500">
-            Suburb
-            <Input
-              className="mt-1 min-h-11"
-              value={draft.suburb}
-              onChange={(e) => setDraft({ ...draft, suburb: e.target.value })}
-            />
-          </label>
-          <label className="block text-xs font-medium text-ink-500">
-            City
-            <Input
-              className="mt-1 min-h-11"
-              value={draft.city}
-              onChange={(e) => setDraft({ ...draft, city: e.target.value })}
-            />
-          </label>
-          <label className="block text-xs font-medium text-ink-500">
-            Type
-            <Input
-              className="mt-1 min-h-11"
-              value={draft.type}
-              onChange={(e) => setDraft({ ...draft, type: e.target.value })}
-            />
-          </label>
-          <label className="block text-xs font-medium text-ink-500">
-            Listing mode
-            <Select
-              className="mt-1 min-h-11 w-full"
-              value={draft.listingMode}
-              onChange={(e) => {
-                const listingMode = e.target.value as PropertyAsset['listingMode']
-                setDraft({
-                  ...draft,
-                  listingMode,
-                  amenities: pruneAmenitiesForMode(draft.amenities, listingMode),
-                  price: listingMode === 'rent' ? null : draft.price,
-                  rent: listingMode === 'sale' ? null : draft.rent,
-                })
-              }}
-            >
-              <option value="sale">For sale</option>
-              <option value="rent">To rent</option>
-              <option value="both">Sale or rent</option>
-            </Select>
-          </label>
-          <div className="sm:col-span-2 rounded-2xl border border-primary-100 bg-primary-50/40 p-3">
-            <PropertyFeaturePicker
-              value={draft.amenities}
-              onChange={(amenities) => setDraft({ ...draft, amenities })}
-              listingMode={draft.listingMode}
-            />
-          </div>
-          {(
-            [
-              ['beds', 'Beds'],
-              ['baths', 'Baths'],
-              ['parking', 'Parking'],
-              ['area', 'Area m²'],
-            ] as const
-          ).map(([key, label]) => (
-            <label key={key} className="block text-xs font-medium text-ink-500">
-              {label}
-              <Input
-                type="number"
-                className="mt-1 min-h-11 tabular"
-                value={draft[key]}
-                onChange={(e) => setDraft({ ...draft, [key]: Number(e.target.value) || 0 })}
-              />
-            </label>
-          ))}
-          {(draft.listingMode === 'sale' || draft.listingMode === 'both') && (
-            <label className="block text-xs font-medium text-ink-500">
-              Sale price (ZAR)
-              <Input
-                type="number"
-                className="mt-1 min-h-11 tabular"
-                value={draft.price ?? ''}
-                onChange={(e) =>
-                  setDraft({
-                    ...draft,
-                    price: e.target.value === '' ? null : Number(e.target.value),
-                  })
-                }
-              />
-            </label>
-          )}
-          {(draft.listingMode === 'rent' || draft.listingMode === 'both') && (
-            <label className="block text-xs font-medium text-ink-500">
-              Rent / mo (ZAR)
-              <Input
-                type="number"
-                className="mt-1 min-h-11 tabular"
-                value={draft.rent ?? ''}
-                onChange={(e) =>
-                  setDraft({
-                    ...draft,
-                    rent: e.target.value === '' ? null : Number(e.target.value),
-                  })
-                }
-              />
-            </label>
-          )}
-          <label className="block text-xs font-medium text-ink-500">
-            Agent
-            <Select
-              className="mt-1 min-h-11 w-full"
-              value={draft.agentId ?? ''}
-              onChange={(e) => setDraft({ ...draft, agentId: e.target.value || null })}
-            >
-              <option value="">Unassigned</option>
-              {agents.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name}
-                </option>
-              ))}
-            </Select>
-          </label>
-          <label className="block text-xs font-medium text-ink-500">
-            Landlord
-            <Select
-              className="mt-1 min-h-11 w-full"
-              value={draft.landlordId}
-              onChange={(e) => setDraft({ ...draft, landlordId: e.target.value })}
-            >
-              {landlords.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name}
-                </option>
-              ))}
-            </Select>
-          </label>
-          <div className="sm:col-span-2">
-            <ImageDropzone
-              label="Property photos"
-              value={draft.images}
-              onChange={(images) => setDraft({ ...draft, images })}
-              multiple
-              max={12}
-              hint="Drag & drop photos here, or click to open your gallery"
-            />
-          </div>
-          <div className="sm:col-span-2">
-            <ImageDropzone
-              label="Floor plan (optional)"
-              value={draft.floorPlan ? [draft.floorPlan] : []}
-              onChange={(next) => setDraft({ ...draft, floorPlan: next[0] })}
-              multiple={false}
-              max={1}
-              variant="cover"
-              hint="Drag & drop a floor plan, or click to browse"
-            />
-          </div>
-        </div>
-      </Modal>
     </div>
   )
 }
