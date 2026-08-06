@@ -6,6 +6,7 @@ import { RequirePermission } from '../../components/RequirePermission'
 import { AgencyCapabilityChecklist } from '../../components/admin/AgencyCapabilityChecklist'
 import { StepDots } from '../../components/wizard/StepDots'
 import { Badge, Button, Card, Input, Modal, PageHeader, Select } from '../../components/ui'
+import { ResponsiveDataList } from '../../components/data/ResponsiveDataList'
 import { DEFAULT_AGENCY_PERMISSIONS } from '../../lib/permissions'
 import type { Agency, Permission } from '../../types/domain'
 
@@ -89,83 +90,149 @@ export default function AdminAgenciesPage() {
             </Link>
           </Card>
         ) : (
-          <div className="overflow-hidden rounded-[1.25rem] border border-primary-100/80 bg-white shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)]">
-            <table className="w-full min-w-[40rem] border-collapse text-left text-sm">
-              <thead>
-                <tr className="border-b border-primary-100 text-[11px] font-semibold uppercase tracking-wide text-ink-400">
-                  <th className="px-4 py-3">Agency</th>
-                  <th className="px-3 py-3">City</th>
-                  <th className="px-3 py-3 text-right">Assets</th>
-                  <th className="px-3 py-3 text-right">Users</th>
-                  <th className="px-3 py-3 text-right">Modules</th>
-                  <th className="px-3 py-3">Status</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map(({ agency: a, assets, users, caps }) => (
-                  <tr
-                    key={a.id}
-                    className="cursor-pointer border-b border-primary-50 hover:bg-primary-50/40"
+          <ResponsiveDataList
+            rows={rows}
+            rowKey={({ agency: a }) => a.id}
+            columns={[
+              {
+                key: 'agency',
+                header: 'Agency',
+                render: ({ agency: a }) => (
+                  <div className="flex items-center gap-2">
+                    <Building2 className="h-4 w-4 text-ink-400" strokeWidth={ICON_STROKE} />
+                    <div>
+                      <p className="font-semibold text-ink">{a.name}</p>
+                      <p className="text-xs text-ink-500">{a.slug}</p>
+                    </div>
+                  </div>
+                ),
+              },
+              {
+                key: 'city',
+                header: 'City',
+                cellClassName: 'text-ink-600',
+                render: ({ agency: a }) => a.city,
+              },
+              {
+                key: 'assets',
+                header: 'Assets',
+                headerClassName: 'text-right',
+                cellClassName: 'text-right tabular',
+                render: ({ assets }) => assets,
+              },
+              {
+                key: 'users',
+                header: 'Users',
+                headerClassName: 'text-right',
+                cellClassName: 'text-right tabular',
+                render: ({ users }) => users,
+              },
+              {
+                key: 'modules',
+                header: 'Modules',
+                headerClassName: 'text-right',
+                cellClassName: 'text-right tabular',
+                render: ({ caps }) => caps,
+              },
+              {
+                key: 'status',
+                header: 'Status',
+                render: ({ agency: a }) => (
+                  <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    <Badge tone={a.status === 'Active' ? 'success' : 'danger'}>{a.status}</Badge>
+                    <Select
+                      className="max-w-[8rem] text-xs"
+                      value={a.status}
+                      onChange={(e) =>
+                        updateAgency(a.id, { status: e.target.value as Agency['status'] })
+                      }
+                      aria-label={`Status for ${a.name}`}
+                    >
+                      <option value="Active">Active</option>
+                      <option value="Suspended">Suspended</option>
+                    </Select>
+                  </div>
+                ),
+              },
+              {
+                key: 'actions',
+                header: 'Actions',
+                headerClassName: 'text-right',
+                cellClassName: 'text-right',
+                render: ({ agency: a }) => (
+                  <div className="flex flex-wrap justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      className="min-h-11 cursor-pointer"
+                      onClick={() => navigate(`/workspace/admin/agencies/${a.id}`)}
+                    >
+                      Open
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      className="min-h-11 cursor-pointer"
+                      onClick={() => setEditId(a.id)}
+                    >
+                      <Pencil className="h-4 w-4" strokeWidth={ICON_STROKE} />
+                      Edit
+                    </Button>
+                  </div>
+                ),
+              },
+            ]}
+            renderMobileCard={({ agency: a, assets, users, caps }) => (
+              <Card
+                className="cursor-pointer p-4"
+                onClick={() => navigate(`/workspace/admin/agencies/${a.id}`)}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-ink">{a.name}</p>
+                    <p className="text-xs text-ink-500">{a.slug} · {a.city}</p>
+                  </div>
+                  <Badge tone={a.status === 'Active' ? 'success' : 'danger'}>{a.status}</Badge>
+                </div>
+                <dl className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                  <div>
+                    <dt className="text-ink-400">Assets</dt>
+                    <dd className="tabular font-semibold text-ink">{assets}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-ink-400">Users</dt>
+                    <dd className="tabular font-semibold text-ink">{users}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-ink-400">Modules</dt>
+                    <dd className="tabular font-semibold text-ink">{caps}</dd>
+                  </div>
+                </dl>
+                <div className="mt-3 flex gap-2" onClick={(e) => e.stopPropagation()}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    className="min-h-11 flex-1 cursor-pointer"
                     onClick={() => navigate(`/workspace/admin/agencies/${a.id}`)}
                   >
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <Building2 className="h-4 w-4 text-ink-400" strokeWidth={ICON_STROKE} />
-                        <div>
-                          <p className="font-semibold text-ink">{a.name}</p>
-                          <p className="text-xs text-ink-500">{a.slug}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 text-ink-600">{a.city}</td>
-                    <td className="px-3 py-3 text-right tabular">{assets}</td>
-                    <td className="px-3 py-3 text-right tabular">{users}</td>
-                    <td className="px-3 py-3 text-right tabular">{caps}</td>
-                    <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center gap-2">
-                        <Badge tone={a.status === 'Active' ? 'success' : 'danger'}>{a.status}</Badge>
-                        <Select
-                          className="max-w-[8rem] text-xs"
-                          value={a.status}
-                          onChange={(e) =>
-                            updateAgency(a.id, { status: e.target.value as Agency['status'] })
-                          }
-                          aria-label={`Status for ${a.name}`}
-                        >
-                          <option value="Active">Active</option>
-                          <option value="Suspended">Suspended</option>
-                        </Select>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex flex-wrap justify-end gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="secondary"
-                          className="min-h-11 cursor-pointer"
-                          onClick={() => navigate(`/workspace/admin/agencies/${a.id}`)}
-                        >
-                          Open
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="secondary"
-                          className="min-h-11 cursor-pointer"
-                          onClick={() => setEditId(a.id)}
-                        >
-                          <Pencil className="h-4 w-4" strokeWidth={ICON_STROKE} />
-                          Edit
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    Open
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    className="min-h-11 cursor-pointer"
+                    onClick={() => setEditId(a.id)}
+                  >
+                    Edit
+                  </Button>
+                </div>
+              </Card>
+            )}
+          />
         )}
 
         <AgencyFormModal

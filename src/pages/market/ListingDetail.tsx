@@ -21,6 +21,8 @@ import { isPubliclyListed } from '../../lib/publicListings'
 import { submitListingEnquiry } from '../../lib/api/listingEnquiryApi'
 import { sweetError, sweetInfo, sweetSuccess, sweetWarning } from '../../lib/sweetAlert'
 import { usePageMeta } from '../../hooks/usePageMeta'
+import { StickyMobileActionBar } from '../../components/layout/mobile/StickyMobileActionBar'
+import { FullScreenSheet } from '../../components/layout/mobile/FullScreenSheet'
 
 type EnquiryIntent = 'lead' | 'viewing'
 
@@ -44,6 +46,7 @@ export default function ListingDetail() {
   const [idNumber, setIdNumber] = useState('')
   const [intent, setIntent] = useState<EnquiryIntent>('lead')
   const [submitting, setSubmitting] = useState(false)
+  const [enquirySheetOpen, setEnquirySheetOpen] = useState(false)
 
   useEffect(() => {
     if (isAuthenticated && user.email) {
@@ -216,9 +219,12 @@ export default function ListingDetail() {
         )
       }
       setNote('')
+      setEnquirySheetOpen(false)
+      return true
     } finally {
       setSubmitting(false)
     }
+    return false
   }
 
   const submitApplication = async () => {
@@ -277,8 +283,161 @@ export default function ListingDetail() {
 
   const applyHref = `/register?next=${encodeURIComponent(`/listing/${p.id}`)}`
 
+  const priceBlock = (
+    <>
+      <p className="tabular text-2xl font-bold text-ink">
+        {p.listingMode === 'rent' || (p.listingMode === 'both' && !p.price) ? (
+          <>
+            {formatZAR(p.rent)}
+            <span className="text-base font-medium text-ink-500"> / month</span>
+          </>
+        ) : (
+          formatZAR(p.price)
+        )}
+      </p>
+      {p.listingMode === 'both' && p.price != null && p.rent != null && (
+        <p className="mt-1 tabular text-sm text-ink-500">
+          or {formatZAR(p.rent)} / month to rent
+        </p>
+      )}
+      <Badge className="mt-2" tone="brand">
+        {p.listingMode === 'both' ? 'Sale or rent' : p.listingMode === 'sale' ? 'For sale' : 'To rent'}
+      </Badge>
+    </>
+  )
+
+  const enquiryFormFields = (
+    <>
+      <p className="text-xs text-ink-500">
+        No account needed — your details are saved so an agent can follow up.
+      </p>
+
+      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={() => setIntent('lead')}
+          className={cn(
+            'min-h-11 rounded-xl border px-3 py-2 text-left text-xs font-semibold transition-colors',
+            intent === 'lead'
+              ? 'border-primary bg-primary-50 text-primary'
+              : 'border-primary-100 text-ink-600 hover:bg-primary-50/60',
+          )}
+        >
+          Register interest
+          <span className="mt-0.5 block font-normal text-ink-500">Create a lead — no viewing required</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setIntent('viewing')}
+          className={cn(
+            'min-h-11 rounded-xl border px-3 py-2 text-left text-xs font-semibold transition-colors',
+            intent === 'viewing'
+              ? 'border-primary bg-primary-50 text-primary'
+              : 'border-primary-100 text-ink-600 hover:bg-primary-50/60',
+          )}
+        >
+          {openSlots.length > 0 ? 'Book a viewing' : 'Request viewing'}
+          <span className="mt-0.5 block font-normal text-ink-500">
+            {openSlots.length > 0
+              ? 'Pick an agent slot below'
+              : 'No slots yet — we will schedule with you'}
+          </span>
+        </button>
+      </div>
+
+      <div className="mt-4 space-y-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <Input placeholder="First name" value={firstName} onChange={(e) => setFirstName(e.target.value)} required />
+          <Input placeholder="Surname" value={lastName} onChange={(e) => setLastName(e.target.value)} required />
+        </div>
+        <Input
+          type="email"
+          placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
+        <Input
+          type="tel"
+          placeholder="Phone"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          required
+        />
+        {isRent && (
+          <Input
+            type="number"
+            placeholder="Monthly income (optional)"
+            value={income}
+            onChange={(e) => setIncome(e.target.value)}
+          />
+        )}
+        <Input
+          placeholder="SA ID or passport (optional)"
+          value={idNumber}
+          onChange={(e) => setIdNumber(e.target.value)}
+        />
+        {intent === 'viewing' && openSlots.length > 0 && (
+          <select
+            className="h-11 w-full rounded-xl border border-primary-100 bg-white px-3 text-base sm:text-sm"
+            value={slotId || openSlots[0]?.id}
+            onChange={(e) => setSlotId(e.target.value)}
+          >
+            {openSlots.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.date} at {s.time} ({s.capacity - s.booked} left)
+              </option>
+            ))}
+          </select>
+        )}
+        <textarea
+          className="w-full rounded-xl border border-primary-100 px-3 py-2 text-base sm:text-sm"
+          rows={3}
+          placeholder="Notes for the agent…"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+        />
+        <Button type="submit" className="w-full min-h-11" disabled={submitting}>
+          {submitting
+            ? 'Saving…'
+            : intent === 'lead'
+              ? 'Register interest'
+              : openSlots.length > 0
+                ? 'Book viewing slot'
+                : 'Request viewing'}
+        </Button>
+        {!isAuthenticated ? (
+          <div className="space-y-2">
+            <Link to={applyHref}>
+              <Button type="button" variant="secondary" className="w-full min-h-11">
+                Register to apply formally
+              </Button>
+            </Link>
+            <Link
+              to={`/login?next=${encodeURIComponent(`/listing/${p.id}`)}`}
+              className="block text-center text-xs font-semibold text-primary hover:underline"
+            >
+              Already have an account? Sign in
+            </Link>
+          </div>
+        ) : (
+          <Button type="button" variant="secondary" className="w-full min-h-11" onClick={submitApplication}>
+            Submit full application
+          </Button>
+        )}
+      </div>
+    </>
+  )
+
+  const mobileCtaLabel =
+    intent === 'lead'
+      ? 'Register interest'
+      : openSlots.length > 0
+        ? 'Book viewing'
+        : 'Request viewing'
+
   return (
-    <div className="bg-white">
+    <div className="bg-white pb-24 lg:pb-0">
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         <Link to="/browse" className="inline-flex items-center gap-2 text-sm font-medium text-ink-500 hover:text-ink">
           <ArrowLeft className="h-4 w-4" /> Back to search
@@ -420,148 +579,34 @@ export default function ListingDetail() {
             </div>
           </div>
 
-          <aside className="lg:sticky lg:top-24 lg:self-start">
+          <aside className="hidden lg:block lg:sticky lg:top-24 lg:self-start">
             <form onSubmit={submitEnquiry} className="rounded-3xl border border-primary-100 bg-white p-5 shadow-lg shadow-ink/5">
-              <p className="tabular text-2xl font-bold text-ink">
-                {p.listingMode === 'rent' || (p.listingMode === 'both' && !p.price) ? (
-                  <>
-                    {formatZAR(p.rent)}
-                    <span className="text-base font-medium text-ink-500"> / month</span>
-                  </>
-                ) : (
-                  formatZAR(p.price)
-                )}
-              </p>
-              {p.listingMode === 'both' && p.price != null && p.rent != null && (
-                <p className="mt-1 tabular text-sm text-ink-500">
-                  or {formatZAR(p.rent)} / month to rent
-                </p>
-              )}
-              <Badge className="mt-2" tone="brand">
-                {p.listingMode === 'both' ? 'Sale or rent' : p.listingMode === 'sale' ? 'For sale' : 'To rent'}
-              </Badge>
-
-              <p className="mt-4 text-xs text-ink-500">
-                No account needed — your details are saved so an agent can follow up.
-              </p>
-
-              <div className="mt-4 grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIntent('lead')}
-                  className={cn(
-                    'rounded-xl border px-3 py-2 text-left text-xs font-semibold transition-colors',
-                    intent === 'lead'
-                      ? 'border-primary bg-primary-50 text-primary'
-                      : 'border-primary-100 text-ink-600 hover:bg-primary-50/60',
-                  )}
-                >
-                  Register interest
-                  <span className="mt-0.5 block font-normal text-ink-500">Create a lead — no viewing required</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIntent('viewing')}
-                  className={cn(
-                    'rounded-xl border px-3 py-2 text-left text-xs font-semibold transition-colors',
-                    intent === 'viewing'
-                      ? 'border-primary bg-primary-50 text-primary'
-                      : 'border-primary-100 text-ink-600 hover:bg-primary-50/60',
-                  )}
-                >
-                  {openSlots.length > 0 ? 'Book a viewing' : 'Request viewing'}
-                  <span className="mt-0.5 block font-normal text-ink-500">
-                    {openSlots.length > 0
-                      ? 'Pick an agent slot below'
-                      : 'No slots yet — we will schedule with you'}
-                  </span>
-                </button>
-              </div>
-
-              <div className="mt-4 space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  <Input placeholder="First name" value={firstName} onChange={(e) => setFirstName(e.target.value)} required />
-                  <Input placeholder="Surname" value={lastName} onChange={(e) => setLastName(e.target.value)} required />
-                </div>
-                <Input
-                  type="email"
-                  placeholder="Email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                />
-                <Input
-                  type="tel"
-                  placeholder="Phone"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  required
-                />
-                {isRent && (
-                  <Input
-                    type="number"
-                    placeholder="Monthly income (optional)"
-                    value={income}
-                    onChange={(e) => setIncome(e.target.value)}
-                  />
-                )}
-                <Input
-                  placeholder="SA ID or passport (optional)"
-                  value={idNumber}
-                  onChange={(e) => setIdNumber(e.target.value)}
-                />
-                {intent === 'viewing' && openSlots.length > 0 && (
-                  <select
-                    className="h-10 w-full rounded-xl border border-primary-100 bg-white px-3 text-sm"
-                    value={slotId || openSlots[0]?.id}
-                    onChange={(e) => setSlotId(e.target.value)}
-                  >
-                    {openSlots.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.date} at {s.time} ({s.capacity - s.booked} left)
-                      </option>
-                    ))}
-                  </select>
-                )}
-                <textarea
-                  className="w-full rounded-xl border border-primary-100 px-3 py-2 text-sm"
-                  rows={3}
-                  placeholder="Notes for the agent…"
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                />
-                <Button type="submit" className="w-full" disabled={submitting}>
-                  {submitting
-                    ? 'Saving…'
-                    : intent === 'lead'
-                      ? 'Register interest'
-                      : openSlots.length > 0
-                        ? 'Book viewing slot'
-                        : 'Request viewing'}
-                </Button>
-                {!isAuthenticated ? (
-                  <div className="space-y-2">
-                    <Link to={applyHref}>
-                      <Button type="button" variant="secondary" className="w-full">
-                        Register to apply formally
-                      </Button>
-                    </Link>
-                    <Link
-                      to={`/login?next=${encodeURIComponent(`/listing/${p.id}`)}`}
-                      className="block text-center text-xs font-semibold text-primary hover:underline"
-                    >
-                      Already have an account? Sign in
-                    </Link>
-                  </div>
-                ) : (
-                  <Button type="button" variant="secondary" className="w-full" onClick={submitApplication}>
-                    Submit full application
-                  </Button>
-                )}
-              </div>
+              {priceBlock}
+              {enquiryFormFields}
             </form>
           </aside>
         </div>
+
+        <StickyMobileActionBar>
+          <Button
+            type="button"
+            className="w-full min-h-11"
+            onClick={() => setEnquirySheetOpen(true)}
+          >
+            {mobileCtaLabel}
+          </Button>
+        </StickyMobileActionBar>
+
+        <FullScreenSheet
+          open={enquirySheetOpen}
+          onClose={() => setEnquirySheetOpen(false)}
+          title={mobileCtaLabel}
+        >
+          <form onSubmit={submitEnquiry} className="h-full overflow-y-auto p-4">
+            {priceBlock}
+            {enquiryFormFields}
+          </form>
+        </FullScreenSheet>
 
         {similar.length > 0 && (
           <section className="mt-14 border-t border-primary-100 pt-10">

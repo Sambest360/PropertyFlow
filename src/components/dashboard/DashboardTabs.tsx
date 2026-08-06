@@ -20,7 +20,7 @@ export function DashboardTabs({
   return (
     <div
       className={cn(
-        'flex gap-1 overflow-x-auto border-b border-primary-100 [scrollbar-width:none]',
+        'relative flex gap-1 overflow-x-auto border-b border-primary-100 scroll-smooth snap-x snap-mandatory [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
         className,
       )}
       role="tablist"
@@ -36,7 +36,7 @@ export function DashboardTabs({
             aria-selected={active}
             onClick={() => onChange(t.id)}
             className={cn(
-              'min-h-11 shrink-0 cursor-pointer border-b-2 px-4 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+              'min-h-11 shrink-0 snap-start cursor-pointer border-b-2 px-4 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
               active
                 ? 'border-primary text-primary'
                 : 'border-transparent text-ink-400 hover:text-ink-600',

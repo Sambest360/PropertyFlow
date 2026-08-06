@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { cn } from '../ui'
 import { StepDots } from '../wizard/StepDots'
+import { StickyMobileActionBar } from '../layout/mobile/StickyMobileActionBar'
 
 export type WizardStepMeta = {
   id: string
@@ -126,7 +127,7 @@ export function CreateWizardShell({
       </aside>
 
       {/* Main */}
-      <div className="min-w-0 space-y-4">
+      <div className="min-w-0 space-y-4 pb-24 lg:pb-0">
         {/* Mobile title + dots */}
         <div className="lg:hidden">
           <h1 className="font-display text-2xl font-semibold tracking-tight text-ink">{title}</h1>
@@ -153,11 +154,15 @@ export function CreateWizardShell({
           data-tip-target="wizard-form"
         >
           {children}
-          <div className="mt-6 flex flex-wrap justify-end gap-2 border-t border-primary-100 pt-4">
+          <div className="mt-6 hidden flex-wrap justify-end gap-2 border-t border-primary-100 pt-4 lg:flex">
             {footer}
           </div>
         </div>
       </div>
+
+      <StickyMobileActionBar aboveBottomNav className="lg:hidden">
+        {footer}
+      </StickyMobileActionBar>
 
       {preview ? (
         <aside className="hidden xl:block" data-tip-target="wizard-preview">

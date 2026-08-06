@@ -15,6 +15,7 @@ import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
 import { Button, Card, PageHeader, Select, cn } from '../components/ui'
+import { ResponsiveDataList } from '../components/data/ResponsiveDataList'
 import { formatZAR } from '../data/seed'
 import { buildReportMetrics, type ReportTab } from '../lib/reportMetrics'
 
@@ -373,50 +374,91 @@ export default function Reports() {
                 ? 'Closed deals, open pipeline, assigned properties, viewings, and open tickets per agent.'
                 : 'Closed deals and open leads by agent.'}
             </p>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[40rem] text-left text-sm">
-                <thead className="text-[11px] uppercase text-ink-400">
-                  <tr>
-                    <th className="py-2">Agent</th>
-                    <th className="py-2 text-right">Closed</th>
-                    <th className="py-2 text-right">Open leads</th>
-                    <th className="py-2 text-right">Properties</th>
+            <ResponsiveDataList
+              embedded
+              rows={metrics.agentRows}
+              rowKey={(r) => r.id}
+              columns={[
+                {
+                  key: 'agent',
+                  header: 'Agent',
+                  render: (r) => <span className="font-medium text-ink">{r.name}</span>,
+                },
+                {
+                  key: 'closed',
+                  header: 'Closed',
+                  headerClassName: 'text-right',
+                  cellClassName: 'text-right tabular',
+                  render: (r) => r.closed,
+                },
+                {
+                  key: 'leads',
+                  header: 'Open leads',
+                  headerClassName: 'text-right',
+                  cellClassName: 'text-right tabular',
+                  render: (r) => r.openLeads,
+                },
+                {
+                  key: 'properties',
+                  header: 'Properties',
+                  headerClassName: 'text-right',
+                  cellClassName: 'text-right tabular',
+                  render: (r) => r.properties,
+                },
+                ...(audience === 'agency'
+                  ? [
+                      {
+                        key: 'viewings',
+                        header: 'Viewings',
+                        headerClassName: 'text-right',
+                        cellClassName: 'text-right tabular',
+                        render: (r: (typeof metrics.agentRows)[0]) => r.viewings,
+                      },
+                      {
+                        key: 'tickets',
+                        header: 'Open tickets',
+                        headerClassName: 'text-right',
+                        cellClassName: 'text-right tabular',
+                        render: (r: (typeof metrics.agentRows)[0]) => r.openTickets,
+                      },
+                    ]
+                  : []),
+              ]}
+              renderMobileCard={(r) => (
+                <Card className="p-4">
+                  <p className="font-semibold text-ink">{r.name}</p>
+                  <dl className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <dt className="text-ink-400">Closed</dt>
+                      <dd className="tabular font-semibold">{r.closed}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-ink-400">Open leads</dt>
+                      <dd className="tabular font-semibold">{r.openLeads}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-ink-400">Properties</dt>
+                      <dd className="tabular font-semibold">{r.properties}</dd>
+                    </div>
                     {audience === 'agency' ? (
                       <>
-                        <th className="py-2 text-right">Viewings</th>
-                        <th className="py-2 text-right">Open tickets</th>
+                        <div>
+                          <dt className="text-ink-400">Viewings</dt>
+                          <dd className="tabular font-semibold">{r.viewings}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-ink-400">Open tickets</dt>
+                          <dd className="tabular font-semibold">{r.openTickets}</dd>
+                        </div>
                       </>
                     ) : null}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-primary-50">
-                  {metrics.agentRows.map((r) => (
-                    <tr key={r.id}>
-                      <td className="py-2 font-medium text-ink">{r.name}</td>
-                      <td className="py-2 text-right tabular">{r.closed}</td>
-                      <td className="py-2 text-right tabular">{r.openLeads}</td>
-                      <td className="py-2 text-right tabular">{r.properties}</td>
-                      {audience === 'agency' ? (
-                        <>
-                          <td className="py-2 text-right tabular">{r.viewings}</td>
-                          <td className="py-2 text-right tabular">{r.openTickets}</td>
-                        </>
-                      ) : null}
-                    </tr>
-                  ))}
-                  {metrics.agentRows.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={audience === 'agency' ? 6 : 4}
-                        className="py-6 text-center text-ink-400"
-                      >
-                        No agents in scope
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+                  </dl>
+                </Card>
+              )}
+              empty={
+                <p className="py-6 text-center text-ink-400">No agents in scope</p>
+              }
+            />
           </Card>
         )}
 
@@ -442,44 +484,66 @@ export default function Reports() {
                 </Link>
               ) : null}
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[36rem] text-left text-sm">
-                <thead className="text-[11px] uppercase text-ink-400">
-                  <tr>
-                    <th className="py-2">Party</th>
-                    <th className="py-2">Status</th>
-                    <th className="py-2">Due</th>
-                    <th className="py-2 text-right">Amount</th>
-                    <th className="py-2" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-primary-50">
-                  {metrics.outstandingPayments.map((p) => (
-                    <tr key={p.id}>
-                      <td className="py-2 font-medium text-ink">{p.partyName}</td>
-                      <td className="py-2">{p.status}</td>
-                      <td className="py-2 tabular">{p.dueDate}</td>
-                      <td className="py-2 text-right tabular">{formatZAR(p.amount)}</td>
-                      <td className="py-2 text-right">
-                        <Link
-                          className="font-semibold text-primary hover:underline"
-                          to={`/workspace/operations/payments/${p.id}`}
-                        >
-                          Open
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-                  {metrics.outstandingPayments.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="py-6 text-center text-ink-400">
-                        No outstanding payments
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <ResponsiveDataList
+              embedded
+              minTableWidth="36rem"
+              rows={metrics.outstandingPayments}
+              rowKey={(p) => p.id}
+              columns={[
+                {
+                  key: 'party',
+                  header: 'Party',
+                  render: (p) => <span className="font-medium text-ink">{p.partyName}</span>,
+                },
+                { key: 'status', header: 'Status', render: (p) => p.status },
+                {
+                  key: 'due',
+                  header: 'Due',
+                  cellClassName: 'tabular',
+                  render: (p) => p.dueDate,
+                },
+                {
+                  key: 'amount',
+                  header: 'Amount',
+                  headerClassName: 'text-right',
+                  cellClassName: 'text-right tabular',
+                  render: (p) => formatZAR(p.amount),
+                },
+                {
+                  key: 'link',
+                  header: '',
+                  cellClassName: 'text-right',
+                  render: (p) => (
+                    <Link
+                      className="font-semibold text-primary hover:underline"
+                      to={`/workspace/operations/payments/${p.id}`}
+                    >
+                      Open
+                    </Link>
+                  ),
+                },
+              ]}
+              renderMobileCard={(p) => (
+                <Card className="p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-semibold text-ink">{p.partyName}</p>
+                      <p className="text-xs text-ink-500">{p.status} · due {p.dueDate}</p>
+                    </div>
+                    <p className="tabular font-semibold text-ink">{formatZAR(p.amount)}</p>
+                  </div>
+                  <Link
+                    className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-primary hover:underline"
+                    to={`/workspace/operations/payments/${p.id}`}
+                  >
+                    Open payment
+                  </Link>
+                </Card>
+              )}
+              empty={
+                <p className="py-6 text-center text-ink-400">No outstanding payments in scope</p>
+              }
+            />
           </Card>
         )}
 

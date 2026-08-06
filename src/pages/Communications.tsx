@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { MessageCircle, Plus, Shield } from 'lucide-react'
+import { MessageCircle, Plus, Shield, ArrowLeft } from 'lucide-react'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
-import { Badge, Button, Card, Input, Modal, PageHeader, Select, Textarea } from '../components/ui'
+import { Badge, Button, Card, Input, Modal, PageHeader, Select, Textarea, cn } from '../components/ui'
 import { isAgencyStaff } from '../lib/permissions'
 
 const ICON_STROKE = 1.6
@@ -17,6 +17,7 @@ export default function Communications() {
   const [filter, setFilter] = useState<'all' | 'mine'>('all')
   const [propertyFilter, setPropertyFilter] = useState('all')
   const [composeOpen, setComposeOpen] = useState(false)
+  const [mobileShowThread, setMobileShowThread] = useState(false)
 
   const threads = useMemo(() => {
     return state.threads
@@ -133,13 +134,16 @@ export default function Communications() {
         ) : null}
 
         <div className="grid gap-5 lg:grid-cols-5">
-          <Card className="overflow-hidden lg:col-span-2">
+          <Card className={cn('overflow-hidden lg:col-span-2', mobileShowThread && 'hidden lg:block')}>
             <ul className="divide-y divide-primary-100">
               {threads.map((t) => (
                 <li key={t.id}>
                   <button
                     type="button"
-                    onClick={() => setActiveId(t.id)}
+                    onClick={() => {
+                      setActiveId(t.id)
+                      setMobileShowThread(true)
+                    }}
                     className={`flex min-h-11 w-full cursor-pointer gap-3 px-4 py-3 text-left transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                       active?.id === t.id ? 'bg-primary-50' : 'hover:bg-primary-50'
                     }`}
@@ -163,10 +167,23 @@ export default function Communications() {
             </ul>
           </Card>
 
-          <Card className="flex min-h-[420px] flex-col lg:col-span-3">
+          <Card
+            className={cn(
+              'flex min-h-[420px] flex-col lg:col-span-3',
+              !mobileShowThread && 'hidden lg:flex',
+            )}
+          >
             {active ? (
               <>
                 <div className="border-b border-primary-100 p-4">
+                  <button
+                    type="button"
+                    onClick={() => setMobileShowThread(false)}
+                    className="mb-3 inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm font-semibold text-primary lg:hidden"
+                  >
+                    <ArrowLeft className="h-4 w-4" strokeWidth={ICON_STROKE} />
+                    Back to threads
+                  </button>
                   <h2 className="font-semibold text-ink">{active.subject}</h2>
                   <p className="text-xs text-ink-400">
                     Participants: {active.participantIds.map(nameOf).join(', ')} · routes to{' '}

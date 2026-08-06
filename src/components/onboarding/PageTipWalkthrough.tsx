@@ -11,6 +11,21 @@ const PAD = 10
 const CARD_W = 320
 const OVERLAY = 'rgba(15, 39, 68, 0.58)'
 
+function viewportInsets() {
+  if (typeof window === 'undefined') {
+    return { top: 16, right: 16, bottom: 16, left: 16, bottomNav: 0 }
+  }
+  const narrow = window.innerWidth < 1024
+  const workspace = window.location.pathname.startsWith('/workspace')
+  return {
+    top: 16,
+    right: 16,
+    bottom: 16,
+    left: 16,
+    bottomNav: narrow && workspace ? 64 : 0,
+  }
+}
+
 function measureTarget(selector?: string): Rect | null {
   if (!selector || typeof document === 'undefined') return null
   const el = document.querySelector(selector)
@@ -36,36 +51,42 @@ function cardStyle(
   rect: Rect | null,
   placement: PageTourStep['placement'],
 ): CSSProperties {
+  const { top: insetTop, right: insetRight, bottom: insetBottom, left: insetLeft, bottomNav } =
+    viewportInsets()
+
   if (!rect || placement === 'center') {
     return {
       top: '50%',
       left: '50%',
       transform: 'translate(-50%, -50%)',
       width: CARD_W,
-      maxWidth: 'calc(100vw - 2rem)',
+      maxWidth: `calc(100vw - ${insetLeft + insetRight}px)`,
+      marginBottom: bottomNav,
     }
   }
 
   const centerX = rect.left + rect.width / 2
   const clampedLeft = Math.min(
-    Math.max(16, centerX - CARD_W / 2),
-    window.innerWidth - CARD_W - 16,
+    Math.max(insetLeft, centerX - CARD_W / 2),
+    window.innerWidth - CARD_W - insetRight,
   )
 
   if (placement === 'below') {
+    const desiredTop = rect.top + rect.height + PAD + 16
+    const maxTop = window.innerHeight - insetBottom - bottomNav - 180
     return {
-      top: rect.top + rect.height + PAD + 16,
+      top: Math.min(desiredTop, maxTop),
       left: clampedLeft,
       width: CARD_W,
-      maxWidth: 'calc(100vw - 2rem)',
+      maxWidth: `calc(100vw - ${insetLeft + insetRight}px)`,
     }
   }
 
   return {
-    top: Math.max(16, rect.top - PAD - 16),
+    top: Math.max(insetTop, rect.top - PAD - 16),
     left: clampedLeft,
     width: CARD_W,
-    maxWidth: 'calc(100vw - 2rem)',
+    maxWidth: `calc(100vw - ${insetLeft + insetRight}px)`,
     transform: 'translateY(-100%)',
   }
 }

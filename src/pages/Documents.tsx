@@ -5,6 +5,7 @@ import { useStore } from '../context/AppStore'
 import { usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
 import { Badge, Card, Input, PageHeader, Select, statusTone } from '../components/ui'
+import { ResponsiveDataList } from '../components/data/ResponsiveDataList'
 import type { PropertyDocument } from '../types/domain'
 import { resolveDocumentUrl } from '../lib/api/documents'
 
@@ -91,91 +92,128 @@ export default function Documents() {
           </Select>
         </div>
 
-        <Card className="overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[800px] text-left text-sm">
-              <thead className="border-b border-primary-100 bg-primary-50/40 text-xs uppercase tracking-wide text-ink-500">
-                <tr>
-                  <th className="px-4 py-3 font-medium">Document</th>
-                  <th className="px-4 py-3 font-medium">Type</th>
-                  <th className="px-4 py-3 font-medium">Property</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 font-medium">Updated</th>
-                  <th className="px-4 py-3 font-medium">File</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-primary-50">
-                {filtered.map((d) => {
-                  const href = resolveDocumentUrl(d)
-                  return (
-                  <tr key={d.id} className="hover:bg-primary-50/30">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <FileText
-                          className="h-4 w-4 shrink-0 text-primary"
-                          strokeWidth={ICON_STROKE}
-                          aria-hidden
-                        />
-                        <div className="min-w-0">
-                          <p className="font-medium text-ink">{d.name}</p>
-                          {d.note ? (
-                            <p className="truncate text-xs text-ink-400">{d.note}</p>
-                          ) : null}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-ink-600">{d.category}</td>
-                    <td className="px-4 py-3">
-                      <Link
-                        to={`/workspace/properties/${d.propertyId}?tab=documents`}
-                        className="cursor-pointer font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                      >
-                        {propertyTitle[d.propertyId] ?? d.propertyId}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge tone={statusTone(d.status)}>{d.status}</Badge>
-                    </td>
-                    <td className="px-4 py-3 tabular text-ink-500">
-                      <span className="inline-flex items-center gap-1">
-                        <History
-                          className="h-3.5 w-3.5 text-ink-400"
-                          strokeWidth={ICON_STROKE}
-                          aria-hidden
-                        />
-                        {d.uploadedAt ?? '—'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      {href ? (
-                        <a
-                          href={href}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex min-h-11 cursor-pointer items-center text-sm font-semibold text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                        >
-                          Open
-                        </a>
-                      ) : (
-                        <span className="text-xs text-ink-400">—</span>
-                      )}
-                    </td>
-                  </tr>
-                  )
-                })}
-                {filtered.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-sm text-ink-500">
-                      {scoped.length === 0
-                        ? 'No documents in your agency or property scope.'
-                        : 'No documents match these filters.'}
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+        <ResponsiveDataList
+          rows={filtered}
+          rowKey={(d) => d.id}
+          minTableWidth="800px"
+          columns={[
+            {
+              key: 'document',
+              header: 'Document',
+              render: (d) => (
+                <div className="flex items-center gap-2">
+                  <FileText
+                    className="h-4 w-4 shrink-0 text-primary"
+                    strokeWidth={ICON_STROKE}
+                    aria-hidden
+                  />
+                  <div className="min-w-0">
+                    <p className="font-medium text-ink">{d.name}</p>
+                    {d.note ? <p className="truncate text-xs text-ink-400">{d.note}</p> : null}
+                  </div>
+                </div>
+              ),
+            },
+            {
+              key: 'type',
+              header: 'Type',
+              render: (d) => <span className="text-ink-600">{d.category}</span>,
+            },
+            {
+              key: 'property',
+              header: 'Property',
+              render: (d) => (
+                <Link
+                  to={`/workspace/properties/${d.propertyId}?tab=documents`}
+                  className="cursor-pointer font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  {propertyTitle[d.propertyId] ?? d.propertyId}
+                </Link>
+              ),
+            },
+            {
+              key: 'status',
+              header: 'Status',
+              render: (d) => <Badge tone={statusTone(d.status)}>{d.status}</Badge>,
+            },
+            {
+              key: 'updated',
+              header: 'Updated',
+              cellClassName: 'tabular text-ink-500',
+              render: (d) => (
+                <span className="inline-flex items-center gap-1">
+                  <History
+                    className="h-3.5 w-3.5 text-ink-400"
+                    strokeWidth={ICON_STROKE}
+                    aria-hidden
+                  />
+                  {d.uploadedAt ?? '—'}
+                </span>
+              ),
+            },
+            {
+              key: 'file',
+              header: 'File',
+              render: (d) => {
+                const href = resolveDocumentUrl(d)
+                return href ? (
+                  <a
+                    href={href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex min-h-11 cursor-pointer items-center text-sm font-semibold text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    Open
+                  </a>
+                ) : (
+                  <span className="text-xs text-ink-400">—</span>
+                )
+              },
+            },
+          ]}
+          renderMobileCard={(d) => {
+            const href = resolveDocumentUrl(d)
+            return (
+              <Card className="p-4">
+                <div className="flex items-start gap-2">
+                  <FileText className="mt-0.5 h-4 w-4 shrink-0 text-primary" strokeWidth={ICON_STROKE} />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-ink">{d.name}</p>
+                    {d.note ? <p className="mt-0.5 text-xs text-ink-400">{d.note}</p> : null}
+                    <p className="mt-1 text-xs text-ink-500">{d.category}</p>
+                    <Link
+                      to={`/workspace/properties/${d.propertyId}?tab=documents`}
+                      className="mt-1 inline-block text-xs font-semibold text-primary hover:underline"
+                    >
+                      {propertyTitle[d.propertyId] ?? d.propertyId}
+                    </Link>
+                  </div>
+                  <Badge tone={statusTone(d.status)}>{d.status}</Badge>
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-2">
+                  <span className="text-xs tabular text-ink-500">{d.uploadedAt ?? '—'}</span>
+                  {href ? (
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex min-h-11 items-center text-sm font-semibold text-primary hover:underline"
+                    >
+                      Open file
+                    </a>
+                  ) : null}
+                </div>
+              </Card>
+            )
+          }}
+          empty={
+            <Card className="p-10 text-center text-sm text-ink-500">
+              {scoped.length === 0
+                ? 'No documents in your agency or property scope.'
+                : 'No documents match these filters.'}
+            </Card>
+          }
+        />
       </div>
     </RequirePermission>
   )

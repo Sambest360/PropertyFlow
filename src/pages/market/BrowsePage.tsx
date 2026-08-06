@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
-import { Filter, Heart, Map as MapIcon } from 'lucide-react'
+import { Filter, Heart, List, Map as MapIcon } from 'lucide-react'
 import { usePublicProperties, useStore } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
 import { PropertyCard } from '../../components/PropertyCard'
@@ -29,6 +29,7 @@ import {
   type Place,
 } from '../../lib/placeCatalog'
 import { usePageMeta } from '../../hooks/usePageMeta'
+import { FullScreenSheet } from '../../components/layout/mobile/FullScreenSheet'
 
 function listingAmount(p: PropertyAsset, mode: string): number | null {
   if (mode === 'rent') return p.rent
@@ -130,6 +131,7 @@ export default function BrowsePage() {
   const [filters, setFilters] = useState<BrowseFilterState>(defaultBrowseFilters)
   const [panelOpen, setPanelOpen] = useState(false)
   const [showMap, setShowMap] = useState(!savedOnly)
+  const [mobileView, setMobileView] = useState<'list' | 'map'>('list')
   const [cursor, setCursor] = useState<string | null>(null)
   const [expandedWishlistId, setExpandedWishlistId] = useState<string | null>(null)
   const reducedMotion = usePrefersReducedMotion()
@@ -338,11 +340,39 @@ export default function BrowsePage() {
                 type="button"
                 data-tip-target="browse-map"
                 onClick={() => setShowMap((s) => !s)}
-                className="inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-full border border-primary-100 bg-white px-3.5 py-1.5 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                className="hidden min-h-11 cursor-pointer items-center gap-1.5 rounded-full border border-primary-100 bg-white px-3.5 py-1.5 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary lg:inline-flex"
               >
                 <MapIcon className="h-3.5 w-3.5" />
                 {showMap ? 'Hide map' : 'Show map'}
               </button>
+              {!savedOnly && (
+                <div
+                  className="inline-flex rounded-full border border-primary-100 bg-white p-1 lg:hidden"
+                  role="tablist"
+                  aria-label="List or map view"
+                >
+                  {(
+                    [
+                      ['list', 'List', List],
+                      ['map', 'Map', MapIcon],
+                    ] as const
+                  ).map(([id, label, Icon]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      role="tab"
+                      aria-selected={mobileView === id}
+                      onClick={() => setMobileView(id)}
+                      className={`inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                        mobileView === id ? 'bg-primary text-white' : 'text-ink-500'
+                      }`}
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -400,7 +430,7 @@ export default function BrowsePage() {
       </div>
 
       <div className={`mx-auto grid max-w-7xl gap-0 lg:px-8 ${showMap ? 'lg:grid-cols-[1fr_380px]' : ''}`}>
-        <div className="p-4 sm:p-6">
+        <div className={`p-4 sm:p-6 ${mobileView === 'map' ? 'hidden lg:block' : ''}`}>
           {cards.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-primary-100 bg-white p-10 text-center">
               <Filter className="mx-auto h-8 w-8 text-ink-400" />
@@ -480,6 +510,21 @@ export default function BrowsePage() {
           </aside>
         )}
       </div>
+
+      <FullScreenSheet
+        open={!savedOnly && mobileView === 'map'}
+        onClose={() => setMobileView('list')}
+        title="Map view"
+      >
+        <div className="flex h-[calc(100dvh-4rem)] flex-col p-2">
+          <p className="mb-2 px-2 text-xs text-ink-500">
+            {mapProperties.length} {mapProperties.length === 1 ? 'listing' : 'listings'} on map
+          </p>
+          <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-primary-100">
+            <PropertyMap properties={mapProperties.length ? mapProperties : filtered} mode={mode} className="h-full" />
+          </div>
+        </div>
+      </FullScreenSheet>
 
       <BrowseFiltersPanel
         open={panelOpen}

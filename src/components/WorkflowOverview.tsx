@@ -1,5 +1,5 @@
 import { CheckCircle2 } from 'lucide-react'
-import { Card } from './ui'
+import { Card, cn } from './ui'
 import { WORKFLOW_BLURB } from '../lib/workflow'
 
 /** Compact lifecycle explainer used on applications / onboarding surfaces */
@@ -33,8 +33,38 @@ export function StageRail({
   const index =
     activeIndex ?? (raw >= 0 ? raw : undefined)
 
+  const mobileSteps = (
+    <ol className="space-y-2 md:hidden">
+      {stages.map((s, i) => {
+        const done = index != null && i < index
+        const isCurrent = index === i
+        return (
+          <li
+            key={s}
+            className={cn(
+              'flex items-center gap-3 rounded-xl border px-3 py-2.5',
+              isCurrent ? 'border-primary bg-primary-50' : 'border-primary-100 bg-white',
+            )}
+          >
+            <div
+              className={cn(
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold',
+                done || isCurrent ? 'bg-primary text-white' : 'bg-primary-50 text-primary',
+              )}
+            >
+              {done ? <CheckCircle2 className="h-4 w-4" strokeWidth={1.6} aria-hidden /> : i + 1}
+            </div>
+            <span className={cn('text-sm', isCurrent ? 'font-semibold text-ink' : 'text-ink-600')}>
+              {s}
+            </span>
+          </li>
+        )
+      })}
+    </ol>
+  )
+
   const body = (
-    <div className="flex min-w-[720px] items-center gap-1">
+    <div className="hidden min-w-0 items-center gap-1 md:flex">
       {stages.map((s, i) => {
         const done = index != null && i < index
         const isCurrent = index === i
@@ -62,12 +92,18 @@ export function StageRail({
   )
 
   if (embedded) {
-    return <div className="overflow-x-auto">{body}</div>
+    return (
+      <>
+        {mobileSteps}
+        <div className="hidden overflow-x-auto md:block">{body}</div>
+      </>
+    )
   }
 
   return (
     <Card className="overflow-x-auto p-4">
       <p className="mb-3 text-xs font-medium uppercase tracking-wide text-ink-500">Lifecycle stages</p>
+      {mobileSteps}
       {body}
     </Card>
   )

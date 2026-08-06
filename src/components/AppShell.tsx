@@ -9,6 +9,7 @@ import { WORKSPACE_INSET } from './layout/workspaceInset'
 import { NotificationToastHost } from './notifications/NotificationBell'
 import { ImpersonationBanner } from './admin/ImpersonationBanner'
 import { OnboardingLayer } from './onboarding/OnboardingLayer'
+import { WorkspaceBottomNav } from './layout/mobile/WorkspaceBottomNav'
 import { useNavCollapsed } from '../hooks/useNavCollapsed'
 import { useScrollChrome } from '../hooks/useScrollChrome'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
@@ -70,7 +71,7 @@ export function WorkspaceShell() {
       <div className="relative z-0 flex min-w-0 flex-1 flex-col bg-white">
         <ImpersonationBanner />
         <WorkspaceHeader spotlightPinned topHidden={chromeCompact} />
-        <main className={`min-w-0 flex-1 overflow-x-hidden pb-6 pt-1 lg:pb-8 ${WORKSPACE_INSET}`}>
+        <main className={`min-w-0 flex-1 overflow-x-hidden pb-24 pt-1 lg:pb-8 ${WORKSPACE_INSET}`}>
           <div
             key={pathname}
             className={reducedMotion ? 'w-full' : 'w-full animate-workspace-page'}
@@ -79,6 +80,7 @@ export function WorkspaceShell() {
           </div>
         </main>
       </div>
+      <WorkspaceBottomNav />
     </div>
   )
 }

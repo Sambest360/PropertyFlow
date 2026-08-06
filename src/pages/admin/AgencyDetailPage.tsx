@@ -14,6 +14,7 @@ import { RequirePermission } from '../../components/RequirePermission'
 import { AgencyCapabilityChecklist } from '../../components/admin/AgencyCapabilityChecklist'
 import { ImpersonateUserButton } from '../../components/admin/ImpersonateUserButton'
 import { Badge, Button, Card, Modal, PageHeader, Select, cn } from '../../components/ui'
+import { ResponsiveDataList } from '../../components/data/ResponsiveDataList'
 import { roleLabels } from '../../lib/permissions'
 import { withReturnTo } from '../../lib/returnTo'
 import type { Permission } from '../../types/domain'
@@ -207,57 +208,93 @@ export default function AgencyDetailPage() {
                 </Button>
               </Link>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[40rem] text-left text-sm">
-                <thead className="text-[11px] uppercase text-ink-400">
-                  <tr>
-                    <th className="px-4 py-3">Person</th>
-                    <th className="px-3 py-3">Role</th>
-                    <th className="px-3 py-3">Status</th>
-                    <th className="px-3 py-3">Assigned properties</th>
-                    <th className="px-4 py-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-primary-50">
-                  {users.map((u) => {
-                    const assigned = properties.filter((p) => p.agentId === u.id).length
-                    return (
-                      <tr key={u.id} className="hover:bg-primary-50/40">
-                        <td className="px-4 py-3">
-                          <p className="font-medium text-ink">{u.name}</p>
-                          <p className="text-xs text-ink-500">{u.email}</p>
-                        </td>
-                        <td className="px-3 py-3">{roleLabels[u.role]}</td>
-                        <td className="px-3 py-3">
-                          <Badge tone={u.active ? 'success' : 'danger'}>
-                            {u.active ? 'Active' : 'Disabled'}
-                          </Badge>
-                        </td>
-                        <td className="px-3 py-3 tabular">{assigned}</td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <ImpersonateUserButton target={u} variant="compact" />
-                            <button
-                              type="button"
-                              className="min-h-11 cursor-pointer rounded-xl border border-primary-100 px-3 text-xs font-semibold hover:bg-primary-50"
-                              onClick={() => updateUser(u.id, { active: !u.active })}
-                            >
-                              {u.active ? 'Disable' : 'Enable'}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                  {users.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="px-4 py-8 text-center text-ink-400">
-                        No users yet — add a Principal, admin, or agent to get started.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
+            <div className="p-4 md:p-0">
+              <ResponsiveDataList
+                embedded
+                rows={users}
+                rowKey={(u) => u.id}
+                columns={[
+                  {
+                    key: 'person',
+                    header: 'Person',
+                    render: (u) => (
+                      <>
+                        <p className="font-medium text-ink">{u.name}</p>
+                        <p className="text-xs text-ink-500">{u.email}</p>
+                      </>
+                    ),
+                  },
+                  {
+                    key: 'role',
+                    header: 'Role',
+                    render: (u) => roleLabels[u.role],
+                  },
+                  {
+                    key: 'status',
+                    header: 'Status',
+                    render: (u) => (
+                      <Badge tone={u.active ? 'success' : 'danger'}>
+                        {u.active ? 'Active' : 'Disabled'}
+                      </Badge>
+                    ),
+                  },
+                  {
+                    key: 'assigned',
+                    header: 'Assigned properties',
+                    render: (u) => properties.filter((p) => p.agentId === u.id).length,
+                  },
+                  {
+                    key: 'actions',
+                    header: 'Actions',
+                    headerClassName: 'text-right',
+                    cellClassName: 'text-right',
+                    render: (u) => (
+                      <div className="flex items-center justify-end gap-2">
+                        <ImpersonateUserButton target={u} variant="compact" />
+                        <button
+                          type="button"
+                          className="min-h-11 cursor-pointer rounded-xl border border-primary-100 px-3 text-xs font-semibold hover:bg-primary-50"
+                          onClick={() => updateUser(u.id, { active: !u.active })}
+                        >
+                          {u.active ? 'Disable' : 'Enable'}
+                        </button>
+                      </div>
+                    ),
+                  },
+                ]}
+                renderMobileCard={(u) => (
+                  <Card className="p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="font-semibold text-ink">{u.name}</p>
+                        <p className="text-xs text-ink-500">{u.email}</p>
+                        <p className="mt-1 text-xs text-ink-500">{roleLabels[u.role]}</p>
+                      </div>
+                      <Badge tone={u.active ? 'success' : 'danger'}>
+                        {u.active ? 'Active' : 'Disabled'}
+                      </Badge>
+                    </div>
+                    <p className="mt-2 text-xs text-ink-500">
+                      {properties.filter((p) => p.agentId === u.id).length} assigned properties
+                    </p>
+                    <div className="mt-3 flex gap-2">
+                      <ImpersonateUserButton target={u} variant="compact" />
+                      <button
+                        type="button"
+                        className="min-h-11 flex-1 cursor-pointer rounded-xl border border-primary-100 px-3 text-xs font-semibold hover:bg-primary-50"
+                        onClick={() => updateUser(u.id, { active: !u.active })}
+                      >
+                        {u.active ? 'Disable' : 'Enable'}
+                      </button>
+                    </div>
+                  </Card>
+                )}
+                empty={
+                  <p className="px-4 py-8 text-center text-ink-400">
+                    No users yet — add a Principal, admin, or agent to get started.
+                  </p>
+                }
+              />
             </div>
           </Card>
         ) : null}
@@ -276,64 +313,108 @@ export default function AgencyDetailPage() {
                 </Button>
               </Link>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[44rem] text-left text-sm">
-                <thead className="text-[11px] uppercase text-ink-400">
-                  <tr>
-                    <th className="px-4 py-3">Property</th>
-                    <th className="px-3 py-3">Status</th>
-                    <th className="px-3 py-3">Assigned agent</th>
-                    <th className="px-4 py-3 text-right">Open</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-primary-50">
-                  {properties.map((p) => (
-                    <tr key={p.id} className="hover:bg-primary-50/40">
-                      <td className="px-4 py-3">
+            <div className="p-4 md:p-0">
+              <ResponsiveDataList
+                embedded
+                minTableWidth="44rem"
+                rows={properties}
+                rowKey={(p) => p.id}
+                columns={[
+                  {
+                    key: 'property',
+                    header: 'Property',
+                    render: (p) => (
+                      <>
                         <p className="font-medium text-ink">{p.title}</p>
                         <p className="text-xs text-ink-500">
                           {p.suburb}, {p.city}
                         </p>
-                      </td>
-                      <td className="px-3 py-3">
-                        <Badge tone="neutral">{p.status}</Badge>
-                      </td>
-                      <td className="px-3 py-3">
-                        <Select
-                          className="min-h-11 cursor-pointer text-xs"
-                          value={p.agentId ?? ''}
-                          onChange={(e) =>
-                            updateProperty(p.id, { agentId: e.target.value || null })
-                          }
-                          aria-label={`Agent for ${p.title}`}
-                        >
-                          <option value="">Unassigned</option>
-                          {agents.map((a) => (
-                            <option key={a.id} value={a.id}>
-                              {a.name}
-                            </option>
-                          ))}
-                        </Select>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <Link
-                          className="font-semibold text-primary hover:underline"
-                          to={`/workspace/properties/${p.id}`}
-                        >
-                          Open
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-                  {properties.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="px-4 py-8 text-center text-ink-400">
-                        No properties yet — create one and assign an agent.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
+                      </>
+                    ),
+                  },
+                  {
+                    key: 'status',
+                    header: 'Status',
+                    render: (p) => <Badge tone="neutral">{p.status}</Badge>,
+                  },
+                  {
+                    key: 'agent',
+                    header: 'Assigned agent',
+                    render: (p) => (
+                      <Select
+                        className="min-h-11 cursor-pointer text-xs"
+                        value={p.agentId ?? ''}
+                        onChange={(e) =>
+                          updateProperty(p.id, { agentId: e.target.value || null })
+                        }
+                        aria-label={`Agent for ${p.title}`}
+                      >
+                        <option value="">Unassigned</option>
+                        {agents.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.name}
+                          </option>
+                        ))}
+                      </Select>
+                    ),
+                  },
+                  {
+                    key: 'open',
+                    header: 'Open',
+                    headerClassName: 'text-right',
+                    cellClassName: 'text-right',
+                    render: (p) => (
+                      <Link
+                        className="font-semibold text-primary hover:underline"
+                        to={`/workspace/properties/${p.id}`}
+                      >
+                        Open
+                      </Link>
+                    ),
+                  },
+                ]}
+                renderMobileCard={(p) => (
+                  <Card className="p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="font-semibold text-ink">{p.title}</p>
+                        <p className="text-xs text-ink-500">
+                          {p.suburb}, {p.city}
+                        </p>
+                      </div>
+                      <Badge tone="neutral">{p.status}</Badge>
+                    </div>
+                    <div className="mt-3">
+                      <Select
+                        className="min-h-11 w-full cursor-pointer text-xs"
+                        value={p.agentId ?? ''}
+                        onChange={(e) =>
+                          updateProperty(p.id, { agentId: e.target.value || null })
+                        }
+                        aria-label={`Agent for ${p.title}`}
+                      >
+                        <option value="">Unassigned</option>
+                        {agents.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                    <Link
+                      className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-primary hover:underline"
+                      to={`/workspace/properties/${p.id}`}
+                    >
+                      Open property
+                    </Link>
+                  </Card>
+                )}
+                empty={
+                  <p className="px-4 py-8 text-center text-ink-400">
+                    No properties yet — create one and assign an agent.
+                  </p>
+                }
+              />
             </div>
           </Card>
         ) : null}

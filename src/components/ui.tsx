@@ -1,7 +1,7 @@
 import clsx from 'clsx'
-import { forwardRef, useEffect, type ReactNode } from 'react'
+import { forwardRef, useEffect, useState, Children, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { X } from 'lucide-react'
+import { MoreHorizontal, X } from 'lucide-react'
 
 export function cn(...inputs: (string | false | null | undefined)[]) {
   return clsx(inputs)
@@ -16,13 +16,48 @@ export function PageHeader({
   subtitle?: string
   actions?: ReactNode
 }) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const actionItems = actions ? Children.toArray(actions) : []
+  const collapseMobile = actionItems.length > 1
+
   return (
     <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between animate-slide-up">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-[1.75rem]">{title}</h1>
         {subtitle && <p className="mt-1 text-sm text-ink-400">{subtitle}</p>}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+      {actions ? (
+        <>
+          <div className={cn('flex flex-wrap items-center gap-2', collapseMobile && 'hidden sm:flex')}>
+            {actions}
+          </div>
+          {collapseMobile ? (
+            <div className="relative flex w-full items-center justify-end gap-2 sm:hidden">
+              {actionItems[actionItems.length - 1]}
+              <button
+                type="button"
+                aria-expanded={menuOpen}
+                aria-label="More actions"
+                onClick={() => setMenuOpen((o) => !o)}
+                className="inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-full border border-primary-100 text-ink-500 transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <MoreHorizontal className="h-5 w-5" strokeWidth={1.6} />
+              </button>
+              {menuOpen ? (
+                <div className="absolute right-0 top-full z-20 mt-2 flex min-w-[12rem] flex-col gap-2 rounded-2xl border border-primary-100 bg-white p-2 shadow-lg shadow-ink/10">
+                  {actionItems.slice(0, -1).map((item, i) => (
+                    <div key={i} onClick={() => setMenuOpen(false)}>
+                      {item}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2 sm:hidden">{actions}</div>
+          )}
+        </>
+      ) : null}
     </div>
   )
 }
@@ -148,7 +183,7 @@ export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTML
       <input
         ref={ref}
         className={cn(
-          'h-10 w-full rounded-xl border border-primary-100 bg-white px-3 text-sm text-ink placeholder:text-ink-400 focus:border-primary focus:bg-primary-50',
+          'h-10 w-full rounded-xl border border-primary-100 bg-white px-3 text-base text-ink placeholder:text-ink-400 focus:border-primary focus:bg-primary-50 sm:text-sm',
           className,
         )}
         {...props}
@@ -161,7 +196,7 @@ export function Textarea({ className, ...props }: React.TextareaHTMLAttributes<H
   return (
     <textarea
       className={cn(
-        'w-full rounded-xl border border-primary-100 bg-white px-3 py-2 text-sm text-ink placeholder:text-ink-400 focus:border-primary focus:bg-primary-50',
+        'w-full rounded-xl border border-primary-100 bg-white px-3 py-2 text-base text-ink placeholder:text-ink-400 focus:border-primary focus:bg-primary-50 sm:text-sm',
         className,
       )}
       {...props}
@@ -173,7 +208,7 @@ export function Select({ className, children, ...props }: React.SelectHTMLAttrib
   return (
     <select
       className={cn(
-        'h-10 rounded-xl border border-primary-100 bg-white px-3 text-sm text-ink',
+        'h-10 rounded-xl border border-primary-100 bg-white px-3 text-base text-ink sm:text-sm',
         className,
       )}
       {...props}
