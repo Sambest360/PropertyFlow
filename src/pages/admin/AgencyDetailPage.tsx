@@ -11,6 +11,7 @@ import { useStore } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
 import { RequirePermission } from '../../components/RequirePermission'
 import { BackButton } from '../../components/BackButton'
+import { ActionButtonRow } from '../../components/ActionButtonRow'
 import { AgencyCapabilityChecklist } from '../../components/admin/AgencyCapabilityChecklist'
 import { ImpersonateUserButton } from '../../components/admin/ImpersonateUserButton'
 import { Badge, Button, Card, Modal, PageHeader, Select, cn } from '../../components/ui'
@@ -76,7 +77,7 @@ export default function AgencyDetailPage() {
           title={agency.name}
           subtitle={`${agency.city} · ${agency.slug} · manage people, properties, and modules for this agency.`}
           actions={
-            <div className="flex flex-wrap gap-2">
+            <ActionButtonRow className="sm:w-auto">
               <Button variant="secondary" className="min-h-11 cursor-pointer" onClick={openCaps}>
                 <Pencil className="h-4 w-4" strokeWidth={ICON_STROKE} />
                 Modules
@@ -93,7 +94,7 @@ export default function AgencyDetailPage() {
                 <option value="Suspended">Suspended</option>
               </Select>
               <BackButton to="/workspace/admin/agencies" label="All agencies" />
-            </div>
+            </ActionButtonRow>
           }
         />
 

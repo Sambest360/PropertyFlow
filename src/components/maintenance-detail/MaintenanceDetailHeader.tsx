@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { CheckCircle2, Pencil } from 'lucide-react'
+import { ActionButtonRow } from '../ActionButtonRow'
 import { BackButton } from '../BackButton'
 import { Badge, Button, priorityTone, statusTone } from '../ui'
 import { formatAge, isOpenStatus, type PortfolioTicket } from '../maintenance/types'
@@ -39,7 +40,13 @@ export function MaintenanceDetailHeader({
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <ActionButtonRow className="sm:w-auto">
+          {open && canManage ? (
+            <Button className="min-h-11" onClick={onComplete}>
+              <CheckCircle2 className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+              Complete work
+            </Button>
+          ) : null}
           {open && canEdit ? (
             <Link to={maintenanceEditHref(t.id, `/workspace/operations/maintenance/${encodeURIComponent(t.id)}`)}>
               <Button variant="secondary" className="min-h-11 cursor-pointer">
@@ -48,14 +55,8 @@ export function MaintenanceDetailHeader({
               </Button>
             </Link>
           ) : null}
-          {open && canManage ? (
-            <Button className="min-h-11" onClick={onComplete}>
-              <CheckCircle2 className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-              Complete work
-            </Button>
-          ) : null}
           <BackButton to="/workspace/operations/maintenance" label="All maintenance" />
-        </div>
+        </ActionButtonRow>
       </div>
     </div>
   )

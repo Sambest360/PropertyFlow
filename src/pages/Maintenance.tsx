@@ -11,6 +11,7 @@ import type { AssetCondition } from '../data/infrastructure'
 import type { MaintenanceTicket } from '../types/domain'
 import type { TicketCompletionFields } from '../lib/maintenanceApi'
 import { Button, Card, PageHeader } from '../components/ui'
+import { ActionButtonRow } from '../components/ActionButtonRow'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
 import { MaintenanceToolbar } from '../components/maintenance/MaintenanceToolbar'
 import { MaintenanceListView } from '../components/maintenance/MaintenanceListView'
@@ -319,7 +320,15 @@ export default function Maintenance() {
         title="Maintenance"
         subtitle="Scan maintenance, spot what needs attention, and open one for full detail."
         actions={
-          <div className="flex flex-wrap gap-2">
+          <ActionButtonRow className="sm:w-auto">
+            {has('maintenance.manage') && (
+              <Link to={createHref}>
+                <Button className="min-h-11 cursor-pointer">
+                  <Plus className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                  Log maintenance
+                </Button>
+              </Link>
+            )}
             {has('maintenance.manage') && (
               <Button
                 variant="secondary"
@@ -337,15 +346,7 @@ export default function Maintenance() {
                 Escalate
               </Button>
             )}
-            {has('maintenance.manage') && (
-              <Link to={createHref}>
-                <Button className="min-h-11 cursor-pointer">
-                  <Plus className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                  Log maintenance
-                </Button>
-              </Link>
-            )}
-          </div>
+          </ActionButtonRow>
         }
       />
 

@@ -13,6 +13,7 @@ import { useStore } from '../../context/AppStore'
 import { useAgencyScope, useAuth } from '../../context/AuthContext'
 import { RequirePermission } from '../../components/RequirePermission'
 import { BackButton } from '../../components/BackButton'
+import { ActionButtonRow } from '../../components/ActionButtonRow'
 import { ImpersonateUserButton } from '../../components/admin/ImpersonateUserButton'
 import { AgencyCapabilityChecklist } from '../../components/admin/AgencyCapabilityChecklist'
 import { VerificationStatusBadge } from '../../components/auth/VerificationBanner'
@@ -182,20 +183,30 @@ export default function AdminUserDetailPage() {
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <ImpersonateUserButton target={user} />
-              {mutable ? (
+            <ActionButtonRow className="sm:w-auto">
+              {mutable && !user.active ? (
                 <Button
                   type="button"
-                  variant={user.active ? 'secondary' : 'primary'}
+                  variant="primary"
                   className="min-h-11 cursor-pointer"
                   onClick={() => updateUser(user.id, { active: !user.active })}
                 >
-                  {user.active ? 'Disable account' : 'Enable account'}
+                  Enable account
+                </Button>
+              ) : null}
+              <ImpersonateUserButton target={user} />
+              {mutable && user.active ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="min-h-11 cursor-pointer"
+                  onClick={() => updateUser(user.id, { active: !user.active })}
+                >
+                  Disable account
                 </Button>
               ) : null}
               <BackButton to="/workspace/admin/users" label="All users" />
-            </div>
+            </ActionButtonRow>
           </div>
         </div>
 

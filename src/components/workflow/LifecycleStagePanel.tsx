@@ -10,6 +10,7 @@ import {
   type WorkflowStatusKey,
 } from '../../lib/applicationWorkflow'
 import { ApplicationDocumentRow } from '../applicant-detail/ApplicationDocumentRow'
+import { ActionButtonRow } from '../ActionButtonRow'
 import { TenantApplicationDetailsForm } from '../tenant/TenantApplicationDetailsForm'
 import { Badge, Card, cn } from '../ui'
 import { formatLeadTime } from '../../lib/leadLifecycle'
@@ -136,7 +137,7 @@ export function LifecycleStagePanel({
             <h4 className="text-sm font-semibold text-ink">
               {applicantMode && !canReview ? 'Actions required' : 'Workflow actions'}
             </h4>
-            <div className="mt-2 space-y-2">{actionButtons}</div>
+            <ActionButtonRow className="mt-2">{actionButtons}</ActionButtonRow>
           </section>
         ) : null}
 

@@ -1,5 +1,6 @@
 import { Mail, Phone } from 'lucide-react'
 import type { AppUser } from '../../types/domain'
+import { ActionButtonRow } from '../ActionButtonRow'
 import { BackButton } from '../BackButton'
 import { Button } from '../ui'
 import { ImpersonateUserButton } from '../admin/ImpersonateUserButton'
@@ -27,7 +28,7 @@ export function TeamDetailHeader({ user }: { user: AppUser }) {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <ActionButtonRow className="sm:w-auto">
           <ImpersonateUserButton target={user} />
           <Button
             variant="secondary"
@@ -48,7 +49,7 @@ export function TeamDetailHeader({ user }: { user: AppUser }) {
             </Button>
           ) : null}
           <BackButton to="/workspace/people/staff" label="All team" />
-        </div>
+        </ActionButtonRow>
       </div>
     </div>
   )

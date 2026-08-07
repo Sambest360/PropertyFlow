@@ -4,6 +4,7 @@ import { Bath, BedDouble, Car, Heart, MapPin, Share2, Star } from 'lucide-react'
 import { roomKindLabel } from '../../data/infrastructure'
 import { usePublicProperties, useStore } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
+import { ActionButtonRow } from '../../components/ActionButtonRow'
 import { BackButton } from '../../components/BackButton'
 import { Badge, Button, Input, cn } from '../../components/ui'
 import { PropertyFeaturesDisplay } from '../../components/property-features/PropertyFeaturesDisplay'
@@ -469,21 +470,21 @@ export default function ListingDetail() {
               </span>
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className="inline-flex items-center gap-2 rounded-full border border-primary-100 px-4 py-2 text-sm font-semibold hover:bg-primary-50">
+          <ActionButtonRow className="sm:w-auto">
+            <button type="button" className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-full border border-primary-100 px-4 py-2 text-sm font-semibold hover:bg-primary-50">
               <Share2 className="h-4 w-4" /> Share
             </button>
             <button
               type="button"
               onClick={() => p && toggle(p.id)}
-              className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-primary-100 px-4 py-2 text-sm font-semibold transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-full border border-primary-100 px-4 py-2 text-sm font-semibold transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               aria-pressed={wishlisted}
             >
               <Heart className={cn('h-4 w-4', wishlisted && 'fill-accent text-accent')} />
               {wishlisted ? 'Saved' : 'Save'}
             </button>
             <BackButton to="/browse" label="Back to search" />
-          </div>
+          </ActionButtonRow>
         </div>
 
         <div className="mt-6">

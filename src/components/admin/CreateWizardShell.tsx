@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { ActionButtonRow } from '../ActionButtonRow'
 import { cn } from '../ui'
 import { StepDots } from '../wizard/StepDots'
 import { StickyMobileActionBar } from '../layout/mobile/StickyMobileActionBar'
@@ -154,9 +155,9 @@ export function CreateWizardShell({
           data-tip-target="wizard-form"
         >
           {children}
-          <div className="mt-6 hidden flex-wrap justify-end gap-2 border-t border-primary-100 pt-4 lg:flex">
+          <ActionButtonRow className="mt-6 hidden border-t border-primary-100 pt-4 lg:flex">
             {footer}
-          </div>
+          </ActionButtonRow>
         </div>
 
         {preview ? (

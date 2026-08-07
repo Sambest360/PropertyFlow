@@ -4,6 +4,7 @@ import { CreditCard, MapPin, Wallet } from 'lucide-react'
 import { useStore, usePublicProperties } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
 import { RequirePermission } from '../../components/RequirePermission'
+import { ActionButtonRow } from '../../components/ActionButtonRow'
 import { BackButton } from '../../components/BackButton'
 import {
   DashboardBreadcrumb,
@@ -225,9 +226,11 @@ export default function TenantApplicationDetailPage() {
                   ) : null}
                   <p className="mt-1 text-xs text-ink-400">{application.id}</p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-col items-end gap-2">
                   <Badge tone={statusTone(application.stage)}>{application.stage}</Badge>
-                  <BackButton to="/workspace/portals/tenant/applications" label="All applications" />
+                  <ActionButtonRow className="w-auto">
+                    <BackButton to="/workspace/portals/tenant/applications" label="All applications" />
+                  </ActionButtonRow>
                 </div>
               </div>
               <div className="mt-4 h-2 overflow-hidden rounded-full bg-primary-50">

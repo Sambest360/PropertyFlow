@@ -1,5 +1,6 @@
 import { Archive, Mail, MessageCircle, Phone } from 'lucide-react'
 import type { Lead } from '../../types/domain'
+import { ActionButtonRow } from '../ActionButtonRow'
 import { BackButton } from '../BackButton'
 import { Button } from '../ui'
 import { isClosedLeadStage } from '../../lib/leadLifecycle'
@@ -35,7 +36,7 @@ export function LeadDetailHeader({
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <ActionButtonRow className="sm:w-auto">
           {canClose && onClose && !isClosedLeadStage(lead.stage) ? (
             <Button variant="secondary" className="min-h-11 cursor-pointer text-accent" onClick={onClose}>
               <Archive className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
@@ -73,7 +74,7 @@ export function LeadDetailHeader({
             </>
           ) : null}
           <BackButton to="/workspace/sales/crm" label="All leads" />
-        </div>
+        </ActionButtonRow>
       </div>
     </div>
   )

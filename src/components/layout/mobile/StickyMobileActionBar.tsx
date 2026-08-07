@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { ActionButtonRow } from '../../ActionButtonRow'
 import { cn } from '../../ui'
 
 /** Fixed bottom action row — sits above workspace bottom nav when both are present. */
@@ -25,7 +26,7 @@ export function StickyMobileActionBar({
         className,
       )}
     >
-      <div className="mx-auto flex max-w-lg flex-col gap-2 sm:flex-row sm:justify-end">{children}</div>
+      <ActionButtonRow className="mx-auto max-w-lg">{children}</ActionButtonRow>
     </div>,
     document.body,
   )

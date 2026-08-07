@@ -1,5 +1,6 @@
 import { Mail, Phone } from 'lucide-react'
 import type { Application } from '../../types/domain'
+import { ActionButtonRow } from '../ActionButtonRow'
 import { BackButton } from '../BackButton'
 import { ICON_STROKE } from './types'
 
@@ -23,7 +24,9 @@ export function ApplicantDetailHeader({ application }: { application: Applicatio
           </div>
         </div>
 
-        <BackButton to="/workspace/sales/applications" label="All applicants" />
+        <ActionButtonRow className="sm:w-auto">
+          <BackButton to="/workspace/sales/applications" label="All applicants" />
+        </ActionButtonRow>
       </div>
     </div>
   )

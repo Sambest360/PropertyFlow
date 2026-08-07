@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { forwardRef, useEffect, useState, Children, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { MoreHorizontal, X } from 'lucide-react'
+import { ActionButtonRow } from './ActionButtonRow'
 
 export function cn(...inputs: (string | false | null | undefined)[]) {
   return clsx(inputs)
@@ -28,11 +29,12 @@ export function PageHeader({
       </div>
       {actions ? (
         <>
-          <div className={cn('flex flex-wrap items-center gap-2', collapseMobile && 'hidden sm:flex')}>
+          <ActionButtonRow className={cn(collapseMobile && 'hidden sm:flex', 'sm:w-auto')}>
             {actions}
-          </div>
+          </ActionButtonRow>
           {collapseMobile ? (
-            <div className="relative flex w-full items-center justify-end gap-2 sm:hidden">
+            <div className="relative sm:hidden">
+              <ActionButtonRow>
               {actionItems[actionItems.length - 1]}
               <button
                 type="button"
@@ -52,9 +54,10 @@ export function PageHeader({
                   ))}
                 </div>
               ) : null}
+              </ActionButtonRow>
             </div>
           ) : (
-            <div className="flex flex-wrap items-center gap-2 sm:hidden">{actions}</div>
+            <ActionButtonRow className="sm:hidden">{actions}</ActionButtonRow>
           )}
         </>
       ) : null}
@@ -301,9 +304,9 @@ export function Modal({
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
         {footer && (
-          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-primary-50 px-5 py-4">
+          <ActionButtonRow className="border-t border-primary-50 px-5 py-4">
             {footer}
-          </div>
+          </ActionButtonRow>
         )}
       </div>
     </div>,

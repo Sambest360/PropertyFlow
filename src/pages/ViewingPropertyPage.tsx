@@ -12,6 +12,7 @@ import {
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
+import { ActionButtonRow } from '../components/ActionButtonRow'
 import { BackButton } from '../components/BackButton'
 import { Badge, Button, Card, Select, cn, statusTone } from '../components/ui'
 import {
@@ -213,7 +214,9 @@ export default function ViewingPropertyPage() {
           <div className="flex flex-wrap items-center gap-2 text-sm text-ink-400">
             <span className="font-medium text-ink">Property viewing desk</span>
           </div>
-          <BackButton to="/workspace/sales/viewings" label="Schedule" />
+          <ActionButtonRow className="sm:w-auto">
+            <BackButton to="/workspace/sales/viewings" label="Schedule" />
+          </ActionButtonRow>
         </div>
 
         <section className="overflow-hidden rounded-[1.5rem] border border-primary-100 bg-white shadow-[0_12px_32px_-24px_rgba(15,39,68,0.3)]">
@@ -261,7 +264,7 @@ export default function ViewingPropertyPage() {
                   </div>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2">
+              <ActionButtonRow>
                 {has('viewings.manage') && (
                   <Button className="min-h-11 gap-1.5 rounded-2xl" onClick={() => setCreateOpen(true)}>
                     <Plus className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
@@ -273,7 +276,7 @@ export default function ViewingPropertyPage() {
                     Property profile
                   </Button>
                 </Link>
-              </div>
+              </ActionButtonRow>
             </div>
           </div>
         </section>
@@ -411,7 +414,7 @@ export default function ViewingPropertyPage() {
                                     {inviteError}
                                   </p>
                                 )}
-                                <div className="flex flex-wrap gap-2">
+                                <ActionButtonRow>
                                   <Button
                                     type="button"
                                     className="min-h-11 rounded-2xl"
@@ -431,14 +434,14 @@ export default function ViewingPropertyPage() {
                                   >
                                     Cancel
                                   </Button>
-                                </div>
+                                </ActionButtonRow>
                               </div>
                             )}
                           </div>
                         )}
 
                         {has('viewings.manage') && (
-                          <div className="flex flex-wrap gap-2 border-t border-primary-50 pt-3">
+                          <ActionButtonRow className="border-t border-primary-50 pt-3">
                             {slot.status !== 'Cancelled' && (
                               <Button
                                 variant="secondary"
@@ -467,7 +470,7 @@ export default function ViewingPropertyPage() {
                                 Reopen slot
                               </Button>
                             )}
-                          </div>
+                          </ActionButtonRow>
                         )}
                       </div>
                     )}
@@ -503,7 +506,7 @@ export default function ViewingPropertyPage() {
                     </p>
                   </div>
                   {has('viewings.manage') ? (
-                    <div className="flex flex-wrap items-center gap-2">
+                    <ActionButtonRow className="w-auto sm:w-auto">
                       <Button
                         variant="secondary"
                         className="min-h-11 gap-1.5"
@@ -533,7 +536,7 @@ export default function ViewingPropertyPage() {
                         </option>
                       ))}
                     </Select>
-                    </div>
+                    </ActionButtonRow>
                   ) : (
                     <Badge tone={statusTone(v.status)}>{v.status}</Badge>
                   )}

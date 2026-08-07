@@ -1,3 +1,4 @@
+import { ActionButtonRow } from '../ActionButtonRow'
 import { Button } from '../ui'
 
 export function WizardFooter({
@@ -38,7 +39,49 @@ export function WizardFooter({
   busy?: boolean
 }) {
   return (
-    <>
+    <ActionButtonRow>
+      {showContinue && onContinue ? (
+        <Button
+          type="button"
+          className="min-h-11 cursor-pointer sm:min-w-36"
+          onClick={onContinue}
+          disabled={continueDisabled || busy}
+        >
+          {continueLabel}
+        </Button>
+      ) : null}
+      {showSubmit && onSubmit ? (
+        <Button
+          type="button"
+          className="min-h-11 cursor-pointer sm:min-w-36"
+          onClick={onSubmit}
+          disabled={submitDisabled || busy}
+        >
+          {submitLabel}
+        </Button>
+      ) : null}
+      {showSaveAndContinueLater && onSaveAndContinueLater ? (
+        <Button
+          type="button"
+          variant="secondary"
+          className="min-h-11 cursor-pointer"
+          onClick={onSaveAndContinueLater}
+          disabled={busy}
+        >
+          {saveAndContinueLaterLabel}
+        </Button>
+      ) : null}
+      {showSaveDraft && onSaveDraft ? (
+        <Button
+          type="button"
+          variant="secondary"
+          className="min-h-11 cursor-pointer"
+          onClick={onSaveDraft}
+          disabled={busy}
+        >
+          Save draft
+        </Button>
+      ) : null}
       {showBack && onBack ? (
         <Button
           type="button"
@@ -49,53 +92,7 @@ export function WizardFooter({
         >
           Back
         </Button>
-      ) : (
-        <span className="hidden sm:block" />
-      )}
-      <div className="flex flex-1 flex-wrap justify-end gap-2">
-        {showSaveAndContinueLater && onSaveAndContinueLater ? (
-          <Button
-            type="button"
-            variant="secondary"
-            className="min-h-11 cursor-pointer"
-            onClick={onSaveAndContinueLater}
-            disabled={busy}
-          >
-            {saveAndContinueLaterLabel}
-          </Button>
-        ) : null}
-        {showSaveDraft && onSaveDraft ? (
-          <Button
-            type="button"
-            variant="secondary"
-            className="min-h-11 cursor-pointer"
-            onClick={onSaveDraft}
-            disabled={busy}
-          >
-            Save draft
-          </Button>
-        ) : null}
-        {showContinue && onContinue ? (
-          <Button
-            type="button"
-            className="min-h-11 cursor-pointer sm:min-w-36"
-            onClick={onContinue}
-            disabled={continueDisabled || busy}
-          >
-            {continueLabel}
-          </Button>
-        ) : null}
-        {showSubmit && onSubmit ? (
-          <Button
-            type="button"
-            className="min-h-11 cursor-pointer sm:min-w-36"
-            onClick={onSubmit}
-            disabled={submitDisabled || busy}
-          >
-            {submitLabel}
-          </Button>
-        ) : null}
-      </div>
-    </>
+      ) : null}
+    </ActionButtonRow>
   )
 }

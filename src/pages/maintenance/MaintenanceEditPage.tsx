@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-r
 import { useStore } from '../../context/AppStore'
 import { useAuth, usePropertyScope } from '../../context/AuthContext'
 import { RequirePermission } from '../../components/RequirePermission'
+import { ActionButtonRow } from '../../components/ActionButtonRow'
 import { BackButton } from '../../components/BackButton'
 import {
   MaintenanceTicketForm,
@@ -114,7 +115,9 @@ export default function MaintenanceEditPage() {
               <span className="font-medium text-ink">{ticket.title}</span>.
             </p>
           </div>
-          <BackButton to={returnTo} label="Back to record" />
+          <ActionButtonRow className="sm:w-auto">
+            <BackButton to={returnTo} label="Back to record" />
+          </ActionButtonRow>
         </div>
 
         <Card className="overflow-hidden p-0">
@@ -135,16 +138,16 @@ export default function MaintenanceEditPage() {
               error={error}
             />
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-primary-100 bg-primary-50/30 px-5 py-4">
+          <ActionButtonRow className="border-t border-primary-100 bg-primary-50/30 px-5 py-4">
+            <Button className="min-h-11 cursor-pointer" form={FORM_ID} type="submit" disabled={busy}>
+              {busy ? 'Saving…' : 'Save changes'}
+            </Button>
             <Link to={returnTo}>
               <Button variant="secondary" className="min-h-11 cursor-pointer" disabled={busy}>
                 Cancel
               </Button>
             </Link>
-            <Button className="min-h-11 cursor-pointer" form={FORM_ID} type="submit" disabled={busy}>
-              {busy ? 'Saving…' : 'Save changes'}
-            </Button>
-          </div>
+          </ActionButtonRow>
         </Card>
       </div>
     </RequirePermission>

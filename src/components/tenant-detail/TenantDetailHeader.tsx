@@ -1,5 +1,6 @@
 import { Mail } from 'lucide-react'
 import type { Tenancy } from '../../types/domain'
+import { ActionButtonRow } from '../ActionButtonRow'
 import { BackButton } from '../BackButton'
 import { ICON_STROKE } from './types'
 
@@ -17,7 +18,9 @@ export function TenantDetailHeader({ tenancy }: { tenancy: Tenancy }) {
           </p>
         </div>
 
-        <BackButton to="/workspace/people/tenants" label="All tenants" />
+        <ActionButtonRow className="sm:w-auto">
+          <BackButton to="/workspace/people/tenants" label="All tenants" />
+        </ActionButtonRow>
       </div>
     </div>
   )

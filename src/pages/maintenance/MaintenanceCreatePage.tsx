@@ -4,6 +4,7 @@ import { Plus } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
 import { useAuth, usePropertyScope } from '../../context/AuthContext'
 import { RequirePermission } from '../../components/RequirePermission'
+import { ActionButtonRow } from '../../components/ActionButtonRow'
 import { BackButton } from '../../components/BackButton'
 import { MaintenanceTicketForm, type CreateTicketInput } from '../../components/maintenance/MaintenanceTicketForm'
 import { Button, Card } from '../../components/ui'
@@ -85,7 +86,9 @@ export default function MaintenanceCreatePage() {
               Capture the fault in detail — photos, location, linked assets, and book an approved contractor.
             </p>
           </div>
-          <BackButton to={returnTo} label="Back" />
+          <ActionButtonRow className="sm:w-auto">
+            <BackButton to={returnTo} label="Back" />
+          </ActionButtonRow>
         </div>
 
         <Card className="overflow-hidden p-0">
@@ -109,17 +112,17 @@ export default function MaintenanceCreatePage() {
               error={error}
             />
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-primary-100 bg-primary-50/30 px-5 py-4">
+          <ActionButtonRow className="border-t border-primary-100 bg-primary-50/30 px-5 py-4">
+            <Button className="min-h-11 cursor-pointer" form={FORM_ID} type="submit" disabled={busy}>
+              <Plus className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+              {busy ? 'Creating…' : 'Create maintenance'}
+            </Button>
             <Link to={returnTo}>
               <Button variant="secondary" className="min-h-11 cursor-pointer" disabled={busy}>
                 Cancel
               </Button>
             </Link>
-            <Button className="min-h-11 cursor-pointer" form={FORM_ID} type="submit" disabled={busy}>
-              <Plus className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-              {busy ? 'Creating…' : 'Create maintenance'}
-            </Button>
-          </div>
+          </ActionButtonRow>
         </Card>
       </div>
     </RequirePermission>

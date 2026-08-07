@@ -21,6 +21,7 @@ import {
 } from '../components/directory/DirectoryToolbar'
 import { DirectoryFilterSelect } from '../components/directory/DirectoryFilters'
 import { DirectoryStatCard } from '../components/directory/DirectoryStats'
+import { ActionButtonRow } from '../components/ActionButtonRow'
 import { Badge, Button, PageHeader, cn, statusTone } from '../components/ui'
 import { AgentAssigneeText } from '../components/detail/FlatFields'
 import { appendAgentMetaRow } from '../lib/agentDisplay'
@@ -958,12 +959,7 @@ function LeadExpansion({
             </div>
           ))}
         </dl>
-        <div
-          className={cn(
-            'mt-4 flex flex-wrap gap-2 border-t border-primary-100/80 pt-4',
-            reducedMotion && 'transition-none',
-          )}
-        >
+        <ActionButtonRow className={cn('mt-4 border-t border-primary-100/80 pt-4', reducedMotion && 'transition-none')}>
           <Link to={detailTo} className="inline-flex">
             <Button className="min-h-11 cursor-pointer gap-2 rounded-2xl">
               Open lead
@@ -980,7 +976,7 @@ function LeadExpansion({
               Close lead
             </Button>
           ) : null}
-        </div>
+        </ActionButtonRow>
       </div>
     </div>
   )

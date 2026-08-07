@@ -1,6 +1,7 @@
 import { HardHat, MapPin } from 'lucide-react'
 import type { MaintenanceTicket } from '../../types/domain'
 import type { PropertyAsset } from '../../types/domain'
+import { ActionButtonRow } from '../ActionButtonRow'
 import { BackButton } from '../BackButton'
 import { Badge, Button, Card, statusTone } from '../ui'
 import { formatAge, ticketAgeHours } from '../maintenance/types'
@@ -62,7 +63,7 @@ export function ContractorMaintenancePreview({
           </div>
         </dl>
 
-        <div className="flex flex-wrap gap-3 pt-2">
+        <ActionButtonRow className="pt-2">
           <Button
             className="min-h-11 cursor-pointer"
             disabled={acceptDisabled}
@@ -72,7 +73,7 @@ export function ContractorMaintenancePreview({
             Accept job
           </Button>
           <BackButton to="/workspace/portals/contractor" label="Back to jobs" />
-        </div>
+        </ActionButtonRow>
         {acceptHint ? <p className="text-xs text-ink-500">{acceptHint}</p> : null}
       </Card>
     </div>

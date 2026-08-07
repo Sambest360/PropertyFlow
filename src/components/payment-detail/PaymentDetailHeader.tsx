@@ -1,5 +1,6 @@
 import { Ban, CheckCircle2, Trash2 } from 'lucide-react'
 import type { PaymentRecord, PropertyAsset } from '../../types/domain'
+import { ActionButtonRow } from '../ActionButtonRow'
 import { BackButton } from '../BackButton'
 import { Badge, Button, statusTone } from '../ui'
 import { formatZAR } from '../../data/seed'
@@ -50,7 +51,7 @@ export function PaymentDetailHeader({
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <ActionButtonRow className="sm:w-auto">
           {(canMaintain || canSelfPay) && open ? (
             <>
               <Button className="min-h-11 gap-2" onClick={onMarkPaid}>
@@ -72,7 +73,7 @@ export function PaymentDetailHeader({
             </>
           ) : null}
           <BackButton to="/workspace/operations/payments" label="All payments" />
-        </div>
+        </ActionButtonRow>
       </div>
     </div>
   )

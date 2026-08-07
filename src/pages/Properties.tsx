@@ -5,6 +5,7 @@ import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
 import { Button, Card, PageHeader } from '../components/ui'
+import { ActionButtonRow } from '../components/ActionButtonRow'
 import { withReturnTo } from '../lib/returnTo'
 import { PropertyMap } from '../components/PropertyMap'
 import { PropertiesToolbar } from '../components/properties/PropertiesToolbar'
@@ -203,7 +204,14 @@ export default function Properties() {
         title="Properties"
         subtitle="Scan your portfolio, spot what needs attention, and open a property for full detail."
         actions={
-          <div className="flex flex-wrap items-center gap-2">
+          <ActionButtonRow className="sm:w-auto">
+            {has('assets.manage') ? (
+              <Link to={createPropertyHref}>
+                <Button className="min-h-11 cursor-pointer">
+                  <Plus className="h-4 w-4" strokeWidth={1.6} aria-hidden /> Add property
+                </Button>
+              </Link>
+            ) : null}
             {canViewArchive ? (
               <Link to="/workspace/properties/archive">
                 <Button variant="secondary" className="min-h-11 cursor-pointer">
@@ -212,14 +220,7 @@ export default function Properties() {
                 </Button>
               </Link>
             ) : null}
-            {has('assets.manage') ? (
-              <Link to={createPropertyHref}>
-                <Button className="min-h-11 cursor-pointer">
-                  <Plus className="h-4 w-4" strokeWidth={1.6} aria-hidden /> Add property
-                </Button>
-              </Link>
-            ) : null}
-          </div>
+          </ActionButtonRow>
         }
       />
 

@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Globe, Pencil, Star, Trash2, RotateCcw } from 'lucide-react'
 import type { PropertyAsset } from '../../types/domain'
+import { ActionButtonRow } from '../ActionButtonRow'
 import { BackButton } from '../BackButton'
 import { Badge, Button } from '../ui'
 import { resolvePortfolioStatus } from '../../lib/propertyStatus'
@@ -69,7 +70,7 @@ export function PropertyDetailHeader({
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <ActionButtonRow className="sm:w-auto">
             {canManage && showMakeLive ? (
               <Button
                 className="min-h-11 cursor-pointer"
@@ -127,7 +128,7 @@ export function PropertyDetailHeader({
               </Button>
             ) : null}
             <BackButton to={backTo} label={backLabel} />
-          </div>
+        </ActionButtonRow>
       </div>
 
       {deleted ? (
@@ -158,6 +159,7 @@ export function PropertyDetailHeader({
               </p>
             </div>
             {showMakeLive ? (
+              <ActionButtonRow className="shrink-0 sm:w-auto">
               <Button
                 className="min-h-11 shrink-0 cursor-pointer"
                 onClick={onPublish}
@@ -166,12 +168,15 @@ export function PropertyDetailHeader({
                 <Globe className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
                 Make live
               </Button>
+              </ActionButtonRow>
             ) : publishBlockedReason && editable ? (
+              <ActionButtonRow className="shrink-0 sm:w-auto">
               <Link to={`/workspace/properties/${property.id}/edit`}>
                 <Button variant="secondary" className="min-h-11 shrink-0 cursor-pointer">
                   Finish setup
                 </Button>
               </Link>
+              </ActionButtonRow>
             ) : canPublish ? null : (
               <p className="text-xs font-medium text-amber-900/80">
                 You need listing publish permission to make this live.

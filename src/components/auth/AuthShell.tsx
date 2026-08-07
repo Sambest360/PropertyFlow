@@ -1,9 +1,10 @@
 import { Link } from 'react-router-dom'
 import { AlertCircle } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { ActionButtonRow } from '../ActionButtonRow'
 import { BackButton } from '../BackButton'
 import { BrandLogo } from '../layout/BrandLogo'
-import { cn } from '../ui'
+import { Button, cn } from '../ui'
 
 const ICON_STROKE = 1.6
 
@@ -80,17 +81,18 @@ export function AuthShell({
 
       {/* Form column */}
       <div className="relative flex min-h-screen flex-1 flex-col bg-surface-muted/60">
-        <header className="flex items-center justify-between gap-3 px-4 py-4 sm:px-10 lg:px-12">
-          <BackButton to="/" label="Back to marketplace" shortLabel="Back" />
+        <header className="flex items-center gap-3 px-4 py-4 sm:px-10 lg:px-12">
           <div className="lg:hidden">
             <BrandLogo to="/" size="sm" />
           </div>
-          <Link
-            to={crossLink.to}
-            className="inline-flex min-h-11 cursor-pointer items-center rounded-2xl px-3 text-sm font-semibold text-primary transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          >
-            {crossLink.label}
-          </Link>
+          <ActionButtonRow className="ml-auto w-auto">
+            <Link to={crossLink.to}>
+              <Button variant="secondary" className="min-h-11 cursor-pointer">
+                {crossLink.label}
+              </Button>
+            </Link>
+            <BackButton to="/" label="Back to marketplace" shortLabel="Back" />
+          </ActionButtonRow>
         </header>
 
         <main

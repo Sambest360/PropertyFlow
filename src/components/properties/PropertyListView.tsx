@@ -13,6 +13,7 @@ import {
   MapPin,
   Wrench,
 } from 'lucide-react'
+import { ActionButtonRow } from '../ActionButtonRow'
 import { Badge, Button, cn } from '../ui'
 import { AgentAssigneeText } from '../detail/FlatFields'
 import { formatZAR } from '../../data/seed'
@@ -214,7 +215,16 @@ export function PropertyExpansion({
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-400">
             Quick actions
           </p>
-          <div className="flex flex-wrap gap-2">
+          <ActionButtonRow>
+            <Link to={`/workspace/sales/viewings/property/${encodeURIComponent(p.id)}`}>
+              <Button variant="primary" className="min-h-10 rounded-xl px-3 text-sm">
+                <CalendarDays className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                Viewing
+                {item.scheduledViewings > 0 && (
+                  <span className="tabular opacity-90">({item.scheduledViewings})</span>
+                )}
+              </Button>
+            </Link>
             <Link to={`/workspace/operations/maintenance?property=${encodeURIComponent(p.id)}`}>
               <Button
                 variant={item.openTickets > 0 ? 'danger' : 'secondary'}
@@ -224,15 +234,6 @@ export function PropertyExpansion({
                 Maintenance
                 {item.openTickets > 0 && (
                   <span className="tabular opacity-90">({item.openTickets})</span>
-                )}
-              </Button>
-            </Link>
-            <Link to={`/workspace/sales/viewings/property/${encodeURIComponent(p.id)}`}>
-              <Button variant="primary" className="min-h-10 rounded-xl px-3 text-sm">
-                <CalendarDays className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                Viewing
-                {item.scheduledViewings > 0 && (
-                  <span className="tabular opacity-90">({item.scheduledViewings})</span>
                 )}
               </Button>
             </Link>
@@ -252,17 +253,17 @@ export function PropertyExpansion({
                 )}
               </Button>
             </Link>
-          </div>
+          </ActionButtonRow>
         </div>
 
-        <div className="mt-4">
+        <ActionButtonRow className="mt-4">
           <Link to={detailId} className="inline-flex">
             <Button className="min-h-10 cursor-pointer gap-2 rounded-xl px-4 text-sm">
               Open full details
               <ArrowRight className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
             </Button>
           </Link>
-        </div>
+        </ActionButtonRow>
       </div>
     </div>
   )
