@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import type { Application, ApplicationDocument, PropertyAsset } from '../../types/domain'
+import type { Application, ApplicationDocument } from '../../types/domain'
 import type { HateoasAction } from '../../lib/api/contracts'
 import {
   documentsForStage,
@@ -11,7 +11,7 @@ import {
 } from '../../lib/applicationWorkflow'
 import { ApplicationDocumentRow } from '../applicant-detail/ApplicationDocumentRow'
 import { TenantApplicationDetailsForm } from '../tenant/TenantApplicationDetailsForm'
-import { Badge, Card, cn, statusTone } from '../ui'
+import { Badge, Card, cn } from '../ui'
 import { formatLeadTime } from '../../lib/leadLifecycle'
 
 const EARLY_DETAIL_STAGES: WorkflowStatusKey[] = ['application_started', 'application_submitted']
