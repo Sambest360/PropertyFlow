@@ -45,18 +45,24 @@ describe('resolveTenantPropertyIds', () => {
 })
 
 describe('resolveContractorPropertyIds', () => {
-  it('includes assigned and same-agency claimable open jobs', () => {
+  const roster = [
+    { agencyId: 'ag-a', contractorUserId: 'u-c', status: 'approved' as const },
+    { agencyId: 'ag-b', contractorUserId: 'u-c', status: 'approved' as const },
+  ]
+
+  it('includes assigned and roster-approved claimable open jobs', () => {
     const ids = resolveContractorPropertyIds(
       [
         { contractorId: 'u-c', propertyId: 'p-mine', agencyId: 'ag-a', status: 'In Progress', assignedAgentId: null },
         { contractorId: null, propertyId: 'p-open', agencyId: 'ag-a', status: 'Requested', assignedAgentId: null },
         { contractorId: null, propertyId: 'p-done', agencyId: 'ag-a', status: 'Completed', assignedAgentId: null },
         { contractorId: null, propertyId: 'p-other-ag', agencyId: 'ag-b', status: 'Requested', assignedAgentId: null },
+        { contractorId: null, propertyId: 'p-no-roster', agencyId: 'ag-z', status: 'Requested', assignedAgentId: null },
       ],
       'u-c',
-      'ag-a',
+      roster,
     )
-    expect([...ids].sort()).toEqual(['p-mine', 'p-open'])
+    expect([...ids].sort()).toEqual(['p-mine', 'p-open', 'p-other-ag'])
   })
 })
 

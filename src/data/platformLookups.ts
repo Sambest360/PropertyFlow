@@ -235,6 +235,7 @@ export const PLATFORM_CATALOGUE: Record<string, SeedItem[]> = {
     { key: 'Deposit Paid', label: 'Deposit Paid' },
     { key: 'Lease Signed', label: 'Lease Signed' },
     { key: 'Sale Completed', label: 'Sale Completed' },
+    { key: 'Rejected', label: 'Rejected' },
   ],
   APPLICATION_STAGE: [
     { key: 'Started', label: 'Started' },

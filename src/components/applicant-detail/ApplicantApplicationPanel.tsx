@@ -15,9 +15,11 @@ import type { LucideIcon } from 'lucide-react'
 import type { Application, ApplicationDocument, PropertyAsset } from '../../types/domain'
 import { Badge, Card, cn, statusTone } from '../ui'
 import { buildApplicationActions } from '../../lib/api/actions'
+import { buildApplicantApplicationActions } from '../../lib/applicantPortalActions'
 import type { HateoasAction } from '../../lib/api/contracts'
 import {
   getStageDef,
+  isTerminalWorkflowStatus,
   resolveWorkflowStatus,
   workflowBranchOutcomes,
   workflowProgress,
@@ -200,6 +202,7 @@ export function ApplicantApplicationPanel({
   agentName,
   actor,
   canReview,
+  applicantMode,
   onRunAction,
   onSetDocument,
 }: {
@@ -213,6 +216,8 @@ export function ApplicantApplicationPanel({
     permissions: string[]
   }
   canReview: boolean
+  /** When true, show applicant self-service workflow actions (portal.tenant). */
+  applicantMode?: boolean
   onRunAction: (action: HateoasAction, capture?: WorkflowActionCapture) => void
   onSetDocument?: (key: string, status: ApplicationDocument['status']) => void
 }) {
@@ -222,11 +227,17 @@ export function ApplicantApplicationPanel({
   const workflowStatus = resolveWorkflowStatus(application)
   const progress = workflowProgress(application.type, workflowStatus)
   const actions = sortWorkflowActions(
-    buildApplicationActions({
-      application,
-      actor: actor as Parameters<typeof buildApplicationActions>[0]['actor'],
-    }),
+    applicantMode
+      ? buildApplicantApplicationActions({
+          application,
+          permissions: actor.permissions as import('../../types/domain').Permission[],
+        })
+      : buildApplicationActions({
+          application,
+          actor: actor as Parameters<typeof buildApplicationActions>[0]['actor'],
+        }),
   )
+  const showActions = canReview || (applicantMode && actions.length > 0)
 
   const [modalAction, setModalAction] = useState<HateoasAction | null>(null)
   const [modalBusy, setModalBusy] = useState(false)
@@ -265,10 +276,9 @@ export function ApplicantApplicationPanel({
         <div className="border-b border-primary-100 bg-gradient-to-r from-primary-50/70 via-white to-brand-50/40 px-5 py-4">
           <h2 className="font-display text-lg font-semibold text-ink">Lifecycle</h2>
           <p className="mt-1 text-sm text-ink-500">
-            {application.type === 'Purchase'
-              ? 'South African purchase workflow — offer through transfer and registration'
-              : 'South African rental workflow — enquiry through tenancy and closure'}
-            {property ? ` · ${property.title}` : ''}.
+            Track the current phase of this {application.type === 'Purchase' ? 'purchase' : 'rental'}{' '}
+            application
+            {property ? ` for ${property.title}` : ''}.
           </p>
         </div>
 
@@ -300,16 +310,26 @@ export function ApplicantApplicationPanel({
         </div>
       </Card>
 
-      <BranchOutcomesPanel application={application} />
+      {isTerminalWorkflowStatus(application.type, workflowStatus) ? (
+        <BranchOutcomesPanel application={application} />
+      ) : null}
 
-      {canReview ? (
+      {showActions ? (
         <Card className="overflow-hidden border-primary-100 p-0">
           <div className="border-b border-primary-100 bg-primary-50/50 px-5 py-4">
-            <h2 className="font-display text-lg font-semibold text-ink">Workflow actions</h2>
+            <h2 className="font-display text-lg font-semibold text-ink">
+              {applicantMode && !canReview ? 'Your next steps' : 'Workflow actions'}
+            </h2>
             <p className="mt-1 text-sm text-ink-500">
-              Valid next steps from{' '}
-              <span className="font-medium text-ink">{workflowStageLabel(application.type, workflowStatus)}</span>.
-              Steps may require confirmation, signatures, or document uploads.
+              {applicantMode && !canReview
+                ? 'Complete these steps to move your application forward.'
+                : (
+                  <>
+                    Valid next steps from{' '}
+                    <span className="font-medium text-ink">{workflowStageLabel(application.type, workflowStatus)}</span>.
+                    Steps may require confirmation, signatures, or document uploads.
+                  </>
+                )}
             </p>
           </div>
 

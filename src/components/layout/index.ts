@@ -10,6 +10,7 @@ export {
   filterWorkspaceNav,
   flattenNavLinks,
   previewNavLabels,
+  buildWorkspaceNavForActor,
   marketplaceCategories,
   marketplaceFooter,
 } from './navigation'

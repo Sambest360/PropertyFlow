@@ -15,6 +15,8 @@ import {
   resolveFrontendRole,
   type IdMapCache,
 } from './idMap'
+import { buildDocumentChecklist } from '../workflow'
+import { normalizeApplication } from '../applicationWorkflow'
 
 type RoleDb =
   | 'SUPER_ADMIN'
@@ -490,9 +492,10 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
     updatedAt: dateOnly(l.updated_at),
   }))
 
-  const applications = (applicationsRes.data ?? []).map((a) => {
+  const applicationsRaw = (applicationsRes.data ?? []).map((a) => {
     const meta = (a.metadata as Record<string, unknown> | null) ?? {}
     const stageFromMeta = typeof meta.stage === 'string' ? meta.stage : null
+    const type = a.application_type === 'PURCHASE' ? 'Purchase' : 'Rental'
     return {
       id: a.reference_code,
       agencyId: mapAgencyFe(a.client_id)!,
@@ -502,14 +505,14 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
       applicantName: 'Applicant',
       email: '',
       phone: '',
-      type: a.application_type === 'PURCHASE' ? 'Purchase' : 'Rental',
+      type,
       stage: stageFromMeta ?? appStage(a.status),
       progress: typeof meta.progress === 'number' ? meta.progress : 50,
       income: a.monthly_income != null ? Number(a.monthly_income) : 0,
       employment: a.employment_summary ?? '',
       creditCheck: a.status === 'CREDIT_CHECK' ? 'In Progress' : 'Not Started',
       creditConsent: true,
-      documents: [],
+      documents: buildDocumentChecklist(type),
       docs: [],
       viewingSlotId: null,
       notes: a.message ?? '',
@@ -517,21 +520,22 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
       keyCollection: meta.keyCollection as Record<string, unknown> | undefined,
       submittedAt: dateOnly(a.submitted_at) || dateOnly(a.created_at),
       updatedAt: dateOnly(a.updated_at),
-      _applicantUuid: a.applicant_id as string | null,
+      applicantUuid: a.applicant_id as string | null,
     }
   })
 
-  for (const a of applications) {
-    if (a._applicantUuid) {
-      const u = users.find((x) => x.id === a._applicantUuid)
+  const applications = applicationsRaw.map((row) => {
+    if (row.applicantUuid) {
+      const u = users.find((x) => x.id === row.applicantUuid)
       if (u) {
-        a.applicantName = `${u.first_name} ${u.last_name}`.trim()
-        a.email = u.email
-        a.phone = u.phone ?? ''
+        row.applicantName = `${u.first_name} ${u.last_name}`.trim()
+        row.email = u.email
+        row.phone = u.phone ?? ''
       }
     }
-    delete (a as { _applicantUuid?: string })._applicantUuid
-  }
+    const { applicantUuid: _drop, ...appRow } = row
+    return normalizeApplication(appRow as import('../../types/domain').Application)
+  })
 
   const tenancies = (leasesRes.data ?? []).map((l) => {
     const tenantUserId = mapUserFe(l.tenant_id)

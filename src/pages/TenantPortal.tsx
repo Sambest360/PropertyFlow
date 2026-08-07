@@ -4,7 +4,6 @@ import {
   Bell,
   FileCheck2,
   Heart,
-  KeyRound,
   MessageCircle,
   Wrench,
 } from 'lucide-react'
@@ -30,7 +29,6 @@ import type { Application, PropertyAsset } from '../types/domain'
 import { TenantComplaintsView } from './tenant/TenantComplaintsView'
 import { TenantMaintenanceView } from './tenant/TenantMaintenanceView'
 import { TenantMessagesView } from './tenant/TenantMessagesView'
-import { TenantPortalTabs } from './tenant/TenantPortalTabs'
 
 type TenantView = 'home' | 'applications' | 'maintenance' | 'messages' | 'complaints'
 
@@ -91,10 +89,6 @@ export default function TenantPortal() {
             ...(view !== 'home' ? [{ label: breadcrumbLabel }] : []),
           ]}
         />
-
-        <div className="mb-5">
-          <TenantPortalTabs occupancyReady={portal.occupancyReady} />
-        </div>
 
         {view === 'maintenance' ? (
           <TenantMaintenanceView portal={portal} />
@@ -330,12 +324,11 @@ function PaymentsPanel({
 function ApplicationsPanel({
   apps,
   properties,
-  onUpload,
   expanded,
 }: {
   apps: Application[]
   properties: PropertyAsset[]
-  onUpload: (appId: string, key: string) => void
+  onUpload?: (appId: string, key: string) => void
   expanded?: boolean
 }) {
   const list = expanded ? apps : apps.slice(0, 4)
@@ -364,63 +357,30 @@ function ApplicationsPanel({
         <ul className="mt-4 space-y-3">
           {list.map((a) => {
             const prop = properties.find((p) => p.id === a.propertyId)
+            const href = `/workspace/portals/tenant/applications/${encodeURIComponent(a.id)}`
             return (
-              <li key={a.id} className="rounded-2xl border border-primary-100 p-3">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <p className="font-semibold text-ink">{prop?.title ?? a.propertyId}</p>
-                    <p className="text-xs text-ink-400">
-                      {a.id}
-                      {prop ? ` · ${prop.suburb}, ${prop.city}` : ''}
-                    </p>
+              <li key={a.id}>
+                <Link
+                  to={href}
+                  className="block rounded-2xl border border-primary-100 p-3 transition-colors duration-200 hover:border-primary-200 hover:bg-primary-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="font-semibold text-ink">{prop?.title ?? a.propertyId}</p>
+                      <p className="text-xs text-ink-400">
+                        {a.id}
+                        {prop ? ` · ${prop.suburb}, ${prop.city}` : ''}
+                      </p>
+                    </div>
+                    <Badge tone={statusTone(a.stage)}>{a.stage}</Badge>
                   </div>
-                  <Badge tone={statusTone(a.stage)}>{a.stage}</Badge>
-                </div>
-                <div className="mt-3 h-2 overflow-hidden rounded-full bg-primary-50">
-                  <div className="h-full bg-primary" style={{ width: `${a.progress}%` }} />
-                </div>
-                {expanded && (
-                  <div className="mt-3 space-y-2">
-                    {a.documents.map((d) => (
-                      <div
-                        key={d.key}
-                        className="flex items-center justify-between gap-2 rounded-xl bg-primary-50 px-3 py-2 text-xs"
-                      >
-                        <span className="text-ink">{d.label}</span>
-                        <div className="flex items-center gap-2">
-                          <Badge tone={statusTone(d.status)}>{d.status}</Badge>
-                          {d.status === 'required' && (
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              className="cursor-pointer"
-                              onClick={() => onUpload(a.id, d.key)}
-                            >
-                              Upload
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                    {a.keyCollection && (
-                      <div className="rounded-xl border border-primary-100 p-3 text-sm">
-                        <p className="font-semibold">
-                          <KeyRound className="mr-1 inline h-4 w-4" /> Key collection
-                        </p>
-                        <p className="mt-1 text-ink-600">{a.keyCollection.location}</p>
-                        <p className="text-ink-500">{a.keyCollection.instructions}</p>
-                      </div>
-                    )}
-                    {prop && (
-                      <Link
-                        to={`/listing/${prop.id}`}
-                        className="inline-flex text-sm font-semibold text-primary"
-                      >
-                        Open listing
-                      </Link>
-                    )}
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-primary-50">
+                    <div className="h-full bg-primary" style={{ width: `${a.progress}%` }} />
                   </div>
-                )}
+                  {expanded ? (
+                    <p className="mt-3 text-sm font-semibold text-primary">Open application →</p>
+                  ) : null}
+                </Link>
               </li>
             )
           })}

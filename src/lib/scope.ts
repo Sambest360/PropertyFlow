@@ -19,11 +19,13 @@ import {
 } from './agencyScope.js'
 import type {
   Application,
+  AgencyContractor,
   MaintenanceTicket,
   PropertyAsset,
   Role,
   Tenancy,
 } from '../types/domain.js'
+import { contractorApprovedAgencyIds } from './contractors.js'
 import { isFieldAgent } from './permissions.js'
 
 export type PropertyLink = PropertyAccessSubject & { id: string }
@@ -42,6 +44,11 @@ export type ScopeLinksInput = {
   /** Properties the applicant is blocked from (cannot browse / apply). */
   blockedPropertyIds?: ReadonlySet<string>
   viewerEmail?: string
+  /** Approved contractor roster rows — used to resolve claimable job pools. */
+  agencyContractors?: readonly Pick<
+    AgencyContractor,
+    'agencyId' | 'contractorUserId' | 'status'
+  >[]
 }
 
 export type PropertyScope = {
@@ -84,14 +91,18 @@ export function resolveTenantPropertyIds(
 }
 
 /**
- * Contractor book: assigned tickets, plus same-agency unassigned open jobs
- * (claimable pool) so they can pick up work.
+ * Contractor book: assigned tickets, plus unassigned open jobs on agencies
+ * where the contractor is on the approved roster (claimable pool).
  */
 export function resolveContractorPropertyIds(
   tickets: ScopeLinksInput['tickets'],
   userId: string,
-  agencyId: string | null,
+  roster?: ScopeLinksInput['agencyContractors'],
 ): Set<string> {
+  const claimAgencies = contractorApprovedAgencyIds(
+    (roster ?? []) as AgencyContractor[],
+    userId,
+  )
   const ids = new Set<string>()
   for (const t of tickets ?? []) {
     if (t.contractorId === userId) {
@@ -102,8 +113,7 @@ export function resolveContractorPropertyIds(
       !t.contractorId &&
       t.status !== 'Completed' &&
       t.status !== 'Cancelled' &&
-      agencyId &&
-      t.agencyId === agencyId
+      claimAgencies.has(t.agencyId)
     ) {
       ids.add(t.propertyId)
     }
@@ -127,7 +137,7 @@ export function buildPropertyAccessViewer(
       : undefined
   const contractorPropertyIds =
     base.role === 'contractor'
-      ? resolveContractorPropertyIds(links.tickets, base.userId, base.agencyId)
+      ? resolveContractorPropertyIds(links.tickets, base.userId, links.agencyContractors)
       : undefined
   return { ...base, tenantPropertyIds, contractorPropertyIds }
 }

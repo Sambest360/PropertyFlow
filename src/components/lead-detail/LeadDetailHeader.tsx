@@ -1,15 +1,20 @@
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Mail, MessageCircle, Phone } from 'lucide-react'
+import { ArrowLeft, Archive, Mail, MessageCircle, Phone } from 'lucide-react'
 import type { Lead } from '../../types/domain'
 import { Button } from '../ui'
+import { isClosedLeadStage } from '../../lib/leadLifecycle'
 import { ICON_STROKE } from './types'
 
 export function LeadDetailHeader({
   lead,
   canManage,
+  canClose,
+  onClose,
 }: {
   lead: Lead
   canManage: boolean
+  canClose?: boolean
+  onClose?: () => void
 }) {
   return (
     <div className="mb-5">
@@ -38,8 +43,16 @@ export function LeadDetailHeader({
           </div>
         </div>
 
-        {canManage && (
+        {(canManage || canClose) && (
           <div className="flex flex-wrap gap-2">
+            {canClose && onClose && !isClosedLeadStage(lead.stage) ? (
+              <Button variant="secondary" className="min-h-11 cursor-pointer text-accent" onClick={onClose}>
+                <Archive className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                Close lead
+              </Button>
+            ) : null}
+            {canManage ? (
+              <>
             <Button
               variant="secondary"
               className="min-h-11"
@@ -66,6 +79,8 @@ export function LeadDetailHeader({
               <MessageCircle className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
               WhatsApp
             </Button>
+              </>
+            ) : null}
           </div>
         )}
       </div>

@@ -549,7 +549,7 @@ export function GroundAgentDashboard() {
               }
             >
               {focusViewing && (
-                <div className="mt-4">
+                <div>
                   <Button
                     size="sm"
                     variant="secondary"

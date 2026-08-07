@@ -1,6 +1,6 @@
 import type { Application, ApplicationDocument } from '../types/domain'
 import type { Permission } from '../types/domain'
-import { allDocsUploaded, allDocsVerified } from './workflow'
+import { allDocsUploaded, allDocsVerified, ensureApplicationDocuments } from './workflow'
 
 /** Machine-readable workflow statuses — rental (SA residential). */
 export type RentalWorkflowStatus =
@@ -140,6 +140,44 @@ const CATEGORY_LABELS: Record<WorkflowCategory, string> = {
 
 export function workflowCategoryLabel(category: WorkflowCategory): string {
   return CATEGORY_LABELS[category]
+}
+
+/** Category the application is currently in (e.g. application, screening). */
+export function activeWorkflowCategory(application: Application): WorkflowCategory {
+  const status = resolveWorkflowStatus(application)
+  return getStageDef(application.type, status)?.category ?? 'application'
+}
+
+/** Stages to show for the active category — hides unrelated phases and closure noise. */
+export function activeCategoryStages(application: Application): WorkflowStageDef[] {
+  const status = resolveWorkflowStatus(application)
+  const category = activeWorkflowCategory(application)
+  const grouped = workflowStagesByCategory(application.type)
+  const stages = grouped[category].filter((stageDef) => {
+    const visual = stageVisualState(application.type, status, stageDef.key)
+    return visual !== 'skipped' || stageDef.terminal
+  })
+
+  if (category === 'closure') {
+    const current = getStageDef(application.type, status)
+    if (current?.terminal) return stages.filter((s) => s.key === status)
+    return stages.filter((s) => !s.terminal || s.key === status)
+  }
+
+  return stages.filter((s) => !s.terminal || s.key === status)
+}
+
+/** Progress through mandatory steps in the active category (0–100). */
+export function categoryProgress(application: Application): number {
+  const status = resolveWorkflowStatus(application)
+  const stages = activeCategoryStages(application).filter((s) => !s.terminal && s.mandatory !== false)
+  if (!stages.length) return 0
+  const currentOrder = getStageDef(application.type, status)?.order ?? 0
+  const minOrder = stages[0]?.order ?? 0
+  const maxOrder = stages[stages.length - 1]?.order ?? minOrder
+  if (maxOrder <= minOrder) return status === stages[0]?.key ? 0 : 100
+  const clamped = Math.min(Math.max(currentOrder, minOrder), maxOrder)
+  return Math.round(((clamped - minOrder) / (maxOrder - minOrder)) * 100)
 }
 
 function stage(
@@ -448,11 +486,62 @@ export function getAvailableTransitions(
   })
 }
 
+/** Best next workflow step for agent “Advance” — prefers primary happy-path actions. */
+export function primaryNextTransition(
+  app: Application,
+  actorPermissions: Permission[],
+): WorkflowTransition | null {
+  const transitions = getAvailableTransitions(app, actorPermissions)
+  if (!transitions.length) return null
+  const toneRank: Record<string, number> = { primary: 0, secondary: 1, ghost: 2, danger: 3 }
+  return [...transitions].sort((a, b) => {
+    const ta = toneRank[a.tone ?? 'secondary'] ?? 1
+    const tb = toneRank[b.tone ?? 'secondary'] ?? 1
+    return ta - tb || a.label.localeCompare(b.label)
+  })[0]
+}
+
+export function workflowStageSelectOptions(type: Application['type']) {
+  return getWorkflowTemplate(type)
+    .stages.slice()
+    .sort((a, b) => a.order - b.order)
+    .map((s) => ({
+      key: s.key as WorkflowStatusKey,
+      label: s.label,
+      terminal: Boolean(s.terminal),
+    }))
+}
+
+export function canIssueLeaseApproval(app: Application, actorPermissions: Permission[]): boolean {
+  return getAvailableTransitions(app, actorPermissions).some(
+    (t) =>
+      t.effect === 'approve' ||
+      t.to === 'conditionally_approved' ||
+      t.actionKey === 'CONDITIONALLY_APPROVE' ||
+      t.actionKey === 'AGENT_APPROVE',
+  )
+}
+
+export function transitionGuardMessage(
+  app: Application,
+  transition: WorkflowTransition,
+): string | null {
+  if (!transition.guard) return null
+  const result = transition.guard(app)
+  return result === true ? null : typeof result === 'string' ? result : 'This step is not available yet.'
+}
+
 export function normalizeApplication(app: Application): Application {
-  const workflowStatus = resolveWorkflowStatus(app)
-  const stage = workflowStageLabel(app.type, workflowStatus)
-  const progress = workflowProgress(app.type, workflowStatus)
-  return { ...app, workflowStatus, stage, progress }
+  const documents = ensureApplicationDocuments(app)
+  const enriched = {
+    ...app,
+    documents,
+    docs: documents.filter((d) => d.status !== 'required').map((d) => d.label),
+  }
+  const workflowStatus = resolveWorkflowStatus(enriched)
+  const stage = workflowStageLabel(enriched.type, workflowStatus)
+  const progress = workflowProgress(enriched.type, workflowStatus)
+  return { ...enriched, workflowStatus, stage, progress }
 }
 
 export function applyWorkflowTransition(

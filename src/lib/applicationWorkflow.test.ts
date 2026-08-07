@@ -2,13 +2,17 @@ import { describe, expect, it } from 'vitest'
 import type { Application } from '../types/domain'
 import {
   applyWorkflowTransition,
+  activeCategoryStages,
+  activeWorkflowCategory,
+  categoryProgress,
   getAvailableTransitions,
   normalizeApplication,
+  primaryNextTransition,
   resolveWorkflowStatus,
   workflowProgress,
   workflowStageLabel,
 } from './applicationWorkflow'
-import { buildDocumentChecklist } from './workflow'
+import { buildDocumentChecklist, ensureApplicationDocuments } from './workflow'
 
 function rentalApp(overrides: Partial<Application> = {}): Application {
   return {
@@ -65,5 +69,45 @@ describe('applicationWorkflow', () => {
     expect(app.workflowStatus).toBe('fica_verification')
     expect(workflowStageLabel('Rental', 'fica_verification')).toBe('FICA verification')
     expect(workflowProgress('Rental', 'fica_verification')).toBeGreaterThan(0)
+  })
+
+  it('backfills empty document checklists on normalize', () => {
+    const app = normalizeApplication(
+      rentalApp({ documents: [], stage: 'Application started', workflowStatus: 'application_started' }),
+    )
+    expect(app.documents.length).toBeGreaterThan(0)
+    expect(app.documents.every((d) => d.status === 'required')).toBe(true)
+  })
+
+  it('ensureApplicationDocuments preserves uploaded statuses', () => {
+    const partial = ensureApplicationDocuments({
+      type: 'Rental',
+      documents: [{ key: 'id', label: 'Old label', status: 'uploaded' }],
+    })
+    expect(partial.find((d) => d.key === 'id')?.status).toBe('uploaded')
+    expect(partial.length).toBe(buildDocumentChecklist('Rental').length)
+  })
+
+  it('suggests submit application from application_started', () => {
+    const app = normalizeApplication(
+      rentalApp({ workflowStatus: 'application_started', stage: 'Application started' }),
+    )
+    const next = primaryNextTransition(app, ['applications.review'])
+    expect(next?.actionKey).toBe('SUBMIT_APPLICATION')
+  })
+
+  it('resolves active category and stages for current phase only', () => {
+    const app = normalizeApplication(
+      rentalApp({ workflowStatus: 'application_started', stage: 'Application started' }),
+    )
+    expect(activeWorkflowCategory(app)).toBe('application')
+    const stages = activeCategoryStages(app)
+    expect(stages.map((s) => s.key)).toEqual([
+      'application_started',
+      'application_submitted',
+      'documents_requested',
+      'documents_uploaded',
+    ])
+    expect(categoryProgress(app)).toBe(0)
   })
 })

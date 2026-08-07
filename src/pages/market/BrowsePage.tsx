@@ -6,7 +6,6 @@ import { useAuth } from '../../context/AuthContext'
 import { PropertyCard } from '../../components/PropertyCard'
 import { PropertyMap } from '../../components/PropertyMap'
 import { WishlistListView } from '../../components/wishlist/WishlistListView'
-import { AreaSearch } from '../../components/AreaSearch'
 import { usePrefersReducedMotion } from '../../hooks/useScrollMotion'
 import {
   BrowseFiltersBar,
@@ -22,12 +21,6 @@ import {
 } from '../../lib/api/unitsApi'
 import { blockedPropertyIdsForApplicant } from '../../lib/blockedApplicants'
 import { useWishlist } from '../../hooks/useWishlist'
-import {
-  encodeAreasParam,
-  parseAreasParam,
-  propertyMatchesAreas,
-  type Place,
-} from '../../lib/placeCatalog'
 import { usePageMeta } from '../../hooks/usePageMeta'
 import { FullScreenSheet } from '../../components/layout/mobile/FullScreenSheet'
 
@@ -42,19 +35,15 @@ function matchesFilters(
   q: string,
   mode: string,
   f: BrowseFilterState,
-  areas: readonly Place[],
 ): boolean {
   if (['Draft', 'Archived', 'Maintenance'].includes(p.status)) return false
-
-  if (!propertyMatchesAreas(p, areas)) return false
 
   const matchQ =
     !q ||
     p.title.toLowerCase().includes(q.toLowerCase()) ||
     p.type.toLowerCase().includes(q.toLowerCase()) ||
-    (!areas.length &&
-      (p.city.toLowerCase().includes(q.toLowerCase()) ||
-        p.suburb.toLowerCase().includes(q.toLowerCase())))
+    p.city.toLowerCase().includes(q.toLowerCase()) ||
+    p.suburb.toLowerCase().includes(q.toLowerCase())
 
   if (!matchQ) return false
 
@@ -127,7 +116,6 @@ export default function BrowsePage() {
   const [params, setParams] = useSearchParams()
   const q = params.get('q') ?? ''
   const mode = params.get('mode') ?? 'all'
-  const areas = useMemo(() => parseAreasParam(params.get('areas')), [params])
   const [filters, setFilters] = useState<BrowseFilterState>(defaultBrowseFilters)
   const [panelOpen, setPanelOpen] = useState(false)
   const [showMap, setShowMap] = useState(!savedOnly)
@@ -138,15 +126,13 @@ export default function BrowsePage() {
 
   const browseTitle = savedOnly
     ? 'Saved homes'
-    : areas.length
-      ? `Homes in ${areas.map((a) => a.label).join(', ')}`
-      : q
-        ? `Results for “${q}”`
-        : mode === 'rent'
-          ? 'Properties to rent'
-          : mode === 'buy'
-            ? 'Properties for sale'
-            : 'Browse properties'
+    : q
+      ? `Results for “${q}”`
+      : mode === 'rent'
+        ? 'Properties to rent'
+        : mode === 'buy'
+          ? 'Properties for sale'
+          : 'Browse properties'
 
   usePageMeta({
     title: browseTitle,
@@ -169,25 +155,14 @@ export default function BrowsePage() {
   }, [publicProperties, blockedIds, savedOnly, wishlistIds])
 
   const visibleStoreProperties = useMemo(
-    () => publicProperties.filter((p) => !blockedIds.has(p.id) && propertyMatchesAreas(p, areas)),
-    [publicProperties, blockedIds, areas],
+    () => publicProperties.filter((p) => !blockedIds.has(p.id)),
+    [publicProperties, blockedIds],
   )
 
   const filtered = useMemo(() => {
-    const list = properties.filter((p) => matchesFilters(p, q, mode, filters, areas))
+    const list = properties.filter((p) => matchesFilters(p, q, mode, filters))
     return sortProperties(list, filters.sort, mode)
-  }, [properties, q, mode, filters, areas])
-
-  const setAreas = useCallback(
-    (nextAreas: Place[]) => {
-      const next = new URLSearchParams(params)
-      if (nextAreas.length) next.set('areas', encodeAreasParam(nextAreas))
-      else next.delete('areas')
-      setParams(next)
-      setCursor(null)
-    },
-    [params, setParams],
-  )
+  }, [properties, q, mode, filters])
 
   /** Prefer infra units feed when units exist — cursor-paginated, card-ready. */
   const unitsFeed = useMemo(() => {
@@ -220,7 +195,7 @@ export default function BrowsePage() {
         limit: 24,
       },
     })
-  }, [state.units, state.buildings, state.users, visibleStoreProperties, q, mode, filters, cursor, savedOnly, areas])
+  }, [state.units, state.buildings, state.users, visibleStoreProperties, q, mode, filters, cursor, savedOnly])
 
   const cards: UnitCardPayload[] = useMemo(() => {
     const raw = unitsFeed
@@ -231,22 +206,13 @@ export default function BrowsePage() {
             : undefined
           return propertyToUnitCard(p, building)
         })
-    const areaFiltered = raw.filter((c) => {
-      if (!c.property_id) return true
-      if (blockedIds.has(c.property_id)) return false
-      if (!areas.length) return true
-      const prop =
-        state.properties.find((p) => p.id === c.property_id) ??
-        properties.find((p) => p.id === c.property_id)
-      return prop ? propertyMatchesAreas(prop, areas) : false
-    })
-    return areaFiltered
-  }, [unitsFeed, filtered, state.buildings, state.properties, properties, blockedIds, areas])
+    return raw.filter((c) => !c.property_id || !blockedIds.has(c.property_id))
+  }, [unitsFeed, filtered, state.buildings, blockedIds])
 
   const getCount = useCallback(
     (draft: BrowseFilterState) =>
-      properties.filter((p) => matchesFilters(p, q, mode, draft, areas)).length,
-    [properties, q, mode, areas],
+      properties.filter((p) => matchesFilters(p, q, mode, draft)).length,
+    [properties, q, mode],
   )
 
   const setMode = (m: string) => {
@@ -294,11 +260,9 @@ export default function BrowsePage() {
               <h1 className="font-display text-2xl font-semibold text-ink">
                 {savedOnly
                   ? 'Wishlist'
-                  : areas.length
-                    ? `Homes in ${areas.map((a) => a.label).join(', ')}`
-                    : q
-                      ? `Results for “${q}”`
-                      : 'Browse properties'}
+                  : q
+                    ? `Results for “${q}”`
+                    : 'Browse properties'}
               </h1>
               <p className="text-sm text-ink-500">
                 {savedOnly
@@ -308,11 +272,6 @@ export default function BrowsePage() {
               {savedOnly && cards.length === 0 && (
                 <p className="mt-2 flex items-center gap-1.5 text-sm text-ink-500">
                   <Heart className="h-4 w-4 text-accent" /> Tap the heart on any listing to save it here.
-                </p>
-              )}
-              {!savedOnly && areas.length > 0 && cards.length === 0 && (
-                <p className="mt-2 text-sm text-ink-500">
-                  No homes in {areas.map((a) => a.label).join(', ')} — clear areas or broaden filters.
                 </p>
               )}
             </div>
@@ -375,27 +334,6 @@ export default function BrowsePage() {
               )}
             </div>
           </div>
-
-          {!savedOnly && (
-            <div className="mt-4">
-              <AreaSearch
-                value={areas}
-                onChange={setAreas}
-                compact
-                showNearMe
-                placeholder="Add suburbs or city…"
-                onSubmit={({ areas: next, keyword }) => {
-                  setAreas(next)
-                  const nextParams = new URLSearchParams(params)
-                  if (keyword) nextParams.set('q', keyword)
-                  else nextParams.delete('q')
-                  if (next.length) nextParams.set('areas', encodeAreasParam(next))
-                  else nextParams.delete('areas')
-                  setParams(nextParams)
-                }}
-              />
-            </div>
-          )}
 
           <div data-tip-target="browse-filters">
             <BrowseFiltersBar

@@ -93,7 +93,32 @@ export const monthLeads: Lead[] = [
   },
 ]
 
-export const monthApplications: Application[] = []
+export const monthApplications: Application[] = [
+  {
+    id: 'APP-905',
+    agencyId: 'ag-horizon',
+    propertyId: 'PR-1001',
+    agentId: 'u-lerato',
+    applicantUserId: null,
+    applicantName: 'Nomsa Dlamini',
+    email: 'nomsa.d@email.com',
+    phone: '+27 71 883 1102',
+    type: 'Purchase',
+    workflowStatus: 'application_submitted',
+    stage: 'Application Submitted',
+    progress: 48,
+    income: 92000,
+    employment: 'Standard Bank — Analyst',
+    creditCheck: 'Not Started',
+    creditConsent: true,
+    documents: [],
+    docs: ['ID', 'Payslips'],
+    viewingSlotId: null,
+    notes: 'Linked from CRM lead LD-2202.',
+    submittedAt: '2026-07-21',
+    updatedAt: '2026-07-21',
+  },
+]
 
 export const monthViewingSlots: ViewingSlot[] = [
   {

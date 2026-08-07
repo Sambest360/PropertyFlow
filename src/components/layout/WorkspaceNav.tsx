@@ -3,23 +3,16 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronDown,
   CircleHelp,
-  ClipboardList,
-  Heart,
-  LayoutDashboard,
   LogOut,
-  MessageCircle,
   PanelLeftClose,
   PanelLeftOpen,
-  Wrench,
-  AlertTriangle,
 } from 'lucide-react'
 import { BrandLogo } from './BrandLogo'
 import { cn } from '../ui'
 import {
-  filterWorkspaceNav,
   findActiveNavGroupId,
   findActiveNavLink,
-  getWorkspaceNav,
+  buildWorkspaceNavForActor,
   pathMatches,
   type FlatNavItem,
   type NavGroup,
@@ -27,8 +20,9 @@ import {
 } from './navigation'
 import { useAuth } from '../../context/AuthContext'
 import { useStore } from '../../context/AppStore'
-import { ACCOUNT_WISHLIST_PATH } from '../../lib/accountRoutes'
 import { tenantHasApprovedOccupancy } from '../../lib/tenantOccupancy'
+import { isAgencyStaff } from '../../lib/permissions'
+import type { Permission } from '../../types/domain'
 import { usePrefersReducedMotion } from '../../hooks/useScrollMotion'
 import { useNavCollapsed } from '../../hooks/useNavCollapsed'
 
@@ -36,102 +30,32 @@ const ICON_STROKE = 1.6
 /** How far the active pill overlaps past the sidebar edge into the page */
 const ACTIVE_OVERLAP_PX = 10
 
+/** Staff modules — tenants with these use the normal workspace tree, not applicant prepend. */
+const TENANT_STAFF_NAV_SIGNALS: Permission[] = [
+  'assets.view',
+  'leads.view',
+  'users.manage',
+  'applications.view',
+  'applications.review',
+  'maintenance.manage',
+  'platform.manage',
+  'reports.view',
+]
+
 export function useWorkspaceNav(): WorkspaceNavEntry[] {
   const { has, hasAny, role, user } = useAuth()
   const { state } = useStore()
   return useMemo(() => {
-    const filtered = filterWorkspaceNav(getWorkspaceNav(), has, hasAny)
-    // Portal actors: Dashboard is their portal home — drop the redundant Portals group.
-    const portalHome =
-      role === 'contractor' && has('portal.contractor')
-        ? '/workspace/portals/contractor'
-        : role === 'landlord' && has('portal.owner')
-          ? '/workspace/portals/owner'
-          : role === 'tenant' && has('portal.tenant')
-            ? '/workspace/portals/tenant'
-            : null
-    if (!portalHome) return filtered
+    const tenantHasStaffNav =
+      isAgencyStaff(role) || (role === 'tenant' && hasAny(TENANT_STAFF_NAV_SIGNALS))
 
-    // Tenants: surface Applications + Wishlist as top-level links (ops stay permission-gated).
-    if (role === 'tenant') {
-      const occupancyReady = tenantHasApprovedOccupancy(state.applications, state.tenancies, user)
-      const dashboard: WorkspaceNavEntry = {
-        type: 'link',
-        item: {
-          to: portalHome,
-          label: 'Dashboard',
-          end: true,
-          icon: LayoutDashboard,
-        },
-      }
-      const applications: WorkspaceNavEntry = {
-        type: 'link',
-        item: {
-          to: '/workspace/portals/tenant/applications',
-          label: 'My applications',
-          permission: 'portal.tenant',
-          icon: ClipboardList,
-        },
-      }
-      const wishlist: WorkspaceNavEntry = {
-        type: 'link',
-        item: {
-          to: ACCOUNT_WISHLIST_PATH,
-          label: 'Wishlist',
-          permission: 'portal.tenant',
-          icon: Heart,
-        },
-      }
-      const occupancyLinks: WorkspaceNavEntry[] = occupancyReady
-        ? [
-            {
-              type: 'link',
-              item: {
-                to: '/workspace/portals/tenant/maintenance',
-                label: 'Maintenance',
-                permission: 'maintenance.view',
-                icon: Wrench,
-              },
-            },
-            {
-              type: 'link',
-              item: {
-                to: '/workspace/portals/tenant/messages',
-                label: 'Messages',
-                permission: 'messages.manage',
-                icon: MessageCircle,
-              },
-            },
-            {
-              type: 'link',
-              item: {
-                to: '/workspace/portals/tenant/complaints',
-                label: 'Complaints',
-                permission: 'maintenance.view',
-                icon: AlertTriangle,
-              },
-            },
-          ]
-        : []
-      const rest = filtered.filter((entry) => {
-        if (entry.type === 'group' && entry.group.id === 'portals') return false
-        if (entry.type === 'link' && entry.item.to === '/workspace' && entry.item.end) return false
-        return true
-      })
-      return [dashboard, applications, wishlist, ...occupancyLinks, ...rest]
-    }
-
-    return filtered
-      .map((entry) => {
-        if (entry.type === 'link' && entry.item.to === '/workspace' && entry.item.end) {
-          return {
-            type: 'link' as const,
-            item: { ...entry.item, to: portalHome, end: true, label: 'Dashboard' },
-          }
-        }
-        return entry
-      })
-      .filter((entry) => !(entry.type === 'group' && entry.group.id === 'portals'))
+    return buildWorkspaceNavForActor({
+      role,
+      has,
+      hasAny,
+      tenantHasStaffNav,
+      tenantOccupancyReady: tenantHasApprovedOccupancy(state.applications, state.tenancies, user),
+    })
   }, [has, hasAny, role, user, state.applications, state.tenancies])
 }
 

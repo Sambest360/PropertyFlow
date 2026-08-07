@@ -74,7 +74,7 @@ export function listContractorsAvailableForRoster(
 }
 
 export function isContractorApprovedForAgency(
-  roster: AgencyContractor[],
+  roster: readonly AgencyContractor[],
   agencyId: string,
   contractorUserId: string,
 ): boolean {
@@ -110,4 +110,29 @@ export function openJobsForContractor(tickets: MaintenanceTicket[], contractorUs
   return ticketsForContractor(tickets, contractorUserId).filter(
     (t) => t.status !== 'Completed' && t.status !== 'Cancelled',
   )
+}
+
+/** Agency ids where this contractor is on the approved roster. */
+export function contractorApprovedAgencyIds(
+  roster: readonly AgencyContractor[],
+  contractorUserId: string,
+): Set<string> {
+  return new Set(
+    roster
+      .filter((r) => r.contractorUserId === contractorUserId && r.status === 'approved')
+      .map((r) => r.agencyId),
+  )
+}
+
+/** Whether a contractor may self-assign an open maintenance ticket. */
+export function canContractorClaimTicket(
+  user: Pick<AppUser, 'id' | 'role' | 'active' | 'verification'>,
+  ticket: Pick<MaintenanceTicket, 'contractorId' | 'agencyId' | 'status'>,
+  roster: readonly AgencyContractor[],
+): boolean {
+  if (user.role !== 'contractor' || !user.active) return false
+  if (!isVerificationApproved(user.verification, user.role)) return false
+  if (ticket.contractorId) return false
+  if (ticket.status === 'Completed' || ticket.status === 'Cancelled') return false
+  return isContractorApprovedForAgency(roster, ticket.agencyId, user.id)
 }

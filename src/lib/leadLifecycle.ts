@@ -2,12 +2,23 @@ export const CLOSED_LEAD_STAGES = ['Lease Signed', 'Sale Completed', 'Rejected']
 
 export type ClosedLeadStage = (typeof CLOSED_LEAD_STAGES)[number]
 
+export const LEAD_CLOSE_STAGE = 'Rejected' as const
+
 export function isClosedLeadStage(stage: string): boolean {
   return (CLOSED_LEAD_STAGES as readonly string[]).includes(stage)
 }
 
 export function isOpenLeadStage(stage: string): boolean {
   return !isClosedLeadStage(stage)
+}
+
+/** Managers or the assigned agent may close an open lead. */
+export function canCloseLead(
+  lead: { stage: string; agentId: string | null },
+  opts: { userId: string; canManageLeads: boolean },
+): boolean {
+  if (isClosedLeadStage(lead.stage)) return false
+  return opts.canManageLeads || lead.agentId === opts.userId
 }
 
 /** Human-readable lead timestamp from ISO date or datetime strings. */

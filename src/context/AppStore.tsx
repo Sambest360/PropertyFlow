@@ -60,6 +60,8 @@ import {
   resolveWorkflowStatus,
   type WorkflowStatusKey,
 } from '../lib/applicationWorkflow'
+import { isApplicantAcceptanceStatus } from '../lib/applicantPortalActions'
+import { notifyAcceptedElsewhere } from '../lib/applicantAcceptance'
 import {
   isContractorApprovedForAgency,
   syncTicketPhotoCount,
@@ -397,6 +399,10 @@ type StoreContextValue = {
     } | null
   }) => void
   updateLeadStage: (id: string, stage: string) => void
+  closeLead: (
+    id: string,
+    reason: string,
+  ) => { ok: true; leadId: string } | { ok: false; reason: string }
   createApplication: (input: {
     agencyId: string
     propertyId: string
@@ -560,6 +566,7 @@ function loadState(): AppState {
       })),
       users: parsed.users ?? base.users,
       properties: parsed.properties ?? base.properties,
+      applications: (parsed.applications ?? base.applications).map(normalizeApplication),
     }
   } catch {
     return base
@@ -2048,6 +2055,38 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         })
       }
     },
+    closeLead: (id, reason) => {
+      const prev = state.leads.find((l) => l.id === id)
+      if (!prev) return { ok: false, reason: 'Lead not found.' }
+      if (['Lease Signed', 'Sale Completed', 'Rejected'].includes(prev.stage)) {
+        return { ok: false, reason: 'This lead is already closed.' }
+      }
+      const trimmed = reason.trim()
+      if (trimmed.length < 4) {
+        return { ok: false, reason: 'A close reason is required.' }
+      }
+      const updatedAt = new Date().toISOString().slice(0, 10)
+      const stage = 'Rejected'
+      const notes = prev.notes.trim()
+        ? `${prev.notes.trim()}\n\nClosed (${updatedAt}): ${trimmed}`
+        : `Closed (${updatedAt}): ${trimmed}`
+      patch((s) => ({
+        ...s,
+        leads: s.leads.map((l) =>
+          l.id === id ? { ...l, stage, updatedAt, notes } : l,
+        ),
+      }))
+      persistUpsert('lead', id, { ...prev, stage, updatedAt, notes } as unknown as Record<string, unknown>)
+      emitSuiteEvent({
+        agencyId: prev.agencyId,
+        resource: 'applicant',
+        action: 'updated',
+        title: 'Lead closed',
+        body: `${prev.name} was marked rejected — ${trimmed}`,
+        link: `/workspace/sales/crm/${encodeURIComponent(id)}`,
+      })
+      return { ok: true, leadId: id }
+    },
     createApplication: (input) => {
       const property = state.properties.find((p) => p.id === input.propertyId)
       const unit = resolveUnitForProperty(property, state.units)
@@ -2144,7 +2183,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           agencyId: input.agencyId,
           title: 'Application submitted',
           body: `Your ${input.type.toLowerCase()} application for ${property?.title ?? 'the listing'} was received.`,
-          link: '/workspace/portals/tenant/applications',
+          link: `/workspace/portals/tenant/applications/${encodeURIComponent(app.id)}`,
           resource: 'applicant',
           action: 'created',
         })
@@ -2176,7 +2215,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             agencyId: prev.agencyId,
             title: 'Application update',
             body: `Your application for ${state.properties.find((x) => x.id === prev.propertyId)?.title ?? 'a listing'} is now: ${p.stage}.`,
-            link: '/workspace/portals/tenant/applications',
+            link: `/workspace/portals/tenant/applications/${encodeURIComponent(id)}`,
             resource: 'applicant',
             action: 'updated',
           })
@@ -2468,6 +2507,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             workflowStatus: 'deposit_invoice_sent',
           })
           persistUpsert('application', applicationId, normalized as unknown as Record<string, unknown>)
+          if (isApplicantAcceptanceStatus('deposit_invoice_sent')) {
+            notifyAcceptedElsewhere({
+              accepted: normalized,
+              property: state.properties.find((p) => p.id === normalized.propertyId),
+              applications: state.applications.map((a) =>
+                a.id === applicationId ? normalized : a,
+              ),
+              users: state.users,
+              notify,
+              emitSuiteEvent,
+            })
+          }
           return { ...result, application: normalized }
         }
         return result
@@ -2503,6 +2554,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         actorUser?.name ?? 'Agency',
         updated.agencyId,
       )
+      if (isApplicantAcceptanceStatus(targetStatus)) {
+        notifyAcceptedElsewhere({
+          accepted: updated,
+          property: state.properties.find((p) => p.id === updated.propertyId),
+          applications: state.applications.map((a) => (a.id === applicationId ? updated : a)),
+          users: state.users,
+          notify,
+          emitSuiteEvent,
+        })
+      }
       return { status: 'SUCCESS', application: updated }
     },
     patchApplicationStatus: ({ applicationId, actorUserId, request }) => {

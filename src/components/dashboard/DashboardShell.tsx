@@ -20,7 +20,7 @@ export function DashboardSplit({
       )}
     >
       <section className="flex min-h-0 min-w-0 flex-col">{left}</section>
-      <section className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto xl:min-h-[36rem] xl:max-h-[calc(100dvh-10rem)]">
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto xl:min-h-[36rem] xl:max-h-[calc(100dvh-10rem)]">
         {right}
       </section>
     </div>

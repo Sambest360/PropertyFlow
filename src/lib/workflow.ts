@@ -1,4 +1,4 @@
-import type { ApplicationDocument, ApplicationStage } from '../types/domain'
+import type { Application, ApplicationDocument, ApplicationStage } from '../types/domain'
 
 /** Standard SA rental / purchase screening documents (FICA + POPIA-aligned). */
 export const RENTAL_DOCUMENTS: Omit<ApplicationDocument, 'status'>[] = [
@@ -67,6 +67,19 @@ export const STAGE_PROGRESS: Record<ApplicationStage, number> = {
 export function buildDocumentChecklist(type: 'Purchase' | 'Rental'): ApplicationDocument[] {
   const list = type === 'Purchase' ? PURCHASE_DOCUMENTS : RENTAL_DOCUMENTS
   return list.map((d) => ({ ...d, status: 'required' as const }))
+}
+
+/** Backfill missing checklist rows (legacy / API apps often store documents: []). */
+export function ensureApplicationDocuments(
+  app: Pick<Application, 'type' | 'documents'>,
+): ApplicationDocument[] {
+  const template = buildDocumentChecklist(app.type)
+  if (!app.documents?.length) return template
+  const existing = new Map(app.documents.map((d) => [d.key, d]))
+  return template.map((item) => {
+    const found = existing.get(item.key)
+    return found ? { ...item, ...found, label: item.label } : item
+  })
 }
 
 export function docsProgress(documents: ApplicationDocument[]) {

@@ -4,7 +4,9 @@ import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { DashboardTabs } from '../components/dashboard/DashboardTabs'
 import { Card } from '../components/ui'
-import { STAGE_PROGRESS } from '../lib/workflow'
+import { normalizeApplication } from '../lib/applicationWorkflow'
+import { rolePermissions } from '../lib/permissions'
+import { useSuiteAlert } from '../components/alerts/SuiteAlert'
 import { PropertyDetailHeader } from '../components/property-detail/PropertyDetailHeader'
 import { PropertyOverviewPanel } from '../components/property-detail/PropertyOverviewPanel'
 import { PropertyMapPanel } from '../components/property-detail/PropertyMapPanel'
@@ -21,7 +23,6 @@ import {
   isPropertyDetailTab,
   type PropertyDetailTab,
 } from '../components/property-detail/types'
-import type { ApplicationStage } from '../types/domain'
 import type { AssetCondition } from '../data/infrastructure'
 import { isVerificationApproved } from '../lib/verification'
 import { validatePropertyReadyToPublish } from '../lib/propertyStatus'
@@ -52,7 +53,7 @@ export default function PropertyDetail() {
     updateTicket,
     removeTicket,
     approveApplication,
-    advanceApplication,
+    advanceApplicationWorkflow,
     updateApplication,
     blockApplication,
     setDocumentStatus,
@@ -68,6 +69,8 @@ export default function PropertyDetail() {
   } = useStore()
   const { has, user } = useAuth()
   const { inPropertyScope } = usePropertyScope()
+  const alert = useSuiteAlert()
+  const reviewPermissions = rolePermissions[user.role] ?? []
 
   const p = state.properties.find((x) => x.id === id)
 
@@ -392,23 +395,83 @@ export default function PropertyDetail() {
         <PropertyApplicantsPanel
           applications={apps}
           canReview={canReview}
-          onAdvance={(appId) => advanceApplication(appId)}
-          onApprove={(appId) => approveApplication(appId)}
-          onSetDocStatus={setDocumentStatus}
-          onSetStage={(appId, stage) => {
-            const prev = apps.find((a) => a.id === appId)
-            updateApplication(appId, {
-              stage,
-              progress: STAGE_PROGRESS[stage as ApplicationStage] ?? prev?.progress,
+          reviewPermissions={reviewPermissions}
+          onAdvance={async (appId, targetStatus) => {
+            const result = advanceApplicationWorkflow({
+              applicationId: appId,
+              actorUserId: user.id,
+              targetStatus,
             })
-            if (prev && prev.stage !== stage) {
+            if (result.status === 'ERROR') {
+              await alert.success({
+                title: 'Could not advance',
+                text: result.error ?? 'This workflow step is not available yet.',
+                tone: 'danger',
+              })
+              return
+            }
+            const prev = apps.find((a) => a.id === appId)
+            if (prev && result.application.stage !== prev.stage) {
+              addPropertyEvent({
+                agencyId: p.agencyId,
+                propertyId: p.id,
+                actorUserId: user.id,
+                actorName: user.name,
+                action: 'advanced an Application',
+                changes: [{ field: 'Stage', from: prev.stage, to: result.application.stage }],
+              })
+            }
+            await alert.success({
+              title: 'Application updated',
+              text: result.application.stage,
+            })
+          }}
+          onApprove={async (appId) => {
+            const result = approveApplication(appId)
+            if (result.status === 'ERROR') {
+              await alert.success({
+                title: 'Approval failed',
+                text: result.error ?? 'Could not approve this application.',
+                tone: 'danger',
+              })
+              return
+            }
+            const prev = apps.find((a) => a.id === appId)
+            if (prev) {
+              addPropertyEvent({
+                agencyId: p.agencyId,
+                propertyId: p.id,
+                actorUserId: user.id,
+                actorName: user.name,
+                action: 'approved an Applicant',
+                changes: [{ field: 'Stage', from: prev.stage, to: result.application.stage }],
+              })
+            }
+            await alert.success({
+              title: 'Applicant approved',
+              text: 'Deposit invoice and lease steps are ready on the application profile.',
+            })
+          }}
+          onSetDocStatus={setDocumentStatus}
+          onSetWorkflowStage={(appId, workflowStatus) => {
+            const prev = apps.find((a) => a.id === appId)
+            if (!prev) return
+            const updated = normalizeApplication({ ...prev, workflowStatus })
+            updateApplication(appId, {
+              workflowStatus: updated.workflowStatus,
+              stage: updated.stage,
+              progress: updated.progress,
+              documents: updated.documents,
+              docs: updated.docs,
+            })
+            if (prev.stage !== updated.stage) {
               addPropertyEvent({
                 agencyId: p.agencyId,
                 propertyId: p.id,
                 actorUserId: user.id,
                 actorName: user.name,
                 action: 'changed the Application stage',
-                changes: [{ field: 'Stage', from: prev.stage, to: stage }],
+                changes: [{ field: 'Stage', from: prev.stage, to: updated.stage }],
               })
             }
           }}

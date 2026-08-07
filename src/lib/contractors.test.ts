@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import type { AgencyContractor, AppUser } from '../types/domain'
-import { isContractorApprovedForAgency, listApprovedContractors, listContractorsAvailableForRoster } from './contractors'
+import type { AgencyContractor, AppUser, MaintenanceTicket } from '../types/domain'
+import {
+  canContractorClaimTicket,
+  contractorApprovedAgencyIds,
+  isContractorApprovedForAgency,
+  listApprovedContractors,
+  listContractorsAvailableForRoster,
+} from './contractors'
 
 const users: AppUser[] = [
   {
@@ -47,5 +53,55 @@ describe('contractors', () => {
   it('lists contractors available for roster including other agencies', () => {
     expect(listContractorsAvailableForRoster(roster, users, 'ag-1')).toEqual([users[1]])
     expect(listContractorsAvailableForRoster(roster, users, 'ag-2')).toEqual(users)
+  })
+
+  it('resolves roster-approved agency ids', () => {
+    expect([...contractorApprovedAgencyIds(roster, 'c1')]).toEqual(['ag-1'])
+    expect(contractorApprovedAgencyIds(roster, 'missing').size).toBe(0)
+  })
+
+  it('allows claim when verified and roster-approved', () => {
+    const contractor: AppUser = {
+      ...users[0],
+      verification: { status: 'approved' },
+    }
+    const openTicket: Pick<MaintenanceTicket, 'contractorId' | 'agencyId' | 'status'> = {
+      contractorId: null,
+      agencyId: 'ag-1',
+      status: 'Requested',
+    }
+    expect(canContractorClaimTicket(contractor, openTicket, roster)).toBe(true)
+  })
+
+  it('blocks claim when verification pending', () => {
+    const contractor: AppUser = {
+      ...users[0],
+      verification: { status: 'pending' },
+    }
+    expect(
+      canContractorClaimTicket(
+        contractor,
+        { contractorId: null, agencyId: 'ag-1', status: 'Requested' },
+        roster,
+      ),
+    ).toBe(false)
+  })
+
+  it('blocks claim when already assigned or not on roster', () => {
+    const contractor: AppUser = { ...users[0], verification: { status: 'approved' } }
+    expect(
+      canContractorClaimTicket(
+        contractor,
+        { contractorId: 'other', agencyId: 'ag-1', status: 'In Progress' },
+        roster,
+      ),
+    ).toBe(false)
+    expect(
+      canContractorClaimTicket(
+        contractor,
+        { contractorId: null, agencyId: 'ag-9', status: 'Requested' },
+        roster,
+      ),
+    ).toBe(false)
   })
 })

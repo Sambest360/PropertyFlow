@@ -60,6 +60,8 @@ const AdminAgencyCreatePage = lazy(() => import('./pages/admin/AdminAgencyCreate
 const AgencyDetailPage = lazy(() => import('./pages/admin/AgencyDetailPage'))
 const AdminConfigPage = lazy(() => import('./pages/admin/AdminConfigPage'))
 const AdminNotificationsPage = lazy(() => import('./pages/admin/AdminNotificationsPage'))
+const AdminAllUsersPage = lazy(() => import('./pages/admin/AdminAllUsersPage'))
+const TenantApplicationDetailPage = lazy(() => import('./pages/tenant/TenantApplicationDetailPage'))
 const PlatformBilling = lazy(() => import('./pages/PlatformBilling'))
 
 function PageFallback() {
@@ -269,6 +271,7 @@ export default function App() {
                 <Route path="portals/owner" element={<Guard permission="portal.owner"><OwnerPortal /></Guard>} />
                 <Route path="portals/tenant" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
                 <Route path="portals/tenant/applications" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
+                <Route path="portals/tenant/applications/:id" element={<Guard permission="portal.tenant"><TenantApplicationDetailPage /></Guard>} />
                 <Route path="portals/tenant/maintenance" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
                 <Route path="portals/tenant/messages" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
                 <Route path="portals/tenant/complaints" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
@@ -293,6 +296,7 @@ export default function App() {
                 <Route path="admin/config" element={<Guard anyOf={['config.manage', 'tenant.manage', 'platform.manage']}><AdminConfigPage /></Guard>} />
                 <Route path="admin/roles" element={<Navigate to="/workspace/admin/users" replace />} />
                 <Route path="admin/notifications" element={<Guard anyOf={['notifications.broadcast', 'platform.manage']}><AdminNotificationsPage /></Guard>} />
+                <Route path="admin/all-users" element={<Guard permission="platform.manage"><AdminAllUsersPage /></Guard>} />
                 <Route path="admin/suite-alerts" element={<Navigate to="/workspace/admin/notifications" replace />} />
                 <Route path="platform" element={<Navigate to="/workspace/admin/agencies" replace />} />
                 <Route path="platform/billing" element={<Guard permission="platform.manage"><PlatformBilling /></Guard>} />

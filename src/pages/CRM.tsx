@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, Fragment } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ArrowRight,
+  Archive,
   ChevronDown,
   Columns3,
   Plus,
@@ -27,9 +28,12 @@ import { useAgentDisplay, useHideAgentColumn } from '../hooks/useAgentDisplay'
 import { formatZAR } from '../data/seed'
 import {
   formatLeadTime,
+  canCloseLead,
   isClosedLeadStage,
   isOpenLeadStage,
 } from '../lib/leadLifecycle'
+import { CloseLeadModal } from '../components/lead-detail/CloseLeadModal'
+import { useSuiteAlert } from '../components/alerts/SuiteAlert'
 import type { Lead } from '../types/domain'
 import { useLookupOptions } from '../hooks/useLookupOptions'
 
@@ -87,11 +91,12 @@ function isActiveStage(stage: string) {
 }
 
 export default function CRM() {
-  const { state, createLead, updateLeadStage } = useStore()
+  const { state, createLead, updateLeadStage, closeLead, addPropertyEvent } = useStore()
   const { user, has } = useAuth()
   const { dealVisible, allowedPropertyIds, agencyId, canMutate } = usePropertyScope()
   const reducedMotion = usePrefersReducedMotion()
   const navigate = useNavigate()
+  const alert = useSuiteAlert()
   const [searchParams, setSearchParams] = useSearchParams()
   const [view, setView] = useState<LeadView>(() => readLeadView(searchParams.get('view')))
   const [q, setQ] = useState('')
@@ -104,7 +109,12 @@ export default function CRM() {
   )
   const [sort, setSort] = useState('created')
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [closeTarget, setCloseTarget] = useState<PortfolioLead | null>(null)
   const hideAgentColumn = useHideAgentColumn()
+
+  const canManageLeads = has('leads.manage')
+  const mayCloseLead = (lead: Lead) =>
+    canCloseLead(lead, { userId: user.id, canManageLeads })
 
   const leadStageOptions = useLookupOptions('LEAD_STAGE', agencyId)
   const leadStages = useMemo(() => {
@@ -257,13 +267,40 @@ export default function CRM() {
   }
 
   const advanceBoard = (item: PortfolioLead) => {
-    if (!has('leads.manage')) {
+    if (!canManageLeads) {
       openLead(item.lead.id)
       return
     }
     const idx = boardStages.indexOf(item.boardStage)
     const next = boardStages[Math.min(idx < 0 ? 0 : idx + 1, boardStages.length - 1)]
     if (next && next !== item.boardStage) updateLeadStage(item.lead.id, next)
+  }
+
+  const submitCloseLead = (reason: string) => {
+    if (!closeTarget) return
+    const prev = closeTarget.lead
+    const result = closeLead(prev.id, reason)
+    if (result.ok === false) {
+      void alert.success({ title: 'Could not close lead', text: result.reason, tone: 'danger' })
+      return
+    }
+    addPropertyEvent({
+      agencyId: prev.agencyId,
+      propertyId: prev.propertyId,
+      actorUserId: user.id,
+      actorName: user.name,
+      action: 'closed a Lead',
+      changes: [
+        { field: 'Stage', from: prev.stage, to: 'Rejected' },
+        { field: 'Reason', from: '—', to: reason },
+      ],
+    })
+    if (expandedId === prev.id) setExpandedId(null)
+    void alert.success({
+      title: 'Lead closed',
+      text: `${prev.name} was moved to History.`,
+    })
+    setCloseTarget(null)
   }
 
   const resultLabel =
@@ -464,7 +501,9 @@ export default function CRM() {
           <LeadBoard
             items={filtered}
             stages={boardStages}
-            canManage={has('leads.manage')}
+            canManage={canManageLeads}
+            mayClose={mayCloseLead}
+            onClose={(item) => setCloseTarget(item)}
             onAdvance={advanceBoard}
             onOpen={openLead}
             reducedMotion={reducedMotion}
@@ -474,6 +513,8 @@ export default function CRM() {
             items={filtered}
             expandedId={expandedId}
             onToggle={toggleExpand}
+            mayClose={mayCloseLead}
+            onClose={(item) => setCloseTarget(item)}
             reducedMotion={reducedMotion}
             hideAgentColumn={hideAgentColumn}
             timeField={leadTab === 'history' ? 'updatedAt' : 'createdAt'}
@@ -486,6 +527,8 @@ export default function CRM() {
                 key={item.lead.id}
                 item={item}
                 onOpen={() => openLead(item.lead.id)}
+                mayClose={mayCloseLead(item.lead)}
+                onClose={() => setCloseTarget(item)}
                 reducedMotion={reducedMotion}
                 hideAgent={hideAgentColumn}
                 timeField={leadTab === 'history' ? 'updatedAt' : 'createdAt'}
@@ -493,6 +536,13 @@ export default function CRM() {
             ))}
           </div>
         )}
+
+        <CloseLeadModal
+          open={Boolean(closeTarget)}
+          leadName={closeTarget?.lead.name ?? ''}
+          onClose={() => setCloseTarget(null)}
+          onConfirm={submitCloseLead}
+        />
 
         {filtersActive && filtered.length > 0 && (
           <div className="mt-4 flex justify-end">
@@ -507,12 +557,16 @@ export default function CRM() {
 function LeadBoardCard({
   item,
   canManage,
+  mayClose,
+  onClose,
   onAdvance,
   onOpen,
   reducedMotion,
 }: {
   item: PortfolioLead
   canManage: boolean
+  mayClose: (lead: Lead) => boolean
+  onClose: (item: PortfolioLead) => void
   onAdvance: (item: PortfolioLead) => void
   onOpen: (id: string) => void
   reducedMotion?: boolean
@@ -552,6 +606,15 @@ function LeadBoardCard({
             Advance stage
           </button>
         )}
+        {mayClose(item.lead) && (
+          <button
+            type="button"
+            className="mt-1 min-h-11 text-[10px] font-semibold uppercase tracking-wide text-accent hover:underline"
+            onClick={() => onClose(item)}
+          >
+            Close lead
+          </button>
+        )}
       </div>
     </li>
   )
@@ -561,6 +624,8 @@ function LeadBoard({
   items,
   stages,
   canManage,
+  mayClose,
+  onClose,
   onAdvance,
   onOpen,
   reducedMotion,
@@ -568,6 +633,8 @@ function LeadBoard({
   items: PortfolioLead[]
   stages: string[]
   canManage: boolean
+  mayClose: (lead: Lead) => boolean
+  onClose: (item: PortfolioLead) => void
   onAdvance: (item: PortfolioLead) => void
   onOpen: (id: string) => void
   reducedMotion?: boolean
@@ -588,6 +655,8 @@ function LeadBoard({
                   key={item.lead.id}
                   item={item}
                   canManage={canManage}
+                  mayClose={mayClose}
+                  onClose={onClose}
                   onAdvance={onAdvance}
                   onOpen={onOpen}
                   reducedMotion={reducedMotion}
@@ -608,6 +677,8 @@ function LeadList({
   items,
   expandedId,
   onToggle,
+  mayClose,
+  onClose,
   reducedMotion,
   hideAgentColumn,
   timeField,
@@ -616,6 +687,8 @@ function LeadList({
   items: PortfolioLead[]
   expandedId: string | null
   onToggle: (item: PortfolioLead) => void
+  mayClose: (lead: Lead) => boolean
+  onClose: (item: PortfolioLead) => void
   reducedMotion?: boolean
   hideAgentColumn?: boolean
   timeField: 'createdAt' | 'updatedAt'
@@ -748,7 +821,12 @@ function LeadList({
                     {expanded && (
                       <tr className="border-b border-primary-100 bg-primary-50/60">
                         <td colSpan={colSpan} className="px-4 py-4 sm:px-5">
-                          <LeadExpansion item={item} reducedMotion={reducedMotion} />
+                          <LeadExpansion
+                            item={item}
+                            reducedMotion={reducedMotion}
+                            mayClose={mayClose(item.lead)}
+                            onClose={() => onClose(item)}
+                          />
                         </td>
                       </tr>
                     )}
@@ -802,7 +880,12 @@ function LeadList({
               </button>
               {expanded && (
                 <div className="border-t border-primary-100/80 px-4 py-4">
-                  <LeadExpansion item={item} reducedMotion={reducedMotion} />
+                  <LeadExpansion
+                    item={item}
+                    reducedMotion={reducedMotion}
+                    mayClose={mayClose(item.lead)}
+                    onClose={() => onClose(item)}
+                  />
                 </div>
               )}
             </li>
@@ -816,9 +899,13 @@ function LeadList({
 function LeadExpansion({
   item,
   reducedMotion,
+  mayClose,
+  onClose,
 }: {
   item: PortfolioLead
   reducedMotion?: boolean
+  mayClose?: boolean
+  onClose?: () => void
 }) {
   const l = item.lead
   const detailTo = `/workspace/sales/crm/${encodeURIComponent(l.id)}`
@@ -881,6 +968,16 @@ function LeadExpansion({
               <ArrowRight className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
             </Button>
           </Link>
+          {mayClose && onClose ? (
+            <Button
+              variant="secondary"
+              className="min-h-11 cursor-pointer gap-2 rounded-2xl text-accent"
+              onClick={onClose}
+            >
+              <Archive className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+              Close lead
+            </Button>
+          ) : null}
         </div>
       </div>
     </div>
@@ -890,12 +987,16 @@ function LeadExpansion({
 function LeadCard({
   item,
   onOpen,
+  mayClose,
+  onClose,
   reducedMotion,
   hideAgent,
   timeField,
 }: {
   item: PortfolioLead
   onOpen: () => void
+  mayClose?: boolean
+  onClose?: () => void
   reducedMotion?: boolean
   hideAgent?: boolean
   timeField: 'createdAt' | 'updatedAt'
@@ -904,14 +1005,31 @@ function LeadCard({
   const { label: agentLabel } = useAgentDisplay()
   const agent = hideAgent ? null : agentLabel(l.agentId, item.agentName)
   return (
-    <button
-      type="button"
-      onClick={onOpen}
+    <div
       className={cn(
-        'w-full cursor-pointer rounded-[1.25rem] border border-primary-100/80 bg-white p-4 text-left shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)] transition-shadow duration-200 hover:shadow-[0_14px_28px_-16px_rgba(15,39,68,0.28)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+        'relative rounded-[1.25rem] border border-primary-100/80 bg-white shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)] transition-shadow duration-200 hover:shadow-[0_14px_28px_-16px_rgba(15,39,68,0.28)]',
         reducedMotion && 'transition-none',
       )}
     >
+      {mayClose && onClose ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onClose()
+          }}
+          className="absolute right-3 top-3 z-10 inline-flex min-h-9 cursor-pointer items-center gap-1 rounded-lg px-2 text-xs font-semibold text-accent transition-colors duration-200 hover:bg-accent-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          aria-label={`Close lead ${l.name}`}
+        >
+          <Archive className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} aria-hidden />
+          Close
+        </button>
+      ) : null}
+      <button
+        type="button"
+        onClick={onOpen}
+        className="w-full cursor-pointer p-4 pr-20 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      >
       <div className="flex items-start gap-3">
         <PersonAvatar name={l.name} />
         <div className="min-w-0 flex-1">
@@ -941,6 +1059,7 @@ function LeadCard({
           </span>
         </div>
       </div>
-    </button>
+      </button>
+    </div>
   )
 }

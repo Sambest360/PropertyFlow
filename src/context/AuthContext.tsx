@@ -518,6 +518,7 @@ export function usePropertyScope(): PropertyScope & {
         tickets: state.tickets,
         blockedPropertyIds,
         viewerEmail: user.email,
+        agencyContractors: state.agencyContractors,
       },
     )
   }, [
@@ -530,6 +531,7 @@ export function usePropertyScope(): PropertyScope & {
     state.applications,
     state.tenancies,
     state.tickets,
+    state.agencyContractors,
   ])
 
   const scopeAgency = (id: string | null | undefined) =>

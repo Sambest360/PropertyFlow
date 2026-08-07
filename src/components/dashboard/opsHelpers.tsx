@@ -89,16 +89,16 @@ export function EventCycleNav({
 }) {
   if (dayCount <= 1 && !hasMultiDay) return null
   return (
-    <div className="flex items-center justify-between gap-2 border-t border-primary-100 pt-3">
+    <div className="flex items-center gap-2">
       <button
         type="button"
         onClick={onPrev}
-        className="inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-xl text-ink-500 transition-colors duration-200 hover:bg-primary-50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        className="inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl text-ink-500 transition-colors duration-200 hover:bg-primary-50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         aria-label="Previous event"
       >
         <ChevronLeft className="h-4 w-4" strokeWidth={1.6} />
       </button>
-      <div className="min-w-0 text-center">
+      <div className="min-w-0 flex-1 px-1 text-center">
         <p className="text-xs font-semibold tabular text-ink">
           {dayCount > 0 ? `${index + 1} / ${dayCount}` : '—'}
         </p>
@@ -109,7 +109,7 @@ export function EventCycleNav({
       <button
         type="button"
         onClick={onNext}
-        className="inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-xl text-ink-500 transition-colors duration-200 hover:bg-primary-50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        className="inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl text-ink-500 transition-colors duration-200 hover:bg-primary-50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         aria-label="Next event"
       >
         <ChevronRight className="h-4 w-4" strokeWidth={1.6} />

@@ -12,6 +12,7 @@ import { CompleteTicketModal } from '../components/maintenance/CompleteTicketMod
 import { maintenanceEditHref } from './maintenance/MaintenanceEditPage'
 import { MaintenanceDetailHeader } from '../components/maintenance-detail/MaintenanceDetailHeader'
 import { MaintenanceOverviewPanel } from '../components/maintenance-detail/MaintenanceOverviewPanel'
+import { ContractorMaintenancePreview } from '../components/maintenance-detail/ContractorMaintenancePreview'
 import {
   resolveUserName,
   ticketAgeHours,
@@ -19,7 +20,8 @@ import {
   type PortfolioTicket,
 } from '../components/maintenance/types'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
-import { listApprovedContractors } from '../lib/contractors'
+import { canContractorClaimTicket, listApprovedContractors } from '../lib/contractors'
+import { isVerificationPending } from '../lib/verification'
 
 export default function MaintenanceDetail() {
   const { id } = useParams()
@@ -75,9 +77,63 @@ export default function MaintenanceDetail() {
   if (!ticket || !item) return <Navigate to="/workspace/operations/maintenance" replace />
   if (!inScope) return <Navigate to="/workspace/operations/maintenance" replace />
 
-  const canManage = has('maintenance.manage') && (canMutate(ticket.propertyId) || role === 'contractor')
+  const isAssignedContractor = role === 'contractor' && ticket.contractorId === user.id
+  const isContractorPreview =
+    role === 'contractor' && !ticket.contractorId && ticket.status !== 'Completed' && ticket.status !== 'Cancelled'
+  const assignedToOtherContractor =
+    role === 'contractor' && ticket.contractorId != null && ticket.contractorId !== user.id
+
+  if (assignedToOtherContractor) {
+    return <Navigate to="/workspace/portals/contractor" replace />
+  }
+
+  const verificationPending = isVerificationPending(user.verification, user.role)
+  const canClaimJob =
+    isContractorPreview &&
+    !verificationPending &&
+    canContractorClaimTicket(user, ticket, state.agencyContractors)
+
+  const acceptJob = async () => {
+    if (verificationPending) {
+      await alert.success({
+        title: 'Verification pending',
+        text: 'Your documents must be approved before you can accept jobs.',
+        tone: 'warning',
+      })
+      return
+    }
+    if (!canContractorClaimTicket(user, ticket, state.agencyContractors)) {
+      await alert.success({
+        title: 'Cannot accept job',
+        text: 'This job is no longer available or you are not on the agency approved roster.',
+        tone: 'danger',
+      })
+      return
+    }
+    const ok = assignContractorToTicket({
+      ticketId: ticket.id,
+      contractorUserId: user.id,
+      actorUserId: user.id,
+    })
+    if (!ok) {
+      await alert.success({
+        title: 'Could not accept job',
+        text: 'The agency roster may not include your profile yet. Contact the agency or try again.',
+        tone: 'danger',
+      })
+      return
+    }
+    await alert.success({
+      title: 'Job accepted',
+      text: 'You can now view access notes, update status, and upload completion evidence.',
+    })
+  }
+
+  const canManage =
+    (has('maintenance.manage') && canMutate(ticket.propertyId)) ||
+    (role === 'contractor' && isAssignedContractor)
   const canAssignContractor =
-    has('contractors.manage') || has('maintenance.manage') || role === 'contractor'
+    (has('contractors.manage') || has('maintenance.manage')) && canMutate(ticket.propertyId)
   const canEdit =
     canManage ||
     (has('contractors.manage') && canMutate(ticket.propertyId)) ||
@@ -90,7 +146,9 @@ export default function MaintenanceDetail() {
     }
     const prev = state.tickets.find((t) => t.id === ticketId)
     if (!prev || prev.status === next) return
-    if (!canMutate(prev.propertyId) && role !== 'contractor' && role !== 'tenant') return
+    if (!canMutate(prev.propertyId) && role !== 'tenant') {
+      if (role !== 'contractor' || prev.contractorId !== user.id) return
+    }
     updateTicket(ticketId, { status: next })
     addPropertyEvent({
       agencyId: prev.agencyId,
@@ -180,24 +238,38 @@ export default function MaintenanceDetail() {
         <MaintenanceDetailHeader
           item={item}
           canManage={canManage}
-          canEdit={canEdit}
+          canEdit={canEdit && !isContractorPreview}
           onComplete={() => setCompleteOpen(true)}
         />
 
-        <MaintenanceOverviewPanel
-          item={item}
-          canManage={canManage}
-          canAssignContractor={canAssignContractor && canMutate(ticket.propertyId)}
-          agencyId={agencyId}
-          onUpdateStatus={changeStatus}
-          onAssignContractor={handleAssignContractor}
-          onRequestComplete={() => setCompleteOpen(true)}
-          onEdit={
-            canEdit
-              ? () => navigate(maintenanceEditHref(ticket.id, `/workspace/operations/maintenance/${encodeURIComponent(ticket.id)}`))
-              : undefined
-          }
-        />
+        {isContractorPreview ? (
+          <ContractorMaintenancePreview
+            ticket={ticket}
+            property={item.property}
+            onAccept={() => void acceptJob()}
+            acceptDisabled={!canClaimJob}
+            acceptHint={
+              verificationPending
+                ? 'Verification must be approved before accepting jobs.'
+                : undefined
+            }
+          />
+        ) : (
+          <MaintenanceOverviewPanel
+            item={item}
+            canManage={canManage}
+            canAssignContractor={canAssignContractor}
+            agencyId={agencyId}
+            onUpdateStatus={changeStatus}
+            onAssignContractor={handleAssignContractor}
+            onRequestComplete={() => setCompleteOpen(true)}
+            onEdit={
+              canEdit
+                ? () => navigate(maintenanceEditHref(ticket.id, `/workspace/operations/maintenance/${encodeURIComponent(ticket.id)}`))
+                : undefined
+            }
+          />
+        )}
 
         <CompleteTicketModal
           open={completeOpen}

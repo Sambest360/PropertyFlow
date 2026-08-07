@@ -43,7 +43,7 @@ type PortfolioRow = {
 }
 
 /** Full account directory — landlords, tenants, contractors, and staff. */
-export function AllAccountsDirectory() {
+export function AllAccountsDirectory({ returnTo = '/workspace/people/staff?scope=all' }: { returnTo?: string }) {
   const { state } = useStore()
   const { has, role } = useAuth()
   const { scopeAgency } = useAgencyScope()
@@ -73,7 +73,7 @@ export function AllAccountsDirectory() {
     setParams(sp, { replace: true })
   }
 
-  const addUserHref = withReturnTo('/workspace/admin/users/new', '/workspace/people/staff?scope=all')
+  const addUserHref = withReturnTo('/workspace/admin/users/new', returnTo)
 
   const agencyName = useMemo(
     () => Object.fromEntries(state.agencies.map((a) => [a.id, a.name])),

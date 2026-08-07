@@ -18,6 +18,8 @@ import {
   Landmark,
   Bell,
   MessageSquare,
+  AlertTriangle,
+  MessageCircle,
 } from 'lucide-react'
 import type { Permission } from '../../types/domain'
 import { ACCOUNT_WISHLIST_PATH } from '../../lib/accountRoutes'
@@ -235,6 +237,12 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
             anyOf: ['notifications.broadcast', 'platform.manage'],
             icon: Bell,
           },
+          {
+            to: '/workspace/admin/all-users',
+            label: 'All users',
+            permission: 'platform.manage',
+            icon: Users,
+          },
         ],
       },
     },
@@ -286,6 +294,241 @@ export function findActiveNavLink(
   return (
     flattenNavLinks(entries).find((item) => pathMatches(pathname, item.to, item.end)) ?? null
   )
+}
+
+export function navItemPath(item: Pick<FlatNavItem, 'to'>): string {
+  return item.to.split('?')[0]
+}
+
+/** Drop duplicate destinations — first label wins (sidebar order). */
+export function dedupeNavEntries(entries: WorkspaceNavEntry[]): WorkspaceNavEntry[] {
+  const seen = new Set<string>()
+  const result: WorkspaceNavEntry[] = []
+
+  for (const entry of entries) {
+    if (entry.type === 'link') {
+      const key = navItemPath(entry.item)
+      if (seen.has(key)) continue
+      seen.add(key)
+      result.push(entry)
+      continue
+    }
+
+    const children = entry.group.children.filter((child) => {
+      const key = navItemPath(child)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    if (children.length === 0) continue
+    result.push({ type: 'group', group: { ...entry.group, children } })
+  }
+
+  return result
+}
+
+/** Tenant-facing portal routes — hidden for contractors and landlords. */
+export const TENANT_PORTAL_PATHS = new Set([
+  '/workspace/portals/tenant',
+  '/workspace/portals/tenant/applications',
+  ACCOUNT_WISHLIST_PATH,
+  '/workspace/portals/tenant/maintenance',
+  '/workspace/portals/tenant/messages',
+  '/workspace/portals/tenant/complaints',
+])
+
+export const CONTRACTOR_PORTAL_PATHS = new Set(['/workspace/portals/contractor'])
+
+export const OWNER_PORTAL_PATHS = new Set(['/workspace/portals/owner'])
+
+export function foreignPortalPathsForRole(role: string): Set<string> {
+  if (role === 'contractor') return new Set([...TENANT_PORTAL_PATHS, ...OWNER_PORTAL_PATHS])
+  if (role === 'landlord') return new Set([...TENANT_PORTAL_PATHS, ...CONTRACTOR_PORTAL_PATHS])
+  if (role === 'tenant') return new Set([...OWNER_PORTAL_PATHS, ...CONTRACTOR_PORTAL_PATHS])
+  return new Set<string>()
+}
+
+export function stripNavPaths(
+  entries: WorkspaceNavEntry[],
+  paths: Set<string>,
+): WorkspaceNavEntry[] {
+  const result: WorkspaceNavEntry[] = []
+  for (const entry of entries) {
+    if (entry.type === 'link') {
+      if (!paths.has(navItemPath(entry.item))) result.push(entry)
+      continue
+    }
+    if (entry.group.id === 'portals') continue
+    const children = entry.group.children.filter((c) => !paths.has(navItemPath(c)))
+    if (children.length === 0) continue
+    result.push({ type: 'group', group: { ...entry.group, children } })
+  }
+  return result
+}
+
+export function removePortalsGroup(entries: WorkspaceNavEntry[]): WorkspaceNavEntry[] {
+  return entries.filter((entry) => !(entry.type === 'group' && entry.group.id === 'portals'))
+}
+
+export function remapWorkspaceDashboard(
+  entries: WorkspaceNavEntry[],
+  portalHome: string,
+  label = 'Dashboard',
+): WorkspaceNavEntry[] {
+  return entries.map((entry) => {
+    if (entry.type === 'link' && entry.item.to === '/workspace' && entry.item.end) {
+      return {
+        type: 'link',
+        item: { ...entry.item, to: portalHome, label, end: true },
+      }
+    }
+    return entry
+  })
+}
+
+export function resolvePortalHome(
+  role: string,
+  has: (p: Permission) => boolean,
+): string | null {
+  if (role === 'contractor' && has('portal.contractor')) return '/workspace/portals/contractor'
+  if (role === 'landlord' && has('portal.owner')) return '/workspace/portals/owner'
+  if (role === 'tenant' && has('portal.tenant')) return '/workspace/portals/tenant'
+  return null
+}
+
+function portalDashboardLink(portalHome: string): WorkspaceNavEntry {
+  return {
+    type: 'link',
+    item: { to: portalHome, label: 'Dashboard', end: true, icon: LayoutDashboard },
+  }
+}
+
+function buildTenantApplicantNav(
+  filtered: WorkspaceNavEntry[],
+  portalHome: string,
+  occupancyReady: boolean,
+): WorkspaceNavEntry[] {
+  const promotedPaths = new Set([
+    portalHome,
+    '/workspace/portals/tenant/applications',
+    ACCOUNT_WISHLIST_PATH,
+    '/workspace/portals/tenant/maintenance',
+    '/workspace/portals/tenant/messages',
+    '/workspace/portals/tenant/complaints',
+    '/workspace',
+    ...CONTRACTOR_PORTAL_PATHS,
+    ...OWNER_PORTAL_PATHS,
+    ...(occupancyReady
+      ? ['/workspace/operations/maintenance', '/workspace/operations/communications']
+      : []),
+  ])
+
+  const occupancyLinks: WorkspaceNavEntry[] = occupancyReady
+    ? [
+        {
+          type: 'link',
+          item: {
+            to: '/workspace/portals/tenant/maintenance',
+            label: 'Maintenance',
+            permission: 'maintenance.view',
+            icon: Wrench,
+          },
+        },
+        {
+          type: 'link',
+          item: {
+            to: '/workspace/portals/tenant/messages',
+            label: 'Messages',
+            permission: 'messages.manage',
+            icon: MessageCircle,
+          },
+        },
+        {
+          type: 'link',
+          item: {
+            to: '/workspace/portals/tenant/complaints',
+            label: 'Complaints',
+            permission: 'maintenance.view',
+            icon: AlertTriangle,
+          },
+        },
+      ]
+    : []
+
+  const prepend: WorkspaceNavEntry[] = [
+    portalDashboardLink(portalHome),
+    {
+      type: 'link',
+      item: {
+        to: '/workspace/portals/tenant/applications',
+        label: 'My applications',
+        permission: 'portal.tenant',
+        icon: ClipboardList,
+      },
+    },
+    {
+      type: 'link',
+      item: {
+        to: ACCOUNT_WISHLIST_PATH,
+        label: 'Wishlist',
+        permission: 'portal.tenant',
+        icon: Heart,
+      },
+    },
+    ...occupancyLinks,
+  ]
+
+  const rest = stripNavPaths(removePortalsGroup(filtered), foreignPortalPathsForRole('tenant')).filter(
+    (entry) => {
+      if (entry.type !== 'link') return true
+      const path = navItemPath(entry.item)
+      return !promotedPaths.has(path)
+    },
+  )
+
+  return dedupeNavEntries([...prepend, ...rest])
+}
+
+function buildPortalActorNav(
+  filtered: WorkspaceNavEntry[],
+  portalHome: string,
+  role: string,
+): WorkspaceNavEntry[] {
+  const foreign = foreignPortalPathsForRole(role)
+  const rest = stripNavPaths(removePortalsGroup(filtered), foreign).filter((entry) => {
+    if (entry.type !== 'link') return true
+    const path = navItemPath(entry.item)
+    if (path === '/workspace') return false
+    if (path === portalHome) return false
+    return true
+  })
+
+  return dedupeNavEntries([portalDashboardLink(portalHome), ...rest])
+}
+
+export type WorkspaceNavActorInput = {
+  role: string
+  has: (p: Permission) => boolean
+  hasAny: (p: Permission[]) => boolean
+  tenantOccupancyReady?: boolean
+  tenantHasStaffNav?: boolean
+}
+
+/** Permission-filtered nav with portal-actor dedupe and cross-portal link stripping. */
+export function buildWorkspaceNavForActor(input: WorkspaceNavActorInput): WorkspaceNavEntry[] {
+  const filtered = filterWorkspaceNav(getWorkspaceNav(), input.has, input.hasAny)
+  const portalHome = resolvePortalHome(input.role, input.has)
+
+  if (!portalHome) return dedupeNavEntries(filtered)
+
+  const isPureTenantApplicant =
+    input.role === 'tenant' && input.has('portal.tenant') && !input.tenantHasStaffNav
+
+  if (isPureTenantApplicant) {
+    return buildTenantApplicantNav(filtered, portalHome, input.tenantOccupancyReady ?? false)
+  }
+
+  return buildPortalActorNav(filtered, portalHome, input.role)
 }
 
 export function filterWorkspaceNav(

@@ -22,9 +22,15 @@ import {
 import { Badge, Button, Card, Select, StatCard, statusTone } from '../components/ui'
 import { formatZAR } from '../data/seed'
 import { VerificationPendingBanner } from '../components/auth/VerificationBanner'
-import { openJobsForContractor, ticketsForContractor } from '../lib/contractors'
+import {
+  canContractorClaimTicket,
+  openJobsForContractor,
+  ticketsForContractor,
+} from '../lib/contractors'
+import { isVerificationPending } from '../lib/verification'
 import { TicketPhotoGallery } from '../components/maintenance/TicketPhotoGallery'
 import { formatAge, ticketAgeHours } from '../components/maintenance/types'
+import { useSuiteAlert } from '../components/alerts/SuiteAlert'
 
 const ICON_STROKE = 1.6
 
@@ -32,6 +38,8 @@ export default function ContractorPortal() {
   const { state, updateTicket, assignContractorToTicket } = useStore()
   const { user } = useAuth()
   const { ticketVisible, canMutate } = usePropertyScope()
+  const alert = useSuiteAlert()
+  const verificationPending = isVerificationPending(user.verification, user.role)
 
   const visible = useMemo(
     () => state.tickets.filter((t) => ticketVisible(t)),
@@ -49,12 +57,46 @@ export default function ContractorPortal() {
   const focus = openAssigned[0] ?? available[0]
   const focusProp = focus ? state.properties.find((p) => p.id === focus.propertyId) : null
 
-  const acceptJob = (ticketId: string) => {
-    if (!canMutate(state.tickets.find((t) => t.id === ticketId)?.propertyId ?? '')) return
-    assignContractorToTicket({
+  const acceptJob = async (ticketId: string) => {
+    const ticket = state.tickets.find((t) => t.id === ticketId)
+    if (!ticket) return
+
+    if (verificationPending) {
+      await alert.success({
+        title: 'Verification pending',
+        text: 'Your documents must be approved before you can accept jobs.',
+        tone: 'warning',
+      })
+      return
+    }
+
+    if (!canContractorClaimTicket(user, ticket, state.agencyContractors)) {
+      await alert.success({
+        title: 'Cannot accept job',
+        text: 'This job is no longer available or you are not on the agency approved roster.',
+        tone: 'danger',
+      })
+      return
+    }
+
+    const ok = assignContractorToTicket({
       ticketId,
       contractorUserId: user.id,
       actorUserId: user.id,
+    })
+
+    if (!ok) {
+      await alert.success({
+        title: 'Could not accept job',
+        text: 'The agency roster may not include your profile yet. Contact the agency or try again.',
+        tone: 'danger',
+      })
+      return
+    }
+
+    await alert.success({
+      title: 'Job accepted',
+      text: 'You can now view access notes, update status, and upload completion evidence.',
     })
   }
 
@@ -66,6 +108,10 @@ export default function ContractorPortal() {
     const prop = state.properties.find((p) => p.id === t.propertyId)
     const photos = t.photoUrls ?? []
     const detailHref = `/workspace/operations/maintenance/${encodeURIComponent(t.id)}`
+    const previewOnly = mode === 'available'
+    const canAccept =
+      !verificationPending &&
+      canContractorClaimTicket(user, t, state.agencyContractors)
 
     return (
       <Card key={t.id} className="overflow-hidden" hover>
@@ -79,26 +125,29 @@ export default function ContractorPortal() {
               <Badge tone="neutral">{t.priority}</Badge>
             </div>
             <p className="text-sm text-ink-500">
-              {prop?.title ?? t.propertyId} · {t.assetLabel}
-              {t.locationDetail ? ` · ${t.locationDetail}` : ''}
+              {prop?.title ?? t.propertyId}
+              {previewOnly ? '' : ` · ${t.assetLabel}`}
+              {!previewOnly && t.locationDetail ? ` · ${t.locationDetail}` : ''}
             </p>
-            <p className="text-sm leading-relaxed text-ink">{t.description}</p>
+            <p className={`text-sm leading-relaxed text-ink${previewOnly ? ' line-clamp-2' : ''}`}>
+              {t.description}
+            </p>
 
-            {t.accessNotes ? (
+            {!previewOnly && t.accessNotes ? (
               <p className="flex items-start gap-2 rounded-xl bg-primary-50/50 px-3 py-2 text-xs text-ink-600">
                 <KeyRound className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-400" strokeWidth={ICON_STROKE} aria-hidden />
                 {t.accessNotes}
               </p>
             ) : null}
 
-            {t.preferredSchedule ? (
+            {!previewOnly && t.preferredSchedule ? (
               <p className="flex items-center gap-1.5 text-xs text-ink-500">
                 <Calendar className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} aria-hidden />
                 Preferred: {t.preferredSchedule}
               </p>
             ) : null}
 
-            {photos.length > 0 ? (
+            {!previewOnly && photos.length > 0 ? (
               <div>
                 <p className="mb-2 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-ink-400">
                   <Camera className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} aria-hidden />
@@ -110,7 +159,11 @@ export default function ContractorPortal() {
 
             <div className="flex flex-wrap gap-3 text-xs text-ink-500">
               <span className="tabular">{formatAge(ticketAgeHours(t))} open</span>
-              <span>{t.cost ? formatZAR(t.cost) : t.estimatedCost ? `Est. ${formatZAR(t.estimatedCost)}` : 'Quote TBC'}</span>
+              {!previewOnly ? (
+                <span>{t.cost ? formatZAR(t.cost) : t.estimatedCost ? `Est. ${formatZAR(t.estimatedCost)}` : 'Quote TBC'}</span>
+              ) : (
+                <span>Accept to view quote & access details</span>
+              )}
               {prop ? (
                 <span className="inline-flex items-center gap-1">
                   <MapPin className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} aria-hidden />
@@ -123,14 +176,26 @@ export default function ContractorPortal() {
           <div className="flex shrink-0 flex-col gap-2 lg:w-44">
             <Link to={detailHref}>
               <Button variant="secondary" size="sm" className="min-h-10 w-full">
-                View job
+                {previewOnly ? 'Preview job' : 'View job'}
                 <ChevronRight className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
               </Button>
             </Link>
             {mode === 'available' ? (
-              <Button size="sm" className="min-h-10 w-full" onClick={() => acceptJob(t.id)}>
-                Accept job
-              </Button>
+              <>
+                <Button
+                  size="sm"
+                  className="min-h-10 w-full"
+                  disabled={!canAccept}
+                  onClick={() => void acceptJob(t.id)}
+                >
+                  Accept job
+                </Button>
+                {verificationPending ? (
+                  <p className="text-[11px] leading-snug text-amber-800">
+                    Verification must be approved before accepting jobs.
+                  </p>
+                ) : null}
+              </>
             ) : null}
             {mode === 'assigned' && t.contractorId === user.id && t.status !== 'Completed' ? (
               <>
@@ -159,6 +224,16 @@ export default function ContractorPortal() {
     )
   }
 
+  const focusDetail = focus
+    ? [
+        focus.assetLabel || focus.categoryKey || 'Maintenance',
+        focus.priority,
+        focus.contractorId === user.id && focus.accessNotes ? 'check access notes' : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : 'Accept jobs, update status, and upload completion evidence.'
+
   return (
     <RequirePermission permission="portal.contractor">
       <DashboardPage>
@@ -173,11 +248,7 @@ export default function ContractorPortal() {
           image={focusProp?.images[0]}
           eyebrow="Contractor portal"
           title={focus?.title ?? `Welcome, ${user.name.split(' ')[0]}`}
-          detail={
-            focus
-              ? `${focus.assetLabel} · ${focus.priority}${focus.accessNotes ? ' · check access notes' : ''}`
-              : 'Accept jobs, update status, and upload completion evidence.'
-          }
+          detail={focusDetail}
           badge={focus?.priority ?? 'Idle'}
           badgeTone={focus ? 'warning' : 'neutral'}
           secondaryBadge={focus?.status}
@@ -187,16 +258,16 @@ export default function ContractorPortal() {
             { label: 'Earnings', value: formatZAR(earnings) },
           ]}
           cta={{
-            label: focus ? 'Open job' : 'Workspace home',
+            label: focus ? (focus.contractorId === user.id ? 'Open job' : 'Preview job') : 'Workspace home',
             to: focus
               ? `/workspace/operations/maintenance/${encodeURIComponent(focus.id)}`
               : '/workspace',
             icon: <HardHat className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />,
           }}
           propertyLink={
-            focusProp
+            focusProp && focus?.contractorId === user.id
               ? { to: `/workspace/properties/${focusProp.id}`, label: 'Site' }
-              : { to: '/workspace', label: 'Dashboard' }
+              : { to: '/workspace/portals/contractor', label: 'My jobs' }
           }
         />
 
@@ -227,7 +298,7 @@ export default function ContractorPortal() {
           <section className="space-y-3">
             <h2 className="font-display text-lg font-semibold text-ink">Available in your area</h2>
             <p className="text-sm text-ink-500">
-              Open jobs on properties you can service — accept to notify the agency and tenant.
+              Open jobs on properties you can service — preview details, then accept to unlock access notes and site photos.
             </p>
             {available.map((t) => renderJobCard(t, 'available'))}
           </section>

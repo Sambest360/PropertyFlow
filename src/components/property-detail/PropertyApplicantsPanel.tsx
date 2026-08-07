@@ -2,9 +2,18 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CheckCircle2, ChevronDown, CircleDashed, Download, Eye, Search, XCircle } from 'lucide-react'
 import type { Application, ApplicationDocument } from '../../types/domain'
+import type { Permission } from '../../types/domain'
 import { Badge, Button, Card, Input, Modal, Select, cn, statusTone } from '../ui'
 import { formatZAR } from '../../data/seed'
-import { APPLICATION_STAGE_OPTIONS } from '../../lib/workflow'
+import {
+  canIssueLeaseApproval,
+  primaryNextTransition,
+  resolveWorkflowStatus,
+  transitionGuardMessage,
+  workflowStageSelectOptions,
+  type WorkflowStatusKey,
+} from '../../lib/applicationWorkflow'
+import { allDocsUploaded, allDocsVerified, docsProgress } from '../../lib/workflow'
 import { useSuiteAlert } from '../alerts/SuiteAlert'
 import { BlockApplicantModal } from '../applicant-detail/BlockApplicantModal'
 import { ListPagination, paginate } from './ListPagination'
@@ -69,18 +78,20 @@ function downloadDoc(applicantName: string, doc: ApplicationDocument) {
 export function PropertyApplicantsPanel({
   applications,
   canReview,
+  reviewPermissions,
   onAdvance,
   onApprove,
   onSetDocStatus,
-  onSetStage,
+  onSetWorkflowStage,
   onBlock,
 }: {
   applications: Application[]
   canReview: boolean
-  onAdvance: (id: string) => void
-  onApprove: (id: string) => void
+  reviewPermissions: Permission[]
+  onAdvance: (id: string, targetStatus: WorkflowStatusKey) => void | Promise<void>
+  onApprove: (id: string) => void | Promise<void>
   onSetDocStatus: (applicationId: string, key: string, status: ApplicationDocument['status']) => void
-  onSetStage: (id: string, stage: Application['stage']) => void
+  onSetWorkflowStage: (id: string, status: WorkflowStatusKey) => void
   onBlock: (id: string, reason: string) => void
 }) {
   const [query, setQuery] = useState('')
@@ -121,7 +132,7 @@ export function PropertyApplicantsPanel({
         <div>
           <h2 className="font-semibold text-ink">Applicants</h2>
           <p className="mt-0.5 text-xs text-ink-500">
-            Expand an applicant to review their required documents table.
+            Expand an applicant to review documents, advance the workflow, or open their full profile.
           </p>
         </div>
         <div className="relative min-w-[14rem] flex-1 sm:max-w-xs">
@@ -144,12 +155,21 @@ export function PropertyApplicantsPanel({
         {paged.items.map((a) => {
           const open = expandedId === a.id
           const uploadedCount = a.documents.filter((d) => d.status !== 'required').length
+          const verifiedCount = a.documents.filter((d) => d.status === 'verified').length
+          const workflowStatus = resolveWorkflowStatus(a)
+          const nextTransition = canReview ? primaryNextTransition(a, reviewPermissions) : null
+          const guardBlock = nextTransition ? transitionGuardMessage(a, nextTransition) : null
+          const stageOptions = workflowStageSelectOptions(a.type)
           const canBlock =
             canReview &&
-            a.stage !== 'Blocked' &&
-            a.stage !== 'Active Tenancy' &&
-            a.stage !== 'Rejected' &&
-            a.stage !== 'Withdrawn'
+            workflowStatus !== 'active_tenancy' &&
+            workflowStatus !== 'rejected' &&
+            workflowStatus !== 'withdrawn' &&
+            workflowStatus !== 'cancelled' &&
+            a.stage !== 'Blocked'
+          const showApprove = canReview && canIssueLeaseApproval(a, reviewPermissions)
+          const docsComplete = allDocsUploaded(a.documents)
+          const docsVerified = allDocsVerified(a.documents)
           return (
             <li
               key={a.id}
@@ -173,6 +193,7 @@ export function PropertyApplicantsPanel({
                 <div className="flex shrink-0 items-center gap-2">
                   <span className="hidden text-xs tabular text-ink-400 sm:inline">
                     {uploadedCount}/{a.documents.length} docs
+                    {verifiedCount > 0 ? ` · ${verifiedCount} verified` : ''}
                   </span>
                   <Badge tone={statusTone(a.stage)}>{a.stage}</Badge>
                   <ChevronDown
@@ -188,6 +209,27 @@ export function PropertyApplicantsPanel({
 
               {open && (
                 <div className="border-t border-primary-100/80 bg-white px-3 py-4 sm:px-4">
+                  <div className="mb-4 rounded-xl border border-primary-100 bg-primary-50/40 px-3 py-2.5 text-xs text-ink-600">
+                    <p>
+                      <span className="font-semibold text-ink">Document progress:</span>{' '}
+                      {docsProgress(a.documents)}% ·{' '}
+                      {docsVerified
+                        ? 'All required documents verified.'
+                        : docsComplete
+                          ? 'Uploaded — verify each item below.'
+                          : 'Waiting on applicant uploads — mark items uploaded as they arrive.'}
+                    </p>
+                    {nextTransition ? (
+                      <p className="mt-1 text-ink-500">
+                        <span className="font-semibold text-ink">Suggested next step:</span>{' '}
+                        {nextTransition.label}
+                        {guardBlock ? ` — ${guardBlock}` : ''}
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-ink-500">No further workflow actions at this stage.</p>
+                    )}
+                  </div>
+
                   <div className="mb-4 flex flex-wrap gap-2">
                     {canReview && (
                       <Link
@@ -198,23 +240,27 @@ export function PropertyApplicantsPanel({
                         Open profile
                       </Link>
                     )}
-                    {canReview && a.stage !== 'Active Tenancy' && a.stage !== 'Blocked' && (
-                      <>
-                        <Button size="sm" className="min-h-11" onClick={() => onAdvance(a.id)}>
-                          Advance stage
-                        </Button>
-                        {a.stage !== 'Awaiting Payment' && (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            className="min-h-11"
-                            onClick={() => onApprove(a.id)}
-                          >
-                            Approve → lease
-                          </Button>
-                        )}
-                      </>
-                    )}
+                    {canReview && nextTransition ? (
+                      <Button
+                        size="sm"
+                        className="min-h-11"
+                        disabled={Boolean(guardBlock)}
+                        title={guardBlock ?? undefined}
+                        onClick={() => void onAdvance(a.id, nextTransition.to)}
+                      >
+                        {nextTransition.label}
+                      </Button>
+                    ) : null}
+                    {showApprove ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="min-h-11"
+                        onClick={() => void onApprove(a.id)}
+                      >
+                        Approve → lease
+                      </Button>
+                    ) : null}
                     {canBlock && (
                       <Button
                         size="sm"
@@ -226,14 +272,17 @@ export function PropertyApplicantsPanel({
                       </Button>
                     )}
                     <Select
-                      className="min-h-11"
-                      value={a.stage}
+                      className="min-h-11 min-w-[12rem]"
+                      value={workflowStatus}
                       disabled={!canReview}
-                      onChange={(e) => onSetStage(a.id, e.target.value as Application['stage'])}
-                      aria-label="Application stage"
+                      onChange={(e) => onSetWorkflowStage(a.id, e.target.value as WorkflowStatusKey)}
+                      aria-label="Application workflow stage"
                     >
-                      {APPLICATION_STAGE_OPTIONS.map((s) => (
-                        <option key={s}>{s}</option>
+                      {stageOptions.map((s) => (
+                        <option key={s.key} value={s.key}>
+                          {s.label}
+                          {s.terminal ? ' (closed)' : ''}
+                        </option>
                       ))}
                     </Select>
                   </div>
@@ -358,7 +407,8 @@ export function PropertyApplicantsPanel({
                                 colSpan={4}
                                 className="px-4 py-8 text-center text-sm text-ink-500"
                               >
-                                No required documents on this application.
+                                Document checklist loading — refresh the page. If this persists, open
+                                the applicant profile to re-sync.
                               </td>
                             </tr>
                           )}

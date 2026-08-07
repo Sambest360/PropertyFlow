@@ -26,15 +26,15 @@ export function PropertyMapPanel({ property }: { property: PropertyAsset }) {
         )}
       </div>
 
-      <div className="min-h-[min(28rem,70vh)] overflow-hidden rounded-2xl border border-primary-100 sm:min-h-[32rem]">
+      <div className="h-[calc(100dvh-18rem)] min-h-[20rem] overflow-hidden rounded-2xl border border-primary-100 sm:min-h-[28rem] lg:h-[calc(100dvh-16rem)]">
         {mapped ? (
           <PropertyMap
             properties={[property]}
             detailBase="/workspace/properties"
-            className="h-full min-h-[min(28rem,70vh)] rounded-none sm:min-h-[32rem]"
+            className="h-full min-h-[20rem] rounded-none sm:min-h-[28rem]"
           />
         ) : (
-          <PropertyMapPlaceholder property={property} className="h-full min-h-[min(28rem,70vh)] border-0 sm:min-h-[32rem]" />
+          <PropertyMapPlaceholder property={property} className="h-full min-h-[20rem] border-0 sm:min-h-[28rem]" />
         )}
       </div>
     </div>

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Navigate, useParams, useSearchParams } from 'react-router-dom'
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
@@ -10,16 +10,22 @@ import { LeadOverviewPanel } from '../components/lead-detail/LeadOverviewPanel'
 import { LeadDetailsPanel } from '../components/lead-detail/LeadDetailsPanel'
 import { LeadDealPanel } from '../components/lead-detail/LeadDealPanel'
 import { LeadActivityPanel } from '../components/lead-detail/LeadActivityPanel'
+import { CloseLeadModal } from '../components/lead-detail/CloseLeadModal'
 import { isLeadDetailTab, type LeadDetailTab } from '../components/lead-detail/types'
+import { canCloseLead } from '../lib/leadLifecycle'
+import { useSuiteAlert } from '../components/alerts/SuiteAlert'
 import type { PropertyEvent } from '../types/domain'
 
 export default function LeadDetail() {
   const { id } = useParams()
   const [params, setParams] = useSearchParams()
-  const { state, updateLeadStage, addActivity, addPropertyEvent } = useStore()
+  const { state, updateLeadStage, closeLead, addActivity, addPropertyEvent } = useStore()
   const { user, has } = useAuth()
   const { dealVisible } = usePropertyScope()
+  const alert = useSuiteAlert()
+  const navigate = useNavigate()
   const [note, setNote] = useState('')
+  const [closeOpen, setCloseOpen] = useState(false)
 
   const lead = state.leads.find((l) => l.id === id)
   const property = lead ? state.properties.find((p) => p.id === lead.propertyId) ?? null : null
@@ -99,6 +105,7 @@ export default function LeadDetail() {
   if (!inScope) return <Navigate to="/workspace/sales/crm" replace />
 
   const canManage = has('leads.manage')
+  const canClose = canCloseLead(lead, { userId: user.id, canManageLeads: canManage })
   const agentName = agent?.name ?? null
 
   const tabs = [
@@ -112,7 +119,12 @@ export default function LeadDetail() {
   return (
     <RequirePermission permission="leads.view">
       <div className="animate-fade-in">
-        <LeadDetailHeader lead={lead} canManage={canManage} />
+        <LeadDetailHeader
+          lead={lead}
+          canManage={canManage}
+          canClose={canClose}
+          onClose={() => setCloseOpen(true)}
+        />
 
         <div className="sticky top-0 z-20 -mx-1 mb-5 bg-white/95 px-1 backdrop-blur-md">
           <DashboardTabs tabs={tabs} value={tab} onChange={setTab} />
@@ -128,6 +140,10 @@ export default function LeadDetail() {
             property={property}
             agentName={agentName}
             canManage={canManage}
+            applications={state.applications}
+            viewings={state.viewings}
+            payments={state.payments}
+            activities={state.activities}
             onStageChange={(stage) => {
               const prev = lead.stage
               updateLeadStage(lead.id, stage)
@@ -161,6 +177,36 @@ export default function LeadDetail() {
             subtitle="Timeline of stage changes, notes, and related property actions for this lead."
           />
         )}
+
+        <CloseLeadModal
+          open={closeOpen}
+          leadName={lead.name}
+          onClose={() => setCloseOpen(false)}
+          onConfirm={(reason) => {
+            const prev = lead
+            const result = closeLead(prev.id, reason)
+            if (result.ok === false) {
+              void alert.success({ title: 'Could not close lead', text: result.reason, tone: 'danger' })
+              return
+            }
+            addPropertyEvent({
+              agencyId: prev.agencyId,
+              propertyId: prev.propertyId,
+              actorUserId: user.id,
+              actorName: user.name,
+              action: 'closed a Lead',
+              changes: [
+                { field: 'Stage', from: prev.stage, to: 'Rejected' },
+                { field: 'Reason', from: '—', to: reason },
+              ],
+            })
+            void alert.success({
+              title: 'Lead closed',
+              text: `${prev.name} was moved to History.`,
+            })
+            navigate('/workspace/sales/crm?tab=history')
+          }}
+        />
       </div>
     </RequirePermission>
   )

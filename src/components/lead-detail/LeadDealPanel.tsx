@@ -1,8 +1,11 @@
 import { Check } from 'lucide-react'
-import type { Lead, PropertyAsset } from '../../types/domain'
+import { useMemo } from 'react'
+import type { Activity, Application, Lead, PaymentRecord, PropertyAsset, Viewing } from '../../types/domain'
 import { Select, cn } from '../ui'
 import { formatZAR } from '../../data/seed'
+import { buildLeadStageContext } from '../../lib/leadContext'
 import { DetailSection, AgentAssigneeField, FlatField, FlatFieldGrid } from '../detail/FlatFields'
+import { LeadStageContextPanel } from './LeadStageContextPanel'
 import { LEAD_STAGES, ICON_STROKE } from './types'
 import { useLookupOptions } from '../../hooks/useLookupOptions'
 
@@ -15,12 +18,20 @@ export function LeadDealPanel({
   property,
   agentName,
   canManage,
+  applications,
+  viewings,
+  payments,
+  activities,
   onStageChange,
 }: {
   lead: Lead
   property: PropertyAsset | null
   agentName: string | null
   canManage: boolean
+  applications: Application[]
+  viewings: Viewing[]
+  payments: PaymentRecord[]
+  activities?: Activity[]
   onStageChange: (stage: string) => void
 }) {
   const stageOptions = useLookupOptions('LEAD_STAGE', lead.agencyId)
@@ -35,6 +46,18 @@ export function LeadDealPanel({
   const dealKind = lead.type === 'Buy' ? 'sale' : 'rental'
   const total = stages.length
   const stepNumber = Math.min(stageIndex + 1, total)
+
+  const stageContext = useMemo(
+    () =>
+      buildLeadStageContext(lead, {
+        property,
+        applications,
+        viewings,
+        payments,
+        activities,
+      }),
+    [lead, property, applications, viewings, payments, activities],
+  )
 
   return (
     <div className="space-y-8">
@@ -137,6 +160,8 @@ export function LeadDealPanel({
           </label>
         )}
       </DetailSection>
+
+      <LeadStageContextPanel context={stageContext} />
     </div>
   )
 }
