@@ -47,7 +47,7 @@ import type { AssetCondition, Building, InfraRoom, InternalAsset, LookupConfig, 
 import { UNIT_TEMPLATES } from '../data/infrastructure'
 import type { MarkPaymentPaidDetails } from '../components/payments/types'
 import { isRequiredLookupKey, GLOBAL_CLIENT_ID } from '../data/platformLookups'
-import { DEFAULT_AGENCY_PERMISSIONS, defaultLicenseStatus, rolePermissions, userBasePermissions } from '../lib/permissions'
+import { DEFAULT_AGENCY_PERMISSIONS, defaultLicenseStatus, isAgencyStaff, rolePermissions, userBasePermissions } from '../lib/permissions'
 import {
   allDocsUploaded,
   buildDocumentChecklist,
@@ -149,6 +149,19 @@ import {
 } from '../lib/eventNotifications'
 import { mergeEntityLists } from '../lib/bootstrapMerge'
 import { getPropertyDeleteBlockReason } from '../lib/propertyDeletion'
+import {
+  applicationStakeholderIds,
+  applySuiteAlertFilter,
+  excludeActorFromIds,
+  leadStakeholderIds,
+  maintenanceDeskStakeholderIds,
+  messageThreadRecipientIds,
+  paymentDeskStakeholderIds,
+  propertyDeskStakeholderIds,
+  unitDeskStakeholderIds,
+  viewingDeskStakeholderIds,
+  viewingSlotDeskStakeholderIds,
+} from '../lib/notificationRecipients'
 
 /**
  * App state persistence key.
@@ -501,6 +514,7 @@ type StoreContextValue = {
     link?: string
     actorUserId?: string | null
     includeActor?: boolean
+    recipientUserIds: string[]
   }) => void
   markNotificationRead: (id: string) => void
   markAllNotificationsRead: (userId: string) => void
@@ -886,19 +900,24 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       link?: string
       actorUserId?: string | null
       includeActor?: boolean
+      recipientUserIds: string[]
     }) => {
       const includeActor = input.includeActor !== false
+      const scopedIds = excludeActorFromIds(
+        input.recipientUserIds,
+        input.actorUserId,
+        includeActor,
+      )
       setState((s) => {
         const rule = resolveSuiteAlert(s.suiteAlerts, input.agencyId, input.resource, input.action)
-        if (!rule) return s
+        if (!rule || !scopedIds.length) return s
 
-        const recipients = s.users.filter((u) => {
-          if (!u.active) return false
-          if (!rule.notifyRoles.includes(u.role)) return false
-          if (u.role !== 'super_admin' && input.agencyId && u.agencyId !== input.agencyId) return false
-          if (!includeActor && input.actorUserId && u.id === input.actorUserId) return false
-          return true
-        })
+        const recipients = applySuiteAlertFilter(
+          s.users,
+          scopedIds,
+          rule,
+          input.agencyId,
+        )
         if (!recipients.length) return s
 
         const at = new Date().toISOString()
@@ -1193,7 +1212,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       if (input.audience === 'everyone') {
         recipients = state.users.filter((u) => u.active)
       } else if (input.audience === 'agency' && input.agencyId) {
-        recipients = state.users.filter((u) => u.active && u.agencyId === input.agencyId)
+        recipients = state.users.filter(
+          (u) => u.active && u.agencyId === input.agencyId && isAgencyStaff(u.role),
+        )
       } else if (input.audience === 'person' && input.userId) {
         recipients = state.users.filter((u) => u.id === input.userId)
       }
@@ -1249,6 +1270,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         title: 'Property created',
         body: `“${property.title}” was added to the portfolio.`,
         link: `/workspace/properties/${property.id}`,
+        recipientUserIds: propertyDeskStakeholderIds(state.users, property),
       })
       persistUpsert('property', property.id, property as unknown as Record<string, unknown>)
       return property
@@ -1395,6 +1417,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         title: 'Property created',
         body: `“${property.title}” was added to the portfolio.`,
         link: `/workspace/properties/${property.id}`,
+        recipientUserIds: propertyDeskStakeholderIds(state.users, property),
       })
 
       if (!existingBuilding) {
@@ -1464,6 +1487,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           title: 'Property updated',
           body: `“${p.title ?? prev.title}” was changed.`,
           link: `/workspace/properties/${id}`,
+          recipientUserIds: propertyDeskStakeholderIds(state.users, { ...prev, ...p }),
         })
       }
       persistUpsert('property', id, { ...prev, ...p, id } as Record<string, unknown>)
@@ -1559,6 +1583,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         title: 'Property deleted',
         body: `“${property.title}” was moved to the archive.`,
         link: '/workspace/properties/archive',
+        recipientUserIds: propertyDeskStakeholderIds(state.users, property),
       })
 
       persistUpsert('property', id, {
@@ -1616,6 +1641,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         title: 'Property restored',
         body: `“${property.title}” is back as a draft.`,
         link: `/workspace/properties/${id}`,
+        recipientUserIds: propertyDeskStakeholderIds(state.users, property),
       })
 
       persistUpsert('property', id, {
@@ -1717,6 +1743,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         title: 'Inventory item added',
         body: `“${row.itemName}” was added to inventory.`,
         link: '/workspace/properties',
+        recipientUserIds: unitDeskStakeholderIds(
+          state.users,
+          row.unitId,
+          state.units,
+          state.properties,
+          row.clientId,
+        ),
       })
       return row
     },
@@ -1746,6 +1779,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         title: 'Floor plan room added',
         body: `“${room.name}” was added to the floor plan.`,
         link: '/workspace/properties',
+        recipientUserIds: unitDeskStakeholderIds(
+          state.users,
+          room.unitId,
+          state.units,
+          state.properties,
+          room.clientId,
+        ),
       })
       return room
     },
@@ -1766,6 +1806,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           title: 'Floor plan room deleted',
           body: `“${room.name}” was removed from the floor plan.`,
           link: '/workspace/properties',
+          recipientUserIds: unitDeskStakeholderIds(
+            state.users,
+            room.unitId,
+            state.units,
+            state.properties,
+            room.clientId,
+          ),
         })
       }
     },
@@ -1783,6 +1830,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           title: 'Inventory item deleted',
           body: `“${asset.itemName}” was removed from inventory.`,
           link: '/workspace/properties',
+          recipientUserIds: unitDeskStakeholderIds(
+            state.users,
+            asset.unitId,
+            state.units,
+            state.properties,
+            asset.clientId,
+          ),
         })
       }
     },
@@ -1853,6 +1907,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         title: 'Applicant blocked',
         body: `${app.applicantName} was blocked: ${blockReason}`,
         link: `/workspace/sales/applications/${app.id}?tab=blocks`,
+        recipientUserIds: applicationStakeholderIds(
+          state.users,
+          app,
+          state.properties.find((p) => p.id === app.propertyId),
+        ),
       })
 
       if (app.applicantUserId) {
@@ -1978,6 +2037,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         title: 'New lead',
         body: `${lead.name} — ${property?.title ?? 'property enquiry'}.`,
         link: `/workspace/sales/crm/leads/${encodeURIComponent(lead.id)}`,
+        recipientUserIds: leadStakeholderIds(state.users, lead, property),
       })
       return lead
     },
@@ -2035,6 +2095,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         link: input.viewing
           ? '/workspace/sales/viewings'
           : `/workspace/sales/crm/leads/${encodeURIComponent(lead.id)}`,
+        recipientUserIds: leadStakeholderIds(state.users, lead, property),
       })
       if (input.viewing) {
         emitSuiteEvent({
@@ -2045,6 +2106,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           body: `${input.viewing.applicantName} scheduled for ${property?.title ?? 'a listing'}.`,
           link: '/workspace/sales/viewings',
           includeActor: false,
+          recipientUserIds: viewingDeskStakeholderIds(state.users, input.viewing, property),
         })
       }
       persistUpsert('lead', lead.id, lead as unknown as Record<string, unknown>)
@@ -2058,6 +2120,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const prev = state.leads.find((l) => l.id === id)
       if (prev) persistUpsert('lead', id, { ...prev, stage, updatedAt } as unknown as Record<string, unknown>)
       if (prev && stage !== prev.stage) {
+        const property = state.properties.find((p) => p.id === prev.propertyId)
         emitSuiteEvent({
           agencyId: prev.agencyId,
           resource: 'applicant',
@@ -2065,6 +2128,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           title: 'Lead stage changed',
           body: `${prev.name}: ${prev.stage} → ${stage}`,
           link: `/workspace/sales/crm/leads/${encodeURIComponent(id)}`,
+          recipientUserIds: leadStakeholderIds(state.users, prev, property),
         })
       }
     },
@@ -2094,6 +2158,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ),
       }))
       persistUpsert('lead', id, { ...prev, stage, updatedAt, notes } as unknown as Record<string, unknown>)
+      const property = state.properties.find((p) => p.id === prev.propertyId)
       emitSuiteEvent({
         agencyId: prev.agencyId,
         resource: 'applicant',
@@ -2101,6 +2166,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         title: 'Lead closed',
         body: `${prev.name} was marked ${closeOutcomeHistoryLabel(stage)} — ${trimmed}`,
         link: `/workspace/sales/crm/${encodeURIComponent(id)}`,
+        recipientUserIds: leadStakeholderIds(state.users, prev, property),
       })
       return { ok: true, leadId: id, stage }
     },
@@ -2193,6 +2259,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         link: `/workspace/sales/applications/${encodeURIComponent(app.id)}`,
         actorUserId: input.applicantUserId ?? null,
         includeActor: false,
+        recipientUserIds: applicationStakeholderIds(state.users, app, property),
       })
       if (input.applicantUserId) {
         notify({
@@ -2218,6 +2285,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ),
       }))
       if (prev && p.stage && p.stage !== prev.stage) {
+        const property = state.properties.find((x) => x.id === prev.propertyId)
         emitSuiteEvent({
           agencyId: prev.agencyId,
           resource: 'applicant',
@@ -2225,6 +2293,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           title: 'Applicant stage changed',
           body: `${prev.applicantName}: ${prev.stage} → ${p.stage}`,
           link: `/workspace/sales/applications/${encodeURIComponent(id)}`,
+          recipientUserIds: applicationStakeholderIds(state.users, prev, property),
         })
         if (prev.applicantUserId) {
           notify({
@@ -2609,7 +2678,6 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               ),
               users: state.users,
               notify,
-              emitSuiteEvent,
             })
           }
           return { ...result, application: normalized }
@@ -2667,7 +2735,6 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           applications: state.applications.map((a) => (a.id === applicationId ? updated : a)),
           users: state.users,
           notify,
-          emitSuiteEvent,
         })
       }
       return { status: 'SUCCESS', application: updated }
@@ -2948,6 +3015,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         title: 'Viewing slot published',
         body: `${slot.title?.trim() || 'Viewing'} · ${slot.date} ${slot.time}`,
         link: `/workspace/sales/viewings/property/${slot.propertyId}`,
+        recipientUserIds: viewingSlotDeskStakeholderIds(
+          state.users,
+          slot,
+          state.properties.find((p) => p.id === slot.propertyId),
+        ),
       })
       return slot
     },
@@ -3018,6 +3090,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           title: p.status === 'Cancelled' ? 'Viewing slot cancelled' : 'Viewing slot updated',
           body: `${prev.title?.trim() || 'Viewing'} is now ${p.status}.`,
           link: `/workspace/sales/viewings/property/${prev.propertyId}`,
+          recipientUserIds: viewingSlotDeskStakeholderIds(state.users, prev, property),
         })
       } else if (material) {
         emitSuiteEvent({
@@ -3027,6 +3100,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           title: 'Viewing slot updated',
           body: `${prev.title?.trim() || 'Viewing'} · ${next.date} ${next.time}`,
           link: `/workspace/sales/viewings/property/${prev.propertyId}`,
+          recipientUserIds: viewingSlotDeskStakeholderIds(state.users, prev, property),
         })
       }
 
@@ -3088,6 +3162,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         )
       }
       if (viewing) {
+        const property = state.properties.find((p) => p.id === viewing.propertyId)
         emitSuiteEvent({
           agencyId: viewing.agencyId,
           resource: 'viewing',
@@ -3095,6 +3170,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           title: 'Viewing booking deleted',
           body: `${viewing.applicantName} was removed from a viewing.`,
           link: `/workspace/sales/viewings/property/${viewing.propertyId}`,
+          recipientUserIds: viewingDeskStakeholderIds(state.users, viewing, property),
         })
       }
     },
@@ -3117,6 +3193,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         } as unknown as Record<string, unknown>)
       }
       if (slot) {
+        const property = state.properties.find((p) => p.id === slot.propertyId)
         emitSuiteEvent({
           agencyId: slot.agencyId,
           resource: 'viewing_slot',
@@ -3124,6 +3201,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           title: 'Viewing slot deleted',
           body: `${slot.title?.trim() || `${slot.date} ${slot.time}`} was deleted.`,
           link: `/workspace/sales/viewings/property/${slot.propertyId}`,
+          recipientUserIds: viewingSlotDeskStakeholderIds(state.users, slot, property),
         })
       }
     },
@@ -3186,6 +3264,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         for (const v of movedViewings) {
           persistUpsert('viewing', v.id, v as unknown as Record<string, unknown>)
         }
+        const transferProperty = state.properties.find((p) => p.id === propertyId)
+        const transferSlot = toNext ?? fromNext
         emitSuiteEvent({
           agencyId,
           resource: 'viewing_slot',
@@ -3195,6 +3275,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           link: propertyId
             ? `/workspace/sales/viewings/property/${propertyId}`
             : '/workspace/sales/viewings',
+          recipientUserIds: transferSlot
+            ? viewingSlotDeskStakeholderIds(state.users, transferSlot, transferProperty)
+            : [],
         })
       }
       return ok
@@ -3293,6 +3376,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           title: 'Viewing booked',
           body: `${applicantName} booked ${property?.title ?? 'a viewing'} · ${created.date} ${created.time}`,
           link: `/workspace/sales/viewings/property/${encodeURIComponent(created.propertyId)}?booking=${encodeURIComponent(created.id)}`,
+          recipientUserIds: viewingDeskStakeholderIds(state.users, created, property),
         })
         notifyViewingScheduled(notify, state.users, state.applications, created, property)
       }
@@ -3328,6 +3412,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         body: `${viewing.applicantName} · ${property?.title ?? viewing.propertyId} · ${viewing.date} ${viewing.time}`,
         link: `/workspace/sales/viewings/property/${encodeURIComponent(viewing.propertyId)}?booking=${encodeURIComponent(viewing.id)}`,
         actorUserId: viewing.agentId,
+        recipientUserIds: viewingDeskStakeholderIds(state.users, viewing, property),
       })
       notifyViewingScheduled(notify, state.users, state.applications, viewing, property, {
         excludeUserId: viewing.agentId,
@@ -3392,6 +3477,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           link: prev.propertyId
             ? `/workspace/sales/viewings/property/${prev.propertyId}`
             : '/workspace/sales/viewings',
+          recipientUserIds: viewingDeskStakeholderIds(state.users, prev, property),
         })
       }
 
@@ -3429,6 +3515,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           link: prev.propertyId
             ? `/workspace/sales/viewings/property/${prev.propertyId}?booking=${encodeURIComponent(prev.id)}`
             : '/workspace/sales/viewings',
+          recipientUserIds: viewingDeskStakeholderIds(state.users, prev, property),
         })
       }
     },
@@ -3452,6 +3539,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           { field: 'Status', from: 'None', to: payment.status },
         ],
       })
+      const paymentProperty = state.properties.find((p) => p.id === payment.propertyId)
       emitSuiteEvent({
         agencyId: payment.agencyId,
         resource: 'payment',
@@ -3459,6 +3547,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         title: 'Payment recorded',
         body: `${payment.type} · ${payment.partyName} is due.`,
         link: `/workspace/properties/${payment.propertyId}?tab=payments`,
+        recipientUserIds: paymentDeskStakeholderIds(state.users, payment, paymentProperty),
       })
       if (payment.partyUserId) {
         notify({
@@ -3536,6 +3625,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         }
       })
       if (before) {
+        const paymentProperty = state.properties.find((p) => p.id === before.propertyId)
         emitSuiteEvent({
           agencyId: before.agencyId,
           resource: 'payment',
@@ -3543,6 +3633,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           title: 'Payment marked paid',
           body: `${before.type} · ${before.partyName} was marked paid.`,
           link: `/workspace/properties/${before.propertyId}?tab=payments`,
+          recipientUserIds: paymentDeskStakeholderIds(state.users, before, paymentProperty),
         })
         if (before.partyUserId) {
           notify({
@@ -3584,6 +3675,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         payments: s.payments.filter((p) => p.id !== id),
       }))
       persistDelete('payment', id)
+      const paymentProperty = state.properties.find((p) => p.id === payment.propertyId)
       emitSuiteEvent({
         agencyId: payment.agencyId,
         resource: 'payment',
@@ -3591,6 +3683,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         title: 'Unpaid payment deleted',
         body: `${payment.type} · ${payment.partyName} was removed.`,
         link: `/workspace/properties/${payment.propertyId}?tab=payments`,
+        recipientUserIds: paymentDeskStakeholderIds(state.users, payment, paymentProperty),
       })
       return true
     },
@@ -3611,6 +3704,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           action: 'updated a Payment status',
           changes: [{ field: 'Status', from: before.status, to: p.status }],
         })
+        const paymentProperty = state.properties.find((p) => p.id === before.propertyId)
         emitSuiteEvent({
           agencyId: before.agencyId,
           resource: 'payment',
@@ -3618,6 +3712,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           title: 'Payment updated',
           body: `${before.type} · ${before.partyName} → ${p.status}.`,
           link: `/workspace/properties/${before.propertyId}?tab=payments`,
+          recipientUserIds: paymentDeskStakeholderIds(state.users, before, paymentProperty),
         })
       }
     },
@@ -3678,6 +3773,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             ? `/workspace/properties/${thread.propertyId}?tab=messages`
             : '/workspace/operations/communications',
           actorUserId: fromUserId,
+          recipientUserIds: messageThreadRecipientIds(thread, fromUserId),
         })
       }
       return message
@@ -3728,20 +3824,28 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ],
       })
       if (ticket.priority === 'Emergency') {
-        const managers = state.users.filter(
-          (u) => u.agencyId === ticket.agencyId && u.active && u.role === 'client_admin',
-        )
-        managers.forEach((m) =>
-          notify({
-            userId: m.id,
-            agencyId: ticket.agencyId,
-            title: 'Emergency dispatch queued',
-            body: `${ticket.title} — emergency priority registered.`,
-            link: '/workspace/operations/maintenance',
-          }),
-        )
+        emitSuiteEvent({
+          agencyId: ticket.agencyId,
+          resource: 'maintenance',
+          action: 'created',
+          title: 'Emergency dispatch queued',
+          body: `${ticket.title} — emergency priority registered.`,
+          link: '/workspace/operations/maintenance',
+          recipientUserIds: maintenanceDeskStakeholderIds(state.users, ticket, prop),
+        })
+      } else {
+        emitSuiteEvent({
+          agencyId: ticket.agencyId,
+          resource: 'maintenance',
+          action: 'created',
+          title: 'Maintenance opened',
+          body: `“${ticket.title}” · ${ticket.priority}`,
+          link: `/workspace/properties/${ticket.propertyId}?tab=maintenance`,
+          recipientUserIds: maintenanceDeskStakeholderIds(state.users, ticket, prop),
+        })
       }
       persistUpsert('ticket', ticket.id, ticket as unknown as Record<string, unknown>)
+      notifyMaintenanceOpened(notify, state.users, ticket, prop, ticket.reportedByUserId)
       return ticket
     },
     createMaintenanceTicket: ({ actorUserId, request, propertyId }) => {
@@ -3804,25 +3908,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         body: `“${ticket.title}” · ${ticket.priority}`,
         link: `/workspace/properties/${ticket.propertyId}?tab=maintenance`,
         actorUserId: actor.id,
+        recipientUserIds: maintenanceDeskStakeholderIds(state.users, ticket, prop),
       })
-
-      const emergencyQueued = toUiPriority(String(request.priority)) === 'Emergency'
-      if (emergencyQueued) {
-        state.users
-          .filter((u) => u.agencyId === unit.clientId && u.role === 'client_admin' && u.active)
-          .forEach((m) =>
-            notify({
-              userId: m.id,
-              agencyId: unit.clientId,
-              title: 'Emergency maintenance dispatch',
-              body: `${ticket.title} queued for emergency dispatch.`,
-              link: '/workspace/operations/maintenance',
-            }),
-          )
-      }
 
       persistUpsert('ticket', ticket.id, ticket as unknown as Record<string, unknown>)
       notifyMaintenanceOpened(notify, state.users, ticket, prop, actor.id)
+      const emergencyQueued = toUiPriority(String(request.priority)) === 'Emergency'
       return {
         status: 'TICKET_CREATED',
         ticket_id: ticket.id,
@@ -3879,6 +3970,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             title: 'Maintenance status changed',
             body: `“${merged.title}” is now ${merged.status}.`,
             link: `/workspace/operations/maintenance/${encodeURIComponent(id)}`,
+            recipientUserIds: maintenanceDeskStakeholderIds(state.users, merged, property),
           })
         }
       }
@@ -3970,6 +4062,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ...s,
         tickets: s.tickets.filter((t) => t.id !== id),
       }))
+      const ticketProperty = state.properties.find((p) => p.id === ticket.propertyId)
       emitSuiteEvent({
         agencyId: ticket.agencyId,
         resource: 'maintenance',
@@ -3977,6 +4070,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         title: 'Maintenance deleted',
         body: `“${ticket.title}” was removed before work started.`,
         link: `/workspace/properties/${ticket.propertyId}?tab=maintenance`,
+        recipientUserIds: maintenanceDeskStakeholderIds(state.users, ticket, ticketProperty),
       })
       persistDelete('ticket', id)
       return true

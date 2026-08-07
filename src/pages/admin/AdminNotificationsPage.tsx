@@ -107,8 +107,8 @@ export default function AdminNotificationsPage() {
           title="Broadcast notifications"
           subtitle={
             isPlatform
-              ? 'Push an in-app notification to everyone, one agency, or a specific person.'
-              : 'Notify everyone in your agency, or a specific teammate.'
+              ? 'Push an in-app notification to everyone, all staff in one agency, or a specific person.'
+              : 'Notify all staff in your agency, or a specific teammate.'
           }
         />
 
@@ -146,7 +146,7 @@ export default function AdminNotificationsPage() {
                 aria-label="Audience"
               >
                 {isPlatform ? <option value="everyone">Everyone</option> : null}
-                <option value="agency">{isPlatform ? 'Specific agency' : 'My agency'}</option>
+                <option value="agency">{isPlatform ? 'All staff in agency' : 'All staff in my agency'}</option>
                 <option value="person">
                   {isPlatform ? 'Specific person' : 'Person in my agency'}
                 </option>

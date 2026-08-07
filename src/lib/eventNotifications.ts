@@ -6,6 +6,7 @@ import type {
   PropertyAsset,
   Viewing,
 } from '../types/domain'
+import { isPortalNotificationRecipient } from './notificationRecipients'
 import {
   collectViewingAttendeeUserIds,
   resolveViewingAttendeeUserId,
@@ -39,9 +40,6 @@ export function notifyViewingScheduled(
 ) {
   const propertyLabel = property?.title ?? 'the property'
   const schedule = `${viewing.date} at ${viewing.time}`
-  const link = viewing.propertyId
-    ? `/workspace/sales/viewings/property/${encodeURIComponent(viewing.propertyId)}?booking=${encodeURIComponent(viewing.id)}`
-    : '/workspace/sales/viewings'
 
   const attendeeId = resolveViewingAttendeeUserId(users, applications, viewing)
   if (attendeeId && attendeeId !== opts?.excludeUserId) {
@@ -51,18 +49,6 @@ export function notifyViewingScheduled(
       title: 'Viewing confirmed',
       body: `Your viewing for ${propertyLabel} is scheduled for ${schedule}.`,
       link: viewingNotificationLink(applications, viewing),
-      resource: 'viewing',
-      action: 'created',
-    })
-  }
-
-  if (viewing.agentId && viewing.agentId !== opts?.excludeUserId) {
-    notify({
-      userId: viewing.agentId,
-      agencyId: viewing.agencyId,
-      title: 'Viewing on your calendar',
-      body: `${viewing.applicantName} · ${propertyLabel} · ${schedule}`,
-      link,
       resource: 'viewing',
       action: 'created',
     })
@@ -82,9 +68,6 @@ export function notifyViewingStatusChanged(
   const propertyLabel = property?.title ?? 'the property'
   const schedule = `${prev.date} at ${prev.time}`
   const link = viewingNotificationLink(applications, prev)
-  const deskLink = prev.propertyId
-    ? `/workspace/sales/viewings/property/${encodeURIComponent(prev.propertyId)}?booking=${encodeURIComponent(prev.id)}`
-    : '/workspace/sales/viewings'
 
   let attendeeTitle = 'Viewing updated'
   let attendeeBody = `Your viewing for ${propertyLabel} on ${schedule} was updated.`
@@ -111,18 +94,6 @@ export function notifyViewingStatusChanged(
       action: 'updated',
     })
   }
-
-  if (prev.agentId) {
-    notify({
-      userId: prev.agentId,
-      agencyId: prev.agencyId,
-      title: `Viewing ${nextStatus.toLowerCase()}`,
-      body: `${prev.applicantName} · ${propertyLabel} · ${schedule}`,
-      link: deskLink,
-      resource: 'viewing',
-      action: 'updated',
-    })
-  }
 }
 
 export function notifyMaintenanceOpened(
@@ -135,25 +106,22 @@ export function notifyMaintenanceOpened(
   const propertyLabel = property?.title ?? 'a property'
   const link = `/workspace/operations/maintenance/${encodeURIComponent(ticket.id)}`
 
-  notifyUserOnce(notify, ticket.assignedAgentId, {
-    agencyId: ticket.agencyId,
-    title: 'New maintenance logged',
-    body: `“${ticket.title}” · ${ticket.priority} · ${propertyLabel}`,
-    link,
-    resource: 'maintenance',
-    action: 'created',
-  })
-
-  notifyUserOnce(notify, ticket.reportedByUserId, {
-    agencyId: ticket.agencyId,
-    title: 'Maintenance request received',
-    body: `We logged “${ticket.title}” for ${propertyLabel}.`,
-    link: ticket.reportedByUserId && users.find((u) => u.id === ticket.reportedByUserId)?.role === 'tenant'
-      ? '/workspace/portals/tenant/maintenance'
-      : link,
-    resource: 'maintenance',
-    action: 'created',
-  })
+  if (
+    ticket.reportedByUserId &&
+    isPortalNotificationRecipient(users, ticket.reportedByUserId)
+  ) {
+    notifyUserOnce(notify, ticket.reportedByUserId, {
+      agencyId: ticket.agencyId,
+      title: 'Maintenance request received',
+      body: `We logged “${ticket.title}” for ${propertyLabel}.`,
+      link:
+        users.find((u) => u.id === ticket.reportedByUserId)?.role === 'tenant'
+          ? '/workspace/portals/tenant/maintenance'
+          : link,
+      resource: 'maintenance',
+      action: 'created',
+    })
+  }
 
   const landlordId = property?.landlordId
   if (landlordId && landlordId !== actorUserId) {
@@ -181,15 +149,6 @@ export function notifyMaintenanceStatusChanged(
   const link = `/workspace/operations/maintenance/${encodeURIComponent(after.id)}`
   const body = `“${after.title}” at ${propertyLabel} is now ${after.status}.`
 
-  notifyUserOnce(notify, after.assignedAgentId, {
-    agencyId: after.agencyId,
-    title: 'Maintenance status changed',
-    body,
-    link,
-    resource: 'maintenance',
-    action: 'updated',
-  })
-
   notifyUserOnce(notify, after.contractorId, {
     agencyId: after.agencyId,
     title: 'Job status updated',
@@ -199,18 +158,22 @@ export function notifyMaintenanceStatusChanged(
     action: 'updated',
   })
 
-  notifyUserOnce(notify, after.reportedByUserId, {
-    agencyId: after.agencyId,
-    title: 'Your maintenance update',
-    body,
-    link:
-      after.reportedByUserId &&
-      users.find((u) => u.id === after.reportedByUserId)?.role === 'tenant'
-        ? '/workspace/portals/tenant/maintenance'
-        : link,
-    resource: 'maintenance',
-    action: 'updated',
-  })
+  if (
+    after.reportedByUserId &&
+    isPortalNotificationRecipient(users, after.reportedByUserId)
+  ) {
+    notifyUserOnce(notify, after.reportedByUserId, {
+      agencyId: after.agencyId,
+      title: 'Your maintenance update',
+      body,
+      link:
+        users.find((u) => u.id === after.reportedByUserId)?.role === 'tenant'
+          ? '/workspace/portals/tenant/maintenance'
+          : link,
+      resource: 'maintenance',
+      action: 'updated',
+    })
+  }
 
   const landlordId = property?.landlordId
   if (landlordId) {

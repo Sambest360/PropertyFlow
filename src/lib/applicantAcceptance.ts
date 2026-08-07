@@ -1,4 +1,4 @@
-import type { Application, AppNotification, AppUser, PropertyAsset, SuiteAlertAction, SuiteAlertResource } from '../types/domain'
+import type { Application, AppNotification, AppUser, PropertyAsset } from '../types/domain'
 import { resolveWorkflowStatus, workflowStageLabel } from './applicationWorkflow'
 import { isApplicantAcceptanceStatus, siblingApplications } from './applicantPortalActions'
 
@@ -8,16 +8,6 @@ export type AcceptanceNotificationInput = {
   applications: readonly Application[]
   users: readonly AppUser[]
   notify: (input: Omit<AppNotification, 'id' | 'at' | 'read'> & { silent?: boolean }) => void
-  emitSuiteEvent: (input: {
-    agencyId: string | null
-    resource: SuiteAlertResource
-    action: SuiteAlertAction
-    title: string
-    body: string
-    link?: string
-    actorUserId?: string | null
-    includeActor?: boolean
-  }) => void
 }
 
 /** Notify other agencies (and the applicant) when this person is accepted elsewhere. */
@@ -54,15 +44,6 @@ export function notifyAcceptedElsewhere(input: AcceptanceNotificationInput): voi
         silent: staff.id !== other.agentId,
       })
     }
-
-    input.emitSuiteEvent({
-      agencyId: other.agencyId,
-      resource: 'applicant',
-      action: 'updated',
-      title: 'Applicant accepted elsewhere',
-      body: `${input.accepted.applicantName} secured another property (${acceptedLabel}). Review application ${other.id}.`,
-      link: `/workspace/sales/applications/${encodeURIComponent(other.id)}`,
-    })
   }
 
   if (input.accepted.applicantUserId) {
