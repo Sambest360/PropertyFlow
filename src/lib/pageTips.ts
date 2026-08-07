@@ -70,8 +70,8 @@ const WALKTHROUGH_RULES: Array<{
       steps: [
         {
           title: 'Refine your search',
-          body: 'Use these tabs to switch between all listings, properties for sale, rentals, or commercial stock.',
-          target: '[data-tip-target="browse-modes"]',
+          body: 'Use Buy, Rent, or Commercial in the top navigation to switch listing types, then open filters for price, beds, and amenities.',
+          target: '[data-tip-target="market-nav"]',
           placement: 'below',
         },
         {

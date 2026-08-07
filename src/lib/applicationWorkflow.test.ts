@@ -5,7 +5,10 @@ import {
   activeCategoryStages,
   activeWorkflowCategory,
   categoryProgress,
+  documentsForStage,
   getAvailableTransitions,
+  getLifecycleMilestones,
+  getStageRequirements,
   normalizeApplication,
   primaryNextTransition,
   resolveWorkflowStatus,
@@ -109,5 +112,14 @@ describe('applicationWorkflow', () => {
       'documents_uploaded',
     ])
     expect(categoryProgress(app)).toBe(0)
+  })
+
+  it('exposes lifecycle milestones and stage document requirements', () => {
+    const app = normalizeApplication(rentalApp({ workflowStatus: 'documents_requested' }))
+    const milestones = getLifecycleMilestones('Rental')
+    expect(milestones.some((m) => m.key === 'documents_requested')).toBe(true)
+    const req = getStageRequirements('documents_requested')
+    expect(req?.documentKeys?.length).toBeGreaterThan(0)
+    expect(documentsForStage(app, 'documents_requested').length).toBeGreaterThan(0)
   })
 })

@@ -181,10 +181,11 @@ export default function LeadDetail() {
         <CloseLeadModal
           open={closeOpen}
           leadName={lead.name}
+          leadType={lead.type}
           onClose={() => setCloseOpen(false)}
-          onConfirm={(reason) => {
+          onConfirm={({ stage, reason }) => {
             const prev = lead
-            const result = closeLead(prev.id, reason)
+            const result = closeLead(prev.id, { stage, reason })
             if (result.ok === false) {
               void alert.success({ title: 'Could not close lead', text: result.reason, tone: 'danger' })
               return
@@ -196,13 +197,13 @@ export default function LeadDetail() {
               actorName: user.name,
               action: 'closed a Lead',
               changes: [
-                { field: 'Stage', from: prev.stage, to: 'Rejected' },
+                { field: 'Stage', from: prev.stage, to: result.stage },
                 { field: 'Reason', from: '—', to: reason },
               ],
             })
             void alert.success({
               title: 'Lead closed',
-              text: `${prev.name} was moved to History.`,
+              text: `${prev.name} was moved to History as ${result.stage.toLowerCase()}.`,
             })
             navigate('/workspace/sales/crm?tab=history')
           }}

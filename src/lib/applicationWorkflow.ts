@@ -254,6 +254,16 @@ export const RENTAL_WORKFLOW: WorkflowTemplate = {
       requires: ['applications.review'],
       guard: (app) => allDocsUploaded(app.documents) || 'Upload or verify all required documents first',
     },
+    {
+      from: 'documents_requested',
+      to: 'documents_uploaded',
+      actionKey: 'UPLOAD_DOCS',
+      label: 'Confirm documents uploaded',
+      hint: 'Submit uploaded documents for agency review',
+      tone: 'primary',
+      requires: ['portal.tenant'],
+      guard: (app) => allDocsUploaded(app.documents) || 'Upload all required documents first',
+    },
     { from: 'documents_uploaded', to: 'fica_verification', actionKey: 'START_FICA', label: 'Start FICA verification', hint: 'Verify identity against FICA requirements', tone: 'secondary', requires: ['applications.review'] },
     { from: 'fica_verification', to: 'employment_verification', actionKey: 'VERIFY_EMPLOYMENT', label: 'Verify employment', hint: 'Confirm employer and role', tone: 'secondary', requires: ['applications.review'] },
     { from: 'employment_verification', to: 'income_verification', actionKey: 'VERIFY_INCOME', label: 'Verify income', hint: 'Validate payslips and bank statements', tone: 'secondary', requires: ['applications.review'] },
@@ -596,4 +606,172 @@ export const PURCHASE_BRANCH_OUTCOMES: Array<{ key: WorkflowStatusKey; label: st
 
 export function workflowBranchOutcomes(type: Application['type']) {
   return type === 'Purchase' ? PURCHASE_BRANCH_OUTCOMES : RENTAL_BRANCH_OUTCOMES
+}
+
+export type StageActor = 'applicant' | 'agent' | 'system' | 'both'
+
+export type StageRequirements = {
+  actor: StageActor
+  documentKeys?: string[]
+  waitingLabel?: string
+  futureLabel?: string
+  etaDays?: number
+}
+
+/** User-facing lifecycle milestones (clickable timeline rail). */
+export type LifecycleMilestone = {
+  key: WorkflowStatusKey
+  label: string
+  description: string
+}
+
+const RENTAL_MILESTONES: LifecycleMilestone[] = [
+  { key: 'application_started', label: 'Application', description: 'Complete your details and submit your application.' },
+  { key: 'application_submitted', label: 'Submitted', description: 'Agency receives your application for review.' },
+  { key: 'documents_requested', label: 'Documents', description: 'Upload FICA, ID, and income documents.' },
+  { key: 'fica_verification', label: 'Identity', description: 'Agency verifies your identity documents.' },
+  { key: 'credit_check', label: 'Credit check', description: 'Credit bureau and affordability assessment (1–2 business days).' },
+  { key: 'agent_review', label: 'Agent review', description: 'Agent reviews your full application file.' },
+  { key: 'viewing_scheduled', label: 'Viewing', description: 'Optional property viewing before or after approval.' },
+  { key: 'conditionally_approved', label: 'Approved', description: 'Application approved — deposit and lease next.' },
+  { key: 'deposit_invoice_sent', label: 'Deposit', description: 'Pay deposit and first month rent.' },
+  { key: 'lease_sent', label: 'Lease', description: 'Review and sign the lease agreement.' },
+  { key: 'active_tenancy', label: 'Move-in', description: 'Keys, inspection, and occupancy.' },
+]
+
+const PURCHASE_MILESTONES: LifecycleMilestone[] = [
+  { key: 'offer_started', label: 'Offer', description: 'Prepare and submit your offer to purchase.' },
+  { key: 'offer_submitted', label: 'Submitted', description: 'Seller receives your offer.' },
+  { key: 'offer_accepted', label: 'Accepted', description: 'Offer accepted — FICA and bond next.' },
+  { key: 'fica_verification', label: 'FICA', description: 'Identity and compliance documents.' },
+  { key: 'bond_application', label: 'Bond', description: 'Home loan application with your bank (5–10 days).' },
+  { key: 'deposit_requested', label: 'Deposit', description: 'Pay the purchase deposit.' },
+  { key: 'attorney_assigned', label: 'Conveyancer', description: 'Transfer attorney assigned.' },
+  { key: 'transfer_processing', label: 'Transfer', description: 'Deeds office transfer in progress.' },
+  { key: 'registered', label: 'Registered', description: 'Property registered in your name.' },
+  { key: 'occupation', label: 'Occupation', description: 'Take occupation of the property.' },
+]
+
+export function getLifecycleMilestones(type: Application['type']): LifecycleMilestone[] {
+  return type === 'Purchase' ? PURCHASE_MILESTONES : RENTAL_MILESTONES
+}
+
+const STAGE_REQUIREMENTS: Partial<Record<WorkflowStatusKey, StageRequirements>> = {
+  application_started: {
+    actor: 'applicant',
+    waitingLabel: 'Complete your personal details and submit when ready.',
+  },
+  application_submitted: {
+    actor: 'agent',
+    waitingLabel: 'Waiting for agency to request documents.',
+    futureLabel: 'Agency will open your document checklist.',
+  },
+  documents_requested: {
+    actor: 'applicant',
+    documentKeys: ['id', 'address', 'payslips', 'bank', 'employment', 'credit_consent', 'landlord_ref', 'fica'],
+    waitingLabel: 'Upload each required document below.',
+  },
+  documents_uploaded: {
+    actor: 'agent',
+    waitingLabel: 'Agency is reviewing uploaded documents.',
+  },
+  fica_verification: {
+    actor: 'agent',
+    documentKeys: ['id', 'address', 'fica'],
+    waitingLabel: 'Identity verification in progress.',
+    etaDays: 1,
+  },
+  credit_check: {
+    actor: 'system',
+    waitingLabel: 'Credit and affordability check running.',
+    etaDays: 2,
+  },
+  affordability_assessment: {
+    actor: 'system',
+    waitingLabel: 'Affordability assessment in progress.',
+    etaDays: 1,
+  },
+  agent_review: {
+    actor: 'agent',
+    waitingLabel: 'Agent is reviewing your application.',
+  },
+  landlord_review: {
+    actor: 'agent',
+    waitingLabel: 'Waiting for landlord approval.',
+  },
+  viewing_scheduled: {
+    actor: 'both',
+    waitingLabel: 'Viewing scheduled — confirm attendance.',
+  },
+  conditionally_approved: {
+    actor: 'applicant',
+    waitingLabel: 'Congratulations — prepare for deposit and lease.',
+  },
+  deposit_invoice_sent: {
+    actor: 'applicant',
+    waitingLabel: 'Deposit payment required.',
+  },
+  deposit_paid: {
+    actor: 'agent',
+    waitingLabel: 'Deposit submitted — awaiting verification.',
+  },
+  lease_sent: {
+    actor: 'applicant',
+    waitingLabel: 'Lease ready for your signature.',
+  },
+  tenant_signed: {
+    actor: 'agent',
+    waitingLabel: 'Waiting for landlord signature.',
+  },
+  active_tenancy: {
+    actor: 'both',
+    waitingLabel: 'Tenancy active — complete move-in checklist.',
+  },
+  offer_started: { actor: 'applicant', waitingLabel: 'Complete and submit your offer.' },
+  offer_submitted: { actor: 'agent', waitingLabel: 'Seller is reviewing your offer.' },
+  bond_application: { actor: 'system', waitingLabel: 'Bank reviewing bond application.', etaDays: 7 },
+  transfer_processing: { actor: 'system', waitingLabel: 'Transfer in progress with conveyancer.', etaDays: 14 },
+}
+
+export function getStageRequirements(status: WorkflowStatusKey): StageRequirements | null {
+  return STAGE_REQUIREMENTS[status] ?? null
+}
+
+export function milestoneVisualState(
+  type: Application['type'],
+  currentStatus: WorkflowStatusKey,
+  milestoneKey: WorkflowStatusKey,
+): WorkflowStageState {
+  const milestones = getLifecycleMilestones(type)
+  const currentIdx = milestones.findIndex((m) => m.key === currentStatus)
+  const milestoneIdx = milestones.findIndex((m) => m.key === milestoneKey)
+  if (milestoneIdx < 0) return 'skipped'
+
+  const currentDef = getStageDef(type, currentStatus)
+  const milestoneDef = getStageDef(type, milestoneKey)
+  if (!currentDef || !milestoneDef) return 'upcoming'
+
+  if (milestoneKey === currentStatus) return 'current'
+  if (currentDef.terminal && milestoneKey !== currentStatus) {
+    return milestoneDef.order < currentDef.order ? 'completed' : 'skipped'
+  }
+
+  if (currentIdx >= 0 && milestoneIdx >= 0) {
+    if (milestoneIdx < currentIdx) return 'completed'
+    if (milestoneIdx === currentIdx) return 'current'
+    return 'upcoming'
+  }
+
+  if (milestoneDef.order < currentDef.order) return 'completed'
+  return 'upcoming'
+}
+
+export function documentsForStage(
+  application: Application,
+  stageKey: WorkflowStatusKey,
+): ApplicationDocument[] {
+  const req = getStageRequirements(stageKey)
+  if (!req?.documentKeys?.length) return []
+  const keys = new Set(req.documentKeys)
+  return application.documents.filter((d) => keys.has(d.key))
 }

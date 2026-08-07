@@ -1,4 +1,4 @@
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Heart, Menu, Search } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { BrandLogo } from './BrandLogo'
@@ -9,10 +9,20 @@ import { ACCOUNT_WISHLIST_PATH, PUBLIC_SAVED_PATH } from '../../lib/accountRoute
 import { initials } from '../dashboard/formatShortDate'
 import { cn } from '../ui'
 
+function marketplaceCategoryActive(pathname: string, search: string, to: string): boolean {
+  if (!pathname.startsWith('/browse') && pathname !== '/saved') return false
+  const target = new URL(to, 'https://propertyflow.local')
+  const targetMode = target.searchParams.get('mode')
+  const currentMode = new URLSearchParams(search).get('mode') ?? 'all'
+  if (!targetMode) return currentMode === 'all'
+  return currentMode === targetMode
+}
+
 export function MarketplaceHeader() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [q, setQ] = useState('')
   const navigate = useNavigate()
+  const location = useLocation()
   const { user, isAuthenticated, logout } = useAuth()
 
   const submitSearch = (e: FormEvent) => {
@@ -40,13 +50,20 @@ export function MarketplaceHeader() {
           >
             {marketplaceCategories.map((c) => {
               const Icon = c.icon
+              const active = marketplaceCategoryActive(location.pathname, location.search, c.to)
               return (
                 <Link
                   key={c.label}
                   to={c.to}
-                  className="inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-full px-3.5 py-2 text-sm font-semibold text-ink-500 transition-colors duration-200 hover:bg-primary-50 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  aria-current={active ? 'page' : undefined}
+                  className={cn(
+                    'inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-full px-3.5 py-2 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                    active
+                      ? 'bg-primary text-white'
+                      : 'text-ink-500 hover:bg-primary-50 hover:text-ink',
+                  )}
                 >
-                  <Icon className="h-3.5 w-3.5 text-ink-400" aria-hidden />
+                  <Icon className={cn('h-3.5 w-3.5', active ? 'text-white/90' : 'text-ink-400')} aria-hidden />
                   {c.label}
                 </Link>
               )
@@ -154,14 +171,19 @@ export function MarketplaceHeader() {
         <div className="space-y-1">
           {marketplaceCategories.map((c) => {
             const Icon = c.icon
+            const active = marketplaceCategoryActive(location.pathname, location.search, c.to)
             return (
               <Link
                 key={c.label}
                 to={c.to}
                 onClick={() => setMobileOpen(false)}
-                className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-ink transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  'flex min-h-11 cursor-pointer items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                  active ? 'bg-primary text-white' : 'text-ink hover:bg-primary-50',
+                )}
               >
-                <Icon className="h-4 w-4 text-ink-400" aria-hidden />
+                <Icon className={cn('h-4 w-4', active ? 'text-white/90' : 'text-ink-400')} aria-hidden />
                 {c.label}
               </Link>
             )

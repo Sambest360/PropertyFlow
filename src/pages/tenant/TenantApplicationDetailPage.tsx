@@ -15,7 +15,6 @@ import { ApplicantDocumentsPanel } from '../../components/applicant-detail/Appli
 import { TenantApplicationDetailsForm } from '../../components/tenant/TenantApplicationDetailsForm'
 import { TenantApplicationPaymentsPanel } from '../../components/tenant/TenantApplicationPaymentsPanel'
 import { Badge, Button, Card, cn, statusTone } from '../../components/ui'
-import { WorkflowLifecycleTrack } from '../../components/workflow/WorkflowLifecycleTrack'
 import { rolePermissions } from '../../lib/permissions'
 import { getApplicantTasks } from '../../lib/applicantPortalActions'
 import {
@@ -34,7 +33,7 @@ type Tab = 'application' | 'documents' | 'details' | 'payments'
 export default function TenantApplicationDetailPage() {
   const { id } = useParams()
   const [params, setParams] = useSearchParams()
-  const { state, setDocumentStatus, updateApplication, updatePayment, advanceApplicationWorkflow } =
+  const { state, setDocumentStatus, uploadApplicationDocument, updateApplication, updatePayment, advanceApplicationWorkflow } =
     useStore()
   const { user } = useAuth()
   const publicProperties = usePublicProperties()
@@ -328,29 +327,24 @@ export default function TenantApplicationDetailPage() {
         </div>
 
         {tab === 'application' && (
-          <div className="space-y-5">
-            <Card className="overflow-hidden border-primary-100 p-0">
-              <div className="border-b border-primary-100 bg-primary-50/50 px-5 py-4">
-                <h2 className="font-display text-lg font-semibold text-ink">Application progress</h2>
-                <p className="mt-1 text-sm text-ink-500">
-                  Track every stage from enquiry through move-in.
-                </p>
-              </div>
-              <div className="p-5">
-                <WorkflowLifecycleTrack application={application} />
-              </div>
-            </Card>
-            <ApplicantApplicationPanel
-              application={application}
-              property={property}
-              agentName={agentName}
-              actor={actor}
-              canReview={false}
-              applicantMode
-              onRunAction={runAction}
-              onSetDocument={(key, next) => setDocumentStatus(application.id, key, next)}
-            />
-          </div>
+          <ApplicantApplicationPanel
+            application={application}
+            property={property}
+            agentName={agentName}
+            actor={actor}
+            canReview={false}
+            applicantMode
+            tasks={tasks}
+            onRunAction={runAction}
+            onSetDocument={(key, next, note) => setDocumentStatus(application.id, key, next, note)}
+            onUploadDocument={(key, file) =>
+              uploadApplicationDocument(application.id, key, file, {
+                userId: user.id,
+                name: user.name,
+              })
+            }
+            onSaveDetails={(patch) => updateApplication(application.id, patch)}
+          />
         )}
 
         {tab === 'documents' && (
@@ -358,7 +352,13 @@ export default function TenantApplicationDetailPage() {
             application={application}
             canReview={false}
             isTenant
-            onSetDocument={(key, next) => setDocumentStatus(application.id, key, next)}
+            onSetDocument={(key, next, note) => setDocumentStatus(application.id, key, next, note)}
+            onUploadDocument={(key, file) =>
+              uploadApplicationDocument(application.id, key, file, {
+                userId: user.id,
+                name: user.name,
+              })
+            }
           />
         )}
 
@@ -366,6 +366,7 @@ export default function TenantApplicationDetailPage() {
           <TenantApplicationDetailsForm
             application={application}
             onSave={(patch) => updateApplication(application.id, patch)}
+            autoSave
           />
         )}
 

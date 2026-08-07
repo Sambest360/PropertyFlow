@@ -2,7 +2,10 @@ export const CLOSED_LEAD_STAGES = ['Lease Signed', 'Sale Completed', 'Rejected']
 
 export type ClosedLeadStage = (typeof CLOSED_LEAD_STAGES)[number]
 
-export const LEAD_CLOSE_STAGE = 'Rejected' as const
+export type LeadCloseInput = {
+  stage: ClosedLeadStage
+  reason: string
+}
 
 export function isClosedLeadStage(stage: string): boolean {
   return (CLOSED_LEAD_STAGES as readonly string[]).includes(stage)
@@ -10,6 +13,43 @@ export function isClosedLeadStage(stage: string): boolean {
 
 export function isOpenLeadStage(stage: string): boolean {
   return !isClosedLeadStage(stage)
+}
+
+/** Closed stages an agent may pick when manually closing a lead. */
+export function closeOutcomesForLeadType(type: 'Buy' | 'Rent'): ClosedLeadStage[] {
+  return type === 'Rent' ? ['Lease Signed', 'Rejected'] : ['Sale Completed', 'Rejected']
+}
+
+export function closeOutcomeMeta(stage: ClosedLeadStage): {
+  label: string
+  blurb: string
+  tone: 'success' | 'danger'
+} {
+  if (stage === 'Lease Signed') {
+    return {
+      label: 'Lease signed',
+      blurb: 'The enquiry converted — tenancy agreed and lease signed.',
+      tone: 'success',
+    }
+  }
+  if (stage === 'Sale Completed') {
+    return {
+      label: 'Sale completed',
+      blurb: 'The enquiry converted — property sold to this buyer.',
+      tone: 'success',
+    }
+  }
+  return {
+    label: 'Rejected / lost',
+    blurb: 'The enquiry closed without converting — budget, timing, or another property.',
+    tone: 'danger',
+  }
+}
+
+export function closeOutcomeHistoryLabel(stage: ClosedLeadStage): string {
+  if (stage === 'Rejected') return 'rejected'
+  if (stage === 'Lease Signed') return 'lease signed'
+  return 'sale completed'
 }
 
 /** Managers or the assigned agent may close an open lead. */

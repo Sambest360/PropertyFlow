@@ -49,7 +49,7 @@ function isApplicantRelatedEvent(ev: PropertyEvent, applicantName: string, appli
 export default function ApplicantDetail() {
   const { id } = useParams()
   const [params, setParams] = useSearchParams()
-  const { state, setDocumentStatus, patchApplicationStatus, advanceApplicationWorkflow, scheduleMoveIn, blockApplication, addPropertyEvent } = useStore()
+  const { state, setDocumentStatus, uploadApplicationDocument, patchApplicationStatus, advanceApplicationWorkflow, scheduleMoveIn, blockApplication, addPropertyEvent, updateApplication } = useStore()
   const { user, has } = useAuth()
   const { dealVisible, role } = usePropertyScope()
   const alert = useSuiteAlert()
@@ -413,7 +413,13 @@ export default function ApplicantDetail() {
             application={application}
             canReview={canReview}
             isTenant={isTenant}
-            onSetDocument={(key, next) => setDocumentStatus(application.id, key, next)}
+            onSetDocument={(key, next, note) => setDocumentStatus(application.id, key, next, note)}
+            onUploadDocument={(key, file) =>
+              uploadApplicationDocument(application.id, key, file, {
+                userId: user.id,
+                name: user.name,
+              })
+            }
           />
         )}
         {tab === 'residences' && <ApplicantResidencesPanel items={residences} />}
@@ -435,7 +441,16 @@ export default function ApplicantDetail() {
             agentName={agentName}
             actor={actor}
             canReview={canReview}
+            applicantMode={isTenant}
             onRunAction={runAction}
+            onSetDocument={(key, status, note) => setDocumentStatus(application.id, key, status, note)}
+            onUploadDocument={(key, file) =>
+              uploadApplicationDocument(application.id, key, file, {
+                userId: user.id,
+                name: user.name,
+              })
+            }
+            onSaveDetails={(patch) => updateApplication(application.id, patch)}
           />
         )}
         {tab === 'history' && <ApplicantHistoryTimeline events={historyEvents} />}

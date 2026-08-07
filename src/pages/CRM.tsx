@@ -31,6 +31,7 @@ import {
   canCloseLead,
   isClosedLeadStage,
   isOpenLeadStage,
+  type ClosedLeadStage,
 } from '../lib/leadLifecycle'
 import { CloseLeadModal } from '../components/lead-detail/CloseLeadModal'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
@@ -276,10 +277,10 @@ export default function CRM() {
     if (next && next !== item.boardStage) updateLeadStage(item.lead.id, next)
   }
 
-  const submitCloseLead = (reason: string) => {
+  const submitCloseLead = (input: { stage: ClosedLeadStage; reason: string }) => {
     if (!closeTarget) return
     const prev = closeTarget.lead
-    const result = closeLead(prev.id, reason)
+    const result = closeLead(prev.id, input)
     if (result.ok === false) {
       void alert.success({ title: 'Could not close lead', text: result.reason, tone: 'danger' })
       return
@@ -291,14 +292,14 @@ export default function CRM() {
       actorName: user.name,
       action: 'closed a Lead',
       changes: [
-        { field: 'Stage', from: prev.stage, to: 'Rejected' },
-        { field: 'Reason', from: '—', to: reason },
+        { field: 'Stage', from: prev.stage, to: result.stage },
+        { field: 'Reason', from: '—', to: input.reason },
       ],
     })
     if (expandedId === prev.id) setExpandedId(null)
     void alert.success({
       title: 'Lead closed',
-      text: `${prev.name} was moved to History.`,
+      text: `${prev.name} was moved to History as ${result.stage.toLowerCase()}.`,
     })
     setCloseTarget(null)
   }
@@ -540,6 +541,7 @@ export default function CRM() {
         <CloseLeadModal
           open={Boolean(closeTarget)}
           leadName={closeTarget?.lead.name ?? ''}
+          leadType={closeTarget?.lead.type ?? 'Rent'}
           onClose={() => setCloseTarget(null)}
           onConfirm={submitCloseLead}
         />

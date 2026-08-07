@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { canCloseLead, formatLeadTime, isClosedLeadStage, isOpenLeadStage } from './leadLifecycle'
+import {
+  canCloseLead,
+  closeOutcomeMeta,
+  closeOutcomesForLeadType,
+  formatLeadTime,
+  isClosedLeadStage,
+  isOpenLeadStage,
+} from './leadLifecycle'
 
 describe('leadLifecycle', () => {
   it('classifies closed stages', () => {
@@ -8,6 +15,13 @@ describe('leadLifecycle', () => {
     expect(isClosedLeadStage('Rejected')).toBe(true)
     expect(isOpenLeadStage('New Lead')).toBe(true)
     expect(isOpenLeadStage('Viewing Scheduled')).toBe(true)
+  })
+
+  it('offers type-specific close outcomes', () => {
+    expect(closeOutcomesForLeadType('Rent')).toEqual(['Lease Signed', 'Rejected'])
+    expect(closeOutcomesForLeadType('Buy')).toEqual(['Sale Completed', 'Rejected'])
+    expect(closeOutcomeMeta('Lease Signed').tone).toBe('success')
+    expect(closeOutcomeMeta('Rejected').tone).toBe('danger')
   })
 
   it('allows managers or assigned agents to close open leads', () => {

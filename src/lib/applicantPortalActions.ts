@@ -84,6 +84,16 @@ const APPLICANT_TRANSITIONS: WorkflowTransition[] = [
   },
   {
     from: 'documents_requested',
+    to: 'documents_uploaded',
+    actionKey: 'UPLOAD_DOCS',
+    label: 'Confirm documents uploaded',
+    hint: 'All required files are on file — submit for agency review',
+    tone: 'primary',
+    requires: ['portal.tenant'],
+    guard: (app) => allDocsUploaded(app.documents) || 'Upload all required documents first',
+  },
+  {
+    from: 'documents_requested',
     to: 'withdrawn',
     actionKey: 'WITHDRAW',
     label: 'Withdraw application',

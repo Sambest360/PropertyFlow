@@ -1,6 +1,7 @@
 import { FileText } from 'lucide-react'
 import type { Application, ApplicationDocument } from '../../types/domain'
-import { Badge, Card, statusTone } from '../ui'
+import { Card } from '../ui'
+import { ApplicationDocumentRow } from './ApplicationDocumentRow'
 import { ICON_STROKE } from './types'
 
 export function ApplicantDocumentsPanel({
@@ -8,11 +9,16 @@ export function ApplicantDocumentsPanel({
   canReview,
   isTenant,
   onSetDocument,
+  onUploadDocument,
 }: {
   application: Application
   canReview: boolean
   isTenant: boolean
-  onSetDocument: (key: string, next: ApplicationDocument['status']) => void
+  onSetDocument: (key: string, next: ApplicationDocument['status'], note?: string) => void
+  onUploadDocument?: (
+    key: string,
+    file: { name: string; mimeType: string; dataUrl: string },
+  ) => void
 }) {
   return (
     <Card className="p-5">
@@ -21,38 +27,19 @@ export function ApplicantDocumentsPanel({
         Documents
       </h2>
       <p className="mt-1 text-sm text-ink-500">
-        Checklist for this application. Reviewers can advance status; tenants can upload required
-        items.
+        Full checklist for this application. Upload and review also happen in the Application lifecycle tab.
       </p>
 
       <ul className="mt-4 space-y-2">
         {application.documents.map((d) => (
-          <li key={d.key}>
-            <button
-              type="button"
-              disabled={!canReview && !isTenant}
-              onClick={() => {
-                if (isTenant && d.status === 'required') {
-                  onSetDocument(d.key, 'uploaded')
-                } else if (canReview) {
-                  const next =
-                    d.status === 'required'
-                      ? 'uploaded'
-                      : d.status === 'uploaded'
-                        ? 'verified'
-                        : 'verified'
-                  onSetDocument(d.key, next)
-                }
-              }}
-              className="flex w-full min-h-14 cursor-pointer items-center justify-between gap-3 rounded-xl border border-primary-100 px-4 py-3 text-left transition-colors duration-200 hover:bg-primary-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default"
-            >
-              <span>
-                <span className="block font-semibold text-ink">{d.label}</span>
-                {d.note && <span className="mt-0.5 block text-xs text-ink-500">{d.note}</span>}
-              </span>
-              <Badge tone={statusTone(d.status)}>{d.status}</Badge>
-            </button>
-          </li>
+          <ApplicationDocumentRow
+            key={d.key}
+            doc={d}
+            canUpload={Boolean(isTenant && onUploadDocument)}
+            canReview={canReview}
+            onUpload={(file) => onUploadDocument?.(d.key, file)}
+            onSetStatus={(status, note) => onSetDocument(d.key, status, note)}
+          />
         ))}
         {!application.documents.length && (
           <li className="py-8 text-center text-sm text-ink-500">No documents on this application.</li>

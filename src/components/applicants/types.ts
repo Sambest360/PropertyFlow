@@ -1,7 +1,13 @@
 import type { Application } from '../../types/domain'
+import {
+  applicationPipelineBucket,
+  matchesPipelineBucket,
+  type ApplicationPipelineBucket,
+} from '../../lib/applicationPipeline'
 
 export const VIEW_STORAGE_KEY = 'propertyflow-applications-view'
 
+/** @deprecated use ApplicationPipelineBucket */
 export type ApplicantAttentionFilter =
   | 'all'
   | 'progress'
@@ -18,10 +24,10 @@ export type PortfolioApplicant = {
 }
 
 export function applicantAttention(item: PortfolioApplicant): ApplicantAttentionFilter {
-  const stage = item.application.stage
-  if (stage === 'Rejected' || stage === 'Blocked') return 'rejected'
-  if (stage === 'Active Tenancy') return 'tenancy'
-  if (stage === 'Credit Check') return 'credit'
+  const bucket = applicationPipelineBucket(item.application)
+  if (bucket === 'rejected') return 'rejected'
+  if (bucket === 'completed') return 'tenancy'
+  if (bucket === 'credit_checks') return 'credit'
   return 'progress'
 }
 
@@ -32,3 +38,12 @@ export function matchesApplicantAttention(
   if (attention === 'all') return true
   return applicantAttention(item) === attention
 }
+
+export function matchesPipelineBucketFilter(
+  item: PortfolioApplicant,
+  bucket: ApplicationPipelineBucket,
+): boolean {
+  return matchesPipelineBucket(item.application, bucket)
+}
+
+export type { ApplicationPipelineBucket }

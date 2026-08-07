@@ -106,6 +106,36 @@ function browseSortToApi(sort: BrowseFilterState['sort'], mode: string) {
   return 'featured' as const
 }
 
+function browsePageHeading(mode: string, q: string, savedOnly: boolean): string {
+  if (savedOnly) return 'Saved homes'
+  if (q) return `Results for “${q}”`
+  if (mode === 'rent') return 'Browse rental properties'
+  if (mode === 'buy') return 'Browse properties for sale'
+  if (mode === 'commercial') return 'Browse commercial properties'
+  return 'Browse properties'
+}
+
+function cardMatchesBrowseMode(
+  card: UnitCardPayload,
+  mode: string,
+  properties: readonly PropertyAsset[],
+  storeProperties: readonly PropertyAsset[],
+): boolean {
+  if (mode === 'all') return true
+  const property =
+    storeProperties.find((p) => p.id === card.property_id) ??
+    properties.find((p) => p.id === card.property_id || p.unitId === card.id)
+  if (!property) return mode !== 'commercial'
+  if (mode === 'commercial') return ['Commercial', 'Office'].includes(property.type)
+  if (mode === 'buy') {
+    return (property.listingMode === 'sale' || property.listingMode === 'both') && property.price != null
+  }
+  if (mode === 'rent') {
+    return (property.listingMode === 'rent' || property.listingMode === 'both') && property.rent != null
+  }
+  return true
+}
+
 export default function BrowsePage() {
   const publicProperties = usePublicProperties()
   const { state } = useStore()
@@ -113,7 +143,7 @@ export default function BrowsePage() {
   const location = useLocation()
   const savedOnly = location.pathname === '/saved' || location.pathname.endsWith('/saved')
   const { ids: wishlistIds } = useWishlist(isAuthenticated ? user.id : 'guest')
-  const [params, setParams] = useSearchParams()
+  const [params] = useSearchParams()
   const q = params.get('q') ?? ''
   const mode = params.get('mode') ?? 'all'
   const [filters, setFilters] = useState<BrowseFilterState>(defaultBrowseFilters)
@@ -124,15 +154,7 @@ export default function BrowsePage() {
   const [expandedWishlistId, setExpandedWishlistId] = useState<string | null>(null)
   const reducedMotion = usePrefersReducedMotion()
 
-  const browseTitle = savedOnly
-    ? 'Saved homes'
-    : q
-      ? `Results for “${q}”`
-      : mode === 'rent'
-        ? 'Properties to rent'
-        : mode === 'buy'
-          ? 'Properties for sale'
-          : 'Browse properties'
+  const browseTitle = browsePageHeading(mode, q, savedOnly)
 
   usePageMeta({
     title: browseTitle,
@@ -167,6 +189,7 @@ export default function BrowsePage() {
   /** Prefer infra units feed when units exist — cursor-paginated, card-ready. */
   const unitsFeed = useMemo(() => {
     if (savedOnly) return null
+    if (mode === 'commercial') return null
     if (!state.units.length) return null
     return searchUnitsFeed({
       units: state.units,
@@ -206,22 +229,16 @@ export default function BrowsePage() {
             : undefined
           return propertyToUnitCard(p, building)
         })
-    return raw.filter((c) => !c.property_id || !blockedIds.has(c.property_id))
-  }, [unitsFeed, filtered, state.buildings, blockedIds])
+    return raw
+      .filter((c) => !c.property_id || !blockedIds.has(c.property_id))
+      .filter((c) => cardMatchesBrowseMode(c, mode, properties, state.properties))
+  }, [unitsFeed, filtered, state.buildings, state.properties, blockedIds, mode, properties])
 
   const getCount = useCallback(
     (draft: BrowseFilterState) =>
       properties.filter((p) => matchesFilters(p, q, mode, draft)).length,
     [properties, q, mode],
   )
-
-  const setMode = (m: string) => {
-    const next = new URLSearchParams(params)
-    if (m === 'all') next.delete('mode')
-    else next.set('mode', m)
-    setParams(next)
-    setCursor(null)
-  }
 
   const priceHint =
     mode === 'rent'
@@ -258,16 +275,12 @@ export default function BrowsePage() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h1 className="font-display text-2xl font-semibold text-ink">
-                {savedOnly
-                  ? 'Wishlist'
-                  : q
-                    ? `Results for “${q}”`
-                    : 'Browse properties'}
+                {savedOnly ? 'Wishlist' : browseTitle}
               </h1>
               <p className="text-sm text-ink-500">
                 {savedOnly
                   ? `${cards.length} saved home${cards.length === 1 ? '' : 's'}`
-                  : `${unitsFeed?.pagination.total_estimate ?? cards.length} places${unitsFeed?.pagination.has_more ? ' · scroll for more' : ''}`}
+                  : `${mode === 'commercial' || !unitsFeed ? cards.length : (unitsFeed.pagination.total_estimate ?? cards.length)} places${unitsFeed?.pagination.has_more ? ' · scroll for more' : ''}`}
               </p>
               {savedOnly && cards.length === 0 && (
                 <p className="mt-2 flex items-center gap-1.5 text-sm text-ink-500">
@@ -275,26 +288,7 @@ export default function BrowsePage() {
                 </p>
               )}
             </div>
-            <div className="flex flex-wrap gap-2" data-tip-target="browse-modes">
-              {[
-                ['all', 'All'],
-                ['buy', 'For sale'],
-                ['rent', 'To rent'],
-                ['commercial', 'Commercial'],
-              ].map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setMode(id)}
-                  className={`min-h-11 cursor-pointer rounded-full px-3.5 py-1.5 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
-                    (mode === 'all' && id === 'all') || mode === id
-                      ? 'bg-primary text-white'
-                      : 'bg-white text-ink-500 ring-1 ring-primary-200'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 data-tip-target="browse-map"

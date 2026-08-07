@@ -62,11 +62,35 @@ export type ApplicationStage =
 
 export type DocStatus = 'required' | 'uploaded' | 'verified' | 'rejected'
 
+export type ApplicationDocumentFile = {
+  name: string
+  mimeType: string
+  dataUrl: string
+  uploadedAt: string
+  uploadedBy?: string | null
+}
+
 export type ApplicationDocument = {
   key: string
   label: string
   status: DocStatus
   note?: string
+  file?: ApplicationDocumentFile
+  rejectedReason?: string
+  reviewedAt?: string
+  reviewedBy?: string | null
+}
+
+export type ApplicationWorkflowEvent = {
+  id: string
+  applicationId: string
+  stage: string
+  actionKey?: string
+  actorUserId?: string | null
+  actorName?: string | null
+  at: string
+  summary: string
+  payload?: Record<string, unknown>
 }
 
 export type Agency = {
@@ -269,6 +293,8 @@ export type Application = {
   }
   submittedAt: string
   updatedAt: string
+  /** Audit trail for workflow transitions and document actions */
+  workflowEvents?: ApplicationWorkflowEvent[]
 }
 
 export type ViewingSlot = {

@@ -63,6 +63,13 @@ import {
 import { isApplicantAcceptanceStatus } from '../lib/applicantPortalActions'
 import { notifyAcceptedElsewhere } from '../lib/applicantAcceptance'
 import {
+  closeOutcomeHistoryLabel,
+  closeOutcomesForLeadType,
+  isClosedLeadStage,
+  type ClosedLeadStage,
+} from '../lib/leadLifecycle'
+import { appendWorkflowEvent } from '../lib/applicationWorkflowEvents'
+import {
   isContractorApprovedForAgency,
   syncTicketPhotoCount,
 } from '../lib/contractors'
@@ -401,8 +408,8 @@ type StoreContextValue = {
   updateLeadStage: (id: string, stage: string) => void
   closeLead: (
     id: string,
-    reason: string,
-  ) => { ok: true; leadId: string } | { ok: false; reason: string }
+    input: { stage: ClosedLeadStage; reason: string },
+  ) => { ok: true; leadId: string; stage: ClosedLeadStage } | { ok: false; reason: string }
   createApplication: (input: {
     agencyId: string
     propertyId: string
@@ -425,6 +432,12 @@ type StoreContextValue = {
     key: string,
     status: ApplicationDocument['status'],
     note?: string,
+  ) => void
+  uploadApplicationDocument: (
+    applicationId: string,
+    key: string,
+    file: { name: string; mimeType: string; dataUrl: string },
+    actor?: { userId: string; name: string },
   ) => void
   advanceApplication: (id: string, to?: ApplicationStage) => void
   approveApplication: (id: string) => PatchApplicationStatusResult
@@ -2055,21 +2068,25 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         })
       }
     },
-    closeLead: (id, reason) => {
+    closeLead: (id, input) => {
       const prev = state.leads.find((l) => l.id === id)
       if (!prev) return { ok: false, reason: 'Lead not found.' }
-      if (['Lease Signed', 'Sale Completed', 'Rejected'].includes(prev.stage)) {
+      if (isClosedLeadStage(prev.stage)) {
         return { ok: false, reason: 'This lead is already closed.' }
       }
-      const trimmed = reason.trim()
+      const allowed = closeOutcomesForLeadType(prev.type)
+      if (!allowed.includes(input.stage)) {
+        return { ok: false, reason: 'Invalid close outcome for this lead type.' }
+      }
+      const trimmed = input.reason.trim()
       if (trimmed.length < 4) {
         return { ok: false, reason: 'A close reason is required.' }
       }
       const updatedAt = new Date().toISOString().slice(0, 10)
-      const stage = 'Rejected'
+      const stage = input.stage
       const notes = prev.notes.trim()
-        ? `${prev.notes.trim()}\n\nClosed (${updatedAt}): ${trimmed}`
-        : `Closed (${updatedAt}): ${trimmed}`
+        ? `${prev.notes.trim()}\n\nClosed (${updatedAt}, ${closeOutcomeHistoryLabel(stage)}): ${trimmed}`
+        : `Closed (${updatedAt}, ${closeOutcomeHistoryLabel(stage)}): ${trimmed}`
       patch((s) => ({
         ...s,
         leads: s.leads.map((l) =>
@@ -2082,10 +2099,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         resource: 'applicant',
         action: 'updated',
         title: 'Lead closed',
-        body: `${prev.name} was marked rejected — ${trimmed}`,
+        body: `${prev.name} was marked ${closeOutcomeHistoryLabel(stage)} — ${trimmed}`,
         link: `/workspace/sales/crm/${encodeURIComponent(id)}`,
       })
-      return { ok: true, leadId: id }
+      return { ok: true, leadId: id, stage }
     },
     createApplication: (input) => {
       const property = state.properties.find((p) => p.id === input.propertyId)
@@ -2230,39 +2247,115 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }
     },
     setDocumentStatus: (applicationId, key, status, note) => {
+      let persisted: Application | null = null
       patch((s) => ({
         ...s,
         applications: s.applications.map((a) => {
           if (a.id !== applicationId) return a
           const documents = a.documents.map((d) =>
-            d.key === key ? { ...d, status, ...(note !== undefined ? { note } : {}) } : d,
+            d.key === key
+              ? {
+                  ...d,
+                  status,
+                  ...(note !== undefined ? { note, rejectedReason: status === 'rejected' ? note : d.rejectedReason } : {}),
+                  ...(status === 'verified'
+                    ? { reviewedAt: new Date().toISOString(), reviewedBy: 'Agency' }
+                    : {}),
+                }
+              : d,
           )
           const uploaded = allDocsUploaded(documents)
-          let next = { ...a, documents }
+          let next = appendWorkflowEvent(
+            { ...a, documents },
+            {
+              stage: resolveWorkflowStatus(a),
+              actionKey: status === 'verified' ? 'DOC_APPROVED' : status === 'rejected' ? 'DOC_REJECTED' : 'DOC_STATUS',
+              actorName: 'Agency',
+              summary:
+                status === 'verified'
+                  ? `Approved document: ${documents.find((d) => d.key === key)?.label ?? key}`
+                  : status === 'rejected'
+                    ? `Rejected document: ${documents.find((d) => d.key === key)?.label ?? key}${note ? ` — ${note}` : ''}`
+                    : `Updated document: ${documents.find((d) => d.key === key)?.label ?? key} → ${status}`,
+            },
+          )
           if (uploaded && resolveWorkflowStatus(a) === 'documents_requested') {
             next = applyWorkflowTransition({ ...next, documents }, 'documents_uploaded')
           } else {
             next = normalizeApplication({ ...next, documents })
           }
-          return {
+          const result = {
             ...next,
             docs: documents.filter((d) => d.status !== 'required').map((d) => d.label),
             creditConsent: key === 'credit_consent' && status !== 'required' ? true : a.creditConsent,
             creditCheck: key === 'credit_consent' && status !== 'required' ? 'Consent Received' : a.creditCheck,
             updatedAt: new Date().toISOString().slice(0, 10),
           }
+          persisted = result
+          return result
         }),
       }))
-      const prev = state.applications.find((a) => a.id === applicationId)
-      if (prev) {
-        const documents = prev.documents.map((d) =>
-          d.key === key ? { ...d, status, ...(note !== undefined ? { note } : {}) } : d,
-        )
-        persistUpsert('application', applicationId, {
-          ...prev,
-          documents,
-          updatedAt: new Date().toISOString().slice(0, 10),
-        } as unknown as Record<string, unknown>)
+      if (persisted) {
+        persistUpsert('application', applicationId, persisted as unknown as Record<string, unknown>)
+      }
+    },
+    uploadApplicationDocument: (applicationId, key, file, actor) => {
+      let persisted: Application | null = null
+      patch((s) => ({
+        ...s,
+        applications: s.applications.map((a) => {
+          if (a.id !== applicationId) return a
+          const documents = a.documents.map((d) =>
+            d.key === key
+              ? {
+                  ...d,
+                  status: 'uploaded' as const,
+                  file: {
+                    name: file.name,
+                    mimeType: file.mimeType,
+                    dataUrl: file.dataUrl,
+                    uploadedAt: new Date().toISOString(),
+                    uploadedBy: actor?.name ?? a.applicantName,
+                  },
+                  rejectedReason: undefined,
+                }
+              : d,
+          )
+          const uploaded = allDocsUploaded(documents)
+          let next = appendWorkflowEvent(
+            { ...a, documents },
+            {
+              stage: resolveWorkflowStatus(a),
+              actionKey: 'DOC_UPLOADED',
+              actorUserId: actor?.userId ?? a.applicantUserId,
+              actorName: actor?.name ?? a.applicantName,
+              summary: `Uploaded ${documents.find((d) => d.key === key)?.label ?? key}`,
+              payload: { documentKey: key, fileName: file.name },
+            },
+          )
+          if (uploaded && resolveWorkflowStatus(a) === 'documents_requested') {
+            next = applyWorkflowTransition({ ...next, documents }, 'documents_uploaded')
+            next = appendWorkflowEvent(next, {
+              stage: 'documents_uploaded',
+              actionKey: 'UPLOAD_DOCS',
+              actorUserId: actor?.userId ?? a.applicantUserId,
+              actorName: actor?.name ?? a.applicantName,
+              summary: 'All required documents uploaded',
+            })
+          } else {
+            next = normalizeApplication({ ...next, documents })
+          }
+          const result = {
+            ...next,
+            docs: documents.filter((d) => d.status !== 'required').map((d) => d.label),
+            updatedAt: new Date().toISOString().slice(0, 10),
+          }
+          persisted = result
+          return result
+        }),
+      }))
+      if (persisted) {
+        persistUpsert('application', applicationId, persisted as unknown as Record<string, unknown>)
       }
     },
     advanceApplication: (id, to) => {
@@ -2543,7 +2636,20 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         return { status: 'SUCCESS', application: updatedApp }
       }
 
-      const updated = normalizeApplication(applyWorkflowTransition(app, targetStatus))
+      let updated = normalizeApplication(applyWorkflowTransition(app, targetStatus))
+      if (targetStatus === 'application_submitted') {
+        const chained = applyWorkflowTransition(updated, 'documents_requested')
+        if (resolveWorkflowStatus(chained) === 'documents_requested') {
+          updated = normalizeApplication(chained)
+        }
+      }
+      updated = appendWorkflowEvent(updated, {
+        stage: resolveWorkflowStatus(updated),
+        actionKey: transition.actionKey,
+        actorUserId,
+        actorName: actorUser?.name ?? 'Agency',
+        summary: `${updated.applicantName}: ${updated.stage}`,
+      })
       patch((s) => ({
         ...s,
         applications: s.applications.map((a) => (a.id === applicationId ? updated : a)),

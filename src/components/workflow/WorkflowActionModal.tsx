@@ -6,8 +6,9 @@ import {
   validateActionCapture,
   type WorkflowActionCapture,
 } from '../../lib/workflowActionForms'
+import { ApplicationDocumentRow } from '../applicant-detail/ApplicationDocumentRow'
 import { SignaturePad } from './SignaturePad'
-import { Button, Input, Modal, Textarea, Badge, statusTone } from '../ui'
+import { Button, Input, Modal, Textarea } from '../ui'
 
 export function WorkflowActionModal({
   open,
@@ -17,6 +18,7 @@ export function WorkflowActionModal({
   onClose,
   onConfirm,
   onSetDocument,
+  onUploadDocument,
 }: {
   open: boolean
   action: HateoasAction | null
@@ -24,7 +26,11 @@ export function WorkflowActionModal({
   busy?: boolean
   onClose: () => void
   onConfirm: (capture: WorkflowActionCapture) => void
-  onSetDocument?: (key: string, status: ApplicationDocument['status']) => void
+  onSetDocument?: (key: string, status: ApplicationDocument['status'], note?: string) => void
+  onUploadDocument?: (
+    key: string,
+    file: { name: string; mimeType: string; dataUrl: string },
+  ) => void
 }) {
   const [capture, setCapture] = useState<WorkflowActionCapture>({})
   const [error, setError] = useState<string | null>(null)
@@ -46,8 +52,8 @@ export function WorkflowActionModal({
       setError(validationError)
       return
     }
-    if (spec.kind === 'upload' && !application.documents.every((d) => d.status !== 'required')) {
-      setError('Upload or verify all required documents first.')
+    if (spec.kind === 'upload' && !application.documents.every((d) => d.status === 'uploaded' || d.status === 'verified')) {
+      setError('Upload all required documents first.')
       return
     }
     setError(null)
@@ -87,28 +93,14 @@ export function WorkflowActionModal({
         {spec.showDocumentChecklist ? (
           <ul className="space-y-2">
             {application.documents.map((doc) => (
-              <li
+              <ApplicationDocumentRow
                 key={doc.key}
-                className="flex items-center justify-between gap-3 rounded-xl border border-primary-100 px-3 py-2.5"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-ink">{doc.label}</p>
-                  {doc.note ? <p className="text-xs text-ink-500">{doc.note}</p> : null}
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Badge tone={statusTone(doc.status)}>{doc.status}</Badge>
-                  {onSetDocument && doc.status === 'required' ? (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      className="min-h-9 px-3 text-xs"
-                      onClick={() => onSetDocument(doc.key, 'uploaded')}
-                    >
-                      Mark uploaded
-                    </Button>
-                  ) : null}
-                </div>
-              </li>
+                doc={doc}
+                canUpload={Boolean(onUploadDocument)}
+                canReview={Boolean(onSetDocument)}
+                onUpload={(file) => onUploadDocument?.(doc.key, file)}
+                onSetStatus={(status, note) => onSetDocument?.(doc.key, status, note)}
+              />
             ))}
           </ul>
         ) : null}
