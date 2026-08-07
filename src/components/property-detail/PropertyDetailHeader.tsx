@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Globe, Pencil, Star, Trash2, RotateCcw } from 'lucide-react'
+import { Globe, Pencil, Star, Trash2, RotateCcw } from 'lucide-react'
 import type { PropertyAsset } from '../../types/domain'
+import { BackButton } from '../BackButton'
 import { Badge, Button } from '../ui'
 import { resolvePortfolioStatus } from '../../lib/propertyStatus'
 import { isPropertyDeleted } from '../../lib/propertyDeletion'
@@ -48,16 +49,11 @@ export function PropertyDetailHeader({
   const showMakeLive =
     isDraft && canManage && canPublish && Boolean(onPublish) && !publishBlockedReason
 
+  const backTo = deleted ? '/workspace/properties/archive' : '/workspace/properties'
+  const backLabel = deleted ? 'Deleted properties' : 'All properties'
+
   return (
     <div className="mb-5">
-      <Link
-        to={deleted ? '/workspace/properties/archive' : '/workspace/properties'}
-        className="mb-4 inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm text-ink-500 transition-colors duration-200 hover:text-ink"
-      >
-        <ArrowLeft className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-        {deleted ? 'Deleted properties' : 'All properties'}
-      </Link>
-
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -73,9 +69,8 @@ export function PropertyDetailHeader({
           </p>
         </div>
 
-        {canManage && (
-          <div className="flex flex-wrap items-center gap-2">
-            {showMakeLive ? (
+        <div className="flex flex-wrap items-center gap-2">
+            {canManage && showMakeLive ? (
               <Button
                 className="min-h-11 cursor-pointer"
                 onClick={onPublish}
@@ -85,7 +80,7 @@ export function PropertyDetailHeader({
                 Make live
               </Button>
             ) : null}
-            {editable && (
+            {canManage && editable && (
               <Link to={`/workspace/properties/${property.id}/edit`}>
                 <Button variant={showMakeLive ? 'secondary' : 'primary'} className="min-h-11 cursor-pointer">
                   <Pencil className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
@@ -93,7 +88,7 @@ export function PropertyDetailHeader({
                 </Button>
               </Link>
             )}
-            {!isDraft && !deleted ? (
+            {canManage && !isDraft && !deleted ? (
               <Button
                 variant="secondary"
                 className="min-h-11"
@@ -109,7 +104,7 @@ export function PropertyDetailHeader({
                 {property.featured ? 'Unfeature' : 'Feature'}
               </Button>
             ) : null}
-            {canDelete && !deleted && onDelete ? (
+            {canManage && canDelete && !deleted && onDelete ? (
               <Button
                 variant="secondary"
                 className="min-h-11 cursor-pointer text-accent-700 ring-accent-200 hover:bg-accent-50"
@@ -121,7 +116,7 @@ export function PropertyDetailHeader({
                 Delete
               </Button>
             ) : null}
-            {canDelete && deleted && onRestore ? (
+            {canManage && canDelete && deleted && onRestore ? (
               <Button
                 className="min-h-11 cursor-pointer"
                 onClick={onRestore}
@@ -131,8 +126,8 @@ export function PropertyDetailHeader({
                 Restore
               </Button>
             ) : null}
+            <BackButton to={backTo} label={backLabel} />
           </div>
-        )}
       </div>
 
       {deleted ? (

@@ -1,7 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import {
-  ArrowLeft,
   Building2,
   ClipboardList,
   CreditCard,
@@ -13,6 +12,7 @@ import {
 import { useStore } from '../../context/AppStore'
 import { useAgencyScope, useAuth } from '../../context/AuthContext'
 import { RequirePermission } from '../../components/RequirePermission'
+import { BackButton } from '../../components/BackButton'
 import { ImpersonateUserButton } from '../../components/admin/ImpersonateUserButton'
 import { AgencyCapabilityChecklist } from '../../components/admin/AgencyCapabilityChecklist'
 import { VerificationStatusBadge } from '../../components/auth/VerificationBanner'
@@ -147,14 +147,6 @@ export default function AdminUserDetailPage() {
     <RequirePermission permission="roles.assign">
       <div className="animate-fade-in space-y-5">
         <div>
-          <Link
-            to="/workspace/admin/users"
-            className="mb-4 inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm text-ink-500 transition-colors duration-200 hover:text-ink"
-          >
-            <ArrowLeft className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-            All users
-          </Link>
-
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex min-w-0 items-start gap-3">
               <PersonAvatar name={user.name} className="h-14 w-14 text-base" />
@@ -202,6 +194,7 @@ export default function AdminUserDetailPage() {
                   {user.active ? 'Disable account' : 'Enable account'}
                 </Button>
               ) : null}
+              <BackButton to="/workspace/admin/users" label="All users" />
             </div>
           </div>
         </div>

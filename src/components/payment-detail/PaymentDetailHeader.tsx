@@ -1,6 +1,6 @@
-import { Link } from 'react-router-dom'
-import { ArrowLeft, Ban, CheckCircle2, Trash2 } from 'lucide-react'
+import { Ban, CheckCircle2, Trash2 } from 'lucide-react'
 import type { PaymentRecord, PropertyAsset } from '../../types/domain'
+import { BackButton } from '../BackButton'
 import { Badge, Button, statusTone } from '../ui'
 import { formatZAR } from '../../data/seed'
 import { paymentAmountLabel, isOpenPayment } from '../payments/types'
@@ -29,14 +29,6 @@ export function PaymentDetailHeader({
 
   return (
     <div className="mb-5">
-      <Link
-        to="/workspace/operations/payments"
-        className="mb-4 inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm text-ink-500 transition-colors duration-200 hover:text-ink"
-      >
-        <ArrowLeft className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-        All payments
-      </Link>
-
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -58,26 +50,29 @@ export function PaymentDetailHeader({
           </p>
         </div>
 
-        {(canMaintain || canSelfPay) && open && (
-          <div className="flex flex-wrap items-center gap-2">
-            <Button className="min-h-11 gap-2" onClick={onMarkPaid}>
-              <CheckCircle2 className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-              Mark paid
-            </Button>
-            {canMaintain && (
-              <>
-                <Button variant="secondary" className="min-h-11 gap-2" onClick={onCancel}>
-                  <Ban className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                  Cancel
-                </Button>
-                <Button variant="danger" className="min-h-11 gap-2" onClick={onRemove}>
-                  <Trash2 className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                  Remove
-                </Button>
-              </>
-            )}
-          </div>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {(canMaintain || canSelfPay) && open ? (
+            <>
+              <Button className="min-h-11 gap-2" onClick={onMarkPaid}>
+                <CheckCircle2 className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                Mark paid
+              </Button>
+              {canMaintain ? (
+                <>
+                  <Button variant="secondary" className="min-h-11 gap-2" onClick={onCancel}>
+                    <Ban className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                    Cancel
+                  </Button>
+                  <Button variant="danger" className="min-h-11 gap-2" onClick={onRemove}>
+                    <Trash2 className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                    Remove
+                  </Button>
+                </>
+              ) : null}
+            </>
+          ) : null}
+          <BackButton to="/workspace/operations/payments" label="All payments" />
+        </div>
       </div>
     </div>
   )

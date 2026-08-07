@@ -1,8 +1,9 @@
-import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMemo, useState } from 'react'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { DashboardTabs } from '../components/dashboard/DashboardTabs'
+import { BackButton } from '../components/BackButton'
 import { Card } from '../components/ui'
 import { normalizeApplication } from '../lib/applicationWorkflow'
 import { rolePermissions } from '../lib/permissions'
@@ -176,9 +177,9 @@ export default function PropertyDetail() {
     return (
       <Card className="p-10 text-center">
         <p className="font-semibold">Property not found</p>
-        <Link to="/workspace/properties" className="mt-3 inline-block text-sm font-semibold text-primary">
-          Back to properties
-        </Link>
+        <div className="mt-3 flex justify-center">
+          <BackButton to="/workspace/properties" label="Back to properties" />
+        </div>
       </Card>
     )
   }

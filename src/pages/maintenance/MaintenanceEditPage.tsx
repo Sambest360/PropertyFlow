@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
 import { useAuth, usePropertyScope } from '../../context/AuthContext'
 import { RequirePermission } from '../../components/RequirePermission'
+import { BackButton } from '../../components/BackButton'
 import {
   MaintenanceTicketForm,
   type EditTicketInput,
@@ -14,7 +14,6 @@ import { readReturnTo } from '../../lib/returnTo'
 import { useSuiteAlert } from '../../components/alerts/SuiteAlert'
 
 const FORM_ID = 'maintenance-edit-form'
-const ICON_STROKE = 1.6
 
 export default function MaintenanceEditPage() {
   const { id } = useParams()
@@ -105,22 +104,17 @@ export default function MaintenanceEditPage() {
   return (
     <RequirePermission permission="maintenance.view">
       <div className="animate-fade-in">
-        <Link
-          to={returnTo}
-          className="mb-4 inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm text-ink-500 transition-colors duration-200 hover:text-ink"
-        >
-          <ArrowLeft className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-          Back to record
-        </Link>
-
-        <div className="mb-6">
-          <h1 className="font-display text-2xl font-semibold tracking-tight text-ink sm:text-[1.75rem]">
-            Edit maintenance
-          </h1>
-          <p className="mt-1 max-w-2xl text-sm text-ink-500">
-            Update location, access, photos, linked assets, and contractor assignment for{' '}
-            <span className="font-medium text-ink">{ticket.title}</span>.
-          </p>
+        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="font-display text-2xl font-semibold tracking-tight text-ink sm:text-[1.75rem]">
+              Edit maintenance
+            </h1>
+            <p className="mt-1 max-w-2xl text-sm text-ink-500">
+              Update location, access, photos, linked assets, and contractor assignment for{' '}
+              <span className="font-medium text-ink">{ticket.title}</span>.
+            </p>
+          </div>
+          <BackButton to={returnTo} label="Back to record" />
         </div>
 
         <Card className="overflow-hidden p-0">

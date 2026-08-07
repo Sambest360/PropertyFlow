@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import {
-  ArrowLeft,
   CalendarDays,
   ChevronDown,
   MapPin,
@@ -13,6 +12,7 @@ import {
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
+import { BackButton } from '../components/BackButton'
 import { Badge, Button, Card, Select, cn, statusTone } from '../components/ui'
 import {
   CreateViewingModal,
@@ -130,10 +130,10 @@ export default function ViewingPropertyPage() {
     return (
       <RequirePermission permission="viewings.manage">
         <Card className="p-10 text-center text-sm text-ink-500">
-          Property not found or out of scope.{' '}
-          <Link to="/workspace/sales/viewings" className="font-semibold text-primary hover:underline">
-            Back to schedule
-          </Link>
+          <p>Property not found or out of scope.</p>
+          <div className="mt-3 flex justify-center">
+            <BackButton to="/workspace/sales/viewings" label="Back to schedule" />
+          </div>
         </Card>
       </RequirePermission>
     )
@@ -209,16 +209,11 @@ export default function ViewingPropertyPage() {
   return (
     <RequirePermission permission="viewings.manage">
       <div className="animate-fade-in space-y-5">
-        <div className="flex flex-wrap items-center gap-2 text-sm text-ink-400">
-          <Link
-            to="/workspace/sales/viewings"
-            className="inline-flex min-h-10 cursor-pointer items-center gap-1.5 font-medium text-ink-500 transition-colors duration-200 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          >
-            <ArrowLeft className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-            Schedule
-          </Link>
-          <span aria-hidden>/</span>
-          <span className="font-medium text-ink">Property viewing desk</span>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-ink-400">
+            <span className="font-medium text-ink">Property viewing desk</span>
+          </div>
+          <BackButton to="/workspace/sales/viewings" label="Schedule" />
         </div>
 
         <section className="overflow-hidden rounded-[1.5rem] border border-primary-100 bg-white shadow-[0_12px_32px_-24px_rgba(15,39,68,0.3)]">

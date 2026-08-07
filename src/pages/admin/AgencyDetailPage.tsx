@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import {
-  ArrowLeft,
   Building2,
   Pencil,
   Plus,
@@ -11,6 +10,7 @@ import {
 import { useStore } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
 import { RequirePermission } from '../../components/RequirePermission'
+import { BackButton } from '../../components/BackButton'
 import { AgencyCapabilityChecklist } from '../../components/admin/AgencyCapabilityChecklist'
 import { ImpersonateUserButton } from '../../components/admin/ImpersonateUserButton'
 import { Badge, Button, Card, Modal, PageHeader, Select, cn } from '../../components/ui'
@@ -25,7 +25,6 @@ type Tab = 'overview' | 'users' | 'properties'
 
 export default function AgencyDetailPage() {
   const { id } = useParams()
-  const navigate = useNavigate()
   const { state, updateAgency, updateProperty, updateUser } = useStore()
   const { has } = useAuth()
   const [tab, setTab] = useState<Tab>('overview')
@@ -59,9 +58,7 @@ export default function AgencyDetailPage() {
       <RequirePermission permission="platform.manage">
         <Card className="p-10 text-center">
           <p className="text-ink-500">Agency not found.</p>
-          <Button className="mt-4 min-h-11 cursor-pointer" onClick={() => navigate('/workspace/admin/agencies')}>
-            Back to agencies
-          </Button>
+          <BackButton to="/workspace/admin/agencies" label="Back to agencies" />
         </Card>
       </RequirePermission>
     )
@@ -80,14 +77,6 @@ export default function AgencyDetailPage() {
           subtitle={`${agency.city} · ${agency.slug} · manage people, properties, and modules for this agency.`}
           actions={
             <div className="flex flex-wrap gap-2">
-              <Button
-                variant="secondary"
-                className="min-h-11 cursor-pointer"
-                onClick={() => navigate('/workspace/admin/agencies')}
-              >
-                <ArrowLeft className="h-4 w-4" strokeWidth={ICON_STROKE} />
-                All agencies
-              </Button>
               <Button variant="secondary" className="min-h-11 cursor-pointer" onClick={openCaps}>
                 <Pencil className="h-4 w-4" strokeWidth={ICON_STROKE} />
                 Modules
@@ -103,6 +92,7 @@ export default function AgencyDetailPage() {
                 <option value="Active">Active</option>
                 <option value="Suspended">Suspended</option>
               </Select>
+              <BackButton to="/workspace/admin/agencies" label="All agencies" />
             </div>
           }
         />

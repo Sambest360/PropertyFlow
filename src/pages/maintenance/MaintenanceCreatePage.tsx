@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Plus } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
 import { useAuth, usePropertyScope } from '../../context/AuthContext'
 import { RequirePermission } from '../../components/RequirePermission'
+import { BackButton } from '../../components/BackButton'
 import { MaintenanceTicketForm, type CreateTicketInput } from '../../components/maintenance/MaintenanceTicketForm'
 import { Button, Card } from '../../components/ui'
 import { getLookups } from '../../lib/lookups'
@@ -75,21 +76,16 @@ export default function MaintenanceCreatePage() {
   return (
     <RequirePermission permission="maintenance.manage">
       <div className="animate-fade-in">
-        <Link
-          to={returnTo}
-          className="mb-4 inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm text-ink-500 transition-colors duration-200 hover:text-ink"
-        >
-          <ArrowLeft className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-          Back
-        </Link>
-
-        <div className="mb-6">
-          <h1 className="font-display text-2xl font-semibold tracking-tight text-ink sm:text-[1.75rem]">
-            Log maintenance
-          </h1>
-          <p className="mt-1 max-w-2xl text-sm text-ink-500">
-            Capture the fault in detail — photos, location, linked assets, and book an approved contractor.
-          </p>
+        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="font-display text-2xl font-semibold tracking-tight text-ink sm:text-[1.75rem]">
+              Log maintenance
+            </h1>
+            <p className="mt-1 max-w-2xl text-sm text-ink-500">
+              Capture the fault in detail — photos, location, linked assets, and book an approved contractor.
+            </p>
+          </div>
+          <BackButton to={returnTo} label="Back" />
         </div>
 
         <Card className="overflow-hidden p-0">

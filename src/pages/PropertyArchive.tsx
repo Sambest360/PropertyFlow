@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, RotateCcw, Search } from 'lucide-react'
+import { RotateCcw, Search } from 'lucide-react'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
+import { BackButton } from '../components/BackButton'
 import { Badge, Button, Card, Input, PageHeader } from '../components/ui'
 import { canDeletePropertyRole, isPropertyDeleted } from '../lib/propertyDeletion'
 import { sweetConfirm, sweetSuccess, sweetWarning } from '../lib/sweetAlert'
@@ -69,14 +70,7 @@ export default function PropertyArchive() {
       <PageHeader
         title="Deleted properties"
         subtitle="Archived listings removed from your active portfolio. Restore a property to edit and publish it again."
-        actions={
-          <Link to="/workspace/properties">
-            <Button variant="secondary" className="min-h-11 cursor-pointer">
-              <ArrowLeft className="h-4 w-4" aria-hidden />
-              Active properties
-            </Button>
-          </Link>
-        }
+        actions={<BackButton to="/workspace/properties" label="Active properties" />}
       />
 
       <div className="mb-4 max-w-md">
@@ -101,9 +95,9 @@ export default function PropertyArchive() {
           <p className="mt-2 text-sm text-ink-500">
             When an agency admin deletes a vacant property, it appears here for reference.
           </p>
-          <Link to="/workspace/properties" className="mt-4 inline-block text-sm font-semibold text-primary">
-            Back to active properties
-          </Link>
+          <div className="mt-4 flex justify-center">
+            <BackButton to="/workspace/properties" label="Back to active properties" />
+          </div>
         </Card>
       ) : (
         <div className="space-y-3">

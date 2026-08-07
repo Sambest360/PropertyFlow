@@ -1,7 +1,7 @@
-import { Link } from 'react-router-dom'
 import { HardHat, MapPin } from 'lucide-react'
 import type { MaintenanceTicket } from '../../types/domain'
 import type { PropertyAsset } from '../../types/domain'
+import { BackButton } from '../BackButton'
 import { Badge, Button, Card, statusTone } from '../ui'
 import { formatAge, ticketAgeHours } from '../maintenance/types'
 
@@ -71,11 +71,7 @@ export function ContractorMaintenancePreview({
             <HardHat className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
             Accept job
           </Button>
-          <Link to="/workspace/portals/contractor">
-            <Button variant="secondary" className="min-h-11 cursor-pointer">
-              Back to jobs
-            </Button>
-          </Link>
+          <BackButton to="/workspace/portals/contractor" label="Back to jobs" />
         </div>
         {acceptHint ? <p className="text-xs text-ink-500">{acceptHint}</p> : null}
       </Card>

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { MessageCircle, Plus, Shield, ArrowLeft } from 'lucide-react'
+import { MessageCircle, Plus, Shield } from 'lucide-react'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
+import { BackButton } from '../components/BackButton'
 import { Badge, Button, Card, Input, Modal, PageHeader, Select, Textarea, cn } from '../components/ui'
 import { isAgencyStaff } from '../lib/permissions'
 
@@ -176,14 +177,11 @@ export default function Communications() {
             {active ? (
               <>
                 <div className="border-b border-primary-100 p-4">
-                  <button
-                    type="button"
+                  <BackButton
+                    label="Back to threads"
                     onClick={() => setMobileShowThread(false)}
-                    className="mb-3 inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm font-semibold text-primary lg:hidden"
-                  >
-                    <ArrowLeft className="h-4 w-4" strokeWidth={ICON_STROKE} />
-                    Back to threads
-                  </button>
+                    className="mb-3 lg:hidden"
+                  />
                   <h2 className="font-semibold text-ink">{active.subject}</h2>
                   <p className="text-xs text-ink-400">
                     Participants: {active.participantIds.map(nameOf).join(', ')} · routes to{' '}

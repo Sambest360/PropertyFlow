@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
-import { ArrowLeft, CheckCircle2, Pencil } from 'lucide-react'
+import { CheckCircle2, Pencil } from 'lucide-react'
+import { BackButton } from '../BackButton'
 import { Badge, Button, priorityTone, statusTone } from '../ui'
 import { formatAge, isOpenStatus, type PortfolioTicket } from '../maintenance/types'
 import { maintenanceEditHref } from '../../pages/maintenance/MaintenanceEditPage'
@@ -22,14 +23,6 @@ export function MaintenanceDetailHeader({
 
   return (
     <div className="mb-5">
-      <Link
-        to="/workspace/operations/maintenance"
-        className="mb-4 inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm text-ink-500 transition-colors duration-200 hover:text-ink"
-      >
-        <ArrowLeft className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-        All maintenance
-      </Link>
-
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -46,24 +39,23 @@ export function MaintenanceDetailHeader({
           </p>
         </div>
 
-        {open && (canManage || canEdit) && (
-          <div className="flex flex-wrap items-center gap-2">
-            {canEdit ? (
-              <Link to={maintenanceEditHref(t.id, `/workspace/operations/maintenance/${encodeURIComponent(t.id)}`)}>
-                <Button variant="secondary" className="min-h-11 cursor-pointer">
-                  <Pencil className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                  Edit record
-                </Button>
-              </Link>
-            ) : null}
-            {canManage ? (
-              <Button className="min-h-11" onClick={onComplete}>
-                <CheckCircle2 className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                Complete work
+        <div className="flex flex-wrap items-center gap-2">
+          {open && canEdit ? (
+            <Link to={maintenanceEditHref(t.id, `/workspace/operations/maintenance/${encodeURIComponent(t.id)}`)}>
+              <Button variant="secondary" className="min-h-11 cursor-pointer">
+                <Pencil className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                Edit record
               </Button>
-            ) : null}
-          </div>
-        )}
+            </Link>
+          ) : null}
+          {open && canManage ? (
+            <Button className="min-h-11" onClick={onComplete}>
+              <CheckCircle2 className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+              Complete work
+            </Button>
+          ) : null}
+          <BackButton to="/workspace/operations/maintenance" label="All maintenance" />
+        </div>
       </div>
     </div>
   )

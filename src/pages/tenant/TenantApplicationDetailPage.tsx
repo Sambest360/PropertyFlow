@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
-import { ChevronLeft, CreditCard, MapPin, Wallet } from 'lucide-react'
+import { CreditCard, MapPin, Wallet } from 'lucide-react'
 import { useStore, usePublicProperties } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
 import { RequirePermission } from '../../components/RequirePermission'
+import { BackButton } from '../../components/BackButton'
 import {
   DashboardBreadcrumb,
   DashboardPage,
@@ -98,12 +99,9 @@ export default function TenantApplicationDetailPage() {
       <RequirePermission permission="portal.tenant">
         <Card className="p-8 text-center">
           <p className="font-semibold text-ink">Application not found</p>
-          <Link
-            to="/workspace/portals/tenant/applications"
-            className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-primary"
-          >
-            Back to applications
-          </Link>
+          <div className="mt-3 flex justify-center">
+            <BackButton to="/workspace/portals/tenant/applications" label="Back to applications" />
+          </div>
         </Card>
       </RequirePermission>
     )
@@ -201,14 +199,6 @@ export default function TenantApplicationDetailPage() {
           ]}
         />
 
-        <Link
-          to="/workspace/portals/tenant/applications"
-          className="mb-4 inline-flex min-h-11 cursor-pointer items-center gap-1.5 text-sm font-semibold text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        >
-          <ChevronLeft className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-          All applications
-        </Link>
-
         <div className="mb-5 grid gap-5 lg:grid-cols-[1fr_280px]">
           <Card className="overflow-hidden p-0">
             {property?.images[0] ? (
@@ -235,7 +225,10 @@ export default function TenantApplicationDetailPage() {
                   ) : null}
                   <p className="mt-1 text-xs text-ink-400">{application.id}</p>
                 </div>
-                <Badge tone={statusTone(application.stage)}>{application.stage}</Badge>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge tone={statusTone(application.stage)}>{application.stage}</Badge>
+                  <BackButton to="/workspace/portals/tenant/applications" label="All applications" />
+                </div>
               </div>
               <div className="mt-4 h-2 overflow-hidden rounded-full bg-primary-50">
                 <div className="h-full bg-primary transition-all duration-300" style={{ width: `${progress}%` }} />

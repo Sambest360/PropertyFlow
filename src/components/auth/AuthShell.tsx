@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
-import { AlertCircle, ArrowLeft } from 'lucide-react'
+import { AlertCircle } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { BackButton } from '../BackButton'
 import { BrandLogo } from '../layout/BrandLogo'
 import { cn } from '../ui'
 
@@ -80,14 +81,7 @@ export function AuthShell({
       {/* Form column */}
       <div className="relative flex min-h-screen flex-1 flex-col bg-surface-muted/60">
         <header className="flex items-center justify-between gap-3 px-4 py-4 sm:px-10 lg:px-12">
-          <Link
-            to="/"
-            className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-2xl px-2 text-sm font-semibold text-ink-500 transition-colors duration-200 hover:bg-primary-50 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          >
-            <ArrowLeft className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-            <span className="hidden sm:inline">Back to marketplace</span>
-            <span className="sm:hidden">Back</span>
-          </Link>
+          <BackButton to="/" label="Back to marketplace" shortLabel="Back" />
           <div className="lg:hidden">
             <BrandLogo to="/" size="sm" />
           </div>

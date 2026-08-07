@@ -1,6 +1,6 @@
-import { Link } from 'react-router-dom'
-import { ArrowLeft, Mail, Phone } from 'lucide-react'
+import { Mail, Phone } from 'lucide-react'
 import type { AppUser } from '../../types/domain'
+import { BackButton } from '../BackButton'
 import { Button } from '../ui'
 import { ImpersonateUserButton } from '../admin/ImpersonateUserButton'
 import { ICON_STROKE } from './types'
@@ -8,14 +8,6 @@ import { ICON_STROKE } from './types'
 export function TeamDetailHeader({ user }: { user: AppUser }) {
   return (
     <div className="mb-5">
-      <Link
-        to="/workspace/people/staff"
-        className="mb-4 inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm text-ink-500 transition-colors duration-200 hover:text-ink"
-      >
-        <ArrowLeft className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-        All team
-      </Link>
-
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h1 className="font-display text-2xl font-semibold tracking-tight text-ink sm:text-[1.75rem]">
@@ -55,6 +47,7 @@ export function TeamDetailHeader({ user }: { user: AppUser }) {
               Call
             </Button>
           ) : null}
+          <BackButton to="/workspace/people/staff" label="All team" />
         </div>
       </div>
     </div>

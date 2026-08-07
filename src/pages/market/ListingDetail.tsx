@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Bath, BedDouble, Car, Heart, MapPin, Share2, Star } from 'lucide-react'
+import { Bath, BedDouble, Car, Heart, MapPin, Share2, Star } from 'lucide-react'
 import { roomKindLabel } from '../../data/infrastructure'
 import { usePublicProperties, useStore } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
+import { BackButton } from '../../components/BackButton'
 import { Badge, Button, Input, cn } from '../../components/ui'
 import { PropertyFeaturesDisplay } from '../../components/property-features/PropertyFeaturesDisplay'
 import { ExpandableDescription } from '../../components/listing/ExpandableDescription'
@@ -86,9 +87,9 @@ export default function ListingDetail() {
       <div className="mx-auto max-w-3xl px-4 py-16 text-center">
         <p className="font-semibold text-ink">Listing not found</p>
         <p className="mt-2 text-sm text-ink-500">It may have been unpublished or the link is outdated.</p>
-        <Link to="/browse" className="mt-6 inline-block text-sm font-semibold text-primary hover:underline">
-          Back to browse
-        </Link>
+        <div className="mt-6 flex justify-center">
+          <BackButton to="/browse" label="Back to browse" />
+        </div>
       </div>
     )
   }
@@ -443,11 +444,7 @@ export default function ListingDetail() {
   return (
     <div className="bg-white pb-24 lg:pb-0">
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-        <Link to="/browse" className="inline-flex items-center gap-2 text-sm font-medium text-ink-500 hover:text-ink">
-          <ArrowLeft className="h-4 w-4" /> Back to search
-        </Link>
-
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h1 className="font-display text-2xl font-semibold text-ink sm:text-3xl">{p.title}</h1>
             <p className="mt-1 flex flex-wrap items-center gap-3 text-sm text-ink-500">
@@ -472,7 +469,7 @@ export default function ListingDetail() {
               </span>
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button type="button" className="inline-flex items-center gap-2 rounded-full border border-primary-100 px-4 py-2 text-sm font-semibold hover:bg-primary-50">
               <Share2 className="h-4 w-4" /> Share
             </button>
@@ -485,6 +482,7 @@ export default function ListingDetail() {
               <Heart className={cn('h-4 w-4', wishlisted && 'fill-accent text-accent')} />
               {wishlisted ? 'Saved' : 'Save'}
             </button>
+            <BackButton to="/browse" label="Back to search" />
           </div>
         </div>
 

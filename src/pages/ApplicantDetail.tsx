@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
-import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
+import { Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { CreditCard, Wallet } from 'lucide-react'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { rolePermissions } from '../lib/permissions'
 import { RequirePermission } from '../components/RequirePermission'
+import { BackButton } from '../components/BackButton'
 import { DashboardTabs } from '../components/dashboard/DashboardTabs'
 import { Badge, Button, Card } from '../components/ui'
 import { ApplicantDetailHeader } from '../components/applicant-detail/ApplicantDetailHeader'
@@ -185,12 +186,9 @@ export default function ApplicantDetail() {
       <RequirePermission permission="applications.view">
         <Card className="p-8 text-center">
           <p className="font-semibold text-ink">Applicant not found</p>
-          <Link
-            to="/workspace/sales/applications"
-            className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-primary"
-          >
-            Back to applicants
-          </Link>
+          <div className="mt-3 flex justify-center">
+            <BackButton to="/workspace/sales/applications" label="Back to applicants" />
+          </div>
         </Card>
       </RequirePermission>
     )
