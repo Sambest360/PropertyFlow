@@ -212,6 +212,17 @@ type ExistingRow = {
   threadId: string | null
 }
 
+/**
+ * Helper to safely quote PostgreSQL identifiers (table/column names).
+ * Protects against SQL injection for identifiers.
+ */
+function quoteIdentifier(name: string): string {
+  if (!name || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+    throw new Error(`Invalid identifier: ${name}. Must match [a-zA-Z_][a-zA-Z0-9_]*`)
+  }
+  return `"${name}"`
+}
+
 async function loadExisting(resource: EntityType, feId: string): Promise<ExistingRow | null> {
   const empty: ExistingRow = {
     propertyId: null,
@@ -409,8 +420,9 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
 
   if (resource === 'room' || resource === 'asset') {
     const unitCol = resource === 'room' ? 'unit_id' : 'unit_id'
+    // Use quoted identifiers to prevent SQL injection
     const rows = await query<{ unit_id: string; client_id: string }>(
-      `SELECT ${unitCol} AS unit_id, client_id FROM ${spec.table} WHERE id = $1::uuid`,
+      `SELECT ${quoteIdentifier(unitCol)} AS unit_id, ${quoteIdentifier('client_id')} FROM ${quoteIdentifier(spec.table)} WHERE id = $1::uuid`,
       [uuid],
     )
     const r = rows[0]
@@ -443,8 +455,10 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
   if (spec.unitCol) cols.push(spec.unitCol)
   if (spec.clientCol) cols.push(spec.clientCol)
   if (spec.agentCol) cols.push(spec.agentCol)
+  // Use quoted identifiers for all columns and table name
+  const quotedCols = cols.map(quoteIdentifier)
   const rows = await query<Record<string, string | null>>(
-    `SELECT ${cols.join(', ')} FROM ${spec.table} WHERE id = $1::uuid LIMIT 1`,
+    `SELECT ${quotedCols.join(', ')} FROM ${quoteIdentifier(spec.table)} WHERE id = $1::uuid LIMIT 1`,
     [uuid],
   )
   const r = rows[0]

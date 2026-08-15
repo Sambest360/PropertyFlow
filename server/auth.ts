@@ -83,11 +83,11 @@ const ROLE_FROM_DB: Record<string, string> = {
 
 function authSecret(): string {
   const s = process.env.AUTH_SECRET?.trim()
-  if (s) return s
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('AUTH_SECRET is required in production')
+  if (!s || s === '') {
+    const env = process.env.NODE_ENV || 'development'
+    throw new Error(`AUTH_SECRET is required in all environments (NODE_ENV=${env}). Set AUTH_SECRET environment variable.`)
   }
-  return 'propertyflow-dev-auth-secret-change-me'
+  return s
 }
 
 function b64url(buf: Buffer | string): string {

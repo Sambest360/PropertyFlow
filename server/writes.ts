@@ -254,9 +254,20 @@ async function deleteEntity(resource: EntityType, frontendId: string): Promise<v
     invoice: 'invoices',
   }
   const table = tableByType[resource]
-  if (table) {
-    await query(`DELETE FROM ${table} WHERE id = $1::uuid`, [uuid])
+  if (!table) {
+    // Resource type not supported for deletion - silently skip to maintain idempotency
+    await forgetId(resource, frontendId)
+    return
   }
+  
+  // Validate table name is in whitelist (defense in depth - should never fail)
+  const allowedTables = new Set(Object.values(tableByType).filter(Boolean))
+  if (!allowedTables.has(table)) {
+    throw new Error(`Invalid table name in deletion: ${table}. Possible security violation.`)
+  }
+  
+  // Use quoted identifier to prevent SQL injection (even though table name is from whitelist)
+  await query(`DELETE FROM "${table}" WHERE id = $1::uuid`, [uuid])
   await forgetId(resource, frontendId)
   if (resource === 'property') await forgetId('unit', `unt-${frontendId}`)
 }
