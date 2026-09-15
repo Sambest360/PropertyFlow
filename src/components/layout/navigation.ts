@@ -20,6 +20,8 @@ import {
   MessageSquare,
   AlertTriangle,
   MessageCircle,
+  ShieldCheck,
+  Wallet,
 } from 'lucide-react'
 import type { Permission } from '../../types/domain'
 import { ACCOUNT_WISHLIST_PATH } from '../../lib/accountRoutes'
@@ -137,6 +139,68 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
             label: 'Messages',
             permission: 'messages.manage',
             icon: MessageSquare,
+          },
+        ],
+      },
+    },
+    {
+      type: 'group',
+      group: {
+        id: 'trust',
+        label: 'Trust & Banking',
+        icon: Wallet,
+        children: [
+          {
+            to: '/workspace/trust',
+            label: 'Trust Dashboard',
+            permission: 'trust.view',
+            icon: Wallet,
+          },
+          {
+            to: '/workspace/trust/cashbook',
+            label: 'Cashbook',
+            permission: 'trust.view',
+            icon: CreditCard,
+          },
+          {
+            to: '/workspace/trust/unallocated',
+            label: 'Unallocated',
+            permission: 'trust.allocate',
+            icon: AlertTriangle,
+          },
+          {
+            to: '/workspace/trust/payouts',
+            label: 'Payouts',
+            permission: 'trust.approve_payout',
+            icon: Wallet,
+          },
+          {
+            to: '/workspace/trust/deposits',
+            label: 'Deposits',
+            permission: 'trust.view',
+            icon: KeyRound,
+          },
+          {
+            to: '/workspace/trust/arrears',
+            label: 'Arrears',
+            anyOf: ['trust.view', 'trust.view_arrears'],
+            icon: AlertTriangle,
+          },
+        ],
+      },
+    },
+    {
+      type: 'group',
+      group: {
+        id: 'compliance',
+        label: 'Compliance',
+        icon: ShieldCheck,
+        children: [
+          {
+            to: '/workspace/compliance',
+            label: 'Compliance Dashboard',
+            permission: 'trust.view',
+            icon: ShieldCheck,
           },
         ],
       },

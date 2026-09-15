@@ -26,6 +26,12 @@ const STAFF: Permission[] = [
   'reports.view',
   'messages.manage',
   'occupants.view',
+  // Trust / Banking permissions
+  'trust.view',
+  'trust.allocate',
+  'trust.approve_payout',
+  'trust.import_csv',
+  'trust.view_arrears',
 ]
 
 const ALL: Permission[] = ['platform.manage', ...STAFF]
@@ -36,6 +42,8 @@ export const DEFAULT_AGENCY_PERMISSIONS: Permission[] = [
   'portal.owner',
   'portal.tenant',
   'portal.contractor',
+  'trust.view_own_statement',
+  'trust.view_own_invoices',
 ]
 
 /** Principal / Broker — full agency control & legal accountability (not portal actors). */
@@ -65,6 +73,10 @@ const AGENCY_ADMIN: Permission[] = [
   'payments.manage',
   'reports.view',
   'messages.manage',
+  'trust.view',
+  'trust.allocate',
+  'trust.approve_payout',
+  'trust.import_csv',
 ]
 
 /**
@@ -87,6 +99,8 @@ const FULL_AGENT: Permission[] = [
   'payments.view',
   'messages.manage',
   'occupants.view',
+  'trust.view',
+  'trust.view_arrears',
 ]
 
 /**
@@ -121,6 +135,7 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'contractors.view',
     'contractors.manage',
     'maintenance.view',
+    'trust.view_own_statement',
   ],
   tenant: [
     'portal.tenant',
@@ -130,8 +145,9 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'maintenance.view',
     'maintenance.manage',
     'messages.manage',
+    'trust.view_own_statement',
   ],
-  contractor: ['portal.contractor', 'maintenance.view', 'maintenance.manage'],
+  contractor: ['portal.contractor', 'maintenance.view', 'maintenance.manage', 'trust.view_own_invoices'],
 }
 
 export const roleLabels: Record<Role, string> = {
@@ -301,6 +317,13 @@ export function applyGroupLevel(
 }
 
 export const permissionLabels: Partial<Record<Permission, string>> = {
+  'trust.view': 'View trust cashbook',
+  'trust.allocate': 'Allocate receipts',
+  'trust.approve_payout': 'Approve payouts',
+  'trust.import_csv': 'Import bank CSV',
+  'trust.view_arrears': 'View arrears',
+  'trust.view_own_statement': 'View own statement',
+  'trust.view_own_invoices': 'View own invoices',
   'platform.manage': 'Platform manage',
   'tenant.manage': 'Tenant / agency settings',
   'users.manage': 'Manage users',

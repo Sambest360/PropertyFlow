@@ -63,6 +63,12 @@ const AdminNotificationsPage = lazy(() => import('./pages/admin/AdminNotificatio
 const AdminAllUsersPage = lazy(() => import('./pages/admin/AdminAllUsersPage'))
 const TenantApplicationDetailPage = lazy(() => import('./pages/tenant/TenantApplicationDetailPage'))
 const PlatformBilling = lazy(() => import('./pages/PlatformBilling'))
+const TrustDashboard = lazy(() => import('./pages/trust/TrustDashboard'))
+const TrustCashbook = lazy(() => import('./pages/trust/TrustCashbook'))
+const TrustUnallocated = lazy(() => import('./pages/trust/TrustUnallocated'))
+const TrustPayouts = lazy(() => import('./pages/trust/TrustPayouts'))
+const TrustDeposits = lazy(() => import('./pages/trust/TrustDeposits'))
+const TrustArrears = lazy(() => import('./pages/trust/TrustArrears'))
 
 function PageFallback() {
   return (
@@ -266,6 +272,14 @@ export default function App() {
                 <Route path="operations/communications" element={<Guard permission="messages.manage"><Communications /></Guard>} />
                 <Route path="operations/payments" element={<Guard permission="payments.view"><Payments /></Guard>} />
                 <Route path="operations/payments/:id" element={<Guard permission="payments.view"><PaymentDetail /></Guard>} />
+
+                {/* Trust & Banking */}
+                <Route path="trust" element={<Guard permission="trust.view"><TrustDashboard /></Guard>} />
+                <Route path="trust/cashbook" element={<Guard permission="trust.view"><TrustCashbook /></Guard>} />
+                <Route path="trust/unallocated" element={<Guard permission="trust.allocate"><TrustUnallocated /></Guard>} />
+                <Route path="trust/payouts" element={<Guard permission="trust.approve_payout"><TrustPayouts /></Guard>} />
+                <Route path="trust/deposits" element={<Guard permission="trust.view"><TrustDeposits /></Guard>} />
+                <Route path="trust/arrears" element={<Guard anyOf={['trust.view', 'trust.view_arrears']}><TrustArrears /></Guard>} />
 
                 {/* Portals */}
                 <Route path="portals/owner" element={<Guard permission="portal.owner"><OwnerPortal /></Guard>} />

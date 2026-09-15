@@ -37,11 +37,26 @@ import type {
   Viewing,
   ViewingSlot,
   Activity,
+  // Trust / Banking types
+  TrustTransaction,
+  TrustAllocation,
+  PayoutInstruction,
+  DepositHolding,
+  ArrearsSnapshot,
+  Charge,
+  CsvImportBatch,
 } from '../types/domain'
 import { isPubliclyListed } from '../lib/publicListings'
 import {
   uid,
   seedAgencyContractors,
+  seedTrustTransactions,
+  seedTrustAllocations,
+  seedCharges,
+  seedPayoutInstructions,
+  seedDepositHoldings,
+  seedArrearsSnapshots,
+  seedCsvImportBatches,
 } from '../data/seed'
 import type { AssetCondition, Building, InfraRoom, InternalAsset, LookupConfig, RoomKind, Unit, UnitTemplate } from '../data/infrastructure'
 import { UNIT_TEMPLATES } from '../data/infrastructure'
@@ -275,6 +290,14 @@ export type AppState = {
   invoices: PlatformInvoice[]
   vendorRoutes: VendorCategoryRoute[]
   agencyContractors: AgencyContractor[]
+  // Trust / Banking module state
+  trustTransactions: TrustTransaction[]
+  trustAllocations: TrustAllocation[]
+  payoutInstructions: PayoutInstruction[]
+  depositHoldings: DepositHolding[]
+  arrearsSnapshots: ArrearsSnapshot[]
+  charges: Charge[]
+  csvImportBatches: CsvImportBatch[]
 }
 
 type StoreContextValue = {
@@ -555,6 +578,14 @@ const defaultState = (): AppState => ({
   invoices: [],
   vendorRoutes: SEED_VENDOR_ROUTES,
   agencyContractors: seedAgencyContractors,
+  // Trust / Banking module state
+  trustTransactions: seedTrustTransactions,
+  trustAllocations: seedTrustAllocations,
+  payoutInstructions: seedPayoutInstructions,
+  depositHoldings: seedDepositHoldings,
+  arrearsSnapshots: seedArrearsSnapshots,
+  charges: seedCharges,
+  csvImportBatches: seedCsvImportBatches,
 })
 
 function loadState(): AppState {

@@ -32,6 +32,15 @@ import {
   monthViewings,
 } from './monthSimulation'
 import { peBulkProperties } from './peBulkProperties'
+import {
+  seedTrustTransactions,
+  seedTrustAllocations,
+  seedCharges,
+  seedPayoutInstructions,
+  seedDepositHoldings,
+  seedArrearsSnapshots,
+  seedCsvImportBatches,
+} from './seedTrust'
 
 const img = {
   house: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800&q=80',
@@ -965,6 +974,17 @@ export const seedNotifications: AppNotification[] = [
   },
   ...monthNotifications,
 ]
+
+// Re-export trust seed data for AppStore consumption
+export {
+  seedTrustTransactions,
+  seedTrustAllocations,
+  seedCharges,
+  seedPayoutInstructions,
+  seedDepositHoldings,
+  seedArrearsSnapshots,
+  seedCsvImportBatches,
+}
 
 export const seedAgencyContractors: AgencyContractor[] = [
   {

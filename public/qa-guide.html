@@ -183,6 +183,19 @@
         <a href="#s11-negative">Negative CRUD</a>
       </div>
     </li>
+    <li><a href="#s12">12. Trust & Banking Module Tests</a>
+      <div class="toc-h3">
+        <a href="#s12">Trust Dashboard</a> ·
+        <a href="#s12">Cashbook</a> ·
+        <a href="#s12">Unallocated</a> ·
+        <a href="#s12">Payouts</a> ·
+        <a href="#s12">Deposits</a> ·
+        <a href="#s12">Arrears</a> ·
+        <a href="#s12">Permissions</a> ·
+        <a href="#s12">Data Integrity</a> ·
+        <a href="#s12">Navigation</a>
+      </div>
+    </li>
     <li><a href="#appendix">Appendix: Reporting Bugs</a></li>
   </ol>
   <div class="callout">
@@ -663,6 +676,7 @@
   <li>AquaFix vs PaintWorks — contractor job update CRUD</li>
   <li>Cross-role application approval (Workflow 1)</li>
   <li>Section 11 — full CRUD matrix pass</li>
+  <li><strong>Section 12 — Trust & Banking module tests</strong> (new)</li>
   <li>Landlord registration (optional)</li>
   <li>Avatar menu + logout on each role</li>
 </ol>
@@ -928,6 +942,120 @@
     <tr><td>11</td><td>Broadcast notification</td><td>Lerato</td><td></td></tr>
     <tr><td>12</td><td>Add + remove wishlist item</td><td>Lucas</td><td></td></tr>
     <tr><td>13</td><td>Negative: agent blocked from admin config</td><td>James</td><td></td></tr>
+  </tbody>
+</table>
+
+<h1 class="doc-section" id="s12">12. Trust & Banking Module Tests</h1>
+
+<p>The Trust & Banking module manages agency trust accounts, receipt allocation, payout processing, deposit tracking, and arrears monitoring. These tests verify the core functionality implemented in Epic 1 (MVP).</p>
+
+<h2>12.1 Trust Dashboard</h2>
+<table>
+  <thead><tr><th>#</th><th>Test</th><th>Account</th><th>Steps</th><th>Expected</th><th>Pass?</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>Trust dashboard accessible</td><td>Lerato (Agency Admin)</td><td>Navigation → Trust & Banking → Trust Dashboard</td><td>Dashboard loads with summary cards</td><td></td></tr>
+    <tr><td>2</td><td>Summary metrics displayed</td><td>Lerato</td><td>View dashboard cards</td><td>Total Received, Total Paid, Unallocated Count, Pending Payouts shown</td><td></td></tr>
+    <tr><td>3</td><td>Deposit holdings summary</td><td>Lerato</td><td>View Held Deposits card</td><td>Shows total held and count of deposits</td><td></td></tr>
+    <tr><td>4</td><td>Arrears total displayed</td><td>Lerato</td><td>View Total Arrears card</td><td>Shows aggregate arrears across occupancies</td><td></td></tr>
+    <tr><td>5</td><td>Quick actions navigation</td><td>Lerato</td><td>Click quick action buttons</td><td>Navigates to Cashbook, Unallocated, Payouts, Deposits</td><td></td></tr>
+    <tr><td>6</td><td>Recent activity list</td><td>Lerato</td><td>View Recent Trust Activity section</td><td>Shows last 5 trust transactions with amounts and dates</td><td></td></tr>
+  </tbody>
+</table>
+
+<h2>12.2 Cashbook & Transactions</h2>
+<table>
+  <thead><tr><th>#</th><th>Test</th><th>Account</th><th>Steps</th><th>Expected</th><th>Pass?</th></tr></thead>
+  <tbody>
+    <tr><td>7</td><td>Cashbook page loads</td><td>Lerato</td><td>Navigation → Trust & Banking → Cashbook</td><td>Page loads with trust transactions list</td><td></td></tr>
+    <tr><td>8</td><td>Transaction details visible</td><td>Lerato</td><td>View transaction rows</td><td>Date, amount, description, status, direction shown</td><td></td></tr>
+    <tr><td>9</td><td>Incoming vs outgoing distinguished</td><td>Lerato</td><td>Compare transaction colors</td><td>Green for incoming (in), Red for outgoing (out)</td><td></td></tr>
+    <tr><td>10</td><td>Transaction status badges</td><td>Lerato</td><td>Check status column</td><td>Status shows allocated, unallocated, etc.</td><td></td></tr>
+  </tbody>
+</table>
+
+<h2>12.3 Unallocated Receipts</h2>
+<table>
+  <thead><tr><th>#</th><th>Test</th><th>Account</th><th>Steps</th><th>Expected</th><th>Pass?</th></tr></thead>
+  <tbody>
+    <tr><td>11</td><td>Unallocated queue loads</td><td>Lerato</td><td>Navigation → Trust & Banking → Unallocated</td><td>Page loads showing unallocated transactions</td><td></td></tr>
+    <tr><td>12</td><td>Unallocated count matches</td><td>Lerato</td><td>Compare with dashboard count</td><td>Same number as shown on Trust Dashboard</td><td></td></tr>
+  </tbody>
+</table>
+
+<h2>12.4 Payouts</h2>
+<table>
+  <thead><tr><th>#</th><th>Test</th><th>Account</th><th>Steps</th><th>Expected</th><th>Pass?</th></tr></thead>
+  <tbody>
+    <tr><td>13</td><td>Payouts page loads</td><td>Lerato</td><td>Navigation → Trust & Banking → Payouts</td><td>Page loads showing payout instructions</td><td></td></tr>
+    <tr><td>14</td><td>Pending payouts visible</td><td>Lerato</td><td>View payout list</td><td>Shows proposed and pending approval payouts</td><td></td></tr>
+    <tr><td>15</td><td>Settled payouts shown</td><td>Lerato</td><td>Check completed payouts</td><td>Shows settled payouts with dates</td><td></td></tr>
+  </tbody>
+</table>
+
+<h2>12.5 Deposits</h2>
+<table>
+  <thead><tr><th>#</th><th>Test</th><th>Account</th><th>Steps</th><th>Expected</th><th>Pass?</th></tr></thead>
+  <tbody>
+    <tr><td>16</td><td>Deposits register loads</td><td>Lerato</td><td>Navigation → Trust & Banking → Deposits</td><td>Page loads showing deposit holdings</td><td></td></tr>
+    <tr><td>17</td><td>Deposit details visible</td><td>Lerato</td><td>View deposit rows</td><td>Shows expected, held, interest accrued, status</td><td></td></tr>
+    <tr><td>18</td><td>Statutory deadlines shown</td><td>Lerato</td><td>Check deadline column</td><td>Shows refund deadline dates</td><td></td></tr>
+  </tbody>
+</table>
+
+<h2>12.6 Arrears</h2>
+<table>
+  <thead><tr><th>#</th><th>Test</th><th>Account</th><th>Steps</th><th>Expected</th><th>Pass?</th></tr></thead>
+  <tbody>
+    <tr><td>19</td><td>Arrears page loads</td><td>Lerato</td><td>Navigation → Trust & Banking → Arrears</td><td>Page loads showing arrears snapshots</td><td></td></tr>
+    <tr><td>20</td><td>Ageing buckets visible</td><td>Lerato</td><td>View arrears rows</td><td>Shows current, 30, 60, 90, 90+ day buckets</td><td></td></tr>
+  </tbody>
+</table>
+
+<h2>12.7 Permission Tests</h2>
+<table>
+  <thead><tr><th>#</th><th>Test</th><th>Account</th><th>Steps</th><th>Expected</th><th>Pass?</th></tr></thead>
+  <tbody>
+    <tr><td>21</td><td>Full Agent sees trust dashboard</td><td>James</td><td>Navigation → Trust & Banking</td><td>Trust & Banking group visible with Trust Dashboard and Arrears</td><td></td></tr>
+    <tr><td>22</td><td>Full Agent cannot allocate</td><td>James</td><td>Try to access /workspace/trust/unallocated</td><td>Denied or link hidden</td><td></td></tr>
+    <tr><td>23</td><td>Full Agent cannot approve payouts</td><td>James</td><td>Try to access /workspace/trust/payouts</td><td>Denied or link hidden</td><td></td></tr>
+    <tr><td>24</td><td>Tenant cannot access trust</td><td>Lucas</td><td>Try to access /workspace/trust</td><td>Denied or not shown in nav</td><td></td></tr>
+    <tr><td>25</td><td>Landlord cannot access trust</td><td>Register as landlord</td><td>Try to access /workspace/trust</td><td>Denied or not shown in nav</td><td></td></tr>
+    <tr><td>26</td><td>Contractor cannot access trust</td><td>AquaFix</td><td>Try to access /workspace/trust</td><td>Denied or not shown in nav</td><td></td></tr>
+  </tbody>
+</table>
+
+<h2>12.8 Data Integrity</h2>
+<table>
+  <thead><tr><th>#</th><th>Test</th><th>Account</th><th>Steps</th><th>Expected</th><th>Pass?</th></tr></thead>
+  <tbody>
+    <tr><td>27</td><td>Agency isolation</td><td>Lerato vs Gita</td><td>Login as Lerato (ag-horizon), then Gita (ag-garden)</td><td>Each sees only their agency's trust data</td><td></td></tr>
+    <tr><td>28</td><td>Transaction immutability</td><td>Lerato</td><td>Try to edit a trust transaction</td><td>No edit option — transactions are immutable</td><td></td></tr>
+    <tr><td>29</td><td>Allocations linked to transactions</td><td>Lerato</td><td>View allocation details</td><td>Each allocation shows linked trust transaction</td><td></td></tr>
+  </tbody>
+</table>
+
+<h2>12.9 Navigation & UI</h2>
+<table>
+  <thead><tr><th>#</th><th>Test</th><th>Account</th><th>Steps</th><th>Expected</th><th>Pass?</th></tr></thead>
+  <tbody>
+    <tr><td>30</td><td>Trust & Banking nav group</td><td>Lerato</td><td>Check sidebar navigation</td><td>Trust & Banking group with 6 items visible</td><td></td></tr>
+    <tr><td>31</td><td>Nav icons render</td><td>Lerato</td><td>Check sidebar icons</td><td>Wallet, CreditCard, AlertTriangle, KeyRound icons present</td><td></td></tr>
+    <tr><td>32</td><td>Active state highlighting</td><td>Lerato</td><td>Click Trust Dashboard</td><td>Trust Dashboard link highlighted in sidebar</td><td></td></tr>
+  </tbody>
+</table>
+
+<h2>12.10 Trust Module CRUD Checklist</h2>
+<table>
+  <thead><tr><th>#</th><th>Test</th><th>Account</th><th>Pass?</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>Read trust transactions</td><td>Lerato</td><td></td></tr>
+    <tr><td>2</td><td>Read trust allocations</td><td>Lerato</td><td></td></tr>
+    <tr><td>3</td><td>Read payout instructions</td><td>Lerato</td><td></td></tr>
+    <tr><td>4</td><td>Read deposit holdings</td><td>Lerato</td><td></td></tr>
+    <tr><td>5</td><td>Read arrears snapshots</td><td>Lerato</td><td></td></tr>
+    <tr><td>6</td><td>Read charges</td><td>Lerato</td><td></td></tr>
+    <tr><td>7</td><td>Negative: Agent cannot allocate receipts</td><td>James</td><td></td></tr>
+    <tr><td>8</td><td>Negative: Tenant cannot view trust</td><td>Lucas</td><td></td></tr>
   </tbody>
 </table>
 
