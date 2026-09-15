@@ -110,6 +110,15 @@
   <strong>Internal document.</strong> This guide intentionally contains no credentials. Usernames are listed so testers can identify roles, but passwords are issued separately by the QA lead via the internal password manager. Never share test credentials on public URLs.
 </div>
 
+<div style="max-width: 46rem; margin: 0.75rem auto 0; padding: 0.85rem 1.1rem; border: 1px solid #86efac; background: #f0fdf4; border-radius: 0.75rem; color: #166534; font-size: 0.9rem; line-height: 1.5;">
+  <strong>Environment status — restored 15 Sep 2026.</strong> Login was failing with &ldquo;Failed to fetch&rdquo; because the deployed app pointed at a retired auth host. That is fixed. Before you start a session:
+  <ul style="margin: 0.5rem 0 0 1.1rem; padding: 0;">
+    <li><strong>Hard-refresh (Ctrl/Cmd+Shift+R) or use a fresh incognito window</strong> — a cached page can still run the old, broken bundle.</li>
+    <li>30-second sanity check: DevTools &rarr; Network &rarr; reload &rarr; any <code>supabase.co</code> request must resolve (no &ldquo;Failed to fetch&rdquo;).</li>
+    <li>A yellow &ldquo;No users yet — register the first Super Admin&rdquo; banner may <em>flash</em> while data loads — that is normal if it clears. <strong>Do not register a new Super Admin</strong>; the seeded account exists. If the banner sticks after a hard refresh, log it as a bug with the failing network request URL.</li>
+  </ul>
+</div>
+
 <!-- ═══ COVER ═══ -->
 <div class="cover" id="top">
   <h1>PropertyFlow</h1>
@@ -123,7 +132,7 @@
     <dt>Live site</dt><dd><a id="live-base-link" href="/">(your live site)</a> — app links below use the current domain automatically</dd>
     <dt>Demo password</dt><dd>Issued separately by the QA lead (not published on this page)</dd>
     <dt>Demo agency</dt><dd>Seeff City Bowl &amp; Tamboerskloof (16 properties)</dd>
-    <dt>Version</dt><dd>1.1 — July 2026 (includes CRUD tests)</dd>
+    <dt>Version</dt><dd>1.2 — September 2026 (environment restored 15 Sep; credentials issued separately; includes CRUD tests)</dd>
   </dl>
 </div>
 
@@ -526,7 +535,13 @@
 <div class="test-block" id="s5-j">
   <h3>J. Guest (not logged in)</h3>
   <ol>
-    <li><a class="app-link" href="/browse?mode=rent">Browse rent</a> → search/filter.</li>
+    <li>
+      <a class="app-link" href="/browse?mode=rent">Browse rent</a> → Filters → type chip <strong>Apartment</strong> → Apply.
+      <ol>
+        <li>Every result must be an apartment — no &ldquo;Office Suite&rdquo; or other commercial titles. <em>(Regression: office listings used to survive this filter — fixed 15 Sep 2026.)</em></li>
+        <li>Re-open Filters, select chip <strong>Office</strong> alone → Apply → expect <strong>0 results</strong>.</li>
+      </ol>
+    </li>
     <li>Listing detail → Apply redirects to login/register.</li>
     <li>Save heart → <a class="app-link" href="/saved">/saved</a>.</li>
     <li>Log in as tenant → wishlist → <a class="app-link" href="/workspace/account/wishlist">account wishlist</a>.</li>
@@ -616,6 +631,8 @@
     <tr><td>Contractor sees no jobs</td><td>Use approved AquaFix</td><td>No jobs after tenant submits ticket</td></tr>
     <tr><td>Wishlist goes to /saved when logged in</td><td>Log out and back in</td><td>Should go to account wishlist</td></tr>
     <tr><td>Login fails</td><td>Verify password issued by QA lead; check caps lock</td><td>Still fails — report email</td></tr>
+    <tr><td>Login &ldquo;Failed to fetch&rdquo;</td><td>Hard refresh / incognito — a cached old build points at a dead auth host (fixed 15 Sep 2026)</td><td>Still fails after reload — report environment + time</td></tr>
+    <tr><td>&ldquo;No users yet&rdquo; banner at login</td><td>Wait for full page load; hard refresh. Never register a new Super Admin — the seeded one exists</td><td>Banner persists after reload — report with the request URL</td></tr>
   </tbody>
 </table>
 
