@@ -20,6 +20,8 @@ import { isPublicMarketplaceUnit } from '../publicListings'
 export type UnitSearchFilters = {
   /** Free-text across title, suburb, city, unit number */
   q?: string
+  /** Property type chips (marketplace browse), e.g. ['Apartment'] */
+  types?: string[]
   listing_type?: 'rent' | 'sale' | 'both' | 'all'
   min_rent?: number
   max_rent?: number
@@ -260,6 +262,21 @@ function listingMatches(unit: Unit, listingType?: UnitSearchFilters['listing_typ
   return true
 }
 
+/**
+ * Property type for a unit — linked marketplace properties carry their real type;
+ * infrastructure-only units derive one with the same convention as mapGuestMarketplace.
+ */
+function derivedUnitType(unit: Unit, property?: PropertyAsset): string {
+  if (property?.type) return property.type
+  if (unit.bedrooms === 0) return 'Office'
+  return unit.bedrooms >= 3 ? 'House' : 'Apartment'
+}
+
+function unitTypeMatches(unit: Unit, property: PropertyAsset | undefined, types: string[]): boolean {
+  const unitType = derivedUnitType(unit, property)
+  return types.some((t) => t.toLowerCase() === unitType.toLowerCase())
+}
+
 function inBoundingBox(
   lat: number | null | undefined,
   lng: number | null | undefined,
@@ -301,6 +318,7 @@ export function searchUnitsFeed(params: {
     }
     if (filters.client_id && unit.clientId !== filters.client_id) return false
     if (!listingMatches(unit, filters.listing_type)) return false
+    if (filters.types?.length && !unitTypeMatches(unit, property, filters.types)) return false
 
     if (filters.status_keys?.length && !filters.status_keys.includes(unit.statusKey)) return false
     if (filters.featured_only && !unit.featured && !propertyByUnit.get(unit.id)?.featured) return false

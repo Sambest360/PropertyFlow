@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="robots" content="noindex, nofollow" />
+  <meta name="robots" content="noindex, nofollow, noarchive" />
+  <meta name="description" content="Internal PropertyFlow QA guide — credentials are distributed separately by the QA lead." />
   <title>PropertyFlow — QA User Roles &amp; Test Guide (Live)</title>
   <style>
     @page { margin: 2.54cm; }
@@ -105,6 +106,10 @@
 </head>
 <body>
 
+<div style="max-width: 46rem; margin: 1rem auto 0; padding: 0.85rem 1.1rem; border: 1px solid #f59e0b; background: #fffbeb; border-radius: 0.75rem; color: #92400e; font-size: 0.9rem; line-height: 1.5;">
+  <strong>Internal document.</strong> This guide intentionally contains no credentials. Usernames are listed so testers can identify roles, but passwords are issued separately by the QA lead via the internal password manager. Never share test credentials on public URLs.
+</div>
+
 <!-- ═══ COVER ═══ -->
 <div class="cover" id="top">
   <h1>PropertyFlow</h1>
@@ -116,7 +121,7 @@
     <dt>Document type</dt><dd>QA / UAT test guide</dd>
     <dt>Environment</dt><dd>Live / staging (browser only)</dd>
     <dt>Live site</dt><dd><a id="live-base-link" href="/">(your live site)</a> — app links below use the current domain automatically</dd>
-    <dt>Demo password</dt><dd><code>secret</code> (all test accounts below)</dd>
+    <dt>Demo password</dt><dd>Issued separately by the QA lead (not published on this page)</dd>
     <dt>Demo agency</dt><dd>Seeff City Bowl &amp; Tamboerskloof (16 properties)</dd>
     <dt>Version</dt><dd>1.1 — July 2026 (includes CRUD tests)</dd>
   </dl>
@@ -203,8 +208,8 @@
 <table>
   <thead><tr><th>Account type</th><th>Email</th><th>Password</th></tr></thead>
   <tbody>
-    <tr><td><strong>Super Admin</strong></td><td><code>sambampo200@gmail.com</code></td><td><code>secret</code></td></tr>
-    <tr><td><strong>All other test users</strong></td><td>See Section 2</td><td><code>secret</code></td></tr>
+    <tr><td><strong>Super Admin</strong></td><td>Provided by QA lead</td><td>Provided by QA lead</td></tr>
+    <tr><td><strong>All other test users</strong></td><td>See Section 2</td><td>Provided by QA lead</td></tr>
   </tbody>
 </table>
 
@@ -240,7 +245,7 @@
   <tbody>
     <tr>
       <td>Samuel (Super Admin)</td>
-      <td><code>sambampo200@gmail.com</code></td>
+      <td><code>super-admin@propertyflow.demo</code> (email issued by QA lead)</td>
       <td>Super Admin</td>
       <td><a class="app-link" href="/workspace/admin/agencies">/workspace/admin/agencies</a></td>
     </tr>
@@ -408,7 +413,7 @@
 <h1 class="doc-section" id="s5">5. Detailed Test Scripts by Role</h1>
 
 <div class="test-block" id="s5-a">
-  <h3>A. Super Admin — <code>sambampo200@gmail.com</code></h3>
+  <h3>A. Super Admin — <code>super-admin@propertyflow.demo</code></h3>
   <p><strong>Should be able to:</strong> Manage all agencies; create agencies; platform config and billing. Should <em>not</em> land on Applicant home.</p>
   <p><strong>Quick login:</strong> <a class="app-link" href="/login">Login</a> → expect redirect to <a class="app-link" href="/workspace/admin/agencies">Agencies admin</a></p>
   <ol>
@@ -610,7 +615,7 @@
     <tr><td>Tenant can’t submit maintenance</td><td>Use Lucas or Sarie, not Riaan</td><td>Lucas/Sarie still blocked</td></tr>
     <tr><td>Contractor sees no jobs</td><td>Use approved AquaFix</td><td>No jobs after tenant submits ticket</td></tr>
     <tr><td>Wishlist goes to /saved when logged in</td><td>Log out and back in</td><td>Should go to account wishlist</td></tr>
-    <tr><td>Login fails</td><td>Password <code>secret</code>, check caps lock</td><td>Still fails — report email</td></tr>
+    <tr><td>Login fails</td><td>Verify password issued by QA lead; check caps lock</td><td>Still fails — report email</td></tr>
   </tbody>
 </table>
 
@@ -695,7 +700,7 @@
 <p><em>D~ = deactivate or remove unpaid records; platform does not hard-delete agencies, users, or leased properties from the UI.</em></p>
 
 <h2 id="s11-agencies">11.2 Agencies — Super Admin</h2>
-<p><strong>Account:</strong> <code>sambampo200@gmail.com</code> · <strong>Page:</strong> <a class="app-link" href="/workspace/admin/agencies">Agencies admin</a></p>
+<p><strong>Account:</strong> <code>super-admin@propertyflow.demo</code> · <strong>Page:</strong> <a class="app-link" href="/workspace/admin/agencies">Agencies admin</a></p>
 <table>
   <thead><tr><th>Op</th><th>Steps</th><th>Pass criteria</th></tr></thead>
   <tbody>
@@ -920,7 +925,7 @@
   <li><strong>Browser &amp; device</strong> (e.g. Chrome 131, macOS)</li>
 </ol>
 <div class="callout callout-warn">
-  <strong>Confidential:</strong> Do not share the demo password outside this internal QA pack. All <code>@propertyflow.demo</code> accounts use password <code>secret</code>.
+  <strong>Confidential:</strong> This page must never list passwords. Test-account passwords are distributed only through the QA lead's internal channel. If you find credentials on any public URL, report it as a security incident.
 </div>
 
 <p class="footer-note">

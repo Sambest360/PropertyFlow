@@ -200,6 +200,7 @@ export default function BrowsePage() {
         q: q || undefined,
         listing_type: mode === 'rent' ? 'rent' : mode === 'buy' ? 'sale' : 'all',
         marketplace_public: true,
+        types: filters.types.length ? [...filters.types] : undefined,
         min_rent: mode === 'rent' && filters.minPrice ? Number(filters.minPrice) : undefined,
         max_rent: mode === 'rent' && filters.maxPrice ? Number(filters.maxPrice) : undefined,
         min_price: mode !== 'rent' && filters.minPrice ? Number(filters.minPrice) : undefined,
