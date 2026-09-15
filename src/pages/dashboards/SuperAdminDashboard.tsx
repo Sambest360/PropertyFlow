@@ -84,7 +84,6 @@ export function SuperAdminDashboard() {
   const [listFilter, setListFilter] = useState<SuperFilter>('all')
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [selectedDay, setSelectedDay] = useState(() => new Date())
-  const [calendarOpen, setCalendarOpen] = useState(true)
 
   const heroProperty = state.properties[0]
   const hero = unpaid[0]
@@ -263,7 +262,6 @@ export function SuperAdminDashboard() {
     markSeen(listKey(item.kind, item.id))
     setSelectedKey(listKey(item.kind, item.id))
     setSelectedDay(parseDay(item.date, selectedDay))
-    setCalendarOpen(true)
   }
 
   const calendarMarkers: CalendarMarker[] = useMemo(

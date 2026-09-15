@@ -120,7 +120,6 @@ export function AgencyDashboard() {
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [preview, setPreview] = useState<PreviewTarget | null>(null)
   const [selectedDay, setSelectedDay] = useState(() => new Date())
-  const [calendarOpen, setCalendarOpen] = useState(true)
 
   const properties = useMemo(
     () =>
@@ -503,7 +502,6 @@ export function AgencyDashboard() {
     }
     const [y, m, d] = item.date.split('-').map(Number)
     if (y && m && d) setSelectedDay(new Date(y, m - 1, d))
-    setCalendarOpen(true)
   }
 
   const dayKey = dateKey(selectedDay)

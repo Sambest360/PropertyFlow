@@ -26,7 +26,6 @@ import {
   pickAttentionHero,
   toMarkerTone,
   useEventCycle,
-  type CalendarMarker,
   type CalendarTrayItem,
   type OpsListItemData,
 } from '../../components/dashboard'
@@ -107,7 +106,6 @@ export function GroundAgentDashboard() {
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [preview, setPreview] = useState<PreviewTarget | null>(null)
   const [selectedDay, setSelectedDay] = useState(() => new Date())
-  const [calendarOpen, setCalendarOpen] = useState(true)
 
   const props = state.properties.filter((p) => allowedPropertyIds.has(p.id))
   const viewings = state.viewings.filter((v) => dealVisible(v))
@@ -243,7 +241,6 @@ export function GroundAgentDashboard() {
       if (viewing) setPreview({ kind: 'viewing', viewing, property: prop })
     }
     setSelectedDay(parseDay(item.date, selectedDay))
-    setCalendarOpen(true)
   }
 
   const dayKey = dateKey(selectedDay)
