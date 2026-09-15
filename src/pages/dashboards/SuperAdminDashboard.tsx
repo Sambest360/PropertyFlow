@@ -6,17 +6,13 @@ import { useSeenOpsItems } from '../../hooks/useSeenOpsItems'
 import { Button, statusTone } from '../../components/ui'
 import {
   AttentionHero,
-  CalendarToggle,
+  CalendarWithTray,
   CreateMenu,
   DashboardBreadcrumb,
-  DashboardCalendarShell,
   DashboardPage,
   DashboardSplit,
   DashboardTabs,
-  EventCycleNav,
   FilterClearHint,
-  MiniCalendar,
-  OpsDetailPanel,
   OpsList,
   OpsToolbar,
   QuickLinkChips,
@@ -28,6 +24,7 @@ import {
   toMarkerTone,
   useEventCycle,
   type CalendarMarker,
+  type CalendarTrayItem,
   type OpsListItemData,
 } from '../../components/dashboard'
 import { formatZAR } from '../../data/seed'
@@ -313,6 +310,48 @@ export function SuperAdminDashboard() {
       ? state.invoices.find((i) => i.id === focusEvent.id)
       : undefined
 
+  const trayItems: CalendarTrayItem[] = useMemo(() => {
+    if (!focusEvent) return []
+    return [
+      {
+        id: focusEvent.id,
+        title: focusEvent.title,
+        eyebrow: focusEvent.kind === 'invoice' ? 'Invoice' : 'Subscription',
+        subtitle: focusEvent.meta,
+        status: focusEvent.status,
+        statusTone: statusTone(focusEvent.status),
+        children:
+          dayEvents.length > 1 ? (
+            <div className="flex items-center justify-between rounded-2xl bg-white/60 px-4 py-3 backdrop-blur-sm">
+              <p className="text-sm text-ink-500">
+                Event {eventIndex + 1} of {dayEvents.length}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => cycleDayEvent(-1)}
+                  className="rounded-lg bg-primary-50 px-3 py-2 text-xs font-semibold text-primary hover:bg-primary-100 disabled:opacity-50"
+                  disabled={eventIndex === 0}
+                  aria-label="Previous event"
+                >
+                  ← Prev
+                </button>
+                <button
+                  type="button"
+                  onClick={() => cycleDayEvent(1)}
+                  className="rounded-lg bg-primary-50 px-3 py-2 text-xs font-semibold text-primary hover:bg-primary-100 disabled:opacity-50"
+                  disabled={eventIndex === dayEvents.length - 1}
+                  aria-label="Next event"
+                >
+                  Next →
+                </button>
+              </div>
+            </div>
+          ) : undefined,
+      },
+    ]
+  }, [focusEvent, eventIndex, dayEvents.length, cycleDayEvent])
+
   const listItems = useMemo(
     () =>
       opsItems.map((item) => {
@@ -420,49 +459,38 @@ export function SuperAdminDashboard() {
         }
         right={
           <div className="flex h-full min-h-0 flex-1 flex-col gap-4">
-            <CalendarToggle open={calendarOpen} onOpen={() => setCalendarOpen(true)}>
-              <DashboardCalendarShell>
-                <MiniCalendar
-                  selected={selectedDay}
-                  onSelect={setSelectedDay}
-                  markers={calendarMarkers}
-                  months={2}
-                  layout="stack"
-                  onClose={() => setCalendarOpen(false)}
-                  dayViewTo={`/workspace/platform/billing?date=${dayKey}`}
-                  className="rounded-none border-0 shadow-none"
-                />
-              </DashboardCalendarShell>
-            </CalendarToggle>
+            <CalendarWithTray
+              selected={selectedDay}
+              onSelect={setSelectedDay}
+              markers={calendarMarkers}
+              trayItems={trayItems}
+              months={2}
+              layout="stack"
+              dayViewTo={`/workspace/platform/billing?date=${dayKey}`}
+              className="flex flex-col overflow-hidden"
+            />
 
-            <OpsDetailPanel
-              className="flex min-h-0 flex-1 flex-col"
-              eyebrow={focusEvent ? (focusEvent.kind === 'invoice' ? 'Invoice' : 'Subscription') : 'Day events'}
-              title={focusEvent?.title ?? 'No events this day'}
-              subtitle={focusEvent?.meta}
-              action={{ label: 'Open billing', to: '/workspace/platform/billing' }}
-              status={focusEvent?.status}
-              statusTone={focusEvent ? statusTone(focusEvent.status) : undefined}
-              chips={
-                <QuickLinkChips
-                  items={[
-                    {
-                      to: '/workspace/admin/agencies',
-                      label: `${state.agencies.length} agencies`,
-                      icon: <Building2 className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
-                    },
-                    {
-                      to: '/workspace/platform/billing',
-                      label: `${unpaid.length} unpaid`,
-                      icon: <CreditCard className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
-                      tone: 'accent',
-                    },
-                  ]}
-                />
-              }
-            >
-              {focusInvoice && focusInvoice.paymentStatus === 'UNPAID' && (
-                <div className="mt-4 flex flex-wrap gap-2">
+            <div className="rounded-[1.25rem] border border-primary-100 bg-white p-5 shadow-[0_12px_32px_-24px_rgba(15,39,68,0.3)]">
+              <QuickLinkChips
+                items={[
+                  {
+                    to: '/workspace/admin/agencies',
+                    label: `${state.agencies.length} agencies`,
+                    icon: <Building2 className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
+                  },
+                  {
+                    to: '/workspace/platform/billing',
+                    label: `${unpaid.length} unpaid`,
+                    icon: <CreditCard className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
+                    tone: 'accent',
+                  },
+                ]}
+              />
+            </div>
+
+            {focusInvoice && focusInvoice.paymentStatus === 'UNPAID' && (
+              <div className="rounded-[1.25rem] border border-primary-100 bg-white p-5 shadow-[0_12px_32px_-24px_rgba(15,39,68,0.3)]">
+                <div className="flex flex-wrap gap-2">
                   <Button size="sm" onClick={() => markInvoicePaid(focusInvoice.id)}>
                     Mark paid
                   </Button>
@@ -474,15 +502,8 @@ export function SuperAdminDashboard() {
                     Re-run billing
                   </Button>
                 </div>
-              )}
-              <EventCycleNav
-                index={eventIndex}
-                dayCount={dayEvents.length}
-                hasMultiDay={calendarEvents.length > 1}
-                onPrev={() => cycleDayEvent(-1)}
-                onNext={() => cycleDayEvent(1)}
-              />
-            </OpsDetailPanel>
+              </div>
+            )}
           </div>
         }
       />

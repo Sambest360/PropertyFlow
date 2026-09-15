@@ -8,17 +8,13 @@ import { OpsPreviewModal, type PreviewTarget } from '../../components/admin/OpsP
 import { maintenanceCreateHref } from '../maintenance/MaintenanceCreatePage'
 import {
   AttentionHero,
-  CalendarToggle,
+  CalendarWithTray,
   CreateMenu,
   DashboardBreadcrumb,
-  DashboardCalendarShell,
   DashboardPage,
   DashboardSplit,
   DashboardTabs,
-  EventCycleNav,
   FilterClearHint,
-  MiniCalendar,
-  OpsDetailPanel,
   OpsList,
   OpsToolbar,
   QuickLinkChips,
@@ -30,6 +26,8 @@ import {
   pickAttentionHero,
   toMarkerTone,
   useEventCycle,
+  type CalendarMarker,
+  type CalendarTrayItem,
   type OpsListItemData,
 } from '../../components/dashboard'
 import {
@@ -297,6 +295,65 @@ export function GroundAgentDashboard() {
       : { label: 'Viewings calendar', to: `/workspace/sales/viewings?date=${dayKey}` }
   )
 
+  const trayItems: CalendarTrayItem[] = useMemo(() => {
+    if (!focusEvent) return []
+    return [
+      {
+        id: focusEvent.id,
+        title: focusEvent.title,
+        eyebrow:
+          focusEvent.kind === 'viewing_slot'
+            ? 'Open slot'
+            : focusEvent.kind === 'viewing'
+              ? 'Viewing'
+              : 'Maintenance',
+        subtitle: focusProperty
+          ? `${focusProperty.address} · ${focusProperty.suburb}`
+          : focusEvent.meta,
+        status: focusEvent.kind === 'ticket' ? focusEvent.priority : focusEvent.status,
+        statusTone:
+          focusEvent.kind === 'ticket'
+            ? priorityTone((focusEvent.priority ?? 'Medium') as never)
+            : statusTone(focusEvent.status as never),
+        requestBy:
+          focusEvent.kind === 'viewing'
+            ? focusEvent.meta.split('·')[0]?.trim()
+            : focusEvent.kind === 'ticket'
+              ? focusEvent.meta.split('·').pop()?.trim()
+              : undefined,
+        action: focusAction,
+        children:
+          dayEvents.length > 1 ? (
+            <div className="flex items-center justify-between rounded-2xl bg-white/60 px-4 py-3 backdrop-blur-sm">
+              <p className="text-sm text-ink-500">
+                Event {eventIndex + 1} of {dayEvents.length}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => cycleDayEvent(-1)}
+                  className="rounded-lg bg-primary-50 px-3 py-2 text-xs font-semibold text-primary hover:bg-primary-100 disabled:opacity-50"
+                  disabled={eventIndex === 0}
+                  aria-label="Previous event"
+                >
+                  ← Prev
+                </button>
+                <button
+                  type="button"
+                  onClick={() => cycleDayEvent(1)}
+                  className="rounded-lg bg-primary-50 px-3 py-2 text-xs font-semibold text-primary hover:bg-primary-100 disabled:opacity-50"
+                  disabled={eventIndex === dayEvents.length - 1}
+                  aria-label="Next event"
+                >
+                  Next →
+                </button>
+              </div>
+            </div>
+          ) : undefined,
+      },
+    ]
+  }, [focusEvent, focusProperty, focusAction, eventIndex, dayEvents.length, cycleDayEvent])
+
   const CtaIcon =
     heroBase?.kind === 'issue'
       ? Wrench
@@ -454,57 +511,19 @@ export function GroundAgentDashboard() {
         }
         right={
           <div className="flex h-full min-h-0 flex-1 flex-col gap-4">
-            <CalendarToggle open={calendarOpen} onOpen={() => setCalendarOpen(true)}>
-              <DashboardCalendarShell>
-                <MiniCalendar
-                  selected={selectedDay}
-                  onSelect={setSelectedDay}
-                  markers={calendarMarkers}
-                  months={2}
-                  layout="stack"
-                  onClose={() => setCalendarOpen(false)}
-                  dayViewTo={`/workspace/sales/viewings?date=${dayKey}`}
-                  className="rounded-none border-0 shadow-none"
-                />
-              </DashboardCalendarShell>
-            </CalendarToggle>
+            <CalendarWithTray
+              selected={selectedDay}
+              onSelect={setSelectedDay}
+              markers={calendarMarkers}
+              trayItems={trayItems}
+              months={2}
+              layout="stack"
+              dayViewTo={`/workspace/sales/viewings?date=${dayKey}`}
+              className="flex flex-col overflow-hidden"
+            />
 
-            <OpsDetailPanel
-              className="flex min-h-0 flex-1 flex-col"
-              eyebrow={
-                focusEvent
-                  ? focusEvent.kind === 'viewing_slot'
-                    ? 'Open slot'
-                    : focusEvent.kind === 'viewing'
-                      ? 'Viewing'
-                      : 'Maintenance'
-                  : 'Day events'
-              }
-              title={focusEvent?.title ?? 'No events this day'}
-              subtitle={
-                focusProperty
-                  ? `${focusProperty.address} · ${focusProperty.suburb}`
-                  : focusEvent?.meta
-              }
-              action={focusAction}
-              requestBy={
-                focusEvent?.kind === 'viewing'
-                  ? focusEvent.meta.split('·')[0]?.trim()
-                  : focusEvent?.kind === 'ticket'
-                    ? focusEvent.meta.split('·').pop()?.trim()
-                    : undefined
-              }
-              status={
-                focusEvent?.kind === 'ticket' ? focusEvent.priority : focusEvent?.status
-              }
-              statusTone={
-                focusEvent
-                  ? focusEvent.kind === 'ticket'
-                    ? priorityTone((focusEvent.priority ?? 'Medium') as never)
-                    : statusTone(focusEvent.status as never)
-                  : undefined
-              }
-              chips={
+            {(scheduled.length > 0 || openTickets.length > 0 || apps.length > 0) && (
+              <div className="rounded-[1.25rem] border border-primary-100 bg-white p-5 shadow-[0_12px_32px_-24px_rgba(15,39,68,0.3)]">
                 <QuickLinkChips
                   items={
                     isCandidate
@@ -546,32 +565,26 @@ export function GroundAgentDashboard() {
                         ]
                   }
                 />
-              }
-            >
-              {focusViewing && (
-                <div>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() =>
-                      updateViewing(focusViewing.id, {
-                        status: 'Completed',
-                        attendance: 'Attended',
-                      })
-                    }
-                  >
-                    Mark attended
-                  </Button>
-                </div>
-              )}
-              <EventCycleNav
-                index={eventIndex}
-                dayCount={dayEvents.length}
-                hasMultiDay={calendarEvents.length > 1}
-                onPrev={() => cycleDayEvent(-1)}
-                onNext={() => cycleDayEvent(1)}
-              />
-            </OpsDetailPanel>
+              </div>
+            )}
+
+            {focusViewing && (
+              <div className="rounded-[1.25rem] border border-primary-100 bg-white p-5 shadow-[0_12px_32px_-24px_rgba(15,39,68,0.3)]">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="w-full"
+                  onClick={() =>
+                    updateViewing(focusViewing.id, {
+                      status: 'Completed',
+                      attendance: 'Attended',
+                    })
+                  }
+                >
+                  Mark attended
+                </Button>
+              </div>
+            )}
           </div>
         }
       />

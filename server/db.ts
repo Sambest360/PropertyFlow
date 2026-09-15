@@ -22,7 +22,7 @@ const resolved = resolveDatabaseUrl({
   envUrl: process.env.DATABASE_URL,
   vercel: process.env.VERCEL,
   lambda: process.env.AWS_LAMBDA_FUNCTION_NAME,
-  localFallback: 'postgresql://samuelkorantengamoahbampo@127.0.0.1:5432/propertyflow',
+  localFallback: undefined,
 })
 
 export const databaseConfigured = resolved.configured
