@@ -137,7 +137,7 @@ async function resolveSuperAdmin(
        ) VALUES (
          gen_random_uuid(), $1, NULL, lower($2), $3, $4, 'SUPER_ADMIN', TRUE,
          jsonb_build_object(
-           'frontend_id', $5,
+           'frontend_id', $5::text,
            'frontend_role', 'super_admin',
            'mustChangePassword', false
          ),
@@ -171,7 +171,7 @@ async function ensureSuperAdminRow(
        last_name = COALESCE(NULLIF(last_name, ''), $4),
        auth_user_id = $2,
        metadata = jsonb_build_object(
-         'frontend_id', $5,
+         'frontend_id', $5::text,
          'frontend_role', 'super_admin',
          'mustChangePassword', false
        ),

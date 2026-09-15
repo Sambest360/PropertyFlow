@@ -24,11 +24,11 @@ const admin = createClient(url, secret, {
   auth: { autoRefreshToken: false, persistSession: false },
 })
 
-async function findUserByEmail(targetEmail: string) {
+async function findUserByEmail(client: SupabaseClient, targetEmail: string) {
   let page = 1
   const perPage = 200
   while (true) {
-    const { data, error } = await admin.auth.admin.listUsers({ page, perPage })
+    const { data, error } = await client.auth.admin.listUsers({ page, perPage })
     if (error) throw error
     const match = data.users.find((u) => u.email?.toLowerCase() === targetEmail.toLowerCase())
     if (match) return match
@@ -113,7 +113,7 @@ export async function ensureSuperAdminAccount(
   def: SuperAdminDef,
   accountPassword: string,
 ): Promise<{ action: 'created' | 'password_updated'; authUserId: string; appUserId: string }> {
-  let authUser = await findUserByEmail(def.email)
+  let authUser = await findUserByEmail(client, def.email)
   let action: 'created' | 'password_updated' = 'password_updated'
 
   if (!authUser) {
@@ -131,7 +131,7 @@ export async function ensureSuperAdminAccount(
       if (!isExistingUserError(error.message)) {
         throw new Error(`createUser ${def.email}: ${error.message}`)
       }
-      authUser = await findUserByEmail(def.email)
+      authUser = await findUserByEmail(client, def.email)
     } else {
       authUser = data.user ?? null
       action = 'created'

@@ -88,7 +88,7 @@ export function MarketplaceHeader() {
           </form>
 
           <div
-            className={cn('flex items-center gap-1.5 md:ml-0', !q && 'lg:ml-2')}
+            className="ml-auto flex items-center gap-1.5 lg:ml-2"
             data-tip-target="market-auth"
           >
             <Link

@@ -46,11 +46,11 @@ AS $$
     'entity_id_map', coalesce(
       (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.entity_type, m.frontend_id)
        FROM entity_id_map m
-       WHERE (m.entity_type = 'unit' AND m.backend_id IN (SELECT id::text FROM public_units))
-          OR (m.entity_type = 'property' AND m.backend_id IN (SELECT id::text FROM public_units))
-          OR (m.entity_type = 'building' AND m.backend_id IN (SELECT id::text FROM unit_buildings))
-          OR (m.entity_type = 'agency' AND m.backend_id IN (SELECT id::text FROM unit_clients))
-          OR (m.entity_type = 'user' AND m.backend_id IN (SELECT id::text FROM unit_landlords))),
+       WHERE (m.entity_type = 'unit' AND m.backend_id IN (SELECT id FROM public_units))
+          OR (m.entity_type = 'property' AND m.backend_id IN (SELECT id FROM public_units))
+          OR (m.entity_type = 'building' AND m.backend_id IN (SELECT id FROM unit_buildings))
+          OR (m.entity_type = 'agency' AND m.backend_id IN (SELECT id FROM unit_clients))
+          OR (m.entity_type = 'user' AND m.backend_id IN (SELECT id FROM unit_landlords))),
       '[]'::jsonb
     )
   );
