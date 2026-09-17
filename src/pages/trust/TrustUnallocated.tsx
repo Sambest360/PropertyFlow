@@ -10,6 +10,7 @@ import { useAuth } from '../../context/AuthContext'
 import { formatZAR } from '../../data/seed'
 import { PageHeader, Card, Button, Input, EmptyState } from '../../components/ui'
 import { DashboardPage } from '../../components/dashboard'
+import { sweetSuccess, sweetError } from '../../lib/sweetAlert'
 
 function formatCents(cents: number): string {
   return formatZAR(cents / 100)
@@ -24,12 +25,13 @@ function formatDate(dateStr: string): string {
 }
 
 export default function TrustUnallocated() {
-  const { state } = useStore()
+  const { state, allocateTrustReceipt, markTrustSuspense } = useStore()
   const { user } = useAuth()
 
   const [selectedTxn, setSelectedTxn] = useState<string | null>(null)
   const [searchOccupancy, setSearchOccupancy] = useState('')
-  const [allocations, setAllocations] = useState<Array<{ occupancyId: string; amount: number }>>([])
+  const [allocations, setAllocations] = useState<Array<{ occupancyId: string; bucketCode: string; amount: number }>>([])
+  const [busy, setBusy] = useState(false)
 
   const agencyId = user?.agencyId
 
@@ -78,23 +80,45 @@ export default function TrustUnallocated() {
     : 0
 
   function handleAddAllocation(occupancyId: string, amount: number) {
-    setAllocations((prev) => [...prev, { occupancyId, amount }])
+    setAllocations((prev) => [...prev, { occupancyId, bucketCode: 'rent', amount }])
   }
 
   function handleRemoveAllocation(index: number) {
     setAllocations((prev) => prev.filter((_, i) => i !== index))
   }
 
-  function handleAllocate() {
-    // In production, this would call the store method to allocate
-    console.log('Allocating:', { transactionId: selectedTxn, allocations })
+  async function handleAllocate() {
+    if (!selectedTxn || !user) return
+    setBusy(true)
+    const result = allocateTrustReceipt({
+      transactionId: selectedTxn,
+      actorUserId: user.id,
+      lines: allocations.map((a) => ({
+        occupancyId: a.occupancyId,
+        bucketCode: a.bucketCode,
+        amountCents: Math.round(a.amount),
+      })),
+    })
+    setBusy(false)
+    if (!result.ok) {
+      await sweetError('Cannot allocate', result.error ?? 'Allocation failed')
+      return
+    }
+    await sweetSuccess(
+      'Receipt allocated',
+      'The receipt is now matched to occupancy buckets — visible in the cashbook.'
+    )
     setSelectedTxn(null)
     setAllocations([])
   }
 
-  function handleMarkSuspense() {
-    // In production, this would mark the transaction as suspense
-    console.log('Marking as suspense:', selectedTxn)
+  async function handleMarkSuspense() {
+    if (!selectedTxn || !user) return
+    markTrustSuspense({ transactionId: selectedTxn, actorUserId: user.id })
+    await sweetSuccess(
+      'Moved to suspense',
+      'Matched to the agency but not to an occupancy — it will age and alert until resolved.'
+    )
     setSelectedTxn(null)
   }
 
@@ -275,7 +299,7 @@ export default function TrustUnallocated() {
                 <Button
                   variant="primary"
                   onClick={handleAllocate}
-                  disabled={remaining < 0 || allocations.length === 0}
+                  disabled={busy || remaining < 0 || allocations.length === 0}
                 >
                   <CheckCircle2 className="h-4 w-4" />
                   Allocate
@@ -283,6 +307,7 @@ export default function TrustUnallocated() {
                 <Button
                   variant="secondary"
                   onClick={handleMarkSuspense}
+                  disabled={busy}
                 >
                   <Clock className="h-4 w-4" />
                   Mark as Suspense

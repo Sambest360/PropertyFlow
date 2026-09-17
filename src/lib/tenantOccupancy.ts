@@ -3,6 +3,9 @@ import type { Application, Tenancy } from '../types/domain'
 /** Application stages that unlock tenancy ops (payments, maintenance). */
 export const TENANT_OCCUPANCY_STAGES: ReadonlySet<string> = new Set([
   'Approved',
+  // P0-3: the workflow's AGENT_APPROVE transition lands on this label —
+  // it is a real approval and must unlock tenant tools the same way.
+  'Conditionally approved',
   'Awaiting Payment',
   'Deposit Paid',
   'Lease Signed',

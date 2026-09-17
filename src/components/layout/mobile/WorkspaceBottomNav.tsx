@@ -2,6 +2,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { useMemo, useState } from 'react'
 import { useAuth } from '../../../context/AuthContext'
 import { useStore } from '../../../context/AppStore'
+import { signOutAndRedirect } from '../../../lib/auth/signOut'
 import { tenantHasApprovedOccupancy } from '../../../lib/tenantOccupancy'
 import { resolveWorkspaceBottomNavTabs } from '../../../lib/workspaceBottomNav'
 import { MobileDrawer } from '../MobileDrawer'
@@ -107,10 +108,11 @@ export function WorkspaceBottomNav() {
             Help
           </Link>
           <Link
-            to="/"
-            onClick={() => {
+            to="/login"
+            onClick={(e) => {
+              e.preventDefault()
               setMoreOpen(false)
-              void logout()
+              void signOutAndRedirect(logout)
             }}
             className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-ink-500 transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >

@@ -57,10 +57,11 @@ function statusIcon(status: string) {
 }
 
 export default function TrustPayouts() {
-  const { state } = useStore()
+  const { state, approvePayoutInstruction, submitPayoutInstruction } = useStore()
   const { user } = useAuth()
 
   const [filter, setFilter] = useState<string>('all')
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const agencyId = user?.agencyId
 
@@ -107,19 +108,17 @@ export default function TrustPayouts() {
   )
 
   function handleApprove(id: string) {
-    // In production, this would call the store method to approve
-    console.log('Approving payout:', id)
+    if (!user) return
+    const result = approvePayoutInstruction({ instructionId: id, approverUserId: user.id })
+    setActionError(result.ok ? null : (result.error ?? 'Approval failed'))
   }
 
   function handleSubmit(id: string) {
-    // In production, this would call the store method to submit to partner
-    console.log('Submitting payout:', id)
+    if (!user) return
+    const result = submitPayoutInstruction({ instructionId: id, actorUserId: user.id })
+    setActionError(result.ok ? null : (result.error ?? 'Submission failed'))
   }
 
-  function handleCancel(id: string) {
-    // In production, this would call the store method to cancel
-    console.log('Cancelling payout:', id)
-  }
 
   return (
     <DashboardPage>
@@ -192,11 +191,11 @@ export default function TrustPayouts() {
                       Property: {payout.propertyId} • Bucket: {payout.bucketCode}
                     </p>
                     <p className="text-sm text-ink-500">
-                      Proposed by: {payout.proposedBy} • {formatDate(payout.createdAt)}
+                      Proposed by: {state.users.find((u) => u.id === payout.proposedBy)?.name ?? payout.proposedBy} • {formatDate(payout.createdAt)}
                     </p>
                     {payout.approvedBy && (
                       <p className="text-sm text-ink-500">
-                        Approved by: {payout.approvedBy}
+                        Approved by: {state.users.find((u) => u.id === payout.approvedBy)?.name ?? payout.approvedBy}
                       </p>
                     )}
                     {payout.settledAt && (
@@ -214,7 +213,7 @@ export default function TrustPayouts() {
                 <div className="text-right">
                   <p className="text-lg font-semibold text-ink">{formatCents(payout.amountCents)}</p>
                   <div className="mt-2 flex gap-2">
-                    {payout.status === 'pending_approval' && payout.proposedBy !== user?.id && (
+                    {payout.status === 'proposed' && payout.proposedBy !== user?.id && (
                       <Button
                         variant="primary"
                         size="sm"
@@ -223,6 +222,11 @@ export default function TrustPayouts() {
                         <CheckCircle2 className="h-4 w-4" />
                         Approve
                       </Button>
+                    )}
+                    {payout.status === 'proposed' && payout.proposedBy === user?.id && (
+                      <p className="max-w-[9rem] text-[11px] leading-snug text-ink-400">
+                        Awaiting a second user to approve (dual control)
+                      </p>
                     )}
                     {payout.status === 'approved' && (
                       <Button
@@ -234,22 +238,16 @@ export default function TrustPayouts() {
                         Submit
                       </Button>
                     )}
-                    {(payout.status === 'proposed' || payout.status === 'pending_approval') && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleCancel(payout.id)}
-                      >
-                        <XCircle className="h-4 w-4" />
-                        Cancel
-                      </Button>
-                    )}
                   </div>
                 </div>
               </div>
             </Card>
           ))}
         </div>
+      )}
+
+      {actionError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{actionError}</div>
       )}
 
       {/* Dual Control Notice */}

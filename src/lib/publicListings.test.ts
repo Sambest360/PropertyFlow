@@ -5,76 +5,103 @@ import type { Unit } from '../data/infrastructure'
 
 function baseProperty(overrides: Partial<PropertyAsset> = {}): PropertyAsset {
   return {
-    id: 'p1',
-    agencyId: 'ag1',
-    landlordId: 'u1',
+    id: 'PR-1',
+    agencyId: 'ag-1',
+    landlordId: 'll-1',
     agentId: null,
-    title: 'Test',
+    unitId: 'un-1',
+    title: 'QA listing',
     type: 'Apartment',
-    status: 'Published',
+    status: 'Draft',
     listingMode: 'rent',
     price: null,
-    rent: 10000,
+    rent: 12000,
     beds: 2,
     baths: 1,
     parking: 1,
     area: 80,
-    city: 'PE',
+    city: 'Port Elizabeth',
     suburb: 'Humewood',
-    address: '1 Test St',
-    lat: 0,
-    lng: 0,
-    images: [],
+    address: '1 Test Street',
+    lat: -33.96,
+    lng: 25.6,
+    images: ['img-1'],
     rooms: [],
     amenities: [],
-    description: '',
+    description: 'QA test listing',
     featured: false,
-    createdAt: '2026-01-01',
+    createdAt: '2026-09-01T00:00:00.000Z',
+    ...overrides,
+  }
+}
+
+function baseUnit(overrides: Partial<Unit> = {}): Unit {
+  return {
+    id: 'un-1',
+    clientId: 'ag-1',
+    buildingId: 'bld-1',
+    agentId: null,
+    unitNumber: 'B12',
+    title: 'Humewood B12',
+    squareMeters: 80,
+    bedrooms: 2,
+    bathrooms: 1,
+    parking: 1,
+    listingType: 'rent',
+    price: null,
+    rent: 12000,
+    statusKey: 'PUBLISHED',
+    description: '',
+    amenities: [],
+    images: [],
+    featured: false,
+    createdAt: '2026-09-01T00:00:00.000Z',
     ...overrides,
   }
 }
 
 describe('isPubliclyListed', () => {
-  it('hides deleted properties from marketplace', () => {
-    expect(isPubliclyListed(baseProperty({ deletedAt: '2026-01-02T00:00:00.000Z' }))).toBe(false)
+  it('property Published + unit PUBLISHED is publicly listed (P0-1)', () => {
+    const p = baseProperty({ status: 'Published' })
+    const unit = baseUnit({ statusKey: 'PUBLISHED' })
+    expect(isPubliclyListed(p, { units: [unit] })).toBe(true)
   })
 
-  it('hides drafts and archived', () => {
-    expect(isPubliclyListed(baseProperty({ status: 'Draft' }))).toBe(false)
-    expect(isPubliclyListed(baseProperty({ status: 'Archived' }))).toBe(false)
-    expect(isPubliclyListed(baseProperty({ status: 'Published' }))).toBe(true)
+  it('property Published but unit still DRAFT is NOT listed — publish must sync the unit (GO#5 bug)', () => {
+    const p = baseProperty({ status: 'Published' })
+    const unit = baseUnit({ statusKey: 'DRAFT' })
+    expect(isPubliclyListed(p, { units: [unit] })).toBe(false)
   })
 
-  it('hides not_listed units', () => {
-    const property = baseProperty({ unitId: 'un1' })
-    const units = [{ id: 'un1', listingType: 'not_listed' } as Unit]
-    expect(isPubliclyListed(property, { units })).toBe(false)
+  it('unpublishing the property hides it from browse even if unit lags', () => {
+    const p = baseProperty({ status: 'Archived' })
+    const unit = baseUnit({ statusKey: 'PUBLISHED' })
+    expect(isPubliclyListed(p, { units: [unit] })).toBe(false)
   })
 
-  it('hides draft unit status keys', () => {
-    const property = baseProperty({ status: 'Published', unitId: 'un1' })
-    const units = [{ id: 'un1', listingType: 'rent', statusKey: 'DRAFT' } as Unit]
-    expect(isPubliclyListed(property, { units })).toBe(false)
-  })
-
-  it('hides pending landlord verification', () => {
-    const property = baseProperty({ landlordId: 'll1' })
+  it('Featured and Under Offer unit status keys stay public', () => {
+    const p = baseProperty({ status: 'Under Offer' })
     expect(
-      isPubliclyListed(property, {
-        users: [
-          {
-            id: 'll1',
-            name: 'Owner',
-            email: 'o@x.com',
-            role: 'landlord',
-            agencyId: 'ag1',
-            clientId: 'c1',
-            active: true,
-            permissions: [],
-            verification: { status: 'pending' },
-          },
-        ],
-      }),
+      isPubliclyListed(p, { units: [baseUnit({ statusKey: 'UNDER_OFFER' })] }),
+    ).toBe(true)
+    expect(
+      isPubliclyListed(p, { units: [baseUnit({ statusKey: 'FEATURED' })] }),
+    ).toBe(true)
+  })
+
+  it('not_listed units never appear on the market', () => {
+    const p = baseProperty({ status: 'Published' })
+    expect(
+      isPubliclyListed(p, { units: [baseUnit({ listingType: 'not_listed' })] }),
     ).toBe(false)
+  })
+
+  it('pending landlord verification keeps the listing off the market', () => {
+    const p = baseProperty({ status: 'Published', landlordId: 'll-2' })
+    const landlord = {
+      id: 'll-2',
+      verification: { status: 'pending' as const },
+    }
+    expect(isPubliclyListed(p, { units: [], users: [landlord] as never })).toBe(false)
   })
 })

@@ -36,7 +36,7 @@ export default function ListingDetail() {
   const navigate = useNavigate()
   const { state, createApplication, createLead, recordGuestEnquiry } = useStore()
   const publicProperties = usePublicProperties()
-  const { user, isAuthenticated } = useAuth()
+  const { user, isAuthenticated, has } = useAuth()
   const { listedBy } = useAgentDisplay()
   const p = state.properties.find((x) => x.id === id)
   const { saved, toggle } = useWishlist(isAuthenticated ? user.id : 'guest')
@@ -83,11 +83,42 @@ export default function ListingDetail() {
     preloadImage: p?.images[0],
   })
 
-  if (!p || !isListed) {
+  if (!p) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-16 text-center">
         <p className="font-semibold text-ink">Listing not found</p>
         <p className="mt-2 text-sm text-ink-500">It may have been unpublished or the link is outdated.</p>
+        <div className="mt-6 flex justify-center">
+          <BackButton to="/browse" label="Back to browse" />
+        </div>
+      </div>
+    )
+  }
+
+  // P0-1 / P2-3: the property exists but is not on the public market —
+  // show a clear state with a staff next-action instead of a dead end.
+  if (!isListed) {
+    const staffCanFix = isAuthenticated && (has('listings.publish') || has('assets.manage'))
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-16 text-center">
+        <p className="font-semibold text-ink">This listing isn’t published yet</p>
+        <p className="mt-2 text-sm text-ink-500">
+          “{p.title}” exists but is not visible to the public while its status is “{p.status}”.
+        </p>
+        {staffCanFix ? (
+          <div className="mt-6 flex flex-wrap justify-center gap-3">
+            <Link
+              to={`/workspace/properties/${p.id}`}
+              className="inline-flex min-h-11 items-center rounded-full bg-primary px-5 text-sm font-semibold text-white transition-colors duration-200 hover:bg-primary-600"
+            >
+              Open in workspace & publish
+            </Link>
+          </div>
+        ) : (
+          <p className="mt-4 text-sm text-ink-500">
+            The listing agent has been notified — check back soon.
+          </p>
+        )}
         <div className="mt-6 flex justify-center">
           <BackButton to="/browse" label="Back to browse" />
         </div>
@@ -281,9 +312,16 @@ export default function ListingDetail() {
       notes: note.trim(),
     })
 
+    // P1-2: the applicant gets their reference number immediately.
+    const appRef =
+      appResult && !('status' in appResult && appResult.status === 'ERROR')
+        ? (appResult as unknown as { id: string }).id
+        : null
     await sweetSuccess(
       'Application submitted',
-      'Track progress in your tenant portal under Applications.',
+      appRef
+        ? `Your reference is ${appRef}. Track progress in your tenant portal under Applications.`
+        : 'Track progress in your tenant portal under Applications.',
     )
   }
 

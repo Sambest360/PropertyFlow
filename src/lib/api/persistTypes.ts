@@ -23,3 +23,7 @@ export type EntityType =
   | 'activity'
   | 'property_event'
   | 'invoice'
+  | 'trust_transaction'
+  | 'trust_allocation'
+  | 'payout_instruction'
+  | 'deposit_holding'

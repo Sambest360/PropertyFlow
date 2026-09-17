@@ -20,6 +20,7 @@ import { PropertyPaymentsPanel } from '../components/property-detail/PropertyPay
 import { PropertyDocumentsPanel } from '../components/property-detail/PropertyDocumentsPanel'
 import { PropertyMessagesPanel } from '../components/property-detail/PropertyMessagesPanel'
 import { PropertyHistoryTimeline } from '../components/property-detail/PropertyHistoryTimeline'
+import { PropertyJourneyStrip } from '../components/property-detail/PropertyJourneyStrip'
 import {
   isPropertyDetailTab,
   type PropertyDetailTab,
@@ -677,7 +678,19 @@ export default function PropertyDetail() {
         />
       )}
 
-      {tab === 'history' && <PropertyHistoryTimeline events={events} />}
+      {tab === 'history' && (
+        <div className="space-y-5">
+          <PropertyJourneyStrip
+            property={p}
+            slots={viewingSlots}
+            applications={apps}
+            tenancies={state.tenancies.filter((t) => t.propertyId === p.id)}
+            tickets={tickets}
+            payments={payments}
+          />
+          <PropertyHistoryTimeline events={events} propertyTitle={p.title} />
+        </div>
+      )}
     </div>
   )
 }

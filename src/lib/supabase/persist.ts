@@ -528,13 +528,15 @@ async function upsertProperty(id: string, data: Record<string, unknown>): Promis
       status_config_key:
         data.deletedAt
           ? 'DELETED'
-          : str(data.status) === 'Rented'
-            ? 'OCCUPIED'
-            : str(data.status) === 'Maintenance'
-              ? 'MAINTENANCE'
-              : str(data.status) === 'Draft'
-                ? 'DRAFT'
-                : 'AVAILABLE',
+          : str(data.statusKey) // P0-1: honor the synced unit statusKey when present
+            ? String(str(data.statusKey)).toUpperCase()
+            : str(data.status) === 'Rented'
+              ? 'OCCUPIED'
+              : str(data.status) === 'Maintenance'
+                ? 'MAINTENANCE'
+                : str(data.status) === 'Draft'
+                  ? 'DRAFT'
+                  : 'AVAILABLE',
       agent_id: await userUuid(data.agentId),
       description: str(data.description),
       amenities: data.amenities ?? [],

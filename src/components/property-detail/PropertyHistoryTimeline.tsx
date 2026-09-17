@@ -1,6 +1,6 @@
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, Download } from 'lucide-react'
 import type { PropertyEvent } from '../../types/domain'
-import { Badge, Card } from '../ui'
+import { Badge, Button, Card } from '../ui'
 import { ICON_STROKE } from './types'
 
 function initials(name: string) {
@@ -22,12 +22,58 @@ function formatWhen(iso: string) {
   })
 }
 
-export function PropertyHistoryTimeline({ events }: { events: PropertyEvent[] }) {
+/** P1-7: exportable audit history — "prove this let" for demos and audits. */
+function exportHistoryCsv(events: PropertyEvent[], propertyTitle: string): void {
+  const sorted = [...events].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
+  const esc = (v: string) => `"${v.replace(/"/g, '""')}"`
+  const rows: string[] = [
+    ['timestamp', 'actor', 'action', 'field', 'from', 'to'].join(','),
+  ]
+  for (const ev of sorted) {
+    const base = [ev.at, ev.actorName, ev.action]
+    if (ev.changes?.length) {
+      for (const c of ev.changes) {
+        rows.push([...base, c.field, c.from, c.to].map((v) => esc(String(v ?? ''))).join(','))
+      }
+    } else {
+      rows.push([...base, '', '', ''].map((v) => esc(String(v ?? ''))).join(','))
+    }
+  }
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `history-${propertyTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 48)}.csv`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+export function PropertyHistoryTimeline({
+  events,
+  propertyTitle,
+}: {
+  events: PropertyEvent[]
+  propertyTitle?: string
+}) {
   const sorted = [...events].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))
 
   return (
     <Card className="p-5 sm:p-6">
-      <h2 className="mb-5 font-semibold text-ink">History</h2>
+      <div className="mb-5 flex items-center justify-between gap-3">
+        <h2 className="font-semibold text-ink">History</h2>
+        {sorted.length > 0 && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => exportHistoryCsv(sorted, propertyTitle ?? 'property')}
+          >
+            <Download className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+            Export CSV
+          </Button>
+        )}
+      </div>
       {!sorted.length ? (
         <p className="py-8 text-center text-sm text-ink-500">No history recorded yet.</p>
       ) : (

@@ -45,13 +45,22 @@ export type SeedEnv = {
 
 export function loadSeedEnv(): SeedEnv {
   const directUrl = process.env.DIRECT_URL ?? process.env.DATABASE_URL
-  const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL
-  const supabaseSecret = process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY
+  const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseSecret =
+    process.env.SUPABASE_SECRET_KEY ??
+    process.env.SUPABASE_SERVICE_ROLE_KEY ??
+    // Local .env.local ships the publishable key only; secret key comes from the
+    // operator environment. Surface a clear message instead of a raw crash.
+    process.env.SUPABASE_PUBLISHABLE_KEY
   const superAdminEmail = process.env.SUPER_ADMIN_EMAIL ?? 'ephraimbampo317@gmail.com'
   const demoPassword = process.env.SEED_DEMO_PASSWORD ?? process.env.SUPER_ADMIN_PASSWORD ?? 'secret'
 
   if (!directUrl) throw new Error('Missing DIRECT_URL or DATABASE_URL')
-  if (!supabaseUrl || !supabaseSecret) throw new Error('Missing SUPABASE_URL and SUPABASE_SECRET_KEY')
+  if (!supabaseUrl) throw new Error('Missing SUPABASE_URL')
+  if (!supabaseSecret)
+    throw new Error(
+      'Missing SUPABASE_SECRET_KEY (sb_secret_…) — admin seed scripts need the server secret key; the publishable key cannot call auth.admin APIs.',
+    )
 
   return { directUrl, supabaseUrl, supabaseSecret, superAdminEmail, demoPassword }
 }

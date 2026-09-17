@@ -51,6 +51,12 @@ describe('tenantHasApprovedOccupancy', () => {
     ).toBe(true)
   })
 
+  it('unlocks after conditional (agent-authority) approval — P0-3', () => {
+    expect(
+      tenantHasApprovedOccupancy([app({ id: 'a1', stage: 'Conditionally approved' })], [], user),
+    ).toBe(true)
+  })
+
   it('unlocks from an active tenancy even without an approved application row', () => {
     const tenancy = {
       id: 't1',

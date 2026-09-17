@@ -83,7 +83,13 @@ export default function LoginPage() {
 
       navigate(resolvePostLoginPath(appUser.role, next), { replace: true })
     } catch (err) {
-      await showAuthError(err instanceof Error ? err.message : 'Sign-in failed')
+      const msg = err instanceof Error ? err.message : 'Sign-in failed'
+      // P0-2: explicit, retryable error — never a hung navigation.
+      const friendly =
+        /timed out|failed to fetch|networkerror|load failed/i.test(msg)
+          ? 'Connection timed out while signing in. Check your internet and try again — your account was not locked out.'
+          : msg
+      await showAuthError(friendly)
     } finally {
       setBusy(false)
     }

@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Calendar,
@@ -22,6 +22,7 @@ import {
 import { Badge, Button, Card, Select, StatCard, statusTone } from '../components/ui'
 import { formatZAR } from '../data/seed'
 import { VerificationPendingBanner } from '../components/auth/VerificationBanner'
+import { CompleteTicketModal } from '../components/maintenance/CompleteTicketModal'
 import {
   canContractorClaimTicket,
   openJobsForContractor,
@@ -30,12 +31,13 @@ import {
 import { isVerificationPending } from '../lib/verification'
 import { TicketPhotoGallery } from '../components/maintenance/TicketPhotoGallery'
 import { formatAge, ticketAgeHours } from '../components/maintenance/types'
+import type { TicketCompletionFields } from '../lib/maintenanceApi'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
 
 const ICON_STROKE = 1.6
 
 export default function ContractorPortal() {
-  const { state, updateTicket, assignContractorToTicket } = useStore()
+  const { state, updateTicket, assignContractorToTicket, addPropertyEvent } = useStore()
   const { user } = useAuth()
   const { ticketVisible, canMutate } = usePropertyScope()
   const alert = useSuiteAlert()
@@ -102,6 +104,45 @@ export default function ContractorPortal() {
 
   const declineJob = (ticketId: string) => {
     updateTicket(ticketId, { contractorId: null, contractorAssignedAt: null, status: 'Requested' })
+  }
+
+  // P0-4: completing work requires evidence — route through the completion
+  // modal instead of a bare status flip the store would silently reject.
+  const [completeOpen, setCompleteOpen] = useState(false)
+  const [completeTicketId, setCompleteTicketId] = useState<string | null>(null)
+  const completeTicket = state.tickets.find((t) => t.id === completeTicketId) ?? null
+
+  const submitContractorCompletion = (fields: TicketCompletionFields): string | null => {
+    const ticket = state.tickets.find((t) => t.id === completeTicketId)
+    if (!ticket) return 'Ticket not found.'
+    updateTicket(ticket.id, {
+      status: 'Completed',
+      resolutionNotes: fields.workNotes.trim(),
+      cost: fields.cost,
+      photos: Math.max(fields.photos, ticket.photos),
+      photoUrls:
+        fields.completionPhotoUrls?.length
+          ? [...(ticket.photoUrls ?? []), ...fields.completionPhotoUrls]
+          : ticket.photoUrls,
+    })
+    addPropertyEvent({
+      agencyId: ticket.agencyId,
+      propertyId: ticket.propertyId,
+      actorUserId: user.id,
+      actorName: user.name,
+      action: 'resolved maintenance',
+      changes: [
+        { field: 'Status', from: ticket.status, to: 'Completed' },
+        { field: 'Work performed', from: '—', to: fields.workNotes.trim().slice(0, 120) },
+      ],
+    })
+    setCompleteOpen(false)
+    setCompleteTicketId(null)
+    void alert.success({
+      title: 'Job completed',
+      text: 'Work notes and photos were recorded — the agency has been notified.',
+    })
+    return null
   }
 
   const renderJobCard = (t: (typeof visible)[0], mode: 'assigned' | 'available' | 'done') => {
@@ -197,14 +238,29 @@ export default function ContractorPortal() {
                 ) : null}
               </>
             ) : null}
-            {mode === 'assigned' && t.contractorId === user.id && t.status !== 'Completed' ? (
+            {mode === 'assigned' && t.contractorId === user.id && t.status !== ('Completed' as typeof t.status) ? (
               <>
                 <Select
                   className="min-h-10 w-full"
                   value={t.status}
                   onChange={(e) => {
                     if (!canMutate(t.propertyId)) return
-                    updateTicket(t.id, { status: e.target.value as typeof t.status })
+                    const next = e.target.value as typeof t.status
+                    if (next === 'Completed') {
+                      // P0-4: completing requires work notes + photos — open the modal.
+                      setCompleteTicketId(t.id)
+                      setCompleteOpen(true)
+                      return
+                    }
+                    updateTicket(t.id, { status: next })
+                    addPropertyEvent({
+                      agencyId: t.agencyId,
+                      propertyId: t.propertyId,
+                      actorUserId: user.id,
+                      actorName: user.name,
+                      action: 'changed the Maintenance status',
+                      changes: [{ field: 'Status', from: t.status, to: next }],
+                    })
                   }}
                 >
                   {['Requested', 'In Progress', 'Awaiting Parts', 'Completed', 'Cancelled'].map((s) => (
@@ -314,6 +370,22 @@ export default function ContractorPortal() {
         {visible.length === 0 && (
           <Card className="p-6 text-sm text-ink-500">No jobs available right now.</Card>
         )}
+
+        <CompleteTicketModal
+          open={completeOpen}
+          ticket={completeTicket}
+          propertyTitle={
+            completeTicket
+              ? state.properties.find((p) => p.id === completeTicket.propertyId)?.title
+              : undefined
+          }
+          contractors={[]}
+          onClose={() => {
+            setCompleteOpen(false)
+            setCompleteTicketId(null)
+          }}
+          onComplete={submitContractorCompletion}
+        />
       </DashboardPage>
     </RequirePermission>
   )

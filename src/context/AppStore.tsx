@@ -543,6 +543,18 @@ type StoreContextValue = {
   markAllNotificationsRead: (userId: string) => void
   dismissToast: (id: string) => void
   addActivity: (text: string, user: string, agencyId: string | null) => void
+  /** P0-7: allocate an unallocated trust receipt to occupancy buckets. */
+  allocateTrustReceipt: (params: {
+    transactionId: string
+    actorUserId: string
+    lines: Array<{ occupancyId: string; bucketCode: string; amountCents: number }>
+  }) => { ok: boolean; error?: string }
+  /** P0-7: park a matched-but-unassignable receipt in suspense (aged + alerted). */
+  markTrustSuspense: (params: { transactionId: string; actorUserId: string }) => void
+  /** P0-7: dual-control payout approval — proposer ≠ approver. */
+  approvePayoutInstruction: (params: { instructionId: string; approverUserId: string }) => { ok: boolean; error?: string }
+  /** P0-7: submit an approved payout to the (manual/partner) rail. */
+  submitPayoutInstruction: (params: { instructionId: string; actorUserId: string }) => { ok: boolean; error?: string }
   runClientBillingCycle: (clientId: string, periodStart?: string, periodEnd?: string) => PlatformInvoice | null
   markInvoicePaid: (invoiceId: string) => void
   toasts: NotificationToast[]
@@ -645,7 +657,23 @@ async function fetchBootstrapFromApi(lite: boolean, actor: DemoActor | null, ful
 
   if (isSupabaseMode) {
     const { fetchSupabaseBootstrap } = await import('../lib/supabase/data')
-    return fetchSupabaseBootstrap(lite)
+    try {
+      const boot = await fetchSupabaseBootstrap(lite)
+      // P0-2: with a stale auth id, RLS 401s resolve as EMPTY arrays (not
+      // rejections), so boot can be truthy yet useless. Require units.
+      if (boot?.units?.length) return boot
+    } catch {
+      // Hard failure (network/expired token) — degrade to guest marketplace.
+    }
+    try {
+      localStorage.removeItem('propertyflow-auth-user')
+    } catch {
+      /* ignore */
+    }
+    const { fetchPublicMarketplaceBootstrap } = await import('../lib/supabase/publicMarketplace')
+    const pub = await fetchPublicMarketplaceBootstrap(lite)
+    if (pub?.properties?.length) return pub
+    return buildPublicMarketplaceDemoBootstrap()
   }
 
   const { fetchPostgresBootstrap } = await import('../lib/api/postgresClient')
@@ -884,6 +912,171 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     },
     [patch],
   )
+
+
+  // ——— Trust / Banking mutations (P0-7) — every one writes an audit trail ———
+
+  const allocateTrustReceipt = useCallback(
+    (params: {
+      transactionId: string
+      actorUserId: string
+      lines: Array<{ occupancyId: string; bucketCode: string; amountCents: number }>
+    }) => {
+      const txn = stateRef.current.trustTransactions.find((t) => t.id === params.transactionId)
+      const actor = stateRef.current.users.find((u) => u.id === params.actorUserId)
+      if (!txn || !actor) return { ok: false, error: 'Transaction or actor not found' }
+      if (txn.status !== 'unallocated' && txn.status !== 'received' && txn.status !== 'recognised') {
+        return { ok: false, error: `Transaction is already ${txn.status}` }
+      }
+      const total = params.lines.reduce((sum, l) => sum + l.amountCents, 0)
+      if (total <= 0) return { ok: false, error: 'Allocate at least one line' }
+      if (total > txn.amountCents) return { ok: false, error: 'Allocation exceeds the receipt amount' }
+
+      const now = new Date().toISOString()
+      const newAllocations: TrustAllocation[] = params.lines.map((l) => ({
+        id: uid('ta'),
+        agencyId: txn.agencyId,
+        trustTransactionId: txn.id,
+        occupancyId: l.occupancyId,
+        bucketCode: l.bucketCode,
+        chargeId: null,
+        amountCents: l.amountCents,
+        allocatedBy: actor.name,
+        allocatedAt: now,
+      }))
+      const fullyAllocated = total === txn.amountCents
+      patch((s) => ({
+        ...s,
+        trustAllocations: [...newAllocations, ...s.trustAllocations],
+        trustTransactions: s.trustTransactions.map((t) =>
+          t.id === txn.id
+            ? {
+                ...t,
+                status: fullyAllocated ? ('allocated' as const) : ('split_allocated' as const),
+                updatedAt: now,
+              }
+            : t,
+        ),
+      }))
+      for (const a of newAllocations) {
+        persistUpsert('trust_allocation', a.id, a as unknown as Record<string, unknown>)
+      }
+      persistUpsert(
+        'trust_transaction',
+        txn.id,
+        { ...txn, status: fullyAllocated ? 'allocated' : 'split_allocated' } as unknown as Record<string, unknown>,
+      )
+      addActivity(
+        `Allocated ${txn.description || txn.id} (${(total / 100).toFixed(2)} ZAR) to ${params.lines.length} bucket${params.lines.length === 1 ? '' : 's'}`,
+        actor.name,
+        txn.agencyId,
+      )
+      return { ok: true }
+    },
+    [patch, addActivity],
+  )
+
+  const markTrustSuspense = useCallback(
+    (params: { transactionId: string; actorUserId: string }) => {
+      const txn = stateRef.current.trustTransactions.find((t) => t.id === params.transactionId)
+      const actor = stateRef.current.users.find((u) => u.id === params.actorUserId)
+      if (!txn || !actor) return
+      const now = new Date().toISOString()
+      const allocation: TrustAllocation = {
+        id: uid('ta'),
+        agencyId: txn.agencyId,
+        trustTransactionId: txn.id,
+        occupancyId: null,
+        bucketCode: 'suspense',
+        chargeId: null,
+        amountCents: txn.amountCents,
+        allocatedBy: actor.name,
+        allocatedAt: now,
+      }
+      patch((s) => ({
+        ...s,
+        trustAllocations: [allocation, ...s.trustAllocations],
+        trustTransactions: s.trustTransactions.map((t) =>
+          t.id === txn.id ? { ...t, status: 'recognised' as const, updatedAt: now } : t,
+        ),
+      }))
+      persistUpsert('trust_allocation', allocation.id, allocation as unknown as Record<string, unknown>)
+      persistUpsert('trust_transaction', txn.id, { ...txn, status: 'recognised' } as unknown as Record<string, unknown>)
+      addActivity(
+        `Moved receipt to suspense (aged + alerted): ${txn.description || txn.id}`,
+        actor.name,
+        txn.agencyId,
+      )
+    },
+    [patch, addActivity],
+  )
+
+  const approvePayoutInstruction = useCallback(
+    (params: { instructionId: string; approverUserId: string }) => {
+      const inst = stateRef.current.payoutInstructions.find((p) => p.id === params.instructionId)
+      const approver = stateRef.current.users.find((u) => u.id === params.approverUserId)
+      if (!inst || !approver) return { ok: false, error: 'Instruction or approver not found' }
+      if (inst.status !== 'proposed' && inst.status !== 'pending_approval') {
+        return { ok: false, error: `Payout is ${inst.status} — only proposed payouts can be approved` }
+      }
+      // Dual control: proposer ≠ approver, enforced by user id even across roles.
+      if (inst.proposedBy === approver.id) {
+        return { ok: false, error: 'Dual control: the proposer cannot approve their own payout' }
+      }
+      const now = new Date().toISOString()
+      const updated: PayoutInstruction = {
+        ...inst,
+        status: 'approved',
+        approvedBy: approver.id,
+        updatedAt: now,
+      }
+      patch((s) => ({
+        ...s,
+        payoutInstructions: s.payoutInstructions.map((p) => (p.id === inst.id ? updated : p)),
+      }))
+      persistUpsert('payout_instruction', inst.id, updated as unknown as Record<string, unknown>)
+      addActivity(
+        `Payout approved (${(inst.amountCents / 100).toFixed(2)} ZAR) by ${approver.name}`,
+        approver.name,
+        inst.agencyId,
+      )
+      return { ok: true }
+    },
+    [patch, addActivity],
+  )
+
+  const submitPayoutInstruction = useCallback(
+    (params: { instructionId: string; actorUserId: string }) => {
+      const inst = stateRef.current.payoutInstructions.find((p) => p.id === params.instructionId)
+      const actor = stateRef.current.users.find((u) => u.id === params.actorUserId)
+      if (!inst || !actor) return { ok: false, error: 'Instruction or actor not found' }
+      if (inst.status !== 'approved') {
+        return { ok: false, error: 'Payout must be approved before submission' }
+      }
+      const now = new Date().toISOString()
+      const updated: PayoutInstruction = {
+        ...inst,
+        status: 'submitted',
+        submittedAt: now,
+        // Manual-mode demo: record shows the instruction left the books; the
+        // bank/settled status comes from a partner event, never faked here.
+        updatedAt: now,
+      }
+      patch((s) => ({
+        ...s,
+        payoutInstructions: s.payoutInstructions.map((p) => (p.id === inst.id ? updated : p)),
+      }))
+      persistUpsert('payout_instruction', inst.id, updated as unknown as Record<string, unknown>)
+      addActivity(
+        `Payout submitted for settlement (${(inst.amountCents / 100).toFixed(2)} ZAR)`,
+        actor.name,
+        inst.agencyId,
+      )
+      return { ok: true }
+    },
+    [patch, addActivity],
+  )
+
 
   const notify = useCallback(
     (
@@ -1539,12 +1732,39 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     publishProperty: (id, status = 'Published') => {
       let pe: PropertyEvent | null = null
       const prev = state.properties.find((x) => x.id === id)
+      // P0-1: the public gate reads both the property status AND the linked
+      // unit's statusKey — publishing must index both or the listing stays
+      // invisible on /browse and /listing/{id}.
+      const PUBLIC_ON: PropertyAsset['status'][] = ['Published', 'Featured', 'Under Offer']
+      const unitListingType: Unit['listingType'] =
+        prev?.listingMode === 'sale' ? 'sale' : prev?.listingMode === 'both' ? 'both' : 'rent'
+      const nextUnitStatus: Unit['statusKey'] = PUBLIC_ON.includes(status)
+        ? status === 'Featured'
+          ? 'FEATURED'
+          : status === 'Under Offer'
+            ? 'UNDER_OFFER'
+            : 'PUBLISHED'
+        : prev?.status === 'Rented'
+          ? 'OCCUPIED'
+          : prev?.status === 'Maintenance'
+            ? 'MAINTENANCE'
+            : 'DRAFT'
+      let unitPatch: Unit | null = null
+      if (prev?.unitId) {
+        const unit = state.units.find((u) => u.id === prev.unitId)
+        if (unit && (unit.statusKey !== nextUnitStatus || unit.listingType !== unitListingType)) {
+          unitPatch = { ...unit, statusKey: nextUnitStatus, listingType: unitListingType }
+        }
+      }
       patch((s) => {
         const current = s.properties.find((x) => x.id === id)
         if (!current || current.status === status) {
           return {
             ...s,
             properties: s.properties.map((x) => (x.id === id ? { ...x, status } : x)),
+            units: unitPatch
+              ? s.units.map((u) => (u.id === unitPatch!.id ? unitPatch! : u))
+              : s.units,
           }
         }
         pe = {
@@ -1560,10 +1780,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         return {
           ...s,
           properties: s.properties.map((x) => (x.id === id ? { ...x, status } : x)),
+          units: unitPatch
+            ? s.units.map((u) => (u.id === unitPatch!.id ? unitPatch! : u))
+            : s.units,
           propertyEvents: [pe!, ...s.propertyEvents].slice(0, 400),
         }
       })
       if (prev) persistUpsert('property', id, { ...prev, status, id } as Record<string, unknown>)
+      if (unitPatch) persistUpsert('unit', unitPatch.id, unitPatch as unknown as Record<string, unknown>)
       if (pe) persistUpsert('property_event', pe.id, pe as unknown as Record<string, unknown>)
       scheduleBootstrapRefreshAfterMutation()
     },
@@ -4310,7 +4534,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       void persistMarkNotificationsRead({ userId, all: true })
     },
     dismissToast,
-  }), [state, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, persistUpsert, persistDelete, refreshBootstrap, scheduleBootstrapRefreshAfterMutation])
+    allocateTrustReceipt,
+    markTrustSuspense,
+    approvePayoutInstruction,
+    submitPayoutInstruction,
+  }), [state, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistDelete, refreshBootstrap, scheduleBootstrapRefreshAfterMutation])
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }

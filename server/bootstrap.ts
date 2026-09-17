@@ -551,9 +551,11 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
           ? 'Rented'
           : statusKey === 'MAINTENANCE'
             ? 'Maintenance'
-            : u.featured
-              ? 'Featured'
-              : 'Published'
+            : statusKey === 'DRAFT' || statusKey === 'OFF_MARKET' || statusKey === 'NOT_LISTED'
+              ? 'Draft'
+              : u.featured
+                ? 'Featured'
+                : 'Published'
 
     return {
       id: u._propertyId,

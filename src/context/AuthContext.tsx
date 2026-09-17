@@ -380,13 +380,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { user: appUser, bootstrap: Boolean(res.bootstrap) }
       },
       logout: async () => {
-        if (isSupabaseMode) await supabaseSignOut()
-        else await apiLogout()
+        // P0-2: a hung / failed network call must never block local clearing.
+        try {
+          if (isSupabaseMode) await supabaseSignOut()
+          else await apiLogout()
+        } catch {
+          /* fall through — session artifacts cleared below regardless */
+        }
         setSessionUser(null)
         setUserId('')
         setRealUserId(null)
-        localStorage.removeItem(AUTH_KEY)
-        localStorage.removeItem(REAL_AUTH_KEY)
+        try {
+          localStorage.removeItem(AUTH_KEY)
+          localStorage.removeItem(REAL_AUTH_KEY)
+        } catch {
+          /* ignore */
+        }
       },
       switchUser: (id: string) => {
         if (!DEMO_SWITCHER) return

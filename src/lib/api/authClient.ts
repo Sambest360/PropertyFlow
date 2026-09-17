@@ -81,8 +81,9 @@ async function fetchWithTimeout(
     return await fetch(url, { ...init, signal: ctrl.signal })
   } catch (err) {
     if (ctrl.signal.aborted) {
+      // P0-2: keep an explicit, retryable failure — never leave the app hanging.
       throw new Error(
-        'Request timed out. If this is production, confirm DATABASE_URL is set on Vercel and redeploy.',
+        'The request timed out. Please check your connection and try again.',
       )
     }
     throw err

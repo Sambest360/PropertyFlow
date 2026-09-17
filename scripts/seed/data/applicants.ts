@@ -54,13 +54,21 @@ export const APPLICANTS: ApplicantDef[] = [
   },
 ]
 
-/** Empty by default — register your own account and apply from the marketplace. */
+/**
+ * P0-5 (GO #5): QA guide personas need their seeded applications — Riaan = Submitted,
+ * Elena = Under review, Sarie = Approved (purchase, tenant tools unlocked).
+ * The remaining applicants stay empty so fresh-register-through-marketplace is testable.
+ */
 export const APPLICATION_DEFS: Array<{
   applicantFeId: string
   propertyFeId: string
   ref: string
   status: 'SUBMITTED' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED'
   type: 'RENTAL' | 'PURCHASE'
-}> = []
+}> = [
+  { applicantFeId: 'u-applicant-riaan', propertyFeId: 'PR-SCB-006', ref: 'APP-SCB-901', status: 'SUBMITTED', type: 'RENTAL' },
+  { applicantFeId: 'u-applicant-elena', propertyFeId: 'PR-SCB-007', ref: 'APP-SCB-902', status: 'UNDER_REVIEW', type: 'RENTAL' },
+  { applicantFeId: 'u-applicant-sarie', propertyFeId: 'PR-SCB-008', ref: 'APP-SCB-903', status: 'APPROVED', type: 'PURCHASE' },
+]
 
 export const APPLICANT_DB_ROLE: DbRole = 'END_USER'

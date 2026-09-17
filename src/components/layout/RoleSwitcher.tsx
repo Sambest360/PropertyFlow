@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
+import { signOutAndRedirect } from '../../lib/auth/signOut'
 import { roleLabels } from '../../lib/permissions'
 import type { Permission, Role } from '../../types/domain'
 import { cn } from '../ui'
@@ -140,7 +141,7 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
       destructive: true,
       onClick: () => {
         setOpen(false)
-        void logout().then(() => navigate('/'))
+        void signOutAndRedirect(logout)
       },
     })
 

@@ -5,6 +5,7 @@ import { BrandLogo } from './BrandLogo'
 import { MobileDrawer } from './MobileDrawer'
 import { marketplaceCategories } from './navigation'
 import { useAuth } from '../../context/AuthContext'
+import { signOutAndRedirect } from '../../lib/auth/signOut'
 import { ACCOUNT_WISHLIST_PATH, PUBLIC_SAVED_PATH } from '../../lib/accountRoutes'
 import { initials } from '../dashboard/formatShortDate'
 import { cn } from '../ui'
@@ -31,7 +32,7 @@ export function MarketplaceHeader() {
   }
 
   const handleSignOut = () => {
-    void logout().then(() => navigate('/'))
+    void signOutAndRedirect(logout)
   }
 
   const avatarInitials = initials(user?.name ?? '')

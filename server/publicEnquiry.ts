@@ -85,7 +85,7 @@ export async function submitPublicListingEnquiry(
     throw err
   }
 
-  if (!['PUBLISHED', 'FEATURED', 'VACANT', 'UNDER_OFFER'].includes(unit.statusKey)) {
+  if (!['PUBLISHED', 'FEATURED', 'VACANT', 'UNDER_OFFER', 'AVAILABLE'].includes(unit.statusKey)) {
     const err = new Error('property_not_public') as Error & { status?: number }
     err.status = 422
     throw err
