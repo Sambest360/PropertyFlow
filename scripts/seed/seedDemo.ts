@@ -20,6 +20,7 @@ import {
   upsertEntityMap,
   type SeedEnv,
 } from './helpers.js'
+import { seedTrustData } from './seedTrust.js'
 
 export type SeedResult = {
   agencyName: string
@@ -377,6 +378,13 @@ export async function seedDemo(
     if (error) throw error
   }
 
+  // --- Trust & Banking demo data (GO#5 P0-7) ---
+  const trustRefs = {
+    unitIdByFe: new Map(PROPERTIES.map((p) => [p.feId, { unitId: unitByFe.get(p.feId)?.unitId ?? '' }])),
+    appUserByFe: users,
+  }
+  await seedTrustData(admin, trustRefs)
+
   const draftCount = PROPERTIES.filter((p) => p.statusKey === 'DRAFT').length
   const rentCount = PROPERTIES.filter((p) => p.listingType === 'RENT' || p.listingType === 'BOTH').length
   const saleCount = PROPERTIES.filter((p) => p.listingType === 'SALE' || p.listingType === 'BOTH').length
@@ -389,6 +397,9 @@ export async function seedDemo(
   )
   console.log(
     `Seeded ${CONTRACTORS.length} contractors (${CONTRACTORS.filter((c) => c.verificationStatus === 'approved').length} approved), ${MAINTENANCE_TICKETS.length} maintenance tickets`,
+  )
+  console.log(
+    `Seeded trust books: 7 transactions (1 unallocated, 1 split), 2 live payouts (dual-control), 3 deposit holdings, arrears ageing`,
   )
 
   return {

@@ -291,17 +291,18 @@
 </div>
 
 <h2>2.3 Tenants &amp; applicants</h2>
+<div class="callout callout-info">
+  <strong>Reseed note (Sept 17):</strong> the database was reset to a clean applicant-only pipeline — the seed creates <strong>no active tenants or leases</strong>. Lucas/Nomsa/Fatima/Aya/Mia are no longer pre-seeded. To test tenant tools, take a fresh applicant through Approve (§6) or register a new user (§5). Trust &amp; Banking now carries seeded books — see §12.
+</div>
 <table>
   <thead><tr><th>Name</th><th>Email</th><th>Situation</th><th>Maintenance / Messages / Complaints?</th></tr></thead>
   <tbody>
-    <tr><td>Lucas Pretorius</td><td><code>lucas.pretorius@propertyflow.demo</code></td><td>Active lease PR-SCB-001 (SCB-LS-001)</td><td class="pass">Yes</td></tr>
-    <tr><td>Nomsa Dlamini</td><td><code>nomsa.dlamini@propertyflow.demo</code></td><td>Active lease PR-SCB-002</td><td class="pass">Yes</td></tr>
-    <tr><td>Fatima Jacobs</td><td><code>fatima.jacobs@propertyflow.demo</code></td><td>Active lease PR-SCB-003</td><td class="pass">Yes</td></tr>
-    <tr><td>Aya Daniels</td><td><code>aya.daniels@propertyflow.demo</code></td><td>Active lease PR-SCB-004</td><td class="pass">Yes</td></tr>
-    <tr><td>Mia Fortuin</td><td><code>mia.fortuin@propertyflow.demo</code></td><td>Active lease PR-SCB-005</td><td class="pass">Yes</td></tr>
     <tr><td>Riaan Botha</td><td><code>riaan.botha@propertyflow.demo</code></td><td>Application <strong>Submitted</strong> PR-SCB-006 (APP-SCB-901)</td><td class="fail">No — applicant only</td></tr>
     <tr><td>Elena Costa</td><td><code>elena.costa@propertyflow.demo</code></td><td>Application <strong>Under review</strong> PR-SCB-007 (APP-SCB-902)</td><td class="fail">No — applicant only</td></tr>
-    <tr><td>Sarie du Plessis</td><td><code>sarie.duplessis@propertyflow.demo</code></td><td>Application <strong>Approved</strong> (purchase) PR-SCB-008 (APP-SCB-903)</td><td class="pass">Yes — no lease yet</td></tr>
+    <tr><td>Sarie du Plessis</td><td><code>sarie.duplessis@propertyflow.demo</code></td><td>Application <strong>Approved</strong> (purchase) PR-SCB-008 (APP-SCB-903)</td><td class="pass">Yes — tenant tools unlocked</td></tr>
+    <tr><td>Thabo Mokoena</td><td><code>thabo.mokoena@propertyflow.demo</code></td><td>No application — fresh-register simulation</td><td class="fail">No</td></tr>
+    <tr><td>Amy Visser</td><td><code>amy.visser@propertyflow.demo</code></td><td>No application — fresh-register simulation</td><td class="fail">No</td></tr>
+    <tr><td>Jordan Pillay</td><td><code>jordan.pillay@propertyflow.demo</code></td><td>No application — fresh-register simulation</td><td class="fail">No</td></tr>
   </tbody>
 </table>
 
@@ -389,7 +390,7 @@
   <li>Same as admin except: no Users admin, no Configuration / Notifications / Suite alerts</li>
   <li><strong>Properties list shows only assigned properties</strong> (1 for James, 6 for Nadia)</li>
 </ul>
-<h3>Active tenant (Lucas)</h3>
+<h3>Approved tenant (Sarie)</h3>
 <ul>
   <li>Dashboard → <strong>My portal:</strong> My tenancy, My applications, Wishlist, Maintenance, Messages, Complaints</li>
 </ul>
@@ -470,7 +471,7 @@
   <p><strong>Should be able to:</strong> Only PR-SCB-001 and related CRM/maintenance. <strong>Cannot</strong> see all 16 properties or admin config.</p>
   <ol>
     <li><strong>Property scope</strong> — <a class="app-link" href="/workspace/properties">Properties</a> → <strong>1 property</strong> only. Lerato sees 16.</li>
-    <li><strong>Property detail</strong> — Open PR-SCB-001 → documents, tenant Lucas, maintenance.</li>
+    <li><strong>Property detail</strong> — Open PR-SCB-008 → documents, applicant Sarie (approved), timeline.</li>
     <li><strong>Applications</strong> — <a class="app-link" href="/workspace/sales/applications">Applicants</a> → scoped to James’s properties.</li>
     <li><strong>Publish</strong> — Publish listing → visible on <a class="app-link" href="/browse">/browse</a>.</li>
     <li><strong>Viewings</strong> — <a class="app-link" href="/workspace/sales/viewings">Sales → Viewings</a> → create slot.</li>
@@ -520,7 +521,7 @@
     <li><strong>Login</strong> — <a class="app-link" href="/workspace/portals/contractor">Contractor portal</a>. No pending banner.</li>
     <li><strong>Jobs</strong> — Assigned and/or claimable open jobs.</li>
     <li><strong>Update status</strong> — In Progress → Completed → earnings update.</li>
-    <li><strong>Plumbing routing</strong> — Lucas submits tap leak → AquaFix receives job.</li>
+    <li><strong>Plumbing routing</strong> — Sarie (or approved tenant) submits tap leak → AquaFix receives job.</li>
     <li><strong>Negative</strong> — Electrical jobs go to VoltPro, not AquaFix.</li>
   </ol>
 </div>
@@ -580,7 +581,7 @@
 <table>
   <thead><tr><th>Step</th><th>Actor</th><th>Action</th><th>Expected</th></tr></thead>
   <tbody>
-    <tr><td>1</td><td>Lucas</td><td>Submit plumbing ticket</td><td>Routes to AquaFix</td></tr>
+    <tr><td>1</td><td>Sarie</td><td>Submit plumbing ticket</td><td>Routes to AquaFix</td></tr>
     <tr><td>2</td><td>AquaFix</td><td>Mark In Progress</td><td>Status updates</td></tr>
     <tr><td>3</td><td>AquaFix</td><td>Mark Completed</td><td>Earnings update</td></tr>
     <tr><td>4</td><td>Lerato</td><td>Maintenance detail</td><td>Shows completed</td></tr>
@@ -612,8 +613,8 @@
 <table>
   <thead><tr><th>Step</th><th>Actor</th><th>Expected</th></tr></thead>
   <tbody>
-    <tr><td>1</td><td>Mia</td><td>Save listing → heart filled</td></tr>
-    <tr><td>2</td><td>Mia</td><td>Header wishlist → /workspace/account/wishlist</td></tr>
+    <tr><td>1</td><td>Thabo</td><td>Save listing → heart filled</td></tr>
+    <tr><td>2</td><td>Thabo</td><td>Header wishlist → /workspace/account/wishlist</td></tr>
     <tr><td>3</td><td>Guest</td><td>Same click → stays on /saved</td></tr>
   </tbody>
 </table>
@@ -640,10 +641,11 @@
     <tr><td>Super admin shows Applicant home</td><td>Log out → hard refresh → sign in</td><td>Still wrong — send email + screenshot</td></tr>
     <tr><td>Configuration empty or Add fails</td><td>Hard refresh; wait 1 min</td><td>Still broken — send screen recording</td></tr>
     <tr><td>Wrong role / missing sidebar</td><td>Confirm email; log out/in</td><td>Persists — report expected role</td></tr>
-    <tr><td>Tenant can’t submit maintenance</td><td>Use Lucas or Sarie, not Riaan</td><td>Lucas/Sarie still blocked</td></tr>
+    <tr><td>Tenant can’t submit maintenance</td><td>Use Sarie (approved) — Riaan/Elena must stay blocked</td><td>Applicant still blocked; Sarie can submit</td></tr>
     <tr><td>Contractor sees no jobs</td><td>Use approved AquaFix</td><td>No jobs after tenant submits ticket</td></tr>
     <tr><td>Wishlist goes to /saved when logged in</td><td>Log out and back in</td><td>Should go to account wishlist</td></tr>
     <tr><td>Login fails</td><td>Verify password issued by QA lead; check caps lock</td><td>Still fails — report email</td></tr>
+    <tr><td>Guest /browse empty or old login state persists</td><td>Sign out fully; refresh. App self-heals stale sessions to the guest marketplace</td><td>Still empty after sign-out + reload — report URL</td></tr>
     <tr><td>Login &ldquo;Failed to fetch&rdquo;</td><td>Hard refresh / incognito — a cached old build points at a dead auth host (fixed 15 Sep 2026)</td><td>Still fails after reload — report environment + time</td></tr>
     <tr><td>&ldquo;No users yet&rdquo; banner at login</td><td>Wait for full page load; hard refresh. Never register a new Super Admin — the seeded one exists</td><td>Banner persists after reload — report with the request URL</td></tr>
   </tbody>
@@ -653,15 +655,12 @@
 <table>
   <thead><tr><th>Property ID</th><th>Status</th><th>Listing agent</th><th>Tenant / applicant</th></tr></thead>
   <tbody>
-    <tr><td>PR-SCB-001</td><td>Occupied</td><td>James</td><td>Lucas (lease SCB-LS-001)</td></tr>
-    <tr><td>PR-SCB-002</td><td>Occupied</td><td>Priya</td><td>Nomsa</td></tr>
-    <tr><td>PR-SCB-003</td><td>Occupied</td><td>Priya</td><td>Fatima</td></tr>
-    <tr><td>PR-SCB-004</td><td>Occupied</td><td>Themba</td><td>Aya</td></tr>
-    <tr><td>PR-SCB-005</td><td>Occupied</td><td>Themba</td><td>Mia</td></tr>
-    <tr><td>PR-SCB-006</td><td>Reserved</td><td>Themba</td><td>Riaan (submitted)</td></tr>
-    <tr><td>PR-SCB-007</td><td>Reserved</td><td>Themba</td><td>Elena (under review)</td></tr>
-    <tr><td>PR-SCB-008</td><td>Available</td><td>Nadia</td><td>Sarie (approved purchase)</td></tr>
-    <tr><td>PR-SCB-009–016</td><td>Mixed</td><td>Nadia / Chris</td><td>—</td></tr>
+    <tr><td>PR-SCB-001–004</td><td>FEATURED (public)</td><td>James / Priya</td><td>— (book viewing / apply)</td></tr>
+    <tr><td>PR-SCB-005–006</td><td>PUBLISHED / public</td><td>Priya / Themba</td><td>Riaan (submitted on 006)</td></tr>
+    <tr><td>PR-SCB-007</td><td>PUBLISHED (public)</td><td>Themba</td><td>Elena (under review)</td></tr>
+    <tr><td>PR-SCB-008</td><td>UNDER_OFFER</td><td>Themba</td><td>Sarie (approved purchase)</td></tr>
+    <tr><td>PR-SCB-009–013</td><td>PUBLISHED / UNDER_OFFER</td><td>Nadia</td><td>—</td></tr>
+    <tr><td>PR-SCB-014–016</td><td>DRAFT (not public)</td><td>Chris</td><td>— (publish to test P0-1)</td></tr>
   </tbody>
 </table>
 
@@ -671,8 +670,8 @@
   <li>Super admin — agencies + configuration CRUD</li>
   <li>Lerato — full agency smoke test + property / user CRUD</li>
   <li>James vs Nadia — property scope (1 vs 6) + scoped CRUD</li>
-  <li>Lucas — tenant portal CRUD (maintenance, messages, complaints, wishlist)</li>
-  <li>Riaan vs Sarie — occupancy gating</li>
+  <li>Sarie — tenant portal CRUD (maintenance, messages, complaints, wishlist — approved tenant tools)</li>
+  <li>Riaan vs fresh applicant — occupancy gating (applicant locked, approved unlocked)</li>
   <li>AquaFix vs PaintWorks — contractor job update CRUD</li>
   <li>Cross-role application approval (Workflow 1)</li>
   <li>Section 11 — full CRUD matrix pass</li>
@@ -704,7 +703,7 @@
       <th>Super Admin</th>
       <th>Agency Admin (Lerato)</th>
       <th>Full Agent (James)</th>
-      <th>Active tenant (Lucas)</th>
+      <th>Approved tenant (Sarie)</th>
       <th>Applicant (Riaan)</th>
       <th>Contractor (AquaFix)</th>
       <th>Guest</th>
@@ -768,8 +767,8 @@
     <tr><td><strong>C</strong> Create</td><td><a class="app-link" href="/workspace/properties/new">Add property</a> → complete building, unit, rooms, photos → Save</td><td>Property in list with correct agent assignment</td></tr>
     <tr><td><strong>R</strong> Read</td><td>Open PR-SCB-001 as James</td><td>Only James’s property(ies) visible in list</td></tr>
     <tr><td><strong>U</strong> Update details</td><td>Property detail → edit title, rent, description → Save</td><td>Changes persist after refresh</td></tr>
-    <tr><td><strong>U</strong> Publish</td><td>Property detail → set status to <strong>Published</strong></td><td>Listing appears on <a class="app-link" href="/browse">public browse</a></td></tr>
-    <tr><td><strong>U</strong> Unpublish</td><td>Change status away from Published</td><td>Listing removed from public browse</td></tr>
+    <tr><td><strong>U</strong> Publish</td><td>Property detail → set status to <strong>Published</strong></td><td>Listing appears on <a class="app-link" href="/browse">public browse</a> <em>immediately</em> (publish→marketplace sync, P0-1); direct <code>/listing/{id}</code> opens in incognito</td></tr>
+    <tr><td><strong>U</strong> Unpublish</td><td>Change status away from Published</td><td>Listing removed from public browse; guests opening the link see a clear “not published” state, not “Listing not found”</td></tr>
     <tr><td><strong>U</strong> Reassign agent</td><td>Lerato: agency detail or property → assign different agent</td><td>Property moves between agent scopes</td></tr>
   </tbody>
 </table>
@@ -847,8 +846,8 @@
 <table>
   <thead><tr><th>Op</th><th>Who</th><th>Steps</th><th>Pass criteria</th></tr></thead>
   <tbody>
-    <tr><td><strong>C</strong> Create</td><td>Lucas</td><td><a class="app-link" href="/workspace/portals/tenant/maintenance">Tenant maintenance</a> → title + asset + priority → Submit</td><td>Ticket ID returned; in agency queue</td></tr>
-    <tr><td><strong>C</strong> Create</td><td>Lucas</td><td><a class="app-link" href="/workspace/portals/tenant/complaints">Complaints</a> → lodge complaint</td><td>Ticket with “Complaint:” prefix</td></tr>
+    <tr><td><strong>C</strong> Create</td><td>Sarie</td><td><a class="app-link" href="/workspace/portals/tenant/maintenance">Tenant maintenance</a> → title + asset + priority → Submit</td><td>Ticket ID returned; in agency queue</td></tr>
+    <tr><td><strong>C</strong> Create</td><td>Sarie</td><td><a class="app-link" href="/workspace/portals/tenant/complaints">Complaints</a> → lodge complaint</td><td>Ticket with “Complaint:” prefix</td></tr>
     <tr><td><strong>C</strong> Create</td><td>Lerato</td><td>Property detail → Maintenance tab → Add ticket</td><td>Ticket on property timeline</td></tr>
     <tr><td><strong>R</strong> Read</td><td>Lerato</td><td><a class="app-link" href="/workspace/operations/maintenance">Operations → Maintenance</a> → open ticket</td><td>Priority, property, reporter, status shown</td></tr>
     <tr><td><strong>U</strong> Assign</td><td>Lerato</td><td>Maintenance detail → assign contractor (AquaFix for plumbing)</td><td>Contractor portal shows job</td></tr>
@@ -864,9 +863,9 @@
   <thead><tr><th>Op</th><th>Who</th><th>Steps</th><th>Pass criteria</th></tr></thead>
   <tbody>
     <tr><td><strong>C</strong> Create</td><td>Lerato</td><td>Property detail → Payments → Add payment (rent, due date, amount)</td><td>Payment row with status Due</td></tr>
-    <tr><td><strong>R</strong> Read</td><td>Lucas</td><td>Tenant portal home → due payments list</td><td>Only Lucas’s payments visible</td></tr>
+    <tr><td><strong>R</strong> Read</td><td>Sarie</td><td>Tenant portal home → due payments list</td><td>Only Sarie’s payments visible</td></tr>
     <tr><td><strong>R</strong> Read</td><td>Lerato</td><td>Payment detail page</td><td>Party, property, amount, status</td></tr>
-    <tr><td><strong>U</strong> Mark paid</td><td>Lucas or Lerato</td><td>Mark payment as Paid / record method</td><td>Status Paid; paid date set</td></tr>
+    <tr><td><strong>U</strong> Mark paid</td><td>Sarie or Lerato</td><td>Mark payment as Paid / record method</td><td>Status Paid; paid date set</td></tr>
     <tr><td><strong>U</strong> Edit</td><td>Lerato</td><td>Update amount or due date on unpaid row</td><td>Changes persist</td></tr>
     <tr><td><strong>D</strong> Delete</td><td>Lerato</td><td>Payment detail → Remove (unpaid only) → confirm</td><td>Payment removed; cannot remove Paid rows</td></tr>
   </tbody>
@@ -876,7 +875,7 @@
 <table>
   <thead><tr><th>Op</th><th>Who</th><th>Steps</th><th>Pass criteria</th></tr></thead>
   <tbody>
-    <tr><td><strong>C</strong> Create thread</td><td>Lucas</td><td><a class="app-link" href="/workspace/portals/tenant/messages">Tenant messages</a> → new subject → send</td><td>Thread appears in tenant list</td></tr>
+    <tr><td><strong>C</strong> Create thread</td><td>Sarie</td><td><a class="app-link" href="/workspace/portals/tenant/messages">Tenant messages</a> → new subject → send</td><td>Thread appears in tenant list</td></tr>
     <tr><td><strong>C</strong> Reply</td><td>Lerato</td><td><a class="app-link" href="/workspace/operations/communications">Operations → Messages</a> → reply</td><td>Reply visible to tenant on refresh</td></tr>
     <tr><td><strong>R</strong> Read</td><td>Both</td><td>Open thread</td><td>Full message history, correct participants</td></tr>
     <tr><td><strong>U</strong> / <strong>D</strong></td><td>—</td><td>—</td><td>Edit/delete messages not exposed (expected)</td></tr>
@@ -898,9 +897,9 @@
 <table>
   <thead><tr><th>Op</th><th>Who</th><th>Steps</th><th>Pass criteria</th></tr></thead>
   <tbody>
-    <tr><td><strong>C</strong> Add</td><td>Lucas</td><td><a class="app-link" href="/browse">Browse</a> → heart icon on listing</td><td>Heart filled; count increases</td></tr>
-    <tr><td><strong>R</strong> Read</td><td>Lucas</td><td><a class="app-link" href="/workspace/account/wishlist">Account wishlist</a></td><td>Saved listings listed with photos/prices</td></tr>
-    <tr><td><strong>D</strong> Remove</td><td>Lucas</td><td>Wishlist page or browse → un-heart listing</td><td>Listing removed from wishlist</td></tr>
+    <tr><td><strong>C</strong> Add</td><td>Sarie</td><td><a class="app-link" href="/browse">Browse</a> → heart icon on listing</td><td>Heart filled; count increases</td></tr>
+    <tr><td><strong>R</strong> Read</td><td>Sarie</td><td><a class="app-link" href="/workspace/account/wishlist">Account wishlist</a></td><td>Saved listings listed with photos/prices</td></tr>
+    <tr><td><strong>D</strong> Remove</td><td>Sarie</td><td>Wishlist page or browse → un-heart listing</td><td>Listing removed from wishlist</td></tr>
     <tr><td><strong>C/R/D</strong> Guest</td><td>Guest</td><td>Save on browse → <a class="app-link" href="/saved">/saved</a></td><td>Persists in browser until cleared</td></tr>
   </tbody>
 </table>
@@ -916,8 +915,8 @@
     <tr><td>James</td><td><strong>R/U</strong> Nadia’s property (direct URL)</td><td>Not found or denied</td></tr>
     <tr><td>Riaan (applicant)</td><td><strong>C</strong> maintenance ticket</td><td>Form blocked / unlock message</td></tr>
     <tr><td>Riaan</td><td><strong>C</strong> message thread to agency</td><td>Tab hidden or blocked</td></tr>
-    <tr><td>Lucas (tenant)</td><td><strong>C</strong> property at <a class="app-link" href="/workspace/properties/new">/workspace/properties/new</a></td><td>Denied</td></tr>
-    <tr><td>Lucas</td><td><strong>R</strong> another tenant’s application</td><td>Not visible</td></tr>
+    <tr><td>Sarie (tenant)</td><td><strong>C</strong> property at <a class="app-link" href="/workspace/properties/new">/workspace/properties/new</a></td><td>Denied</td></tr>
+    <tr><td>Sarie</td><td><strong>R</strong> another tenant’s application</td><td>Not visible</td></tr>
     <tr><td>AquaFix (contractor)</td><td><strong>U</strong> ticket not assigned to them</td><td>Read-only or hidden</td></tr>
     <tr><td>PaintWorks (pending)</td><td><strong>C/U</strong> claim assigned job</td><td>Blocked or empty pool</td></tr>
     <tr><td>Guest</td><td><strong>R</strong> <a class="app-link" href="/workspace">/workspace</a></td><td>Redirect to login</td></tr>
@@ -936,11 +935,11 @@
     <tr><td>5</td><td>Create + move lead stage</td><td>Lerato</td><td></td></tr>
     <tr><td>6</td><td>Apply + approve application</td><td>Riaan → Lerato</td><td></td></tr>
     <tr><td>7</td><td>Create + delete viewing slot</td><td>James</td><td></td></tr>
-    <tr><td>8</td><td>Create + complete maintenance ticket</td><td>Lucas → AquaFix</td><td></td></tr>
+    <tr><td>8</td><td>Create + complete maintenance ticket</td><td>Sarie → AquaFix</td><td></td></tr>
     <tr><td>9</td><td>Create + mark paid + remove unpaid payment</td><td>Lerato</td><td></td></tr>
-    <tr><td>10</td><td>Create thread + agency reply</td><td>Lucas → Lerato</td><td></td></tr>
+    <tr><td>10</td><td>Create thread + agency reply</td><td>Sarie → Lerato</td><td></td></tr>
     <tr><td>11</td><td>Broadcast notification</td><td>Lerato</td><td></td></tr>
-    <tr><td>12</td><td>Add + remove wishlist item</td><td>Lucas</td><td></td></tr>
+    <tr><td>12</td><td>Add + remove wishlist item</td><td>Sarie</td><td></td></tr>
     <tr><td>13</td><td>Negative: agent blocked from admin config</td><td>James</td><td></td></tr>
   </tbody>
 </table>
@@ -979,16 +978,21 @@
   <tbody>
     <tr><td>11</td><td>Unallocated queue loads</td><td>Lerato</td><td>Navigation → Trust & Banking → Unallocated</td><td>Page loads showing unallocated transactions</td><td></td></tr>
     <tr><td>12</td><td>Unallocated count matches</td><td>Lerato</td><td>Compare with dashboard count</td><td>Same number as shown on Trust Dashboard</td><td></td></tr>
+    <tr><td>12a</td><td>Allocate an unallocated receipt <em>(seeded: “Unknown payment — no reference”, R5,000)</em></td><td>Lerato</td><td>Unallocated → search tenant/occupancy → allocate full or split amount → confirm</td><td>Receipt status becomes allocated/split_allocated; remaining amount updates; toast confirms</td><td></td></tr>
+    <tr><td>12b</td><td>Split allocation across buckets <em>(seeded: R12,000 partial rent, already split rent+utilities)</em></td><td>Lerato</td><td>Open the split transaction → adjust second bucket amount → save</td><td>Allocation rows update; totals stay consistent</td><td></td></tr>
+    <tr><td>12c</td><td>Mark as suspense instead of allocating</td><td>Lerato</td><td>Unallocated → “Mark as suspense” on the unknown receipt</td><td>Transaction flagged suspense; excluded from allocate queue</td><td></td></tr>
   </tbody>
 </table>
 
-<h2>12.4 Payouts</h2>
+<h2>12.4 Payouts (dual-control)</h2>
 <table>
   <thead><tr><th>#</th><th>Test</th><th>Account</th><th>Steps</th><th>Expected</th><th>Pass?</th></tr></thead>
   <tbody>
     <tr><td>13</td><td>Payouts page loads</td><td>Lerato</td><td>Navigation → Trust & Banking → Payouts</td><td>Page loads showing payout instructions</td><td></td></tr>
-    <tr><td>14</td><td>Pending payouts visible</td><td>Lerato</td><td>View payout list</td><td>Shows proposed and pending approval payouts</td><td></td></tr>
-    <tr><td>15</td><td>Settled payouts shown</td><td>Lerato</td><td>Check completed payouts</td><td>Shows settled payouts with dates</td><td></td></tr>
+    <tr><td>14</td><td>Pending payouts visible <em>(seeded: agency fee R2,150 pending approval; contractor R45,000 proposed)</em></td><td>Lerato</td><td>View payout list</td><td>Shows proposed and pending approval payouts</td><td></td></tr>
+    <tr><td>15</td><td>Settled payouts shown <em>(seeded: owner payout R19,350 settled 2026-09-05)</em></td><td>Lerato</td><td>Check completed payouts</td><td>Shows settled payouts with dates</td><td></td></tr>
+    <tr><td>15a</td><td>Dual-control: approver cannot equal proposer <em>(seeded proposal by James)</em></td><td>James then Lerato</td><td>James opens pending payout → Approve button disabled; Lerato approves the same payout</td><td>Proposer cannot approve own instruction; second user approves successfully → status approved</td><td></td></tr>
+    <tr><td>15b</td><td>Submit approved payout to partner</td><td>Lerato</td><td>Approved payout → “Submit to partner”</td><td>Status becomes submitted with timestamp</td><td></td></tr>
   </tbody>
 </table>
 
@@ -997,8 +1001,9 @@
   <thead><tr><th>#</th><th>Test</th><th>Account</th><th>Steps</th><th>Expected</th><th>Pass?</th></tr></thead>
   <tbody>
     <tr><td>16</td><td>Deposits register loads</td><td>Lerato</td><td>Navigation → Trust & Banking → Deposits</td><td>Page loads showing deposit holdings</td><td></td></tr>
-    <tr><td>17</td><td>Deposit details visible</td><td>Lerato</td><td>View deposit rows</td><td>Shows expected, held, interest accrued, status</td><td></td></tr>
-    <tr><td>18</td><td>Statutory deadlines shown</td><td>Lerato</td><td>Check deadline column</td><td>Shows refund deadline dates</td><td></td></tr>
+    <tr><td>17</td><td>Deposit details visible <em>(seeded: 2 held — R34,000 &amp; R19,000; 1 expected R25,000)</em></td><td>Lerato</td><td>View deposit rows</td><td>Shows expected, held, interest accrued, status</td><td></td></tr>
+    <tr><td>18</td><td>Statutory deadlines shown <em>(RHA s5(3))</em></td><td>Lerato</td><td>Check deadline column</td><td>Shows refund deadline dates; ≤7-day deadlines highlighted urgent</td><td></td></tr>
+    <tr><td>18a</td><td>Interest-rate-unknown flag <em>(seeded: R19,000 deposit)</em></td><td>Lerato</td><td>View the flagged deposit</td><td>Warning badge shown so staff chase the rate</td><td></td></tr>
   </tbody>
 </table>
 
@@ -1007,7 +1012,8 @@
   <thead><tr><th>#</th><th>Test</th><th>Account</th><th>Steps</th><th>Expected</th><th>Pass?</th></tr></thead>
   <tbody>
     <tr><td>19</td><td>Arrears page loads</td><td>Lerato</td><td>Navigation → Trust & Banking → Arrears</td><td>Page loads showing arrears snapshots</td><td></td></tr>
-    <tr><td>20</td><td>Ageing buckets visible</td><td>Lerato</td><td>View arrears rows</td><td>Shows current, 30, 60, 90, 90+ day buckets</td><td></td></tr>
+    <tr><td>20</td><td>Ageing buckets visible <em>(seeded: R16,750 in 30-day bucket, R9,800 in 90-day bucket as of 2026-09-16)</em></td><td>Lerato</td><td>View arrears rows</td><td>Shows current, 30, 60, 90, 90+ day buckets with totals</td><td></td></tr>
+    <tr><td>20a</td><td>Message tenant from arrears</td><td>Lerato</td><td>Arrears row → “Message tenant”</td><td>Message composer opens with tenant pre-selected</td><td></td></tr>
   </tbody>
 </table>
 
@@ -1018,7 +1024,7 @@
     <tr><td>21</td><td>Full Agent sees trust dashboard</td><td>James</td><td>Navigation → Trust & Banking</td><td>Trust & Banking group visible with Trust Dashboard and Arrears</td><td></td></tr>
     <tr><td>22</td><td>Full Agent cannot allocate</td><td>James</td><td>Try to access /workspace/trust/unallocated</td><td>Denied or link hidden</td><td></td></tr>
     <tr><td>23</td><td>Full Agent cannot approve payouts</td><td>James</td><td>Try to access /workspace/trust/payouts</td><td>Denied or link hidden</td><td></td></tr>
-    <tr><td>24</td><td>Tenant cannot access trust</td><td>Lucas</td><td>Try to access /workspace/trust</td><td>Denied or not shown in nav</td><td></td></tr>
+    <tr><td>24</td><td>Tenant cannot access trust</td><td>Sarie</td><td>Try to access /workspace/trust</td><td>Denied or not shown in nav</td><td></td></tr>
     <tr><td>25</td><td>Landlord cannot access trust</td><td>Register as landlord</td><td>Try to access /workspace/trust</td><td>Denied or not shown in nav</td><td></td></tr>
     <tr><td>26</td><td>Contractor cannot access trust</td><td>AquaFix</td><td>Try to access /workspace/trust</td><td>Denied or not shown in nav</td><td></td></tr>
   </tbody>
@@ -1028,7 +1034,7 @@
 <table>
   <thead><tr><th>#</th><th>Test</th><th>Account</th><th>Steps</th><th>Expected</th><th>Pass?</th></tr></thead>
   <tbody>
-    <tr><td>27</td><td>Agency isolation</td><td>Lerato vs Gita</td><td>Login as Lerato (ag-horizon), then Gita (ag-garden)</td><td>Each sees only their agency's trust data</td><td></td></tr>
+    <tr><td>27</td><td>Agency isolation</td><td>Lerato vs Super Admin</td><td>Login as Lerato, note trust totals; sign out, login as Super Admin</td><td>Each agency sees only its own trust data; super admins are denied agency trust cashbooks by design (permission matrix)</td><td></td></tr>
     <tr><td>28</td><td>Transaction immutability</td><td>Lerato</td><td>Try to edit a trust transaction</td><td>No edit option — transactions are immutable</td><td></td></tr>
     <tr><td>29</td><td>Allocations linked to transactions</td><td>Lerato</td><td>View allocation details</td><td>Each allocation shows linked trust transaction</td><td></td></tr>
   </tbody>
@@ -1055,7 +1061,7 @@
     <tr><td>5</td><td>Read arrears snapshots</td><td>Lerato</td><td></td></tr>
     <tr><td>6</td><td>Read charges</td><td>Lerato</td><td></td></tr>
     <tr><td>7</td><td>Negative: Agent cannot allocate receipts</td><td>James</td><td></td></tr>
-    <tr><td>8</td><td>Negative: Tenant cannot view trust</td><td>Lucas</td><td></td></tr>
+    <tr><td>8</td><td>Negative: Tenant cannot view trust</td><td>Sarie</td><td></td></tr>
   </tbody>
 </table>
 
@@ -1075,7 +1081,7 @@
 
 <p class="footer-note">
   <a href="#top">Back to top</a> · <a href="#toc">Table of contents</a><br />
-  PropertyFlow QA Guide — Live Environment — Document version 1.1
+  PropertyFlow QA Guide — Live Environment — Document version 1.2
 </p>
 
 <script>

@@ -17,6 +17,12 @@ export type SuperAdminRefs = {
 }
 
 const TRUNCATE_TABLES = [
+  'csv_import_batches',
+  'arrears_snapshots',
+  'deposit_holdings',
+  'payout_instructions',
+  'trust_allocations',
+  'trust_transactions',
   'automation_runs',
   'automation_rules',
   'suite_alerts',

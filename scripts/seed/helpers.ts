@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import pg from 'pg'
+import { DirectAdminClient } from './directAdmin.js'
 
 const DEMO_DOC_BASE =
   'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf.pdf'
@@ -46,12 +47,16 @@ export type SeedEnv = {
 export function loadSeedEnv(): SeedEnv {
   const directUrl = process.env.DIRECT_URL ?? process.env.DATABASE_URL
   const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseSecret =
+  // Local .env.local ships the publishable key only. When no real secret is
+  // present the seed scripts fall back to the direct-Postgres admin shim.
+  const rawSecret =
     process.env.SUPABASE_SECRET_KEY ??
     process.env.SUPABASE_SERVICE_ROLE_KEY ??
-    // Local .env.local ships the publishable key only; secret key comes from the
-    // operator environment. Surface a clear message instead of a raw crash.
     process.env.SUPABASE_PUBLISHABLE_KEY
+  const isRealSecret = Boolean(rawSecret && !rawSecret.startsWith('sb_publishable_'))
+  const supabaseSecret = isRealSecret
+    ? rawSecret
+    : `direct:${directUrl}`
   const superAdminEmail = process.env.SUPER_ADMIN_EMAIL ?? 'ephraimbampo317@gmail.com'
   const demoPassword = process.env.SEED_DEMO_PASSWORD ?? process.env.SUPER_ADMIN_PASSWORD ?? 'secret'
 
@@ -59,7 +64,7 @@ export function loadSeedEnv(): SeedEnv {
   if (!supabaseUrl) throw new Error('Missing SUPABASE_URL')
   if (!supabaseSecret)
     throw new Error(
-      'Missing SUPABASE_SECRET_KEY (sb_secret_…) — admin seed scripts need the server secret key; the publishable key cannot call auth.admin APIs.',
+      'Missing DIRECT_URL or DATABASE_URL — seed scripts need a Postgres connection (direct shim) or SUPABASE_SECRET_KEY (Auth Admin API).',
     )
 
   return { directUrl, supabaseUrl, supabaseSecret, superAdminEmail, demoPassword }
@@ -83,6 +88,11 @@ export function createPgPool(directUrl: string): pg.Pool {
 }
 
 export function createAdminClient(env: SeedEnv): SupabaseClient {
+  // No real secret key → drive Postgres directly via the supabase-js-shaped shim.
+  if (env.supabaseSecret.startsWith('direct:')) {
+    const pool = createPgPool(env.directUrl)
+    return new DirectAdminClient(pool, env.demoPassword) as unknown as SupabaseClient
+  }
   return createClient(env.supabaseUrl, env.supabaseSecret, {
     auth: { autoRefreshToken: false, persistSession: false },
   })

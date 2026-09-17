@@ -9,20 +9,31 @@
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { SUPER_ADMINS, superAdminByEmail, type SuperAdminDef } from './seed/superAdmins.js'
+import { DirectAdminClient } from './seed/directAdmin.js'
+import { createPgPool } from './seed/helpers.js'
 
 const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL
-const secret = process.env.SUPABASE_SECRET_KEY
+const rawSecret = process.env.SUPABASE_SECRET_KEY
+const directUrl = process.env.DIRECT_URL ?? process.env.DATABASE_URL
 const password = process.env.SUPER_ADMIN_PASSWORD ?? 'secret'
 const singleEmail = process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase()
 
-if (!url || !secret) {
-  console.error('Missing SUPABASE_URL and SUPABASE_SECRET_KEY')
-  process.exit(1)
-}
+const hasRealSecret = Boolean(rawSecret && !rawSecret.startsWith('sb_publishable_'))
 
-const admin = createClient(url, secret, {
-  auth: { autoRefreshToken: false, persistSession: false },
-})
+// No secret key but a direct Postgres URL → use the SQL shim (auth trigger
+// creates the public.users profile; crypt() writes GoTrue-compatible hashes).
+const admin: SupabaseClient = hasRealSecret
+  ? createClient(url!, rawSecret!, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+  : directUrl
+    ? (new DirectAdminClient(createPgPool(directUrl), password) as unknown as SupabaseClient)
+    : (() => {
+        console.error(
+          'Missing SUPABASE_SECRET_KEY (or DIRECT_URL for the direct-Postgres shim)',
+        )
+        process.exit(1)
+      })()
 
 async function findUserByEmail(client: SupabaseClient, targetEmail: string) {
   let page = 1
