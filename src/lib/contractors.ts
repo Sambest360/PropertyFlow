@@ -1,6 +1,45 @@
 import type { AgencyContractor, AppUser, MaintenanceTicket } from '../types/domain'
 import { isVerificationApproved } from './verification'
 
+/**
+ * Derive the agency contractor roster from contractor-role users' verification
+ * metadata (the persisted source of truth for seeded + registered vendors).
+ * Used by both bootstrap fetch paths; the store merges it over static seed rows.
+ */
+export function deriveAgencyContractors(
+  users: readonly {
+    role: string
+    agencyId: string | null
+    id: string
+    verification?: { status?: unknown; submittedAt?: unknown; reviewedAt?: unknown; reviewedBy?: unknown; profile?: { trades?: unknown } } | null
+  }[],
+): AgencyContractor[] {
+  const rows: AgencyContractor[] = []
+  for (const u of users) {
+    if (u.role !== 'contractor') continue
+    const vStatus = u.verification?.status as string | undefined
+    const status: AgencyContractor['status'] =
+      vStatus === 'approved' ? 'approved' : vStatus === 'suspended' ? 'suspended' : 'pending'
+    const tradesRaw = u.verification?.profile?.trades
+    const trades = Array.isArray(tradesRaw)
+      ? (tradesRaw as string[]).map((t) => normalizeTradeKey(String(t)))
+      : ['GENERAL']
+    rows.push({
+      id: `roster-${u.id}`,
+      agencyId: u.agencyId ?? '',
+      contractorUserId: u.id,
+      status,
+      trades,
+      addedAt:
+        (u.verification?.submittedAt as string | undefined) ??
+        (u.verification?.reviewedAt as string | undefined) ??
+        new Date().toISOString(),
+      addedByUserId: (u.verification?.reviewedBy as string | undefined) ?? null,
+    })
+  }
+  return rows
+}
+
 export const CONTRACTOR_TRADES = [
   { key: 'GENERAL', label: 'General maintenance' },
   { key: 'PLUMBING', label: 'Plumbing' },
@@ -18,6 +57,26 @@ export function tradeLabel(key: string): string {
   return CONTRACTOR_TRADES.find((t) => t.key === key)?.label ?? key.replace(/_/g, ' ')
 }
 
+/** Canonical trade key for a raw value, tolerating label spellings like "General maintenance" or "gardening / landscaping". */
+function normalizeTradeKey(raw: string): string {
+  const trimmed = raw.trim()
+  const upper = trimmed.toUpperCase()
+  if (CONTRACTOR_TRADES.some((t) => t.key === upper)) return upper
+  const byLabel = CONTRACTOR_TRADES.find(
+    (t) => t.label.toLowerCase() === trimmed.toLowerCase(),
+  )
+  if (byLabel) return byLabel.key
+  if (upper.includes('GARDEN') || upper.includes('LANDSCAP')) return 'LANDSCAPING'
+  if (upper.includes('GENERAL')) return 'GENERAL'
+  return trimmed
+}
+
+/** Whether a trade list covers a category key, tolerating keys stored as labels. */
+function tradesInclude(trades: readonly string[], categoryKey: string): boolean {
+  const want = normalizeTradeKey(categoryKey)
+  return trades.some((t) => normalizeTradeKey(t) === want)
+}
+
 export type ContractorProfile = {
   user: AppUser
   roster: AgencyContractor
@@ -33,7 +92,10 @@ export function listAgencyContractorRoster(
     if (agencyId && r.agencyId !== agencyId) return false
     if (!opts?.includePending && r.status !== 'approved') return false
     if (opts?.includePending && r.status === 'suspended') return false
-    if (opts?.trade && !r.trades.includes(opts.trade)) return false
+    // No category filter → any trade matches. With one: exact trade, or a
+    // generalist covering everything (generalists surface in every picker).
+    if (opts?.trade && !tradesInclude(r.trades, opts.trade) && !tradesInclude(r.trades, 'GENERAL'))
+      return false
     return true
   })
   return rows
@@ -91,7 +153,7 @@ export function contractorMatchesCategory(
   categoryKey?: string | null,
 ): boolean {
   if (!categoryKey) return true
-  return rosterEntry.trades.includes(categoryKey) || rosterEntry.trades.includes('GENERAL')
+  return tradesInclude(rosterEntry.trades, categoryKey) || tradesInclude(rosterEntry.trades, 'GENERAL')
 }
 
 export function syncTicketPhotoCount(ticket: MaintenanceTicket): MaintenanceTicket {

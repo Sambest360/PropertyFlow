@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { startPayfastCheckout } from '../lib/payfast/checkout'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
@@ -26,6 +27,8 @@ export default function PaymentDetail() {
   const alert = useSuiteAlert()
 
   const [markPaidOpen, setMarkPaidOpen] = useState(false)
+  const [payOnlineBusy, setPayOnlineBusy] = useState(false)
+  const [payOnlineError, setPayOnlineError] = useState<string | null>(null)
 
   const payment = state.payments.find((p) => p.id === id)
 
@@ -59,6 +62,22 @@ export default function PaymentDetail() {
     !!payment &&
     isOpenPayment(payment.status) &&
     (payment.partyUserId === user.id || payment.partyName === user.name)
+
+  const handlePayOnline = async () => {
+    if (!payment || payOnlineBusy) return
+    setPayOnlineBusy(true)
+    setPayOnlineError(null)
+    const result = await startPayfastCheckout(payment.id, {
+      itemName: `PropertyFlow · ${payment.type}`,
+      payer: { firstName: user.name.split(' ')[0], lastName: user.name.split(' ').slice(1).join(' ') },
+    })
+    if (result.ok) {
+      // Form submitted — browser navigates to PayFast.
+      return
+    }
+    setPayOnlineBusy(false)
+    setPayOnlineError(result.userMessage ?? 'Checkout could not be started.')
+  }
 
   const handleMarkPaid = (details: MarkPaymentPaidDetails) => {
     if (!payment) return
@@ -140,6 +159,8 @@ export default function PaymentDetail() {
           canMaintain={canMaintain}
           canSelfPay={canSelfPay}
           onMarkPaid={() => setMarkPaidOpen(true)}
+          onPayOnline={handlePayOnline}
+          payOnlineBusy={payOnlineBusy}
           onCancel={handleCancel}
           onRemove={handleRemove}
         />
@@ -151,6 +172,15 @@ export default function PaymentDetail() {
           >
             This payment is <strong>{daysOverdue || 0} days overdue</strong>. Follow up with the
             party or mark paid once received.
+          </p>
+        )}
+
+        {payOnlineError && (
+          <p
+            className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+            role="alert"
+          >
+            {payOnlineError}
           </p>
         )}
 

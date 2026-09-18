@@ -30,6 +30,9 @@ const STAGE_TO_API: Record<string, string> = {
 }
 
 export function apiStatusFromStage(stage: string): string {
+  // P0-3: guest-submitted apps sit at 'Application submitted' — a real
+  // SUBMITTED status, not an ad-hoc uppercase fallback.
+  if (stage === 'Application submitted') return 'SUBMITTED'
   return STAGE_TO_API[stage] ?? String(stage).toUpperCase().replace(/\s+/g, '_')
 }
 

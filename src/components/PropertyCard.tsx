@@ -57,11 +57,20 @@ export function PropertyCard({
           ? Math.round(property.price * 0.1)
           : null)
 
-  const priceLabel = card?.display_metadata.primary_amount_label
-    ? card.display_metadata.primary_amount_label
-    : property.price
+  // P0-4 / P1-6 (E2E #2): sale listings show the sale price only — never a
+  // rent-style "/ month" label, and rent wins over a stale sale price.
+  const isSaleListing = property.listingMode === 'sale'
+  const priceLabel = isSaleListing
+    ? property.price != null
       ? formatZAR(property.price)
-      : `${formatZAR(property.rent)} / month`
+      : (card?.display_metadata.primary_amount_label ?? '')
+    : card?.display_metadata.primary_amount_label
+      ? card.display_metadata.primary_amount_label
+      : property.rent != null
+        ? `${formatZAR(property.rent)} / month`
+        : property.price != null
+          ? formatZAR(property.price)
+          : ''
 
   const badge =
     property.listingMode === 'both' ? 'Sale or Rent' : property.listingMode === 'sale' ? 'For Sale' : 'To Rent'

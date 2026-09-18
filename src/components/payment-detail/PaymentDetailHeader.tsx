@@ -1,4 +1,4 @@
-import { Ban, CheckCircle2, Trash2 } from 'lucide-react'
+import { Ban, CheckCircle2, CreditCard, Trash2 } from 'lucide-react'
 import type { PaymentRecord, PropertyAsset } from '../../types/domain'
 import { ActionButtonRow } from '../ActionButtonRow'
 import { BackButton } from '../BackButton'
@@ -14,6 +14,8 @@ export function PaymentDetailHeader({
   canMaintain,
   canSelfPay,
   onMarkPaid,
+  onPayOnline,
+  payOnlineBusy = false,
   onCancel,
   onRemove,
 }: {
@@ -23,6 +25,9 @@ export function PaymentDetailHeader({
   canMaintain: boolean
   canSelfPay: boolean
   onMarkPaid: () => void
+  /** Present when online checkout is available for this viewer. */
+  onPayOnline?: () => void
+  payOnlineBusy?: boolean
   onCancel: () => void
   onRemove: () => void
 }) {
@@ -54,6 +59,16 @@ export function PaymentDetailHeader({
         <ActionButtonRow className="sm:w-auto">
           {(canMaintain || canSelfPay) && open ? (
             <>
+              {onPayOnline && (canSelfPay || canMaintain) ? (
+                <Button
+                  className="min-h-11 gap-2"
+                  onClick={onPayOnline}
+                  disabled={payOnlineBusy}
+                >
+                  <CreditCard className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                  {payOnlineBusy ? 'Opening PayFast…' : 'Pay with PayFast'}
+                </Button>
+              ) : null}
               <Button className="min-h-11 gap-2" onClick={onMarkPaid}>
                 <CheckCircle2 className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
                 Mark paid

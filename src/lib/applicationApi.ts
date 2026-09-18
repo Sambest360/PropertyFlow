@@ -37,7 +37,7 @@ export type SubmitApplicationSuccess = {
 export type SubmitApplicationError = {
   status: 'ERROR'
   error: string
-  httpStatus: 400 | 404 | 422
+  httpStatus: 400 | 401 | 404 | 409 | 422
 }
 
 export type SubmitApplicationResult = SubmitApplicationSuccess | SubmitApplicationError

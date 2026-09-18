@@ -44,6 +44,7 @@ import {
   supabaseSignOut,
   supabaseSignUp,
 } from '../lib/supabase/auth'
+import { clearSessionArtifacts } from '../lib/auth/sessionArtifacts'
 
 const AUTH_KEY = 'propertyflow-auth-user'
 const REAL_AUTH_KEY = 'propertyflow-auth-real-user'
@@ -168,10 +169,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false
+    // P0-8 (E2E #2): a stalled session probe must never wedge the shell on
+    // "Checking session…". Resolve as guest after the timeout; a late profile
+    // still applies through onAuthStateChange / refresh.
+    const readyTimeout = window.setTimeout(() => {
+      if (!cancelled) {
+        setSessionUser((prev) => prev)
+        setAuthReady(true)
+      }
+    }, 5000)
     ;(async () => {
       if (isSupabaseMode) {
         const profile = await supabaseGetSessionUser()
         if (cancelled) return
+        clearTimeout(readyTimeout)
         if (profile) {
           applySessionUser(profile, setSessionUser, setUserId, setRealUserId)
         } else {
@@ -198,10 +209,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         setSessionUser(null)
       }
+      clearTimeout(readyTimeout)
       setAuthReady(true)
     })()
     return () => {
       cancelled = true
+      clearTimeout(readyTimeout)
     }
   }, [])
 
@@ -353,31 +366,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return appUser
       },
       register: async (input) => {
-        if (isSupabaseMode) {
-          const res = await supabaseSignUp(input)
-          setSessionUser(res.user)
-          setUserId(res.user.id)
-          setRealUserId(null)
-          syncActorFromUser(appUserToDto(res.user))
-          void refreshBootstrap({
-            userId: res.user.id,
-            role: res.user.role,
-            agencyId: res.user.agencyId,
-          })
-          return { user: res.user, bootstrap: res.bootstrap }
+        // P0-1: on any failure the visitor must stay anonymous — never attach a
+        // stale/cached identity (e.g. a previous Super Admin session) to the
+        // register flow. Clear first, then attempt; on error, clear again.
+        try {
+          if (isSupabaseMode) {
+            const res = await supabaseSignUp(input)
+            setSessionUser(res.user)
+            setUserId(res.user.id)
+            setRealUserId(null)
+            syncActorFromUser(appUserToDto(res.user))
+            void refreshBootstrap({
+              userId: res.user.id,
+              role: res.user.role,
+              agencyId: res.user.agencyId,
+            })
+            return { user: res.user, bootstrap: res.bootstrap }
+          }
+          const res = await apiRegister(input)
+            const appUser = dtoToAppUser(res.user)
+            setSessionUser(appUser)
+            setUserId(appUser.id)
+            setRealUserId(null)
+            syncActorFromUser(res.user)
+            void refreshBootstrap({
+              userId: appUser.id,
+              role: appUser.role,
+              agencyId: appUser.agencyId,
+            })
+            return { user: appUser, bootstrap: Boolean(res.bootstrap) }
+        } catch (err) {
+          // P0-1: the shared guard module is the source of truth for the wipe.
+          clearSessionArtifacts({ setSessionUser, setUserId, setRealUserId })
+          setApiActor(null)
+          throw err
         }
-        const res = await apiRegister(input)
-        const appUser = dtoToAppUser(res.user)
-        setSessionUser(appUser)
-        setUserId(appUser.id)
-        setRealUserId(null)
-        syncActorFromUser(res.user)
-        void refreshBootstrap({
-          userId: appUser.id,
-          role: appUser.role,
-          agencyId: appUser.agencyId,
-        })
-        return { user: appUser, bootstrap: Boolean(res.bootstrap) }
       },
       logout: async () => {
         // P0-2: a hung / failed network call must never block local clearing.

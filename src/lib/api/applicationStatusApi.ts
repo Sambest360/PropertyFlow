@@ -128,6 +128,9 @@ const API_TO_STAGE: Record<string, ApplicationStage> = {
 
 const ALLOWED: Record<string, string[]> = {
   Started: ['SUBMITTED', 'UNDER_REVIEW', 'REJECTED', 'WITHDRAWN'],
+  // P0-3 (E2E #2): guest-submitted apps land here; staff Approve / Reject /
+  // Move-to-review must be available straight from Submitted.
+  'Application submitted': ['UNDER_REVIEW', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
   'Documents Pending': ['SUBMITTED', 'UNDER_REVIEW', 'REJECTED', 'WITHDRAWN'],
   'Documents Submitted': ['UNDER_REVIEW', 'CREDIT_CHECK', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
   'Viewing Booked': ['UNDER_REVIEW', 'CREDIT_CHECK', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
@@ -166,11 +169,15 @@ export function buildCheckoutBridge(params: {
   provider: 'payfast' | 'peach'
 }): CheckoutBridgeConfig {
   const amountCents = Math.round(params.amountZar * 100)
-  const returnUrl = `https://app.propertyflow.local/workspace/portals/tenant?paid=${params.paymentId}`
-  const cancelUrl = `https://app.propertyflow.local/workspace/portals/tenant?cancelled=${params.application.id}`
-  const notifyUrl = `https://api.propertyflow.local/api/v1/payments/webhooks/${params.provider}`
+  const appOrigin =
+    typeof window !== 'undefined' && window.location.origin.startsWith('http')
+      ? window.location.origin
+      : 'https://property-flow-jet.vercel.app'
+  const returnUrl = `${appOrigin}/payfast/return?ref=${encodeURIComponent(params.paymentId)}`
+  const cancelUrl = `${appOrigin}/payfast/cancel?ref=${encodeURIComponent(params.paymentId)}`
+  const notifyUrl = `${appOrigin}/api/payfast/itn`
   const fields: Record<string, string> = {
-    merchant_id: params.provider === 'payfast' ? '10000100' : 'peach_demo_merchant',
+    merchant_id: params.provider === 'payfast' ? '10047719' : 'peach_demo_merchant',
     amount: (amountCents / 100).toFixed(2),
     item_name: `PropertyFlow · ${params.propertyTitle}`.slice(0, 100),
     m_payment_id: params.paymentId,
@@ -190,7 +197,7 @@ export function buildCheckoutBridge(params: {
         ? 'https://sandbox.payfast.co.za/eng/process'
         : 'https://test.oppwa.com/v1/paymentWidgets.js',
     merchant_id: fields.merchant_id,
-    merchant_key: params.provider === 'payfast' ? '46f0cd694581a' : undefined,
+    merchant_key: params.provider === 'payfast' ? 'wkq8dmfysau1q' : undefined,
     payment_id: params.paymentId,
     amount_cents: amountCents,
     amount_zar: params.amountZar,
@@ -199,6 +206,9 @@ export function buildCheckoutBridge(params: {
     cancel_url: cancelUrl,
     notify_url: notifyUrl,
     signature_fields: fields,
+    // NOTE: display-only demo hash. The authoritative signature is computed
+    // server-side by /api/payfast/create (server/payfast.ts) when checkout is
+    // actually launched — see startPayfastCheckout().
     signature: demoSignature(fields),
     currency: 'ZAR',
     expires_at: expires.toISOString(),

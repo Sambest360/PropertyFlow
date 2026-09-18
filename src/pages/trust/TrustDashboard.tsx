@@ -1,6 +1,5 @@
 import { useMemo } from 'react'
 import {
-  Wallet,
   ArrowDownLeft,
   ArrowUpRight,
   AlertTriangle,
@@ -15,7 +14,6 @@ import { useAuth } from '../../context/AuthContext'
 import { formatZAR } from '../../data/seed'
 import { PageHeader, Card, StatCard, Badge, Button, EmptyState } from '../../components/ui'
 import { DashboardPage } from '../../components/dashboard'
-import { TRUST_SUBNAV, SectionSubnav } from '../../components/layout/SectionSubnav'
 import { Link } from 'react-router-dom'
 
 /** Format integer cents as ZAR currency */
@@ -136,7 +134,6 @@ export default function TrustDashboard() {
 
   return (
     <DashboardPage>
-      <SectionSubnav items={TRUST_SUBNAV} />
       <PageHeader
         title="Trust & Banking Dashboard"
         subtitle="Monitor client funds, allocations, payouts, and arrears"
@@ -221,36 +218,7 @@ export default function TrustDashboard() {
         </Card>
       </div>
 
-      {/* Quick Actions */}
-      <Card className="p-5">
-        <h3 className="text-lg font-semibold text-ink">Quick Actions</h3>
-        <div className="mt-4 flex flex-wrap gap-3">
-          <Link to="/workspace/trust/cashbook">
-            <Button variant="secondary" size="md">
-              <FileText className="h-4 w-4" />
-              View Cashbook
-            </Button>
-          </Link>
-          <Link to="/workspace/trust/unallocated">
-            <Button variant="secondary" size="md">
-              <Upload className="h-4 w-4" />
-              Allocate Receipts
-            </Button>
-          </Link>
-          <Link to="/workspace/trust/payouts">
-            <Button variant="secondary" size="md">
-              <Wallet className="h-4 w-4" />
-              Process Payouts
-            </Button>
-          </Link>
-          <Link to="/workspace/trust/deposits">
-            <Button variant="secondary" size="md">
-              <KeyRound className="h-4 w-4" />
-              Manage Deposits
-            </Button>
-          </Link>
-        </div>
-      </Card>
+      {/* Quick Actions removed — navigation lives in the sidebar */}
 
       {/* Recent Activity */}
       <Card className="p-5">
@@ -264,7 +232,7 @@ export default function TrustDashboard() {
         {trustTransactions.length === 0 ? (
           <EmptyState
             title="No trust transactions"
-            description="Transactions will appear here when payments are received or payouts are processed."
+            description="Transactions will appear here when you record payments or process payouts. Start by recording a tenant payment or allocating an unallocated receipt."
           />
         ) : (
           <div className="mt-4 space-y-3">

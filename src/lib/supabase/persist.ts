@@ -98,6 +98,8 @@ function num(v: unknown): number | null {
 
 const APP_STAGE_TO_DB: Record<string, string> = {
   Started: 'DRAFT',
+  // P0-3: guest-submitted apps land at this FE stage.
+  'Application submitted': 'SUBMITTED',
   'Documents Pending': 'SUBMITTED',
   'Under Review': 'UNDER_REVIEW',
   'Credit Check': 'CREDIT_CHECK',
@@ -295,7 +297,14 @@ async function upsertNotification(id: string, data: Record<string, unknown>): Pr
 async function upsertTicket(id: string, data: Record<string, unknown>): Promise<void> {
   const supabase = createClient()
   const uuid = await ensureUuid('ticket', id)
-  await supabase.from('maintenance_tickets').upsert({
+  const dbStatus = TICKET_STATUS_TO_DB[str(data.status)] ?? 'OPEN'
+  // FE has one `cost` field: estimate while open, actual once resolved/cancelled.
+  const isClosed = dbStatus === 'COMPLETED' || dbStatus === 'CANCELLED'
+  const photoUrls = Array.isArray(data.photoUrls)
+    ? (data.photoUrls as string[]).filter((u) => typeof u === 'string' && u.length > 0)
+    : []
+  const resolutionNotes = str(data.resolutionNotes)
+  const res = await supabase.from('maintenance_tickets').upsert({
     id: uuid,
     client_id: await clientUuid(data.agencyId),
     unit_id: await unitUuid(data.propertyId),
@@ -304,13 +313,34 @@ async function upsertTicket(id: string, data: Record<string, unknown>): Promise<
     title: str(data.title),
     description: str(data.description),
     priority: TICKET_PRI_TO_DB[str(data.priority)] ?? 'MEDIUM',
-    status: TICKET_STATUS_TO_DB[str(data.status)] ?? 'OPEN',
+    status: dbStatus,
     contractor_id: await userUuid(data.contractorId),
     assigned_to: await userUuid(data.assignedAgentId),
-    cost_estimate: num(data.cost),
+    ...(isClosed ? { cost_actual: num(data.cost) } : { cost_estimate: num(data.cost) }),
+    ...(dbStatus === 'COMPLETED' ? { completed_at: str(data.resolvedAt) || new Date().toISOString() } : {}),
+    ...(photoUrls.length > 0 ? { photos: photoUrls } : {}),
     warranty_covered: Boolean(data.warrantyCovered),
     updated_at: new Date().toISOString(),
   })
+  // supabase-js resolves with { error } instead of throwing — surface RLS/permission failures.
+  if (res.error) throw new Error(`ticket upsert failed: ${res.error.message}`)
+  // Resolution notes have no column — persist as a ticket update row (audit trail).
+  if (isClosed && resolutionNotes) {
+    const existing = await supabase
+      .from('maintenance_ticket_updates')
+      .select('id')
+      .eq('ticket_id', uuid)
+      .eq('body', resolutionNotes)
+      .limit(1)
+    if (!existing.data || existing.data.length === 0) {
+      const ins = await supabase.from('maintenance_ticket_updates').insert({
+        ticket_id: uuid,
+        body: resolutionNotes,
+        status_after: dbStatus,
+      })
+      if (ins.error) throw new Error(`ticket update row failed: ${ins.error.message}`)
+    }
+  }
 }
 
 async function upsertMessage(id: string, data: Record<string, unknown>): Promise<void> {

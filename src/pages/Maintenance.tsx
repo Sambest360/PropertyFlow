@@ -373,6 +373,7 @@ export default function Maintenance() {
         resultLabel={resultLabel}
         reducedMotion={reducedMotion}
         priorities={ticketPriorities}
+        onClearFilters={clearFilters}
       />
 
       {portfolio.length === 0 ? (

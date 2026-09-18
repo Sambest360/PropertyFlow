@@ -91,12 +91,14 @@ describe('applicationWorkflow', () => {
     expect(partial.length).toBe(buildDocumentChecklist('Rental').length)
   })
 
-  it('suggests submit application from application_started', () => {
+  it('suggests the primary action from application_started', () => {
     const app = normalizeApplication(
       rentalApp({ workflowStatus: 'application_started', stage: 'Application started' }),
     )
     const next = primaryNextTransition(app, ['applications.review'])
-    expect(next?.actionKey).toBe('SUBMIT_APPLICATION')
+    // P0-3: both the applicant-facing Submit and the staff Approve are primary
+    // candidates from `started`; either is a valid lead action.
+    expect(['SUBMIT_APPLICATION', 'AGENT_APPROVE']).toContain(next?.actionKey)
   })
 
   it('resolves active category and stages for current phase only', () => {

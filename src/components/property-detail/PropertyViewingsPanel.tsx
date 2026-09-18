@@ -366,8 +366,18 @@ export function PropertyViewingsPanel({
           )
         })}
         {!propertySlots.length && (
-          <li className="py-8 text-center text-sm text-ink-500">
-            No viewing slots published for this property.
+          <li className="py-8 text-center">
+            <p className="text-sm text-ink-500">No viewing slots published for this property.</p>
+            {canManage && (
+              <Button
+                variant="secondary"
+                className="mt-3 min-h-11 gap-1.5 cursor-pointer"
+                onClick={() => setModalOpen(true)}
+              >
+                <Plus className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                Add viewing slot
+              </Button>
+            )}
           </li>
         )}
       </ul>

@@ -243,7 +243,64 @@ export const RENTAL_WORKFLOW: WorkflowTemplate = {
     { from: 'viewing_scheduled', to: 'viewing_completed', actionKey: 'COMPLETE_VIEWING', label: 'Mark viewing completed', hint: 'Record attendance and feedback', tone: 'secondary', requires: ['applications.review'] },
     { from: 'viewing_completed', to: 'application_started', actionKey: 'START_APPLICATION', label: 'Start application', hint: 'Open the rental application file', tone: 'primary', requires: ['applications.review'] },
     { from: 'application_started', to: 'application_submitted', actionKey: 'SUBMIT_APPLICATION', label: 'Submit application', hint: 'Applicant confirms intent to rent', tone: 'secondary', requires: ['applications.review'] },
+    // P0-3 (E2E #2): legacy apps stuck at "Application started" (pre-fix rows
+    // with submittedAt already set) must still expose the staff decision
+    // controls — not only the applicant's Submit button.
+    {
+      from: 'application_started',
+      to: 'conditionally_approved',
+      actionKey: 'AGENT_APPROVE',
+      label: 'Approve',
+      hint: 'Approve this applicant now (agency authority)',
+      tone: 'primary',
+      requires: ['applications.review'],
+      effect: 'approve',
+      confirm: 'Approve this application? The applicant gets tenant access.',
+    },
+    {
+      from: 'application_started',
+      to: 'rejected',
+      actionKey: 'REJECT_APPLICATION',
+      label: 'Reject',
+      hint: 'Decline this application',
+      tone: 'danger',
+      requires: ['applications.review'],
+      confirm: 'Reject this application? The applicant will be notified.',
+    },
     { from: 'application_submitted', to: 'documents_requested', actionKey: 'REQUEST_DOCUMENTS', label: 'Request documents', hint: 'Send FICA and income document checklist', tone: 'primary', requires: ['applications.review'] },
+    // P0-3 (E2E #2): staff decision controls directly from Submitted —
+    // Approve jumps the long screening ladder (agent authority) and Reject
+    // records the decline. Both write audit events via advanceApplicationWorkflow.
+    {
+      from: 'application_submitted',
+      to: 'conditionally_approved',
+      actionKey: 'AGENT_APPROVE',
+      label: 'Approve',
+      hint: 'Approve this applicant now (agency authority)',
+      tone: 'primary',
+      requires: ['applications.review'],
+      effect: 'approve',
+      confirm: 'Approve this application? The applicant gets tenant access.',
+    },
+    {
+      from: 'application_submitted',
+      to: 'agent_review',
+      actionKey: 'MOVE_TO_REVIEW',
+      label: 'Move to review',
+      hint: 'Flag for manual screening',
+      tone: 'secondary',
+      requires: ['applications.review'],
+    },
+    {
+      from: 'application_submitted',
+      to: 'rejected',
+      actionKey: 'REJECT_APPLICATION',
+      label: 'Reject',
+      hint: 'Decline this application',
+      tone: 'danger',
+      requires: ['applications.review'],
+      confirm: 'Reject this application? The applicant will be notified.',
+    },
     {
       from: 'documents_requested',
       to: 'documents_uploaded',

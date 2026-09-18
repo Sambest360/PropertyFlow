@@ -18,6 +18,7 @@ import {
 import { buildDocumentChecklist } from '../workflow'
 import { normalizeApplication } from '../applicationWorkflow'
 import { canonicalListingId, unitIdForProperty } from '../listingIds'
+import { deriveAgencyContractors } from '../contractors'
 
 type RoleDb =
   | 'SUPER_ADMIN'
@@ -144,7 +145,9 @@ function slotStatus(s: string): string {
 function appStage(status: string): string {
   const map: Record<string, string> = {
     DRAFT: 'Started',
-    SUBMITTED: 'Documents Pending',
+    // P0-3: SUBMITTED maps to the explicit guest-submitted stage; the FE
+    // legacy fallback stays for rows persisted before this change.
+    SUBMITTED: 'Application submitted',
     UNDER_REVIEW: 'Under Review',
     CREDIT_CHECK: 'Credit Check',
     APPROVED: 'Approved',
@@ -924,6 +927,7 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
     propertyEvents,
     invoices,
     lookups,
+    agencyContractors: deriveAgencyContractors(appUsers),
     trustTransactions,
     trustAllocations,
     payoutInstructions,

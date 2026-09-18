@@ -71,6 +71,7 @@ const STEPS: WizardStepMeta[] = [
   { id: 'amenities', label: 'Amenities', tip: 'Select features grouped by category — safety, living, kitchen, and more.' },
   { id: 'pricing', label: 'Pricing', tip: 'Set rent and/or sale price, deposit guidance, and availability rules.' },
   { id: 'assignment', label: 'Assignment', tip: 'Set the agency and field agent. Link a landlord only when the property is privately owned.' },
+  { id: 'assets', label: 'Assets (optional)', tip: 'P1-2: Add in-unit inventory (microwave, beds, etc.) or skip to add later in property detail.' },
   { id: 'review', label: 'Review', tip: 'Confirm everything before saving as draft or publishing.' },
 ]
 
@@ -1249,6 +1250,37 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
           </WizardSectionCard>
         )
       case 7:
+        return (
+          <WizardSectionCard title="Assets (optional)" description="P1-2: Add in-unit inventory now or skip to add later in property detail.">
+            <div className="space-y-4">
+              <p className="text-sm text-ink-500">
+                Track furniture, appliances, and other in-unit items for maintenance and inventory.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="cursor-pointer"
+                  onClick={() => goTo(stepIndex + 1)}
+                >
+                  Skip for now
+                </Button>
+                <Button
+                  type="button"
+                  className="cursor-pointer"
+                  onClick={() => {
+                    // Navigate to property detail after creation to add assets
+                    // For now, just skip as assets are added in detail view
+                    goTo(stepIndex + 1)
+                  }}
+                >
+                  Add assets later in property detail
+                </Button>
+              </div>
+            </div>
+          </WizardSectionCard>
+        )
+      case 8:
         return (
           <WizardSectionCard title="Review & submit" description="Confirm details before creating the listing.">
             <dl className="grid gap-2 text-sm sm:grid-cols-2">

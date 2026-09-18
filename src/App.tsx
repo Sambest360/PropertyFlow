@@ -19,6 +19,7 @@ const ListingDetail = lazy(() => import('./pages/market/ListingDetail'))
 const CalculatorsPage = lazy(() => import('./pages/market/CalculatorsPage'))
 const LoginPage = lazy(() => import('./pages/auth/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/auth/RegisterPage'))
+const PayfastResultPage = lazy(() => import('./pages/payfast/PayfastResultPage'))
 
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Properties = lazy(() => import('./pages/Properties'))
@@ -127,6 +128,9 @@ export default function App() {
                   </Suspense>
                 }
               />
+
+              <Route path="payfast/return" element={<Suspense fallback={<PageFallback />}><PayfastResultPage /></Suspense>} />
+              <Route path="payfast/cancel" element={<Suspense fallback={<PageFallback />}><PayfastResultPage cancelled /></Suspense>} />
 
               <Route element={<MarketplaceShell />}>
                 <Route

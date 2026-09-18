@@ -27,6 +27,7 @@ function app(partial: Partial<Application> & Pick<Application, 'id' | 'stage'>):
     viewingSlotId: null,
     notes: '',
     createdAt: '2026-01-01',
+    workflowStatus: undefined,
     ...partial,
   }
 }
@@ -81,6 +82,36 @@ describe('tenantHasApprovedOccupancy', () => {
       },
     } satisfies Tenancy
     expect(tenantHasApprovedOccupancy([], [tenancy], user)).toBe(true)
+  })
+
+  it('P0-7: unlocks from workflow status conditionally_approved', () => {
+    expect(
+      tenantHasApprovedOccupancy(
+        [app({ id: 'a1', stage: 'Application started', workflowStatus: 'conditionally_approved' })],
+        [],
+        user,
+      ),
+    ).toBe(true)
+  })
+
+  it('P0-7: unlocks from workflow status deposit_invoice_sent', () => {
+    expect(
+      tenantHasApprovedOccupancy(
+        [app({ id: 'a1', stage: 'Application started', workflowStatus: 'deposit_invoice_sent' })],
+        [],
+        user,
+      ),
+    ).toBe(true)
+  })
+
+  it('P0-7: unlocks from workflow status active_tenancy', () => {
+    expect(
+      tenantHasApprovedOccupancy(
+        [app({ id: 'a1', stage: 'Application started', workflowStatus: 'active_tenancy' })],
+        [],
+        user,
+      ),
+    ).toBe(true)
   })
 
   it('ignores other people’s applications', () => {

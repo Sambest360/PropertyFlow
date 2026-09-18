@@ -197,6 +197,7 @@ export default function Payments() {
           onViewChange={setView}
           resultLabel={resultLabel}
           reducedMotion={reducedMotion}
+          onClearFilters={clearFilters}
           paymentStatuses={paymentStatuses}
           paymentTypes={paymentTypes}
         />

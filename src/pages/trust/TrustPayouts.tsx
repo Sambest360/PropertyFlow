@@ -10,7 +10,6 @@ import { useAuth } from '../../context/AuthContext'
 import { formatZAR } from '../../data/seed'
 import { PageHeader, Card, Badge, Button, EmptyState } from '../../components/ui'
 import { DashboardPage } from '../../components/dashboard'
-import { TRUST_SUBNAV, SectionSubnav } from '../../components/layout/SectionSubnav'
 
 function formatCents(cents: number): string {
   return formatZAR(cents / 100)
@@ -123,7 +122,6 @@ export default function TrustPayouts() {
 
   return (
     <DashboardPage>
-      <SectionSubnav items={TRUST_SUBNAV} />
       <PageHeader
         title="Payouts"
         subtitle="Manage payout proposals, approvals, and submissions"

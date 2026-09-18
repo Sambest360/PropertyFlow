@@ -23,6 +23,7 @@ import {
   mapProperty,
 } from './idMap.js'
 import { canonicalListingId, unitIdForProperty } from '../src/lib/listingIds.js'
+import { deriveAgencyContractors } from '../src/lib/contractors.js'
 
 type RoleDb =
   | 'SUPER_ADMIN'
@@ -1131,6 +1132,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     activities: mappedActivities,
     propertyEvents: mappedPropertyEvents,
     invoices: mappedInvoices,
+    agencyContractors: deriveAgencyContractors(appUsers as never),
     trustTransactions: mappedTrustTxns,
     trustAllocations: mappedTrustAllocs,
     payoutInstructions: mappedPayouts,

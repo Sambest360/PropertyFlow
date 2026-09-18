@@ -33,6 +33,7 @@ import {
 } from './scopeGate.js'
 import { supabaseSessionMiddleware } from './supabase/middleware.js'
 import type { PersistBody } from './writes.js'
+import { payfastCreate, payfastItn } from './payfastRoutes.js'
 
 function productionAuthSecretMissing(): boolean {
   return process.env.NODE_ENV === 'production' && !process.env.AUTH_SECRET?.trim()
@@ -617,6 +618,10 @@ app.post('/api/applications/:id/approve', async (c) => {
     return c.json({ error: 'approve_failed', message }, errStatus(err))
   }
 })
+
+app.post('/api/payfast/create', (c) => payfastCreate(c))
+
+app.post('/api/payfast/itn', (c) => payfastItn(c))
 
 app.post('/api/notifications/mark-read', async (c) => {
   try {

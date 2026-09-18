@@ -162,6 +162,15 @@ export default function ComplianceDashboard() {
     updatePropertyDocument(doc.id, { status: 'verified' })
   }
 
+  // P0-8 (E2E #2): Compliance needs a two-way workflow — reject with a note,
+  // not only "mark valid". Persisted via the same document upsert path.
+  const markDocRejected = (doc: PropertyDocument, note: string) => {
+    updatePropertyDocument(doc.id, {
+      status: 'rejected',
+      note: note ? `Rejected: ${note}` : 'Rejected',
+    })
+  }
+
   return (
     <DashboardPage>
       <SectionSubnav items={[{ to: '/workspace/compliance', label: 'Dashboard', end: true }]} />
@@ -355,13 +364,22 @@ export default function ComplianceDashboard() {
                             Open document
                           </a>
                         ) : d.status === 'uploaded' && isPrincipal ? (
-                          <button
-                            type="button"
-                            onClick={() => markDocVerified(d)}
-                            className="cursor-pointer text-xs font-semibold text-primary hover:underline"
-                          >
-                            Mark valid
-                          </button>
+                          <span className="inline-flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => markDocVerified(d)}
+                              className="cursor-pointer text-xs font-semibold text-primary hover:underline"
+                            >
+                              Mark valid
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => markDocRejected(d, rejectNote[`doc-${d.id}`] ?? '')}
+                              className="cursor-pointer text-xs font-semibold text-red-600 hover:underline"
+                            >
+                              Reject
+                            </button>
+                          </span>
                         ) : (
                           <Link
                             to={`/workspace/properties/${d.propertyId}`}

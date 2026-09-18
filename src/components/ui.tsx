@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { forwardRef, useEffect, useState, Children, type ReactNode } from 'react'
+import { forwardRef, isValidElement, useEffect, useState, Children, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { MoreHorizontal, X } from 'lucide-react'
 import { ActionButtonRow } from './ActionButtonRow'
@@ -18,7 +18,14 @@ export function PageHeader({
   actions?: ReactNode
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
-  const actionItems = actions ? Children.toArray(actions) : []
+  const raw = actions ? Children.toArray(actions) : []
+  // Callers may pass a pre-wrapped <ActionButtonRow>; unwrap it so action
+  // counting (and the mobile overflow menu) sees the real buttons.
+  const first = raw[0]
+  const actionItems =
+    raw.length === 1 && isValidElement(first) && first.type === ActionButtonRow
+      ? Children.toArray((first.props as { children?: ReactNode }).children)
+      : raw
   const collapseMobile = actionItems.length > 1
 
   return (
@@ -30,35 +37,33 @@ export function PageHeader({
       {actions ? (
         <>
           <ActionButtonRow className={cn(collapseMobile && 'hidden sm:flex', 'sm:w-auto')}>
-            {actions}
+            {actionItems}
           </ActionButtonRow>
           {collapseMobile ? (
             <div className="relative sm:hidden">
               <ActionButtonRow>
-              {actionItems[actionItems.length - 1]}
-              <button
-                type="button"
-                aria-expanded={menuOpen}
-                aria-label="More actions"
-                onClick={() => setMenuOpen((o) => !o)}
-                className="inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-full border border-primary-100 text-ink-500 transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              >
-                <MoreHorizontal className="h-5 w-5" strokeWidth={1.6} />
-              </button>
-              {menuOpen ? (
-                <div className="absolute right-0 top-full z-20 mt-2 flex min-w-[12rem] flex-col gap-2 rounded-2xl border border-primary-100 bg-white p-2 shadow-lg shadow-ink/10">
-                  {actionItems.slice(0, -1).map((item, i) => (
-                    <div key={i} onClick={() => setMenuOpen(false)}>
-                      {item}
-                    </div>
-                  ))}
-                </div>
-              ) : null}
+                {actionItems[actionItems.length - 1]}
+                <button
+                  type="button"
+                  aria-expanded={menuOpen}
+                  aria-label="More actions"
+                  onClick={() => setMenuOpen((o) => !o)}
+                  className="inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-full border border-primary-100 text-ink-500 transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  <MoreHorizontal className="h-5 w-5" strokeWidth={1.6} />
+                </button>
+                {menuOpen ? (
+                  <div className="absolute right-0 top-full z-20 mt-2 flex min-w-[12rem] flex-col gap-2 rounded-2xl border border-primary-100 bg-white p-2 shadow-lg shadow-ink/10">
+                    {actionItems.slice(0, -1).map((item, i) => (
+                      <div key={i} onClick={() => setMenuOpen(false)}>
+                        {item}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </ActionButtonRow>
             </div>
-          ) : (
-            <ActionButtonRow className="sm:hidden">{actions}</ActionButtonRow>
-          )}
+          ) : null}
         </>
       ) : null}
     </div>

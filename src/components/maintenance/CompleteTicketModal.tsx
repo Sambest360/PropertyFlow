@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { AssetCondition } from '../../data/infrastructure'
 import type { AppUser, MaintenanceTicket } from '../../types/domain'
 import {
@@ -42,9 +42,17 @@ export function CompleteTicketModal({
   const [completionPhotoUrls, setCompletionPhotoUrls] = useState<string[]>([])
   const [condition, setCondition] = useState<AssetCondition>('Good')
   const [error, setError] = useState('')
+  const wasOpen = useRef(false)
 
   useEffect(() => {
-    if (!open || !ticket) return
+    // Reseed only on the closed→open transition: while open, background store
+    // refreshes replace the ticket object identity and must NOT wipe edits.
+    if (!open || !ticket) {
+      wasOpen.current = false
+      return
+    }
+    if (wasOpen.current) return
+    wasOpen.current = true
     setCost(ticket.cost ? String(ticket.cost) : '')
     setWorkNotes(ticket.resolutionNotes ?? '')
     setContractorId(ticket.contractorId ?? '')

@@ -97,5 +97,9 @@ export function formatAuthError(message: string): { title: string; text?: string
     }
   }
 
-  return { title: 'Something went wrong', text: raw }
+  // P1-4: Provide a more specific fallback message
+  return {
+    title: 'Authentication error',
+    text: raw || 'An unexpected error occurred. Please try again or contact support if the problem persists.',
+  }
 }

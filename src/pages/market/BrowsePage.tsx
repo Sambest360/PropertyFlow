@@ -20,6 +20,7 @@ import {
   type UnitCardPayload,
 } from '../../lib/api/unitsApi'
 import { blockedPropertyIdsForApplicant } from '../../lib/blockedApplicants'
+import { canonicalListingId } from '../../lib/listingIds'
 import { useWishlist } from '../../hooks/useWishlist'
 import { usePageMeta } from '../../hooks/usePageMeta'
 import { FullScreenSheet } from '../../components/layout/mobile/FullScreenSheet'
@@ -230,9 +231,19 @@ export default function BrowsePage() {
             : undefined
           return propertyToUnitCard(p, building)
         })
+    // P1-1 (E2E #2): one card per canonical listing ID — PR-x and its unt-x
+    // alias (or any doubled prefix) must collapse to a single result.
+    const seen = new Set<string>()
     return raw
       .filter((c) => !c.property_id || !blockedIds.has(c.property_id))
       .filter((c) => cardMatchesBrowseMode(c, mode, properties, state.properties))
+      .filter((c) => {
+        const key = canonicalListingId(c.property_id ?? c.id).toLowerCase()
+        if (!key) return true
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
   }, [unitsFeed, filtered, state.buildings, state.properties, blockedIds, mode, properties])
 
   const getCount = useCallback(

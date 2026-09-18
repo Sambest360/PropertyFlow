@@ -1498,9 +1498,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       return broadcast
     },
     createProperty: (input) => {
+      // P0-4: Use unt- prefix as canonical public ID for single durable public face
+      const propertyId = uid('unt')
       const property: PropertyAsset = {
         ...input,
-        id: uid('PR'),
+        id: propertyId,
         createdAt: new Date().toISOString().slice(0, 10),
         images: input.images?.length ? input.images : [],
         rooms: input.rooms ?? [],
@@ -1540,7 +1542,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         createdAt: new Date().toISOString().slice(0, 10),
       }
 
-      const unitId = uid('unt')
+      // P0-4: Ensure single durable public ID - property.id is canonical, unit.id is derived
+      const propertyId = uid('unt') // Use unt- prefix as canonical public ID
+      const unitId = propertyId // Unit ID matches property ID for single public face
       const clientId = building.clientId
 
       const roomDrafts =
@@ -1633,7 +1637,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
       const property: PropertyAsset = {
         ...input.property,
-        id: uid('PR'),
+        id: propertyId, // P0-4: Use same ID as unit for single durable public ID
         buildingId: building.id,
         unitId,
         beds,
@@ -1755,6 +1759,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       // P0-1: the public gate reads both the property status AND the linked
       // unit's statusKey — publishing must index both or the listing stays
       // invisible on /browse and /listing/{id}.
+      // P0-4: Ensure atomic publish to prevent race conditions and dual IDs
       const PUBLIC_ON: PropertyAsset['status'][] = ['Published', 'Featured', 'Under Offer']
       const unitListingType: Unit['listingType'] =
         prev?.listingMode === 'sale' ? 'sale' : prev?.listingMode === 'both' ? 'both' : 'rent'
@@ -1770,8 +1775,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             ? 'MAINTENANCE'
             : 'DRAFT'
       let unitPatch: Unit | null = null
-      if (prev?.unitId) {
-        const unit = state.units.find((u) => u.id === prev.unitId)
+      // P0-4: Handle both cases where unitId is separate or same as property.id
+      const targetUnitId = prev?.unitId === prev?.id ? prev.id : prev?.unitId
+      if (targetUnitId) {
+        const unit = state.units.find((u) => u.id === targetUnitId)
         if (unit && (unit.statusKey !== nextUnitStatus || unit.listingType !== unitListingType)) {
           unitPatch = { ...unit, statusKey: nextUnitStatus, listingType: unitListingType }
         }
@@ -1806,6 +1813,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           propertyEvents: [pe!, ...s.propertyEvents].slice(0, 400),
         }
       })
+      // P0-4: Atomic persistence - both property and unit must be updated together
       if (prev) persistUpsert('property', id, { ...prev, status, id } as Record<string, unknown>)
       if (unitPatch) persistUpsert('unit', unitPatch.id, unitPatch as unknown as Record<string, unknown>)
       if (pe) persistUpsert('property_event', pe.id, pe as unknown as Record<string, unknown>)
@@ -1974,7 +1982,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const template = UNIT_TEMPLATES.find((t) => t.id === input.templateId) ?? UNIT_TEMPLATES[1]
       const building = state.buildings.find((b) => b.id === input.buildingId)
       const clientId = building?.clientId ?? 'ag-horizon'
-      const unitId = uid('unt')
+      // P0-4: Use single ID for both property and unit
+      const propertyId = uid('unt')
+      const unitId = propertyId
       const unit: Unit = {
         id: unitId,
         clientId,
@@ -2022,13 +2032,47 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           condition: a.condition,
         }
       })
+      // P0-4: Create corresponding property with same ID for single public face
+      const property: PropertyAsset = {
+        id: propertyId,
+        unitId,
+        buildingId: input.buildingId,
+        agencyId: clientId,
+        landlordId: building?.landlordId ?? '',
+        agentId: input.agentId,
+        title: input.title,
+        type: 'Apartment',
+        status: 'Draft',
+        listingMode: input.listingType === 'sale' ? 'sale' : 'rent',
+        price: input.price,
+        rent: input.rent,
+        beds: template.bedrooms,
+        baths: template.bathrooms,
+        parking: template.parking,
+        garages: template.parking,
+        area: template.squareMeters,
+        address: building?.addressLine1 ?? '',
+        suburb: building?.suburb ?? '',
+        city: building?.city ?? '',
+        lat: building?.lat ?? 0,
+        lng: building?.lng ?? 0,
+        featured: false,
+        images: building?.images ?? [],
+        rooms: [],
+        amenities: ['Fibre'],
+        description: template.blurb,
+        createdAt: new Date().toISOString().slice(0, 10),
+      }
+
       patch((s) => ({
         ...s,
+        properties: [property, ...s.properties],
         units: [unit, ...s.units],
         infraRooms: [...rooms, ...s.infraRooms],
         internalAssets: [...assets, ...s.internalAssets],
       }))
       addActivity(`Unit ${unit.unitNumber} created from ${template.label}`, 'System', clientId)
+      persistUpsert('property', property.id, property as unknown as Record<string, unknown>)
       return unit
     },
     updateInternalAsset: (id, assetPatch) =>
@@ -2505,6 +2549,37 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         } as SubmitApplicationResult
       }
 
+      // P0-2 (E2E #2): the application must be owned by the submitting session
+      // user only — never a stale/anonymous identity. Staff may still create on
+      // behalf of an applicant via skipGuards.
+      const applicantIdentity = input.applicantUserId?.trim()
+      if (!input.skipGuards && (!applicantIdentity || applicantIdentity === 'guest')) {
+        return {
+          status: 'ERROR',
+          error: 'Your session could not be verified — please sign in and apply again.',
+          httpStatus: 401,
+        } as SubmitApplicationResult
+      }
+
+      // P0-5 (E2E #2): product rule is one application per (listing, applicant) —
+      // multiple DIFFERENT applicants on one listing are always allowed.
+      if (
+        !input.skipGuards &&
+        applicantIdentity &&
+        state.applications.some(
+          (a) =>
+            a.propertyId === input.propertyId &&
+            (a.applicantUserId === applicantIdentity ||
+              (!!input.email && a.email.toLowerCase() === input.email.toLowerCase())),
+        )
+      ) {
+        return {
+          status: 'ERROR',
+          error: 'You already have an application on this listing. Track it in My applications.',
+          httpStatus: 409,
+        } as SubmitApplicationResult
+      }
+
       if (!input.skipGuards) {
         const check = validateApplicationSubmission({
           unit,
@@ -2536,8 +2611,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         email: input.email,
         phone: input.phone,
         type: input.type,
-        workflowStatus: 'documents_requested',
-        stage: 'Documents requested',
+        workflowStatus: 'application_submitted',
+        stage: 'Application submitted',
         progress: STAGE_PROGRESS['Documents Pending'],
         income: input.income ?? 0,
         employment: input.employment ?? 'To be completed',

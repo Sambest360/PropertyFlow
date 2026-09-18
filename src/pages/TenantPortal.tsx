@@ -10,6 +10,7 @@ import {
 import { Link, Navigate, useLocation } from 'react-router-dom'
 import { usePublicProperties, useStore } from '../context/AppStore'
 import { useAuth } from '../context/AuthContext'
+import { startPayfastCheckout } from '../lib/payfast/checkout'
 import { RequirePermission } from '../components/RequirePermission'
 import {
   AttentionHero,
@@ -41,13 +42,30 @@ function resolveTenantView(pathname: string): TenantView {
 }
 
 export default function TenantPortal() {
-  const { state, markPaymentPaid, setDocumentStatus } = useStore()
+  const { state, setDocumentStatus } = useStore()
   const publicProperties = usePublicProperties()
   const { user, has } = useAuth()
   const location = useLocation()
   const view = resolveTenantView(location.pathname)
   const portal = useTenantPortalState()
   const { ids: wishlistIds } = useWishlist(user.id)
+  const [payBusyId, setPayBusyId] = useState<string | null>(null)
+  const [payError, setPayError] = useState<string | null>(null)
+
+  /** Portal Pay button: launches PayFast checkout; ledger settles via ITN. */
+  const handlePortalPay = async (id: string) => {
+    if (payBusyId) return
+    setPayBusyId(id)
+    setPayError(null)
+    const result = await startPayfastCheckout(id, {
+      itemName: `PropertyFlow · ${state.payments.find((p) => p.id === id)?.type ?? 'Payment'}`,
+    })
+    if (!result.ok) {
+      setPayBusyId(null)
+      setPayError(result.userMessage ?? 'Checkout could not be started.')
+    }
+    // On success the browser navigates to PayFast's hosted page.
+  }
 
   const wishlistProperties = useMemo(
     () =>
@@ -98,6 +116,14 @@ export default function TenantPortal() {
           <TenantComplaintsView portal={portal} />
         ) : (
           <>
+            {payError && (
+              <p
+                className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+                role="alert"
+              >
+                {payError}
+              </p>
+            )}
             {view === 'home' && (
               <>
                 <AttentionHero
@@ -178,8 +204,9 @@ export default function TenantPortal() {
                     />
                     <PaymentsPanel
                       payments={portal.payments}
-                      onPay={markPaymentPaid}
+                      onPay={handlePortalPay}
                       canPay={has('payments.manage')}
+                      payBusyId={payBusyId}
                     />
                   </div>
                 )}
@@ -283,10 +310,12 @@ function PaymentsPanel({
   payments,
   onPay,
   canPay,
+  payBusyId,
 }: {
   payments: ReturnType<typeof useTenantPortalState>['payments']
   onPay: (id: string) => void
   canPay: boolean
+  payBusyId: string | null
 }) {
   return (
     <Card className="p-5">
@@ -306,8 +335,13 @@ function PaymentsPanel({
               {p.status === 'Paid' ? (
                 <Badge tone="success">Paid</Badge>
               ) : canPay ? (
-                <Button size="sm" className="cursor-pointer" onClick={() => onPay(p.id)}>
-                  Pay
+                <Button
+                  size="sm"
+                  className="cursor-pointer"
+                  disabled={payBusyId === p.id}
+                  onClick={() => void onPay(p.id)}
+                >
+                  {payBusyId === p.id ? 'Opening…' : 'Pay'}
                 </Button>
               ) : (
                 <Badge tone="warning">{p.status}</Badge>

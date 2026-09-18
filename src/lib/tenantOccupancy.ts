@@ -12,6 +12,33 @@ export const TENANT_OCCUPANCY_STAGES: ReadonlySet<string> = new Set([
   'Move-In Scheduled',
   'Keys Handed Over',
   'Active Tenancy',
+  // P0-7: Add workflow status stages for occupancy unlock
+  'conditionally_approved',
+  'deposit_invoice_sent',
+  'lease_generated',
+  'lease_sent',
+  'tenant_signed',
+  'landlord_signed',
+  'inspection_scheduled',
+  'inspection_completed',
+  'keys_ready',
+  'keys_handed_over',
+  'active_tenancy',
+])
+
+/** Workflow statuses that unlock tenancy ops (payments, maintenance). */
+export const TENANT_OCCUPANCY_WORKFLOW_STATUSES: ReadonlySet<string> = new Set([
+  'conditionally_approved',
+  'deposit_invoice_sent',
+  'lease_generated',
+  'lease_sent',
+  'tenant_signed',
+  'landlord_signed',
+  'inspection_scheduled',
+  'inspection_completed',
+  'keys_ready',
+  'keys_handed_over',
+  'active_tenancy',
 ])
 
 /** Permissions only available after a tenant is approved onto a property. */
@@ -39,6 +66,7 @@ function matchesApplicant(app: Application, user: TenantIdentity): boolean {
 /**
  * True when the tenant has at least one approved (or later) application,
  * or an active tenancy row — unlocks payments / maintenance / messaging.
+ * P0-7: Check both stage labels and workflow status for proper occupancy unlock.
  */
 export function tenantHasApprovedOccupancy(
   applications: readonly Application[],
@@ -59,7 +87,8 @@ export function tenantHasApprovedOccupancy(
       a.stage !== 'Blocked' &&
       a.stage !== 'Rejected' &&
       a.stage !== 'Withdrawn' &&
-      TENANT_OCCUPANCY_STAGES.has(a.stage),
+      (TENANT_OCCUPANCY_STAGES.has(a.stage) ||
+        (a.workflowStatus && TENANT_OCCUPANCY_WORKFLOW_STATUSES.has(a.workflowStatus))),
   )
 }
 
