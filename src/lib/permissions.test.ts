@@ -21,6 +21,8 @@ describe('can / role packs', () => {
     expect(can('agent', 'applications.review')).toBe(false)
     expect(can('ground_agent', 'listings.publish')).toBe(true)
     expect(can('ground_agent', 'applications.review')).toBe(true)
+    expect(can('agent_admin', 'listings.publish')).toBe(true)
+    expect(can('agent_admin', 'trust.view')).toBe(true)
   })
 
   it('tenants get portal; payments stay in the pack (gated by occupancy at runtime)', () => {

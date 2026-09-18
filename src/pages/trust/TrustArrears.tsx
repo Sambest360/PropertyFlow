@@ -7,6 +7,7 @@ import { useAuth } from '../../context/AuthContext'
 import { formatZAR } from '../../data/seed'
 import { PageHeader, Card, Button, Input, EmptyState } from '../../components/ui'
 import { DashboardPage } from '../../components/dashboard'
+import { TRUST_SUBNAV, SectionSubnav } from '../../components/layout/SectionSubnav'
 
 function formatCents(cents: number): string {
   return formatZAR(cents / 100)
@@ -61,6 +62,7 @@ export default function TrustArrears() {
 
   return (
     <DashboardPage>
+      <SectionSubnav items={TRUST_SUBNAV} />
       <PageHeader
         title="Arrears"
         subtitle="Track and manage tenant arrears by ageing bucket"

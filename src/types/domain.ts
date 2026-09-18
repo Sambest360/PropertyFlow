@@ -40,6 +40,8 @@ export type Permission =
   | 'portal.owner'
   | 'portal.tenant'
   | 'portal.contractor'
+  // Compliance permissions
+  | 'compliance.view'
   // Trust / Banking permissions
   | 'trust.view'
   | 'trust.allocate'

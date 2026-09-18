@@ -51,8 +51,7 @@ export async function sweetWarning(title: string, text?: string) {
 }
 
 export async function showAuthError(message: string) {
-  if (!message.trim()) return
-  const { title, text } = formatAuthError(message)
+  const { title, text } = formatAuthError(message ?? '')
   await sweetError(title, text)
 }
 

@@ -9,6 +9,7 @@ import { ensureEntityMapTable } from './entityMap.js'
 export type IdMapCache = {
   userBackendToFe: Map<string, string>
   unitBackendToPropertyFe: Map<string, string>
+  agencyBackendToFe: Map<string, string>
 }
 
 let cached: IdMapCache | null = null
@@ -26,6 +27,7 @@ export async function loadIdMapCache(force = false): Promise<IdMapCache> {
 
   const userBackendToFe = new Map<string, string>()
   const unitBackendToPropertyFe = new Map<string, string>()
+  const agencyBackendToFe = new Map<string, string>()
 
   await ensureEntityMapTable()
 
@@ -40,6 +42,9 @@ export async function loadIdMapCache(force = false): Promise<IdMapCache> {
     if (row.entity_type === 'user') {
       userBackendToFe.set(row.backend_id, row.frontend_id)
     }
+    if (row.entity_type === 'agency') {
+      agencyBackendToFe.set(row.backend_id, row.frontend_id)
+    }
     if (row.entity_type === 'property' || row.entity_type === 'unit') {
       const fe = row.frontend_id.startsWith('unt-')
         ? row.frontend_id.slice(4)
@@ -53,7 +58,7 @@ export async function loadIdMapCache(force = false): Promise<IdMapCache> {
     if (fe) userBackendToFe.set(u.id, fe)
   }
 
-  cached = { userBackendToFe, unitBackendToPropertyFe }
+  cached = { userBackendToFe, unitBackendToPropertyFe, agencyBackendToFe }
   cachedAt = now
   return cached
 }

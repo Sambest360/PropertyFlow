@@ -174,6 +174,100 @@ class DirectQuery {
   }
 }
 
+const AUTH_INSTANCE_ID = '00000000-0000-0000-0000-000000000000'
+
+/**
+ * GoTrue will 500 on /token if auth.users is missing identities / app metadata.
+ * Keep this insert aligned with Auth Admin API createUser(email_confirm: true).
+ */
+async function insertGoTrueUser(
+  pool: pg.Pool,
+  input: {
+    id: string
+    email: string
+    password: string
+    userMetadata: Record<string, unknown>
+    emailConfirm: boolean
+  },
+): Promise<void> {
+  const email = input.email.trim().toLowerCase()
+  const confirmedSql = input.emailConfirm ? 'NOW()' : 'NULL'
+  const params = [input.id, AUTH_INSTANCE_ID, email, input.password, JSON.stringify(input.userMetadata)]
+  try {
+    await pq(
+      pool,
+      `INSERT INTO auth.users (
+         id, instance_id, aud, role, email, encrypted_password,
+         email_confirmed_at, confirmation_token, recovery_token,
+         email_change_token_new, email_change,
+         raw_app_meta_data, raw_user_meta_data, is_sso_user,
+         created_at, updated_at
+       ) VALUES (
+         $1, $2::uuid, 'authenticated', 'authenticated', $3,
+         crypt($4, gen_salt('bf', 10)),
+         ${confirmedSql}, '', '', '', '',
+         '{"provider":"email","providers":["email"]}'::jsonb,
+         $5::jsonb, false,
+         NOW(), NOW()
+       )`,
+      params,
+    )
+  } catch {
+    await pq(
+      pool,
+      `INSERT INTO auth.users (
+         id, instance_id, aud, role, email, encrypted_password,
+         email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+         created_at, updated_at
+       ) VALUES (
+         $1, $2::uuid, 'authenticated', 'authenticated', $3,
+         crypt($4, gen_salt('bf', 10)),
+         ${confirmedSql},
+         '{"provider":"email","providers":["email"]}'::jsonb,
+         $5::jsonb,
+         NOW(), NOW()
+       )`,
+      params,
+    )
+  }
+  await ensureGoTrueIdentity(pool, input.id, email)
+}
+
+async function ensureGoTrueIdentity(pool: pg.Pool, userId: string, email: string): Promise<void> {
+  const identityId = crypto.randomUUID()
+  const identityData = JSON.stringify({
+    sub: userId,
+    email,
+    email_verified: true,
+    phone_verified: false,
+  })
+  try {
+    await pq(
+      pool,
+      `INSERT INTO auth.identities (
+         id, user_id, identity_data, provider, provider_id, last_sign_in_at, created_at, updated_at
+       )
+       SELECT $1::uuid, $2::uuid, $3::jsonb, 'email', $4, NOW(), NOW(), NOW()
+       WHERE NOT EXISTS (
+         SELECT 1 FROM auth.identities WHERE user_id = $2::uuid AND provider = 'email'
+       )`,
+      [identityId, userId, identityData, email],
+    )
+  } catch {
+    await pq(
+      pool,
+      `INSERT INTO auth.identities (
+         id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at
+       )
+       SELECT $1::uuid, $2::uuid, $3::jsonb, 'email', NOW(), NOW(), NOW()
+       WHERE NOT EXISTS (
+         SELECT 1 FROM auth.identities WHERE user_id = $2::uuid AND provider = 'email'
+       )`,
+      [identityId, userId, identityData],
+    )
+  }
+}
+
 export class DirectAdminClient {
   private pool: pg.Pool
   private password: string
@@ -197,17 +291,19 @@ export class DirectAdminClient {
           const meta = input.user_metadata ?? {}
           const id = crypto.randomUUID()
           const pw = input.password ?? password
+          const email = input.email.trim().toLowerCase()
           try {
-            await pq(
-              pool,
-              `INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at, raw_user_meta_data, aud, role, created_at, updated_at)
-               VALUES ($1, lower($2), crypt($3, gen_salt('bf', 10)), NOW(), $4::jsonb, 'authenticated', 'authenticated', NOW(), NOW())`,
-              [id, input.email, pw, JSON.stringify(meta)],
-            )
+            await insertGoTrueUser(pool, {
+              id,
+              email,
+              password: pw,
+              userMetadata: meta,
+              emailConfirm: input.email_confirm !== false,
+            })
           } catch (e) {
             return { data: { user: null }, error: dbErr(e) }
           }
-          return { data: { user: { id, email: input.email } }, error: null }
+          return { data: { user: { id, email } }, error: null }
         },
 
         async listUsers(opts: { page?: number; perPage?: number }) {
@@ -245,27 +341,46 @@ export class DirectAdminClient {
         },
 
         async updateUserById(id: string, patch: { password?: string; email_confirm?: boolean; user_metadata?: Record<string, unknown> }) {
-          if (patch.password) {
-            try {
+          try {
+            if (patch.password) {
               await pq(
                 pool,
                 `UPDATE auth.users SET encrypted_password = crypt($2, gen_salt('bf', 10)), updated_at = NOW() WHERE id = $1`,
                 [id, patch.password],
               )
-            } catch (e) {
-              return { error: dbErr(e) }
             }
-          }
-          if (patch.user_metadata) {
-            try {
+            if (patch.email_confirm) {
               await pq(
                 pool,
-                `UPDATE auth.users SET raw_user_meta_data = raw_user_meta_data || $2::jsonb, updated_at = NOW() WHERE id = $1`,
+                `UPDATE auth.users SET email_confirmed_at = COALESCE(email_confirmed_at, NOW()), updated_at = NOW() WHERE id = $1`,
+                [id],
+              )
+            }
+            if (patch.user_metadata) {
+              await pq(
+                pool,
+                `UPDATE auth.users SET raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb) || $2::jsonb, updated_at = NOW() WHERE id = $1`,
                 [id, JSON.stringify(patch.user_metadata)],
               )
-            } catch (e) {
-              return { error: dbErr(e) }
             }
+            await pq(
+              pool,
+              `UPDATE auth.users
+               SET raw_app_meta_data = COALESCE(raw_app_meta_data, '{}'::jsonb)
+                     || '{"provider":"email","providers":["email"]}'::jsonb,
+                   confirmation_token = COALESCE(confirmation_token, ''),
+                   recovery_token = COALESCE(recovery_token, ''),
+                   email_change = COALESCE(email_change, ''),
+                   email_change_token_new = COALESCE(email_change_token_new, ''),
+                   updated_at = NOW()
+               WHERE id = $1`,
+              [id],
+            )
+            const emailRow = await pq<{ email: string }>(pool, `SELECT email FROM auth.users WHERE id = $1`, [id])
+            const email = emailRow.rows[0]?.email
+            if (email) await ensureGoTrueIdentity(pool, id, email)
+          } catch (e) {
+            return { error: dbErr(e) }
           }
           return { error: null }
         },
@@ -275,5 +390,23 @@ export class DirectAdminClient {
 
   from(table: string) {
     return new DirectQuery(this.pool, table)
+  }
+
+  /** Patch existing GoTrue rows that were seeded without identities (token HTTP 500). */
+  async repairAuthUsers(password?: string): Promise<{ repaired: number }> {
+    const res = await pq<{ id: string; email: string }>(
+      this.pool,
+      `SELECT id::text AS id, email FROM auth.users WHERE email IS NOT NULL`,
+      [],
+    )
+    let repaired = 0
+    for (const row of res.rows) {
+      await this.auth.admin.updateUserById(row.id, {
+        password: password ?? this.password,
+        email_confirm: true,
+      })
+      repaired += 1
+    }
+    return { repaired }
   }
 }

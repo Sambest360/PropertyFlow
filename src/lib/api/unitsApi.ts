@@ -15,6 +15,7 @@ import type {
 } from './contracts'
 import { buildDisplayMetadata, formatZARLabel } from './displayMetadata'
 import type { AppUser } from '../../types/domain'
+import { canonicalListingId } from '../listingIds'
 import { isPublicMarketplaceUnit } from '../publicListings'
 
 export type UnitSearchFilters = {
@@ -243,7 +244,7 @@ export function buildUnitCard(params: {
     is_premium_tier: buildingCtx.is_premium_tier,
     badges,
     building: buildingCtx,
-    property_id: property?.id ?? null,
+    property_id: property?.id ? canonicalListingId(property.id) : null,
     display_metadata,
     actions: buildUnitCardActions({
       unitId: unit.id,

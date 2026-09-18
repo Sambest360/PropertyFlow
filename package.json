@@ -20,6 +20,7 @@
     "db:migrate:auth": "psql \"$DIRECT_URL\" -f database/postgres/migrations/002_supabase_auth.sql && psql \"$DIRECT_URL\" -f database/postgres/migrations/003_rls_bootstrap.sql && psql \"$DIRECT_URL\" -f database/postgres/migrations/004_ensure_user_profile.sql && psql \"$DIRECT_URL\" -f database/postgres/migrations/005_public_listing_enquiry.sql",
     "db:setup:remote:empty": "psql \"$DIRECT_URL\" -f database/postgres/schema.sql && psql \"$DIRECT_URL\" -f database/postgres/migrations/001_performance_indexes.sql && psql \"$DIRECT_URL\" -f database/postgres/migrations/002_supabase_auth.sql && psql \"$DIRECT_URL\" -f database/postgres/migrations/003_rls_bootstrap.sql && psql \"$DIRECT_URL\" -f database/postgres/migrations/004_ensure_user_profile.sql",
     "db:super-admin": "tsx scripts/create-super-admin.ts",
+    "db:repair-auth": "tsx scripts/repair-auth-identities.ts",
     "db:seed:supabase": "tsx scripts/seed-supabase-demo.ts",
     "db:seed:applicants": "tsx scripts/seed-applicants.ts",
     "db:seed": "psql -h 127.0.0.1 -d propertyflow -f database/postgres/seed_empty.sql",

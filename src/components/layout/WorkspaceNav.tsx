@@ -1,4 +1,4 @@
-import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useLocation } from 'react-router-dom'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronDown,
@@ -19,6 +19,7 @@ import {
   type WorkspaceNavEntry,
 } from './navigation'
 import { useAuth } from '../../context/AuthContext'
+import { signOutAndRedirect } from '../../lib/auth/signOut'
 import { useStore } from '../../context/AppStore'
 import { tenantHasApprovedOccupancy } from '../../lib/tenantOccupancy'
 import { isAgencyStaff } from '../../lib/permissions'
@@ -445,7 +446,7 @@ export function WorkspaceSidebar({
   brandMuted?: boolean
 }) {
   const { pathname } = useLocation()
-  const navigate = useNavigate()
+  const { logout } = useAuth()
   const reducedMotion = usePrefersReducedMotion()
   const navRef = useRef<HTMLElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -656,7 +657,7 @@ export function WorkspaceSidebar({
         <button
           type="button"
           title={collapsed ? 'Log out' : undefined}
-          onClick={() => navigate('/')}
+          onClick={() => void signOutAndRedirect(logout)}
           className={footerClass(collapsed)}
         >
           <LogOut className="h-5 w-5 shrink-0" strokeWidth={ICON_STROKE} aria-hidden />

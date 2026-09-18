@@ -13,6 +13,7 @@ import {
   resolveFrontendRole,
   type IdMapCache,
 } from './idMap'
+import { canonicalListingId, unitIdForProperty } from '../listingIds'
 
 type RoleDb =
   | 'SUPER_ADMIN'
@@ -46,12 +47,14 @@ export function mapGuestMarketplacePayload(payload: {
   users?: Record<string, unknown>[]
   buildings?: Record<string, unknown>[]
   units?: Record<string, unknown>[]
+  rooms?: Record<string, unknown>[]
   entity_id_map?: { entity_type: string; backend_id: string; frontend_id: string }[]
 }): PostgresBootstrap {
   const clients = payload.clients ?? []
   const users = payload.users ?? []
   const buildingsRaw = payload.buildings ?? []
   const unitsRawInput = payload.units ?? []
+  const roomsRaw = payload.rooms ?? []
   const cache = buildIdMapCache(
     payload.entity_id_map ?? [],
     clients as Array<{ id: string; settings: Record<string, unknown> | null }>,
@@ -134,7 +137,7 @@ export function mapGuestMarketplacePayload(payload: {
   const unitsRaw = unitsRawInput.map((u) => {
     const b = buildingByUuid.get(String(u.building_id))
     return {
-      id: `unt-${mapPropertyFe(String(u.id)) ?? u.id}`,
+      id: unitIdForProperty(canonicalListingId(mapPropertyFe(String(u.id)) ?? String(u.id))),
       clientId: mapAgencyFe(u.client_id as string)!,
       buildingId: feBuildingByUuid.get(String(u.building_id)) ?? String(u.building_id),
       agentId: mapUserFe(u.agent_id as string),
@@ -163,12 +166,14 @@ export function mapGuestMarketplacePayload(payload: {
       formattedAddress: (u.formatted_address as string) ?? (b?.formatted_address as string) ?? null,
       geocodedAt: iso(u.geocoded_at as string) ?? iso(b?.geocoded_at as string),
       createdAt: dateOnly(u.created_at as string),
-      _propertyId: mapPropertyFe(String(u.id))!,
+      _propertyId: canonicalListingId(mapPropertyFe(String(u.id)) ?? String(u.id)),
+      _unitUuid: String(u.id),
     }
   })
 
   const properties = unitsRaw.map((u) => {
     const b = buildings.find((x) => x.id === u.buildingId)
+    const unitRooms = roomsRaw.filter((r) => String(r.unit_id) === u._unitUuid)
     const statusKey = u.statusKey
     const status =
       statusKey === 'FEATURED' || u.featured
@@ -203,7 +208,14 @@ export function mapGuestMarketplacePayload(payload: {
       formattedAddress: u.formattedAddress,
       geocodedAt: u.geocodedAt,
       images: u.images.length ? u.images : (b?.images ?? []),
-      rooms: [],
+      rooms: unitRooms.map((r) => ({
+        id: String(r.id),
+        name: String(r.name ?? 'Room'),
+        beds: Number(r.beds ?? 0),
+        baths: r.baths ? Number(r.baths) : 0,
+        area: r.area_sqm ? Number(r.area_sqm) : undefined,
+        kind: String(r.room_kind ?? 'other'),
+      })),
       amenities: u.amenities,
       description: u.description,
       featured: u.featured,
@@ -214,7 +226,7 @@ export function mapGuestMarketplacePayload(payload: {
     }
   })
 
-  const cleanUnits = unitsRaw.map(({ _propertyId, ...rest }) => rest)
+  const cleanUnits = unitsRaw.map(({ _propertyId, _unitUuid, ...rest }) => rest)
 
   return {
     source: 'postgres',

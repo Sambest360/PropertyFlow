@@ -10,6 +10,7 @@ type PublicRpcPayload = {
   buildings?: Record<string, unknown>[]
   units?: Record<string, unknown>[]
   users?: Record<string, unknown>[]
+  rooms?: Record<string, unknown>[]
   entity_id_map?: { entity_type: string; backend_id: string; frontend_id: string }[]
 }
 

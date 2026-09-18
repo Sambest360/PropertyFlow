@@ -47,6 +47,7 @@ import type {
   CsvImportBatch,
 } from '../types/domain'
 import { isPubliclyListed } from '../lib/publicListings'
+import { findByListingId } from '../lib/listingIds'
 import {
   uid,
   seedAgencyContractors,
@@ -257,6 +258,25 @@ function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppSta
     lookups: boot.lookups?.length
       ? (boot.lookups as LookupConfig[])
       : base.lookups,
+    // Trust & Banking books (P0-7) — replace demo seed with the agency's real rows.
+    trustTransactions: (boot.trustTransactions as TrustTransaction[] | undefined)?.length
+      ? (boot.trustTransactions as TrustTransaction[])
+      : base.trustTransactions,
+    trustAllocations: (boot.trustAllocations as TrustAllocation[] | undefined)?.length
+      ? (boot.trustAllocations as TrustAllocation[])
+      : base.trustAllocations,
+    payoutInstructions: (boot.payoutInstructions as PayoutInstruction[] | undefined)?.length
+      ? (boot.payoutInstructions as PayoutInstruction[])
+      : base.payoutInstructions,
+    depositHoldings: (boot.depositHoldings as DepositHolding[] | undefined)?.length
+      ? (boot.depositHoldings as DepositHolding[])
+      : base.depositHoldings,
+    arrearsSnapshots: (boot.arrearsSnapshots as ArrearsSnapshot[] | undefined)?.length
+      ? (boot.arrearsSnapshots as ArrearsSnapshot[])
+      : base.arrearsSnapshots,
+    csvImportBatches: (boot.csvImportBatches as CsvImportBatch[] | undefined)?.length
+      ? (boot.csvImportBatches as CsvImportBatch[])
+      : base.csvImportBatches,
   }
 }
 
@@ -1789,6 +1809,34 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       if (prev) persistUpsert('property', id, { ...prev, status, id } as Record<string, unknown>)
       if (unitPatch) persistUpsert('unit', unitPatch.id, unitPatch as unknown as Record<string, unknown>)
       if (pe) persistUpsert('property_event', pe.id, pe as unknown as Record<string, unknown>)
+      if (prev && PUBLIC_ON.includes(status)) {
+        const hasOpenSlot = stateRef.current.viewingSlots.some(
+          (s) => s.propertyId === id && s.status === 'Open',
+        )
+        if (!hasOpenSlot) {
+          const agentId = prev.agentId ?? 'unassigned'
+          const start = new Date()
+          start.setDate(start.getDate() + 2)
+          start.setHours(10, 0, 0, 0)
+          const slotDate = start.toISOString().slice(0, 10)
+          for (const time of ['10:00', '14:00'] as const) {
+            const slot: ViewingSlot = {
+              id: uid('VS'),
+              agencyId: prev.agencyId,
+              propertyId: id,
+              agentId,
+              date: slotDate,
+              time,
+              capacity: 3,
+              booked: 0,
+              status: 'Open',
+              title: 'Open viewing',
+            }
+            patch((s) => ({ ...s, viewingSlots: [slot, ...s.viewingSlots] }))
+            persistUpsert('viewing_slot', slot.id, slot as unknown as Record<string, unknown>)
+          }
+        }
+      }
       scheduleBootstrapRefreshAfterMutation()
     },
     deleteProperty: (id) => {
@@ -2426,7 +2474,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       return { ok: true, leadId: id, stage }
     },
     createApplication: (input) => {
-      const property = state.properties.find((p) => p.id === input.propertyId)
+      const property =
+        state.properties.find((p) => p.id === input.propertyId) ??
+        findByListingId(state.properties, input.propertyId)
       const unit = resolveUnitForProperty(property, state.units)
 
       if (

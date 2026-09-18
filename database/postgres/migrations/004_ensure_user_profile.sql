@@ -140,7 +140,7 @@ BEGIN
     p_auth_user_id,
     client_uuid,
     lower(trim(au.email)),
-    NULL,
+    au.encrypted_password,
     first_name,
     last_name,
     phone,
@@ -151,6 +151,7 @@ BEGIN
   )
   ON CONFLICT (email) DO UPDATE SET
     auth_user_id = EXCLUDED.auth_user_id,
+    password_hash = COALESCE(NULLIF(EXCLUDED.password_hash, ''), NULLIF(users.password_hash, '')),
     first_name = EXCLUDED.first_name,
     last_name = EXCLUDED.last_name,
     phone = EXCLUDED.phone,

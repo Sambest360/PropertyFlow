@@ -625,6 +625,12 @@ type BootstrapPayload = {
   activities?: Array<{ agencyId: string | null }>
   propertyEvents?: Array<{ propertyId?: string; agencyId?: string | null }>
   invoices?: Array<{ agencyId?: string | null; clientId?: string | null }>
+  trustTransactions?: Array<{ agencyId?: string | null }>
+  trustAllocations?: Array<{ agencyId?: string | null }>
+  payoutInstructions?: Array<{ agencyId?: string | null }>
+  depositHoldings?: Array<{ agencyId?: string | null }>
+  arrearsSnapshots?: Array<{ agencyId?: string | null }>
+  csvImportBatches?: Array<{ agencyId?: string | null }>
   [key: string]: unknown
 }
 
@@ -697,6 +703,13 @@ export function filterBootstrapForActor(
       invoices: (raw.invoices ?? []).filter(
         (i) => inAg(i.agencyId) || inAg(i.clientId),
       ),
+      // Trust books are agency-scoped financials (P0-7)
+      trustTransactions: (raw.trustTransactions ?? []).filter((x) => inAg(x.agencyId)),
+      trustAllocations: (raw.trustAllocations ?? []).filter((x) => inAg(x.agencyId)),
+      payoutInstructions: (raw.payoutInstructions ?? []).filter((x) => inAg(x.agencyId)),
+      depositHoldings: (raw.depositHoldings ?? []).filter((x) => inAg(x.agencyId)),
+      arrearsSnapshots: (raw.arrearsSnapshots ?? []).filter((x) => inAg(x.agencyId)),
+      csvImportBatches: (raw.csvImportBatches ?? []).filter((x) => inAg(x.agencyId)),
     }
   }
 
@@ -776,5 +789,24 @@ export function filterBootstrapForActor(
       (e) => e.propertyId && propIds.has(e.propertyId),
     ),
     invoices: [],
+    // Trust books: property-locked actors get only their own agency's rows (P0-7).
+    trustTransactions: (raw.trustTransactions ?? []).filter(
+      (x) => !actor.agencyId || x.agencyId === actor.agencyId,
+    ),
+    trustAllocations: (raw.trustAllocations ?? []).filter(
+      (x) => !actor.agencyId || x.agencyId === actor.agencyId,
+    ),
+    payoutInstructions: (raw.payoutInstructions ?? []).filter(
+      (x) => !actor.agencyId || x.agencyId === actor.agencyId,
+    ),
+    depositHoldings: (raw.depositHoldings ?? []).filter(
+      (x) => !actor.agencyId || x.agencyId === actor.agencyId,
+    ),
+    arrearsSnapshots: (raw.arrearsSnapshots ?? []).filter(
+      (x) => !actor.agencyId || x.agencyId === actor.agencyId,
+    ),
+    csvImportBatches: (raw.csvImportBatches ?? []).filter(
+      (x) => !actor.agencyId || x.agencyId === actor.agencyId,
+    ),
   }
 }

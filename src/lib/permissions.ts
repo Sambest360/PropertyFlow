@@ -26,6 +26,8 @@ const STAFF: Permission[] = [
   'reports.view',
   'messages.manage',
   'occupants.view',
+  // Compliance permissions
+  'compliance.view',
   // Trust / Banking permissions
   'trust.view',
   'trust.allocate',
@@ -60,6 +62,7 @@ const AGENCY_ADMIN: Permission[] = [
   'notifications.broadcast',
   'assets.view',
   'assets.manage',
+  'listings.publish',
   'leads.view',
   'applications.view',
   'applications.review',
@@ -73,10 +76,13 @@ const AGENCY_ADMIN: Permission[] = [
   'payments.manage',
   'reports.view',
   'messages.manage',
+  'occupants.view',
+  'compliance.view',
   'trust.view',
   'trust.allocate',
   'trust.approve_payout',
   'trust.import_csv',
+  'trust.view_arrears',
 ]
 
 /**
@@ -321,6 +327,7 @@ export const permissionLabels: Partial<Record<Permission, string>> = {
   'trust.allocate': 'Allocate receipts',
   'trust.approve_payout': 'Approve payouts',
   'trust.import_csv': 'Import bank CSV',
+  'compliance.view': 'View compliance dashboard',
   'trust.view_arrears': 'View arrears',
   'trust.view_own_statement': 'View own statement',
   'trust.view_own_invoices': 'View own invoices',

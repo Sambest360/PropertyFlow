@@ -15,6 +15,7 @@ import { useAuth } from '../../context/AuthContext'
 import { formatZAR } from '../../data/seed'
 import { PageHeader, Card, StatCard, Badge, Button, EmptyState } from '../../components/ui'
 import { DashboardPage } from '../../components/dashboard'
+import { TRUST_SUBNAV, SectionSubnav } from '../../components/layout/SectionSubnav'
 import { Link } from 'react-router-dom'
 
 /** Format integer cents as ZAR currency */
@@ -135,6 +136,7 @@ export default function TrustDashboard() {
 
   return (
     <DashboardPage>
+      <SectionSubnav items={TRUST_SUBNAV} />
       <PageHeader
         title="Trust & Banking Dashboard"
         subtitle="Monitor client funds, allocations, payouts, and arrears"

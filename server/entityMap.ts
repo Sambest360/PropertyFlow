@@ -4,6 +4,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { query } from './db.js'
+import { canonicalListingId, unitIdForProperty, listingIdAliases } from '../src/lib/listingIds.js'
 import {
   AGENCY_TO_CLIENT,
   BUILDING_TO_FRONTEND,
@@ -213,22 +214,15 @@ export async function resolveUuid(
   const staticHit = STATIC_FE_TO_UUID[entityType]?.[frontendId]
   if (staticHit) return staticHit
 
-  // Properties may be referenced as PR-xxxx; units as unt-PR-xxxx
-  if (entityType === 'unit' && frontendId.startsWith('PR-')) {
-    const viaProp = PROPERTY_TO_UNIT[frontendId]
-    if (viaProp) return viaProp
-  }
-  if (entityType === 'property' && frontendId.startsWith('unt-')) {
-    const prop = frontendId.slice(4)
-    const via = PROPERTY_TO_UNIT[prop]
-    if (via) return via
-  }
+  const aliases =
+    entityType === 'property' || entityType === 'unit' ? listingIdAliases(frontendId) : [frontendId]
+  const types = entityType === 'property' || entityType === 'unit' ? ['property', 'unit'] : [entityType]
 
   await ensureEntityMapTable()
   const rows = await query<{ backend_id: string }>(
     `SELECT backend_id::text FROM entity_id_map
-     WHERE entity_type = $1 AND frontend_id = $2 LIMIT 1`,
-    [entityType, frontendId],
+     WHERE entity_type = ANY($1::text[]) AND frontend_id = ANY($2::text[]) LIMIT 1`,
+    [types, aliases],
   )
   return rows[0]?.backend_id ?? null
 }
@@ -261,19 +255,19 @@ export async function ensureUuid(
 
   const uuid = preferredUuid && isUuid(preferredUuid) ? preferredUuid : randomUUID()
   await ensureEntityMapTable()
-  await query(
-    `INSERT INTO entity_id_map (entity_type, frontend_id, backend_id)
-     VALUES ($1, $2, $3::uuid)
-     ON CONFLICT (entity_type, frontend_id) DO UPDATE SET backend_id = EXCLUDED.backend_id`,
-    [entityType, frontendId, uuid],
-  )
-  // Properties and units share the same backend unit row
-  if (entityType === 'property') {
+  const pairs: Array<{ et: EntityType; fe: string }> =
+    entityType === 'property' || entityType === 'unit'
+      ? [
+          { et: 'property', fe: canonicalListingId(frontendId) },
+          { et: 'unit', fe: unitIdForProperty(frontendId) },
+        ]
+      : [{ et: entityType, fe: frontendId }]
+  for (const row of pairs) {
     await query(
       `INSERT INTO entity_id_map (entity_type, frontend_id, backend_id)
-       VALUES ('unit', $1, $2::uuid)
-       ON CONFLICT (entity_type, frontend_id) DO NOTHING`,
-      [`unt-${frontendId}`, uuid],
+       VALUES ($1, $2, $3::uuid)
+       ON CONFLICT (entity_type, frontend_id) DO UPDATE SET backend_id = EXCLUDED.backend_id`,
+      [row.et, row.fe, uuid],
     )
   }
   return uuid

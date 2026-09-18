@@ -63,6 +63,7 @@ const AdminNotificationsPage = lazy(() => import('./pages/admin/AdminNotificatio
 const AdminAllUsersPage = lazy(() => import('./pages/admin/AdminAllUsersPage'))
 const TenantApplicationDetailPage = lazy(() => import('./pages/tenant/TenantApplicationDetailPage'))
 const PlatformBilling = lazy(() => import('./pages/PlatformBilling'))
+const ComplianceDashboard = lazy(() => import('./pages/compliance/ComplianceDashboard'))
 const TrustDashboard = lazy(() => import('./pages/trust/TrustDashboard'))
 const TrustCashbook = lazy(() => import('./pages/trust/TrustCashbook'))
 const TrustUnallocated = lazy(() => import('./pages/trust/TrustUnallocated'))
@@ -272,6 +273,9 @@ export default function App() {
                 <Route path="operations/communications" element={<Guard permission="messages.manage"><Communications /></Guard>} />
                 <Route path="operations/payments" element={<Guard permission="payments.view"><Payments /></Guard>} />
                 <Route path="operations/payments/:id" element={<Guard permission="payments.view"><PaymentDetail /></Guard>} />
+
+                {/* Compliance */}
+                <Route path="compliance" element={<Guard permission="compliance.view"><ComplianceDashboard /></Guard>} />
 
                 {/* Trust & Banking */}
                 <Route path="trust" element={<Guard permission="trust.view"><TrustDashboard /></Guard>} />

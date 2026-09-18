@@ -22,6 +22,7 @@ import {
 import { useWishlist } from '../../hooks/useWishlist'
 import { hasMappedCoordinates } from '../../lib/mapCoords'
 import { isPubliclyListed } from '../../lib/publicListings'
+import { findByListingId } from '../../lib/listingIds'
 import { submitListingEnquiry } from '../../lib/api/listingEnquiryApi'
 import { sweetError, sweetInfo, sweetSuccess, sweetWarning } from '../../lib/sweetAlert'
 import { usePageMeta } from '../../hooks/usePageMeta'
@@ -38,7 +39,7 @@ export default function ListingDetail() {
   const publicProperties = usePublicProperties()
   const { user, isAuthenticated, has } = useAuth()
   const { listedBy } = useAgentDisplay()
-  const p = state.properties.find((x) => x.id === id)
+  const p = findByListingId(state.properties, id)
   const { saved, toggle } = useWishlist(isAuthenticated ? user.id : 'guest')
   const wishlisted = p ? saved(p.id) : false
 

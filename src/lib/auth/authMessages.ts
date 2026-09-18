@@ -1,53 +1,101 @@
 /** Map raw API / auth errors to friendly copy for SweetAlert. */
 export function formatAuthError(message: string): { title: string; text?: string } {
-    const lower = message.toLowerCase()
-  
-    if (lower.includes('request body too large') || lower.includes('1048576')) {
-      return {
-        title: 'Uploads too large',
-        text: 'Registration documents are saved separately after sign-up. If you still see this, use smaller PDF or image files (under 800 KB each) and try again.',
-      }
+  const raw = (message ?? '').trim()
+  const lower = raw.toLowerCase()
+  const isEmptyPayload = !raw || raw === '{}' || raw === 'null' || raw === '[object object]'
+
+  if (lower.includes('request body too large') || lower.includes('1048576')) {
+    return {
+      title: 'Uploads too large',
+      text: 'Registration documents are saved separately after sign-up. If you still see this, use smaller PDF or image files (under 800 KB each) and try again.',
     }
-  
-    if (lower.includes('user already registered') || lower.includes('already been registered')) {
-      return {
-        title: 'Email already in use',
-        text: 'An account with this email already exists. Sign in instead, or use a different email.',
-      }
-    }
-  
-    if (lower.includes('invalid login credentials') || lower.includes('invalid email or password')) {
-      return {
-        title: 'Sign-in failed',
-        text: 'Check your email and password, then try again.',
-      }
-    }
-  
-    if (lower.includes('email not confirmed') || lower.includes('not confirmed')) {
-      return {
-        title: 'Confirm your email',
-        text: 'Check your inbox for the confirmation link, then sign in.',
-      }
-    }
-  
-    if (lower.includes('password') && lower.includes('least')) {
-      return { title: 'Weak password', text: message }
-    }
-  
-    if (lower.includes('rate limit') || lower.includes('too many requests')) {
-      return {
-        title: 'Too many attempts',
-        text: 'Please wait a moment and try again.',
-      }
-    }
-  
-    if (lower.includes('profile sync failed') || lower.includes('profile not found')) {
-      return {
-        title: 'Account created',
-        text: 'Your account was created but setup is still finishing. Try signing in in a moment.',
-      }
-    }
-  
-    return { title: 'Something went wrong', text: message }
   }
-  
+
+  if (lower.includes('user already registered') || lower.includes('already been registered')) {
+    return {
+      title: 'Email already in use',
+      text: 'An account with this email already exists. Sign in instead, or use a different email.',
+    }
+  }
+
+  if (
+    lower.includes('invalid login credentials') ||
+    lower.includes('invalid email or password') ||
+    lower.includes('invalid_credentials')
+  ) {
+    return {
+      title: 'Sign-in failed',
+      text: 'Check your email and password, then try again.',
+    }
+  }
+
+  if (lower.includes('email not confirmed') || lower.includes('not confirmed')) {
+    return {
+      title: 'Confirm your email',
+      text: 'Check your inbox for the confirmation link, then sign in.',
+    }
+  }
+
+  if (
+    lower.includes('invalid email') ||
+    lower.includes('unable to validate email') ||
+    lower.includes('email address') && lower.includes('invalid')
+  ) {
+    return {
+      title: 'Use a real email address',
+      text: 'Demo domains such as @propertyflow.demo cannot receive mail and are rejected. Register with an inbox you control (Gmail plus-addressing is fine).',
+    }
+  }
+
+  if (lower.includes('password') && lower.includes('least')) {
+    return { title: 'Weak password', text: raw }
+  }
+
+  if (
+    lower.includes('rate limit') ||
+    lower.includes('too many requests') ||
+    lower.includes('too many attempts') ||
+    lower.includes('over_email_send_rate_limit') ||
+    lower.includes('429')
+  ) {
+    return {
+      title: 'Too many attempts',
+      text: 'Auth is rate-limiting this email or this network. Wait a few minutes, then retry — or use a different plus-address (you+test2@gmail.com).',
+    }
+  }
+
+  if (
+    lower.includes('server error') ||
+    lower.includes('internal server') ||
+    /\b500\b/.test(lower) ||
+    lower.includes('unexpected_failure')
+  ) {
+    return {
+      title: 'Sign-in service error',
+      text: 'The auth server returned an error (often a broken demo user). Try again in a moment. If a seeded QA account fails, ask the team to run npm run db:repair-auth.',
+    }
+  }
+
+  if (lower.includes('timed out') || lower.includes('failed to fetch') || lower.includes('network')) {
+    return {
+      title: 'Connection timed out',
+      text: 'Check your internet and try again — your account was not locked out.',
+    }
+  }
+
+  if (lower.includes('profile sync failed') || lower.includes('profile not found')) {
+    return {
+      title: 'Account created',
+      text: 'Your account was created but setup is still finishing. Try signing in in a moment.',
+    }
+  }
+
+  if (isEmptyPayload) {
+    return {
+      title: 'Sign-in failed',
+      text: 'The server did not explain why. Check your email and password, wait a moment if you just registered, then try again.',
+    }
+  }
+
+  return { title: 'Something went wrong', text: raw }
+}

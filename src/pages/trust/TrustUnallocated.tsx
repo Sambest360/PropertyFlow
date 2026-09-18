@@ -10,6 +10,7 @@ import { useAuth } from '../../context/AuthContext'
 import { formatZAR } from '../../data/seed'
 import { PageHeader, Card, Button, Input, EmptyState } from '../../components/ui'
 import { DashboardPage } from '../../components/dashboard'
+import { TRUST_SUBNAV, SectionSubnav } from '../../components/layout/SectionSubnav'
 import { sweetSuccess, sweetError } from '../../lib/sweetAlert'
 
 function formatCents(cents: number): string {
@@ -124,6 +125,7 @@ export default function TrustUnallocated() {
 
   return (
     <DashboardPage>
+      <SectionSubnav items={TRUST_SUBNAV} />
       <PageHeader
         title="Unallocated Receipts"
         subtitle="Match incoming payments to occupancies and charges"

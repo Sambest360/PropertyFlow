@@ -35,6 +35,13 @@ export type PostgresBootstrap = {
   propertyEvents?: unknown[]
   invoices?: unknown[]
   lookups?: unknown[]
+  /** Trust & Banking books (P0-7) — agency-scoped, present when authed. */
+  trustTransactions?: unknown[]
+  trustAllocations?: unknown[]
+  payoutInstructions?: unknown[]
+  depositHoldings?: unknown[]
+  arrearsSnapshots?: unknown[]
+  csvImportBatches?: unknown[]
 }
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''

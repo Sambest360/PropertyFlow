@@ -25,7 +25,7 @@ function rowToAppUser(row: {
   const frontendId =
     typeof meta.frontend_id === 'string' && meta.frontend_id
       ? meta.frontend_id
-      : EMAIL_TO_USER[row.email.toLowerCase()] ?? ''
+      : EMAIL_TO_USER[row.email.toLowerCase()] ?? row.email.toLowerCase()
   const feRole = resolveFrontendRole(row.role, meta, row.email)
   const verification =
     meta.verification && typeof meta.verification === 'object'
@@ -190,7 +190,17 @@ export async function supabaseSignIn(email: string, password: string): Promise<A
     email: email.trim(),
     password,
   })
-  if (error) throw new Error(error.message)
+  if (error) {
+    const status = typeof error.status === 'number' ? error.status : undefined
+    const raw = (error.message || '').trim()
+    if (status && status >= 500) {
+      throw new Error(`Server error (${status}): ${raw || 'unexpected_failure'}`)
+    }
+    if (status === 429) {
+      throw new Error(`Too many requests (${status}): ${raw || 'rate limit'}`)
+    }
+    throw new Error(raw || (status ? `Sign-in failed (${status})` : 'Sign-in failed'))
+  }
   if (!data.user) throw new Error('Sign-in failed')
 
   // Trigger may need a moment to create public.users on first signup

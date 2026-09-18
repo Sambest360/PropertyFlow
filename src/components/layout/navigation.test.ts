@@ -232,4 +232,27 @@ describe('buildWorkspaceNavForActor portal dedupe', () => {
     expect(hasUniquePaths(entries)).toBe(true)
     expect(navLabels(entries).filter((l) => l === 'Dashboard')).toHaveLength(1)
   })
+
+  it('Trust & Banking stays grouped with Dashboard not active on child pages', () => {
+    const labels = previewNavLabels(['trust.view', 'trust.allocate', 'trust.approve_payout'])
+    expect(labels).toContain('Trust Dashboard')
+    expect(labels).toContain('Cashbook')
+
+    // The dashboard link must be end-anchored so /workspace/trust/cashbook
+    // does not highlight the Dashboard item (GO#5 nav parity). The filtered
+    // set is flat here (smart-flatten), so scan all links.
+    const dashboardEntry = filterWorkspaceNav(
+      getWorkspaceNav(),
+      (p) => p === 'trust.view',
+      (ps) => ps.includes('trust.view'),
+    )
+      .flatMap((e) => (e.type === 'link' ? [e.item] : e.group.children))
+      .find((c) => navItemPath(c) === '/workspace/trust')
+    expect(dashboardEntry?.end).toBe(true)
+  })
+
+  it('Compliance nav item requires compliance.view', () => {
+    expect(previewNavLabels(['compliance.view'])).toContain('Compliance Dashboard')
+    expect(previewNavLabels(['trust.view'])).not.toContain('Compliance Dashboard')
+  })
 })

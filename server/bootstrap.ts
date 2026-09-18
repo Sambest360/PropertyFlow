@@ -22,6 +22,7 @@ import {
   mapAgency,
   mapProperty,
 } from './idMap.js'
+import { canonicalListingId, unitIdForProperty } from '../src/lib/listingIds.js'
 
 type RoleDb =
   | 'SUPER_ADMIN'
@@ -216,6 +217,12 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     activities,
     propertyEvents,
     invoices,
+    trustTxns,
+    trustAllocs,
+    payouts,
+    deposits,
+    arrears,
+    csvBatches,
   ] = await mapPool(
     [
       () =>
@@ -390,6 +397,16 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
         skipHeavy
           ? Promise.resolve([] as Array<Record<string, unknown>>)
           : query('SELECT * FROM invoices ORDER BY created_at DESC'),
+      // Trust & Banking books (P0-7) — small tables, fetch on both lite/full.
+      () => query('SELECT * FROM trust_transactions ORDER BY value_date DESC LIMIT 400'),
+      () => query('SELECT * FROM trust_allocations LIMIT 800'),
+      () => query('SELECT * FROM payout_instructions ORDER BY created_at DESC LIMIT 200'),
+      () => query('SELECT * FROM deposit_holdings ORDER BY created_at DESC LIMIT 200'),
+      () =>
+        query(
+          'SELECT * FROM arrears_snapshots ORDER BY as_of DESC LIMIT 60',
+        ),
+      () => query('SELECT * FROM csv_import_batches ORDER BY imported_at DESC LIMIT 100'),
     ] as const,
     process.env.VERCEL ? 3 : 8,
     (load) => load(),
@@ -417,8 +434,21 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     mapCache.set(`property:${backendId}`, fe)
     mapCache.set(`unit:${backendId}`, fe)
   }
+  // Agency aliases come from the runtime entity_id_map (agency rows) —
+  // CLIENT_TO_AGENCY only covers the three legacy seed agencies.
+  for (const [backendId, fe] of idCache.agencyBackendToFe) {
+    mapCache.set(`agency:${backendId}`, fe)
+  }
   const mappedFe = (entityType: string, uuid: string, fallback: string) =>
     mapCache.get(`${entityType}:${uuid}`) ?? fallback
+
+  // Agency FE id for any client UUID: entity_id_map alias first, then seed map.
+  // Everything with an agencyId must use this so trust books share one id space
+  // with agencies/users (scope gate compares against actor.agencyId).
+  const agencyFe = (clientId: string | null | undefined): string | null => {
+    if (!clientId) return null
+    return mapCache.get(`agency:${clientId}`) ?? mapAgency(clientId)
+  }
 
   const mapUser = (id: string | null | undefined) => (id ? (userByUuid.get(id) ?? id) : null)
 
@@ -452,7 +482,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
       name: `${u.first_name} ${u.last_name}`.trim(),
       email: u.email,
       role: feRole,
-      agencyId: mapAgency(u.client_id),
+      agencyId: agencyFe(u.client_id),
       phone: u.phone ?? undefined,
       active: u.active,
       enabledPermissions: Array.isArray(meta.enabledPermissions)
@@ -480,7 +510,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
 
   const mappedBuildings = buildings.map((b) => ({
     id: mappedFe('building', b.id, BUILDING_TO_FRONTEND[b.id] ?? b.id),
-    clientId: mapAgency(b.client_id)!,
+    clientId: agencyFe(b.client_id)!,
     landlordId: mapUser(b.landlord_id),
     name: b.name,
     addressLine1: b.address,
@@ -507,8 +537,8 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
   const mappedUnits = units.map((u) => {
     const b = buildingByUuid.get(u.building_id)
     return {
-      id: `unt-${UNIT_TO_PROPERTY[u.id] ?? u.id}`,
-      clientId: mapAgency(u.client_id)!,
+      id: unitIdForProperty(canonicalListingId(UNIT_TO_PROPERTY[u.id] ?? mappedFe('property', u.id, mapProperty(u.id) ?? u.id))),
+      clientId: agencyFe(u.client_id)!,
       buildingId: feBuildingByUuid.get(u.building_id) ?? u.building_id,
       agentId: mapUser(u.agent_id),
       unitNumber: u.unit_number,
@@ -532,7 +562,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
       geocodedAt: iso(u.geocoded_at) ?? iso(b?.geocoded_at ?? null),
       createdAt: dateOnly(u.created_at),
       updatedAt: iso(u.updated_at),
-      _propertyId: mappedFe('property', u.id, mapProperty(u.id)!),
+      _propertyId: canonicalListingId(mappedFe('property', u.id, mapProperty(u.id)!)),
       _buildingUuid: u.building_id,
       _unitUuid: u.id,
     }
@@ -619,7 +649,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
 
   const mappedLeads = (leads as Array<Record<string, unknown>>).map((l) => ({
     id: mappedFe('lead', l.id as string, LEAD_IDS[l.id as string] ?? (l.id as string)),
-    agencyId: mapAgency(l.client_id as string)!,
+    agencyId: agencyFe(l.client_id as string)!,
     propertyId: mapProperty(l.unit_id as string | null) ?? '',
     agentId: mapUser(l.agent_id as string | null),
     name: l.name as string,
@@ -640,7 +670,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     const stageFromMeta = typeof meta.stage === 'string' ? meta.stage : null
     return {
       id: APP_REF_TO_ID[ref] ?? ref,
-      agencyId: mapAgency(a.client_id as string)!,
+      agencyId: agencyFe(a.client_id as string)!,
       propertyId: mapProperty(a.unit_id as string)!,
       agentId: mapUser(a.agent_id as string | null),
       applicantUserId: mapUser(a.applicant_id as string | null),
@@ -719,7 +749,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
           }
     return {
       id: mappedFe('tenancy', l.id as string, LEASE_IDS[l.id as string] ?? (l.id as string)),
-      agencyId: mapAgency(l.client_id as string)!,
+      agencyId: agencyFe(l.client_id as string)!,
       propertyId: mappedFe('property', l.unit_id as string, mapProperty(l.unit_id as string)!),
       landlordId: mapUser(l.landlord_id as string | null) ?? 'u-owner1',
       agentId: mapUser(l.agent_id as string | null),
@@ -741,7 +771,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     const slotUuid = b.slot_id as string | null
     return {
       id: mappedFe('viewing', b.id as string, `VW-pg-${i + 1}`),
-      agencyId: mapAgency(b.client_id as string)!,
+      agencyId: agencyFe(b.client_id as string)!,
       propertyId: mapProperty(b.unit_id as string)!,
       agentId: mapUser(b.agent_id as string | null) ?? '',
       slotId: slotUuid
@@ -769,7 +799,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
       s.id as string,
       SLOT_IDS[s.id as string] ?? `VS-pg-${i + 1}`,
     ),
-    agencyId: mapAgency(s.client_id as string)!,
+    agencyId: agencyFe(s.client_id as string)!,
     propertyId: mapProperty(s.unit_id as string)!,
     agentId: mapUser(s.agent_id as string | null) ?? '',
     date: dateOnly(s.slot_date as Date | string),
@@ -788,7 +818,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
       r.id as string,
       SUITE_ALERT_IDS[r.id as string] ?? (r.id as string),
     ),
-    agencyId: mapAgency(r.client_id as string | null),
+    agencyId: agencyFe(r.client_id as string | null),
     resource: r.resource as string,
     actions: Array.isArray(r.actions) ? r.actions : [],
     enabled: Boolean(r.enabled),
@@ -805,7 +835,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
         e.id as string,
         ACTIVITY_IDS[e.id as string] ?? `act-pg-${i + 1}`,
       ),
-      agencyId: mapAgency(e.client_id as string | null),
+      agencyId: agencyFe(e.client_id as string | null),
       text: String(payload.text ?? ''),
       user: String(payload.user ?? 'System'),
       at: iso(e.created_at as Date)!,
@@ -821,7 +851,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
       ''
     return {
       id: mappedFe('property_event', e.id as string, `pe-pg-${i + 1}`),
-      agencyId: mapAgency(e.client_id as string)!,
+      agencyId: agencyFe(e.client_id as string)!,
       propertyId,
       actorUserId: mapUser(e.actor_user_id as string | null),
       actorName: String(payload.actorName ?? 'System'),
@@ -837,7 +867,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
       inv.id as string,
       INVOICE_IDS[inv.id as string] ?? (inv.id as string),
     ),
-    clientId: mapAgency(inv.client_id as string)!,
+    clientId: agencyFe(inv.client_id as string)!,
     subscriptionId: inv.subscription_id
       ? (SUB_UUID_TO_FE[inv.subscription_id as string] ?? (inv.subscription_id as string))
       : null,
@@ -852,9 +882,110 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     createdAt: iso(inv.created_at as Date)!,
   }))
 
+  // --- Trust & Banking books (P0-7): map client_id → FE agencyId, users → FE ids ---
+  const mappedTrustTxns = (trustTxns as Array<Record<string, unknown>>).map((t) => ({
+    id: mappedFe('trust_txn', t.id as string, t.id as string),
+    agencyId: agencyFe(t.client_id as string)!,
+    direction: t.direction as string,
+    amountCents: Number(t.amount_cents),
+    currency: (t.currency as string) ?? 'ZAR',
+    valueDate: dateOnly(t.value_date as Date | string),
+    postedAt: iso(t.posted_at as Date) ?? new Date().toISOString(),
+    partnerTxnId: (t.partner_txn_id as string) ?? null,
+    bankRef: (t.bank_ref as string) ?? null,
+    description: (t.description as string) ?? '',
+    counterpartyHash: (t.counterparty_hash as string) ?? null,
+    status: t.status as string,
+    rawPayloadDocumentId: (t.raw_payload_document_id as string) ?? null,
+    createdAt: iso(t.created_at as Date) ?? new Date().toISOString(),
+    updatedAt: iso(t.updated_at as Date) ?? new Date().toISOString(),
+  }))
+
+  const txnUuidToFe = new Map(
+    (trustTxns as Array<Record<string, unknown>>).map((t) => [
+      t.id as string,
+      mappedFe('trust_txn', t.id as string, t.id as string),
+    ]),
+  )
+
+  const mappedTrustAllocs = (trustAllocs as Array<Record<string, unknown>>).map((a) => ({
+    id: mappedFe('trust_alloc', a.id as string, a.id as string),
+    agencyId: agencyFe(a.client_id as string)!,
+    trustTransactionId: a.trust_transaction_id
+      ? (txnUuidToFe.get(a.trust_transaction_id as string) ?? (a.trust_transaction_id as string))
+      : '',
+    occupancyId: (a.occupancy_id as string) ?? null,
+    bucketCode: (a.bucket_code as string) ?? 'unallocated',
+    chargeId: (a.charge_id as string) ?? null,
+    amountCents: Number(a.amount_cents),
+    allocatedBy: mapUser(a.allocated_by as string | null) ?? '',
+    allocatedAt: iso(a.allocated_at as Date) ?? new Date().toISOString(),
+  }))
+
+  const mappedPayouts = (payouts as Array<Record<string, unknown>>).map((p) => ({
+    id: mappedFe('payout', p.id as string, p.id as string),
+    agencyId: agencyFe(p.client_id as string)!,
+    occupancyId: (p.occupancy_id as string) ?? null,
+    propertyId: p.unit_id ? (mapProperty(p.unit_id as string) ?? '') : '',
+    payeeType: (p.payee_type as string) ?? 'landlord',
+    payeeId: mapUser(p.payee_id as string | null) ?? ((p.payee_id as string) ?? ''),
+    bankAccountId: (p.bank_account_id as string) ?? '',
+    amountCents: Number(p.amount_cents),
+    bucketCode: (p.bucket_code as string) ?? 'owner_payable',
+    status: p.status as string,
+    proposedBy: mapUser(p.proposed_by as string | null) ?? '',
+    approvedBy: mapUser(p.approved_by as string | null),
+    submittedAt: iso(p.submitted_at as Date | null),
+    settledAt: iso(p.settled_at as Date | null),
+    partnerPayoutId: (p.partner_payout_id as string) ?? null,
+    failureReason: (p.failure_reason as string) ?? null,
+    idempotencyKey: (p.idempotency_key as string) ?? '',
+    createdAt: iso(p.created_at as Date) ?? new Date().toISOString(),
+    updatedAt: iso(p.updated_at as Date) ?? new Date().toISOString(),
+  }))
+
+  const mappedDeposits = (deposits as Array<Record<string, unknown>>).map((d) => ({
+    id: mappedFe('deposit', d.id as string, d.id as string),
+    agencyId: agencyFe(d.client_id as string)!,
+    occupancyId: (d.occupancy_id as string) ?? '',
+    expectedCents: Number(d.expected_cents),
+    heldCents: Number(d.held_cents),
+    interestAccruedCents: Number(d.interest_accrued_cents),
+    status: d.status as string,
+    statutoryDeadlineOn: d.statutory_deadline_on
+      ? dateOnly(d.statutory_deadline_on as Date | string)
+      : null,
+    interestRateUnknown: Boolean(d.interest_rate_unknown),
+    createdAt: iso(d.created_at as Date) ?? new Date().toISOString(),
+    updatedAt: iso(d.updated_at as Date) ?? new Date().toISOString(),
+  }))
+
+  const mappedArrears = (arrears as Array<Record<string, unknown>>).map((s) => ({
+    id: mappedFe('arrears', s.id as string, s.id as string),
+    agencyId: agencyFe(s.client_id as string)!,
+    occupancyId: (s.occupancy_id as string) ?? '',
+    asOf: dateOnly(s.as_of as Date | string),
+    currentCents: Number(s.current_cents),
+    d30: Number(s.d30),
+    d60: Number(s.d60),
+    d90: Number(s.d90),
+    d90plus: Number(s.d90plus),
+    createdAt: iso(s.created_at as Date) ?? new Date().toISOString(),
+  }))
+
+  const mappedCsvBatches = (csvBatches as Array<Record<string, unknown>>).map((b) => ({
+    id: mappedFe('csv_batch', b.id as string, b.id as string),
+    agencyId: agencyFe(b.client_id as string)!,
+    filename: (b.filename as string) ?? '',
+    rowCount: Number(b.row_count),
+    importedAt: iso(b.imported_at as Date) ?? new Date().toISOString(),
+    importedBy: mapUser(b.imported_by as string | null) ?? '',
+    status: b.status as string,
+  }))
+
   const mappedPayments = (payments as Array<Record<string, unknown>>).map((p) => ({
     id: mappedFe('payment', p.id as string, PAYMENT_IDS[p.id as string] ?? (p.id as string)),
-    agencyId: mapAgency(p.client_id as string)!,
+    agencyId: agencyFe(p.client_id as string)!,
     propertyId: mapProperty(p.unit_id as string | null) ?? '',
     applicationId: null as string | null,
     tenancyId: p.lease_id ? (LEASE_IDS[p.lease_id as string] ?? (p.lease_id as string)) : null,
@@ -884,7 +1015,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
 
   const propertyDocuments = (documents as Array<Record<string, unknown>>).map((d) => ({
     id: mappedFe('document', d.id as string, DOC_IDS[d.id as string] ?? (d.id as string)),
-    agencyId: mapAgency(d.client_id as string)!,
+    agencyId: agencyFe(d.client_id as string)!,
     propertyId: mapProperty(d.unit_id as string | null) ?? '',
     name: d.name as string,
     category: docCategory(d.category as string),
@@ -898,7 +1029,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
 
   const mappedTickets = (tickets as Array<Record<string, unknown>>).map((t) => ({
     id: mappedFe('ticket', t.id as string, TICKET_IDS[t.id as string] ?? (t.id as string)),
-    agencyId: mapAgency(t.client_id as string)!,
+    agencyId: agencyFe(t.client_id as string)!,
     propertyId: mapProperty(t.unit_id as string)!,
     unitId: null as string | null,
     categoryKey: (t.category_key as string) ?? undefined,
@@ -932,7 +1063,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     const parts = Array.isArray(th.participant_ids) ? (th.participant_ids as string[]) : []
     return {
       id: mappedFe('thread', th.id as string, THREAD_IDS[th.id as string] ?? (th.id as string)),
-      agencyId: mapAgency(th.client_id as string)!,
+      agencyId: agencyFe(th.client_id as string)!,
       propertyId: th.unit_id
         ? mappedFe('property', th.unit_id as string, mapProperty(th.unit_id as string)!)
         : null,
@@ -951,7 +1082,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
       m.thread_id as string,
       THREAD_IDS[m.thread_id as string] ?? (m.thread_id as string),
     ),
-    agencyId: mapAgency(m.client_id as string)!,
+    agencyId: agencyFe(m.client_id as string)!,
     fromUserId: mapUser(m.from_user_id as string)!,
     body: m.body as string,
     at: iso(m.created_at as Date)!,
@@ -964,7 +1095,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
       NOTIF_IDS[n.id as string] ?? (n.id as string),
     ),
     userId: mapUser(n.user_id as string)!,
-    agencyId: mapAgency(n.client_id as string | null),
+    agencyId: agencyFe(n.client_id as string | null),
     title: n.title as string,
     body: n.body as string,
     at: iso(n.created_at as Date)!,
@@ -1000,5 +1131,11 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     activities: mappedActivities,
     propertyEvents: mappedPropertyEvents,
     invoices: mappedInvoices,
+    trustTransactions: mappedTrustTxns,
+    trustAllocations: mappedTrustAllocs,
+    payoutInstructions: mappedPayouts,
+    depositHoldings: mappedDeposits,
+    arrearsSnapshots: mappedArrears,
+    csvImportBatches: mappedCsvBatches,
   }
 }

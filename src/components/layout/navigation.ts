@@ -155,6 +155,7 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
             label: 'Trust Dashboard',
             permission: 'trust.view',
             icon: Wallet,
+            end: true,
           },
           {
             to: '/workspace/trust/cashbook',
@@ -199,7 +200,7 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
           {
             to: '/workspace/compliance',
             label: 'Compliance Dashboard',
-            permission: 'trust.view',
+            permission: 'compliance.view',
             icon: ShieldCheck,
           },
         ],
@@ -326,7 +327,7 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
 export const NAV_SMART_FLATTEN_MAX = 10
 
 /** Groups that stay as menus when the nav is large enough to warrant grouping. */
-const KEEP_GROUPED = new Set(['admin', 'portals', 'sales', 'operations', 'people'])
+const KEEP_GROUPED = new Set(['admin', 'portals', 'sales', 'operations', 'people', 'trust', 'compliance'])
 
 export function flattenAllNavGroups(entries: WorkspaceNavEntry[]): WorkspaceNavEntry[] {
   return entries.flatMap((entry) => {

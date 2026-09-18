@@ -13,6 +13,7 @@ import {
 import type { Building, Unit } from '../data/infrastructure'
 import { useAuth } from '../context/AuthContext'
 import { useWishlist } from '../hooks/useWishlist'
+import { canonicalListingId } from '../lib/listingIds'
 
 export function PropertyCard({
   property,
@@ -65,11 +66,7 @@ export function PropertyCard({
   const badge =
     property.listingMode === 'both' ? 'Sale or Rent' : property.listingMode === 'sale' ? 'For Sale' : 'To Rent'
 
-  const href = card?.property_id
-    ? `/listing/${card.property_id}`
-    : property.id
-      ? `/listing/${property.id}`
-      : '#'
+  const href = `/listing/${canonicalListingId(card?.property_id ?? property.id)}`
 
   const image = card?.primary_image ?? property.images[0]
   const title = card?.title ?? property.title

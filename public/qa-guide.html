@@ -248,7 +248,8 @@
   <li><strong>Log out fully</strong> between role switches (avatar menu → <strong>Sign out</strong>), or use separate browsers / incognito windows.</li>
   <li><strong>Hard refresh</strong> (Ctrl+Shift+R / Cmd+Shift+R) if the sidebar or role badge looks wrong after login.</li>
   <li>If data does not match this guide, <strong>stop and report to the dev team</strong> with account email, expected vs actual, and a screenshot.</li>
-  <li>For <strong>registration tests</strong> (landlord / contractor), use a <strong>new email</strong> you control — do not overwrite <code>@propertyflow.demo</code> accounts.</li>
+  <li>For <strong>registration tests</strong> (landlord / contractor), use a <strong>new email</strong> you control — Gmail plus-addressing works (<code>you+test1@gmail.com</code>). The seeded <code>@propertyflow.demo</code> addresses are <strong>login-only</strong> (they cannot receive confirmation mail); never overwrite them.</li>
+  <li>If sign-in returns “Sign-in service error” for a seeded QA account, ask the dev team to run <code>npm run db:repair-auth</code>.</li>
 </ol>
 
 <h2>1.5 How to verify the correct role</h2>

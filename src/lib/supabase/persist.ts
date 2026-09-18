@@ -7,6 +7,8 @@ import type { PersistAction, PersistOp } from '../api/persist'
 import { GLOBAL_CLIENT_ID } from '../../data/platformLookups'
 import { ROLE_TO_DB } from './idMap'
 
+import { canonicalListingId, unitIdForProperty, listingIdAliases } from '../listingIds'
+
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -16,25 +18,38 @@ function isUuid(v: string): boolean {
 
 async function ensureUuid(entityType: EntityType | 'agency', frontendId: string): Promise<string> {
   const supabase = createClient()
-  const { data: existing } = await supabase
-    .from('entity_id_map')
-    .select('backend_id')
-    .eq('entity_type', entityType === 'property' ? 'unit' : entityType)
-    .eq('frontend_id', frontendId)
-    .maybeSingle()
+  const idsToTry =
+    entityType === 'property' || entityType === 'unit'
+      ? listingIdAliases(frontendId)
+      : [frontendId]
+  const typesToTry =
+    entityType === 'property' || entityType === 'unit' ? (['unit', 'property'] as const) : [entityType]
 
-  if (existing?.backend_id) return existing.backend_id
+  for (const et of typesToTry) {
+    for (const fe of idsToTry) {
+      const { data: existing } = await supabase
+        .from('entity_id_map')
+        .select('backend_id')
+        .eq('entity_type', et)
+        .eq('frontend_id', fe)
+        .maybeSingle()
+      if (existing?.backend_id) return existing.backend_id
+    }
+  }
   if (isUuid(frontendId)) return frontendId
 
   const backendId = crypto.randomUUID()
-  await supabase.from('entity_id_map').upsert(
-    {
-      entity_type: entityType === 'property' ? 'unit' : entityType,
-      backend_id: backendId,
-      frontend_id: frontendId,
-    },
-    { onConflict: 'entity_type,backend_id' },
-  )
+  const canon = canonicalListingId(frontendId)
+  const unitFe = unitIdForProperty(canon)
+  const rows =
+    entityType === 'property' || entityType === 'unit'
+      ? [
+          { entity_type: 'property', backend_id: backendId, frontend_id: canon },
+          { entity_type: 'unit', backend_id: backendId, frontend_id: unitFe },
+        ]
+      : [{ entity_type: entityType, backend_id: backendId, frontend_id: frontendId }]
+
+  await supabase.from('entity_id_map').upsert(rows, { onConflict: 'entity_type,backend_id' })
   return backendId
 }
 
@@ -528,7 +543,7 @@ async function upsertProperty(id: string, data: Record<string, unknown>): Promis
       status_config_key:
         data.deletedAt
           ? 'DELETED'
-          : str(data.statusKey) // P0-1: honor the synced unit statusKey when present
+          : str(data.statusKey)
             ? String(str(data.statusKey)).toUpperCase()
             : str(data.status) === 'Rented'
               ? 'OCCUPIED'
@@ -536,7 +551,11 @@ async function upsertProperty(id: string, data: Record<string, unknown>): Promis
                 ? 'MAINTENANCE'
                 : str(data.status) === 'Draft'
                   ? 'DRAFT'
-                  : 'AVAILABLE',
+                  : str(data.status) === 'Featured'
+                    ? 'FEATURED'
+                    : str(data.status) === 'Under Offer'
+                      ? 'UNDER_OFFER'
+                      : 'PUBLISHED',
       agent_id: await userUuid(data.agentId),
       description: str(data.description),
       amenities: data.amenities ?? [],

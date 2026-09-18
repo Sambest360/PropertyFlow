@@ -17,6 +17,7 @@ import {
 } from './idMap'
 import { buildDocumentChecklist } from '../workflow'
 import { normalizeApplication } from '../applicationWorkflow'
+import { canonicalListingId, unitIdForProperty } from '../listingIds'
 
 type RoleDb =
   | 'SUPER_ADMIN'
@@ -206,6 +207,12 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
     propertyEventsRes,
     invoicesRes,
     lookupsRes,
+    trustTxnsRes,
+    trustAllocsRes,
+    payoutsRes,
+    depositsRes,
+    arrearsRes,
+    csvBatchesRes,
   ] = await Promise.all([
     supabase.from('entity_id_map').select('entity_type, backend_id, frontend_id'),
     supabase.from('clients').select('id, company_name, subdomain, status, city, created_at, settings'),
@@ -273,6 +280,13 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
       .order('config_type')
       .order('sort_order')
       .limit(lite ? LITE_LIMITS.lookups : 10_000),
+    // Trust & Banking books (P0-7) — small tables, fetch on both lite/full.
+    supabase.from('trust_transactions').select('*').order('value_date', { ascending: false }).limit(400),
+    supabase.from('trust_allocations').select('*').limit(800),
+    supabase.from('payout_instructions').select('*').order('created_at', { ascending: false }).limit(200),
+    supabase.from('deposit_holdings').select('*').order('created_at', { ascending: false }).limit(200),
+    supabase.from('arrears_snapshots').select('*').order('as_of', { ascending: false }).limit(60),
+    supabase.from('csv_import_batches').select('*').order('imported_at', { ascending: false }).limit(100),
   ])
 
   const clients = clientsRes.data ?? []
@@ -364,7 +378,7 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
   const unitsRaw = (unitsRes.data ?? []).map((u) => {
     const b = buildingByUuid.get(u.building_id)
     return {
-      id: `unt-${mapPropertyFe(u.id) ?? u.id}`,
+      id: unitIdForProperty(canonicalListingId(mapPropertyFe(u.id) ?? u.id)),
       clientId: mapAgencyFe(u.client_id)!,
       buildingId: feBuildingByUuid.get(u.building_id) ?? u.building_id,
       agentId: mapUserFe(u.agent_id),
@@ -389,7 +403,7 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
       formattedAddress: u.formatted_address ?? b?.formatted_address ?? null,
       geocodedAt: iso(u.geocoded_at) ?? iso(b?.geocoded_at ?? null),
       createdAt: dateOnly(u.created_at),
-      _propertyId: mapPropertyFe(u.id)!,
+      _propertyId: canonicalListingId(mapPropertyFe(u.id) ?? u.id),
       _unitUuid: u.id,
     }
   })
@@ -766,6 +780,105 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
     createdAt: iso(inv.created_at as string)!,
   }))
 
+  // --- Trust & Banking books (P0-7): map client_id → FE agencyId ---
+  const trustTransactions = (trustTxnsRes.data ?? []).map((t) => ({
+    id: mappedFe(cache, 'trust_txn', t.id as string, t.id as string),
+    agencyId: mapAgencyFe(t.client_id as string)!,
+    direction: t.direction as string,
+    amountCents: Number(t.amount_cents),
+    currency: (t.currency as string) ?? 'ZAR',
+    valueDate: dateOnly(t.value_date as string),
+    postedAt: iso(t.posted_at as string) ?? new Date().toISOString(),
+    partnerTxnId: (t.partner_txn_id as string) ?? null,
+    bankRef: (t.bank_ref as string) ?? null,
+    description: (t.description as string) ?? '',
+    counterpartyHash: (t.counterparty_hash as string) ?? null,
+    status: t.status as string,
+    rawPayloadDocumentId: (t.raw_payload_document_id as string) ?? null,
+    createdAt: iso(t.created_at as string) ?? new Date().toISOString(),
+    updatedAt: iso(t.updated_at as string) ?? new Date().toISOString(),
+  }))
+
+  const txnFeById = new Map(
+    (trustTxnsRes.data ?? []).map((t) => [
+      t.id as string,
+      mappedFe(cache, 'trust_txn', t.id as string, t.id as string),
+    ]),
+  )
+
+  const trustAllocations = (trustAllocsRes.data ?? []).map((a) => ({
+    id: mappedFe(cache, 'trust_alloc', a.id as string, a.id as string),
+    agencyId: mapAgencyFe(a.client_id as string)!,
+    trustTransactionId: a.trust_transaction_id
+      ? (txnFeById.get(a.trust_transaction_id as string) ?? (a.trust_transaction_id as string))
+      : '',
+    occupancyId: (a.occupancy_id as string) ?? null,
+    bucketCode: (a.bucket_code as string) ?? 'unallocated',
+    chargeId: (a.charge_id as string) ?? null,
+    amountCents: Number(a.amount_cents),
+    allocatedBy: mapUserFe(a.allocated_by as string | null) ?? '',
+    allocatedAt: iso(a.allocated_at as string) ?? new Date().toISOString(),
+  }))
+
+  const payoutInstructions = (payoutsRes.data ?? []).map((p) => ({
+    id: mappedFe(cache, 'payout', p.id as string, p.id as string),
+    agencyId: mapAgencyFe(p.client_id as string)!,
+    occupancyId: (p.occupancy_id as string) ?? null,
+    propertyId: p.unit_id ? (mapPropertyFe(p.unit_id as string) ?? '') : '',
+    payeeType: (p.payee_type as string) ?? 'landlord',
+    payeeId: mapUserFe(p.payee_id as string | null) ?? ((p.payee_id as string) ?? ''),
+    bankAccountId: (p.bank_account_id as string) ?? '',
+    amountCents: Number(p.amount_cents),
+    bucketCode: (p.bucket_code as string) ?? 'owner_payable',
+    status: p.status as string,
+    proposedBy: mapUserFe(p.proposed_by as string | null) ?? '',
+    approvedBy: mapUserFe(p.approved_by as string | null),
+    submittedAt: iso(p.submitted_at as string | null),
+    settledAt: iso(p.settled_at as string | null),
+    partnerPayoutId: (p.partner_payout_id as string) ?? null,
+    failureReason: (p.failure_reason as string) ?? null,
+    idempotencyKey: (p.idempotency_key as string) ?? '',
+    createdAt: iso(p.created_at as string) ?? new Date().toISOString(),
+    updatedAt: iso(p.updated_at as string) ?? new Date().toISOString(),
+  }))
+
+  const depositHoldings = (depositsRes.data ?? []).map((d) => ({
+    id: mappedFe(cache, 'deposit', d.id as string, d.id as string),
+    agencyId: mapAgencyFe(d.client_id as string)!,
+    occupancyId: (d.occupancy_id as string) ?? '',
+    expectedCents: Number(d.expected_cents),
+    heldCents: Number(d.held_cents),
+    interestAccruedCents: Number(d.interest_accrued_cents),
+    status: d.status as string,
+    statutoryDeadlineOn: d.statutory_deadline_on ? dateOnly(d.statutory_deadline_on as string) : null,
+    interestRateUnknown: Boolean(d.interest_rate_unknown),
+    createdAt: iso(d.created_at as string) ?? new Date().toISOString(),
+    updatedAt: iso(d.updated_at as string) ?? new Date().toISOString(),
+  }))
+
+  const arrearsSnapshots = (arrearsRes.data ?? []).map((s) => ({
+    id: mappedFe(cache, 'arrears', s.id as string, s.id as string),
+    agencyId: mapAgencyFe(s.client_id as string)!,
+    occupancyId: (s.occupancy_id as string) ?? '',
+    asOf: dateOnly(s.as_of as string),
+    currentCents: Number(s.current_cents),
+    d30: Number(s.d30),
+    d60: Number(s.d60),
+    d90: Number(s.d90),
+    d90plus: Number(s.d90plus),
+    createdAt: iso(s.created_at as string) ?? new Date().toISOString(),
+  }))
+
+  const csvImportBatches = (csvBatchesRes.data ?? []).map((b) => ({
+    id: mappedFe(cache, 'csv_batch', b.id as string, b.id as string),
+    agencyId: mapAgencyFe(b.client_id as string)!,
+    filename: (b.filename as string) ?? '',
+    rowCount: Number(b.row_count),
+    importedAt: iso(b.imported_at as string) ?? new Date().toISOString(),
+    importedBy: mapUserFe(b.imported_by as string | null) ?? '',
+    status: b.status as string,
+  }))
+
   const lookups: LookupConfig[] = (lookupsRes.data ?? []).map((row, i) => {
     const meta = (row.meta as Record<string, unknown> | null) ?? {}
     const feClient =
@@ -811,5 +924,11 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
     propertyEvents,
     invoices,
     lookups,
+    trustTransactions,
+    trustAllocations,
+    payoutInstructions,
+    depositHoldings,
+    arrearsSnapshots,
+    csvImportBatches,
   }
 }
