@@ -24,7 +24,8 @@ import {
   workflowProgress,
   workflowStageLabel,
 } from '../../lib/applicationWorkflow'
-import { buildCheckoutBridge, type PatchApplicationStatusResult } from '../../lib/api/applicationStatusApi'
+import { buildCheckoutBridge, guidedTransitionError, type PatchApplicationStatusResult } from '../../lib/api/applicationStatusApi'
+import { sweetError } from '../../lib/sweetAlert'
 import type { HateoasAction } from '../../lib/api/contracts'
 import type { WorkflowActionCapture } from '../../lib/workflowActionForms'
 import { formatZAR } from '../../data/seed'
@@ -128,7 +129,8 @@ export default function TenantApplicationDetailPage() {
       if ('application' in result && result.status === 'SUCCESS') {
         setFlash(null)
       } else if ('error' in result && result.error) {
-        window.alert(result.error)
+        // P0-1 (R4): actionable copy instead of a raw engine error alert.
+        void sweetError('Action not available', guidedTransitionError(result))
       }
       return
     }

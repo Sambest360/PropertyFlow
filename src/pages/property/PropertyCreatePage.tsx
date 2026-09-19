@@ -337,20 +337,14 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
 
   const computedSolarKw = useMemo(() => inferSolarCapacityKw(draft.amenities), [draft.amenities])
 
-  const previewImages = useMemo(() => {
-    if (draft.buildingImages.length) return draft.buildingImages
-    if (draft.existingBuildingId) {
-      return state.buildings.find((b) => b.id === draft.existingBuildingId)?.images ?? []
-    }
-    return []
-  }, [draft.buildingImages, draft.existingBuildingId, state.buildings])
+  // P0-4 (R4): listing photos must be this listing's own uploads only.
+  // Inheriting an existing building's images published another listing's
+  // wizard screenshots on the guest sale gallery, so the fallback is gone —
+  // the gallery shows a clean empty state until real photos are uploaded.
+  const previewImages = useMemo(() => draft.buildingImages, [draft.buildingImages])
 
   function listingImagesForSubmit(): string[] {
-    if (draft.buildingImages.length) return draft.buildingImages
-    if (draft.existingBuildingId) {
-      return state.buildings.find((b) => b.id === draft.existingBuildingId)?.images ?? []
-    }
-    return []
+    return draft.buildingImages
   }
 
   const typeOptions = useMemo(() => {
@@ -390,15 +384,12 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
         if (!draft.address.trim()) return 'Street address is required.'
         if (!draft.city.trim()) return 'City is required.'
         return null
-      case 2: {
-        const existingPhotos = draft.existingBuildingId
-          ? state.buildings.find((b) => b.id === draft.existingBuildingId)?.images ?? []
-          : []
-        if (draft.buildingImages.length === 0 && existingPhotos.length === 0) {
+      case 2:
+        // P0-4 (R4): require this listing's own photos — no building fallback.
+        if (draft.buildingImages.length === 0) {
           return 'Add at least one listing photo.'
         }
         return null
-      }
       case 3: {
         if (draft.rooms.length === 0) return 'Add at least one room.'
         const unnamed = draft.rooms.find((room) => !room.name.trim())

@@ -232,7 +232,13 @@ export default function TrustDashboard() {
         {trustTransactions.length === 0 ? (
           <EmptyState
             title="No trust transactions"
-            description="Transactions will appear here when you record payments or process payouts. Start by recording a tenant payment or allocating an unallocated receipt."
+            description={
+              // P1 (R4): distinguish "no activity yet" from "no tenancies to
+              // bill against" — QA flagged the blanket message as unclear.
+              arrearsSnapshots.length === 0
+                ? 'Trust accounting is per tenancy, and this agency has no occupancies yet. Approve an applicant (or record a first receipt) and transactions will appear here.'
+                : 'Transactions will appear here when you record payments or process payouts. Start by recording a tenant payment or allocating an unallocated receipt.'
+            }
           />
         ) : (
           <div className="mt-4 space-y-3">

@@ -21,6 +21,7 @@ export function PropertyCard({
   unit,
   card,
   className,
+  browseMode,
 }: {
   property: PropertyAsset
   building?: Building
@@ -28,6 +29,8 @@ export function PropertyCard({
   /** Prefer pre-built API card payload when available */
   card?: UnitCardPayload
   className?: string
+  /** Current marketplace tab ('rent' | 'buy' | 'all' | 'commercial') — contextualises dual listings. */
+  browseMode?: string
 }) {
   const { user, isAuthenticated } = useAuth()
   const { saved, toggle } = useWishlist(isAuthenticated ? user.id : 'guest')
@@ -72,13 +75,33 @@ export function PropertyCard({
           ? formatZAR(property.price)
           : ''
 
+  // P1 (R4): QA flagged the static "Sale or Rent" badge as confusing because
+  // it never changes per tab. Dual ('both') listings now say what the current
+  // tab shows AND that the other offer exists.
   const badge =
-    property.listingMode === 'both' ? 'Sale or Rent' : property.listingMode === 'sale' ? 'For Sale' : 'To Rent'
+    property.listingMode === 'both'
+      ? browseMode === 'buy'
+        ? 'For sale · also to rent'
+        : browseMode === 'rent'
+          ? 'To rent · also for sale'
+          : 'Sale or Rent'
+      : property.listingMode === 'sale'
+        ? 'For Sale'
+        : 'To Rent'
 
   const href = `/listing/${canonicalListingId(card?.property_id ?? property.id)}`
 
   const image = card?.primary_image ?? property.images[0]
-  const title = card?.title ?? property.title
+  // P1 (R4): identical wizard titles ("2-bed Tamboerskloof apartment") made
+  // dual listings look like duplicates — the offer type is now part of the
+  // card title itself.
+  const rawTitle = (card?.title ?? property.title).trim()
+  const title =
+    property.listingMode === 'both'
+      ? `${rawTitle} · sale or rental`
+      : property.listingMode === 'sale'
+        ? `${rawTitle} · for sale`
+        : `${rawTitle} · rental`
   const suburb = card?.building.suburb ?? property.suburb
   const city = card?.building.city ?? property.city
   const beds = card?.bedrooms ?? property.beds

@@ -129,11 +129,35 @@ const API_TO_STAGE: Record<string, ApplicationStage> = {
 const ALLOWED: Record<string, string[]> = {
   // P0-1 (R3): Allow APPROVED from "Application started" for legacy apps and
   // agency authority approval without requiring full submission first.
+  // P0-1 (R4): the workflow engine labels its start stage 'Application
+  // started' (not the legacy 'Started'), and normalizeApplication rewrites
+  // stage labels on load — so both spellings must be accepted or Approve on
+  // any round-tripped application 422s with exactly
+  // "Cannot transition from Application started to APPROVED".
   Started: ['SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
+  'Application started': ['SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
   // P0-3 (E2E #2): guest-submitted apps land here; staff Approve / Reject /
   // Move-to-review must be available straight from Submitted.
   'Application submitted': ['UNDER_REVIEW', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
-  'Documents Pending': ['SUBMITTED', 'UNDER_REVIEW', 'REJECTED', 'WITHDRAWN'],
+  // P0-1 (R4): fresh create-your-own applications persist at stage
+  // 'Documents Pending' (see submitApplication) — staff must be able to
+  // Approve straight from here without an intermediate submit flicker.
+  'Documents Pending': ['SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
+  // P0-1 (R4): engine-label aliases. normalizeApplication rewrites legacy
+  // stage labels to the workflow engine's wording on load; every normalized
+  // state must keep the same transitions its legacy label had.
+  'Documents requested': ['SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
+  'Documents uploaded': ['UNDER_REVIEW', 'CREDIT_CHECK', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
+  'Viewing scheduled': ['UNDER_REVIEW', 'CREDIT_CHECK', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
+  'Viewing completed': ['UNDER_REVIEW', 'CREDIT_CHECK', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
+  'Agent review': ['CREDIT_CHECK', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
+  'Credit check': ['APPROVED', 'REJECTED', 'UNDER_REVIEW'],
+  'Conditionally approved': ['APPROVED', 'LEASE_SIGNED', 'REJECTED'],
+  'Deposit invoice issued': ['LEASE_SIGNED', 'REJECTED', 'WITHDRAWN'],
+  'Lease signed by tenant': ['LEASED'],
+  'Lease signed by landlord': ['LEASED'],
+  'Move-in inspection scheduled': ['LEASED'],
+  'Active tenancy': [],
   'Documents Submitted': ['UNDER_REVIEW', 'CREDIT_CHECK', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
   'Viewing Booked': ['UNDER_REVIEW', 'CREDIT_CHECK', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
   'Under Review': ['CREDIT_CHECK', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
@@ -147,6 +171,22 @@ const ALLOWED: Record<string, string[]> = {
   'Active Tenancy': [],
   Rejected: [],
   Withdrawn: [],
+}
+
+/**
+ * P0-1 (R4): turn a raw transition error into the staff member's next action.
+ * The lifecycle engine and this stage machine label the same state slightly
+ * differently, so an actionable hint is safer than leaking the raw mismatch.
+ */
+export function guidedTransitionError(result: PatchApplicationStatusError): string {
+  if (result.code === 'INVALID_TRANSITION') {
+    const lower = (result.error ?? '').toLowerCase()
+    if (lower.includes('application started') || lower.includes('documents pending') || lower.includes('application submitted')) {
+      return `${result.error}. Mark the application as submitted first (or ask the applicant to submit it from their portal), then approve from the submitted status.`
+    }
+    return `${result.error}. Open the application's lifecycle panel and take the suggested next step shown there.`
+  }
+  return result.error
 }
 
 function uid(prefix: string): string {

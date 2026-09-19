@@ -18,6 +18,16 @@ export function formatAuthError(message: string): { title: string; text?: string
     }
   }
 
+  // P0-2 (R4): Supabase reports a stale / revoked / expired session token as
+  // invalid_grant. Telling users to "check email and password" sends them
+  // chasing credentials that are actually fine — name the real problem.
+  if (lower.includes('invalid_grant')) {
+    return {
+      title: 'Session expired',
+      text: 'Your previous session expired or was revoked. Sign in again with your email and password to continue.',
+    }
+  }
+
   if (
     lower.includes('invalid login credentials') ||
     lower.includes('invalid email or password') ||

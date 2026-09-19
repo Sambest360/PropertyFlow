@@ -75,8 +75,12 @@ import {
   normalizeApplication,
   resolveWorkflowStatus,
   type WorkflowStatusKey,
+  type WorkflowTransition,
 } from '../lib/applicationWorkflow'
-import { isApplicantAcceptanceStatus } from '../lib/applicantPortalActions'
+import {
+  buildApplicantApplicationActions,
+  isApplicantAcceptanceStatus,
+} from '../lib/applicantPortalActions'
 import { notifyAcceptedElsewhere } from '../lib/applicantAcceptance'
 import {
   closeOutcomeHistoryLabel,
@@ -2980,7 +2984,30 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
       const actorUser = state.users.find((u) => u.id === actorUserId)
       const permissions = rolePermissions[actorUser?.role ?? 'client_admin'] ?? []
-      const transition = getAvailableTransitions(app, permissions).find((t) => t.to === targetStatus)
+      let transition = getAvailableTransitions(app, permissions).find((t) => t.to === targetStatus)
+      // P0-1 (R4): the shared template gates applicant-side steps behind
+      // `applications.review`, which tenants never hold — so an applicant
+      // submitting their own application was rejected with INVALID_TRANSITION
+      // and the UI flickered back to the old status (E2E #3). The applicant
+      // action layer guards the same transition by identity + portal.tenant;
+      // if it offers the target for this actor's own application, run it.
+      if (!transition && actorUser && app.applicantUserId === actorUser.id) {
+        const applicantAction = buildApplicantApplicationActions({
+          application: app,
+          permissions,
+        }).find((a) => a.payload_hint?.workflowStatus === targetStatus)
+        if (applicantAction) {
+          transition = {
+            actionKey: applicantAction.key,
+            from: resolveWorkflowStatus(app),
+            to: targetStatus,
+            label: applicantAction.label,
+            hint: applicantAction.label,
+            tone: (applicantAction.tone as WorkflowTransition['tone']) ?? 'secondary',
+            requires: [],
+          } as WorkflowTransition
+        }
+      }
       if (!transition) {
         return {
           status: 'ERROR',
@@ -3084,13 +3111,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         return { status: 'SUCCESS', application: updatedApp }
       }
 
+      // P0-1 (R4): persist the applicant's explicit submit as Submitted.
+      // The previous auto-chain to documents_requested overwrote the status
+      // in the same tick, so Submit appeared to flicker and revert (E2E #3);
+      // staff now advance the submitted application themselves.
       let updated = normalizeApplication(applyWorkflowTransition(app, targetStatus))
-      if (targetStatus === 'application_submitted') {
-        const chained = applyWorkflowTransition(updated, 'documents_requested')
-        if (resolveWorkflowStatus(chained) === 'documents_requested') {
-          updated = normalizeApplication(chained)
-        }
-      }
       updated = appendWorkflowEvent(updated, {
         stage: resolveWorkflowStatus(updated),
         actionKey: transition.actionKey,

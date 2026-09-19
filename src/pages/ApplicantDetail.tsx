@@ -28,7 +28,7 @@ import {
   isApplicantDetailTab,
   type ApplicantDetailTab,
 } from '../components/applicant-detail/types'
-import { buildCheckoutBridge, type PatchApplicationStatusResult } from '../lib/api/applicationStatusApi'
+import { buildCheckoutBridge, guidedTransitionError, type PatchApplicationStatusResult } from '../lib/api/applicationStatusApi'
 import type { HateoasAction } from '../lib/api/contracts'
 import type { WorkflowActionCapture } from '../lib/workflowActionForms'
 import type { PropertyEvent } from '../types/domain'
@@ -392,7 +392,7 @@ export default function ApplicantDetail() {
 
         {flash?.status === 'ERROR' && (
           <p role="alert" className="mb-4 rounded-xl bg-accent-50 px-3 py-2 text-sm text-ink">
-            {flash.error}
+            {guidedTransitionError(flash)}
           </p>
         )}
 

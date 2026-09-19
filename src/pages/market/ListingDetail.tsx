@@ -54,6 +54,15 @@ export default function ListingDetail() {
   const [intent, setIntent] = useState<EnquiryIntent>('lead')
   const [submitting, setSubmitting] = useState(false)
   const [enquirySheetOpen, setEnquirySheetOpen] = useState(false)
+  // P0-4 (R4): guest direct-URL opens used to flash "Listing not found" while
+  // the public bootstrap was still in flight. Give the store a short window
+  // (capped, so a genuinely dead link still resolves to not-found) before
+  // declaring the listing missing.
+  const [retryWindowOver, setRetryWindowOver] = useState(false)
+  useEffect(() => {
+    const t = window.setTimeout(() => setRetryWindowOver(true), 6000)
+    return () => window.clearTimeout(t)
+  }, [])
 
   useEffect(() => {
     if (isAuthenticated && user.email) {
@@ -85,6 +94,16 @@ export default function ListingDetail() {
   })
 
   if (!p) {
+    const storeSettled = state.properties.length > 0 || state.units.length > 0
+    if (!storeSettled && !retryWindowOver) {
+      return (
+        <div className="mx-auto max-w-3xl px-4 py-16 text-center" role="status" aria-live="polite">
+          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-primary-100 border-t-primary" />
+          <p className="mt-4 font-semibold text-ink">Loading listing…</p>
+          <p className="mt-2 text-sm text-ink-500">Fetching the latest listing details.</p>
+        </div>
+      )
+    }
     return (
       <div className="mx-auto max-w-3xl px-4 py-16 text-center">
         <p className="font-semibold text-ink">Listing not found</p>
@@ -434,6 +453,12 @@ export default function ListingDetail() {
               </option>
             ))}
           </select>
+        )}
+        {intent === 'viewing' && openSlots.length === 0 && (
+          <p className="rounded-xl bg-primary-50 px-3 py-2 text-xs text-ink-600">
+            No open viewing slots on this listing yet. Submit the form and the agent will
+            propose a time with you directly — no slots are being missed.
+          </p>
         )}
         <textarea
           className="w-full rounded-xl border border-primary-100 px-3 py-2 text-base sm:text-sm"

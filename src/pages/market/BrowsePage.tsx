@@ -294,7 +294,15 @@ export default function BrowsePage() {
               <p className="text-sm text-ink-500">
                 {savedOnly
                   ? `${cards.length} saved home${cards.length === 1 ? '' : 's'}`
-                  : `${mode === 'commercial' || !unitsFeed ? cards.length : (unitsFeed.pagination.total_estimate ?? cards.length)} places${unitsFeed?.pagination.has_more ? ' · scroll for more' : ''}`}
+                  : mode === 'commercial' || !unitsFeed
+                    ? `${cards.length} place${cards.length === 1 ? '' : 's'}`
+                    : (() => {
+                        // P1 (R4): the header previously showed the full
+                        // filtered total while the grid renders 24 per page —
+                        // QA read it as a count mismatch. Say what's shown.
+                        const total = unitsFeed.pagination.total_estimate ?? cards.length
+                        return `Showing ${cards.length} of ${total} place${total === 1 ? '' : 's'}${unitsFeed.pagination.has_more ? ' · scroll for more' : ''}`
+                      })()}
               </p>
               {savedOnly && cards.length === 0 && (
                 <p className="mt-2 flex items-center gap-1.5 text-sm text-ink-500">
@@ -419,6 +427,7 @@ export default function BrowsePage() {
                       building={building}
                       unit={unit}
                       card={card}
+                      browseMode={mode}
                     />
                   )
                 })}
