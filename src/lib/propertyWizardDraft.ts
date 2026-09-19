@@ -1,4 +1,4 @@
-import type { Building, InfraRoom, RoomKind } from '../data/infrastructure'
+import type { AssetCondition, Building, InfraRoom, InternalAsset, RoomKind } from '../data/infrastructure'
 import type { PropertyAsset, Room } from '../types/domain'
 import { uid } from '../data/seed'
 
@@ -49,6 +49,8 @@ export type PropertyWizardDraft = {
   agentId: string
   publishAfterSave: boolean
   draftPropertyId: string
+  /** In-unit inventory captured at the Assets step (P1-2); matched to rooms on save. */
+  starterAssets: WizardAssetDraft[]
 }
 
 export function defaultWizardRooms(): WizardRoomDraft[] {
@@ -82,6 +84,40 @@ function roomsFromProperty(infraRooms: InfraRoom[], propertyRooms: Room[]): Wiza
     }))
   }
   return defaultWizardRooms()
+}
+
+/** A single in-unit inventory item captured in the create wizard (Assets step). */
+export type WizardAssetDraft = {
+  id: string
+  /** Room name from the wizard's room drafts — matched to a room id on save. */
+  roomName: string
+  itemName: string
+  assetTypeKey: string
+  brand: string
+  condition: AssetCondition
+}
+
+export function emptyWizardAsset(roomName = ''): WizardAssetDraft {
+  return {
+    id: uid('wa'),
+    roomName,
+    itemName: '',
+    assetTypeKey: 'APPLIANCE',
+    brand: '',
+    condition: 'Good',
+  }
+}
+
+/** Seed the Assets step from an existing property's inventory (edit mode). */
+export function wizardAssetDraftsFromProperty(assets: InternalAsset[]): WizardAssetDraft[] {
+  return assets.map((a) => ({
+    id: uid('wa'),
+    roomName: '',
+    itemName: a.itemName,
+    assetTypeKey: a.assetTypeKey,
+    brand: a.brand ?? '',
+    condition: a.condition,
+  }))
 }
 
 export function draftFromProperty(
@@ -127,5 +163,8 @@ export function draftFromProperty(
     agentId: property.agentId ?? '',
     publishAfterSave: false,
     draftPropertyId: property.id,
+    // Edit mode manages existing inventory on the detail page's inventory tab;
+    // the wizard's starter list stays empty so nothing is duplicated on save.
+    starterAssets: [],
   }
 }

@@ -59,8 +59,12 @@
 ### 7. **Missing Rate Limiting on Auth Endpoints**
 - **Issue**: No rate limiting on `/api/auth/login` or `/api/auth/register` endpoints
 - **Risk**: Brute force attacks on user passwords; registration spam
-- **Recommendation**: Implement rate limiting middleware (IP-based or account-based) before production deployment
-- **Severity**: HIGH for public-facing auth endpoints
+- **Status**: ✅ ADDRESSED — `server/rateLimit.ts` implements in-memory sliding-window
+  limits on both endpoints: per-IP request cap (default 10 / 15 min) plus a
+  per-(IP + email) failed-login lockout (default 8) cleared on success.
+  Returns `429` with `Retry-After`. Tune via `AUTH_RATE_LIMIT_MAX`,
+  `AUTH_RATE_LIMIT_WINDOW_MIN`, and `AUTH_RATE_LIMIT_LOGIN_MAX`. For multi-instance
+  production deployments, move the shared state to Redis or a DB table.
 
 ## Setup & Deployment Requirements
 
@@ -104,7 +108,7 @@ npm run build
 - Proper quote escaping for all table/column identifiers
 
 ### What Needs Attention 🔍
-1. **Rate limiting** on auth endpoints - implement before production
+1. ~~Rate limiting on auth endpoints~~ — ✅ implemented in `server/rateLimit.ts`
 2. **JWT TTL** - consider reducing from 14 days to 1-7 days for higher security
 3. **Token revocation** - Bearer tokens cannot be revoked after logout (design limitation of JWT)
 4. **CSRF protection** - verify CSRF tokens are set on state-changing endpoints
@@ -124,7 +128,7 @@ npm run test:watch
 - [ ] Set `AUTH_SECRET` in environment
 - [ ] Verify `DATABASE_URL` points to production database
 - [ ] Verify `NODE_ENV=production`
-- [ ] Implement rate limiting on auth endpoints before public launch
+- [x] Rate limiting on auth endpoints (see `server/rateLimit.ts`)
 - [ ] Review and test all multi-tenancy scope gating
 - [ ] Enable HTTPS/TLS for all connections
 - [ ] Review JWT TTL and consider reducing to 1-7 days

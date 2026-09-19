@@ -403,19 +403,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       },
       logout: async () => {
-        // P0-2: a hung / failed network call must never block local clearing.
+        // P0-2A (R3): Match the shared signOutAndRedirect behavior for complete
+        // session clearing. A hung/failed network call must never block local clearing.
         try {
           if (isSupabaseMode) await supabaseSignOut()
           else await apiLogout()
         } catch {
           /* fall through — session artifacts cleared below regardless */
         }
+        // Clear in-memory state
         setSessionUser(null)
         setUserId('')
         setRealUserId(null)
+        // Clear all localStorage/sessionStorage auth keys
         try {
           localStorage.removeItem(AUTH_KEY)
           localStorage.removeItem(REAL_AUTH_KEY)
+          // Clear any Supabase auth keys
+          const storages = [localStorage, sessionStorage]
+          for (const store of storages) {
+            const keys: string[] = []
+            for (let i = 0; i < store.length; i++) {
+              const key = store.key(i)
+              if (key) keys.push(key)
+            }
+            for (const k of keys) {
+              if (k.startsWith('sb-') && k.includes('auth')) store.removeItem(k)
+            }
+          }
         } catch {
           /* ignore */
         }

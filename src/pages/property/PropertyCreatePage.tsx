@@ -12,6 +12,8 @@ import {
   BedDouble,
   Bath,
   Car,
+  Plus,
+  Trash2,
   Warehouse,
 } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
@@ -57,9 +59,12 @@ import {
 import {
   draftFromProperty,
   defaultWizardRooms,
+  emptyWizardAsset,
   type PropertyWizardDraft as PropertyDraft,
+  type WizardAssetDraft,
   type WizardRoomDraft as RoomDraft,
 } from '../../lib/propertyWizardDraft'
+import type { AssetCondition } from '../../data/infrastructure'
 
 const DRAFT_KEY = 'propertyflow:property-create'
 
@@ -71,7 +76,7 @@ const STEPS: WizardStepMeta[] = [
   { id: 'amenities', label: 'Amenities', tip: 'Select features grouped by category — safety, living, kitchen, and more.' },
   { id: 'pricing', label: 'Pricing', tip: 'Set rent and/or sale price, deposit guidance, and availability rules.' },
   { id: 'assignment', label: 'Assignment', tip: 'Set the agency and field agent. Link a landlord only when the property is privately owned.' },
-  { id: 'assets', label: 'Assets (optional)', tip: 'P1-2: Add in-unit inventory (microwave, beds, etc.) or skip to add later in property detail.' },
+  { id: 'assets', label: 'Assets (optional)', tip: 'Add in-unit inventory (microwave, beds, etc.) — or skip and manage it from the property detail inventory tab.' },
   { id: 'review', label: 'Review', tip: 'Confirm everything before saving as draft or publishing.' },
 ]
 
@@ -79,6 +84,21 @@ const LISTING_OPTIONS = [
   { value: 'rent', label: 'For rent', blurb: 'Monthly rental listing', icon: KeyRound },
   { value: 'sale', label: 'For sale', blurb: 'Purchase listing', icon: Tag },
   { value: 'both', label: 'Rent & sale', blurb: 'Dual listing mode', icon: Home },
+]
+
+const ASSET_TYPES = [
+  { value: 'APPLIANCE', label: 'Appliance' },
+  { value: 'FURNITURE', label: 'Furniture' },
+  { value: 'ELECTRONICS', label: 'Electronics' },
+  { value: 'FIXTURE', label: 'Fixture' },
+]
+
+const ASSET_CONDITIONS: AssetCondition[] = [
+  'Excellent',
+  'Good',
+  'Fair',
+  'Damaged',
+  'Needs replacement',
 ]
 
 const TYPE_OPTIONS = [
@@ -205,6 +225,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     agentId: isLandlord ? '' : isFieldAgent(role) ? user.id : agents[0]?.id ?? '',
     publishAfterSave: isLandlord,
     draftPropertyId: '',
+    starterAssets: [],
   }
 
   const seedDraft =
@@ -277,6 +298,23 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       ),
     [state.users, listingAgencyId, isPlatformAdmin],
   )
+  const assetTypeOptions = useLookupOptions('ASSET_TYPE', listingAgencyId || null)
+  const assetTypes = assetTypeOptions.length ? assetTypeOptions : ASSET_TYPES
+
+  const addStarterAsset = () =>
+    setDraft((d) => ({
+      ...d,
+      starterAssets: [...d.starterAssets, emptyWizardAsset(d.rooms[0]?.name ?? '')],
+    }))
+
+  const patchStarterAsset = (id: string, patch: Partial<WizardAssetDraft>) =>
+    setDraft((d) => ({
+      ...d,
+      starterAssets: d.starterAssets.map((a) => (a.id === id ? { ...a, ...patch } : a)),
+    }))
+
+  const removeStarterAsset = (id: string) =>
+    setDraft((d) => ({ ...d, starterAssets: d.starterAssets.filter((a) => a.id !== id) }))
   const assignedAgencyName =
     agencies.find((a) => a.id === listingAgencyId)?.name ??
     state.agencies.find((a) => a.id === agencyId)?.name
@@ -435,8 +473,17 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     const unitNumber = defaultUnitNumber(draft.propertyType)
     const listingImages = listingImagesForSubmit()
     const roomRows = draft.rooms.length > 0 ? draft.rooms : defaultRooms()
+    const starterAssets = draft.starterAssets
+      .filter((a) => a.itemName.trim())
+      .map((a) => ({
+        roomName: a.roomName,
+        itemName: a.itemName.trim(),
+        assetTypeKey: a.assetTypeKey,
+        brand: a.brand.trim() || undefined,
+        condition: a.condition,
+      }))
 
-    return { resolvedAgencyId, resolvedLandlordId, title, unitNumber, listingImages, roomRows }
+    return { resolvedAgencyId, resolvedLandlordId, title, unitNumber, listingImages, roomRows, starterAssets }
   }
 
   function buildPropertyPatch(listingImages: string[]) {
@@ -484,7 +531,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   }
 
   function syncServerDraft(): string {
-    const { resolvedAgencyId, resolvedLandlordId, title, unitNumber, listingImages, roomRows } =
+    const { resolvedAgencyId, resolvedLandlordId, title, unitNumber, listingImages, roomRows, starterAssets } =
       buildSubmitContext()
 
     const persistExisting = (id: string) => {
@@ -559,6 +606,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
           areaSqm: clean.areaSqm ? Number(clean.areaSqm) : undefined,
         }
       }),
+      starterAssets: starterAssets.length ? starterAssets : undefined,
       property: {
         ...buildPropertyPatch(listingImages),
         status: 'Draft',
@@ -581,6 +629,31 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     } catch {
       setError('Could not save your progress. Try again.')
     } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Assets step: finish the listing as a Draft now, add inventory on the detail page. */
+  function handleAddAssetsLater() {
+    setError('')
+    if (!canSyncServerDraft()) {
+      setError('Add a building name or street address first so the listing can be saved.')
+      goTo(1)
+      return
+    }
+    setBusy(true)
+    try {
+      const id = syncServerDraft()
+      setDraft((d) => ({ ...d, draftPropertyId: id }))
+      clearDraft()
+      try {
+        sessionStorage.removeItem(`${wizardStorageKey}:step`)
+      } catch {
+        /* ignore */
+      }
+      navigate(`/workspace/properties/${id}?tab=inventory`)
+    } catch {
+      setError('Could not save the listing. Try again.')
       setBusy(false)
     }
   }
@@ -626,7 +699,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       }
       propertyId = existingDraftId
     } else {
-      const { resolvedAgencyId, resolvedLandlordId, title, unitNumber, roomRows } = buildSubmitContext()
+      const { resolvedAgencyId, resolvedLandlordId, title, unitNumber, roomRows, starterAssets } = buildSubmitContext()
       const created = createPropertyBundle({
         existingBuildingId: draft.existingBuildingId || undefined,
         building: draft.existingBuildingId
@@ -671,6 +744,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
             areaSqm: clean.areaSqm ? Number(clean.areaSqm) : undefined,
           }
         }),
+        starterAssets: starterAssets.length ? starterAssets : undefined,
         property: {
           ...patch,
           status: 'Draft',
@@ -1251,12 +1325,90 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
         )
       case 7:
         return (
-          <WizardSectionCard title="Assets (optional)" description="P1-2: Add in-unit inventory now or skip to add later in property detail.">
+          <WizardSectionCard
+            title="Assets (optional)"
+            description="List furniture, appliances, and other in-unit items now — they appear on the property's inventory tab for maintenance and inspections."
+          >
             <div className="space-y-4">
-              <p className="text-sm text-ink-500">
-                Track furniture, appliances, and other in-unit items for maintenance and inventory.
-              </p>
+              {draft.starterAssets.length === 0 ? (
+                <p className="text-sm text-ink-500">
+                  No inventory items yet. Adding them now saves a trip to the property detail page later.
+                </p>
+              ) : null}
+              <div className="space-y-3">
+                {draft.starterAssets.map((asset) => (
+                  <div
+                    key={asset.id}
+                    className="grid gap-2 rounded-2xl border border-primary-100 bg-white p-3 sm:grid-cols-[1.4fr_1fr_1fr_1fr_auto]"
+                  >
+                    <Input
+                      aria-label="Item name"
+                      placeholder="Item name (e.g. Fridge-freezer)"
+                      value={asset.itemName}
+                      onChange={(e) => patchStarterAsset(asset.id, { itemName: e.target.value })}
+                    />
+                    <Select
+                      aria-label="Asset type"
+                      value={asset.assetTypeKey}
+                      onChange={(e) => patchStarterAsset(asset.id, { assetTypeKey: e.target.value })}
+                    >
+                      {assetTypes.map((t) => (
+                        <option key={t.value} value={t.value}>
+                          {t.label}
+                        </option>
+                      ))}
+                    </Select>
+                    <Select
+                      aria-label="Room"
+                      value={asset.roomName}
+                      onChange={(e) => patchStarterAsset(asset.id, { roomName: e.target.value })}
+                    >
+                      <option value="">Unassigned room</option>
+                      {draft.rooms.map((r) => (
+                        <option key={r.id} value={r.name}>
+                          {r.name || 'Unnamed room'}
+                        </option>
+                      ))}
+                    </Select>
+                    <Input
+                      aria-label="Brand (optional)"
+                      placeholder="Brand (optional)"
+                      value={asset.brand}
+                      onChange={(e) => patchStarterAsset(asset.id, { brand: e.target.value })}
+                    />
+                    <div className="flex items-center gap-2">
+                      <Select
+                        aria-label="Condition"
+                        className="min-w-0 flex-1"
+                        value={asset.condition}
+                        onChange={(e) =>
+                          patchStarterAsset(asset.id, { condition: e.target.value as AssetCondition })
+                        }
+                      >
+                        {ASSET_CONDITIONS.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </Select>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        aria-label={`Remove ${asset.itemName || 'asset'}`}
+                        className="min-h-11 shrink-0 cursor-pointer px-3"
+                        onClick={() => removeStarterAsset(asset.id)}
+                      >
+                        <Trash2 className="h-4 w-4 text-ink-500" strokeWidth={1.6} aria-hidden />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
               <div className="flex flex-wrap gap-3">
+                <Button type="button" className="cursor-pointer" onClick={addStarterAsset}>
+                  <Plus className="h-4 w-4" strokeWidth={1.6} aria-hidden />
+                  Add asset
+                </Button>
                 <Button
                   type="button"
                   variant="secondary"
@@ -1265,17 +1417,17 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                 >
                   Skip for now
                 </Button>
-                <Button
-                  type="button"
-                  className="cursor-pointer"
-                  onClick={() => {
-                    // Navigate to property detail after creation to add assets
-                    // For now, just skip as assets are added in detail view
-                    goTo(stepIndex + 1)
-                  }}
-                >
-                  Add assets later in property detail
-                </Button>
+                {!isEdit ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="cursor-pointer"
+                    disabled={busy}
+                    onClick={handleAddAssetsLater}
+                  >
+                    Add assets later in property detail
+                  </Button>
+                ) : null}
               </div>
             </div>
           </WizardSectionCard>

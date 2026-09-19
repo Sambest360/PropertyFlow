@@ -49,7 +49,8 @@ function matchesFilters(
   if (!matchQ) return false
 
   if (mode === 'commercial' && !['Commercial', 'Office'].includes(p.type)) return false
-  if (mode === 'buy' && !((p.listingMode === 'sale' || p.listingMode === 'both') && p.price != null)) return false
+  // P0-4: Buy mode should be sale-only, excluding 'both' mode listings
+  if (mode === 'buy' && !(p.listingMode === 'sale' && p.price != null)) return false
   if (mode === 'rent' && !((p.listingMode === 'rent' || p.listingMode === 'both') && p.rent != null)) return false
 
   if (f.types.length && !f.types.includes(p.type)) return false
@@ -128,8 +129,9 @@ function cardMatchesBrowseMode(
     properties.find((p) => p.id === card.property_id || p.unitId === card.id)
   if (!property) return mode !== 'commercial'
   if (mode === 'commercial') return ['Commercial', 'Office'].includes(property.type)
+  // P0-4: Buy mode should be sale-only, excluding 'both' mode listings
   if (mode === 'buy') {
-    return (property.listingMode === 'sale' || property.listingMode === 'both') && property.price != null
+    return property.listingMode === 'sale' && property.price != null
   }
   if (mode === 'rent') {
     return (property.listingMode === 'rent' || property.listingMode === 'both') && property.rent != null

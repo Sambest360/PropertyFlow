@@ -34,6 +34,14 @@ import {
 import { supabaseSessionMiddleware } from './supabase/middleware.js'
 import type { PersistBody } from './writes.js'
 import { payfastCreate, payfastItn } from './payfastRoutes.js'
+import {
+  authIpKey,
+  authIpRateLimit,
+  authFailureBlocked,
+  recordAuthFailure,
+  clearAuthFailures,
+  tooManyRequests,
+} from './rateLimit.js'
 
 function productionAuthSecretMissing(): boolean {
   return process.env.NODE_ENV === 'production' && !process.env.AUTH_SECRET?.trim()
@@ -205,6 +213,12 @@ app.post('/api/auth/register', async (c) => {
       503,
     )
   }
+  const ip = authIpKey(c.req.raw.headers)
+  const ipGate = authIpRateLimit(ip)
+  if (!ipGate.ok) {
+    const rl = tooManyRequests(ipGate.retryAfterSec)
+    return c.json(rl.body, rl.status, rl.headers)
+  }
   try {
     const body = (await c.req.json()) as {
       email?: string
@@ -295,14 +309,39 @@ app.post('/api/auth/login', async (c) => {
       503,
     )
   }
+  const ip = authIpKey(c.req.raw.headers)
+  const ipGate = authIpRateLimit(ip)
+  if (!ipGate.ok) {
+    const rl = tooManyRequests(ipGate.retryAfterSec)
+    return c.json(rl.body, rl.status, rl.headers)
+  }
+  let email = ''
   try {
     const body = (await c.req.json()) as { email?: string; password?: string }
-    const user = await loginUser(String(body.email ?? ''), String(body.password ?? ''))
+    email = String(body.email ?? '')
+    // Per-(IP + email) lockout on repeated failures — blunts password grinding
+    // even when the attacker rotates IPs.
+    const accountGate = authFailureBlocked(ip, email)
+    if (!accountGate.ok) {
+      const rl = tooManyRequests(accountGate.retryAfterSec)
+      return c.json(rl.body, rl.status, rl.headers)
+    }
+    const user = await loginUser(email, String(body.password ?? ''))
+    clearAuthFailures(ip, email)
     const token = issueSession(c, user)
     return c.json({ ok: true, token, user: sessionToPublic(user) })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    return c.json({ error: 'login_failed', message }, errStatus(err))
+    const status = errStatus(err)
+    // Count credential failures (not DB outages) toward the account lockout.
+    if (email && (status === 401 || status === 400)) {
+      const failGate = recordAuthFailure(ip, email)
+      if (!failGate.ok) {
+        const rl = tooManyRequests(failGate.retryAfterSec)
+        return c.json(rl.body, rl.status, rl.headers)
+      }
+    }
+    return c.json({ error: 'login_failed', message }, status)
   }
 })
 

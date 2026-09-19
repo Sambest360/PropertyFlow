@@ -127,7 +127,9 @@ const API_TO_STAGE: Record<string, ApplicationStage> = {
 }
 
 const ALLOWED: Record<string, string[]> = {
-  Started: ['SUBMITTED', 'UNDER_REVIEW', 'REJECTED', 'WITHDRAWN'],
+  // P0-1 (R3): Allow APPROVED from "Application started" for legacy apps and
+  // agency authority approval without requiring full submission first.
+  Started: ['SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
   // P0-3 (E2E #2): guest-submitted apps land here; staff Approve / Reject /
   // Move-to-review must be available straight from Submitted.
   'Application submitted': ['UNDER_REVIEW', 'APPROVED', 'REJECTED', 'WITHDRAWN'],

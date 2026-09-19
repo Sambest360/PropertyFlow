@@ -412,7 +412,7 @@ export default function CalculatorsPage() {
             >
               Calculators
             </Link>
-            <span className="rounded-full px-3.5 py-2 font-medium text-ink-400">Advice coming soon</span>
+            <span className="rounded-full px-3.5 py-2 text-sm font-medium text-ink-400">Financial tools</span>
           </nav>
         </div>
       </div>

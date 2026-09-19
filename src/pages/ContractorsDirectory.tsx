@@ -20,16 +20,28 @@ export default function ContractorsDirectory() {
   const location = useLocation()
   const alert = useSuiteAlert()
   const [trade, setTrade] = useState('all')
+  const [jobsOnly, setJobsOnly] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
 
-  const roster = useMemo(
-    () =>
-      listAgencyContractorRoster(state.agencyContractors, state.users, agencyId, {
-        includePending: true,
-        trade: trade === 'all' ? undefined : trade,
-      }),
-    [state.agencyContractors, state.users, agencyId, trade],
-  )
+  const roster = useMemo(() => {
+    const base = listAgencyContractorRoster(state.agencyContractors, state.users, agencyId, {
+      includePending: true,
+      trade: trade === 'all' ? undefined : trade,
+    })
+    if (!jobsOnly) return base
+    const withOpenJobs = new Set(
+      state.tickets
+        .filter(
+          (t) =>
+            ticketVisible(t) &&
+            t.contractorId &&
+            t.status !== 'Completed' &&
+            t.status !== 'Cancelled',
+        )
+        .map((t) => t.contractorId as string),
+    )
+    return base.filter(({ user: contractor }) => withOpenJobs.has(contractor.id))
+  }, [state.agencyContractors, state.users, state.tickets, agencyId, trade, jobsOnly, ticketVisible])
 
   const counts = useMemo(() => {
     const all = listAgencyContractorRoster(state.agencyContractors, state.users, agencyId, {
@@ -109,8 +121,8 @@ export default function ContractorsDirectory() {
             label="Active jobs"
             value={counts.openJobs}
             hint="Assigned & open"
-            active={false}
-            onClick={() => {}}
+            active={jobsOnly}
+            onClick={() => setJobsOnly((v) => !v)}
           />
         </section>
 
@@ -218,7 +230,9 @@ export default function ContractorsDirectory() {
 
         {roster.length === 0 && (
           <Card className="p-8 text-center text-sm text-ink-500">
-            No contractors on the roster yet. Add approved vendors so agents and landlords can assign them to faults.
+            {jobsOnly
+              ? 'No contractors with open jobs right now. Click “Active jobs” again to see the full roster.'
+              : 'No contractors on the roster yet. Add approved vendors so agents and landlords can assign them to faults.'}
           </Card>
         )}
 
