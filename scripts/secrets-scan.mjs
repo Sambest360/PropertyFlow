@@ -1,86 +1,35 @@
 /**
  * Secret scan.
  *
- *   npm run secrets:scan     current tree (gitleaks --no-git) plus a literal
- *                            check for PayFast values that must not ship.
- *                            Fails the process when it finds anything.
+ *   npm run secrets:scan     gitleaks on the current tree, plus a credential
+ *                            check of src/, server/, and dist/ (when built).
+ *                            Retired PayFast values are not stored in this
+ *                            repo. Set PAYFAST_RETIRED_MERCHANT_ID,
+ *                            PAYFAST_RETIRED_MERCHANT_KEY, and
+ *                            PAYFAST_RETIRED_PASSPHRASE to compare SHA-256
+ *                            digests. Those checks are skipped when unset.
  *   npm run secrets:history  full git history. Prints findings and exits 0.
- *                            History is not rewritten.
+ *                            History is not rewritten. The retired-literal
+ *                            search runs only when those env vars are set,
+ *                            and it does not print the values.
  *
  * Gitleaks is downloaded into .cache/gitleaks when it is not on PATH.
  */
 import { createHash } from 'node:crypto'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import {
+  credentialScanRoots,
+  retiredDigestsFromEnv,
+  retiredValuesFromEnv,
+  scanCredentialPatterns,
+  scanRetiredDigests,
+} from './no-credentials.mjs'
 
 const ROOT = process.cwd()
 const HISTORY = process.argv.includes('--history')
 const GITLEAKS_VERSION = '8.28.0'
-// Base64 so the retired PayFast literals are not stored in this file in clear text.
-const FORBIDDEN = [
-  'MTAwNDc3MTk=',
-  'd2txOGRtZnlzYXUxcQ==',
-  'UWpqQ0NOWjFWZ3RZYXhpdm1YT1dMbUFsdW5acFUwWGs=',
-].map((value) => Buffer.from(value, 'base64').toString('utf8'))
-const SKIP_DIRS = new Set([
-  '.git',
-  'node_modules',
-  '.cache',
-  'dist',
-  'coverage',
-  '.vite',
-])
-
-function walk(dir, hits) {
-  for (const name of readdirSync(dir)) {
-    if (SKIP_DIRS.has(name)) continue
-    const path = join(dir, name)
-    const st = statSync(path)
-    if (st.isDirectory()) {
-      walk(path, hits)
-      continue
-    }
-    if (st.size > 2_000_000) continue
-    let text
-    try {
-      text = readFileSync(path, 'utf8')
-    } catch {
-      continue
-    }
-    for (const needle of FORBIDDEN) {
-      if (text.includes(needle)) hits.push(`${relative(ROOT, path)} contains ${needle}`)
-    }
-  }
-}
-
-function scanTree(label, dir) {
-  if (!existsSync(dir)) {
-    console.log(`${label}: skipped (missing)`)
-    return []
-  }
-  const hits = []
-  if (statSync(dir).isDirectory()) {
-    for (const name of readdirSync(dir)) {
-      const path = join(dir, name)
-      if (name === 'node_modules' || name === '.git') continue
-      const st = statSync(path)
-      if (st.isDirectory()) walk(path, hits)
-      else {
-        let text = ''
-        try {
-          text = readFileSync(path, 'utf8')
-        } catch {
-          continue
-        }
-        for (const needle of FORBIDDEN) {
-          if (text.includes(needle)) hits.push(`${relative(ROOT, path)} contains ${needle}`)
-        }
-      }
-    }
-  }
-  return hits
-}
 
 function gitleaksBin() {
   const fromEnv = process.env.GITLEAKS_BIN
@@ -111,13 +60,20 @@ function runGitleaks(bin) {
   return result.status ?? 1
 }
 
-const literalHits = scanTree('source', ROOT)
-const bundleHits = existsSync(join(ROOT, 'dist')) ? scanTree('dist', join(ROOT, 'dist')) : []
+const roots = credentialScanRoots()
 if (!existsSync(join(ROOT, 'dist'))) console.log('dist: not built; bundle scan skipped')
+const patternHits = scanCredentialPatterns(roots)
+const digests = retiredDigestsFromEnv()
+const digestHits = digests.length ? scanRetiredDigests(roots, digests) : []
+if (!digests.length) {
+  console.log(
+    'Retired PayFast digest check skipped (set PAYFAST_RETIRED_MERCHANT_ID, PAYFAST_RETIRED_MERCHANT_KEY, and PAYFAST_RETIRED_PASSPHRASE to compare SHA-256 digests)',
+  )
+}
 
-if (!HISTORY && (literalHits.length || bundleHits.length)) {
-  console.error('Forbidden PayFast values found:')
-  for (const hit of [...literalHits, ...bundleHits]) console.error(`  ${hit}`)
+if (!HISTORY && (patternHits.length || digestHits.length)) {
+  console.error('PayFast credential check failed:')
+  for (const hit of [...patternHits, ...digestHits]) console.error(`  ${hit}`)
   process.exit(1)
 }
 
@@ -163,21 +119,22 @@ if (HISTORY) {
   const files = [...new Set(summary.map((f) => `${f.commit?.slice(0, 10) ?? '?'} ${f.file}`))]
   for (const line of files) console.log(`  ${line}`)
 
-  // Default gitleaks rules do not treat a merchant id or passphrase as a
-  // credential. Search history for the retired PayFast literals directly.
-  // The values are decoded at runtime and are not printed.
-  console.log('Retired PayFast literal history (git log -S, values not printed):')
-  for (const [index, needle] of FORBIDDEN.entries()) {
-    const log = spawnSync(
-      'git',
-      ['log', '--all', '-S', needle, '--pretty=format:%H %ad %s', '--date=short'],
-      { cwd: ROOT, encoding: 'utf8' },
-    )
-    const lines = (log.stdout || '').split('\n').filter(Boolean)
-    console.log(`  literal ${index + 1}: ${lines.length ? lines.join(' | ') : 'not found'}`)
+  const retired = retiredValuesFromEnv()
+  if (!retired.length) {
+    console.log('Retired PayFast history search skipped (PAYFAST_RETIRED_* unset). Values are not stored in the repo.')
+  } else {
+    console.log('Retired PayFast literal history (git log -S, values not printed):')
+    for (const item of retired) {
+      const log = spawnSync(
+        'git',
+        ['log', '--all', '-S', item.value, '--pretty=format:%H %ad %s', '--date=short'],
+        { cwd: ROOT, encoding: 'utf8' },
+      )
+      const lines = (log.stdout || '').split('\n').filter(Boolean)
+      console.log(`  ${item.label}: ${lines.length ? lines.join(' | ') : 'not found'}`)
+    }
   }
   process.exit(0)
 }
 
-if (bundleHits.length) process.exit(1)
 process.exit(status ?? 0)

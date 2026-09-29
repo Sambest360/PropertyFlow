@@ -13,6 +13,7 @@ description = "PayFast published signature test vector"
 paths = [
   '''(^|/)server/payfast\.test\.ts$''',
   '''(^|/)server/payfast\.itn\.test\.ts$''',
+  '''(^|/)server/payfast\.create\.test\.ts$''',
   '''(^|/)scripts/payfast-vector\.mjs$''',
 ]
 regexes = [
