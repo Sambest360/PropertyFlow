@@ -91,8 +91,13 @@ FROM (
   WHERE n.nspname = 'public'
     AND p.proname = ANY (ARRAY[
       'protect_user_privileged_columns',
+      'users_count_unscoped',
       'marketplace_user_json',
       'marketplace_client_json',
+      'marketplace_building_json',
+      'marketplace_unit_json',
+      'marketplace_room_json',
+      'marketplace_entity_json',
       'building_has_public_listing',
       'viewing_slot_on_public_listing',
       'get_public_marketplace_bootstrap',
@@ -116,8 +121,13 @@ FROM (
   WHERE n.nspname = 'public'
     AND p.proname = ANY (ARRAY[
       'protect_user_privileged_columns',
+      'users_count_unscoped',
       'marketplace_user_json',
       'marketplace_client_json',
+      'marketplace_building_json',
+      'marketplace_unit_json',
+      'marketplace_room_json',
+      'marketplace_entity_json',
       'building_has_public_listing',
       'viewing_slot_on_public_listing',
       'get_public_marketplace_bootstrap',

@@ -9,7 +9,10 @@
 --   staff_a_auth_id    auth.users id of an AGENCY_ADMIN in agency A
 --   agency_a_id        clients.id for agency A
 --   agency_b_id        clients.id for agency B (the other agency)
---   landlord_a_user_id public.users id of a landlord who has a published listing
+--   landlord_a_user_id   public.users id of a landlord who has a published listing
+--   landlord_a_auth_id   auth.users id of that landlord (auth.uid())
+--   unlinked_a_user_id   END_USER in agency A with no lease and no application
+--   staff_a_user_id      public.users id of the agency A admin
 --
 -- JWT shape matches migrations 002 helpers: auth.uid() reads
 -- request.jwt.claim.sub, then request.jwt.claims ->> 'sub'.
@@ -24,6 +27,9 @@ SELECT set_config('verify.staff_a_auth_id', :'staff_a_auth_id', true);
 SELECT set_config('verify.agency_a_id', :'agency_a_id', true);
 SELECT set_config('verify.agency_b_id', :'agency_b_id', true);
 SELECT set_config('verify.landlord_a_user_id', :'landlord_a_user_id', true);
+SELECT set_config('verify.landlord_a_auth_id', :'landlord_a_auth_id', true);
+SELECT set_config('verify.unlinked_a_user_id', :'unlinked_a_user_id', true);
+SELECT set_config('verify.staff_a_user_id', :'staff_a_user_id', true);
 
 CREATE TEMP TABLE verify_tenant_before AS
 SELECT role, first_name
@@ -36,7 +42,9 @@ CREATE TEMP TABLE verify_results (
   detail text NOT NULL
 ) ON COMMIT DROP;
 
-CREATE OR REPLACE FUNCTION pg_temp.forbidden_keys(p jsonb)
+-- Keys the hardened marketplace projection is allowed to emit.
+-- Any other key, at any depth, is a leak (email, metadata, notes, deposit_amount, ...).
+CREATE OR REPLACE FUNCTION pg_temp.unexpected_keys(p jsonb, path text)
 RETURNS text
 LANGUAGE plpgsql
 AS $$
@@ -44,26 +52,52 @@ DECLARE
   k text;
   child jsonb;
   found text[] := ARRAY[]::text[];
+  allowed text[];
   acc text;
+  child_path text;
 BEGIN
-  IF p IS NULL OR jsonb_typeof(p) = 'null' THEN
+  IF p IS NULL OR jsonb_typeof(p) NOT IN ('object', 'array') THEN
     RETURN '';
   END IF;
-  IF jsonb_typeof(p) = 'object' THEN
-    FOR k IN SELECT jsonb_object_keys(p) LOOP
-      IF k IN ('password_hash', 'metadata', 'email') THEN
-        found := found || k;
-      END IF;
-      acc := pg_temp.forbidden_keys(p -> k);
-      IF acc <> '' THEN
-        found := found || string_to_array(acc, ', ');
+  IF jsonb_typeof(p) = 'array' THEN
+    FOR child IN SELECT value FROM jsonb_array_elements(p) LOOP
+      IF jsonb_typeof(child) IN ('object', 'array') THEN
+        acc := pg_temp.unexpected_keys(child, path);
+        IF acc <> '' THEN
+          found := found || string_to_array(acc, ', ');
+        END IF;
       END IF;
     END LOOP;
-  ELSIF jsonb_typeof(p) = 'array' THEN
-    FOR child IN SELECT value FROM jsonb_array_elements(p) LOOP
-      acc := pg_temp.forbidden_keys(child);
-      IF acc <> '' THEN
-        found := found || string_to_array(acc, ', ');
+  ELSE
+    allowed := CASE path
+      WHEN '' THEN ARRAY['clients','buildings','units','rooms','users','entity_id_map']
+      WHEN 'clients' THEN ARRAY['id','company_name','subdomain','status','city','created_at','settings']
+      WHEN 'clients.settings' THEN ARRAY['frontend_id','isGlobalConfigClient']
+      WHEN 'buildings' THEN ARRAY[
+        'id','client_id','landlord_id','name','address','suburb','city','province','grading',
+        'solar_capacity_kw','has_borehole','lat','lng','place_id','formatted_address',
+        'geocoded_at','images','created_at'
+      ]
+      WHEN 'units' THEN ARRAY[
+        'id','client_id','building_id','agent_id','unit_number','title','square_meters',
+        'bedrooms','bathrooms','parking','listing_type','price','rent','status_config_key',
+        'description','amenities','images','featured','lat','lng','place_id',
+        'formatted_address','geocoded_at','created_at'
+      ]
+      WHEN 'rooms' THEN ARRAY['id','unit_id','name','beds','baths','area_sqm','room_kind']
+      WHEN 'users' THEN ARRAY['landlord_id','display_name','client_id','role','active']
+      WHEN 'entity_id_map' THEN ARRAY['entity_type','backend_id','frontend_id']
+      ELSE ARRAY[]::text[]
+    END;
+    FOR k IN SELECT jsonb_object_keys(p) LOOP
+      IF NOT (k = ANY (allowed)) THEN
+        found := found || (CASE WHEN path = '' THEN k ELSE path || '.' || k END);
+      ELSIF k IN ('clients','buildings','units','rooms','users','entity_id_map','settings') THEN
+        child_path := CASE WHEN path = '' THEN k ELSE path || '.' || k END;
+        acc := pg_temp.unexpected_keys(p -> k, child_path);
+        IF acc <> '' THEN
+          found := found || string_to_array(acc, ', ');
+        END IF;
       END IF;
     END LOOP;
   END IF;
@@ -80,6 +114,8 @@ DECLARE
   fname text;
   payload jsonb;
   bad text;
+  check_id text;
+  missing_landlord int;
   landlord_id text := current_setting('verify.landlord_a_user_id');
 BEGIN
   FOREACH fname IN ARRAY ARRAY[
@@ -87,6 +123,7 @@ BEGIN
     'get_public_marketplace_bootstrap_lite'
   ]
   LOOP
+    check_id := 'a_anon_' || CASE WHEN fname LIKE '%_lite' THEN 'bootstrap_lite' ELSE 'bootstrap' END;
     BEGIN
       SET LOCAL ROLE anon;
       IF fname = 'get_public_marketplace_bootstrap' THEN
@@ -96,24 +133,28 @@ BEGIN
       END IF;
       RESET ROLE;
 
-      bad := pg_temp.forbidden_keys(payload);
+      bad := pg_temp.unexpected_keys(payload, '');
+      SELECT count(*) INTO missing_landlord
+      FROM jsonb_array_elements(COALESCE(payload -> 'users', '[]'::jsonb)) AS u(value)
+      WHERE NOT (u.value ? 'landlord_id' AND u.value ? 'display_name');
+
       IF payload IS NULL OR payload::text NOT LIKE '%' || landlord_id || '%' THEN
         INSERT INTO verify_results VALUES (
-          'a_anon_' || CASE WHEN fname LIKE '%_lite' THEN 'bootstrap_lite' ELSE 'bootstrap' END,
-          'FAIL',
-          'payload missing published landlord ' || landlord_id
+          check_id, 'FAIL', 'payload missing published landlord ' || landlord_id
         );
       ELSIF bad <> '' THEN
         INSERT INTO verify_results VALUES (
-          'a_anon_' || CASE WHEN fname LIKE '%_lite' THEN 'bootstrap_lite' ELSE 'bootstrap' END,
-          'FAIL',
-          'forbidden keys: ' || bad
+          check_id, 'FAIL', 'keys outside the allow-list: ' || bad
+        );
+      ELSIF missing_landlord > 0 THEN
+        INSERT INTO verify_results VALUES (
+          check_id, 'FAIL', 'a user object is missing landlord_id or display_name'
         );
       ELSE
         INSERT INTO verify_results VALUES (
-          'a_anon_' || CASE WHEN fname LIKE '%_lite' THEN 'bootstrap_lite' ELSE 'bootstrap' END,
+          check_id,
           'PASS',
-          'anon payload has landlord row and no password_hash, metadata, or email keys'
+          'anon payload uses only allow-listed keys and landlord_id'
         );
       END IF;
     EXCEPTION WHEN OTHERS THEN
@@ -354,6 +395,53 @@ EXCEPTION WHEN OTHERS THEN
 END
 $check$;
 
+-- Landlord sees tenants and applicants on their own buildings, not staff or an unlinked END_USER.
+DO $check$
+DECLARE
+  landlord_auth text := current_setting('verify.landlord_a_auth_id');
+  tenant_user uuid := current_setting('verify.tenant_a_user_id')::uuid;
+  staff_user uuid := current_setting('verify.staff_a_user_id')::uuid;
+  unlinked uuid := current_setting('verify.unlinked_a_user_id')::uuid;
+  n_tenant bigint;
+  n_staff bigint;
+  n_unlinked bigint;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub', landlord_auth, true);
+  PERFORM set_config('request.jwt.claim.role', 'authenticated', true);
+  PERFORM set_config(
+    'request.jwt.claims',
+    json_build_object('sub', landlord_auth, 'role', 'authenticated', 'aud', 'authenticated')::text,
+    true
+  );
+  SET LOCAL ROLE authenticated;
+  SELECT count(id) INTO n_tenant FROM users WHERE id = tenant_user;
+  SELECT count(id) INTO n_staff FROM users WHERE id = staff_user;
+  SELECT count(id) INTO n_unlinked FROM users WHERE id = unlinked;
+  RESET ROLE;
+
+  INSERT INTO verify_results VALUES (
+    'b_landlord_sees_linked_tenant',
+    CASE WHEN n_tenant >= 1 THEN 'PASS' ELSE 'FAIL' END,
+    format('landlord sees %s linked tenant rows', n_tenant)
+  );
+  INSERT INTO verify_results VALUES (
+    'b_landlord_hides_staff',
+    CASE WHEN n_staff = 0 THEN 'PASS' ELSE 'FAIL' END,
+    format('landlord sees %s staff rows', n_staff)
+  );
+  INSERT INTO verify_results VALUES (
+    'b_landlord_hides_unlinked_tenant',
+    CASE WHEN n_unlinked = 0 THEN 'PASS' ELSE 'FAIL' END,
+    format('landlord sees %s unlinked end-user rows', n_unlinked)
+  );
+EXCEPTION WHEN OTHERS THEN
+  RESET ROLE;
+  INSERT INTO verify_results VALUES ('b_landlord_sees_linked_tenant', 'FAIL', SQLERRM);
+  INSERT INTO verify_results VALUES ('b_landlord_hides_staff', 'FAIL', SQLERRM);
+  INSERT INTO verify_results VALUES ('b_landlord_hides_unlinked_tenant', 'FAIL', SQLERRM);
+END
+$check$;
+
 -- (c) authenticated user cannot change privilege columns; a normal name edit still sticks
 DO $check$
 DECLARE
@@ -489,6 +577,65 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN
   RESET ROLE;
   INSERT INTO verify_results VALUES ('c_role', 'FAIL', SQLERRM);
+END
+$check$;
+
+-- service_role and a direct admin session (no client JWT) can still change role.
+-- Both probes roll the UPDATE back. PostgREST's service key is SET ROLE service_role
+-- with a role claim of service_role. A direct admin is the login role with the JWT cleared.
+DO $check$
+DECLARE
+  tenant_user uuid := current_setting('verify.tenant_a_user_id')::uuid;
+  v_role text;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub', '', true);
+  PERFORM set_config('request.jwt.claim.role', 'service_role', true);
+  PERFORM set_config(
+    'request.jwt.claims',
+    json_build_object('role', 'service_role')::text,
+    true
+  );
+  BEGIN
+    SET LOCAL ROLE service_role;
+    UPDATE users SET role = 'SUPER_ADMIN' WHERE id = tenant_user;
+    RESET ROLE;
+    SELECT role INTO v_role FROM users WHERE id = tenant_user;
+    RAISE EXCEPTION 'probe_rollback';
+  EXCEPTION WHEN OTHERS THEN
+    RESET ROLE;
+    IF SQLERRM IS DISTINCT FROM 'probe_rollback' THEN
+      v_role := 'ERROR:' || SQLERRM;
+    END IF;
+  END;
+  INSERT INTO verify_results VALUES (
+    'c_service_role_can_set_role',
+    CASE WHEN v_role = 'SUPER_ADMIN' THEN 'PASS' ELSE 'FAIL' END,
+    'role after service_role update: ' || COALESCE(v_role, 'null')
+  );
+
+  PERFORM set_config('request.jwt.claim.sub', '', true);
+  PERFORM set_config('request.jwt.claim.role', '', true);
+  PERFORM set_config('request.jwt.claims', '', true);
+  v_role := NULL;
+  BEGIN
+    RESET ROLE;
+    UPDATE users SET role = 'SUPER_ADMIN' WHERE id = tenant_user;
+    SELECT role INTO v_role FROM users WHERE id = tenant_user;
+    RAISE EXCEPTION 'probe_rollback';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM IS DISTINCT FROM 'probe_rollback' THEN
+      v_role := 'ERROR:' || SQLERRM;
+    END IF;
+  END;
+  INSERT INTO verify_results VALUES (
+    'c_direct_admin_can_set_role',
+    CASE WHEN v_role = 'SUPER_ADMIN' THEN 'PASS' ELSE 'FAIL' END,
+    'role after direct admin update: ' || COALESCE(v_role, 'null')
+  );
+EXCEPTION WHEN OTHERS THEN
+  RESET ROLE;
+  INSERT INTO verify_results VALUES ('c_service_role_can_set_role', 'FAIL', SQLERRM);
+  INSERT INTO verify_results VALUES ('c_direct_admin_can_set_role', 'FAIL', SQLERRM);
 END
 $check$;
 

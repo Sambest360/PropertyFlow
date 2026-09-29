@@ -233,5 +233,10 @@ GRANT EXECUTE ON FUNCTION get_public_marketplace_bootstrap_lite(boolean) TO anon
 
 DROP FUNCTION IF EXISTS public.marketplace_user_json(users);
 DROP FUNCTION IF EXISTS public.marketplace_client_json(clients);
+DROP FUNCTION IF EXISTS public.marketplace_building_json(buildings, boolean);
+DROP FUNCTION IF EXISTS public.marketplace_unit_json(units, jsonb);
+DROP FUNCTION IF EXISTS public.marketplace_room_json(rooms);
+DROP FUNCTION IF EXISTS public.marketplace_entity_json(entity_id_map);
+DROP FUNCTION IF EXISTS public.users_count_unscoped();
 DROP FUNCTION IF EXISTS public.building_has_public_listing(uuid);
 DROP FUNCTION IF EXISTS public.viewing_slot_on_public_listing(uuid);

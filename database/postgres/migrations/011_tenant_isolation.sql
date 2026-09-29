@@ -8,28 +8,68 @@
 --   * users self-update that could set role = SUPER_ADMIN or frontend_role / permissions
 --   * agency staff inserting a SUPER_ADMIN row
 --   * password_hash readable by the authenticated role
---   * anon marketplace RPCs returning full user rows (password hashes, ID documents)
+--   * anon marketplace RPCs returning full user, building, and unit rows
+--   * landlords reading every user in the agency, including ID documents
 
 -- ---------------------------------------------------------------------------
 -- Stop privilege escalation on public.users
 -- ---------------------------------------------------------------------------
+-- PostgREST logs in as `authenticator` and then SET ROLE to the JWT role
+-- (anon, authenticated, or service_role). SET ROLE changes current_user.
+-- session_user stays `authenticator` for every API role, so it cannot tell
+-- them apart. This trigger is SECURITY INVOKER so current_user is that
+-- SET ROLE target. A SECURITY DEFINER body would see the function owner and
+-- the anon/authenticated check would never match.
+-- The JWT role claim is a second signal and cannot widen a client session:
+-- if current_user is anon or authenticated, or the claim says so, privilege
+-- columns stay locked. service_role, and a direct admin session with no
+-- client JWT, still pass through (Hono API, migrations, service key).
+
+CREATE OR REPLACE FUNCTION public.users_count_unscoped()
+RETURNS bigint
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT COUNT(*) FROM public.users;
+$$;
+
+REVOKE ALL ON FUNCTION public.users_count_unscoped() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.users_count_unscoped() TO anon, authenticated;
 
 CREATE OR REPLACE FUNCTION public.protect_user_privileged_columns()
 RETURNS TRIGGER
 LANGUAGE plpgsql
-SECURITY DEFINER
+SECURITY INVOKER
 SET search_path = public
 AS $$
+DECLARE
+  jwt_role text;
+  caller text;
 BEGIN
-  -- Direct connections (Hono API, migrations, service role) are not end-user JWTs.
-  IF auth.uid() IS NULL AND current_user NOT IN ('anon', 'authenticated') THEN
+  jwt_role := nullif(btrim(coalesce(
+    nullif(current_setting('request.jwt.claim.role', true), ''),
+    CASE
+      WHEN nullif(current_setting('request.jwt.claims', true), '') IS NULL THEN NULL
+      ELSE nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'
+    END
+  )), '');
+  caller := current_user;
+
+  IF caller = 'service_role'
+     OR (
+       caller NOT IN ('anon', 'authenticated')
+       AND coalesce(jwt_role, '') NOT IN ('anon', 'authenticated')
+     )
+  THEN
     RETURN NEW;
   END IF;
 
   IF TG_OP = 'INSERT' THEN
     IF NEW.role = 'SUPER_ADMIN'
        AND NOT is_super_admin()
-       AND (SELECT COUNT(*) FROM users) > 0 THEN
+       AND public.users_count_unscoped() > 0 THEN
       RAISE EXCEPTION 'Forbidden';
     END IF;
     RETURN NEW;
@@ -65,6 +105,9 @@ BEGIN
 END;
 $$;
 
+REVOKE ALL ON FUNCTION public.protect_user_privileged_columns() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.protect_user_privileged_columns() TO anon, authenticated, service_role;
+
 DROP TRIGGER IF EXISTS protect_user_privileged_columns ON users;
 CREATE TRIGGER protect_user_privileged_columns
   BEFORE INSERT OR UPDATE ON users
@@ -84,15 +127,34 @@ CREATE POLICY users_insert_admin ON users
   );
 
 -- Same-client read without a staff check let every member of an agency read every colleague,
--- including metadata. Staff keep users_select_agency. Landlords keep their own portfolio.
+-- including metadata. Staff keep users_select_agency. A landlord sees only END_USER rows
+-- that are a tenant or an applicant on a building they own. Applicants and tenants are
+-- both role END_USER in this schema.
 DROP POLICY IF EXISTS users_select_self_agency ON users;
 DROP POLICY IF EXISTS users_select_portfolio ON users;
 CREATE POLICY users_select_portfolio ON users
   FOR SELECT TO authenticated
   USING (
     current_app_user_role() = 'LANDLORD'
-    AND client_id IS NOT NULL
-    AND client_id = current_app_client_id()
+    AND users.role = 'END_USER'
+    AND (
+      EXISTS (
+        SELECT 1
+        FROM leases l
+        JOIN units un ON un.id = l.unit_id
+        JOIN buildings b ON b.id = un.building_id
+        WHERE l.tenant_id = users.id
+          AND b.landlord_id = current_app_user_id()
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM applications a
+        JOIN units un ON un.id = a.unit_id
+        JOIN buildings b ON b.id = un.building_id
+        WHERE a.applicant_id = users.id
+          AND b.landlord_id = current_app_user_id()
+      )
+    )
   );
 
 REVOKE SELECT ON TABLE public.users FROM authenticated;
@@ -110,18 +172,39 @@ GRANT SELECT (
 DO $$
 DECLARE
   tbl TEXT;
-BEGIN
-  FOREACH tbl IN ARRAY ARRAY[
+  missing TEXT[] := ARRAY[]::TEXT[];
+  tables TEXT[] := ARRAY[
     'buildings', 'units', 'rooms', 'internal_assets', 'leads', 'applications',
     'leases', 'bookings', 'viewing_slots', 'payments', 'documents',
     'maintenance_tickets', 'message_threads', 'messages', 'notifications',
     'suite_alerts', 'client_lookup_configs', 'client_subscriptions', 'invoices',
     'event_log'
-  ]
+  ];
+BEGIN
+  -- Fail before any policy in this loop is replaced. apply.sh runs this file
+  -- in one transaction, so a raise here also rolls back the trigger above.
+  FOREACH tbl IN ARRAY tables
   LOOP
-    IF to_regclass('public.' || tbl) IS NULL THEN
-      CONTINUE;
+    IF to_regclass('public.' || tbl) IS NULL
+       OR NOT EXISTS (
+         SELECT 1
+         FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = tbl
+           AND column_name = 'client_id'
+       )
+    THEN
+      missing := missing || tbl;
     END IF;
+  END LOOP;
+  IF cardinality(missing) > 0 THEN
+    RAISE EXCEPTION
+      '011 refused: policy loop tables are not tenant-scoped: %. No policies were changed.',
+      missing;
+  END IF;
+
+  FOREACH tbl IN ARRAY tables
+  LOOP
     EXECUTE format('DROP POLICY IF EXISTS %I_select ON %I', tbl, tbl);
     EXECUTE format(
       'CREATE POLICY %I_select ON %I FOR SELECT TO authenticated
@@ -298,13 +381,56 @@ CREATE POLICY messages_insert_own ON messages
   WITH CHECK (from_user_id = current_app_user_id());
 
 -- ---------------------------------------------------------------------------
--- Public marketplace RPCs: listing fields only. Never password_hash or documents.
+-- Public marketplace RPCs: explicit column allow-list. Never to_jsonb a row.
 -- ---------------------------------------------------------------------------
 
--- Listing identity only. password_hash, email, and metadata (including a reduced
--- metadata object) are omitted: anon can call this projection through the
--- marketplace RPCs. Guest id mapping still has entity_id_map.
+-- Stable landlord key for the guest mapper. Email, phone, password_hash, and
+-- metadata stay out of the anon payload. display_name is first + last name.
 CREATE OR REPLACE FUNCTION public.marketplace_user_json(u users)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT jsonb_build_object(
+    'landlord_id', u.id,
+    'display_name', trim(concat_ws(' ', u.first_name, u.last_name)),
+    'client_id', u.client_id,
+    'role', u.role,
+    'active', u.active
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION public.marketplace_building_json(b buildings, p_cover_only boolean)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT jsonb_build_object(
+    'id', b.id,
+    'client_id', b.client_id,
+    'landlord_id', b.landlord_id,
+    'name', b.name,
+    'address', b.address,
+    'suburb', b.suburb,
+    'city', b.city,
+    'province', b.province,
+    'grading', b.grading,
+    'solar_capacity_kw', b.solar_capacity_kw,
+    'has_borehole', b.has_borehole,
+    'lat', b.lat,
+    'lng', b.lng,
+    'place_id', b.place_id,
+    'formatted_address', b.formatted_address,
+    'geocoded_at', b.geocoded_at,
+    'images', CASE
+      WHEN p_cover_only THEN jsonb_build_array(b.images -> 0)
+      ELSE COALESCE(b.images, '[]'::jsonb)
+    END,
+    'created_at', b.created_at
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION public.marketplace_unit_json(u units, p_images jsonb)
 RETURNS jsonb
 LANGUAGE sql
 STABLE
@@ -312,10 +438,56 @@ AS $$
   SELECT jsonb_build_object(
     'id', u.id,
     'client_id', u.client_id,
-    'first_name', u.first_name,
-    'last_name', u.last_name,
-    'role', u.role,
-    'active', u.active
+    'building_id', u.building_id,
+    'agent_id', u.agent_id,
+    'unit_number', u.unit_number,
+    'title', u.title,
+    'square_meters', u.square_meters,
+    'bedrooms', u.bedrooms,
+    'bathrooms', u.bathrooms,
+    'parking', u.parking,
+    'listing_type', u.listing_type,
+    'price', u.price,
+    'rent', u.rent,
+    'status_config_key', u.status_config_key,
+    'description', u.description,
+    'amenities', COALESCE(u.amenities, '[]'::jsonb),
+    'images', COALESCE(p_images, '[]'::jsonb),
+    'featured', u.featured,
+    'lat', u.lat,
+    'lng', u.lng,
+    'place_id', u.place_id,
+    'formatted_address', u.formatted_address,
+    'geocoded_at', u.geocoded_at,
+    'created_at', u.created_at
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION public.marketplace_room_json(r rooms)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT jsonb_build_object(
+    'id', r.id,
+    'unit_id', r.unit_id,
+    'name', r.name,
+    'beds', r.beds,
+    'baths', r.baths,
+    'area_sqm', r.area_sqm,
+    'room_kind', r.room_kind
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION public.marketplace_entity_json(m entity_id_map)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT jsonb_build_object(
+    'entity_type', m.entity_type,
+    'backend_id', m.backend_id,
+    'frontend_id', m.frontend_id
   );
 $$;
 
@@ -340,6 +512,10 @@ $$;
 
 REVOKE ALL ON FUNCTION public.marketplace_user_json(users) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.marketplace_client_json(clients) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.marketplace_building_json(buildings, boolean) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.marketplace_unit_json(units, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.marketplace_room_json(rooms) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.marketplace_entity_json(entity_id_map) FROM PUBLIC;
 
 CREATE OR REPLACE FUNCTION get_public_marketplace_bootstrap(p_lite boolean DEFAULT true)
 RETURNS jsonb
@@ -385,12 +561,12 @@ AS $$
   )
   SELECT jsonb_build_object(
     'clients', coalesce((SELECT jsonb_agg(marketplace_client_json(c) ORDER BY c.company_name) FROM unit_clients c), '[]'::jsonb),
-    'buildings', coalesce((SELECT jsonb_agg(to_jsonb(b) ORDER BY b.name) FROM unit_buildings b), '[]'::jsonb),
-    'units', coalesce((SELECT jsonb_agg(to_jsonb(u) ORDER BY u.created_at DESC) FROM public_units u), '[]'::jsonb),
-    'rooms', coalesce((SELECT jsonb_agg(to_jsonb(r) ORDER BY r.name) FROM unit_rooms r), '[]'::jsonb),
+    'buildings', coalesce((SELECT jsonb_agg(marketplace_building_json(b, false) ORDER BY b.name) FROM unit_buildings b), '[]'::jsonb),
+    'units', coalesce((SELECT jsonb_agg(marketplace_unit_json(u, u.images) ORDER BY u.created_at DESC) FROM public_units u), '[]'::jsonb),
+    'rooms', coalesce((SELECT jsonb_agg(marketplace_room_json(r) ORDER BY r.name) FROM unit_rooms r), '[]'::jsonb),
     'users', coalesce((SELECT jsonb_agg(marketplace_user_json(u) ORDER BY u.email) FROM unit_landlords u), '[]'::jsonb),
     'entity_id_map', coalesce(
-      (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.entity_type, m.frontend_id)
+      (SELECT jsonb_agg(marketplace_entity_json(m) ORDER BY m.entity_type, m.frontend_id)
        FROM entity_id_map m
        WHERE (m.entity_type = 'unit' AND m.backend_id IN (SELECT id FROM public_units))
           OR (m.entity_type = 'property' AND m.backend_id IN (SELECT id FROM public_units))
@@ -447,18 +623,17 @@ AS $$
   )
   SELECT jsonb_build_object(
     'clients', coalesce((SELECT jsonb_agg(marketplace_client_json(c) ORDER BY c.company_name) FROM unit_clients c), '[]'::jsonb),
-    'buildings', coalesce((SELECT jsonb_agg(
-        (to_jsonb(b) - 'images')
-        || jsonb_build_object('images', jsonb_build_array(b.images->0))
-        ORDER BY b.name) FROM unit_buildings b), '[]'::jsonb),
+    'buildings', coalesce((SELECT jsonb_agg(marketplace_building_json(b, true) ORDER BY b.name) FROM unit_buildings b), '[]'::jsonb),
     'units', coalesce((SELECT jsonb_agg(
-        (to_jsonb(u) - 'images')
-        || jsonb_build_object('images', CASE WHEN uc.cover IS NOT NULL THEN jsonb_build_array(uc.cover) ELSE '[]'::jsonb END)
+        marketplace_unit_json(
+          u,
+          CASE WHEN uc.cover IS NOT NULL THEN jsonb_build_array(uc.cover) ELSE '[]'::jsonb END
+        )
         ORDER BY u.created_at DESC)
       FROM public_units u JOIN unit_cover uc ON uc.id = u.id), '[]'::jsonb),
     'users', coalesce((SELECT jsonb_agg(marketplace_user_json(u) ORDER BY u.email) FROM unit_landlords u), '[]'::jsonb),
     'entity_id_map', coalesce(
-      (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.entity_type, m.frontend_id)
+      (SELECT jsonb_agg(marketplace_entity_json(m) ORDER BY m.entity_type, m.frontend_id)
        FROM entity_id_map m
        WHERE (m.entity_type = 'unit' AND m.backend_id IN (SELECT id FROM public_units))
           OR (m.entity_type = 'property' AND m.backend_id IN (SELECT id FROM public_units))

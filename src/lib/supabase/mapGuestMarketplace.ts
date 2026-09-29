@@ -33,6 +33,12 @@ function iso(v: string | null | undefined): string | null {
   return v ?? null
 }
 
+function guestUserId(u: Record<string, unknown>): string {
+  if (typeof u.landlord_id === 'string' && u.landlord_id) return u.landlord_id
+  if (typeof u.id === 'string') return u.id
+  return ''
+}
+
 function mappedFe(
   cache: IdMapCache,
   entityType: string,
@@ -62,10 +68,11 @@ export function mapGuestMarketplacePayload(payload: {
 
   const userByUuid = new Map<string, string>()
   for (const u of users) {
-    const id = String(u.id)
+    const id = guestUserId(u)
     const meta = (u.metadata as Record<string, unknown> | null) ?? {}
     const fromMeta = typeof meta.frontend_id === 'string' ? meta.frontend_id : null
-    userByUuid.set(id, fromMeta ?? EMAIL_TO_USER[String(u.email).toLowerCase()] ?? id)
+    const email = typeof u.email === 'string' ? u.email.toLowerCase() : ''
+    userByUuid.set(id, fromMeta ?? (email ? EMAIL_TO_USER[email] : undefined) ?? id)
   }
   for (const row of payload.entity_id_map ?? []) {
     if (row.entity_type === 'user') userByUuid.set(row.backend_id, row.frontend_id)
@@ -91,17 +98,23 @@ export function mapGuestMarketplacePayload(payload: {
     }))
 
   const appUsers = users.map((u) => {
+    const id = guestUserId(u)
     const meta = (u.metadata as Record<string, unknown> | null) ?? {}
-    const feRole = resolveFrontendRole(u.role as RoleDb, meta, String(u.email))
+    const email = typeof u.email === 'string' ? u.email : ''
+    const feRole = resolveFrontendRole(u.role as RoleDb, meta, email)
     const verification =
       meta.verification && typeof meta.verification === 'object' ? meta.verification : undefined
+    const display =
+      typeof u.display_name === 'string' && u.display_name.trim()
+        ? u.display_name.trim()
+        : `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim()
     return {
-      id: userByUuid.get(String(u.id))!,
-      name: `${u.first_name} ${u.last_name}`.trim(),
-      email: String(u.email),
+      id: userByUuid.get(id)!,
+      name: display,
+      email,
       role: feRole,
       agencyId: mapAgencyFe(u.client_id as string),
-      phone: (u.phone as string) ?? undefined,
+      phone: typeof u.phone === 'string' ? u.phone : undefined,
       active: Boolean(u.active),
       enabledPermissions: Array.isArray(meta.enabledPermissions) ? meta.enabledPermissions : undefined,
       verification,

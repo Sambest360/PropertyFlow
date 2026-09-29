@@ -19,6 +19,9 @@ export STAFF_A_AUTH_ID="11111111-1111-4111-8111-000000000001"
 export AGENCY_A_ID="11111111-1111-4111-8111-111111111111"
 export AGENCY_B_ID="22222222-2222-4222-8222-222222222222"
 export LANDLORD_A_USER_ID="11111111-1111-4111-8111-000000000004"
+export LANDLORD_A_AUTH_ID="11111111-1111-4111-8111-000000000004"
+export UNLINKED_A_USER_ID="11111111-1111-4111-8111-000000000007"
+export STAFF_A_USER_ID="11111111-1111-4111-8111-000000000001"
 
 TABLES=(
   buildings units rooms internal_assets leads applications
@@ -45,7 +48,7 @@ MIGRATIONS=(
   010_lead_metadata.sql
 )
 
-for id in "$TENANT_A_AUTH_ID" "$STAFF_A_AUTH_ID" "$AGENCY_A_ID" "$AGENCY_B_ID" "$LANDLORD_A_USER_ID"; do
+for id in "$TENANT_A_AUTH_ID" "$STAFF_A_AUTH_ID" "$AGENCY_A_ID" "$AGENCY_B_ID" "$LANDLORD_A_USER_ID" "$UNLINKED_A_USER_ID"; do
   grep -q "$id" "$HERE/local/seed_two_agencies.sql" || {
     echo "seed file is missing fixture $id" >&2
     exit 1
@@ -80,6 +83,8 @@ for name in "${MIGRATIONS[@]}"; do
 done
 echo "seed two agencies"
 apply_file "$HERE/local/seed_two_agencies.sql"
+echo "rehearsal-only service_role table grants"
+apply_file "$HERE/local/service_role_grants.sql"
 
 run_verify() {
   local dest="$1"
@@ -89,7 +94,10 @@ run_verify() {
     -v staff_a_auth_id="$STAFF_A_AUTH_ID" \
     -v agency_a_id="$AGENCY_A_ID" \
     -v agency_b_id="$AGENCY_B_ID" \
+    -v staff_a_user_id="$STAFF_A_USER_ID" \
     -v landlord_a_user_id="$LANDLORD_A_USER_ID" \
+    -v landlord_a_auth_id="$LANDLORD_A_AUTH_ID" \
+    -v unlinked_a_user_id="$UNLINKED_A_USER_ID" \
     -A -F $'\t' --pset footer=off \
     -f "$HERE/verify.sql" >"$dest"
 }
@@ -113,14 +121,16 @@ expect_result() {
 echo "verify before 011 (isolation checks must FAIL)"
 run_verify "$WORK/verify-before.txt"
 for id in a_anon_bootstrap a_anon_bootstrap_lite a_password_hash_column \
-  c_role c_client_id c_active c_frontend_role c_enabled_permissions c_verification; do
+  c_role c_client_id c_active c_frontend_role c_enabled_permissions c_verification \
+  b_landlord_hides_staff b_landlord_hides_unlinked_tenant; do
   expect_result "$WORK/verify-before.txt" "$id" FAIL
 done
 for tbl in "${TABLES[@]}"; do
   expect_result "$WORK/verify-before.txt" "b_end_user_${tbl}" FAIL
 done
 for id in c_first_name c_nickname c_auth_user_id d_staff_users \
-  d_tenant_own_notification d_tenant_own_application; do
+  d_tenant_own_notification d_tenant_own_application \
+  b_landlord_sees_linked_tenant c_service_role_can_set_role c_direct_admin_can_set_role; do
   expect_result "$WORK/verify-before.txt" "$id" PASS
 done
 for tbl in "${TABLES[@]}"; do
@@ -146,6 +156,59 @@ if [[ "$left" != "0" ]]; then
   exit 1
 fi
 echo "  probe rolled back (function absent)"
+
+echo "policy loop tables all have client_id"
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q <<'SQL' >>"$LOG"
+DO $$
+DECLARE
+  tbl text;
+  missing text[] := ARRAY[]::text[];
+BEGIN
+  FOREACH tbl IN ARRAY ARRAY[
+    'buildings', 'units', 'rooms', 'internal_assets', 'leads', 'applications',
+    'leases', 'bookings', 'viewing_slots', 'payments', 'documents',
+    'maintenance_tickets', 'message_threads', 'messages', 'notifications',
+    'suite_alerts', 'client_lookup_configs', 'client_subscriptions', 'invoices',
+    'event_log'
+  ]
+  LOOP
+    IF to_regclass('public.' || tbl) IS NULL
+       OR NOT EXISTS (
+         SELECT 1 FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = tbl AND column_name = 'client_id'
+       )
+    THEN
+      missing := missing || tbl;
+    END IF;
+  END LOOP;
+  IF cardinality(missing) > 0 THEN
+    RAISE EXCEPTION 'rehearsal: policy loop tables are not tenant-scoped: %', missing;
+  END IF;
+END $$;
+SQL
+grep -q '011 refused: policy loop tables are not tenant-scoped' \
+  "$ROOT/database/postgres/migrations/011_tenant_isolation.sql"
+grep -q -- '--single-transaction' "$HERE/lib.sh"
+grep -q 'ON_ERROR_STOP=1' "$HERE/lib.sh"
+
+echo "probe: a mid-script error must not leave a marker table"
+cat >"$WORK/half.sql" <<'SQL'
+CREATE TABLE rehearsal_marker (id int);
+CREATE TABLE rehearsal_no_client (id int);
+DO $$ BEGIN
+  RAISE EXCEPTION '011 refused: policy loop tables are not tenant-scoped: {rehearsal_no_client}. No policies were changed.';
+END $$;
+SQL
+if bash "$HERE/apply.sh" "$WORK/half.sql" >>"$LOG" 2>&1; then
+  echo "half-apply probe succeeded; single-transaction rollback is not working" >&2
+  exit 1
+fi
+marker="$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -A -t -c "SELECT to_regclass('public.rehearsal_marker') IS NOT NULL")"
+if [[ "$marker" != "f" ]]; then
+  echo "half-apply probe left rehearsal_marker ($marker)" >&2
+  exit 1
+fi
+echo "  half-apply rolled back (marker absent)"
 
 echo "apply 011"
 bash "$HERE/apply.sh" >>"$LOG"

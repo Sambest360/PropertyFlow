@@ -1,6 +1,6 @@
 # Apply migration 011 (tenant isolation)
 
-011 tightens Row Level Security so a landlord, tenant, or contractor cannot read another agency's rows, blocks self-service changes to privilege columns on `users`, hides `password_hash` from the `authenticated` role, and replaces the public marketplace RPCs with a projection that has no `password_hash`, `email`, or `metadata` keys.
+011 tightens Row Level Security so a landlord, tenant, or contractor cannot read another agency's rows, blocks self-service changes to privilege columns on `users`, hides `password_hash` from the `authenticated` role, and replaces the public marketplace RPCs with an explicit column allow-list. Landlord objects expose `landlord_id` and `display_name`, not email.
 
 It has not been applied to the hosted database. Do not apply it until the CEO approves this procedure. Do not merge this branch to `main` as part of the apply.
 
@@ -133,7 +133,7 @@ WHERE u.role IN ('END_USER', 'AGENCY_ADMIN', 'LANDLORD')
 ORDER BY c.company_name, u.role;
 ```
 
-`tenant_a_user_id` is `public.users.id`. `tenant_a_auth_id` is `users.auth_user_id` (what `auth.uid()` returns). `landlord_a_user_id` is the `public.users.id` of a landlord whose building has a published unit, so the anon payload is not empty.
+`tenant_a_user_id` is `public.users.id`. `tenant_a_auth_id` is `users.auth_user_id` (what `auth.uid()` returns). `landlord_a_user_id` is the `public.users.id` of a landlord whose building has a published unit, so the anon payload is not empty. `landlord_a_auth_id` is that landlord's `auth.uid()`. `staff_a_user_id` is the agency admin's `public.users.id`. `unlinked_a_user_id` is an `END_USER` in agency A with no lease and no application on that landlord's buildings.
 
 The privilege updates run inside a subtransaction that rolls back. The script aborts if that tenant's role or first name changed. Still run it on the staging copy first.
 
@@ -144,6 +144,9 @@ export STAFF_A_AUTH_ID='...'
 export AGENCY_A_ID='...'
 export AGENCY_B_ID='...'
 export LANDLORD_A_USER_ID='...'
+export LANDLORD_A_AUTH_ID='...'
+export STAFF_A_USER_ID='...'
+export UNLINKED_A_USER_ID='...'
 database/postgres/ops/011/verify.sh
 ```
 
@@ -156,7 +159,10 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
   -v staff_a_auth_id="$STAFF_A_AUTH_ID" \
   -v agency_a_id="$AGENCY_A_ID" \
   -v agency_b_id="$AGENCY_B_ID" \
+  -v staff_a_user_id="$STAFF_A_USER_ID" \
   -v landlord_a_user_id="$LANDLORD_A_USER_ID" \
+  -v landlord_a_auth_id="$LANDLORD_A_AUTH_ID" \
+  -v unlinked_a_user_id="$UNLINKED_A_USER_ID" \
   -f database/postgres/ops/011/verify.sql
 ```
 
@@ -164,7 +170,10 @@ Claims match migration 002. `auth.uid()` reads `request.jwt.claim.sub`, then `re
 
 Every data row must be `PASS`, including:
 
-- `a_anon_bootstrap` and `a_anon_bootstrap_lite`: anon calls both RPCs; the JSON has no `password_hash`, `metadata`, or `email` keys, and it still contains the published landlord.
+- `a_anon_bootstrap` and `a_anon_bootstrap_lite`: anon calls both RPCs. Every key is on the allow-list (no `password_hash`, `metadata`, `email`, building `notes`, or unit `deposit_amount`). Each user object has `landlord_id` and `display_name`, and the published landlord's id is in the payload.
+- `b_landlord_sees_linked_tenant`: the landlord can `count(id)` the tenant on their building.
+- `b_landlord_hides_staff` and `b_landlord_hides_unlinked_tenant`: the landlord cannot see the agency admin or an `END_USER` who is not a tenant or applicant on their buildings.
+- `c_service_role_can_set_role` and `c_direct_admin_can_set_role`: `SET ROLE service_role` with a `service_role` JWT, and a direct admin session with the JWT cleared, can still change `role`. The probe rolls that update back.
 - `a_password_hash_column`: `authenticated` cannot `SELECT password_hash`.
 - `b_end_user_<table>`: the tenant JWT sees zero rows of agency B on each table 011 rewrites. Unpublished units are the fixture, because 011 still allows any signed-in user to read published listings across agencies.
 - `c_*`: the tenant's `role`, `client_id`, `active`, `auth_user_id`, `metadata.frontend_role`, `metadata.enabledPermissions`, and `metadata.verification` do not change. `first_name` and an ordinary metadata key do change, then the savepoint rolls that back.
@@ -207,7 +216,7 @@ Signed-out browser, then one user of each role. Production writes go through the
 
 | Surface | Route | What to look for |
 | --- | --- | --- |
-| Marketplace home and browse | `/`, `/browse` | Listings, buildings, and agency names still render. Landlord cards must not show a password hash or an ID document. Email on those cards can come out as the string `undefined` after this apply (see below). |
+| Marketplace home and browse | `/`, `/browse` | Listings, buildings, and agency names still render. Landlord cards must not show a password hash, an ID document, or an email. The guest mapper keys landlords on `landlord_id` and shows `display_name`. |
 | Listing detail | `/listing/:id` | Cover image and facts load. Enquiry form still posts. |
 | Staff dashboard | `/workspace` | Own agency properties, leads, applications, payments. No other agency's names in those lists. |
 | Tenant portal | `/workspace/portals/tenant` | Own application, maintenance, messages. Not another agency's. |
@@ -215,7 +224,7 @@ Signed-out browser, then one user of each role. Production writes go through the
 
 ## App code that can break
 
-`src/lib/supabase/mapGuestMarketplace.ts` reads `user.email`, `user.metadata.frontend_id`, `user.metadata.frontend_role`, `user.metadata.verification`, and `user.metadata.enabledPermissions` off the anon RPC. 011 previously kept `email` and a reduced `metadata` object so that mapper would keep working. This apply removes both keys, because the verification gate forbids them. `entity_id_map` is still in the payload, and the mapper applies those ids after the metadata lookup, so frontend ids for landlords still resolve when the map row exists. `String(undefined)` becomes the visible email `"undefined"`. `resolveFrontendRole` in `src/lib/supabase/idMap.ts` falls back to the database role for `LANDLORD`, so the role label still maps, without the verification badge. `src/lib/supabase/publicMarketplace.ts` is the caller (`get_public_marketplace_bootstrap_lite`, then the full RPC).
+`src/lib/supabase/mapGuestMarketplace.ts` keys the guest user map on `landlord_id` (falling back to `id` for an older payload) and the display name on `display_name` (falling back to first + last). Email is used only when the payload still contains a string; otherwise the card email is empty. `entity_id_map` is still applied after that, so frontend ids for landlords still resolve when the map row exists. Metadata, phone, and verification are absent from the anon payload, so those badges do not render for guests. `resolveFrontendRole` in `src/lib/supabase/idMap.ts` falls back to the database role for `LANDLORD`. `src/lib/supabase/publicMarketplace.ts` is the caller (`get_public_marketplace_bootstrap_lite`, then the full RPC).
 
 `src/lib/supabase/data.ts` selects named user columns (`id, client_id, email, first_name, last_name, phone, role, active, metadata`) and `select('*')` on the other tenant tables. Those user columns stay granted. `select('*')` on `users` does not: `password_hash` is omitted from the column grant, and Postgres rejects the whole select. `src/lib/supabase/auth.ts` uses that fallback only when `auth_bootstrap_needed` errors (`select('*', { count: 'exact', head: true })` around the bootstrap-needed check). If that RPC is healthy, the fallback does not run.
 
@@ -225,17 +234,17 @@ Signed-out browser, then one user of each role. Production writes go through the
 
 `admin_update_user_verification` (migration 003, called from `src/lib/supabase/auth.ts`) is `SECURITY DEFINER`, so it bypasses RLS, but the trigger still runs. The trigger only lets a super admin through (`is_super_admin()`). An agency admin's approve/reject is overwritten with the old verification and the RPC still returns the new JSON from memory. The UI can show success while the row did not change. **Confirm an agency-admin verification decision by reading the row afterwards. If it did not stick, roll back.**
 
-The direct Hono connection does not set `auth.uid()`, so the trigger skips it. That path is not the Vercel production write path.
+The direct Hono connection is not `anon` or `authenticated` and does not set a client JWT role, so the trigger lets it change privilege columns. That path is not the Vercel production write path.
 
 ## Risks inside 011
 
-- **`current_user` inside the trigger is the function owner.** `protect_user_privileged_columns` is `SECURITY DEFINER`. `current_user` there is the owner, not the session role, so the branch `current_user NOT IN ('anon', 'authenticated')` does not see PostgREST's `SET ROLE`. Protection runs when `auth.uid()` is set, which is the real end-user case. A direct connection with no JWT skips the trigger, which is what the Hono API needs in order to change roles. A connection that can `SET ROLE authenticated` without a JWT is not stopped by `current_user`. Supabase does not do that; PostgREST sets the claims.
+- **The privilege trigger is `SECURITY INVOKER`.** PostgREST's login role is `authenticator`; `session_user` stays that role after `SET ROLE`, so it cannot tell `anon` from `service_role`. `current_user` is the `SET ROLE` target, which is why the trigger is not `SECURITY DEFINER`. A JWT role of `authenticated` or `anon` also locks the row even if the session role is something else. `service_role` and a direct admin session with no client JWT still change privilege columns. The first-user `SUPER_ADMIN` count goes through `users_count_unscoped()`, which stays `SECURITY DEFINER` so row level security does not hide existing users from the count.
 - **Same-agency reads are still wide.** The new `*_select` policy is "super admin or this `client_id`" for every `authenticated` user. A tenant cannot read agency B. A tenant can still read agency A's leads, payments, and applications. 011 closes the cross-agency hole from 003. It does not make those tables staff-only.
 - **`password_hash` can still be written.** 011 revokes `SELECT` and grants specific columns. It does not revoke `UPDATE` on `password_hash`. `users_update_own` still allows a user to update their own row. A direct PostgREST update can set `password_hash` to a hash the attacker knows. The API ignores client-supplied hashes; PostgREST does not.
 - **Published listings stay cross-agency** via `units_public_read`, `buildings_public_read`, and `viewing_slots_public_read`. That is intentional. The isolation checks use unpublished rows. The building and viewing-slot checks call `building_has_public_listing` and `viewing_slot_on_public_listing` (`SECURITY DEFINER`). Inlining `EXISTS (SELECT FROM units)` recurses with `units_landlord_read` from 003, and Postgres errors instead of returning rows. Execute on those two functions is granted only to `authenticated`.
 - **Lock timeout.** A 5 second wait is enough for this DDL once the lock is free. It will fail if a pooler session is idle in a transaction on `users`. Failure leaves the previous policies in place.
 - **`rollback.sql` restores repo 001-010, including the known `008` lite bug** that matches `entity_id_map` property ids to building ids. That bug is what production has if 008 was applied as written. Do not "fix" it in the rollback.
-- **Within-agency user list for tenants.** 011 drops `users_select_self_agency`. Tenants no longer see every colleague. Staff still have `users_select_agency`. Landlords have `users_select_portfolio` for their own `client_id`.
+- **Within-agency user list.** 011 drops `users_select_self_agency`. Tenants no longer see every colleague. Staff still have `users_select_agency`. `users_select_portfolio` lets a landlord read `END_USER` rows that are a tenant (`leases.tenant_id`) or an applicant (`applications.applicant_id`) on a building they own. It does not return staff, other landlords, or an end user who is not on those buildings. Metadata on those linked rows, including ID documents, is still visible to that landlord.
 
 ## Not tested against production
 
