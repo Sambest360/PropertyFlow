@@ -146,6 +146,7 @@ import {
   scheduleDeferredFullBootstrap,
 } from '../lib/bootstrapCoord'
 import { readStoredAuthUserId, getApiActor, type DemoActor } from '../lib/api/actorAuth'
+import { authHeaders } from '../lib/api/authClient'
 import { buildPublicMarketplaceDemoBootstrap } from '../lib/publicMarketplaceDemo'
 import {
   persistApproveApplication,
@@ -2700,13 +2701,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       // mail hiccup must never block or fail the application.
       void fetch('/api/notify/application-received', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: app.email,
-          applicantName: app.applicantName,
-          propertyTitle: property?.title,
-          referenceCode: app.id,
-        }),
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ referenceCode: app.id }),
       }).catch(() => {})
 
       return app

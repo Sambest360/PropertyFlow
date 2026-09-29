@@ -327,6 +327,8 @@ CREATE TABLE applications (
   decided_at          TIMESTAMPTZ,
   decided_by          UUID REFERENCES users(id) ON DELETE SET NULL,
   metadata            JSONB DEFAULT '{}'::jsonb,
+  /** Set when the one application-received email has been claimed. */
+  received_email_at   TIMESTAMPTZ,
   submitted_at        TIMESTAMPTZ,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),

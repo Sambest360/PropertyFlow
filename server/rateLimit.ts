@@ -94,18 +94,18 @@ export function authEmailRateLimit(email: string): { ok: boolean; retryAfterSec:
   return slidingWindowHit(requestWindows, key, numEnv('AUTH_RATE_LIMIT_EMAIL_MAX', 4), windowMs())
 }
 
-/**
- * Per-email guard for notification-style endpoints (e.g. application-received
- * email) — separate bucket from the register guard so independent limits.
- * Env knob: AUTH_RATE_LIMIT_NOTIFY_MAX (default 6 per window).
- */
 /** Public form posts (listing enquiries). Separate bucket from login. */
 export function publicPostRateLimit(ip: string): { ok: boolean; retryAfterSec: number } {
   return slidingWindowHit(requestWindows, `public:${ip}`, numEnv('PUBLIC_RATE_LIMIT_MAX', 30), windowMs())
 }
 
-export function notifyEmailRateLimit(email: string): { ok: boolean; retryAfterSec: number } {
-  const key = `notify:${email.trim().toLowerCase()}`
+/**
+ * Per-user guard for application-received email. Keyed on the session user,
+ * not the recipient address.
+ * Env knob: AUTH_RATE_LIMIT_NOTIFY_MAX (default 6 per window).
+ */
+export function notifyUserRateLimit(userId: string): { ok: boolean; retryAfterSec: number } {
+  const key = `notify-user:${userId.trim()}`
   return slidingWindowHit(requestWindows, key, numEnv('AUTH_RATE_LIMIT_NOTIFY_MAX', 6), windowMs())
 }
 

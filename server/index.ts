@@ -39,12 +39,12 @@ import {
 import { supabaseSessionMiddleware } from './supabase/middleware.js'
 import type { PersistBody } from './writes.js'
 import { payfastCreate, payfastItn } from './payfastRoutes.js'
+import { notifyApplicationReceived } from './applicationNotify.js'
 import {
   authIpKey,
   authIpRateLimit,
   authEmailRateLimit,
   publicPostRateLimit,
-  notifyEmailRateLimit,
   authFailureBlocked,
   recordAuthFailure,
   clearAuthFailures,
@@ -54,7 +54,6 @@ import {
   sendListingEnquiryConfirmation,
   sendListingLeadAlert,
   sendApplicationApproved,
-  sendApplicationReceived,
   sendVerificationDecision,
   sendWelcomeEmail,
 } from './mailtrap.js'
@@ -975,37 +974,11 @@ app.post('/api/applications/:id/approve', async (c) => {
 })
 
 /**
- * Email notify endpoint for client-side persistence paths (Supabase mode): when
- * an application is created the store calls this once, fire-and-forget from the
- * user flow. Rate-limited per email; never returns the send outcome.
+ * Temporary client-side hook. Deleted in the Hono API end-to-end PR (Mon 5 Oct),
+ * which sends this mail from application create on the server.
+ * Session required. Body is `{ referenceCode }` only. See applicationNotify.ts.
  */
-app.post('/api/notify/application-received', async (c) => {
-  try {
-    const body = (await c.req.json()) as {
-      email?: string
-      applicantName?: string
-      propertyTitle?: string
-      referenceCode?: string
-    }
-    const email = String(body.email ?? '').trim()
-    if (email) {
-      const gate = notifyEmailRateLimit(email)
-      if (!gate.ok) {
-        const rl = tooManyRequests(gate.retryAfterSec)
-        return c.json(rl.body, rl.status, rl.headers)
-      }
-      void sendApplicationReceived({
-        email,
-        applicantName: body.applicantName ? String(body.applicantName).trim() : undefined,
-        propertyTitle: body.propertyTitle ? String(body.propertyTitle).trim() : undefined,
-        referenceCode: body.referenceCode ? String(body.referenceCode).trim() : undefined,
-      })
-    }
-    return c.json({ ok: true }, 202)
-  } catch {
-    return c.json({ ok: true }, 202)
-  }
-})
+app.post('/api/notify/application-received', (c) => notifyApplicationReceived(c))
 
 app.post('/api/payfast/create', (c) => payfastCreate(c))
 
