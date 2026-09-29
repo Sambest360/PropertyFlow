@@ -104,6 +104,18 @@ function signToken(payload: JwtPayload): string {
   return `${data}.${sig}`
 }
 
+export function createSessionToken(
+  user: Pick<SessionUser, 'id' | 'frontendId' | 'role' | 'agencyId'>,
+): string {
+  return signToken({
+    sub: user.id,
+    fe: user.frontendId,
+    role: user.role,
+    agency: user.agencyId,
+    exp: Math.floor(Date.now() / 1000) + TOKEN_TTL_SEC,
+  })
+}
+
 function verifyToken(token: string): JwtPayload | null {
   const parts = token.split('.')
   if (parts.length !== 3) return null
@@ -258,18 +270,6 @@ async function findUserById(id: string): Promise<UserRow | null> {
 async function countUsers(): Promise<number> {
   const rows = await query<{ n: string }>('SELECT COUNT(*)::text AS n FROM users')
   return Number(rows[0]?.n ?? 0)
-}
-
-export function createSessionToken(
-  user: Pick<SessionUser, 'id' | 'frontendId' | 'role' | 'agencyId'>,
-): string {
-  return signToken({
-    sub: user.id,
-    fe: user.frontendId,
-    role: user.role,
-    agency: user.agencyId,
-    exp: Math.floor(Date.now() / 1000) + TOKEN_TTL_SEC,
-  })
 }
 
 export function issueSession(c: Context, user: SessionUser): string {
