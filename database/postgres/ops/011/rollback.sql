@@ -1,8 +1,7 @@
 -- Restore the post-011a catalog. 011a stays applied.
--- Steps marked ASSUMES-REPO overwrite the live object with the definition in
--- this file. That definition matches the repo only when hosted schema matches
--- migrations 001-010 plus 011a_public_rpc_stopgap.sql. Diff the live catalog
--- against the rehearsal pre-011 snapshot before relying on those steps.
+-- Steps marked ASSUMES-REPO overwrite objects with the definitions in this
+-- file (migrations 001-010 and 011a). They match a database only when that
+-- catalog still matches those files.
 --
 --   users policies and table grants: 002_supabase_auth.sql
 --   tenant SELECT policies: 003_rls_bootstrap.sql

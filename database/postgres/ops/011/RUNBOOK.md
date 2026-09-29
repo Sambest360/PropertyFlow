@@ -1,308 +1,54 @@
-# Apply migration 011 (tenant isolation)
+# Local rehearsal for migration 011
 
-011 tightens Row Level Security so a landlord, tenant, or contractor cannot read another agency's rows, blocks self-service changes to privilege columns on `users`, hides `password_hash` from the `authenticated` role, and replaces the public marketplace RPCs with an explicit column allow-list. Landlord objects expose `landlord_id` and `display_name`, not email. `verification.status` is copied only when it is stored.
+011 tightens Row Level Security so a landlord, tenant, or contractor cannot read another agency's rows, blocks self-service changes to privilege columns on `users`, hides `password_hash` from the `authenticated` role, and replaces the public marketplace RPCs with an explicit column allow-list. User objects keep `email` and add `landlord_id` and `landlord_name`. `verification.status` is copied only when it is stored. Buildings, units, and rooms use an explicit column list, so `buildings.notes` is not returned.
 
-`011a_public_rpc_stopgap.sql` (commit `e34834c` on `cursor/saas-foundations-f002`) is the production stopgap and is being applied first. 011 is applied after 011a. It replaces the same two function signatures (`boolean` in, `jsonb` out) and does not put back `buildings.notes`, a default verification status, or a string `isGlobalConfigClient`. Landlord email stays in 011. `011b_drop_marketplace_landlord_email.sql` removes that email and ships in the same release as the frontend mapper that keys landlords on `landlord_id` and `landlord_name`. Do not apply 011b before that frontend is deployed. Rollback of 011 returns to the post-011a state. It does not restore the pre-011a `to_jsonb` bodies, and it does not run 011b.
+`011a_public_rpc_stopgap.sql` is applied before 011 in this rehearsal. 011 replaces the same two function signatures (`boolean` in, `jsonb` out) and does not put back `buildings.notes`, a default verification status, or a string `isGlobalConfigClient`. Rollback of 011 returns to that post-011a catalog. `011b_drop_marketplace_landlord_email.sql` removes landlord email and is rehearsed after 011, then rolled back. Apply 011b only with the frontend that keys landlords on `landlord_id` and `landlord_name`.
 
-It has not been applied to the hosted database. Do not apply it until the CEO approves this procedure. Do not merge this branch to `main` as part of the apply.
+No production apply. 011a is on hold as well.
 
-The hosted project was not contacted from the rehearsal environment. Production drift (hand-edited policies, objects that are not in migrations 001-010 plus 011a) is untested. The pre-apply assert below stops the apply if the wide `leads_select` policy is already gone, but it is not a full schema diff. Section 2 diffs a live schema-only dump against the rehearsal before apply.
-
-## What was rehearsed locally
-
-`npm run db:rehearse:011` builds a throwaway Postgres database, applies `schema.sql`, migrations 001-010 in filename order, then `011a_public_rpc_stopgap.sql`, loads two agencies, proves the isolation checks fail before 011, applies 011, proves they pass, rolls back to the post-011a catalog, and diffs that catalog. The local roles script sets `ALTER DEFAULT PRIVILEGES` so new public functions are granted `EXECUTE` to `anon`, `authenticated`, and `service_role`, which is what Supabase does. `REVOKE FROM PUBLIC` alone does not remove those grants, and the rehearsal checks that marketplace helpers are still closed. Docker was not available in the rehearsal VM, so this uses plain Postgres with `anon`, `authenticated`, `service_role`, `auth.uid()` / `auth.jwt()`, `auth.users`, and an empty `supabase_realtime` publication. It is not the Supabase CLI stack and it is not the hosted project. Hosted Supabase is Postgres 15; the rehearsal cluster is Postgres 16. 011 does not use version-specific syntax beyond what both support (`EXECUTE FUNCTION` on triggers, no `CREATE INDEX CONCURRENTLY`).
-
-011 itself has no top-level `BEGIN`/`COMMIT` and no statement that cannot run inside a transaction. `apply.sh` rejects the file if that changes. The `BEGIN` keywords inside 011 are PL/pgSQL bodies, not transaction control.
-
-## 1. Confirm backups before anything else
-
-In the Supabase dashboard open **Database → Backups** for this project.
-
-| Plan | Daily backups | Point-in-Time Recovery |
-| --- | --- | --- |
-| Free | Not included. Take your own logical dump and keep it off-site. | Not available. |
-| Pro | Last 7 days, under Database → Backups. | Add-on. Needs at least a Small compute add-on. Enabling PITR stops the separate daily backup job because PITR is finer. |
-| Team | Last 14 days. | Same add-on. |
-| Enterprise | Up to 30 days. | Same add-on. |
-
-PITR, when enabled, is under **Database → Backups → Point in Time**. WAL is archived about every two minutes (sooner if the volume is high). The dashboard shows the earliest and latest recovery points. If there has been no recent write, the latest point can lag the clock while still matching the current data.
-
-Write down, in the change ticket:
-
-- the plan name
-- whether daily backups are listed and the time of the newest one
-- whether PITR is enabled and the latest recovery point
-
-If the project is on the Free plan, or PITR is off and you cannot see a daily backup from today, do not apply 011 until a fresh logical dump (next section) is stored and someone else has confirmed they can see the file.
-
-Restoring a daily backup or a PITR point from the dashboard takes the project offline until it finishes. Subscriptions and replication slots other than Realtime have to be dropped before a dashboard restore and recreated after. Daily backups do not include passwords for custom roles. Storage objects are not in the database backup.
-
-## 2. Take a logical dump as well
-
-Use the **direct** connection string (host `db.<project-ref>.supabase.co`, port **5432**), from **Project Settings → Database → Connection string → Direct**. Do not use the transaction pooler on port **6543**. `apply.sh` refuses port 6543.
-
-Store dumps outside the git repo and outside Vercel. A private operator machine or an encrypted bucket the company already uses for database backups is enough. Restrict the file to the people who can already read production.
-
-```bash
-export DATABASE_URL='postgresql://postgres.<ref>:<password>@db.<ref>.supabase.co:5432/postgres?sslmode=require'
-mkdir -p "$HOME/propertyflow-backups"
-stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-
-# Schema and data. This is the copy you would reload from.
-pg_dump "$DATABASE_URL" --format=custom --no-owner \
-  --file="$HOME/propertyflow-backups/pre-011-${stamp}.dump"
-
-# Public schema only, including ACLs, for a readable diff.
-database/postgres/ops/011/schema_dump.sh \
-  "$HOME/propertyflow-backups/pre-011-${stamp}-public-schema.sql"
-
-# Catalog of the objects 011 touches (policies, functions, grants, triggers, RLS flags).
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -A -t \
-  -f database/postgres/ops/011/pre_apply_snapshot.sql \
-  >"$HOME/propertyflow-backups/pre-011-${stamp}-snapshot.txt"
-```
-
-`pg_dump` from Postgres 16 prints a random `\restrict` line. That line differs on every run. Strip `^\restrict` and `^\unrestrict` before diffing two schema dumps. The snapshot file does not have that token; diff that file directly.
-
-### Diff the live schema against the rehearsal before apply
-
-A green rehearsal writes two reference files (also committed under `database/postgres/ops/011/rehearsal/`):
-
-- `pre-011-public-schema.sql` — `pg_dump --schema-only` of `public` after 001-010 and 011a, before 011
-- `pre-011-snapshot.txt` — `pre_apply_snapshot.sql` at that same point
-
-When a live schema-only dump is available (section 2 above, or a file provided later), diff it before `apply.sh`:
-
-```bash
-database/postgres/ops/011/diff_live_schema.sh \
-  "$HOME/propertyflow-backups/pre-011-${stamp}-public-schema.sql"
-
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -A -t \
-  -f database/postgres/ops/011/pre_apply_snapshot.sql \
-  >"$HOME/propertyflow-backups/pre-011-${stamp}-snapshot.txt"
-diff -u database/postgres/ops/011/rehearsal/pre-011-snapshot.txt \
-  "$HOME/propertyflow-backups/pre-011-${stamp}-snapshot.txt"
-```
-
-Stop if the catalog snapshot diff is not empty. `rollback.sql` steps marked `ASSUMES-REPO` (section 6) rewrite policies, grants, and the marketplace functions from the repo. They restore this database only when that snapshot matches. A schema-dump diff also has to be read: `ALTER DEFAULT PRIVILEGES` lines name the role that owns them (`ubuntu` in the rehearsal, `postgres` or `supabase_admin` on Supabase), and Postgres 16 versus 15 banners differ. Differences in policy text, function bodies, or grants are the same stop as a snapshot diff. If no live dump has been provided yet, do not apply 011.
-
-### How to restore
-
-Prefer the smallest restore that fixes the failure.
-
-1. **011 committed, but `verify.sql` fails or the smoke test fails.** Run the rollback in section 6. That returns policies, functions, triggers, and grants to the post-011a state in the repo. It leaves `011a` in place. It does not reload data. It does not put back a policy somebody edited by hand in the dashboard.
-2. **The apply script errors.** The script is one transaction. Postgres rolls it back. Do not also run `rollback.sh` unless you confirmed 011's objects exist (`protect_user_privileged_columns`).
-3. **Rollback is not enough (drift, or data was damaged).** Dashboard → Database → Backups → restore the daily backup from before the change, or PITR to a time before the apply. The project is unavailable during the restore.
-4. **Logical reload, last resort.** This overwrites the database with the dump:
-
-```bash
-pg_restore --clean --if-exists --no-owner \
-  --dbname="$DATABASE_URL" \
-  "$HOME/propertyflow-backups/pre-011-${stamp}.dump"
-```
-
-`--clean` drops objects before recreating them. Do this only when dashboard PITR or a daily restore is not possible. Take a new dump of the broken database first if you still need it.
-
-## 3. Rehearse where a mistake is cheap
-
-Local, already done when this branch is green:
+## Run the rehearsal
 
 ```bash
 npm run db:rehearse:011
 ```
 
-Before production, repeat the apply on a **copy** of production. A Supabase preview branch (or a separate staging project restored from the dump) is the right copy, because it includes production policies if they have drifted. **Do not create that branch or project until someone with billing access approves it.** This rehearsal did not create one.
+That creates a throwaway database on the local Postgres cluster, applies `schema.sql`, migrations 001-010, 011a, and `database/postgres/ops/011/local/seed_two_agencies.sql`, then:
 
-On that copy:
+- After 011a, the isolation checks fail and these three still pass: `a_buildings_notes_absent`, `a_client_flag_is_boolean`, `a_verification_only_when_stored`.
+- After 011, every `verify.sql` row passes (allow-list, landlord portfolio, privilege trigger, helper execute grants).
+- Rollback matches the post-011a catalog snapshot and a `pg_dump --schema-only` of `public`. The three checks above still pass.
+- Re-apply passes again.
+- 011b removes `email` from the public user payload (`b_email_absent`, `landlord_id` and `landlord_name` still present). Its rollback puts `email` back. The three checks still pass.
 
-1. Run `pre_apply_snapshot.sql` and diff it against the production snapshot from section 2. They should match if the branch was cloned after the dump.
-2. Run `apply.sh`, then `verify.sh` with real agency UUIDs from that copy (section 5).
-3. Run `rollback.sh` and diff the snapshot again. It must be empty only if that database was built from the same 001-010 definitions plus 011a. If production has drifted, the diff will not be empty and you stop.
+The seed is only the rows those checks need: two agencies, one unpublished agency-B row per tightened table, a published landlord, a landlord with no verification status, a linked tenant, and an unlinked end user. `isGlobalConfigClient` is the JSON boolean `false`. Published buildings store `INTERNAL-NOTE-LEAK` so a `to_jsonb` regression fails the notes check.
 
-Migration order used for 001-010, because `007` and `008` are reused: lexicographic filename, then `011a_public_rpc_stopgap.sql`, then 011. `007_clear_demo_applications.sql` deletes every application. It is already applied on production if staff see an empty applicants list; do not re-run it against production as part of this change. Do not re-run 011a if it is already applied; `CREATE OR REPLACE` on the same signatures is safe, but it is not part of `apply.sh`.
+`local/supabase_roles.sql` stands in for Supabase: `anon`, `authenticated`, `service_role`, `auth.uid()`, and `ALTER DEFAULT PRIVILEGES` granting `EXECUTE` to those roles. The verify checks that `REVOKE FROM PUBLIC` is not enough to hide marketplace helpers.
 
-## 4. Apply
+## Pointing this at `supabase start` later
 
-Low traffic. The script sets `lock_timeout` to 5 seconds and `statement_timeout` to 60 seconds, then runs 011 in a single transaction. If a live query holds a lock on `users` or another touched table, the apply errors and rolls back instead of waiting. That is the intended failure. Look at `pg_blocking_pids` / the dashboard query report, and retry once the blocker is gone. Do not raise `lock_timeout` so the migration sits behind an unknown session.
-
-```bash
-export DATABASE_URL='postgresql://postgres.<ref>:<password>@db.<ref>.supabase.co:5432/postgres?sslmode=require'
-npm run db:migrate:isolation
-```
-
-That npm script is `database/postgres/ops/011/apply.sh`. The command it runs:
+Another branch is adding the Supabase CLI and a shared two-agency fixture. This harness stays self-contained until that lands. When it does, do not add a second seed here. Reset the local stack, then:
 
 ```bash
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction \
-  -c "SET lock_timeout = '5s'" \
-  -c "SET statement_timeout = '60s'" \
-  -c "SET idle_in_transaction_session_timeout = '60s'" \
-  -f database/postgres/migrations/011_tenant_isolation.sql
+REHEARSE_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+REHEARSE_SKIP_BOOTSTRAP=1 \
+REHEARSE_SEED_SQL=path/to/shared-two-agencies.sql \
+npm run db:rehearse:011
 ```
 
-`apply.sh` first checks that 011 is transaction-safe, then runs `pre_apply_assert.sql`. The assert refuses to continue if `protect_user_privileged_columns` already exists, or if `leads_select` is no longer the wide 003 policy (the expression must still mention `END_USER`). A refusal means production does not match the repo. Stop and compare the snapshot to `rollback.sql` before trying again.
+`REHEARSE_DATABASE_URL` must be local (`127.0.0.1`, `localhost`, or a socket). Hosted Supabase and port 6543 are refused. `REHEARSE_SKIP_BOOTSTRAP=1` means that database already has the API roles, `schema.sql`, migrations 001-010, and 011a. Override `TENANT_A_AUTH_ID` and the other ids in `rehearse.sh` when the shared fixture uses different uuids. The seed file must contain whatever ids you pass. `REHEARSE_SEED_SQL` defaults to `local/seed_two_agencies.sql`.
 
-`DIRECT_URL` is accepted if `DATABASE_URL` is unset, because older npm scripts used that name. Set `DATABASE_URL` anyway so the command matches this runbook.
+## Before any future production apply
 
-## 5. Verify
+Not in scope. When that changes, take a backup first and confirm the live catalog matches migrations 001-010 plus 011a before running `apply.sh`. `rollback.sql` rewrites policies and the marketplace functions from those files.
 
-Pick an `END_USER` and an `AGENCY_ADMIN` in agency A, and a second agency B that actually has rows in the tenant tables (a published landlord listing in A is required for the anon RPC check). Run this read-only lookup on the direct connection and keep the result in the operator session, not in a ticket:
+## What verify.sql checks
 
-```sql
-SELECT c.id AS agency_id, c.company_name,
-       u.id AS user_id, u.auth_user_id, u.role
-FROM users u
-JOIN clients c ON c.id = u.client_id
-WHERE u.role IN ('END_USER', 'AGENCY_ADMIN', 'LANDLORD')
-ORDER BY c.company_name, u.role;
-```
+After 011 every row is `PASS`, including:
 
-`tenant_a_user_id` is `public.users.id`. `tenant_a_auth_id` is `users.auth_user_id` (what `auth.uid()` returns). `landlord_a_user_id` is the `public.users.id` of a landlord whose building has a published unit, so the anon payload is not empty. `landlord_a_auth_id` is that landlord's `auth.uid()`. `staff_a_user_id` is the agency admin's `public.users.id`. `unlinked_a_user_id` is an `END_USER` in agency A with no lease and no application on that landlord's buildings. `noverif_landlord_id` is a landlord with a published unit and no `verification.status`, so the payload check can see that a missing status is not filled in as `approved`. Agency A in the rehearsal stores `isGlobalConfigClient` as a JSON boolean `false`.
-
-The privilege updates run inside a subtransaction that rolls back. The script aborts if that tenant's role or first name changed. Still run it on the staging copy first.
-
-```bash
-export TENANT_A_AUTH_ID='...'
-export TENANT_A_USER_ID='...'
-export STAFF_A_AUTH_ID='...'
-export AGENCY_A_ID='...'
-export AGENCY_B_ID='...'
-export LANDLORD_A_USER_ID='...'
-export LANDLORD_A_AUTH_ID='...'
-export STAFF_A_USER_ID='...'
-export UNLINKED_A_USER_ID='...'
-export NOVERIF_LANDLORD_ID='...'
-database/postgres/ops/011/verify.sh
-```
-
-Equivalent:
-
-```bash
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
-  -v tenant_a_auth_id="$TENANT_A_AUTH_ID" \
-  -v tenant_a_user_id="$TENANT_A_USER_ID" \
-  -v staff_a_auth_id="$STAFF_A_AUTH_ID" \
-  -v agency_a_id="$AGENCY_A_ID" \
-  -v agency_b_id="$AGENCY_B_ID" \
-  -v staff_a_user_id="$STAFF_A_USER_ID" \
-  -v landlord_a_user_id="$LANDLORD_A_USER_ID" \
-  -v landlord_a_auth_id="$LANDLORD_A_AUTH_ID" \
-  -v unlinked_a_user_id="$UNLINKED_A_USER_ID" \
-  -v noverif_landlord_id="$NOVERIF_LANDLORD_ID" \
-  -f database/postgres/ops/011/verify.sql
-```
-
-Claims match migration 002. `auth.uid()` reads `request.jwt.claim.sub`, then `request.jwt.claims ->> 'sub'`. `current_app_user_id()`, `current_app_client_id()`, and `current_app_user_role()` are `SECURITY DEFINER` and select `public.users` where `auth_user_id = auth.uid()`.
-
-Every data row must be `PASS`, including:
-
-- `a_anon_bootstrap` and `a_anon_bootstrap_lite`: anon calls both RPCs. Every key is on the allow-list (no `password_hash`, building `notes`, or unit `deposit_amount`). User objects still include `email` plus `landlord_id` and `landlord_name`. `metadata` may contain only `frontend_id`, `frontend_role`, and `verification.status`.
-- `a_buildings_notes_absent`: neither RPC has a `notes` key or the seeded internal note, including the lite payload.
-- `a_client_flag_is_boolean`: `settings.isGlobalConfigClient` is the JSON boolean `false` (`jsonb_typeof` = `boolean`), not the string `"false"`.
-- `a_verification_only_when_stored`: a landlord who has `verification.status` gets that status; a landlord with no verification object does not get a key of `approved`.
-
-Those three invariant checks are run after 011a, after 011, and after `rollback.sh` (back on 011a). They must PASS at all three points. Isolation checks are expected to FAIL again after rollback.
-- `e_marketplace_helpers_locked`: `anon` and `authenticated` cannot `EXECUTE` the marketplace JSON helpers.
-- `e_public_rpcs_executable`: both roles can `EXECUTE` the two public RPCs.
-- `e_rls_helpers_anon_denied` and `e_rls_helpers_authenticated`: `anon` cannot execute the listing helpers; `authenticated` can, because the policies call them.
-- `b_landlord_sees_linked_tenant`: the landlord can `count(id)` the tenant on their building.
-- `b_landlord_hides_staff` and `b_landlord_hides_unlinked_tenant`: the landlord cannot see the agency admin or an `END_USER` who is not a tenant or applicant on their buildings.
-- `c_service_role_can_set_role` and `c_direct_admin_can_set_role`: `SET ROLE service_role` with a `service_role` JWT, and a direct admin session with the JWT cleared, can still change `role`. The probe rolls that update back.
-- `a_password_hash_column`: `authenticated` cannot `SELECT password_hash`.
-- `b_end_user_<table>`: the tenant JWT sees zero rows of agency B on each table 011 rewrites. Unpublished units are the fixture, because 011 still allows any signed-in user to read published listings across agencies.
-- `c_*`: the tenant's `role`, `client_id`, `active`, `auth_user_id`, `metadata.frontend_role`, `metadata.enabledPermissions`, and `metadata.verification` do not change. `first_name` and an ordinary metadata key do change, then the savepoint rolls that back.
-- `d_staff_*`: the agency admin still sees every row of their own agency.
-- `d_tenant_own_notification` and `d_tenant_own_application`: the tenant still sees their own rows.
-
-A `FAIL` of `no agency B row to prove isolation` means that table has no row for agency B, so the check cannot prove anything. Pick another agency or treat that table as unverified. Do not read it as a pass.
-
-## 6. Roll back
-
-Run `rollback.sh` if any of these are true after a **committed** apply:
-
-- any `verify.sql` row is `FAIL` (other than a missing fixture you have explained)
-- the marketplace (`/` or `/browse`) returns no listings, or the browser console shows the RPC error
-- a staff user at `/workspace` cannot see their own agency's properties, leads, or applications
-- a tenant at `/workspace/portals/tenant` can see another agency's payment, application, or message
-- a user cannot save an ordinary profile change (first name, phone)
-- a landlord or contractor registration document does not persist (see the app risks below)
-- an agency admin's verification decision does not stick (see below)
-
-```bash
-database/postgres/ops/011/rollback.sh
-```
-
-```bash
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction \
-  -c "SET lock_timeout = '5s'" \
-  -c "SET statement_timeout = '60s'" \
-  -c "SET idle_in_transaction_session_timeout = '60s'" \
-  -f database/postgres/ops/011/rollback.sql
-```
-
-Then run `verify.sql` again. The isolation and privilege checks should fail the same way they did before 011 (after 011a), and staff reads should still pass. Diff `pre_apply_snapshot.sql` output against the file from section 2. An empty diff means the catalog matches the pre-apply snapshot. A non-empty diff means production was not the repo's 001-010-plus-011a state; use the logical dump or PITR rather than editing by hand.
-
-`rollback.sql` is safe to run once after a successful 011, and a second time: new objects are dropped if present, and the restored functions use `CREATE OR REPLACE`. It does not undo 011a.
-
-These rollback steps assume the hosted schema matches the repo. Each one overwrites the live object with the text in `rollback.sql`. The comment in the file is `ASSUMES-REPO`.
-
-| Step | Depends on the repo matching production |
-| --- | --- |
-| Drop policies 011 added, drop the privilege trigger, drop 011-only helper functions | No. These objects exist only after 011. |
-| Recreate `users_insert_admin` and `users_select_self_agency` | Yes. Bodies are from `002_supabase_auth.sql`. |
-| `GRANT SELECT ON TABLE users TO authenticated` | Yes. That table grant is what 002 left. A hand-made column grant is not restored. |
-| Recreate every `*_select` policy in the 003 list, including `event_log_select` | Yes. Bodies are from `003_rls_bootstrap.sql`, including the wide `LANDLORD` / `END_USER` / `CONTRACTOR` clause. |
-| Recreate `get_public_marketplace_bootstrap` and `_lite` | Yes. Bodies and the `anon` / `authenticated` grants are from `011a_public_rpc_stopgap.sql`, not from 007/008. The 008 lite `entity_id_map` bug is still in 011a and is restored on purpose. |
-
-If the section 2 snapshot diff was not empty, do not run this rollback expecting it to put production back. Use the logical dump or PITR.
-
-## 7. What the app team should smoke-test
-
-Signed-out browser, then one user of each role. Production writes go through the Supabase client (the Hono API is not what Vercel serves today).
-
-| Surface | Route | What to look for |
-| --- | --- | --- |
-| Marketplace home and browse | `/`, `/browse` | Listings, buildings, and agency names still render. Landlord cards must not show a password hash, an ID document, or building notes. Email still renders after 011. It disappears only after 011b and the mapper that reads `landlord_id` / `landlord_name`. |
-| Listing detail | `/listing/:id` | Cover image and facts load. Enquiry form still posts. |
-| Staff dashboard | `/workspace` | Own agency properties, leads, applications, payments. No other agency's names in those lists. |
-| Tenant portal | `/workspace/portals/tenant` | Own application, maintenance, messages. Not another agency's. |
-| User admin / verification | `/workspace` user screens and compliance | See the trigger risks below before calling the apply done. |
-
-## App code that can break
-
-Apply order for the marketplace payloads:
-
-1. **011a** (already going to production from `e34834c`). Closes the anonymous leak. Landlord email is still returned.
-2. **011**. Tenant isolation, privilege trigger, and an explicit building/unit/room allow-list so `buildings.notes` cannot come back. Adds `landlord_id` and `landlord_name`. Keeps `email`, `id`, and the 011a user fields the current mapper reads.
-3. **011b** (`011b_drop_marketplace_landlord_email.sql`), in the same release as the frontend deploy. Removes `email` from `marketplace_user_json`. Verify with `011b_drop_marketplace_landlord_email_verify.sql`. Undo with `011b_drop_marketplace_landlord_email_rollback.sql`, which puts the 011 function back. Do not apply 011b while the live frontend still requires `user.email`.
-
-`src/lib/supabase/mapGuestMarketplace.ts` prefers `landlord_id` (then `id`) and `landlord_name` (then first + last). Email is shown when the payload still has a string, which it does after 011 and does not after 011b. `entity_id_map` is still applied after that. `metadata` on the anon payload is limited to `frontend_id`, `frontend_role`, and `verification.status` when that status is stored. `isGlobalConfigClient` is a JSON boolean; the mapper treats only real `true` (or the string `'true'`) as the global-config client, so a boolean `false` keeps the agency on the marketplace. `src/lib/supabase/publicMarketplace.ts` is the caller (`get_public_marketplace_bootstrap_lite`, then the full RPC).
-
-`src/lib/supabase/data.ts` selects named user columns (`id, client_id, email, first_name, last_name, phone, role, active, metadata`) and `select('*')` on the other tenant tables. Those user columns stay granted. `select('*')` on `users` does not: `password_hash` is omitted from the column grant, and Postgres rejects the whole select. `src/lib/supabase/auth.ts` uses that fallback only when `auth_bootstrap_needed` errors (`select('*', { count: 'exact', head: true })` around the bootstrap-needed check). If that RPC is healthy, the fallback does not run.
-
-`src/lib/supabase/persist.ts` `upsertUser` writes `role`, `active`, `client_id`, and metadata `frontend_role`, `enabledPermissions`, and `verification` through the user's JWT. The new trigger puts the stored privilege values back. A staff member editing their own row will see name and phone save, and role or permissions quietly stay as they were. Staff cannot update *other* users through RLS today (`users_update_own` is self or super admin only); that part is unchanged.
-
-`src/lib/supabase/auth.ts` `attachRegistrationDocuments` updates `metadata.verification` on the signed-in user so a new landlord or contractor can store ID documents. The trigger strips `verification` from the incoming JSON and copies the previous value back. If the signup trigger already wrote `verification.status = pending` without the files, the files never land. If there was no `verification` key yet, the key is removed and not restored. **Treat a failed document upload as a rollback trigger** unless product accepts that landlords cannot submit documents until a follow-up change.
-
-`admin_update_user_verification` (migration 003, called from `src/lib/supabase/auth.ts`) is `SECURITY DEFINER`, so it bypasses RLS, but the trigger still runs. The trigger only lets a super admin through (`is_super_admin()`). An agency admin's approve/reject is overwritten with the old verification and the RPC still returns the new JSON from memory. The UI can show success while the row did not change. **Confirm an agency-admin verification decision by reading the row afterwards. If it did not stick, roll back.**
-
-The direct Hono connection is not `anon` or `authenticated` and does not set a client JWT role, so the trigger lets it change privilege columns. That path is not the Vercel production write path.
-
-## Risks inside 011
-
-- **The privilege trigger is `SECURITY INVOKER`.** PostgREST's login role is `authenticator`; `session_user` stays that role after `SET ROLE`, so it cannot tell `anon` from `service_role`. `current_user` is the `SET ROLE` target, which is why the trigger is not `SECURITY DEFINER`. A JWT role of `authenticated` or `anon` also locks the row even if the session role is something else. `service_role` and a direct admin session with no client JWT still change privilege columns. The first-user `SUPER_ADMIN` count goes through `users_count_unscoped()`, which stays `SECURITY DEFINER` so row level security does not hide existing users from the count.
-- **Same-agency reads are still wide.** The new `*_select` policy is "super admin or this `client_id`" for every `authenticated` user. A tenant cannot read agency B. A tenant can still read agency A's leads, payments, and applications. 011 closes the cross-agency hole from 003. It does not make those tables staff-only.
-- **`password_hash` can still be written.** 011 revokes `SELECT` and grants specific columns. It does not revoke `UPDATE` on `password_hash`. `users_update_own` still allows a user to update their own row. A direct PostgREST update can set `password_hash` to a hash the attacker knows. The API ignores client-supplied hashes; PostgREST does not.
-- **Published listings stay cross-agency** via `units_public_read`, `buildings_public_read`, and `viewing_slots_public_read`. That is intentional. The isolation checks use unpublished rows. The building and viewing-slot checks call `building_has_public_listing` and `viewing_slot_on_public_listing` (`SECURITY DEFINER`). Inlining `EXISTS (SELECT FROM units)` recurses with `units_landlord_read` from 003, and Postgres errors instead of returning rows. Execute on those two functions is granted only to `authenticated`.
-- **Lock timeout.** A 5 second wait is enough for this DDL once the lock is free. It will fail if a pooler session is idle in a transaction on `users`. Failure leaves the previous policies in place.
-- **`rollback.sql` restores the post-011a catalog, not 007/008.** 011a still has the `008` lite bug that matches `entity_id_map` property ids to building ids. That bug is what production has after the stopgap. Do not "fix" it in the rollback. Steps marked `ASSUMES-REPO` are wrong if the hosted schema has drifted. Diff the live snapshot first.
-- **Within-agency user list.** 011 drops `users_select_self_agency`. Tenants no longer see every colleague. Staff still have `users_select_agency`. `users_select_portfolio` lets a landlord read `END_USER` rows that are a tenant (`leases.tenant_id`) or an applicant (`applications.applicant_id`) on a building they own. It does not return staff, other landlords, or an end user who is not on those buildings. Metadata on those linked rows, including ID documents, is still visible to that landlord.
-
-## Not tested against production
-
-- Whether the hosted catalog matches migrations 001-010 plus 011a. Compare the snapshot and the schema-only dump before apply (section 2). If `pre_apply_assert.sql` fails, or the snapshot diff is not empty, stop. A live dump may not have been provided yet; do not treat a missing dump as a match.
-- Dashboard backups, PITR, and a real `pg_dump` of the hosted database. The commands above were rehearsed only against the local cluster.
-- The Supabase preview-branch clone. Do not create one without approval.
-- PostgREST's actual JWT (cookie / `Authorization`) end to end. Local checks `SET ROLE` and `set_config` the same settings PostgREST sets.
-- The SPA in a browser against this database. The smoke table above is for the app team after apply.
-- Storage objects, Realtime delivery, and auth email. 011 does not change those, except that 008's publication is untouched.
+- `a_buildings_notes_absent`, `a_client_flag_is_boolean`, `a_verification_only_when_stored` (also after 011a and after rollback)
+- `a_anon_bootstrap` and `a_anon_bootstrap_lite`: allow-listed keys only; `email`, `landlord_id`, and `landlord_name` are present
+- `e_marketplace_helpers_locked`: `anon` and `authenticated` cannot execute the JSON helpers
+- `e_public_rpcs_executable`: both roles can execute the two public RPCs
+- `b_landlord_sees_linked_tenant`, `b_landlord_hides_staff`, `b_landlord_hides_unlinked_tenant`
+- `c_role` stays `END_USER`; `c_service_role_can_set_role` and `c_direct_admin_can_set_role` can change it, then the probe rolls back
+- `b_end_user_<table>`: the tenant sees no agency-B row; `d_staff_<table>`: staff still see their own agency

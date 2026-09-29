@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Apply migration 011 in one transaction. Fails closed on lock wait or SQL error.
-# Usage:
-#   export DATABASE_URL='postgresql://...db.<ref>.supabase.co:5432/postgres?sslmode=require'
+# The rehearsal calls this against a local database. Usage:
+#   export DATABASE_URL='postgresql:///propertyflow_011_rehearse?host=/var/run/postgresql'
 #   database/postgres/ops/011/apply.sh
 #   database/postgres/ops/011/apply.sh /path/to/other.sql   # rehearsal probe only
 set -euo pipefail

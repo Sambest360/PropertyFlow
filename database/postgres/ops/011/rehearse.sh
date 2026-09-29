@@ -1,28 +1,40 @@
 #!/usr/bin/env bash
 # Local rehearsal of migration 011. Never connects to a hosted Supabase project.
 # Usage: npm run db:rehearse:011
+#
+# Self-contained by default: creates propertyflow_011_rehearse on the local
+# cluster, applies the role stub, schema, migrations 001-010, 011a, and
+# local/seed_two_agencies.sql.
+#
+# Later, point this at `supabase start` and a shared fixture without a second seed:
+#   REHEARSE_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+#   REHEARSE_SKIP_BOOTSTRAP=1          # stack already has roles, schema, 001-011a
+#   REHEARSE_SEED_SQL=path/to/shared-two-agencies.sql
+#   TENANT_A_AUTH_ID=...               # override when the shared fixture uses other ids
+# Reset that local database first (`supabase db reset`). This script still
+# inserts the seed and applies 011.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../../../.." && pwd)"
 DB_NAME="propertyflow_011_rehearse"
 ADMIN_URL="postgresql:///postgres?host=/var/run/postgresql"
-export DATABASE_URL="postgresql:///${DB_NAME}?host=/var/run/postgresql"
 LOG="${REHEARSE_LOG:-/tmp/propertyflow-011-rehearse.log}"
 WORK="${REHEARSE_WORK:-/tmp/propertyflow-011-rehearse}"
+SEED_SQL="${REHEARSE_SEED_SQL:-$HERE/local/seed_two_agencies.sql}"
 mkdir -p "$WORK"
 : >"$LOG"
 
-# Fixed fixtures in local/seed_two_agencies.sql. verify.sql reads the same ids.
-export TENANT_A_AUTH_ID="11111111-1111-4111-8111-000000000005"
-export TENANT_A_USER_ID="11111111-1111-4111-8111-000000000005"
-export STAFF_A_AUTH_ID="11111111-1111-4111-8111-000000000001"
-export AGENCY_A_ID="11111111-1111-4111-8111-111111111111"
-export AGENCY_B_ID="22222222-2222-4222-8222-222222222222"
-export LANDLORD_A_USER_ID="11111111-1111-4111-8111-000000000004"
-export LANDLORD_A_AUTH_ID="11111111-1111-4111-8111-000000000004"
-export UNLINKED_A_USER_ID="11111111-1111-4111-8111-000000000007"
-export STAFF_A_USER_ID="11111111-1111-4111-8111-000000000001"
-export NOVERIF_LANDLORD_ID="11111111-1111-4111-8111-000000000008"
+# Defaults match local/seed_two_agencies.sql. Override with the shared fixture's ids.
+export TENANT_A_AUTH_ID="${TENANT_A_AUTH_ID:-11111111-1111-4111-8111-000000000005}"
+export TENANT_A_USER_ID="${TENANT_A_USER_ID:-11111111-1111-4111-8111-000000000005}"
+export STAFF_A_AUTH_ID="${STAFF_A_AUTH_ID:-11111111-1111-4111-8111-000000000001}"
+export AGENCY_A_ID="${AGENCY_A_ID:-11111111-1111-4111-8111-111111111111}"
+export AGENCY_B_ID="${AGENCY_B_ID:-22222222-2222-4222-8222-222222222222}"
+export LANDLORD_A_USER_ID="${LANDLORD_A_USER_ID:-11111111-1111-4111-8111-000000000004}"
+export LANDLORD_A_AUTH_ID="${LANDLORD_A_AUTH_ID:-11111111-1111-4111-8111-000000000004}"
+export UNLINKED_A_USER_ID="${UNLINKED_A_USER_ID:-11111111-1111-4111-8111-000000000007}"
+export STAFF_A_USER_ID="${STAFF_A_USER_ID:-11111111-1111-4111-8111-000000000001}"
+export NOVERIF_LANDLORD_ID="${NOVERIF_LANDLORD_ID:-11111111-1111-4111-8111-000000000008}"
 
 TABLES=(
   buildings units rooms internal_assets leads applications
@@ -50,19 +62,38 @@ MIGRATIONS=(
 )
 
 for id in "$TENANT_A_AUTH_ID" "$STAFF_A_AUTH_ID" "$AGENCY_A_ID" "$AGENCY_B_ID" "$LANDLORD_A_USER_ID" "$UNLINKED_A_USER_ID" "$NOVERIF_LANDLORD_ID"; do
-  grep -q "$id" "$HERE/local/seed_two_agencies.sql" || {
-    echo "seed file is missing fixture $id" >&2
+  grep -q "$id" "$SEED_SQL" || {
+    echo "seed file is missing fixture $id ($SEED_SQL)" >&2
     exit 1
   }
 done
 
-if ! pg_isready -h /var/run/postgresql -q; then
-  sudo pg_ctlcluster 16 main start
+if [[ -n "${REHEARSE_DATABASE_URL:-}" ]]; then
+  case "$REHEARSE_DATABASE_URL" in
+    *supabase.co*|*supabase.com*|*:6543*|*:6543/*)
+      echo "Refusing hosted Supabase or port 6543. This rehearsal is local only." >&2
+      exit 1
+      ;;
+    postgresql://*@127.0.0.1:*|postgresql://*@localhost:*|postgres://*@127.0.0.1:*|postgres://*@localhost:*|postgresql:///*|postgres:///*)
+      export DATABASE_URL="$REHEARSE_DATABASE_URL"
+      ;;
+    *)
+      echo "REHEARSE_DATABASE_URL must be local (127.0.0.1, localhost, or a socket). supabase start uses 127.0.0.1:54322." >&2
+      exit 1
+      ;;
+  esac
+else
+  if ! pg_isready -h /var/run/postgresql -q; then
+    sudo pg_ctlcluster 16 main start
+  fi
+  export DATABASE_URL="postgresql:///${DB_NAME}?host=/var/run/postgresql"
+  echo "rehearsal log: $LOG"
+  psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS ${DB_NAME} WITH (FORCE);" >>"$LOG"
+  psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE ${DB_NAME};" >>"$LOG"
 fi
 
 echo "rehearsal log: $LOG"
-psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS ${DB_NAME} WITH (FORCE);" >>"$LOG"
-psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE ${DB_NAME};" >>"$LOG"
+echo "database: $DATABASE_URL"
 
 apply_file() {
   local file="$1"
@@ -74,18 +105,22 @@ apply_file() {
   fi
 }
 
-echo "stub roles and auth.uid()"
-apply_file "$HERE/local/supabase_roles.sql"
-echo "schema"
-apply_file "$ROOT/database/postgres/schema.sql"
-echo "migrations 001-010"
-for name in "${MIGRATIONS[@]}"; do
-  apply_file "$ROOT/database/postgres/migrations/$name"
-done
-echo "011a public RPC stopgap"
-apply_file "$ROOT/database/postgres/migrations/011a_public_rpc_stopgap.sql"
-echo "seed two agencies"
-apply_file "$HERE/local/seed_two_agencies.sql"
+if [[ "${REHEARSE_SKIP_BOOTSTRAP:-}" == "1" ]]; then
+  echo "skip bootstrap (expect roles, schema, migrations 001-010, and 011a already applied)"
+else
+  echo "stub roles and auth.uid()"
+  apply_file "$HERE/local/supabase_roles.sql"
+  echo "schema"
+  apply_file "$ROOT/database/postgres/schema.sql"
+  echo "migrations 001-010"
+  for name in "${MIGRATIONS[@]}"; do
+    apply_file "$ROOT/database/postgres/migrations/$name"
+  done
+  echo "011a public RPC stopgap"
+  apply_file "$ROOT/database/postgres/migrations/011a_public_rpc_stopgap.sql"
+fi
+echo "seed $(basename "$SEED_SQL")"
+apply_file "$SEED_SQL"
 echo "rehearsal-only service_role table grants"
 apply_file "$HERE/local/service_role_grants.sql"
 
@@ -149,30 +184,6 @@ echo "pre-apply snapshot (post-011a, pre-011)"
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -A -t -f "$HERE/pre_apply_snapshot.sql" >"$WORK/snapshot-pre.txt"
 bash "$HERE/schema_dump.sh" "$WORK/dump-pre.sql" >>"$LOG"
 grep -v -E '^\\(un)?restrict ' "$WORK/dump-pre.sql" >"$WORK/dump-pre.norm.sql" || true
-REF_DIR="$HERE/rehearsal"
-mkdir -p "$REF_DIR"
-if [[ -f "$REF_DIR/pre-011-snapshot.txt" ]]; then
-  if ! diff -q "$WORK/snapshot-pre.txt" "$REF_DIR/pre-011-snapshot.txt" >/dev/null; then
-    echo "pre-011 catalog snapshot drifted from rehearsal/pre-011-snapshot.txt" >&2
-    diff -u "$REF_DIR/pre-011-snapshot.txt" "$WORK/snapshot-pre.txt" | head -40 >&2
-    exit 1
-  fi
-else
-  cp "$WORK/snapshot-pre.txt" "$REF_DIR/pre-011-snapshot.txt"
-fi
-if [[ -f "$REF_DIR/pre-011-public-schema.sql" ]]; then
-  if ! diff -q "$WORK/dump-pre.norm.sql" "$REF_DIR/pre-011-public-schema.sql" >/dev/null; then
-    echo "pre-011 schema dump drifted from rehearsal/pre-011-public-schema.sql" >&2
-    diff -u "$REF_DIR/pre-011-public-schema.sql" "$WORK/dump-pre.norm.sql" | head -40 >&2
-    exit 1
-  fi
-else
-  cp "$WORK/dump-pre.norm.sql" "$REF_DIR/pre-011-public-schema.sql"
-fi
-if [[ -n "${LIVE_SCHEMA_DUMP:-}" ]]; then
-  echo "diff live schema dump against the post-011a rehearsal schema"
-  bash "$HERE/diff_live_schema.sh" "$LIVE_SCHEMA_DUMP" "$WORK/dump-pre.norm.sql"
-fi
 
 echo "probe: forced failure must roll the transaction back"
 probe="$WORK/probe.sql"

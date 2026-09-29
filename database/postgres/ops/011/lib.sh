@@ -10,12 +10,12 @@ resolve_database_url() {
     DATABASE_URL_RESOLVED="$DIRECT_URL"
     echo "DATABASE_URL is unset; using DIRECT_URL. Prefer exporting DATABASE_URL set to the direct (port 5432) URI." >&2
   else
-    echo "Set DATABASE_URL to the direct Postgres URI (db.<ref>.supabase.co port 5432). Do not use the transaction pooler on port 6543." >&2
+    echo "Set DATABASE_URL to a Postgres URI. Do not use port 6543." >&2
     return 1
   fi
   case "$DATABASE_URL_RESOLVED" in
     *:6543|*:6543/*|*:6543\?*)
-      echo "Refusing port 6543 (Supabase transaction pooler). Session settings and a single migration transaction are not reliable there. Use the direct connection." >&2
+      echo "Refusing port 6543. Session settings and a single migration transaction are not reliable there. Use a direct connection on port 5432." >&2
       return 1
       ;;
   esac
