@@ -42,6 +42,9 @@ DROP FUNCTION IF EXISTS public.storage_signed_url(TEXT, TEXT);
 DROP FUNCTION IF EXISTS public.storage_object_readable(TEXT, TEXT);
 DROP FUNCTION IF EXISTS public.storage_can_delete_unregistered(TEXT, TEXT);
 DROP FUNCTION IF EXISTS public.storage_upload_authorized(TEXT);
+DROP FUNCTION IF EXISTS public.storage_user_id_upload_ok(TEXT);
+DROP FUNCTION IF EXISTS public.storage_user_id_readable(UUID);
+DROP FUNCTION IF EXISTS public.storage_registration_id_owner(TEXT);
 DROP FUNCTION IF EXISTS public.storage_caller_is_party(TEXT, UUID);
 DROP FUNCTION IF EXISTS public.storage_entity_agency(TEXT, UUID);
 

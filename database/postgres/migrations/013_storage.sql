@@ -25,10 +25,21 @@
 --   public.current_app_user_id()
 --   public.current_app_client_id()
 --   public.is_agency_staff()
--- Migration 011 (tenant isolation) is being rewritten in parallel and is expected
--- to add agency and party helpers. Those names are not on this branch, so party
--- checks live in public.storage_caller_is_party(). On rebase, point that function
--- at the 011 helper instead of inlining the predicates again.
+-- Agency ownership reuses public.entity_backend_client_id() from
+-- 011c_security_review.sql (unit, building, user, application, and lease via
+-- the 'tenancy' type). 011 does not define a party helper. Party checks stay
+-- in public.storage_caller_is_party(). Ticket agency is read here because
+-- entity_backend_client_id does not cover maintenance_tickets.
+-- Apply 011 and 011c before this file. 011c forces row level security on the
+-- tenant tables, so every lookup runs as SECURITY DEFINER with a pinned
+-- search_path. The function owner is the migration role (postgres on
+-- Supabase), which has BYPASSRLS, so forced RLS does not hide those rows.
+--
+-- Applicants who do not belong to an agency yet upload an ID document to
+-- documents/_users/{auth.uid()}/id_document/{file_id}.{ext}. register_file
+-- is called with entity_type 'user' and entity_id = auth.uid(). Only that
+-- user can write. Only that user, and staff of an agency the user has applied
+-- to, can read. The file is stored with a null agency_id.
 --
 -- Access:
 --   * Agency staff (AGENCY_ADMIN, AGENT_ADMIN, GROUND_AGENT) read and upload only
@@ -37,6 +48,8 @@
 --     (their application, lease, or maintenance ticket, or their own user row
 --     for an ID document) and only under that entity's agency path. They read
 --     only files they uploaded.
+--   * An ID document at _users/{auth.uid()} is the exception above: no agency
+--     path, and staff read it only after an application to their agency.
 --   * Everyone else, including anon and super admins, gets nothing.
 -- There is no UPDATE policy. Upsert / overwrite fails. Uploaders may delete
 -- their own objects until register_file records them. sweep_unregistered_storage()
@@ -85,7 +98,7 @@ CREATE TABLE IF NOT EXISTS public.stored_files (
   id            UUID PRIMARY KEY,
   bucket        TEXT NOT NULL CHECK (bucket IN ('property-media', 'documents')),
   path          TEXT NOT NULL,
-  agency_id     UUID NOT NULL REFERENCES public.clients(id) ON DELETE CASCADE,
+  agency_id     UUID REFERENCES public.clients(id) ON DELETE CASCADE,
   entity_type   TEXT NOT NULL CHECK (entity_type IN (
                   'application', 'lease', 'ticket', 'maintenance_ticket',
                   'user', 'unit', 'building'
@@ -97,6 +110,19 @@ CREATE TABLE IF NOT EXISTS public.stored_files (
   uploaded_by   UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT stored_files_bucket_path_key UNIQUE (bucket, path)
+);
+
+-- Re-apply: the first version of this table required an agency. Registration
+-- ID documents have none. Every other row still must.
+ALTER TABLE public.stored_files ALTER COLUMN agency_id DROP NOT NULL;
+ALTER TABLE public.stored_files DROP CONSTRAINT IF EXISTS stored_files_agency_required;
+ALTER TABLE public.stored_files ADD CONSTRAINT stored_files_agency_required CHECK (
+  agency_id IS NOT NULL
+  OR (
+    bucket = 'documents'
+    AND entity_type = 'user'
+    AND path ~ '^_users/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/id_document/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(pdf|jpg|jpeg|png)$'
+  )
 );
 
 CREATE INDEX IF NOT EXISTS stored_files_entity_idx
@@ -113,10 +139,10 @@ GRANT SELECT ON TABLE public.stored_files TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.stored_files TO service_role;
 
 -- ---------------------------------------------------------------------------
--- Path and party checks. SECURITY DEFINER so a tenant who cannot SELECT the
--- ticket row can still be recognised as a party. Each function returns only
--- a boolean or an agency id, and each requires auth.uid() where it decides
--- access.
+-- Path and party checks. SECURITY DEFINER with a pinned search_path so 011c's
+-- FORCE ROW LEVEL SECURITY does not hide the entity from the caller. The
+-- owner is the migration role, which bypasses RLS. Each function returns only
+-- a boolean or an id, and each requires auth.uid() where it decides access.
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION public.storage_entity_agency(
@@ -130,14 +156,10 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
   SELECT CASE p_entity_type
-    WHEN 'application' THEN (SELECT client_id FROM applications WHERE id = p_entity_id)
-    WHEN 'lease' THEN (SELECT client_id FROM leases WHERE id = p_entity_id)
-    WHEN 'ticket' THEN (SELECT client_id FROM maintenance_tickets WHERE id = p_entity_id)
-    WHEN 'maintenance_ticket' THEN (SELECT client_id FROM maintenance_tickets WHERE id = p_entity_id)
-    WHEN 'user' THEN (SELECT client_id FROM users WHERE id = p_entity_id)
-    WHEN 'unit' THEN (SELECT client_id FROM units WHERE id = p_entity_id)
-    WHEN 'building' THEN (SELECT client_id FROM buildings WHERE id = p_entity_id)
-    ELSE NULL
+    WHEN 'lease' THEN public.entity_backend_client_id('tenancy', p_entity_id)
+    WHEN 'ticket' THEN (SELECT client_id FROM public.maintenance_tickets WHERE id = p_entity_id)
+    WHEN 'maintenance_ticket' THEN (SELECT client_id FROM public.maintenance_tickets WHERE id = p_entity_id)
+    ELSE public.entity_backend_client_id(p_entity_type, p_entity_id)
   END;
 $$;
 
@@ -247,6 +269,91 @@ BEGIN
 END;
 $$;
 
+-- documents/_users/{auth_user_id}/id_document/{file_id}.{ext}
+-- Returns the auth user id when the path is that shape, otherwise NULL.
+CREATE OR REPLACE FUNCTION public.storage_registration_id_owner(object_name TEXT)
+RETURNS UUID
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, storage
+AS $$
+DECLARE
+  folders TEXT[];
+  owner_id UUID;
+  stem TEXT;
+  ext TEXT;
+BEGIN
+  folders := storage.foldername(object_name);
+  IF folders IS NULL OR cardinality(folders) <> 3 THEN
+    RETURN NULL;
+  END IF;
+  IF folders[1] <> '_users' OR folders[3] <> 'id_document' THEN
+    RETURN NULL;
+  END IF;
+  IF folders[2] !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+    RETURN NULL;
+  END IF;
+  ext := lower(storage.extension(object_name));
+  IF ext NOT IN ('pdf', 'jpg', 'jpeg', 'png') THEN
+    RETURN NULL;
+  END IF;
+  stem := split_part(storage.filename(object_name), '.', 1);
+  IF stem !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+    RETURN NULL;
+  END IF;
+  IF lower(storage.filename(object_name)) IS DISTINCT FROM lower(stem) || '.' || ext THEN
+    RETURN NULL;
+  END IF;
+  owner_id := folders[2]::UUID;
+  IF lower(folders[2]) IS DISTINCT FROM owner_id::TEXT THEN
+    RETURN NULL;
+  END IF;
+  IF lower(stem) IS DISTINCT FROM stem::UUID::TEXT THEN
+    RETURN NULL;
+  END IF;
+  RETURN owner_id;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.storage_user_id_upload_ok(object_name TEXT)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT auth.uid() IS NOT NULL
+    AND public.storage_registration_id_owner(object_name) = auth.uid();
+$$;
+
+-- The user named in the path, or staff of an agency that user has applied to.
+CREATE OR REPLACE FUNCTION public.storage_user_id_readable(p_auth_user_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT
+    auth.uid() IS NOT NULL
+    AND p_auth_user_id IS NOT NULL
+    AND (
+      auth.uid() = p_auth_user_id
+      OR (
+        public.is_agency_staff()
+        AND public.current_app_client_id() IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM public.applications a
+          JOIN public.users u ON u.id = a.applicant_id
+          WHERE u.auth_user_id = p_auth_user_id
+            AND a.client_id = public.current_app_client_id()
+        )
+      )
+    );
+$$;
+
 CREATE OR REPLACE FUNCTION public.storage_object_readable(
   p_bucket TEXT,
   object_name TEXT
@@ -271,6 +378,10 @@ AS $$
           AND f.path = object_name
           AND f.uploaded_by = public.current_app_user_id()
           AND public.storage_caller_is_party(f.entity_type, f.entity_id)
+      )
+      OR (
+        p_bucket = 'documents'
+        AND public.storage_user_id_readable(public.storage_registration_id_owner(object_name))
       )
     );
 $$;
@@ -305,12 +416,18 @@ REVOKE ALL ON FUNCTION public.storage_caller_is_party(TEXT, UUID) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.storage_upload_authorized(TEXT) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.storage_object_readable(TEXT, TEXT) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.storage_can_delete_unregistered(TEXT, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.storage_registration_id_owner(TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.storage_user_id_upload_ok(TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.storage_user_id_readable(UUID) FROM PUBLIC;
 -- Policies run as the current user, so the role needs EXECUTE. The functions
--- return booleans only.
+-- return booleans or an id only.
 GRANT EXECUTE ON FUNCTION public.storage_upload_authorized(TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.storage_object_readable(TEXT, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.storage_caller_is_party(TEXT, UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.storage_can_delete_unregistered(TEXT, TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.storage_user_id_upload_ok(TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.storage_user_id_readable(UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.storage_registration_id_owner(TEXT) TO authenticated;
 
 DROP POLICY IF EXISTS stored_files_select ON public.stored_files;
 CREATE POLICY stored_files_select ON public.stored_files
@@ -323,6 +440,11 @@ CREATE POLICY stored_files_select ON public.stored_files
     OR (
       uploaded_by = (SELECT public.current_app_user_id())
       AND (SELECT public.storage_caller_is_party(entity_type, entity_id))
+    )
+    OR (
+      entity_type = 'user'
+      AND path LIKE '\_users/%/id\_document/%' ESCAPE '\'
+      AND (SELECT public.storage_user_id_readable(entity_id))
     )
   );
 
@@ -371,7 +493,10 @@ CREATE POLICY documents_insert ON storage.objects
           NULLIF(metadata->>'contentLength', '')::BIGINT,
           NULLIF(metadata->>'size', '')::BIGINT
         ) BETWEEN 1 AND 20971520
-    AND public.storage_upload_authorized(name)
+    AND (
+      public.storage_upload_authorized(name)
+      OR public.storage_user_id_upload_ok(name)
+    )
   );
 
 DROP POLICY IF EXISTS stored_objects_select ON storage.objects;
@@ -511,34 +636,55 @@ BEGIN
   IF folders IS NULL OR cardinality(folders) <> 3 THEN
     RAISE EXCEPTION 'Invalid path' USING ERRCODE = '22023';
   END IF;
-  BEGIN
-    path_agency := folders[1]::UUID;
-    path_entity := folders[3]::UUID;
-    file_id := split_part(storage.filename(path), '.', 1)::UUID;
-  EXCEPTION WHEN invalid_text_representation THEN
-    RAISE EXCEPTION 'Invalid file id' USING ERRCODE = '22023';
-  END;
-  -- Reject non-canonical forms. The returned id must be the path segment.
-  IF lower(split_part(storage.filename(path), '.', 1)) IS DISTINCT FROM file_id::TEXT THEN
-    RAISE EXCEPTION 'Invalid file id' USING ERRCODE = '22023';
-  END IF;
-  ext := lower(storage.extension(path));
-  IF folders[2] IS DISTINCT FROM entity_type OR path_entity IS DISTINCT FROM entity_id THEN
-    RAISE EXCEPTION 'Invalid path' USING ERRCODE = '22023';
-  END IF;
-  IF lower(storage.filename(path)) IS DISTINCT FROM file_id::TEXT || '.' || ext THEN
-    RAISE EXCEPTION 'Invalid path' USING ERRCODE = '22023';
-  END IF;
 
-  entity_agency := public.storage_entity_agency(entity_type, entity_id);
-  IF entity_agency IS NULL OR entity_agency IS DISTINCT FROM path_agency THEN
-    RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
-  END IF;
-  IF NOT (
-    (public.is_agency_staff() AND public.current_app_client_id() = entity_agency)
-    OR public.storage_caller_is_party(entity_type, entity_id)
-  ) THEN
-    RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+  IF folders[1] = '_users' THEN
+    -- Registration ID document. No agency. entity_id must be auth.uid().
+    IF bucket <> 'documents' OR entity_type <> 'user' OR kind <> 'id_document' THEN
+      RAISE EXCEPTION 'Invalid path' USING ERRCODE = '22023';
+    END IF;
+    IF entity_id IS DISTINCT FROM auth.uid() THEN
+      RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+    END IF;
+    path_entity := public.storage_registration_id_owner(path);
+    IF path_entity IS NULL THEN
+      RAISE EXCEPTION 'Invalid path' USING ERRCODE = '22023';
+    END IF;
+    IF path_entity IS DISTINCT FROM auth.uid() THEN
+      RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+    END IF;
+    file_id := split_part(storage.filename(path), '.', 1)::UUID;
+    ext := lower(storage.extension(path));
+    entity_agency := NULL;
+  ELSE
+    BEGIN
+      path_agency := folders[1]::UUID;
+      path_entity := folders[3]::UUID;
+      file_id := split_part(storage.filename(path), '.', 1)::UUID;
+    EXCEPTION WHEN invalid_text_representation THEN
+      RAISE EXCEPTION 'Invalid file id' USING ERRCODE = '22023';
+    END;
+    -- Reject non-canonical forms. The returned id must be the path segment.
+    IF lower(split_part(storage.filename(path), '.', 1)) IS DISTINCT FROM file_id::TEXT THEN
+      RAISE EXCEPTION 'Invalid file id' USING ERRCODE = '22023';
+    END IF;
+    ext := lower(storage.extension(path));
+    IF folders[2] IS DISTINCT FROM entity_type OR path_entity IS DISTINCT FROM entity_id THEN
+      RAISE EXCEPTION 'Invalid path' USING ERRCODE = '22023';
+    END IF;
+    IF lower(storage.filename(path)) IS DISTINCT FROM file_id::TEXT || '.' || ext THEN
+      RAISE EXCEPTION 'Invalid path' USING ERRCODE = '22023';
+    END IF;
+
+    entity_agency := public.storage_entity_agency(entity_type, entity_id);
+    IF entity_agency IS NULL OR entity_agency IS DISTINCT FROM path_agency THEN
+      RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+    END IF;
+    IF NOT (
+      (public.is_agency_staff() AND public.current_app_client_id() = entity_agency)
+      OR public.storage_caller_is_party(entity_type, entity_id)
+    ) THEN
+      RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+    END IF;
   END IF;
 
   SELECT o.owner, o.owner_id, o.metadata
@@ -631,6 +777,23 @@ BEGIN
     RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
   END IF;
 
+  IF entity_type = 'user' AND public.storage_user_id_readable(entity_id) THEN
+    expires := now() + INTERVAL '1 hour';
+    SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'file_id', f.id,
+      'kind', f.kind,
+      'url', public.storage_signed_url(f.bucket, f.path),
+      'expires_at', expires
+    ) ORDER BY f.created_at, f.id), '[]'::JSONB)
+    INTO files
+    FROM public.stored_files f
+    WHERE f.entity_type = 'user'
+      AND f.entity_id = list_files.entity_id
+      AND f.bucket = 'documents'
+      AND f.path LIKE '\_users/%/id\_document/%' ESCAPE '\';
+    RETURN jsonb_build_object('files', files);
+  END IF;
+
   entity_agency := public.storage_entity_agency(entity_type, entity_id);
   staff := public.is_agency_staff() AND public.current_app_client_id() = entity_agency;
   party := public.storage_caller_is_party(entity_type, entity_id);
@@ -690,6 +853,23 @@ BEGIN
   SELECT * INTO row FROM public.stored_files f WHERE f.id = file_id;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Not found' USING ERRCODE = 'P0002';
+  END IF;
+
+  IF row.entity_type = 'user'
+     AND row.path LIKE '\_users/%/id\_document/%' ESCAPE '\' THEN
+    IF NOT public.storage_user_id_readable(row.entity_id) THEN
+      RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+    END IF;
+    expires := now() + INTERVAL '1 hour';
+    RETURN jsonb_build_object(
+      'files',
+      jsonb_build_array(jsonb_build_object(
+        'file_id', row.id,
+        'kind', row.kind,
+        'url', public.storage_signed_url(row.bucket, row.path),
+        'expires_at', expires
+      ))
+    );
   END IF;
 
   staff := public.is_agency_staff() AND public.current_app_client_id() = row.agency_id;
@@ -834,8 +1014,10 @@ SELECT cron.schedule(
 --
 -- file_id is uuid v5 of (user id, document key, md5 of the data URL) under
 -- the namespace below, so the path is stable across retries.
--- Users with no client_id, or files outside the documents bucket limits, are
--- left untouched and counted as skipped.
+-- A user with a client_id is stored at {client_id}/user/{user_id}/{file_id}.ext.
+-- A user with no client_id and an auth user id stores an ID document
+-- (key id_copy or id_document) at _users/{auth_user_id}/id_document/{file_id}.ext.
+-- Anything else outside the documents bucket limits is left untouched.
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION public.metadata_document_plan()
@@ -874,17 +1056,22 @@ BEGIN
   FOR rec IN
     SELECT u.id AS uid,
            u.client_id,
+           u.auth_user_id,
            (doc.ordinality - 1)::INTEGER AS idx,
            doc.elem
     FROM (
-      SELECT id, client_id, metadata
+      SELECT id, client_id, auth_user_id, metadata
       FROM users
-      WHERE client_id IS NOT NULL
-        AND jsonb_typeof(metadata->'verification'->'documents') = 'array'
+      WHERE jsonb_typeof(metadata->'verification'->'documents') = 'array'
+        AND (client_id IS NOT NULL OR auth_user_id IS NOT NULL)
     ) u
     CROSS JOIN LATERAL jsonb_array_elements(u.metadata->'verification'->'documents')
          WITH ORDINALITY AS doc(elem, ordinality)
     WHERE coalesce(doc.elem->>'dataUrl', '') LIKE 'data:%'
+      AND (
+        u.client_id IS NOT NULL
+        OR coalesce(doc.elem->>'key', '') IN ('id_copy', 'id_document')
+      )
   LOOP
     raw := rec.elem->>'dataUrl';
     mime := lower(substring(raw FROM '^data:([^;,]+)'));
@@ -905,7 +1092,8 @@ BEGIN
       EXCEPTION WHEN OTHERS THEN
         bytes := NULL;
       END;
-      IF bytes IS NOT NULL AND octet_length(bytes) BETWEEN 1 AND 20971520 THEN
+      IF bytes IS NOT NULL AND octet_length(bytes) BETWEEN 1 AND 20971520
+         AND (rec.client_id IS NOT NULL OR rec.auth_user_id IS NOT NULL) THEN
         fid := extensions.uuid_generate_v5(
           ns,
           rec.uid::TEXT || '/' || doc_key_text || '/' || md5(raw)
@@ -915,7 +1103,11 @@ BEGIN
         doc_key := doc_key_text;
         file_id := fid;
         bucket := 'documents';
-        path := rec.client_id::TEXT || '/user/' || rec.uid::TEXT || '/' || fid::TEXT || '.' || ext;
+        IF rec.client_id IS NULL THEN
+          path := '_users/' || rec.auth_user_id::TEXT || '/id_document/' || fid::TEXT || '.' || ext;
+        ELSE
+          path := rec.client_id::TEXT || '/user/' || rec.uid::TEXT || '/' || fid::TEXT || '.' || ext;
+        END IF;
         mime_type := mime;
         byte_size := octet_length(bytes);
         data_url := raw;
@@ -963,15 +1155,19 @@ BEGIN
       rec.file_id,
       rec.bucket,
       rec.path,
-      u.client_id,
+      CASE WHEN rec.path LIKE '\_users/%' ESCAPE '\' THEN NULL ELSE u.client_id END,
       'user',
-      u.id,
-      rec.doc_key,
+      CASE WHEN rec.path LIKE '\_users/%' ESCAPE '\' THEN u.auth_user_id ELSE u.id END,
+      CASE WHEN rec.path LIKE '\_users/%' ESCAPE '\' THEN 'id_document' ELSE rec.doc_key END,
       rec.mime_type,
       rec.byte_size,
       u.id
     FROM users u
     WHERE u.id = rec.user_id
+      AND (
+        rec.path NOT LIKE '\_users/%' ESCAPE '\'
+        OR u.auth_user_id IS NOT NULL
+      )
     ON CONFLICT (id) DO NOTHING;
 
     SELECT u.metadata INTO meta FROM users u WHERE u.id = rec.user_id;

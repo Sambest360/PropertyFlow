@@ -170,17 +170,51 @@ describe.skipIf(!run)('private storage contract', () => {
   const stamp = Date.now()
 
   beforeAll(async () => {
-    const ready = await db<{ fn: string | null; clients: string | null }>(
-      `SELECT to_regprocedure('public.register_file(text,text,text,uuid,text)')::text AS fn,
-              to_regclass('public.clients')::text AS clients`,
+    const ready = await db<{ fn: string | null; view: string | null; agency: string | null }>(
+      `SELECT to_regprocedure('public.storage_user_id_upload_ok(text)')::text AS fn,
+              to_regclass('public.v_unit_summary')::text AS view,
+              to_regprocedure('public.entity_backend_client_id(text,uuid)')::text AS agency`,
     )
-    if (!ready.rows[0]?.clients) {
+    if (!ready.rows[0]?.view) {
+      await db('DROP TABLE IF EXISTS public.stored_files CASCADE')
       execSync(`psql "${DB_URL}" -v ON_ERROR_STOP=1 -f database/postgres/schema.sql`, { stdio: 'inherit' })
       execSync(`psql "${DB_URL}" -v ON_ERROR_STOP=1 -f database/postgres/migrations/002_supabase_auth.sql`, {
         stdio: 'inherit',
       })
+      execSync(`psql "${DB_URL}" -v ON_ERROR_STOP=1 -f database/postgres/migrations/003_rls_bootstrap.sql`, {
+        stdio: 'inherit',
+      })
     }
-    if (!ready.rows[0]?.fn) {
+    if (!ready.rows[0]?.view || !ready.rows[0]?.agency) {
+      const bootstrap = await db<{ fn: string | null; rel: string | null; sync: string | null }>(
+        `SELECT to_regprocedure('public.admin_update_user_verification(text,text,text)')::text AS fn,
+                to_regclass('public.trust_transactions')::text AS rel,
+                to_regprocedure('public.sync_auth_user_profile(uuid)')::text AS sync`,
+      )
+      if (!bootstrap.rows[0]?.fn) {
+        execSync(`psql "${DB_URL}" -v ON_ERROR_STOP=1 -f database/postgres/migrations/003_rls_bootstrap.sql`, {
+          stdio: 'inherit',
+        })
+      }
+      if (!bootstrap.rows[0]?.sync) {
+        execSync(`psql "${DB_URL}" -v ON_ERROR_STOP=1 -f database/postgres/migrations/004_ensure_user_profile.sql`, {
+          stdio: 'inherit',
+        })
+        execSync(`psql "${DB_URL}" -v ON_ERROR_STOP=1 -f database/postgres/migrations/009_fix_auth_user_profile_sync.sql`, {
+          stdio: 'inherit',
+        })
+      }
+      if (!bootstrap.rows[0]?.rel) {
+        execSync(`psql "${DB_URL}" -v ON_ERROR_STOP=1 -f database/postgres/migrations/007_trust_banking.sql`, {
+          stdio: 'inherit',
+        })
+      }
+      execSync(
+        `psql "${DB_URL}" -v ON_ERROR_STOP=1 --single-transaction -f database/postgres/migrations/011_tenant_isolation.sql -f database/postgres/migrations/011c_security_review.sql`,
+        { stdio: 'inherit' },
+      )
+    }
+    if (!ready.rows[0]?.view || !ready.rows[0]?.fn) {
       execSync(`psql "${DB_URL}" -v ON_ERROR_STOP=1 -f database/postgres/migrations/013_storage.sql`, {
         stdio: 'inherit',
       })
@@ -461,6 +495,87 @@ describe.skipIf(!run)('private storage contract', () => {
     const read = await rpc(applicant.token, 'entity_files', { entity_type: 'user', entity_id: applicant.userId })
     expect(read.status).toBe(200)
     expect(read.text).toContain(doc!.file_id!)
+  })
+
+  it('lets only that user write a registration ID document', async () => {
+    const owner = sessions.applicantA!
+    const other = sessions.applicantB!
+    const fileId = randomUUID()
+    const path = `_users/${owner.authId}/id_document/${fileId}.pdf`
+
+    const stolen = await upload(other.token, 'documents', path, pdf, 'application/pdf', false)
+    expect(stolen.status).toBeGreaterThanOrEqual(400)
+
+    const stolenRegister = await rpc(other.token, 'register_file', {
+      bucket: 'documents',
+      path,
+      entity_type: 'user',
+      entity_id: owner.authId,
+      kind: 'id_document',
+    })
+    expect(stolenRegister.status).toBeGreaterThanOrEqual(400)
+    expect(stolenRegister.text).toContain('Forbidden')
+
+    const up = await upload(owner.token, 'documents', path, pdf, 'application/pdf', false)
+    expect(up.status).toBe(200)
+    const registered = await rpc(owner.token, 'register_file', {
+      bucket: 'documents',
+      path,
+      entity_type: 'user',
+      entity_id: owner.authId,
+      kind: 'id_document',
+    })
+    expect(registered.status).toBe(200)
+    expect((JSON.parse(registered.text) as { file_id: string }).file_id).toBe(fileId)
+
+    const own = await rpc(owner.token, 'list_files', { entity_type: 'user', entity_id: owner.authId })
+    expect(own.status).toBe(200)
+    expect(own.text).toContain(fileId)
+  })
+
+  it('refuses an unrelated agency reading a registration ID document', async () => {
+    const owner = sessions.applicantA!
+    const fileId = randomUUID()
+    const path = `_users/${owner.authId}/id_document/${fileId}.pdf`
+    expect((await upload(owner.token, 'documents', path, pdf, 'application/pdf', false)).status).toBe(200)
+    const registered = await rpc(owner.token, 'register_file', {
+      bucket: 'documents',
+      path,
+      entity_type: 'user',
+      entity_id: owner.authId,
+      kind: 'id_document',
+    })
+    expect(registered.status).toBe(200)
+
+    await db(
+      `INSERT INTO applications (id, client_id, unit_id, applicant_id, reference_code)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5)`,
+      [randomUUID(), ids.agencyA, ids.unitA1, owner.userId, `reg-${fileId.slice(0, 8)}`],
+    )
+
+    const unrelated = await rpc(sessions.staffB!.token, 'list_files', {
+      entity_type: 'user',
+      entity_id: owner.authId,
+    })
+    expect(unrelated.status).toBeGreaterThanOrEqual(400)
+    expect(unrelated.text).toContain('Forbidden')
+    expect(unrelated.text).not.toContain(fileId)
+
+    const byId = await rpc(sessions.staffB!.token, 'list_files', { file_id: fileId })
+    expect(byId.status).toBeGreaterThanOrEqual(400)
+    expect(byId.text).not.toContain(path)
+
+    const direct = await fetch(`${API}/storage/v1/object/documents/${path}`, {
+      headers: { Authorization: `Bearer ${sessions.staffB!.token}`, apikey: ANON },
+    })
+    expect(direct.status).toBeGreaterThanOrEqual(400)
+
+    const related = await rpc(sessions.staffA!.token, 'list_files', {
+      entity_type: 'user',
+      entity_id: owner.authId,
+    })
+    expect(related.status).toBe(200)
+    expect(related.text).toContain(fileId)
   })
 
   it('sweeps unregistered objects older than 24 hours', async () => {
