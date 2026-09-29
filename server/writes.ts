@@ -2,6 +2,7 @@
  * Postgres write handlers for AppStore domain mutations.
  * Accepts frontend demo IDs; resolves/registers UUIDs via entity_id_map.
  */
+import { forbiddenError } from './actor.js'
 import { query, withTransaction, clientQuery } from './db.js'
 import {
   ensureEntityMapTable,
@@ -197,9 +198,17 @@ async function unitIdFromProperty(propertyId: unknown): Promise<string | null> {
   )
 }
 
+export type WriteActor = { role: string; userId: string; agencyId?: string | null }
+
+const AGENCY_STAFF_ROLES = new Set(['client_admin', 'agent_admin', 'ground_agent', 'agent'])
+
+function isAgencyStaffRole(role: string | undefined): boolean {
+  return Boolean(role && AGENCY_STAFF_ROLES.has(role))
+}
+
 export async function handlePersist(
   body: PersistBody,
-  actor?: { role: string; userId: string } | null,
+  actor?: WriteActor | null,
 ): Promise<{ ok: true; id: string; uuid: string }> {
   await ensureEntityMapTable()
   const { resource, action, id, data = {} } = body
@@ -271,7 +280,7 @@ async function upsertEntity(
   resource: EntityType,
   frontendId: string,
   data: Record<string, unknown>,
-  actor?: { role: string; userId: string } | null,
+  actor?: WriteActor | null,
 ): Promise<string> {
   switch (resource) {
     case 'agency':
@@ -298,7 +307,7 @@ async function upsertEntity(
     case 'viewing_slot':
       return upsertViewingSlot(frontendId, data)
     case 'payment':
-      return upsertPayment(frontendId, data)
+      return upsertPayment(frontendId, data, actor)
     case 'ticket':
       return upsertTicket(frontendId, data)
     case 'document':
@@ -1046,16 +1055,57 @@ async function upsertViewingSlot(feId: string, d: Record<string, unknown>): Prom
   return uuid
 }
 
-async function upsertPayment(feId: string, d: Record<string, unknown>): Promise<string> {
+async function upsertPayment(
+  feId: string,
+  d: Record<string, unknown>,
+  actor?: WriteActor | null,
+): Promise<string> {
+  if (!actor?.userId || !actor.role) {
+    throw Object.assign(new Error('unauthorized'), { status: 401 })
+  }
   const uuid = await ensureUuid('payment', feId)
-  const client = await clientId(d.agencyId)
+  const actorAgency = actor.agencyId ? await resolveUuid('agency', actor.agencyId) : null
+  const existing = await query<{
+    id: string
+    client_id: string
+    status: string
+    amount: string
+    reference: string | null
+  }>(
+    `SELECT id::text, client_id::text, status, amount::text, reference
+     FROM payments WHERE id = $1::uuid LIMIT 1`,
+    [uuid],
+  )
+  const row = existing[0]
+  let client: string
+  let status: string
+  let amount: number
+  let reference: string | null
+  if (row) {
+    if (!actorAgency || actorAgency !== row.client_id) {
+      throw forbiddenError('cross_agency')
+    }
+    client = row.client_id
+    status = row.status
+    amount = num(row.amount) ?? 0
+    reference = row.reference
+  } else {
+    client = await clientId(d.agencyId)
+    if (!isAgencyStaffRole(actor.role) || !actorAgency || actorAgency !== client) {
+      throw forbiddenError('payment_create_staff_only')
+    }
+    status = PAY_STATUS_TO_DB[str(d.status, 'Due')] ?? 'DUE'
+    if (status === 'PAID' || status === 'CANCELLED') {
+      throw forbiddenError('payment_status_server_only')
+    }
+    amount = num(d.amount) ?? 0
+    reference = d.reference ? str(d.reference) : null
+  }
   const unit = await unitIdFromProperty(d.propertyId)
   const lease = d.tenancyId ? await resolveUuid('tenancy', str(d.tenancyId)) : null
   const app = d.applicationId ? await resolveUuid('application', str(d.applicationId)) : null
   const party = await userId(d.partyUserId)
-  const recorded = await userId(d.recordedByUserId)
   const payType = PAY_TYPE_TO_DB[str(d.type, 'Other')] ?? 'OTHER'
-  const status = PAY_STATUS_TO_DB[str(d.status, 'Due')] ?? 'DUE'
 
   await query(
     `INSERT INTO payments (
@@ -1068,16 +1118,11 @@ async function upsertPayment(feId: string, d: Record<string, unknown>): Promise<
        $16, $17, $18::uuid, $19::jsonb, NOW()
      )
      ON CONFLICT (id) DO UPDATE SET
-       amount = EXCLUDED.amount,
-       paid_amount = EXCLUDED.paid_amount,
-       status = EXCLUDED.status,
        due_date = EXCLUDED.due_date,
-       paid_at = EXCLUDED.paid_at,
        method = EXCLUDED.method,
-       reference = EXCLUDED.reference,
        notes = EXCLUDED.notes,
+       landlord_visible = EXCLUDED.landlord_visible,
        attachments = EXCLUDED.attachments,
-       recorded_by = EXCLUDED.recorded_by,
        updated_at = NOW()`,
     [
       uuid,
@@ -1088,20 +1133,89 @@ async function upsertPayment(feId: string, d: Record<string, unknown>): Promise<
       party,
       str(d.partyName, 'Party'),
       payType,
-      num(d.amount) ?? 0,
-      num(d.paidAmount),
+      amount,
+      null,
       status,
       str(d.dueDate, new Date().toISOString().slice(0, 10)),
-      d.paidAt ? str(d.paidAt) : null,
+      null,
       d.method ? str(d.method) : null,
-      d.reference ? str(d.reference) : null,
+      reference,
       d.notes ? str(d.notes) : null,
       bool(d.landlordVisible, true),
-      recorded,
+      null,
       JSON.stringify(Array.isArray(d.attachments) ? d.attachments : []),
     ],
   )
   return uuid
+}
+
+/** Staff EFT mark-paid. Not the generic persist upsert. */
+export async function markPaymentPaidByStaff(input: {
+  paymentId: string
+  actor: WriteActor & { recordedByUserId: string }
+  method?: string | null
+  paidAt?: string | null
+  reference?: string | null
+  paidAmount?: number | null
+  notes?: string | null
+  attachments?: unknown
+}): Promise<{ uuid: string }> {
+  if (!isAgencyStaffRole(input.actor.role)) {
+    throw forbiddenError('payment_mark_paid_staff_only')
+  }
+  const uuid = await resolveUuid('payment', input.paymentId)
+  if (!uuid) {
+    throw Object.assign(new Error('payment_not_found'), { status: 404 })
+  }
+  const rows = await query<{
+    id: string
+    client_id: string
+    status: string
+    amount: string
+  }>(
+    `SELECT id::text, client_id::text, status, amount::text
+     FROM payments WHERE id = $1::uuid LIMIT 1`,
+    [uuid],
+  )
+  const payment = rows[0]
+  if (!payment) {
+    throw Object.assign(new Error('payment_not_found'), { status: 404 })
+  }
+  const actorAgency = input.actor.agencyId ? await resolveUuid('agency', input.actor.agencyId) : null
+  if (!actorAgency || actorAgency !== payment.client_id) {
+    throw forbiddenError('cross_agency')
+  }
+  if (payment.status === 'CANCELLED') {
+    throw Object.assign(new Error('payment_cancelled'), { status: 409 })
+  }
+  if (payment.status === 'PAID') return { uuid }
+  const paidAmount =
+    input.paidAmount != null && Number.isFinite(input.paidAmount) ? input.paidAmount : num(payment.amount) ?? 0
+  const paidAt = input.paidAt?.trim() ? input.paidAt.trim() : new Date().toISOString()
+  await query(
+    `UPDATE payments
+     SET status = 'PAID',
+         paid_at = COALESCE(paid_at, $2::timestamptz),
+         paid_amount = $3::numeric,
+         method = COALESCE($4, method),
+         reference = COALESCE($5, reference),
+         notes = COALESCE($6, notes),
+         attachments = COALESCE($7::jsonb, attachments),
+         recorded_by = $8::uuid,
+         updated_at = NOW()
+     WHERE id = $1::uuid AND status::text IN ('DUE', 'OVERDUE')`,
+    [
+      uuid,
+      paidAt,
+      paidAmount,
+      input.method ?? null,
+      input.reference ?? null,
+      input.notes ?? null,
+      input.attachments == null ? null : JSON.stringify(input.attachments),
+      input.actor.recordedByUserId,
+    ],
+  )
+  return { uuid }
 }
 
 async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<string> {

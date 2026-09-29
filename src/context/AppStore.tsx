@@ -151,6 +151,7 @@ import { buildPublicMarketplaceDemoBootstrap } from '../lib/publicMarketplaceDem
 import {
   persistApproveApplication,
   persistMarkNotificationsRead,
+  persistMarkPaymentPaid,
   queueDelete,
   queuePersistBatch,
   queueUpsert,
@@ -4099,18 +4100,30 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             action: 'updated',
           })
         }
-        persistUpsert('payment', id, {
-          ...before,
-          status: 'Paid',
-          paidAt,
-          method,
-          reference: opts.reference ?? before.reference ?? null,
-          paidAmount: opts.paidAmount ?? before.amount,
-          notes: opts.notes ?? before.notes ?? null,
-          attachments: opts.attachments ?? before.attachments ?? [],
-          recordedByUserId: opts.recordedByUserId ?? before.recordedByUserId ?? null,
-          recordedByName: opts.recordedByName ?? before.recordedByName ?? null,
-        } as unknown as Record<string, unknown>)
+        if (isApiEnabled) {
+          void persistMarkPaymentPaid({
+            paymentId: id,
+            method,
+            paidAt,
+            reference: opts.reference ?? before.reference ?? null,
+            paidAmount: opts.paidAmount ?? before.amount,
+            notes: opts.notes ?? before.notes ?? null,
+            attachments: opts.attachments ?? before.attachments ?? [],
+          })
+        } else {
+          persistUpsert('payment', id, {
+            ...before,
+            status: 'Paid',
+            paidAt,
+            method,
+            reference: opts.reference ?? before.reference ?? null,
+            paidAmount: opts.paidAmount ?? before.amount,
+            notes: opts.notes ?? before.notes ?? null,
+            attachments: opts.attachments ?? before.attachments ?? [],
+            recordedByUserId: opts.recordedByUserId ?? before.recordedByUserId ?? null,
+            recordedByName: opts.recordedByName ?? before.recordedByName ?? null,
+          } as unknown as Record<string, unknown>)
+        }
       }
       if (paidEvent) {
         persistUpsert(

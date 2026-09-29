@@ -11,9 +11,9 @@
  *       amountCents?: number,       // ignored — amount always comes from payments.amount
  *       itemName?: string,
  *       itemDescription?: string,
- *       payer?: { firstName?: string, lastName?: string, email?: string },
- *       subscription?: { cycles: string, frequency: 3|4|5|6|7 }
+ *       payer?: { firstName?: string, lastName?: string, email?: string }
  *     }
+ *   subscription fields on the body are ignored. The server decides them.
  *   Response 200 JSON:
  *     {
  *       ok: true,
@@ -204,9 +204,6 @@ export async function payfastCreate(c: Context) {
       returnUrl: `${origin}/payfast/return?ref=${encodeURIComponent(paymentId)}`,
       cancelUrl: `${origin}/payfast/cancel?ref=${encodeURIComponent(paymentId)}`,
       notifyUrl: `${origin}/api/payfast/itn`,
-      ...(body.subscription && typeof body.subscription === 'object'
-        ? { subscription: body.subscription as { cycles: string; frequency: 3 | 4 | 5 | 6 | 7 } }
-        : {}),
     })
     return c.json({ ok: true, processUrl: cfg.processUrl ?? 'https://sandbox.payfast.co.za/eng/process', fields })
   } catch (err) {

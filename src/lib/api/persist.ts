@@ -134,6 +134,42 @@ export async function persistApproveApplication(params: {
   }
 }
 
+/** Staff EFT mark-paid. Goes to the dedicated route, not generic persist. */
+export async function persistMarkPaymentPaid(params: {
+  paymentId: string
+  method?: string | null
+  paidAt?: string | null
+  reference?: string | null
+  paidAmount?: number | null
+  notes?: string | null
+  attachments?: unknown
+}): Promise<boolean> {
+  if (isSupabaseMode) return false
+  if (!(await quickHealth())) return false
+  try {
+    const res = await fetch(
+      `${API_BASE}/api/payments/${encodeURIComponent(params.paymentId)}/mark-paid`,
+      {
+        method: 'POST',
+        headers: jsonHeaders(),
+        credentials: 'include',
+        body: JSON.stringify({
+          method: params.method,
+          paidAt: params.paidAt,
+          reference: params.reference,
+          paidAmount: params.paidAmount,
+          notes: params.notes,
+          attachments: params.attachments,
+        }),
+      },
+    )
+    return res.ok
+  } catch {
+    apiLikelyUp = false
+    return false
+  }
+}
+
 export async function persistMarkNotificationsRead(params: {
   ids?: string[]
   userId?: string

@@ -40,6 +40,7 @@ import { supabaseSessionMiddleware } from './supabase/middleware.js'
 import type { PersistBody } from './writes.js'
 import { payfastCreate, payfastItn } from './payfastRoutes.js'
 import { notifyApplicationReceived } from './applicationNotify.js'
+import { markPaymentPaidRoute } from './paymentMarkPaid.js'
 import {
   authIpKey,
   authIpRateLimit,
@@ -982,6 +983,9 @@ app.post('/api/notify/application-received', (c) => notifyApplicationReceived(c)
 app.post('/api/payfast/create', (c) => payfastCreate(c))
 
 app.post('/api/payfast/itn', (c) => payfastItn(c))
+
+/** Staff EFT mark-paid. Does not use the generic persist upsert. */
+app.post('/api/payments/:id/mark-paid', (c) => markPaymentPaidRoute(c))
 
 app.post('/api/notifications/mark-read', async (c) => {
   try {
