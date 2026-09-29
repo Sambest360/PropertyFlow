@@ -69,7 +69,7 @@ There are two ways to sign in. Which one runs is decided in the browser by `src/
 
 Impersonation in the UI (`src/context/AuthContext.tsx`) switches the actor the client sends. In Supabase mode the browser still uses the real user's JWT, so row-level security sees the real user. In API mode the server now checks that impersonation.
 
-`GET /api/bootstrap` loads a workspace snapshot and filters it for the caller. It requires a session. Anonymous callers get 401. Property-scoped roles do not receive trust books or other agencies' users. ID numbers and verification files are stripped from users the caller does not administer.
+`GET /api/bootstrap` loads a workspace snapshot for the caller. It resolves the session before any database read. Anonymous callers get 401 and no query runs. Agency and role predicates are in the SQL, so another agency's rows are not loaded; an in-memory filter remains as a second check. Property-scoped roles do not receive trust books or other agencies' users. ID numbers and verification files are stripped from users the caller does not administer.
 
 The guest marketplace does not use that snapshot. It calls the security-definer functions `get_public_marketplace_bootstrap` and `get_public_marketplace_bootstrap_lite`, which return published listings only.
 
@@ -88,11 +88,11 @@ The guest marketplace does not use that snapshot. It calls the security-definer 
 ## Deployment
 
 - **Hosting.** Vite build (`npm run build`) uploaded to Vercel. `vercel.json` sets long-lived cache headers for hashed assets and SPA fallback. There is no serverless function entry for the Hono app, even though `server/index.ts` exports the app and skips `serve()` when `VERCEL` is set.
-- **Database.** Supabase Postgres. The app expects the transaction pooler (port 6543) on Vercel and the direct connection (`DIRECT_URL`, port 5432) for migrations. See `server/dbConfig.ts`.
+- **Database.** Supabase Postgres. The app expects the transaction pooler (port 6543) on Vercel and the direct connection (`DIRECT_URL`, port 5432) for migrations. See `server/dbConfig.ts`. Remote connections verify TLS (`rejectUnauthorized: true`). Set `DATABASE_SSL_CA` to the pooler CA PEM when Node does not already trust it. Plain connections are allowed only to localhost.
 - **Config.** Client variables are `VITE_*` and are baked into the bundle. Server secrets (`DATABASE_URL`, `AUTH_SECRET`, `SUPABASE_SECRET_KEY`, PayFast, Mailtrap) must not use the `VITE_` prefix. Template: `.env.example`.
 - **Email.** Mailtrap sandbox by default (`MAILTRAP_USE_SANDBOX=true`).
-- **Payments.** PayFast sandbox unless `PAYFAST_MODE=live`. Live mode refuses to start without `PAYFAST_PASSPHRASE`.
-- **CI.** No GitHub Actions workflow. Tests are `npm test` (Vitest). Lint is `npm run lint` (oxlint).
+- **Payments.** PayFast sandbox unless `PAYFAST_MODE=live`. Live mode refuses to start without `PAYFAST_PASSPHRASE`. ITNs require a signature in sandbox and live, a matching merchant id, a ledger amount match, a PayFast source IP taken from `x-real-ip` (or the last trusted `X-Forwarded-For` hop), and a VALID response from PayFast's validate URL before the ledger is marked paid. Duplicate ITNs do not credit twice. The checkout contract is `POST /api/payfast/create` (see `server/payfastRoutes.ts`).
+- **CI.** GitHub Actions runs `npm test`, `npm run lint`, `npm run build`, and `npm run secrets:scan` (gitleaks on the current tree). `npm run secrets:history` reports leaks still present in git history without rewriting it.
 
 ## Request flow (production)
 

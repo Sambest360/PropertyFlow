@@ -1,4 +1,5 @@
-import { query } from './db.js'
+import { query as runQuery } from './db.js'
+import { andClause, whereClause, type BootstrapScope } from './bootstrapScope.js'
 import { mapPool } from './mapPool.js'
 import { loadIdMapCache } from './idMapCache.js'
 import {
@@ -195,11 +196,59 @@ const LITE_BOOTSTRAP_LIMITS: Required<BootstrapLimits> = {
   documents: 80,
 }
 
-export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: boolean }) {
+export async function buildBootstrap(opts: {
+  limits?: BootstrapLimits
+  lite?: boolean
+  scope: BootstrapScope
+}) {
+  const scope = opts.scope
   const lite = Boolean(opts?.lite)
   const baseLimits = lite ? LITE_BOOTSTRAP_LIMITS : DEFAULT_BOOTSTRAP_LIMITS
   const limits = { ...baseLimits, ...opts?.limits }
   const skipHeavy = lite
+  const scopeTable: Record<string, string> = {
+    clients: 'clients',
+    users: 'users',
+    buildings: 'buildings',
+    units: 'units',
+    rooms: 'rooms',
+    internal_assets: 'assets',
+    leads: 'leads',
+    applications: 'applications',
+    leases: 'leases',
+    bookings: 'bookings',
+    viewing_slots: 'viewing_slots',
+    payments: 'payments',
+    documents: 'documents',
+    maintenance_tickets: 'tickets',
+    message_threads: 'threads',
+    messages: 'messages',
+    notifications: 'notifications',
+    suite_alerts: 'suite_alerts',
+    event_log: 'events',
+    invoices: 'invoices',
+    trust_transactions: 'trust_transactions',
+    trust_allocations: 'trust_allocations',
+    payout_instructions: 'payouts',
+    deposit_holdings: 'deposits',
+    arrears_snapshots: 'arrears',
+    csv_import_batches: 'csv_batches',
+    client_lookup_configs: 'lookups',
+  }
+  function load<T>(text: string, params?: unknown[]): Promise<T[]> {
+    const match = text.match(/\bFROM\s+([a-z_]+)/i)
+    const kind = match ? scopeTable[match[1].toLowerCase()] : undefined
+    const next = params ? [...params] : []
+    if (!kind || scope.role === 'super_admin') return runQuery<T>(text, next)
+    const hasWhere = /\bWHERE\b/i.test(text)
+    const clause = hasWhere ? andClause(scope, next, kind) : whereClause(scope, next, kind)
+    if (!clause) return runQuery<T>(text, next)
+    const boundary = /\b(ORDER BY|GROUP BY|LIMIT)\b/i
+    const scopedSql = boundary.test(text)
+      ? text.replace(boundary, (match) => `${clause} ${match}`)
+      : `${text} ${clause}`
+    return runQuery<T>(scopedSql, next)
+  }
   const [
     clients,
     users,
@@ -232,7 +281,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
   ] = await mapPool(
     [
       () =>
-        query<{
+        load<{
           id: string
           company_name: string
           subdomain: string
@@ -243,7 +292,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
           'SELECT id, company_name, subdomain, status, city, created_at FROM clients ORDER BY company_name',
         ),
       () =>
-        query<{
+        load<{
           id: string
           client_id: string | null
           email: string
@@ -257,7 +306,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
           'SELECT id, client_id, email, first_name, last_name, phone, role, active, metadata FROM users ORDER BY email',
         ),
       () =>
-        query<{
+        load<{
           id: string
           client_id: string
           landlord_id: string | null
@@ -278,7 +327,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
           created_at: Date
         }>('SELECT * FROM buildings ORDER BY name'),
       () =>
-        query<{
+        load<{
           id: string
           building_id: string
           client_id: string
@@ -321,7 +370,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
               layout_w: number | null
               layout_h: number | null
             }>)
-          : query<{
+          : load<{
               id: string
               unit_id: string
               client_id: string
@@ -348,7 +397,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
               condition_status: string
               brand: string | null
             }>)
-          : query<{
+          : load<{
               id: string
               room_id: string | null
               unit_id: string
@@ -359,62 +408,62 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
               condition_status: string
               brand: string | null
             }>('SELECT * FROM internal_assets'),
-      () => query('SELECT * FROM leads ORDER BY created_at DESC LIMIT $1', [limits.leads]),
+      () => load('SELECT * FROM leads ORDER BY created_at DESC LIMIT $1', [limits.leads]),
       () =>
-        query('SELECT * FROM applications ORDER BY submitted_at NULLS LAST LIMIT $1', [
+        load('SELECT * FROM applications ORDER BY submitted_at NULLS LAST LIMIT $1', [
           limits.applications,
         ]),
-      () => query('SELECT * FROM leases ORDER BY start_date'),
-      () => query('SELECT * FROM bookings ORDER BY starts_at'),
-      () => query('SELECT * FROM viewing_slots ORDER BY slot_date, slot_time'),
-      () => query('SELECT * FROM payments ORDER BY due_date LIMIT $1', [limits.payments]),
+      () => load('SELECT * FROM leases ORDER BY start_date'),
+      () => load('SELECT * FROM bookings ORDER BY starts_at'),
+      () => load('SELECT * FROM viewing_slots ORDER BY slot_date, slot_time'),
+      () => load('SELECT * FROM payments ORDER BY due_date LIMIT $1', [limits.payments]),
       () =>
-        query('SELECT * FROM documents ORDER BY uploaded_at NULLS LAST LIMIT $1', [
+        load('SELECT * FROM documents ORDER BY uploaded_at NULLS LAST LIMIT $1', [
           limits.documents,
         ]),
-      () => query('SELECT * FROM maintenance_tickets ORDER BY created_at DESC LIMIT $1', [
+      () => load('SELECT * FROM maintenance_tickets ORDER BY created_at DESC LIMIT $1', [
         limits.tickets,
       ]),
-      () => query('SELECT * FROM message_threads ORDER BY updated_at DESC LIMIT $1', [
+      () => load('SELECT * FROM message_threads ORDER BY updated_at DESC LIMIT $1', [
         skipHeavy ? 80 : 500,
       ]),
-      () => query('SELECT * FROM messages ORDER BY created_at DESC LIMIT $1', [limits.messages]),
+      () => load('SELECT * FROM messages ORDER BY created_at DESC LIMIT $1', [limits.messages]),
       () =>
-        query('SELECT * FROM notifications ORDER BY created_at DESC LIMIT $1', [
+        load('SELECT * FROM notifications ORDER BY created_at DESC LIMIT $1', [
           limits.notifications,
         ]),
       () =>
         skipHeavy
           ? Promise.resolve([] as Array<Record<string, unknown>>)
-          : query('SELECT * FROM suite_alerts ORDER BY created_at'),
+          : load('SELECT * FROM suite_alerts ORDER BY created_at'),
       () =>
         skipHeavy
           ? Promise.resolve([] as Array<Record<string, unknown>>)
-          : query(
+          : load(
               `SELECT * FROM event_log WHERE event_type = 'activity' ORDER BY created_at DESC LIMIT 200`,
             ),
       () =>
         skipHeavy
           ? Promise.resolve([] as Array<Record<string, unknown>>)
-          : query(
+          : load(
               `SELECT * FROM event_log WHERE event_type = 'property_event' ORDER BY created_at DESC LIMIT 400`,
             ),
       () =>
         skipHeavy
           ? Promise.resolve([] as Array<Record<string, unknown>>)
-          : query('SELECT * FROM invoices ORDER BY created_at DESC'),
+          : load('SELECT * FROM invoices ORDER BY created_at DESC'),
       // Trust & Banking books (P0-7) — small tables, fetch on both lite/full.
-      () => query('SELECT * FROM trust_transactions ORDER BY value_date DESC LIMIT 400'),
-      () => query('SELECT * FROM trust_allocations LIMIT 800'),
-      () => query('SELECT * FROM payout_instructions ORDER BY created_at DESC LIMIT 200'),
-      () => query('SELECT * FROM deposit_holdings ORDER BY created_at DESC LIMIT 200'),
+      () => load('SELECT * FROM trust_transactions ORDER BY value_date DESC LIMIT 400'),
+      () => load('SELECT * FROM trust_allocations LIMIT 800'),
+      () => load('SELECT * FROM payout_instructions ORDER BY created_at DESC LIMIT 200'),
+      () => load('SELECT * FROM deposit_holdings ORDER BY created_at DESC LIMIT 200'),
       () =>
-        query(
+        load(
           'SELECT * FROM arrears_snapshots ORDER BY as_of DESC LIMIT 60',
         ),
-      () => query('SELECT * FROM csv_import_batches ORDER BY imported_at DESC LIMIT 100'),
+      () => load('SELECT * FROM csv_import_batches ORDER BY imported_at DESC LIMIT 100'),
       () =>
-        query<{
+        load<{
           id: string
           client_id: string
           config_type: string
@@ -440,7 +489,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
   }
 
   // Runtime + seed aliases from entity_id_map (shared cache — no N+1)
-  const idCache = await loadIdMapCache()
+  const idCache = await loadIdMapCache({ clientUuid: scope.clientUuid })
   for (const [backendId, fe] of idCache.userBackendToFe) {
     userByUuid.set(backendId, fe)
   }

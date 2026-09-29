@@ -260,14 +260,20 @@ async function countUsers(): Promise<number> {
   return Number(rows[0]?.n ?? 0)
 }
 
-export function issueSession(c: Context, user: SessionUser): string {
-  const token = signToken({
+export function createSessionToken(
+  user: Pick<SessionUser, 'id' | 'frontendId' | 'role' | 'agencyId'>,
+): string {
+  return signToken({
     sub: user.id,
     fe: user.frontendId,
     role: user.role,
     agency: user.agencyId,
     exp: Math.floor(Date.now() / 1000) + TOKEN_TTL_SEC,
   })
+}
+
+export function issueSession(c: Context, user: SessionUser): string {
+  const token = createSessionToken(user)
   setCookie(c, AUTH_COOKIE, token, {
     httpOnly: true,
     sameSite: 'Lax',

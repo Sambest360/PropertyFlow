@@ -46,17 +46,26 @@ async function fePropertyFromUnit(unitUuid: string | null | undefined): Promise<
   return fePropertyFromUnitCache(cache, unitUuid)
 }
 
-async function loadPropertyRows(cache: Awaited<ReturnType<typeof loadIdMapCache>>): Promise<FePropertyRow[]> {
+async function loadPropertyRows(
+  cache: Awaited<ReturnType<typeof loadIdMapCache>>,
+  clientUuid: string | null,
+): Promise<FePropertyRow[]> {
   const rows = await query<{
     unit_id: string
     client_id: string
     agent_id: string | null
     landlord_id: string | null
-  }>(`
-    SELECT u.id AS unit_id, u.client_id, u.agent_id, b.landlord_id
-    FROM units u
-    JOIN buildings b ON b.id = u.building_id
-  `)
+  }>(
+    clientUuid
+      ? `SELECT u.id AS unit_id, u.client_id, u.agent_id, b.landlord_id
+         FROM units u
+         JOIN buildings b ON b.id = u.building_id
+         WHERE u.client_id = $1::uuid`
+      : `SELECT u.id AS unit_id, u.client_id, u.agent_id, b.landlord_id
+         FROM units u
+         JOIN buildings b ON b.id = u.building_id`,
+    clientUuid ? [clientUuid] : [],
+  )
   return rows.map((r) => {
     const id =
       fePropertyFromUnitCache(cache, r.unit_id) ?? UNIT_TO_PROPERTY[r.unit_id] ?? r.unit_id
@@ -67,9 +76,11 @@ async function loadPropertyRows(cache: Awaited<ReturnType<typeof loadIdMapCache>
   })
 }
 
-async function loadScopeLinks(): Promise<ScopeLinksInput> {
-  const cache = await loadIdMapCache()
-  const properties = await loadPropertyRows(cache)
+async function loadScopeLinks(clientUuid: string | null): Promise<ScopeLinksInput> {
+  const cache = await loadIdMapCache({ clientUuid })
+  const properties = await loadPropertyRows(cache, clientUuid)
+  const clientSql = clientUuid ? 'WHERE a.client_id = $1::uuid' : ''
+  const clientParams = clientUuid ? [clientUuid] : []
 
   const appRows = await query<{
     applicant_id: string | null
@@ -78,11 +89,13 @@ async function loadScopeLinks(): Promise<ScopeLinksInput> {
     status: string
     reference_code: string
     metadata: Record<string, unknown> | null
-  }>(`
-    SELECT a.applicant_id, u.email, a.unit_id, a.status, a.reference_code, a.metadata
-    FROM applications a
-    LEFT JOIN users u ON u.id = a.applicant_id
-  `)
+  }>(
+    `SELECT a.applicant_id, u.email, a.unit_id, a.status, a.reference_code, a.metadata
+     FROM applications a
+     LEFT JOIN users u ON u.id = a.applicant_id
+     ${clientSql}`,
+    clientParams,
+  )
 
   const applications: Array<{
     applicantUserId: string | null
@@ -108,7 +121,10 @@ async function loadScopeLinks(): Promise<ScopeLinksInput> {
   }
 
   const leaseRows = await query<{ tenant_id: string | null; unit_id: string }>(
-    `SELECT tenant_id, unit_id FROM leases`,
+    clientUuid
+      ? `SELECT tenant_id, unit_id FROM leases WHERE client_id = $1::uuid`
+      : `SELECT tenant_id, unit_id FROM leases`,
+    clientParams,
   )
   const tenancies = leaseRows.map((l) => ({
     tenantUserId: feUserFromCache(cache, l.tenant_id) ?? '',
@@ -121,10 +137,14 @@ async function loadScopeLinks(): Promise<ScopeLinksInput> {
     client_id: string
     status: string
     assigned_to: string | null
-  }>(`
-    SELECT contractor_id, unit_id, client_id, status, assigned_to
-    FROM maintenance_tickets
-  `)
+  }>(
+    clientUuid
+      ? `SELECT contractor_id, unit_id, client_id, status, assigned_to
+         FROM maintenance_tickets WHERE client_id = $1::uuid`
+      : `SELECT contractor_id, unit_id, client_id, status, assigned_to
+         FROM maintenance_tickets`,
+    clientParams,
+  )
   const tickets: Array<{
     contractorId: string | null
     propertyId: string
@@ -187,7 +207,21 @@ export async function enrichActor(actor: DemoActor): Promise<DemoActor> {
 export async function buildActorPropertyScope(actor: DemoActor): Promise<PropertyScope> {
   await ensureEntityMapTable()
   const enriched = await enrichActor(actor)
-  const links = await loadScopeLinks()
+  const clientUuid =
+    enriched.role === 'super_admin' ? null : await resolveUuid('agency', enriched.agencyId)
+  if (enriched.role !== 'super_admin' && !clientUuid) {
+    const emptyScope = buildPropertyScope(
+      {
+        role: enriched.role,
+        userId: enriched.userId,
+        agencyId: enriched.agencyId,
+        agencySuspended: false,
+      },
+      { properties: [], applications: [], tenancies: [], tickets: [] },
+    )
+    return emptyScope
+  }
+  const links = await loadScopeLinks(clientUuid)
   const agencySuspended = await resolveAgencySuspended(enriched.agencyId)
   return buildPropertyScope(
     {

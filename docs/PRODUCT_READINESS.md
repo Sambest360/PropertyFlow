@@ -56,7 +56,7 @@ Review of PropertyFlow as a product to sell to more than one agency. Findings ar
 
 21. **Staff-created users default to the temporary password `ChangeMe123!`** (`src/pages/admin/AdminUserCreatePage.tsx`, `src/context/AppStore.tsx`). It is shown to the admin. It is still a known password if they do not change it.
 
-22. **PayFast live IP check trusts `X-Forwarded-For`.** Clients can spoof that header unless the platform overwrites it. The passphrase check is the control that matters. Sandbox mode still skips the IP allow-list on purpose.
+22. **PayFast ITN source IP.** The check uses the platform client IP (`x-real-ip` on Vercel, or the last trusted `X-Forwarded-For` hop), in sandbox and live. The first `X-Forwarded-For` entry is not trusted. Signature, merchant id, ledger amount, and PayFast's validate postback are all required before a payment is marked paid.
 
 23. **Cookies** are `Secure` in production now. JWT lifetime is still 14 days.
 
@@ -69,7 +69,7 @@ Review of PropertyFlow as a product to sell to more than one agency. Findings ar
 - SQL identifiers in `server/writes.ts` and `server/scopeGate.ts` are quoted and constrained. Writes use parameters.
 - Passwords are bcrypt.
 - JWT signatures use a timing-safe compare. `AUTH_SECRET` is required.
-- PayFast passphrase and merchant key are server-side. ITN signatures are checked, and a COMPLETE ITN must match the ledger amount.
+- PayFast passphrase and merchant key are server-side env vars. ITN signatures are required in sandbox and live, merchant id and ledger amount are checked, and a payment is marked paid only after PayFast's validate URL returns VALID.
 - Firestore is gone. The old rules file denied client access; the SDK was unused and has been removed.
 - Firebase project ids in the old `.env.example` were public config, not secrets. They are no longer in the example file.
 

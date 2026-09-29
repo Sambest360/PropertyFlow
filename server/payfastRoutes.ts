@@ -2,16 +2,45 @@
  * PayFast checkout routes (sandbox-first).
  *
  * POST /api/payfast/create
- *   body: { paymentId, paymentDbId?, amountCents?, itemName?, itemDescription?,
- *           payer?, subscription? }
- *   → { ok, processUrl, fields } — fields include the server-computed
- *     signature. The passphrase never leaves the server.
+ *   Auth: session cookie `pf_session` or `Authorization: Bearer <session>`.
+ *   Anonymous callers get 401. The caller must be the payment party, a
+ *   platform super-admin, or agency staff for the payment's agency.
+ *   Request JSON:
+ *     {
+ *       paymentId: string,          // required, frontend or ledger id
+ *       amountCents?: number,       // ignored — amount always comes from payments.amount
+ *       itemName?: string,
+ *       itemDescription?: string,
+ *       payer?: { firstName?: string, lastName?: string, email?: string },
+ *       subscription?: { cycles: string, frequency: 3|4|5|6|7 }
+ *     }
+ *   Response 200 JSON:
+ *     {
+ *       ok: true,
+ *       processUrl: string,         // PayFast hosted action URL (sandbox or live)
+ *       fields: {                    // post these as application/x-www-form-urlencoded
+ *         merchant_id, merchant_key, return_url, cancel_url, notify_url,
+ *         m_payment_id, amount, item_name, signature, ...payer fields
+ *       }
+ *     }
+ *   The passphrase is used only to compute `signature` and is never included
+ *   in `fields` or any other response property. `amount` is the ledger amount.
+ *   Errors: 400 paymentId required | payment_amount_invalid,
+ *           401 unauthorized, 403 forbidden, 404 payment_not_found,
+ *           409 payment_already_paid | payment_cancelled,
+ *           503 payfast_not_configured, 500 payfast_create_failed.
  *
  * POST /api/payfast/itn
- *   PayFast server-to-server notification (form-encoded). Verifies source,
- *   signature, and ledger amount, then marks the payment PAID (idempotent)
- *   and emits a notification row. Always answers 200 once verified so PayFast
- *   stops retrying; non-verified requests get 400.
+ *   PayFast server-to-server notification (form-encoded). Source IP is the
+ *   platform client IP (`x-real-ip` by default, or the last trusted
+ *   X-Forwarded-For hop — never the first, client-controlled entry).
+ *   Signature is required in sandbox and live. merchant_id must match
+ *   PAYFAST_MERCHANT_ID. amount_gross must match the ledger payment.
+ *   The same body is posted to PayFast's validate URL; the payment is marked
+ *   PAID only when the body is exactly VALID. A duplicate ITN for a payment
+ *   that is already terminal does not credit again.
+ *   Verified requests answer 200 so PayFast stops retrying; rejected
+ *   requests get 400 and the ledger is left unchanged.
  */
 import type { Context } from 'hono'
 import { query, withTransaction } from './db.js'
@@ -21,7 +50,11 @@ import { sendPaymentReceipt } from './mailtrap.js'
 import {
   buildCheckoutFields,
   checkoutAmountCents,
+  clientIpSettingsFromEnv,
+  confirmItnWithPayfast,
+  extraItnIpsFromEnv,
   payfastConfigFromEnv,
+  resolveItnClientIp,
   verifyItn,
   type PayfastConfig,
 } from './payfast.js'
@@ -188,12 +221,10 @@ export async function payfastItn(c: Context) {
       }
     }
     const expected = await loadPayment(body.m_payment_id ?? '')
+    const sourceIp = resolveItnClientIp((name) => c.req.header(name), clientIpSettingsFromEnv())
     const verdict = verifyItn(body, cfg, {
-      sourceIp:
-        c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ??
-        c.req.header('x-real-ip') ??
-        // Hono/node: connection info not standardized; sandbox testing uses null.
-        null,
+      sourceIp,
+      allowedIps: extraItnIpsFromEnv(),
       expectedPaymentId: expected?.id,
       expectedAmountCents: expected ? Math.round(expected.amount * 100) : undefined,
     })
@@ -202,11 +233,30 @@ export async function payfastItn(c: Context) {
       return c.text('ITN rejected', 400)
     }
     if (!expected) {
-      // Valid signature for an unknown payment — accept but do nothing.
       logPayfastFailure('payfast_itn_unknown_payment', new Error(body.m_payment_id ?? ''))
-      return c.text('ITN accepted', 200)
+      return c.text('ITN rejected', 400)
+    }
+    const validateUrl = cfg.validateUrl
+    if (!validateUrl) {
+      logPayfastFailure('payfast_itn_rejected', new Error('ITN validate URL is not configured'))
+      return c.text('ITN rejected', 400)
+    }
+    let confirmation: { valid: boolean; responseText: string }
+    try {
+      confirmation = await confirmItnWithPayfast(body, validateUrl)
+    } catch (validateErr) {
+      logPayfastFailure('payfast_itn_validate_failed', validateErr)
+      return c.text('ITN rejected', 400)
+    }
+    if (!confirmation.valid) {
+      logPayfastFailure(
+        'payfast_itn_validate_invalid',
+        new Error(confirmation.responseText || 'INVALID'),
+      )
+      return c.text('ITN rejected', 400)
     }
     const paid = verdict.status === 'COMPLETE'
+    let transitioned = false
     await withTransaction(async (client) => {
       // Idempotent transition: only flip DUE/OVERDUE → terminal state.
       const res = await client.query(
@@ -228,9 +278,10 @@ export async function payfastItn(c: Context) {
         ],
       )
       if (res.rowCount === 0) {
-        // Already terminal — idempotent no-op (PayFast retries ITNs).
+        // Already terminal — idempotent no-op (PayFast retries ITNs). No second credit.
         return
       }
+      transitioned = true
       if (!expected.partyUserId) {
         // Ledger settled; no party user to notify (notifications.user_id is NOT NULL).
         return
@@ -249,19 +300,19 @@ export async function payfastItn(c: Context) {
         ],
       )
     })
-    // Receipt email — outside the DB transaction; never blocks the ITN reply.
-    if (paid) {
+    // Receipt email only on the transition that marked the row paid.
+    if (paid && transitioned && expected.partyUserId) {
       void (async () => {
         try {
           const payer = await query<{ email: string; first_name: string }>(
             `SELECT email, first_name FROM users WHERE id = $1::uuid LIMIT 1`,
             [expected.partyUserId],
           )
-          const email = payer.rows[0]?.email
+          const email = payer[0]?.email
           if (email) {
             await sendPaymentReceipt({
               email,
-              payerName: payer.rows[0]?.first_name,
+              payerName: payer[0]?.first_name,
               paymentId: expected.id,
               amountDisplay: `R${expected.amount.toFixed(2)}`,
               status: verdict.status,

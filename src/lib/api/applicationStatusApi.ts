@@ -219,7 +219,9 @@ export function buildCheckoutBridge(params: {
   const cancelUrl = `${appOrigin}/payfast/cancel?ref=${encodeURIComponent(params.paymentId)}`
   const notifyUrl = `${appOrigin}/api/payfast/itn`
   const fields: Record<string, string> = {
-    merchant_id: params.provider === 'payfast' ? '10047719' : 'peach_demo_merchant',
+    // PayFast merchant id and key are not shipped in the SPA. Checkout posts
+    // the signed field set from POST /api/payfast/create (see server/payfastRoutes.ts).
+    merchant_id: params.provider === 'payfast' ? '' : 'peach_demo_merchant',
     amount: (amountCents / 100).toFixed(2),
     item_name: `PropertyFlow · ${params.propertyTitle}`.slice(0, 100),
     m_payment_id: params.paymentId,
@@ -238,8 +240,8 @@ export function buildCheckoutBridge(params: {
       params.provider === 'payfast'
         ? 'https://sandbox.payfast.co.za/eng/process'
         : 'https://test.oppwa.com/v1/paymentWidgets.js',
-    merchant_id: fields.merchant_id,
-    merchant_key: params.provider === 'payfast' ? 'wkq8dmfysau1q' : undefined,
+    merchant_id: fields.merchant_id || undefined,
+    merchant_key: undefined,
     payment_id: params.paymentId,
     amount_cents: amountCents,
     amount_zar: params.amountZar,

@@ -4,9 +4,12 @@ import pg from 'pg'
 import {
   connectionStringForPool,
   connectionTimeoutMsForRuntime,
+  databaseSslOptions,
   databaseUrlRuntimeWarning,
+  isLocalhostDatabaseUrl,
   isRemoteDatabaseUrl,
   poolMaxForRuntime,
+  readDatabaseCaPem,
   resolveDatabaseUrl,
 } from './dbConfig.js'
 
@@ -33,9 +36,13 @@ export const databaseConfigWarning =
     : undefined
 
 const isRemote = resolved.configured && isRemoteDatabaseUrl(resolved.url)
+const plainLocal = resolved.configured && isLocalhostDatabaseUrl(resolved.url)
 const DATABASE_URL = resolved.configured
-  ? connectionStringForPool(resolved.url, isRemote)
+  ? connectionStringForPool(resolved.url, isRemote && !plainLocal)
   : resolved.url
+const databaseCaPem = readDatabaseCaPem(
+  process.env.DATABASE_SSL_CA || process.env.DATABASE_SSL_CA_FILE,
+)
 const poolMax = poolMaxForRuntime({
   vercel: process.env.VERCEL,
   lambda: process.env.AWS_LAMBDA_FUNCTION_NAME,
@@ -55,7 +62,7 @@ export const pool = resolved.configured
       connectionTimeoutMillis,
       // Cap long queries so bootstrap cannot eat the whole function budget.
       options: '-c statement_timeout=20000',
-      ssl: isRemote ? { rejectUnauthorized: false } : undefined,
+      ssl: plainLocal ? undefined : databaseSslOptions(resolved.url, databaseCaPem),
     })
   : null
 

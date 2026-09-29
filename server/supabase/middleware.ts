@@ -1,4 +1,5 @@
 import type { Context, Next } from 'hono'
+import { readBearerOrCookie } from '../auth.js'
 import { createClient } from './server.js'
 
 const AUTH_PATH_PREFIXES = ['/api/auth', '/api/health']
@@ -15,6 +16,11 @@ function shouldSkipSupabaseRefresh(path: string): boolean {
 export async function supabaseSessionMiddleware(c: Context, next: Next) {
   const path = new URL(c.req.url).pathname
   if (shouldSkipSupabaseRefresh(path)) {
+    await next()
+    return
+  }
+  // Anonymous bootstrap must not call Supabase or Postgres.
+  if (path === '/api/bootstrap' && !readBearerOrCookie(c)) {
     await next()
     return
   }

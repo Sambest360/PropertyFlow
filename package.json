@@ -13,6 +13,8 @@
     "lint": "oxlint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "secrets:scan": "node scripts/secrets-scan.mjs",
+    "secrets:history": "node scripts/secrets-scan.mjs --history",
     "preview": "vite preview",
     "db:schema": "psql -h 127.0.0.1 -d propertyflow -f database/postgres/schema.sql",
     "db:schema:remote": "psql \"$DIRECT_URL\" -f database/postgres/schema.sql",

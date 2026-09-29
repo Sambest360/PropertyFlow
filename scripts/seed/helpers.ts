@@ -1,5 +1,11 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import pg from 'pg'
+import {
+  connectionStringForPool,
+  databaseSslOptions,
+  isLocalhostDatabaseUrl,
+  readDatabaseCaPem,
+} from '../../server/dbConfig.js'
 import { DirectAdminClient } from './directAdmin.js'
 
 const DEMO_DOC_BASE =
@@ -71,19 +77,13 @@ export function loadSeedEnv(): SeedEnv {
 }
 
 export function createPgPool(directUrl: string): pg.Pool {
-  const isLocal = /@(localhost|127\.0\.0\.1)(:|\/|$)/.test(directUrl)
-  if (isLocal) {
-    return new pg.Pool({ connectionString: directUrl })
-  }
-
-  // Strip sslmode from URL so pg uses our ssl config (avoids cert chain errors on Supabase pooler).
-  const connectionString = directUrl
-    .replace(/([?&])sslmode=[^&]*&?/g, (_, sep) => (sep === '?' ? '?' : ''))
-    .replace(/[?&]$/, '')
-
+  const plain = isLocalhostDatabaseUrl(directUrl)
+  const connectionString = connectionStringForPool(directUrl, !plain)
+  if (plain) return new pg.Pool({ connectionString })
+  const ca = readDatabaseCaPem(process.env.DATABASE_SSL_CA || process.env.DATABASE_SSL_CA_FILE)
   return new pg.Pool({
     connectionString,
-    ssl: { rejectUnauthorized: false },
+    ssl: databaseSslOptions(directUrl, ca),
   })
 }
 

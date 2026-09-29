@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   connectionStringForPool,
   connectionTimeoutMsForRuntime,
+  databaseSslOptions,
   isRemoteDatabaseUrl,
   poolMaxForRuntime,
+  readDatabaseCaPem,
   resolveDatabaseUrl,
 } from './dbConfig'
 
@@ -42,16 +44,40 @@ describe('connectionStringForPool', () => {
     expect(connectionStringForPool(url, false)).toBe(url)
   })
 
-  it('forces libpq-compat require for remote URLs', () => {
+  it('strips sslmode so Pool.ssl can verify the certificate', () => {
     const out = connectionStringForPool(
-      'postgresql://u:p@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?sslmode=verify-full',
+      'postgresql://u:p@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?sslmode=verify-full&uselibpqcompat=true',
       true,
     )
     const parsed = new URL(out)
-    expect(parsed.searchParams.get('sslmode')).toBe('require')
-    expect(parsed.searchParams.get('uselibpqcompat')).toBe('true')
+    expect(parsed.searchParams.get('sslmode')).toBeNull()
+    expect(parsed.searchParams.get('uselibpqcompat')).toBeNull()
     expect(parsed.searchParams.get('connect_timeout')).toBe('5')
     expect(parsed.searchParams.get('pgbouncer')).toBe('true')
+  })
+
+  it('verifies TLS for remote hosts and allows plain connections only on localhost', () => {
+    expect(databaseSslOptions('postgresql://u@127.0.0.1:5432/propertyflow')).toBeUndefined()
+    expect(databaseSslOptions('postgresql://u@localhost:5432/propertyflow')).toBeUndefined()
+    const remote = databaseSslOptions(
+      'postgresql://u@aws-0-eu-west-1.pooler.supabase.com:6543/postgres',
+    )
+    expect(remote).toEqual({ rejectUnauthorized: true })
+    const withCa = databaseSslOptions(
+      'postgresql://u@aws-0-eu-west-1.pooler.supabase.com:6543/postgres',
+      '-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----',
+    )
+    expect(withCa?.rejectUnauthorized).toBe(true)
+    expect(withCa?.ca).toMatch(/BEGIN CERTIFICATE/)
+  })
+
+  it('reads a PEM CA from env and rejects a missing file path', () => {
+    const pem = '-----BEGIN CERTIFICATE-----\\nABC\\n-----END CERTIFICATE-----'
+    expect(readDatabaseCaPem(pem)).toBe(
+      '-----BEGIN CERTIFICATE-----\nABC\n-----END CERTIFICATE-----',
+    )
+    expect(readDatabaseCaPem(undefined)).toBeUndefined()
+    expect(() => readDatabaseCaPem('/no/such/propertyflow-ca.pem')).toThrow(/DATABASE_SSL_CA/)
   })
 
   it('returns the raw string when URL parsing fails', () => {

@@ -1,56 +1,84 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   checkoutAmountCents,
+  clientIpSettingsFromEnv,
+  confirmItnWithPayfast,
   payfastConfigFromEnv,
   payfastEncode,
   payfastSignature,
-  payfastSignatureSource,
   centsToAmount,
   amountToCents,
   buildCheckoutFields,
+  resolveItnClientIp,
   verifyItn,
+  PAYFAST_VALIDATE_URL,
+  type PayfastConfig,
 } from './payfast'
 
 /**
- * Vector generated independently by scripts/payfast-vector.mjs from the
- * canonical PayFast field order + PHP urlencode rules.
+ * PayFast's published custom-integration example
+ * (https://developers.payfast.co.za/docs). These are documentation values,
+ * not PropertyFlow merchant credentials.
+ *
+ * Parameter string + passphrase MD5: 8317e2bbd1ae2a6f4f36837e83be4ca9
  */
-const PASSPHRASE = 'QjjCCNZ1VgtYaxivmXOWLmAlunZpU0Xk'
+const PASSPHRASE = 'jt7NOE43FZPn'
+const MERCHANT_ID = '10000100'
+const MERCHANT_KEY = '46f0cd694581a'
+const PUBLISHED_SIGNATURE = '8317e2bbd1ae2a6f4f36837e83be4ca9'
+const PAYFAST_IP = '197.97.145.140'
 const VECTOR_FIELDS = {
-  merchant_id: '10047719',
-  merchant_key: 'wkq8dmfysau1q',
-  return_url: 'https://pf.demo/pay/return',
-  cancel_url: 'https://pf.demo/pay/cancel',
-  notify_url: 'https://pf.demo/api/payfast/itn',
-  name_first: 'Thandiwe',
-  name_last: 'Mokoena',
-  email_address: 'thandiwe@example.com',
-  m_payment_id: 'PAY-1',
-  amount: '1850.00',
-  item_name: 'Rent October',
+  merchant_id: MERCHANT_ID,
+  merchant_key: MERCHANT_KEY,
+  return_url: 'http://www.yourdomain.co.za/return.php',
+  cancel_url: 'http://www.yourdomain.co.za/cancel.php',
+  notify_url: 'http://www.yourdomain.co.za/notify.php',
+  name_first: 'First Name',
+  name_last: 'Last Name',
+  email_address: 'test@test.com',
+  m_payment_id: '1234',
+  amount: '10.00',
+  item_name: 'Order#123',
+}
+
+const SANDBOX: PayfastConfig = {
+  merchantId: MERCHANT_ID,
+  merchantKey: MERCHANT_KEY,
+  passphrase: PASSPHRASE,
+  processUrl: 'https://sandbox.payfast.co.za/eng/process',
+  validateUrl: PAYFAST_VALIDATE_URL,
+}
+
+function signedItn(overrides: Record<string, string> = {}) {
+  const fields = {
+    ...VECTOR_FIELDS,
+    payment_status: 'COMPLETE',
+    amount_gross: '10.00',
+    pf_payment_id: '1089250',
+    ...overrides,
+  }
+  return { ...fields, signature: payfastSignature(fields, PASSPHRASE) }
 }
 
 describe('payfast core', () => {
   it('formats money both ways', () => {
-    expect(centsToAmount(185000)).toBe('1850.00')
+    expect(centsToAmount(1000)).toBe('10.00')
     expect(centsToAmount(5)).toBe('0.05')
-    expect(amountToCents('1850.00')).toBe(185000)
-    expect(amountToCents('1850,00'.replace(',', '.'))).toBe(185000)
+    expect(amountToCents('10.00')).toBe(1000)
+    expect(amountToCents('10,00'.replace(',', '.'))).toBe(1000)
     expect(amountToCents('nonsense')).toBe(0)
   })
 
   it('encodes per PHP urlencode: specials %XX first, then space → +', () => {
-    expect(payfastEncode('Rent October')).toBe('Rent+October')
-    expect(payfastEncode('a+b c')).toBe('a%2Bb+c') // literal + must become %2B
-    expect(payfastEncode('muñeca')).toBe('mu%C3%B1eca') // UTF-8 byte-wise
+    expect(payfastEncode('First Name')).toBe('First+Name')
+    expect(payfastEncode('a+b c')).toBe('a%2Bb+c')
+    expect(payfastEncode('muñeca')).toBe('mu%C3%B1eca')
     expect(payfastEncode('  pad  ')).toBe('pad')
     expect(payfastEncode('a/b:c?d')).toBe('a%2Fb%3Ac%3Fd')
   })
 
-  it('signs in POSTED order + passphrase (verified against sandbox process URL)', () => {
-    // PayFast's own PHP sample iterates $_POST as received; alphabetical order
-    // is REJECTED by the live sandbox (verified 2026-09-18, merchant 10047719).
-    expect(payfastSignature(VECTOR_FIELDS, PASSPHRASE)).toBe('be9ccda1a048156e5a9443664b2a751e')
+  it('matches PayFast published signature example', () => {
+    expect(payfastSignature(VECTOR_FIELDS, PASSPHRASE)).toBe(PUBLISHED_SIGNATURE)
   })
 
   it('differs without a passphrase', () => {
@@ -60,58 +88,26 @@ describe('payfast core', () => {
     expect(withoutP).toMatch(/^[0-9a-f]{32}$/)
   })
 
-  it('buildCheckoutFields signs all fields and formats amount from cents', () => {
-    const fields = buildCheckoutFields(
-      {
-        merchantId: '10047719',
-        merchantKey: 'wkq8dmfysau1q',
-        passphrase: PASSPHRASE,
-        processUrl: 'https://sandbox.payfast.co.za/eng/process',
-      },
-      {
-        paymentId: 'PAY-1',
-        amountCents: 185000,
-        itemName: 'Rent October',
-        payer: { firstName: 'Thandiwe', lastName: 'Mokoena', email: 'thandiwe@example.com' },
-        returnUrl: 'https://pf.demo/pay/return',
-        cancelUrl: 'https://pf.demo/pay/cancel',
-        notifyUrl: 'https://pf.demo/api/payfast/itn',
-      },
-    )
-    expect(fields.amount).toBe('1850.00')
-    expect(fields.signature).toBe('be9ccda1a048156e5a9443664b2a751e')
-    expect(fields.m_payment_id).toBe('PAY-1')
-    expect(fields.item_name).toBe('Rent October')
-  })
-
-  it('ITN: valid COMPLETE notification passes with amount check', () => {
-    const itn = { ...VECTOR_FIELDS, payment_status: 'COMPLETE', amount_gross: '1850.00' }
-    const signed = payfastSignature(itn, PASSPHRASE)
-    const verdict = verifyItn(
-      { ...itn, signature: signed },
-      { merchantId: '10047719', merchantKey: 'wkq8dmfysau1q', passphrase: PASSPHRASE },
-      { sourceIp: '197.97.145.140', expectedPaymentId: 'PAY-1', expectedAmountCents: 185000 },
-    )
-    expect(verdict.ok).toBe(true)
-  })
-
-  it('ITN: tampered amount fails amount reconciliation', () => {
-    // Re-sign the tampered payload so the signature is internally valid but
-    // disagrees with the ledger amount — must fail on amount, not signature.
-    const tampered = { ...VECTOR_FIELDS, payment_status: 'COMPLETE', amount_gross: '9999.00' }
-    const signed = payfastSignature(tampered, PASSPHRASE)
-    const verdict = verifyItn(
-      { ...tampered, signature: signed },
-      { merchantId: '10047719', merchantKey: 'wkq8dmfysau1q', passphrase: PASSPHRASE },
-      { sourceIp: null, expectedPaymentId: 'PAY-1', expectedAmountCents: 185000 },
-    )
-    expect(verdict.ok).toBe(false)
-    expect((verdict as { reason: string }).reason).toMatch(/amount/i)
+  it('buildCheckoutFields signs the published vector and omits the passphrase', () => {
+    const fields = buildCheckoutFields(SANDBOX, {
+      paymentId: '1234',
+      amountCents: 1000,
+      itemName: 'Order#123',
+      payer: { firstName: 'First Name', lastName: 'Last Name', email: 'test@test.com' },
+      returnUrl: 'http://www.yourdomain.co.za/return.php',
+      cancelUrl: 'http://www.yourdomain.co.za/cancel.php',
+      notifyUrl: 'http://www.yourdomain.co.za/notify.php',
+    })
+    expect(fields.amount).toBe('10.00')
+    expect(fields.signature).toBe(PUBLISHED_SIGNATURE)
+    expect(fields.merchant_id).toBe(MERCHANT_ID)
+    expect(fields).not.toHaveProperty('passphrase')
+    expect(JSON.stringify(fields)).not.toContain(PASSPHRASE)
   })
 
   it('uses the ledger amount and ignores a client-supplied amount', () => {
-    expect(checkoutAmountCents(1850, 1)).toBe(185000)
-    expect(checkoutAmountCents(1850, 999999)).toBe(185000)
+    expect(checkoutAmountCents(10, 1)).toBe(1000)
+    expect(checkoutAmountCents(10, 999999)).toBe(1000)
     expect(checkoutAmountCents(0, 100)).toBe(0)
   })
 
@@ -122,13 +118,15 @@ describe('payfast core', () => {
       mode: process.env.PAYFAST_MODE,
       pass: process.env.PAYFAST_PASSPHRASE,
     }
-    process.env.PAYFAST_MERCHANT_ID = '10047719'
-    process.env.PAYFAST_MERCHANT_KEY = 'wkq8dmfysau1q'
+    process.env.PAYFAST_MERCHANT_ID = MERCHANT_ID
+    process.env.PAYFAST_MERCHANT_KEY = MERCHANT_KEY
     process.env.PAYFAST_MODE = 'live'
     delete process.env.PAYFAST_PASSPHRASE
     expect(payfastConfigFromEnv()).toBeNull()
     process.env.PAYFAST_PASSPHRASE = PASSPHRASE
-    expect(payfastConfigFromEnv()?.processUrl).toBe('https://www.payfast.io/eng/process')
+    const live = payfastConfigFromEnv()
+    expect(live?.processUrl).toBe('https://www.payfast.io/eng/process')
+    expect(live?.validateUrl).toBe('https://www.payfast.co.za/eng/query/validate')
     if (prev.id == null) delete process.env.PAYFAST_MERCHANT_ID
     else process.env.PAYFAST_MERCHANT_ID = prev.id
     if (prev.key == null) delete process.env.PAYFAST_MERCHANT_KEY
@@ -139,57 +137,125 @@ describe('payfast core', () => {
     else process.env.PAYFAST_PASSPHRASE = prev.pass
   })
 
-  it('ITN: missing source IP is rejected in live mode', () => {
-    const itn = { ...VECTOR_FIELDS, payment_status: 'COMPLETE', amount_gross: '1850.00' }
-    const signed = payfastSignature(itn, PASSPHRASE)
-    const verdict = verifyItn(
-      { ...itn, signature: signed },
-      {
-        merchantId: '10047719',
-        merchantKey: 'wkq8dmfysau1q',
-        passphrase: PASSPHRASE,
-        processUrl: 'https://www.payfast.io/eng/process',
-      },
-      { sourceIp: null, expectedPaymentId: 'PAY-1', expectedAmountCents: 185000 },
-    )
+  it('reads the platform IP header and ignores a spoofed first X-Forwarded-For hop', () => {
+    expect(clientIpSettingsFromEnv({}).header).toBe('x-real-ip')
+    const spoofed = resolveItnClientIp((name) => {
+      if (name === 'x-forwarded-for') return `${PAYFAST_IP}, 203.0.113.9`
+      if (name === 'x-real-ip') return '203.0.113.50'
+      return undefined
+    })
+    expect(spoofed).toBe('203.0.113.50')
+    const verdict = verifyItn(signedItn(), SANDBOX, {
+      sourceIp: spoofed,
+      expectedPaymentId: '1234',
+      expectedAmountCents: 1000,
+    })
     expect(verdict.ok).toBe(false)
     expect((verdict as { reason: string }).reason).toMatch(/source IP/i)
   })
 
-  it('ITN: bad source IP rejected in live mode', () => {
+  it('uses the last trusted proxy hop when the platform header is absent', () => {
+    const ip = resolveItnClientIp(
+      (name) => (name === 'x-forwarded-for' ? `${PAYFAST_IP}, 198.51.100.10, 203.0.113.9` : undefined),
+      { header: null, trustedProxyHops: 1 },
+    )
+    expect(ip).toBe('203.0.113.9')
+    const twoHops = resolveItnClientIp(
+      (name) => (name === 'x-forwarded-for' ? `${PAYFAST_IP}, 198.51.100.10, 203.0.113.9` : undefined),
+      { header: null, trustedProxyHops: 2 },
+    )
+    expect(twoHops).toBe('198.51.100.10')
+  })
+
+  it('ITN: bad signature is rejected in sandbox', () => {
     const verdict = verifyItn(
-      { m_payment_id: 'PAY-1', signature: 'x' },
-      {
-        merchantId: '10047719',
-        merchantKey: 'wkq8dmfysau1q',
-        processUrl: 'https://www.payfast.io/eng/process',
-      },
-      { sourceIp: '203.0.113.9' },
+      { ...signedItn(), signature: 'deadbeefdeadbeefdeadbeefdeadbeef' },
+      SANDBOX,
+      { sourceIp: PAYFAST_IP, expectedPaymentId: '1234', expectedAmountCents: 1000 },
     )
     expect(verdict.ok).toBe(false)
-    expect((verdict as { reason: string }).reason).toMatch(/source IP/i)
+    expect((verdict as { reason: string }).reason).toMatch(/signature/i)
   })
 
-  it('ITN: sandbox mode relaxes the IP allowlist but keeps signature checks', () => {
-    const itn = { ...VECTOR_FIELDS, payment_status: 'COMPLETE', amount_gross: '1850.00' }
-    const signed = payfastSignature(itn, PASSPHRASE)
-    const verdict = verifyItn(
-      { ...itn, signature: signed },
-      { merchantId: '10047719', merchantKey: 'wkq8dmfysau1q', passphrase: PASSPHRASE },
-      { sourceIp: '203.0.113.9', expectedPaymentId: 'PAY-1', expectedAmountCents: 185000 },
-    )
+  it('ITN: missing signature is rejected in sandbox', () => {
+    const { signature: _drop, ...unsigned } = signedItn()
+    const verdict = verifyItn(unsigned, SANDBOX, {
+      sourceIp: PAYFAST_IP,
+      expectedPaymentId: '1234',
+      expectedAmountCents: 1000,
+    })
+    expect(verdict.ok).toBe(false)
+    expect((verdict as { reason: string }).reason).toMatch(/signature/i)
+  })
+
+  it('ITN: wrong merchant id is rejected in sandbox', () => {
+    const verdict = verifyItn(signedItn({ merchant_id: '10009999' }), SANDBOX, {
+      sourceIp: PAYFAST_IP,
+      expectedPaymentId: '1234',
+      expectedAmountCents: 1000,
+    })
+    expect(verdict.ok).toBe(false)
+    expect((verdict as { reason: string }).reason).toMatch(/merchant_id/i)
+  })
+
+  it('ITN: wrong amount is rejected against the ledger', () => {
+    const verdict = verifyItn(signedItn({ amount_gross: '9999.00' }), SANDBOX, {
+      sourceIp: PAYFAST_IP,
+      expectedPaymentId: '1234',
+      expectedAmountCents: 1000,
+    })
+    expect(verdict.ok).toBe(false)
+    expect((verdict as { reason: string }).reason).toMatch(/amount/i)
+  })
+
+  it('ITN: valid COMPLETE notification passes merchant, amount and IP checks', () => {
+    const verdict = verifyItn(signedItn(), SANDBOX, {
+      sourceIp: PAYFAST_IP,
+      expectedPaymentId: '1234',
+      expectedAmountCents: 1000,
+    })
     expect(verdict.ok).toBe(true)
   })
 
-  it('ITN: CANCELLED accepted but amount check skipped', () => {
-    const itn = { ...VECTOR_FIELDS, payment_status: 'CANCELLED', amount_gross: '0.00' }
-    const signed = payfastSignature(itn, PASSPHRASE)
-    const verdict = verifyItn(
-      { ...itn, signature: signed },
-      { merchantId: '10047719', merchantKey: 'wkq8dmfysau1q', passphrase: PASSPHRASE },
-      { sourceIp: null, expectedPaymentId: 'PAY-1', expectedAmountCents: 185000 },
+  it('ITN: missing or non-PayFast source IP is rejected in sandbox', () => {
+    const missing = verifyItn(signedItn(), SANDBOX, {
+      sourceIp: null,
+      expectedPaymentId: '1234',
+      expectedAmountCents: 1000,
+    })
+    expect(missing.ok).toBe(false)
+    const foreign = verifyItn(signedItn(), SANDBOX, {
+      sourceIp: '203.0.113.9',
+      expectedPaymentId: '1234',
+      expectedAmountCents: 1000,
+    })
+    expect(foreign.ok).toBe(false)
+    expect((foreign as { reason: string }).reason).toMatch(/source IP/i)
+  })
+
+  it('validate postback is VALID only when PayFast returns that exact body', async () => {
+    const fetchImpl = vi.fn(async (url: string | URL | Request) => {
+      expect(String(url)).toBe(PAYFAST_VALIDATE_URL)
+      expect(String(url)).not.toContain('/eng/process')
+      return new Response('VALID', { status: 200 })
+    })
+    const ok = await confirmItnWithPayfast(signedItn(), PAYFAST_VALIDATE_URL, fetchImpl as typeof fetch)
+    expect(ok.valid).toBe(true)
+
+    const invalid = await confirmItnWithPayfast(
+      signedItn(),
+      PAYFAST_VALIDATE_URL,
+      (async () => new Response('INVALID', { status: 200 })) as typeof fetch,
     )
-    expect(verdict.ok).toBe(true)
-    expect((verdict as { status: string }).status).toBe('CANCELLED')
+    expect(invalid.valid).toBe(false)
+
+    const failed = await confirmItnWithPayfast(
+      signedItn(),
+      PAYFAST_VALIDATE_URL,
+      (async () => {
+        throw new Error('network down')
+      }) as typeof fetch,
+    ).catch((err: unknown) => err)
+    expect(failed).toBeInstanceOf(Error)
   })
 })

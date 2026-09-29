@@ -2,6 +2,7 @@
  * Pure helpers for Postgres pool configuration (unit-testable).
  * Used by server/db.ts when creating the pg Pool.
  */
+import { existsSync, readFileSync } from 'node:fs'
 
 export function isRemoteDatabaseUrl(
   url: string,
@@ -16,27 +17,57 @@ export function isRemoteDatabaseUrl(
 }
 
 /**
- * Newer `pg` treats sslmode=require as verify-full. For Supabase pooler we need
- * libpq-compat require + rejectUnauthorized false (managed CA chain).
+ * Strip sslmode from the URL so node-postgres does not override the explicit
+ * `ssl` option (a connection-string sslmode wins over Pool.ssl, and
+ * uselibpqcompat=true forces rejectUnauthorized false). Remote pools pass
+ * `ssl: { rejectUnauthorized: true }` separately. Localhost stays plain.
  */
 export function connectionStringForPool(url: string, remote: boolean): string {
-  if (!remote) return url
   try {
     const u = new URL(url)
     u.searchParams.delete('sslmode')
-    u.searchParams.set('sslmode', 'require')
-    u.searchParams.set('uselibpqcompat', 'true')
-    if (!u.searchParams.has('connect_timeout')) {
-      u.searchParams.set('connect_timeout', '5')
-    }
-    // Transaction pooler (6543) — required for serverless; tells drivers not to use prepared statements.
-    if (u.port === '6543' && !u.searchParams.has('pgbouncer')) {
-      u.searchParams.set('pgbouncer', 'true')
+    u.searchParams.delete('uselibpqcompat')
+    u.searchParams.delete('sslrootcert')
+    if (remote) {
+      if (!u.searchParams.has('connect_timeout')) {
+        u.searchParams.set('connect_timeout', '5')
+      }
+      // Transaction pooler (6543) — required for serverless; tells drivers not to use prepared statements.
+      if (u.port === '6543' && !u.searchParams.has('pgbouncer')) {
+        u.searchParams.set('pgbouncer', 'true')
+      }
     }
     return u.toString()
   } catch {
     return url
   }
+}
+
+export type DatabaseSslOptions = { rejectUnauthorized: true; ca?: string }
+
+/**
+ * TLS for every non-localhost connection. Certificate verification stays on.
+ * `caPem` is the Supabase pooler (or other private) CA, PEM text.
+ * Localhost is the only host allowed to connect without TLS.
+ */
+export function databaseSslOptions(url: string, caPem?: string): DatabaseSslOptions | undefined {
+  if (isLocalhostDatabaseUrl(url)) return undefined
+  const ca = caPem?.trim()
+  return ca ? { rejectUnauthorized: true, ca } : { rejectUnauthorized: true }
+}
+
+/**
+ * `DATABASE_SSL_CA` may be a PEM string or a filesystem path.
+ * `DATABASE_SSL_CA_FILE` is a path-only alias.
+ */
+export function readDatabaseCaPem(raw: string | undefined): string | undefined {
+  const value = raw?.trim()
+  if (!value) return undefined
+  if (value.includes('BEGIN CERTIFICATE')) return value.replace(/\\n/g, '\n')
+  if (existsSync(value)) return readFileSync(value, 'utf8')
+  throw new Error(
+    'DATABASE_SSL_CA is not a PEM certificate or a readable file. Set it to the Supabase pooler CA PEM or a path to that file.',
+  )
 }
 
 /** Transaction pooler (6543) is required for Vercel/serverless runtime. */

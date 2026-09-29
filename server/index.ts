@@ -25,6 +25,7 @@ import {
   findUserByFrontendId,
   issueSession,
   loginUser,
+  readBearerOrCookie,
   registerUser,
   resolveSessionUser,
   sessionToPublic,
@@ -566,6 +567,11 @@ app.get('/api/auth/me', async (c) => {
 })
 
 app.get('/api/bootstrap', async (c) => {
+  // Anonymous callers never touch the database. A missing credential returns
+  // before session lookup, bootstrap queries, or scope enrichment.
+  if (!readBearerOrCookie(c)) {
+    return c.json({ error: 'unauthorized', message: 'Sign in required' }, 401)
+  }
   if (!databaseConfigured) {
     return c.json(
       {
@@ -576,6 +582,31 @@ app.get('/api/bootstrap', async (c) => {
     )
   }
   try {
+    const session = await resolveSessionUser(c)
+    if (!session) {
+      return c.json({ error: 'unauthorized', message: 'Sign in required' }, 401)
+    }
+    const rawActor = await resolveRequestActor(c, null)
+    if (!rawActor) {
+      return c.json({ error: 'unauthorized', message: 'Sign in required' }, 401)
+    }
+    const actor = await enrichActor(rawActor)
+    let clientUuid: string | null = null
+    if (actor.role !== 'super_admin') {
+      if (!actor.agencyId) {
+        return c.json({ error: 'forbidden', message: 'Agency scope is required' }, 403)
+      }
+      clientUuid = await resolveUuid('agency', actor.agencyId)
+      if (!clientUuid) {
+        return c.json({ error: 'forbidden', message: 'Agency scope could not be resolved' }, 403)
+      }
+    }
+    const userUuid =
+      (await resolveUuid('user', actor.userId)) ??
+      (actor.userId === session.frontendId ? session.id : null)
+    if (!userUuid) {
+      return c.json({ error: 'forbidden', message: 'User scope could not be resolved' }, 403)
+    }
     const lite = c.req.query('lite') === '1' || c.req.query('lite') === 'true'
     const rowLimit = lite
       ? 60
@@ -593,12 +624,12 @@ app.get('/api/bootstrap', async (c) => {
         payments: rowLimit,
         documents: rowLimit,
       },
+      scope: {
+        role: actor.role,
+        clientUuid,
+        userUuid,
+      },
     })
-    const rawActor = await resolveRequestActor(c, null)
-    if (!rawActor) {
-      return c.json({ error: 'unauthorized', message: 'Sign in required' }, 401)
-    }
-    const actor = await enrichActor(rawActor)
     const { buildActorPropertyScope, filterBootstrapForActor } = await loadScopeGateModule()
     const scope = await buildActorPropertyScope(actor)
     const filtered = filterBootstrapForActor(

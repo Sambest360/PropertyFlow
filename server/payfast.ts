@@ -12,8 +12,11 @@
  *  2. POST the fields as a form to the process URL (sandbox or live); PayFast
  *     renders its hosted payment page.
  *  3. PayFast server-to-server ITN (Instant Transaction Notification) hits
- *     `notify_url`; we verify the source, validate the MD5 signature, and
- *     reconcile `m_payment_id` + `amount_gross` against our ledger.
+ *     `notify_url`. We take the platform client IP (not the first
+ *     X-Forwarded-For hop), require a signature in sandbox and live, check
+ *     merchant_id and amount_gross against the ledger, then POST the payload
+ *     back to PayFast's validate URL. The payment is marked PAID only when
+ *     that postback returns VALID.
  *
  * Money: PayFast `amount` is a decimal ZAR string ("12.34"). Our payments
  * table stores ZAR rand as numeric — convert at the edges.
@@ -24,6 +27,7 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 export const PAYFAST_PROCESS_URL = 'https://sandbox.payfast.co.za/eng/process'
 export const PAYFAST_LIVE_PROCESS_URL = 'https://www.payfast.io/eng/process'
 export const PAYFAST_VALIDATE_URL = 'https://sandbox.payfast.co.za/eng/query/validate'
+export const PAYFAST_LIVE_VALIDATE_URL = 'https://www.payfast.co.za/eng/query/validate'
 
 /**
  * PayFast ITN source IPs (developer docs: sandbox + live nets). ITN requests
@@ -45,6 +49,8 @@ export type PayfastConfig = {
   passphrase?: string
   /** Sandbox (default) or live process URL. */
   processUrl?: string
+  /** Server-to-server ITN confirm URL. Payment is not marked paid until this returns VALID. */
+  validateUrl?: string
 }
 
 export function payfastConfigFromEnv(): PayfastConfig | null {
@@ -60,7 +66,73 @@ export function payfastConfigFromEnv(): PayfastConfig | null {
     merchantKey,
     passphrase: passphrase || undefined,
     processUrl: live ? PAYFAST_LIVE_PROCESS_URL : PAYFAST_PROCESS_URL,
+    validateUrl: live ? PAYFAST_LIVE_VALIDATE_URL : PAYFAST_VALIDATE_URL,
   }
+}
+
+/**
+ * How the ITN handler learns the connecting client IP.
+ *
+ * `PAYFAST_CLIENT_IP_HEADER` — header the platform sets to the real client
+ * address. Default `x-real-ip`. On Vercel the edge overwrites that header, so
+ * a browser-supplied value cannot survive. Set to `none` to ignore it.
+ *
+ * `PAYFAST_TRUSTED_PROXY_HOPS` — when the platform header is absent, which
+ * X-Forwarded-For entry to trust, counted from the right. Default 1: the last
+ * entry, appended by the nearest trusted proxy. The first entry is whatever
+ * the client sent and is never used.
+ *
+ * `PAYFAST_ITN_EXTRA_IPS` — comma-separated extra source IPs (local ITN
+ * simulators). The PayFast allow-list still applies in sandbox and live.
+ */
+export type ClientIpSettings = {
+  header: string | null
+  trustedProxyHops: number
+}
+
+export function clientIpSettingsFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): ClientIpSettings {
+  const raw = env.PAYFAST_CLIENT_IP_HEADER
+  const header = (raw === undefined ? 'x-real-ip' : raw).trim().toLowerCase()
+  const hops = Number(env.PAYFAST_TRUSTED_PROXY_HOPS ?? '1')
+  return {
+    header: header === '' || header === 'none' ? null : header,
+    trustedProxyHops: Number.isFinite(hops) && hops >= 1 ? Math.floor(hops) : 1,
+  }
+}
+
+export function extraItnIpsFromEnv(env: NodeJS.ProcessEnv = process.env): Set<string> {
+  const ips = new Set(PAYFAST_ITN_IPS)
+  for (const part of (env.PAYFAST_ITN_EXTRA_IPS ?? '').split(',')) {
+    const ip = part.trim()
+    if (ip) ips.add(ip)
+  }
+  return ips
+}
+
+/**
+ * Platform client IP. Prefers the configured header (`x-real-ip` on Vercel).
+ * Falls back to the last trusted X-Forwarded-For hop, never the first entry.
+ */
+export function resolveItnClientIp(
+  header: (name: string) => string | undefined | null,
+  settings: ClientIpSettings = clientIpSettingsFromEnv(),
+): string | null {
+  if (settings.header) {
+    const platform = header(settings.header)?.trim()
+    if (platform) return platform.split(',')[0]?.trim() || null
+  }
+  const forwarded = header('x-forwarded-for')
+  if (!forwarded) return null
+  const hops = forwarded
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+  if (hops.length === 0) return null
+  const index = hops.length - settings.trustedProxyHops
+  if (index < 0) return null
+  return hops[index] ?? null
 }
 
 /**
@@ -185,27 +257,36 @@ export type ItnVerdict =
 
 /**
  * Validate an ITN body against our ledger expectations.
- * `sourceIp` — must be a PayFast IP (pass null only when the request came
- * through a trusted path, e.g. local sandbox testing or a known proxy).
+ * Signature is required in sandbox and live. `sourceIp` must be a PayFast
+ * address in both modes (the route resolves it from the platform header or
+ * the last trusted proxy hop — never the client-controlled first XFF entry).
+ * `expectedAmountCents` is the ledger payment amount (the same figure checkout
+ * sends to PayFast).
  */
 export function verifyItn(
   body: Record<string, string>,
   config: PayfastConfig,
-  opts: { sourceIp?: string | null; expectedPaymentId?: string; expectedAmountCents?: number },
+  opts: {
+    sourceIp?: string | null
+    allowedIps?: ReadonlySet<string>
+    expectedPaymentId?: string
+    expectedAmountCents?: number
+  },
 ): ItnVerdict {
-  const sandbox = !config.processUrl || config.processUrl === PAYFAST_PROCESS_URL
-  // In sandbox mode the IP allowlist is relaxed — local testing and the
-  // sandbox simulator do not always come from documented ITN ranges.
-  // Live mode rejects a missing IP. `null` used to skip the check entirely.
-  if (!sandbox && (!opts.sourceIp || !PAYFAST_ITN_IPS.has(opts.sourceIp))) {
+  const allowed = opts.allowedIps ?? PAYFAST_ITN_IPS
+  if (!opts.sourceIp || !allowed.has(opts.sourceIp)) {
     return { ok: false, reason: 'ITN source IP is not a PayFast endpoint' }
   }
-  const signature = body.signature
+  const signature = body.signature?.trim() ?? ''
   if (!signature) return { ok: false, reason: 'ITN missing signature' }
   const { signature: _drop, ...rest } = body
   const computed = payfastSignature(rest, config.passphrase)
   if (!signaturesMatch(computed, signature)) {
     return { ok: false, reason: 'ITN signature mismatch' }
+  }
+  const merchantId = (body.merchant_id ?? '').trim()
+  if (!merchantId || merchantId !== config.merchantId) {
+    return { ok: false, reason: 'ITN merchant_id does not match the configured merchant' }
   }
   const paymentId = body.m_payment_id
   if (!paymentId) return { ok: false, reason: 'ITN missing m_payment_id' }
@@ -216,13 +297,44 @@ export function verifyItn(
   if (!['COMPLETE', 'CANCELLED'].includes(status)) {
     return { ok: false, reason: `ITN unexpected payment_status: ${status}` }
   }
-  const amountCents = amountToCents(body.amount_gross ?? '0')
-  if (
-    opts.expectedAmountCents != null &&
-    status === 'COMPLETE' &&
-    Math.abs(amountCents - opts.expectedAmountCents) > 1 // 1c float tolerance
-  ) {
-    return { ok: false, reason: `ITN amount ${body.amount_gross} does not match ledger amount` }
+  const amountCents = amountToCents(body.amount_gross ?? '')
+  if (status === 'COMPLETE' && opts.expectedAmountCents != null) {
+    if (!body.amount_gross?.trim()) {
+      return { ok: false, reason: 'ITN missing amount_gross' }
+    }
+    if (Math.abs(amountCents - opts.expectedAmountCents) > 1) {
+      return { ok: false, reason: `ITN amount ${body.amount_gross} does not match ledger amount` }
+    }
   }
   return { ok: true, paymentId, amountCents, status, raw: body }
+}
+
+/** application/x-www-form-urlencoded body PayFast's validate endpoint expects (signature excluded). */
+export function itnValidationBody(body: Record<string, string>): string {
+  const parts: string[] = []
+  for (const [key, val] of Object.entries(body)) {
+    if (key === 'signature') continue
+    parts.push(`${key}=${payfastEncode(val)}`)
+  }
+  return parts.join('&')
+}
+
+/**
+ * PayFast server-to-server confirm. The response body is `VALID` or `INVALID`.
+ * Callers must not mark a payment paid unless `valid` is true.
+ * Tests pass a mock `fetchImpl` — never call the live or sandbox host from tests.
+ */
+export async function confirmItnWithPayfast(
+  body: Record<string, string>,
+  validateUrl: string,
+  fetchImpl: typeof fetch = globalThis.fetch,
+): Promise<{ valid: boolean; responseText: string }> {
+  const res = await fetchImpl(validateUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: itnValidationBody(body),
+    signal: AbortSignal.timeout(10_000),
+  })
+  const responseText = (await res.text()).trim()
+  return { valid: res.ok && responseText === 'VALID', responseText }
 }
