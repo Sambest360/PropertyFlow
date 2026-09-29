@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 
@@ -30,9 +31,9 @@ import { payfastCreate } from './payfastRoutes.js'
 const USER = 'a2000001-0001-4000-8000-000000000010'
 const PAYMENT = 'a1000001-0001-4000-8000-000000000099'
 const CLIENT = 'a1000001-0001-4000-8000-000000000001'
-const MERCHANT_ID = '10000100'
-const MERCHANT_KEY = '46f0cd694581a'
-const PASSPHRASE = 'jt7NOE43FZPn'
+const MERCHANT_ID = 'fake-merchant-id'
+const MERCHANT_KEY = 'fake-merchant-key'
+const PASSPHRASE = randomBytes(12).toString('hex')
 
 function app() {
   const hono = new Hono()

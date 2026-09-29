@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  PAYFAST_DOCS_VECTOR_DIGESTS,
   credentialScanRoots,
   retiredDigestsFromEnv,
   scanCredentialPatterns,
@@ -11,13 +12,17 @@ import {
 } from '../scripts/no-credentials.mjs'
 
 describe('no credentials in code', () => {
-  it('src and server only use PayFast public sandbox values or fake merchant_key and passphrase literals', () => {
+  it('src and server only use fake merchant_key and passphrase literals', () => {
     expect(scanCredentialPatterns(['src', 'server'])).toEqual([])
   })
 
-  it('dist only uses PayFast public sandbox values or fake merchant_key and passphrase literals', () => {
+  it('dist only uses fake merchant_key and passphrase literals', () => {
     if (!existsSync('dist')) return
     expect(scanCredentialPatterns(['dist'])).toEqual([])
+  })
+
+  it('PayFast docs merchant key and passphrase digests are absent from the tree', () => {
+    expect(scanRetiredDigests(['.'], PAYFAST_DOCS_VECTOR_DIGESTS)).toEqual([])
   })
 
   const digests = retiredDigestsFromEnv()

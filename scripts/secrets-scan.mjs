@@ -3,11 +3,14 @@
  *
  *   npm run secrets:scan     gitleaks on the current tree, plus a credential
  *                            check of src/, server/, and dist/ (when built).
+ *                            PayFast's published docs merchant key and
+ *                            passphrase are rejected by SHA-256 digest.
  *                            Retired PayFast values are not stored in this
  *                            repo. Set PAYFAST_RETIRED_MERCHANT_ID,
  *                            PAYFAST_RETIRED_MERCHANT_KEY, and
- *                            PAYFAST_RETIRED_PASSPHRASE to compare SHA-256
- *                            digests. Those checks are skipped when unset.
+ *                            PAYFAST_RETIRED_PASSPHRASE to compare those
+ *                            SHA-256 digests too. That extra check is skipped
+ *                            when unset.
  *   npm run secrets:history  full git history. Prints findings and exits 0.
  *                            History is not rewritten. The retired-literal
  *                            search runs only when those env vars are set,
@@ -20,6 +23,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
+  PAYFAST_DOCS_VECTOR_DIGESTS,
   credentialScanRoots,
   retiredDigestsFromEnv,
   retiredValuesFromEnv,
@@ -63,9 +67,12 @@ function runGitleaks(bin) {
 const roots = credentialScanRoots()
 if (!existsSync(join(ROOT, 'dist'))) console.log('dist: not built; bundle scan skipped')
 const patternHits = scanCredentialPatterns(roots)
-const digests = retiredDigestsFromEnv()
-const digestHits = digests.length ? scanRetiredDigests(roots, digests) : []
-if (!digests.length) {
+const retiredDigests = retiredDigestsFromEnv()
+const digestHits = [
+  ...scanRetiredDigests(['.'], PAYFAST_DOCS_VECTOR_DIGESTS),
+  ...(retiredDigests.length ? scanRetiredDigests(roots, retiredDigests) : []),
+]
+if (!retiredDigests.length) {
   console.log(
     'Retired PayFast digest check skipped (set PAYFAST_RETIRED_MERCHANT_ID, PAYFAST_RETIRED_MERCHANT_KEY, and PAYFAST_RETIRED_PASSPHRASE to compare SHA-256 digests)',
   )

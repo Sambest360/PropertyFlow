@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import {
   checkoutAmountCents,
@@ -6,6 +7,7 @@ import {
   payfastConfigFromEnv,
   payfastEncode,
   payfastSignature,
+  payfastSignatureSource,
   centsToAmount,
   amountToCents,
   buildCheckoutFields,
@@ -16,17 +18,10 @@ import {
   type PayfastConfig,
 } from './payfast'
 
-/**
- * PayFast's published custom-integration example
- * (https://developers.payfast.co.za/docs). These are documentation values,
- * not PropertyFlow merchant credentials.
- *
- * Parameter string + passphrase MD5: 8317e2bbd1ae2a6f4f36837e83be4ca9
- */
-const PASSPHRASE = 'jt7NOE43FZPn'
-const MERCHANT_ID = '10000100'
-const MERCHANT_KEY = '46f0cd694581a'
-const PUBLISHED_SIGNATURE = '8317e2bbd1ae2a6f4f36837e83be4ca9'
+/** Clearly fake merchant values. The passphrase is generated when the test loads. */
+const MERCHANT_ID = 'fake-merchant-id'
+const MERCHANT_KEY = 'fake-merchant-key'
+const PASSPHRASE = randomBytes(12).toString('hex')
 const PAYFAST_IP = '197.97.145.140'
 const VECTOR_FIELDS = {
   merchant_id: MERCHANT_ID,
@@ -40,6 +35,30 @@ const VECTOR_FIELDS = {
   m_payment_id: '1234',
   amount: '10.00',
   item_name: 'Order#123',
+}
+
+/** Hand-written parameter string for VECTOR_FIELDS, in posted order, PHP-urlencode. */
+const VECTOR_PARAM_STRING =
+  'merchant_id=fake-merchant-id&merchant_key=fake-merchant-key&return_url=http%3A%2F%2Fwww.yourdomain.co.za%2Freturn.php&cancel_url=http%3A%2F%2Fwww.yourdomain.co.za%2Fcancel.php&notify_url=http%3A%2F%2Fwww.yourdomain.co.za%2Fnotify.php&name_first=First+Name&name_last=Last+Name&email_address=test%40test.com&m_payment_id=1234&amount=10.00&item_name=Order%23123'
+
+function phpUrlEncode(value: string): string {
+  const bytes = Buffer.from(value.trim(), 'utf8')
+  let out = ''
+  for (const byte of bytes) {
+    const digit = byte >= 48 && byte <= 57
+    const upper = byte >= 65 && byte <= 90
+    const lower = byte >= 97 && byte <= 122
+    const unreserved = digit || upper || lower || byte === 45 || byte === 95 || byte === 46
+    if (unreserved) out += String.fromCharCode(byte)
+    else if (byte === 32) out += '+'
+    else out += `%${byte.toString(16).toUpperCase().padStart(2, '0')}`
+  }
+  return out
+}
+
+function independentSignature(): string {
+  const source = `${VECTOR_PARAM_STRING}&passphrase=${phpUrlEncode(PASSPHRASE)}`
+  return createHash('md5').update(source).digest('hex')
 }
 
 const SANDBOX: PayfastConfig = {
@@ -78,8 +97,9 @@ describe('payfast core', () => {
     expect(payfastEncode('a/b:c?d')).toBe('a%2Fb%3Ac%3Fd')
   })
 
-  it('matches PayFast published signature example', () => {
-    expect(payfastSignature(VECTOR_FIELDS, PASSPHRASE)).toBe(PUBLISHED_SIGNATURE)
+  it('builds the PayFast parameter string and signs it with an independent MD5', () => {
+    expect(payfastSignatureSource(VECTOR_FIELDS)).toBe(VECTOR_PARAM_STRING)
+    expect(payfastSignature(VECTOR_FIELDS, PASSPHRASE)).toBe(independentSignature())
   })
 
   it('differs without a passphrase', () => {
@@ -100,7 +120,7 @@ describe('payfast core', () => {
       notifyUrl: 'http://www.yourdomain.co.za/notify.php',
     })
     expect(fields.amount).toBe('10.00')
-    expect(fields.signature).toBe(PUBLISHED_SIGNATURE)
+    expect(fields.signature).toBe(independentSignature())
     expect(fields.merchant_id).toBe(MERCHANT_ID)
     expect(fields).not.toHaveProperty('passphrase')
     expect(JSON.stringify(fields)).not.toContain(PASSPHRASE)

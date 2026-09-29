@@ -9,7 +9,10 @@
  * adjacent quoted strings). Unset variables are skipped.
  *
  * Separately, string literals for merchant_id, merchant_key, and passphrase
- * must be PayFast's published sandbox docs values or clearly fake placeholders.
+ * must be clearly fake placeholders.
+ *
+ * PayFast's published docs merchant key and passphrase are identified only
+ * by SHA-256 digest. The values themselves are not stored here.
  */
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
@@ -17,10 +20,21 @@ import { join, relative } from 'node:path'
 
 const ROOT = process.cwd()
 
-/** PayFast's published custom-integration example. Not PropertyFlow credentials. */
-const PUBLIC_SANDBOX = new Set(['10000100', '46f0cd694581a', 'jt7NOE43FZPn'])
+/** SHA-256 of PayFast's published docs merchant key and passphrase. */
+export const PAYFAST_DOCS_VECTOR_DIGESTS = [
+  {
+    name: 'PAYFAST_DOCS_MERCHANT_KEY',
+    label: 'docs merchant key',
+    digest: 'eed43d2224c7b3a987da2eef66a9bf22fdb08ae243801b2b45114b67f4676fd5',
+  },
+  {
+    name: 'PAYFAST_DOCS_PASSPHRASE',
+    label: 'docs passphrase',
+    digest: 'b9ac2c90a61f62c5da3647a15aa3b13d297e45dde1a23a53c87c28cb6f03631e',
+  },
+]
 
-const TEXT_FILE = /\.(ts|tsx|js|jsx|mjs|cjs|json|css|html|map|svg|txt|md|sql)$/i
+const TEXT_FILE = /\.(ts|tsx|js|jsx|mjs|cjs|json|css|html|map|svg|txt|md|sql|toml)$/i
 const SKIP_DIRS = new Set(['node_modules', '.git', 'coverage', '.vite', '.cache'])
 
 const LITERAL_ASSIGNMENT =
@@ -61,7 +75,6 @@ export function retiredValuesFromEnv(env = process.env) {
 function isAllowedCredentialLiteral(value) {
   const trimmed = value.trim()
   if (!trimmed) return true
-  if (PUBLIC_SANDBOX.has(trimmed)) return true
   if (trimmed === '10009999') return true
   if (/^(your-|example|fake|test|demo|placeholder|changeme|not-a-real|peach_demo|xxx+|deadbeef)/i.test(trimmed)) {
     return true

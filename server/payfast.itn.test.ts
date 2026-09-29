@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Hono } from 'hono'
 
@@ -30,9 +31,9 @@ vi.mock('./mailtrap.js', () => ({
 import { payfastItn } from './payfastRoutes.js'
 import { payfastSignature } from './payfast.js'
 
-const MERCHANT_ID = '10000100'
-const MERCHANT_KEY = '46f0cd694581a'
-const PASSPHRASE = 'jt7NOE43FZPn'
+const MERCHANT_ID = 'fake-merchant-id'
+const MERCHANT_KEY = 'fake-merchant-key'
+const PASSPHRASE = randomBytes(12).toString('hex')
 const PAYFAST_IP = '197.97.145.140'
 const PAYMENT_ID = 'a1000001-0001-4000-8000-000000000099'
 

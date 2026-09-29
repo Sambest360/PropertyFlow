@@ -3,24 +3,8 @@ title = "PropertyFlow"
 [extend]
 useDefault = true
 
-# PayFast's published documentation example (merchant 10000100 / key 46f0cd694581a /
-# passphrase jt7NOE43FZPn). These are not PropertyFlow credentials.
 # Allowlist entries are combined: a finding must match one of these paths AND
-# one of these regexes. Historical merchant secrets are not listed, so a
-# history scan still reports them.
-[[allowlists]]
-description = "PayFast published signature test vector"
-paths = [
-  '''(^|/)server/payfast\.test\.ts$''',
-  '''(^|/)server/payfast\.itn\.test\.ts$''',
-  '''(^|/)server/payfast\.create\.test\.ts$''',
-  '''(^|/)scripts/payfast-vector\.mjs$''',
-]
-regexes = [
-  '''10000100''',
-  '''46f0cd694581a''',
-  '''jt7NOE43FZPn''',
-]
+# one of these regexes. PayFast merchant values are not listed.
 
 # Demo trust-book idempotency keys (PI-…) look like generic API tokens to gitleaks.
 # They are fixture ids, not credentials. The built bundle inlines the same seed.
