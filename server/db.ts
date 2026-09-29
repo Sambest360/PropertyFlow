@@ -8,6 +8,7 @@ import {
   isRemoteDatabaseUrl,
   poolMaxForRuntime,
   resolveDatabaseUrl,
+  sslOptionsForConnection,
 } from './dbConfig.js'
 
 // Local only — Vercel injects env vars; loading .env.local there is a no-op / noise.
@@ -55,7 +56,7 @@ export const pool = resolved.configured
       connectionTimeoutMillis,
       // Cap long queries so bootstrap cannot eat the whole function budget.
       options: '-c statement_timeout=20000',
-      ssl: isRemote ? { rejectUnauthorized: false } : undefined,
+      ssl: sslOptionsForConnection(isRemote),
     })
   : null
 

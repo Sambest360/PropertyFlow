@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
+import pg from 'pg'
 import {
   connectionStringForPool,
   connectionTimeoutMsForRuntime,
   isRemoteDatabaseUrl,
   poolMaxForRuntime,
   resolveDatabaseUrl,
+  sslOptionsForConnection,
+  supabaseDatabaseUsesOwnerRole,
 } from './dbConfig'
 
 describe('isRemoteDatabaseUrl', () => {
@@ -42,16 +45,31 @@ describe('connectionStringForPool', () => {
     expect(connectionStringForPool(url, false)).toBe(url)
   })
 
-  it('forces libpq-compat require for remote URLs', () => {
+  it('strips flags that would disable TLS verification', () => {
     const out = connectionStringForPool(
-      'postgresql://u:p@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?sslmode=verify-full',
+      'postgresql://u:p@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?sslmode=require&uselibpqcompat=true',
       true,
     )
     const parsed = new URL(out)
-    expect(parsed.searchParams.get('sslmode')).toBe('require')
-    expect(parsed.searchParams.get('uselibpqcompat')).toBe('true')
+    expect(parsed.searchParams.has('sslmode')).toBe(false)
+    expect(parsed.searchParams.has('uselibpqcompat')).toBe(false)
     expect(parsed.searchParams.get('connect_timeout')).toBe('5')
     expect(parsed.searchParams.get('pgbouncer')).toBe('true')
+  })
+
+  it('asks node-pg to verify the pooler certificate', () => {
+    const connectionString = connectionStringForPool(
+      'postgresql://propertyflow_api.abc:pw@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?sslmode=require&uselibpqcompat=true',
+      true,
+    )
+    const client = new pg.Client({
+      connectionString,
+      ssl: sslOptionsForConnection(true),
+    })
+    const ssl = (client as unknown as { connectionParameters: { ssl: { rejectUnauthorized?: boolean } } })
+      .connectionParameters.ssl
+    expect(ssl.rejectUnauthorized).toBe(true)
+    expect(sslOptionsForConnection(false)).toBeUndefined()
   })
 
   it('returns the raw string when URL parsing fails', () => {
@@ -95,12 +113,20 @@ describe('resolveDatabaseUrl', () => {
     expect(r.error).toMatch(/localhost/)
   })
 
-  it('accepts a pooler URI', () => {
-    const r = resolveDatabaseUrl({
-      vercel: '1',
-      envUrl:
-        'postgresql://postgres.abc:pass@aws-0-eu-west-1.pooler.supabase.com:6543/postgres',
-    })
+  it('rejects an owner role on the Supabase pooler', () => {
+    const url =
+      'postgresql://postgres.abc:pass@aws-0-eu-west-1.pooler.supabase.com:6543/postgres'
+    expect(supabaseDatabaseUsesOwnerRole(url)).toBe(true)
+    const r = resolveDatabaseUrl({ vercel: '1', envUrl: url })
+    expect(r.configured).toBe(false)
+    expect(r.error).toMatch(/non-owner/)
+  })
+
+  it('accepts a non-owner pooler URI', () => {
+    const url =
+      'postgresql://propertyflow_api.abc:pass@aws-0-eu-west-1.pooler.supabase.com:6543/postgres'
+    expect(supabaseDatabaseUsesOwnerRole(url)).toBe(false)
+    const r = resolveDatabaseUrl({ vercel: '1', envUrl: url })
     expect(r.configured).toBe(true)
   })
 

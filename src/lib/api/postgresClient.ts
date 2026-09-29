@@ -4,7 +4,7 @@
  */
 
 import { actorHeaders, type DemoActor } from './actorAuth'
-import { authHeaders } from './authClient'
+import { apiAuthHeaders } from './authClient'
 import { isApiEnabled } from './config'
 
 export type PostgresBootstrap = {
@@ -79,7 +79,7 @@ export async function fetchPostgresBootstrap(
     const qs = params.toString()
     const res = await fetch(`${API_BASE}/api/bootstrap${qs ? `?${qs}` : ''}`, {
       signal: ctrl.signal,
-      headers: { ...actorHeaders(actor), ...authHeaders() },
+      headers: { ...actorHeaders(actor), ...(await apiAuthHeaders()) },
       credentials: 'include',
     })
     if (!res.ok) return null

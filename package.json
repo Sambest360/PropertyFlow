@@ -44,6 +44,7 @@
     "clsx": "^2.1.1",
     "concurrently": "^10.0.4",
     "hono": "^4.12.32",
+    "jose": "^5.10.0",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.25.0",
     "mailtrap": "^4.10.0",

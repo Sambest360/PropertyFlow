@@ -2,7 +2,8 @@
  * Client auth API (login / register / session).
  */
 import { setApiActor, type DemoActor } from './actorAuth'
-import { isApiEnabled, isSupabaseMode } from './config'
+import { isApiEnabled } from './config'
+import { isSupabaseConfigured } from '../../utils/supabase/env'
 import type { UserVerification, VerificationDocument, VerificationProfile } from '../verification'
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''
@@ -53,6 +54,21 @@ export function authHeaders(): Record<string, string> {
   const token = readAuthToken()
   if (!token) return {}
   return { Authorization: `Bearer ${token}` }
+}
+
+/** Bearer token for the Hono API: the Supabase access token when a session exists, otherwise the legacy API token. */
+export async function apiAuthHeaders(): Promise<Record<string, string>> {
+  if (isSupabaseConfigured()) {
+    try {
+      const { createClient } = await import('../../utils/supabase/client')
+      const { data } = await createClient().auth.getSession()
+      const accessToken = data.session?.access_token
+      if (accessToken) return { Authorization: `Bearer ${accessToken}` }
+    } catch {
+      /* fall through to the legacy token */
+    }
+  }
+  return authHeaders()
 }
 
 async function parseJson<T>(res: Response): Promise<T> {
@@ -137,12 +153,7 @@ export async function apiUpdateUserVerification(input: {
   // server to validate. The route is the single decision path in both modes.
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...authHeaders(),
-  }
-  if (isSupabaseMode) {
-    const { createClient } = await import('../../utils/supabase/client')
-    const { data } = await createClient().auth.getSession()
-    if (data.session?.access_token) headers.Authorization = `Bearer ${data.session.access_token}`
+    ...(await apiAuthHeaders()),
   }
   const res = await fetch(
     `${API_BASE}/api/admin/users/${encodeURIComponent(input.userId)}/verification`,
@@ -181,7 +192,7 @@ export async function apiLogout(): Promise<void> {
     await fetch(`${API_BASE}/api/auth/logout`, {
       method: 'POST',
       credentials: 'include',
-      headers: { ...authHeaders() },
+      headers: { ...(await apiAuthHeaders()) },
     })
   } finally {
     writeAuthToken(null)
@@ -190,14 +201,14 @@ export async function apiLogout(): Promise<void> {
 }
 
 export async function apiMe(timeoutMs = 3000): Promise<AuthUserDto | null> {
-  const token = readAuthToken()
-  if (!token) return null
+  const headers = await apiAuthHeaders()
+  if (!headers.Authorization) return null
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
     const res = await fetch(`${API_BASE}/api/auth/me`, {
       credentials: 'include',
-      headers: { ...authHeaders() },
+      headers,
       signal: ctrl.signal,
     })
     if (res.status === 401) {

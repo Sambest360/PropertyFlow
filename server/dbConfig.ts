@@ -16,16 +16,16 @@ export function isRemoteDatabaseUrl(
 }
 
 /**
- * Newer `pg` treats sslmode=require as verify-full. For Supabase pooler we need
- * libpq-compat require + rejectUnauthorized false (managed CA chain).
+ * Strip query flags that would turn TLS verification off. The Pool sets
+ * `ssl: { rejectUnauthorized: true }` itself for remote connections.
  */
 export function connectionStringForPool(url: string, remote: boolean): string {
   if (!remote) return url
   try {
     const u = new URL(url)
     u.searchParams.delete('sslmode')
-    u.searchParams.set('sslmode', 'require')
-    u.searchParams.set('uselibpqcompat', 'true')
+    u.searchParams.delete('uselibpqcompat')
+    u.searchParams.delete('ssl')
     if (!u.searchParams.has('connect_timeout')) {
       u.searchParams.set('connect_timeout', '5')
     }
@@ -37,6 +37,41 @@ export function connectionStringForPool(url: string, remote: boolean): string {
   } catch {
     return url
   }
+}
+
+/** Remote / pooler connections verify the server certificate. Local Postgres does not use TLS. */
+export function sslOptionsForConnection(remote: boolean): { rejectUnauthorized: true } | undefined {
+  if (!remote) return undefined
+  return { rejectUnauthorized: true }
+}
+
+const DATABASE_OWNER_ROLES = new Set([
+  'postgres',
+  'supabase_admin',
+  'supabase_auth_admin',
+  'supabase_storage_admin',
+])
+
+export function isSupabaseDatabaseUrl(url: string): boolean {
+  return /supabase\.(co|com)/i.test(url) || /pooler\.supabase\.com/i.test(url)
+}
+
+/** Supavisor usernames are `role.projectref`. The role is the segment before the dot. */
+export function databaseLoginRole(url: string): string | null {
+  try {
+    const username = decodeURIComponent(new URL(url).username || '')
+    if (!username) return null
+    const role = username.split('.')[0]?.trim().toLowerCase()
+    return role || null
+  } catch {
+    return null
+  }
+}
+
+export function supabaseDatabaseUsesOwnerRole(url: string): boolean {
+  if (!isSupabaseDatabaseUrl(url)) return false
+  const role = databaseLoginRole(url)
+  return role != null && DATABASE_OWNER_ROLES.has(role)
 }
 
 /** Transaction pooler (6543) is required for Vercel/serverless runtime. */
@@ -101,6 +136,14 @@ export function resolveDatabaseUrl(opts: {
         configured: false,
         error:
           'DATABASE_URL points at localhost on a serverless host. Use the Supabase Transaction pooler URI.',
+      }
+    }
+    if (supabaseDatabaseUsesOwnerRole(trimmed)) {
+      return {
+        url: trimmed,
+        configured: false,
+        error:
+          'DATABASE_URL uses an owner role (postgres). Connect through the Supabase pooler as a non-owner role such as propertyflow_api.',
       }
     }
     return { url: trimmed, configured: true }

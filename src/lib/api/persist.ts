@@ -2,7 +2,7 @@
  * Fire-and-forget persistence — Supabase in production, Hono API locally.
  */
 import { actorHeaders } from './actorAuth'
-import { authHeaders } from './authClient'
+import { apiAuthHeaders } from './authClient'
 import { isApiEnabled, isSupabaseMode } from './config'
 import type { EntityType } from './persistTypes'
 import {
@@ -29,11 +29,11 @@ const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''
 let apiLikelyUp: boolean | null = null
 let lastHealthCheck = 0
 
-function jsonHeaders(): Record<string, string> {
+async function jsonHeaders(): Promise<Record<string, string>> {
   return {
     'Content-Type': 'application/json',
     ...actorHeaders(),
-    ...authHeaders(),
+    ...(await apiAuthHeaders()),
   }
 }
 
@@ -61,7 +61,7 @@ export async function persistToApi(op: PersistOp): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE}/api/persist`, {
       method: 'POST',
-      headers: jsonHeaders(),
+      headers: await jsonHeaders(),
       credentials: 'include',
       body: JSON.stringify(op),
     })
@@ -86,7 +86,7 @@ export async function persistBatchToApi(ops: PersistOp[]): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE}/api/persist/batch`, {
       method: 'POST',
-      headers: jsonHeaders(),
+      headers: await jsonHeaders(),
       credentials: 'include',
       body: JSON.stringify({ ops }),
     })
@@ -119,7 +119,7 @@ export async function persistApproveApplication(params: {
       `${API_BASE}/api/applications/${encodeURIComponent(params.applicationId)}/approve`,
       {
         method: 'POST',
-        headers: jsonHeaders(),
+        headers: await jsonHeaders(),
         credentials: 'include',
         body: JSON.stringify({
           actorUserId: params.actorUserId,
@@ -144,7 +144,7 @@ export async function persistMarkNotificationsRead(params: {
   try {
     const res = await fetch(`${API_BASE}/api/notifications/mark-read`, {
       method: 'POST',
-      headers: jsonHeaders(),
+      headers: await jsonHeaders(),
       credentials: 'include',
       body: JSON.stringify(params),
     })

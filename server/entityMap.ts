@@ -144,7 +144,8 @@ export async function ensureEntityMapTable(): Promise<void> {
   if (ensured) return
   if (ensuring) return ensuring
   ensuring = (async () => {
-    await query(`
+    try {
+      await query(`
     CREATE TABLE IF NOT EXISTS entity_id_map (
       entity_type   VARCHAR(40) NOT NULL,
       frontend_id   VARCHAR(120) NOT NULL,
@@ -153,10 +154,18 @@ export async function ensureEntityMapTable(): Promise<void> {
       PRIMARY KEY (entity_type, frontend_id)
     )
   `)
-  await query(`
+      await query(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_entity_id_map_backend
       ON entity_id_map (entity_type, backend_id)
   `)
+    } catch (err) {
+      // The API connects as a non-owner role. DDL is the migration's job;
+      // a privilege error is fine when the table is already there.
+      const code = err && typeof err === 'object' && 'code' in err ? String(err.code) : ''
+      const message = err instanceof Error ? err.message : String(err)
+      if (code !== '42501' && !/must be owner|permission denied/i.test(message)) throw err
+      await query('SELECT 1 FROM entity_id_map LIMIT 1')
+    }
 
   // Seed static aliases so writes resolve without a full schema rebuild.
   const inserts: Array<[string, string, string]> = []

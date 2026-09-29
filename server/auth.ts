@@ -1,6 +1,7 @@
 /**
- * Email/password auth for the Hono API.
- * Uses bcryptjs hashes in users.password_hash and HMAC-signed JWT cookies/Bearer tokens.
+ * App sessions for the Hono API.
+ * Supabase access tokens (Authorization: Bearer) are the normal credential.
+ * HMAC cookies are accepted only when PF_LOCAL_API_AUTH=1.
  */
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import bcrypt from 'bcryptjs'
@@ -10,6 +11,7 @@ import { passwordMeetsPolicy } from '../src/lib/auth/passwordStrength.js'
 import { query } from './db.js'
 import { ensureUuid } from './entityMap.js'
 import { ACTOR_AGENCY_HEADER, ACTOR_ROLE_HEADER, ACTOR_USER_HEADER } from './actor.js'
+import { verifySupabaseAccessToken } from './supabaseJwt.js'
 
 const AUTH_COOKIE = 'pf_session'
 const TOKEN_TTL_SEC = 60 * 60 * 24 * 14 // 14 days
@@ -21,6 +23,8 @@ export type SessionUser = {
   name: string
   role: string
   agencyId: string | null
+  /** clients.id for the user's agency. Null for an unscoped super admin. */
+  clientId: string | null
   phone?: string
   active: boolean
   enabledPermissions?: string[]
@@ -186,6 +190,7 @@ async function rowToSession(row: UserRow): Promise<SessionUser> {
     name: `${row.first_name} ${row.last_name}`.trim(),
     role: feRole,
     agencyId: row.agency_fe,
+    clientId: row.client_id,
     phone: row.phone ?? undefined,
     active: row.active,
     enabledPermissions: Array.isArray(meta.enabledPermissions)
@@ -255,19 +260,50 @@ async function findUserById(id: string): Promise<UserRow | null> {
   return rows[0] ?? null
 }
 
+async function findUserByAuthUserId(authUserId: string): Promise<UserRow | null> {
+  const rows = await query<UserRow>(
+    `SELECT u.id, u.email, u.password_hash, u.first_name, u.last_name, u.phone, u.role,
+            u.active, u.client_id, u.metadata,
+            COALESCE(c.settings->>'frontend_id', c.id::text) AS agency_fe
+     FROM users u
+     LEFT JOIN clients c ON c.id = u.client_id
+     WHERE u.auth_user_id = $1::uuid
+     LIMIT 1`,
+    [authUserId],
+  )
+  return rows[0] ?? null
+}
+
 async function countUsers(): Promise<number> {
   const rows = await query<{ n: string }>('SELECT COUNT(*)::text AS n FROM users')
   return Number(rows[0]?.n ?? 0)
 }
 
-export function issueSession(c: Context, user: SessionUser): string {
-  const token = signToken({
+/** Explicit local API mode. Legacy HMAC sessions are refused unless this is exactly "1". */
+export function legacyCookieAuthEnabled(): boolean {
+  return process.env.PF_LOCAL_API_AUTH?.trim() === '1'
+}
+
+export function signLegacySessionToken(user: Pick<SessionUser, 'id' | 'frontendId' | 'role' | 'agencyId'>): string {
+  return signToken({
     sub: user.id,
     fe: user.frontendId,
     role: user.role,
     agency: user.agencyId,
     exp: Math.floor(Date.now() / 1000) + TOKEN_TTL_SEC,
   })
+}
+
+function verifyLegacyToken(token: string): JwtPayload | null {
+  try {
+    return verifyToken(token)
+  } catch {
+    return null
+  }
+}
+
+export function issueSession(c: Context, user: SessionUser): string {
+  const token = signLegacySessionToken(user)
   setCookie(c, AUTH_COOKIE, token, {
     httpOnly: true,
     sameSite: 'Lax',
@@ -282,20 +318,62 @@ export function clearSession(c: Context): void {
   deleteCookie(c, AUTH_COOKIE, { path: '/' })
 }
 
-export function readBearerOrCookie(c: Context): string | null {
-  const auth = c.req.header('Authorization')
-  if (auth?.startsWith('Bearer ')) return auth.slice(7).trim()
-  return getCookie(c, AUTH_COOKIE) ?? null
+type BearerRead =
+  | { kind: 'absent' }
+  | { kind: 'invalid' }
+  | { kind: 'token'; token: string }
+
+/** A present Authorization header that is not a Bearer token is invalid. No cookie fallback. */
+function readBearer(c: Context): BearerRead {
+  const header = c.req.header('Authorization') ?? c.req.header('authorization')
+  if (header == null || header.trim() === '') return { kind: 'absent' }
+  const match = /^Bearer\s+(\S+)\s*$/i.exec(header.trim())
+  if (!match?.[1]) return { kind: 'invalid' }
+  return { kind: 'token', token: match[1] }
 }
 
-export async function resolveSessionUser(c: Context): Promise<SessionUser | null> {
-  const token = readBearerOrCookie(c)
-  if (!token) return null
-  const payload = verifyToken(token)
+async function sessionFromLegacyToken(token: string): Promise<SessionUser | null> {
+  const payload = verifyLegacyToken(token)
   if (!payload) return null
   const row = await findUserById(payload.sub)
   if (!row || !row.active) return null
   return rowToSession(row)
+}
+
+/**
+ * Supabase access tokens are verified before any database read.
+ * The legacy HMAC cookie (or HMAC bearer) is accepted only when PF_LOCAL_API_AUTH=1.
+ */
+export async function resolveSessionUser(c: Context): Promise<SessionUser | null> {
+  const cached = c.get('sessionUser') as SessionUser | undefined
+  if (cached) return cached
+
+  const bearer = readBearer(c)
+  if (bearer.kind === 'invalid') return null
+
+  let user: SessionUser | null = null
+  if (bearer.kind === 'token') {
+    const supabase = await verifySupabaseAccessToken(bearer.token)
+    if (supabase) {
+      const row = await findUserByAuthUserId(supabase.sub)
+      if (!row || !row.active) return null
+      user = await rowToSession(row)
+    } else if (legacyCookieAuthEnabled()) {
+      user = await sessionFromLegacyToken(bearer.token)
+    } else {
+      return null
+    }
+  } else if (!legacyCookieAuthEnabled()) {
+    return null
+  } else {
+    const cookie = getCookie(c, AUTH_COOKIE)
+    if (!cookie) return null
+    user = await sessionFromLegacyToken(cookie)
+  }
+
+  if (!user) return null
+  c.set('sessionUser', user)
+  return user
 }
 
 /** Attach session actor headers for downstream persist gates when Authorization cookie present. */

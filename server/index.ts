@@ -35,7 +35,8 @@ import {
   assertPersistAllowed,
   enrichActor,
 } from './scopeGate.js'
-import { supabaseSessionMiddleware } from './supabase/middleware.js'
+import { apiSessionMiddleware } from './apiSession.js'
+import { createAgencyInvite } from './invite.js'
 import type { PersistBody } from './writes.js'
 import { payfastCreate, payfastItn } from './payfastRoutes.js'
 import {
@@ -43,7 +44,6 @@ import {
   authIpRateLimit,
   authEmailRateLimit,
   publicPostRateLimit,
-  notifyEmailRateLimit,
   authFailureBlocked,
   recordAuthFailure,
   clearAuthFailures,
@@ -53,7 +53,6 @@ import {
   sendListingEnquiryConfirmation,
   sendListingLeadAlert,
   sendApplicationApproved,
-  sendApplicationReceived,
   sendVerificationDecision,
   sendWelcomeEmail,
 } from './mailtrap.js'
@@ -130,7 +129,7 @@ app.use(
   }),
 )
 
-app.use('*', supabaseSessionMiddleware)
+app.use('*', apiSessionMiddleware)
 
 function errStatus(err: unknown): ContentfulStatusCode {
   if (err && typeof err === 'object' && 'status' in err) {
@@ -377,64 +376,14 @@ app.post('/api/auth/register-supabase', async (c) => {
 
 app.patch('/api/admin/users/:userId/verification', async (c) => {
   try {
-    // 1) API-mode session (HMAC cookie/bearer). 2) Supabase-mode session:
-    //    the browser keeps its session in localStorage, so it passes the
-    //    supabase JWT as a Bearer header — validate it with GoTrue, then load
-    //    the local profile and require super admin.
-    let reviewerFeId: string | null = null
     const session = await resolveSessionUser(c)
-    if (session && session.role === 'super_admin') {
-      reviewerFeId = session.frontendId
-    } else {
-      const authHeader = c.req.header('authorization') ?? ''
-      const token = authHeader.toLowerCase().startsWith('bearer ')
-        ? authHeader.slice(7).trim()
-        : ''
-      if (!token) {
-        return c.json({ error: 'unauthorized', message: 'Sign in required' }, 401)
-      }
-      const sbBase = (
-        process.env.VITE_SUPABASE_URL ||
-        process.env.SUPABASE_URL ||
-        process.env.NEXT_PUBLIC_SUPABASE_URL ||
-        ''
-      ).replace(/\/$/, '')
-      const sbKey =
-        process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-        process.env.VITE_SUPABASE_ANON_KEY ||
-        process.env.SUPABASE_PUBLISHABLE_KEY ||
-        process.env.SUPABASE_ANON_KEY ||
-        ''
-      if (!sbBase || !sbKey) {
-        return c.json({ error: 'forbidden', message: 'Super admin required' }, 403)
-      }
-      const goTrue = await fetch(`${sbBase}/auth/v1/user`, {
-        headers: { apikey: sbKey, Authorization: `Bearer ${token}` },
-      }).catch(() => null)
-      if (!goTrue || !goTrue.ok) {
-        return c.json({ error: 'forbidden', message: 'Invalid or expired session' }, 403)
-      }
-      const goTrueUser = (await goTrue.json().catch(() => ({}))) as { id?: string }
-      if (!goTrueUser.id) {
-        return c.json({ error: 'forbidden', message: 'Super admin required' }, 403)
-      }
-      const profRows = await query<{
-        id: string
-        role: string
-        metadata: Record<string, unknown> | null
-      }>('SELECT id, role, metadata FROM users WHERE auth_user_id = $1::uuid LIMIT 1', [
-        goTrueUser.id,
-      ])
-      const profile = profRows[0]
-      const feRole = String(profile?.metadata?.frontend_role ?? '')
-      if (!profile || (profile.role !== 'SUPER_ADMIN' && feRole !== 'super_admin')) {
-        return c.json({ error: 'forbidden', message: 'Super admin required' }, 403)
-      }
-      reviewerFeId =
-        typeof profile.metadata?.frontend_id === 'string'
-          ? (profile.metadata.frontend_id as string)
-          : profile.id
+    if (!session) {
+      return c.json({ error: 'unauthorized', message: 'Sign in required' }, 401)
     }
+    if (session.role !== 'super_admin') {
+      return c.json({ error: 'forbidden', message: 'Super admin required' }, 403)
+    }
+    const reviewerFeId = session.frontendId
 
     const userId = c.req.param('userId')
     const body = (await c.req.json()) as { status?: string; rejectNote?: string }
@@ -943,38 +892,26 @@ app.post('/api/applications/:id/approve', async (c) => {
   }
 })
 
-/**
- * Email notify endpoint for client-side persistence paths (Supabase mode): when
- * an application is created the store calls this once, fire-and-forget from the
- * user flow. Rate-limited per email; never returns the send outcome.
- */
-app.post('/api/notify/application-received', async (c) => {
+async function postInvite(c: Parameters<typeof resolveSessionUser>[0]) {
   try {
-    const body = (await c.req.json()) as {
-      email?: string
-      applicantName?: string
-      propertyTitle?: string
-      referenceCode?: string
-    }
-    const email = String(body.email ?? '').trim()
-    if (email) {
-      const gate = notifyEmailRateLimit(email)
-      if (!gate.ok) {
-        const rl = tooManyRequests(gate.retryAfterSec)
-        return c.json(rl.body, rl.status, rl.headers)
-      }
-      void sendApplicationReceived({
-        email,
-        applicantName: body.applicantName ? String(body.applicantName).trim() : undefined,
-        propertyTitle: body.propertyTitle ? String(body.propertyTitle).trim() : undefined,
-        referenceCode: body.referenceCode ? String(body.referenceCode).trim() : undefined,
-      })
-    }
-    return c.json({ ok: true }, 202)
-  } catch {
-    return c.json({ ok: true }, 202)
+    const session = await resolveSessionUser(c)
+    if (!session) return c.json({ error: 'unauthorized', message: 'Sign in required' }, 401)
+    const body = (await c.req.json()) as { email?: unknown; role?: unknown; agency_id?: unknown }
+    const result = await createAgencyInvite({
+      session,
+      email: body.email,
+      role: body.role,
+      agencyId: body.agency_id,
+    })
+    return c.json({ user_id: result.userId }, result.created ? 201 : 200)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'invite_failed', message }, errStatus(err))
   }
-})
+}
+
+app.post('/api/invite', postInvite)
+app.post('/invite', postInvite)
 
 app.post('/api/payfast/create', (c) => payfastCreate(c))
 

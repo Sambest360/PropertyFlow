@@ -3,6 +3,7 @@
  * Accepts frontend demo IDs; resolves/registers UUIDs via entity_id_map.
  */
 import { query, withTransaction, clientQuery } from './db.js'
+import { deliverApplicationReceivedEmail } from './applicationEmail.js'
 import {
   ensureEntityMapTable,
   ensureUuid,
@@ -899,6 +900,7 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
       d.submittedAt ? str(d.submittedAt) : null,
     ],
   )
+  await deliverApplicationReceivedEmail(uuid)
   return uuid
 }
 
