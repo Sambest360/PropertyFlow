@@ -319,6 +319,7 @@ export async function payfastItn(c: Context) {
             `SELECT email, first_name FROM users WHERE id = $1::uuid LIMIT 1`,
             [expected.partyUserId],
           )
+          // query() returns the row array directly.
           const email = payer[0]?.email
           if (email) {
             await sendPaymentReceipt({

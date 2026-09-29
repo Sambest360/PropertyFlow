@@ -8,6 +8,10 @@ const db = vi.hoisted(() => ({
   pingDatabase: vi.fn(),
 }))
 
+const mail = vi.hoisted(() => ({
+  sendPaymentReceipt: vi.fn(async () => ({ ok: true })),
+}))
+
 vi.mock('./db.js', () => ({
   databaseConfigured: true,
   databaseConfigError: undefined,
@@ -17,6 +21,10 @@ vi.mock('./db.js', () => ({
   withTransaction: db.withTransaction,
   clientQuery: db.clientQuery,
   pingDatabase: db.pingDatabase,
+}))
+
+vi.mock('./mailtrap.js', () => ({
+  sendPaymentReceipt: mail.sendPaymentReceipt,
 }))
 
 import { payfastItn } from './payfastRoutes.js'
@@ -45,10 +53,12 @@ function itnBody(overrides: Record<string, string> = {}) {
 
 let paymentStatus = 'DUE'
 let credits = 0
+let partyUserId: string | null = null
 
 function installDb() {
   paymentStatus = 'DUE'
   credits = 0
+  partyUserId = null
   db.query.mockImplementation(async (sql: string) => {
     if (sql.includes('FROM payments')) {
       return [
@@ -58,11 +68,14 @@ function installDb() {
           status: paymentStatus,
           payment_type: 'RENT',
           party_name: 'Test Payer',
-          party_user_id: null,
+          party_user_id: partyUserId,
           client_id: 'a1000001-0001-4000-8000-000000000001',
           unit_id: null,
         },
       ]
+    }
+    if (sql.includes('FROM users')) {
+      return [{ email: 'payer@example.com', first_name: 'Pat' }]
     }
     return []
   })
@@ -111,6 +124,8 @@ const CALLER_FORWARDING = {
 }
 
 beforeEach(() => {
+  mail.sendPaymentReceipt.mockReset()
+  mail.sendPaymentReceipt.mockResolvedValue({ ok: true })
   process.env.PAYFAST_MERCHANT_ID = MERCHANT_ID
   process.env.PAYFAST_MERCHANT_KEY = MERCHANT_KEY
   process.env.PAYFAST_PASSPHRASE = PASSPHRASE
@@ -304,6 +319,45 @@ describe('PayFast ITN route', () => {
     expect(second.status).toBe(200)
     expect(credits).toBe(1)
     expect(fetchImpl).toHaveBeenCalledTimes(2)
+    vi.unstubAllGlobals()
+  })
+
+  it('sends the receipt after the payment is committed', async () => {
+    partyUserId = 'a2000001-0001-4000-8000-000000000010'
+    mail.sendPaymentReceipt.mockImplementation(async () => {
+      expect(paymentStatus).toBe('PAID')
+      expect(credits).toBe(1)
+      return { ok: true }
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('VALID', { status: 200 })))
+    const res = await postItn(itnBody())
+    expect(res.status).toBe(200)
+    await vi.waitUntil(() => mail.sendPaymentReceipt.mock.calls.length === 1)
+    expect(mail.sendPaymentReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: 'payer@example.com',
+        payerName: 'Pat',
+        paymentId: PAYMENT_ID,
+      }),
+    )
+    vi.unstubAllGlobals()
+  })
+
+  it('leaves the payment paid when the receipt sender throws', async () => {
+    partyUserId = 'a2000001-0001-4000-8000-000000000010'
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mail.sendPaymentReceipt.mockImplementation(async () => {
+      expect(paymentStatus).toBe('PAID')
+      throw new Error('smtp down')
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('VALID', { status: 200 })))
+    const res = await postItn(itnBody())
+    expect(res.status).toBe(200)
+    await vi.waitUntil(() => mail.sendPaymentReceipt.mock.calls.length === 1)
+    await vi.waitUntil(() => error.mock.calls.some((args) => String(args[0]).includes('receipt email failed')))
+    expect(paymentStatus).toBe('PAID')
+    expect(credits).toBe(1)
+    error.mockRestore()
     vi.unstubAllGlobals()
   })
 })
