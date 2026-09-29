@@ -1,8 +1,7 @@
 /**
- * Staff invite. The pending row is what migration 012 (account takeover, not on
- * this branch yet) consumes. Shape:
- *   invites(email, role, agency_id, auth_user_id, token, invited_by, status)
- *   status = 'pending' until 012 sets 'consumed'.
+ * Staff invite. Migration 012 (account takeover) owns the invites table.
+ * Until that migration is on this branch, tests create the same shape:
+ *   match on auth_user_id or token, status 'pending', consume once.
  * 012 should link a profile only when email_confirmed_at is set AND a pending
  * invite matches that auth user id or the redeemed token, created by staff of
  * that agency. Do not link by email match. super_admin is never inserted.

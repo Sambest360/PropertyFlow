@@ -38,6 +38,37 @@ const JWT_SECRET = 'integration-jwt-secret-not-a-real-key'
 const DB_NAME = 'propertyflow_api_test'
 const API_PASSWORD = 'propertyflow_api_local'
 
+/** Until migration 012 lands, tests create the invites table 012 is expected to own. */
+const INVITES_FIXTURE = `
+ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_user_id UUID;
+CREATE UNIQUE INDEX IF NOT EXISTS users_auth_user_id_key ON users (auth_user_id);
+
+CREATE TABLE IF NOT EXISTS invites (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email         VARCHAR(190) NOT NULL,
+  role          VARCHAR(40) NOT NULL,
+  agency_id     UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  auth_user_id  UUID,
+  token         TEXT UNIQUE,
+  invited_by    UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  status        VARCHAR(20) NOT NULL DEFAULT 'pending'
+                  CHECK (status IN ('pending', 'consumed', 'revoked')),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  consumed_at   TIMESTAMPTZ,
+  CONSTRAINT invites_pending_has_identity CHECK (
+    status <> 'pending' OR auth_user_id IS NOT NULL OR token IS NOT NULL
+  )
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS invites_one_pending_email_agency
+  ON invites (lower(email), agency_id)
+  WHERE status = 'pending';
+
+CREATE INDEX IF NOT EXISTS invites_pending_auth_user
+  ON invites (auth_user_id)
+  WHERE status = 'pending';
+`
+
 let app: { request: (input: string, init?: RequestInit) => Promise<Response> }
 let admin: pg.Client
 let catcher: { port: number; messages: CaughtMail[]; stop: () => Promise<void> }
@@ -81,8 +112,12 @@ beforeAll(async () => {
   const root = process.cwd()
   await admin.query(readFileSync(resolve(root, 'database/postgres/schema.sql'), 'utf8'))
   await admin.query(
-    readFileSync(resolve(root, 'database/postgres/migrations/014_api_invites_and_application_emails.sql'), 'utf8'),
+    readFileSync(resolve(root, 'database/postgres/migrations/015_api_application_emails.sql'), 'utf8'),
   )
+  await admin.query(
+    readFileSync(resolve(root, 'database/postgres/migrations/015_api_application_emails_verify.sql'), 'utf8'),
+  )
+  await admin.query(INVITES_FIXTURE)
   await admin.query(`ALTER ROLE propertyflow_api WITH LOGIN PASSWORD '${API_PASSWORD}'`)
   await admin.query(`GRANT CONNECT ON DATABASE ${DB_NAME} TO propertyflow_api`)
   await admin.query(
