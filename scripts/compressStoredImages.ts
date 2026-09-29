@@ -20,8 +20,13 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 import { config as loadEnv } from 'dotenv'
 import { Client } from 'pg'
 import sharp from 'sharp'
+import { assertLocalDatabaseTargets } from './seed/localOnlyGuard.ts'
 
 loadEnv({ path: '.env.local' })
+
+assertLocalDatabaseTargets([
+  { label: 'database URL (DIRECT_URL)', url: process.env.DIRECT_URL },
+])
 
 const WRITE = process.argv.includes('--write')
 const MAX_EDGE = 1600

@@ -26,8 +26,8 @@ Open in Word: **File → Open** the HTML file → **Save As .docx**
 
 | Account | Email | Password |
 |---------|-------|----------|
-| Super Admin | `sambampo200@gmail.com` | `secret` |
-| All other test users | `@propertyflow.demo` emails in the guide | `secret` |
+| Super Admin | `samuel.admin@example.test` | `SEED_USER_PASSWORD`, or the password printed once by the local seed script |
+| All other test users | `@example.test` emails in the guide | same seed password |
 
 ## What's in the full guide
 

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type pg from 'pg'
 import { GLOBAL_CLIENT_UUID } from './data/lookups.js'
+import { assertLocalSeedTarget } from './localOnlyGuard.js'
 import {
   deleteAllAuthUsersExcept,
   findAuthUserByEmail,
@@ -192,8 +193,9 @@ async function ensureSuperAdminRow(
 export async function clearDatabase(
   pool: pg.Pool,
   admin: SupabaseClient,
-  _env: SeedEnv,
+  env: SeedEnv,
 ): Promise<SuperAdminRefs[]> {
+  assertLocalSeedTarget({ databaseUrl: env.directUrl, supabaseUrl: env.supabaseUrl })
   const refsList: SuperAdminRefs[] = []
   for (const def of SUPER_ADMINS) {
     refsList.push(await resolveSuperAdmin(pool, admin, def))

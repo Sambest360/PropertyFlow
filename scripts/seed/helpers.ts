@@ -1,6 +1,8 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import pg from 'pg'
 import { DirectAdminClient } from './directAdmin.js'
+import { assertLocalSeedTarget } from './localOnlyGuard.js'
+import { resolveSeedPassword } from './seedPassword.js'
 
 const DEMO_DOC_BASE =
   'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf.pdf'
@@ -44,9 +46,10 @@ export type SeedEnv = {
   demoPassword: string
 }
 
-export function loadSeedEnv(): SeedEnv {
+export function loadSeedEnv(options?: { resolvePassword?: boolean }): SeedEnv {
   const directUrl = process.env.DIRECT_URL ?? process.env.DATABASE_URL
   const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL
+  assertLocalSeedTarget({ databaseUrl: directUrl, supabaseUrl })
   // Local .env.local ships the publishable key only. When no real secret is
   // present the seed scripts fall back to the direct-Postgres admin shim.
   const rawSecret =
@@ -57,8 +60,8 @@ export function loadSeedEnv(): SeedEnv {
   const supabaseSecret = isRealSecret
     ? rawSecret
     : `direct:${directUrl}`
-  const superAdminEmail = process.env.SUPER_ADMIN_EMAIL ?? 'ephraimbampo317@gmail.com'
-  const demoPassword = process.env.SEED_DEMO_PASSWORD ?? process.env.SUPER_ADMIN_PASSWORD ?? 'secret'
+  const superAdminEmail = process.env.SUPER_ADMIN_EMAIL ?? 'samuel.admin@example.test'
+  const demoPassword = options?.resolvePassword === false ? '' : resolveSeedPassword()
 
   if (!directUrl) throw new Error('Missing DIRECT_URL or DATABASE_URL')
   if (!supabaseUrl) throw new Error('Missing SUPABASE_URL')
@@ -71,19 +74,27 @@ export function loadSeedEnv(): SeedEnv {
 }
 
 export function createPgPool(directUrl: string): pg.Pool {
-  const isLocal = /@(localhost|127\.0\.0\.1)(:|\/|$)/.test(directUrl)
-  if (isLocal) {
-    return new pg.Pool({ connectionString: directUrl })
-  }
+  const host = (() => {
+    try {
+      return new URL(directUrl).hostname.replace(/^\[|\]$/g, '').toLowerCase()
+    } catch {
+      return ''
+    }
+  })()
+  const isLocal =
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '::1' ||
+    host === 'host.docker.internal' ||
+    host === 'db' ||
+    host.startsWith('supabase_db_')
+  if (isLocal) return new pg.Pool({ connectionString: directUrl })
 
-  // Strip sslmode from URL so pg uses our ssl config (avoids cert chain errors on Supabase pooler).
-  const connectionString = directUrl
-    .replace(/([?&])sslmode=[^&]*&?/g, (_, sep) => (sep === '?' ? '?' : ''))
-    .replace(/[?&]$/, '')
-
+  // Non-local hosts are refused by the seed guard. If a URL is still passed
+  // here, verify the server certificate instead of skipping TLS checks.
   return new pg.Pool({
-    connectionString,
-    ssl: { rejectUnauthorized: false },
+    connectionString: directUrl,
+    ssl: { rejectUnauthorized: true },
   })
 }
 

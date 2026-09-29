@@ -10,12 +10,14 @@ import { DirectAdminClient } from './seed/directAdmin.js'
 import { createPgPool, loadSeedEnv } from './seed/helpers.js'
 
 async function main() {
-  const env = loadSeedEnv()
+  const env = loadSeedEnv({ resolvePassword: false })
   const pool = createPgPool(env.directUrl)
-  const admin = new DirectAdminClient(pool, env.demoPassword)
+  const admin = new DirectAdminClient(pool)
   try {
-    const { repaired } = await admin.repairAuthUsers(env.demoPassword)
-    console.log(`Repaired ${repaired} auth.users (identities, app metadata, confirmed email, password reset).`)
+    const { repaired } = await admin.repairAuthUsers()
+    console.log(
+      `Repaired ${repaired} auth.users (identities, app metadata, confirmed email). Passwords were left unchanged.`,
+    )
   } finally {
     await pool.end()
   }

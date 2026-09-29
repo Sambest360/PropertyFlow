@@ -8,7 +8,7 @@ Review of PropertyFlow as a product to sell to more than one agency. Findings ar
 
 ### Critical
 
-1. **Anonymous marketplace RPC returned full user rows.** `get_public_marketplace_bootstrap` and `_lite` are `SECURITY DEFINER` and granted to `anon`. They selected `to_jsonb(u)` from `users`, which includes `password_hash` and `metadata` (ID documents, ID numbers). Files: `database/postgres/migrations/006_public_marketplace_bootstrap.sql`, `007_public_marketplace_rooms.sql`, `008_public_marketplace_lite.sql`. **Fixed in `011_tenant_isolation.sql`** (safe projection). **Not applied** to the hosted database. Run `npm run db:migrate:isolation` against `DIRECT_URL` before treating production as closed.
+1. **Anonymous marketplace RPC returned full user rows.** `get_public_marketplace_bootstrap` and `_lite` are `SECURITY DEFINER` and granted to `anon`. They selected `to_jsonb(u)` from `users`, which includes `password_hash` and `metadata` (ID documents, ID numbers). Files: `database/postgres/migrations/006_public_marketplace_bootstrap.sql`, `007b_public_marketplace_rooms.sql`, `008a_public_marketplace_lite.sql`. **Fixed in `011_tenant_isolation.sql`** (safe projection). **Not applied** to the hosted database. Run `npm run db:migrate:isolation` against `DIRECT_URL` before treating production as closed.
 
    `011a_public_rpc_stopgap.sql` is a stopgap subset of `011`, applied manually in the Supabase SQL editor. It fixes only the anonymous RPC payload. The full `011` still has to be applied later.
 
@@ -92,7 +92,7 @@ Review of PropertyFlow as a product to sell to more than one agency. Findings ar
 ## Infrastructure
 
 - **Deploy.** Vercel static SPA. No preview-database story, no migration step in the deploy.
-- **Schema change.** Ad-hoc `psql` files. Duplicate `007_*` and `008_*` numbers. No migration runner, no record of what has been applied. `011` will not apply itself.
+- **Schema change.** Ad-hoc `psql` files. The local stack now uses one number per file (`007a`–`007c`, `008a`–`008c`). Hosted history may still record the old unsuffixed `007`/`008` names. No migration runner, no record of what has been applied. `011` will not apply itself.
 - **Backups.** Not described in the repo. Whatever Supabase's plan provides is the backup. There is no tested restore.
 - **Secrets.** `.env.example` is a template. `.gitignore` ignores `.env` and `.env.*`. Server secrets are not `VITE_` prefixed. The publishable Supabase key is in the client bundle on purpose.
 - **Observability.** `console.error` on a few routes and Vercel Speed Insights in the client. No structured logs, no alert on failed login spikes, no audit table for impersonation, role changes, or payment status changes. `event_log` exists and is not a security audit.

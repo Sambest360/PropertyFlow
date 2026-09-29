@@ -8,13 +8,13 @@ export type SuperAdminDef = {
 /** Platform super admins — preserved on demo seed reset. */
 export const SUPER_ADMINS: SuperAdminDef[] = [
   {
-    email: 'ephraimbampo317@gmail.com',
+    email: 'ephraim.admin@example.test',
     feId: 'u-super-ephraim',
     firstName: 'Ephraim',
     lastName: 'Bampo',
   },
   {
-    email: 'sambampo200@gmail.com',
+    email: 'samuel.admin@example.test',
     feId: 'u-super',
     firstName: 'Samuel',
     lastName: 'Bampo',

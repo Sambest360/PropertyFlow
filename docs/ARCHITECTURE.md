@@ -51,13 +51,13 @@ Postgres schema: `database/postgres/schema.sql`. An agency is a row in `clients`
 
 Core tables: `users`, `buildings`, `units`, `rooms`, `internal_assets`, `leads`, `applications`, `leases`, `viewing_slots`, `bookings`, `maintenance_tickets`, `payments`, `documents`, `message_threads`, `messages`, `notifications`, `event_log`, `client_lookup_configs`.
 
-Trust tables were added in `database/postgres/migrations/007_trust_banking.sql`. Billing tables are `billing_plans`, `client_subscriptions`, `invoices`.
+Trust tables were added in `database/postgres/migrations/007c_trust_banking.sql`. Billing tables are `billing_plans`, `client_subscriptions`, `invoices`.
 
 The UI does not use database UUIDs as its primary keys. `entity_id_map` translates frontend ids (`ag-…`, `u-…`, `PR-…`) to UUIDs. User and agency ids are also copied into `users.metadata.frontend_id` and `clients.settings.frontend_id`.
 
 Photos and registration documents are often base64 data URLs inside JSON (`units.images`, `users.metadata.verification.documents`), not object storage. That is why marketplace reads have a "lite" variant that returns only the cover image.
 
-Migrations are numbered SQL files under `database/postgres/migrations/`, applied by hand with `psql`. Numbers 007 and 008 are each used more than once, so order is the filename, not a single sequence. `npm run db:migrate` only applies `001_performance_indexes.sql`. `npm run db:migrate:isolation` applies `011_tenant_isolation.sql`.
+Migrations are numbered SQL files under `database/postgres/migrations/`, applied by hand with `psql`. Each forward migration has one number, so filename order is the apply order. The old duplicate `007` and `008` files are `007a`–`007c` and `008a`–`008c`. `011_tenant_isolation.sql` is the database-security migration. `012` (account takeover) and `013` (storage) are reserved and have no files. `npm run db:migrate` only applies `001_performance_indexes.sql`. `npm run db:migrate:isolation` applies `011_tenant_isolation.sql`.
 
 ## Auth and multi-tenancy
 

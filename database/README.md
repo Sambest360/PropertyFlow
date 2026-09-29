@@ -201,19 +201,7 @@ Examples:
 
 ### Demo password
 
-**Super admin (seeded):**
-
-| Email | Password |
-|-------|----------|
-| `sambampo200@gmail.com` | `secret` |
-
-Other seeded users still use the shared bcrypt-looking placeholder:
-
-```text
-$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy
-```
-
-Documented plaintext intent for those rows: `demo-password`. Replace with real bcrypt/argon2 hashes before production auth for non-admin demo accounts.
+Seed SQL does not contain a login password. Local scripts read `SEED_USER_PASSWORD`. If that variable is unset, they generate a strong password and print it once. The platform super admin email in this seed is `samuel.admin@example.test`.
 
 ### Useful Postgres queries
 
@@ -253,12 +241,12 @@ Or use `database/load.sh` if the `mysql` CLI is available.
 
 | Email | Role | Client |
 |-------|------|--------|
-| `super@propertyflow.app` | Super Admin | Platform |
-| `amelia@horizonrealty.co.za` | Client Admin | Horizon |
-| `lerato@horizonrealty.co.za` | Agent | Horizon |
-| `james@horizonrealty.co.za` | Agent | Horizon |
-| `lucas@email.com` | Tenant | Horizon |
-| `sipho@capecoastal.co.za` | Client Admin | Algoa Bay Estates |
+| `super.propertyflow@example.test` | Super Admin | Platform |
+| `amelia.horizonrealty@example.test` | Client Admin | Horizon |
+| `lerato.horizonrealty@example.test` | Agent | Horizon |
+| `james.horizonrealty@example.test` | Agent | Horizon |
+| `lucas@example.test` | Tenant | Horizon |
+| `sipho.capecoastal@example.test` | Client Admin | Algoa Bay Estates |
 
 ---
 

@@ -23,6 +23,8 @@
     "db:super-admin": "tsx scripts/create-super-admin.ts",
     "db:repair-auth": "tsx scripts/repair-auth-identities.ts",
     "db:seed:supabase": "tsx scripts/seed-supabase-demo.ts",
+    "db:seed:local": "tsx scripts/seed-local.ts",
+    "db:sync-migrations": "bash scripts/sync-supabase-migrations.sh",
     "db:seed:applicants": "tsx scripts/seed-applicants.ts",
     "db:seed": "psql -h 127.0.0.1 -d propertyflow -f database/postgres/seed_empty.sql",
     "db:seed:demo": "psql -h 127.0.0.1 -d propertyflow -f database/postgres/seed.sql && psql -h 127.0.0.1 -d propertyflow -f database/postgres/seed_pe_bulk.sql",

@@ -13,6 +13,7 @@
  */
 import crypto from 'node:crypto'
 import pg from 'pg'
+import { assertLocalDatabaseTargets } from './localOnlyGuard.js'
 
 type Where = { col: string; op: string; value: unknown }
 
@@ -272,7 +273,7 @@ export class DirectAdminClient {
   private pool: pg.Pool
   private password: string
 
-  constructor(pool: pg.Pool, demoPassword: string) {
+  constructor(pool: pg.Pool, demoPassword = '') {
     this.pool = pool
     this.password = demoPassword
   }
@@ -291,6 +292,12 @@ export class DirectAdminClient {
           const meta = input.user_metadata ?? {}
           const id = crypto.randomUUID()
           const pw = input.password ?? password
+          if (!pw) {
+            return {
+              data: { user: null },
+              error: { message: 'Seed user password is missing. Set SEED_USER_PASSWORD.' },
+            }
+          }
           const email = input.email.trim().toLowerCase()
           try {
             await insertGoTrueUser(pool, {
@@ -392,8 +399,18 @@ export class DirectAdminClient {
     return new DirectQuery(this.pool, table)
   }
 
-  /** Patch existing GoTrue rows that were seeded without identities (token HTTP 500). */
-  async repairAuthUsers(password?: string): Promise<{ repaired: number }> {
+  /**
+   * Patch existing GoTrue rows that were seeded without identities (token HTTP 500).
+   * Repairs identities and confirmation only. It does not set a password.
+   */
+  async repairAuthUsers(): Promise<{ repaired: number }> {
+    const connectionString = this.pool.options.connectionString
+    assertLocalDatabaseTargets([
+      {
+        label: 'database URL',
+        url: typeof connectionString === 'string' ? connectionString : undefined,
+      },
+    ])
     const res = await pq<{ id: string; email: string }>(
       this.pool,
       `SELECT id::text AS id, email FROM auth.users WHERE email IS NOT NULL`,
@@ -402,7 +419,6 @@ export class DirectAdminClient {
     let repaired = 0
     for (const row of res.rows) {
       await this.auth.admin.updateUserById(row.id, {
-        password: password ?? this.password,
         email_confirm: true,
       })
       repaired += 1
