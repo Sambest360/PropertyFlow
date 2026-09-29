@@ -141,7 +141,7 @@ import {
 } from '../lib/blockedApplicants'
 import type { PostgresBootstrap } from '../lib/api/postgresClient'
 import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
-import { notifyApplicationReceived } from '../lib/api/applicationReceivedNotify'
+import { submitApplicationViaApi, viteEnableApiIsOn } from '../lib/api/applicationCreate'
 import { notesWithoutScreening } from '../lib/applicationScreening'
 import {
   dedupeBootstrapFetch,
@@ -2702,12 +2702,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         })
       }
 
-      persistUpsert('application', app.id, app as unknown as Record<string, unknown>)
-
-      // Additive: email confirmation to the applicant. Body is only the
-      // reference code, with the session bearer token. A mail hiccup must
-      // never block or fail the application.
-      void notifyApplicationReceived(app.id).catch(() => {})
+      // VITE_ENABLE_API posts to POST /api/applications, which sends the
+      // application-received email. The flag-off path is the direct Supabase
+      // write and does not send that email. Neither path calls notify.
+      if (viteEnableApiIsOn()) {
+        void submitApplicationViaApi(app as unknown as Record<string, unknown>).catch(() => {})
+      } else {
+        persistUpsert('application', app.id, app as unknown as Record<string, unknown>)
+      }
 
       return app
     },
