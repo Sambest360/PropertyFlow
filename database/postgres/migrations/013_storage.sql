@@ -2,9 +2,20 @@
 -- Apply with: psql "$DIRECT_URL" -v ON_ERROR_STOP=1 -f database/postgres/migrations/013_storage.sql
 -- This file is not run by `npm run db:migrate` (that script only applies 001).
 --
--- Moves file bytes out of Postgres. The SPA uploads into a private bucket, then
--- calls register_file. Reads go through entity_files, which returns signed URLs
--- valid for one hour. ID documents that still sit in users.metadata as data URLs
+-- Moves file bytes out of Postgres. The SPA generates a UUID, uploads
+-- {agency_id}/{entity_type}/{entity_id}/{file_id}.{ext} with upsert false, then
+-- calls register_file. That function parses the id from the path, rejects it
+-- when it is already registered, stores it as the primary key, and returns
+-- the same id. It never mints a different one. The client then writes
+-- pfstore:v1:{file_id} into the old string fields; this migration does not
+-- store that prefix.
+--
+-- Reads: the client calls list_files({entity_type, entity_id}) and
+-- list_files({file_id}). Both return {files:[{file_id, kind, url, expires_at}]}
+-- with signed URLs valid for one hour. entity_files is the same listing as
+-- list_files(entity_type, entity_id).
+--
+-- ID documents that still sit in users.metadata as data URLs
 -- are moved by scripts/migrate-id-documents.ts together with
 -- migrate_user_metadata_documents() (see the end of this file).
 --
@@ -451,8 +462,9 @@ REVOKE ALL ON FUNCTION public.storage_signed_url(TEXT, TEXT) FROM PUBLIC;
 
 -- ---------------------------------------------------------------------------
 -- register_file({bucket, path, entity_type, entity_id, kind}) -> {file_id}
--- The file_id is the uuid already in the path. The SPA generates it, uploads
--- with upsert:false, then registers.
+-- The file_id is the UUID the client already put in the path. This function
+-- parses it, rejects a non-UUID, rejects an id or path that is already
+-- registered, uses it as stored_files.id, and returns that same id.
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION public.register_file(
@@ -479,7 +491,6 @@ DECLARE
   obj_meta JSONB;
   obj_mime TEXT;
   obj_size BIGINT;
-  existing public.stored_files%ROWTYPE;
 BEGIN
   IF auth.uid() IS NULL OR public.current_app_user_id() IS NULL THEN
     RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
@@ -505,8 +516,12 @@ BEGIN
     path_entity := folders[3]::UUID;
     file_id := split_part(storage.filename(path), '.', 1)::UUID;
   EXCEPTION WHEN invalid_text_representation THEN
-    RAISE EXCEPTION 'Invalid path' USING ERRCODE = '22023';
+    RAISE EXCEPTION 'Invalid file id' USING ERRCODE = '22023';
   END;
+  -- Reject non-canonical forms. The returned id must be the path segment.
+  IF lower(split_part(storage.filename(path), '.', 1)) IS DISTINCT FROM file_id::TEXT THEN
+    RAISE EXCEPTION 'Invalid file id' USING ERRCODE = '22023';
+  END IF;
   ext := lower(storage.extension(path));
   IF folders[2] IS DISTINCT FROM entity_type OR path_entity IS DISTINCT FROM entity_id THEN
     RAISE EXCEPTION 'Invalid path' USING ERRCODE = '22023';
@@ -559,24 +574,24 @@ BEGIN
     END IF;
   END IF;
 
-  SELECT * INTO existing FROM public.stored_files f WHERE f.bucket = register_file.bucket AND f.path = register_file.path;
-  IF FOUND THEN
-    IF existing.id = file_id
-       AND existing.entity_type = register_file.entity_type
-       AND existing.entity_id = register_file.entity_id
-       AND existing.kind = register_file.kind
-       AND existing.uploaded_by = public.current_app_user_id() THEN
-      RETURN jsonb_build_object('file_id', existing.id);
-    END IF;
-    RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+  IF EXISTS (
+    SELECT 1 FROM public.stored_files f
+    WHERE f.id = file_id
+       OR (f.bucket = register_file.bucket AND f.path = register_file.path)
+  ) THEN
+    RAISE EXCEPTION 'Already registered' USING ERRCODE = '23505';
   END IF;
 
-  INSERT INTO public.stored_files (
-    id, bucket, path, agency_id, entity_type, entity_id, kind, mime_type, byte_size, uploaded_by
-  ) VALUES (
-    file_id, bucket, path, entity_agency, entity_type, entity_id, kind, obj_mime, obj_size,
-    public.current_app_user_id()
-  );
+  BEGIN
+    INSERT INTO public.stored_files (
+      id, bucket, path, agency_id, entity_type, entity_id, kind, mime_type, byte_size, uploaded_by
+    ) VALUES (
+      file_id, bucket, path, entity_agency, entity_type, entity_id, kind, obj_mime, obj_size,
+      public.current_app_user_id()
+    );
+  EXCEPTION WHEN unique_violation THEN
+    RAISE EXCEPTION 'Already registered' USING ERRCODE = '23505';
+  END;
   RETURN jsonb_build_object('file_id', file_id);
 END;
 $$;
@@ -585,11 +600,12 @@ REVOKE ALL ON FUNCTION public.register_file(TEXT, TEXT, TEXT, UUID, TEXT) FROM P
 GRANT EXECUTE ON FUNCTION public.register_file(TEXT, TEXT, TEXT, UUID, TEXT) TO authenticated;
 
 -- ---------------------------------------------------------------------------
--- entity_files({entity_type, entity_id}) -> {files:[{file_id, kind, url, expires_at}]}
--- Signed URLs expire one hour after the call.
+-- list_files({entity_type, entity_id}) and list_files({file_id})
+-- -> {files:[{file_id, kind, url, expires_at}]}
+-- Signed URLs expire one hour after the call. entity_files is the entity form.
 -- ---------------------------------------------------------------------------
 
-CREATE OR REPLACE FUNCTION public.entity_files(
+CREATE OR REPLACE FUNCTION public.list_files(
   entity_type TEXT,
   entity_id UUID
 )
@@ -631,15 +647,76 @@ BEGIN
   ) ORDER BY f.created_at, f.id), '[]'::JSONB)
   INTO files
   FROM public.stored_files f
-  WHERE f.entity_type = entity_files.entity_type
-    AND f.entity_id = entity_files.entity_id
+  WHERE f.entity_type = list_files.entity_type
+    AND f.entity_id = list_files.entity_id
     AND (staff OR f.uploaded_by = public.current_app_user_id());
 
   RETURN jsonb_build_object('files', files);
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION public.entity_files(
+  entity_type TEXT,
+  entity_id UUID
+)
+RETURNS JSONB
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT public.list_files(entity_type, entity_id);
+$$;
+
+CREATE OR REPLACE FUNCTION public.list_files(
+  file_id UUID
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  row public.stored_files%ROWTYPE;
+  staff BOOLEAN;
+  party BOOLEAN;
+  expires TIMESTAMPTZ;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_app_user_id() IS NULL THEN
+    RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT * INTO row FROM public.stored_files f WHERE f.id = file_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Not found' USING ERRCODE = 'P0002';
+  END IF;
+
+  staff := public.is_agency_staff() AND public.current_app_client_id() = row.agency_id;
+  party := row.uploaded_by = public.current_app_user_id()
+    AND public.storage_caller_is_party(row.entity_type, row.entity_id);
+  IF NOT staff AND NOT party THEN
+    RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+  END IF;
+
+  expires := now() + INTERVAL '1 hour';
+  RETURN jsonb_build_object(
+    'files',
+    jsonb_build_array(jsonb_build_object(
+      'file_id', row.id,
+      'kind', row.kind,
+      'url', public.storage_signed_url(row.bucket, row.path),
+      'expires_at', expires
+    ))
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.list_files(TEXT, UUID) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.list_files(UUID) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.entity_files(TEXT, UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.list_files(TEXT, UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.list_files(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.entity_files(TEXT, UUID) TO authenticated;
 
 -- ---------------------------------------------------------------------------

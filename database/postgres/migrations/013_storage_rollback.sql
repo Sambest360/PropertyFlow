@@ -35,6 +35,8 @@ DROP FUNCTION IF EXISTS public.migrate_user_metadata_documents();
 DROP FUNCTION IF EXISTS public.metadata_document_plan();
 DROP FUNCTION IF EXISTS public.sweep_unregistered_storage();
 DROP FUNCTION IF EXISTS public.entity_files(TEXT, UUID);
+DROP FUNCTION IF EXISTS public.list_files(TEXT, UUID);
+DROP FUNCTION IF EXISTS public.list_files(UUID);
 DROP FUNCTION IF EXISTS public.register_file(TEXT, TEXT, TEXT, UUID, TEXT);
 DROP FUNCTION IF EXISTS public.storage_signed_url(TEXT, TEXT);
 DROP FUNCTION IF EXISTS public.storage_object_readable(TEXT, TEXT);

@@ -179,6 +179,7 @@ DECLARE
   applicant_b_user UUID;
   staff_b UUID := '66666666-6666-6666-6666-666666666666';
   files JSONB;
+  returned JSONB;
   saw_other BOOLEAN;
 BEGIN
   SELECT id INTO applicant_b_user FROM users WHERE auth_user_id = '55555555-5555-5555-5555-555555555555';
@@ -258,6 +259,31 @@ BEGIN
       WHERE name LIKE '%aaaaaaaaaa61.jpg' AND metadata ? 'replaced'
     )
   );
+
+  -- Staff B still owns the object above. The id in the path is the id returned.
+  returned := public.register_file(
+    'property-media',
+    'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/building/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb01/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaa61.jpg',
+    'building',
+    'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb01',
+    'property_image'
+  );
+  INSERT INTO storage_verify_results VALUES (
+    'returned_id_matches_path',
+    returned->>'file_id' = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaa61'
+  );
+  BEGIN
+    PERFORM public.register_file(
+      'property-media',
+      'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/building/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb01/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaa61.jpg',
+      'building',
+      'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb01',
+      'property_image'
+    );
+    INSERT INTO storage_verify_results VALUES ('register_twice', false);
+  EXCEPTION WHEN OTHERS THEN
+    INSERT INTO storage_verify_results VALUES ('register_twice', SQLERRM = 'Already registered');
+  END;
 END $$;
 
 SELECT check_name, refused FROM storage_verify_results ORDER BY check_name;

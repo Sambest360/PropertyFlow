@@ -360,6 +360,59 @@ describe.skipIf(!run)('private storage contract', () => {
     expect(up.status).toBeGreaterThanOrEqual(400)
   })
 
+  it('returns the file id from the path', async () => {
+    const staffA = sessions.staffA!
+    const fileId = randomUUID()
+    const path = `${ids.agencyA}/unit/${ids.unitA1}/${fileId}.jpg`
+    const up = await upload(staffA.token, 'property-media', path, jpeg, 'image/jpeg', false)
+    expect(up.status).toBe(200)
+
+    const registered = await rpc(staffA.token, 'register_file', {
+      bucket: 'property-media',
+      path,
+      entity_type: 'unit',
+      entity_id: ids.unitA1,
+      kind: 'property_image',
+    })
+    expect(registered.status).toBe(200)
+    const body = JSON.parse(registered.text) as { file_id: string }
+    expect(body.file_id).toBe(fileId)
+
+    const listed = await rpc(staffA.token, 'list_files', {
+      entity_type: 'unit',
+      entity_id: ids.unitA1,
+    })
+    expect(listed.status).toBe(200)
+    const files = (JSON.parse(listed.text) as { files: { file_id: string }[] }).files
+    expect(files.map((file) => file.file_id)).toContain(fileId)
+
+    const byId = await rpc(staffA.token, 'list_files', { file_id: fileId })
+    expect(byId.status).toBe(200)
+    expect(JSON.parse(byId.text)).toMatchObject({ files: [{ file_id: fileId, kind: 'property_image' }] })
+  })
+
+  it('refuses registering the same path twice', async () => {
+    const staffA = sessions.staffA!
+    const fileId = randomUUID()
+    const path = `${ids.agencyA}/unit/${ids.unitA1}/${fileId}.jpg`
+    expect((await upload(staffA.token, 'property-media', path, jpeg, 'image/jpeg', false)).status).toBe(200)
+
+    const args = {
+      bucket: 'property-media',
+      path,
+      entity_type: 'unit',
+      entity_id: ids.unitA1,
+      kind: 'property_image',
+    }
+    const first = await rpc(staffA.token, 'register_file', args)
+    expect(first.status).toBe(200)
+    expect((JSON.parse(first.text) as { file_id: string }).file_id).toBe(fileId)
+
+    const second = await rpc(staffA.token, 'register_file', args)
+    expect(second.status).toBeGreaterThanOrEqual(400)
+    expect(second.text).toContain('Already registered')
+  })
+
   it('refuses an overwrite', async () => {
     const staffA = sessions.staffA!
     const path = `${ids.agencyA}/unit/${ids.unitA1}/${randomUUID()}.jpg`
