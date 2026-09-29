@@ -108,13 +108,15 @@ export function mapGuestMarketplacePayload(payload: {
     const feRole = resolveFrontendRole(u.role as RoleDb, meta, email)
     const verification =
       meta.verification && typeof meta.verification === 'object' ? meta.verification : undefined
-    const display =
-      typeof u.display_name === 'string' && u.display_name.trim()
-        ? u.display_name.trim()
-        : `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim()
+    const named =
+      typeof u.landlord_name === 'string' && u.landlord_name.trim()
+        ? u.landlord_name.trim()
+        : typeof u.display_name === 'string' && u.display_name.trim()
+          ? u.display_name.trim()
+          : `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim()
     return {
       id: userByUuid.get(id)!,
-      name: display,
+      name: named,
       email,
       role: feRole,
       agencyId: mapAgencyFe(u.client_id as string),

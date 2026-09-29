@@ -135,7 +135,7 @@ done
 for id in c_first_name c_nickname c_auth_user_id d_staff_users \
   d_tenant_own_notification d_tenant_own_application \
   b_landlord_sees_linked_tenant c_service_role_can_set_role c_direct_admin_can_set_role \
-  a_client_flag_is_boolean a_verification_only_when_stored \
+  a_buildings_notes_absent a_client_flag_is_boolean a_verification_only_when_stored \
   e_marketplace_helpers_locked e_public_rpcs_executable \
   e_rls_helpers_anon_denied e_rls_helpers_authenticated; do
   expect_result "$WORK/verify-before.txt" "$id" PASS
@@ -279,6 +279,13 @@ if ! diff -q "$WORK/dump-pre.norm.sql" "$WORK/dump-post.norm.sql" >"$WORK/dump.d
 fi
 echo "  pg_dump --schema-only public diff: empty"
 
+echo "verify 011a invariants after rollback (notes, verification, JSON boolean)"
+run_verify "$WORK/verify-after-rollback.txt"
+for id in a_buildings_notes_absent a_client_flag_is_boolean a_verification_only_when_stored; do
+  expect_result "$WORK/verify-after-rollback.txt" "$id" PASS
+done
+echo "  invariants still PASS on the post-011a catalog"
+
 echo "re-apply 011 and verify again"
 bash "$HERE/apply.sh" >>"$LOG"
 if ! run_verify "$WORK/verify-reapply.txt"; then
@@ -291,12 +298,47 @@ if awk -F '\t' '$2 == "FAIL" { found = 1 } END { exit (found ? 0 : 1) }' "$WORK/
   exit 1
 fi
 
+echo "011b drops landlord email; 011a invariants stay"
+apply_file "$ROOT/database/postgres/migrations/011b_drop_marketplace_landlord_email.sql"
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -v agency_a_id="$AGENCY_A_ID" \
+  -v landlord_a_user_id="$LANDLORD_A_USER_ID" \
+  -v noverif_landlord_id="$NOVERIF_LANDLORD_ID" \
+  -A -F $'\t' --pset footer=off \
+  -f "$ROOT/database/postgres/migrations/011b_drop_marketplace_landlord_email_verify.sql" \
+  >"$WORK/verify-011b.txt"
+if awk -F '\t' '$2 == "FAIL" { found = 1 } END { exit (found ? 0 : 1) }' "$WORK/verify-011b.txt"; then
+  echo "011b verify has FAIL rows:" >&2
+  awk -F '\t' '$2 == "FAIL"' "$WORK/verify-011b.txt" >&2
+  exit 1
+fi
+pass_n="$(awk -F '\t' '$2 == "PASS" { c++ } END { print c + 0 }' "$WORK/verify-011b.txt")"
+if [[ "$pass_n" != "5" ]]; then
+  echo "011b verify expected 5 PASS rows, got $pass_n" >&2
+  cat "$WORK/verify-011b.txt" >&2
+  exit 1
+fi
+echo "  011b: 5 checks passed"
+apply_file "$ROOT/database/postgres/migrations/011b_drop_marketplace_landlord_email_rollback.sql"
+run_verify "$WORK/verify-after-011b-rollback.txt"
+for id in a_buildings_notes_absent a_client_flag_is_boolean a_verification_only_when_stored; do
+  expect_result "$WORK/verify-after-011b-rollback.txt" "$id" PASS
+done
+email_back="$(psql "$DATABASE_URL" -q -v ON_ERROR_STOP=1 -A -t -c "SELECT bool_or(u.value ? 'email') FROM jsonb_array_elements(public.get_public_marketplace_bootstrap(true)->'users') AS u(value)")"
+if [[ "$email_back" != "t" ]]; then
+  echo "011b rollback did not restore landlord email ($email_back)" >&2
+  exit 1
+fi
+echo "  011b rollback restored email; invariants still PASS"
+
 echo
 echo "REHEARSAL OK"
 echo "  database: $DATABASE_URL"
 echo "  before 011 FAIL count: $(awk -F '\t' '$1 != "SUMMARY" && $2 == "FAIL" { c++ } END { print c + 0 }' "$WORK/verify-before.txt")"
 echo "  after 011: $(awk -F '\t' '$1=="SUMMARY"{print $2, $3}' "$WORK/verify-after.txt")"
 echo "  after re-apply: $(awk -F '\t' '$1=="SUMMARY"{print $2, $3}' "$WORK/verify-reapply.txt")"
+echo "  invariants after 011 rollback: PASS"
+echo "  011b email removed, then restored"
 echo "  rollback catalog diff: empty"
 echo "  rollback schema dump diff: empty"
 echo "  log: $LOG"

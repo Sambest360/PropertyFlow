@@ -43,11 +43,11 @@ VALUES
   ('22222222-2222-4222-8222-000000000005', '22222222-2222-4222-8222-000000000005', '22222222-2222-4222-8222-222222222222', 'tenant.b@agency-b.test', '$2a$10$agencyBtenanthashxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', 'Tess', 'Tenant', '0210000005', 'END_USER', true, '{"frontend_id":"u-b-tenant","frontend_role":"tenant","verification":{"status":"not_required"}}'),
   ('22222222-2222-4222-8222-000000000006', '22222222-2222-4222-8222-000000000006', '22222222-2222-4222-8222-222222222222', 'contractor.b@agency-b.test', '$2a$10$agencyBcontractorhashxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', 'Cara', 'Contractor', '0210000006', 'CONTRACTOR', true, '{"frontend_id":"u-b-contractor","frontend_role":"contractor","verification":{"status":"approved"}}');
 
-INSERT INTO buildings (id, client_id, landlord_id, name, address, city, province)
+INSERT INTO buildings (id, client_id, landlord_id, name, address, city, province, notes)
 VALUES
-  ('11111111-1111-4111-8111-000000000101', '11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-000000000004', 'Agency A House', '1 A Street', 'Gqeberha', 'EC'),
-  ('11111111-1111-4111-8111-000000000102', '11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-000000000008', 'Agency A Second House', '3 A Street', 'Gqeberha', 'EC'),
-  ('22222222-2222-4222-8222-000000000101', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-000000000004', 'Agency B Private House', '2 B Street', 'Cape Town', 'WC');
+  ('11111111-1111-4111-8111-000000000101', '11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-000000000004', 'Agency A House', '1 A Street', 'Gqeberha', 'EC', 'INTERNAL-NOTE-LEAK'),
+  ('11111111-1111-4111-8111-000000000102', '11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-000000000008', 'Agency A Second House', '3 A Street', 'Gqeberha', 'EC', 'INTERNAL-NOTE-LEAK'),
+  ('22222222-2222-4222-8222-000000000101', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-000000000004', 'Agency B Private House', '2 B Street', 'Cape Town', 'WC', 'INTERNAL-NOTE-LEAK');
 
 -- A is published so the anon RPC has a landlord row to inspect.
 -- B is NOT_LISTED / DRAFT so public-listing policies must not reveal it.

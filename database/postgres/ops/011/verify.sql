@@ -87,8 +87,11 @@ BEGIN
         'formatted_address','geocoded_at','created_at'
       ]
       WHEN 'rooms' THEN ARRAY['id','unit_id','name','beds','baths','area_sqm','room_kind']
-      WHEN 'users' THEN ARRAY['landlord_id','display_name','client_id','role','active','metadata']
-      WHEN 'users.metadata' THEN ARRAY['verification']
+      WHEN 'users' THEN ARRAY[
+        'id','landlord_id','landlord_name','client_id','email','first_name','last_name',
+        'role','active','metadata'
+      ]
+      WHEN 'users.metadata' THEN ARRAY['frontend_id','frontend_role','verification']
       WHEN 'users.metadata.verification' THEN ARRAY['status']
       WHEN 'entity_id_map' THEN ARRAY['entity_type','backend_id','frontend_id']
       ELSE ARRAY[]::text[]
@@ -140,7 +143,7 @@ BEGIN
       bad := pg_temp.unexpected_keys(payload, '');
       SELECT count(*) INTO missing_landlord
       FROM jsonb_array_elements(COALESCE(payload -> 'users', '[]'::jsonb)) AS u(value)
-      WHERE NOT (u.value ? 'landlord_id' AND u.value ? 'display_name');
+      WHERE NOT (u.value ? 'landlord_id' AND u.value ? 'landlord_name');
 
       IF payload IS NULL OR payload::text NOT LIKE '%' || landlord_id || '%' THEN
         INSERT INTO verify_results VALUES (
@@ -152,7 +155,7 @@ BEGIN
         );
       ELSIF missing_landlord > 0 THEN
         INSERT INTO verify_results VALUES (
-          check_id, 'FAIL', 'a user object is missing landlord_id or display_name'
+          check_id, 'FAIL', 'a user object is missing landlord_id or landlord_name'
         );
       ELSE
         INSERT INTO verify_results VALUES (
@@ -170,6 +173,44 @@ BEGIN
       );
     END;
   END LOOP;
+END
+$check$;
+
+-- buildings.notes is internal. Both public RPCs must omit the key even when the column is set.
+DO $check$
+DECLARE
+  fname text;
+  payload jsonb;
+  bad text := '';
+  n_notes int;
+BEGIN
+  FOREACH fname IN ARRAY ARRAY[
+    'get_public_marketplace_bootstrap',
+    'get_public_marketplace_bootstrap_lite'
+  ]
+  LOOP
+    SET LOCAL ROLE anon;
+    IF fname = 'get_public_marketplace_bootstrap' THEN
+      payload := public.get_public_marketplace_bootstrap(true);
+    ELSE
+      payload := public.get_public_marketplace_bootstrap_lite(true);
+    END IF;
+    RESET ROLE;
+    SELECT count(*) INTO n_notes
+    FROM jsonb_array_elements(COALESCE(payload->'buildings', '[]'::jsonb)) AS b(value)
+    WHERE b.value ? 'notes';
+    IF n_notes > 0 OR payload::text LIKE '%INTERNAL-NOTE-LEAK%' OR payload::text LIKE '%"notes"%' THEN
+      bad := bad || fname || ' notes=' || n_notes || ' ';
+    END IF;
+  END LOOP;
+  INSERT INTO verify_results VALUES (
+    'a_buildings_notes_absent',
+    CASE WHEN bad = '' THEN 'PASS' ELSE 'FAIL' END,
+    CASE WHEN bad = '' THEN 'neither public RPC emits buildings.notes' ELSE bad END
+  );
+EXCEPTION WHEN OTHERS THEN
+  RESET ROLE;
+  INSERT INTO verify_results VALUES ('a_buildings_notes_absent', 'FAIL', SQLERRM);
 END
 $check$;
 

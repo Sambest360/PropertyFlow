@@ -2,7 +2,7 @@
 
 011 tightens Row Level Security so a landlord, tenant, or contractor cannot read another agency's rows, blocks self-service changes to privilege columns on `users`, hides `password_hash` from the `authenticated` role, and replaces the public marketplace RPCs with an explicit column allow-list. Landlord objects expose `landlord_id` and `display_name`, not email. `verification.status` is copied only when it is stored.
 
-`011a_public_rpc_stopgap.sql` is already the production stopgap for the anonymous RPC leak. 011 is applied after 011a. It replaces the same two function signatures (`boolean` in, `jsonb` out) and the same anon/authenticated grants. Rollback of 011 returns to that post-011a state. It does not restore the pre-011a `to_jsonb` bodies.
+`011a_public_rpc_stopgap.sql` (commit `e34834c` on `cursor/saas-foundations-f002`) is the production stopgap and is being applied first. 011 is applied after 011a. It replaces the same two function signatures (`boolean` in, `jsonb` out) and does not put back `buildings.notes`, a default verification status, or a string `isGlobalConfigClient`. Landlord email stays in 011. `011b_drop_marketplace_landlord_email.sql` removes that email and ships in the same release as the frontend mapper that keys landlords on `landlord_id` and `landlord_name`. Do not apply 011b before that frontend is deployed. Rollback of 011 returns to the post-011a state. It does not restore the pre-011a `to_jsonb` bodies, and it does not run 011b.
 
 It has not been applied to the hosted database. Do not apply it until the CEO approves this procedure. Do not merge this branch to `main` as part of the apply.
 
@@ -196,9 +196,12 @@ Claims match migration 002. `auth.uid()` reads `request.jwt.claim.sub`, then `re
 
 Every data row must be `PASS`, including:
 
-- `a_anon_bootstrap` and `a_anon_bootstrap_lite`: anon calls both RPCs. Every key is on the allow-list (no `password_hash`, `email`, building `notes`, or unit `deposit_amount`). `metadata` may contain only `verification.status`. Each user object has `landlord_id` and `display_name`, and the published landlord's id is in the payload.
-- `a_client_flag_is_boolean`: `settings.isGlobalConfigClient` is the JSON boolean `false`, not the string `"false"`.
-- `a_verification_only_when_stored`: a landlord who has `verification.status` gets that status; a landlord with no verification object does not get a default `approved`.
+- `a_anon_bootstrap` and `a_anon_bootstrap_lite`: anon calls both RPCs. Every key is on the allow-list (no `password_hash`, building `notes`, or unit `deposit_amount`). User objects still include `email` plus `landlord_id` and `landlord_name`. `metadata` may contain only `frontend_id`, `frontend_role`, and `verification.status`.
+- `a_buildings_notes_absent`: neither RPC has a `notes` key or the seeded internal note, including the lite payload.
+- `a_client_flag_is_boolean`: `settings.isGlobalConfigClient` is the JSON boolean `false` (`jsonb_typeof` = `boolean`), not the string `"false"`.
+- `a_verification_only_when_stored`: a landlord who has `verification.status` gets that status; a landlord with no verification object does not get a key of `approved`.
+
+Those three invariant checks are run after 011a, after 011, and after `rollback.sh` (back on 011a). They must PASS at all three points. Isolation checks are expected to FAIL again after rollback.
 - `e_marketplace_helpers_locked`: `anon` and `authenticated` cannot `EXECUTE` the marketplace JSON helpers.
 - `e_public_rpcs_executable`: both roles can `EXECUTE` the two public RPCs.
 - `e_rls_helpers_anon_denied` and `e_rls_helpers_authenticated`: `anon` cannot execute the listing helpers; `authenticated` can, because the policies call them.
@@ -259,7 +262,7 @@ Signed-out browser, then one user of each role. Production writes go through the
 
 | Surface | Route | What to look for |
 | --- | --- | --- |
-| Marketplace home and browse | `/`, `/browse` | Listings, buildings, and agency names still render. Landlord cards must not show a password hash, an ID document, or an email. The guest mapper keys landlords on `landlord_id` and shows `display_name`. |
+| Marketplace home and browse | `/`, `/browse` | Listings, buildings, and agency names still render. Landlord cards must not show a password hash, an ID document, or building notes. Email still renders after 011. It disappears only after 011b and the mapper that reads `landlord_id` / `landlord_name`. |
 | Listing detail | `/listing/:id` | Cover image and facts load. Enquiry form still posts. |
 | Staff dashboard | `/workspace` | Own agency properties, leads, applications, payments. No other agency's names in those lists. |
 | Tenant portal | `/workspace/portals/tenant` | Own application, maintenance, messages. Not another agency's. |
@@ -267,7 +270,13 @@ Signed-out browser, then one user of each role. Production writes go through the
 
 ## App code that can break
 
-`src/lib/supabase/mapGuestMarketplace.ts` keys the guest user map on `landlord_id` (falling back to `id` for an older payload) and the display name on `display_name` (falling back to first + last). Email is used only when the payload still contains a string; otherwise the card email is empty. `entity_id_map` is still applied after that, so frontend ids for landlords still resolve when the map row exists. The only metadata key on the anon payload is `verification.status`, and only when that status is stored. `isGlobalConfigClient` is a JSON boolean; the mapper treats only real `true` (or the string `'true'`) as the global-config client, so a boolean `false` keeps the agency on the marketplace. `resolveFrontendRole` in `src/lib/supabase/idMap.ts` falls back to the database role for `LANDLORD`. `src/lib/supabase/publicMarketplace.ts` is the caller (`get_public_marketplace_bootstrap_lite`, then the full RPC).
+Apply order for the marketplace payloads:
+
+1. **011a** (already going to production from `e34834c`). Closes the anonymous leak. Landlord email is still returned.
+2. **011**. Tenant isolation, privilege trigger, and an explicit building/unit/room allow-list so `buildings.notes` cannot come back. Adds `landlord_id` and `landlord_name`. Keeps `email`, `id`, and the 011a user fields the current mapper reads.
+3. **011b** (`011b_drop_marketplace_landlord_email.sql`), in the same release as the frontend deploy. Removes `email` from `marketplace_user_json`. Verify with `011b_drop_marketplace_landlord_email_verify.sql`. Undo with `011b_drop_marketplace_landlord_email_rollback.sql`, which puts the 011 function back. Do not apply 011b while the live frontend still requires `user.email`.
+
+`src/lib/supabase/mapGuestMarketplace.ts` prefers `landlord_id` (then `id`) and `landlord_name` (then first + last). Email is shown when the payload still has a string, which it does after 011 and does not after 011b. `entity_id_map` is still applied after that. `metadata` on the anon payload is limited to `frontend_id`, `frontend_role`, and `verification.status` when that status is stored. `isGlobalConfigClient` is a JSON boolean; the mapper treats only real `true` (or the string `'true'`) as the global-config client, so a boolean `false` keeps the agency on the marketplace. `src/lib/supabase/publicMarketplace.ts` is the caller (`get_public_marketplace_bootstrap_lite`, then the full RPC).
 
 `src/lib/supabase/data.ts` selects named user columns (`id, client_id, email, first_name, last_name, phone, role, active, metadata`) and `select('*')` on the other tenant tables. Those user columns stay granted. `select('*')` on `users` does not: `password_hash` is omitted from the column grant, and Postgres rejects the whole select. `src/lib/supabase/auth.ts` uses that fallback only when `auth_bootstrap_needed` errors (`select('*', { count: 'exact', head: true })` around the bootstrap-needed check). If that RPC is healthy, the fallback does not run.
 

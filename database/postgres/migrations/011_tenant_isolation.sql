@@ -391,34 +391,49 @@ CREATE POLICY messages_insert_own ON messages
 -- Public marketplace RPCs: explicit column allow-list. Never to_jsonb a row.
 -- ---------------------------------------------------------------------------
 
--- Stable landlord key for the guest mapper. Email, phone, and password_hash stay
--- out. verification.status is copied with -> only when that key is stored.
--- A missing status is omitted. It is not filled in as 'approved' (the listing
--- filter still treats a missing status as approved for inclusion only).
+-- 011a fields stay, including email, so the current guest mapper keeps working.
+-- landlord_id and landlord_name are added for the mapper that ships with 011b.
+-- 011b_drop_marketplace_landlord_email.sql is what removes email.
+-- verification.status is copied with -> only when that key is stored.
+-- A missing status is omitted. It is not filled in as 'approved'.
 CREATE OR REPLACE FUNCTION public.marketplace_user_json(u users)
 RETURNS jsonb
 LANGUAGE sql
 STABLE
 AS $$
   SELECT jsonb_strip_nulls(jsonb_build_object(
+    'id', u.id,
     'landlord_id', u.id,
-    'display_name', trim(concat_ws(' ', u.first_name, u.last_name)),
+    'landlord_name', trim(concat_ws(' ', u.first_name, u.last_name)),
     'client_id', u.client_id,
+    'email', u.email,
+    'first_name', u.first_name,
+    'last_name', u.last_name,
     'role', u.role,
     'active', u.active,
-    'metadata', CASE
-      WHEN jsonb_typeof(u.metadata->'verification') = 'object'
-           AND (u.metadata->'verification') ? 'status'
-           AND jsonb_typeof(u.metadata->'verification'->'status') <> 'null'
-      THEN jsonb_build_object(
-        'verification', jsonb_build_object(
-          'status', u.metadata->'verification'->'status'
-        )
-      )
-    END
+    'metadata', NULLIF(jsonb_strip_nulls(jsonb_build_object(
+      'frontend_id', CASE
+        WHEN u.metadata ? 'frontend_id'
+             AND jsonb_typeof(u.metadata->'frontend_id') <> 'null'
+        THEN u.metadata->'frontend_id'
+      END,
+      'frontend_role', CASE
+        WHEN u.metadata ? 'frontend_role'
+             AND jsonb_typeof(u.metadata->'frontend_role') <> 'null'
+        THEN u.metadata->'frontend_role'
+      END,
+      'verification', CASE
+        WHEN jsonb_typeof(u.metadata->'verification') = 'object'
+             AND (u.metadata->'verification') ? 'status'
+             AND jsonb_typeof(u.metadata->'verification'->'status') <> 'null'
+        THEN jsonb_build_object('status', u.metadata->'verification'->'status')
+      END
+    )), '{}'::jsonb)
   ));
 $$;
 
+-- Explicit columns. notes is internal and is not selected. to_jsonb(b) would
+-- emit it, including on the lite path that only removed images.
 CREATE OR REPLACE FUNCTION public.marketplace_building_json(b buildings, p_cover_only boolean)
 RETURNS jsonb
 LANGUAGE sql
