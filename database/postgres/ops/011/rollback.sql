@@ -18,6 +18,7 @@
 
 DROP TRIGGER IF EXISTS entity_id_map_guard ON entity_id_map;
 DROP FUNCTION IF EXISTS public.entity_id_map_guard();
+DROP FUNCTION IF EXISTS public.entity_backend_client_id(text, uuid);
 DROP POLICY IF EXISTS entity_id_map_staff_write ON entity_id_map;
 DROP TABLE IF EXISTS application_screening;
 DROP TABLE IF EXISTS public_enquiry_hits;
@@ -378,8 +379,24 @@ DROP FUNCTION IF EXISTS public.viewing_slot_on_public_listing(uuid);
 \ir ../../migrations/005_public_listing_enquiry.sql
 \ir ../../migrations/009_fix_auth_user_profile_sync.sql
 
-GRANT ALL ON FUNCTION public.admin_update_user_verification(text, text, text) TO anon, authenticated, service_role;
-GRANT ALL ON FUNCTION public.approve_application(text, jsonb) TO anon, authenticated, service_role;
-GRANT ALL ON FUNCTION public.sync_auth_user_profile(uuid) TO anon, authenticated, service_role;
-GRANT ALL ON FUNCTION public.handle_new_auth_user() TO anon, authenticated, service_role;
-GRANT ALL ON FUNCTION public.ensure_user_profile() TO anon, authenticated, service_role;
+-- Put function ACLs back in the order default privileges created them.
+-- PUBLIC execute is the Postgres default; 011c revokes it and pg_dump then emits REVOKE.
+DO $$
+DECLARE
+  sig text;
+BEGIN
+  FOREACH sig IN ARRAY ARRAY[
+    'public.admin_update_user_verification(text, text, text)',
+    'public.approve_application(text, jsonb)',
+    'public.ensure_user_profile()',
+    'public.handle_new_auth_user()',
+    'public.sync_auth_user_profile(uuid)'
+  ]
+  LOOP
+    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated, service_role', sig);
+    EXECUTE format('GRANT ALL ON FUNCTION %s TO PUBLIC', sig);
+    EXECUTE format('GRANT ALL ON FUNCTION %s TO anon', sig);
+    EXECUTE format('GRANT ALL ON FUNCTION %s TO authenticated', sig);
+    EXECUTE format('GRANT ALL ON FUNCTION %s TO service_role', sig);
+  END LOOP;
+END $$;

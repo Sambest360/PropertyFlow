@@ -93,6 +93,33 @@ WHERE m.entity_type = src.entity_type
   AND src.owner_id IS NOT NULL
   AND m.client_id IS DISTINCT FROM src.owner_id;
 
+-- Ownership lookup bypasses RLS. The guard itself stays invoker so current_user
+-- is the API role. Inlining the lookup would hide the other agency's row and
+-- let a staff update point a frontend id at it.
+CREATE OR REPLACE FUNCTION public.entity_backend_client_id(p_type text, p_id uuid)
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT CASE p_type
+    WHEN 'unit' THEN (SELECT client_id FROM units WHERE id = p_id)
+    WHEN 'property' THEN (SELECT client_id FROM units WHERE id = p_id)
+    WHEN 'building' THEN (SELECT client_id FROM buildings WHERE id = p_id)
+    WHEN 'agency' THEN p_id
+    WHEN 'user' THEN (SELECT client_id FROM users WHERE id = p_id)
+    WHEN 'viewing_slot' THEN (SELECT client_id FROM viewing_slots WHERE id = p_id)
+    WHEN 'tenancy' THEN (SELECT client_id FROM leases WHERE id = p_id)
+    WHEN 'lead' THEN (SELECT client_id FROM leads WHERE id = p_id)
+    WHEN 'application' THEN (SELECT client_id FROM applications WHERE id = p_id)
+    ELSE NULL
+  END;
+$$;
+
+REVOKE ALL ON FUNCTION public.entity_backend_client_id(text, uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.entity_backend_client_id(text, uuid) TO authenticated, service_role;
+
 CREATE OR REPLACE FUNCTION public.entity_id_map_guard()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -104,18 +131,7 @@ DECLARE
   caller text;
   jwt_role text;
 BEGIN
-  owner_id := CASE NEW.entity_type
-    WHEN 'unit' THEN (SELECT client_id FROM units WHERE id = NEW.backend_id)
-    WHEN 'property' THEN (SELECT client_id FROM units WHERE id = NEW.backend_id)
-    WHEN 'building' THEN (SELECT client_id FROM buildings WHERE id = NEW.backend_id)
-    WHEN 'agency' THEN NEW.backend_id
-    WHEN 'user' THEN (SELECT client_id FROM users WHERE id = NEW.backend_id)
-    WHEN 'viewing_slot' THEN (SELECT client_id FROM viewing_slots WHERE id = NEW.backend_id)
-    WHEN 'tenancy' THEN (SELECT client_id FROM leases WHERE id = NEW.backend_id)
-    WHEN 'lead' THEN (SELECT client_id FROM leads WHERE id = NEW.backend_id)
-    WHEN 'application' THEN (SELECT client_id FROM applications WHERE id = NEW.backend_id)
-    ELSE NULL
-  END;
+  owner_id := public.entity_backend_client_id(NEW.entity_type, NEW.backend_id);
 
   IF owner_id IS NOT NULL THEN
     IF NEW.client_id IS NULL THEN
