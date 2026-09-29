@@ -101,6 +101,15 @@ async function postItn(
   })
 }
 
+const CALLER_FORWARDING = {
+  'x-forwarded-for': PAYFAST_IP,
+  forwarded: `for=${PAYFAST_IP}`,
+  'x-client-ip': PAYFAST_IP,
+  'true-client-ip': PAYFAST_IP,
+  'cf-connecting-ip': PAYFAST_IP,
+  'x-original-forwarded-for': PAYFAST_IP,
+}
+
 beforeEach(() => {
   process.env.PAYFAST_MERCHANT_ID = MERCHANT_ID
   process.env.PAYFAST_MERCHANT_KEY = MERCHANT_KEY
@@ -108,6 +117,13 @@ beforeEach(() => {
   process.env.PAYFAST_MODE = 'sandbox'
   delete process.env.PAYFAST_CLIENT_IP_HEADER
   delete process.env.PAYFAST_TRUSTED_PROXY_HOPS
+  delete process.env.PAYFAST_VALIDATE_URL
+  delete process.env.PAYFAST_VALIDATE_STUB
+  delete process.env.PAYFAST_ITN_LOCAL
+  delete process.env.PAYFAST_ITN_PLATFORM_SECRET
+  delete process.env.PAYFAST_ITN_PLATFORM_IP
+  delete process.env.PAYFAST_ITN_PLATFORM_IP_HEADER
+  delete process.env.PAYFAST_ITN_PLATFORM_SECRET_HEADER
   installDb()
 })
 
@@ -122,6 +138,91 @@ describe('PayFast ITN route', () => {
     expect(res.status).toBe(400)
     expect(credits).toBe(0)
     expect(paymentStatus).toBe('DUE')
+    expect(fetchImpl).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+
+  it('rejects spoofed forwarding headers when the platform address is not a PayFast IP', async () => {
+    const fetchImpl = vi.fn()
+    vi.stubGlobal('fetch', fetchImpl)
+    const res = await postItn(itnBody(), {
+      ...CALLER_FORWARDING,
+      'x-real-ip': '203.0.113.50',
+    })
+    expect(res.status).toBe(400)
+    expect(await res.text()).toMatch(/rejected/i)
+    expect(credits).toBe(0)
+    expect(paymentStatus).toBe('DUE')
+    expect(fetchImpl).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+
+  it('rejects caller forwarding headers when no platform address is set', async () => {
+    const fetchImpl = vi.fn()
+    vi.stubGlobal('fetch', fetchImpl)
+    const res = await postItn(itnBody(), CALLER_FORWARDING)
+    expect(res.status).toBe(400)
+    expect(credits).toBe(0)
+    expect(fetchImpl).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+
+  it('local harness uses only the secret-gated platform address and the validate stub', async () => {
+    process.env.PAYFAST_ITN_LOCAL = '1'
+    process.env.PAYFAST_ITN_PLATFORM_SECRET = 'qa-secret'
+    process.env.PAYFAST_VALIDATE_STUB = '1'
+    const fetchImpl = vi.fn()
+    vi.stubGlobal('fetch', fetchImpl)
+
+    const spoofed = await postItn(itnBody(), {
+      ...CALLER_FORWARDING,
+      'x-real-ip': PAYFAST_IP,
+      'x-pf-platform-ip': '203.0.113.50',
+      'x-pf-platform-secret': 'qa-secret',
+      'x-pf-validate-stub': 'VALID',
+    })
+    expect(spoofed.status).toBe(400)
+    expect(credits).toBe(0)
+    expect(paymentStatus).toBe('DUE')
+
+    const unsigned = await postItn(itnBody(), {
+      ...CALLER_FORWARDING,
+      'x-real-ip': PAYFAST_IP,
+      'x-pf-platform-ip': PAYFAST_IP,
+      'x-pf-validate-stub': 'VALID',
+    })
+    expect(unsigned.status).toBe(400)
+    expect(credits).toBe(0)
+
+    const invalid = await postItn(itnBody(), {
+      ...CALLER_FORWARDING,
+      'x-pf-platform-ip': PAYFAST_IP,
+      'x-pf-platform-secret': 'qa-secret',
+      'x-pf-validate-stub': 'INVALID',
+    })
+    expect(invalid.status).toBe(400)
+    expect(credits).toBe(0)
+    expect(paymentStatus).toBe('DUE')
+
+    const paid = await postItn(itnBody(), {
+      ...CALLER_FORWARDING,
+      'x-real-ip': '203.0.113.50',
+      'x-pf-platform-ip': PAYFAST_IP,
+      'x-pf-platform-secret': 'qa-secret',
+      'x-pf-validate-stub': 'VALID',
+    })
+    expect(paid.status).toBe(200)
+    expect(credits).toBe(1)
+    expect(paymentStatus).toBe('PAID')
+
+    const duplicate = await postItn(itnBody(), {
+      ...CALLER_FORWARDING,
+      'x-pf-platform-ip': PAYFAST_IP,
+      'x-pf-platform-secret': 'qa-secret',
+      'x-pf-validate-stub': 'VALID',
+    })
+    expect(duplicate.status).toBe(200)
+    expect(credits).toBe(1)
     expect(fetchImpl).not.toHaveBeenCalled()
     vi.unstubAllGlobals()
   })

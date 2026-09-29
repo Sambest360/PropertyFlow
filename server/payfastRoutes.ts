@@ -31,14 +31,18 @@
  *           503 payfast_not_configured, 500 payfast_create_failed.
  *
  * POST /api/payfast/itn
- *   PayFast server-to-server notification (form-encoded). Source IP is the
- *   platform client IP (`x-real-ip` by default, or the last trusted
- *   X-Forwarded-For hop — never the first, client-controlled entry).
- *   Signature is required in sandbox and live. merchant_id must match
+ *   PayFast server-to-server notification (form-encoded). The source IP is
+ *   only the platform-set address (`x-real-ip` by default). X-Forwarded-For,
+ *   Forwarded, X-Client-IP, and every other caller forwarding header are
+ *   ignored. With PAYFAST_ITN_LOCAL=1 the address comes from the secret-gated
+ *   harness header or PAYFAST_ITN_PLATFORM_IP, and a normal request cannot
+ *   set it. Signature is required in sandbox and live. merchant_id must match
  *   PAYFAST_MERCHANT_ID. amount_gross must match the ledger payment.
- *   The same body is posted to PayFast's validate URL; the payment is marked
- *   PAID only when the body is exactly VALID. A duplicate ITN for a payment
- *   that is already terminal does not credit again.
+ *   The body is posted to PAYFAST_VALIDATE_URL (sandbox or live by default).
+ *   PAYFAST_VALIDATE_STUB=1 with local mode skips that call and uses the
+ *   secret-gated stub header instead. The payment is marked PAID only when
+ *   the result is exactly VALID. A duplicate ITN for a payment that is
+ *   already terminal does not credit again.
  *   Verified requests answer 200 so PayFast stops retrying; rejected
  *   requests get 400 and the ledger is left unchanged.
  */
@@ -55,6 +59,7 @@ import {
   extraItnIpsFromEnv,
   payfastConfigFromEnv,
   resolveItnClientIp,
+  validatePlanFromEnv,
   verifyItn,
   type PayfastConfig,
 } from './payfast.js'
@@ -236,14 +241,16 @@ export async function payfastItn(c: Context) {
       logPayfastFailure('payfast_itn_unknown_payment', new Error(body.m_payment_id ?? ''))
       return c.text('ITN rejected', 400)
     }
-    const validateUrl = cfg.validateUrl
-    if (!validateUrl) {
-      logPayfastFailure('payfast_itn_rejected', new Error('ITN validate URL is not configured'))
-      return c.text('ITN rejected', 400)
-    }
+    const readHeader = (name: string) => c.req.header(name)
+    const plan = validatePlanFromEnv(readHeader)
     let confirmation: { valid: boolean; responseText: string }
     try {
-      confirmation = await confirmItnWithPayfast(body, validateUrl)
+      if (plan.kind === 'stub') {
+        if (plan.result === 'ERROR') throw new Error('validate stub error')
+        confirmation = { valid: plan.result === 'VALID', responseText: plan.result }
+      } else {
+        confirmation = await confirmItnWithPayfast(body, plan.url)
+      }
     } catch (validateErr) {
       logPayfastFailure('payfast_itn_validate_failed', validateErr)
       return c.text('ITN rejected', 400)

@@ -56,7 +56,7 @@ Review of PropertyFlow as a product to sell to more than one agency. Findings ar
 
 21. **Staff-created users default to the temporary password `ChangeMe123!`** (`src/pages/admin/AdminUserCreatePage.tsx`, `src/context/AppStore.tsx`). It is shown to the admin. It is still a known password if they do not change it.
 
-22. **PayFast ITN source IP.** The check uses the platform client IP (`x-real-ip` on Vercel, or the last trusted `X-Forwarded-For` hop), in sandbox and live. The first `X-Forwarded-For` entry is not trusted. Signature, merchant id, ledger amount, and PayFast's validate postback are all required before a payment is marked paid.
+22. **PayFast ITN source IP.** The check uses only the platform-set client IP (`x-real-ip` on Vercel), in sandbox and live. `X-Forwarded-For`, `Forwarded`, `X-Client-IP`, and other caller forwarding headers are ignored, including when they carry an allow-listed PayFast address. Signature, merchant id, ledger amount, and PayFast's validate postback are all required before a payment is marked paid. Local QA can stub that postback and inject the platform address with `PAYFAST_ITN_LOCAL=1`; that mode must stay off in production (`docs/payfast-itn-qa.md`).
 
 23. **Cookies** are `Secure` in production now. JWT lifetime is still 14 days.
 

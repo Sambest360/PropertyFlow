@@ -12,11 +12,11 @@
  *  2. POST the fields as a form to the process URL (sandbox or live); PayFast
  *     renders its hosted payment page.
  *  3. PayFast server-to-server ITN (Instant Transaction Notification) hits
- *     `notify_url`. We take the platform client IP (not the first
- *     X-Forwarded-For hop), require a signature in sandbox and live, check
+ *     `notify_url`. We take only the platform-set client IP and ignore every
+ *     caller forwarding header, require a signature in sandbox and live, check
  *     merchant_id and amount_gross against the ledger, then POST the payload
- *     back to PayFast's validate URL. The payment is marked PAID only when
- *     that postback returns VALID.
+ *     back to PayFast's validate URL (or the local QA stub). The payment is
+ *     marked PAID only when that postback returns VALID.
  *
  * Money: PayFast `amount` is a decimal ZAR string ("12.34"). Our payments
  * table stores ZAR rand as numeric — convert at the edges.
@@ -61,33 +61,82 @@ export function payfastConfigFromEnv(): PayfastConfig | null {
   const live = process.env.PAYFAST_MODE?.trim().toLowerCase() === 'live'
   // Live ITNs are forgeable without a passphrase: merchant id and key are in the browser form.
   if (live && !passphrase) return null
+  const validateOverride = process.env.PAYFAST_VALIDATE_URL?.trim()
   return {
     merchantId,
     merchantKey,
     passphrase: passphrase || undefined,
     processUrl: live ? PAYFAST_LIVE_PROCESS_URL : PAYFAST_PROCESS_URL,
-    validateUrl: live ? PAYFAST_LIVE_VALIDATE_URL : PAYFAST_VALIDATE_URL,
+    validateUrl: validateOverride || (live ? PAYFAST_LIVE_VALIDATE_URL : PAYFAST_VALIDATE_URL),
   }
 }
 
 /**
  * How the ITN handler learns the connecting client IP.
  *
- * `PAYFAST_CLIENT_IP_HEADER` — header the platform sets to the real client
- * address. Default `x-real-ip`. On Vercel the edge overwrites that header, so
- * a browser-supplied value cannot survive. Set to `none` to ignore it.
+ * Production reads exactly one platform header, `PAYFAST_CLIENT_IP_HEADER`
+ * (default `x-real-ip`). On Vercel the edge overwrites that header. Every
+ * other forwarding header (`X-Forwarded-For`, `Forwarded`, `X-Client-IP`, and
+ * the rest) is ignored. There is no fallback to those headers when the
+ * platform header is missing.
  *
- * `PAYFAST_TRUSTED_PROXY_HOPS` — when the platform header is absent, which
- * X-Forwarded-For entry to trust, counted from the right. Default 1: the last
- * entry, appended by the nearest trusted proxy. The first entry is whatever
- * the client sent and is never used.
+ * `PAYFAST_TRUSTED_PROXY_HOPS` applies only when the operator sets the
+ * platform header to `x-forwarded-for` or `forwarded` (a proxy that appends
+ * the client address). The hop is counted from the right. Default 1.
+ *
+ * Local QA (`PAYFAST_ITN_LOCAL=1`) does not trust any request IP header. The
+ * platform address is `PAYFAST_ITN_PLATFORM_IP`, or the header
+ * `PAYFAST_ITN_PLATFORM_IP_HEADER` (default `x-pf-platform-ip`) when the
+ * request also presents `PAYFAST_ITN_PLATFORM_SECRET` in
+ * `PAYFAST_ITN_PLATFORM_SECRET_HEADER` (default `x-pf-platform-secret`).
+ * A normal request cannot set that address. Never enable local mode on a
+ * deployed server.
  *
  * `PAYFAST_ITN_EXTRA_IPS` — comma-separated extra source IPs (local ITN
  * simulators). The PayFast allow-list still applies in sandbox and live.
  */
+export const PAYFAST_PLATFORM_IP_HEADER = 'x-pf-platform-ip'
+export const PAYFAST_PLATFORM_SECRET_HEADER = 'x-pf-platform-secret'
+export const PAYFAST_VALIDATE_STUB_HEADER = 'x-pf-validate-stub'
+
+/** Headers a caller can set. Never consulted unless one of them is the configured platform header. */
+const CALLER_IP_HEADERS = new Set([
+  'x-forwarded-for',
+  'forwarded',
+  'x-client-ip',
+  'x-forwarded',
+  'x-cluster-client-ip',
+  'true-client-ip',
+  'cf-connecting-ip',
+  'fastly-client-ip',
+  'x-original-forwarded-for',
+  'x-real-ip',
+])
+
 export type ClientIpSettings = {
+  /** Platform header. Null means "no platform header" (reject unless local harness supplies an IP). */
   header: string | null
   trustedProxyHops: number
+  /** QA mode. Ignores every caller IP header, including the production platform header. */
+  localMode: boolean
+  harnessSecret: string | null
+  harnessIpHeader: string
+  harnessSecretHeader: string
+  /** Fixed platform address from the server environment. A request cannot change it. */
+  fixedPlatformIp: string | null
+}
+
+function headerName(raw: string | undefined, fallback: string): string {
+  const name = (raw?.trim() || fallback).toLowerCase()
+  if (!name || CALLER_IP_HEADERS.has(name) || name === 'authorization' || name === 'cookie') {
+    return fallback
+  }
+  return name
+}
+
+function positiveHops(raw: string | undefined): number {
+  const hops = Number(raw ?? '1')
+  return Number.isFinite(hops) && hops >= 1 ? Math.floor(hops) : 1
 }
 
 export function clientIpSettingsFromEnv(
@@ -95,10 +144,22 @@ export function clientIpSettingsFromEnv(
 ): ClientIpSettings {
   const raw = env.PAYFAST_CLIENT_IP_HEADER
   const header = (raw === undefined ? 'x-real-ip' : raw).trim().toLowerCase()
-  const hops = Number(env.PAYFAST_TRUSTED_PROXY_HOPS ?? '1')
+  const localMode = env.PAYFAST_ITN_LOCAL?.trim() === '1'
+  const secret = env.PAYFAST_ITN_PLATFORM_SECRET?.trim() || null
+  let harnessIpHeader = headerName(env.PAYFAST_ITN_PLATFORM_IP_HEADER, PAYFAST_PLATFORM_IP_HEADER)
+  let harnessSecretHeader = headerName(env.PAYFAST_ITN_PLATFORM_SECRET_HEADER, PAYFAST_PLATFORM_SECRET_HEADER)
+  if (harnessIpHeader === harnessSecretHeader) {
+    harnessIpHeader = PAYFAST_PLATFORM_IP_HEADER
+    harnessSecretHeader = PAYFAST_PLATFORM_SECRET_HEADER
+  }
   return {
     header: header === '' || header === 'none' ? null : header,
-    trustedProxyHops: Number.isFinite(hops) && hops >= 1 ? Math.floor(hops) : 1,
+    trustedProxyHops: positiveHops(env.PAYFAST_TRUSTED_PROXY_HOPS),
+    localMode,
+    harnessSecret: localMode ? secret : null,
+    harnessIpHeader,
+    harnessSecretHeader,
+    fixedPlatformIp: env.PAYFAST_ITN_PLATFORM_IP?.trim() || null,
   }
 }
 
@@ -111,28 +172,121 @@ export function extraItnIpsFromEnv(env: NodeJS.ProcessEnv = process.env): Set<st
   return ips
 }
 
+function secretsMatch(presented: string, expected: string): boolean {
+  const left = createHash('sha256').update(presented).digest()
+  const right = createHash('sha256').update(expected).digest()
+  return timingSafeEqual(left, right)
+}
+
+/** One IP token. A comma-separated list is caller-controlled and is rejected. */
+function singleIp(raw: string | null | undefined): string | null {
+  const value = raw?.trim() ?? ''
+  if (!value || value.includes(',')) return null
+  return value
+}
+
+function hopFromList(raw: string, hopsFromRight: number): string | null {
+  const hops = raw
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+  if (hops.length === 0) return null
+  const index = hops.length - hopsFromRight
+  if (index < 0) return null
+  return singleIp(hops[index])
+}
+
+/** `for=203.0.113.9` or `for="203.0.113.9:443"` from one Forwarded element. */
+function forwardedForToken(element: string): string | null {
+  const match = element.match(/(?:^|;)\s*for=(?:"([^"]+)"|([^;,\s]+))/i)
+  const token = (match?.[1] ?? match?.[2] ?? '').trim()
+  if (!token) return null
+  const withoutPort = token.startsWith('[')
+    ? token.replace(/^\[([^\]]+)\].*$/, '$1')
+    : token.replace(/:\d+$/, '')
+  return singleIp(withoutPort)
+}
+
 /**
- * Platform client IP. Prefers the configured header (`x-real-ip` on Vercel).
- * Falls back to the last trusted X-Forwarded-For hop, never the first entry.
+ * Platform client IP.
+ *
+ * Production: only `settings.header`. `x-forwarded-for` and `forwarded` use
+ * the rightmost trusted hop; any other platform header must be a single
+ * address. Caller forwarding headers are not read.
+ *
+ * Local mode: the secret-gated harness header, else `PAYFAST_ITN_PLATFORM_IP`.
+ * A request that does not present the secret contributes no address, even
+ * when `x-real-ip` or `X-Forwarded-For` contains a PayFast IP.
  */
 export function resolveItnClientIp(
   header: (name: string) => string | undefined | null,
   settings: ClientIpSettings = clientIpSettingsFromEnv(),
 ): string | null {
-  if (settings.header) {
-    const platform = header(settings.header)?.trim()
-    if (platform) return platform.split(',')[0]?.trim() || null
+  if (settings.localMode) {
+    if (settings.harnessSecret) {
+      const presented = header(settings.harnessSecretHeader)?.trim() ?? ''
+      if (presented && secretsMatch(presented, settings.harnessSecret)) {
+        return singleIp(header(settings.harnessIpHeader))
+      }
+    }
+    return singleIp(settings.fixedPlatformIp)
   }
-  const forwarded = header('x-forwarded-for')
-  if (!forwarded) return null
-  const hops = forwarded
-    .split(',')
-    .map((part) => part.trim())
-    .filter(Boolean)
-  if (hops.length === 0) return null
-  const index = hops.length - settings.trustedProxyHops
-  if (index < 0) return null
-  return hops[index] ?? null
+  if (!settings.header) return null
+  const raw = header(settings.header)
+  if (!raw?.trim()) return null
+  if (settings.header === 'x-forwarded-for') return hopFromList(raw, settings.trustedProxyHops)
+  if (settings.header === 'forwarded') {
+    const elements = raw
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean)
+    const index = elements.length - settings.trustedProxyHops
+    if (index < 0) return null
+    return forwardedForToken(elements[index] ?? '')
+  }
+  return singleIp(raw)
+}
+
+export type ValidatePlan =
+  | { kind: 'fetch'; url: string }
+  | { kind: 'stub'; result: 'VALID' | 'INVALID' | 'ERROR' }
+
+/**
+ * Where the ITN confirm postback goes.
+ *
+ * `PAYFAST_VALIDATE_URL` replaces the sandbox or live PayFast URL so QA can
+ * point at a local stub. The server posts the ITN fields there; it does not
+ * forward the caller's headers.
+ *
+ * `PAYFAST_VALIDATE_STUB=1` (only with `PAYFAST_ITN_LOCAL=1` and a matching
+ * platform secret) skips the network. The result is `PAYFAST_VALIDATE_STUB_HEADER`
+ * (default `x-pf-validate-stub`): `VALID`, `INVALID`, or `ERROR`. Any other
+ * value, a missing secret, or stub mode outside local QA fails closed and
+ * does not call PayFast.
+ */
+export function validatePlanFromEnv(
+  header: (name: string) => string | undefined | null,
+  env: NodeJS.ProcessEnv = process.env,
+): ValidatePlan {
+  const live = env.PAYFAST_MODE?.trim().toLowerCase() === 'live'
+  const url =
+    env.PAYFAST_VALIDATE_URL?.trim() ||
+    (live ? PAYFAST_LIVE_VALIDATE_URL : PAYFAST_VALIDATE_URL)
+  const stub = env.PAYFAST_VALIDATE_STUB?.trim().toLowerCase()
+  if (stub !== '1' && stub !== 'header') return { kind: 'fetch', url }
+  const settings = clientIpSettingsFromEnv(env)
+  if (!settings.localMode || !settings.harnessSecret) return { kind: 'stub', result: 'ERROR' }
+  const presented = header(settings.harnessSecretHeader)?.trim() ?? ''
+  if (!presented || !secretsMatch(presented, settings.harnessSecret)) {
+    return { kind: 'stub', result: 'ERROR' }
+  }
+  let stubHeader = headerName(env.PAYFAST_VALIDATE_STUB_HEADER, PAYFAST_VALIDATE_STUB_HEADER)
+  if (stubHeader === settings.harnessIpHeader || stubHeader === settings.harnessSecretHeader) {
+    stubHeader = PAYFAST_VALIDATE_STUB_HEADER
+  }
+  const raw = (header(stubHeader) ?? '').trim().toUpperCase()
+  if (raw === 'VALID' || raw === 'INVALID' || raw === 'ERROR') return { kind: 'stub', result: raw }
+  return { kind: 'stub', result: 'INVALID' }
 }
 
 /**
@@ -258,8 +412,9 @@ export type ItnVerdict =
 /**
  * Validate an ITN body against our ledger expectations.
  * Signature is required in sandbox and live. `sourceIp` must be a PayFast
- * address in both modes (the route resolves it from the platform header or
- * the last trusted proxy hop — never the client-controlled first XFF entry).
+ * address in both modes. The route resolves it only from the platform-set
+ * address (default `x-real-ip`, or the local QA harness). Caller forwarding
+ * headers are not a source.
  * `expectedAmountCents` is the ledger payment amount (the same figure checkout
  * sends to PayFast).
  */

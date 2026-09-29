@@ -10,6 +10,7 @@ import {
   amountToCents,
   buildCheckoutFields,
   resolveItnClientIp,
+  validatePlanFromEnv,
   verifyItn,
   PAYFAST_VALIDATE_URL,
   type PayfastConfig,
@@ -137,16 +138,23 @@ describe('payfast core', () => {
     else process.env.PAYFAST_PASSPHRASE = prev.pass
   })
 
-  it('reads the platform IP header and ignores a spoofed first X-Forwarded-For hop', () => {
+  it('reads only the platform IP and ignores every caller forwarding header', () => {
     expect(clientIpSettingsFromEnv({}).header).toBe('x-real-ip')
-    const spoofed = resolveItnClientIp((name) => {
-      if (name === 'x-forwarded-for') return `${PAYFAST_IP}, 203.0.113.9`
+    const caller = (name: string) => {
+      if (name === 'x-forwarded-for') return PAYFAST_IP
+      if (name === 'forwarded') return `for=${PAYFAST_IP}`
+      if (name === 'x-client-ip') return PAYFAST_IP
       if (name === 'x-real-ip') return '203.0.113.50'
       return undefined
-    })
-    expect(spoofed).toBe('203.0.113.50')
+    }
+    expect(resolveItnClientIp(caller)).toBe('203.0.113.50')
+    expect(resolveItnClientIp((name) => (name === 'x-real-ip' ? undefined : caller(name)))).toBeNull()
+    const listed = resolveItnClientIp((name) =>
+      name === 'x-real-ip' ? `${PAYFAST_IP}, 203.0.113.50` : undefined,
+    )
+    expect(listed).toBeNull()
     const verdict = verifyItn(signedItn(), SANDBOX, {
-      sourceIp: spoofed,
+      sourceIp: '203.0.113.50',
       expectedPaymentId: '1234',
       expectedAmountCents: 1000,
     })
@@ -154,17 +162,86 @@ describe('payfast core', () => {
     expect((verdict as { reason: string }).reason).toMatch(/source IP/i)
   })
 
-  it('uses the last trusted proxy hop when the platform header is absent', () => {
-    const ip = resolveItnClientIp(
+  it('uses the last trusted hop only when that header is the configured platform source', () => {
+    const absent = resolveItnClientIp(
       (name) => (name === 'x-forwarded-for' ? `${PAYFAST_IP}, 198.51.100.10, 203.0.113.9` : undefined),
-      { header: null, trustedProxyHops: 1 },
+      {
+        header: null,
+        trustedProxyHops: 1,
+        localMode: false,
+        harnessSecret: null,
+        harnessIpHeader: 'x-pf-platform-ip',
+        harnessSecretHeader: 'x-pf-platform-secret',
+        fixedPlatformIp: null,
+      },
     )
-    expect(ip).toBe('203.0.113.9')
-    const twoHops = resolveItnClientIp(
-      (name) => (name === 'x-forwarded-for' ? `${PAYFAST_IP}, 198.51.100.10, 203.0.113.9` : undefined),
-      { header: null, trustedProxyHops: 2 },
-    )
-    expect(twoHops).toBe('198.51.100.10')
+    expect(absent).toBeNull()
+    const headers = (name: string) => {
+      if (name === 'x-forwarded-for') return `${PAYFAST_IP}, 198.51.100.10, 203.0.113.9`
+      if (name === 'forwarded') return `for=${PAYFAST_IP}`
+      if (name === 'x-client-ip') return PAYFAST_IP
+      return undefined
+    }
+    const settings = {
+      header: 'x-forwarded-for',
+      trustedProxyHops: 1,
+      localMode: false,
+      harnessSecret: null,
+      harnessIpHeader: 'x-pf-platform-ip',
+      harnessSecretHeader: 'x-pf-platform-secret',
+      fixedPlatformIp: null,
+    }
+    expect(resolveItnClientIp(headers, settings)).toBe('203.0.113.9')
+    expect(resolveItnClientIp(headers, { ...settings, trustedProxyHops: 2 })).toBe('198.51.100.10')
+    expect(
+      resolveItnClientIp(
+        (name) => (name === 'forwarded' ? `for=${PAYFAST_IP}, for=203.0.113.9` : undefined),
+        { ...settings, header: 'forwarded' },
+      ),
+    ).toBe('203.0.113.9')
+  })
+
+  it('local mode takes the secret-gated platform address and ignores caller headers', () => {
+    const env = {
+      PAYFAST_ITN_LOCAL: '1',
+      PAYFAST_ITN_PLATFORM_SECRET: 'qa-secret',
+      PAYFAST_CLIENT_IP_HEADER: 'x-real-ip',
+    }
+    const headers = (name: string) => {
+      if (name === 'x-pf-platform-secret') return 'qa-secret'
+      if (name === 'x-pf-platform-ip') return '203.0.113.50'
+      if (name === 'x-real-ip' || name === 'x-forwarded-for' || name === 'x-client-ip') return PAYFAST_IP
+      if (name === 'forwarded') return `for=${PAYFAST_IP}`
+      return undefined
+    }
+    expect(resolveItnClientIp(headers, clientIpSettingsFromEnv(env))).toBe('203.0.113.50')
+    const withoutSecret = (name: string) => (name === 'x-pf-platform-secret' ? undefined : headers(name))
+    expect(resolveItnClientIp(withoutSecret, clientIpSettingsFromEnv(env))).toBeNull()
+    const production = clientIpSettingsFromEnv({ ...env, PAYFAST_ITN_LOCAL: '0' })
+    expect(resolveItnClientIp(headers, production)).toBe(PAYFAST_IP)
+  })
+
+  it('validate stub is honored only in local mode with the platform secret', () => {
+    const header = (name: string) => {
+      if (name === 'x-pf-platform-secret') return 'qa-secret'
+      if (name === 'x-pf-validate-stub') return 'INVALID'
+      return undefined
+    }
+    const local = {
+      PAYFAST_ITN_LOCAL: '1',
+      PAYFAST_ITN_PLATFORM_SECRET: 'qa-secret',
+      PAYFAST_VALIDATE_STUB: '1',
+      PAYFAST_VALIDATE_URL: 'http://127.0.0.1:8799/validate',
+    }
+    expect(validatePlanFromEnv(header, local)).toEqual({ kind: 'stub', result: 'INVALID' })
+    expect(validatePlanFromEnv(header, { ...local, PAYFAST_ITN_LOCAL: '0' })).toEqual({
+      kind: 'stub',
+      result: 'ERROR',
+    })
+    expect(validatePlanFromEnv(() => undefined, { PAYFAST_VALIDATE_URL: 'http://127.0.0.1:8799/validate' })).toEqual({
+      kind: 'fetch',
+      url: 'http://127.0.0.1:8799/validate',
+    })
   })
 
   it('ITN: bad signature is rejected in sandbox', () => {
