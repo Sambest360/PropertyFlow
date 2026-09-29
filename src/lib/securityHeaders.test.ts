@@ -97,20 +97,31 @@ describe('vercel security headers', () => {
   })
 })
 
-describe('frontend PayFast secrets', () => {
-  it('scans src and dist for credential assignments and known digests', () => {
-    const srcDir = join(root, 'src')
-    const distDir = join(root, 'dist')
-    expect(existsSync(srcDir), 'src/ must exist').toBe(true)
-    expect(existsSync(distDir), 'dist/ must exist — run the production build before this test').toBe(true)
+function collectHits(dir: string): string[] {
+  const hits: string[] = []
+  for (const file of walkCollect(dir)) {
+    for (const reason of scanText(readFileSync(file, 'utf8'))) hits.push(`${file}: ${reason}`)
+  }
+  return hits
+}
 
-    const files = [...walkCollect(srcDir), ...walkCollect(distDir)]
-    const hits: string[] = []
-    for (const file of files) {
-      const reasons = scanText(readFileSync(file, 'utf8'))
-      for (const reason of reasons) hits.push(`${file}: ${reason}`)
+describe('frontend PayFast secrets', () => {
+  it('scans src for credential assignments and known digests', () => {
+    const srcDir = join(root, 'src')
+    expect(existsSync(srcDir), 'src/ must exist').toBe(true)
+    expect(collectHits(srcDir)).toEqual([])
+  })
+
+  it('scans dist for credential assignments and known digests', (ctx) => {
+    if (!process.env.CI) {
+      ctx.skip(
+        'Skipping the dist/ scan because CI is not set. A leftover dist/ is not scanned. In CI this fails if dist/ is missing. Run npm run test:bundle-secrets to build and scan the bundle.',
+      )
+      return
     }
-    expect(hits).toEqual([])
+    const distDir = join(root, 'dist')
+    expect(existsSync(distDir), 'dist/ must exist in CI — run npm run test:bundle-secrets').toBe(true)
+    expect(collectHits(distDir)).toEqual([])
   })
 })
 

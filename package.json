@@ -12,6 +12,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "test": "vitest run",
+    "test:bundle-secrets": "npm run build && CI=1 vitest run src/lib/securityHeaders.test.ts -t \"scans dist\"",
     "test:watch": "vitest",
     "preview": "vite preview",
     "db:schema": "psql -h 127.0.0.1 -d propertyflow -f database/postgres/schema.sql",
