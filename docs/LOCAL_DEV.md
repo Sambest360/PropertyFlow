@@ -62,16 +62,14 @@ cp .env.example .env.local
 | --- | --- |
 | `VITE_SUPABASE_URL` / `SUPABASE_URL` | `http://127.0.0.1:54321` |
 | `DATABASE_URL` / `DIRECT_URL` | `postgresql://postgres:postgres@127.0.0.1:54322/postgres` |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | anon key from `supabase status` |
-| `SUPABASE_SECRET_KEY` | service role key from `supabase status` |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | anon key from `supabase status -o env` |
+| `SUPABASE_SECRET_KEY` | service role key from `supabase status -o env` |
 
-The anon and service role JWTs in `.env.example` are the CLI's default local demo keys (`ANON_KEY` and `SERVICE_ROLE_KEY`). Confirm them:
+`.env.example` leaves those keys blank. Paste `ANON_KEY` or `PUBLISHABLE_KEY`, and `SERVICE_ROLE_KEY` or `SECRET_KEY`, into `.env.local`. Do not commit them. Do not paste a hosted project key.
 
 ```bash
 supabase status -o env
 ```
-
-If your status output shows different keys, paste those into `.env.local`. `PUBLISHABLE_KEY` / `SECRET_KEY` (`sb_publishable_` / `sb_secret_`) are the newer names for the same local project. Either pair works. Do not paste a hosted project key.
 
 Leave PayFast and Mailtrap blank.
 
@@ -93,10 +91,11 @@ The isolation CI job can run the same fixture without a terminal:
 SEED_USER_PASSWORD="$SEED_USER_PASSWORD" \
 DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
 SUPABASE_URL=http://127.0.0.1:54321 \
+SUPABASE_SECRET_KEY="$SUPABASE_SECRET_KEY" \
 npm run db:seed:local
 ```
 
-That exits non-zero on failure. Import `localDevSeed` or `renderLocalDevSeedSql` from `database/fixtures/localDevSeed.ts` when the job only needs the ids and SQL.
+That exits non-zero on failure. If `SUPABASE_SECRET_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are both unset, the script reads `SERVICE_ROLE_KEY` or `SECRET_KEY` from `supabase status -o env` and does not print the key. Import `localDevSeed` or `renderLocalDevSeedSql` from `database/fixtures/localDevSeed.ts` when the job only needs the ids and SQL.
 
 The fixture is `database/fixtures/localDevSeed.ts`. Import `localDevSeed` (or `localDevUsers` / `localDevAgencies` / `uploadPersonas`) from tests instead of copying ids.
 

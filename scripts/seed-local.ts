@@ -13,15 +13,11 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import pg from 'pg'
 import { localDevAgencies, localDevUsers } from '../database/fixtures/localDevSeed.ts'
+import { resolveLocalServiceRoleKey } from './seed/localServiceRole.ts'
 import { assertLocalSeedTarget } from './seed/localOnlyGuard.ts'
 import { resolveSeedPassword } from './seed/seedPassword.ts'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-
-// Well-known local demo key printed by `supabase status` as SERVICE_ROLE_KEY
-// when the CLI uses its default JWT secret. It is not a hosted project key.
-const LOCAL_DEMO_SERVICE_ROLE =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU'
 
 const databaseUrl =
   process.env.DIRECT_URL ??
@@ -34,10 +30,14 @@ assertLocalSeedTarget({ databaseUrl, supabaseUrl })
 
 const password = resolveSeedPassword()
 
-const secret =
-  process.env.SUPABASE_SECRET_KEY ??
-  process.env.SUPABASE_SERVICE_ROLE_KEY ??
-  LOCAL_DEMO_SERVICE_ROLE
+let secret: string
+try {
+  secret = resolveLocalServiceRoleKey({ allowStatusLookup: true, cwd: root })
+} catch (err) {
+  const message = err instanceof Error ? err.message : 'No local service role key.'
+  console.error(message)
+  process.exit(1)
+}
 
 const sql = readFileSync(join(root, 'supabase/seed.sql'), 'utf8')
 const pool = new pg.Pool({ connectionString: databaseUrl })
