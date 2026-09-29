@@ -10,7 +10,11 @@ import {
 import { Link, Navigate, useLocation } from 'react-router-dom'
 import { usePublicProperties, useStore } from '../context/AppStore'
 import { useAuth } from '../context/AuthContext'
-import { startPayfastCheckout } from '../lib/payfast/checkout'
+import {
+  isPayfastCheckoutAvailable,
+  PAYFAST_UNAVAILABLE_MESSAGE,
+  startPayfastCheckout,
+} from '../lib/payfast/checkout'
 import { RequirePermission } from '../components/RequirePermission'
 import {
   AttentionHero,
@@ -213,6 +217,9 @@ export default function TenantPortal() {
                       onPay={handlePortalPay}
                       canPay={has('payments.manage')}
                       payBusyId={payBusyId}
+                      payUnavailableReason={
+                        isPayfastCheckoutAvailable() ? null : PAYFAST_UNAVAILABLE_MESSAGE
+                      }
                     />
                   </div>
                 )}
@@ -317,15 +324,22 @@ function PaymentsPanel({
   onPay,
   canPay,
   payBusyId,
+  payUnavailableReason = null,
 }: {
   payments: ReturnType<typeof useTenantPortalState>['payments']
   onPay: (id: string) => void
   canPay: boolean
   payBusyId: string | null
+  payUnavailableReason?: string | null
 }) {
   return (
     <Card className="p-5">
       <h2 className="font-display text-lg font-semibold">Payments due</h2>
+      {payUnavailableReason ? (
+        <p className="mt-2 text-xs text-ink-500" role="status">
+          {payUnavailableReason}
+        </p>
+      ) : null}
       <ul className="mt-3 space-y-2">
         {payments.slice(0, 5).map((p) => (
           <li
@@ -344,7 +358,7 @@ function PaymentsPanel({
                 <Button
                   size="sm"
                   className="cursor-pointer"
-                  disabled={payBusyId === p.id}
+                  disabled={payBusyId === p.id || Boolean(payUnavailableReason)}
                   onClick={() => void onPay(p.id)}
                 >
                   {payBusyId === p.id ? 'Opening…' : 'Pay'}

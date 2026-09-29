@@ -1,4 +1,4 @@
-import { useId, useRef } from 'react'
+import { useId, useRef, useState } from 'react'
 import { FileText, Upload, X } from 'lucide-react'
 import type { VerificationDocument } from '../../lib/verification'
 import { REGISTRATION_DOC_MAX_BYTES, formatDocSizeLabel } from '../../lib/auth/registrationDocs'
@@ -39,13 +39,18 @@ export function DocUploadSlot({
 }) {
   const inputId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
+  const [sizeError, setSizeError] = useState<string | null>(null)
 
   const onPick = async (file: File | null) => {
     if (!file) return
     if (file.size > REGISTRATION_DOC_MAX_BYTES) {
-      await showAuthWarning(`File must be under ${MAX_LABEL}. Try a smaller PDF or image.`)
+      if (inputRef.current) inputRef.current.value = ''
+      const message = `File too large. Use a file under ${MAX_LABEL}.`
+      setSizeError(message)
+      await showAuthWarning(message)
       return
     }
+    setSizeError(null)
     try {
       const read = await readFile(file)
       onChange({
@@ -112,6 +117,11 @@ export function DocUploadSlot({
           Upload PDF or image (max {MAX_LABEL})
         </button>
       )}
+      {sizeError ? (
+        <p className="mt-2 text-xs text-accent" role="alert">
+          {sizeError}
+        </p>
+      ) : null}
 
       <input
         ref={inputRef}

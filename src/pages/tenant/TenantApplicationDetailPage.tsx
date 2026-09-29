@@ -25,6 +25,11 @@ import {
   workflowStageLabel,
 } from '../../lib/applicationWorkflow'
 import { buildCheckoutBridge, guidedTransitionError, type PatchApplicationStatusResult } from '../../lib/api/applicationStatusApi'
+import {
+  isPayfastCheckoutAvailable,
+  PAYFAST_UNAVAILABLE_MESSAGE,
+  startPayfastCheckout,
+} from '../../lib/payfast/checkout'
 import { sweetError } from '../../lib/sweetAlert'
 import type { HateoasAction } from '../../lib/api/contracts'
 import type { WorkflowActionCapture } from '../../lib/workflowActionForms'
@@ -40,6 +45,9 @@ export default function TenantApplicationDetailPage() {
     useStore()
   const { user } = useAuth()
   const publicProperties = usePublicProperties()
+  const [payBusy, setPayBusy] = useState(false)
+  const [payError, setPayError] = useState<string | null>(null)
+  const onlinePay = isPayfastCheckoutAvailable()
 
   const tab = (['application', 'documents', 'details', 'payments'] as const).includes(
     params.get('tab') as Tab,
@@ -139,7 +147,6 @@ export default function TenantApplicationDetailPage() {
       const duePayments = payments.filter((p) => p.status === 'Due' || p.status === 'Overdue')
       const amount = duePayments.reduce((sum, p) => sum + p.amount, 0) || (property?.rent ?? 0) * 3
       const checkout = buildCheckoutBridge({
-        application,
         propertyTitle: property?.title ?? 'Property',
         amountZar: amount,
         paymentId: duePayments[0]?.id ?? `PAY-checkout-${application.id}`,
@@ -310,11 +317,32 @@ export default function TenantApplicationDetailPage() {
                 </p>
                 <Button
                   className="mt-3 min-h-11 w-full cursor-pointer"
-                  onClick={() => window.open(flash.checkout!.checkout_url, '_blank', 'noopener')}
+                  disabled={!onlinePay || payBusy}
+                  onClick={() => {
+                    if (!onlinePay || !flash.checkout) return
+                    setPayBusy(true)
+                    setPayError(null)
+                    void startPayfastCheckout(flash.checkout.payment_id).then((result) => {
+                      if (!result.ok) {
+                        setPayBusy(false)
+                        setPayError(result.userMessage ?? PAYFAST_UNAVAILABLE_MESSAGE)
+                      }
+                    })
+                  }}
                 >
                   <Wallet className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} aria-hidden />
-                  Open checkout
+                  {payBusy ? 'Opening PayFast…' : 'Pay with PayFast'}
                 </Button>
+                {!onlinePay ? (
+                  <p className="mt-2 text-xs text-ink-500" role="status">
+                    {PAYFAST_UNAVAILABLE_MESSAGE}
+                  </p>
+                ) : null}
+                {payError ? (
+                  <p className="mt-2 text-xs text-red-700" role="alert">
+                    {payError}
+                  </p>
+                ) : null}
               </div>
             </div>
           </Card>

@@ -9,30 +9,13 @@
  * mechanism the register flow already uses (`redirectToLogin`).
  */
 import { clearPendingRegistrationDocs } from './registrationDocs'
-
-/** Session-scoped keys that must not leak across users. */
-const STALE_KEYS = [
-  'pf-register-email',
-  'propertyflow-auth-token',
-  'propertyflow-auth-user',
-  'propertyflow-auth-real-user',
-]
+import { clearLogoutStorage } from './sensitiveStorage'
 
 function clearStaleSessionKeys() {
+  clearLogoutStorage()
   try {
-    for (const k of STALE_KEYS) localStorage.removeItem(k)
+    localStorage.removeItem('pf-register-email')
     sessionStorage.removeItem('pf-register-email')
-    const storages = [localStorage, sessionStorage]
-    for (const store of storages) {
-      const keys: string[] = []
-      for (let i = 0; i < store.length; i++) {
-        const key = store.key(i)
-        if (key) keys.push(key)
-      }
-      for (const k of keys) {
-        if (k.startsWith('sb-') && k.includes('auth')) store.removeItem(k)
-      }
-    }
   } catch {
     /* storage unavailable — best effort */
   }

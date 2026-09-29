@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { AppUser, Permission, Role } from '../types/domain'
 import {
   canImpersonateTarget,
@@ -45,30 +45,9 @@ import {
   supabaseSignUp,
 } from '../lib/supabase/auth'
 import { clearSessionArtifacts } from '../lib/auth/sessionArtifacts'
+import { clearLogoutStorage } from '../lib/auth/sensitiveStorage'
 
-const AUTH_KEY = 'propertyflow-auth-user'
-const REAL_AUTH_KEY = 'propertyflow-auth-real-user'
 const DEMO_SWITCHER = import.meta.env.VITE_DEMO_SWITCHER === '1'
-
-/** Restore client-side impersonation after auth session resolves. */
-function resolveActiveUserId(sessionUserId: string): {
-  activeUserId: string
-  realUserId: string | null
-} {
-  const storedReal = localStorage.getItem(REAL_AUTH_KEY)
-  const storedActive = localStorage.getItem(AUTH_KEY)
-  if (
-    storedReal &&
-    storedReal === sessionUserId &&
-    storedActive &&
-    storedActive !== sessionUserId
-  ) {
-    return { activeUserId: storedActive, realUserId: storedReal }
-  }
-  localStorage.removeItem(REAL_AUTH_KEY)
-  localStorage.setItem(AUTH_KEY, sessionUserId)
-  return { activeUserId: sessionUserId, realUserId: null }
-}
 
 /** Auth session profile wins over bootstrap store for identity fields. */
 function mergeAuthUser(session: AppUser, fromStore: AppUser | null | undefined): AppUser {
@@ -90,11 +69,19 @@ function applySessionUser(
   setSessionUser: (u: AppUser) => void,
   setUserId: (id: string) => void,
   setRealUserId: (id: string | null) => void,
+  current?: { userId: string; realUserId: string | null },
 ) {
   setSessionUser(profile)
-  const { activeUserId, realUserId } = resolveActiveUserId(profile.id)
-  setUserId(activeUserId)
-  setRealUserId(realUserId)
+  const impersonating = Boolean(
+    current?.realUserId &&
+      current.realUserId === profile.id &&
+      current.userId &&
+      current.userId !== profile.id,
+  )
+  if (!impersonating) {
+    setUserId(profile.id)
+    setRealUserId(null)
+  }
   syncActorFromUser(appUserToDto(profile))
 }
 
@@ -164,8 +151,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { state, addActivity, refreshBootstrap } = useStore()
   const [authReady, setAuthReady] = useState(false)
   const [sessionUser, setSessionUser] = useState<AppUser | null>(null)
-  const [userId, setUserId] = useState(() => localStorage.getItem(AUTH_KEY) || '')
-  const [realUserId, setRealUserId] = useState<string | null>(() => localStorage.getItem(REAL_AUTH_KEY))
+  const [userId, setUserId] = useState('')
+  const [realUserId, setRealUserId] = useState<string | null>(null)
+  const identityRef = useRef({ userId: '', realUserId: null as string | null })
+  identityRef.current = { userId, realUserId }
 
   useEffect(() => {
     let cancelled = false
@@ -184,7 +173,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (cancelled) return
         clearTimeout(readyTimeout)
         if (profile) {
-          applySessionUser(profile, setSessionUser, setUserId, setRealUserId)
+          applySessionUser(profile, setSessionUser, setUserId, setRealUserId, identityRef.current)
         } else {
           setSessionUser(null)
         }
@@ -199,13 +188,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (cancelled) return
       if (me) {
         const appUser = dtoToAppUser(me)
-        applySessionUser(appUser, setSessionUser, setUserId, setRealUserId)
-        try {
-          const legacy = ['propertyflow-v15', 'propertyflow-v16']
-          for (const k of legacy) localStorage.removeItem(k)
-        } catch {
-          /* ignore */
-        }
+        applySessionUser(appUser, setSessionUser, setUserId, setRealUserId, identityRef.current)
       } else {
         setSessionUser(null)
       }
@@ -222,7 +205,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!isSupabaseMode) return
     const { unsubscribe } = onSupabaseAuthChange((profile) => {
       if (profile) {
-        applySessionUser(profile, setSessionUser, setUserId, setRealUserId)
+        applySessionUser(profile, setSessionUser, setUserId, setRealUserId, identityRef.current)
       } else {
         setSessionUser(null)
         setUserId('')
@@ -233,15 +216,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    if (userId) localStorage.setItem(AUTH_KEY, userId)
-  }, [userId])
-
-  useEffect(() => {
-    if (realUserId) localStorage.setItem(REAL_AUTH_KEY, realUserId)
-    else localStorage.removeItem(REAL_AUTH_KEY)
-  }, [realUserId])
-
-  useEffect(() => {
     if (!isSupabaseMode || !sessionUser) return
     const impersonating =
       Boolean(realUserId && realUserId === sessionUser.id && userId && userId !== sessionUser.id)
@@ -249,8 +223,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (userId !== sessionUser.id) {
       setUserId(sessionUser.id)
       setRealUserId(null)
-      localStorage.setItem(AUTH_KEY, sessionUser.id)
-      localStorage.removeItem(REAL_AUTH_KEY)
     }
   }, [sessionUser?.id, userId, realUserId])
 
@@ -411,29 +383,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch {
           /* fall through — session artifacts cleared below regardless */
         }
-        // Clear in-memory state
         setSessionUser(null)
         setUserId('')
         setRealUserId(null)
-        // Clear all localStorage/sessionStorage auth keys
-        try {
-          localStorage.removeItem(AUTH_KEY)
-          localStorage.removeItem(REAL_AUTH_KEY)
-          // Clear any Supabase auth keys
-          const storages = [localStorage, sessionStorage]
-          for (const store of storages) {
-            const keys: string[] = []
-            for (let i = 0; i < store.length; i++) {
-              const key = store.key(i)
-              if (key) keys.push(key)
-            }
-            for (const k of keys) {
-              if (k.startsWith('sb-') && k.includes('auth')) store.removeItem(k)
-            }
-          }
-        } catch {
-          /* ignore */
-        }
+        clearLogoutStorage()
       },
       switchUser: (id: string) => {
         if (!DEMO_SWITCHER) return

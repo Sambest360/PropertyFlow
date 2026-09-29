@@ -39,13 +39,17 @@ export function ApplicationDocumentRow({
   const inputRef = useRef<HTMLInputElement>(null)
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
+  const [sizeError, setSizeError] = useState<string | null>(null)
 
   const pickFile = async (file: File | null) => {
     if (!file) return
     if (file.size > REGISTRATION_DOC_MAX_BYTES) {
-      await showAuthWarning(`File must be under ${MAX_LABEL}. Try a smaller PDF or image.`)
+      const message = `File too large. Use a file under ${MAX_LABEL}.`
+      setSizeError(message)
+      await showAuthWarning(message)
       return
     }
+    setSizeError(null)
     try {
       const read = await readFile(file)
       onUpload(read)
@@ -101,6 +105,11 @@ export function ApplicationDocumentRow({
               <Upload className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} aria-hidden />
               {doc.status === 'rejected' ? 'Upload replacement' : 'Upload'}
             </Button>
+            {sizeError ? (
+              <p className="w-full text-xs text-accent" role="alert">
+                {sizeError}
+              </p>
+            ) : null}
           </>
         ) : null}
 

@@ -301,9 +301,10 @@ async function supabaseSignUpViaServer(
   try {
     const ctrl = new AbortController()
     const t = setTimeout(() => ctrl.abort(), 20_000)
+    const { authHeaders } = await import('../api/authClient')
     const res = await fetch(`${SUPABASE_API_BASE}/api/auth/register-supabase`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
       credentials: 'include',
       signal: ctrl.signal,
       body: JSON.stringify({

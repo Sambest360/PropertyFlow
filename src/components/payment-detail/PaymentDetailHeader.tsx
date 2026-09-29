@@ -16,6 +16,8 @@ export function PaymentDetailHeader({
   onMarkPaid,
   onPayOnline,
   payOnlineBusy = false,
+  payOnlineDisabled = false,
+  payOnlineDisabledReason,
   onCancel,
   onRemove,
 }: {
@@ -28,6 +30,9 @@ export function PaymentDetailHeader({
   /** Present when online checkout is available for this viewer. */
   onPayOnline?: () => void
   payOnlineBusy?: boolean
+  /** When set, the pay button stays visible but cannot start checkout. */
+  payOnlineDisabled?: boolean
+  payOnlineDisabledReason?: string
   onCancel: () => void
   onRemove: () => void
 }) {
@@ -60,14 +65,21 @@ export function PaymentDetailHeader({
           {(canMaintain || canSelfPay) && open ? (
             <>
               {onPayOnline && (canSelfPay || canMaintain) ? (
-                <Button
-                  className="min-h-11 gap-2"
-                  onClick={onPayOnline}
-                  disabled={payOnlineBusy}
-                >
-                  <CreditCard className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                  {payOnlineBusy ? 'Opening PayFast…' : 'Pay with PayFast'}
-                </Button>
+                <div className="flex max-w-xs flex-col gap-1">
+                  <Button
+                    className="min-h-11 gap-2"
+                    onClick={onPayOnline}
+                    disabled={payOnlineBusy || payOnlineDisabled}
+                  >
+                    <CreditCard className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                    {payOnlineBusy ? 'Opening PayFast…' : 'Pay with PayFast'}
+                  </Button>
+                  {payOnlineDisabled && payOnlineDisabledReason ? (
+                    <p className="text-xs text-ink-500" role="status">
+                      {payOnlineDisabledReason}
+                    </p>
+                  ) : null}
+                </div>
               ) : null}
               <Button className="min-h-11 gap-2" onClick={onMarkPaid}>
                 <CheckCircle2 className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />

@@ -15,7 +15,7 @@ export function formatAuthError(message: string, err?: unknown): { title: string
   if (lower.includes('request body too large') || lower.includes('1048576')) {
     return {
       title: 'Uploads too large',
-      text: 'Registration documents are saved separately after sign-up. If you still see this, use smaller PDF or image files (under 5 MB each) and try again.',
+      text: 'File too large. Use smaller PDF or image files (under 800 KB each) and try again.',
     }
   }
 

@@ -51,7 +51,10 @@ export async function fetchApiHealth(timeoutMs = 800): Promise<boolean> {
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
-    const res = await fetch(`${API_BASE}/api/health?db=0`, { signal: ctrl.signal })
+    const res = await fetch(`${API_BASE}/api/health?db=0`, {
+      signal: ctrl.signal,
+      headers: { ...(await authHeaders()) },
+    })
     if (!res.ok) return false
     const json = (await res.json()) as { ok?: boolean }
     return Boolean(json.ok)
@@ -79,7 +82,7 @@ export async function fetchPostgresBootstrap(
     const qs = params.toString()
     const res = await fetch(`${API_BASE}/api/bootstrap${qs ? `?${qs}` : ''}`, {
       signal: ctrl.signal,
-      headers: { ...actorHeaders(actor), ...authHeaders() },
+      headers: { ...actorHeaders(actor), ...(await authHeaders()) },
       credentials: 'include',
     })
     if (!res.ok) return null

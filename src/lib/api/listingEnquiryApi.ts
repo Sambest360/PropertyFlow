@@ -1,4 +1,5 @@
 import { isApiEnabled, isSupabaseMode } from './config'
+import { authHeaders } from './authClient'
 import { createClient } from '../../utils/supabase/client'
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''
@@ -45,7 +46,7 @@ async function submitViaApi(input: ListingEnquiryInput): Promise<ListingEnquiryR
   try {
     const res = await fetch(`${API_BASE}/api/public/listing-enquiry`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify({
         propertyId: input.propertyId,
         action: input.action,

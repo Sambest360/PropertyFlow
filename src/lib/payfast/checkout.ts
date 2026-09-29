@@ -1,14 +1,17 @@
 /**
  * Browser-side PayFast checkout launcher.
  *
- * Fetches signed fields from `POST /api/payfast/create` (the passphrase never
- * touches the browser) and auto-submits a form to PayFast's hosted process
- * page. PayFast redirects back to `/payfast/return` or `/payfast/cancel` and
- * notifies our server via ITN, which marks the ledger payment PAID.
+ * Signed fields come only from `POST /api/payfast/create`. The merchant id,
+ * merchant key, and passphrase are never in frontend code. In Supabase-direct
+ * mode the payments API is off unless `VITE_ENABLE_API` is explicitly set, and
+ * the pay button stays unavailable.
  */
 
+import { isApiEnabled, isSupabaseMode } from '../api/config'
+import { authHeaders } from '../api/authClient'
+
 export type PayfastCheckoutOptions = {
-  /** Override amount (integer cents). Defaults to the ledger amount. */
+  /** Override amount (integer cents). The server uses the ledger amount. */
   amountCents?: number
   /** Override item name. Defaults to "PropertyFlow · {type} · {party}". */
   itemName?: string
@@ -25,21 +28,49 @@ export type PayfastCheckoutResult = {
   userMessage?: string
 }
 
+export const PAYFAST_UNAVAILABLE_MESSAGE =
+  'Online payments are unavailable while the payments API is off. Pay by EFT and share the reference with your agency.'
+
 const USER_MESSAGES: Record<string, string> = {
+  payfast_unavailable: PAYFAST_UNAVAILABLE_MESSAGE,
   payfast_not_configured: 'Online payments are not configured yet. Please pay via EFT.',
   payment_not_found: 'This payment could not be found on the ledger.',
   payment_already_paid: 'This payment has already been settled.',
   payment_cancelled: 'This payment was cancelled. Please contact your agency.',
 }
 
+/**
+ * Supabase-direct mode talks to Supabase from the browser. Card checkout needs
+ * the Hono API, which is on only when `VITE_ENABLE_API` is explicitly enabled
+ * in that mode (or when the app is running in API mode).
+ */
+export function isPayfastCheckoutAvailable(): boolean {
+  if (isSupabaseMode) {
+    const flag = import.meta.env.VITE_ENABLE_API
+    return flag === '1' || flag === 'true'
+  }
+  return isApiEnabled
+}
+
 export async function startPayfastCheckout(
   paymentId: string,
   opts: PayfastCheckoutOptions = {},
 ): Promise<PayfastCheckoutResult> {
+  if (!isPayfastCheckoutAvailable()) {
+    return {
+      ok: false,
+      error: 'payfast_unavailable',
+      userMessage: PAYFAST_UNAVAILABLE_MESSAGE,
+    }
+  }
   try {
     const res = await fetch('/api/payfast/create', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(await authHeaders()),
+      },
+      credentials: 'include',
       body: JSON.stringify({ paymentId, ...opts }),
     })
     const data = (await res.json().catch(() => null)) as

@@ -15,8 +15,6 @@ export type DemoActor = {
   agencyId: string | null
 }
 
-const AUTH_KEY = 'propertyflow-auth-user'
-
 let currentActor: DemoActor | null = null
 
 /** Called from AuthContext whenever the effective user changes. */
@@ -40,11 +38,3 @@ export function actorHeaders(actor?: DemoActor | null): Record<string, string> {
   return headers
 }
 
-/** localStorage user id (RoleSwitcher) — used before AuthContext mounts. */
-export function readStoredAuthUserId(): string | null {
-  try {
-    return localStorage.getItem(AUTH_KEY)
-  } catch {
-    return null
-  }
-}

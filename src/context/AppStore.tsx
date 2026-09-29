@@ -145,7 +145,8 @@ import {
   dedupeBootstrapFetch,
   scheduleDeferredFullBootstrap,
 } from '../lib/bootstrapCoord'
-import { readStoredAuthUserId, getApiActor, type DemoActor } from '../lib/api/actorAuth'
+import { authHeaders } from '../lib/api/authClient'
+import { getApiActor, type DemoActor } from '../lib/api/actorAuth'
 import { buildPublicMarketplaceDemoBootstrap } from '../lib/publicMarketplaceDemo'
 import {
   persistApproveApplication,
@@ -184,24 +185,22 @@ import {
   viewingSlotDeskStakeholderIds,
 } from '../lib/notificationRecipients'
 
-/**
- * App state persistence key.
- * Bump when seed content must refresh for existing browsers.
- * When the local Postgres API is up, AppStore hydrates core entities from `/api/bootstrap`
- * and still mirrors into localStorage for offline edits.
- */
-const STORAGE_KEY = 'propertyflow-v18'
-const PG_HYDRATED_FLAG = 'propertyflow-pg-source'
-
-function actorFromUsers(
-  users: AppUser[],
-  override?: DemoActor | null,
-): DemoActor | null {
+function actorFromUsers(override?: DemoActor | null): DemoActor | null {
   if (override) return override
-  const id = readStoredAuthUserId()
-  const u = id ? users.find((x) => x.id === id) : null
-  if (!u) return null
-  return { userId: u.id, role: u.role, agencyId: u.agencyId }
+  const current = getApiActor()
+  if (current?.userId) return current
+  return null
+}
+
+async function browserHasSupabaseSession(): Promise<boolean> {
+  if (!isSupabaseMode) return false
+  try {
+    const { createClient } = await import('../utils/supabase/client')
+    const { data } = await createClient().auth.getSession()
+    return Boolean(data.session?.access_token)
+  } catch {
+    return false
+  }
 }
 
 /** When Postgres bootstrap succeeds, merge server rows with recent local writes. */
@@ -632,53 +631,10 @@ const defaultState = (): AppState => ({
   csvImportBatches: seedCsvImportBatches,
 })
 
-function loadState(): AppState {
-  const base = defaultState()
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return base
-    const parsed = JSON.parse(raw) as Partial<AppState>
-    return {
-      ...base,
-      ...parsed,
-      buildings: parsed.buildings ?? base.buildings,
-      units: parsed.units ?? base.units,
-      infraRooms: parsed.infraRooms ?? base.infraRooms,
-      internalAssets: parsed.internalAssets ?? base.internalAssets,
-      lookups: parsed.lookups ?? base.lookups,
-      billingPlans: parsed.billingPlans?.length ? parsed.billingPlans : base.billingPlans,
-      clientSubscriptions: parsed.clientSubscriptions ?? base.clientSubscriptions,
-      invoices: parsed.invoices ?? base.invoices,
-      vendorRoutes: parsed.vendorRoutes?.length ? parsed.vendorRoutes : base.vendorRoutes,
-      agencyContractors: parsed.agencyContractors?.length
-        ? parsed.agencyContractors
-        : base.agencyContractors,
-      propertyDocuments: parsed.propertyDocuments ?? base.propertyDocuments,
-      propertyEvents: parsed.propertyEvents ?? base.propertyEvents,
-      reviews: parsed.reviews ?? base.reviews,
-      suiteAlerts: parsed.suiteAlerts?.length ? parsed.suiteAlerts : base.suiteAlerts,
-      notifications: parsed.notifications ?? base.notifications,
-      notificationBroadcasts: parsed.notificationBroadcasts ?? base.notificationBroadcasts,
-      agencies: (parsed.agencies ?? base.agencies).map((a) => ({
-        ...a,
-        enabledPermissions:
-          'enabledPermissions' in a && Array.isArray(a.enabledPermissions) && a.enabledPermissions.length
-            ? a.enabledPermissions
-            : [...DEFAULT_AGENCY_PERMISSIONS],
-      })),
-      users: parsed.users ?? base.users,
-      properties: parsed.properties ?? base.properties,
-      applications: (parsed.applications ?? base.applications).map(normalizeApplication),
-    }
-  } catch {
-    return base
-  }
-}
-
 const StoreContext = createContext<StoreContextValue | null>(null)
 
 async function fetchBootstrapFromApi(lite: boolean, actor: DemoActor | null, fullTimeoutMs = 10_000) {
-  const guest = !actor?.userId && !readStoredAuthUserId()
+  const guest = !actor?.userId && !(await browserHasSupabaseSession())
 
   if (isSupabaseMode && guest) {
     const { fetchPublicMarketplaceBootstrap } = await import('../lib/supabase/publicMarketplace')
@@ -696,11 +652,6 @@ async function fetchBootstrapFromApi(lite: boolean, actor: DemoActor | null, ful
       if (boot?.units?.length) return boot
     } catch {
       // Hard failure (network/expired token) — degrade to guest marketplace.
-    }
-    try {
-      localStorage.removeItem('propertyflow-auth-user')
-    } catch {
-      /* ignore */
     }
     const { fetchPublicMarketplaceBootstrap } = await import('../lib/supabase/publicMarketplace')
     const pub = await fetchPublicMarketplaceBootstrap(lite)
@@ -721,8 +672,7 @@ function guestHasBrowseListings(state: AppState): boolean {
   )
 }
 
-function ensureGuestMarketplace(state: AppState): AppState {
-  const guest = !readStoredAuthUserId() && !getApiActor()?.userId
+function ensureGuestMarketplace(state: AppState, guest: boolean): AppState {
   if (!guest || guestHasBrowseListings(state)) return state
   return applyPostgresBootstrap(state, buildPublicMarketplaceDemoBootstrap())
 }
@@ -733,29 +683,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const stateRef = useRef(state)
   stateRef.current = state
 
-  useEffect(() => {
-    let cancelled = false
-    const id = window.requestAnimationFrame(() => {
-      try {
-        const cached = ensureGuestMarketplace(loadState())
-        if (!cancelled) setState(cached)
-      } catch {
-        /* keep defaultState */
-      }
-    })
-    return () => {
-      cancelled = true
-      window.cancelAnimationFrame(id)
-    }
-  }, [])
-
   const refreshBootstrap = useCallback(
     async (
       actor?: DemoActor | null,
       opts?: { full?: boolean; force?: boolean; ingestNotifications?: boolean },
     ) => {
-    const resolved =
-      actor === undefined ? actorFromUsers(stateRef.current.users) : actor
+    const resolved = actor === undefined ? actorFromUsers() : actor
+    const guest = !resolved?.userId && !(await browserHasSupabaseSession())
     const lite = !opts?.full
     const fetchBoot = () => fetchBootstrapFromApi(lite, resolved, opts?.full ? 20_000 : 10_000)
     const prevNotifications = stateRef.current.notifications
@@ -763,16 +697,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     const ingestUserId = opts?.ingestNotifications ? resolved?.userId : undefined
 
     if (!isApiEnabled && !isSupabaseMode) {
-      setState((prev) => ensureGuestMarketplace(prev))
+      setState((prev) => ensureGuestMarketplace(prev, true))
       return
     }
 
     const boot = await dedupeBootstrapFetch(lite, fetchBoot, { force: opts?.force })
     if (!boot) {
-      setState((prev) => ensureGuestMarketplace(prev))
+      setState((prev) => ensureGuestMarketplace(prev, guest))
       return
     }
-    setState((prev) => ensureGuestMarketplace(applyPostgresBootstrap(prev, boot)))
+    setState((prev) => ensureGuestMarketplace(applyPostgresBootstrap(prev, boot), guest))
     if (ingestUserId) {
       const nextNotes = (boot.notifications as AppNotification[]) ?? []
       const fresh = diffNewNotifications(prevNotifications, nextNotes, ingestUserId)
@@ -785,11 +719,6 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           ),
         )
       }
-    }
-    try {
-      localStorage.setItem(PG_HYDRATED_FLAG, 'postgres')
-    } catch {
-      /* ignore */
     }
     if (!opts?.full && isSupabaseMode) {
       scheduleDeferredFullBootstrap(() => {
@@ -821,35 +750,28 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     }
     refreshAfterMutationRef.current = window.setTimeout(() => {
       refreshAfterMutationRef.current = null
-      const actor = actorFromUsers(stateRef.current.users)
+      const actor = actorFromUsers()
       void refreshBootstrap(actor, { force: true })
     }, 1500)
   }, [refreshBootstrap])
 
   useEffect(() => {
     if (!isApiEnabled && !isSupabaseMode) {
-      setState((prev) => ensureGuestMarketplace(prev))
+      setState((prev) => ensureGuestMarketplace(prev, true))
       return
     }
     let cancelled = false
-    const hasCachedHydration =
-      localStorage.getItem(PG_HYDRATED_FLAG) === 'postgres' &&
-      stateRef.current.properties.length > 0
 
     const run = async () => {
-      const actor = actorFromUsers(stateRef.current.users)
+      const actor = actorFromUsers()
+      const guest = !actor?.userId && !(await browserHasSupabaseSession())
       const boot = await dedupeBootstrapFetch(true, () => fetchBootstrapFromApi(true, actor, 10_000))
       if (cancelled) return
       if (!boot) {
-        setState((prev) => ensureGuestMarketplace(prev))
+        setState((prev) => ensureGuestMarketplace(prev, guest))
         return
       }
-      setState((prev) => ensureGuestMarketplace(applyPostgresBootstrap(prev, boot)))
-      try {
-        localStorage.setItem(PG_HYDRATED_FLAG, 'postgres')
-      } catch {
-        /* ignore */
-      }
+      setState((prev) => ensureGuestMarketplace(applyPostgresBootstrap(prev, boot), guest))
       console.info(
         '[AppStore] hydrated from Postgres',
         boot.fetchedAt,
@@ -866,35 +788,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       })
     }
 
-    if (hasCachedHydration) {
-      scheduleDeferredFullBootstrap(() => {
-        if (!cancelled) void run()
-      })
-    } else {
-      void run()
-    }
+    void run()
 
     return () => {
       cancelled = true
     }
   }, [])
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
-      } catch {
-        /* ignore quota errors */
-      }
-    }, 900)
-    return () => window.clearTimeout(timer)
-  }, [state])
-
   const patch = useCallback((fn: (s: AppState) => AppState) => {
     setState((s) => fn(s))
   }, [])
 
-  /** Optimistic local write + fire-and-forget Postgres persist (degrades to localStorage). */
+  /** Optimistic local write + fire-and-forget Postgres persist. */
   const persistUpsert = useCallback(
     (resource: Parameters<typeof queueUpsert>[0], id: string, data: Record<string, unknown>) => {
       queueUpsert(resource, id, data)
@@ -1230,16 +1135,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     toasts,
     refreshBootstrap,
     resetDemo: () => {
-      localStorage.removeItem(STORAGE_KEY)
-      localStorage.removeItem(PG_HYDRATED_FLAG)
       setState(defaultState())
       setToasts([])
-      const actor = actorFromUsers(defaultState().users)
+      const actor = actorFromUsers()
       if (!isApiEnabled && !isSupabaseMode) return
       void fetchBootstrapFromApi(false, actor).then((boot) => {
         if (!boot) return
         setState((prev) => applyPostgresBootstrap(prev, boot))
-        localStorage.setItem(PG_HYDRATED_FLAG, 'postgres')
       })
     },
     createAgency: (input) => {
@@ -2698,16 +2600,20 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       // Additive: email confirmation to the applicant (works in both API and
       // Supabase modes since it rides the same origin). Fire-and-forget — a
       // mail hiccup must never block or fail the application.
-      void fetch('/api/notify/application-received', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: app.email,
-          applicantName: app.applicantName,
-          propertyTitle: property?.title,
-          referenceCode: app.id,
-        }),
-      }).catch(() => {})
+      void authHeaders()
+        .then((headers) =>
+          fetch('/api/notify/application-received', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...headers },
+            body: JSON.stringify({
+              email: app.email,
+              applicantName: app.applicantName,
+              propertyTitle: property?.title,
+              referenceCode: app.id,
+            }),
+          }),
+        )
+        .catch(() => {})
 
       return app
     },

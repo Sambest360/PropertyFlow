@@ -36,14 +36,13 @@ export function clearPendingRegistrationDocs() {
 }
 
 /**
- * Per-document upload cap for verification docs. Docs travel outside the
- * signup call (attached to users.metadata after the session exists), so the
- * cap is bounded by platform request limits rather than the signup payload.
+ * Per-document upload cap for ID and verification docs. 800 KB keeps the
+ * data-URL payload small enough to attach after signup.
  */
-export const REGISTRATION_DOC_MAX_BYTES = 5 * 1024 * 1024
+export const REGISTRATION_DOC_MAX_BYTES = 800 * 1024
 export const REGISTRATION_DOCS_MAX_TOTAL_BYTES = 3 * REGISTRATION_DOC_MAX_BYTES
 
-/** Human-readable form of the per-doc cap, e.g. "5 MB" or "800 KB". */
+/** Human-readable form of the per-doc cap, e.g. "800 KB". */
 export function formatDocSizeLabel(bytes = REGISTRATION_DOC_MAX_BYTES): string {
   if (bytes >= 1024 * 1024) {
     const mb = bytes / (1024 * 1024)
@@ -64,11 +63,11 @@ export function validateRegistrationDocSizes(
   const maxLabel = formatDocSizeLabel()
   for (const doc of documents) {
     if (doc.dataUrl.length > REGISTRATION_DOC_MAX_BYTES * 1.4) {
-      return `${doc.label} is too large — use a file under ${maxLabel}.`
+      return `File too large. ${doc.label} must be under ${maxLabel}.`
     }
   }
   if (registrationDocsPayloadBytes(documents) > REGISTRATION_DOCS_MAX_TOTAL_BYTES) {
-    return `Combined uploads are too large — use smaller files (under ${maxLabel} each).`
+    return `File too large. Combined uploads must stay under ${maxLabel} each.`
   }
   return null
 }

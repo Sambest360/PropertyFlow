@@ -44,21 +44,10 @@ export type PatchApplicationStatusRequest = {
 
 export type CheckoutBridgeConfig = {
   provider: 'payfast' | 'peach'
-  /** Frontend posts to this URL / opens hosted checkout */
-  checkout_url: string
-  merchant_id: string
-  merchant_key?: string
   payment_id: string
   amount_cents: number
   amount_zar: number
   item_name: string
-  return_url: string
-  cancel_url: string
-  notify_url: string
-  /** Signed fields for PayFast / Peach */
-  signature_fields: Record<string, string>
-  /** Demo: signature is a deterministic placeholder, not a live HMAC */
-  signature: string
   currency: 'ZAR'
   expires_at: string
 }
@@ -193,65 +182,26 @@ function uid(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`
 }
 
-function demoSignature(fields: Record<string, string>): string {
-  const payload = Object.keys(fields)
-    .sort()
-    .map((k) => `${k}=${fields[k]}`)
-    .join('&')
-  let hash = 0
-  for (let i = 0; i < payload.length; i += 1) hash = (hash * 31 + payload.charCodeAt(i)) >>> 0
-  return `demo_${hash.toString(16)}`
-}
-
+/**
+ * Display summary for an approval invoice. Card checkout is started only by
+ * `POST /api/payfast/create` (`startPayfastCheckout`). This object never
+ * carries merchant credentials.
+ */
 export function buildCheckoutBridge(params: {
-  application: Application
   propertyTitle: string
   amountZar: number
   paymentId: string
   provider: 'payfast' | 'peach'
 }): CheckoutBridgeConfig {
   const amountCents = Math.round(params.amountZar * 100)
-  const appOrigin =
-    typeof window !== 'undefined' && window.location.origin.startsWith('http')
-      ? window.location.origin
-      : 'https://property-flow-jet.vercel.app'
-  const returnUrl = `${appOrigin}/payfast/return?ref=${encodeURIComponent(params.paymentId)}`
-  const cancelUrl = `${appOrigin}/payfast/cancel?ref=${encodeURIComponent(params.paymentId)}`
-  const notifyUrl = `${appOrigin}/api/payfast/itn`
-  const fields: Record<string, string> = {
-    merchant_id: params.provider === 'payfast' ? '10047719' : 'peach_demo_merchant',
-    amount: (amountCents / 100).toFixed(2),
-    item_name: `PropertyFlow · ${params.propertyTitle}`.slice(0, 100),
-    m_payment_id: params.paymentId,
-    return_url: returnUrl,
-    cancel_url: cancelUrl,
-    notify_url: notifyUrl,
-    email_address: params.application.email,
-    name_first: params.application.applicantName.split(' ')[0] ?? 'Applicant',
-  }
   const expires = new Date()
   expires.setHours(expires.getHours() + 6)
-
   return {
     provider: params.provider,
-    checkout_url:
-      params.provider === 'payfast'
-        ? 'https://sandbox.payfast.co.za/eng/process'
-        : 'https://test.oppwa.com/v1/paymentWidgets.js',
-    merchant_id: fields.merchant_id,
-    merchant_key: params.provider === 'payfast' ? 'wkq8dmfysau1q' : undefined,
     payment_id: params.paymentId,
     amount_cents: amountCents,
     amount_zar: params.amountZar,
-    item_name: fields.item_name,
-    return_url: returnUrl,
-    cancel_url: cancelUrl,
-    notify_url: notifyUrl,
-    signature_fields: fields,
-    // NOTE: display-only demo hash. The authoritative signature is computed
-    // server-side by /api/payfast/create (server/payfast.ts) when checkout is
-    // actually launched — see startPayfastCheckout().
-    signature: demoSignature(fields),
+    item_name: `PropertyFlow · ${params.propertyTitle}`.slice(0, 100),
     currency: 'ZAR',
     expires_at: expires.toISOString(),
   }
@@ -545,7 +495,6 @@ export function patchApplicationStatus(params: {
         : 'payfast'
 
   const checkout = buildCheckoutBridge({
-    application,
     propertyTitle: property?.title ?? unit?.title ?? 'Property',
     amountZar: totalEntry ?? deposit,
     paymentId: invoiceId,

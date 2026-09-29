@@ -1,6 +1,10 @@
 import { useMemo, useState } from 'react'
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { startPayfastCheckout } from '../lib/payfast/checkout'
+import {
+  isPayfastCheckoutAvailable,
+  PAYFAST_UNAVAILABLE_MESSAGE,
+  startPayfastCheckout,
+} from '../lib/payfast/checkout'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
@@ -29,6 +33,7 @@ export default function PaymentDetail() {
   const [markPaidOpen, setMarkPaidOpen] = useState(false)
   const [payOnlineBusy, setPayOnlineBusy] = useState(false)
   const [payOnlineError, setPayOnlineError] = useState<string | null>(null)
+  const onlinePay = isPayfastCheckoutAvailable()
 
   const payment = state.payments.find((p) => p.id === id)
 
@@ -161,6 +166,8 @@ export default function PaymentDetail() {
           onMarkPaid={() => setMarkPaidOpen(true)}
           onPayOnline={handlePayOnline}
           payOnlineBusy={payOnlineBusy}
+          payOnlineDisabled={!onlinePay}
+          payOnlineDisabledReason={onlinePay ? undefined : PAYFAST_UNAVAILABLE_MESSAGE}
           onCancel={handleCancel}
           onRemove={handleRemove}
         />

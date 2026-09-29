@@ -6,7 +6,6 @@ import { isApiEnabled, isSupabaseMode } from './config'
 import type { UserVerification, VerificationDocument, VerificationProfile } from '../verification'
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''
-const TOKEN_KEY = 'propertyflow-auth-token'
 
 export type AuthUserDto = {
   id: string
@@ -32,27 +31,21 @@ export type AuthResponse = {
   bootstrap?: boolean
 }
 
-export function readAuthToken(): string | null {
+/**
+ * Bearer token for our API. Always the current Supabase access token.
+ * The legacy `propertyflow-auth-token` localStorage value is not used.
+ */
+export async function authHeaders(): Promise<Record<string, string>> {
+  if (!isSupabaseMode) return {}
   try {
-    return localStorage.getItem(TOKEN_KEY)
+    const { createClient } = await import('../../utils/supabase/client')
+    const { data } = await createClient().auth.getSession()
+    const token = data.session?.access_token
+    if (!token) return {}
+    return { Authorization: `Bearer ${token}` }
   } catch {
-    return null
+    return {}
   }
-}
-
-export function writeAuthToken(token: string | null): void {
-  try {
-    if (token) localStorage.setItem(TOKEN_KEY, token)
-    else localStorage.removeItem(TOKEN_KEY)
-  } catch {
-    /* ignore */
-  }
-}
-
-export function authHeaders(): Record<string, string> {
-  const token = readAuthToken()
-  if (!token) return {}
-  return { Authorization: `Bearer ${token}` }
 }
 
 async function parseJson<T>(res: Response): Promise<T> {
@@ -107,7 +100,7 @@ export async function apiRegister(input: {
 }): Promise<AuthResponse> {
   const res = await fetchWithTimeout(`${API_BASE}/api/auth/register`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
     credentials: 'include',
     body: JSON.stringify({
       email: input.email,
@@ -122,7 +115,6 @@ export async function apiRegister(input: {
     }),
   })
   const data = await parseJson<AuthResponse>(res)
-  if (data.token) writeAuthToken(data.token)
   syncActorFromUser(data.user)
   return data
 }
@@ -137,12 +129,7 @@ export async function apiUpdateUserVerification(input: {
   // server to validate. The route is the single decision path in both modes.
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...authHeaders(),
-  }
-  if (isSupabaseMode) {
-    const { createClient } = await import('../../utils/supabase/client')
-    const { data } = await createClient().auth.getSession()
-    if (data.session?.access_token) headers.Authorization = `Bearer ${data.session.access_token}`
+    ...(await authHeaders()),
   }
   const res = await fetch(
     `${API_BASE}/api/admin/users/${encodeURIComponent(input.userId)}/verification`,
@@ -166,12 +153,11 @@ export async function apiLogin(input: {
 }): Promise<AuthResponse> {
   const res = await fetchWithTimeout(`${API_BASE}/api/auth/login`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
     credentials: 'include',
     body: JSON.stringify(input),
   })
   const data = await parseJson<AuthResponse>(res)
-  if (data.token) writeAuthToken(data.token)
   syncActorFromUser(data.user)
   return data
 }
@@ -181,27 +167,23 @@ export async function apiLogout(): Promise<void> {
     await fetch(`${API_BASE}/api/auth/logout`, {
       method: 'POST',
       credentials: 'include',
-      headers: { ...authHeaders() },
+      headers: { ...(await authHeaders()) },
     })
   } finally {
-    writeAuthToken(null)
     setApiActor(null)
   }
 }
 
 export async function apiMe(timeoutMs = 3000): Promise<AuthUserDto | null> {
-  const token = readAuthToken()
-  if (!token) return null
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
     const res = await fetch(`${API_BASE}/api/auth/me`, {
       credentials: 'include',
-      headers: { ...authHeaders() },
+      headers: { ...(await authHeaders()) },
       signal: ctrl.signal,
     })
     if (res.status === 401) {
-      writeAuthToken(null)
       setApiActor(null)
       return null
     }
@@ -222,6 +204,7 @@ export async function apiAuthBootstrapNeeded(timeoutMs = 2000): Promise<boolean>
   try {
     const res = await fetch(`${API_BASE}/api/auth/bootstrap-needed`, {
       credentials: 'include',
+      headers: { ...(await authHeaders()) },
       signal: ctrl.signal,
     })
     if (!res.ok) return false
