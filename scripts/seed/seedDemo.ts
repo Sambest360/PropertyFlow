@@ -20,6 +20,7 @@ import {
   upsertEntityMap,
   type SeedEnv,
 } from './helpers.js'
+import { assertLocalSeedTarget } from './localOnlyGuard.js'
 import { seedTrustData } from './seedTrust.js'
 
 export type SeedResult = {
@@ -41,6 +42,7 @@ export async function seedDemo(
   admin: SupabaseClient,
   env: SeedEnv,
 ): Promise<SeedResult> {
+  assertLocalSeedTarget({ databaseUrl: env.directUrl, supabaseUrl: env.supabaseUrl })
   const users: UserRegistry = new Map()
   const unitByFe = new Map<string, { unitId: string; buildingId: string; agentFeId: string }>()
   const credentials: SeedResult['credentials'] = []

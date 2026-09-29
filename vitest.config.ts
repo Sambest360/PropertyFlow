@@ -6,6 +6,10 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   test: {
     environment: 'node',
-    include: ['src/**/*.{test,spec}.{ts,tsx}', 'server/**/*.{test,spec}.{ts,tsx}'],
+    include: [
+      'src/**/*.{test,spec}.{ts,tsx}',
+      'server/**/*.{test,spec}.{ts,tsx}',
+      'scripts/**/*.{test,spec}.{ts,tsx}',
+    ],
   },
 })

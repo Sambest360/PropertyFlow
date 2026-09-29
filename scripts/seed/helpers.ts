@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import pg from 'pg'
 import { DirectAdminClient } from './directAdmin.js'
+import { assertLocalSeedTarget } from './localOnlyGuard.js'
 
 const DEMO_DOC_BASE =
   'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf.pdf'
@@ -47,6 +48,7 @@ export type SeedEnv = {
 export function loadSeedEnv(): SeedEnv {
   const directUrl = process.env.DIRECT_URL ?? process.env.DATABASE_URL
   const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL
+  assertLocalSeedTarget({ databaseUrl: directUrl, supabaseUrl })
   // Local .env.local ships the publishable key only. When no real secret is
   // present the seed scripts fall back to the direct-Postgres admin shim.
   const rawSecret =

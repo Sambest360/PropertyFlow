@@ -11,10 +11,18 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { SUPER_ADMINS, superAdminByEmail, type SuperAdminDef } from './seed/superAdmins.js'
 import { DirectAdminClient } from './seed/directAdmin.js'
 import { createPgPool } from './seed/helpers.js'
+import { assertLocalDatabaseTargets, type LocalTarget } from './seed/localOnlyGuard.js'
 
 const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL
 const rawSecret = process.env.SUPABASE_SECRET_KEY
 const directUrl = process.env.DIRECT_URL ?? process.env.DATABASE_URL
+const localTargets: LocalTarget[] = []
+if (directUrl) localTargets.push({ label: 'database URL (DIRECT_URL or DATABASE_URL)', url: directUrl })
+if (url) localTargets.push({ label: 'Supabase URL', url })
+if (localTargets.length === 0) {
+  localTargets.push({ label: 'Supabase URL or database URL', url: undefined })
+}
+assertLocalDatabaseTargets(localTargets)
 const password = process.env.SUPER_ADMIN_PASSWORD ?? 'secret'
 const singleEmail = process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase()
 
