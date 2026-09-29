@@ -71,7 +71,9 @@ supabase status -o env
 
 If your status output shows different keys, paste those into `.env.local`. `PUBLISHABLE_KEY` / `SECRET_KEY` (`sb_publishable_` / `sb_secret_`) are the newer names for the same local project. Either pair works. Do not paste a hosted project key.
 
-Leave PayFast and Mailtrap blank. Local auth mail shows up in Mailpit at http://127.0.0.1:54324.
+Leave PayFast and Mailtrap blank.
+
+Email confirmations stay on (`enable_confirmations = true` under `[auth.email]`). A new sign-up is not pre-confirmed. The confirmation message is delivered to the local mail catcher that `supabase start` starts (Mailpit, formerly Inbucket) at http://127.0.0.1:54324. Seeded users are inserted already confirmed, so those accounts can sign in without opening that mailbox.
 
 ## Seed
 
@@ -79,22 +81,26 @@ Leave PayFast and Mailtrap blank. Local auth mail shows up in Mailpit at http://
 npm run db:seed:local
 ```
 
-`supabase db reset` also loads `supabase/seed.sql` after the migrations. The npm script runs that SQL and uploads one fake text file per agency into the local `documents` bucket.
+`supabase db reset` loads `supabase/seed.sql` after the migrations. That SQL does not contain a login password. `npm run db:seed:local` runs the same SQL, sets one password on every `@example.test` account, and uploads one fake text file per agency into the local `documents` bucket.
 
-The fixture is `database/fixtures/localDevSeed.ts`. Import `localDevSeed` (or `localDevUsers` / `localDevAgencies`) from tests instead of copying ids.
+Set `SEED_USER_PASSWORD` in `.env.local` before seeding if you want a password you chose. If it is unset, the script generates a strong password and prints it once. There is no default password.
+
+The fixture is `database/fixtures/localDevSeed.ts`. Import `localDevSeed` (or `localDevUsers` / `localDevAgencies` / `uploadPersonas`) from tests instead of copying ids.
 
 ```ts
-import { localDevSeed } from '../../database/fixtures/localDevSeed.ts'
+import { localDevSeed, uploadPersonas } from '../../database/fixtures/localDevSeed.ts'
 
-localDevSeed.password        // 'LocalDev-Password-1'
-localDevSeed.roles           // every UI role, including applicant
-localDevSeed.agencies[]      // { id, frontendId, name, building, publishedUnit, leasedUnit, lead, application, lease, ticket, document, payment, ... }
-localDevSeed.users[]         // { role, dbRole, frontendRole, email, password, authUserId, userId, frontendId, agencyId, persona }
+localDevSeed.seedPasswordEnvVar   // 'SEED_USER_PASSWORD'
+localDevSeed.roles                // every UI role, including applicant
+localDevSeed.agencies[]           // { id, frontendId, name, building, publishedUnit, leasedUnit, lead, application, lease, ticket, document, payment, ... }
+localDevSeed.users[]              // { role, dbRole, frontendRole, email, authUserId, userId, frontendId, agencyId, persona }
+uploadPersonas.tenantWithMaintenanceTicket   // Northwind tenant Finn Ledger plus ticket
+uploadPersonas.applicantWithApplication      // Northwind applicant Hal Ledger; not staff of that agency
 ```
 
 `applicant` is not its own database role. Those users are `END_USER` / frontend role `tenant`, with `persona: 'applicant'` and no lease. `agent` is stored as `GROUND_AGENT` with frontend role `agent`.
 
-Every account uses the password `LocalDev-Password-1`. Emails are `@example.test`.
+Emails are `@example.test`. The password is whatever this seed run used.
 
 | Role | Northwind | Southridge |
 | --- | --- | --- |
@@ -116,7 +122,7 @@ Each agency has a building, a published listing, an occupied unit, a lead, an ap
 npm run dev
 ```
 
-Vite is http://127.0.0.1:5173. Sign in with any email above. The API (optional) is `npm run dev:full`.
+Vite is http://127.0.0.1:5173. Sign in with any email above and the seed password from this run. The API (optional) is `npm run dev:full`.
 
 ## Reset
 
@@ -125,12 +131,12 @@ supabase db reset
 npm run db:seed:local
 ```
 
-`db reset` drops the local database, replays migrations, and runs `supabase/seed.sql`. The npm script is idempotent and refreshes the storage files. It refuses to run if `DATABASE_URL` / `DIRECT_URL` or `SUPABASE_URL` is not local (`localhost`, `127.0.0.1`, `::1`, `host.docker.internal`, `db`, or `supabase_db_*`).
+`db reset` drops the local database, replays migrations, and runs `supabase/seed.sql`. The npm script is idempotent, sets the seed password, and refreshes the storage files. It refuses to run if `DATABASE_URL` / `DIRECT_URL` or `SUPABASE_URL` is not local (`localhost`, `127.0.0.1`, `::1`, `host.docker.internal`, `db`, or `supabase_db_*`).
 
 ## Troubleshooting
 
 - **`supabase start` exits while initialising the schema.** Confirm Docker is running. If containers can resolve each other but TCP times out, bridge netfilter may be dropping packets (`sysctl net.bridge.bridge-nf-call-iptables=0`). Ports 54321–54324 must be free.
-- **Login returns invalid credentials.** Run `npm run db:seed:local` again. The seed password is `LocalDev-Password-1`.
+- **Login returns invalid credentials.** Run `npm run db:seed:local` again and use the password it prints, or the value of `SEED_USER_PASSWORD`. `supabase db reset` alone does not set a login password. A brand-new sign-up must confirm via Mailpit at http://127.0.0.1:54324 before it can sign in.
 - **Seed script refuses a URL.** The host is not local. Point `.env.local` at `127.0.0.1` as in `.env.example`.
 - **Migration copy test fails.** Run `npm run db:sync-migrations` after editing `database/postgres/`.
 - **Studio.** http://127.0.0.1:54323

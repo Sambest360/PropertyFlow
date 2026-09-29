@@ -13,7 +13,7 @@ export type StaffUserDef = {
 
 export const AGENCY_ADMIN: StaffUserDef = {
   feId: 'u-admin-lerato',
-  email: 'lerato.nkosi@propertyflow.demo',
+  email: 'lerato.nkosi.propertyflow@example.test',
   firstName: 'Lerato',
   lastName: 'Nkosi',
   phone: '+27 82 400 1001',
@@ -23,7 +23,7 @@ export const AGENCY_ADMIN: StaffUserDef = {
 export const AGENTS: StaffUserDef[] = [
   {
     feId: 'u-agent-james',
-    email: 'james.okonkwo@propertyflow.demo',
+    email: 'james.okonkwo.propertyflow@example.test',
     firstName: 'James',
     lastName: 'Okonkwo',
     phone: '+27 82 400 1002',
@@ -33,7 +33,7 @@ export const AGENTS: StaffUserDef[] = [
   },
   {
     feId: 'u-agent-priya',
-    email: 'priya.naidoo@propertyflow.demo',
+    email: 'priya.naidoo.propertyflow@example.test',
     firstName: 'Priya',
     lastName: 'Naidoo',
     phone: '+27 82 400 1003',
@@ -43,7 +43,7 @@ export const AGENTS: StaffUserDef[] = [
   },
   {
     feId: 'u-agent-themba',
-    email: 'themba.maseko@propertyflow.demo',
+    email: 'themba.maseko.propertyflow@example.test',
     firstName: 'Themba',
     lastName: 'Maseko',
     phone: '+27 82 400 1004',
@@ -53,7 +53,7 @@ export const AGENTS: StaffUserDef[] = [
   },
   {
     feId: 'u-agent-nadia',
-    email: 'nadia.vanwyk@propertyflow.demo',
+    email: 'nadia.vanwyk.propertyflow@example.test',
     firstName: 'Nadia',
     lastName: 'van Wyk',
     phone: '+27 82 400 1005',
@@ -63,7 +63,7 @@ export const AGENTS: StaffUserDef[] = [
   },
   {
     feId: 'u-agent-chris',
-    email: 'chris.daniels@propertyflow.demo',
+    email: 'chris.daniels.propertyflow@example.test',
     firstName: 'Chris',
     lastName: 'Daniels',
     phone: '+27 82 400 1006',

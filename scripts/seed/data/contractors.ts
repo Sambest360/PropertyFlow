@@ -15,7 +15,7 @@ export type ContractorDef = {
 export const CONTRACTORS: ContractorDef[] = [
   {
     feId: 'u-contractor-aquafix',
-    email: 'jobs@aquafix.propertyflow.demo',
+    email: 'jobs.aquafix-propertyflow@example.test',
     firstName: 'David',
     lastName: 'Mokoena',
     phone: '+27 21 555 0401',
@@ -26,7 +26,7 @@ export const CONTRACTORS: ContractorDef[] = [
   },
   {
     feId: 'u-contractor-voltpro',
-    email: 'jobs@voltpro.propertyflow.demo',
+    email: 'jobs.voltpro-propertyflow@example.test',
     firstName: 'Sarah',
     lastName: 'Pieterse',
     phone: '+27 21 555 0402',
@@ -37,7 +37,7 @@ export const CONTRACTORS: ContractorDef[] = [
   },
   {
     feId: 'u-contractor-coolair',
-    email: 'jobs@coolair.propertyflow.demo',
+    email: 'jobs.coolair-propertyflow@example.test',
     firstName: 'Ahmed',
     lastName: 'Hassan',
     phone: '+27 21 555 0403',
@@ -48,7 +48,7 @@ export const CONTRACTORS: ContractorDef[] = [
   },
   {
     feId: 'u-contractor-handyman',
-    email: 'jobs@handymancape.propertyflow.demo',
+    email: 'jobs.handymancape-propertyflow@example.test',
     firstName: 'Pieter',
     lastName: 'Botha',
     phone: '+27 21 555 0404',
@@ -59,7 +59,7 @@ export const CONTRACTORS: ContractorDef[] = [
   },
   {
     feId: 'u-contractor-paintworks',
-    email: 'jobs@paintworks.propertyflow.demo',
+    email: 'jobs.paintworks-propertyflow@example.test',
     firstName: 'Zola',
     lastName: 'Mthembu',
     phone: '+27 21 555 0405',
@@ -69,7 +69,7 @@ export const CONTRACTORS: ContractorDef[] = [
   },
   {
     feId: 'u-contractor-greenscape',
-    email: 'jobs@greenscape.propertyflow.demo',
+    email: 'jobs.greenscape-propertyflow@example.test',
     firstName: 'Emma',
     lastName: 'Williams',
     phone: '+27 21 555 0406',

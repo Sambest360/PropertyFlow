@@ -37,7 +37,7 @@ export const AGENCY = {
   subdomain: 'seeff-citybowl',
   status: 'active',
   trading_as: 'Seeff Property Group — City Bowl & Tamboerskloof',
-  email: 'citybowl@propertyflow.demo',
+  email: 'citybowl.propertyflow@example.test',
   phone: '+27 21 200 0999',
   city: 'Cape Town',
   province: 'Western Cape',

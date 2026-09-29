@@ -248,7 +248,7 @@
   <li><strong>Log out fully</strong> between role switches (avatar menu → <strong>Sign out</strong>), or use separate browsers / incognito windows.</li>
   <li><strong>Hard refresh</strong> (Ctrl+Shift+R / Cmd+Shift+R) if the sidebar or role badge looks wrong after login.</li>
   <li>If data does not match this guide, <strong>stop and report to the dev team</strong> with account email, expected vs actual, and a screenshot.</li>
-  <li>For <strong>registration tests</strong> (landlord / contractor), use a <strong>new email</strong> you control — Gmail plus-addressing works (<code>you+test1@gmail.com</code>). The seeded <code>@propertyflow.demo</code> addresses are <strong>login-only</strong> (they cannot receive confirmation mail); never overwrite them.</li>
+  <li>For <strong>registration tests</strong> (landlord / contractor), use a <strong>new email</strong> you control — plus-addressing works (<code>you+test1@example.test</code>). The seeded <code>@example.test</code> addresses are local fixtures; never overwrite them. Confirmation mail lands in the local Mailpit catcher.</li>
   <li>If sign-in returns “Sign-in service error” for a seeded QA account, ask the dev team to run <code>npm run db:repair-auth</code>.</li>
 </ol>
 
@@ -268,7 +268,7 @@
   <tbody>
     <tr>
       <td>Samuel (Super Admin)</td>
-      <td><code>sambampo200@gmail.com</code> (issued by QA lead — the demo identity in the seed)</td>
+      <td><code>samuel.admin@example.test</code> (issued by QA lead — the demo identity in the seed)</td>
       <td>Super Admin</td>
       <td><a class="app-link" href="/workspace/admin/agencies">/workspace/admin/agencies</a></td>
     </tr>
@@ -279,12 +279,12 @@
 <table>
   <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Notes</th></tr></thead>
   <tbody>
-    <tr><td>Lerato Nkosi</td><td><code>lerato.nkosi@propertyflow.demo</code></td><td>Agency Administrator</td><td>Full office ops; can impersonate staff</td></tr>
-    <tr><td>James Okonkwo</td><td><code>james.okonkwo@propertyflow.demo</code></td><td>Full Agent</td><td><strong>1 property</strong> (PR-SCB-001)</td></tr>
-    <tr><td>Priya Naidoo</td><td><code>priya.naidoo@propertyflow.demo</code></td><td>Full Agent</td><td><strong>2 properties</strong> (PR-SCB-002–003)</td></tr>
-    <tr><td>Themba Maseko</td><td><code>themba.maseko@propertyflow.demo</code></td><td>Full Agent</td><td><strong>4 properties</strong> (PR-SCB-004–007)</td></tr>
-    <tr><td>Nadia van Wyk</td><td><code>nadia.vanwyk@propertyflow.demo</code></td><td>Full Agent</td><td><strong>6 properties</strong> (PR-SCB-008–013)</td></tr>
-    <tr><td>Chris Daniels</td><td><code>chris.daniels@propertyflow.demo</code></td><td>Full Agent</td><td><strong>3 properties</strong> (PR-SCB-014–016); candidate license on profile</td></tr>
+    <tr><td>Lerato Nkosi</td><td><code>lerato.nkosi.propertyflow@example.test</code></td><td>Agency Administrator</td><td>Full office ops; can impersonate staff</td></tr>
+    <tr><td>James Okonkwo</td><td><code>james.okonkwo.propertyflow@example.test</code></td><td>Full Agent</td><td><strong>1 property</strong> (PR-SCB-001)</td></tr>
+    <tr><td>Priya Naidoo</td><td><code>priya.naidoo.propertyflow@example.test</code></td><td>Full Agent</td><td><strong>2 properties</strong> (PR-SCB-002–003)</td></tr>
+    <tr><td>Themba Maseko</td><td><code>themba.maseko.propertyflow@example.test</code></td><td>Full Agent</td><td><strong>4 properties</strong> (PR-SCB-004–007)</td></tr>
+    <tr><td>Nadia van Wyk</td><td><code>nadia.vanwyk.propertyflow@example.test</code></td><td>Full Agent</td><td><strong>6 properties</strong> (PR-SCB-008–013)</td></tr>
+    <tr><td>Chris Daniels</td><td><code>chris.daniels.propertyflow@example.test</code></td><td>Full Agent</td><td><strong>3 properties</strong> (PR-SCB-014–016); candidate license on profile</td></tr>
   </tbody>
 </table>
 <div class="callout callout-warn">
@@ -298,12 +298,12 @@
 <table>
   <thead><tr><th>Name</th><th>Email</th><th>Situation</th><th>Maintenance / Messages / Complaints?</th></tr></thead>
   <tbody>
-    <tr><td>Riaan Botha</td><td><code>riaan.botha@propertyflow.demo</code></td><td>Application <strong>Submitted</strong> PR-SCB-006 (APP-SCB-901)</td><td class="fail">No — applicant only</td></tr>
-    <tr><td>Elena Costa</td><td><code>elena.costa@propertyflow.demo</code></td><td>Application <strong>Under review</strong> PR-SCB-007 (APP-SCB-902)</td><td class="fail">No — applicant only</td></tr>
-    <tr><td>Sarie du Plessis</td><td><code>sarie.duplessis@propertyflow.demo</code></td><td>Application <strong>Approved</strong> (purchase) PR-SCB-008 (APP-SCB-903)</td><td class="pass">Yes — tenant tools unlocked</td></tr>
-    <tr><td>Thabo Mokoena</td><td><code>thabo.mokoena@propertyflow.demo</code></td><td>No application — fresh-register simulation</td><td class="fail">No</td></tr>
-    <tr><td>Amy Visser</td><td><code>amy.visser@propertyflow.demo</code></td><td>No application — fresh-register simulation</td><td class="fail">No</td></tr>
-    <tr><td>Jordan Pillay</td><td><code>jordan.pillay@propertyflow.demo</code></td><td>No application — fresh-register simulation</td><td class="fail">No</td></tr>
+    <tr><td>Riaan Botha</td><td><code>riaan.botha.propertyflow@example.test</code></td><td>Application <strong>Submitted</strong> PR-SCB-006 (APP-SCB-901)</td><td class="fail">No — applicant only</td></tr>
+    <tr><td>Elena Costa</td><td><code>elena.costa.propertyflow@example.test</code></td><td>Application <strong>Under review</strong> PR-SCB-007 (APP-SCB-902)</td><td class="fail">No — applicant only</td></tr>
+    <tr><td>Sarie du Plessis</td><td><code>sarie.duplessis.propertyflow@example.test</code></td><td>Application <strong>Approved</strong> (purchase) PR-SCB-008 (APP-SCB-903)</td><td class="pass">Yes — tenant tools unlocked</td></tr>
+    <tr><td>Thabo Mokoena</td><td><code>thabo.mokoena.propertyflow@example.test</code></td><td>No application — fresh-register simulation</td><td class="fail">No</td></tr>
+    <tr><td>Amy Visser</td><td><code>amy.visser.propertyflow@example.test</code></td><td>No application — fresh-register simulation</td><td class="fail">No</td></tr>
+    <tr><td>Jordan Pillay</td><td><code>jordan.pillay.propertyflow@example.test</code></td><td>No application — fresh-register simulation</td><td class="fail">No</td></tr>
   </tbody>
 </table>
 
@@ -311,12 +311,12 @@
 <table>
   <thead><tr><th>Company</th><th>Email</th><th>Verification</th><th>Expected behaviour</th></tr></thead>
   <tbody>
-    <tr><td>AquaFix Plumbing</td><td><code>jobs@aquafix.propertyflow.demo</code></td><td class="pass">Approved</td><td>Receives plumbing jobs</td></tr>
-    <tr><td>VoltPro Electrical</td><td><code>jobs@voltpro.propertyflow.demo</code></td><td class="pass">Approved</td><td>Electrical jobs</td></tr>
-    <tr><td>CoolAir HVAC</td><td><code>jobs@coolair.propertyflow.demo</code></td><td class="pass">Approved</td><td>HVAC jobs</td></tr>
-    <tr><td>Handyman Cape</td><td><code>jobs@handymancape.propertyflow.demo</code></td><td class="pass">Approved</td><td>General maintenance</td></tr>
-    <tr><td>PaintWorks CT</td><td><code>jobs@paintworks.propertyflow.demo</code></td><td class="warn">Pending</td><td>Yellow pending banner; limited jobs</td></tr>
-    <tr><td>GreenScape Gardens</td><td><code>jobs@greenscape.propertyflow.demo</code></td><td class="warn">Pending</td><td>Same as above</td></tr>
+    <tr><td>AquaFix Plumbing</td><td><code>jobs.aquafix-propertyflow@example.test</code></td><td class="pass">Approved</td><td>Receives plumbing jobs</td></tr>
+    <tr><td>VoltPro Electrical</td><td><code>jobs.voltpro-propertyflow@example.test</code></td><td class="pass">Approved</td><td>Electrical jobs</td></tr>
+    <tr><td>CoolAir HVAC</td><td><code>jobs.coolair-propertyflow@example.test</code></td><td class="pass">Approved</td><td>HVAC jobs</td></tr>
+    <tr><td>Handyman Cape</td><td><code>jobs.handymancape-propertyflow@example.test</code></td><td class="pass">Approved</td><td>General maintenance</td></tr>
+    <tr><td>PaintWorks CT</td><td><code>jobs.paintworks-propertyflow@example.test</code></td><td class="warn">Pending</td><td>Yellow pending banner; limited jobs</td></tr>
+    <tr><td>GreenScape Gardens</td><td><code>jobs.greenscape-propertyflow@example.test</code></td><td class="warn">Pending</td><td>Same as above</td></tr>
   </tbody>
 </table>
 
@@ -426,10 +426,10 @@
 <table>
   <thead><tr><th>Login as</th><th>Expected portal title</th><th>Tabs visible</th></tr></thead>
   <tbody>
-    <tr><td><code>lucas.pretorius@propertyflow.demo</code></td><td><strong>Tenant portal</strong></td><td>Home, Applications, Wishlist, Maintenance, Messages, Complaints</td></tr>
-    <tr><td><code>riaan.botha@propertyflow.demo</code></td><td><strong>Applicant home</strong></td><td>Home, Applications, Wishlist only</td></tr>
-    <tr><td><code>elena.costa@propertyflow.demo</code></td><td><strong>Applicant home</strong></td><td>Same as Riaan</td></tr>
-    <tr><td><code>sarie.duplessis@propertyflow.demo</code></td><td><strong>Tenant portal</strong> (approved, no lease)</td><td>All tabs including Maintenance / Messages / Complaints</td></tr>
+    <tr><td><code>lucas.pretorius.propertyflow@example.test</code></td><td><strong>Tenant portal</strong></td><td>Home, Applications, Wishlist, Maintenance, Messages, Complaints</td></tr>
+    <tr><td><code>riaan.botha.propertyflow@example.test</code></td><td><strong>Applicant home</strong></td><td>Home, Applications, Wishlist only</td></tr>
+    <tr><td><code>elena.costa.propertyflow@example.test</code></td><td><strong>Applicant home</strong></td><td>Same as Riaan</td></tr>
+    <tr><td><code>sarie.duplessis.propertyflow@example.test</code></td><td><strong>Tenant portal</strong> (approved, no lease)</td><td>All tabs including Maintenance / Messages / Complaints</td></tr>
   </tbody>
 </table>
 
@@ -437,7 +437,7 @@
 <h1 class="doc-section" id="s5">5. Detailed Test Scripts by Role</h1>
 
 <div class="test-block" id="s5-a">
-  <h3>A. Super Admin — <code>sambampo200@gmail.com</code></h3>
+  <h3>A. Super Admin — <code>samuel.admin@example.test</code></h3>
   <p><strong>Should be able to:</strong> Manage all agencies; create agencies; platform config and billing. Should <em>not</em> land on Applicant home.</p>
   <p><strong>Quick login:</strong> <a class="app-link" href="/login">Login</a> → expect redirect to <a class="app-link" href="/workspace/admin/agencies">Agencies admin</a></p>
   <ol>
@@ -452,7 +452,7 @@
 </div>
 
 <div class="test-block" id="s5-b">
-  <h3>B. Agency Administrator — <code>lerato.nkosi@propertyflow.demo</code></h3>
+  <h3>B. Agency Administrator — <code>lerato.nkosi.propertyflow@example.test</code></h3>
   <p><strong>Should be able to:</strong> Full agency ops; all 16 properties; team, CRM, applications, maintenance, payments, messaging, config.</p>
   <ol>
     <li><strong>Login</strong> — Lands on <a class="app-link" href="/workspace">/workspace</a>. Badge: Agency Administrator.</li>
@@ -468,7 +468,7 @@
 </div>
 
 <div class="test-block" id="s5-c">
-  <h3>C. Full Agent (scoped) — <code>james.okonkwo@propertyflow.demo</code></h3>
+  <h3>C. Full Agent (scoped) — <code>james.okonkwo.propertyflow@example.test</code></h3>
   <p><strong>Should be able to:</strong> Only PR-SCB-001 and related CRM/maintenance. <strong>Cannot</strong> see all 16 properties or admin config.</p>
   <ol>
     <li><strong>Property scope</strong> — <a class="app-link" href="/workspace/properties">Properties</a> → <strong>1 property</strong> only. Lerato sees 16.</li>
@@ -478,11 +478,11 @@
     <li><strong>Viewings</strong> — <a class="app-link" href="/workspace/sales/viewings">Sales → Viewings</a> → create slot.</li>
     <li><strong>Negative</strong> — <a class="app-link" href="/workspace/admin/config">/workspace/admin/config</a> and <a class="app-link" href="/workspace/people/staff">/workspace/people/staff</a> → denied.</li>
   </ol>
-  <p><strong>Spot-check:</strong> <code>nadia.vanwyk@propertyflow.demo</code> → 6 properties.</p>
+  <p><strong>Spot-check:</strong> <code>nadia.vanwyk.propertyflow@example.test</code> → 6 properties.</p>
 </div>
 
 <div class="test-block" id="s5-d">
-  <h3>D. Active tenant — <code>lucas.pretorius@propertyflow.demo</code></h3>
+  <h3>D. Active tenant — <code>lucas.pretorius.propertyflow@example.test</code></h3>
   <p><strong>Should be able to:</strong> Full tenant portal on PR-SCB-001 — maintenance, messages, complaints, wishlist.</p>
   <ol>
     <li><strong>Login</strong> — <a class="app-link" href="/workspace/portals/tenant">Tenant portal</a>. Hero: “Tenant portal”, not Applicant home.</li>
@@ -496,7 +496,7 @@
 </div>
 
 <div class="test-block" id="s5-e">
-  <h3>E. Applicant only — <code>riaan.botha@propertyflow.demo</code></h3>
+  <h3>E. Applicant only — <code>riaan.botha.propertyflow@example.test</code></h3>
   <p><strong>Should be able to:</strong> Applications + wishlist. <strong>Cannot</strong> maintenance / messages / complaints.</p>
   <ol>
     <li><strong>Login</strong> — “Hi Riaan”, badge Documents Pending / Submitted.</li>
@@ -507,7 +507,7 @@
 </div>
 
 <div class="test-block" id="s5-f">
-  <h3>F. Approved applicant — <code>sarie.duplessis@propertyflow.demo</code></h3>
+  <h3>F. Approved applicant — <code>sarie.duplessis.propertyflow@example.test</code></h3>
   <ol>
     <li>Login → Tenant portal (not Applicant home).</li>
     <li>All occupancy tabs visible.</li>
@@ -517,7 +517,7 @@
 </div>
 
 <div class="test-block" id="s5-g">
-  <h3>G. Contractor (approved) — <code>jobs@aquafix.propertyflow.demo</code></h3>
+  <h3>G. Contractor (approved) — <code>jobs.aquafix-propertyflow@example.test</code></h3>
   <ol>
     <li><strong>Login</strong> — <a class="app-link" href="/workspace/portals/contractor">Contractor portal</a>. No pending banner.</li>
     <li><strong>Jobs</strong> — Assigned and/or claimable open jobs.</li>
@@ -528,7 +528,7 @@
 </div>
 
 <div class="test-block" id="s5-h">
-  <h3>H. Contractor (pending) — <code>jobs@paintworks.propertyflow.demo</code></h3>
+  <h3>H. Contractor (pending) — <code>jobs.paintworks-propertyflow@example.test</code></h3>
   <ol>
     <li>Login → yellow “Contractor verification pending” banner.</li>
     <li>Fewer/no jobs vs AquaFix.</li>
@@ -731,7 +731,7 @@
 <p><em>D~ = deactivate or remove unpaid records; platform does not hard-delete agencies, users, or leased properties from the UI.</em></p>
 
 <h2 id="s11-agencies">11.2 Agencies — Super Admin</h2>
-<p><strong>Account:</strong> <code>sambampo200@gmail.com</code> · <strong>Page:</strong> <a class="app-link" href="/workspace/admin/agencies">Agencies admin</a></p>
+<p><strong>Account:</strong> <code>samuel.admin@example.test</code> · <strong>Page:</strong> <a class="app-link" href="/workspace/admin/agencies">Agencies admin</a></p>
 <table>
   <thead><tr><th>Op</th><th>Steps</th><th>Pass criteria</th></tr></thead>
   <tbody>
@@ -744,7 +744,7 @@
 </table>
 
 <h2 id="s11-users">11.3 Users &amp; team — Agency Admin</h2>
-<p><strong>Account:</strong> <code>lerato.nkosi@propertyflow.demo</code></p>
+<p><strong>Account:</strong> <code>lerato.nkosi.propertyflow@example.test</code></p>
 <table>
   <thead><tr><th>Op</th><th>Steps</th><th>Pass criteria</th></tr></thead>
   <tbody>

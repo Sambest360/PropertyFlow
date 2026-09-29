@@ -122,49 +122,49 @@ INSERT INTO clients (
   billing_email, address_line1, suburb, city, province, postal_code, status, plan_code, settings_json, onboarded_at
 ) VALUES
 (1, '11111111-1111-1111-1111-111111111101', 'Horizon Realty Group', 'Horizon Realty', 'horizon',
- '2020/123456/07', '4123456789', 'accounts@horizonrealty.co.za', '+27 11 555 0100', 'https://horizonrealty.example',
- 'billing@horizonrealty.co.za', '12 Rivonia Road', 'Sandhurst', 'Johannesburg', 'Gauteng', '2196',
+ '2020/123456/07', '4123456789', 'accounts.horizonrealty@example.test', '+27 11 555 0100', 'https://horizonrealty.example',
+ 'billing.horizonrealty@example.test', '12 Rivonia Road', 'Sandhurst', 'Johannesburg', 'Gauteng', '2196',
  'active', 'enterprise', JSON_OBJECT('autoAdvanceApplications', true, 'autoCreateRentSchedule', true, 'channel', 'property24'),
  '2025-01-10 09:00:00'),
 (2, '11111111-1111-1111-1111-111111111102', 'Cape Coastal Holdings', 'Cape Coastal Estates', 'cape-coastal',
- '2019/654321/07', '4987654321', 'hello@capecoastal.co.za', '+27 21 555 0200', 'https://capecoastal.example',
- 'billing@capecoastal.co.za', '88 Bree Street', 'City Centre', 'Cape Town', 'Western Cape', '8001',
+ '2019/654321/07', '4987654321', 'hello.capecoastal@example.test', '+27 21 555 0200', 'https://capecoastal.example',
+ 'billing.capecoastal@example.test', '88 Bree Street', 'City Centre', 'Cape Town', 'Western Cape', '8001',
  'active', 'growth', JSON_OBJECT('autoAdvanceApplications', true, 'autoCreateRentSchedule', true),
  '2025-03-22 10:00:00');
 
 INSERT INTO agencies (id, uuid, client_id, name, slug, branch_code, email, phone, whatsapp, ppra_number, city, suburb, province, status) VALUES
-(1, '22222222-2222-2222-2222-222222222201', 1, 'Horizon Sandton', 'sandton', 'JHB-SAN', 'sandton@horizonrealty.co.za', '+27 11 555 0101', '+27 82 555 0101', 'PPRA-HZN-001', 'Johannesburg', 'Sandton', 'Gauteng', 'active'),
-(2, '22222222-2222-2222-2222-222222222202', 1, 'Horizon Midrand', 'midrand', 'JHB-MID', 'midrand@horizonrealty.co.za', '+27 11 555 0102', '+27 82 555 0102', 'PPRA-HZN-002', 'Midrand', 'Carlswald', 'Gauteng', 'active'),
-(3, '22222222-2222-2222-2222-222222222203', 2, 'Cape Coastal City Bowl', 'city-bowl', 'CPT-CB', 'city@capecoastal.co.za', '+27 21 555 0201', '+27 82 555 0201', 'PPRA-CCE-001', 'Cape Town', 'City Centre', 'Western Cape', 'active'),
-(4, '22222222-2222-2222-2222-222222222204', 2, 'Cape Coastal Southern Suburbs', 'southern', 'CPT-SS', 'south@capecoastal.co.za', '+27 21 555 0202', '+27 82 555 0202', 'PPRA-CCE-002', 'Cape Town', 'Claremont', 'Western Cape', 'active');
+(1, '22222222-2222-2222-2222-222222222201', 1, 'Horizon Sandton', 'sandton', 'JHB-SAN', 'sandton.horizonrealty@example.test', '+27 11 555 0101', '+27 82 555 0101', 'PPRA-HZN-001', 'Johannesburg', 'Sandton', 'Gauteng', 'active'),
+(2, '22222222-2222-2222-2222-222222222202', 1, 'Horizon Midrand', 'midrand', 'JHB-MID', 'midrand.horizonrealty@example.test', '+27 11 555 0102', '+27 82 555 0102', 'PPRA-HZN-002', 'Midrand', 'Carlswald', 'Gauteng', 'active'),
+(3, '22222222-2222-2222-2222-222222222203', 2, 'Cape Coastal City Bowl', 'city-bowl', 'CPT-CB', 'city.capecoastal@example.test', '+27 21 555 0201', '+27 82 555 0201', 'PPRA-CCE-001', 'Cape Town', 'City Centre', 'Western Cape', 'active'),
+(4, '22222222-2222-2222-2222-222222222204', 2, 'Cape Coastal Southern Suburbs', 'southern', 'CPT-SS', 'south.capecoastal@example.test', '+27 21 555 0202', '+27 82 555 0202', 'PPRA-CCE-002', 'Cape Town', 'Claremont', 'Western Cape', 'active');
 
--- Password placeholder: demo-password (replace with real hash in production)
-SET @pwd := '$2y$10$demodemodemodemodemodeO8placeholderhash000000000000';
+-- password_hash is left blank. It is not a login password.
+SET @pwd := '';
 
 INSERT INTO users (
   id, uuid, client_id, agency_id, email, password_hash, first_name, last_name, phone, mobile,
   id_number, id_type, role, status, email_verified_at, popia_consent_at
 ) VALUES
 -- Platform
-(1, '33333333-3333-3333-3333-333333333301', NULL, NULL, 'super@propertyflow.app', @pwd, 'Samuel', 'Admin', '+27 82 000 0001', '+27 82 000 0001', NULL, NULL, 'super_admin', 'active', NOW(), NOW()),
+(1, '33333333-3333-3333-3333-333333333301', NULL, NULL, 'super.propertyflow@example.test', @pwd, 'Samuel', 'Admin', '+27 82 000 0001', '+27 82 000 0001', NULL, NULL, 'super_admin', 'active', NOW(), NOW()),
 -- Horizon
-(2, '33333333-3333-3333-3333-333333333302', 1, 1, 'amelia@horizonrealty.co.za', @pwd, 'Amelia', 'Roux', '+27 11 555 0100', '+27 82 111 0100', '8501015800081', 'sa_id', 'client_admin', 'active', NOW(), NOW()),
-(3, '33333333-3333-3333-3333-333333333303', 1, 1, 'lerato@horizonrealty.co.za', @pwd, 'Lerato', 'Nkosi', '+27 11 555 0101', '+27 82 111 0101', '9002025800082', 'sa_id', 'agent', 'active', NOW(), NOW()),
-(4, '33333333-3333-3333-3333-333333333304', 1, 2, 'james@horizonrealty.co.za', @pwd, 'James', 'Okonkwo', '+27 11 555 0102', '+27 82 111 0102', '8803035800083', 'sa_id', 'agent', 'active', NOW(), NOW()),
-(5, '33333333-3333-3333-3333-333333333305', 1, 1, 'priya@horizonrealty.co.za', @pwd, 'Priya', 'Naidoo', '+27 11 555 0103', '+27 82 111 0103', '9204045800084', 'sa_id', 'agent', 'active', NOW(), NOW()),
-(6, '33333333-3333-3333-3333-333333333306', 1, NULL, 'trust@owners.co.za', @pwd, 'Horizon', 'Trust', '+27 11 555 0199', NULL, NULL, NULL, 'landlord', 'active', NOW(), NOW()),
-(7, '33333333-3333-3333-3333-333333333307', 1, NULL, 'jvdberg@email.com', @pwd, 'Johan', 'van der Berg', '+27 82 222 3344', '+27 82 222 3344', '7505055800085', 'sa_id', 'landlord', 'active', NOW(), NOW()),
-(8, '33333333-3333-3333-3333-333333333308', 1, 1, 'lucas@email.com', @pwd, 'Lucas', 'Pretorius', '+27 82 100 2000', '+27 82 100 2000', '9506065800086', 'sa_id', 'tenant', 'active', NOW(), NOW()),
-(9, '33333333-3333-3333-3333-333333333309', 1, 1, 'nomsa.d@email.com', @pwd, 'Nomsa', 'Dlamini', '+27 71 883 1102', '+27 71 883 1102', '9107075800087', 'sa_id', 'applicant', 'active', NOW(), NOW()),
-(10,'33333333-3333-3333-3333-333333333310', 1, 1, 'fatima.j@email.com', @pwd, 'Fatima', 'Jacobs', '+27 84 112 7788', '+27 84 112 7788', '9308085800088', 'sa_id', 'applicant', 'active', NOW(), NOW()),
-(11,'33333333-3333-3333-3333-333333333311', 1, 1, 'jobs@aquafix.co.za', @pwd, 'AquaFix', 'Plumbing', '+27 11 555 0888', NULL, NULL, NULL, 'contractor', 'active', NOW(), NOW()),
+(2, '33333333-3333-3333-3333-333333333302', 1, 1, 'amelia.horizonrealty@example.test', @pwd, 'Amelia', 'Roux', '+27 11 555 0100', '+27 82 111 0100', '8501015800081', 'sa_id', 'client_admin', 'active', NOW(), NOW()),
+(3, '33333333-3333-3333-3333-333333333303', 1, 1, 'lerato.horizonrealty@example.test', @pwd, 'Lerato', 'Nkosi', '+27 11 555 0101', '+27 82 111 0101', '9002025800082', 'sa_id', 'agent', 'active', NOW(), NOW()),
+(4, '33333333-3333-3333-3333-333333333304', 1, 2, 'james.horizonrealty@example.test', @pwd, 'James', 'Okonkwo', '+27 11 555 0102', '+27 82 111 0102', '8803035800083', 'sa_id', 'agent', 'active', NOW(), NOW()),
+(5, '33333333-3333-3333-3333-333333333305', 1, 1, 'priya.horizonrealty@example.test', @pwd, 'Priya', 'Naidoo', '+27 11 555 0103', '+27 82 111 0103', '9204045800084', 'sa_id', 'agent', 'active', NOW(), NOW()),
+(6, '33333333-3333-3333-3333-333333333306', 1, NULL, 'trust.owners@example.test', @pwd, 'Horizon', 'Trust', '+27 11 555 0199', NULL, NULL, NULL, 'landlord', 'active', NOW(), NOW()),
+(7, '33333333-3333-3333-3333-333333333307', 1, NULL, 'jvdberg@example.test', @pwd, 'Johan', 'van der Berg', '+27 82 222 3344', '+27 82 222 3344', '7505055800085', 'sa_id', 'landlord', 'active', NOW(), NOW()),
+(8, '33333333-3333-3333-3333-333333333308', 1, 1, 'lucas@example.test', @pwd, 'Lucas', 'Pretorius', '+27 82 100 2000', '+27 82 100 2000', '9506065800086', 'sa_id', 'tenant', 'active', NOW(), NOW()),
+(9, '33333333-3333-3333-3333-333333333309', 1, 1, 'nomsa.d@example.test', @pwd, 'Nomsa', 'Dlamini', '+27 71 883 1102', '+27 71 883 1102', '9107075800087', 'sa_id', 'applicant', 'active', NOW(), NOW()),
+(10,'33333333-3333-3333-3333-333333333310', 1, 1, 'fatima.j@example.test', @pwd, 'Fatima', 'Jacobs', '+27 84 112 7788', '+27 84 112 7788', '9308085800088', 'sa_id', 'applicant', 'active', NOW(), NOW()),
+(11,'33333333-3333-3333-3333-333333333311', 1, 1, 'jobs.aquafix@example.test', @pwd, 'AquaFix', 'Plumbing', '+27 11 555 0888', NULL, NULL, NULL, 'contractor', 'active', NOW(), NOW()),
 -- Cape Coastal
-(12,'33333333-3333-3333-3333-333333333312', 2, 3, 'sipho@capecoastal.co.za', @pwd, 'Sipho', 'Molefe', '+27 21 555 0200', '+27 82 333 0200', '8709095800089', 'sa_id', 'client_admin', 'active', NOW(), NOW()),
-(13,'33333333-3333-3333-3333-333333333313', 2, 3, 'anya@capecoastal.co.za', @pwd, 'Anya', 'Botha', '+27 21 555 0201', '+27 82 333 0201', '9401015800090', 'sa_id', 'agent', 'active', NOW(), NOW()),
-(14,'33333333-3333-3333-3333-333333333314', 2, 4, 'dev@capecoastal.co.za', @pwd, 'Devon', 'Jacobs', '+27 21 555 0202', '+27 82 333 0202', '8902025800091', 'sa_id', 'agent', 'active', NOW(), NOW()),
-(15,'33333333-3333-3333-3333-333333333315', 2, NULL, 'sea@owners.co.za', @pwd, 'Seaview', 'Investments', '+27 21 555 0299', NULL, NULL, NULL, 'landlord', 'active', NOW(), NOW()),
-(16,'33333333-3333-3333-3333-333333333316', 2, NULL, 'm.khan@email.com', @pwd, 'Maryam', 'Khan', '+27 72 444 5566', '+27 72 444 5566', '8603035800092', 'sa_id', 'landlord', 'active', NOW(), NOW()),
-(17,'33333333-3333-3333-3333-333333333317', 2, 3, 'thandi@email.com', @pwd, 'Thandi', 'Mokoena', '+27 83 777 8899', '+27 83 777 8899', '9604045800093', 'sa_id', 'applicant', 'active', NOW(), NOW());
+(12,'33333333-3333-3333-3333-333333333312', 2, 3, 'sipho.capecoastal@example.test', @pwd, 'Sipho', 'Molefe', '+27 21 555 0200', '+27 82 333 0200', '8709095800089', 'sa_id', 'client_admin', 'active', NOW(), NOW()),
+(13,'33333333-3333-3333-3333-333333333313', 2, 3, 'anya.capecoastal@example.test', @pwd, 'Anya', 'Botha', '+27 21 555 0201', '+27 82 333 0201', '9401015800090', 'sa_id', 'agent', 'active', NOW(), NOW()),
+(14,'33333333-3333-3333-3333-333333333314', 2, 4, 'dev.capecoastal@example.test', @pwd, 'Devon', 'Jacobs', '+27 21 555 0202', '+27 82 333 0202', '8902025800091', 'sa_id', 'agent', 'active', NOW(), NOW()),
+(15,'33333333-3333-3333-3333-333333333315', 2, NULL, 'sea.owners@example.test', @pwd, 'Seaview', 'Investments', '+27 21 555 0299', NULL, NULL, NULL, 'landlord', 'active', NOW(), NOW()),
+(16,'33333333-3333-3333-3333-333333333316', 2, NULL, 'm.khan@example.test', @pwd, 'Maryam', 'Khan', '+27 72 444 5566', '+27 72 444 5566', '8603035800092', 'sa_id', 'landlord', 'active', NOW(), NOW()),
+(17,'33333333-3333-3333-3333-333333333317', 2, 3, 'thandi@example.test', @pwd, 'Thandi', 'Mokoena', '+27 83 777 8899', '+27 83 777 8899', '9604045800093', 'sa_id', 'applicant', 'active', NOW(), NOW());
 
 INSERT INTO landlord_profiles (id, user_id, client_id, entity_type, legal_name, trading_name, bank_name, bank_account_name, bank_account_number, bank_branch_code, fica_verified_at) VALUES
 (1, 6, 1, 'trust', 'Horizon Property Trust', 'Horizon Trust', 'FNB', 'Horizon Property Trust', '62800012345', '250655', '2025-02-01 10:00:00'),
@@ -189,7 +189,7 @@ INSERT INTO applicant_profiles (
 (4, 17, 2, 'employed', 'Discovery', 'Claims advisor', 38000, 'single', 1, 'Cape Town', 1, '2026-07-10 09:00:00', '2026-08-01');
 
 INSERT INTO contractors (id, client_id, user_id, company_name, trade, phone, email, rating) VALUES
-(1, 1, 11, 'AquaFix Plumbing', 'Plumbing', '+27 11 555 0888', 'jobs@aquafix.co.za', 4.70);
+(1, 1, 11, 'AquaFix Plumbing', 'Plumbing', '+27 11 555 0888', 'jobs.aquafix@example.test', 4.70);
 
 -- -----------------------------------------------------------------------------
 -- Properties (Property24-complete fields) — multiple per client
@@ -326,18 +326,18 @@ INSERT INTO property_material_defects (property_id, title, description, severity
 (1, 'Hairline plaster crack', 'Non-structural plaster crack above lounge door.', 'low');
 
 INSERT INTO listings (uuid, property_id, agency_id, package_id, channel, status, listing_fee_zar, fee_payment_method, fee_paid_at, billing_email, goes_live_at, expires_at) VALUES
-('55555555-5555-5555-5555-555555555501', 1, 2, 4, 'property24', 'active', 2299.00, 'eft', '2026-06-19 12:00:00', 'midrand@horizonrealty.co.za', '2026-06-20 08:00:00', '2026-09-18 08:00:00'),
-('55555555-5555-5555-5555-555555555502', 2, 1, 2, 'property24', 'active', 999.00, 'card', '2026-05-21 12:00:00', 'sandton@horizonrealty.co.za', '2026-05-22 08:00:00', '2026-07-06 08:00:00'),
-('55555555-5555-5555-5555-555555555503', 5, 3, 2, 'property24', 'active', 999.00, 'eft', '2026-07-01 12:00:00', 'city@capecoastal.co.za', '2026-07-02 08:00:00', '2026-08-16 08:00:00'),
-('55555555-5555-5555-5555-555555555504', 6, 4, 3, 'property24', 'active', 1499.00, 'eft', '2026-06-30 12:00:00', 'south@capecoastal.co.za', '2026-07-01 08:00:00', '2026-08-30 08:00:00');
+('55555555-5555-5555-5555-555555555501', 1, 2, 4, 'property24', 'active', 2299.00, 'eft', '2026-06-19 12:00:00', 'midrand.horizonrealty@example.test', '2026-06-20 08:00:00', '2026-09-18 08:00:00'),
+('55555555-5555-5555-5555-555555555502', 2, 1, 2, 'property24', 'active', 999.00, 'card', '2026-05-21 12:00:00', 'sandton.horizonrealty@example.test', '2026-05-22 08:00:00', '2026-07-06 08:00:00'),
+('55555555-5555-5555-5555-555555555503', 5, 3, 2, 'property24', 'active', 999.00, 'eft', '2026-07-01 12:00:00', 'city.capecoastal@example.test', '2026-07-02 08:00:00', '2026-08-16 08:00:00'),
+('55555555-5555-5555-5555-555555555504', 6, 4, 3, 'property24', 'active', 1499.00, 'eft', '2026-06-30 12:00:00', 'south.capecoastal@example.test', '2026-07-01 08:00:00', '2026-08-30 08:00:00');
 
 -- -----------------------------------------------------------------------------
 -- Pipeline: leads, slots, viewings, applications, payments, tenancy
 -- -----------------------------------------------------------------------------
 INSERT INTO leads (id, uuid, client_id, agency_id, property_id, agent_id, applicant_user_id, full_name, email, phone, source, channel, intent, stage, budget_max, message) VALUES
-(1, '66666666-6666-6666-6666-666666666601', 1, 1, 2, 4, NULL, 'Thabo Molefe', 'thabo.m@email.com', '+27 82 441 2290', 'whatsapp', 'whatsapp', 'buy', 'viewing_scheduled', 3500000, 'Prefers north-facing.'),
-(2, '66666666-6666-6666-6666-666666666602', 1, 2, 1, 3, 9, 'Nomsa Dlamini', 'nomsa.d@email.com', '+27 71 883 1102', 'web', 'web', 'buy', 'application_submitted', 2600000, NULL),
-(3, '66666666-6666-6666-6666-666666666603', 2, 3, 5, 13, 17, 'Thandi Mokoena', 'thandi@email.com', '+27 83 777 8899', 'web', 'web', 'rent', 'new', 25000, 'Needs pet-friendly if possible.');
+(1, '66666666-6666-6666-6666-666666666601', 1, 1, 2, 4, NULL, 'Thabo Molefe', 'thabo.m@example.test', '+27 82 441 2290', 'whatsapp', 'whatsapp', 'buy', 'viewing_scheduled', 3500000, 'Prefers north-facing.'),
+(2, '66666666-6666-6666-6666-666666666602', 1, 2, 1, 3, 9, 'Nomsa Dlamini', 'nomsa.d@example.test', '+27 71 883 1102', 'web', 'web', 'buy', 'application_submitted', 2600000, NULL),
+(3, '66666666-6666-6666-6666-666666666603', 2, 3, 5, 13, 17, 'Thandi Mokoena', 'thandi@example.test', '+27 83 777 8899', 'web', 'web', 'rent', 'new', 25000, 'Needs pet-friendly if possible.');
 
 INSERT INTO viewing_slots (id, property_id, agency_id, agent_id, starts_at, ends_at, capacity, booked_count, status) VALUES
 (1, 2, 1, 4, '2026-07-25 10:00:00', '2026-07-25 10:30:00', 4, 1, 'open'),
@@ -346,8 +346,8 @@ INSERT INTO viewing_slots (id, property_id, agency_id, agent_id, starts_at, ends
 (4, 5, 3, 13, '2026-07-27 09:30:00', '2026-07-27 10:00:00', 3, 0, 'open');
 
 INSERT INTO viewings (uuid, slot_id, property_id, agency_id, agent_id, lead_id, applicant_name, applicant_email, starts_at, status, attendance, interest_level) VALUES
-('77777777-7777-7777-7777-777777777701', 1, 2, 1, 4, 1, 'Thabo Molefe', 'thabo.m@email.com', '2026-07-25 10:00:00', 'scheduled', 'unknown', 'unknown'),
-('77777777-7777-7777-7777-777777777702', NULL, 1, 2, 3, 2, 'Sarah Williams', 'sarah.w@email.com', '2026-07-21 15:30:00', 'completed', 'attended', 'high');
+('77777777-7777-7777-7777-777777777701', 1, 2, 1, 4, 1, 'Thabo Molefe', 'thabo.m@example.test', '2026-07-25 10:00:00', 'scheduled', 'unknown', 'unknown'),
+('77777777-7777-7777-7777-777777777702', NULL, 1, 2, 3, 2, 'Sarah Williams', 'sarah.w@example.test', '2026-07-21 15:30:00', 'completed', 'attended', 'high');
 
 INSERT INTO applications (
   id, uuid, reference_code, client_id, agency_id, property_id, agent_id, applicant_user_id, lead_id,

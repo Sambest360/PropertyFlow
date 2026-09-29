@@ -59,7 +59,7 @@ import {
     subdomain: 'platform-global',
     status: 'active',
     trading_as: 'Global configuration defaults',
-    email: 'platform@propertyflow.demo',
+    email: 'platform.propertyflow@example.test',
     city: 'Cape Town',
     province: 'Western Cape',
     country_code: 'ZA',

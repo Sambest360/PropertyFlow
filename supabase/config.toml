@@ -218,7 +218,10 @@ enable_signup = true
 # addresses. If disabled, only the new email is required to confirm.
 double_confirm_changes = true
 # If enabled, users need to confirm their email address before signing in.
-enable_confirmations = false
+# Kept on so a public sign-up is not pre-confirmed. Seeded users are created
+# already confirmed (email_confirmed_at / the Auth admin API). Confirmation
+# messages are captured by the local mail catcher (Mailpit, port 54324).
+enable_confirmations = true
 # If enabled, users will need to reauthenticate or have logged in recently to change their password.
 secure_password_change = false
 # Controls the minimum amount of time that must pass before sending another signup confirmation or password reset email.

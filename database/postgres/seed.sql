@@ -1,8 +1,8 @@
 -- =============================================================================
 -- PropertyFlow — PostgreSQL seed (Port Elizabeth / Eastern Cape demo story)
 -- Requires: database/postgres/schema.sql already applied
--- Password: most demo users still use the shared bcrypt placeholder (see README).
--- Super admin sambampo200@gmail.com uses a real bcrypt hash of plaintext `secret`.
+-- No login passwords are stored in this file. Local seed scripts set them
+-- from SEED_USER_PASSWORD, or generate one and print it once.
 -- =============================================================================
 --
 -- Fixed UUID prefixes (for readability / app wiring):
@@ -60,9 +60,7 @@ TRUNCATE TABLE
   clients
 RESTART IDENTITY CASCADE;
 
--- Demo password placeholder (bcrypt-shaped; NOT a verified real hash).
--- Intended plaintext for docs: demo-password
--- Replace with a real bcrypt/argon2 hash before any production auth.
+-- password_hash is left blank. It is not a login password.
 
 -- =============================================================================
 -- Clients
@@ -74,7 +72,7 @@ INSERT INTO clients (id, company_name, subdomain, status, trading_as, email, pho
   'horizon',
   'active',
   'Horizon Realty Group',
-  'accounts@horizonrealty.co.za',
+  'accounts.horizonrealty@example.test',
   '+27 11 555 0100',
   'Port Elizabeth',
   'Eastern Cape',
@@ -86,7 +84,7 @@ INSERT INTO clients (id, company_name, subdomain, status, trading_as, email, pho
   'algoa-bay',
   'active',
   'Algoa Bay Holdings',
-  'hello@capecoastal.co.za',
+  'hello.capecoastal@example.test',
   '+27 21 555 0200',
   'Port Elizabeth',
   'Eastern Cape',
@@ -98,7 +96,7 @@ INSERT INTO clients (id, company_name, subdomain, status, trading_as, email, pho
   'bayview',
   'active',
   'Bayview Property Group',
-  'hello@gardenroutehomes.co.za',
+  'hello.gardenroutehomes@example.test',
   '+27 44 555 0300',
   'Port Elizabeth',
   'Eastern Cape',
@@ -236,68 +234,68 @@ SELECT 'CONTRACTOR', id FROM permissions WHERE code IN ('tickets.manage');
 INSERT INTO users (id, client_id, email, password_hash, first_name, last_name, phone, role, active) VALUES
 -- Platform
 ('a2000001-0001-4000-8000-000000000001', NULL,
- 'sambampo200@gmail.com', '$2b$10$JX.s61pusUiz2t3Qd74Bge4x0lcrELBAHU4SczXEKjsMaFX2sC3o6', 'Samuel', 'Admin', '+27 82 000 0001', 'SUPER_ADMIN', true),
+ 'samuel.admin@example.test', '', 'Samuel', 'Admin', '+27 82 000 0001', 'SUPER_ADMIN', true),
 
 -- Horizon Realty staff
 ('a2000001-0001-4000-8000-000000000002', 'a1000001-0001-4000-8000-000000000001',
- 'amelia@horizonrealty.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Amelia', 'Roux', '+27 82 111 0100', 'AGENCY_ADMIN', true),
+ 'amelia.horizonrealty@example.test', '', 'Amelia', 'Roux', '+27 82 111 0100', 'AGENCY_ADMIN', true),
 ('a2000001-0001-4000-8000-000000000003', 'a1000001-0001-4000-8000-000000000001',
- 'lerato@horizonrealty.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Lerato', 'Nkosi', '+27 82 111 0101', 'AGENT_ADMIN', true),
+ 'lerato.horizonrealty@example.test', '', 'Lerato', 'Nkosi', '+27 82 111 0101', 'AGENT_ADMIN', true),
 ('a2000001-0001-4000-8000-000000000004', 'a1000001-0001-4000-8000-000000000001',
- 'james@horizonrealty.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'James', 'Okonkwo', '+27 82 111 0102', 'GROUND_AGENT', true),
+ 'james.horizonrealty@example.test', '', 'James', 'Okonkwo', '+27 82 111 0102', 'GROUND_AGENT', true),
 ('a2000001-0001-4000-8000-000000000005', 'a1000001-0001-4000-8000-000000000001',
- 'priya@horizonrealty.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Priya', 'Naidoo', '+27 82 111 0103', 'GROUND_AGENT', true),
+ 'priya.horizonrealty@example.test', '', 'Priya', 'Naidoo', '+27 82 111 0103', 'GROUND_AGENT', true),
 
 -- Horizon landlords
 ('a2000001-0001-4000-8000-000000000006', 'a1000001-0001-4000-8000-000000000001',
- 'jvdberg@email.com', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Johan', 'van der Berg', '+27 82 222 3344', 'LANDLORD', true),
+ 'jvdberg@example.test', '', 'Johan', 'van der Berg', '+27 82 222 3344', 'LANDLORD', true),
 ('a2000001-0001-4000-8000-000000000007', 'a1000001-0001-4000-8000-000000000001',
- 'trust@owners.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Horizon', 'Trust', '+27 11 555 0199', 'LANDLORD', true),
+ 'trust.owners@example.test', '', 'Horizon', 'Trust', '+27 11 555 0199', 'LANDLORD', true),
 
 -- Horizon tenant + applicants
 ('a2000001-0001-4000-8000-000000000008', 'a1000001-0001-4000-8000-000000000001',
- 'lucas@email.com', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Lucas', 'Pretorius', '+27 82 100 2000', 'END_USER', true),
+ 'lucas@example.test', '', 'Lucas', 'Pretorius', '+27 82 100 2000', 'END_USER', true),
 ('a2000001-0001-4000-8000-000000000009', 'a1000001-0001-4000-8000-000000000001',
- 'nomsa.d@email.com', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Nomsa', 'Dlamini', '+27 71 883 1102', 'END_USER', true),
+ 'nomsa.d@example.test', '', 'Nomsa', 'Dlamini', '+27 71 883 1102', 'END_USER', true),
 ('a2000001-0001-4000-8000-000000000010', 'a1000001-0001-4000-8000-000000000001',
- 'fatima.j@email.com', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Fatima', 'Jacobs', '+27 84 112 7788', 'END_USER', true),
+ 'fatima.j@example.test', '', 'Fatima', 'Jacobs', '+27 84 112 7788', 'END_USER', true),
 
 -- Cape Coastal
 ('a2000001-0001-4000-8000-000000000011', 'a1000001-0001-4000-8000-000000000002',
- 'sipho@capecoastal.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Sipho', 'Molefe', '+27 82 333 0200', 'AGENCY_ADMIN', true),
+ 'sipho.capecoastal@example.test', '', 'Sipho', 'Molefe', '+27 82 333 0200', 'AGENCY_ADMIN', true),
 ('a2000001-0001-4000-8000-000000000012', 'a1000001-0001-4000-8000-000000000002',
- 'anya@capecoastal.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Anya', 'Botha', '+27 82 333 0201', 'GROUND_AGENT', true),
+ 'anya.capecoastal@example.test', '', 'Anya', 'Botha', '+27 82 333 0201', 'GROUND_AGENT', true),
 ('a2000001-0001-4000-8000-000000000013', 'a1000001-0001-4000-8000-000000000002',
- 'sea@owners.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Seaview', 'Investments', '+27 21 555 0299', 'LANDLORD', true),
+ 'sea.owners@example.test', '', 'Seaview', 'Investments', '+27 21 555 0299', 'LANDLORD', true),
 ('a2000001-0001-4000-8000-000000000014', 'a1000001-0001-4000-8000-000000000002',
- 'm.khan@email.com', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Maryam', 'Khan', '+27 72 444 5566', 'LANDLORD', true),
+ 'm.khan@example.test', '', 'Maryam', 'Khan', '+27 72 444 5566', 'LANDLORD', true),
 -- Horizon preferred vendor
 ('a2000001-0001-4000-8000-000000000015', 'a1000001-0001-4000-8000-000000000001',
- 'jobs@aquafix.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'AquaFix', 'Plumbing', '+27 11 555 0400', 'CONTRACTOR', true),
+ 'jobs.aquafix@example.test', '', 'AquaFix', 'Plumbing', '+27 11 555 0400', 'CONTRACTOR', true),
 
 -- Cape Coastal — month-sim staff + tenant + contractor
 ('a2000001-0001-4000-8000-000000000016', 'a1000001-0001-4000-8000-000000000002',
- 'zane@capecoastal.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Zane', 'Petersen', '+27 82 333 0202', 'AGENT_ADMIN', true),
+ 'zane.capecoastal@example.test', '', 'Zane', 'Petersen', '+27 82 333 0202', 'AGENT_ADMIN', true),
 ('a2000001-0001-4000-8000-000000000017', 'a1000001-0001-4000-8000-000000000002',
- 'theo@capecoastal.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Theo', 'Jacobs', '+27 82 333 0203', 'GROUND_AGENT', true),
+ 'theo.capecoastal@example.test', '', 'Theo', 'Jacobs', '+27 82 333 0203', 'GROUND_AGENT', true),
 ('a2000001-0001-4000-8000-000000000018', 'a1000001-0001-4000-8000-000000000002',
- 'nandi@capecoastal.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Nandi', 'Bekker', '+27 82 333 0204', 'AGENT_ADMIN', true),
+ 'nandi.capecoastal@example.test', '', 'Nandi', 'Bekker', '+27 82 333 0204', 'AGENT_ADMIN', true),
 ('a2000001-0001-4000-8000-000000000019', 'a1000001-0001-4000-8000-000000000002',
- 'aya@email.com', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Aya', 'Daniels', '+27 72 880 1100', 'END_USER', true),
+ 'aya@example.test', '', 'Aya', 'Daniels', '+27 72 880 1100', 'END_USER', true),
 ('a2000001-0001-4000-8000-000000000020', 'a1000001-0001-4000-8000-000000000002',
- 'jobs@bayfix.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Bay', 'Fix', '+27 21 555 0440', 'CONTRACTOR', true),
+ 'jobs.bayfix@example.test', '', 'Bay', 'Fix', '+27 21 555 0440', 'CONTRACTOR', true),
 
 -- Garden Route Homes
 ('a2000001-0001-4000-8000-000000000021', 'a1000001-0001-4000-8000-000000000003',
- 'gita@gardenroutehomes.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Gita', 'Naidoo', '+27 44 555 0301', 'AGENCY_ADMIN', true),
+ 'gita.gardenroutehomes@example.test', '', 'Gita', 'Naidoo', '+27 44 555 0301', 'AGENCY_ADMIN', true),
 ('a2000001-0001-4000-8000-000000000022', 'a1000001-0001-4000-8000-000000000003',
- 'leigh@gardenroutehomes.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Leigh', 'Botha', '+27 44 555 0302', 'GROUND_AGENT', true),
+ 'leigh.gardenroutehomes@example.test', '', 'Leigh', 'Botha', '+27 44 555 0302', 'GROUND_AGENT', true),
 ('a2000001-0001-4000-8000-000000000023', 'a1000001-0001-4000-8000-000000000003',
- 'owners@gardenroutehomes.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Garden', 'Trust', '+27 44 555 0399', 'LANDLORD', true),
+ 'owners.gardenroutehomes@example.test', '', 'Garden', 'Trust', '+27 44 555 0399', 'LANDLORD', true),
 ('a2000001-0001-4000-8000-000000000024', 'a1000001-0001-4000-8000-000000000003',
- 'mia@email.com', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Mia', 'Fortuin', '+27 82 700 3344', 'END_USER', true),
+ 'mia@example.test', '', 'Mia', 'Fortuin', '+27 82 700 3344', 'END_USER', true),
 ('a2000001-0001-4000-8000-000000000025', 'a1000001-0001-4000-8000-000000000003',
- 'jobs@coastalfix.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Coastal', 'Fix', '+27 44 555 0410', 'CONTRACTOR', true);
+ 'jobs.coastalfix@example.test', '', 'Coastal', 'Fix', '+27 44 555 0410', 'CONTRACTOR', true);
 
 -- =============================================================================
 -- CLIENT 1 — Horizon buildings / units / rooms / assets
@@ -912,7 +910,7 @@ INSERT INTO bookings (
   NULL,
   'a2000001-0001-4000-8000-000000000005',
   'a2000001-0001-4000-8000-000000000010',
-  'Fatima Jacobs', 'fatima.j@email.com', '+27 84 112 7788',
+  'Fatima Jacobs', 'fatima.j@example.test', '+27 84 112 7788',
   '2026-07-25 10:00:00+02', '2026-07-25 10:30:00+02',
   'SCHEDULED', 'UNKNOWN', NULL, NULL
 ),
@@ -923,7 +921,7 @@ INSERT INTO bookings (
   NULL,
   'a2000001-0001-4000-8000-000000000004',
   'a2000001-0001-4000-8000-000000000009',
-  'Nomsa Dlamini', 'nomsa.d@email.com', '+27 71 883 1102',
+  'Nomsa Dlamini', 'nomsa.d@example.test', '+27 71 883 1102',
   '2026-07-21 15:30:00+02', '2026-07-21 16:15:00+02',
   'COMPLETED', 'HIGH', 'Loved the solar + borehole setup. Will proceed with offer.', NULL
 ),
@@ -934,7 +932,7 @@ INSERT INTO bookings (
   NULL,
   'a2000001-0001-4000-8000-000000000012',
   NULL,
-  'Thabo Molefe', 'thabo.m@email.com', '+27 82 441 2290',
+  'Thabo Molefe', 'thabo.m@example.test', '+27 82 441 2290',
   '2026-07-27 09:30:00+02', '2026-07-27 10:00:00+02',
   'SCHEDULED', 'UNKNOWN', NULL, NULL
 ),
@@ -946,7 +944,7 @@ INSERT INTO bookings (
   'c1000001-0001-4000-8000-000000000001',
   'a2000001-0001-4000-8000-000000000004',
   'a2000001-0001-4000-8000-000000000010',
-  'Fatima Jacobs', 'fatima.j@email.com', NULL,
+  'Fatima Jacobs', 'fatima.j@example.test', NULL,
   '2026-06-30 10:00:00+02', '2026-06-30 10:45:00+02',
   'COMPLETED', 'HIGH', 'Applied after viewing.', NULL
 ),
@@ -957,7 +955,7 @@ INSERT INTO bookings (
   'c1000001-0001-4000-8000-000000000004',
   'a2000001-0001-4000-8000-000000000022',
   NULL,
-  'Sarie du Plessis', 'sarie.dp@email.com', '+27 44 555 9911',
+  'Sarie du Plessis', 'sarie.dp@example.test', '+27 44 555 9911',
   '2026-07-12 09:30:00+02', '2026-07-12 10:10:00+02',
   'COMPLETED', 'HIGH', 'Wants to proceed with offer.', NULL
 ),
@@ -968,7 +966,7 @@ INSERT INTO bookings (
   'c1000001-0001-4000-8000-000000000005',
   'a2000001-0001-4000-8000-000000000017',
   NULL,
-  'Johan Steyn', 'j.steyn@email.com', '+27 84 900 1122',
+  'Johan Steyn', 'j.steyn@example.test', '+27 84 900 1122',
   '2026-07-20 16:00:00+02', '2026-07-20 16:30:00+02',
   'COMPLETED', 'MEDIUM', NULL, NULL
 ),
@@ -979,7 +977,7 @@ INSERT INTO bookings (
   'c1000001-0001-4000-8000-000000000006',
   'a2000001-0001-4000-8000-000000000005',
   NULL,
-  'Kabelo Mokoena', 'kabelo.m@email.com', '+27 83 221 0091',
+  'Kabelo Mokoena', 'kabelo.m@example.test', '+27 83 221 0091',
   '2026-07-28 11:00:00+02', '2026-07-28 11:45:00+02',
   'SCHEDULED', 'UNKNOWN', NULL, 'Mentor James attending.'
 ),
@@ -990,7 +988,7 @@ INSERT INTO bookings (
   NULL,
   'a2000001-0001-4000-8000-000000000016',
   NULL,
-  'Elena Costa', 'elena.costa@email.com', '+27 72 555 8810',
+  'Elena Costa', 'elena.costa@example.test', '+27 72 555 8810',
   '2026-07-05 14:00:00+02', '2026-07-05 14:30:00+02',
   'NO_SHOW', 'UNKNOWN', NULL, 'Reschedule requested via WhatsApp.'
 );
@@ -1173,7 +1171,7 @@ INSERT INTO leads (
   'a1000001-0001-4000-8000-000000000001',
   'a4000001-0001-4000-8000-000000000004',
   'a2000001-0001-4000-8000-000000000005',
-  'Kabelo Mokoena', 'kabelo.m@email.com', '+27 83 221 0091', 'Property24', 'Qualified',
+  'Kabelo Mokoena', 'kabelo.m@example.test', '+27 83 221 0091', 'Property24', 'Qualified',
   'BUY', 4100000.00, 'Cash buyer — wants Oxford townhouse walkthrough. frontendId=LD-2203',
   '2026-06-28 09:00:00+02', '2026-07-05 10:00:00+02'
 ),
@@ -1182,7 +1180,7 @@ INSERT INTO leads (
   'a1000001-0001-4000-8000-000000000002',
   'a4000001-0001-4000-8000-000000000005',
   'a2000001-0001-4000-8000-000000000016',
-  'Elena Costa', 'elena.costa@email.com', '+27 72 555 8810', 'Referral', 'New',
+  'Elena Costa', 'elena.costa@example.test', '+27 72 555 8810', 'Referral', 'New',
   'RENT', 28000.00, 'Corporate relocation — V&A office suite interest. frontendId=LD-2204',
   '2026-07-02 10:00:00+02', '2026-07-02 10:00:00+02'
 ),
@@ -1191,7 +1189,7 @@ INSERT INTO leads (
   'a1000001-0001-4000-8000-000000000002',
   'a4000001-0001-4000-8000-000000000007',
   'a2000001-0001-4000-8000-000000000017',
-  'Johan Steyn', 'j.steyn@email.com', '+27 84 900 1122', 'WhatsApp', 'Viewing Scheduled',
+  'Johan Steyn', 'j.steyn@example.test', '+27 84 900 1122', 'WhatsApp', 'Viewing Scheduled',
   'RENT', 9500.00, 'Richmond Hill flat — similar to Aya''s unit. frontendId=LD-2205',
   '2026-07-10 09:00:00+02', '2026-07-18 12:00:00+02'
 ),
@@ -1200,7 +1198,7 @@ INSERT INTO leads (
   'a1000001-0001-4000-8000-000000000003',
   'a4000001-0001-4000-8000-000000000008',
   'a2000001-0001-4000-8000-000000000022',
-  'Sarie du Plessis', 'sarie.dp@email.com', '+27 44 555 9911', 'Walk-in', 'Negotiation',
+  'Sarie du Plessis', 'sarie.dp@example.test', '+27 44 555 9911', 'Walk-in', 'Negotiation',
   'BUY', 2150000.00, 'Loves Framesby cottage — bonding pre-approval in progress. frontendId=LD-2206',
   '2026-07-01 11:00:00+02', '2026-07-20 16:00:00+02'
 );

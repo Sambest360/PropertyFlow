@@ -4,9 +4,9 @@
  * Usage:
  *   set -a && source .env.local && set +a && npx tsx scripts/create-agency-admin.ts
  *
- * Optional overrides:
- *   AGENCY_ADMIN_EMAIL=lerato.nkosi@propertyflow.demo
- *   AGENCY_ADMIN_PASSWORD=secret
+ * Optional override:
+ *   AGENCY_ADMIN_EMAIL=lerato.nkosi@example.test
+ * The password is SEED_USER_PASSWORD, or a generated password printed once.
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { AGENCY, AGENCY_FE_ID, AGENCY_ID } from './seed/data/agency.js'
@@ -200,7 +200,7 @@ export async function ensureAgencyAdminAccount(
 
 async function main() {
   const env = loadSeedEnv()
-  const password = process.env.AGENCY_ADMIN_PASSWORD ?? env.demoPassword
+  const password = env.demoPassword
   const email = process.env.AGENCY_ADMIN_EMAIL ?? AGENCY_ADMIN.email
 
   const admin = createClient(env.supabaseUrl, env.supabaseSecret, {

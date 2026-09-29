@@ -92,11 +92,11 @@ export const seedAgencies: Agency[] = [
 ]
 
 export const seedUsers: AppUser[] = [
-  { id: 'u-super', name: 'Samuel (You)', email: 'sambampo200@gmail.com', role: 'super_admin', agencyId: null, active: true, licenseStatus: 'n/a' },
+  { id: 'u-super', name: 'Samuel (You)', email: 'samuel.admin@example.test', role: 'super_admin', agencyId: null, active: true, licenseStatus: 'n/a' },
   {
     id: 'u-amelia',
     name: 'Amelia Roux',
-    email: 'amelia@horizon.co.za',
+    email: 'amelia.horizon@example.test',
     role: 'client_admin',
     agencyId: 'ag-horizon',
     phone: '+27 11 555 0100',
@@ -106,7 +106,7 @@ export const seedUsers: AppUser[] = [
   {
     id: 'u-lerato',
     name: 'Lerato Nkosi',
-    email: 'lerato@horizon.co.za',
+    email: 'lerato.horizon@example.test',
     role: 'agent_admin',
     agencyId: 'ag-horizon',
     phone: '+27 11 555 0101',
@@ -116,7 +116,7 @@ export const seedUsers: AppUser[] = [
   {
     id: 'u-james',
     name: 'James Okonkwo',
-    email: 'james@horizon.co.za',
+    email: 'james.horizon@example.test',
     role: 'ground_agent',
     agencyId: 'ag-horizon',
     phone: '+27 11 555 0102',
@@ -127,7 +127,7 @@ export const seedUsers: AppUser[] = [
   {
     id: 'u-priya',
     name: 'Priya Naidoo',
-    email: 'priya@horizon.co.za',
+    email: 'priya.horizon@example.test',
     role: 'agent',
     agencyId: 'ag-horizon',
     active: true,
@@ -138,7 +138,7 @@ export const seedUsers: AppUser[] = [
   {
     id: 'u-sipho',
     name: 'Sipho Molefe',
-    email: 'sipho@capecoastal.co.za',
+    email: 'sipho.capecoastal@example.test',
     role: 'client_admin',
     agencyId: 'ag-cape',
     active: true,
@@ -147,7 +147,7 @@ export const seedUsers: AppUser[] = [
   {
     id: 'u-zane',
     name: 'Zane Petersen',
-    email: 'zane@capecoastal.co.za',
+    email: 'zane.capecoastal@example.test',
     role: 'ground_agent',
     agencyId: 'ag-cape',
     phone: '+27 21 555 0201',
@@ -158,7 +158,7 @@ export const seedUsers: AppUser[] = [
   {
     id: 'u-nandi',
     name: 'Nandi Bekker',
-    email: 'nandi@capecoastal.co.za',
+    email: 'nandi.capecoastal@example.test',
     role: 'agent_admin',
     agencyId: 'ag-cape',
     phone: '+27 21 555 0202',
@@ -168,7 +168,7 @@ export const seedUsers: AppUser[] = [
   {
     id: 'u-theo',
     name: 'Theo Jacobs',
-    email: 'theo@capecoastal.co.za',
+    email: 'theo.capecoastal@example.test',
     role: 'agent',
     agencyId: 'ag-cape',
     active: true,
@@ -179,7 +179,7 @@ export const seedUsers: AppUser[] = [
   {
     id: 'u-cape-owner',
     name: 'Algoa Bay Holdings',
-    email: 'ops@waterfront.co.za',
+    email: 'ops.waterfront@example.test',
     role: 'landlord',
     agencyId: 'ag-cape',
     active: true,
@@ -188,7 +188,7 @@ export const seedUsers: AppUser[] = [
   {
     id: 'u-aya',
     name: 'Aya Daniels',
-    email: 'aya.daniels@email.com',
+    email: 'aya.daniels@example.test',
     role: 'tenant',
     agencyId: 'ag-cape',
     active: true,
@@ -197,7 +197,7 @@ export const seedUsers: AppUser[] = [
   {
     id: 'u-bayfix',
     name: 'Bayfix Electrical',
-    email: 'dispatch@bayfix.co.za',
+    email: 'dispatch.bayfix@example.test',
     role: 'contractor',
     agencyId: 'ag-cape',
     active: true,
@@ -206,7 +206,7 @@ export const seedUsers: AppUser[] = [
   {
     id: 'u-gita',
     name: 'Gita Naicker',
-    email: 'gita@gardenroute.co.za',
+    email: 'gita.gardenroute@example.test',
     role: 'client_admin',
     agencyId: 'ag-garden',
     phone: '+27 44 555 0300',
@@ -216,7 +216,7 @@ export const seedUsers: AppUser[] = [
   {
     id: 'u-omar',
     name: 'Omar Essop',
-    email: 'omar@gardenroute.co.za',
+    email: 'omar.gardenroute@example.test',
     role: 'agent_admin',
     agencyId: 'ag-garden',
     active: true,
@@ -225,7 +225,7 @@ export const seedUsers: AppUser[] = [
   {
     id: 'u-leigh',
     name: 'Leigh Botha',
-    email: 'leigh@gardenroute.co.za',
+    email: 'leigh.gardenroute@example.test',
     role: 'ground_agent',
     agencyId: 'ag-garden',
     phone: '+27 44 555 0301',
@@ -236,7 +236,7 @@ export const seedUsers: AppUser[] = [
   {
     id: 'u-kai',
     name: 'Kai September',
-    email: 'kai@gardenroute.co.za',
+    email: 'kai.gardenroute@example.test',
     role: 'agent',
     agencyId: 'ag-garden',
     active: true,
@@ -247,7 +247,7 @@ export const seedUsers: AppUser[] = [
   {
     id: 'u-garden-owner',
     name: 'Bayview Trust',
-    email: 'trust@outeniqua.co.za',
+    email: 'trust.outeniqua@example.test',
     role: 'landlord',
     agencyId: 'ag-garden',
     active: true,
@@ -256,7 +256,7 @@ export const seedUsers: AppUser[] = [
   {
     id: 'u-mia',
     name: 'Mia Fortuin',
-    email: 'mia.fortuin@email.com',
+    email: 'mia.fortuin@example.test',
     role: 'tenant',
     agencyId: 'ag-garden',
     active: true,
@@ -265,25 +265,25 @@ export const seedUsers: AppUser[] = [
   {
     id: 'u-coastal-fix',
     name: 'Coastal Fix Services',
-    email: 'jobs@coastalfix.co.za',
+    email: 'jobs.coastalfix@example.test',
     role: 'contractor',
     agencyId: 'ag-garden',
     active: true,
     licenseStatus: 'n/a',
   },
-  { id: 'u-owner1', name: 'Horizon Trust', email: 'trust@owners.co.za', role: 'landlord', agencyId: 'ag-horizon', active: true, licenseStatus: 'n/a' },
-  { id: 'u-owner2', name: 'J. van der Berg', email: 'jvdberg@email.com', role: 'landlord', agencyId: 'ag-horizon', active: true, licenseStatus: 'n/a' },
-  { id: 'u-lucas', name: 'Lucas Pretorius', email: 'lucas@email.com', role: 'tenant', agencyId: 'ag-horizon', active: true, licenseStatus: 'n/a' },
+  { id: 'u-owner1', name: 'Horizon Trust', email: 'trust.owners@example.test', role: 'landlord', agencyId: 'ag-horizon', active: true, licenseStatus: 'n/a' },
+  { id: 'u-owner2', name: 'J. van der Berg', email: 'jvdberg@example.test', role: 'landlord', agencyId: 'ag-horizon', active: true, licenseStatus: 'n/a' },
+  { id: 'u-lucas', name: 'Lucas Pretorius', email: 'lucas@example.test', role: 'tenant', agencyId: 'ag-horizon', active: true, licenseStatus: 'n/a' },
   {
     id: 'u-nomsa-t',
     name: 'Nomsa Dlamini',
-    email: 'nomsa.d@email.com',
+    email: 'nomsa.d@example.test',
     role: 'tenant',
     agencyId: 'ag-horizon',
     active: true,
     licenseStatus: 'n/a',
   },
-  { id: 'u-aqua', name: 'AquaFix Plumbing', email: 'jobs@aquafix.co.za', role: 'contractor', agencyId: 'ag-horizon', active: true, licenseStatus: 'n/a' },
+  { id: 'u-aqua', name: 'AquaFix Plumbing', email: 'jobs.aquafix@example.test', role: 'contractor', agencyId: 'ag-horizon', active: true, licenseStatus: 'n/a' },
 ]
 
 const seedPropertiesCore: PropertyAsset[] = [
@@ -636,7 +636,7 @@ export const seedLeads: Lead[] = [
     propertyId: 'PR-1002',
     agentId: 'u-james',
     name: 'Thabo Molefe',
-    email: 'thabo.m@email.com',
+    email: 'thabo.m@example.test',
     phone: '+27 82 441 2290',
     channel: 'WhatsApp',
     stage: 'Viewing Scheduled',
@@ -652,7 +652,7 @@ export const seedLeads: Lead[] = [
     propertyId: 'PR-1001',
     agentId: 'u-lerato',
     name: 'Nomsa Dlamini',
-    email: 'nomsa.d@email.com',
+    email: 'nomsa.d@example.test',
     phone: '+27 71 883 1102',
     channel: 'Web Form',
     stage: 'Application Submitted',
@@ -720,7 +720,7 @@ export const seedViewings: Viewing[] = [
     agentId: 'u-james',
     slotId: 'VS-1',
     applicantName: 'Thabo Molefe',
-    applicantEmail: 'thabo.m@email.com',
+    applicantEmail: 'thabo.m@example.test',
     date: '2026-07-25',
     time: '10:00',
     status: 'Scheduled',
@@ -822,7 +822,7 @@ export const seedTenancies: Tenancy[] = [
     applicationId: 'APP-903',
     tenantUserId: 'u-lucas',
     tenantName: 'Lucas Pretorius',
-    tenantEmail: 'lucas@email.com',
+    tenantEmail: 'lucas@example.test',
     startDate: '2026-06-01',
     endDate: '2026-12-31',
     rent: 12500,
@@ -844,7 +844,7 @@ export const seedTenancies: Tenancy[] = [
     applicationId: null,
     tenantUserId: 'u-aya',
     tenantName: 'Aya Daniels',
-    tenantEmail: 'aya.daniels@email.com',
+    tenantEmail: 'aya.daniels@example.test',
     startDate: '2026-04-01',
     endDate: '2026-09-30',
     rent: 9500,
@@ -866,7 +866,7 @@ export const seedTenancies: Tenancy[] = [
     applicationId: null,
     tenantUserId: 'u-mia',
     tenantName: 'Mia Fortuin',
-    tenantEmail: 'mia.fortuin@email.com',
+    tenantEmail: 'mia.fortuin@example.test',
     startDate: '2026-05-15',
     endDate: '2027-05-14',
     rent: 14500,

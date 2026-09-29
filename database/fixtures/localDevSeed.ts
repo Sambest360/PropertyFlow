@@ -6,7 +6,8 @@
  * or a real agency.
  */
 
-export const LOCAL_DEV_PASSWORD = 'LocalDev-Password-1'
+/** Env var read by the local seed script. The password is never stored in this fixture. */
+export const SEED_PASSWORD_ENV_VAR = 'SEED_USER_PASSWORD'
 
 export const localDevRoles = [
   'super_admin',
@@ -37,7 +38,6 @@ export type LocalDevUser = {
   /** Value stored in users.metadata.frontend_role (what the SPA reads). */
   frontendRole: Exclude<LocalDevRole, 'applicant'>
   email: string
-  password: string
   authUserId: string
   userId: string
   frontendId: string
@@ -222,7 +222,6 @@ function buildUsers(agencies: LocalDevAgency[]): LocalDevUser[] {
       dbRole: 'SUPER_ADMIN',
       frontendRole: 'super_admin',
       email: 'sam.platform@example.test',
-      password: LOCAL_DEV_PASSWORD,
       authUserId: uuid('c2000001', 1),
       userId: uuid('c2100001', 1),
       frontendId: 'u-super-admin',
@@ -244,7 +243,6 @@ function buildUsers(agencies: LocalDevAgency[]): LocalDevUser[] {
         dbRole: DB_ROLE[role],
         frontendRole: FRONTEND_ROLE[role],
         email: `${firstName}.${def.lastName}@example.test`.toLowerCase(),
-        password: LOCAL_DEV_PASSWORD,
         authUserId: uuid('c2000001', n),
         userId: uuid('c2100001', n),
         frontendId: `u-${def.slug}-${role.replaceAll('_', '-')}`,
@@ -263,23 +261,55 @@ function buildUsers(agencies: LocalDevAgency[]): LocalDevUser[] {
 export const localDevAgencies: LocalDevAgency[] = buildAgencies()
 export const localDevUsers: LocalDevUser[] = buildUsers(localDevAgencies)
 
+export type UploadPersona = {
+  user: LocalDevUser
+  agency: LocalDevAgency
+  /** This persona is not staff of `agency`. */
+  staffOfAgency: false
+}
+
+const northwindAgency = localDevAgencies[0]
+if (!northwindAgency) throw new Error('Local fixture is missing an agency')
+
+function requireUser(agencyId: string, role: LocalDevRole): LocalDevUser {
+  const user = localDevUsers.find((row) => row.agencyId === agencyId && row.role === role)
+  if (!user) throw new Error(`Missing ${role} for ${agencyId}`)
+  return user
+}
+
+/**
+ * Personas for later storage tests.
+ * - tenantWithMaintenanceTicket: a tenant who reported an open ticket.
+ * - applicantWithApplication: an applicant with an application at an agency
+ *   they are not staff of.
+ */
+export const uploadPersonas = {
+  tenantWithMaintenanceTicket: {
+    user: requireUser(northwindAgency.id, 'tenant'),
+    agency: northwindAgency,
+    ticket: northwindAgency.ticket,
+    staffOfAgency: false as const,
+  },
+  applicantWithApplication: {
+    user: requireUser(northwindAgency.id, 'applicant'),
+    agency: northwindAgency,
+    application: northwindAgency.application,
+    staffOfAgency: false as const,
+  },
+}
+
 export const localDevSeed = {
-  password: LOCAL_DEV_PASSWORD,
+  seedPasswordEnvVar: SEED_PASSWORD_ENV_VAR,
   roles: localDevRoles,
   agencies: localDevAgencies,
   users: localDevUsers,
+  uploadPersonas,
 }
 
 export type LocalDevSeed = typeof localDevSeed
 
 function sqlString(value: string): string {
   return `'${value.replaceAll("'", "''")}'`
-}
-
-function userBy(agencyId: string, role: LocalDevRole): LocalDevUser {
-  const user = localDevUsers.find((row) => row.agencyId === agencyId && row.role === role)
-  if (!user) throw new Error(`Missing ${role} for ${agencyId}`)
-  return user
 }
 
 function metadata(user: LocalDevUser): string {
@@ -320,7 +350,7 @@ INSERT INTO auth.users (
   'authenticated',
   'authenticated',
   ${sqlString(user.email)},
-  crypt(${sqlString(LOCAL_DEV_PASSWORD)}, gen_salt('bf', 10)),
+  encode(gen_random_bytes(32), 'hex'),
   TIMESTAMPTZ '2026-01-15 00:00:00+00',
   '{"provider":"email","providers":["email"]}'::jsonb,
   ${sqlString(meta)}::jsonb,
@@ -370,6 +400,8 @@ export function renderLocalDevSeedSql(): string {
   const lines: string[] = [
     '-- Local development fixture. Generated from database/fixtures/localDevSeed.ts.',
     '-- Fake agencies only. Re-running replaces rows owned by this fixture.',
+    '-- encrypted_password is random bytes, not a login password.',
+    '-- scripts/seed-local.ts sets the password from SEED_USER_PASSWORD.',
     'BEGIN;',
     `DELETE FROM clients WHERE id IN (${agencyIds});`,
     `DELETE FROM auth.users WHERE email LIKE '%@example.test';`,
@@ -418,11 +450,11 @@ WHERE m.entity_type = 'agency'
   }
 
   for (const agency of localDevAgencies) {
-    const landlord = userBy(agency.id, 'landlord')
-    const agent = userBy(agency.id, 'ground_agent')
-    const tenant = userBy(agency.id, 'tenant')
-    const applicant = userBy(agency.id, 'applicant')
-    const contractor = userBy(agency.id, 'contractor')
+    const landlord = requireUser(agency.id, 'landlord')
+    const agent = requireUser(agency.id, 'ground_agent')
+    const tenant = requireUser(agency.id, 'tenant')
+    const applicant = requireUser(agency.id, 'applicant')
+    const contractor = requireUser(agency.id, 'contractor')
     lines.push(`
 INSERT INTO buildings (
   id, client_id, landlord_id, name, address, city, province, suburb, grading,
