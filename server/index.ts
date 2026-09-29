@@ -974,9 +974,8 @@ app.post('/api/applications/:id/approve', async (c) => {
 })
 
 /**
- * Temporary client-side hook. Deleted in the Hono API end-to-end PR (Mon 5 Oct),
- * which sends this mail from application create on the server.
- * Session required. Body is `{ referenceCode }` only. See applicationNotify.ts.
+ * Application-received email. Session check stays in applicationNotify.ts
+ * (`resolveSessionUser`). Another PR deletes this route.
  */
 app.post('/api/notify/application-received', (c) => notifyApplicationReceived(c))
 

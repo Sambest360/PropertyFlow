@@ -1,12 +1,13 @@
 /**
  * POST /api/notify/application-received
  *
- * Temporary route for the client-side application create path. The Hono API
- * end-to-end PR (Mon 5 Oct) deletes it and sends this mail from application
- * create on the server.
+ * Hardened client-side hook. Session check uses `resolveSessionUser` only,
+ * so a later Supabase JWT swap can replace that helper without touching
+ * the shared auth middleware. Another PR deletes this route and sends the
+ * mail from application create.
  *
- * Auth: session cookie `pf_session` or `Authorization: Bearer`. Anonymous
- * callers get 401 before any database read or email. Body is
+ * Auth: existing session cookie `pf_session` or `Authorization: Bearer`.
+ * Anonymous callers get 401 before any database read or email. Body is
  * `{ referenceCode }` only; any other field is 400.
  * The application is loaded by reference code inside the caller's agency.
  * The caller must be the applicant or staff of that agency (403 otherwise).

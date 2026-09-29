@@ -101,7 +101,7 @@ The guest marketplace does not use that snapshot. It calls the security-definer 
 3. Sign-in calls GoTrue. The session JWT is stored by supabase-js.
 4. Workspace load selects from `public` tables. RLS is supposed to limit rows to the caller's agency, their own applications, or published listings.
 5. Edits upsert through the same browser client (`src/lib/supabase/persist.ts`).
-6. Some side effects still try the Hono routes (verification decision email, application-received email). Application-received requires a session and a reference code; the Hono API end-to-end PR (Mon 5 Oct) deletes that route and sends the mail from application create. On the current Vercel deploy those routes are the SPA, so the calls fail and the UI continues.
+6. Some side effects still try the Hono routes (verification decision email, application-received email). Application-received requires a session and a reference code. Another PR deletes that route and sends the mail from application create. On the current Vercel deploy those routes are the SPA, so the calls fail and the UI continues.
 
 ## Request flow (local API mode)
 

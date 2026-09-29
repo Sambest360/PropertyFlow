@@ -19,12 +19,9 @@ export async function supabaseSessionMiddleware(c: Context, next: Next) {
     await next()
     return
   }
-  // Anonymous bootstrap and the application-received notify route must not
-  // call Supabase or Postgres before the handler returns 401.
-  if (
-    (path === '/api/bootstrap' || path === '/api/notify/application-received') &&
-    !readBearerOrCookie(c)
-  ) {
+  // Anonymous bootstrap must not call Supabase or Postgres before the
+  // handler returns 401. Other routes keep the shared session refresh.
+  if (path === '/api/bootstrap' && !readBearerOrCookie(c)) {
     await next()
     return
   }

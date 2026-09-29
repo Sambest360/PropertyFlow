@@ -48,7 +48,7 @@ Review of PropertyFlow as a product to sell to more than one agency. Findings ar
 
 17. **Rate limits are in-memory** (`server/rateLimit.ts`). They reset on every cold start and are not shared across instances. Fine for one Node process. Not enough for a multi-instance API.
 
-18. **`POST /api/notify/application-received` was an open email relay.** It now requires a session, accepts `{ referenceCode }` only, loads the recipient from the caller's agency, and sends one received email per application. This route is temporary: the Hono API end-to-end PR (Mon 5 Oct) deletes it and sends the mail from application create on the server. Listing enquiries stay public and use a separate IP limit.
+18. **`POST /api/notify/application-received` was an open email relay.** It now requires a session, accepts `{ referenceCode }` only, loads the recipient from the caller's agency, and sends one received email per application. This PR only hardens the route. Another PR deletes it and sends the mail from application create. Listing enquiries stay public and use a separate IP limit.
 
 19. **No password reset** in either auth mode (`docs/auth-resilience-audit.md`).
 
