@@ -19,6 +19,7 @@
  * Sign-in stays 100% on the normal client path (supabase.auth.signInWithPassword).
  */
 import crypto from 'node:crypto'
+import { passwordMeetsPolicy } from '../../src/lib/auth/passwordStrength.js'
 import { pool, databaseConfigured } from '../db.js'
 
 const AUTH_INSTANCE_ID = '00000000-0000-0000-0000-000000000000'
@@ -193,8 +194,9 @@ export async function registerSupabaseUserDirect(
     err.status = 400
     throw err
   }
-  if (!input.password || input.password.length < 8) {
-    const err = new Error('Password must be at least 8 characters') as Error & { status: number }
+  const passwordPolicy = passwordMeetsPolicy(input.password ?? '')
+  if (!passwordPolicy.ok) {
+    const err = new Error(passwordPolicy.message) as Error & { status: number }
     err.status = 400
     throw err
   }

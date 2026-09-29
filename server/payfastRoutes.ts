@@ -16,9 +16,11 @@
 import type { Context } from 'hono'
 import { query, withTransaction } from './db.js'
 import { resolveUuid } from './entityMap.js'
+import { resolveSessionUser } from './auth.js'
 import { sendPaymentReceipt } from './mailtrap.js'
 import {
   buildCheckoutFields,
+  checkoutAmountCents,
   payfastConfigFromEnv,
   verifyItn,
   type PayfastConfig,
@@ -99,6 +101,8 @@ export async function payfastCreate(c: Context) {
     if (!cfg) {
       return c.json({ ok: false, error: 'payfast_not_configured' }, 503)
     }
+    const session = await resolveSessionUser(c)
+    if (!session) return c.json({ ok: false, error: 'unauthorized' }, 401)
     const body = (await c.req.json().catch(() => ({}))) as Json
     const paymentId = typeof body.paymentId === 'string' ? body.paymentId : ''
     if (!paymentId) {
@@ -114,11 +118,28 @@ export async function payfastCreate(c: Context) {
     if (payment.status === 'CANCELLED') {
       return c.json({ ok: false, error: 'payment_cancelled' }, 409)
     }
-    const clientAmountCents = Math.round(Number(body.amountCents) * (Number.isFinite(Number(body.amountCents)) ? 1 : 0))
-    const amountCents =
-      Number.isFinite(clientAmountCents) && clientAmountCents > 0
-        ? clientAmountCents
-        : Math.round(payment.amount * 100)
+    const agencyFe = payment.clientUuid
+      ? (
+          await query<{ frontend_id: string | null }>(
+            `SELECT COALESCE(settings->>'frontend_id', id::text) AS frontend_id
+             FROM clients WHERE id = $1::uuid LIMIT 1`,
+            [payment.clientUuid],
+          )
+        )[0]?.frontend_id ?? null
+      : null
+    const isParty = payment.partyUserId != null && payment.partyUserId === session.id
+    const isPlatform = session.role === 'super_admin'
+    const isAgencyStaff =
+      agencyFe != null &&
+      agencyFe === session.agencyId &&
+      (session.role === 'client_admin' || session.role === 'agent_admin' || session.role === 'ground_agent')
+    if (!isParty && !isPlatform && !isAgencyStaff) {
+      return c.json({ ok: false, error: 'forbidden' }, 403)
+    }
+    const amountCents = checkoutAmountCents(payment.amount, body.amountCents)
+    if (amountCents <= 0) {
+      return c.json({ ok: false, error: 'payment_amount_invalid' }, 400)
+    }
     const itemName =
       typeof body.itemName === 'string' && body.itemName.trim()
         ? body.itemName.trim()

@@ -38,3 +38,18 @@ export function passwordStrength(pw: string): PasswordStrength {
   }
   return { score: clamped, label: labels[clamped], hint }
 }
+
+/** Server and client registration gate. Score 1 is the "Weak" bucket (common prefixes, no variety). */
+export function passwordMeetsPolicy(pw: string): { ok: true } | { ok: false; message: string } {
+  if (!pw || pw.length < 8) {
+    return { ok: false, message: 'Password must be at least 8 characters' }
+  }
+  const strength = passwordStrength(pw)
+  if (strength.score < 2) {
+    return {
+      ok: false,
+      message: 'Password is too weak. Use a longer mix of letters, numbers, and symbols.',
+    }
+  }
+  return { ok: true }
+}

@@ -634,9 +634,100 @@ type BootstrapPayload = {
   [key: string]: unknown
 }
 
+function asRecordList(list: unknown[] | undefined): Array<Record<string, unknown>> {
+  return (list ?? []).filter((row): row is Record<string, unknown> => !!row && typeof row === 'object')
+}
+
+function addId(into: Set<string>, value: unknown) {
+  if (typeof value === 'string' && value) into.add(value)
+}
+
+/** Drop ID numbers and uploaded verification files from a user the viewer does not administer. */
+function redactUserRecord(user: Record<string, unknown>): Record<string, unknown> {
+  const copy: Record<string, unknown> = { ...user }
+  delete copy.idNumberOrPassport
+  const verification = copy.verification
+  if (verification && typeof verification === 'object') {
+    const next = { ...(verification as Record<string, unknown>) }
+    delete next.documents
+    const profile = next.profile
+    if (profile && typeof profile === 'object') {
+      const nextProfile = { ...(profile as Record<string, unknown>) }
+      delete nextProfile.idNumberOrPassport
+      next.profile = nextProfile
+    }
+    copy.verification = next
+  }
+  return copy
+}
+
+/**
+ * Bootstrap used to return every user (for the demo role switcher). That ships
+ * ID documents and contact details across agencies. Keep the actor, their
+ * agency colleagues for principals, and people referenced by rows they can see.
+ */
+export function scopeUsersForActor(
+  rawUsers: unknown[],
+  actor: DemoActor,
+  visible: {
+    properties: Array<{ agentId: string | null; landlordId: string }>
+    applications: Array<{ agentId: string | null }>
+    leads: Array<{ agentId: string | null }>
+    tickets: Array<{ assignedAgentId: string | null; contractorId: string | null }>
+    payments: Array<{ partyUserId: string | null }>
+    threads: Array<{ participantIds: string[] }>
+  },
+): unknown[] {
+  const users = asRecordList(rawUsers)
+  if (actor.role === 'super_admin') return users
+
+  const keep = new Set<string>([actor.userId])
+  const agencyWide = isAgencyWideRole(actor.role as Role)
+  if (agencyWide && actor.agencyId) {
+    for (const user of users) {
+      if (user.agencyId === actor.agencyId) addId(keep, user.id)
+    }
+  }
+  for (const property of visible.properties) {
+    addId(keep, property.agentId)
+    addId(keep, property.landlordId)
+  }
+  for (const row of visible.applications) {
+    addId(keep, row.agentId)
+    addId(keep, (row as { applicantUserId?: unknown }).applicantUserId)
+  }
+  for (const lead of visible.leads) addId(keep, lead.agentId)
+  for (const ticket of visible.tickets) {
+    addId(keep, ticket.assignedAgentId)
+    addId(keep, ticket.contractorId)
+  }
+  for (const payment of visible.payments) addId(keep, payment.partyUserId)
+  for (const thread of visible.threads) {
+    for (const id of thread.participantIds ?? []) addId(keep, id)
+  }
+
+  return users
+    .filter((user) => typeof user.id === 'string' && keep.has(user.id))
+    .map((user) => {
+      if (user.id === actor.userId) return user
+      if (agencyWide && actor.agencyId && user.agencyId === actor.agencyId) return user
+      return redactUserRecord(user)
+    })
+}
+
+const EMPTY_TRUST = {
+  trustTransactions: [] as Array<{ agencyId?: string | null }>,
+  trustAllocations: [] as Array<{ agencyId?: string | null }>,
+  payoutInstructions: [] as Array<{ agencyId?: string | null }>,
+  depositHoldings: [] as Array<{ agencyId?: string | null }>,
+  arrearsSnapshots: [] as Array<{ agencyId?: string | null }>,
+  csvImportBatches: [] as Array<{ agencyId?: string | null }>,
+  invoices: [] as Array<{ agencyId?: string | null; clientId?: string | null }>,
+}
+
 /**
  * Filter a full bootstrap payload for a property-locked actor.
- * Agency-wide / super_admin: agency (or platform) filter only; users kept for RoleSwitcher.
+ * Agency-wide roles see their agency. Platform admins see everything.
  */
 export function filterBootstrapForActor(
   raw: BootstrapPayload,
@@ -675,6 +766,14 @@ export function filterBootstrapForActor(
       scoped: false,
       actor: { userId: actor.userId, role: actor.role, agencyId: actor.agencyId },
       agencies,
+      users: scopeUsersForActor(raw.users, actor, {
+        properties: props,
+        applications: raw.applications.filter((x) => inAg(x.agencyId)),
+        leads: raw.leads.filter((x) => inAg(x.agencyId)),
+        tickets: raw.tickets.filter((x) => inAg(x.agencyId)),
+        payments: raw.payments.filter((x) => inAg(x.agencyId)),
+        threads: raw.threads.filter((x) => inAg(x.agencyId)),
+      }),
       properties: props,
       buildings: raw.buildings.filter((b) => inAg(b.clientId)),
       units: raw.units.filter(
@@ -760,6 +859,14 @@ export function filterBootstrapForActor(
     scoped: true,
     actor: { userId: actor.userId, role: actor.role, agencyId: actor.agencyId },
     agencies,
+    users: scopeUsersForActor(raw.users, actor, {
+      properties: props,
+      applications,
+      leads,
+      tickets,
+      payments,
+      threads,
+    }),
     properties: props,
     buildings: raw.buildings.filter(
       (b) => buildingIds.has(b.id) || (actor.agencyId ? b.clientId === actor.agencyId : false),
@@ -788,25 +895,6 @@ export function filterBootstrapForActor(
     propertyEvents: (raw.propertyEvents ?? []).filter(
       (e) => e.propertyId && propIds.has(e.propertyId),
     ),
-    invoices: [],
-    // Trust books: property-locked actors get only their own agency's rows (P0-7).
-    trustTransactions: (raw.trustTransactions ?? []).filter(
-      (x) => !actor.agencyId || x.agencyId === actor.agencyId,
-    ),
-    trustAllocations: (raw.trustAllocations ?? []).filter(
-      (x) => !actor.agencyId || x.agencyId === actor.agencyId,
-    ),
-    payoutInstructions: (raw.payoutInstructions ?? []).filter(
-      (x) => !actor.agencyId || x.agencyId === actor.agencyId,
-    ),
-    depositHoldings: (raw.depositHoldings ?? []).filter(
-      (x) => !actor.agencyId || x.agencyId === actor.agencyId,
-    ),
-    arrearsSnapshots: (raw.arrearsSnapshots ?? []).filter(
-      (x) => !actor.agencyId || x.agencyId === actor.agencyId,
-    ),
-    csvImportBatches: (raw.csvImportBatches ?? []).filter(
-      (x) => !actor.agencyId || x.agencyId === actor.agencyId,
-    ),
+    ...EMPTY_TRUST,
   }
 }

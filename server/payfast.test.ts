@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  checkoutAmountCents,
+  payfastConfigFromEnv,
   payfastEncode,
   payfastSignature,
   payfastSignatureSource,
@@ -105,6 +107,53 @@ describe('payfast core', () => {
     )
     expect(verdict.ok).toBe(false)
     expect((verdict as { reason: string }).reason).toMatch(/amount/i)
+  })
+
+  it('uses the ledger amount and ignores a client-supplied amount', () => {
+    expect(checkoutAmountCents(1850, 1)).toBe(185000)
+    expect(checkoutAmountCents(1850, 999999)).toBe(185000)
+    expect(checkoutAmountCents(0, 100)).toBe(0)
+  })
+
+  it('refuses live mode when the passphrase is missing', () => {
+    const prev = {
+      id: process.env.PAYFAST_MERCHANT_ID,
+      key: process.env.PAYFAST_MERCHANT_KEY,
+      mode: process.env.PAYFAST_MODE,
+      pass: process.env.PAYFAST_PASSPHRASE,
+    }
+    process.env.PAYFAST_MERCHANT_ID = '10047719'
+    process.env.PAYFAST_MERCHANT_KEY = 'wkq8dmfysau1q'
+    process.env.PAYFAST_MODE = 'live'
+    delete process.env.PAYFAST_PASSPHRASE
+    expect(payfastConfigFromEnv()).toBeNull()
+    process.env.PAYFAST_PASSPHRASE = PASSPHRASE
+    expect(payfastConfigFromEnv()?.processUrl).toBe('https://www.payfast.io/eng/process')
+    if (prev.id == null) delete process.env.PAYFAST_MERCHANT_ID
+    else process.env.PAYFAST_MERCHANT_ID = prev.id
+    if (prev.key == null) delete process.env.PAYFAST_MERCHANT_KEY
+    else process.env.PAYFAST_MERCHANT_KEY = prev.key
+    if (prev.mode == null) delete process.env.PAYFAST_MODE
+    else process.env.PAYFAST_MODE = prev.mode
+    if (prev.pass == null) delete process.env.PAYFAST_PASSPHRASE
+    else process.env.PAYFAST_PASSPHRASE = prev.pass
+  })
+
+  it('ITN: missing source IP is rejected in live mode', () => {
+    const itn = { ...VECTOR_FIELDS, payment_status: 'COMPLETE', amount_gross: '1850.00' }
+    const signed = payfastSignature(itn, PASSPHRASE)
+    const verdict = verifyItn(
+      { ...itn, signature: signed },
+      {
+        merchantId: '10047719',
+        merchantKey: 'wkq8dmfysau1q',
+        passphrase: PASSPHRASE,
+        processUrl: 'https://www.payfast.io/eng/process',
+      },
+      { sourceIp: null, expectedPaymentId: 'PAY-1', expectedAmountCents: 185000 },
+    )
+    expect(verdict.ok).toBe(false)
+    expect((verdict as { reason: string }).reason).toMatch(/source IP/i)
   })
 
   it('ITN: bad source IP rejected in live mode', () => {

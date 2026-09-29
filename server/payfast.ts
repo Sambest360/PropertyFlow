@@ -19,7 +19,7 @@
  * table stores ZAR rand as numeric — convert at the edges.
  */
 
-import { createHash } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 
 export const PAYFAST_PROCESS_URL = 'https://sandbox.payfast.co.za/eng/process'
 export const PAYFAST_LIVE_PROCESS_URL = 'https://www.payfast.io/eng/process'
@@ -53,6 +53,8 @@ export function payfastConfigFromEnv(): PayfastConfig | null {
   const passphrase = process.env.PAYFAST_PASSPHRASE?.trim()
   if (!merchantId || !merchantKey) return null
   const live = process.env.PAYFAST_MODE?.trim().toLowerCase() === 'live'
+  // Live ITNs are forgeable without a passphrase: merchant id and key are in the browser form.
+  if (live && !passphrase) return null
   return {
     merchantId,
     merchantKey,
@@ -99,6 +101,19 @@ export function payfastSignature(fields: PayfastFields, passphrase?: string): st
   let source = payfastSignatureSource(fields)
   if (passphrase) source += `&passphrase=${payfastEncode(passphrase)}`
   return createHash('md5').update(source).digest('hex')
+}
+
+/** Checkout amount always comes from the ledger. Client-supplied cents are ignored. */
+export function checkoutAmountCents(ledgerAmountRands: number, _clientAmountCents?: unknown): number {
+  if (!Number.isFinite(ledgerAmountRands) || ledgerAmountRands <= 0) return 0
+  return Math.round(ledgerAmountRands * 100)
+}
+
+function signaturesMatch(a: string, b: string): boolean {
+  const left = Buffer.from(a)
+  const right = Buffer.from(b)
+  if (left.length !== right.length) return false
+  return timingSafeEqual(left, right)
 }
 
 /** cents → "12.34" (PayFast amount format). */
@@ -181,14 +196,15 @@ export function verifyItn(
   const sandbox = !config.processUrl || config.processUrl === PAYFAST_PROCESS_URL
   // In sandbox mode the IP allowlist is relaxed — local testing and the
   // sandbox simulator do not always come from documented ITN ranges.
-  if (!sandbox && opts.sourceIp !== null && (opts.sourceIp == null || !PAYFAST_ITN_IPS.has(opts.sourceIp))) {
+  // Live mode rejects a missing IP. `null` used to skip the check entirely.
+  if (!sandbox && (!opts.sourceIp || !PAYFAST_ITN_IPS.has(opts.sourceIp))) {
     return { ok: false, reason: 'ITN source IP is not a PayFast endpoint' }
   }
   const signature = body.signature
   if (!signature) return { ok: false, reason: 'ITN missing signature' }
   const { signature: _drop, ...rest } = body
   const computed = payfastSignature(rest, config.passphrase)
-  if (computed !== signature) {
+  if (!signaturesMatch(computed, signature)) {
     return { ok: false, reason: 'ITN signature mismatch' }
   }
   const paymentId = body.m_payment_id

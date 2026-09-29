@@ -11,7 +11,9 @@ import {
 } from './db.js'
 import {
   actorRequiredError,
+  forbiddenError,
   parseDemoActor,
+  sessionActorDecision,
   ACTOR_AGENCY_HEADER,
   ACTOR_ROLE_HEADER,
   ACTOR_USER_HEADER,
@@ -20,6 +22,7 @@ import {
 import {
   actorFromSession,
   clearSession,
+  findUserByFrontendId,
   issueSession,
   loginUser,
   registerUser,
@@ -27,6 +30,7 @@ import {
   sessionToPublic,
   updateUserVerification,
 } from './auth.js'
+import { canImpersonateUser } from '../src/lib/impersonation.js'
 import {
   assertPersistAllowed,
   enrichActor,
@@ -38,6 +42,7 @@ import {
   authIpKey,
   authIpRateLimit,
   authEmailRateLimit,
+  publicPostRateLimit,
   notifyEmailRateLimit,
   authFailureBlocked,
   recordAuthFailure,
@@ -90,12 +95,19 @@ const LOCAL_ORIGINS = [
 function corsOrigin(origin: string): string | undefined {
   if (!origin) return undefined
   if (LOCAL_ORIGINS.includes(origin)) return origin
-  if (/^https:\/\/([\w-]+\.)?vercel\.app$/i.test(origin)) return origin
+  const deploymentHosts = [
+    process.env.VERCEL_PROJECT_PRODUCTION_URL,
+    process.env.VERCEL_URL,
+    'property-flow-jet.vercel.app',
+  ]
+  for (const host of deploymentHosts) {
+    if (host && origin === `https://${host}`) return origin
+  }
   const allowed = (process.env.CORS_ORIGINS || '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean)
-  if (allowed.includes(origin) || allowed.includes('*')) return origin
+  if (allowed.includes(origin)) return origin
   return undefined
 }
 
@@ -132,10 +144,31 @@ async function resolveRequestActor(
   c: Parameters<typeof parseDemoActor>[0],
   body?: Record<string, unknown> | null,
 ): Promise<DemoActor | null> {
-  const fromHeaders = parseDemoActor(c, body)
-  if (fromHeaders) return fromHeaders
   const session = await resolveSessionUser(c)
-  return session ? actorFromSession(session) : null
+  if (!session) return null
+  const claimed = parseDemoActor(c, body)
+  const decision = sessionActorDecision(session.frontendId, claimed)
+  if (decision.kind === 'self') return actorFromSession(session)
+  const target = await findUserByFrontendId(decision.targetUserId)
+  if (!target || !target.active) throw forbiddenError('Impersonation is not allowed')
+  const allowed = canImpersonateUser(
+    {
+      id: session.frontendId,
+      role: session.role as DemoActor['role'],
+      agencyId: session.agencyId,
+      enabledPermissions: session.enabledPermissions as
+        | import('../src/types/domain.js').Permission[]
+        | undefined,
+    },
+    {
+      id: target.frontendId,
+      role: target.role as DemoActor['role'],
+      agencyId: target.agencyId,
+      active: target.active,
+    },
+  )
+  if (!allowed) throw forbiddenError('Impersonation is not allowed')
+  return actorFromSession(target)
 }
 
 async function requireActorAndGate(c: Parameters<typeof parseDemoActor>[0], body: PersistBody) {
@@ -563,7 +596,7 @@ app.get('/api/bootstrap', async (c) => {
     })
     const rawActor = await resolveRequestActor(c, null)
     if (!rawActor) {
-      return c.json({ ...data, scoped: false, actor: null })
+      return c.json({ error: 'unauthorized', message: 'Sign in required' }, 401)
     }
     const actor = await enrichActor(rawActor)
     const { buildActorPropertyScope, filterBootstrapForActor } = await loadScopeGateModule()
@@ -577,7 +610,7 @@ app.get('/api/bootstrap', async (c) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[api/bootstrap]', message)
-    return c.json({ error: 'bootstrap_failed', message }, 500)
+    return c.json({ error: 'bootstrap_failed', message }, errStatus(err))
   }
 })
 
@@ -596,7 +629,7 @@ app.get('/api/v1/units', async (c) => {
     const cursor = c.req.query('cursor') ?? null
     const clientId = c.req.query('client_id') ?? null
     const { fetchUnitsPage } = await loadUnitsFeedModule()
-    const page = await fetchUnitsPage({ limit, cursor, clientId })
+    const page = await fetchUnitsPage({ limit, cursor, clientId, publicOnly: true })
     return c.json({
       items: page.items,
       next_cursor: page.nextCursor,
@@ -610,6 +643,10 @@ app.get('/api/v1/units', async (c) => {
 
 app.get('/api/counts', async (c) => {
   try {
+    const session = await resolveSessionUser(c)
+    if (!session || session.role !== 'super_admin') {
+      return c.json({ error: 'forbidden', message: 'Super admin required' }, session ? 403 : 401)
+    }
     const rows = await query<{
       leads: string
       payments: string
@@ -641,9 +678,9 @@ app.get('/api/counts', async (c) => {
 app.post('/api/persist', async (c) => {
   try {
     const body = (await c.req.json()) as PersistBody
-    await requireActorAndGate(c, body)
+    const actor = await requireActorAndGate(c, body)
     const { handlePersist } = await loadWritesModule()
-    const result = await handlePersist(body)
+    const result = await handlePersist(body, actor)
     return c.json(result)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -660,8 +697,8 @@ app.post('/api/persist/batch', async (c) => {
     const { handlePersist } = await loadWritesModule()
     const results = []
     for (const op of ops) {
-      await requireActorAndGate(c, op)
-      results.push(await handlePersist(op))
+      const actor = await requireActorAndGate(c, op)
+      results.push(await handlePersist(op, actor))
     }
     return c.json({ ok: true, results })
   } catch (err) {
@@ -733,9 +770,9 @@ for (const plural of restResources) {
       const id = String(data.id ?? '')
       if (!id) return c.json({ error: 'id_required' }, 400)
       const body: PersistBody = { resource, action: 'upsert', id, data }
-      await requireActorAndGate(c, body)
+      const actor = await requireActorAndGate(c, body)
       const { handlePersist } = await loadWritesModule()
-    const result = await handlePersist(body)
+    const result = await handlePersist(body, actor)
       return c.json(result, 201)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -753,9 +790,9 @@ for (const plural of restResources) {
         id,
         data: { ...data, id },
       }
-      await requireActorAndGate(c, body)
+      const actor = await requireActorAndGate(c, body)
       const { handlePersist } = await loadWritesModule()
-    const result = await handlePersist(body)
+    const result = await handlePersist(body, actor)
       return c.json(result)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -767,9 +804,9 @@ for (const plural of restResources) {
     try {
       const id = c.req.param('id')
       const body: PersistBody = { resource, action: 'delete', id }
-      await requireActorAndGate(c, body)
+      const actor = await requireActorAndGate(c, body)
       const { handlePersist } = await loadWritesModule()
-    const result = await handlePersist(body)
+    const result = await handlePersist(body, actor)
       return c.json(result)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -780,6 +817,12 @@ for (const plural of restResources) {
 
 app.post('/api/public/listing-enquiry', async (c) => {
   try {
+    const ip = authIpKey(c.req.raw.headers)
+    const ipGate = publicPostRateLimit(ip)
+    if (!ipGate.ok) {
+      const rl = tooManyRequests(ipGate.retryAfterSec)
+      return c.json(rl.body, rl.status, rl.headers)
+    }
     const body = (await c.req.json()) as Record<string, unknown>
     const { submitPublicListingEnquiry } = await import('./publicEnquiry.js')
     const result = await submitPublicListingEnquiry({

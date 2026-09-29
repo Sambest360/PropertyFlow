@@ -55,7 +55,7 @@ Separate processes: `npm run dev:api` / `npm run dev:vite`.
 
 Workspace routes require a session (`RequireAuth`). Marketplace browse is public; **Apply** requires login/register.
 
-Actor headers (`X-User-Id` / `X-Role` / `X-Agency-Id`) still gate writes; the session token also resolves the actor when headers are absent.
+Writes require a signed-in session (httpOnly cookie or Bearer token). Actor headers cannot choose a role or agency. A different `X-User-Id` is an impersonation request and is allowed only when the signed-in user may impersonate that account; the target's role and agency are loaded from the database.
 
 ## Data
 

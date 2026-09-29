@@ -12,6 +12,7 @@ import {
   type EntityType,
 } from './entityMap.js'
 import { SUB_FE_TO_UUID } from './idMap.js'
+import { guardUserWrite, type ExistingUserWrite } from './userWriteGuard.js'
 
 export type PersistAction = 'upsert' | 'delete' | 'patch'
 export type PersistBody = {
@@ -19,19 +20,6 @@ export type PersistBody = {
   action: PersistAction
   id: string
   data?: Record<string, unknown>
-}
-
-const ROLE_TO_DB: Record<string, string> = {
-  super_admin: 'SUPER_ADMIN',
-  client_admin: 'AGENCY_ADMIN',
-  agency_admin: 'AGENCY_ADMIN',
-  agent_admin: 'AGENT_ADMIN',
-  agent: 'GROUND_AGENT',
-  ground_agent: 'GROUND_AGENT',
-  landlord: 'LANDLORD',
-  tenant: 'END_USER',
-  applicant: 'END_USER',
-  contractor: 'CONTRACTOR',
 }
 
 const APP_STAGE_TO_DB: Record<string, string> = {
@@ -209,7 +197,10 @@ async function unitIdFromProperty(propertyId: unknown): Promise<string | null> {
   )
 }
 
-export async function handlePersist(body: PersistBody): Promise<{ ok: true; id: string; uuid: string }> {
+export async function handlePersist(
+  body: PersistBody,
+  actor?: { role: string; userId: string } | null,
+): Promise<{ ok: true; id: string; uuid: string }> {
   await ensureEntityMapTable()
   const { resource, action, id, data = {} } = body
   if (!resource || !action || !id) {
@@ -221,7 +212,7 @@ export async function handlePersist(body: PersistBody): Promise<{ ok: true; id: 
     return { ok: true, id, uuid: (await resolveUuid(resource, id)) ?? id }
   }
 
-  const uuid = await upsertEntity(resource, id, data)
+  const uuid = await upsertEntity(resource, id, data, actor)
   return { ok: true, id, uuid }
 }
 
@@ -280,12 +271,13 @@ async function upsertEntity(
   resource: EntityType,
   frontendId: string,
   data: Record<string, unknown>,
+  actor?: { role: string; userId: string } | null,
 ): Promise<string> {
   switch (resource) {
     case 'agency':
       return upsertAgency(frontendId, data)
     case 'user':
-      return upsertUser(frontendId, data)
+      return upsertUser(frontendId, data, actor)
     case 'building':
       return upsertBuilding(frontendId, data)
     case 'property':
@@ -360,39 +352,68 @@ async function upsertAgency(feId: string, d: Record<string, unknown>): Promise<s
   return uuid
 }
 
-async function upsertUser(feId: string, d: Record<string, unknown>): Promise<string> {
+async function upsertUser(
+  feId: string,
+  d: Record<string, unknown>,
+  actor?: { role: string; userId: string } | null,
+): Promise<string> {
   const uuid = await ensureUuid('user', feId)
   const { first, last } = splitName(str(d.name, 'User'))
-  const feRole = str(d.role, 'tenant')
-  const role = ROLE_TO_DB[feRole] ?? 'END_USER'
-  const client = d.agencyId ? await clientId(d.agencyId) : null
+  const existingRows = await query<{
+    role: string
+    client_id: string | null
+    active: boolean
+    metadata: Record<string, unknown> | null
+  }>(`SELECT role, client_id, active, metadata FROM users WHERE id = $1::uuid`, [uuid])
+  const existingRow = existingRows[0]
+  const existing: ExistingUserWrite | null = existingRow
+    ? {
+        role: existingRow.role,
+        clientId: existingRow.client_id,
+        active: existingRow.active,
+        metadata: existingRow.metadata,
+      }
+    : null
+  const requestedClient = d.agencyId ? await clientId(d.agencyId) : null
+  const guarded = guardUserWrite({
+    actorRole: actor?.role ?? null,
+    existing,
+    requestedFrontendRole: str(d.role, 'tenant'),
+    requestedClientId: requestedClient,
+    requestedActive: bool(d.active, true),
+    metadata: {
+      frontend_id: feId,
+      enabledPermissions: d.enabledPermissions ?? null,
+      licenseStatus: d.licenseStatus ?? null,
+      mentorId: d.mentorId ?? null,
+      commissionSharePct: d.commissionSharePct ?? null,
+      mustChangePassword: Boolean(d.tempPassword),
+      ...(d.verification ? { verification: d.verification } : {}),
+      ...(d.company ? { company: d.company } : {}),
+      ...(d.idNumberOrPassport ? { idNumberOrPassport: d.idNumberOrPassport } : {}),
+    },
+  })
+  const role = guarded.dbRole
+  const client = guarded.clientId
   const email = str(d.email, `${feId}@propertyflow.local`)
   let passwordSql = `crypt('ChangeMe123!', gen_salt('bf'))`
   let passwordParam: string | null = null
-  if (typeof d.passwordHash === 'string' && d.passwordHash) {
-    passwordSql = `$10`
-    passwordParam = d.passwordHash
-  } else if (typeof d.tempPassword === 'string' && d.tempPassword) {
+  // Client-supplied hashes are ignored. Callers set a password or a temp password.
+  if (typeof d.tempPassword === 'string' && d.tempPassword) {
     const { hashPassword } = await import('./auth.js')
     passwordSql = `$10`
     passwordParam = await hashPassword(d.tempPassword)
-  } else if (typeof d.password === 'string' && d.password) {
+  } else if (typeof d.password === 'string' && d.password && actor?.userId === feId) {
+    const { hashPassword } = await import('./auth.js')
+    passwordSql = `$10`
+    passwordParam = await hashPassword(d.password)
+  } else if (typeof d.password === 'string' && d.password && actor && ['super_admin', 'client_admin', 'agent_admin'].includes(actor.role)) {
     const { hashPassword } = await import('./auth.js')
     passwordSql = `$10`
     passwordParam = await hashPassword(d.password)
   }
-  const meta = {
-    frontend_id: feId,
-    frontend_role: feRole,
-    enabledPermissions: d.enabledPermissions ?? null,
-    licenseStatus: d.licenseStatus ?? null,
-    mentorId: d.mentorId ?? null,
-    commissionSharePct: d.commissionSharePct ?? null,
-    mustChangePassword: Boolean(d.tempPassword),
-    ...(d.verification ? { verification: d.verification } : {}),
-    ...(d.company ? { company: d.company } : {}),
-    ...(d.idNumberOrPassport ? { idNumberOrPassport: d.idNumberOrPassport } : {}),
-  }
+  const meta = guarded.metadata
+  const active = guarded.active
   if (passwordParam) {
     await query(
       `INSERT INTO users (
@@ -419,7 +440,7 @@ async function upsertUser(feId: string, d: Record<string, unknown>): Promise<str
         last || first,
         d.phone ? str(d.phone) : null,
         role,
-        bool(d.active, true),
+        active,
         JSON.stringify(meta),
         passwordParam,
       ],
@@ -449,7 +470,7 @@ async function upsertUser(feId: string, d: Record<string, unknown>): Promise<str
         last || first,
         d.phone ? str(d.phone) : null,
         role,
-        bool(d.active, true),
+        active,
         JSON.stringify(meta),
       ],
     )

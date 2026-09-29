@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { passwordStrength } from './passwordStrength'
+import { passwordMeetsPolicy, passwordStrength } from './passwordStrength'
 import { formatAuthError } from './authMessages'
 
 describe('passwordStrength', () => {
@@ -17,6 +17,14 @@ describe('passwordStrength', () => {
 
   it('penalises repeated characters', () => {
     expect(passwordStrength('aaaaaaaaaaaa').score).toBeLessThanOrEqual(2)
+  })
+
+  it('rejects empty, short, and common passwords', () => {
+    expect(passwordMeetsPolicy('').ok).toBe(false)
+    expect(passwordMeetsPolicy('short').ok).toBe(false)
+    expect(passwordMeetsPolicy('password').ok).toBe(false)
+    expect(passwordMeetsPolicy('password123!').ok).toBe(false)
+    expect(passwordMeetsPolicy('Corr3ct-Horse-Battery').ok).toBe(true)
   })
 
   it('caps short but varied passwords below max', () => {

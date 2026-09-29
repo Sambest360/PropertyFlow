@@ -95,6 +95,9 @@ describe('Agency bootstrap filtering', () => {
     expect(out.properties.map((p) => p.id).sort()).toEqual(['p-a1', 'p-a2'])
     expect(out.leads.every((l) => l.agencyId === 'ag-a')).toBe(true)
     expect(out.propertyDocuments.every((d) => d.agencyId === 'ag-a')).toBe(true)
+    const userIds = (out.users as Array<{ id: string }>).map((u) => u.id)
+    expect(userIds).toContain('u-james')
+    expect(userIds).not.toContain('u-other')
   })
 
   it('limits a field agent to their own book', () => {
@@ -112,6 +115,9 @@ describe('Agency bootstrap filtering', () => {
     expect(out.properties.map((p) => p.id)).toEqual(['p-a1'])
     expect(out.leads.map((l) => l.propertyId)).toEqual(['p-a1'])
     expect(out.notifications.every((n) => n.userId === 'u-james')).toBe(true)
+    expect((out.users as Array<{ id: string }>).map((u) => u.id)).toEqual(['u-james'])
+    expect(out.trustTransactions).toEqual([])
+    expect(out.invoices).toEqual([])
   })
 
   it('shows a tenant only their own payments', () => {

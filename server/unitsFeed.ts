@@ -51,11 +51,17 @@ export async function fetchUnitsPage(opts: {
   clientId?: string | null
   cursor?: string | null
   limit?: number
+  /** Default true: only publicly listed units. Pass false only from a trusted server path. */
+  publicOnly?: boolean
 }): Promise<UnitsFeedResult> {
   const limit = Math.min(Math.max(opts.limit ?? 24, 1), 100)
   const decoded = decodeCursor(opts.cursor)
   const params: unknown[] = []
   let where = 'WHERE 1=1'
+  if (opts.publicOnly !== false) {
+    where += ` AND u.status_config_key IN ('PUBLISHED', 'FEATURED', 'VACANT', 'UNDER_OFFER', 'AVAILABLE')
+                AND lower(coalesce(u.listing_type, '')) <> 'not_listed'`
+  }
 
   if (opts.clientId) {
     params.push(opts.clientId)

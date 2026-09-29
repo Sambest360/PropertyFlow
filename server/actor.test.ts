@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveDemoActor } from './actor'
+import { resolveDemoActor, sessionActorDecision } from './actor'
 
 describe('resolveDemoActor', () => {
   it('rejects incomplete identity', () => {
@@ -20,6 +20,26 @@ describe('resolveDemoActor', () => {
       role: 'client_admin',
       agencyId: null,
     })
+  })
+
+  it('ignores a forged role when the claimed user is the session user', () => {
+    expect(
+      sessionActorDecision('u-tenant', {
+        userId: 'u-tenant',
+        role: 'super_admin',
+        agencyId: 'ag-other',
+      }),
+    ).toEqual({ kind: 'self' })
+  })
+
+  it('treats a different user id as an impersonation request', () => {
+    expect(
+      sessionActorDecision('u-admin', {
+        userId: 'u-tenant',
+        role: 'super_admin',
+        agencyId: null,
+      }),
+    ).toEqual({ kind: 'impersonate', targetUserId: 'u-tenant' })
   })
 
   it('keeps a real agency id', () => {

@@ -319,6 +319,10 @@ async function supabaseSignUpViaServer(
     })
     clearTimeout(t)
     if (res.status === 404) return null // route not deployed → legacy path
+    // Vercel currently rewrites /api/* to the SPA (HTTP 200 text/html). That is
+    // not a successful registration — fall back to GoTrue signup.
+    const contentType = res.headers.get('content-type') ?? ''
+    if (!contentType.includes('application/json')) return null
     const data = (await res.json().catch(() => ({}))) as {
       ok?: boolean
       authUserId?: string

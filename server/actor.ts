@@ -80,6 +80,19 @@ export function parseDemoActor(
   return resolveDemoActor({ userId, role, agencyId: agencyRaw })
 }
 
+/**
+ * Headers and body fields never choose the role. They can only name an
+ * impersonation target, which the caller must load from the database and
+ * authorize. A missing or matching claim means "the signed-in user".
+ */
+export function sessionActorDecision(
+  sessionUserId: string,
+  claimed: DemoActor | null,
+): { kind: 'self' } | { kind: 'impersonate'; targetUserId: string } {
+  if (!claimed || claimed.userId === sessionUserId) return { kind: 'self' }
+  return { kind: 'impersonate', targetUserId: claimed.userId }
+}
+
 export function actorRequiredError(): Error & { status: number } {
   return Object.assign(new Error('Actor identity required (X-User-Id + X-Role)'), {
     status: 401,

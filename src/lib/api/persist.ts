@@ -62,6 +62,7 @@ export async function persistToApi(op: PersistOp): Promise<boolean> {
     const res = await fetch(`${API_BASE}/api/persist`, {
       method: 'POST',
       headers: jsonHeaders(),
+      credentials: 'include',
       body: JSON.stringify(op),
     })
     if (!res.ok) {
@@ -86,6 +87,7 @@ export async function persistBatchToApi(ops: PersistOp[]): Promise<boolean> {
     const res = await fetch(`${API_BASE}/api/persist/batch`, {
       method: 'POST',
       headers: jsonHeaders(),
+      credentials: 'include',
       body: JSON.stringify({ ops }),
     })
     if (!res.ok) {
@@ -118,6 +120,7 @@ export async function persistApproveApplication(params: {
       {
         method: 'POST',
         headers: jsonHeaders(),
+        credentials: 'include',
         body: JSON.stringify({
           actorUserId: params.actorUserId,
           tenancy: params.tenancy,
@@ -142,6 +145,7 @@ export async function persistMarkNotificationsRead(params: {
     const res = await fetch(`${API_BASE}/api/notifications/mark-read`, {
       method: 'POST',
       headers: jsonHeaders(),
+      credentials: 'include',
       body: JSON.stringify(params),
     })
     return res.ok

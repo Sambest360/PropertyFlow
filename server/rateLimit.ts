@@ -99,6 +99,11 @@ export function authEmailRateLimit(email: string): { ok: boolean; retryAfterSec:
  * email) — separate bucket from the register guard so independent limits.
  * Env knob: AUTH_RATE_LIMIT_NOTIFY_MAX (default 6 per window).
  */
+/** Public form posts (listing enquiries). Separate bucket from login. */
+export function publicPostRateLimit(ip: string): { ok: boolean; retryAfterSec: number } {
+  return slidingWindowHit(requestWindows, `public:${ip}`, numEnv('PUBLIC_RATE_LIMIT_MAX', 30), windowMs())
+}
+
 export function notifyEmailRateLimit(email: string): { ok: boolean; retryAfterSec: number } {
   const key = `notify:${email.trim().toLowerCase()}`
   return slidingWindowHit(requestWindows, key, numEnv('AUTH_RATE_LIMIT_NOTIFY_MAX', 6), windowMs())

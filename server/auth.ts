@@ -6,6 +6,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import bcrypt from 'bcryptjs'
 import type { Context } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
+import { passwordMeetsPolicy } from '../src/lib/auth/passwordStrength.js'
 import { query } from './db.js'
 import { ensureUuid } from './entityMap.js'
 import { ACTOR_AGENCY_HEADER, ACTOR_ROLE_HEADER, ACTOR_USER_HEADER } from './actor.js'
@@ -224,6 +225,22 @@ async function findUserByEmail(email: string): Promise<UserRow | null> {
   return rows[0] ?? null
 }
 
+export async function findUserByFrontendId(frontendId: string): Promise<SessionUser | null> {
+  const rows = await query<UserRow>(
+    `SELECT u.id, u.email, u.password_hash, u.first_name, u.last_name, u.phone, u.role,
+            u.active, u.client_id, u.metadata,
+            COALESCE(c.settings->>'frontend_id', c.id::text) AS agency_fe
+     FROM users u
+     LEFT JOIN clients c ON c.id = u.client_id
+     WHERE u.metadata->>'frontend_id' = $1
+        OR u.id::text = $1
+     LIMIT 1`,
+    [frontendId],
+  )
+  const row = rows[0]
+  return row ? rowToSession(row) : null
+}
+
 async function findUserById(id: string): Promise<UserRow | null> {
   const rows = await query<UserRow>(
     `SELECT u.id, u.email, u.password_hash, u.first_name, u.last_name, u.phone, u.role,
@@ -254,6 +271,7 @@ export function issueSession(c: Context, user: SessionUser): string {
   setCookie(c, AUTH_COOKIE, token, {
     httpOnly: true,
     sameSite: 'Lax',
+    secure: process.env.NODE_ENV === 'production' || Boolean(process.env.VERCEL),
     path: '/',
     maxAge: TOKEN_TTL_SEC,
   })
@@ -356,8 +374,9 @@ export async function registerUser(input: RegisterInput): Promise<{ user: Sessio
     err.status = 400
     throw err
   }
-  if (!input.password || input.password.length < 8) {
-    const err = new Error('Password must be at least 8 characters') as Error & { status: number }
+  const passwordPolicy = passwordMeetsPolicy(input.password)
+  if (!passwordPolicy.ok) {
+    const err = new Error(passwordPolicy.message) as Error & { status: number }
     err.status = 400
     throw err
   }
