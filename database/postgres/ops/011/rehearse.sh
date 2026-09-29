@@ -161,7 +161,12 @@ echo "verify before 011 (isolation checks must FAIL)"
 run_verify "$WORK/verify-before.txt"
 for id in a_anon_bootstrap a_anon_bootstrap_lite a_password_hash_column \
   c_role c_client_id c_active c_frontend_role c_enabled_permissions c_verification \
-  b_landlord_hides_staff b_landlord_hides_unlinked_tenant; do
+  b_landlord_hides_staff b_landlord_hides_unlinked_tenant \
+  d3_nonstaff_leads_bookings d5_nonstaff_same_agency_writes d6_client_id_not_pivoted \
+  d8_views_agency_scoped d9_entity_map_no_cross_agency \
+  d_enquiry_no_id_income d_enquiry_rate_limited \
+  d_screening_rls d_screening_income_nonneg d_trust_staff_only \
+  d_anon_privileged_execute d_signup_not_super_admin; do
   expect_result "$WORK/verify-before.txt" "$id" FAIL
 done
 for tbl in "${TABLES[@]}"; do
@@ -172,7 +177,9 @@ for id in c_first_name c_nickname c_auth_user_id d_staff_users \
   b_landlord_sees_linked_tenant c_service_role_can_set_role c_direct_admin_can_set_role \
   a_buildings_notes_absent a_client_flag_is_boolean a_verification_only_when_stored \
   e_marketplace_helpers_locked e_public_rpcs_executable \
-  e_rls_helpers_anon_denied e_rls_helpers_authenticated; do
+  e_rls_helpers_anon_denied e_rls_helpers_authenticated \
+  d1_anon_rpc_no_secrets d2_anon_catalog_denied d4_cross_agency_writes \
+  p_portal_writes_kept; do
   expect_result "$WORK/verify-before.txt" "$id" PASS
 done
 for tbl in "${TABLES[@]}"; do

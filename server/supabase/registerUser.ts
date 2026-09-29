@@ -35,20 +35,19 @@ export type DirectRegisterInput = {
   documents?: unknown[]
 }
 
-/** Same allow-list the trigger applies; super_admin only when the platform is empty. */
+/** Portal roles only. An empty users table does not become super admin. */
+export function resolveSignupRole(requestedRole?: string): string {
+  let roleFe = (requestedRole ?? 'tenant').trim() || 'tenant'
+  const allowedPublic = new Set(['tenant', 'landlord', 'contractor', 'applicant'])
+  if (!allowedPublic.has(roleFe) || roleFe === 'applicant') roleFe = 'tenant'
+  return roleFe
+}
+
 async function resolveRole(input: { requestedRole?: string; email: string }): Promise<{
   roleFe: string
   bootstrap: boolean
 }> {
-  const totalRows = await pool!.query<{ n: string }>('SELECT COUNT(*)::text AS n FROM public.users')
-  const bootstrap = Number(totalRows.rows[0]?.n ?? 0) === 0
-  let roleFe = bootstrap ? 'super_admin' : (input.requestedRole ?? 'tenant').trim() || 'tenant'
-  if (!bootstrap) {
-    const allowedPublic = new Set(['tenant', 'landlord', 'contractor', 'applicant'])
-    if (!allowedPublic.has(roleFe)) roleFe = 'tenant'
-    if (roleFe === 'applicant') roleFe = 'tenant'
-  }
-  return { roleFe, bootstrap }
+  return { roleFe: resolveSignupRole(input.requestedRole), bootstrap: false }
 }
 
 async function insertGoTrueUser(input: {

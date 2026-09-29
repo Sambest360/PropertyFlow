@@ -84,14 +84,18 @@ PY
 }
 
 psql_in_one_transaction() {
-  local file="$1"
   # --single-transaction wraps every -c and -f in one BEGIN/COMMIT.
   # lock_timeout fails the apply instead of queueing behind live traffic.
+  local args=()
+  local file
+  for file in "$@"; do
+    args+=(-f "$file")
+  done
   psql "$DATABASE_URL_RESOLVED" \
     -v ON_ERROR_STOP=1 \
     --single-transaction \
     -c "SET lock_timeout = '5s'" \
     -c "SET statement_timeout = '60s'" \
     -c "SET idle_in_transaction_session_timeout = '60s'" \
-    -f "$file"
+    "${args[@]}"
 }

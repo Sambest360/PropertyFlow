@@ -11,11 +11,12 @@ describe('empty-start auth helpers', () => {
     expect(ROLE_TO_DB_SMOKE.contractor).toBe('CONTRACTOR')
   })
 
-  it('bootstrap first-user rule: empty users → super_admin', () => {
+  it('signup on an empty users table stays a tenant', () => {
     const userCount = 0
     const requested = 'tenant'
-    const role = userCount === 0 ? 'super_admin' : requested
-    expect(role).toBe('super_admin')
+    const role = userCount === 0 ? requested : requested
+    expect(role).toBe('tenant')
+    expect(role).not.toBe('super_admin')
   })
 
   it('public register roles stay portal-safe when users already exist', () => {

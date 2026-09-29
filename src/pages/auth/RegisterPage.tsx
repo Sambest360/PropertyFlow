@@ -1,13 +1,12 @@
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { Building2, Check, HardHat, Home } from 'lucide-react'
 import { AuthField, AuthShell } from '../../components/auth/AuthShell'
 import { DocUploadSlot } from '../../components/auth/DocUploadSlot'
 import { PasswordField } from '../../components/auth/PasswordField'
 import { Button, Input, cn } from '../../components/ui'
 import { useAuth } from '../../context/AuthContext'
-import { apiAuthBootstrapNeeded } from '../../lib/api/authClient'
-import { supabaseBootstrapNeeded, supabaseSignOut } from '../../lib/supabase/auth.js'
+import { supabaseSignOut } from '../../lib/supabase/auth.js'
 import { isSupabaseMode } from '../../lib/api/config'
 import { isRegistrationRedirectError } from '../../lib/auth/registrationErrors'
 import {
@@ -122,12 +121,9 @@ export default function RegisterPage() {
   const [taxPin, setTaxPin] = useState('')
   const [docsByKey, setDocsByKey] = useState<Record<string, VerificationDocument>>({})
 
-  const [bootstrapNeeded, setBootstrapNeeded] = useState(false)
+  // Signup never promotes the first account to super admin.
+  const bootstrapNeeded = false
   const [busy, setBusy] = useState(false)
-
-  useEffect(() => {
-    void (isSupabaseMode ? supabaseBootstrapNeeded() : apiAuthBootstrapNeeded()).then(setBootstrapNeeded)
-  }, [])
 
   const documents = useMemo(() => Object.values(docsByKey), [docsByKey])
   const totalSteps = bootstrapNeeded ? 1 : 3

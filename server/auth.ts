@@ -255,11 +255,6 @@ async function findUserById(id: string): Promise<UserRow | null> {
   return rows[0] ?? null
 }
 
-async function countUsers(): Promise<number> {
-  const rows = await query<{ n: string }>('SELECT COUNT(*)::text AS n FROM users')
-  return Number(rows[0]?.n ?? 0)
-}
-
 export function issueSession(c: Context, user: SessionUser): string {
   const token = signToken({
     sub: user.id,
@@ -387,16 +382,11 @@ export async function registerUser(input: RegisterInput): Promise<{ user: Sessio
     throw err
   }
 
-  const total = await countUsers()
-  const bootstrap = total === 0
+  const bootstrap = false
   let roleFe = (input.role || 'tenant').trim()
-  if (bootstrap) {
-    roleFe = 'super_admin'
-  } else {
-    const allowedPublic = new Set(['tenant', 'landlord', 'contractor', 'applicant'])
-    if (!allowedPublic.has(roleFe)) roleFe = 'tenant'
-    if (roleFe === 'applicant') roleFe = 'tenant'
-  }
+  const allowedPublic = new Set(['tenant', 'landlord', 'contractor', 'applicant'])
+  if (!allowedPublic.has(roleFe)) roleFe = 'tenant'
+  if (roleFe === 'applicant') roleFe = 'tenant'
 
   const firstFromInput = input.firstName?.trim()
   const lastFromInput = input.lastName?.trim()
@@ -410,7 +400,7 @@ export async function registerUser(input: RegisterInput): Promise<{ user: Sessio
   }
 
   const phone = input.phone?.trim() || ''
-  if (!bootstrap && !phone) {
+  if (!phone) {
     const err = new Error('Phone number is required') as Error & { status: number }
     err.status = 400
     throw err
@@ -423,7 +413,7 @@ export async function registerUser(input: RegisterInput): Promise<{ user: Sessio
   const dbRole = ROLE_TO_DB[roleFe] ?? 'END_USER'
 
   let clientId: string | null = null
-  if (roleFe === 'landlord' && !bootstrap) {
+  if (roleFe === 'landlord') {
     const portfolio = await createLandlordPortfolio({ first, last, shortId })
     clientId = portfolio.clientUuid
   }

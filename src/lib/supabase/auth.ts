@@ -398,9 +398,9 @@ export async function supabaseSignUp(
     return { user: profile, bootstrap: viaServer.bootstrap }
   }
 
-  const bootstrap = await supabaseBootstrapNeeded()
   const supabase = createClient()
-  const role = bootstrap ? 'super_admin' : input.role ?? 'tenant'
+  const role = input.role ?? 'tenant'
+  const bootstrap = false
 
   const { data, error } = await supabase.auth.signUp({
     email: input.email.trim(),

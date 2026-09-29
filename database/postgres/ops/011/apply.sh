@@ -23,6 +23,12 @@ if [[ "${SKIP_PRECHECK:-}" != "1" && "$TARGET" == "$ROOT/database/postgres/migra
   psql "$DATABASE_URL_RESOLVED" -v ON_ERROR_STOP=1 -f "$HERE/pre_apply_assert.sql"
 fi
 
-echo "psql \"\$DATABASE_URL\" -v ON_ERROR_STOP=1 --single-transaction -c \"SET lock_timeout = '5s'\" -c \"SET statement_timeout = '60s'\" -c \"SET idle_in_transaction_session_timeout = '60s'\" -f $TARGET"
-psql_in_one_transaction "$TARGET"
+EXTRA=()
+if [[ "$TARGET" == "$ROOT/database/postgres/migrations/011_tenant_isolation.sql" ]]; then
+  EXTRA+=("$ROOT/database/postgres/migrations/011c_security_review.sql")
+  assert_transaction_safe "${EXTRA[0]}"
+fi
+
+echo "psql \"\$DATABASE_URL\" -v ON_ERROR_STOP=1 --single-transaction -f $TARGET${EXTRA[*]:+ -f ${EXTRA[*]}}"
+psql_in_one_transaction "$TARGET" "${EXTRA[@]}"
 echo "applied: $TARGET"

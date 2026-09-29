@@ -27,19 +27,6 @@
 -- columns stay locked. service_role, and a direct admin session with no
 -- client JWT, still pass through (Hono API, migrations, service key).
 
-CREATE OR REPLACE FUNCTION public.users_count_unscoped()
-RETURNS bigint
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
-  SELECT COUNT(*) FROM public.users;
-$$;
-
-REVOKE ALL ON FUNCTION public.users_count_unscoped() FROM PUBLIC, anon, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.users_count_unscoped() TO authenticated;
-
 CREATE OR REPLACE FUNCTION public.protect_user_privileged_columns()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -68,10 +55,11 @@ BEGIN
     RETURN NEW;
   END IF;
 
+  -- No empty-table exception. Signup never becomes super admin through this
+  -- trigger. A seed or admin script running as the owner or service_role
+  -- still can: those sessions return above, before this check.
   IF TG_OP = 'INSERT' THEN
-    IF NEW.role = 'SUPER_ADMIN'
-       AND NOT is_super_admin()
-       AND public.users_count_unscoped() > 0 THEN
+    IF NEW.role = 'SUPER_ADMIN' AND NOT is_super_admin() THEN
       RAISE EXCEPTION 'Forbidden';
     END IF;
     RETURN NEW;

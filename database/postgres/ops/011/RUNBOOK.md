@@ -37,6 +37,10 @@ npm run db:rehearse:011
 
 `REHEARSE_DATABASE_URL` must be local (`127.0.0.1`, `localhost`, or a socket). Hosted Supabase and port 6543 are refused. `REHEARSE_SKIP_BOOTSTRAP=1` means that database already has the API roles, `schema.sql`, migrations 001-010, and 011a. Override `TENANT_A_AUTH_ID` and the other ids in `rehearse.sh` when the shared fixture uses different uuids. The seed file must contain whatever ids you pass. `REHEARSE_SEED_SQL` defaults to `local/seed_two_agencies.sql`.
 
+## Hono connection
+
+`011c_security_review.sql` forces row level security on the tenant tables. The API should connect as a role that is not the table owner and does not have `BYPASSRLS`. This branch does not change the API process.
+
 ## Before any future production apply
 
 Not in scope. When that changes, take a backup first and confirm the live catalog matches migrations 001-010 plus 011a before running `apply.sh`. `rollback.sql` rewrites policies and the marketplace functions from those files.

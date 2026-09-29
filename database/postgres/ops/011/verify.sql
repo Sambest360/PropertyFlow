@@ -890,6 +890,524 @@ EXCEPTION WHEN OTHERS THEN
 END
 $check$;
 
+-- Security-review cases (section D) that are database checks.
+-- Case 7 is an API request-forgery check and is not asserted here.
+-- Case 10 (email re-link on signup) is migration 012 and is not asserted here.
+DO $check$
+DECLARE
+  agency_a uuid := current_setting('verify.agency_a_id')::uuid;
+  agency_b uuid := current_setting('verify.agency_b_id')::uuid;
+  tenant_auth text := current_setting('verify.tenant_a_auth_id');
+  staff_auth text := current_setting('verify.staff_a_auth_id');
+  landlord_auth text := current_setting('verify.landlord_a_auth_id');
+  tenant_user uuid := current_setting('verify.tenant_a_user_id')::uuid;
+  contractor_auth uuid;
+  payload text;
+  seen bigint;
+  bad boolean;
+  vuln boolean;
+  limited boolean;
+  notes_text text;
+  landed uuid;
+  app_id uuid := '11111111-1111-4111-8111-000000000601';
+  n bigint;
+  def text;
+BEGIN
+  SELECT auth_user_id INTO contractor_auth
+  FROM users
+  WHERE client_id = agency_a AND role = 'CONTRACTOR'
+  LIMIT 1;
+
+  -- d1. anon marketplace payload has no password hash, phone, auth id, or notes.
+  PERFORM set_config('request.jwt.claim.sub', '', true);
+  PERFORM set_config('request.jwt.claims', '', true);
+  SET LOCAL ROLE anon;
+  payload := public.get_public_marketplace_bootstrap(true)::text
+          || public.get_public_marketplace_bootstrap_lite(true)::text;
+  RESET ROLE;
+  bad := payload ILIKE '%password_hash%'
+      OR payload ILIKE '%auth_user_id%'
+      OR payload ILIKE '%INTERNAL-NOTE-LEAK%'
+      OR payload LIKE '%"notes"%'
+      OR payload LIKE '%"phone"%';
+  INSERT INTO verify_results VALUES (
+    'd1_anon_rpc_no_secrets',
+    CASE WHEN bad THEN 'FAIL' ELSE 'PASS' END,
+    CASE WHEN bad THEN 'anon payload still has a secret field' ELSE 'anon payload omitted secret fields' END
+  );
+
+  -- d2. anon cannot read public tables or views.
+  bad := false;
+  FOREACH notes_text IN ARRAY ARRAY[
+    'users','clients','buildings','units','leads','applications','leases','bookings',
+    'payments','documents','invoices','entity_id_map',
+    'v_unit_summary','v_unit_search_cards','v_ticket_kanban','v_application_pipeline','v_billing_usage',
+    'trust_transactions','trust_allocations','payout_instructions','deposit_holdings','arrears_snapshots','csv_import_batches'
+  ]
+  LOOP
+    BEGIN
+      SET LOCAL ROLE anon;
+      EXECUTE format('SELECT count(*) FROM %I', notes_text) INTO n;
+      RESET ROLE;
+      IF n > 0 THEN
+        bad := true;
+      END IF;
+    EXCEPTION WHEN insufficient_privilege THEN
+      RESET ROLE;
+    WHEN OTHERS THEN
+      RESET ROLE;
+      IF SQLSTATE <> '42501' THEN
+        bad := true;
+      END IF;
+    END;
+  END LOOP;
+  INSERT INTO verify_results VALUES (
+    'd2_anon_catalog_denied',
+    CASE WHEN bad THEN 'FAIL' ELSE 'PASS' END,
+    CASE WHEN bad THEN 'anon read a public table or view' ELSE 'anon reads are denied or empty' END
+  );
+
+  -- d3. landlord, tenant, contractor see no leads or bookings in their own agency.
+  bad := false;
+  FOREACH notes_text IN ARRAY ARRAY[landlord_auth, tenant_auth, contractor_auth::text]
+  LOOP
+    PERFORM set_config('request.jwt.claim.sub', notes_text, true);
+    PERFORM set_config(
+      'request.jwt.claims',
+      json_build_object('sub', notes_text, 'role', 'authenticated', 'aud', 'authenticated')::text,
+      true
+    );
+    SET LOCAL ROLE authenticated;
+    EXECUTE 'SELECT count(*) FROM leads WHERE client_id = $1' INTO seen USING agency_a;
+    IF seen > 0 THEN bad := true; END IF;
+    EXECUTE 'SELECT count(*) FROM bookings WHERE client_id = $1' INTO seen USING agency_a;
+    IF seen > 0 THEN bad := true; END IF;
+    RESET ROLE;
+  END LOOP;
+  INSERT INTO verify_results VALUES (
+    'd3_nonstaff_leads_bookings',
+    CASE WHEN bad OR contractor_auth IS NULL THEN 'FAIL' ELSE 'PASS' END,
+    'non-staff lead/booking rows visible in agency A: ' || bad::text
+  );
+
+  -- d4. cross-agency writes are denied.
+  vuln := false;
+  BEGIN
+    PERFORM set_config('request.jwt.claim.sub', tenant_auth, true);
+    PERFORM set_config(
+      'request.jwt.claims',
+      json_build_object('sub', tenant_auth, 'role', 'authenticated', 'aud', 'authenticated')::text,
+      true
+    );
+    SET LOCAL ROLE authenticated;
+    INSERT INTO leads (client_id, name, email, stage)
+    VALUES (agency_b, 'Cross', 'cross@example.test', 'New');
+    vuln := true;
+    RESET ROLE;
+    RAISE EXCEPTION 'probe_rollback';
+  EXCEPTION WHEN OTHERS THEN
+    RESET ROLE;
+    IF SQLERRM = 'probe_rollback' THEN
+      NULL;
+    END IF;
+  END;
+  INSERT INTO verify_results VALUES (
+    'd4_cross_agency_writes',
+    CASE WHEN vuln THEN 'FAIL' ELSE 'PASS' END,
+    CASE WHEN vuln THEN 'cross-agency lead insert succeeded' ELSE 'cross-agency lead insert denied' END
+  );
+
+  -- d5. same-agency non-staff cannot write leads, bookings, payments, or documents.
+  vuln := false;
+  BEGIN
+    PERFORM set_config('request.jwt.claim.sub', tenant_auth, true);
+    PERFORM set_config(
+      'request.jwt.claims',
+      json_build_object('sub', tenant_auth, 'role', 'authenticated', 'aud', 'authenticated')::text,
+      true
+    );
+    BEGIN
+      SET LOCAL ROLE authenticated;
+      INSERT INTO leads (client_id, name, email, stage)
+      VALUES (agency_a, 'Self', 'self-lead@example.test', 'New');
+      vuln := true;
+    EXCEPTION WHEN OTHERS THEN
+      NULL;
+    END;
+    BEGIN
+      SET LOCAL ROLE authenticated;
+      INSERT INTO bookings (client_id, unit_id, visitor_name, starts_at)
+      VALUES (agency_a, '11111111-1111-4111-8111-000000000201', 'Self', now());
+      vuln := true;
+    EXCEPTION WHEN OTHERS THEN
+      NULL;
+    END;
+    BEGIN
+      SET LOCAL ROLE authenticated;
+      INSERT INTO payments (client_id, party_name, payment_type, amount, due_date)
+      VALUES (agency_a, 'Self', 'RENT', 1, CURRENT_DATE);
+      vuln := true;
+    EXCEPTION WHEN OTHERS THEN
+      NULL;
+    END;
+    BEGIN
+      SET LOCAL ROLE authenticated;
+      INSERT INTO documents (client_id, name) VALUES (agency_a, 'Self doc');
+      vuln := true;
+    EXCEPTION WHEN OTHERS THEN
+      NULL;
+    END;
+    RESET ROLE;
+    RAISE EXCEPTION 'probe_rollback';
+  EXCEPTION WHEN OTHERS THEN
+    RESET ROLE;
+  END;
+  INSERT INTO verify_results VALUES (
+    'd5_nonstaff_same_agency_writes',
+    CASE WHEN vuln THEN 'FAIL' ELSE 'PASS' END,
+    CASE WHEN vuln THEN 'non-staff wrote a staff-only table' ELSE 'non-staff writes denied' END
+  );
+
+  -- d6. tenant cannot move their client_id onto agency B.
+  vuln := false;
+  BEGIN
+    PERFORM set_config('request.jwt.claim.sub', tenant_auth, true);
+    PERFORM set_config(
+      'request.jwt.claims',
+      json_build_object('sub', tenant_auth, 'role', 'authenticated', 'aud', 'authenticated')::text,
+      true
+    );
+    SET LOCAL ROLE authenticated;
+    UPDATE users SET client_id = agency_b WHERE id = tenant_user;
+    RESET ROLE;
+    SELECT client_id INTO landed FROM users WHERE id = tenant_user;
+    vuln := landed IS DISTINCT FROM agency_a;
+    RAISE EXCEPTION 'probe_rollback';
+  EXCEPTION WHEN OTHERS THEN
+    RESET ROLE;
+    IF SQLERRM IS DISTINCT FROM 'probe_rollback' THEN
+      SELECT client_id INTO landed FROM users WHERE id = tenant_user;
+      vuln := landed IS DISTINCT FROM agency_a;
+    END IF;
+  END;
+  INSERT INTO verify_results VALUES (
+    'd6_client_id_not_pivoted',
+    CASE WHEN vuln THEN 'FAIL' ELSE 'PASS' END,
+    'client_id after pivot attempt: ' || COALESCE(landed::text, 'unchanged-or-denied')
+  );
+
+  -- d8. the five views only return agency A for a user in A.
+  bad := false;
+  PERFORM set_config('request.jwt.claim.sub', tenant_auth, true);
+  PERFORM set_config(
+    'request.jwt.claims',
+    json_build_object('sub', tenant_auth, 'role', 'authenticated', 'aud', 'authenticated')::text,
+    true
+  );
+  SET LOCAL ROLE authenticated;
+  SELECT count(*) INTO seen FROM v_unit_summary WHERE client_name = 'Agency B';
+  IF seen > 0 THEN bad := true; END IF;
+  SELECT count(*) INTO seen FROM v_unit_search_cards WHERE client_id = agency_b;
+  IF seen > 0 THEN bad := true; END IF;
+  SELECT count(*) INTO seen FROM v_ticket_kanban WHERE client_id = agency_b;
+  IF seen > 0 THEN bad := true; END IF;
+  SELECT count(*) INTO seen FROM v_application_pipeline WHERE client_name = 'Agency B';
+  IF seen > 0 THEN bad := true; END IF;
+  SELECT count(*) INTO seen FROM v_billing_usage WHERE client_id = agency_b;
+  IF seen > 0 THEN bad := true; END IF;
+  SELECT count(*) INTO seen FROM v_unit_search_cards WHERE client_id = agency_a;
+  IF seen = 0 THEN bad := true; END IF;
+  RESET ROLE;
+  INSERT INTO verify_results VALUES (
+    'd8_views_agency_scoped',
+    CASE WHEN bad THEN 'FAIL' ELSE 'PASS' END,
+    'views leaked agency B or hid agency A: ' || bad::text
+  );
+
+  -- d9. staff cannot retarget agency A's listing onto agency B, and enquiry stays in A.
+  vuln := false;
+  BEGIN
+    PERFORM set_config('request.jwt.claim.sub', staff_auth, true);
+    PERFORM set_config(
+      'request.jwt.claims',
+      json_build_object('sub', staff_auth, 'role', 'authenticated', 'aud', 'authenticated')::text,
+      true
+    );
+    SET LOCAL ROLE authenticated;
+    UPDATE entity_id_map
+    SET backend_id = '22222222-2222-4222-8222-000000000201'
+    WHERE entity_type = 'property' AND frontend_id = 'p-a';
+    GET DIAGNOSTICS n = ROW_COUNT;
+    IF n > 0 THEN vuln := true; END IF;
+    RESET ROLE;
+    RAISE EXCEPTION 'probe_rollback';
+  EXCEPTION WHEN OTHERS THEN
+    RESET ROLE;
+    IF SQLERRM = 'probe_rollback' AND vuln THEN
+      NULL;
+    ELSIF SQLERRM IS DISTINCT FROM 'probe_rollback' THEN
+      vuln := false;
+    END IF;
+  END;
+  limited := false;
+  notes_text := NULL;
+  landed := NULL;
+  BEGIN
+    SET LOCAL ROLE anon;
+    PERFORM public.submit_public_listing_enquiry(
+      'p-a', 'lead', 'Enq', 'Tester', 'enquiry-land@example.test',
+      NULL, 'hello', NULL, 25000, '8001015009087', 'RENT'
+    );
+    RESET ROLE;
+    SELECT client_id, notes INTO landed, notes_text
+    FROM leads WHERE email = 'enquiry-land@example.test' ORDER BY updated_at DESC LIMIT 1;
+    RAISE EXCEPTION 'probe_rollback';
+  EXCEPTION WHEN OTHERS THEN
+    RESET ROLE;
+  END;
+  INSERT INTO verify_results VALUES (
+    'd9_entity_map_no_cross_agency',
+    CASE
+      WHEN vuln OR landed IS DISTINCT FROM agency_a THEN 'FAIL'
+      ELSE 'PASS'
+    END,
+    'map rewrite allowed=' || vuln::text || ' enquiry client=' || COALESCE(landed::text, 'null')
+  );
+
+  -- Enquiry no longer stores ID or income, and the sixth call in an hour is refused.
+  vuln := false;
+  limited := false;
+  BEGIN
+    SET LOCAL ROLE anon;
+    FOR n IN 1..5 LOOP
+      PERFORM public.submit_public_listing_enquiry(
+        'p-a', 'lead', 'Rate', 'Limit', 'enquiry-rate@example.test',
+        NULL, NULL, NULL, 25000, '8001015009087', 'RENT'
+      );
+    END LOOP;
+    BEGIN
+      PERFORM public.submit_public_listing_enquiry(
+        'p-a', 'lead', 'Rate', 'Limit', 'enquiry-rate@example.test',
+        NULL, NULL, NULL, 25000, '8001015009087', 'RENT'
+      );
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM = 'enquiry_rate_limited' THEN
+        limited := true;
+      END IF;
+    END;
+    RESET ROLE;
+    SELECT COALESCE(bool_or(
+      COALESCE(notes, '') LIKE '%ID/Passport%'
+      OR COALESCE(notes, '') LIKE '%Monthly income%'
+    ), false)
+    INTO vuln
+    FROM leads
+    WHERE email = 'enquiry-rate@example.test';
+    RAISE EXCEPTION 'probe_rollback';
+  EXCEPTION WHEN OTHERS THEN
+    RESET ROLE;
+  END;
+  INSERT INTO verify_results VALUES (
+    'd_enquiry_no_id_income',
+    CASE WHEN vuln THEN 'FAIL' ELSE 'PASS' END,
+    'enquiry notes stored id or income: ' || vuln::text
+  );
+  INSERT INTO verify_results VALUES (
+    'd_enquiry_rate_limited',
+    CASE WHEN limited THEN 'PASS' ELSE 'FAIL' END,
+    'sixth enquiry for the same listing and email was limited: ' || limited::text
+  );
+
+  -- Screening: negative income refused; landlord cannot read it; applicant can.
+  IF to_regclass('public.application_screening') IS NULL THEN
+    INSERT INTO verify_results VALUES ('d_screening_rls', 'FAIL', 'application_screening is missing');
+    INSERT INTO verify_results VALUES ('d_screening_income_nonneg', 'FAIL', 'application_screening is missing');
+  ELSE
+    vuln := false;
+    BEGIN
+      INSERT INTO application_screening (application_id, gross_monthly_income_cents)
+      VALUES (app_id, -1);
+      vuln := true;
+      RAISE EXCEPTION 'probe_rollback';
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM = 'probe_rollback' THEN
+        NULL;
+      END IF;
+    END;
+    INSERT INTO verify_results VALUES (
+      'd_screening_income_nonneg',
+      CASE WHEN vuln THEN 'FAIL' ELSE 'PASS' END,
+      'negative income accepted: ' || vuln::text
+    );
+
+    INSERT INTO application_screening (application_id, id_type, id_number, gross_monthly_income_cents)
+    VALUES (app_id, 'sa_id', '8001015009087', 2500000)
+    ON CONFLICT (application_id) DO UPDATE
+      SET id_number = EXCLUDED.id_number, gross_monthly_income_cents = EXCLUDED.gross_monthly_income_cents;
+    PERFORM set_config('request.jwt.claim.sub', tenant_auth, true);
+    PERFORM set_config(
+      'request.jwt.claims',
+      json_build_object('sub', tenant_auth, 'role', 'authenticated', 'aud', 'authenticated')::text,
+      true
+    );
+    SET LOCAL ROLE authenticated;
+    SELECT count(*) INTO seen FROM application_screening WHERE application_id = app_id;
+    RESET ROLE;
+    bad := seen <> 1;
+    PERFORM set_config('request.jwt.claim.sub', landlord_auth, true);
+    PERFORM set_config(
+      'request.jwt.claims',
+      json_build_object('sub', landlord_auth, 'role', 'authenticated', 'aud', 'authenticated')::text,
+      true
+    );
+    SET LOCAL ROLE authenticated;
+    BEGIN
+      SELECT count(*) INTO n FROM application_screening WHERE application_id = app_id;
+    EXCEPTION WHEN insufficient_privilege THEN
+      n := 0;
+    END;
+    RESET ROLE;
+    IF n > 0 THEN bad := true; END IF;
+    DELETE FROM application_screening WHERE application_id = app_id;
+    INSERT INTO verify_results VALUES (
+      'd_screening_rls',
+      CASE WHEN bad THEN 'FAIL' ELSE 'PASS' END,
+      'applicant saw ' || seen::text || ', landlord saw ' || COALESCE(n::text, 'null')
+    );
+  END IF;
+
+  -- Trust rows are visible to agency staff only.
+  INSERT INTO trust_transactions (client_id, direction, amount_cents, value_date, description)
+  VALUES (agency_a, 'in', 100, CURRENT_DATE, 'rehearse A'),
+         (agency_b, 'in', 100, CURRENT_DATE, 'rehearse B');
+  bad := false;
+  FOREACH notes_text IN ARRAY ARRAY[landlord_auth, tenant_auth, contractor_auth::text]
+  LOOP
+    PERFORM set_config('request.jwt.claim.sub', notes_text, true);
+    PERFORM set_config(
+      'request.jwt.claims',
+      json_build_object('sub', notes_text, 'role', 'authenticated', 'aud', 'authenticated')::text,
+      true
+    );
+    BEGIN
+      SET LOCAL ROLE authenticated;
+      SELECT count(*) INTO seen FROM trust_transactions
+      WHERE description IN ('rehearse A', 'rehearse B');
+      RESET ROLE;
+      IF seen > 0 THEN bad := true; END IF;
+    EXCEPTION WHEN insufficient_privilege THEN
+      RESET ROLE;
+    END;
+  END LOOP;
+  BEGIN
+    SET LOCAL ROLE anon;
+    SELECT count(*) INTO seen FROM trust_transactions
+    WHERE description IN ('rehearse A', 'rehearse B');
+    RESET ROLE;
+    IF seen > 0 THEN bad := true; END IF;
+  EXCEPTION WHEN insufficient_privilege THEN
+    RESET ROLE;
+  END;
+  PERFORM set_config('request.jwt.claim.sub', staff_auth, true);
+  PERFORM set_config(
+    'request.jwt.claims',
+    json_build_object('sub', staff_auth, 'role', 'authenticated', 'aud', 'authenticated')::text,
+    true
+  );
+  SET LOCAL ROLE authenticated;
+  SELECT count(*) FILTER (WHERE client_id = agency_a),
+         count(*) FILTER (WHERE client_id = agency_b)
+  INTO seen, n
+  FROM trust_transactions
+  WHERE description IN ('rehearse A', 'rehearse B');
+  RESET ROLE;
+  IF seen <> 1 OR n <> 0 THEN bad := true; END IF;
+  DELETE FROM trust_transactions WHERE description IN ('rehearse A', 'rehearse B');
+  INSERT INTO verify_results VALUES (
+    'd_trust_staff_only',
+    CASE WHEN bad THEN 'FAIL' ELSE 'PASS' END,
+    'staff A=' || COALESCE(seen::text, 'null') || ' staff B=' || COALESCE(n::text, 'null')
+  );
+
+  -- Portal writes that must keep working.
+  vuln := false;
+  BEGIN
+    PERFORM set_config('request.jwt.claim.sub', tenant_auth, true);
+    PERFORM set_config(
+      'request.jwt.claims',
+      json_build_object('sub', tenant_auth, 'role', 'authenticated', 'aud', 'authenticated')::text,
+      true
+    );
+    BEGIN
+      SET LOCAL ROLE authenticated;
+      INSERT INTO applications (client_id, unit_id, applicant_id, reference_code, status)
+      VALUES (
+        agency_a,
+        '11111111-1111-4111-8111-000000000201',
+        tenant_user,
+        'APP-REHEARSE',
+        'SUBMITTED'
+      );
+    EXCEPTION WHEN OTHERS THEN
+      vuln := true;
+    END;
+    BEGIN
+      SET LOCAL ROLE authenticated;
+      INSERT INTO messages (thread_id, client_id, from_user_id, body)
+      VALUES (
+        '11111111-1111-4111-8111-000000000d01',
+        agency_a,
+        tenant_user,
+        'portal ping'
+      );
+    EXCEPTION WHEN OTHERS THEN
+      vuln := true;
+    END;
+    BEGIN
+      SET LOCAL ROLE authenticated;
+      INSERT INTO maintenance_tickets (client_id, unit_id, reported_by, title, description)
+      VALUES (agency_a, '11111111-1111-4111-8111-000000000201', tenant_user, 'Portal leak', 'Drip');
+    EXCEPTION WHEN OTHERS THEN
+      vuln := true;
+    END;
+    RESET ROLE;
+    RAISE EXCEPTION 'probe_rollback';
+  EXCEPTION WHEN OTHERS THEN
+    RESET ROLE;
+  END;
+  INSERT INTO verify_results VALUES (
+    'p_portal_writes_kept',
+    CASE WHEN vuln THEN 'FAIL' ELSE 'PASS' END,
+    'applicant application, tenant message, or tenant ticket was denied: ' || vuln::text
+  );
+
+  -- Privileged definers are not executable by anon.
+  bad := has_function_privilege('anon', 'public.admin_update_user_verification(text,text,text)', 'EXECUTE')
+      OR has_function_privilege('anon', 'public.approve_application(text,jsonb)', 'EXECUTE')
+      OR has_function_privilege('anon', 'public.sync_auth_user_profile(uuid)', 'EXECUTE')
+      OR has_function_privilege('anon', 'public.handle_new_auth_user()', 'EXECUTE');
+  INSERT INTO verify_results VALUES (
+    'd_anon_privileged_execute',
+    CASE WHEN bad THEN 'FAIL' ELSE 'PASS' END,
+    'anon can execute a privileged definer: ' || bad::text
+  );
+
+  -- Signup must not promote the first user. The 009 body still has that branch until 011c.
+  def := pg_get_functiondef('public.sync_auth_user_profile(uuid)'::regprocedure);
+  INSERT INTO verify_results VALUES (
+    'd_signup_not_super_admin',
+    CASE WHEN def LIKE '%total_users = 0%' THEN 'FAIL' ELSE 'PASS' END,
+    CASE
+      WHEN def LIKE '%total_users = 0%' THEN 'profile sync still promotes an empty users table'
+      ELSE 'profile sync does not promote the first user'
+    END
+  );
+EXCEPTION WHEN OTHERS THEN
+  RESET ROLE;
+  INSERT INTO verify_results VALUES ('d1_anon_rpc_no_secrets', 'FAIL', SQLERRM);
+END
+$check$;
+
 -- Privilege probes roll back to savepoints. Refuse to commit if they did not.
 DO $check$
 DECLARE

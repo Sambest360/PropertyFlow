@@ -13,6 +13,77 @@
 -- This does not restore a hand-edited production catalog.
 
 -- ---------------------------------------------------------------------------
+-- Objects 011c added. Dropping them does not assume the hosted catalog.
+-- ---------------------------------------------------------------------------
+
+DROP TRIGGER IF EXISTS entity_id_map_guard ON entity_id_map;
+DROP FUNCTION IF EXISTS public.entity_id_map_guard();
+DROP POLICY IF EXISTS entity_id_map_staff_write ON entity_id_map;
+DROP TABLE IF EXISTS application_screening;
+DROP TABLE IF EXISTS public_enquiry_hits;
+
+DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['leads','bookings','payments','invoices','applications','leases','documents']
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I_staff_write ON %I', t, t);
+    EXECUTE format('DROP POLICY IF EXISTS %I_mutate ON %I', t, t);
+    EXECUTE format(
+      'CREATE POLICY %I_mutate ON %I FOR ALL TO authenticated
+       USING (is_super_admin() OR client_id = current_app_client_id())
+       WITH CHECK (is_super_admin() OR client_id = current_app_client_id())',
+      t, t
+    );
+  END LOOP;
+
+  FOREACH t IN ARRAY ARRAY[
+    'trust_transactions','trust_allocations','payout_instructions',
+    'deposit_holdings','arrears_snapshots','csv_import_batches'
+  ]
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS trust_staff_%1$s ON %1$I', t);
+    EXECUTE format('DROP POLICY IF EXISTS trust_read_%1$s ON %1$I', t);
+    EXECUTE format(
+      'CREATE POLICY trust_read_%1$s ON %1$I FOR SELECT TO authenticated USING (true)',
+      t
+    );
+    EXECUTE format('ALTER TABLE %I NO FORCE ROW LEVEL SECURITY', t);
+  END LOOP;
+
+  FOREACH t IN ARRAY ARRAY[
+    'users', 'clients',
+    'buildings', 'units', 'rooms', 'internal_assets', 'leads', 'applications',
+    'leases', 'bookings', 'viewing_slots', 'payments', 'documents',
+    'maintenance_tickets', 'message_threads', 'messages', 'notifications',
+    'suite_alerts', 'client_lookup_configs', 'client_subscriptions', 'invoices',
+    'event_log', 'entity_id_map'
+  ]
+  LOOP
+    IF to_regclass('public.' || t) IS NOT NULL THEN
+      EXECUTE format('ALTER TABLE %I NO FORCE ROW LEVEL SECURITY', t);
+    END IF;
+  END LOOP;
+END $$;
+
+ALTER VIEW v_unit_summary RESET (security_invoker);
+ALTER VIEW v_unit_search_cards RESET (security_invoker);
+ALTER VIEW v_ticket_kanban RESET (security_invoker);
+ALTER VIEW v_application_pipeline RESET (security_invoker);
+ALTER VIEW v_billing_usage RESET (security_invoker);
+
+DROP POLICY IF EXISTS entity_id_map_select ON entity_id_map;
+CREATE POLICY entity_id_map_select ON entity_id_map
+  FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS entity_id_map_mutate ON entity_id_map;
+CREATE POLICY entity_id_map_mutate ON entity_id_map
+  FOR ALL TO authenticated
+  USING (is_super_admin() OR is_agency_staff())
+  WITH CHECK (is_super_admin() OR is_agency_staff());
+
+ALTER TABLE entity_id_map DROP COLUMN IF EXISTS client_id;
+
+-- ---------------------------------------------------------------------------
 -- Policies 011 added. Dropping them does not assume the hosted catalog.
 -- ---------------------------------------------------------------------------
 
@@ -301,3 +372,14 @@ DROP FUNCTION IF EXISTS public.marketplace_entity_json(entity_id_map);
 DROP FUNCTION IF EXISTS public.users_count_unscoped();
 DROP FUNCTION IF EXISTS public.building_has_public_listing(uuid);
 DROP FUNCTION IF EXISTS public.viewing_slot_on_public_listing(uuid);
+
+-- 011c replaced the enquiry RPC and the profile sync. Put the 005 and 009
+-- bodies back. 009 still contains the email re-link; that fix is migration 012.
+\ir ../../migrations/005_public_listing_enquiry.sql
+\ir ../../migrations/009_fix_auth_user_profile_sync.sql
+
+GRANT ALL ON FUNCTION public.admin_update_user_verification(text, text, text) TO anon, authenticated, service_role;
+GRANT ALL ON FUNCTION public.approve_application(text, jsonb) TO anon, authenticated, service_role;
+GRANT ALL ON FUNCTION public.sync_auth_user_profile(uuid) TO anon, authenticated, service_role;
+GRANT ALL ON FUNCTION public.handle_new_auth_user() TO anon, authenticated, service_role;
+GRANT ALL ON FUNCTION public.ensure_user_profile() TO anon, authenticated, service_role;
