@@ -18,6 +18,8 @@ const SavedPage = lazy(() => import('./pages/market/SavedPage'))
 const ListingDetail = lazy(() => import('./pages/market/ListingDetail'))
 const CalculatorsPage = lazy(() => import('./pages/market/CalculatorsPage'))
 const LoginPage = lazy(() => import('./pages/auth/LoginPage'))
+const ForgotPasswordPage = lazy(() => import('./pages/auth/ForgotPasswordPage'))
+const UpdatePasswordPage = lazy(() => import('./pages/auth/UpdatePasswordPage'))
 const RegisterPage = lazy(() => import('./pages/auth/RegisterPage'))
 const PayfastResultPage = lazy(() => import('./pages/payfast/PayfastResultPage'))
 
@@ -118,6 +120,22 @@ export default function App() {
                 element={
                   <Suspense fallback={<PageFallback />}>
                     <LoginPage />
+                  </Suspense>
+                }
+              />
+              <Route
+                path="forgot-password"
+                element={
+                  <Suspense fallback={<PageFallback />}>
+                    <ForgotPasswordPage />
+                  </Suspense>
+                }
+              />
+              <Route
+                path="update-password"
+                element={
+                  <Suspense fallback={<PageFallback />}>
+                    <UpdatePasswordPage />
                   </Suspense>
                 }
               />

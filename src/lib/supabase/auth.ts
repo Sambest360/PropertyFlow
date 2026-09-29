@@ -445,6 +445,25 @@ export async function supabaseSignUp(
   return { user: profile, bootstrap }
 }
 
+export function passwordRecoveryRedirectUrl(): string {
+  if (typeof window === 'undefined') return '/update-password'
+  return `${window.location.origin}/update-password`
+}
+
+export async function supabaseResetPasswordForEmail(email: string): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+    redirectTo: passwordRecoveryRedirectUrl(),
+  })
+  if (error) throw new Error(error.message)
+}
+
+export async function supabaseUpdatePassword(password: string): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.auth.updateUser({ password })
+  if (error) throw new Error(error.message)
+}
+
 export async function supabaseSignOut(): Promise<void> {
   const supabase = createClient()
   await supabase.auth.signOut()

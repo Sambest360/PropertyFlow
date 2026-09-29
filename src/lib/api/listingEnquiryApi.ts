@@ -14,8 +14,6 @@ export type ListingEnquiryInput = {
   phone?: string
   notes?: string
   slotId?: string | null
-  monthlyIncome?: number | null
-  idNumber?: string | null
   interestType?: 'Buy' | 'Rent'
   value?: number
 }
@@ -55,8 +53,6 @@ async function submitViaApi(input: ListingEnquiryInput): Promise<ListingEnquiryR
         phone: input.phone,
         notes: input.notes,
         slotId: input.slotId,
-        monthlyIncome: input.monthlyIncome,
-        idNumber: input.idNumber,
         interestType: input.interestType,
       }),
     })
@@ -88,8 +84,6 @@ async function submitViaSupabase(input: ListingEnquiryInput): Promise<ListingEnq
       p_phone: input.phone ?? null,
       p_notes: input.notes ?? null,
       p_slot_fe_id: input.slotId ?? null,
-      p_monthly_income: input.monthlyIncome ?? null,
-      p_id_number: input.idNumber ?? null,
       p_interest_type: input.interestType === 'Buy' ? 'BUY' : 'RENT',
     })
     if (error) {

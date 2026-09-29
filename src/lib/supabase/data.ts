@@ -19,6 +19,8 @@ import {
 import { buildDocumentChecklist } from '../workflow'
 import { normalizeApplication } from '../applicationWorkflow'
 import { canonicalListingId, unitIdForProperty } from '../listingIds'
+import { centsFromDb, notesWithoutScreening } from '../applicationScreening'
+import { randsFromCents } from '../money/zarToCents'
 import { deriveAgencyContractors } from '../contractors'
 
 type RoleDb =
@@ -197,6 +199,7 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
     assetsRes,
     leadsRes,
     applicationsRes,
+    screeningRes,
     leasesRes,
     bookingsRes,
     viewingSlotsRes,
@@ -235,6 +238,10 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
       .select('*')
       .order('submitted_at', { ascending: false, nullsFirst: false })
       .limit(limits.applications),
+    // Migration 011. Missing table must not block the rest of the bootstrap.
+    supabase
+      .from('application_screening')
+      .select('application_id, id_type, id_number, gross_monthly_income_cents'),
     supabase
       .from('leases')
       .select('*')
@@ -511,10 +518,27 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
     updatedAt: dateOnly(l.updated_at),
   }))
 
+  if (screeningRes.error) {
+    console.warn(
+      '[supabase/data] application_screening is unavailable until migration 011 is applied:',
+      screeningRes.error.message,
+    )
+  }
+  const screeningByApplicationId = new Map<
+    string,
+    { id_type: string; id_number: string; gross_monthly_income_cents: unknown }
+  >()
+  for (const row of screeningRes.data ?? []) {
+    screeningByApplicationId.set(String(row.application_id), row)
+  }
+
   const applicationsRaw = (applicationsRes.data ?? []).map((a) => {
     const meta = (a.metadata as Record<string, unknown> | null) ?? {}
     const stageFromMeta = typeof meta.stage === 'string' ? meta.stage : null
     const type = a.application_type === 'PURCHASE' ? 'Purchase' : 'Rental'
+    const screening = screeningByApplicationId.get(String(a.id))
+    const cents = screening ? centsFromDb(screening.gross_monthly_income_cents) : null
+    const idType = screening?.id_type === 'sa_id' || screening?.id_type === 'passport' ? screening.id_type : undefined
     return {
       id: a.reference_code,
       agencyId: mapAgencyFe(a.client_id)!,
@@ -527,14 +551,17 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
       type,
       stage: stageFromMeta ?? appStage(a.status),
       progress: typeof meta.progress === 'number' ? meta.progress : 50,
-      income: a.monthly_income != null ? Number(a.monthly_income) : 0,
+      income: cents != null ? randsFromCents(cents) : a.monthly_income != null ? Number(a.monthly_income) : 0,
+      grossMonthlyIncomeCents: cents ?? undefined,
       employment: a.employment_summary ?? '',
+      idNumberOrPassport: screening?.id_number || undefined,
+      idType,
       creditCheck: a.status === 'CREDIT_CHECK' ? 'In Progress' : 'Not Started',
       creditConsent: true,
       documents: buildDocumentChecklist(type),
       docs: [],
       viewingSlotId: null,
-      notes: a.message ?? '',
+      notes: notesWithoutScreening(a.message ?? ''),
       moveInDate: dateOnly(a.move_in_date) || undefined,
       keyCollection: meta.keyCollection as Record<string, unknown> | undefined,
       submittedAt: dateOnly(a.submitted_at) || dateOnly(a.created_at),

@@ -18,6 +18,7 @@ import {
 import { DirectoryStatGrid } from '../components/directory/DirectoryStats'
 import { DirectoryFilterSelect, directoryResultLabel } from '../components/directory/DirectoryFilters'
 import { AllAccountsDirectory } from '../components/directory/AllAccountsDirectory'
+import { StaffInvitePanel } from '../components/staff/StaffInvitePanel'
 import { Badge, Button, PageHeader, cn } from '../components/ui'
 import type { AppUser } from '../types/domain'
 
@@ -63,6 +64,7 @@ export default function StaffDirectory() {
             subtitle="All accounts in your agency — staff, landlords, tenants, and contractors."
           />
           <PeopleScopeTabs scope={scope} onChange={setScope} showAllTab={canViewAllAccounts} />
+          <StaffInvitePanel />
           <AllAccountsDirectory />
         </div>
       </RequirePermission>
@@ -234,6 +236,8 @@ function StaffDirectoryView({ onShowAllAccounts }: { onShowAllAccounts?: () => v
         {onShowAllAccounts ? (
           <PeopleScopeTabs scope="staff" onChange={(next) => next === 'all' && onShowAllAccounts()} showAllTab />
         ) : null}
+
+        <StaffInvitePanel />
 
         <DirectoryStatGrid<AttentionFilter>
           allId="all"

@@ -311,8 +311,12 @@ export type Application = {
   stage: string
   progress: number
   income: number
+  /** Exact declared income in cents. Written to application_screening, not notes. */
+  grossMonthlyIncomeCents?: number
   employment: string
   idNumberOrPassport?: string
+  /** 'sa_id' | 'passport' — stored on application_screening.id_type (migration 011). */
+  idType?: 'sa_id' | 'passport'
   uploadedDocs?: ApplicationUploadedDocs
   creditCheck: 'Not Started' | 'Consent Received' | 'In Progress' | 'Passed' | 'Failed' | 'Pending'
   creditConsent: boolean

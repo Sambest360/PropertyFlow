@@ -6,7 +6,7 @@ import { usePublicProperties, useStore } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
 import { ActionButtonRow } from '../../components/ActionButtonRow'
 import { BackButton } from '../../components/BackButton'
-import { Badge, Button, Input, cn } from '../../components/ui'
+import { Badge, Button, Input, Textarea, cn } from '../../components/ui'
 import { PropertyFeaturesDisplay } from '../../components/property-features/PropertyFeaturesDisplay'
 import { ExpandableDescription } from '../../components/listing/ExpandableDescription'
 import { formatZAR } from '../../data/seed'
@@ -49,8 +49,6 @@ export default function ListingDetail() {
   const [phone, setPhone] = useState('')
   const [note, setNote] = useState('')
   const [slotId, setSlotId] = useState('')
-  const [income, setIncome] = useState('')
-  const [idNumber, setIdNumber] = useState('')
   const [intent, setIntent] = useState<EnquiryIntent>('lead')
   const [submitting, setSubmitting] = useState(false)
   const [enquirySheetOpen, setEnquirySheetOpen] = useState(false)
@@ -217,8 +215,6 @@ export default function ListingDetail() {
         phone: phone.trim(),
         notes: note.trim() || undefined,
         slotId: selectedSlot?.id ?? null,
-        monthlyIncome: isRent && income ? Number(income) : null,
-        idNumber: idNumber.trim() || undefined,
         interestType: p.listingMode === 'sale' ? 'Buy' : 'Rent',
         value: p.price ?? p.rent ?? 0,
       })
@@ -303,9 +299,7 @@ export default function ListingDetail() {
       email: email.trim(),
       phone: phone.trim(),
       type: isRent ? 'Rental' : 'Purchase',
-      income: Number(income) || 0,
       employment: 'Declared on application',
-      idNumberOrPassport: idNumber.trim(),
       uploadedDocs: {
         bankStatementsUrl: 'https://yourplatform.co.za/docs/bank',
         idCopyUrl: 'https://yourplatform.co.za/docs/id',
@@ -370,7 +364,7 @@ export default function ListingDetail() {
     </>
   )
 
-  const enquiryFormFields = (
+  const enquiryFields = (idPrefix: string) => (
     <>
       <p className="text-xs text-ink-500">
         No account needed — your details are saved so an agent can follow up.
@@ -379,6 +373,7 @@ export default function ListingDetail() {
       <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
         <button
           type="button"
+          aria-pressed={intent === 'lead'}
           onClick={() => setIntent('lead')}
           className={cn(
             'min-h-11 rounded-xl border px-3 py-2 text-left text-xs font-semibold transition-colors',
@@ -392,6 +387,7 @@ export default function ListingDetail() {
         </button>
         <button
           type="button"
+          aria-pressed={intent === 'viewing'}
           onClick={() => setIntent('viewing')}
           className={cn(
             'min-h-11 rounded-xl border px-3 py-2 text-left text-xs font-semibold transition-colors',
@@ -411,48 +407,69 @@ export default function ListingDetail() {
 
       <div className="mt-4 space-y-3">
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <Input placeholder="First name" value={firstName} onChange={(e) => setFirstName(e.target.value)} required />
-          <Input placeholder="Surname" value={lastName} onChange={(e) => setLastName(e.target.value)} required />
+          <label className="block text-sm font-medium text-ink" htmlFor={`${idPrefix}-first-name`}>
+            First name
+            <Input
+              id={`${idPrefix}-first-name`}
+              className="mt-1 min-h-11"
+              autoComplete="given-name"
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              required
+            />
+          </label>
+          <label className="block text-sm font-medium text-ink" htmlFor={`${idPrefix}-last-name`}>
+            Surname
+            <Input
+              id={`${idPrefix}-last-name`}
+              className="mt-1 min-h-11"
+              autoComplete="family-name"
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              required
+            />
+          </label>
         </div>
-        <Input
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
-        <Input
-          type="tel"
-          placeholder="Phone"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          required
-        />
-        {isRent && (
+        <label className="block text-sm font-medium text-ink" htmlFor={`${idPrefix}-email`}>
+          Email
           <Input
-            type="number"
-            placeholder="Monthly income (optional)"
-            value={income}
-            onChange={(e) => setIncome(e.target.value)}
+            id={`${idPrefix}-email`}
+            className="mt-1 min-h-11"
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
           />
-        )}
-        <Input
-          placeholder="SA ID or passport (optional)"
-          value={idNumber}
-          onChange={(e) => setIdNumber(e.target.value)}
-        />
+        </label>
+        <label className="block text-sm font-medium text-ink" htmlFor={`${idPrefix}-phone`}>
+          Phone
+          <Input
+            id={`${idPrefix}-phone`}
+            className="mt-1 min-h-11"
+            type="tel"
+            autoComplete="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            required
+          />
+        </label>
         {intent === 'viewing' && openSlots.length > 0 && (
-          <select
-            className="h-11 w-full rounded-xl border border-primary-100 bg-white px-3 text-base sm:text-sm"
-            value={slotId || openSlots[0]?.id}
-            onChange={(e) => setSlotId(e.target.value)}
-          >
-            {openSlots.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.date} at {s.time} ({s.capacity - s.booked} left)
-              </option>
-            ))}
-          </select>
+          <label className="block text-sm font-medium text-ink" htmlFor={`${idPrefix}-slot`}>
+            Viewing time
+            <select
+              id={`${idPrefix}-slot`}
+              className="mt-1 h-11 w-full rounded-xl border border-primary-100 bg-white px-3 text-base sm:text-sm"
+              value={slotId || openSlots[0]?.id}
+              onChange={(e) => setSlotId(e.target.value)}
+            >
+              {openSlots.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.date} at {s.time} ({s.capacity - s.booked} left)
+                </option>
+              ))}
+            </select>
+          </label>
         )}
         {intent === 'viewing' && openSlots.length === 0 && (
           <p className="rounded-xl bg-primary-50 px-3 py-2 text-xs text-ink-600">
@@ -460,13 +477,16 @@ export default function ListingDetail() {
             propose a time with you directly — no slots are being missed.
           </p>
         )}
-        <textarea
-          className="w-full rounded-xl border border-primary-100 px-3 py-2 text-base sm:text-sm"
-          rows={3}
-          placeholder="Notes for the agent…"
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-        />
+        <label className="block text-sm font-medium text-ink" htmlFor={`${idPrefix}-message`}>
+          Message
+          <Textarea
+            id={`${idPrefix}-message`}
+            className="mt-1 min-h-24"
+            rows={3}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+        </label>
         <Button type="submit" className="w-full min-h-11" disabled={submitting}>
           {submitting
             ? 'Saving…'
@@ -660,7 +680,7 @@ export default function ListingDetail() {
           <aside className="hidden lg:block lg:sticky lg:top-24 lg:self-start">
             <form onSubmit={submitEnquiry} className="rounded-3xl border border-primary-100 bg-white p-5 shadow-lg shadow-ink/5">
               {priceBlock}
-              {enquiryFormFields}
+              {enquiryFields('listing-enquiry')}
             </form>
           </aside>
         </div>
@@ -682,7 +702,7 @@ export default function ListingDetail() {
         >
           <form onSubmit={submitEnquiry} className="h-full overflow-y-auto p-4">
             {priceBlock}
-            {enquiryFormFields}
+            {enquiryFields('listing-enquiry-sheet')}
           </form>
         </FullScreenSheet>
 

@@ -141,6 +141,8 @@ import {
 } from '../lib/blockedApplicants'
 import type { PostgresBootstrap } from '../lib/api/postgresClient'
 import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
+import { notifyApplicationReceived } from '../lib/api/applicationReceivedNotify'
+import { notesWithoutScreening } from '../lib/applicationScreening'
 import {
   dedupeBootstrapFetch,
   scheduleDeferredFullBootstrap,
@@ -488,8 +490,10 @@ type StoreContextValue = {
     phone: string
     type: 'Purchase' | 'Rental'
     income?: number
+    grossMonthlyIncomeCents?: number
     employment?: string
     idNumberOrPassport?: string
+    idType?: 'sa_id' | 'passport'
     uploadedDocs?: Application['uploadedDocs']
     /** Skip income/availability guards (admin/demo only) */
     skipGuards?: boolean
@@ -2654,16 +2658,21 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         workflowStatus: 'application_submitted',
         stage: 'Application submitted',
         progress: STAGE_PROGRESS['Documents Pending'],
-        income: input.income ?? 0,
+        income:
+          input.grossMonthlyIncomeCents != null
+            ? Number(BigInt(input.grossMonthlyIncomeCents) / 100n)
+            : (input.income ?? 0),
+        grossMonthlyIncomeCents: input.grossMonthlyIncomeCents,
         employment: input.employment ?? 'To be completed',
         idNumberOrPassport: input.idNumberOrPassport,
+        idType: input.idType,
         uploadedDocs: input.uploadedDocs,
         creditCheck: 'Not Started',
         creditConsent: false,
         documents,
         docs: [],
         viewingSlotId: null,
-        notes: '',
+        notes: notesWithoutScreening(''),
         submittedAt: new Date().toISOString().slice(0, 10),
         updatedAt: new Date().toISOString().slice(0, 10),
       }
@@ -2695,19 +2704,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
       persistUpsert('application', app.id, app as unknown as Record<string, unknown>)
 
-      // Additive: email confirmation to the applicant (works in both API and
-      // Supabase modes since it rides the same origin). Fire-and-forget — a
-      // mail hiccup must never block or fail the application.
-      void fetch('/api/notify/application-received', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: app.email,
-          applicantName: app.applicantName,
-          propertyTitle: property?.title,
-          referenceCode: app.id,
-        }),
-      }).catch(() => {})
+      // Additive: email confirmation to the applicant. Body is only the
+      // reference code, with the session bearer token. A mail hiccup must
+      // never block or fail the application.
+      void notifyApplicationReceived(app.id).catch(() => {})
 
       return app
     },
@@ -2716,7 +2716,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       patch((s) => ({
         ...s,
         applications: s.applications.map((a) =>
-          a.id === id ? { ...a, ...p, updatedAt: new Date().toISOString().slice(0, 10) } : a,
+          a.id === id
+            ? {
+                ...a,
+                ...p,
+                notes: notesWithoutScreening(typeof p.notes === 'string' ? p.notes : a.notes ?? ''),
+                updatedAt: new Date().toISOString().slice(0, 10),
+              }
+            : a,
         ),
       }))
       if (prev && p.stage && p.stage !== prev.stage) {
@@ -2746,6 +2753,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         persistUpsert('application', id, {
           ...prev,
           ...p,
+          notes: notesWithoutScreening(typeof p.notes === 'string' ? p.notes : prev.notes ?? ''),
           updatedAt: new Date().toISOString().slice(0, 10),
         } as unknown as Record<string, unknown>)
       }

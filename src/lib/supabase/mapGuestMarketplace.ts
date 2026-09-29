@@ -1,11 +1,13 @@
 /**
  * Maps anon RPC payload → AppStore bootstrap (marketplace fields only).
+ *
+ * Migration 011 adds `landlord_id` and `landlord_name` to the public listing
+ * projection. Guest identity uses those fields. Landlord email is never a key.
  */
 import { GLOBAL_CLIENT_ID } from '../../data/platformLookups'
 import type { PostgresBootstrap } from '../api/postgresClient'
 import {
   buildIdMapCache,
-  EMAIL_TO_USER,
   feFromCache,
   mapAgency,
   mapProperty,
@@ -60,15 +62,31 @@ export function mapGuestMarketplacePayload(payload: {
     clients as Array<{ id: string; settings: Record<string, unknown> | null }>,
   )
 
+  const landlordNameByUuid = new Map<string, string>()
+  const noteLandlord = (row: Record<string, unknown>) => {
+    if (row.landlord_id == null || row.landlord_id === '') return
+    const uuid = String(row.landlord_id)
+    const name = typeof row.landlord_name === 'string' ? row.landlord_name.trim() : ''
+    if (name) landlordNameByUuid.set(uuid, name)
+    else if (!landlordNameByUuid.has(uuid)) landlordNameByUuid.set(uuid, '')
+  }
+  for (const b of buildingsRaw) noteLandlord(b)
+  for (const u of unitsRawInput) noteLandlord(u)
+
   const userByUuid = new Map<string, string>()
   for (const u of users) {
     const id = String(u.id)
     const meta = (u.metadata as Record<string, unknown> | null) ?? {}
-    const fromMeta = typeof meta.frontend_id === 'string' ? meta.frontend_id : null
-    userByUuid.set(id, fromMeta ?? EMAIL_TO_USER[String(u.email).toLowerCase()] ?? id)
+    const fromMeta = typeof meta.frontend_id === 'string' && meta.frontend_id ? meta.frontend_id : null
+    userByUuid.set(id, fromMeta ?? id)
   }
   for (const row of payload.entity_id_map ?? []) {
     if (row.entity_type === 'user') userByUuid.set(row.backend_id, row.frontend_id)
+  }
+  for (const uuid of landlordNameByUuid.keys()) {
+    if (!userByUuid.has(uuid)) {
+      userByUuid.set(uuid, feFromCache(cache, 'user', uuid, uuid) ?? uuid)
+    }
   }
 
   const mapUserFe = (id: string | null | undefined) => mapUser(cache, userByUuid, id)
@@ -90,23 +108,37 @@ export function mapGuestMarketplacePayload(payload: {
       enabledPermissions: null as null,
     }))
 
-  const appUsers = users.map((u) => {
+  const seenLandlordIds = new Set(users.map((u) => String(u.id)))
+  const appUsers: Array<Record<string, unknown>> = users.map((u) => {
     const meta = (u.metadata as Record<string, unknown> | null) ?? {}
-    const feRole = resolveFrontendRole(u.role as RoleDb, meta, String(u.email))
+    const feRole = resolveFrontendRole(u.role as RoleDb, meta, '')
     const verification =
       meta.verification && typeof meta.verification === 'object' ? meta.verification : undefined
+    const projectedName = landlordNameByUuid.get(String(u.id))
+    const fallbackName = `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim()
     return {
       id: userByUuid.get(String(u.id))!,
-      name: `${u.first_name} ${u.last_name}`.trim(),
-      email: String(u.email),
+      name: projectedName || fallbackName || 'Landlord',
+      email: '',
       role: feRole,
       agencyId: mapAgencyFe(u.client_id as string),
-      phone: (u.phone as string) ?? undefined,
+      phone: undefined,
       active: Boolean(u.active),
       enabledPermissions: Array.isArray(meta.enabledPermissions) ? meta.enabledPermissions : undefined,
       verification,
     }
   })
+  for (const [uuid, name] of landlordNameByUuid) {
+    if (seenLandlordIds.has(uuid)) continue
+    appUsers.push({
+      id: userByUuid.get(uuid)!,
+      name: name || 'Landlord',
+      email: '',
+      role: 'landlord',
+      agencyId: null,
+      active: true,
+    })
+  }
 
   const buildings = buildingsRaw.map((b) => ({
     id: mappedFe(cache, 'building', String(b.id), String(b.id)),
@@ -168,6 +200,7 @@ export function mapGuestMarketplacePayload(payload: {
       createdAt: dateOnly(u.created_at as string),
       _propertyId: canonicalListingId(mapPropertyFe(String(u.id)) ?? String(u.id)),
       _unitUuid: String(u.id),
+      _landlordUuid: u.landlord_id != null && u.landlord_id !== '' ? String(u.landlord_id) : null,
     }
   })
 
@@ -185,7 +218,7 @@ export function mapGuestMarketplacePayload(payload: {
     return {
       id: u._propertyId,
       agencyId: u.clientId,
-      landlordId: b?.landlordId ?? 'u-owner1',
+      landlordId: (u._landlordUuid ? mapUserFe(u._landlordUuid) : null) ?? b?.landlordId ?? 'u-owner1',
       agentId: u.agentId,
       buildingId: u.buildingId,
       unitId: u.id,
@@ -226,7 +259,7 @@ export function mapGuestMarketplacePayload(payload: {
     }
   })
 
-  const cleanUnits = unitsRaw.map(({ _propertyId, _unitUuid, ...rest }) => rest)
+  const cleanUnits = unitsRaw.map(({ _propertyId, _unitUuid, _landlordUuid, ...rest }) => rest)
 
   return {
     source: 'postgres',

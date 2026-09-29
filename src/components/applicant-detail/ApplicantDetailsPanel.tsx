@@ -1,6 +1,7 @@
 import { Briefcase, IdCard, ShieldCheck } from 'lucide-react'
 import type { Application } from '../../types/domain'
 import { formatZAR } from '../../data/seed'
+import { formatCentsAsZar } from '../../lib/money/zarToCents'
 import { statusTone } from '../ui'
 import { DetailSection, FlatField, FlatFieldGrid } from '../detail/FlatFields'
 import { useAgentDisplay } from '../../hooks/useAgentDisplay'
@@ -35,7 +36,13 @@ export function ApplicantDetailsPanel({
           <FlatField icon={Briefcase} label="Employment" value={application.employment || '—'} />
           <FlatField
             label="Declared income"
-            value={application.income ? formatZAR(application.income) : '—'}
+            value={
+              application.grossMonthlyIncomeCents != null
+                ? formatCentsAsZar(application.grossMonthlyIncomeCents)
+                : application.income
+                  ? formatZAR(application.income)
+                  : '—'
+            }
             tabular
           />
         </FlatFieldGrid>

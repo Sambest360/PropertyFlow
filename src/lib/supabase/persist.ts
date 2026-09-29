@@ -8,6 +8,8 @@ import { GLOBAL_CLIENT_ID } from '../../data/platformLookups'
 import { ROLE_TO_DB } from './idMap'
 
 import { canonicalListingId, unitIdForProperty, listingIdAliases } from '../listingIds'
+import { applicationScreeningRow, notesWithoutScreening } from '../applicationScreening'
+import { randsFromCents } from '../money/zarToCents'
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -243,6 +245,11 @@ async function upsertApplication(id: string, data: Record<string, unknown>): Pro
   const clientId = await clientUuid(data.agencyId)
   const unitId = await unitUuid(data.propertyId)
   const stage = str(data.stage)
+  const cents = data.grossMonthlyIncomeCents
+  const monthlyIncome =
+    typeof cents === 'number' && Number.isInteger(cents) && cents >= 0
+      ? randsFromCents(cents)
+      : num(data.income)
   await supabase.from('applications').upsert({
     id: uuid,
     client_id: clientId,
@@ -252,9 +259,9 @@ async function upsertApplication(id: string, data: Record<string, unknown>): Pro
     reference_code: id,
     application_type: str(data.type) === 'Purchase' ? 'PURCHASE' : 'RENTAL',
     status: APP_STAGE_TO_DB[stage] ?? 'UNDER_REVIEW',
-    monthly_income: num(data.income),
+    monthly_income: monthlyIncome,
     employment_summary: str(data.employment),
-    message: str(data.notes),
+    message: notesWithoutScreening(str(data.notes)),
     move_in_date: str(data.moveInDate) || null,
     metadata: {
       stage,
@@ -264,6 +271,21 @@ async function upsertApplication(id: string, data: Record<string, unknown>): Pro
     },
     updated_at: new Date().toISOString(),
   })
+
+  // Depends on migration 011, which creates application_screening
+  // (application_id, id_type, id_number, gross_monthly_income_cents).
+  const screening = applicationScreeningRow(uuid, data)
+  if (screening) {
+    const { error } = await supabase.from('application_screening').upsert(screening, {
+      onConflict: 'application_id',
+    })
+    if (error) {
+      console.warn(
+        '[supabase/persist] application_screening was not written. Migration 011 must create application_id, id_type, id_number, and gross_monthly_income_cents:',
+        error.message,
+      )
+    }
+  }
 }
 
 async function upsertPayment(id: string, data: Record<string, unknown>): Promise<void> {
