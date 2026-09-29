@@ -235,16 +235,31 @@ describe('PayFast ITN route', () => {
     expect(credits).toBe(0)
   })
 
-  it('rejects a wrong merchant id', async () => {
+  it('rejects a wrong merchant id without changing the payment', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    db.withTransaction.mockClear()
     const res = await postItn(itnBody({ merchant_id: '10009999' }))
     expect(res.status).toBe(400)
     expect(credits).toBe(0)
+    expect(paymentStatus).toBe('DUE')
+    expect(error.mock.calls.some((args) => String(args[0]).includes('merchant_id'))).toBe(true)
+    expect(db.withTransaction).not.toHaveBeenCalled()
+    error.mockRestore()
   })
 
   it('rejects a wrong amount', async () => {
     const res = await postItn(itnBody({ amount_gross: '9999.00' }))
     expect(res.status).toBe(400)
     expect(credits).toBe(0)
+  })
+
+  it('rejects an amount that differs by one cent and does not change the payment', async () => {
+    db.withTransaction.mockClear()
+    const res = await postItn(itnBody({ amount_gross: '10.01' }))
+    expect(res.status).toBe(400)
+    expect(credits).toBe(0)
+    expect(paymentStatus).toBe('DUE')
+    expect(db.withTransaction).not.toHaveBeenCalled()
   })
 
   it('does not mark paid when the validate postback is INVALID or fails', async () => {

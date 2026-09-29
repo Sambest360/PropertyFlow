@@ -53,6 +53,7 @@ import { resolveSessionUser } from './auth.js'
 import { sendPaymentReceipt } from './mailtrap.js'
 import {
   buildCheckoutFields,
+  amountToCents,
   checkoutAmountCents,
   clientIpSettingsFromEnv,
   confirmItnWithPayfast,
@@ -231,10 +232,13 @@ export async function payfastItn(c: Context) {
       sourceIp,
       allowedIps: extraItnIpsFromEnv(),
       expectedPaymentId: expected?.id,
-      expectedAmountCents: expected ? Math.round(expected.amount * 100) : undefined,
+      expectedAmountCents: expected ? amountToCents(expected.amount) : undefined,
     })
     if (!verdict.ok) {
-      logPayfastFailure('payfast_itn_rejected', new Error(verdict.reason))
+      const kind = /merchant_id/i.test(verdict.reason)
+        ? 'payfast_itn_merchant_mismatch'
+        : 'payfast_itn_rejected'
+      logPayfastFailure(kind, new Error(verdict.reason))
       return c.text('ITN rejected', 400)
     }
     if (!expected) {

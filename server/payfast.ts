@@ -415,8 +415,8 @@ export type ItnVerdict =
  * address in both modes. The route resolves it only from the platform-set
  * address (default `x-real-ip`, or the local QA harness). Caller forwarding
  * headers are not a source.
- * `expectedAmountCents` is the ledger payment amount (the same figure checkout
- * sends to PayFast).
+ * `expectedAmountCents` is the ledger payment amount in exact cents (the same
+ * figure checkout sends to PayFast). A one-cent difference is a mismatch.
  */
 export function verifyItn(
   body: Record<string, string>,
@@ -457,7 +457,7 @@ export function verifyItn(
     if (!body.amount_gross?.trim()) {
       return { ok: false, reason: 'ITN missing amount_gross' }
     }
-    if (Math.abs(amountCents - opts.expectedAmountCents) > 1) {
+    if (amountCents !== opts.expectedAmountCents) {
       return { ok: false, reason: `ITN amount ${body.amount_gross} does not match ledger amount` }
     }
   }

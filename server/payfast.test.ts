@@ -285,6 +285,16 @@ describe('payfast core', () => {
     expect((verdict as { reason: string }).reason).toMatch(/amount/i)
   })
 
+  it('ITN: an amount one cent off the ledger is rejected', () => {
+    const verdict = verifyItn(signedItn({ amount_gross: '10.01' }), SANDBOX, {
+      sourceIp: PAYFAST_IP,
+      expectedPaymentId: '1234',
+      expectedAmountCents: 1000,
+    })
+    expect(verdict.ok).toBe(false)
+    expect((verdict as { reason: string }).reason).toMatch(/amount/i)
+  })
+
   it('ITN: valid COMPLETE notification passes merchant, amount and IP checks', () => {
     const verdict = verifyItn(signedItn(), SANDBOX, {
       sourceIp: PAYFAST_IP,
