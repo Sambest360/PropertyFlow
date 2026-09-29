@@ -1,5 +1,6 @@
 -- Tenant isolation and privilege hardening.
--- Apply with: psql "$DIRECT_URL" -f database/postgres/migrations/011_tenant_isolation.sql
+-- Apply with database/postgres/ops/011/apply.sh (single transaction, fail-fast locks).
+-- Do not run this file on its own against production.
 -- This file is not run by `npm run db:migrate` (that script only applies 001).
 --
 -- Fixes:
@@ -226,29 +227,56 @@ CREATE POLICY units_contractor_linked ON units
     )
   );
 
+-- These checks read units from inside a buildings/viewing_slots policy.
+-- Inlining the EXISTS applies units RLS, and units_landlord_read reads buildings,
+-- which Postgres rejects as infinite recursion. SECURITY DEFINER bypasses RLS
+-- for the lookup only. Callers still need EXECUTE.
+CREATE OR REPLACE FUNCTION public.building_has_public_listing(p_building_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM units u
+    WHERE u.building_id = p_building_id
+      AND u.status_config_key IN ('PUBLISHED', 'FEATURED', 'VACANT', 'UNDER_OFFER', 'AVAILABLE')
+      AND lower(coalesce(u.listing_type, '')) <> 'not_listed'
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION public.viewing_slot_on_public_listing(p_slot_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM viewing_slots vs
+    JOIN units u ON u.id = vs.unit_id
+    WHERE vs.id = p_slot_id
+      AND u.status_config_key IN ('PUBLISHED', 'FEATURED', 'VACANT', 'UNDER_OFFER', 'AVAILABLE')
+      AND lower(coalesce(u.listing_type, '')) <> 'not_listed'
+  );
+$$;
+
+REVOKE ALL ON FUNCTION public.building_has_public_listing(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.viewing_slot_on_public_listing(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.building_has_public_listing(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.viewing_slot_on_public_listing(uuid) TO authenticated;
+
 DROP POLICY IF EXISTS buildings_public_read ON buildings;
 CREATE POLICY buildings_public_read ON buildings
   FOR SELECT TO authenticated
-  USING (
-    EXISTS (
-      SELECT 1 FROM units u
-      WHERE u.building_id = buildings.id
-        AND u.status_config_key IN ('PUBLISHED', 'FEATURED', 'VACANT', 'UNDER_OFFER', 'AVAILABLE')
-        AND lower(coalesce(u.listing_type, '')) <> 'not_listed'
-    )
-  );
+  USING (public.building_has_public_listing(id));
 
 DROP POLICY IF EXISTS viewing_slots_public_read ON viewing_slots;
 CREATE POLICY viewing_slots_public_read ON viewing_slots
   FOR SELECT TO authenticated
-  USING (
-    EXISTS (
-      SELECT 1 FROM units u
-      WHERE u.id = viewing_slots.unit_id
-        AND u.status_config_key IN ('PUBLISHED', 'FEATURED', 'VACANT', 'UNDER_OFFER', 'AVAILABLE')
-        AND lower(coalesce(u.listing_type, '')) <> 'not_listed'
-    )
-  );
+  USING (public.viewing_slot_on_public_listing(id));
 
 DROP POLICY IF EXISTS applications_insert_applicant ON applications;
 CREATE POLICY applications_insert_applicant ON applications
@@ -273,6 +301,9 @@ CREATE POLICY messages_insert_own ON messages
 -- Public marketplace RPCs: listing fields only. Never password_hash or documents.
 -- ---------------------------------------------------------------------------
 
+-- Listing identity only. password_hash, email, and metadata (including a reduced
+-- metadata object) are omitted: anon can call this projection through the
+-- marketplace RPCs. Guest id mapping still has entity_id_map.
 CREATE OR REPLACE FUNCTION public.marketplace_user_json(u users)
 RETURNS jsonb
 LANGUAGE sql
@@ -281,18 +312,10 @@ AS $$
   SELECT jsonb_build_object(
     'id', u.id,
     'client_id', u.client_id,
-    'email', u.email,
     'first_name', u.first_name,
     'last_name', u.last_name,
     'role', u.role,
-    'active', u.active,
-    'metadata', jsonb_build_object(
-      'frontend_id', u.metadata->>'frontend_id',
-      'frontend_role', u.metadata->>'frontend_role',
-      'verification', jsonb_build_object(
-        'status', COALESCE(u.metadata->'verification'->>'status', 'approved')
-      )
-    )
+    'active', u.active
   );
 $$;
 
