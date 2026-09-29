@@ -165,7 +165,7 @@ curl -sS -D - -o /tmp/itn.out \
   --data-binary @/tmp/itn.json
 ```
 
-Duplicate of that ITN. Expect `200` again. `paid_amount` stays the ledger amount; it is not added a second time.
+Duplicate of that ITN. Expect `200` again. `paid_amount` is the exact `amount_gross` (the same cents as the ledger) and a replay does not change it. A `CANCELLED` ITN leaves `status` and amounts as they were.
 
 ```sql
 SELECT status, amount, paid_amount FROM payments WHERE id = '<PAYMENT_ID>';

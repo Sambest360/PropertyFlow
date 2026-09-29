@@ -41,8 +41,10 @@
  *   The body is posted to PAYFAST_VALIDATE_URL (sandbox or live by default).
  *   PAYFAST_VALIDATE_STUB=1 with local mode skips that call and uses the
  *   secret-gated stub header instead. The payment is marked PAID only when
- *   the result is exactly VALID. A duplicate ITN for a payment that is
- *   already terminal does not credit again.
+ *   the result is exactly VALID. paid_amount is amount_gross in exact cents.
+ *   A CANCELLED ITN does not change the payment. A later ITN cannot overwrite
+ *   a PAID row. Every raw ITN is stored in payfast_itn_events before parsing.
+ *   Replays of the same pf_payment_id and payment_status do not change state.
  *   Verified requests answer 200 so PayFast stops retrying; rejected
  *   requests get 400 and the ledger is left unchanged.
  */
@@ -54,11 +56,13 @@ import { sendPaymentReceipt } from './mailtrap.js'
 import {
   buildCheckoutFields,
   amountToCents,
+  centsToAmount,
   checkoutAmountCents,
   clientIpSettingsFromEnv,
   confirmItnWithPayfast,
   extraItnIpsFromEnv,
   payfastConfigFromEnv,
+  payfastSignature,
   resolveItnClientIp,
   validatePlanFromEnv,
   verifyItn,
@@ -211,23 +215,112 @@ export async function payfastCreate(c: Context) {
   }
 }
 
+function itnHeaderSnapshot(c: Context): Record<string, string> {
+  const headers: Record<string, string> = {}
+  c.req.raw.headers.forEach((value, key) => {
+    headers[key] = value
+  })
+  return headers
+}
+
+function parseItnRaw(rawBody: string, contentType: string): Record<string, string> {
+  const body: Record<string, string> = {}
+  if (contentType.includes('application/json')) {
+    const json = JSON.parse(rawBody) as unknown
+    if (!json || typeof json !== 'object' || Array.isArray(json)) {
+      throw new Error('ITN JSON body is not an object')
+    }
+    for (const [key, value] of Object.entries(json)) body[key] = String(value ?? '')
+    return body
+  }
+  const params = new URLSearchParams(rawBody)
+  for (const [key, value] of params.entries()) body[key] = value
+  return body
+}
+
+function itnSignatureValid(body: Record<string, string>, cfg: PayfastConfig): boolean {
+  const signature = body.signature?.trim() ?? ''
+  if (!signature) return false
+  const { signature: _drop, ...rest } = body
+  const computed = payfastSignature(rest, cfg.passphrase)
+  return computed.length === signature.length && computed === signature
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && 'code' in err && (err as { code?: string }).code === '23505'
+}
+
+/** Persist the raw ITN before any parse that can throw. */
+async function storeRawItn(input: {
+  receivedAt: string
+  rawBody: string
+  headers: Record<string, string>
+  sourceIp: string | null
+}): Promise<string> {
+  const rows = await query<{ id: string }>(
+    `INSERT INTO payfast_itn_events (
+       received_at, raw_body, headers, source_ip, signature_valid, validate_passed, outcome
+     ) VALUES ($1::timestamptz, $2, $3::jsonb, $4, NULL, NULL, 'received')
+     RETURNING id::text AS id`,
+    [input.receivedAt, input.rawBody, JSON.stringify(input.headers), input.sourceIp],
+  )
+  const id = rows[0]?.id
+  if (!id) throw new Error('payfast_itn_event_not_stored')
+  return id
+}
+
+async function patchItnEvent(
+  id: string,
+  fields: { outcome: string; signatureValid: boolean | null; validatePassed: boolean | null },
+): Promise<void> {
+  await query(
+    `UPDATE payfast_itn_events
+     SET outcome = $2,
+         signature_valid = $3,
+         validate_passed = $4
+     WHERE id = $1::uuid`,
+    [id, fields.outcome, fields.signatureValid, fields.validatePassed],
+  )
+}
+
 export async function payfastItn(c: Context) {
+  const receivedAt = new Date().toISOString()
+  const sourceIp = resolveItnClientIp((name) => c.req.header(name), clientIpSettingsFromEnv())
+  const headers = itnHeaderSnapshot(c)
+  let rawBody = ''
+  try {
+    rawBody = await c.req.text()
+  } catch (err) {
+    logPayfastFailure('payfast_itn_read_failed', err)
+  }
+
+  let eventId: string
+  try {
+    eventId = await storeRawItn({ receivedAt, rawBody, headers, sourceIp })
+  } catch (err) {
+    logPayfastFailure('payfast_itn_store_failed', err)
+    return c.text('ITN error', 500)
+  }
+
   try {
     const cfg = config()
-    if (!cfg) return c.text('PayFast not configured', 503)
-    const body: Record<string, string> = {}
-    const contentType = c.req.header('content-type') ?? ''
-    if (contentType.includes('application/json')) {
-      const json = (await c.req.json().catch(() => ({}))) as Json
-      for (const [k, v] of Object.entries(json)) body[k] = String(v ?? '')
-    } else {
-      const form = await c.req.parseBody()
-      for (const [k, v] of Object.entries(form)) {
-        if (typeof v === 'string') body[k] = v
-      }
+    if (!cfg) {
+      await patchItnEvent(eventId, { outcome: 'not_configured', signatureValid: false, validatePassed: false })
+      return c.text('PayFast not configured', 503)
     }
+
+    const contentType = c.req.header('content-type') ?? ''
+    let body: Record<string, string>
+    try {
+      body = parseItnRaw(rawBody, contentType)
+    } catch (parseErr) {
+      await patchItnEvent(eventId, { outcome: 'parse_failed', signatureValid: false, validatePassed: false })
+      logPayfastFailure('payfast_itn_parse_failed', parseErr)
+      return c.text('ITN rejected', 400)
+    }
+
+    const signatureValid = itnSignatureValid(body, cfg)
     const expected = await loadPayment(body.m_payment_id ?? '')
-    const sourceIp = resolveItnClientIp((name) => c.req.header(name), clientIpSettingsFromEnv())
     const verdict = verifyItn(body, cfg, {
       sourceIp,
       allowedIps: extraItnIpsFromEnv(),
@@ -238,13 +331,16 @@ export async function payfastItn(c: Context) {
       const kind = /merchant_id/i.test(verdict.reason)
         ? 'payfast_itn_merchant_mismatch'
         : 'payfast_itn_rejected'
+      await patchItnEvent(eventId, { outcome: 'rejected', signatureValid, validatePassed: false })
       logPayfastFailure(kind, new Error(verdict.reason))
       return c.text('ITN rejected', 400)
     }
     if (!expected) {
+      await patchItnEvent(eventId, { outcome: 'rejected', signatureValid, validatePassed: false })
       logPayfastFailure('payfast_itn_unknown_payment', new Error(body.m_payment_id ?? ''))
       return c.text('ITN rejected', 400)
     }
+
     const readHeader = (name: string) => c.req.header(name)
     const plan = validatePlanFromEnv(readHeader)
     let confirmation: { valid: boolean; responseText: string }
@@ -256,47 +352,70 @@ export async function payfastItn(c: Context) {
         confirmation = await confirmItnWithPayfast(body, plan.url)
       }
     } catch (validateErr) {
+      await patchItnEvent(eventId, { outcome: 'validate_failed', signatureValid, validatePassed: false })
       logPayfastFailure('payfast_itn_validate_failed', validateErr)
       return c.text('ITN rejected', 400)
     }
     if (!confirmation.valid) {
+      await patchItnEvent(eventId, { outcome: 'validate_invalid', signatureValid, validatePassed: false })
       logPayfastFailure(
         'payfast_itn_validate_invalid',
         new Error(confirmation.responseText || 'INVALID'),
       )
       return c.text('ITN rejected', 400)
     }
+
     const paid = verdict.status === 'COMPLETE'
+    const pfPaymentId = (verdict.raw.pf_payment_id ?? '').trim()
+    if (!pfPaymentId) {
+      await patchItnEvent(eventId, { outcome: 'rejected', signatureValid, validatePassed: true })
+      logPayfastFailure('payfast_itn_rejected', new Error('ITN missing pf_payment_id'))
+      return c.text('ITN rejected', 400)
+    }
+
+    const gross = centsToAmount(verdict.amountCents)
     let transitioned = false
     await withTransaction(async (client) => {
-      // Idempotent transition: only flip DUE/OVERDUE → terminal state.
+      await client.query(
+        `UPDATE payfast_itn_events
+         SET pf_payment_id = $2,
+             payment_status = $3,
+             signature_valid = TRUE,
+             validate_passed = TRUE,
+             outcome = $4
+         WHERE id = $1::uuid`,
+        [eventId, pfPaymentId, verdict.status, paid ? 'paid' : 'ignored_cancelled'],
+      )
+      if (!paid) {
+        // An abandoned checkout does not cancel the invoice.
+        return
+      }
       const res = await client.query(
         `UPDATE payments
-         SET status = $2::text,
-             paid_at = CASE WHEN $5::boolean THEN COALESCE(paid_at, NOW()) ELSE paid_at END,
-             paid_amount = CASE WHEN $5::boolean THEN COALESCE(paid_amount, amount) ELSE paid_amount END,
-             method = CASE WHEN $5::boolean THEN COALESCE(method, 'PayFast') ELSE method END,
-             reference = CASE WHEN $5::boolean THEN COALESCE(reference, $3) ELSE reference END,
-             notes = CASE WHEN $5::boolean THEN COALESCE(notes, $4) ELSE notes END,
+         SET status = 'PAID',
+             paid_at = COALESCE(paid_at, NOW()),
+             paid_amount = $2::numeric,
+             method = COALESCE(method, 'PayFast'),
+             reference = COALESCE(reference, $3),
+             notes = COALESCE(notes, $4),
              updated_at = NOW()
          WHERE id = $1::uuid AND status::text IN ('DUE', 'OVERDUE')`,
         [
           expected.uuid,
-          paid ? 'PAID' : 'CANCELLED',
-          `PF-${verdict.raw.pf_payment_id ?? ''}`,
-          `PayFast sandbox ITN · pf_payment_id ${verdict.raw.pf_payment_id ?? ''} · ${verdict.status}`,
-          paid,
+          gross,
+          `PF-${pfPaymentId}`,
+          `PayFast ITN · pf_payment_id ${pfPaymentId} · ${verdict.status}`,
         ],
       )
       if (res.rowCount === 0) {
-        // Already terminal — idempotent no-op (PayFast retries ITNs). No second credit.
+        await client.query(
+          `UPDATE payfast_itn_events SET outcome = 'ignored_already_paid' WHERE id = $1::uuid`,
+          [eventId],
+        )
         return
       }
       transitioned = true
-      if (!expected.partyUserId) {
-        // Ledger settled; no party user to notify (notifications.user_id is NOT NULL).
-        return
-      }
+      if (!expected.partyUserId) return
       await client.query(
         `INSERT INTO notifications (
            id, client_id, user_id, title, body, link_path, resource_type, action_type
@@ -306,12 +425,12 @@ export async function payfastItn(c: Context) {
         [
           expected.clientUuid,
           expected.partyUserId,
-          paid ? 'Payment received via PayFast' : 'PayFast payment cancelled',
-          `${expected.paymentType} of R${(expected.amount).toFixed(2)} for ${expected.partyName} — ${paid ? 'settled' : 'cancelled'} via PayFast.`,
+          'Payment received via PayFast',
+          `${expected.paymentType} of R${gross} for ${expected.partyName} — settled via PayFast.`,
         ],
       )
     })
-    // Receipt email only on the transition that marked the row paid.
+
     if (paid && transitioned && expected.partyUserId) {
       void (async () => {
         try {
@@ -326,7 +445,7 @@ export async function payfastItn(c: Context) {
               email,
               payerName: payer[0]?.first_name,
               paymentId: expected.id,
-              amountDisplay: `R${expected.amount.toFixed(2)}`,
+              amountDisplay: `R${gross}`,
               status: verdict.status,
             })
           }
@@ -337,6 +456,19 @@ export async function payfastItn(c: Context) {
     }
     return c.text('ITN accepted', 200)
   } catch (err) {
+    if (isUniqueViolation(err)) {
+      try {
+        await patchItnEvent(eventId, { outcome: 'replay', signatureValid: true, validatePassed: true })
+      } catch (patchErr) {
+        logPayfastFailure('payfast_itn_replay_log_failed', patchErr)
+      }
+      return c.text('ITN accepted', 200)
+    }
+    try {
+      await patchItnEvent(eventId, { outcome: 'error', signatureValid: null, validatePassed: null })
+    } catch (patchErr) {
+      logPayfastFailure('payfast_itn_error_log_failed', patchErr)
+    }
     logPayfastFailure('payfast_itn_error', err)
     return c.text('ITN error', 500)
   }

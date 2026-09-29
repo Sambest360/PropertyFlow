@@ -51,15 +51,83 @@ function itnBody(overrides: Record<string, string> = {}) {
   return fields
 }
 
+type ItnEvent = {
+  id: string
+  raw_body: string
+  source_ip: string | null
+  pf_payment_id: string | null
+  payment_status: string | null
+  signature_valid: boolean | null
+  validate_passed: boolean | null
+  outcome: string
+}
+
 let paymentStatus = 'DUE'
 let credits = 0
 let partyUserId: string | null = null
+let paidAmount: string | null = null
+let itnEvents: ItnEvent[] = []
+let eventSeq = 0
+
+function applyItnEvent(sql: string, params: unknown[] = []): { rows: ItnEvent[]; rowCount: number } | null {
+  if (sql.includes('INSERT INTO payfast_itn_events')) {
+    const row: ItnEvent = {
+      id: `evt-${++eventSeq}`,
+      raw_body: String(params[1] ?? ''),
+      source_ip: params[3] == null ? null : String(params[3]),
+      pf_payment_id: null,
+      payment_status: null,
+      signature_valid: null,
+      validate_passed: null,
+      outcome: 'received',
+    }
+    itnEvents.push(row)
+    return { rows: [row], rowCount: 1 }
+  }
+  if (sql.includes('UPDATE payfast_itn_events') && sql.includes('pf_payment_id = $2')) {
+    const id = String(params[0])
+    const pf = String(params[1])
+    const status = String(params[2])
+    const clash = itnEvents.some((event) => event.id !== id && event.pf_payment_id === pf && event.payment_status === status)
+    if (clash) {
+      const err = new Error('duplicate key value violates unique constraint') as Error & { code: string }
+      err.code = '23505'
+      throw err
+    }
+    const row = itnEvents.find((event) => event.id === id)
+    if (!row) return { rows: [], rowCount: 0 }
+    row.pf_payment_id = pf
+    row.payment_status = status
+    row.signature_valid = true
+    row.validate_passed = true
+    row.outcome = String(params[3])
+    return { rows: [row], rowCount: 1 }
+  }
+  if (sql.includes('UPDATE payfast_itn_events')) {
+    const row = itnEvents.find((event) => event.id === String(params[0]))
+    if (!row) return { rows: [], rowCount: 0 }
+    if (sql.includes('ignored_already_paid')) {
+      row.outcome = 'ignored_already_paid'
+    } else if (params.length >= 4) {
+      row.outcome = String(params[1])
+      row.signature_valid = params[2] as boolean | null
+      row.validate_passed = params[3] as boolean | null
+    }
+    return { rows: [row], rowCount: 1 }
+  }
+  return null
+}
 
 function installDb() {
   paymentStatus = 'DUE'
   credits = 0
   partyUserId = null
-  db.query.mockImplementation(async (sql: string) => {
+  paidAmount = null
+  itnEvents = []
+  eventSeq = 0
+  db.query.mockImplementation(async (sql: string, params: unknown[] = []) => {
+    const eventResult = applyItnEvent(sql, params)
+    if (eventResult) return eventResult.rows
     if (sql.includes('FROM payments')) {
       return [
         {
@@ -81,14 +149,19 @@ function installDb() {
   })
   db.withTransaction.mockImplementation(async (fn: (client: { query: typeof db.query }) => Promise<void>) => {
     const client = {
-      query: async (sql: string) => {
+      query: async (sql: string, params: unknown[] = []) => {
+        const eventResult = applyItnEvent(sql, params)
+        if (eventResult) return eventResult
         if (sql.includes('UPDATE payments')) {
-          expect(sql).toContain('COALESCE(paid_amount, amount)')
+          expect(sql).toContain('paid_amount = $2::numeric')
+          expect(sql).not.toContain('COALESCE(paid_amount, amount)')
           expect(sql).not.toMatch(/paid_amount\s*\+/)
-          if (paymentStatus !== 'DUE' && paymentStatus !== 'OVERDUE') return { rowCount: 0 }
+          expect(sql).not.toContain('CANCELLED')
+          if (paymentStatus !== 'DUE' && paymentStatus !== 'OVERDUE') return { rowCount: 0, rows: [] }
           paymentStatus = 'PAID'
+          paidAmount = String(params[1])
           credits += 1
-          return { rowCount: 1 }
+          return { rowCount: 1, rows: [] }
         }
         return { rowCount: 1, rows: [] }
       },
@@ -358,6 +431,82 @@ describe('PayFast ITN route', () => {
     expect(paymentStatus).toBe('PAID')
     expect(credits).toBe(1)
     error.mockRestore()
+    vi.unstubAllGlobals()
+  })
+
+  it('a CANCELLED ITN leaves the payment DUE', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('VALID', { status: 200 })))
+    const res = await postItn(itnBody({ payment_status: 'CANCELLED' }))
+    expect(res.status).toBe(200)
+    expect(paymentStatus).toBe('DUE')
+    expect(paidAmount).toBeNull()
+    expect(credits).toBe(0)
+    expect(itnEvents.some((event) => event.outcome === 'ignored_cancelled' && event.payment_status === 'CANCELLED')).toBe(true)
+    vi.unstubAllGlobals()
+  })
+
+  it('COMPLETE records paid_amount from amount_gross', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('VALID', { status: 200 })))
+    const res = await postItn(itnBody({ amount_gross: '10.00' }))
+    expect(res.status).toBe(200)
+    expect(paymentStatus).toBe('PAID')
+    expect(paidAmount).toBe('10.00')
+    expect(credits).toBe(1)
+    vi.unstubAllGlobals()
+  })
+
+  it('a replayed ITN makes one state change', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('VALID', { status: 200 })))
+    const first = await postItn(itnBody())
+    const second = await postItn(itnBody())
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(credits).toBe(1)
+    expect(paymentStatus).toBe('PAID')
+    expect(paidAmount).toBe('10.00')
+    expect(itnEvents.filter((event) => event.outcome === 'paid')).toHaveLength(1)
+    expect(itnEvents.some((event) => event.outcome === 'replay')).toBe(true)
+    vi.unstubAllGlobals()
+  })
+
+  it('CANCELLED after PAID changes nothing', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('VALID', { status: 200 })))
+    const paid = await postItn(itnBody())
+    expect(paid.status).toBe(200)
+    const res = await postItn(itnBody({ payment_status: 'CANCELLED' }))
+    expect(res.status).toBe(200)
+    expect(paymentStatus).toBe('PAID')
+    expect(paidAmount).toBe('10.00')
+    expect(credits).toBe(1)
+    vi.unstubAllGlobals()
+  })
+
+  it('stores the raw ITN when processing fails', async () => {
+    const raw = '{not json'
+    const res = await app().request('/api/payfast/itn', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-real-ip': PAYFAST_IP },
+      body: raw,
+    })
+    expect(res.status).toBe(400)
+    expect(paymentStatus).toBe('DUE')
+    expect(credits).toBe(0)
+    expect(itnEvents).toEqual([
+      expect.objectContaining({
+        raw_body: raw,
+        source_ip: PAYFAST_IP,
+        outcome: 'parse_failed',
+        signature_valid: false,
+        validate_passed: false,
+      }),
+    ])
+
+    const bad = itnBody()
+    bad.signature = 'deadbeefdeadbeefdeadbeefdeadbeef'
+    const rejected = await postItn(bad)
+    expect(rejected.status).toBe(400)
+    expect(paymentStatus).toBe('DUE')
+    expect(itnEvents.some((event) => event.raw_body.includes('deadbeefdeadbeefdeadbeefdeadbeef') && event.outcome === 'rejected')).toBe(true)
     vi.unstubAllGlobals()
   })
 })
