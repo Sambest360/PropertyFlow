@@ -58,7 +58,7 @@ DECLARE
   v_count INT;
   v_clients INT;
   v_status TEXT;
-  v_consumed UUID;
+  v_consumed_at TIMESTAMPTZ;
   hire UUID := '13333333-3333-4333-8333-333333333333';
   replay UUID := '14444444-4444-4444-8444-444444444444';
   bound UUID := 'b5555555-5555-4555-8555-555555555555';
@@ -108,6 +108,31 @@ BEGIN
      OR has_table_privilege('anon', 'public.invites', 'SELECT')
      OR has_table_privilege('authenticated', 'public.invites', 'INSERT') THEN
     RAISE EXCEPTION 'anon or authenticated can read or write invites';
+  END IF;
+  IF NOT has_table_privilege('propertyflow_api', 'public.invites', 'INSERT')
+     OR NOT has_table_privilege('propertyflow_api', 'public.invites', 'UPDATE') THEN
+    RAISE EXCEPTION 'propertyflow_api cannot write invites';
+  END IF;
+  IF has_table_privilege('propertyflow_api', 'public.users', 'INSERT')
+     OR has_table_privilege('propertyflow_api', 'public.clients', 'INSERT') THEN
+    RAISE EXCEPTION '012 granted propertyflow_api DML beyond invites';
+  END IF;
+
+  IF (
+    SELECT string_agg(column_name, ',' ORDER BY ordinal_position)
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'invites'
+  ) IS DISTINCT FROM 'id,email,role,agency_id,auth_user_id,token,invited_by,status,created_at,consumed_at' THEN
+    RAISE EXCEPTION 'invites columns do not match the API insert shape';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'public.invites'::regclass
+      AND contype = 'f'
+      AND pg_get_constraintdef(oid) ILIKE '%auth_user_id%auth.users%'
+  ) THEN
+    RAISE EXCEPTION 'invites.auth_user_id must not reference auth.users';
   END IF;
 
   -- Check: first user on an empty database is not a super admin, even when
@@ -250,8 +275,8 @@ BEGIN
   END IF;
 
   -- Check: a token invite links once, and only after the email is confirmed.
-  INSERT INTO public.invites (email, role, agency_id, created_by, token)
-  VALUES ('hire@example.com', 'agency_admin', agency_a, staff_a, 'tok-hire');
+  INSERT INTO public.invites (email, role, agency_id, auth_user_id, token, invited_by, status)
+  VALUES ('hire@example.com', 'client_admin', agency_a, NULL, 'tok-hire', staff_a, 'pending');
   PERFORM pg_temp.insert_auth(
     hire,
     'hire@example.com',
@@ -268,12 +293,14 @@ BEGIN
   SELECT role, client_id, metadata->>'frontend_role'
     INTO v_role, v_client, v_fe
   FROM public.users WHERE auth_user_id = hire;
-  SELECT status, consumed_by INTO v_status, v_consumed FROM public.invites WHERE token = 'tok-hire';
-  IF v_role IS DISTINCT FROM 'AGENCY_ADMIN' OR v_client IS DISTINCT FROM agency_a OR v_fe IS DISTINCT FROM 'agency_admin' THEN
+  SELECT status, auth_user_id, consumed_at
+    INTO v_status, v_auth, v_consumed_at
+  FROM public.invites WHERE token = 'tok-hire';
+  IF v_role IS DISTINCT FROM 'AGENCY_ADMIN' OR v_client IS DISTINCT FROM agency_a OR v_fe IS DISTINCT FROM 'client_admin' THEN
     RAISE EXCEPTION 'confirmed invite did not link hire role=% client=% fe=%', v_role, v_client, v_fe;
   END IF;
-  IF v_status IS DISTINCT FROM 'consumed' OR v_consumed IS DISTINCT FROM hire THEN
-    RAISE EXCEPTION 'invite was not consumed by the hire (status=% consumed_by=%)', v_status, v_consumed;
+  IF v_status IS DISTINCT FROM 'consumed' OR v_auth IS DISTINCT FROM hire OR v_consumed_at IS NULL THEN
+    RAISE EXCEPTION 'invite was not consumed by the hire (status=% auth=% consumed_at=%)', v_status, v_auth, v_consumed_at;
   END IF;
   SELECT COUNT(*) INTO v_count FROM public.users WHERE auth_user_id = hire OR lower(email) = 'hire@example.com';
   IF v_count <> 1 THEN
@@ -313,7 +340,7 @@ BEGIN
 
   -- Check: binding the invite to an auth user id (no token) links on confirm, once.
   PERFORM pg_temp.insert_auth(bound, 'bound@example.com', false, '{"first_name":"Bea","last_name":"Bound"}'::jsonb);
-  INSERT INTO public.invites (email, role, agency_id, created_by, auth_user_id)
+  INSERT INTO public.invites (email, role, agency_id, invited_by, auth_user_id)
   VALUES ('bound@example.com', 'agent_admin', agency_a, staff_a, bound);
   SELECT role, client_id INTO v_role, v_client FROM public.users WHERE auth_user_id = bound;
   SELECT status INTO v_status FROM public.invites WHERE auth_user_id = bound;
@@ -333,7 +360,7 @@ BEGIN
   END IF;
 
   -- Check: redeemed token links on confirm and a second redeem fails.
-  INSERT INTO public.invites (email, role, agency_id, created_by, token)
+  INSERT INTO public.invites (email, role, agency_id, invited_by, token)
   VALUES ('redeem@example.com', 'landlord', agency_a, staff_a, 'tok-redeem');
   PERFORM pg_temp.insert_auth(redeemer, 'redeem@example.com', false, '{"first_name":"Ren","last_name":"Deem"}'::jsonb);
   PERFORM set_config('request.jwt.claim.sub', redeemer::text, true);
@@ -363,7 +390,7 @@ BEGIN
   PERFORM set_config('request.jwt.claims', '', true);
 
   -- Check: staff of a different agency cannot authorize the link.
-  INSERT INTO public.invites (email, role, agency_id, created_by, token)
+  INSERT INTO public.invites (email, role, agency_id, invited_by, token)
   VALUES ('cross@example.com', 'agency_admin', agency_a, staff_b, 'tok-cross');
   PERFORM pg_temp.insert_auth(
     'c0000000-0000-4000-8000-0000000000c1',
@@ -379,7 +406,7 @@ BEGIN
   END IF;
 
   -- Check: an invite role of super_admin does not grant it.
-  INSERT INTO public.invites (email, role, agency_id, created_by, token)
+  INSERT INTO public.invites (email, role, agency_id, invited_by, token)
   VALUES ('boss@example.com', 'super_admin', agency_a, staff_a, 'tok-boss');
   PERFORM pg_temp.insert_auth(
     'c0000000-0000-4000-8000-0000000000c2',
@@ -394,7 +421,7 @@ BEGIN
   END IF;
 
   -- Check: a token redeemed by a different email does not link the invited profile.
-  INSERT INTO public.invites (email, role, agency_id, created_by, token)
+  INSERT INTO public.invites (email, role, agency_id, invited_by, token)
   VALUES ('secret@example.com', 'agency_admin', agency_a, staff_a, 'tok-secret');
   PERFORM pg_temp.insert_auth(
     'c0000000-0000-4000-8000-0000000000c3',
@@ -411,6 +438,61 @@ BEGIN
   IF EXISTS (SELECT 1 FROM public.users WHERE lower(email) = 'secret@example.com') THEN
     RAISE EXCEPTION 'mismatched token created the invited profile';
   END IF;
+
+  -- Check: a token cannot be used by a different auth user once auth_user_id is set.
+  INSERT INTO public.invites (email, role, agency_id, auth_user_id, token, invited_by, status)
+  VALUES ('held@example.com', 'landlord', agency_a, hire, 'tok-held', staff_a, 'pending');
+  PERFORM pg_temp.insert_auth(
+    'c0000000-0000-4000-8000-0000000000c4',
+    'held@example.com',
+    true,
+    '{"first_name":"Hal","last_name":"Ded","invite_token":"tok-held"}'::jsonb
+  );
+  SELECT role, client_id INTO v_role, v_client
+  FROM public.users WHERE auth_user_id = 'c0000000-0000-4000-8000-0000000000c4';
+  SELECT status, auth_user_id INTO v_status, v_auth FROM public.invites WHERE token = 'tok-held';
+  IF v_role IS DISTINCT FROM 'END_USER' OR v_client IS NOT NULL
+     OR v_status IS DISTINCT FROM 'pending' OR v_auth IS DISTINCT FROM hire THEN
+    RAISE EXCEPTION 'bound invite was taken by another auth user role=% status=% auth=%', v_role, v_status, v_auth;
+  END IF;
+  SELECT role INTO v_role FROM public.users WHERE auth_user_id = hire;
+  IF v_role IS DISTINCT FROM 'AGENCY_ADMIN' THEN
+    RAISE EXCEPTION 'bound-token attempt changed the original hire role=%', v_role;
+  END IF;
+
+  -- Check: the API insert works when auth_user_id is not in auth.users, and a
+  -- second pending row for the same email and agency is rejected.
+  INSERT INTO public.invites (email, role, agency_id, auth_user_id, token, invited_by, status)
+  VALUES (
+    'api-shape@example.com',
+    'ground_agent',
+    agency_a,
+    '99999999-9999-4999-8999-999999999999',
+    'tok-api-shape',
+    staff_a,
+    'pending'
+  );
+  SELECT status, role INTO v_status, v_role
+  FROM public.invites WHERE token = 'tok-api-shape';
+  IF v_status IS DISTINCT FROM 'pending' OR v_role IS DISTINCT FROM 'ground_agent' THEN
+    RAISE EXCEPTION 'API-shaped insert did not stay pending (status=% role=%)', v_status, v_role;
+  END IF;
+  BEGIN
+    INSERT INTO public.invites (email, role, agency_id, auth_user_id, token, invited_by, status)
+    VALUES (
+      'API-Shape@example.com',
+      'ground_agent',
+      agency_a,
+      '88888888-8888-4888-8888-888888888888',
+      'tok-api-shape-dup',
+      staff_a,
+      'pending'
+    );
+    RAISE EXCEPTION 'duplicate pending invite for the same email and agency was accepted';
+  EXCEPTION
+    WHEN unique_violation THEN
+      NULL;
+  END;
 
   IF (SELECT COUNT(*) FROM public.users WHERE role = 'SUPER_ADMIN') <> 0 THEN
     RAISE EXCEPTION 'SUPER_ADMIN exists after signups';

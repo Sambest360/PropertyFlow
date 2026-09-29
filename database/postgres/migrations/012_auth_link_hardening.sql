@@ -23,98 +23,92 @@
 --   * An invite is consumed once. SUPER_ADMIN is never granted here, including
 --     for the first user on an empty public.users table.
 --
--- POST /invite {email, role, agency_id} (Hono, built separately) writes
--- public.invites. Suggested insert, returning user_id:
+-- POST /invite {email, role, agency_id} writes public.invites and returns
+-- {user_id}, which is the GoTrue auth user id, not a public.users id.
+-- The insert is unchanged from the Hono API:
 --
---   INSERT INTO public.invites (email, role, agency_id, created_by, user_id, token)
---   VALUES (lower(trim($email)), $role, $agency_id, $staff_users_id, $preprovisioned_users_id, $token)
---   RETURNING user_id;
+--   INSERT INTO invites (
+--     email, role, agency_id, auth_user_id, token, invited_by, status
+--   ) VALUES ($1, $2, $3::uuid, $4::uuid, $5, $6::uuid, 'pending');
 --
--- Columns:
---   id           uuid PK default gen_random_uuid()
---   email        text NOT NULL  -- stored lower(trim(email)); must match auth.users.email
---   role         text NOT NULL  -- frontend or DB role. super_admin / SUPER_ADMIN is ignored
---   agency_id    uuid NOT NULL  -- clients.id granted when the invite is consumed
---   created_by   uuid NOT NULL  -- users.id of the staff member who created the invite
---   user_id      uuid NULL      -- optional pre-provisioned public.users.id to link.
---                               -- This is the user_id POST /invite should return.
---   auth_user_id uuid NULL      -- auth.users.id this invite is bound to. Set only after
---                               -- that auth row exists (FK). Linking also runs when this
---                               -- column is set on an already-confirmed user.
---   token        text NULL      -- unique secret. The auth user's raw_user_meta_data
---                               -- ->> 'invite_token', or public.redeem_invite_token(token),
---                               -- redeems it. Email must still match.
---   status       text NOT NULL default 'pending'  -- 'pending' or 'consumed'
---   redeemed_by  uuid NULL      -- auth.users.id that redeemed the token
---   consumed_at  timestamptz NULL
---   consumed_by  uuid NULL      -- auth.users.id that consumed the invite
---   created_at   timestamptz NOT NULL default now()
+-- Columns (same shape as that API):
+--   id            uuid PK default gen_random_uuid()
+--   email         varchar(190) NOT NULL  -- stored lower(trim(email))
+--   role          varchar(40) NOT NULL   -- frontend role; super_admin is never applied
+--   agency_id     uuid NOT NULL          -- clients.id
+--   auth_user_id  uuid NULL              -- GoTrue user id. No FK to auth.users.
+--   token         text NULL UNIQUE       -- alternate redeem key
+--   invited_by    uuid NOT NULL          -- public.users.id of the creator
+--   status        varchar(20) NOT NULL default 'pending'
+--                 -- pending, consumed, or revoked
+--   created_at    timestamptz NOT NULL default now()
+--   consumed_at   timestamptz NULL
 --
--- The invite must exist and be bound (auth_user_id and/or redeemed token) before
--- email_confirmed_at becomes non-null, or sync_auth_user_profile must run again
--- after the invite is written. Inserting a pending invite for an auth user, and
--- confirming their email, both call sync. RLS is on and anon/authenticated have
--- no privileges; the API role (table owner or service_role) writes the row.
+-- A pending row must have auth_user_id or token. At most one pending invite
+-- exists per lower(email) and agency_id. Consume once:
+-- status = 'consumed', consumed_at = now(), and auth_user_id is set to the
+-- auth user who consumed it.
 --
--- Safe to run more than once.
+-- Link only when email_confirmed_at is not null, the confirmed auth email
+-- equals invites.email, and a pending invite matches that auth user id or a
+-- token that user redeemed. The creator (invited_by) must be active staff of
+-- that agency. Email match alone never re-links a profile.
+--
+-- RLS is on. anon and authenticated have no table privileges. propertyflow_api
+-- (created here if missing) and service_role may write invites.
+--
+-- Safe to run more than once on this shape. It does not rewrite an invites
+-- table that still has the earlier draft column created_by.
 
 BEGIN;
 
-CREATE TABLE IF NOT EXISTS public.invites (
-  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  email        TEXT NOT NULL,
-  role         TEXT NOT NULL,
-  agency_id    UUID NOT NULL REFERENCES public.clients (id) ON DELETE CASCADE,
-  created_by   UUID NOT NULL REFERENCES public.users (id) ON DELETE RESTRICT,
-  user_id      UUID REFERENCES public.users (id) ON DELETE SET NULL,
-  auth_user_id UUID,
-  token        TEXT,
-  status       TEXT NOT NULL DEFAULT 'pending',
-  redeemed_by  UUID,
-  consumed_at  TIMESTAMPTZ,
-  consumed_by  UUID,
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT invites_email_normalized CHECK (email = lower(trim(email)) AND length(email) > 0),
-  CONSTRAINT invites_role_nonempty CHECK (length(trim(role)) > 0),
-  CONSTRAINT invites_status_check CHECK (status IN ('pending', 'consumed'))
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS invites_token_key
-  ON public.invites (token)
-  WHERE token IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS invites_agency_id_idx ON public.invites (agency_id);
-CREATE INDEX IF NOT EXISTS invites_created_by_idx ON public.invites (created_by);
-CREATE INDEX IF NOT EXISTS invites_user_id_idx ON public.invites (user_id);
-CREATE INDEX IF NOT EXISTS invites_auth_user_id_idx ON public.invites (auth_user_id);
-CREATE INDEX IF NOT EXISTS invites_redeemed_by_idx ON public.invites (redeemed_by);
-CREATE INDEX IF NOT EXISTS invites_consumed_by_idx ON public.invites (consumed_by);
-CREATE INDEX IF NOT EXISTS invites_pending_email_idx
-  ON public.invites (email)
-  WHERE status = 'pending';
-
-DO $fk$
+DO $shape$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'invites_auth_user_id_fkey') THEN
-    ALTER TABLE public.invites
-      ADD CONSTRAINT invites_auth_user_id_fkey
-      FOREIGN KEY (auth_user_id) REFERENCES auth.users (id) ON DELETE SET NULL;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'invites_redeemed_by_fkey') THEN
-    ALTER TABLE public.invites
-      ADD CONSTRAINT invites_redeemed_by_fkey
-      FOREIGN KEY (redeemed_by) REFERENCES auth.users (id) ON DELETE SET NULL;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'invites_consumed_by_fkey') THEN
-    ALTER TABLE public.invites
-      ADD CONSTRAINT invites_consumed_by_fkey
-      FOREIGN KEY (consumed_by) REFERENCES auth.users (id) ON DELETE SET NULL;
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'invites'
+      AND column_name = 'created_by'
+  ) THEN
+    RAISE EXCEPTION
+      'public.invites still has the draft created_by column. Drop that table and re-run 012; this migration does not rewrite it.';
   END IF;
 END
-$fk$;
+$shape$;
+
+CREATE TABLE IF NOT EXISTS public.invites (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email         VARCHAR(190) NOT NULL,
+  role          VARCHAR(40) NOT NULL,
+  agency_id     UUID NOT NULL REFERENCES public.clients (id) ON DELETE CASCADE,
+  auth_user_id  UUID,
+  token         TEXT UNIQUE,
+  invited_by    UUID NOT NULL REFERENCES public.users (id) ON DELETE RESTRICT,
+  status        VARCHAR(20) NOT NULL DEFAULT 'pending'
+                  CHECK (status IN ('pending', 'consumed', 'revoked')),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  consumed_at   TIMESTAMPTZ,
+  CONSTRAINT invites_pending_has_identity CHECK (
+    status <> 'pending' OR auth_user_id IS NOT NULL OR token IS NOT NULL
+  ),
+  CONSTRAINT invites_email_normalized CHECK (email = lower(trim(email)) AND length(email) > 0),
+  CONSTRAINT invites_role_nonempty CHECK (length(trim(role)) > 0)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS invites_one_pending_email_agency
+  ON public.invites (lower(email), agency_id)
+  WHERE status = 'pending';
+
+CREATE INDEX IF NOT EXISTS invites_pending_auth_user
+  ON public.invites (auth_user_id)
+  WHERE status = 'pending';
+
+CREATE INDEX IF NOT EXISTS invites_agency_id_idx ON public.invites (agency_id);
+CREATE INDEX IF NOT EXISTS invites_invited_by_idx ON public.invites (invited_by);
 
 COMMENT ON TABLE public.invites IS
-  'Pending staff invites consumed by sync_auth_user_profile. Written by POST /invite {email, role, agency_id}. See migration 012 header for the column contract.';
+  'Pending staff invites consumed by sync_auth_user_profile. Written by POST /invite {email, role, agency_id}. auth_user_id is a GoTrue id and has no foreign key.';
 
 CREATE OR REPLACE FUNCTION public.normalize_invite_email()
 RETURNS TRIGGER
@@ -196,24 +190,21 @@ BEGIN
     SELECT i.id
       INTO v_invite_id
     FROM public.invites i
-    JOIN public.users creator ON creator.id = i.created_by
+    JOIN public.users creator ON creator.id = i.invited_by
     WHERE i.status = 'pending'
       AND i.email = v_email
       AND creator.client_id = i.agency_id
       AND creator.role IN ('AGENCY_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT')
       AND creator.active
       AND (i.auth_user_id IS NULL OR i.auth_user_id = p_auth_user_id)
-      AND (i.redeemed_by IS NULL OR i.redeemed_by = p_auth_user_id)
       AND (
         i.auth_user_id = p_auth_user_id
-        OR i.redeemed_by = p_auth_user_id
         OR (v_token IS NOT NULL AND i.token = v_token)
       )
     ORDER BY
       CASE
         WHEN i.auth_user_id = p_auth_user_id THEN 0
-        WHEN i.redeemed_by = p_auth_user_id THEN 1
-        ELSE 2
+        ELSE 1
       END,
       i.created_at,
       i.id
@@ -228,7 +219,7 @@ BEGIN
     ELSIF NOT EXISTS (
       SELECT 1
       FROM public.users creator
-      WHERE creator.id = v_inv.created_by
+      WHERE creator.id = v_inv.invited_by
         AND creator.client_id = v_inv.agency_id
         AND creator.role IN ('AGENCY_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT')
         AND creator.active
@@ -248,13 +239,17 @@ BEGIN
         WHEN 'end_user' THEN 'END_USER'
         ELSE NULL
       END;
-      v_fe_role := CASE v_db_role
-        WHEN 'AGENCY_ADMIN' THEN 'agency_admin'
-        WHEN 'AGENT_ADMIN' THEN 'agent_admin'
-        WHEN 'GROUND_AGENT' THEN 'agent'
-        WHEN 'LANDLORD' THEN 'landlord'
-        WHEN 'CONTRACTOR' THEN 'contractor'
-        WHEN 'END_USER' THEN 'tenant'
+      v_fe_role := CASE lower(trim(v_inv.role))
+        WHEN 'client_admin' THEN 'client_admin'
+        WHEN 'agency_admin' THEN 'client_admin'
+        WHEN 'agent_admin' THEN 'agent_admin'
+        WHEN 'agent' THEN 'agent'
+        WHEN 'ground_agent' THEN 'ground_agent'
+        WHEN 'landlord' THEN 'landlord'
+        WHEN 'contractor' THEN 'contractor'
+        WHEN 'tenant' THEN 'tenant'
+        WHEN 'applicant' THEN 'tenant'
+        WHEN 'end_user' THEN 'tenant'
         ELSE NULL
       END;
       -- super_admin / unknown roles are not a valid invite. Leave the row pending.
@@ -271,45 +266,29 @@ BEGIN
     SELECT id INTO v_mine FROM public.users WHERE auth_user_id = p_auth_user_id;
 
     v_target_id := NULL;
-    IF v_inv.user_id IS NOT NULL THEN
-      SELECT id, auth_user_id, role, lower(trim(email))
-        INTO v_target_id, v_target_auth, v_target_role, v_target_email
-      FROM public.users
-      WHERE id = v_inv.user_id
-      FOR UPDATE;
-      IF NOT FOUND
-         OR v_target_email IS DISTINCT FROM v_email
-         OR v_target_role = 'SUPER_ADMIN'
+    SELECT id, auth_user_id, role, lower(trim(email))
+      INTO v_target_id, v_target_auth, v_target_role, v_target_email
+    FROM public.users
+    WHERE lower(trim(email)) = v_email
+    ORDER BY (auth_user_id IS NOT DISTINCT FROM p_auth_user_id) DESC, created_at
+    LIMIT 1
+    FOR UPDATE;
+    IF FOUND THEN
+      IF v_target_role = 'SUPER_ADMIN'
          OR (v_target_auth IS NOT NULL AND v_target_auth IS DISTINCT FROM p_auth_user_id)
          OR (v_mine IS NOT NULL AND v_target_id IS DISTINCT FROM v_mine) THEN
         v_target_id := NULL;
         v_invite_id := NULL;
       END IF;
-    ELSE
-      SELECT id, auth_user_id, role, lower(trim(email))
-        INTO v_target_id, v_target_auth, v_target_role, v_target_email
+    ELSIF v_mine IS NOT NULL THEN
+      SELECT id, role
+        INTO v_target_id, v_target_role
       FROM public.users
-      WHERE lower(trim(email)) = v_email
-      ORDER BY (auth_user_id IS NOT DISTINCT FROM p_auth_user_id) DESC, created_at
-      LIMIT 1
+      WHERE id = v_mine AND lower(trim(email)) = v_email
       FOR UPDATE;
-      IF FOUND THEN
-        IF v_target_role = 'SUPER_ADMIN'
-           OR (v_target_auth IS NOT NULL AND v_target_auth IS DISTINCT FROM p_auth_user_id)
-           OR (v_mine IS NOT NULL AND v_target_id IS DISTINCT FROM v_mine) THEN
-          v_target_id := NULL;
-          v_invite_id := NULL;
-        END IF;
-      ELSIF v_mine IS NOT NULL THEN
-        SELECT id, role
-          INTO v_target_id, v_target_role
-        FROM public.users
-        WHERE id = v_mine AND lower(trim(email)) = v_email
-        FOR UPDATE;
-        IF NOT FOUND OR v_target_role = 'SUPER_ADMIN' THEN
-          v_target_id := NULL;
-          v_invite_id := NULL;
-        END IF;
+      IF NOT FOUND OR v_target_role = 'SUPER_ADMIN' THEN
+        v_target_id := NULL;
+        v_invite_id := NULL;
       END IF;
     END IF;
 
@@ -374,8 +353,6 @@ BEGIN
         UPDATE public.invites
         SET status = 'consumed',
             consumed_at = NOW(),
-            consumed_by = p_auth_user_id,
-            redeemed_by = COALESCE(redeemed_by, p_auth_user_id),
             auth_user_id = COALESCE(auth_user_id, p_auth_user_id)
         WHERE id = v_invite_id
           AND status = 'pending'
@@ -473,8 +450,6 @@ BEGIN
   END IF;
   IF NEW.auth_user_id IS NOT NULL THEN
     PERFORM public.sync_auth_user_profile(NEW.auth_user_id);
-  ELSIF NEW.redeemed_by IS NOT NULL THEN
-    PERFORM public.sync_auth_user_profile(NEW.redeemed_by);
   END IF;
   RETURN NEW;
 END;
@@ -494,9 +469,10 @@ BEGIN
 END;
 $$;
 
--- Records a token redemption for auth.uid(). Linking still waits until the
--- auth user's email is confirmed. Returns false when the token is missing,
--- already consumed, for a different email, or not created by agency staff.
+-- Binds a pending token to auth.uid() by setting auth_user_id when it is
+-- still null. Linking still waits until that email is confirmed. Returns
+-- false when the token is missing, already consumed, for a different email,
+-- already bound to someone else, or not created by staff of that agency.
 CREATE OR REPLACE FUNCTION public.redeem_invite_token(p_token TEXT)
 RETURNS BOOLEAN
 LANGUAGE plpgsql
@@ -523,7 +499,7 @@ BEGIN
   SELECT i.id
     INTO v_id
   FROM public.invites i
-  JOIN public.users creator ON creator.id = i.created_by
+  JOIN public.users creator ON creator.id = i.invited_by
   WHERE i.status = 'pending'
     AND i.token = trim(p_token)
     AND i.email = v_email
@@ -531,7 +507,6 @@ BEGIN
     AND creator.role IN ('AGENCY_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT')
     AND creator.active
     AND (i.auth_user_id IS NULL OR i.auth_user_id = v_uid)
-    AND (i.redeemed_by IS NULL OR i.redeemed_by = v_uid)
   FOR UPDATE OF i;
 
   IF v_id IS NULL THEN
@@ -539,8 +514,7 @@ BEGIN
   END IF;
 
   UPDATE public.invites
-  SET redeemed_by = v_uid,
-      auth_user_id = COALESCE(auth_user_id, v_uid)
+  SET auth_user_id = COALESCE(auth_user_id, v_uid)
   WHERE id = v_id
     AND status = 'pending';
 
@@ -561,7 +535,7 @@ CREATE TRIGGER on_auth_user_email_confirmed
 
 DROP TRIGGER IF EXISTS invites_link_auth_user ON public.invites;
 CREATE TRIGGER invites_link_auth_user
-  AFTER INSERT OR UPDATE OF auth_user_id, redeemed_by, token, status
+  AFTER INSERT OR UPDATE OF auth_user_id, token, status
   ON public.invites
   FOR EACH ROW
   WHEN (NEW.status = 'pending')
@@ -598,6 +572,14 @@ BEGIN
     EXECUTE 'DROP POLICY IF EXISTS invites_server_all ON public.invites';
     EXECUTE 'CREATE POLICY invites_server_all ON public.invites FOR ALL TO service_role USING (true) WITH CHECK (true)';
   END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'propertyflow_api') THEN
+    CREATE ROLE propertyflow_api
+      NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT BYPASSRLS;
+  ELSE
+    ALTER ROLE propertyflow_api NOSUPERUSER NOCREATEDB NOCREATEROLE BYPASSRLS;
+  END IF;
+  EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.invites TO propertyflow_api';
 END
 $grants$;
 
