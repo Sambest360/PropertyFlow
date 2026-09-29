@@ -19,7 +19,7 @@ import type { PropertyEvent } from '../types/domain'
 export default function LeadDetail() {
   const { id } = useParams()
   const [params, setParams] = useSearchParams()
-  const { state, updateLeadStage, closeLead, addActivity, addPropertyEvent } = useStore()
+  const { state, updateLeadStage, closeLead, addActivity, addPropertyEvent, setLeadRequirementState } = useStore()
   const { user, has } = useAuth()
   const { dealVisible } = usePropertyScope()
   const alert = useSuiteAlert()
@@ -144,6 +144,9 @@ export default function LeadDetail() {
             viewings={state.viewings}
             payments={state.payments}
             activities={state.activities}
+            onCompleteRequirement={(requirementId, patch) => {
+              setLeadRequirementState(lead.id, lead.stage, requirementId, patch)
+            }}
             onStageChange={(stage) => {
               const prev = lead.stage
               updateLeadStage(lead.id, stage)

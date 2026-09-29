@@ -412,6 +412,15 @@ const RULES: TipRule[] = [
     }),
   },
   {
+    match: exact('/workspace/portals/tenant/viewings'),
+    roles: ['tenant'],
+    content: () => ({
+      id: 'portal-tenant-viewings',
+      title: 'Your viewings',
+      body: 'Every viewing booked under your name — past and upcoming — with a link back to each listing.',
+    }),
+  },
+  {
     match: exact('/workspace/portals/tenant/maintenance'),
     roles: ['tenant'],
     content: () => ({
@@ -616,6 +625,29 @@ const memorySeen = new Map<string, SeenMap>()
 const memoryPrefs = new Map<string, PrefsMap>()
 let memoryCooldownAt: number | null = null
 
+type PageTipsListener = () => void
+const tipsListeners = new Set<PageTipsListener>()
+let tipsChangeVersion = 0
+
+/** Subscribe to tips preference/seen changes; returns an unsubscribe function. */
+export function subscribeToPageTipsChanges(listener: PageTipsListener): () => void {
+  tipsListeners.add(listener)
+  return () => {
+    tipsListeners.delete(listener)
+  }
+}
+
+function emitPageTipsChange(): void {
+  tipsChangeVersion += 1
+  for (const listener of [...tipsListeners]) {
+    try {
+      listener()
+    } catch {
+      /* one broken listener must not break the rest */
+    }
+  }
+}
+
 function readSeenMap(): SeenMap {
   if (typeof localStorage !== 'undefined') {
     try {
@@ -655,6 +687,7 @@ export function markPageTipSeen(userId: string, tipId: string): void {
   map[userId] = [...seen, tipId]
   writeSeenMap(map)
   markTourSessionCooldown()
+  emitPageTipsChange()
 }
 
 function readPrefsMap(): PrefsMap {
@@ -697,6 +730,7 @@ export function setPageTipsPreference(userId: string, disabled: boolean): void {
   const map = readPrefsMap()
   map[userId] = { disabled, decidedAt: new Date().toISOString() }
   writePrefsMap(map)
+  emitPageTipsChange()
 }
 
 export function markTourSessionCooldown(): void {
@@ -731,6 +765,7 @@ export function clearPageTipsPreference(userId: string): void {
   const map = readPrefsMap()
   delete map[userId]
   writePrefsMap(map)
+  emitPageTipsChange()
 }
 
 /** Test helper — clears stored tips for a user. */
@@ -738,7 +773,30 @@ export function clearPageTipsForUser(userId: string): void {
   const map = readSeenMap()
   delete map[userId]
   writeSeenMap(map)
+  emitPageTipsChange()
 }
+
+/** Clear the session cooldown so a walkthrough may start immediately. */
+export function clearTourSessionCooldown(): void {
+  memoryCooldownAt = null
+  if (typeof sessionStorage !== 'undefined') {
+    try {
+      sessionStorage.removeItem(SESSION_COOLDOWN_KEY)
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/** Re-enable tips for a user and clear seen marks so walkthroughs replay immediately. */
+export function resetPageTipsForUser(userId: string): void {
+  if (!userId || userId === 'anon') return
+  // Record an explicit "enabled" choice (also hides the first-run preference dialog).
+  setPageTipsPreference(userId, false)
+  clearPageTipsForUser(userId)
+  clearTourSessionCooldown()
+}
+
 
 /** Test helper — clears all stored tips. */
 export function clearAllPageTips(): void {

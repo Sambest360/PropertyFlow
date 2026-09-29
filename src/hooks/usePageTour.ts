@@ -10,6 +10,7 @@ import {
   markTourSessionCooldown,
   resolvePageTour,
   setPageTipsPreference,
+  subscribeToPageTipsChanges,
   type PageTour,
   type PageTourStep,
 } from '../lib/pageTips'
@@ -31,6 +32,18 @@ export function usePageTour(): {
   const { user, isImpersonating } = useAuth()
   const [stepIndex, setStepIndex] = useState(0)
   const [skippedLocal, setSkippedLocal] = useState(false)
+  // Re-render when tips preferences/seen marks change (e.g. "Show page tips").
+  const [, setTipsTick] = useState(0)
+  useEffect(
+    () =>
+      subscribeToPageTipsChanges(() => {
+        setTipsTick((t) => t + 1)
+        // A reset clears seen marks; drop local skip state so the tour can replay.
+        setSkippedLocal(false)
+        setStepIndex(0)
+      }),
+    [],
+  )
 
   const userId = user?.id || ANON_USER_ID
   const tipsAllowed = userId === ANON_USER_ID || hasPageTipsPreference(userId)

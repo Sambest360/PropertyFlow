@@ -1,0 +1,431 @@
+/**
+ * Mailtrap transactional email (official `mailtrap` SDK).
+ *
+ * Config pattern mirrors server/payfast.ts: env-driven config that resolves to
+ * null when unset, so every send site degrades to a no-op in environments
+ * without credentials instead of throwing at import time.
+ *
+ * Secrets come from env only (never hardcode): MAILTRAP_API_KEY.
+ * Setup values: MAILTRAP_USE_SANDBOX, MAILTRAP_INBOX_ID, MAILTRAP_FROM_*.
+ *
+ * Check delivery at https://mailtrap.io/sending/email_logs
+ * Docs: https://docs.mailtrap.io/
+ */
+import { MailtrapClient, type MailtrapClientConfig } from 'mailtrap'
+import nodemailer from 'nodemailer'
+
+/**
+ * Two transports, selected by MAILTRAP_TRANSPORT:
+ *  - 'smtp'  — classic SMTP credentials (host sandbox.smtp.mailtrap.io + user/pass)
+ *  - 'api'   — Mailtrap Email API via the official SDK (MAILTRAP_API_KEY)
+ * Defaults to whichever is configured; explicit MAILTRAP_TRANSPORT wins.
+ */
+export type MailtrapTransport = 'smtp' | 'api'
+
+type SmtpCreds = { host: string; port: number; user: string; pass: string }
+type ApiCreds = { token: string; sandbox: boolean; testInboxId: number | null }
+
+export type MailtrapConfig = {
+  transport: MailtrapTransport
+  smtp: SmtpCreds | null
+  api: ApiCreds | null
+  fromEmail: string
+  fromName: string
+}
+
+function smtpCredsFromEnv(): SmtpCreds | null {
+  const user = process.env.MAILTRAP_SMTP_USER?.trim()
+  const pass = process.env.MAILTRAP_SMTP_PASS?.trim()
+  if (!user || !pass) return null
+  const port = Number(process.env.MAILTRAP_SMTP_PORT?.trim() || 587)
+  return {
+    host: process.env.MAILTRAP_SMTP_HOST?.trim() || 'sandbox.smtp.mailtrap.io',
+    port: Number.isFinite(port) ? port : 587,
+    user,
+    pass,
+  }
+}
+
+function apiCredsFromEnv(): ApiCreds | null {
+  const token = process.env.MAILTRAP_API_KEY?.trim()
+  if (!token) return null
+  const sandbox = (process.env.MAILTRAP_USE_SANDBOX ?? 'true').trim().toLowerCase() === 'true'
+  const rawInbox = process.env.MAILTRAP_INBOX_ID?.trim()
+  const testInboxId = sandbox && rawInbox ? Number(rawInbox) : null
+  return {
+    token,
+    sandbox,
+    testInboxId: testInboxId != null && Number.isFinite(testInboxId) ? testInboxId : null,
+  }
+}
+
+/** Resolves null when neither transport is configured — callers must no-op then. */
+export function mailtrapConfigFromEnv(): MailtrapConfig | null {
+  const smtp = smtpCredsFromEnv()
+  const api = apiCredsFromEnv()
+  if (!smtp && !api) return null
+  const requested = process.env.MAILTRAP_TRANSPORT?.trim().toLowerCase()
+  const transport: MailtrapTransport =
+    requested === 'smtp' || requested === 'api'
+      ? requested
+      : smtp
+        ? 'smtp'
+        : 'api'
+  return {
+    transport,
+    smtp,
+    api,
+    fromEmail: process.env.MAILTRAP_FROM_EMAIL?.trim() || 'hello@demomailtrap.co',
+    fromName: process.env.MAILTRAP_FROM_NAME?.trim() || 'PropertyFlow',
+  }
+}
+
+export function isMailtrapConfigured(): boolean {
+  return mailtrapConfigFromEnv() != null
+}
+
+let cachedApi: { client: MailtrapClient; key: string } | null = null
+let cachedSmtp: { transporter: ReturnType<typeof nodemailer.createTransport>; key: string } | null = null
+
+function getApiClient(config: MailtrapConfig): MailtrapClient {
+  const api = config.api
+  if (!api) throw new Error('API transport not configured')
+  const key = `${api.token}:${api.sandbox}:${api.testInboxId ?? ''}`
+  if (!cachedApi || cachedApi.key !== key) {
+    const opts: MailtrapClientConfig = { token: api.token, sandbox: api.sandbox }
+    if (api.testInboxId != null) opts.testInboxId = api.testInboxId
+    cachedApi = { client: new MailtrapClient(opts), key }
+  }
+  return cachedApi.client
+}
+
+function getSmtpTransporter(config: MailtrapConfig): ReturnType<typeof nodemailer.createTransport> {
+  const smtp = config.smtp
+  if (!smtp) throw new Error('SMTP transport not configured')
+  const key = `${smtp.host}:${smtp.port}:${smtp.user}`
+  if (!cachedSmtp || cachedSmtp.key !== key) {
+    cachedSmtp = {
+      key,
+      transporter: nodemailer.createTransport({
+        host: smtp.host,
+        port: smtp.port,
+        secure: smtp.port === 465,
+        auth: { user: smtp.user, pass: smtp.pass },
+      }),
+    }
+  }
+  return cachedSmtp.transporter
+}
+
+export type MailtrapSendInput = {
+  to: string
+  toName?: string
+  subject: string
+  text: string
+  html?: string
+  category?: string
+}
+
+export type MailtrapSendResult =
+  | { sent: true; messageId?: string }
+  | { sent: false; reason: string }
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/**
+ * Quiet send — resolves { sent: false } instead of throwing so email problems
+ * never break the API route that triggered it. Await it when you need the
+ * outcome, or `void sendMailtrapEmail(...)` for fire-and-forget.
+ */
+export async function sendMailtrapEmail(input: MailtrapSendInput): Promise<MailtrapSendResult> {
+  const config = mailtrapConfigFromEnv()
+  if (!config) return { sent: false, reason: 'MAILTRAP_SMTP_USER/PASS or MAILTRAP_API_KEY not set' }
+  const to = input.to.trim()
+  if (!EMAIL_RE.test(to)) return { sent: false, reason: `invalid recipient: ${to}` }
+  if (config.transport === 'api' && config.api?.sandbox && config.api.testInboxId == null) {
+    return { sent: false, reason: 'API sandbox mode requires MAILTRAP_INBOX_ID' }
+  }
+
+  try {
+    let messageId: string | undefined
+    if (config.transport === 'smtp') {
+      const info = await getSmtpTransporter(config).sendMail({
+        from: `"${config.fromName}" <${config.fromEmail}>`,
+        to: input.toName ? `${input.toName} <${to}>` : to,
+        subject: input.subject,
+        text: input.text,
+        ...(input.html ? { html: input.html } : {}),
+        headers: input.category ? { 'X-Mailtrap-Category': input.category } : undefined,
+      })
+      messageId = info.messageId
+    } else {
+      const client = getApiClient(config)
+      const response = await client.send({
+        from: { email: config.fromEmail, name: config.fromName },
+        to: [{ email: to, ...(input.toName ? { name: input.toName } : {}) }],
+        subject: input.subject,
+        text: input.text,
+        ...(input.html ? { html: input.html } : {}),
+        ...(input.category ? { category: input.category } : {}),
+      })
+      messageId = (response as { message_ids?: string[] }).message_ids?.[0]
+    }
+    console.log(
+      `[mailtrap] sent (${config.transport}${config.transport === 'api' && config.api?.sandbox ? '/sandbox' : ''}) to ${to}${messageId ? ` msg=${messageId}` : ''}`,
+    )
+    return { sent: true, messageId }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[mailtrap] send failed:', message)
+    return { sent: false, reason: message }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Branded HTML shell + business emails
+// ---------------------------------------------------------------------------
+
+function shell(title: string, bodyHtml: string): string {
+  return `<!doctype html>
+<html><body style="margin:0;padding:0;background:#f4f6fb;font-family:Arial,Helvetica,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6fb;padding:24px 12px;">
+    <tr><td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;">
+        <tr><td style="background:#1d4ed8;padding:18px 28px;">
+          <span style="color:#ffffff;font-size:18px;font-weight:bold;">Property<span style="color:#f8b500">Flow</span></span>
+        </td></tr>
+        <tr><td style="padding:28px;">
+          <h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;">${title}</h1>
+          ${bodyHtml}
+        </td></tr>
+        <tr><td style="padding:16px 28px;background:#f8fafc;color:#64748b;font-size:12px;">
+          Sent by PropertyFlow · This is an automated message.
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`
+}
+
+function p(text: string): string {
+  return `<p style="margin:0 0 12px;color:#334155;font-size:14px;line-height:1.6;">${text}</p>`
+}
+
+export async function sendListingEnquiryConfirmation(input: {
+  email: string
+  firstName: string
+  propertyTitle?: string
+  action: 'lead' | 'viewing'
+}): Promise<MailtrapSendResult> {
+  const subject =
+    input.action === 'viewing'
+      ? 'Your viewing request has been received'
+      : 'Your property enquiry has been received'
+  const propertyLine = input.propertyTitle ? ` for <strong>${input.propertyTitle}</strong>` : ''
+  return sendMailtrapEmail({
+    to: input.email,
+    toName: input.firstName,
+    subject,
+    category: 'listing-enquiry',
+    text: `Hi ${input.firstName}, we received your ${input.action === 'viewing' ? 'viewing request' : 'enquiry'}${input.propertyTitle ? ` for ${input.propertyTitle}` : ''}. The listing agent will contact you shortly.`,
+    html: shell(
+      subject,
+      p(`Hi <strong>${input.firstName}</strong>,`) +
+        p(`Thanks for your ${input.action === 'viewing' ? 'viewing request' : 'enquiry'}${propertyLine}. The listing agent will be in touch shortly.`) +
+        p('Keep this email for your records — no reply is needed.'),
+    ),
+  })
+}
+
+/**
+ * Notify the listing agent (and landlord, when resolvable) that a guest lead or
+ * viewing request came in. Fire-and-forget from the route — never blocks it.
+ */
+export async function sendListingLeadAlert(input: {
+  agentEmail: string
+  agentName?: string
+  landlordEmail?: string
+  propertyTitle?: string
+  leadName: string
+  leadEmail: string
+  leadPhone?: string
+  action: 'lead' | 'viewing'
+}): Promise<MailtrapSendResult> {
+  const kind = input.action === 'viewing' ? 'viewing request' : 'new enquiry'
+  const subject = `${input.action === 'viewing' ? 'Viewing request' : 'New enquiry'}: ${input.leadName}`
+  const propertyLine = input.propertyTitle ? ` for <strong>${input.propertyTitle}</strong>` : ''
+  const contactRows =
+    (input.leadEmail ? p(`Email: <strong>${input.leadEmail}</strong>`) : '') +
+    (input.leadPhone ? p(`Phone: <strong>${input.leadPhone}</strong>`) : '')
+  const bodyHtml =
+    p(`Hi${input.agentName ? ` <strong>${input.agentName}</strong>` : ''},`) +
+    p(`<strong>${input.leadName}</strong> sent a ${kind}${propertyLine} from the marketplace.`) +
+    contactRows +
+    p('Open your PropertyFlow workspace leads board to follow up.')
+  const text =
+    `${input.leadName} sent a ${kind}${input.propertyTitle ? ` for ${input.propertyTitle}` : ''}.` +
+    (input.leadEmail ? ` Email: ${input.leadEmail}.` : '') +
+    (input.leadPhone ? ` Phone: ${input.leadPhone}.` : '')
+  const result = await sendMailtrapEmail({
+    to: input.agentEmail,
+    toName: input.agentName,
+    subject,
+    category: 'listing-lead-alert',
+    text,
+    html: shell(subject, bodyHtml),
+  })
+  // Landlord gets the same alert when we can resolve one — quiet-fail on each.
+  if (input.landlordEmail && input.landlordEmail !== input.agentEmail) {
+    void sendMailtrapEmail({
+      to: input.landlordEmail,
+      subject,
+      category: 'listing-lead-alert',
+      text,
+      html: shell(subject, bodyHtml),
+    })
+  }
+  return result
+}
+
+export async function sendPaymentReceipt(input: {
+  email: string
+  payerName?: string
+  paymentId: string
+  amountDisplay: string
+  status: string
+}): Promise<MailtrapSendResult> {
+  const subject = `Payment ${input.status.toLowerCase() === 'complete' ? 'received' : 'update'} — ${input.amountDisplay}`
+  return sendMailtrapEmail({
+    to: input.email,
+    toName: input.payerName,
+    subject,
+    category: 'payment-receipt',
+    text: `We received your payment of ${input.amountDisplay} (ref ${input.paymentId}). Status: ${input.status}.`,
+    html: shell(
+      subject,
+      (input.payerName ? p(`Hi <strong>${input.payerName}</strong>,`) : '') +
+        p(`Your payment of <strong>${input.amountDisplay}</strong> was marked <strong>${input.status}</strong> by the payment provider.`) +
+        p(`Reference: ${input.paymentId}`),
+    ),
+  })
+}
+
+export async function sendWelcomeEmail(input: {
+  email: string
+  firstName: string
+  role?: string
+}): Promise<MailtrapSendResult> {
+  const subject = 'Welcome to PropertyFlow 🏡'
+  const roleLine =
+    input.role === 'landlord'
+      ? 'Your documents are with our verification team — you will be notified once your account is approved and you can publish listings.'
+      : input.role === 'contractor'
+        ? 'Your documents are with our verification team — you will be notified once your account is approved and jobs can be assigned to you.'
+        : 'You can now browse listings, book viewings, and track applications from your dashboard.'
+  return sendMailtrapEmail({
+    to: input.email,
+    toName: input.firstName,
+    subject,
+    category: 'welcome',
+    text: `Hi ${input.firstName}, welcome to PropertyFlow! ${roleLine}`,
+    html: shell(
+      subject,
+      p(`Hi <strong>${input.firstName}</strong>,`) +
+        p('Welcome to <strong>PropertyFlow</strong> — your account has been created.') +
+        p(roleLine) +
+        p('Keep this email for your records — no reply is needed.'),
+    ),
+  })
+}
+
+/**
+ * Confirmation to the applicant right after their application is submitted
+ * (stage machine decides the rest — this email makes no promises beyond "we
+ * have it"). Fire-and-forget from the persist path.
+ */
+export async function sendApplicationReceived(input: {
+  email: string
+  applicantName?: string
+  propertyTitle?: string
+  referenceCode?: string
+}): Promise<MailtrapSendResult> {
+  const subject = 'Your application has been received'
+  const propertyLine = input.propertyTitle ? ` for <strong>${input.propertyTitle}</strong>` : ''
+  const refLine = input.referenceCode ? p(`Reference: <strong>${input.referenceCode}</strong>`) : ''
+  return sendMailtrapEmail({
+    to: input.email,
+    toName: input.applicantName,
+    subject,
+    category: 'application-received',
+    text: `Hi${input.applicantName ? ` ${input.applicantName}` : ''}, we received your application${input.propertyTitle ? ` for ${input.propertyTitle}` : ''}. The agency will review it and be in touch.${input.referenceCode ? ` Reference: ${input.referenceCode}.` : ''}`,
+    html: shell(
+      subject,
+      p(`Hi${input.applicantName ? ` <strong>${input.applicantName}</strong>` : ''},`) +
+        p(`We received your application${propertyLine}. The agency will review it and be in touch.`) +
+        refLine +
+        p('Track its progress anytime from your dashboard.'),
+    ),
+  })
+}
+
+/**
+ * Decision email after a super admin reviews a landlord/contractor onboarding
+ * verification. Approved → they can sign in and publish/receive work;
+ * rejected → honest note, no false promises.
+ */
+export async function sendVerificationDecision(input: {
+  email: string
+  firstName?: string
+  role?: string
+  approved: boolean
+  rejectNote?: string
+}): Promise<MailtrapSendResult> {
+  const isLandlord = input.role !== 'contractor'
+  const subject = input.approved
+    ? 'Your PropertyFlow account has been approved 🎉'
+    : 'Update on your PropertyFlow account'
+  const nextStep = input.approved
+    ? isLandlord
+      ? 'You can sign in now and start publishing your listings — applicants can find and apply to them right away.'
+      : 'You can sign in now — maintenance jobs in your service areas will be assigned to you.'
+    : `Reviewer note: ${input.rejectNote ?? 'Your documents were not approved'}. You can register again with updated documents, or contact support for help.`
+  return sendMailtrapEmail({
+    to: input.email,
+    toName: input.firstName,
+    subject,
+    category: input.approved ? 'verification-approved' : 'verification-rejected',
+    text: `Hi${input.firstName ? ` ${input.firstName}` : ''}, ${input.approved ? 'your PropertyFlow account has been approved.' : 'your PropertyFlow verification was not approved.'} ${nextStep}`,
+    html: shell(
+      subject,
+      p(`Hi${input.firstName ? ` <strong>${input.firstName}</strong>` : ' there'},`) +
+        (input.approved
+          ? p('Good news — your account has been <strong style="color:#16a34a;">approved</strong>.') +
+            p(nextStep) +
+            p('Sign in with the email and password you registered.')
+          : p('Unfortunately your verification was <strong>not approved</strong>.') +
+            p(nextStep)),
+    ),
+  })
+}
+
+export async function sendApplicationApproved(input: {
+  email: string
+  applicantName?: string
+  propertyTitle?: string
+}): Promise<MailtrapSendResult> {
+  const subject = 'Your rental application was approved 🎉'
+  const propertyLine = input.propertyTitle ? ` for <strong>${input.propertyTitle}</strong>` : ''
+  return sendMailtrapEmail({
+    to: input.email,
+    toName: input.applicantName,
+    subject,
+    category: 'application-approved',
+    text: `Good news — your application${input.propertyTitle ? ` for ${input.propertyTitle}` : ''} has been approved. Your tenant portal tools are now unlocked.`,
+    html: shell(
+      subject,
+      p(`Good news${input.applicantName ? `, <strong>${input.applicantName}</strong>` : ''}!`) +
+        p(`Your application${propertyLine} has been <strong style="color:#16a34a;">approved</strong>.`) +
+        p('Sign in to your tenant portal to see your lease details, raise maintenance requests, and message the agency.'),
+    ),
+  })
+}

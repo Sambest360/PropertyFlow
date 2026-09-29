@@ -50,8 +50,8 @@ export async function sweetWarning(title: string, text?: string) {
   return fire({ icon: 'warning', title, text, confirmButtonText: 'OK' })
 }
 
-export async function showAuthError(message: string) {
-  const { title, text } = formatAuthError(message ?? '')
+export async function showAuthError(message: string, err?: unknown) {
+  const { title, text } = formatAuthError(message ?? '', err)
   await sweetError(title, text)
 }
 
@@ -99,10 +99,10 @@ export async function showRegistrationCompleteAlert(input: {
   const emailConfirmation = input.kind === 'email_confirmation'
   await fire({
     icon: 'success',
-    title: emailConfirmation ? 'Account created!' : 'Almost there!',
+    title: 'Account created!',
     html: emailConfirmation
       ? `<p class="pf-swal-lead">We sent a confirmation link to <strong>${escapeHtml(input.email)}</strong>.</p><p>Open your inbox, confirm your email, then sign in to start using PropertyFlow.</p>`
-      : `<p class="pf-swal-lead">Your account for <strong>${escapeHtml(input.email)}</strong> is ready.</p><p>Sign in with the email and password you just created.</p>`,
+      : `<p class="pf-swal-lead">Your account for <strong>${escapeHtml(input.email)}</strong> is ready.</p><p>A welcome email is on its way — sign in below with the email and password you just created.</p>`,
     confirmButtonText: 'Go to sign in',
     allowOutsideClick: false,
     allowEscapeKey: false,

@@ -1,21 +1,33 @@
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../../context/AuthContext'
-import { hasPageTipsPreference, setPageTipsPreference } from '../../lib/pageTips'
+import {
+  hasPageTipsPreference,
+  setPageTipsPreference,
+  subscribeToPageTipsChanges,
+} from '../../lib/pageTips'
 import { cn } from '../ui'
 
 export function PageTipsPreferenceDialog() {
   const { user, isAuthenticated, authReady, isImpersonating } = useAuth()
+  const [dismissed, setDismissed] = useState(false)
+  // Stay in sync when tips preferences change elsewhere (e.g. walkthrough toggle).
+  const [, setStorageTick] = useState(0)
+  useEffect(() => subscribeToPageTipsChanges(() => setStorageTick((t) => t + 1)), [])
 
-  if (!authReady || !isAuthenticated || isImpersonating || !user?.id || user.id === 'guest') {
+  const uid = user?.id
+
+  if (!authReady || !isAuthenticated || isImpersonating || !uid || uid === 'guest') {
     return null
   }
 
-  if (hasPageTipsPreference(user.id)) return null
+  if (dismissed || hasPageTipsPreference(uid)) return null
 
   if (typeof document === 'undefined') return null
 
   const choose = (disabled: boolean) => {
-    setPageTipsPreference(user.id, disabled)
+    setPageTipsPreference(uid, disabled)
+    setDismissed(true)
   }
 
   return createPortal(

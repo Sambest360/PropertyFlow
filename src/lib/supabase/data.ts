@@ -3,6 +3,7 @@
  */
 import { GLOBAL_CLIENT_ID } from '../../data/platformLookups'
 import type { LookupConfig } from '../../data/infrastructure'
+import type { Lead } from '../../types/domain'
 import type { PostgresBootstrap } from '../api/postgresClient'
 import { createClient } from '../../utils/supabase/client'
 import {
@@ -505,6 +506,7 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
     type: l.interest_type === 'BUY' ? 'Buy' : 'Rent',
     value: l.value_amount != null ? Number(l.value_amount) : 0,
     notes: l.notes ?? '',
+    metadata: (l.metadata as Lead['metadata'] | null) ?? undefined,
     createdAt: dateOnly(l.created_at),
     updatedAt: dateOnly(l.updated_at),
   }))
@@ -892,6 +894,8 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
       typeof meta.frontend_id === 'string' && meta.frontend_id
         ? meta.frontend_id
         : mappedFe(cache, 'lookup', row.id as string, `lk-pg-${i + 1}`)
+    // Strip id-map keys; keep type-specific extras (e.g. LEAD_STAGE requirements).
+    const { frontend_id: _fid, frontend_client_id: _fcid, ...extraMeta } = meta
     return {
       id: feId,
       clientId: feClient,
@@ -900,6 +904,7 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
       displayLabel: String(row.display_label),
       isActive: Boolean(row.is_active),
       sortOrder: Number(row.sort_order) || 0,
+      ...(Object.keys(extraMeta).length ? { meta: extraMeta } : {}),
     }
   })
 

@@ -4,19 +4,53 @@ import { cn } from './ui'
 
 const ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,image/heic,image/*'
 
-function readFilesAsDataUrls(files: FileList | File[]): Promise<string[]> {
+/**
+ * Photos are stored inline as data URLs, so oversized uploads bloat every DB
+ * row that carries them (and every public payload that serializes them).
+ * Downscale to a max edge and re-encode before anything touches the store.
+ */
+const MAX_EDGE_PX = 1600
+const TARGET_MAX_CHARS = 450_000
+const JPEG_QUALITIES = [0.82, 0.7, 0.6]
+
+async function compressToDataUrl(file: File): Promise<string> {
+  const rawDataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
+  // Animation/transparency formats: keep as-is rather than re-encode badly.
+  if (file.type === 'image/gif' || file.type === 'image/svg+xml') return rawDataUrl
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image()
+      el.onload = () => resolve(el)
+      el.onerror = () => reject(new Error('image decode failed'))
+      el.src = rawDataUrl
+    })
+    const scale = Math.min(1, MAX_EDGE_PX / Math.max(img.width, img.height))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(img.width * scale))
+    canvas.height = Math.max(1, Math.round(img.height * scale))
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return rawDataUrl
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+    for (const quality of JPEG_QUALITIES) {
+      const out = canvas.toDataURL('image/jpeg', quality)
+      if (out.length <= TARGET_MAX_CHARS || quality === JPEG_QUALITIES[JPEG_QUALITIES.length - 1]) {
+        return out
+      }
+    }
+    return rawDataUrl
+  } catch {
+    return rawDataUrl
+  }
+}
+
+async function readFilesAsDataUrls(files: FileList | File[]): Promise<string[]> {
   const list = Array.from(files).filter((f) => f.type.startsWith('image/'))
-  return Promise.all(
-    list.map(
-      (file) =>
-        new Promise<string>((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onload = () => resolve(String(reader.result))
-          reader.onerror = () => reject(reader.error)
-          reader.readAsDataURL(file)
-        }),
-    ),
-  )
+  return Promise.all(list.map((file) => compressToDataUrl(file)))
 }
 
 function reorderList<T>(items: T[], from: number, to: number): T[] {
@@ -48,7 +82,7 @@ export type ImageDropzoneProps = {
 }
 
 /**
- * Click or drag-and-drop image picker. Stores images as data URLs (no remote URLs).
+ * Click or drag-and-drop image picker. Stores images as compressed data URLs (no remote URLs).
  */
 export function ImageDropzone({
   value,

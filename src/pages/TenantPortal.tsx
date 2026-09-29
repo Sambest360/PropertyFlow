@@ -28,16 +28,18 @@ import { useWishlist } from '../hooks/useWishlist'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
 import type { Application, PropertyAsset } from '../types/domain'
 import { TenantComplaintsView } from './tenant/TenantComplaintsView'
+import { TenantViewingsView } from './tenant/TenantViewingsView'
 import { TenantMaintenanceView } from './tenant/TenantMaintenanceView'
 import { TenantMessagesView } from './tenant/TenantMessagesView'
 
-type TenantView = 'home' | 'applications' | 'maintenance' | 'messages' | 'complaints'
+type TenantView = 'home' | 'applications' | 'maintenance' | 'messages' | 'complaints' | 'viewings'
 
 function resolveTenantView(pathname: string): TenantView {
   if (pathname.includes('/applications')) return 'applications'
   if (pathname.includes('/maintenance')) return 'maintenance'
   if (pathname.includes('/messages')) return 'messages'
   if (pathname.includes('/complaints')) return 'complaints'
+  if (pathname.includes('/viewings')) return 'viewings'
   return 'home'
 }
 
@@ -90,7 +92,9 @@ export default function TenantPortal() {
           ? 'Messages'
           : view === 'complaints'
             ? 'Complaints'
-            : portal.occupancyReady
+            : view === 'viewings'
+              ? 'Viewings'
+              : portal.occupancyReady
               ? 'Tenant portal'
               : 'Applicant home'
 
@@ -114,6 +118,8 @@ export default function TenantPortal() {
           <TenantMessagesView portal={portal} />
         ) : view === 'complaints' ? (
           <TenantComplaintsView portal={portal} />
+        ) : view === 'viewings' ? (
+          <TenantViewingsView portal={portal} />
         ) : (
           <>
             {payError && (

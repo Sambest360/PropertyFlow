@@ -28,7 +28,10 @@ BEGIN
     RETURN existing_id;
   END IF;
 
-  SELECT id, email, raw_user_meta_data
+  -- Whole-row select: the RECORD carries every existing column, so
+  -- to_jsonb(au)->>'encrypted_password' works whether or not this project
+  -- generation exposes the column (a narrow SELECT cannot — see migration 009).
+  SELECT *
   INTO au
   FROM auth.users
   WHERE id = p_auth_user_id;
@@ -140,7 +143,7 @@ BEGIN
     p_auth_user_id,
     client_uuid,
     lower(trim(au.email)),
-    au.encrypted_password,
+    NULLIF(to_jsonb(au)->>'encrypted_password', ''),
     first_name,
     last_name,
     phone,

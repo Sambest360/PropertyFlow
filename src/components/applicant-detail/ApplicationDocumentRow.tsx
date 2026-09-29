@@ -1,13 +1,13 @@
 import { useRef, useState } from 'react'
 import { Check, Eye, FileText, Upload, XCircle } from 'lucide-react'
 import type { ApplicationDocument } from '../../types/domain'
-import { REGISTRATION_DOC_MAX_BYTES } from '../../lib/auth/registrationDocs'
+import { REGISTRATION_DOC_MAX_BYTES, formatDocSizeLabel } from '../../lib/auth/registrationDocs'
 import { showAuthWarning } from '../../lib/sweetAlert'
 import { Badge, Button, cn, statusTone, Textarea } from '../ui'
 import { ICON_STROKE } from './types'
 
 const ACCEPT = 'image/jpeg,image/png,image/webp,application/pdf,.pdf,.jpg,.jpeg,.png,.webp'
-const MAX_KB = Math.round(REGISTRATION_DOC_MAX_BYTES / 1024)
+const MAX_LABEL = formatDocSizeLabel()
 
 function readFile(file: File): Promise<{ name: string; mimeType: string; dataUrl: string }> {
   return new Promise((resolve, reject) => {
@@ -43,7 +43,7 @@ export function ApplicationDocumentRow({
   const pickFile = async (file: File | null) => {
     if (!file) return
     if (file.size > REGISTRATION_DOC_MAX_BYTES) {
-      await showAuthWarning(`File must be under ${MAX_KB} KB. Try a smaller PDF or image.`)
+      await showAuthWarning(`File must be under ${MAX_LABEL}. Try a smaller PDF or image.`)
       return
     }
     try {

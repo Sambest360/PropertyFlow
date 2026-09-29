@@ -82,6 +82,28 @@ export function clearAuthFailures(ip: string, email: string) {
   failureWindows.delete(`${ip}:${email.trim().toLowerCase()}`)
 }
 
+/**
+ * Per-email guard for registration — blunts single-mailbox abuse (bot loops
+ * hitting one address) independently of the per-IP guard. Keyed on the email
+ * alone so IP rotation doesn't help the attacker; the window is short enough
+ * that a legitimate user retrying after a typo isn't punished.
+ * Env knob: AUTH_RATE_LIMIT_EMAIL_MAX (default 4 per window).
+ */
+export function authEmailRateLimit(email: string): { ok: boolean; retryAfterSec: number } {
+  const key = `reg:${email.trim().toLowerCase()}`
+  return slidingWindowHit(requestWindows, key, numEnv('AUTH_RATE_LIMIT_EMAIL_MAX', 4), windowMs())
+}
+
+/**
+ * Per-email guard for notification-style endpoints (e.g. application-received
+ * email) — separate bucket from the register guard so independent limits.
+ * Env knob: AUTH_RATE_LIMIT_NOTIFY_MAX (default 6 per window).
+ */
+export function notifyEmailRateLimit(email: string): { ok: boolean; retryAfterSec: number } {
+  const key = `notify:${email.trim().toLowerCase()}`
+  return slidingWindowHit(requestWindows, key, numEnv('AUTH_RATE_LIMIT_NOTIFY_MAX', 6), windowMs())
+}
+
 /** Check (without recording) whether an account+IP is currently locked out. */
 export function authFailureBlocked(ip: string, email: string): { ok: boolean; retryAfterSec: number } {
   const key = `${ip}:${email.trim().toLowerCase()}`

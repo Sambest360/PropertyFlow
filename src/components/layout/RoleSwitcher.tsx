@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { signOutAndRedirect } from '../../lib/auth/signOut'
+import { resetPageTipsForUser } from '../../lib/pageTips'
 import { roleLabels } from '../../lib/permissions'
 import type { Permission, Role } from '../../types/domain'
 import { cn } from '../ui'
@@ -115,6 +116,18 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
       ])
     ) {
       items.push({ kind: 'link', label: 'Administration', to: '/workspace/admin', icon: LayoutDashboard })
+    }
+
+    if (!isImpersonating) {
+      items.push({
+        kind: 'action',
+        label: 'Show page tips',
+        icon: HelpCircle,
+        onClick: () => {
+          resetPageTipsForUser(user.id)
+          setOpen(false)
+        },
+      })
     }
 
     items.push(

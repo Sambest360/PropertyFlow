@@ -268,7 +268,7 @@ export default function RegisterPage() {
       navigate(postRegisterPath('super_admin', result.bootstrap, next), { replace: true })
     } catch (err) {
       if (await handleRegistrationRedirect(err)) return
-      await showAuthError(err instanceof Error ? err.message : 'Registration failed')
+      await showAuthError(err instanceof Error ? err.message : 'Registration failed', err)
     } finally {
       setBusy(false)
     }
@@ -303,7 +303,7 @@ export default function RegisterPage() {
       navigate(postRegisterPath(role, result.bootstrap, next), { replace: true })
     } catch (err) {
       if (await handleRegistrationRedirect(err)) return
-      await showAuthError(err instanceof Error ? err.message : 'Registration failed')
+      await showAuthError(err instanceof Error ? err.message : 'Registration failed', err)
     } finally {
       setBusy(false)
     }
@@ -420,6 +420,7 @@ export default function RegisterPage() {
                 autoComplete="new-password"
                 required
                 minLength={8}
+                showStrength
               />
             </AuthField>
             <AuthField label="Confirm password" htmlFor="reg-confirm">

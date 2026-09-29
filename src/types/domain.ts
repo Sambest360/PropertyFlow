@@ -239,6 +239,35 @@ export type PropertyAsset = {
   grading?: string | null
 }
 
+/** One configured requirement on a lead-pipeline step. */
+export type LeadStageRequirement = {
+  id: string
+  kind: 'note' | 'document' | 'payment' | 'check'
+  label: string
+  description?: string
+  /** Document requirements: DOC_TYPE lookup key or free-text description. */
+  docType?: string
+  required: boolean
+}
+
+/** Agent-completed state for one requirement on one lead. */
+export type LeadRequirementCompletion = {
+  done: boolean
+  note?: string
+  file?: ApplicationDocumentFile
+  amount?: number
+  reference?: string
+  at?: string
+  by?: string | null
+}
+
+/** Per-stage progress for a lead, keyed by stage keyValue then requirement id. */
+export type LeadStageProgress = Record<string, LeadRequirementCompletion>
+
+export type LeadMetadata = {
+  stageProgress?: Record<string, LeadStageProgress>
+}
+
 export type Lead = {
   id: string
   agencyId: string
@@ -254,6 +283,8 @@ export type Lead = {
   notes: string
   createdAt: string
   updatedAt: string
+  /** Client-managed extras — pipeline step requirement progress lives here. */
+  metadata?: LeadMetadata
 }
 
 export type ApplicationUploadedDocs = {

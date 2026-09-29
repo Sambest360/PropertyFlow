@@ -4,10 +4,17 @@ import type { Activity, Application, Lead, PaymentRecord, PropertyAsset, Viewing
 import { Select, cn } from '../ui'
 import { formatZAR } from '../../data/seed'
 import { buildLeadStageContext } from '../../lib/leadContext'
+import {
+  requirementsForStage,
+  unmetRequiredBetween,
+} from '../../lib/leadRequirements'
 import { DetailSection, AgentAssigneeField, FlatField, FlatFieldGrid } from '../detail/FlatFields'
 import { LeadStageContextPanel } from './LeadStageContextPanel'
+import { LeadRequirementsPanel } from './LeadRequirementsPanel'
 import { LEAD_STAGES, ICON_STROKE } from './types'
 import { useLookupOptions } from '../../hooks/useLookupOptions'
+import { useStore } from '../../context/AppStore'
+import { sweetWarning } from '../../lib/sweetAlert'
 
 /**
  * Progress through the sales/leasing path for this enquiry —
@@ -23,6 +30,7 @@ export function LeadDealPanel({
   payments,
   activities,
   onStageChange,
+  onCompleteRequirement,
 }: {
   lead: Lead
   property: PropertyAsset | null
@@ -33,8 +41,14 @@ export function LeadDealPanel({
   payments: PaymentRecord[]
   activities?: Activity[]
   onStageChange: (stage: string) => void
+  onCompleteRequirement: (
+    requirementId: string,
+    patch: Partial<import('../../types/domain').LeadRequirementCompletion>,
+  ) => void
 }) {
   const stageOptions = useLookupOptions('LEAD_STAGE', lead.agencyId)
+  const { state } = useStore()
+  const lookups = state.lookups
   const stages = stageOptions.length
     ? stageOptions.map((o) => o.value)
     : [...LEAD_STAGES]
@@ -43,6 +57,10 @@ export function LeadDealPanel({
     : Object.fromEntries(LEAD_STAGES.map((s) => [s, s]))
 
   const stageIndex = Math.max(0, stages.findIndex((s) => s === lead.stage))
+  const currentRequirements = useMemo(
+    () => requirementsForStage(lookups ?? [], lead.stage, lead.agencyId),
+    [lookups, lead.stage, lead.agencyId],
+  )
   const dealKind = lead.type === 'Buy' ? 'sale' : 'rental'
   const total = stages.length
   const stepNumber = Math.min(stageIndex + 1, total)
@@ -148,18 +166,45 @@ export function LeadDealPanel({
             <Select
               className="mt-1 min-h-11 w-full"
               value={lead.stage}
-              onChange={(e) => onStageChange(e.target.value)}
+              onChange={(e) => {
+                const target = e.target.value
+                const unmet = unmetRequiredBetween(lead, stages, target, (stage) =>
+                  requirementsForStage(lookups ?? [], stage, lead.agencyId),
+                )
+                if (unmet.length > 0) {
+                  const label = stageLabels[unmet[0].stage] ?? unmet[0].stage
+                  void sweetWarning(
+                    'Requirements not complete',
+                    `This lead can't move to ${label} yet. First complete: ${unmet
+                      .map((u) => u.requirement.label)
+                      .join(', ')}`,
+                  )
+                  return
+                }
+                onStageChange(target)
+              }}
               aria-label="Update deal stage"
             >
               {stages.map((s, i) => (
                 <option key={s} value={s}>
                   {i + 1}. {stageLabels[s] ?? s}
                 </option>
-              ))}
+              ))
+              }
             </Select>
           </label>
         )}
       </DetailSection>
+
+      {currentRequirements.length > 0 ? (
+        <LeadRequirementsPanel
+          lead={lead}
+          stageLabel={stageLabels[lead.stage] ?? lead.stage}
+          requirements={currentRequirements}
+          canManage={canManage}
+          onComplete={onCompleteRequirement}
+        />
+      ) : null}
 
       <LeadStageContextPanel context={stageContext} />
     </div>

@@ -35,6 +35,8 @@ export type LookupConfig = {
   displayLabel: string
   isActive: boolean
   sortOrder: number
+  /** Type-specific extras — e.g. LEAD_STAGE rows carry their step requirements here. */
+  meta?: Record<string, unknown>
 }
 
 export type InternalAsset = {

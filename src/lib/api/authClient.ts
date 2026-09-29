@@ -3,7 +3,6 @@
  */
 import { setApiActor, type DemoActor } from './actorAuth'
 import { isApiEnabled, isSupabaseMode } from './config'
-import { appUserToDto, supabaseUpdateUserVerification } from '../supabase/auth'
 import type { UserVerification, VerificationDocument, VerificationProfile } from '../verification'
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''
@@ -63,8 +62,10 @@ async function parseJson<T>(res: Response): Promise<T> {
       (data as { message?: string }).message ||
       (data as { error?: string }).error ||
       `Request failed (${res.status})`
-    const err = new Error(msg) as Error & { status: number }
+    const err = new Error(msg) as Error & { status: number; retryAfterSec?: number }
     err.status = res.status
+    const retryAfter = Number(res.headers.get('Retry-After'))
+    if (Number.isFinite(retryAfter) && retryAfter > 0) err.retryAfterSec = retryAfter
     throw err
   }
   return data
@@ -131,15 +132,23 @@ export async function apiUpdateUserVerification(input: {
   status: 'approved' | 'rejected'
   rejectNote?: string
 }): Promise<AuthUserDto> {
+  // Supabase mode: still go through the server route (so the decision email +
+  // in-app notification fire server-side), passing the supabase JWT for the
+  // server to validate. The route is the single decision path in both modes.
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...authHeaders(),
+  }
   if (isSupabaseMode) {
-    const user = await supabaseUpdateUserVerification(input)
-    return appUserToDto(user)
+    const { createClient } = await import('../../utils/supabase/client')
+    const { data } = await createClient().auth.getSession()
+    if (data.session?.access_token) headers.Authorization = `Bearer ${data.session.access_token}`
   }
   const res = await fetch(
     `${API_BASE}/api/admin/users/${encodeURIComponent(input.userId)}/verification`,
     {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      headers,
       credentials: 'include',
       body: JSON.stringify({
         status: input.status,
@@ -147,8 +156,8 @@ export async function apiUpdateUserVerification(input: {
       }),
     },
   )
-  const data = await parseJson<{ ok: boolean; user: AuthUserDto }>(res)
-  return data.user
+  const data2 = await parseJson<{ ok: boolean; user: AuthUserDto }>(res)
+  return data2.user
 }
 
 export async function apiLogin(input: {

@@ -443,7 +443,7 @@ function OverviewTab({
             {canReview && verification?.status === 'pending' ? (
               <div className="space-y-3 border-t border-primary-100 pt-4">
                 <label className="block text-sm font-medium text-ink">
-                  Rejection note (if rejecting)
+                  Decline note (shown to the user if declined)
                   <Input
                     className="mt-1.5 min-h-11"
                     value={rejectNote}
@@ -468,7 +468,7 @@ function OverviewTab({
                     disabled={busy}
                     onClick={() => void applyDecision('rejected')}
                   >
-                    Reject
+                    Decline
                   </Button>
                 </div>
               </div>

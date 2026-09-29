@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react'
 import {
   Building2,
+  CalendarDays,
   Calculator,
   ClipboardList,
   CreditCard,
@@ -16,6 +17,7 @@ import {
   Briefcase,
   KeyRound,
   Landmark,
+  GitBranch,
   Bell,
   MessageSquare,
   AlertTriangle,
@@ -123,12 +125,6 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
             icon: Wrench,
           },
           {
-            to: '/workspace/operations/contractors',
-            label: 'Contractors',
-            permission: 'contractors.view',
-            icon: HardHat,
-          },
-          {
             to: '/workspace/operations/payments',
             label: 'Payments',
             permission: 'payments.view',
@@ -191,19 +187,12 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
       },
     },
     {
-      type: 'group',
-      group: {
-        id: 'compliance',
+      type: 'link',
+      item: {
+        to: '/workspace/compliance',
         label: 'Compliance',
+        permission: 'compliance.view',
         icon: ShieldCheck,
-        children: [
-          {
-            to: '/workspace/compliance',
-            label: 'Compliance Dashboard',
-            permission: 'compliance.view',
-            icon: ShieldCheck,
-          },
-        ],
       },
     },
     {
@@ -230,6 +219,12 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
             label: 'Landlords',
             anyOf: ['users.manage', 'assets.manage'],
             icon: KeyRound,
+          },
+          {
+            to: '/workspace/operations/contractors',
+            label: 'Contractors',
+            permission: 'contractors.view',
+            icon: HardHat,
           },
         ],
       },
@@ -269,6 +264,12 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
             icon: ClipboardList,
           },
           {
+            to: '/workspace/portals/tenant/viewings',
+            label: 'Viewings',
+            permission: 'portal.tenant',
+            icon: CalendarDays,
+          },
+          {
             to: ACCOUNT_WISHLIST_PATH,
             label: 'Wishlist',
             permission: 'portal.tenant',
@@ -295,6 +296,12 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
             label: 'Configuration',
             anyOf: ['config.manage', 'tenant.manage', 'platform.manage'],
             icon: Settings,
+          },
+          {
+            to: '/workspace/admin/pipeline',
+            label: 'Lead pipeline',
+            anyOf: ['config.manage', 'tenant.manage', 'platform.manage'],
+            icon: GitBranch,
           },
           {
             to: '/workspace/admin/notifications',
@@ -327,7 +334,7 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
 export const NAV_SMART_FLATTEN_MAX = 10
 
 /** Groups that stay as menus when the nav is large enough to warrant grouping. */
-const KEEP_GROUPED = new Set(['admin', 'portals', 'sales', 'operations', 'people', 'trust', 'compliance'])
+const KEEP_GROUPED = new Set(['admin', 'portals', 'sales', 'operations', 'people', 'trust'])
 
 export function flattenAllNavGroups(entries: WorkspaceNavEntry[]): WorkspaceNavEntry[] {
   return entries.flatMap((entry) => {
@@ -396,6 +403,7 @@ export function dedupeNavEntries(entries: WorkspaceNavEntry[]): WorkspaceNavEntr
 export const TENANT_PORTAL_PATHS = new Set([
   '/workspace/portals/tenant',
   '/workspace/portals/tenant/applications',
+  '/workspace/portals/tenant/viewings',
   ACCOUNT_WISHLIST_PATH,
   '/workspace/portals/tenant/maintenance',
   '/workspace/portals/tenant/messages',
@@ -476,6 +484,7 @@ function buildTenantApplicantNav(
   const promotedPaths = new Set([
     portalHome,
     '/workspace/portals/tenant/applications',
+    '/workspace/portals/tenant/viewings',
     ACCOUNT_WISHLIST_PATH,
     '/workspace/portals/tenant/maintenance',
     '/workspace/portals/tenant/messages',
@@ -529,6 +538,15 @@ function buildTenantApplicantNav(
         label: 'My applications',
         permission: 'portal.tenant',
         icon: ClipboardList,
+      },
+    },
+    {
+      type: 'link',
+      item: {
+        to: '/workspace/portals/tenant/viewings',
+        label: 'Viewings',
+        permission: 'portal.tenant',
+        icon: CalendarDays,
       },
     },
     {
