@@ -3,13 +3,14 @@
 # Required environment (UUIDs of two real agencies on the database you are checking):
 #   TENANT_A_AUTH_ID TENANT_A_USER_ID STAFF_A_AUTH_ID STAFF_A_USER_ID
 #   AGENCY_A_ID AGENCY_B_ID LANDLORD_A_USER_ID LANDLORD_A_AUTH_ID UNLINKED_A_USER_ID
+#   NOVERIF_LANDLORD_ID
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 source "$HERE/lib.sh"
 resolve_database_url
 
-required=(TENANT_A_AUTH_ID TENANT_A_USER_ID STAFF_A_AUTH_ID STAFF_A_USER_ID AGENCY_A_ID AGENCY_B_ID LANDLORD_A_USER_ID LANDLORD_A_AUTH_ID UNLINKED_A_USER_ID)
+required=(TENANT_A_AUTH_ID TENANT_A_USER_ID STAFF_A_AUTH_ID STAFF_A_USER_ID AGENCY_A_ID AGENCY_B_ID LANDLORD_A_USER_ID LANDLORD_A_AUTH_ID UNLINKED_A_USER_ID NOVERIF_LANDLORD_ID)
 for name in "${required[@]}"; do
   if [[ -z "${!name:-}" ]]; then
     echo "missing $name" >&2
@@ -27,6 +28,7 @@ out="$(psql "$DATABASE_URL_RESOLVED" -v ON_ERROR_STOP=1 \
   -v landlord_a_user_id="$LANDLORD_A_USER_ID" \
   -v landlord_a_auth_id="$LANDLORD_A_AUTH_ID" \
   -v unlinked_a_user_id="$UNLINKED_A_USER_ID" \
+  -v noverif_landlord_id="$NOVERIF_LANDLORD_ID" \
   -A -F $'\t' --pset footer=off \
   -f "$HERE/verify.sql")"
 printf '%s\n' "$out"

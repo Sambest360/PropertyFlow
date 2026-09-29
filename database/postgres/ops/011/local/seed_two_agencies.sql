@@ -12,6 +12,7 @@ VALUES
   ('11111111-1111-4111-8111-000000000005', 'authenticated', 'authenticated', 'tenant.a@agency-a.test', 'enc', '{}', now(), now()),
   ('11111111-1111-4111-8111-000000000006', 'authenticated', 'authenticated', 'contractor.a@agency-a.test', 'enc', '{}', now(), now()),
   ('11111111-1111-4111-8111-000000000007', 'authenticated', 'authenticated', 'unlinked.a@agency-a.test', 'enc', '{}', now(), now()),
+  ('11111111-1111-4111-8111-000000000008', 'authenticated', 'authenticated', 'noverif.a@agency-a.test', 'enc', '{}', now(), now()),
   ('22222222-2222-4222-8222-000000000001', 'authenticated', 'authenticated', 'admin.b@agency-b.test', 'enc', '{}', now(), now()),
   ('22222222-2222-4222-8222-000000000002', 'authenticated', 'authenticated', 'agent.b@agency-b.test', 'enc', '{}', now(), now()),
   ('22222222-2222-4222-8222-000000000003', 'authenticated', 'authenticated', 'ground.b@agency-b.test', 'enc', '{}', now(), now()),
@@ -22,7 +23,7 @@ VALUES
 
 INSERT INTO clients (id, company_name, subdomain, status, city, email, settings)
 VALUES
-  ('11111111-1111-4111-8111-111111111111', 'Agency A', 'agency-a', 'active', 'Gqeberha', 'office-a@agency-a.test', '{"frontend_id":"ag-a"}'),
+  ('11111111-1111-4111-8111-111111111111', 'Agency A', 'agency-a', 'active', 'Gqeberha', 'office-a@agency-a.test', '{"frontend_id":"ag-a","isGlobalConfigClient":false}'),
   ('22222222-2222-4222-8222-222222222222', 'Agency B', 'agency-b', 'active', 'Cape Town', 'office-b@agency-b.test', '{"frontend_id":"ag-b"}');
 
 INSERT INTO users (id, auth_user_id, client_id, email, password_hash, first_name, last_name, phone, role, active, metadata)
@@ -34,6 +35,7 @@ VALUES
   ('11111111-1111-4111-8111-000000000005', '11111111-1111-4111-8111-000000000005', '11111111-1111-4111-8111-111111111111', 'tenant.a@agency-a.test', '$2a$10$agencyAtenanthashxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', 'Tina', 'Tenant', '0410000005', 'END_USER', true, '{"frontend_id":"u-a-tenant","frontend_role":"tenant","enabledPermissions":["portal.tenant"],"verification":{"status":"not_required"}}'),
   ('11111111-1111-4111-8111-000000000006', '11111111-1111-4111-8111-000000000006', '11111111-1111-4111-8111-111111111111', 'contractor.a@agency-a.test', '$2a$10$agencyAcontractorhashxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', 'Chris', 'Contractor', '0410000006', 'CONTRACTOR', true, '{"frontend_id":"u-a-contractor","frontend_role":"contractor","verification":{"status":"approved"}}'),
   ('11111111-1111-4111-8111-000000000007', '11111111-1111-4111-8111-000000000007', '11111111-1111-4111-8111-111111111111', 'unlinked.a@agency-a.test', '$2a$10$agencyAunlinkedhashxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', 'Una', 'Unlinked', '0410000007', 'END_USER', true, '{"frontend_id":"u-a-unlinked","frontend_role":"tenant","verification":{"status":"not_required"},"idNumberOrPassport":"9001015009088"}'),
+  ('11111111-1111-4111-8111-000000000008', '11111111-1111-4111-8111-000000000008', '11111111-1111-4111-8111-111111111111', 'noverif.a@agency-a.test', '$2a$10$agencyAnoverifhashxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', 'Ned', 'Noverify', '0410000008', 'LANDLORD', true, '{"frontend_id":"u-a-noverif","frontend_role":"landlord"}'),
   ('22222222-2222-4222-8222-000000000001', '22222222-2222-4222-8222-000000000001', '22222222-2222-4222-8222-222222222222', 'admin.b@agency-b.test', '$2a$10$agencyBadminhashxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', 'Ben', 'Admin', '0210000001', 'AGENCY_ADMIN', true, '{"frontend_id":"u-b-admin","frontend_role":"agency_admin"}'),
   ('22222222-2222-4222-8222-000000000002', '22222222-2222-4222-8222-000000000002', '22222222-2222-4222-8222-222222222222', 'agent.b@agency-b.test', '$2a$10$agencyBagenthashxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', 'Bea', 'Agent', '0210000002', 'AGENT_ADMIN', true, '{"frontend_id":"u-b-agent","frontend_role":"agent_admin"}'),
   ('22222222-2222-4222-8222-000000000003', '22222222-2222-4222-8222-000000000003', '22222222-2222-4222-8222-222222222222', 'ground.b@agency-b.test', '$2a$10$agencyBgroundhashxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', 'Bo', 'Ground', '0210000003', 'GROUND_AGENT', true, '{"frontend_id":"u-b-ground","frontend_role":"ground_agent"}'),
@@ -44,6 +46,7 @@ VALUES
 INSERT INTO buildings (id, client_id, landlord_id, name, address, city, province)
 VALUES
   ('11111111-1111-4111-8111-000000000101', '11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-000000000004', 'Agency A House', '1 A Street', 'Gqeberha', 'EC'),
+  ('11111111-1111-4111-8111-000000000102', '11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-000000000008', 'Agency A Second House', '3 A Street', 'Gqeberha', 'EC'),
   ('22222222-2222-4222-8222-000000000101', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-000000000004', 'Agency B Private House', '2 B Street', 'Cape Town', 'WC');
 
 -- A is published so the anon RPC has a landlord row to inspect.
@@ -51,6 +54,7 @@ VALUES
 INSERT INTO units (id, building_id, client_id, unit_number, listing_type, status_config_key, title, agent_id)
 VALUES
   ('11111111-1111-4111-8111-000000000201', '11111111-1111-4111-8111-000000000101', '11111111-1111-4111-8111-111111111111', 'A1', 'RENT', 'PUBLISHED', 'Agency A published flat', '11111111-1111-4111-8111-000000000002'),
+  ('11111111-1111-4111-8111-000000000202', '11111111-1111-4111-8111-000000000102', '11111111-1111-4111-8111-111111111111', 'A2', 'RENT', 'PUBLISHED', 'Agency A second published flat', '11111111-1111-4111-8111-000000000002'),
   ('22222222-2222-4222-8222-000000000201', '22222222-2222-4222-8222-000000000101', '22222222-2222-4222-8222-222222222222', 'B1', 'NOT_LISTED', 'DRAFT', 'Agency B private flat', '22222222-2222-4222-8222-000000000002');
 
 INSERT INTO rooms (id, unit_id, client_id, name, room_kind)

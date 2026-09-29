@@ -1,17 +1,20 @@
--- Restore the pre-011 policies, functions, triggers, and grants.
--- Definitions are the ones left by migrations 001-010 (latest writer wins):
+-- Restore the post-011a catalog. 011a stays applied.
+-- Steps marked ASSUMES-REPO overwrite the live object with the definition in
+-- this file. That definition matches the repo only when hosted schema matches
+-- migrations 001-010 plus 011a_public_rpc_stopgap.sql. Diff the live catalog
+-- against the rehearsal pre-011 snapshot before relying on those steps.
+--
 --   users policies and table grants: 002_supabase_auth.sql
 --   tenant SELECT policies: 003_rls_bootstrap.sql
---   get_public_marketplace_bootstrap: 007_public_marketplace_rooms.sql
---   get_public_marketplace_bootstrap_lite: 008_public_marketplace_lite.sql
+--   marketplace RPCs: 011a_public_rpc_stopgap.sql (not 007/008)
 --
 -- Run once after a committed 011, via rollback.sh (one transaction, ON_ERROR_STOP).
 -- Safe to run a second time: new 011 objects are dropped if present, and the
 -- restored objects are created with DROP/CREATE OR REPLACE.
--- This does not restore a hand-edited production catalog. It restores the repo.
+-- This does not restore a hand-edited production catalog.
 
 -- ---------------------------------------------------------------------------
--- Policies 011 added
+-- Policies 011 added. Dropping them does not assume the hosted catalog.
 -- ---------------------------------------------------------------------------
 
 DROP POLICY IF EXISTS users_select_portfolio ON users;
@@ -31,7 +34,9 @@ DROP POLICY IF EXISTS applications_update_applicant ON applications;
 DROP POLICY IF EXISTS messages_insert_own ON messages;
 
 -- ---------------------------------------------------------------------------
--- users policies and trigger from 002 (011 replaced insert, dropped self-agency)
+-- ASSUMES-REPO: users_insert_admin and users_select_self_agency are recreated
+-- from 002_supabase_auth.sql. A dashboard edit of either policy is overwritten.
+-- Dropping the 011 trigger does not assume the hosted catalog.
 -- ---------------------------------------------------------------------------
 
 DROP POLICY IF EXISTS users_insert_admin ON users;
@@ -50,7 +55,9 @@ CREATE POLICY users_select_self_agency ON users
 DROP TRIGGER IF EXISTS protect_user_privileged_columns ON users;
 DROP FUNCTION IF EXISTS public.protect_user_privileged_columns();
 
--- Column privileges 011 added, then the table SELECT 002 granted.
+-- ASSUMES-REPO: 002 granted SELECT on the whole users table to authenticated.
+-- This puts that grant back. It does not restore a narrower column grant that
+-- production may have added by hand.
 REVOKE SELECT (
   id, auth_user_id, client_id, email, first_name, last_name, phone, role, active,
   avatar_url, metadata, created_at, updated_at
@@ -58,7 +65,8 @@ REVOKE SELECT (
 GRANT SELECT ON TABLE public.users TO authenticated;
 
 -- ---------------------------------------------------------------------------
--- Wide SELECT policies from 003_rls_bootstrap.sql
+-- ASSUMES-REPO: wide SELECT policies from 003_rls_bootstrap.sql, including
+-- event_log_select below. Any hosted edit of these policies is overwritten.
 -- ---------------------------------------------------------------------------
 
 DO $$
@@ -89,11 +97,13 @@ CREATE POLICY event_log_select ON event_log
          OR current_app_user_role() IN ('LANDLORD', 'END_USER', 'CONTRACTOR'));
 
 -- ---------------------------------------------------------------------------
--- Marketplace RPCs as of 007 and 008. Helpers exist only after 011.
--- Replace the RPCs first so DROP FUNCTION is not blocked by a dependency.
+-- ASSUMES-REPO: marketplace RPCs are recreated from 011a_public_rpc_stopgap.sql.
+-- Same signatures as 011 (boolean -> jsonb). A hosted edit of 011a is overwritten.
+-- The 008 lite bug (property ids joined to buildings) is still in 011a. Keep it.
+-- Helpers exist only after 011. Replace the RPCs first so DROP FUNCTION is safe.
 -- ---------------------------------------------------------------------------
 
--- Restored verbatim from 007_public_marketplace_rooms.sql
+-- Restored from 011a_public_rpc_stopgap.sql (post-011a, not 007/008).
 CREATE OR REPLACE FUNCTION get_public_marketplace_bootstrap(p_lite boolean DEFAULT true)
 RETURNS jsonb
 LANGUAGE sql
@@ -137,11 +147,38 @@ AS $$
     JOIN public_units pu ON pu.id = r.unit_id
   )
   SELECT jsonb_build_object(
-    'clients', coalesce((SELECT jsonb_agg(to_jsonb(c) ORDER BY c.company_name) FROM unit_clients c), '[]'::jsonb),
-    'buildings', coalesce((SELECT jsonb_agg(to_jsonb(b) ORDER BY b.name) FROM unit_buildings b), '[]'::jsonb),
+    'clients', coalesce((SELECT jsonb_agg(
+        jsonb_build_object(
+          'id', c.id,
+          'company_name', c.company_name,
+          'subdomain', c.subdomain,
+          'status', c.status,
+          'city', c.city,
+          'created_at', c.created_at,
+          'settings', jsonb_strip_nulls(jsonb_build_object(
+            'frontend_id', c.settings->'frontend_id',
+            'isGlobalConfigClient', c.settings->'isGlobalConfigClient'
+          ))
+        ) ORDER BY c.company_name) FROM unit_clients c), '[]'::jsonb),
+    'buildings', coalesce((SELECT jsonb_agg(to_jsonb(b) - 'notes' ORDER BY b.name) FROM unit_buildings b), '[]'::jsonb),
     'units', coalesce((SELECT jsonb_agg(to_jsonb(u) ORDER BY u.created_at DESC) FROM public_units u), '[]'::jsonb),
     'rooms', coalesce((SELECT jsonb_agg(to_jsonb(r) ORDER BY r.name) FROM unit_rooms r), '[]'::jsonb),
-    'users', coalesce((SELECT jsonb_agg(to_jsonb(u) ORDER BY u.email) FROM unit_landlords u), '[]'::jsonb),
+    'users', coalesce((SELECT jsonb_agg(
+        jsonb_build_object(
+          'id', u.id,
+          'client_id', u.client_id,
+          'email', u.email,
+          'first_name', u.first_name,
+          'last_name', u.last_name,
+          'role', u.role,
+          'active', u.active,
+          'metadata', jsonb_strip_nulls(jsonb_build_object(
+            'frontend_id', u.metadata->'frontend_id',
+            'frontend_role', u.metadata->'frontend_role',
+            'verification', CASE WHEN jsonb_typeof(u.metadata->'verification') = 'object'
+              THEN jsonb_build_object('status', u.metadata->'verification'->'status') END
+          ))
+        ) ORDER BY u.email) FROM unit_landlords u), '[]'::jsonb),
     'entity_id_map', coalesce(
       (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.entity_type, m.frontend_id)
        FROM entity_id_map m
@@ -155,10 +192,6 @@ AS $$
   );
 $$;
 
-REVOKE ALL ON FUNCTION get_public_marketplace_bootstrap(boolean) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION get_public_marketplace_bootstrap(boolean) TO anon, authenticated;
-
--- Restored verbatim from 008_public_marketplace_lite.sql
 CREATE OR REPLACE FUNCTION get_public_marketplace_bootstrap_lite(p_lite boolean DEFAULT true)
 RETURNS jsonb
 LANGUAGE sql
@@ -203,9 +236,21 @@ AS $$
     JOIN unit_buildings b ON b.id = pu.building_id
   )
   SELECT jsonb_build_object(
-    'clients', coalesce((SELECT jsonb_agg(to_jsonb(c) ORDER BY c.company_name) FROM unit_clients c), '[]'::jsonb),
+    'clients', coalesce((SELECT jsonb_agg(
+        jsonb_build_object(
+          'id', c.id,
+          'company_name', c.company_name,
+          'subdomain', c.subdomain,
+          'status', c.status,
+          'city', c.city,
+          'created_at', c.created_at,
+          'settings', jsonb_strip_nulls(jsonb_build_object(
+            'frontend_id', c.settings->'frontend_id',
+            'isGlobalConfigClient', c.settings->'isGlobalConfigClient'
+          ))
+        ) ORDER BY c.company_name) FROM unit_clients c), '[]'::jsonb),
     'buildings', coalesce((SELECT jsonb_agg(
-        (to_jsonb(b) - 'images')
+        (to_jsonb(b) - 'images' - 'notes')
         || jsonb_build_object('images', jsonb_build_array(b.images->0))
         ORDER BY b.name) FROM unit_buildings b), '[]'::jsonb),
     'units', coalesce((SELECT jsonb_agg(
@@ -213,7 +258,22 @@ AS $$
         || jsonb_build_object('images', CASE WHEN uc.cover IS NOT NULL THEN jsonb_build_array(uc.cover) ELSE '[]'::jsonb END)
         ORDER BY u.created_at DESC)
       FROM public_units u JOIN unit_cover uc ON uc.id = u.id), '[]'::jsonb),
-    'users', coalesce((SELECT jsonb_agg(to_jsonb(u) ORDER BY u.email) FROM unit_landlords u), '[]'::jsonb),
+    'users', coalesce((SELECT jsonb_agg(
+        jsonb_build_object(
+          'id', u.id,
+          'client_id', u.client_id,
+          'email', u.email,
+          'first_name', u.first_name,
+          'last_name', u.last_name,
+          'role', u.role,
+          'active', u.active,
+          'metadata', jsonb_strip_nulls(jsonb_build_object(
+            'frontend_id', u.metadata->'frontend_id',
+            'frontend_role', u.metadata->'frontend_role',
+            'verification', CASE WHEN jsonb_typeof(u.metadata->'verification') = 'object'
+              THEN jsonb_build_object('status', u.metadata->'verification'->'status') END
+          ))
+        ) ORDER BY u.email) FROM unit_landlords u), '[]'::jsonb),
     'entity_id_map', coalesce(
       (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.entity_type, m.frontend_id)
        FROM entity_id_map m
@@ -227,10 +287,12 @@ AS $$
   );
 $$;
 
+REVOKE ALL ON FUNCTION get_public_marketplace_bootstrap(boolean) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION get_public_marketplace_bootstrap(boolean) TO anon, authenticated;
 REVOKE ALL ON FUNCTION get_public_marketplace_bootstrap_lite(boolean) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION get_public_marketplace_bootstrap_lite(boolean) TO anon, authenticated;
 
-
+-- Dropping helpers that exist only after 011. This does not assume the hosted catalog.
 DROP FUNCTION IF EXISTS public.marketplace_user_json(users);
 DROP FUNCTION IF EXISTS public.marketplace_client_json(clients);
 DROP FUNCTION IF EXISTS public.marketplace_building_json(buildings, boolean);

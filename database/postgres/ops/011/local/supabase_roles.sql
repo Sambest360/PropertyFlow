@@ -65,6 +65,12 @@ GRANT EXECUTE ON FUNCTION auth.jwt() TO anon, authenticated, service_role;
 -- Supabase grants schema usage to the API roles before any migration runs.
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 
+-- Supabase default privileges grant EXECUTE on every new public function
+-- directly to anon, authenticated, and service_role. REVOKE FROM PUBLIC does
+-- not remove those grants. This runs as the role that creates later functions.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
+
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN

@@ -22,6 +22,7 @@ export LANDLORD_A_USER_ID="11111111-1111-4111-8111-000000000004"
 export LANDLORD_A_AUTH_ID="11111111-1111-4111-8111-000000000004"
 export UNLINKED_A_USER_ID="11111111-1111-4111-8111-000000000007"
 export STAFF_A_USER_ID="11111111-1111-4111-8111-000000000001"
+export NOVERIF_LANDLORD_ID="11111111-1111-4111-8111-000000000008"
 
 TABLES=(
   buildings units rooms internal_assets leads applications
@@ -48,7 +49,7 @@ MIGRATIONS=(
   010_lead_metadata.sql
 )
 
-for id in "$TENANT_A_AUTH_ID" "$STAFF_A_AUTH_ID" "$AGENCY_A_ID" "$AGENCY_B_ID" "$LANDLORD_A_USER_ID" "$UNLINKED_A_USER_ID"; do
+for id in "$TENANT_A_AUTH_ID" "$STAFF_A_AUTH_ID" "$AGENCY_A_ID" "$AGENCY_B_ID" "$LANDLORD_A_USER_ID" "$UNLINKED_A_USER_ID" "$NOVERIF_LANDLORD_ID"; do
   grep -q "$id" "$HERE/local/seed_two_agencies.sql" || {
     echo "seed file is missing fixture $id" >&2
     exit 1
@@ -81,6 +82,8 @@ echo "migrations 001-010"
 for name in "${MIGRATIONS[@]}"; do
   apply_file "$ROOT/database/postgres/migrations/$name"
 done
+echo "011a public RPC stopgap"
+apply_file "$ROOT/database/postgres/migrations/011a_public_rpc_stopgap.sql"
 echo "seed two agencies"
 apply_file "$HERE/local/seed_two_agencies.sql"
 echo "rehearsal-only service_role table grants"
@@ -98,6 +101,7 @@ run_verify() {
     -v landlord_a_user_id="$LANDLORD_A_USER_ID" \
     -v landlord_a_auth_id="$LANDLORD_A_AUTH_ID" \
     -v unlinked_a_user_id="$UNLINKED_A_USER_ID" \
+    -v noverif_landlord_id="$NOVERIF_LANDLORD_ID" \
     -A -F $'\t' --pset footer=off \
     -f "$HERE/verify.sql" >"$dest"
 }
@@ -130,7 +134,10 @@ for tbl in "${TABLES[@]}"; do
 done
 for id in c_first_name c_nickname c_auth_user_id d_staff_users \
   d_tenant_own_notification d_tenant_own_application \
-  b_landlord_sees_linked_tenant c_service_role_can_set_role c_direct_admin_can_set_role; do
+  b_landlord_sees_linked_tenant c_service_role_can_set_role c_direct_admin_can_set_role \
+  a_client_flag_is_boolean a_verification_only_when_stored \
+  e_marketplace_helpers_locked e_public_rpcs_executable \
+  e_rls_helpers_anon_denied e_rls_helpers_authenticated; do
   expect_result "$WORK/verify-before.txt" "$id" PASS
 done
 for tbl in "${TABLES[@]}"; do
@@ -138,9 +145,34 @@ for tbl in "${TABLES[@]}"; do
 done
 echo "  before-011 teeth confirmed ($(awk -F '\t' '$1 != "SUMMARY" && $2 == "FAIL" { c++ } END { print c + 0 }' "$WORK/verify-before.txt") FAIL checks)"
 
-echo "pre-apply snapshot"
+echo "pre-apply snapshot (post-011a, pre-011)"
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -A -t -f "$HERE/pre_apply_snapshot.sql" >"$WORK/snapshot-pre.txt"
 bash "$HERE/schema_dump.sh" "$WORK/dump-pre.sql" >>"$LOG"
+grep -v -E '^\\(un)?restrict ' "$WORK/dump-pre.sql" >"$WORK/dump-pre.norm.sql" || true
+REF_DIR="$HERE/rehearsal"
+mkdir -p "$REF_DIR"
+if [[ -f "$REF_DIR/pre-011-snapshot.txt" ]]; then
+  if ! diff -q "$WORK/snapshot-pre.txt" "$REF_DIR/pre-011-snapshot.txt" >/dev/null; then
+    echo "pre-011 catalog snapshot drifted from rehearsal/pre-011-snapshot.txt" >&2
+    diff -u "$REF_DIR/pre-011-snapshot.txt" "$WORK/snapshot-pre.txt" | head -40 >&2
+    exit 1
+  fi
+else
+  cp "$WORK/snapshot-pre.txt" "$REF_DIR/pre-011-snapshot.txt"
+fi
+if [[ -f "$REF_DIR/pre-011-public-schema.sql" ]]; then
+  if ! diff -q "$WORK/dump-pre.norm.sql" "$REF_DIR/pre-011-public-schema.sql" >/dev/null; then
+    echo "pre-011 schema dump drifted from rehearsal/pre-011-public-schema.sql" >&2
+    diff -u "$REF_DIR/pre-011-public-schema.sql" "$WORK/dump-pre.norm.sql" | head -40 >&2
+    exit 1
+  fi
+else
+  cp "$WORK/dump-pre.norm.sql" "$REF_DIR/pre-011-public-schema.sql"
+fi
+if [[ -n "${LIVE_SCHEMA_DUMP:-}" ]]; then
+  echo "diff live schema dump against the post-011a rehearsal schema"
+  bash "$HERE/diff_live_schema.sh" "$LIVE_SCHEMA_DUMP" "$WORK/dump-pre.norm.sql"
+fi
 
 echo "probe: forced failure must roll the transaction back"
 probe="$WORK/probe.sql"

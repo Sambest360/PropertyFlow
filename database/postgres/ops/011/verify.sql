@@ -13,6 +13,7 @@
 --   landlord_a_auth_id   auth.users id of that landlord (auth.uid())
 --   unlinked_a_user_id   END_USER in agency A with no lease and no application
 --   staff_a_user_id      public.users id of the agency A admin
+--   noverif_landlord_id  landlord with a published unit and no verification.status
 --
 -- JWT shape matches migrations 002 helpers: auth.uid() reads
 -- request.jwt.claim.sub, then request.jwt.claims ->> 'sub'.
@@ -30,6 +31,7 @@ SELECT set_config('verify.landlord_a_user_id', :'landlord_a_user_id', true);
 SELECT set_config('verify.landlord_a_auth_id', :'landlord_a_auth_id', true);
 SELECT set_config('verify.unlinked_a_user_id', :'unlinked_a_user_id', true);
 SELECT set_config('verify.staff_a_user_id', :'staff_a_user_id', true);
+SELECT set_config('verify.noverif_landlord_id', :'noverif_landlord_id', true);
 
 CREATE TEMP TABLE verify_tenant_before AS
 SELECT role, first_name
@@ -43,7 +45,7 @@ CREATE TEMP TABLE verify_results (
 ) ON COMMIT DROP;
 
 -- Keys the hardened marketplace projection is allowed to emit.
--- Any other key, at any depth, is a leak (email, metadata, notes, deposit_amount, ...).
+-- metadata is only verification.status. email, notes, and deposit_amount are leaks.
 CREATE OR REPLACE FUNCTION pg_temp.unexpected_keys(p jsonb, path text)
 RETURNS text
 LANGUAGE plpgsql
@@ -85,14 +87,16 @@ BEGIN
         'formatted_address','geocoded_at','created_at'
       ]
       WHEN 'rooms' THEN ARRAY['id','unit_id','name','beds','baths','area_sqm','room_kind']
-      WHEN 'users' THEN ARRAY['landlord_id','display_name','client_id','role','active']
+      WHEN 'users' THEN ARRAY['landlord_id','display_name','client_id','role','active','metadata']
+      WHEN 'users.metadata' THEN ARRAY['verification']
+      WHEN 'users.metadata.verification' THEN ARRAY['status']
       WHEN 'entity_id_map' THEN ARRAY['entity_type','backend_id','frontend_id']
       ELSE ARRAY[]::text[]
     END;
     FOR k IN SELECT jsonb_object_keys(p) LOOP
       IF NOT (k = ANY (allowed)) THEN
         found := found || (CASE WHEN path = '' THEN k ELSE path || '.' || k END);
-      ELSIF k IN ('clients','buildings','units','rooms','users','entity_id_map','settings') THEN
+      ELSIF k IN ('clients','buildings','units','rooms','users','entity_id_map','settings','metadata','verification') THEN
         child_path := CASE WHEN path = '' THEN k ELSE path || '.' || k END;
         acc := pg_temp.unexpected_keys(p -> k, child_path);
         IF acc <> '' THEN
@@ -166,6 +170,212 @@ BEGIN
       );
     END;
   END LOOP;
+END
+$check$;
+
+-- isGlobalConfigClient must stay a JSON boolean. The string 'false' is truthy in the guest mapper.
+DO $check$
+DECLARE
+  fname text;
+  payload jsonb;
+  flag jsonb;
+  agency text := current_setting('verify.agency_a_id');
+  bad text := '';
+BEGIN
+  FOREACH fname IN ARRAY ARRAY[
+    'get_public_marketplace_bootstrap',
+    'get_public_marketplace_bootstrap_lite'
+  ]
+  LOOP
+    SET LOCAL ROLE anon;
+    IF fname = 'get_public_marketplace_bootstrap' THEN
+      payload := public.get_public_marketplace_bootstrap(true);
+    ELSE
+      payload := public.get_public_marketplace_bootstrap_lite(true);
+    END IF;
+    RESET ROLE;
+    SELECT c.value->'settings'->'isGlobalConfigClient'
+      INTO flag
+    FROM jsonb_array_elements(COALESCE(payload->'clients', '[]'::jsonb)) AS c(value)
+    WHERE c.value->>'id' = agency;
+    IF flag IS NULL
+       OR jsonb_typeof(flag) <> 'boolean'
+       OR flag <> 'false'::jsonb THEN
+      bad := bad || fname || '=' || COALESCE(jsonb_typeof(flag), 'missing') || ' ';
+    END IF;
+  END LOOP;
+  INSERT INTO verify_results VALUES (
+    'a_client_flag_is_boolean',
+    CASE WHEN bad = '' THEN 'PASS' ELSE 'FAIL' END,
+    CASE WHEN bad = '' THEN 'isGlobalConfigClient is JSON false' ELSE bad END
+  );
+EXCEPTION WHEN OTHERS THEN
+  RESET ROLE;
+  INSERT INTO verify_results VALUES ('a_client_flag_is_boolean', 'FAIL', SQLERRM);
+END
+$check$;
+
+-- verification.status is emitted only when stored. A missing status is not filled in as approved.
+DO $check$
+DECLARE
+  fname text;
+  payload jsonb;
+  stored jsonb;
+  missing jsonb;
+  landlord text := current_setting('verify.landlord_a_user_id');
+  noverif text := current_setting('verify.noverif_landlord_id');
+  bad text := '';
+BEGIN
+  FOREACH fname IN ARRAY ARRAY[
+    'get_public_marketplace_bootstrap',
+    'get_public_marketplace_bootstrap_lite'
+  ]
+  LOOP
+    SET LOCAL ROLE anon;
+    IF fname = 'get_public_marketplace_bootstrap' THEN
+      payload := public.get_public_marketplace_bootstrap(true);
+    ELSE
+      payload := public.get_public_marketplace_bootstrap_lite(true);
+    END IF;
+    RESET ROLE;
+
+    SELECT u.value
+      INTO stored
+    FROM jsonb_array_elements(COALESCE(payload->'users', '[]'::jsonb)) AS u(value)
+    WHERE u.value->>'id' = landlord OR u.value->>'landlord_id' = landlord;
+
+    SELECT u.value
+      INTO missing
+    FROM jsonb_array_elements(COALESCE(payload->'users', '[]'::jsonb)) AS u(value)
+    WHERE u.value->>'id' = noverif OR u.value->>'landlord_id' = noverif;
+
+    IF stored IS NULL
+       OR jsonb_typeof(stored->'metadata'->'verification'->'status') <> 'string'
+       OR stored->'metadata'->'verification'->>'status' <> 'approved' THEN
+      bad := bad || fname || ' stored=' || COALESCE(stored->'metadata'->'verification'->>'status', 'absent') || ' ';
+    END IF;
+    IF missing IS NULL
+       OR COALESCE(missing->'metadata'->'verification'->>'status', '') <> '' THEN
+      bad := bad || fname || ' missing=' || COALESCE(missing->'metadata'->'verification'->>'status', 'no-row') || ' ';
+    END IF;
+  END LOOP;
+  INSERT INTO verify_results VALUES (
+    'a_verification_only_when_stored',
+    CASE WHEN bad = '' THEN 'PASS' ELSE 'FAIL' END,
+    CASE WHEN bad = '' THEN 'status copied when stored and omitted when absent' ELSE bad END
+  );
+EXCEPTION WHEN OTHERS THEN
+  RESET ROLE;
+  INSERT INTO verify_results VALUES ('a_verification_only_when_stored', 'FAIL', SQLERRM);
+END
+$check$;
+
+-- Default privileges grant EXECUTE to anon and authenticated. Helpers must still be closed.
+DO $check$
+DECLARE
+  sig text;
+  detail text := '';
+  present boolean := false;
+BEGIN
+  FOREACH sig IN ARRAY ARRAY[
+    'public.marketplace_user_json(public.users)',
+    'public.marketplace_client_json(public.clients)',
+    'public.marketplace_building_json(public.buildings, boolean)',
+    'public.marketplace_unit_json(public.units, jsonb)',
+    'public.marketplace_room_json(public.rooms)',
+    'public.marketplace_entity_json(public.entity_id_map)'
+  ]
+  LOOP
+    IF to_regprocedure(sig) IS NULL THEN
+      CONTINUE;
+    END IF;
+    present := true;
+    IF has_function_privilege('anon', to_regprocedure(sig), 'EXECUTE')
+       OR has_function_privilege('authenticated', to_regprocedure(sig), 'EXECUTE') THEN
+      detail := detail || sig || ' ';
+    END IF;
+  END LOOP;
+  IF NOT present THEN
+    INSERT INTO verify_results VALUES (
+      'e_marketplace_helpers_locked', 'PASS', 'marketplace helpers are not created yet'
+    );
+  ELSIF detail = '' THEN
+    INSERT INTO verify_results VALUES (
+      'e_marketplace_helpers_locked', 'PASS', 'anon and authenticated cannot execute marketplace helpers'
+    );
+  ELSE
+    INSERT INTO verify_results VALUES (
+      'e_marketplace_helpers_locked', 'FAIL', 'still executable: ' || detail
+    );
+  END IF;
+END
+$check$;
+
+DO $check$
+DECLARE
+  sig text;
+  ok boolean := true;
+  detail text := '';
+BEGIN
+  FOREACH sig IN ARRAY ARRAY[
+    'public.get_public_marketplace_bootstrap(boolean)',
+    'public.get_public_marketplace_bootstrap_lite(boolean)'
+  ]
+  LOOP
+    IF to_regprocedure(sig) IS NULL
+       OR NOT has_function_privilege('anon', to_regprocedure(sig), 'EXECUTE')
+       OR NOT has_function_privilege('authenticated', to_regprocedure(sig), 'EXECUTE') THEN
+      ok := false;
+      detail := detail || sig || ' ';
+    END IF;
+  END LOOP;
+  INSERT INTO verify_results VALUES (
+    'e_public_rpcs_executable',
+    CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END,
+    CASE WHEN ok THEN 'anon and authenticated can execute both marketplace RPCs'
+         ELSE 'missing grant: ' || detail END
+  );
+END
+$check$;
+
+DO $check$
+DECLARE
+  sig text;
+  anon_detail text := '';
+  auth_detail text := '';
+  present boolean := false;
+BEGIN
+  FOREACH sig IN ARRAY ARRAY[
+    'public.building_has_public_listing(uuid)',
+    'public.viewing_slot_on_public_listing(uuid)'
+  ]
+  LOOP
+    IF to_regprocedure(sig) IS NULL THEN
+      CONTINUE;
+    END IF;
+    present := true;
+    IF has_function_privilege('anon', to_regprocedure(sig), 'EXECUTE') THEN
+      anon_detail := anon_detail || sig || ' ';
+    END IF;
+    IF NOT has_function_privilege('authenticated', to_regprocedure(sig), 'EXECUTE') THEN
+      auth_detail := auth_detail || sig || ' ';
+    END IF;
+  END LOOP;
+  IF NOT present THEN
+    INSERT INTO verify_results VALUES ('e_rls_helpers_anon_denied', 'PASS', 'listing helpers are not created yet');
+    INSERT INTO verify_results VALUES ('e_rls_helpers_authenticated', 'PASS', 'listing helpers are not created yet');
+  ELSE
+    INSERT INTO verify_results VALUES (
+      'e_rls_helpers_anon_denied',
+      CASE WHEN anon_detail = '' THEN 'PASS' ELSE 'FAIL' END,
+      CASE WHEN anon_detail = '' THEN 'anon cannot execute listing helpers' ELSE anon_detail END
+    );
+    INSERT INTO verify_results VALUES (
+      'e_rls_helpers_authenticated',
+      CASE WHEN auth_detail = '' THEN 'PASS' ELSE 'FAIL' END,
+      CASE WHEN auth_detail = '' THEN 'authenticated can execute listing helpers' ELSE 'missing: ' || auth_detail END
+    );
+  END IF;
 END
 $check$;
 

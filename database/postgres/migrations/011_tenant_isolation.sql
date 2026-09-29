@@ -1,4 +1,6 @@
 -- Tenant isolation and privilege hardening.
+-- Apply after 011a_public_rpc_stopgap.sql. This file replaces the same two
+-- marketplace RPC signatures (boolean -> jsonb) and does not drop 011a.
 -- Apply with database/postgres/ops/011/apply.sh (single transaction, fail-fast locks).
 -- Do not run this file on its own against production.
 -- This file is not run by `npm run db:migrate` (that script only applies 001).
@@ -35,8 +37,8 @@ AS $$
   SELECT COUNT(*) FROM public.users;
 $$;
 
-REVOKE ALL ON FUNCTION public.users_count_unscoped() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.users_count_unscoped() TO anon, authenticated;
+REVOKE ALL ON FUNCTION public.users_count_unscoped() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.users_count_unscoped() TO authenticated;
 
 CREATE OR REPLACE FUNCTION public.protect_user_privileged_columns()
 RETURNS TRIGGER
@@ -105,6 +107,9 @@ BEGIN
 END;
 $$;
 
+-- The trigger runs as the invoker, so the API roles that can write users need EXECUTE.
+-- PUBLIC does not. Default privileges already granted the three API roles; grant
+-- them explicitly so a database without those defaults still fires the trigger.
 REVOKE ALL ON FUNCTION public.protect_user_privileged_columns() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.protect_user_privileged_columns() TO anon, authenticated, service_role;
 
@@ -346,8 +351,10 @@ AS $$
   );
 $$;
 
-REVOKE ALL ON FUNCTION public.building_has_public_listing(uuid) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.viewing_slot_on_public_listing(uuid) FROM PUBLIC;
+-- Policies call these as the signed-in user, so authenticated keeps EXECUTE.
+-- anon and service_role do not. REVOKE FROM PUBLIC alone leaves the default-privilege grants.
+REVOKE ALL ON FUNCTION public.building_has_public_listing(uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.viewing_slot_on_public_listing(uuid) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.building_has_public_listing(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.viewing_slot_on_public_listing(uuid) TO authenticated;
 
@@ -384,20 +391,32 @@ CREATE POLICY messages_insert_own ON messages
 -- Public marketplace RPCs: explicit column allow-list. Never to_jsonb a row.
 -- ---------------------------------------------------------------------------
 
--- Stable landlord key for the guest mapper. Email, phone, password_hash, and
--- metadata stay out of the anon payload. display_name is first + last name.
+-- Stable landlord key for the guest mapper. Email, phone, and password_hash stay
+-- out. verification.status is copied with -> only when that key is stored.
+-- A missing status is omitted. It is not filled in as 'approved' (the listing
+-- filter still treats a missing status as approved for inclusion only).
 CREATE OR REPLACE FUNCTION public.marketplace_user_json(u users)
 RETURNS jsonb
 LANGUAGE sql
 STABLE
 AS $$
-  SELECT jsonb_build_object(
+  SELECT jsonb_strip_nulls(jsonb_build_object(
     'landlord_id', u.id,
     'display_name', trim(concat_ws(' ', u.first_name, u.last_name)),
     'client_id', u.client_id,
     'role', u.role,
-    'active', u.active
-  );
+    'active', u.active,
+    'metadata', CASE
+      WHEN jsonb_typeof(u.metadata->'verification') = 'object'
+           AND (u.metadata->'verification') ? 'status'
+           AND jsonb_typeof(u.metadata->'verification'->'status') <> 'null'
+      THEN jsonb_build_object(
+        'verification', jsonb_build_object(
+          'status', u.metadata->'verification'->'status'
+        )
+      )
+    END
+  ));
 $$;
 
 CREATE OR REPLACE FUNCTION public.marketplace_building_json(b buildings, p_cover_only boolean)
@@ -503,19 +522,23 @@ AS $$
     'status', c.status,
     'city', c.city,
     'created_at', c.created_at,
-    'settings', jsonb_build_object(
-      'frontend_id', c.settings->>'frontend_id',
-      'isGlobalConfigClient', c.settings->>'isGlobalConfigClient'
-    )
+    -- -> keeps JSON booleans. ->> would turn false into the string 'false',
+    -- which the guest mapper treats as truthy and then drops the agency.
+    'settings', jsonb_strip_nulls(jsonb_build_object(
+      'frontend_id', c.settings->'frontend_id',
+      'isGlobalConfigClient', c.settings->'isGlobalConfigClient'
+    ))
   );
 $$;
 
-REVOKE ALL ON FUNCTION public.marketplace_user_json(users) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.marketplace_client_json(clients) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.marketplace_building_json(buildings, boolean) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.marketplace_unit_json(units, jsonb) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.marketplace_room_json(rooms) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.marketplace_entity_json(entity_id_map) FROM PUBLIC;
+-- Internal projections. Supabase default privileges grant EXECUTE to anon,
+-- authenticated, and service_role, so REVOKE FROM PUBLIC is not enough.
+REVOKE ALL ON FUNCTION public.marketplace_user_json(users) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.marketplace_client_json(clients) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.marketplace_building_json(buildings, boolean) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.marketplace_unit_json(units, jsonb) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.marketplace_room_json(rooms) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.marketplace_entity_json(entity_id_map) FROM PUBLIC, anon, authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION get_public_marketplace_bootstrap(p_lite boolean DEFAULT true)
 RETURNS jsonb
@@ -645,6 +668,9 @@ AS $$
   );
 $$;
 
+-- Same signature and grants as 011a. Do not revoke anon/authenticated here:
+-- CREATE OR REPLACE keeps the privileges 011a left, including the service_role
+-- grant that Supabase default privileges add and 011a does not remove.
 REVOKE ALL ON FUNCTION get_public_marketplace_bootstrap(boolean) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION get_public_marketplace_bootstrap(boolean) TO anon, authenticated;
 REVOKE ALL ON FUNCTION get_public_marketplace_bootstrap_lite(boolean) FROM PUBLIC;

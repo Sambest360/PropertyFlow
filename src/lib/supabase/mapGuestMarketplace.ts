@@ -33,6 +33,10 @@ function iso(v: string | null | undefined): string | null {
   return v ?? null
 }
 
+function isGlobalConfigClient(value: unknown): boolean {
+  return value === true || value === 'true'
+}
+
 function guestUserId(u: Record<string, unknown>): string {
   if (typeof u.landlord_id === 'string' && u.landlord_id) return u.landlord_id
   if (typeof u.id === 'string') return u.id
@@ -85,7 +89,7 @@ export function mapGuestMarketplacePayload(payload: {
   const agencies = clients
     .filter((c) => {
       const settings = (c.settings as Record<string, unknown> | null) ?? {}
-      return settings.frontend_id !== GLOBAL_CLIENT_ID && !settings.isGlobalConfigClient
+      return settings.frontend_id !== GLOBAL_CLIENT_ID && !isGlobalConfigClient(settings.isGlobalConfigClient)
     })
     .map((c) => ({
       id: mappedFe(cache, 'agency', String(c.id), String(c.id)),
