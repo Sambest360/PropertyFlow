@@ -31,12 +31,14 @@ supabase status
 `supabase/migrations/` holds copies of the SQL, prefixed so they run in this order:
 
 1. `database/postgres/schema.sql`
-2. `001` through `006`, in number order
-3. The duplicate `007_*` files in filename order: `007_clear_demo_applications.sql`, `007_public_marketplace_rooms.sql`, `007_trust_banking.sql`
-4. The duplicate `008_*` files in filename order: `008_public_marketplace_lite.sql`, `008_realtime_publication.sql`, `008_ticket_updates_rls.sql`
+2. `001` through `006`
+3. `007a_clear_demo_applications.sql`, `007b_public_marketplace_rooms.sql`, `007c_trust_banking.sql`
+4. `008a_public_marketplace_lite.sql`, `008b_realtime_publication.sql`, `008c_ticket_updates_rls.sql`
 5. `009`, `010`, `011_tenant_isolation.sql`, then `011a_public_rpc_stopgap.sql`
 
-The `007` and `008` numbers are duplicated on purpose. This setup does not renumber them. Another task will add a migration runner.
+Each forward migration has one number, so filename order is the apply order. `007a`–`007c` and `008a`–`008c` are the old duplicate `007` and `008` files, renamed only. The SQL is the same. Hosted Supabase may already have history under the old names (`007_clear_demo_applications.sql`, `007_public_marketplace_rooms.sql`, `007_trust_banking.sql`, `008_public_marketplace_lite.sql`, `008_realtime_publication.sql`, `008_ticket_updates_rls.sql`). Do not apply the renamed files again on that project.
+
+`011_tenant_isolation.sql` is the database-security migration. `012` is reserved for the account-takeover fix and `013` for storage. Those two files do not exist yet. Do not add another migration with those numbers.
 
 `011a_public_rpc_stopgap_rollback.sql` and `011a_public_rpc_stopgap_verify.sql` are not applied. The rollback puts the anonymous marketplace leak back, and the verify script only selects inside a transaction it rolls back. Run those by hand in a SQL editor if you are checking that stopgap.
 
@@ -83,7 +85,18 @@ npm run db:seed:local
 
 `supabase db reset` loads `supabase/seed.sql` after the migrations. That SQL does not contain a login password. `npm run db:seed:local` runs the same SQL, sets one password on every `@example.test` account, and uploads one fake text file per agency into the local `documents` bucket.
 
-Set `SEED_USER_PASSWORD` in `.env.local` before seeding if you want a password you chose. If it is unset, the script generates a strong password and prints it once. There is no default password.
+Set `SEED_USER_PASSWORD` in the environment before seeding if you want a password you chose. If it is unset, the script generates a strong password and prints it once. It does not prompt. There is no default password.
+
+The isolation CI job can run the same fixture without a terminal:
+
+```bash
+SEED_USER_PASSWORD="$SEED_USER_PASSWORD" \
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
+SUPABASE_URL=http://127.0.0.1:54321 \
+npm run db:seed:local
+```
+
+That exits non-zero on failure. Import `localDevSeed` or `renderLocalDevSeedSql` from `database/fixtures/localDevSeed.ts` when the job only needs the ids and SQL.
 
 The fixture is `database/fixtures/localDevSeed.ts`. Import `localDevSeed` (or `localDevUsers` / `localDevAgencies` / `uploadPersonas`) from tests instead of copying ids.
 

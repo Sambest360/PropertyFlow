@@ -1,5 +1,5 @@
 -- 011a rollback. Restores the pre-stopgap marketplace RPCs as defined in the repo
--- (007_public_marketplace_rooms.sql and 008_public_marketplace_lite.sql).
+-- (007b_public_marketplace_rooms.sql and 008a_public_marketplace_lite.sql).
 -- WARNING: this re-opens the anonymous password-hash / ID-document leak.
 -- Use only if the live marketplace is broken, and tell Bruce/Natasha immediately.
 --
@@ -11,7 +11,7 @@
 
 BEGIN;
 
--- From 007_public_marketplace_rooms.sql
+-- From 007b_public_marketplace_rooms.sql
 CREATE OR REPLACE FUNCTION get_public_marketplace_bootstrap(p_lite boolean DEFAULT true)
 RETURNS jsonb
 LANGUAGE sql
@@ -73,7 +73,7 @@ AS $$
   );
 $$;
 
--- From 008_public_marketplace_lite.sql
+-- From 008a_public_marketplace_lite.sql
 CREATE OR REPLACE FUNCTION get_public_marketplace_bootstrap_lite(p_lite boolean DEFAULT true)
 RETURNS jsonb
 LANGUAGE sql

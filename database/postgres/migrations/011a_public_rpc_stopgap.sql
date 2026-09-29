@@ -4,7 +4,7 @@
 -- to_jsonb() on users and clients, so anyone could read password_hash and the
 -- full metadata column (ID documents, ID numbers). This file changes only what
 -- those two functions return. Filters, row limits, ordering and grants stay
--- exactly as in 007_public_marketplace_rooms.sql and 008_public_marketplace_lite.sql.
+-- exactly as in 007b_public_marketplace_rooms.sql and 008a_public_marketplace_lite.sql.
 -- It does not touch tables, RLS policies, triggers or column grants. Those
 -- changes stay in the full 011.
 --
