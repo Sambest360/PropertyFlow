@@ -359,6 +359,8 @@ type StoreContextValue = {
   }) => NotificationBroadcast
   createProperty: (input: Omit<PropertyAsset, 'id' | 'createdAt' | 'rooms' | 'images'> & { images?: string[]; rooms?: Room[] }) => PropertyAsset
   createPropertyBundle: (input: {
+    /** Pre-minted id so photos can be uploaded before the row exists. */
+    propertyId?: string
     existingBuildingId?: string
     building?: Omit<Building, 'id' | 'createdAt' | 'images'> & { images?: string[] }
     unitTemplateId?: import('../data/infrastructure').UnitTemplateId
@@ -414,7 +416,7 @@ type StoreContextValue = {
     agentId: string | null
   }) => Unit
   updateInternalAsset: (id: string, patch: Partial<InternalAsset>) => void
-  addInternalAsset: (input: Omit<InternalAsset, 'id'>) => InternalAsset
+  addInternalAsset: (input: Omit<InternalAsset, 'id'> & { id?: string }) => InternalAsset
   updateInfraRoom: (id: string, patch: Partial<InfraRoom>) => void
   addInfraRoom: (input: {
     unitId: string
@@ -504,7 +506,7 @@ type StoreContextValue = {
   uploadApplicationDocument: (
     applicationId: string,
     key: string,
-    file: { name: string; mimeType: string; dataUrl: string },
+    file: { name: string; mimeType: string; dataUrl: string; fileId?: string },
     actor?: { userId: string; name: string },
   ) => void
   advanceApplication: (id: string, to?: ApplicationStage) => void
@@ -537,6 +539,8 @@ type StoreContextValue = {
     actorUserId: string
     request: CreateTicketRequest
     propertyId?: string
+    /** Pre-minted id so issue photos upload before the ticket row exists. */
+    ticketId?: string
   }) => CreateTicketResult
   updateTicket: (id: string, patch: Partial<MaintenanceTicket>) => void
   assignContractorToTicket: (params: {
@@ -1556,7 +1560,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }
 
       // P0-4: Ensure single durable public ID - property.id is canonical, unit.id is derived
-      const propertyId = uid('unt') // Use unt- prefix as canonical public ID
+      const propertyId = input.propertyId?.trim() || uid('unt')
       const unitId = propertyId // Unit ID matches property ID for single public face
       const clientId = building.clientId
 
@@ -2094,7 +2098,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         internalAssets: s.internalAssets.map((a) => (a.id === id ? { ...a, ...assetPatch } : a)),
       })),
     addInternalAsset: (input) => {
-      const row: InternalAsset = { ...input, id: uid('ia') }
+      const row: InternalAsset = { ...input, id: input.id?.trim() || uid('ia') }
       patch((s) => ({ ...s, internalAssets: [row, ...s.internalAssets] }))
       emitSuiteEvent({
         agencyId: row.clientId,
@@ -2818,6 +2822,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
                     name: file.name,
                     mimeType: file.mimeType,
                     dataUrl: file.dataUrl,
+                    fileId: file.fileId,
                     uploadedAt: new Date().toISOString(),
                     uploadedBy: actor?.name ?? a.applicantName,
                   },
@@ -4304,7 +4309,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       notifyMaintenanceOpened(notify, state.users, ticket, prop, ticket.reportedByUserId)
       return ticket
     },
-    createMaintenanceTicket: ({ actorUserId, request, propertyId }) => {
+    createMaintenanceTicket: ({ actorUserId, request, propertyId, ticketId }) => {
       const actor = state.users.find((u) => u.id === actorUserId)
       if (!actor) return { status: 'ERROR', error: 'User context unauthorized', httpStatus: 401 }
 
@@ -4326,7 +4331,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const warrantyCovered = isWarrantyCovered(asset)
       const contractorId = resolvePreferredVendor(state.vendorRoutes, unit.clientId, request.category_key)
       const ticket = buildTicketFromCreate({
-        id: uid('MT'),
+        id: ticketId?.trim() || uid('MT'),
         agencyId: unit.clientId,
         propertyId: prop.id,
         unitId: unit.id,

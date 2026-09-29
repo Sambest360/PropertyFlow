@@ -5,6 +5,7 @@ import {
   PaymentAttachmentsField,
   PaymentAttachmentsList,
 } from '../payments/PaymentAttachmentsField'
+import { paymentDocumentTarget } from '../../lib/storage/targets'
 import { ICON_STROKE } from './types'
 
 export function PaymentDocumentsPanel({
@@ -37,6 +38,7 @@ export function PaymentDocumentsPanel({
             onChange={onUpdateAttachments}
             uploadedByName={actorName}
             label="Attachments"
+            storage={paymentDocumentTarget(payment.agencyId, payment.id)}
           />
         ) : (
           <PaymentAttachmentsList attachments={attachments} disabled />

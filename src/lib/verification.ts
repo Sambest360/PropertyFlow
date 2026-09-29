@@ -9,7 +9,9 @@ export type VerificationDocument = {
   label: string
   name: string
   mimeType: string
+  /** Legacy data URL, or a `pfstore:v1:` ref after upload. */
   dataUrl: string
+  fileId?: string
   uploadedAt: string
 }
 

@@ -3,6 +3,7 @@ import { Bath, BedDouble, Car, ChevronLeft, ChevronRight, MapPin } from 'lucide-
 import type { PropertyAsset, AppUser } from '../../types/domain'
 import { ExpandableDescription } from '../listing/ExpandableDescription'
 import { PropertyFeaturesDisplay } from '../property-features/PropertyFeaturesDisplay'
+import { MediaImage } from '../media/MediaImage'
 import { Badge, cn } from '../ui'
 import { formatZAR } from '../../data/seed'
 import { useAgentDisplay } from '../../hooks/useAgentDisplay'
@@ -51,7 +52,7 @@ export function PropertyOverviewPanel({
         <div className="min-w-0">
           <div className="relative aspect-[16/9] w-full">
             {current ? (
-              <img src={current} alt="" className="h-full w-full object-cover" />
+              <MediaImage src={current} alt="" className="h-full w-full object-cover" />
             ) : (
               <div className="flex h-full w-full items-center justify-center text-sm text-ink-400">
                 No photos yet
@@ -95,7 +96,7 @@ export function PropertyOverviewPanel({
                     i === photoIndex ? 'opacity-100' : 'opacity-50 hover:opacity-80',
                   )}
                 >
-                  <img src={src} alt="" className="h-full w-full object-cover" />
+                  <MediaImage src={src} alt="" className="h-full w-full object-cover" />
                 </button>
               ))}
             </div>

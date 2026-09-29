@@ -1,6 +1,7 @@
 import { useId, useMemo, useState } from 'react'
 import { Building2, MapPin, Search, X } from 'lucide-react'
 import type { PropertyAsset } from '../types/domain'
+import { MediaImage } from './media/MediaImage'
 import { Input, cn } from './ui'
 
 const ICON_STROKE = 1.6
@@ -170,7 +171,7 @@ function PropertyThumb({
   const box = size === 'md' ? 'h-12 w-16' : 'h-11 w-14'
   if (property.images[0]) {
     return (
-      <img
+      <MediaImage
         src={property.images[0]}
         alt=""
         className={cn(box, 'shrink-0 rounded-lg object-cover ring-1 ring-primary-100')}

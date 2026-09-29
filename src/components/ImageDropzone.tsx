@@ -1,8 +1,14 @@
 import { useCallback, useId, useRef, useState, type DragEvent } from 'react'
 import { GripVertical, ImagePlus, Upload, X } from 'lucide-react'
+import type { StorageUploadTarget } from '../lib/storage/contract'
+import { toStorageRef } from '../lib/storage/contract'
+import { getFileStorage } from '../lib/storage'
+import { MediaImage } from './media/MediaImage'
 import { cn } from './ui'
 
-const ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,image/heic,image/*'
+const LEGACY_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,image/heic,image/*'
+const IMAGE_ACCEPT = 'image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp'
+const DOCUMENT_ACCEPT = 'application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png'
 
 /**
  * Photos are stored inline as data URLs, so oversized uploads bloat every DB
@@ -79,6 +85,12 @@ export type ImageDropzoneProps = {
   disabled?: boolean
   /** Drag thumbnails to set gallery order (first image = cover) */
   reorderable?: boolean
+  /**
+   * When set, files go to private storage and `value` stores `pfstore:v1:` refs.
+   * Existing data URLs in `value` still preview. Omit only for callers that have
+   * not been moved off inline images yet.
+   */
+  storage?: StorageUploadTarget
 }
 
 /**
@@ -90,26 +102,67 @@ export function ImageDropzone({
   multiple = true,
   max,
   label = 'Photos',
-  hint = 'Drag & drop images here, or click to browse your gallery',
+  hint,
   className,
   variant = 'gallery',
   disabled,
   reorderable = false,
+  storage,
 }: ImageDropzoneProps) {
   const inputId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
+  const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [dropIndex, setDropIndex] = useState<number | null>(null)
+  const accept = storage
+    ? storage.fileClass === 'document'
+      ? DOCUMENT_ACCEPT
+      : IMAGE_ACCEPT
+    : LEGACY_ACCEPT
+  const hintText =
+    hint ??
+    (storage
+      ? storage.fileClass === 'document'
+        ? 'PDF, JPEG, or PNG, up to 20 MB'
+        : 'JPEG, PNG, or WebP, up to 10 MB'
+      : 'Drag & drop images here, or click to browse your gallery')
 
   const remaining = max == null ? Infinity : Math.max(0, max - value.length)
-  const canAdd = !disabled && remaining > 0
+  const canAdd = !disabled && !uploading && remaining > 0
 
   const addFiles = useCallback(
     async (files: FileList | File[] | null) => {
       if (!files || !canAdd) return
       setError(null)
+      if (storage) {
+        setUploading(true)
+        const refs: string[] = []
+        const problems: string[] = []
+        try {
+          for (const file of Array.from(files)) {
+            try {
+              const uploaded = await getFileStorage().upload({ ...storage, file })
+              refs.push(toStorageRef(uploaded.file_id))
+            } catch (err) {
+              problems.push(err instanceof Error ? err.message : 'Could not upload that file.')
+            }
+          }
+          if (refs.length === 0) {
+            setError(problems[0] ?? (storage.fileClass === 'document'
+              ? 'Documents must be PDF, JPEG, or PNG.'
+              : 'Photos must be JPEG, PNG, or WebP.'))
+            return
+          }
+          const next = multiple ? [...value, ...refs].slice(0, max ?? undefined) : [refs[0]!]
+          onChange(next)
+          if (problems.length) setError(problems[0] ?? null)
+        } finally {
+          setUploading(false)
+        }
+        return
+      }
       try {
         const urls = await readFilesAsDataUrls(files)
         if (urls.length === 0) {
@@ -124,7 +177,7 @@ export function ImageDropzone({
         setError('Could not read that file. Try another image.')
       }
     },
-    [canAdd, max, multiple, onChange, value],
+    [canAdd, max, multiple, onChange, storage, value],
   )
 
   const onDrop = (e: DragEvent) => {
@@ -190,7 +243,7 @@ export function ImageDropzone({
       <span className="text-sm font-semibold text-ink">
         {dragging ? 'Drop to upload' : multiple ? 'Add photos' : 'Choose a photo'}
       </span>
-      <span className="max-w-xs text-xs text-ink-400">{hint}</span>
+      <span className="max-w-xs text-xs text-ink-400">{uploading ? 'Uploading…' : hintText}</span>
       {max != null && (
         <span className="tabular text-[11px] text-ink-400">
           {value.length} / {max}
@@ -200,7 +253,7 @@ export function ImageDropzone({
         ref={inputRef}
         id={inputId}
         type="file"
-        accept={ACCEPT}
+        accept={accept}
         multiple={multiple && remaining > 1}
         disabled={!canAdd}
         className="sr-only"
@@ -264,7 +317,7 @@ export function ImageDropzone({
                 dropIndex === i && dragIndex != null && dragIndex !== i && 'ring-2 ring-primary',
               )}
             >
-              <img src={src} alt="" className="h-full w-full object-cover" draggable={false} />
+              <MediaImage src={src} alt="" className="h-full w-full object-cover" draggable={false} />
               {reorderable && !disabled ? (
                 <span className="absolute left-1.5 top-1.5 inline-flex min-h-8 min-w-8 items-center justify-center rounded-full bg-ink/70 text-white">
                   <GripVertical className="h-4 w-4" aria-hidden />

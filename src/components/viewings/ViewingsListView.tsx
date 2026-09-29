@@ -9,6 +9,7 @@ import {
   User,
   Users,
 } from 'lucide-react'
+import { MediaImage } from '../media/MediaImage'
 import type { Viewing } from '../../types/domain'
 import { Badge, Button, Select, cn, statusTone } from '../ui'
 import { AgentAssigneeText } from '../detail/FlatFields'
@@ -45,7 +46,7 @@ function KindBadge({ item }: { item: PortfolioViewing }) {
 function PropertyThumb({ item, expanded }: { item: PortfolioViewing; expanded?: boolean }) {
   const src = item.property.images[0]
   return src ? (
-    <img
+    <MediaImage
       src={src}
       alt=""
       className={cn(
@@ -116,7 +117,7 @@ export function ViewingExpansion({
       <div className="flex min-w-0 flex-col gap-2">
         {p.images[0] ? (
           <div className="relative flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-xl bg-white ring-1 ring-primary-100/80">
-            <img
+            <MediaImage
               src={p.images[0]}
               alt=""
               className={cn(

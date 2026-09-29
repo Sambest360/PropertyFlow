@@ -3,7 +3,9 @@ import { ChevronDown, ImagePlus, Plus, Search } from 'lucide-react'
 import type { AssetCondition, InfraRoom, InternalAsset } from '../../data/infrastructure'
 import { ImageDropzone } from '../ImageDropzone'
 import { Badge, Button, Card, Input, Modal, Select, Textarea, cn, statusTone } from '../ui'
-import { formatZAR } from '../../data/seed'
+import { formatZAR, uid } from '../../data/seed'
+import { assetImageTarget } from '../../lib/storage/targets'
+import { MediaImage } from '../media/MediaImage'
 import { useSuiteAlert } from '../alerts/SuiteAlert'
 import { ListPagination, paginate } from './ListPagination'
 import { ICON_STROKE } from './types'
@@ -64,13 +66,14 @@ export function PropertyInventoryPanel({
   clientId: string
   canManage: boolean
   onUpdate: (id: string, patch: Partial<InternalAsset>) => void
-  onAdd: (input: Omit<InternalAsset, 'id'>) => void
+  onAdd: (input: Omit<InternalAsset, 'id'> & { id?: string }) => void
   onRemove: (id: string) => void
 }) {
   const [query, setQuery] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [draftAssetId, setDraftAssetId] = useState<string | null>(null)
   const [draft, setDraft] = useState<AssetDraft>(emptyDraft())
   const [page, setPage] = useState(1)
   const alert = useSuiteAlert()
@@ -99,12 +102,14 @@ export function PropertyInventoryPanel({
 
   const openCreate = () => {
     setEditingId(null)
+    setDraftAssetId(uid('ia'))
     setDraft(emptyDraft(rooms[0]?.id ?? ''))
     setModalOpen(true)
   }
 
   const openEdit = (a: InternalAsset) => {
     setEditingId(a.id)
+    setDraftAssetId(a.id)
     setDraft({
       itemName: a.itemName,
       assetTypeKey: a.assetTypeKey,
@@ -142,7 +147,7 @@ export function PropertyInventoryPanel({
       lastInspectedAt: new Date().toISOString().slice(0, 10),
     }
     if (editingId) onUpdate(editingId, payload)
-    else onAdd(payload)
+    else onAdd({ ...payload, id: draftAssetId ?? undefined })
     setModalOpen(false)
   }
 
@@ -202,7 +207,7 @@ export function PropertyInventoryPanel({
                 className="flex w-full min-h-11 cursor-pointer items-center gap-3 px-3 py-3 text-left"
               >
                 {a.images?.[0] ? (
-                  <img
+                  <MediaImage
                     src={a.images[0]}
                     alt=""
                     className="h-12 w-14 shrink-0 rounded-lg object-cover ring-1 ring-primary-100"
@@ -234,7 +239,7 @@ export function PropertyInventoryPanel({
                   {a.images && a.images.length > 0 && (
                     <div className="flex gap-2 overflow-x-auto [scrollbar-width:thin]">
                       {a.images.map((src) => (
-                        <img
+                        <MediaImage
                           key={src}
                           src={src}
                           alt=""
@@ -448,7 +453,12 @@ export function PropertyInventoryPanel({
               onChange={(images) => setDraft({ ...draft, images })}
               multiple
               max={8}
-              hint="Drag & drop photos here, or click to open your gallery"
+              hint="JPEG, PNG, or WebP, up to 10 MB"
+              storage={
+                draftAssetId
+                  ? assetImageTarget(clientId, draftAssetId)
+                  : undefined
+              }
             />
           </div>
         </div>

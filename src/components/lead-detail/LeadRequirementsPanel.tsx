@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { Banknote, CheckCircle2, Circle, FileText, Paperclip, StickyNote } from 'lucide-react'
 import type { Lead, LeadRequirementCompletion, LeadStageRequirement } from '../../types/domain'
 import { Badge, Button, Input, Textarea, cn } from '../ui'
@@ -8,9 +8,12 @@ import {
   isRequirementMet,
   type LeadRequirementKind,
 } from '../../lib/leadRequirements'
+import { FileValidationError, toStorageRef } from '../../lib/storage/contract'
+import { getFileStorage } from '../../lib/storage'
+import { leadDocumentTarget } from '../../lib/storage/targets'
+import { MediaLink } from '../media/MediaImage'
 
 const ICON_STROKE = 1.6
-const MAX_FILE_BYTES = 4 * 1024 * 1024
 
 const KIND_HINT: Record<LeadRequirementKind, string> = {
   note: 'Add a note and mark it done.',
@@ -90,24 +93,41 @@ function RequirementRow({
   const completion = completionFor(lead, lead.stage, requirement.id)
   const met = isRequirementMet(completion, requirement)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
 
   const setDone = (done: boolean, extra?: Partial<LeadRequirementCompletion>) =>
     onComplete(requirement.id, { done, ...extra })
 
-  function attachFile(file: File) {
-    if (file.size > MAX_FILE_BYTES) return
-    const reader = new FileReader()
-    reader.onload = () =>
+  async function attachFile(file: File) {
+    setUploadError(null)
+    setUploading(true)
+    try {
+      const result = await getFileStorage().upload({
+        ...leadDocumentTarget(lead.agencyId, lead.id, requirement.id),
+        file,
+      })
       setDone(true, {
         file: {
           name: file.name,
           mimeType: file.type || 'application/octet-stream',
-          dataUrl: String(reader.result ?? ''),
+          dataUrl: toStorageRef(result.file_id),
+          fileId: result.file_id,
           uploadedAt: new Date().toISOString(),
         },
         note: completion?.note,
       })
-    reader.readAsDataURL(file)
+    } catch (err) {
+      setUploadError(
+        err instanceof FileValidationError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'That file could not be uploaded.',
+      )
+    } finally {
+      setUploading(false)
+    }
   }
 
   const icon =
@@ -168,16 +188,19 @@ function RequirementRow({
           {completion?.file ? (
             <p className="mt-1.5 inline-flex items-center gap-1.5 rounded-lg bg-primary-50 px-2.5 py-1.5 text-xs text-ink-600">
               <Paperclip className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} aria-hidden />
-              {completion.file.name}
+              <MediaLink href={completion.file.dataUrl} className="truncate font-medium text-primary hover:underline">
+                {completion.file.name}
+              </MediaLink>
             </p>
           ) : null}
+          {uploadError ? <p className="mt-1.5 text-xs font-medium text-accent">{uploadError}</p> : null}
 
           {canManage && requirement.kind === 'document' ? (
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pdf,.png,.jpg,.jpeg,.webp"
+                accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/jpeg,image/png"
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0]
@@ -193,7 +216,7 @@ function RequirementRow({
                 onClick={() => fileInputRef.current?.click()}
               >
                 <Paperclip className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} aria-hidden />
-                {completion?.file ? 'Replace file' : 'Attach file'}
+                {uploading ? 'Uploading…' : completion?.file ? 'Replace file' : 'Attach file'}
               </Button>
               {completion?.done ? (
                 <Button

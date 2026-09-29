@@ -16,6 +16,7 @@ import { ApplicantApplicationPanel } from '../../components/applicant-detail/App
 import { ApplicantDocumentsPanel } from '../../components/applicant-detail/ApplicantDocumentsPanel'
 import { TenantApplicationDetailsForm } from '../../components/tenant/TenantApplicationDetailsForm'
 import { TenantApplicationPaymentsPanel } from '../../components/tenant/TenantApplicationPaymentsPanel'
+import { MediaImage } from '../../components/media/MediaImage'
 import { Badge, Button, Card, cn, statusTone } from '../../components/ui'
 import { rolePermissions } from '../../lib/permissions'
 import { getApplicantTasks } from '../../lib/applicantPortalActions'
@@ -206,7 +207,7 @@ export default function TenantApplicationDetailPage() {
           <Card className="overflow-hidden p-0">
             {property?.images[0] ? (
               <div className="aspect-[21/9] max-h-48 w-full overflow-hidden bg-primary-50">
-                <img
+                <MediaImage
                   src={property.images[0]}
                   alt=""
                   className="h-full w-full object-cover"

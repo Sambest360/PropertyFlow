@@ -17,6 +17,7 @@ import { ActionButtonRow } from '../../components/ActionButtonRow'
 import { ImpersonateUserButton } from '../../components/admin/ImpersonateUserButton'
 import { AgencyCapabilityChecklist } from '../../components/admin/AgencyCapabilityChecklist'
 import { VerificationStatusBadge } from '../../components/auth/VerificationBanner'
+import { MediaImage, MediaLink } from '../../components/media/MediaImage'
 import { DashboardTabs } from '../../components/dashboard/DashboardTabs'
 import { DetailSection, DetailStack, FlatField, FlatFieldGrid } from '../../components/detail/FlatFields'
 import { PersonAvatar } from '../../components/directory/DirectoryToolbar'
@@ -412,7 +413,7 @@ function OverviewTab({
                     className="flex items-center gap-3 rounded-xl border border-primary-100 bg-white px-3 py-2"
                   >
                     {doc.mimeType.startsWith('image/') ? (
-                      <img
+                      <MediaImage
                         src={doc.dataUrl}
                         alt=""
                         className="h-10 w-10 rounded-lg object-cover ring-1 ring-primary-100"
@@ -426,13 +427,14 @@ function OverviewTab({
                       <p className="truncate text-sm font-semibold text-ink">{doc.label}</p>
                       <p className="truncate text-xs text-ink-500">{doc.name}</p>
                     </div>
-                    <a
+                    <MediaLink
                       href={doc.dataUrl}
-                      download={doc.name}
+                      target="_blank"
+                      rel="noreferrer"
                       className="text-xs font-semibold text-primary hover:underline"
                     >
                       Open
-                    </a>
+                    </MediaLink>
                   </li>
                 ))}
               </ul>

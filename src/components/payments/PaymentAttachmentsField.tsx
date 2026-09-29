@@ -1,45 +1,39 @@
 import { useCallback, useId, useRef, useState, type DragEvent } from 'react'
 import { FileText, ImagePlus, Paperclip, Upload, X } from 'lucide-react'
 import type { PaymentAttachment } from '../../types/domain'
+import type { StorageUploadTarget } from '../../lib/storage/contract'
+import { FileValidationError, toStorageRef } from '../../lib/storage/contract'
+import { getFileStorage } from '../../lib/storage'
+import { MediaImage, MediaLink } from '../media/MediaImage'
 import { cn } from '../ui'
 
 const ICON_STROKE = 1.6
-const ACCEPT =
-  'image/jpeg,image/png,image/webp,image/gif,application/pdf,.pdf,.jpg,.jpeg,.png,.webp,.gif'
-const MAX_BYTES = 2.5 * 1024 * 1024
+const ACCEPT = 'image/jpeg,image/png,application/pdf,.pdf,.jpg,.jpeg,.png'
 const MAX_FILES = 6
 
 function uid(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`
 }
 
-function readFileAsAttachment(file: File, uploadedByName?: string | null): Promise<PaymentAttachment> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const kind = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
-        ? 'document'
-        : 'image'
-      resolve({
-        id: uid('att'),
-        name: file.name,
-        kind,
-        mimeType: file.type || (kind === 'document' ? 'application/pdf' : 'image/jpeg'),
-        dataUrl: String(reader.result),
-        uploadedAt: new Date().toISOString(),
-        uploadedByName: uploadedByName ?? null,
-      })
-    }
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(file)
-  })
-}
-
-function isAcceptedFile(file: File) {
-  if (file.type.startsWith('image/')) return true
-  if (file.type === 'application/pdf') return true
-  const lower = file.name.toLowerCase()
-  return lower.endsWith('.pdf') || /\.(jpe?g|png|webp|gif)$/.test(lower)
+async function uploadAttachment(
+  file: File,
+  storage: StorageUploadTarget,
+  uploadedByName?: string | null,
+): Promise<PaymentAttachment> {
+  const result = await getFileStorage().upload({ ...storage, file })
+  const kind = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+    ? 'document'
+    : 'image'
+  return {
+    id: result.file_id || uid('att'),
+    name: file.name,
+    kind,
+    mimeType: file.type || (kind === 'document' ? 'application/pdf' : 'image/jpeg'),
+    dataUrl: toStorageRef(result.file_id),
+    fileId: result.file_id,
+    uploadedAt: new Date().toISOString(),
+    uploadedByName: uploadedByName ?? null,
+  }
 }
 
 export function PaymentAttachmentsList({
@@ -63,7 +57,7 @@ export function PaymentAttachmentsList({
           className="flex items-center gap-3 rounded-xl border border-primary-100 bg-white px-3 py-2"
         >
           {att.kind === 'image' ? (
-            <img
+            <MediaImage
               src={att.dataUrl}
               alt=""
               className="h-10 w-10 shrink-0 rounded-lg object-cover ring-1 ring-primary-100"
@@ -80,14 +74,15 @@ export function PaymentAttachmentsList({
               {new Date(att.uploadedAt).toLocaleDateString()}
             </p>
           </div>
-          <a
+          <MediaLink
             href={att.dataUrl}
-            download={att.name}
+            target="_blank"
+            rel="noreferrer"
             className="inline-flex min-h-9 min-w-9 shrink-0 items-center justify-center rounded-full text-primary transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            aria-label={`Download ${att.name}`}
+            aria-label={`Open ${att.name}`}
           >
             <Paperclip className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-          </a>
+          </MediaLink>
           {!disabled && onRemove && (
             <button
               type="button"
@@ -110,7 +105,8 @@ export function PaymentAttachmentsField({
   uploadedByName,
   disabled,
   label = 'Proof of payment',
-  hint = 'Images or PDFs up to 2.5 MB each (max 6 files)',
+  hint = 'PDF, JPEG, or PNG up to 20 MB each (max 6 files)',
+  storage,
 }: {
   value: PaymentAttachment[]
   onChange: (next: PaymentAttachment[]) => void
@@ -118,6 +114,7 @@ export function PaymentAttachmentsField({
   disabled?: boolean
   label?: string
   hint?: string
+  storage: StorageUploadTarget
 }) {
   const inputId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -131,27 +128,26 @@ export function PaymentAttachmentsField({
     async (files: FileList | File[] | null) => {
       if (!files || !canAdd) return
       setError(null)
-      const list = Array.from(files).filter(isAcceptedFile)
-      if (list.length === 0) {
-        setError('Choose an image or PDF file.')
-        return
-      }
-      const oversized = list.find((f) => f.size > MAX_BYTES)
-      if (oversized) {
-        setError(`${oversized.name} exceeds 2.5 MB.`)
-        return
-      }
+      const list = Array.from(files)
+      if (list.length === 0) return
       const slice = list.slice(0, remaining)
       try {
-        const next = await Promise.all(
-          slice.map((file) => readFileAsAttachment(file, uploadedByName)),
-        )
+        const next: PaymentAttachment[] = []
+        for (const file of slice) {
+          next.push(await uploadAttachment(file, storage, uploadedByName))
+        }
         onChange([...value, ...next].slice(0, MAX_FILES))
-      } catch {
-        setError('Could not read that file. Try another.')
+      } catch (err) {
+        setError(
+          err instanceof FileValidationError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : 'Could not upload that file. Try another.',
+        )
       }
     },
-    [canAdd, onChange, remaining, uploadedByName, value],
+    [canAdd, onChange, remaining, storage, uploadedByName, value],
   )
 
   const removeAt = (id: string) => {

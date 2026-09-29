@@ -5,6 +5,7 @@ import {
   validateTicketCompletion,
   type TicketCompletionFields,
 } from '../../lib/maintenanceApi'
+import { ticketAttachmentTarget } from '../../lib/storage/targets'
 import { ImageDropzone } from '../ImageDropzone'
 import { ContractorPicker } from '../contractors/ContractorPicker'
 import { Button, Input, Modal, Select, Textarea } from '../ui'
@@ -172,7 +173,12 @@ export function CompleteTicketModal({
             onChange={setCompletionPhotoUrls}
             max={6}
             label="Photos of completed work"
-            hint="Upload clear after photos — required before resolving"
+            hint="JPEG, PNG, or WebP, up to 10 MB"
+            storage={
+              ticket
+                ? ticketAttachmentTarget(ticket.agencyId || agencyId || '', ticket.id)
+                : undefined
+            }
           />
         </div>
 

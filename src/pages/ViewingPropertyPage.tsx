@@ -9,6 +9,7 @@ import {
   UserPlus,
   Users,
 } from 'lucide-react'
+import { MediaImage } from '../components/media/MediaImage'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
@@ -223,7 +224,7 @@ export default function ViewingPropertyPage() {
           <div className="grid gap-0 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
             <div className="relative min-h-[12rem] bg-primary-50">
               {property.images[0] ? (
-                <img src={property.images[0]} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                <MediaImage src={property.images[0]} alt="" className="absolute inset-0 h-full w-full object-cover" />
               ) : null}
               <div className="absolute inset-0 bg-gradient-to-t from-ink/50 to-transparent" />
               <div className="absolute bottom-4 left-4 right-4">

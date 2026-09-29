@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { Banknote, Building, Home, TrendingUp, Wrench } from 'lucide-react'
+import { MediaImage } from '../components/media/MediaImage'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
@@ -99,7 +100,7 @@ export default function OwnerPortal() {
             return (
               <Card key={p.id} className="p-4" hover>
                 <div className="flex gap-4">
-                  <img src={p.images[0]} alt="" className="h-24 w-32 rounded-xl object-cover" />
+                  <MediaImage src={p.images[0]} alt="" className="h-24 w-32 rounded-xl object-cover" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <Link

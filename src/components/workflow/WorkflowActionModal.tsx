@@ -6,6 +6,7 @@ import {
   validateActionCapture,
   type WorkflowActionCapture,
 } from '../../lib/workflowActionForms'
+import { useStore } from '../../context/AppStore'
 import { ApplicationDocumentRow } from '../applicant-detail/ApplicationDocumentRow'
 import { SignaturePad } from './SignaturePad'
 import { Button, Input, Modal, Textarea } from '../ui'
@@ -32,6 +33,8 @@ export function WorkflowActionModal({
     file: { name: string; mimeType: string; dataUrl: string },
   ) => void
 }) {
+  const { state } = useStore()
+  const leaseId = state.tenancies.find((t) => t.applicationId === application.id)?.id ?? null
   const [capture, setCapture] = useState<WorkflowActionCapture>({})
   const [error, setError] = useState<string | null>(null)
 
@@ -100,6 +103,11 @@ export function WorkflowActionModal({
                 canReview={Boolean(onSetDocument)}
                 onUpload={(file) => onUploadDocument?.(doc.key, file)}
                 onSetStatus={(status, note) => onSetDocument?.(doc.key, status, note)}
+                uploadTarget={{
+                  agencyId: application.agencyId,
+                  applicationId: application.id,
+                  leaseId,
+                }}
               />
             ))}
           </ul>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import type { InternalAsset, LookupConfig } from '../../data/infrastructure'
 import type { MaintenanceTicket } from '../../types/domain'
+import { ticketAttachmentTarget } from '../../lib/storage/targets'
 import { ImageDropzone } from '../ImageDropzone'
 import { ContractorPicker } from '../contractors/ContractorPicker'
 import { Button, Input, Modal, Select, Textarea } from '../ui'
@@ -240,7 +241,12 @@ export function EditTicketModal({
             onChange={setPhotoUrls}
             max={8}
             label="Issue photos"
-            hint="Upload clear photos of the fault, damage, or meter readings"
+            hint="JPEG, PNG, or WebP, up to 10 MB"
+            storage={
+              ticket && (ticket.agencyId || agencyId)
+                ? ticketAttachmentTarget(ticket.agencyId || agencyId || '', ticket.id)
+                : undefined
+            }
           />
         </div>
         {error ? (

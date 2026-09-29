@@ -1,5 +1,6 @@
 import { FileText } from 'lucide-react'
 import type { Application, ApplicationDocument } from '../../types/domain'
+import { useStore } from '../../context/AppStore'
 import { Card } from '../ui'
 import { ApplicationDocumentRow } from './ApplicationDocumentRow'
 import { ICON_STROKE } from './types'
@@ -20,6 +21,8 @@ export function ApplicantDocumentsPanel({
     file: { name: string; mimeType: string; dataUrl: string },
   ) => void
 }) {
+  const { state } = useStore()
+  const leaseId = state.tenancies.find((t) => t.applicationId === application.id)?.id ?? null
   return (
     <Card className="p-5">
       <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-ink">
@@ -39,6 +42,11 @@ export function ApplicantDocumentsPanel({
             canReview={canReview}
             onUpload={(file) => onUploadDocument?.(d.key, file)}
             onSetStatus={(status, note) => onSetDocument(d.key, status, note)}
+            uploadTarget={{
+              agencyId: application.agencyId,
+              applicationId: application.id,
+              leaseId,
+            }}
           />
         ))}
         {!application.documents.length && (

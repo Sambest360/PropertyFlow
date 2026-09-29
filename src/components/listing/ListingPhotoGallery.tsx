@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ChevronLeft, ChevronRight, Images, X } from 'lucide-react'
 import { createPortal } from 'react-dom'
+import { MediaImage } from '../media/MediaImage'
 import { cn } from '../ui'
 import { usePrefersReducedMotion } from '../../hooks/useScrollMotion'
 
@@ -41,7 +42,7 @@ export function ListingPhotoGallery({
             disabled={!photos.length}
           >
             {photos[0] ? (
-              <img
+              <MediaImage
                 src={photos[0]}
                 alt=""
                 width={800}
@@ -70,7 +71,7 @@ export function ListingPhotoGallery({
                 onClick={() => openAt(photoIndex)}
                 aria-label={`View photo ${photoIndex + 1} of ${photos.length}`}
               >
-                <img
+                <MediaImage
                   src={src}
                   alt=""
                   width={400}
@@ -189,7 +190,7 @@ function PhotoLightbox({
             </button>
           </>
         )}
-        <img
+        <MediaImage
           key={photos[safeIndex]}
           src={photos[safeIndex]}
           alt={`${title} — photo ${safeIndex + 1}`}
@@ -214,7 +215,7 @@ function PhotoLightbox({
               aria-label={`Go to photo ${i + 1}`}
               aria-current={i === safeIndex}
             >
-              <img src={src} alt="" className="h-full w-full object-cover" />
+              <MediaImage src={src} alt="" className="h-full w-full object-cover" />
             </button>
           ))}
         </div>

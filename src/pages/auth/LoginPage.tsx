@@ -6,10 +6,12 @@ import { PasswordField } from '../../components/auth/PasswordField'
 import { Button, Input } from '../../components/ui'
 import { useAuth } from '../../context/AuthContext'
 import { apiAuthBootstrapNeeded } from '../../lib/api/authClient'
+import { supabaseBootstrapNeeded } from '../../lib/supabase/auth.js'
 import {
-  supabaseAttachPendingRegistrationDocs,
-  supabaseBootstrapNeeded,
-} from '../../lib/supabase/auth.js'
+  dataUrlToFile,
+  persistRegistrationDocuments,
+  uploadRegistrationDocuments,
+} from '../../lib/storage/registrationDocs'
 import { isSupabaseMode } from '../../lib/api/config'
 import {
   clearPendingRegistrationDocs,
@@ -67,11 +69,22 @@ export default function LoginPage() {
           const { data: { session } } = await createClient().auth.getSession()
           if (session?.user?.id) {
             try {
-              await supabaseAttachPendingRegistrationDocs({
-                authUserId: session.user.id,
+              const drafts = pending.documents.map((doc) => ({
+                ...doc,
+                file: doc.dataUrl.startsWith('data:')
+                  ? dataUrlToFile(doc.dataUrl, doc.name, doc.mimeType)
+                  : undefined,
+              }))
+              const stored = await uploadRegistrationDocuments({
+                agencyId: appUser.agencyId,
+                userId: appUser.id,
+                documents: drafts,
+              })
+              await persistRegistrationDocuments({
+                user: appUser,
                 role: pending.role,
                 profile: pending.profile,
-                documents: pending.documents,
+                documents: stored,
               })
             } catch {
               /* docs can be re-submitted from profile later */

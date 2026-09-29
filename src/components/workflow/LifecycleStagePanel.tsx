@@ -9,6 +9,7 @@ import {
   workflowStageLabel,
   type WorkflowStatusKey,
 } from '../../lib/applicationWorkflow'
+import { useStore } from '../../context/AppStore'
 import { ApplicationDocumentRow } from '../applicant-detail/ApplicationDocumentRow'
 import { ActionButtonRow } from '../ActionButtonRow'
 import { TenantApplicationDetailsForm } from '../tenant/TenantApplicationDetailsForm'
@@ -41,6 +42,8 @@ export function LifecycleStagePanel({
   ) => void
   onSaveDetails?: (patch: Partial<Application>) => void
 }) {
+  const { state } = useStore()
+  const leaseId = state.tenancies.find((t) => t.applicationId === application.id)?.id ?? null
   const currentStatus = resolveWorkflowStatus(application)
   const visual = milestoneVisualState(application.type, currentStatus, stageKey)
   const requirements = getStageRequirements(stageKey)
@@ -126,6 +129,11 @@ export function LifecycleStagePanel({
                   canReview={Boolean(canReviewDocs && onSetDocument)}
                   onUpload={(file) => onUploadDocument?.(doc.key, file)}
                   onSetStatus={(status, note) => onSetDocument?.(doc.key, status, note)}
+                  uploadTarget={{
+                    agencyId: application.agencyId,
+                    applicationId: application.id,
+                    leaseId,
+                  }}
                 />
               ))}
             </ul>

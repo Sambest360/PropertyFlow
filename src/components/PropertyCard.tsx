@@ -3,6 +3,7 @@ import { Bath, BedDouble, Car, Droplets, Heart, MapPin, Star, Sun, Zap } from 'l
 import { formatZAR } from '../data/seed'
 import type { PropertyAsset } from '../types/domain'
 import { featureByLabel } from '../lib/propertyFeatures'
+import { MediaImage } from './media/MediaImage'
 import { cn } from './ui'
 import {
   isLoadSheddingFree,
@@ -118,7 +119,7 @@ export function PropertyCard({
     <Link to={href} className={cn('group block animate-slide-up', className)}>
       <article className="overflow-hidden rounded-2xl bg-white transition duration-300 hover:-translate-y-1 hover:shadow-[0_20px_40px_-24px_rgba(26,74,86,0.25)]">
         <div className="relative aspect-[4/3] overflow-hidden">
-          <img
+          <MediaImage
             src={image}
             alt=""
             width={400}

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import type { PropertyAsset } from '../../types/domain'
 import type { InternalAsset, LookupConfig } from '../../data/infrastructure'
 import type { MaintenanceTicket } from '../../types/domain'
+import { uid } from '../../data/seed'
+import { ticketAttachmentTarget } from '../../lib/storage/targets'
 import { PropertySearchPicker } from '../PropertySearchPicker'
 import { ImageDropzone } from '../ImageDropzone'
 import { ContractorPicker } from '../contractors/ContractorPicker'
@@ -25,6 +27,7 @@ export type CreateTicketInput = {
   issueTags?: string[]
   photoUrls?: string[]
   estimatedCost?: number | null
+  ticketId?: string
 }
 
 export type EditTicketInput = {
@@ -84,6 +87,7 @@ export function MaintenanceTicketForm({
   )
   const [issueTags, setIssueTags] = useState<string[]>(ticket?.issueTags ?? [])
   const [photoUrls, setPhotoUrls] = useState<string[]>(ticket?.photoUrls ?? [])
+  const [draftTicketId] = useState(() => uid('MT'))
 
   useEffect(() => {
     if (mode === 'create' && initialPropertyId) setPropertyId(initialPropertyId)
@@ -118,6 +122,7 @@ export function MaintenanceTicketForm({
         issueTags,
         photoUrls,
         estimatedCost: estimatedCost ? Number(estimatedCost) : null,
+        ticketId: draftTicketId,
       })
       return
     }
@@ -315,7 +320,14 @@ export function MaintenanceTicketForm({
           onChange={setPhotoUrls}
           max={8}
           label="Issue photos"
-          hint="Upload clear photos of the fault, damage, or meter readings"
+          hint="JPEG, PNG, or WebP, up to 10 MB"
+          storage={(() => {
+            const property = properties.find((p) => p.id === propertyId)
+            const ownerAgencyId = property?.agencyId || ticket?.agencyId || agencyId
+            const entityId = mode === 'edit' ? ticket?.id : draftTicketId
+            if (!ownerAgencyId || !entityId) return undefined
+            return ticketAttachmentTarget(ownerAgencyId, entityId)
+          })()}
         />
       </div>
 

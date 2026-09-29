@@ -9,6 +9,7 @@ type CreateDeps = {
   createMaintenanceTicket: (args: {
     actorUserId: string
     propertyId: string
+    ticketId?: string
     request: {
       unit_id: string
       internal_asset_id: string | null
@@ -45,6 +46,7 @@ export function createMaintenanceFromInput(
   const result = deps.createMaintenanceTicket({
     actorUserId: deps.actorUserId,
     propertyId: input.propertyId,
+    ticketId: input.ticketId,
     request: {
       unit_id: prop.unitId,
       internal_asset_id: input.assetId,

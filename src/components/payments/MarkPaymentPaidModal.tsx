@@ -3,6 +3,7 @@ import type { PaymentRecord } from '../../types/domain'
 import { formatZAR } from '../../data/seed'
 import { Button, Input, Modal, Select, Textarea } from '../ui'
 import { PaymentAttachmentsField } from './PaymentAttachmentsField'
+import { paymentDocumentTarget } from '../../lib/storage/targets'
 import { PAY_METHODS, type MarkPaymentPaidDetails } from './types'
 
 export function MarkPaymentPaidModal({
@@ -126,6 +127,7 @@ export function MarkPaymentPaidModal({
           value={attachments}
           onChange={setAttachments}
           uploadedByName={actorName}
+          storage={paymentDocumentTarget(payment.agencyId, payment.id)}
         />
       </div>
     </Modal>

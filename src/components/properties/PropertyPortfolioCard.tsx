@@ -10,6 +10,7 @@ import {
   MapPin,
   Wrench,
 } from 'lucide-react'
+import { MediaImage } from '../media/MediaImage'
 import { Badge, Button, Card, cn } from '../ui'
 import { AgentAssigneeText } from '../detail/FlatFields'
 import { formatZAR } from '../../data/seed'
@@ -183,7 +184,7 @@ export function PropertyPortfolioCard({
               reducedMotion && 'transition-none',
             )}
           >
-            <img
+            <MediaImage
               src={p.images[0]}
               alt=""
               className={cn(

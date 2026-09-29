@@ -8,6 +8,7 @@ import {
   ArrowUpRight,
   Clock,
 } from 'lucide-react'
+import { MediaLink } from '../../components/media/MediaImage'
 import { useStore } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
 import type { PropertyDocument } from '../../types/domain'
@@ -355,14 +356,14 @@ export default function ComplianceDashboard() {
                         {d.status === 'verified' ? (
                           <span className="text-xs text-ink-400">No action</span>
                         ) : d.fileUrl ? (
-                          <a
+                          <MediaLink
                             href={d.fileUrl}
                             target="_blank"
                             rel="noreferrer"
                             className="text-xs font-semibold text-primary hover:underline"
                           >
                             Open document
-                          </a>
+                          </MediaLink>
                         ) : d.status === 'uploaded' && isPrincipal ? (
                           <span className="inline-flex items-center gap-3">
                             <button

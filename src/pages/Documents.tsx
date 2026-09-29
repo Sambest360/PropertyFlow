@@ -8,6 +8,7 @@ import { Badge, Card, Input, PageHeader, Select, statusTone } from '../component
 import { ResponsiveDataList } from '../components/data/ResponsiveDataList'
 import type { PropertyDocument } from '../types/domain'
 import { resolveDocumentUrl } from '../lib/api/documents'
+import { MediaLink } from '../components/media/MediaImage'
 
 const ICON_STROKE = 1.6
 
@@ -157,14 +158,14 @@ export default function Documents() {
               render: (d) => {
                 const href = resolveDocumentUrl(d)
                 return href ? (
-                  <a
+                  <MediaLink
                     href={href}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex min-h-11 cursor-pointer items-center text-sm font-semibold text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   >
                     Open
-                  </a>
+                  </MediaLink>
                 ) : (
                   <span className="text-xs text-ink-400">—</span>
                 )
@@ -193,14 +194,14 @@ export default function Documents() {
                 <div className="mt-3 flex items-center justify-between gap-2">
                   <span className="text-xs tabular text-ink-500">{d.uploadedAt ?? '—'}</span>
                   {href ? (
-                    <a
+                    <MediaLink
                       href={href}
                       target="_blank"
                       rel="noreferrer"
                       className="inline-flex min-h-11 items-center text-sm font-semibold text-primary hover:underline"
                     >
                       Open file
-                    </a>
+                    </MediaLink>
                   ) : null}
                 </div>
               </Card>

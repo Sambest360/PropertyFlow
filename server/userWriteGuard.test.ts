@@ -65,6 +65,57 @@ describe('guardUserWrite', () => {
     expect(guarded.clientId).toBe('client-1')
   })
 
+  it('lets a pending user attach documents without changing status', () => {
+    const guarded = guardUserWrite({
+      actorRole: 'landlord',
+      existing: {
+        role: 'LANDLORD',
+        clientId: 'client-1',
+        active: true,
+        metadata: {
+          frontend_role: 'landlord',
+          verification: { status: 'pending', documents: [] },
+        },
+      },
+      requestedFrontendRole: 'super_admin',
+      requestedClientId: 'client-other',
+      requestedActive: false,
+      metadata: {
+        frontend_id: 'u-ll',
+        verification: {
+          status: 'pending',
+          documents: [{ key: 'id_copy', name: 'id.pdf', dataUrl: 'pfstore:v1:file-1' }],
+        },
+      },
+    })
+    expect(guarded.dbRole).toBe('LANDLORD')
+    expect(guarded.clientId).toBe('client-1')
+    expect(guarded.metadata.verification).toMatchObject({
+      status: 'pending',
+      documents: [{ key: 'id_copy', name: 'id.pdf', dataUrl: 'pfstore:v1:file-1' }],
+    })
+  })
+
+  it('does not let a pending user self-approve by rewriting verification', () => {
+    const guarded = guardUserWrite({
+      actorRole: 'landlord',
+      existing: {
+        role: 'LANDLORD',
+        clientId: 'client-1',
+        active: true,
+        metadata: { frontend_role: 'landlord', verification: { status: 'pending' } },
+      },
+      requestedFrontendRole: 'landlord',
+      requestedClientId: 'client-1',
+      requestedActive: true,
+      metadata: {
+        frontend_id: 'u-ll',
+        verification: { status: 'approved', documents: [{ name: 'id.pdf' }] },
+      },
+    })
+    expect(guarded.metadata.verification).toEqual({ status: 'pending' })
+  })
+
   it('does not let a new unprivileged row self-approve', () => {
     const guarded = guardUserWrite({
       actorRole: 'landlord',

@@ -10,6 +10,7 @@ import {
   Sun,
   Zap,
 } from 'lucide-react'
+import { MediaImage } from '../media/MediaImage'
 import { cn } from '../ui'
 import { formatZAR } from '../../data/seed'
 import { ExpandableDescription } from '../listing/ExpandableDescription'
@@ -146,7 +147,7 @@ export function LiveListingPreview({
     <div className={cn('overflow-hidden rounded-xl border border-primary-100 bg-white shadow-sm', className)}>
       <div className="relative aspect-[4/3] bg-primary-50">
         {activeImage ? (
-          <img src={activeImage} alt="" className="h-full w-full object-cover" />
+          <MediaImage src={activeImage} alt="" className="h-full w-full object-cover" />
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-ink-400">Photo preview</div>
         )}

@@ -15,6 +15,12 @@ import {
   validateRegistrationDocSizes,
 } from '../../lib/auth/registrationDocs'
 import {
+  persistRegistrationDocuments,
+  registrationDraftsToStash,
+  uploadRegistrationDocuments,
+  type RegistrationDocDraft,
+} from '../../lib/storage/registrationDocs'
+import {
   redirectToLogin,
   showAuthError,
   showAuthWarning,
@@ -25,7 +31,6 @@ import {
   CONTRACTOR_TRADES,
   LANDLORD_REQUIRED_DOCS,
   missingRequiredDocs,
-  type VerificationDocument,
 } from '../../lib/verification'
 
 const ICON_STROKE = 1.6
@@ -120,7 +125,7 @@ export default function RegisterPage() {
   const [customTrade, setCustomTrade] = useState('')
   const [serviceAddress, setServiceAddress] = useState('')
   const [taxPin, setTaxPin] = useState('')
-  const [docsByKey, setDocsByKey] = useState<Record<string, VerificationDocument>>({})
+  const [docsByKey, setDocsByKey] = useState<Record<string, RegistrationDocDraft>>({})
 
   const [bootstrapNeeded, setBootstrapNeeded] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -136,7 +141,7 @@ export default function RegisterPage() {
     return <Navigate to={next} replace />
   }
 
-  const setDoc = (doc: VerificationDocument | null, key: string) => {
+  const setDoc = (doc: RegistrationDocDraft | null, key: string) => {
     setDocsByKey((prev) => {
       const nextMap = { ...prev }
       if (!doc) delete nextMap[key]
@@ -236,11 +241,12 @@ export default function RegisterPage() {
       if (isSupabaseMode) await supabaseSignOut()
       sessionStorage.setItem('pf-register-email', err.email)
       if (role !== 'tenant' && documents.length > 0) {
+        const stashed = await registrationDraftsToStash(documents)
         stashPendingRegistrationDocs({
           email: err.email,
           role,
           profile: buildProfile(),
-          documents,
+          documents: stashed,
         })
       }
     } catch {
@@ -298,8 +304,20 @@ export default function RegisterPage() {
         password,
         role,
         profile,
-        documents: role === 'tenant' ? undefined : documents,
       })
+      if (role !== 'tenant' && documents.length > 0) {
+        const stored = await uploadRegistrationDocuments({
+          agencyId: result.user.agencyId,
+          userId: result.user.id,
+          documents,
+        })
+        await persistRegistrationDocuments({
+          user: result.user,
+          role,
+          profile,
+          documents: stored,
+        })
+      }
       navigate(postRegisterPath(role, result.bootstrap, next), { replace: true })
     } catch (err) {
       if (await handleRegistrationRedirect(err)) return

@@ -75,7 +75,9 @@ export type DocStatus = 'required' | 'uploaded' | 'verified' | 'rejected'
 export type ApplicationDocumentFile = {
   name: string
   mimeType: string
+  /** Legacy data URL, or a `pfstore:v1:` ref once the file is in private storage. */
   dataUrl: string
+  fileId?: string
   uploadedAt: string
   uploadedBy?: string | null
 }
@@ -166,6 +168,7 @@ export type AppUser = {
       name: string
       mimeType: string
       dataUrl: string
+      fileId?: string
       uploadedAt: string
     }>
   }
@@ -222,6 +225,7 @@ export type PropertyAsset = {
   formattedAddress?: string | null
   /** ISO timestamp of last successful geocode */
   geocodedAt?: string | null
+  /** Listing photos: legacy data URLs, remote URLs, or `pfstore:v1:` refs. */
   images: string[]
   floorPlan?: string
   rooms: Room[]
@@ -374,8 +378,9 @@ export type PaymentAttachment = {
   name: string
   kind: 'image' | 'document'
   mimeType: string
-  /** Demo storage as data URL (images / PDFs) */
+  /** Legacy data URL, or a `pfstore:v1:` ref once the file is in private storage. */
   dataUrl: string
+  fileId?: string
   uploadedAt: string
   uploadedByName?: string | null
 }
@@ -535,7 +540,7 @@ export type MaintenanceTicket = {
   preferredSchedule?: string
   /** Quick tags e.g. leak, no hot water, safety */
   issueTags?: string[]
-  /** Issue photos as data URLs or hosted paths */
+  /** Issue photos: legacy data URLs, or `pfstore:v1:` refs. */
   photoUrls?: string[]
   /** Work performed notes captured when closing the ticket */
   resolutionNotes?: string | null

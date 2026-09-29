@@ -4,6 +4,7 @@ import { GoogleMap, InfoWindowF, MarkerF, useJsApiLoader } from '@react-google-m
 import { MapContainer, TileLayer, Marker, Popup, useMap, ZoomControl } from 'react-leaflet'
 import L from 'leaflet'
 import { ArrowRight, Bath, BedDouble, Car, Heart, MapPin, X } from 'lucide-react'
+import { MediaImage } from './media/MediaImage'
 import type { PropertyAsset } from '../types/domain'
 import { formatZAR } from '../data/seed'
 import {
@@ -110,7 +111,7 @@ function MapListingPreview({
   return (
     <article className="pf-map-card w-[260px] overflow-hidden rounded-2xl bg-white sm:w-[280px]">
       <div className="relative aspect-[16/10] overflow-hidden bg-primary-100">
-        <img src={property.images[0]} alt="" className="h-full w-full object-cover" />
+        <MediaImage src={property.images[0]} alt="" className="h-full w-full object-cover" />
         <span className="absolute left-2.5 top-2.5 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-ink shadow-sm">
           {badge}
         </span>

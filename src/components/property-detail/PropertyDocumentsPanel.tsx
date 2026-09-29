@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { ChevronDown, Download, Eye, FileText, Pencil, Search } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
+import { ChevronDown, Download, Eye, FileText, Pencil, Search, Upload } from 'lucide-react'
 import type {
   Application,
   ApplicationDocument,
@@ -7,6 +7,10 @@ import type {
 } from '../../types/domain'
 import { Badge, Button, Card, Input, Modal, Select, Textarea, cn, statusTone } from '../ui'
 import { resolveDocumentUrl } from '../../lib/api/documents'
+import { toStorageRef } from '../../lib/storage/contract'
+import { getFileStorage } from '../../lib/storage'
+import { propertyDocumentTarget } from '../../lib/storage/targets'
+import { MediaLink } from '../media/MediaImage'
 import { ICON_STROKE } from './types'
 
 const ACCEPTED_STAGES: string[] = [
@@ -36,10 +40,16 @@ export function PropertyDocumentsPanel({
   applications,
   canManage,
   onUpdateDoc,
+  propertyId,
+  agencyId,
+  onAddDocument,
 }: {
   propertyDocuments: PropertyDocument[]
   applications: Application[]
   canManage: boolean
+  propertyId?: string
+  agencyId?: string
+  onAddDocument?: (doc: Omit<PropertyDocument, 'id'>) => void
   onUpdateDoc: (
     applicationId: string,
     key: string,
@@ -54,6 +64,35 @@ export function PropertyDocumentsPanel({
   const [viewRow, setViewRow] = useState<AcceptedDocRow | null>(null)
   const [editStatus, setEditStatus] = useState<ApplicationDocument['status']>('uploaded')
   const [editNote, setEditNote] = useState('')
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [categoryPick, setCategoryPick] = useState<PropertyDocument['category']>('Other')
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const uploadRegisterFile = async (file: File | null) => {
+    if (!file || !propertyId || !agencyId || !onAddDocument) return
+    setUploadError(null)
+    setUploading(true)
+    try {
+      const uploaded = await getFileStorage().upload({
+        ...propertyDocumentTarget(agencyId, propertyId, categoryPick.toLowerCase()),
+        file,
+      })
+      onAddDocument({
+        agencyId,
+        propertyId,
+        name: file.name,
+        category: categoryPick,
+        status: 'uploaded',
+        uploadedAt: new Date().toISOString().slice(0, 10),
+        fileUrl: toStorageRef(uploaded.file_id),
+      })
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Could not upload that document.')
+    } finally {
+      setUploading(false)
+    }
+  }
 
   const registerRows = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -118,8 +157,45 @@ export function PropertyDocumentsPanel({
             </div>
             <p className="mt-0.5 text-xs text-ink-500">
               Title, compliance, leases, marketing, and other files linked to this asset.
+              New files are stored privately. Older links still open.
             </p>
           </div>
+          {canManage && propertyId && agencyId && onAddDocument ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                className="min-h-11 cursor-pointer"
+                value={categoryPick}
+                onChange={(e) => setCategoryPick(e.target.value as PropertyDocument['category'])}
+                aria-label="Document category"
+              >
+                {categories.filter((c) => c !== 'all').map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </Select>
+              <Button
+                type="button"
+                variant="secondary"
+                className="min-h-11"
+                disabled={uploading}
+                onClick={() => fileRef.current?.click()}
+              >
+                <Upload className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                {uploading ? 'Uploading…' : 'Upload document'}
+              </Button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png"
+                className="sr-only"
+                onChange={(e) => {
+                  void uploadRegisterFile(e.target.files?.[0] ?? null)
+                  e.target.value = ''
+                }}
+              />
+            </div>
+          ) : null}
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <div className="relative min-w-[12rem] flex-1 sm:max-w-xs">
               <Search
@@ -148,6 +224,12 @@ export function PropertyDocumentsPanel({
             </Select>
           </div>
         </div>
+
+        {uploadError ? (
+          <p role="alert" className="mb-3 text-sm font-medium text-accent">
+            {uploadError}
+          </p>
+        ) : null}
 
         <div className="overflow-x-auto">
           <table className="w-full min-w-[640px] text-left text-sm">
@@ -179,14 +261,14 @@ export function PropertyDocumentsPanel({
                     <td className="px-3 py-3 tabular text-ink-500">{d.uploadedAt ?? '—'}</td>
                     <td className="px-3 py-3">
                       {href ? (
-                        <a
+                        <MediaLink
                           href={href}
                           target="_blank"
                           rel="noreferrer"
                           className="inline-flex min-h-11 cursor-pointer items-center text-sm font-semibold text-primary underline-offset-2 hover:underline"
                         >
                           Open
-                        </a>
+                        </MediaLink>
                       ) : (
                         <span className="text-xs text-ink-400">—</span>
                       )}

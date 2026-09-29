@@ -224,7 +224,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     landlordEntryMode: 'search',
     agentId: isLandlord ? '' : isFieldAgent(role) ? user.id : agents[0]?.id ?? '',
     publishAfterSave: isLandlord,
-    draftPropertyId: '',
+    draftPropertyId: uid('unt'),
     starterAssets: [],
   }
 
@@ -554,6 +554,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     }
 
     const created = createPropertyBundle({
+      propertyId: draft.draftPropertyId || undefined,
       existingBuildingId: draft.existingBuildingId || undefined,
       building: draft.existingBuildingId
         ? undefined
@@ -692,6 +693,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     } else {
       const { resolvedAgencyId, resolvedLandlordId, title, unitNumber, roomRows, starterAssets } = buildSubmitContext()
       const created = createPropertyBundle({
+        propertyId: draft.draftPropertyId || undefined,
         existingBuildingId: draft.existingBuildingId || undefined,
         building: draft.existingBuildingId
           ? undefined
@@ -922,6 +924,23 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
               onChange={(buildingImages) => setDraft((d) => ({ ...d, buildingImages }))}
               max={12}
               reorderable
+              storage={
+                (isEdit ? editProperty?.agencyId : isLandlord ? user.agencyId ?? draft.agencyId : draft.agencyId) &&
+                (isEdit ? editPropertyId : draft.draftPropertyId)
+                  ? {
+                      bucket: 'property-media',
+                      agencyId: (isEdit
+                        ? editProperty?.agencyId
+                        : isLandlord
+                          ? user.agencyId ?? draft.agencyId
+                          : draft.agencyId) as string,
+                      entityType: 'property',
+                      entityId: (isEdit ? editPropertyId : draft.draftPropertyId) as string,
+                      kind: 'property_image',
+                      fileClass: 'image',
+                    }
+                  : undefined
+              }
             />
           </WizardSectionCard>
         )

@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { ArrowRight, CalendarDays, ClipboardList, Home, X, Wrench } from 'lucide-react'
+import { MediaImage } from '../media/MediaImage'
 import { Badge, Button, cn, priorityTone, statusTone } from '../ui'
 import { formatZAR } from '../../data/seed'
 import type { Application, MaintenanceTicket, PropertyAsset, Viewing } from '../../types/domain'
@@ -184,7 +185,7 @@ export function OpsPreviewModal({
             {photos.length > 0 ? (
               <div className="flex flex-col gap-2 p-2 sm:gap-2.5 sm:p-3">
                 {photos.map((src, i) => (
-                  <img
+                  <MediaImage
                     key={`${src}-${i}`}
                     src={src}
                     alt=""

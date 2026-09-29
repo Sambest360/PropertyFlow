@@ -53,21 +53,30 @@ export function formatDocSizeLabel(bytes = REGISTRATION_DOC_MAX_BYTES): string {
 }
 
 export function registrationDocsPayloadBytes(
-  documents: readonly { dataUrl: string }[],
+  documents: readonly { dataUrl?: string }[],
 ): number {
-  return documents.reduce((sum, doc) => sum + doc.dataUrl.length, 0)
+  return documents.reduce((sum, doc) => sum + (doc.dataUrl?.length ?? 0), 0)
 }
 
 export function validateRegistrationDocSizes(
-  documents: readonly { dataUrl: string; label: string }[],
+  documents: readonly { dataUrl?: string; label: string; file?: { size: number } }[],
 ): string | null {
-  const maxLabel = formatDocSizeLabel()
+  const maxLabel = formatDocSizeLabel(20 * 1024 * 1024)
   for (const doc of documents) {
-    if (doc.dataUrl.length > REGISTRATION_DOC_MAX_BYTES * 1.4) {
-      return `${doc.label} is too large — use a file under ${maxLabel}.`
+    if (doc.file) {
+      if (doc.file.size > 20 * 1024 * 1024) {
+        return `${doc.label} is too large — documents can be up to ${maxLabel}.`
+      }
+      continue
+    }
+    const dataUrl = doc.dataUrl ?? ''
+    if (!dataUrl || dataUrl.startsWith('pfstore:v1:')) continue
+    if (dataUrl.length > REGISTRATION_DOC_MAX_BYTES * 1.4) {
+      return `${doc.label} is too large — use a file under ${formatDocSizeLabel()}.`
     }
   }
-  if (registrationDocsPayloadBytes(documents) > REGISTRATION_DOCS_MAX_TOTAL_BYTES) {
+  const legacy = documents.filter((doc) => (doc.dataUrl ?? '').startsWith('data:'))
+  if (registrationDocsPayloadBytes(legacy) > REGISTRATION_DOCS_MAX_TOTAL_BYTES) {
     return `Combined uploads are too large — use smaller files (under ${maxLabel} each).`
   }
   return null

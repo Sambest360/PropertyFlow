@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Building2, CalendarDays, ChevronDown, MapPin } from 'lucide-react'
 import type { Viewing } from '../../types/domain'
+import { MediaImage } from '../media/MediaImage'
 import { Badge, cn, statusTone } from '../ui'
 import { AgentAssigneeText } from '../detail/FlatFields'
 import { useHideAgentColumn } from '../../hooks/useAgentDisplay'
@@ -47,7 +48,7 @@ export function ViewingCard({
       >
         <div className="relative aspect-[16/10] bg-primary-50">
           {p.images[0] ? (
-            <img src={p.images[0]} alt="" className="h-full w-full object-cover" />
+            <MediaImage src={p.images[0]} alt="" className="h-full w-full object-cover" />
           ) : (
             <div className="flex h-full items-center justify-center text-primary">
               <Building2 className="h-8 w-8" strokeWidth={ICON_STROKE} aria-hidden />

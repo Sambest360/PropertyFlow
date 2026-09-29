@@ -87,7 +87,30 @@ export function guardUserWrite(opts: {
       delete metadata.enabledPermissions
     }
     if (opts.existing.metadata && 'verification' in opts.existing.metadata) {
-      metadata.verification = opts.existing.metadata.verification
+      const existingStatus = verificationStatus(opts.existing.metadata)
+      const requestedStatus = verificationStatus(metadata)
+      const requestedDocs =
+        metadata.verification &&
+        typeof metadata.verification === 'object' &&
+        Array.isArray((metadata.verification as { documents?: unknown }).documents)
+          ? (metadata.verification as { documents: unknown[] }).documents
+          : null
+      // A registrant may attach storage refs while verification is still pending.
+      // Status, role, and agency stay frozen for non-privileged callers.
+      if (existingStatus === 'pending' && requestedStatus === 'pending' && requestedDocs) {
+        const prev =
+          opts.existing.metadata.verification && typeof opts.existing.metadata.verification === 'object'
+            ? (opts.existing.metadata.verification as Record<string, unknown>)
+            : {}
+        metadata.verification = {
+          ...prev,
+          ...(metadata.verification as Record<string, unknown>),
+          status: 'pending',
+          documents: requestedDocs,
+        }
+      } else {
+        metadata.verification = opts.existing.metadata.verification
+      }
     } else {
       delete metadata.verification
     }

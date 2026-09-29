@@ -68,6 +68,7 @@ export default function PropertyDetail() {
     createThread,
     sendMessage,
     addPropertyEvent,
+    addPropertyDocument,
   } = useStore()
   const { has, user } = useAuth()
   const { inPropertyScope } = usePropertyScope()
@@ -636,6 +637,11 @@ export default function PropertyDetail() {
           propertyDocuments={state.propertyDocuments.filter((d) => d.propertyId === p.id)}
           applications={apps}
           canManage={canManage}
+          propertyId={p.id}
+          agencyId={p.agencyId}
+          onAddDocument={(doc) => {
+            addPropertyDocument(doc)
+          }}
           onUpdateDoc={(applicationId, key, status, note) =>
             setDocumentStatus(applicationId, key, status, note)
           }

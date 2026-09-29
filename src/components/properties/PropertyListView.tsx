@@ -13,6 +13,7 @@ import {
   MapPin,
   Wrench,
 } from 'lucide-react'
+import { MediaImage } from '../media/MediaImage'
 import { ActionButtonRow } from '../ActionButtonRow'
 import { Badge, Button, cn } from '../ui'
 import { AgentAssigneeText } from '../detail/FlatFields'
@@ -104,7 +105,7 @@ export function PropertyExpansion({
         {current ? (
           <>
             <div className="relative mx-auto aspect-[16/10] max-h-64 w-full overflow-hidden rounded-xl bg-primary-100 ring-1 ring-primary-100/80 sm:max-h-72 xl:max-h-80">
-              <img
+              <MediaImage
                 src={current}
                 alt=""
                 className={cn(
@@ -151,7 +152,7 @@ export function PropertyExpansion({
                       reducedMotion && 'transition-none',
                     )}
                   >
-                    <img src={src} alt="" className="h-full w-full object-cover" />
+                    <MediaImage src={src} alt="" className="h-full w-full object-cover" />
                   </button>
                 ))}
               </div>
@@ -334,7 +335,7 @@ export function PropertyListView({
                           onClick={() => onToggle(item)}
                           className="group flex min-h-11 w-full cursor-pointer items-center gap-3 rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
-                          <img
+                          <MediaImage
                             src={p.images[0]}
                             alt=""
                             className={cn(
@@ -453,7 +454,7 @@ export function PropertyListView({
                 aria-expanded={expanded}
                 className="flex w-full cursor-pointer gap-3 p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
-                <img
+                <MediaImage
                   src={p.images[0]}
                   alt=""
                   className={cn(

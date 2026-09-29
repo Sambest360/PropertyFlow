@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { uid } from '../../data/seed'
+import { ticketAttachmentTarget } from '../../lib/storage/targets'
 import { Plus } from 'lucide-react'
 import type { PropertyAsset } from '../../types/domain'
 import type { InternalAsset, LookupConfig } from '../../data/infrastructure'
@@ -26,6 +28,7 @@ export type CreateTicketInput = {
   issueTags?: string[]
   photoUrls?: string[]
   estimatedCost?: number | null
+  ticketId?: string
 }
 
 export function CreateTicketModal({
@@ -58,6 +61,7 @@ export function CreateTicketModal({
   const [estimatedCost, setEstimatedCost] = useState('')
   const [issueTags, setIssueTags] = useState<string[]>([])
   const [photoUrls, setPhotoUrls] = useState<string[]>([])
+  const [draftTicketId, setDraftTicketId] = useState(() => uid('MT'))
   const [error, setError] = useState('')
 
   const selected = properties.find((p) => p.id === propertyId)
@@ -80,6 +84,7 @@ export function CreateTicketModal({
     setEstimatedCost('')
     setIssueTags([])
     setPhotoUrls([])
+    setDraftTicketId(uid('MT'))
     setError('')
   }
 
@@ -116,6 +121,7 @@ export function CreateTicketModal({
       issueTags,
       photoUrls,
       estimatedCost: estimatedCost ? Number(estimatedCost) : null,
+      ticketId: draftTicketId,
     })
     if (err) {
       setError(err)
@@ -308,7 +314,12 @@ export function CreateTicketModal({
             onChange={setPhotoUrls}
             max={8}
             label="Issue photos"
-            hint="Upload clear photos of the fault, damage, or meter readings"
+            hint="JPEG, PNG, or WebP, up to 10 MB"
+            storage={
+              (selected?.agencyId || agencyId)
+                ? ticketAttachmentTarget(selected?.agencyId || agencyId || '', draftTicketId)
+                : undefined
+            }
           />
         </div>
         {error && (

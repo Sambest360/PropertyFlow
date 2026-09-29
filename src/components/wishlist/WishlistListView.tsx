@@ -8,6 +8,7 @@ import {
   HeartOff,
   MapPin,
 } from 'lucide-react'
+import { MediaImage } from '../media/MediaImage'
 import { Badge, Button, cn } from '../ui'
 import { formatZAR } from '../../data/seed'
 import { useAuth } from '../../context/AuthContext'
@@ -210,7 +211,7 @@ export function WishlistListView({
                           onClick={() => onToggle(p)}
                           className="group flex min-h-11 w-full cursor-pointer items-center gap-3 rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
-                          <img
+                          <MediaImage
                             src={p.images[0]}
                             alt=""
                             className={cn(
@@ -307,7 +308,7 @@ export function WishlistListView({
                 aria-expanded={expanded}
                 className="flex w-full cursor-pointer gap-3 p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
-                <img
+                <MediaImage
                   src={p.images[0]}
                   alt=""
                   className={cn(

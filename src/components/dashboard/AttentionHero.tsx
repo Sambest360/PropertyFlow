@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight, Pencil } from 'lucide-react'
+import { MediaImage } from '../media/MediaImage'
 import { Badge, Button, cn } from '../ui'
 
 export type AttentionHeroStat = { label: string; value: string }
@@ -38,7 +39,7 @@ export function AttentionHero({
     <section className={cn('relative overflow-hidden rounded-[1.5rem]', className)}>
       <div className="relative min-h-[14rem] sm:min-h-[17rem]">
         {image ? (
-          <img src={image} alt="" className="absolute inset-0 h-full w-full object-cover" />
+          <MediaImage src={image} alt="" className="absolute inset-0 h-full w-full object-cover" />
         ) : (
           <div className="absolute inset-0 bg-primary-100" />
         )}

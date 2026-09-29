@@ -1,27 +1,15 @@
 import { useRef, useState } from 'react'
 import { Check, Eye, FileText, Upload, XCircle } from 'lucide-react'
 import type { ApplicationDocument } from '../../types/domain'
-import { REGISTRATION_DOC_MAX_BYTES, formatDocSizeLabel } from '../../lib/auth/registrationDocs'
 import { showAuthWarning } from '../../lib/sweetAlert'
+import { mediaLocator, toStorageRef } from '../../lib/storage/contract'
+import { getFileStorage } from '../../lib/storage'
+import { applicationDocumentTarget } from '../../lib/storage/targets'
+import { MediaLink } from '../media/MediaImage'
 import { Badge, Button, cn, statusTone, Textarea } from '../ui'
 import { ICON_STROKE } from './types'
 
-const ACCEPT = 'image/jpeg,image/png,image/webp,application/pdf,.pdf,.jpg,.jpeg,.png,.webp'
-const MAX_LABEL = formatDocSizeLabel()
-
-function readFile(file: File): Promise<{ name: string; mimeType: string; dataUrl: string }> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () =>
-      resolve({
-        name: file.name,
-        mimeType: file.type || 'application/octet-stream',
-        dataUrl: String(reader.result),
-      })
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(file)
-  })
-}
+const ACCEPT = 'image/jpeg,image/png,application/pdf,.pdf,.jpg,.jpeg,.png'
 
 export function ApplicationDocumentRow({
   doc,
@@ -29,12 +17,15 @@ export function ApplicationDocumentRow({
   canReview,
   onUpload,
   onSetStatus,
+  uploadTarget,
 }: {
   doc: ApplicationDocument
   canUpload: boolean
   canReview: boolean
-  onUpload: (file: { name: string; mimeType: string; dataUrl: string }) => void
+  onUpload: (file: { name: string; mimeType: string; dataUrl: string; fileId?: string }) => void
   onSetStatus: (status: ApplicationDocument['status'], note?: string) => void
+  /** Owning agency path. Tenants upload against their application, or their lease. */
+  uploadTarget?: { agencyId: string; applicationId: string; leaseId?: string | null }
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [rejectOpen, setRejectOpen] = useState(false)
@@ -42,15 +33,29 @@ export function ApplicationDocumentRow({
 
   const pickFile = async (file: File | null) => {
     if (!file) return
-    if (file.size > REGISTRATION_DOC_MAX_BYTES) {
-      await showAuthWarning(`File must be under ${MAX_LABEL}. Try a smaller PDF or image.`)
+    if (!uploadTarget?.agencyId) {
+      await showAuthWarning('This application is not linked to an agency yet, so the file cannot be stored.')
       return
     }
     try {
-      const read = await readFile(file)
-      onUpload(read)
-    } catch {
-      await showAuthWarning('Could not read that file — try a different PDF or image.')
+      const uploaded = await getFileStorage().upload({
+        ...applicationDocumentTarget({
+          agencyId: uploadTarget.agencyId,
+          applicationId: uploadTarget.applicationId,
+          leaseId: uploadTarget.leaseId,
+          docKey: doc.key,
+          docLabel: doc.label,
+        }),
+        file,
+      })
+      onUpload({
+        name: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        dataUrl: toStorageRef(uploaded.file_id),
+        fileId: uploaded.file_id,
+      })
+    } catch (err) {
+      await showAuthWarning(err instanceof Error ? err.message : 'Could not upload that file.')
     }
   }
 
@@ -104,16 +109,16 @@ export function ApplicationDocumentRow({
           </>
         ) : null}
 
-        {doc.file?.dataUrl ? (
-          <Button
-            type="button"
-            variant="ghost"
-            className="min-h-9 cursor-pointer text-xs"
-            onClick={() => window.open(doc.file!.dataUrl, '_blank', 'noopener')}
+        {mediaLocator(doc.file) ? (
+          <MediaLink
+            href={mediaLocator(doc.file)}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex min-h-9 cursor-pointer items-center gap-1 rounded-xl px-3 text-xs font-semibold text-primary hover:bg-primary-50"
           >
             <Eye className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} aria-hidden />
             View file
-          </Button>
+          </MediaLink>
         ) : null}
 
         {showReview ? (
