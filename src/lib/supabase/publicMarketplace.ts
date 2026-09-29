@@ -17,6 +17,18 @@ type PublicRpcPayload = {
 export async function fetchPublicMarketplaceBootstrap(lite = true): Promise<PostgresBootstrap | null> {
   try {
     const supabase = createClient()
+    // Prefer the lite RPC (cover image only) — the full variant serializes whole
+    // image arrays, which can exceed Supabase's statement timeout when photos
+    // are stored as large data URLs (see migration 008).
+    const liteRes = await supabase.rpc('get_public_marketplace_bootstrap_lite', {
+      p_lite: lite,
+    })
+    if (!liteRes.error && liteRes.data) {
+      const payload = liteRes.data as PublicRpcPayload
+      if (payload.units?.length) return mapGuestMarketplacePayload(payload)
+    } else if (liteRes.error) {
+      console.warn('[publicMarketplace] lite RPC unavailable, falling back:', liteRes.error.message)
+    }
     const { data, error } = await supabase.rpc('get_public_marketplace_bootstrap', {
       p_lite: lite,
     })

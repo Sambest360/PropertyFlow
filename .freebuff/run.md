@@ -20,6 +20,10 @@ cd /Users/samBest360/Desktop/propertyflow
 nohup ./.freebuff/pf-api-run.sh > /tmp/pf-api.log 2>&1 < /dev/null &
 ```
 
+- Confirmed 2026-09-19: the plain nohup launch **is sometimes reaped here too** (same as
+  vite). If `/api/health` stops answering right after launch, use the same Python
+  double-fork recipe below, exec'ing `sh ./.freebuff/pf-api-run.sh` instead of vite.
+
 - Health check: `curl -s http://127.0.0.1:8787/api/health` → `{"ok":true,"database":"up",...}`
 
 **Vite** (the fragile one — see launch recipe below):
@@ -54,6 +58,19 @@ os.waitpid(pid, 0)
 ```
 
 Then confirm: `kill -0 <pid>` and `curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5173/` → 200, plus `/api/health` through the proxy.
+
+## Watch out: vite watcher staleness (confirmed repeatedly on this box)
+
+Vite's file watcher on this machine **does not always pick up edits made while it runs** — served
+modules can stay stale after a file changes on disk (even `touch` doesn't help). If a browser test
+behaves like old code, verify what the server actually serves:
+
+```sh
+curl -s "http://127.0.0.1:5173/src/lib/<file>.ts" | grep "<marker from your edit>"
+```
+
+If stale, **restart vite** (kill the listener on 5173, relaunch with the Python double-fork recipe
+above). Never trust HMR to have applied an edit; trust the curl check.
 
 ## 3. Verify the app renders
 

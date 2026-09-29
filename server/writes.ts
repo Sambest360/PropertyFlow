@@ -142,6 +142,10 @@ function bool(v: unknown, fallback = false): boolean {
   return fallback
 }
 
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
 function splitName(name: string): { first: string; last: string } {
   const parts = name.trim().split(/\s+/)
   if (parts.length <= 1) return { first: parts[0] || 'User', last: '' }
@@ -763,14 +767,18 @@ async function upsertLead(feId: string, d: Record<string, unknown>): Promise<str
   const unit = await unitIdFromProperty(d.propertyId)
   const agent = await userId(d.agentId)
   const interest = str(d.type, 'Rent').toLowerCase().startsWith('b') ? 'BUY' : 'RENT'
+  // Merge server-side: incoming metadata keys override, existing keys survive —
+  // so a stage-progress write never clobbers unrelated metadata.
+  const incomingMeta = isPlainObject(d.metadata) ? d.metadata : {}
+  const metadata = JSON.stringify(incomingMeta)
 
   await query(
     `INSERT INTO leads (
        id, client_id, unit_id, agent_id, name, email, phone, channel, stage,
-       interest_type, value_amount, notes, updated_at
+       interest_type, value_amount, notes, metadata, updated_at
      ) VALUES (
        $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, $8, $9,
-       $10, $11, $12, NOW()
+       $10, $11, $12, $13::jsonb, NOW()
      )
      ON CONFLICT (id) DO UPDATE SET
        unit_id = EXCLUDED.unit_id,
@@ -783,6 +791,7 @@ async function upsertLead(feId: string, d: Record<string, unknown>): Promise<str
        interest_type = EXCLUDED.interest_type,
        value_amount = EXCLUDED.value_amount,
        notes = EXCLUDED.notes,
+       metadata = leads.metadata || EXCLUDED.metadata,
        updated_at = NOW()`,
     [
       uuid,
@@ -797,6 +806,7 @@ async function upsertLead(feId: string, d: Record<string, unknown>): Promise<str
       interest,
       num(d.value),
       d.notes ? str(d.notes) : null,
+      metadata,
     ],
   )
   return uuid
@@ -1276,6 +1286,10 @@ async function upsertMessage(feId: string, d: Record<string, unknown>): Promise<
 async function upsertLookup(feId: string, d: Record<string, unknown>): Promise<string> {
   const uuid = await ensureUuid('lookup', feId)
   const client = await clientId(d.clientId === 'global' || !d.clientId ? 'ag-horizon' : d.clientId)
+  // Preserve the id-map keys the platform writes into meta; type-specific
+  // extras (e.g. LEAD_STAGE step requirements) merge over them server-side.
+  const incomingMeta = isPlainObject(d.meta) ? d.meta : {}
+  const meta = JSON.stringify({ frontend_id: feId, ...incomingMeta })
   await query(
     `INSERT INTO client_lookup_configs (
        id, client_id, config_type, key_value, display_label, is_active, sort_order, meta
@@ -1286,7 +1300,8 @@ async function upsertLookup(feId: string, d: Record<string, unknown>): Promise<s
        display_label = EXCLUDED.display_label,
        is_active = EXCLUDED.is_active,
        sort_order = EXCLUDED.sort_order,
-       key_value = EXCLUDED.key_value`,
+       key_value = EXCLUDED.key_value,
+       meta = client_lookup_configs.meta || EXCLUDED.meta`,
     [
       uuid,
       client,
@@ -1295,7 +1310,7 @@ async function upsertLookup(feId: string, d: Record<string, unknown>): Promise<s
       str(d.displayLabel, str(d.keyValue, feId)),
       bool(d.isActive, true),
       num(d.sortOrder) ?? 0,
-      JSON.stringify({ frontend_id: feId }),
+      meta,
     ],
   )
   return uuid

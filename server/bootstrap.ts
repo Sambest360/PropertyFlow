@@ -24,6 +24,10 @@ import {
 } from './idMap.js'
 import { canonicalListingId, unitIdForProperty } from '../src/lib/listingIds.js'
 import { deriveAgencyContractors } from '../src/lib/contractors.js'
+import type { Lead } from '../src/types/domain.js'
+
+/** Global config client id — mirrors src/data/platformLookups. */
+const GLOBAL_CLIENT_ID = 'global'
 
 type RoleDb =
   | 'SUPER_ADMIN'
@@ -224,6 +228,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     deposits,
     arrears,
     csvBatches,
+    lookupRows,
   ] = await mapPool(
     [
       () =>
@@ -408,6 +413,19 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
           'SELECT * FROM arrears_snapshots ORDER BY as_of DESC LIMIT 60',
         ),
       () => query('SELECT * FROM csv_import_batches ORDER BY imported_at DESC LIMIT 100'),
+      () =>
+        query<{
+          id: string
+          client_id: string
+          config_type: string
+          key_value: string
+          display_label: string
+          is_active: boolean
+          sort_order: number
+          meta: Record<string, unknown> | null
+        }>(
+          'SELECT id::text AS id, client_id::text, config_type, key_value, display_label, is_active, sort_order, meta FROM client_lookup_configs ORDER BY config_type, sort_order',
+        ),
     ] as const,
     process.env.VERCEL ? 3 : 8,
     (load) => load(),
@@ -661,6 +679,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     type: (l.interest_type as string) === 'BUY' ? 'Buy' : 'Rent',
     value: l.value_amount != null ? Number(l.value_amount) : 0,
     notes: (l.notes as string) ?? '',
+    metadata: (l.metadata as Lead['metadata'] | null) ?? undefined,
     createdAt: dateOnly(l.created_at as Date),
     updatedAt: dateOnly(l.updated_at as Date),
   }))
@@ -1109,6 +1128,23 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
   // Strip internal fields from units for client
   const cleanUnits = mappedUnits.map(({ _propertyId: _p, _buildingUuid: _b, _unitUuid: _u, ...rest }) => rest)
 
+  // Include configured lookup rows (id-map meta stripped from the payload;
+  // type-specific meta such as LEAD_STAGE requirements is preserved).
+  const mappedLookups = (lookupRows as Array<Record<string, unknown>>).map((l) => {
+    const meta = (l.meta as Record<string, unknown> | null) ?? {}
+    const { frontend_id: _fid, frontend_client_id: _fcid, ...extraMeta } = meta
+    return {
+      id: mappedFe('lookup', l.id as string, `lk-pg-${l.id as string}`),
+      clientId: agencyFe(l.client_id as string) ?? GLOBAL_CLIENT_ID,
+      configType: l.config_type as string,
+      keyValue: l.key_value as string,
+      displayLabel: l.display_label as string,
+      isActive: Boolean(l.is_active),
+      sortOrder: Number(l.sort_order) || 0,
+      ...(Object.keys(extraMeta).length ? { meta: extraMeta } : {}),
+    }
+  })
+
   return {
     source: 'postgres',
     fetchedAt: new Date().toISOString(),
@@ -1139,5 +1175,6 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     depositHoldings: mappedDeposits,
     arrearsSnapshots: mappedArrears,
     csvImportBatches: mappedCsvBatches,
+    lookups: mappedLookups,
   }
 }

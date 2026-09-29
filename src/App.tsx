@@ -60,6 +60,7 @@ const AdminAgenciesPage = lazy(() => import('./pages/admin/AdminAgenciesPage'))
 const AdminAgencyCreatePage = lazy(() => import('./pages/admin/AdminAgencyCreatePage'))
 const AgencyDetailPage = lazy(() => import('./pages/admin/AgencyDetailPage'))
 const AdminConfigPage = lazy(() => import('./pages/admin/AdminConfigPage'))
+const LeadPipelineSettingsPage = lazy(() => import('./pages/admin/LeadPipelineSettingsPage'))
 const AdminNotificationsPage = lazy(() => import('./pages/admin/AdminNotificationsPage'))
 const AdminAllUsersPage = lazy(() => import('./pages/admin/AdminAllUsersPage'))
 const TenantApplicationDetailPage = lazy(() => import('./pages/tenant/TenantApplicationDetailPage'))
@@ -297,6 +298,7 @@ export default function App() {
                 <Route path="portals/tenant/maintenance" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
                 <Route path="portals/tenant/messages" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
                 <Route path="portals/tenant/complaints" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
+                <Route path="portals/tenant/viewings" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
                 <Route path="account/wishlist" element={<AccountWishlistPage />} />
                 <Route path="portals/contractor" element={<Guard permission="portal.contractor"><ContractorPortal /></Guard>} />
 
@@ -316,6 +318,7 @@ export default function App() {
                 <Route path="admin/agencies/new" element={<Guard permission="platform.manage"><AdminAgencyCreatePage /></Guard>} />
                 <Route path="admin/agencies/:id" element={<Guard permission="platform.manage"><AgencyDetailPage /></Guard>} />
                 <Route path="admin/config" element={<Guard anyOf={['config.manage', 'tenant.manage', 'platform.manage']}><AdminConfigPage /></Guard>} />
+                <Route path="admin/pipeline" element={<Guard anyOf={['config.manage', 'tenant.manage', 'platform.manage']}><LeadPipelineSettingsPage /></Guard>} />
                 <Route path="admin/roles" element={<Navigate to="/workspace/admin/users" replace />} />
                 <Route path="admin/notifications" element={<Guard anyOf={['notifications.broadcast', 'platform.manage']}><AdminNotificationsPage /></Guard>} />
                 <Route path="admin/all-users" element={<Guard permission="platform.manage"><AdminAllUsersPage /></Guard>} />

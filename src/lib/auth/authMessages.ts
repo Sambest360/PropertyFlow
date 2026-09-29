@@ -1,5 +1,13 @@
+/** Extract the server-provided Retry-After value from an Error, in minutes. */
+function retryAfterMinutes(err: unknown): number | null {
+  if (err == null || typeof err !== 'object') return null
+  const v = (err as { retryAfterSec?: number | string }).retryAfterSec
+  const n = typeof v === 'string' ? Number(v) : v
+  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? Math.max(1, Math.round(n / 60)) : null
+}
+
 /** Map raw API / auth errors to friendly copy for SweetAlert. */
-export function formatAuthError(message: string): { title: string; text?: string } {
+export function formatAuthError(message: string, err?: unknown): { title: string; text?: string } {
   const raw = (message ?? '').trim()
   const lower = raw.toLowerCase()
   const isEmptyPayload = !raw || raw === '{}' || raw === 'null' || raw === '[object object]'
@@ -7,11 +15,11 @@ export function formatAuthError(message: string): { title: string; text?: string
   if (lower.includes('request body too large') || lower.includes('1048576')) {
     return {
       title: 'Uploads too large',
-      text: 'Registration documents are saved separately after sign-up. If you still see this, use smaller PDF or image files (under 800 KB each) and try again.',
+      text: 'Registration documents are saved separately after sign-up. If you still see this, use smaller PDF or image files (under 5 MB each) and try again.',
     }
   }
 
-  if (lower.includes('user already registered') || lower.includes('already been registered')) {
+  if (lower.includes('user already registered') || lower.includes('already been registered') || lower.includes('email already registered')) {
     return {
       title: 'Email already in use',
       text: 'An account with this email already exists. Sign in instead, or use a different email.',
@@ -68,9 +76,12 @@ export function formatAuthError(message: string): { title: string; text?: string
     lower.includes('over_email_send_rate_limit') ||
     lower.includes('429')
   ) {
+    const mins = retryAfterMinutes(err)
     return {
       title: 'Too many attempts',
-      text: 'Auth is rate-limiting this email or this network. Wait a few minutes, then retry — or use a different plus-address (you+test2@gmail.com).',
+      text: mins
+        ? `Too many attempts from this email or network. Try again in about ${mins} minute${mins === 1 ? '' : 's'}.`
+        : 'Too many attempts from this email or network. Wait a few minutes, then retry — or use a different plus-address (you+test2@gmail.com).',
     }
   }
 

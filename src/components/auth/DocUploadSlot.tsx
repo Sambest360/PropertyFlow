@@ -1,14 +1,14 @@
 import { useId, useRef } from 'react'
 import { FileText, Upload, X } from 'lucide-react'
 import type { VerificationDocument } from '../../lib/verification'
-import { REGISTRATION_DOC_MAX_BYTES } from '../../lib/auth/registrationDocs'
+import { REGISTRATION_DOC_MAX_BYTES, formatDocSizeLabel } from '../../lib/auth/registrationDocs'
 import { showAuthWarning } from '../../lib/sweetAlert'
 import { cn } from '../ui'
 
 const ICON_STROKE = 1.6
 const ACCEPT =
   'image/jpeg,image/png,image/webp,application/pdf,.pdf,.jpg,.jpeg,.png,.webp'
-const MAX_KB = Math.round(REGISTRATION_DOC_MAX_BYTES / 1024)
+const MAX_LABEL = formatDocSizeLabel()
 
 function readFile(file: File): Promise<{ name: string; mimeType: string; dataUrl: string }> {
   return new Promise((resolve, reject) => {
@@ -43,7 +43,7 @@ export function DocUploadSlot({
   const onPick = async (file: File | null) => {
     if (!file) return
     if (file.size > REGISTRATION_DOC_MAX_BYTES) {
-      await showAuthWarning(`File must be under ${MAX_KB} KB. Try a smaller PDF or image.`)
+      await showAuthWarning(`File must be under ${MAX_LABEL}. Try a smaller PDF or image.`)
       return
     }
     try {
@@ -109,7 +109,7 @@ export function DocUploadSlot({
           )}
         >
           <Upload className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-          Upload PDF or image (max {MAX_KB} KB)
+          Upload PDF or image (max {MAX_LABEL})
         </button>
       )}
 

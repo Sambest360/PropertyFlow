@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   ArrowDown,
   ArrowLeft,
@@ -28,6 +29,7 @@ const ICON_STROKE = 1.6
 type GroupFilter = 'all' | ConfigGroupId
 
 export default function AdminConfigPage() {
+  const navigate = useNavigate()
   const { state, createLookup, updateLookup, deactivateLookup, reorderLookups } = useStore()
   const { has } = useAuth()
   const { agencyId } = useAgencyScope()
@@ -198,6 +200,7 @@ export default function AdminConfigPage() {
               if (!isPlatform && isGlobalLookup(row.clientId)) return
               deactivateLookup(id)
             }}
+            onOpenPipeline={() => navigate('/workspace/admin/pipeline')}
             onMove={(id, dir) => {
               const row = rows.find((r) => r.id === id)
               if (!row) return
@@ -356,6 +359,7 @@ function CatalogueEditor({
   error,
   setError,
   onCreate,
+  onOpenPipeline,
   onUpdate,
   onDeactivate,
   onMove,
@@ -381,6 +385,7 @@ function CatalogueEditor({
     keyValue: string
     displayLabel: string
   }) => void
+  onOpenPipeline: () => void
   onUpdate: (id: string, patch: { displayLabel?: string; isActive?: boolean }) => void
   onDeactivate: (id: string) => void
   onMove: (id: string, dir: -1 | 1) => void
@@ -388,6 +393,25 @@ function CatalogueEditor({
 }) {
   return (
     <Card className="p-5">
+      {typeDef.type === 'LEAD_STAGE' ? (
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary-100/80 bg-primary-50/50 p-4">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-ink">Configuring your deal pipeline?</p>
+            <p className="mt-0.5 text-sm text-ink-500">
+              Use the dedicated editor to reorder steps and set what each step requires —
+              documents, payments, and more.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            className="min-h-11 cursor-pointer"
+            onClick={onOpenPipeline}
+          >
+            Open lead pipeline editor
+          </Button>
+        </div>
+      ) : null}
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="font-display text-lg font-semibold text-ink">{typeDef.label}</h2>

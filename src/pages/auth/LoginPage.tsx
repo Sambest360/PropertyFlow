@@ -118,7 +118,10 @@ export default function LoginPage() {
         ) : registered === 'ready' ? (
           <p className="mt-4 flex items-start gap-2.5 rounded-2xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-ink-700">
             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" strokeWidth={ICON_STROKE} aria-hidden />
-            <span>Your account is ready — sign in with the email and password you created.</span>
+            <span>
+              Account created — a welcome email is on its way to your inbox. Sign
+              in below with the email and password you registered.
+            </span>
           </p>
         ) : bootstrapNeeded ? (
           <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">

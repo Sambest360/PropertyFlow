@@ -204,6 +204,21 @@ async function upsertLead(id: string, data: Record<string, unknown>): Promise<vo
   const uuid = await ensureUuid('lead', id)
   const clientId = await clientUuid(data.agencyId)
   const unitId = await unitUuid(data.propertyId)
+  // Read-merge-write: incoming metadata keys override, existing row keys
+  // (other stages' progress, unrelated extras) survive the upsert.
+  const incomingMeta = (data.metadata && typeof data.metadata === 'object' && !Array.isArray(data.metadata)
+    ? data.metadata
+    : {}) as Record<string, unknown>
+  let mergedMeta = incomingMeta
+  const { data: existingRow } = await supabase
+    .from('leads')
+    .select('metadata')
+    .eq('id', uuid)
+    .maybeSingle()
+  const existingMeta = (existingRow?.metadata ?? null) as Record<string, unknown> | null
+  if (existingMeta && typeof existingMeta === 'object' && !Array.isArray(existingMeta)) {
+    mergedMeta = { ...existingMeta, ...incomingMeta }
+  }
   await supabase.from('leads').upsert({
     id: uuid,
     client_id: clientId,
@@ -217,6 +232,7 @@ async function upsertLead(id: string, data: Record<string, unknown>): Promise<vo
     interest_type: str(data.type) === 'Buy' ? 'BUY' : 'RENT',
     value_amount: num(data.value),
     notes: str(data.notes),
+    metadata: mergedMeta,
     updated_at: new Date().toISOString(),
   })
 }
@@ -630,25 +646,52 @@ async function deleteEntity(resource: EntityType, id: string): Promise<void> {
 
 async function upsertLookup(id: string, data: Record<string, unknown>): Promise<void> {
   const supabase = createClient()
-  const uuid = await ensureUuid('lookup', id)
   const clientId = await clientUuid(data.clientId)
   if (!clientId) throw new Error('lookup requires a valid clientId / agencyId')
+  const configType = str(data.configType, 'CUSTOM')
+  const keyValue = str(data.keyValue, id)
+
+  // Seeded lookup rows may have no entity_id_map entry, in which case
+  // ensureUuid would mint a fresh uuid that collides with the existing row's
+  // unique (client_id, config_type, key_value). Resolve the real row by its
+  // natural key first and upsert onto that row's id.
+  let uuid = await ensureUuid('lookup', id)
+  const { data: byNaturalKey } = await supabase
+    .from('client_lookup_configs')
+    .select('id, meta')
+    .eq('client_id', clientId)
+    .eq('config_type', configType)
+    .eq('key_value', keyValue)
+    .maybeSingle()
+  if (byNaturalKey?.id) uuid = byNaturalKey.id as string
+
+  // Read-merge-write: the platform's id-map keys (frontend_id etc.) and any
+  // other meta consumers survive; requirement config merges over the top.
+  const incoming = (data.meta && typeof data.meta === 'object' && !Array.isArray(data.meta)
+    ? data.meta
+    : {}) as Record<string, unknown>
+  const existingMeta = (byNaturalKey?.meta ?? null) as Record<string, unknown> | null
+  const merged: Record<string, unknown> = {
+    frontend_id: id,
+    ...(existingMeta && typeof existingMeta === 'object' && !Array.isArray(existingMeta)
+      ? existingMeta
+      : {}),
+    frontend_client_id: String(data.clientId ?? ''),
+    ...incoming,
+  }
 
   const { error } = await supabase.from('client_lookup_configs').upsert(
     {
       id: uuid,
       client_id: clientId,
-      config_type: str(data.configType, 'CUSTOM'),
-      key_value: str(data.keyValue, id),
-      display_label: str(data.displayLabel, str(data.keyValue, id)),
+      config_type: configType,
+      key_value: keyValue,
+      display_label: str(data.displayLabel, keyValue),
       is_active: data.isActive !== false,
       sort_order: num(data.sortOrder) ?? 0,
-      meta: {
-        frontend_id: id,
-        frontend_client_id: String(data.clientId ?? ''),
-      },
+      meta: merged,
     },
-    { onConflict: 'id' },
+    { onConflict: 'id', ignoreDuplicates: false },
   )
   if (error) throw error
 }

@@ -1,8 +1,17 @@
 import { useState } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
 import { Input, cn } from '../ui'
+import { passwordStrength } from '../../lib/auth/passwordStrength'
 
 const ICON_STROKE = 1.6
+
+const STRENGTH_COLORS = [
+  '',
+  'bg-red-400',
+  'bg-amber-400',
+  'bg-primary-300',
+  'bg-emerald-500',
+] as const
 
 export function PasswordField({
   id,
@@ -12,6 +21,7 @@ export function PasswordField({
   required,
   minLength,
   placeholder,
+  showStrength = false,
 }: {
   id: string
   value: string
@@ -20,10 +30,13 @@ export function PasswordField({
   required?: boolean
   minLength?: number
   placeholder?: string
+  /** Renders the live strength meter under the input (register wizard). */
+  showStrength?: boolean
 }) {
   const [show, setShow] = useState(false)
+  const strength = showStrength ? passwordStrength(value) : null
   return (
-    <div className="relative">
+    <div>
       <Input
         id={id}
         type={show ? 'text' : 'password'}
@@ -49,6 +62,25 @@ export function PasswordField({
           <Eye className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
         )}
       </button>
+      {strength && value.length > 0 && (
+        <div className="mt-1.5 flex items-center gap-2" aria-live="polite">
+          <div className="flex flex-1 gap-1" aria-hidden>
+            {[1, 2, 3, 4].map((i) => (
+              <span
+                key={i}
+                className={cn(
+                  'h-1 flex-1 rounded-full transition-colors duration-200',
+                  i <= strength.score ? STRENGTH_COLORS[strength.score] : 'bg-ink-100',
+                )}
+              />
+            ))}
+          </div>
+          <span className="text-xs text-ink-400 whitespace-nowrap">
+            {strength.label}
+            {strength.hint ? ` — ${strength.hint}` : ''}
+          </span>
+        </div>
+      )}
     </div>
   )
 }

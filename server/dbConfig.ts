@@ -60,12 +60,17 @@ export function poolMaxForRuntime(opts: {
   return opts.vercel || opts.lambda ? 1 : 8
 }
 
-/** Fail fast on cold starts — never wait the full function budget for a dead host. */
+/**
+ * Fail fast on cold starts — never wait the full function budget for a dead host.
+ * Local dev gets 10s: the Supabase transaction pooler routinely shows 5–7s
+ * connect spikes, and a 3s local timeout wedges the whole dev API whenever the
+ * pooler hiccups (observed 2026-09-19). Serverless budgets stay tight.
+ */
 export function connectionTimeoutMsForRuntime(opts: {
   vercel?: string | undefined
   lambda?: string | undefined
 }): number {
-  return opts.vercel || opts.lambda ? 5_000 : 3_000
+  return opts.vercel || opts.lambda ? 5_000 : 10_000
 }
 
 export function isLocalhostDatabaseUrl(url: string): boolean {

@@ -508,6 +508,7 @@ CREATE TABLE leads (
                     CHECK (interest_type IN ('BUY', 'RENT')),
   value_amount    NUMERIC(14,2),
   notes           TEXT,
+  metadata        JSONB NOT NULL DEFAULT '{}',
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

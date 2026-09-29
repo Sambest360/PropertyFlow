@@ -284,13 +284,119 @@ export async function supabaseAttachPendingRegistrationDocs(input: {
   )
 }
 
+const SUPABASE_API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''
+
+/**
+ * Direct server registration (see server/supabase/registerUser.ts): the server
+ * creates the pre-confirmed GoTrue user via SQL, skipping the /auth/v1/signup
+ * endpoint whose confirmation-email quota (429 over_email_send_rate_limit)
+ * and plus-address validator (400 email_address_invalid) were blocking new
+ * registrations. Returns null when the route is unavailable so callers can
+ * fall back to the legacy signup path.
+ */
+async function supabaseSignUpViaServer(
+  input: SupabaseRegisterInput,
+): Promise<{ authUserId: string; bootstrap: boolean } | null> {
+  const documents = (input.documents ?? []) as VerificationDocument[]
+  try {
+    const ctrl = new AbortController()
+    const t = setTimeout(() => ctrl.abort(), 20_000)
+    const res = await fetch(`${SUPABASE_API_BASE}/api/auth/register-supabase`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      signal: ctrl.signal,
+      body: JSON.stringify({
+        email: input.email.trim(),
+        password: input.password,
+        firstName: input.firstName,
+        lastName: input.lastName,
+        phone: input.phone,
+        role: input.role,
+        profile: input.profile,
+        documents,
+      }),
+    })
+    clearTimeout(t)
+    if (res.status === 404) return null // route not deployed → legacy path
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean
+      authUserId?: string
+      bootstrap?: boolean
+      message?: string
+    }
+    if (!res.ok) {
+      // Server created the account but its post-create checks failed — same
+      // UX contract: success flow to sign-in, not an error dialog.
+      const srvMsg = data.message?.toLowerCase() ?? ''
+      if (srvMsg.includes('profile sync failed') || srvMsg.includes('sign-in verification failed')) {
+        throw new RegistrationRedirectError('sign_in_required', input.email.trim())
+      }
+      const err = new Error(data.message || `Registration failed (${res.status})`) as Error & {
+        status: number
+        retryAfterSec?: number
+      }
+      err.status = res.status
+      const retryAfter = Number(res.headers.get('Retry-After'))
+      if (Number.isFinite(retryAfter) && retryAfter > 0) err.retryAfterSec = retryAfter
+      throw err
+    }
+    if (!data.authUserId) throw new Error('Registration failed')
+    return { authUserId: data.authUserId, bootstrap: Boolean(data.bootstrap) }
+  } catch (err) {
+    // Network/timeout failures fall back to the legacy path; explicit server
+    // rejections (400/409/…) propagate so the user sees the real problem.
+    if (err instanceof Error && typeof (err as { status?: number }).status === 'number') throw err
+    return null
+  }
+}
+
 export async function supabaseSignUp(
   input: SupabaseRegisterInput,
 ): Promise<{ user: AppUser; bootstrap: boolean }> {
+  const documents = (input.documents ?? []) as VerificationDocument[]
+
+  // Server-side direct registration first (no confirmation email → no quota,
+  // no plus-address validator). Falls back to the legacy GoTrue signup when
+  // the route is missing (e.g. API not deployed) or unreachable.
+  const viaServer = await supabaseSignUpViaServer(input)
+  if (viaServer) {
+    const supabase = createClient()
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: input.email.trim(),
+      password: input.password,
+    })
+    if (error) throw new Error(error.message)
+    if (!data.user) throw new Error('Registration failed')
+
+    let profile = await loadProfileForSession(data.user.id)
+    for (let i = 0; i < 8 && !profile; i++) {
+      await new Promise((r) => setTimeout(r, 400))
+      profile = await loadProfileForSession(data.user.id)
+    }
+    if (!profile) {
+      // The account exists and the password grant just succeeded — only the
+      // post-signup profile read failed (pooler latency / RLS race). Never
+      // render this as an error: send the user to sign-in with the success
+      // flow (the docs stash + login-page attach path handles the rest).
+      throw new RegistrationRedirectError('sign_in_required', input.email.trim())
+    }
+
+    if (documents.length > 0) {
+      profile =
+        (await attachRegistrationDocuments(
+          data.user.id,
+          input.role ?? 'tenant',
+          input.profile,
+          documents,
+        )) ?? profile
+    }
+    return { user: profile, bootstrap: viaServer.bootstrap }
+  }
+
   const bootstrap = await supabaseBootstrapNeeded()
   const supabase = createClient()
   const role = bootstrap ? 'super_admin' : input.role ?? 'tenant'
-  const documents = (input.documents ?? []) as VerificationDocument[]
 
   const { data, error } = await supabase.auth.signUp({
     email: input.email.trim(),
@@ -317,11 +423,15 @@ export async function supabaseSignUp(
   )
 
   let profile = await loadProfileForSession(authUserId)
-  for (let i = 0; i < 5 && !profile; i++) {
-    await new Promise((r) => setTimeout(r, 300))
+  for (let i = 0; i < 8 && !profile; i++) {
+    await new Promise((r) => setTimeout(r, 400))
     profile = await loadProfileForSession(authUserId)
   }
-  if (!profile) throw new Error('Account created but profile sync failed — try signing in')
+  if (!profile) {
+    // Same contract as the direct path: account exists, only the post-signup
+    // profile read failed — never render that as an error dialog.
+    throw new RegistrationRedirectError('sign_in_required', input.email.trim())
+  }
 
   if (documents.length > 0) {
     profile =

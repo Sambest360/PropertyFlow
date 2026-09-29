@@ -252,7 +252,7 @@ describe('buildWorkspaceNavForActor portal dedupe', () => {
   })
 
   it('Compliance nav item requires compliance.view', () => {
-    expect(previewNavLabels(['compliance.view'])).toContain('Compliance Dashboard')
-    expect(previewNavLabels(['trust.view'])).not.toContain('Compliance Dashboard')
+    expect(previewNavLabels(['compliance.view'])).toContain('Compliance')
+    expect(previewNavLabels(['trust.view'])).not.toContain('Compliance')
   })
 })

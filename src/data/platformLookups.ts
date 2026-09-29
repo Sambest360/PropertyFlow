@@ -65,7 +65,7 @@ export const CONFIG_TYPE_DEFS: ConfigTypeDef[] = [
     label: 'Lead stages',
     description: 'CRM pipeline stages.',
     group: 'sales',
-    requiredKeys: ['New Lead', 'Contacted'],
+    requiredKeys: ['New Lead', 'Contacted', 'Viewing Scheduled', 'Viewing Completed'],
   },
   {
     type: 'APPLICATION_STAGE',

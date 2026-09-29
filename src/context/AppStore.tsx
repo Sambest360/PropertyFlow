@@ -16,6 +16,7 @@ import type {
   ApplicationDocument,
   ApplicationStage,
   Lead,
+  LeadRequirementCompletion,
   MaintenanceTicket,
   AgencyContractor,
   Message,
@@ -344,7 +345,7 @@ type StoreContextValue = {
   updateTenancy: (id: string, patch: Partial<Tenancy>) => void
   assignRole: (userId: string, role: Role, agencyId?: string | null) => void
   createLookup: (input: Omit<LookupConfig, 'id' | 'sortOrder' | 'isActive'> & { sortOrder?: number; isActive?: boolean }) => LookupConfig
-  updateLookup: (id: string, patch: Partial<Pick<LookupConfig, 'displayLabel' | 'isActive' | 'sortOrder' | 'keyValue'>>) => void
+  updateLookup: (id: string, patch: Partial<Pick<LookupConfig, 'displayLabel' | 'isActive' | 'sortOrder' | 'keyValue' | 'meta'>>) => void
   reorderLookups: (clientId: string, configType: string, orderedIds: string[]) => void
   deactivateLookup: (id: string) => boolean
   broadcastNotification: (input: {
@@ -466,6 +467,13 @@ type StoreContextValue = {
     } | null
   }) => void
   updateLeadStage: (id: string, stage: string) => void
+  /** Record/requirement progress for a lead pipeline step. */
+  setLeadRequirementState: (
+    leadId: string,
+    stageValue: string,
+    requirementId: string,
+    patch: Partial<LeadRequirementCompletion>,
+  ) => void
   closeLead: (
     id: string,
     input: { stage: ClosedLeadStage; reason: string },
@@ -1366,6 +1374,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           displayLabel: input.displayLabel,
           isActive: input.isActive ?? true,
           sortOrder,
+          ...(input.meta ? { meta: input.meta } : {}),
         }
         return { ...s, lookups: [...s.lookups, created] }
       })
@@ -2483,6 +2492,33 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         })
       }
     },
+    setLeadRequirementState: (leadId, stageValue, requirementId, p) => {
+      const prev = state.leads.find((l) => l.id === leadId)
+      if (!prev) return
+      const current: LeadRequirementCompletion =
+        prev.metadata?.stageProgress?.[stageValue]?.[requirementId] ?? { done: false }
+      const next: LeadRequirementCompletion = {
+        ...current,
+        ...p,
+        ...(p.done === true && !current.at ? { at: new Date().toISOString() } : {}),
+      }
+      const metadata: Lead['metadata'] = {
+        ...prev.metadata,
+        stageProgress: {
+          ...prev.metadata?.stageProgress,
+          [stageValue]: {
+            ...prev.metadata?.stageProgress?.[stageValue],
+            [requirementId]: next,
+          },
+        },
+      }
+      const updated = { ...prev, metadata }
+      patch((s) => ({
+        ...s,
+        leads: s.leads.map((l) => (l.id === leadId ? updated : l)),
+      }))
+      persistUpsert('lead', leadId, updated as unknown as Record<string, unknown>)
+    },
     closeLead: (id, input) => {
       const prev = state.leads.find((l) => l.id === id)
       if (!prev) return { ok: false, reason: 'Lead not found.' }
@@ -2658,6 +2694,21 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }
 
       persistUpsert('application', app.id, app as unknown as Record<string, unknown>)
+
+      // Additive: email confirmation to the applicant (works in both API and
+      // Supabase modes since it rides the same origin). Fire-and-forget — a
+      // mail hiccup must never block or fail the application.
+      void fetch('/api/notify/application-received', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: app.email,
+          applicantName: app.applicantName,
+          propertyTitle: property?.title,
+          referenceCode: app.id,
+        }),
+      }).catch(() => {})
+
       return app
     },
     updateApplication: (id, p) => {

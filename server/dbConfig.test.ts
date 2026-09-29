@@ -71,9 +71,11 @@ describe('poolMaxForRuntime', () => {
 })
 
 describe('connectionTimeoutMsForRuntime', () => {
-  it('fails faster on serverless', () => {
+  it('fails faster on serverless, tolerates pooler spikes locally', () => {
     expect(connectionTimeoutMsForRuntime({ vercel: '1' })).toBe(5_000)
-    expect(connectionTimeoutMsForRuntime({})).toBe(3_000)
+    // Local dev: the Supabase transaction pooler routinely shows 5–7s connects;
+    // a 3s timeout wedged the whole dev API (observed 2026-09-19).
+    expect(connectionTimeoutMsForRuntime({})).toBe(10_000)
   })
 })
 

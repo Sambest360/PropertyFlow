@@ -20,6 +20,8 @@ export type PublicEnquiryResult = {
   leadId: string
   bookingId?: string | null
   stage: string
+  /** Unit UUID — used by the route for additive fire-and-forget hooks (agent email alert). */
+  unitId: string
 }
 
 function str(v: unknown, fallback = ''): string {
@@ -202,5 +204,6 @@ export async function submitPublicListingEnquiry(
     leadId: leadFeId,
     bookingId: bookingFeId,
     stage,
+    unitId: unit.unitId,
   }
 }

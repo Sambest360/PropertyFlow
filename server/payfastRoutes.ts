@@ -16,6 +16,7 @@
 import type { Context } from 'hono'
 import { query, withTransaction } from './db.js'
 import { resolveUuid } from './entityMap.js'
+import { sendPaymentReceipt } from './mailtrap.js'
 import {
   buildCheckoutFields,
   payfastConfigFromEnv,
@@ -227,6 +228,29 @@ export async function payfastItn(c: Context) {
         ],
       )
     })
+    // Receipt email — outside the DB transaction; never blocks the ITN reply.
+    if (paid) {
+      void (async () => {
+        try {
+          const payer = await query<{ email: string; first_name: string }>(
+            `SELECT email, first_name FROM users WHERE id = $1::uuid LIMIT 1`,
+            [expected.partyUserId],
+          )
+          const email = payer.rows[0]?.email
+          if (email) {
+            await sendPaymentReceipt({
+              email,
+              payerName: payer.rows[0]?.first_name,
+              paymentId: expected.id,
+              amountDisplay: `R${expected.amount.toFixed(2)}`,
+              status: verdict.status,
+            })
+          }
+        } catch (emailErr) {
+          console.error('[payfast] receipt email failed:', emailErr instanceof Error ? emailErr.message : emailErr)
+        }
+      })()
+    }
     return c.text('ITN accepted', 200)
   } catch (err) {
     logPayfastFailure('payfast_itn_error', err)

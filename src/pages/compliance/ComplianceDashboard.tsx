@@ -121,7 +121,7 @@ export default function ComplianceDashboard() {
         setError('Add a rejection note first.')
         return
       }
-      const ok = await sweetConfirm('Reject verification?', `This will notify ${row.name}.`)
+      const ok = await sweetConfirm('Decline verification?', `${row.name} will be notified with your note.`)
       if (!ok) return
     }
     setError(null)
@@ -247,7 +247,7 @@ export default function ComplianceDashboard() {
                   {row.status === 'pending' && rejectNote[row.userId] !== undefined ? (
                     <Input
                       className="mt-2 max-w-md min-h-11"
-                      placeholder="Rejection note (required to reject)"
+                      placeholder="Decline note (required to decline)"
                       value={rejectNote[row.userId]}
                       onChange={(e) =>
                         setRejectNote((m) => ({ ...m, [row.userId]: e.target.value }))

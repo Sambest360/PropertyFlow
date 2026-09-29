@@ -10,7 +10,6 @@ import {
   useDirectoryView,
 } from '../components/directory/DirectoryToolbar'
 import { DirectoryFilterSelect } from '../components/directory/DirectoryFilters'
-import { DirectoryStatCard } from '../components/directory/DirectoryStats'
 import { ApplicantsListView } from '../components/applicants/ApplicantsListView'
 import { ApplicantPortfolioCard } from '../components/applicants/ApplicantPortfolioCard'
 import {
@@ -78,23 +77,6 @@ export default function Applications() {
     user,
   ])
 
-  const counts = useMemo(() => {
-    const buckets: ApplicationPipelineBucket[] = [
-      'new',
-      'documents_pending',
-      'credit_checks',
-      'awaiting_approval',
-      'deposit_pending',
-      'lease_signing',
-      'completed',
-      'rejected',
-    ]
-    const bucketCounts = Object.fromEntries(
-      buckets.map((b) => [b, portfolio.filter((p) => matchesPipelineBucketFilter(p, b)).length]),
-    ) as Record<Exclude<ApplicationPipelineBucket, 'all'>, number>
-    return { ...bucketCounts, total: portfolio.length }
-  }, [portfolio])
-
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
     let rows = portfolio.filter((item) => {
@@ -157,71 +139,6 @@ export default function Applications() {
           title="Applicants"
           subtitle="People who have applied — review progress, then open an applicant for full detail."
         />
-
-        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <DirectoryStatCard
-            label="All"
-            value={counts.total}
-            hint="Applicants in scope"
-            active={pipeline === 'all'}
-            onClick={() => setPipeline('all')}
-          />
-          <DirectoryStatCard
-            label={PIPELINE_BUCKET_LABELS.new}
-            value={counts.new}
-            hint="Recently submitted"
-            active={pipeline === 'new'}
-            onClick={() => setPipeline(pipeline === 'new' ? 'all' : 'new')}
-            highlight={counts.new > 0}
-          />
-          <DirectoryStatCard
-            label={PIPELINE_BUCKET_LABELS.documents_pending}
-            value={counts.documents_pending}
-            hint="Awaiting uploads or review"
-            active={pipeline === 'documents_pending'}
-            onClick={() => setPipeline(pipeline === 'documents_pending' ? 'all' : 'documents_pending')}
-            highlight={counts.documents_pending > 0}
-          />
-          <DirectoryStatCard
-            label={PIPELINE_BUCKET_LABELS.credit_checks}
-            value={counts.credit_checks}
-            hint="Screening in progress"
-            active={pipeline === 'credit_checks'}
-            onClick={() => setPipeline(pipeline === 'credit_checks' ? 'all' : 'credit_checks')}
-            highlight={counts.credit_checks > 0}
-          />
-        </section>
-
-        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <DirectoryStatCard
-            label={PIPELINE_BUCKET_LABELS.awaiting_approval}
-            value={counts.awaiting_approval}
-            hint="Agent or landlord decision"
-            active={pipeline === 'awaiting_approval'}
-            onClick={() => setPipeline(pipeline === 'awaiting_approval' ? 'all' : 'awaiting_approval')}
-          />
-          <DirectoryStatCard
-            label={PIPELINE_BUCKET_LABELS.deposit_pending}
-            value={counts.deposit_pending}
-            hint="Deposit not yet verified"
-            active={pipeline === 'deposit_pending'}
-            onClick={() => setPipeline(pipeline === 'deposit_pending' ? 'all' : 'deposit_pending')}
-          />
-          <DirectoryStatCard
-            label={PIPELINE_BUCKET_LABELS.lease_signing}
-            value={counts.lease_signing}
-            hint="Agreement in progress"
-            active={pipeline === 'lease_signing'}
-            onClick={() => setPipeline(pipeline === 'lease_signing' ? 'all' : 'lease_signing')}
-          />
-          <DirectoryStatCard
-            label={PIPELINE_BUCKET_LABELS.completed}
-            value={counts.completed}
-            hint="Tenancy or sale complete"
-            active={pipeline === 'completed'}
-            onClick={() => setPipeline(pipeline === 'completed' ? 'all' : 'completed')}
-          />
-        </section>
 
         <DirectoryToolbar
           query={q}
