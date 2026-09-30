@@ -399,8 +399,15 @@ type StoreContextValue = {
   }) => PropertyAsset
   updateProperty: (id: string, patch: Partial<PropertyAsset>) => void
   setPropertyRooms: (id: string, rooms: Room[]) => void
-  /** P0-publish: returns whether the listing actually flipped to a public state. */
-  publishProperty: (id: string, status?: PropertyAsset['status']) => boolean
+  /** P0-publish: returns whether the listing actually flipped to a public state.
+   *  P0-publish (R7): `created` lets the wizard pass the just-created property
+   *  snapshot — same-tick create→publish runs before React re-renders, so
+   *  stateRef.current does not contain the new property yet. */
+  publishProperty: (
+    id: string,
+    status?: PropertyAsset['status'],
+    created?: PropertyAsset,
+  ) => boolean
   deleteProperty: (id: string) => { ok: true } | { ok: false; reason: string }
   restoreProperty: (id: string) => { ok: true } | { ok: false; reason: string }
   createBuilding: (input: Omit<Building, 'id' | 'createdAt' | 'images'> & { images?: string[] }) => Building
@@ -896,12 +903,74 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     setState((s) => fn(s))
   }, [])
 
-  /** Optimistic local write + fire-and-forget Postgres persist (degrades to localStorage). */
+  /** Durable persist for mutation paths that must gate success UI on a
+   *  committed write. Marks the local write (so a concurrent bootstrap refresh
+   *  keeps the optimistic row) and performs ONE Supabase write — not a queued
+   *  duplicate plus an awaited one. Resolves false when the write rejected
+   *  (RLS, constraint, network) so callers can surface the real error. */
   const persistUpsert = useCallback(
-    (resource: Parameters<typeof queueUpsert>[0], id: string, data: Record<string, unknown>) => {
+    async (
+      resource: Parameters<typeof queueUpsert>[0],
+      id: string,
+      data: Record<string, unknown>,
+    ): Promise<boolean> => {
+      if (isSupabaseMode) {
+        try {
+          const { markLocalPersistWrite } = await import('../lib/bootstrapMerge')
+          markLocalPersistWrite(resource, id)
+          const { persistToSupabase } = await import('../lib/supabase/persist')
+          return await persistToSupabase({ resource, action: 'upsert', id, data: { ...data, id } })
+        } catch {
+          return false
+        }
+      }
       queueUpsert(resource, id, data)
+      return true
     },
     [],
+  )
+
+  /**
+   * P0-approve (R7): the deployed approve_application RPC cannot commit — its
+   * leases INSERT omits the NOT NULL lease_reference column, so every call
+   * aborts with "null value in column lease_reference" (HTTP 400). Until a DB
+   * migration can change that (no DB access in this fix), the direct mirror
+   * writes below ARE the durable transition. This helper runs them in order
+   * and only reports success when every write committed, replacing the old
+   * single-shot RPC gate that turned the whole approve into a 502.
+   */
+  const persistApprovedApplication = useCallback(
+    async (input: {
+      applicationId: string
+      application: Application
+      lease: Tenancy | null
+      payments: PaymentRecord[]
+      notifications: AppNotification[]
+    }): Promise<boolean> => {
+      const applicationOk = await persistUpsert(
+        'application',
+        input.applicationId,
+        input.application as unknown as Record<string, unknown>,
+      )
+      if (!applicationOk) return false
+      if (input.lease) {
+        const leaseOk = await persistUpsert(
+          'tenancy',
+          input.lease.id,
+          input.lease as unknown as Record<string, unknown>,
+        )
+        if (!leaseOk) return false
+      }
+      for (const pay of input.payments) {
+        const payOk = await persistUpsert('payment', pay.id, pay as unknown as Record<string, unknown>)
+        if (!payOk) return false
+      }
+      for (const n of input.notifications) {
+        await persistUpsert('notification', n.id, n as unknown as Record<string, unknown>)
+      }
+      return true
+    },
+    [persistUpsert],
   )
   const persistDelete = useCallback((resource: Parameters<typeof queueDelete>[0], id: string) => {
     queueDelete(resource, id)
@@ -1768,14 +1837,21 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       if (prev) persistUpsert('property', id, { ...prev, rooms, beds, baths } as unknown as Record<string, unknown>)
       scheduleBootstrapRefreshAfterMutation()
     },
-    publishProperty: (id, status = 'Published') => {
+    publishProperty: (id, status = 'Published', created?: PropertyAsset) => {
       let pe: PropertyEvent | null = null
       // P0-publish: read the freshest committed state, not the render-closure
       // snapshot. The wizard calls create → publish in the same tick, so `state`
       // here predates the new property and `prev` was undefined — the property
       // persist was skipped and the unit patch dereferenced a null object
       // (TypeError), while the UI still navigated away as if published.
-      const prev = stateRef.current.properties.find((x) => x.id === id)
+      // P0-publish (R7): setState from createPropertyBundle has not re-rendered
+      // when the wizard calls publish in the same tick — stateRef.current still
+      // lacks the new property and publish returned false (listing stayed
+      // Draft). The wizard passes the created snapshot so publish can resolve
+      // it immediately.
+      const prev =
+        stateRef.current.properties.find((x) => x.id === id) ??
+        (created && created.id === id ? created : undefined)
       // P0-publish: unknown id must be a no-op result, never a crash.
       if (!prev) return false
       // P0-1: the public gate reads both the property status AND the linked
@@ -3006,11 +3082,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
       if (result.status === 'SUCCESS') {
         const ok = result
-        // P0-approve: the RPC is the durable transition (sets APPROVED + stage,
-        // creates the lease). The optimistic UI must not report success until it
-        // commits — previously this was fire-and-forget, so a 409/400 left the
-        // row at its old stage and a reload reverted the badge.
-        const approvedRemotely = await persistApproveApplication({
+        // P0-approve (R7): the deploy-side RPC inserts into leases without the
+        // NOT NULL lease_reference column, so it can never commit (HTTP 400)
+        // and is not idempotent across retries. The direct mirror writes below
+        // (application upsert, lease via upsertTenancy with lease_reference,
+        // payments) are now the durable transition — they gate the success UI.
+        // The RPC stays best-effort for when a future deploy fixes it.
+        void persistApproveApplication({
           applicationId: id,
           actorUserId: actorUser?.id,
           tenancy: ok.side_effects.lease
@@ -3018,28 +3096,29 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             : undefined,
         })
 
-        // Mirror the approved application + side effects. upsertApplication now
-        // resolves the row by natural key (no more 409) and event_log rows carry
-        // subject_type (no more 400), so these writes are independent and safe
-        // to fire concurrently.
-        persistUpsert('application', id, ok.application as unknown as Record<string, unknown>)
-        for (const pay of ok.side_effects.payments) {
-          persistUpsert('payment', pay.id, pay as unknown as Record<string, unknown>)
+        // Mirror the approved application + side effects durably. The approve
+        // machine leaves stage 'Awaiting Payment' with the machine's legacy
+        // workflowStatus untouched, so the persisted row carries the workflow
+        // engine's matching status — otherwise hydration (meta.workflow_status)
+        // reverts the stage label on refresh (the round-7 "still 14%" symptom).
+        // Keep the machine's stage/progress as-is: normalizeApplication would
+        // relabel 'Awaiting Payment' → 'Deposit invoice issued' (50%), which
+        // would not match the optimistic UI after a reload.
+        const approvedApp: Application = {
+          ...ok.application,
+          workflowStatus: 'deposit_invoice_sent',
         }
-        if (ok.side_effects.lease) {
-          persistUpsert(
-            'tenancy',
-            ok.side_effects.lease.id,
-            ok.side_effects.lease as unknown as Record<string, unknown>,
-          )
-        }
-        for (const n of createdNotifications) {
-          persistUpsert('notification', n.id, n as unknown as Record<string, unknown>)
-        }
+        const approvedRemotely = await persistApprovedApplication({
+          applicationId: id,
+          application: approvedApp,
+          lease: ok.side_effects.lease,
+          payments: ok.side_effects.payments,
+          notifications: createdNotifications,
+        })
         if (app?.propertyId) {
           const prop = stateRef.current.properties.find((p) => p.id === app.propertyId)
           if (prop) {
-            persistUpsert('property', prop.id, {
+            void persistUpsert('property', prop.id, {
               ...prop,
               status: app.type === 'Rental' ? 'Rented' : prop.status,
             } as unknown as Record<string, unknown>)
@@ -3171,26 +3250,32 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             ...result.application,
             workflowStatus: 'deposit_invoice_sent',
           })
-          // P0-approve: this workflow branch shares the same durable approve
-          // transition — commit the RPC (lease + APPROVED status) before any
-          // success UI, matching the direct approve path.
-          const approvedRemotely = await persistApproveApplication({
+          // P0-approve (R7): shared durable transition — direct mirror writes
+          // (application + lease with lease_reference + payments) gate success
+          // UI; the RPC is best-effort only (see approveApplication).
+          void persistApproveApplication({
             applicationId,
             actorUserId,
             tenancy: result.side_effects.lease
               ? (result.side_effects.lease as unknown as Record<string, unknown>)
               : undefined,
           })
+          const approvedRemotely = await persistApprovedApplication({
+            applicationId,
+            application: normalized,
+            lease: result.side_effects.lease,
+            payments: result.side_effects.payments,
+            notifications: [],
+          })
           if (!approvedRemotely) {
             return {
               ...result,
               status: 'ERROR',
               httpStatus: 502,
-              error: 'The approval could not be saved. Nothing was changed — please try again.',
+              error: 'The approval-effect branch could not be saved. Nothing was changed — please try again.',
               code: 'PERSIST_FAILED',
             } as PatchApplicationStatusResult
           }
-          persistUpsert('application', applicationId, normalized as unknown as Record<string, unknown>)
           if (isApplicantAcceptanceStatus('deposit_invoice_sent')) {
             notifyAcceptedElsewhere({
               accepted: normalized,
@@ -3359,13 +3444,29 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       if (result.status === 'SUCCESS') {
         const ok = result
         if (ok.api_status === 'APPROVED') {
-          // P0-approve: the durable transition must commit before success UI.
-          const approvedRemotely = await persistApproveApplication({
+          // P0-approve (R7): direct mirror writes gate success UI; RPC is
+          // best-effort (see approveApplication — the deployed RPC cannot
+          // commit without the lease_reference fix server-side).
+          void persistApproveApplication({
             applicationId,
             actorUserId,
             tenancy: ok.side_effects.lease
               ? (ok.side_effects.lease as unknown as Record<string, unknown>)
               : undefined,
+          })
+          // Keep the machine's stage/progress (see note in approveApplication —
+          // normalizeApplication would relabel the stage and break label
+          // agreement across a reload).
+          const approvedApp: Application = {
+            ...ok.application,
+            workflowStatus: 'deposit_invoice_sent',
+          }
+          const approvedRemotely = await persistApprovedApplication({
+            applicationId,
+            application: approvedApp,
+            lease: ok.side_effects.lease,
+            payments: ok.side_effects.payments,
+            notifications: createdNotifications,
           })
           if (!approvedRemotely) {
             return {
@@ -3377,24 +3478,26 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             } as PatchApplicationStatusResult
           }
         } else {
-          persistUpsert(
+          await persistUpsert(
             'application',
             applicationId,
             ok.application as unknown as Record<string, unknown>,
           )
         }
-        for (const pay of ok.side_effects.payments) {
-          persistUpsert('payment', pay.id, pay as unknown as Record<string, unknown>)
-        }
-        if (ok.side_effects.lease) {
-          persistUpsert(
-            'tenancy',
-            ok.side_effects.lease.id,
-            ok.side_effects.lease as unknown as Record<string, unknown>,
-          )
-        }
-        for (const n of createdNotifications) {
-          persistUpsert('notification', n.id, n as unknown as Record<string, unknown>)
+        if (ok.api_status !== 'APPROVED') {
+          for (const pay of ok.side_effects.payments) {
+            await persistUpsert('payment', pay.id, pay as unknown as Record<string, unknown>)
+          }
+          if (ok.side_effects.lease) {
+            await persistUpsert(
+              'tenancy',
+              ok.side_effects.lease.id,
+              ok.side_effects.lease as unknown as Record<string, unknown>,
+            )
+          }
+          for (const n of createdNotifications) {
+            await persistUpsert('notification', n.id, n as unknown as Record<string, unknown>)
+          }
         }
         const app = state.applications.find((a) => a.id === applicationId)
         const actorUser = state.users.find((u) => u.id === actorUserId)

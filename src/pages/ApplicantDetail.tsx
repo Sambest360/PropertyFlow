@@ -98,9 +98,21 @@ export default function ApplicantDetail() {
   )
 
   const agentName = useMemo(() => {
-    if (!application?.agentId) return null
-    return state.users.find((u) => u.id === application.agentId)?.name ?? null
-  }, [application, state.users])
+    // P0-agent (R7): the application must never display a phantom agent.
+    // Resolve from the listing's real assigned agent — the application row may
+    // carry a stale agent_id written before assignment defaults were removed —
+    // and only fall back to the row's own (still-existing) agent when no
+    // listing is linked. No hard-coded or first-agent fallback.
+    if (property?.agentId) {
+      return state.users.find((u) => u.id === property.agentId)?.name ?? null
+    }
+    const rowAgentId = application?.agentId
+    if (property && rowAgentId) return null
+    if (rowAgentId && state.users.some((u) => u.id === rowAgentId)) {
+      return state.users.find((u) => u.id === rowAgentId)?.name ?? null
+    }
+    return null
+  }, [application, property, state.users])
 
   const residences = useMemo(() => {
     if (!application) return []

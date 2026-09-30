@@ -318,7 +318,11 @@ async function supabaseSignUpViaServer(
       }),
     })
     clearTimeout(t)
-    if (res.status === 404) return null // route not deployed → legacy path
+    // P0-register (R7): the deployed static host answers /api/auth/register-supabase
+    // with 405 (Method Not Allowed) when the /api serverless function is not
+    // (yet) deployed — same "route missing" situation as 404. Fall back to the
+    // legacy direct signUp path instead of throwing Registration failed (405).
+    if (res.status === 404 || res.status === 405) return null
     const data = (await res.json().catch(() => ({}))) as {
       ok?: boolean
       authUserId?: string
@@ -355,6 +359,17 @@ export async function supabaseSignUp(
   input: SupabaseRegisterInput,
 ): Promise<{ user: AppUser; bootstrap: boolean }> {
   const documents = (input.documents ?? []) as VerificationDocument[]
+
+  // P0-register (R7): a brand-new registration must never be able to attach
+  // to a leftover GoTrue session from a previous (staff) user. Any cached sb-*
+  // session would make the just-signed-in identity ambiguous — and if THIS
+  // registration then fails, the stale session would bleed through as a
+  // "Super Admin" identity (the round-7 symptom). Sign out first.
+  try {
+    await createClient().auth.signOut()
+  } catch {
+    /* best effort — sign-in below still targets the new account only */
+  }
 
   // Server-side direct registration first (no confirmation email → no quota,
   // no plus-address validator). Falls back to the legacy GoTrue signup when

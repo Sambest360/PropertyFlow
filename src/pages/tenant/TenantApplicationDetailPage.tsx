@@ -70,9 +70,19 @@ export default function TenantApplicationDetailPage() {
   )
 
   const agentName = useMemo(() => {
-    if (!application?.agentId) return null
-    return state.users.find((u) => u.id === application.agentId)?.name ?? null
-  }, [application, state.users])
+    // P0-agent (R7): show the listing's real assigned agent — never a phantom
+    // one left on the stored application row. When the listing has no agent,
+    // the assignee field falls back to “Unassigned”.
+    if (property?.agentId) {
+      return state.users.find((u) => u.id === property.agentId)?.name ?? null
+    }
+    const rowAgentId = application?.agentId
+    if (property && rowAgentId) return null
+    if (rowAgentId && state.users.some((u) => u.id === rowAgentId)) {
+      return state.users.find((u) => u.id === rowAgentId)?.name ?? null
+    }
+    return null
+  }, [application, property, state.users])
 
   const payments = useMemo(
     () => state.payments.filter((p) => p.applicationId === application?.id),

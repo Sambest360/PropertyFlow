@@ -24,6 +24,20 @@ export function clearSessionArtifacts(setters: SessionArtifactSetters): void {
   setters.setRealUserId(null)
   try {
     for (const key of AUTH_STORAGE_KEYS) localStorage.removeItem(key)
+    // P0-register (R7): a stale Supabase GoTrue cache (sb-*auth* entries from a
+    // previous staff session) must not survive a failed register — otherwise
+    // the next session probe re-hydrates the old identity ("Super Admin
+    // bleed"). Wipe it like signOut does.
+    for (const store of [localStorage, sessionStorage]) {
+      const keys: string[] = []
+      for (let i = 0; i < store.length; i++) {
+        const key = store.key(i)
+        if (key) keys.push(key)
+      }
+      for (const k of keys) {
+        if (k.startsWith('sb-') && k.includes('auth')) store.removeItem(k)
+      }
+    }
   } catch {
     /* storage unavailable — in-memory clear above already made identity unusable */
   }

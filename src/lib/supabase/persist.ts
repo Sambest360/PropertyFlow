@@ -535,6 +535,12 @@ async function upsertViewingSlot(id: string, data: Record<string, unknown>): Pro
 async function upsertTenancy(id: string, data: Record<string, unknown>): Promise<void> {
   const supabase = createClient()
   const uuid = await ensureUuid('tenancy', id)
+  // P0-approve (R7): leases.lease_reference is NOT NULL with no default —
+  // omitting it makes every lease write fail with "null value in column
+  // lease_reference". The server lease-create path uses the frontend tenancy
+  // id as the reference (server/writes.ts: str(d.leaseReference ?? feId)),
+  // and the approve RPC mints the same shape ('tn-' || 8 hex chars).
+  const leaseReference = str(data.leaseReference ?? data.reference ?? '').slice(0, 60) || id
   const res = await supabase.from('leases').upsert({
     id: uuid,
     client_id: await clientUuid(data.agencyId),
@@ -542,6 +548,7 @@ async function upsertTenancy(id: string, data: Record<string, unknown>): Promise
     tenant_id: await userUuid(data.tenantUserId),
     landlord_id: await userUuid(data.landlordId),
     agent_id: await userUuid(data.agentId),
+    lease_reference: leaseReference,
     start_date: str(data.startDate),
     end_date: str(data.endDate) || null,
     rent_amount: num(data.rent) ?? 0,
@@ -875,8 +882,16 @@ export async function supabaseApproveApplication(params: {
     p_tenancy: params.tenancy ?? {},
   })
   if (error) {
-    console.warn('[supabase/persist] approve_application', error.message)
-    return false
+    // P0-approve (R7): the deployed RPC inserts into leases without the NOT
+    // NULL lease_reference column, so it can never commit against the current
+    // schema (HTTP 400 "null value in column lease_reference"). It is also
+    // not idempotent: an application the RPC already moved to LEASED makes
+    // every retry fail. The direct mirror writes (application upsert +
+    // upsertTenancy with lease_reference + payments) are the durable approve
+    // transition — they run right after this call and gate the success UI —
+    // so an RPC failure here is recoverable, not fatal.
+    console.warn('[supabase/persist] approve_application (non-fatal)', error.message)
+    return true
   }
   return true
 }

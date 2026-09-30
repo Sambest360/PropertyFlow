@@ -65,6 +65,7 @@ import {
   type WizardRoomDraft as RoomDraft,
 } from '../../lib/propertyWizardDraft'
 import type { AssetCondition } from '../../data/infrastructure'
+import type { PropertyAsset } from '../../types/domain'
 
 const DRAFT_KEY = 'propertyflow:property-create'
 
@@ -674,6 +675,9 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
         : null
 
     let propertyId: string
+    // P0-publish (R7): snapshot of a property created in this same tick —
+    // lets publishProperty resolve it before React re-renders.
+    let createdProperty: PropertyAsset | undefined
     if (existingDraftId) {
       const { rooms, ...rest } = patch
       updateProperty(existingDraftId, rest)
@@ -744,6 +748,10 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
           featured: false,
         },
       })
+      // P0-publish (R7): remember the created snapshot — publishProperty runs
+      // in the same tick, before React has re-rendered the new property into
+      // committed state.
+      createdProperty = created
       propertyId = created.id
     }
 
@@ -751,10 +759,10 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       (fromReview && draft.publishAfterSave && canPublish) || (status === 'Published' && canPublish)
     if (shouldPublish) {
       // P0-publish: await the same durable publish path "Make live" uses.
-      // publishProperty now reads committed state, so the same-tick create →
-      // publish sequence resolves the new property instead of crashing with a
-      // TypeError; a false result means the listing did not go live.
-      const published = publishProperty(propertyId, 'Published')
+      // P0-publish (R7): pass the same-tick created snapshot so publish can
+      // resolve the new property before React re-renders; a false result
+      // means the listing did not go live.
+      const published = publishProperty(propertyId, 'Published', createdProperty)
       if (!published) {
         setError('Could not publish the listing. It was saved as a draft — retry from the listing page.')
         setBusy(false)
