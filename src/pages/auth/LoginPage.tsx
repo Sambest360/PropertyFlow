@@ -22,7 +22,7 @@ import { createClient } from '../../utils/supabase/client'
 const ICON_STROKE = 1.6
 
 export default function LoginPage() {
-  const { login, isAuthenticated, authReady, user } = useAuth()
+  const { login, isAuthenticated, authReady, user, purgeLocalIdentity } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [params] = useSearchParams()
@@ -33,6 +33,16 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false)
   const [bootstrapNeeded, setBootstrapNeeded] = useState(false)
   const registered = params.get('registered')
+
+  // P0-session (R8): auth pages are anonymous zones. A previous user's live
+  // Supabase session (shared browser / stale tab) must never hydrate here —
+  // otherwise /login silently redirects into that user's workspace (the
+  // sticky "Riaan / Samuel" symptom). Purge on mount, before the session
+  // probe resolves.
+  useEffect(() => {
+    void purgeLocalIdentity()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     void (isSupabaseMode ? supabaseBootstrapNeeded() : apiAuthBootstrapNeeded()).then(setBootstrapNeeded)

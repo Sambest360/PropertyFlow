@@ -3,6 +3,7 @@ import { Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { CreditCard, Wallet } from 'lucide-react'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
+import { resolveApplicationAgentName } from '../lib/agentDisplay'
 import { rolePermissions } from '../lib/permissions'
 import { RequirePermission } from '../components/RequirePermission'
 import { BackButton } from '../components/BackButton'
@@ -98,20 +99,10 @@ export default function ApplicantDetail() {
   )
 
   const agentName = useMemo(() => {
-    // P0-agent (R7): the application must never display a phantom agent.
-    // Resolve from the listing's real assigned agent — the application row may
-    // carry a stale agent_id written before assignment defaults were removed —
-    // and only fall back to the row's own (still-existing) agent when no
-    // listing is linked. No hard-coded or first-agent fallback.
-    if (property?.agentId) {
-      return state.users.find((u) => u.id === property.agentId)?.name ?? null
-    }
-    const rowAgentId = application?.agentId
-    if (property && rowAgentId) return null
-    if (rowAgentId && state.users.some((u) => u.id === rowAgentId)) {
-      return state.users.find((u) => u.id === rowAgentId)?.name ?? null
-    }
-    return null
+    // P0-agent (R8): one shared resolver — the listing's real assigned agent
+    // only. The application row's agent_id is stale-prone (earlier write
+    // paths defaulted it); it must never surface as a person here.
+    return resolveApplicationAgentName(property, application, state.users)
   }, [application, property, state.users])
 
   const residences = useMemo(() => {

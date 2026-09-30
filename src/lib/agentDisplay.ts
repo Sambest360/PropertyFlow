@@ -83,3 +83,27 @@ export function shouldLockPropertyAgentField(
 ): boolean {
   return isSelfAgent(viewerId, propertyAgentId)
 }
+
+/** Minimal shapes so callers can pass store rows directly. */
+export type ApplicationAgentRef = {
+  id: string
+  agentId?: string | null
+}
+
+/**
+ * P0-agent (R8): the agent shown on an application is ALWAYS the listing's
+ * real assigned agent — never the application row's own agent_id, which an
+ * earlier round's write path could persist from a stale/defaulted value (the
+ * "James Okonkwo with no assignment" symptom). No listing → no agent claim
+ * at all; a listing without an agent → null (the UI renders "Unassigned").
+ */
+export function resolveApplicationAgentName(
+  property: { agentId: string | null | undefined } | null | undefined,
+  application: ApplicationAgentRef | null | undefined,
+  users: Array<{ id: string; name: string }>,
+): string | null {
+  if (!property) return null
+  const listingAgentId = property.agentId?.trim() || ''
+  if (!listingAgentId) return null
+  return users.find((u) => u.id === listingAgentId)?.name?.trim() || null
+}

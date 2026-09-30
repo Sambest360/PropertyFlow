@@ -3,6 +3,7 @@ import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { CreditCard, MapPin, Wallet } from 'lucide-react'
 import { useStore, usePublicProperties } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
+import { resolveApplicationAgentName } from '../../lib/agentDisplay'
 import { RequirePermission } from '../../components/RequirePermission'
 import { ActionButtonRow } from '../../components/ActionButtonRow'
 import { BackButton } from '../../components/BackButton'
@@ -70,18 +71,10 @@ export default function TenantApplicationDetailPage() {
   )
 
   const agentName = useMemo(() => {
-    // P0-agent (R7): show the listing's real assigned agent — never a phantom
-    // one left on the stored application row. When the listing has no agent,
-    // the assignee field falls back to “Unassigned”.
-    if (property?.agentId) {
-      return state.users.find((u) => u.id === property.agentId)?.name ?? null
-    }
-    const rowAgentId = application?.agentId
-    if (property && rowAgentId) return null
-    if (rowAgentId && state.users.some((u) => u.id === rowAgentId)) {
-      return state.users.find((u) => u.id === rowAgentId)?.name ?? null
-    }
-    return null
+    // P0-agent (R8): one shared resolver — the listing's real assigned agent
+    // only. The application row's agent_id is stale-prone (earlier write
+    // paths defaulted it); it must never surface as a person here.
+    return resolveApplicationAgentName(property, application, state.users)
   }, [application, property, state.users])
 
   const payments = useMemo(

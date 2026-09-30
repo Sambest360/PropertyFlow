@@ -58,3 +58,18 @@ export async function registerWithSessionGuard<T>(
     throw err
   }
 }
+
+// P0-register (R8): while a registration is in flight, a PREVIOUS user's live
+// Supabase session can fire onAuthStateChange (token refresh, INITIAL_SESSION
+// on a late subscribe) and hydrate that old identity into the shell — the
+// "Ayanda attempt → Samuel Bampo" symptom. The register flow owns the shell
+// for its duration.
+let registerInFlight = false
+
+export function setRegisterInFlight(inFlight: boolean): void {
+  registerInFlight = inFlight
+}
+
+export function isRegisterInFlight(): boolean {
+  return registerInFlight
+}

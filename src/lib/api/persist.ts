@@ -8,7 +8,6 @@ import type { EntityType } from './persistTypes'
 import {
   persistBatchToSupabase,
   persistToSupabase,
-  supabaseApproveApplication,
   supabaseMarkNotificationsRead,
 } from '../supabase/persist'
 import { markLocalPersistWrite } from '../bootstrapMerge'
@@ -106,10 +105,14 @@ export async function persistApproveApplication(params: {
   tenancy?: Record<string, unknown>
 }): Promise<boolean> {
   if (isSupabaseMode) {
-    return supabaseApproveApplication({
-      applicationId: params.applicationId,
-      tenancy: params.tenancy,
-    })
+    // P0-approve (R8): the deployed approve_application RPC cannot commit —
+    // its leases INSERT omits the NOT NULL lease_reference column, so every
+    // call answers HTTP 400 "null value in column lease_reference". The direct
+    // mirror writes (application + lease + payments, gated in the store) ARE
+    // the durable transition, so the RPC is skipped entirely in Supabase mode
+    // rather than left firing a doomed request. Postgres-API mode keeps the
+    // server approve route below.
+    return true
   }
   if (!(await quickHealth())) return false
   try {

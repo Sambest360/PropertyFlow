@@ -99,7 +99,7 @@ function StepIndicator({ step, total }: { step: number; total: number }) {
 }
 
 export default function RegisterPage() {
-  const { register, isAuthenticated, authReady } = useAuth()
+  const { register, isAuthenticated, authReady, purgeLocalIdentity } = useAuth()
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const next = params.get('next') || '/workspace'
@@ -124,6 +124,15 @@ export default function RegisterPage() {
 
   const [bootstrapNeeded, setBootstrapNeeded] = useState(false)
   const [busy, setBusy] = useState(false)
+
+  // P0-session (R8): auth pages are anonymous zones. A previous user's live
+  // Supabase session (shared browser / stale tab) must never hydrate here —
+  // otherwise the register wizard can complete "as" that user (the "Ayanda →
+  // Samuel Bampo" bleed). Purge on mount, before the session probe resolves.
+  useEffect(() => {
+    void purgeLocalIdentity()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     void (isSupabaseMode ? supabaseBootstrapNeeded() : apiAuthBootstrapNeeded()).then(setBootstrapNeeded)

@@ -5,6 +5,7 @@ import {
   agentsForProperty,
   isSelfAgent,
   listedByAgentPhrase,
+  resolveApplicationAgentName,
   shouldLockPropertyAgentField,
 } from './agentDisplay'
 
@@ -43,6 +44,35 @@ describe('agentDisplay', () => {
     expect(agentsForProperty('u-james', AGENTS)).toEqual([{ id: 'u-james', name: 'James Okonkwo' }])
     expect(agentsForProperty('u-unknown', AGENTS)).toEqual([])
     expect(agentsForProperty(null, AGENTS)).toEqual([])
+  })
+
+  // P0-agent (R8): application agent comes from the LISTING only — never the
+  // application row's stale agent_id ("James Okonkwo with no assignment").
+  describe('resolveApplicationAgentName', () => {
+    it('returns the listing agent', () => {
+      expect(
+        resolveApplicationAgentName({ agentId: 'u-james' }, { id: 'APP-1' }, AGENTS),
+      ).toBe('James Okonkwo')
+    })
+
+    it('returns null when the listing has no agent (Unassigned) — even with a stale row agent', () => {
+      expect(
+        resolveApplicationAgentName({ agentId: null }, { id: 'APP-1', agentId: 'u-james' }, AGENTS),
+      ).toBeNull()
+      expect(
+        resolveApplicationAgentName({ agentId: '' }, { id: 'APP-1', agentId: 'u-james' }, AGENTS),
+      ).toBeNull()
+    })
+
+    it('returns null without a listing — no fallback to the row agent', () => {
+      expect(resolveApplicationAgentName(null, { id: 'APP-1', agentId: 'u-james' }, AGENTS)).toBeNull()
+    })
+
+    it('returns null when the listing agent id has no user row (no invented people)', () => {
+      expect(
+        resolveApplicationAgentName({ agentId: 'u-ghost' }, { id: 'APP-1' }, AGENTS),
+      ).toBeNull()
+    })
   })
 
   it('locks property agent field for the linked agent', () => {

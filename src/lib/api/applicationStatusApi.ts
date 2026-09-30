@@ -429,6 +429,23 @@ export function patchApplicationStatus(params: {
     }
   }
 
+  // P0-approve (R8): the lease row must carry a real landlord — the DB FK on
+  // leases.landlord_id rejects an empty id (HTTP 409) and a NULL one violates
+  // the NOT NULL contract. Resolve from the listing's owner, falling back to
+  // the building's owner (the same chain Make live / listing detail use). If
+  // neither has an owner, approve fails fast here — never half-approve into a
+  // lease that cannot commit.
+  const leaseLandlordId =
+    property?.landlordId?.trim() || building?.landlordId?.trim() || ''
+  if (application.type === 'Rental' && !leaseLandlordId) {
+    return {
+      status: 'ERROR',
+      httpStatus: 422,
+      error: 'This listing has no owner assigned — assign the landlord before approving.',
+      code: 'NO_LANDLORD',
+    }
+  }
+
   const collisions = findBookingCollisions({
     unitId,
     propertyId: application.propertyId,
@@ -506,7 +523,7 @@ export function patchApplicationStatus(params: {
           id: uid('TN'),
           agencyId: application.agencyId,
           propertyId: application.propertyId,
-          landlordId: property?.landlordId ?? '',
+          landlordId: leaseLandlordId || property?.landlordId || building?.landlordId || '',
           agentId: application.agentId,
           applicationId: application.id,
           tenantUserId: application.applicantUserId,

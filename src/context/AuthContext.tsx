@@ -44,7 +44,7 @@ import {
   supabaseSignOut,
   supabaseSignUp,
 } from '../lib/supabase/auth'
-import { clearSessionArtifacts } from '../lib/auth/sessionArtifacts'
+import { clearSessionArtifacts, isRegisterInFlight, setRegisterInFlight } from '../lib/auth/sessionArtifacts'
 
 const AUTH_KEY = 'propertyflow-auth-user'
 const REAL_AUTH_KEY = 'propertyflow-auth-real-user'
@@ -148,6 +148,10 @@ type AuthContextValue = {
     documents?: import('../lib/verification').VerificationDocument[]
   }) => Promise<{ user: AppUser; bootstrap: boolean }>
   logout: () => Promise<void>
+  /** P0-session (R8): full anonymous wipe — sign out + clear every artifact.
+   *  Auth pages call this on mount so a previous user's live session can never
+   *  hydrate there ("Riaan on /register", "Samuel on /login"). */
+  purgeLocalIdentity: () => Promise<void>
   switchUser: (userId: string) => void
   impersonate: (userId: string) => boolean
   stopImpersonation: () => void
@@ -221,6 +225,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isSupabaseMode) return
     const { unsubscribe } = onSupabaseAuthChange((profile) => {
+      // P0-register (R8): while a registration is in flight, a previous
+      // user's live session can fire auth-change events (token refresh,
+      // INITIAL_SESSION on a late subscribe). Never hydrate that old identity
+      // into the shell mid-registration — the register flow owns the session.
+      if (isRegisterInFlight()) return
       if (profile) {
         applySessionUser(profile, setSessionUser, setUserId, setRealUserId)
       } else {
@@ -369,6 +378,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // P0-1: on any failure the visitor must stay anonymous — never attach a
         // stale/cached identity (e.g. a previous Super Admin session) to the
         // register flow. Clear first, then attempt; on error, clear again.
+        // P0-register (R8): the in-flight flag keeps a previous user's live
+        // session from re-hydrating through onAuthStateChange mid-register.
+        setRegisterInFlight(true)
         try {
           if (isSupabaseMode) {
             const res = await supabaseSignUp(input)
@@ -400,6 +412,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           clearSessionArtifacts({ setSessionUser, setUserId, setRealUserId })
           setApiActor(null)
           throw err
+        } finally {
+          setRegisterInFlight(false)
         }
       },
       logout: async () => {
@@ -434,6 +448,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch {
           /* ignore */
         }
+      },
+      purgeLocalIdentity: async () => {
+        // P0-session (R8): the full anonymous wipe shared by logout and the
+        // auth pages' mount purge. Same source of truth as logout — sign out
+        // server-side first (best effort), then clear every artifact.
+        try {
+          if (isSupabaseMode) await supabaseSignOut()
+          else await apiLogout()
+        } catch {
+          /* fall through — artifacts cleared below regardless */
+        }
+        clearSessionArtifacts({ setSessionUser, setUserId, setRealUserId })
+        setApiActor(null)
       },
       switchUser: (id: string) => {
         if (!DEMO_SWITCHER) return

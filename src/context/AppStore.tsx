@@ -900,7 +900,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   }, [state])
 
   const patch = useCallback((fn: (s: AppState) => AppState) => {
-    setState((s) => fn(s))
+    // P0-publish (R8): keep stateRef in sync synchronously. Same-tick flows
+    // (wizard create → publish; approve → persist) read stateRef.current
+    // before React has re-rendered — a stale ref there made publish see the
+    // pre-create/presave state and drop or duplicate the persist.
+    setState((s) => {
+      const next = fn(s)
+      stateRef.current = next
+      return next
+    })
   }, [])
 
   /** Durable persist for mutation paths that must gate success UI on a
@@ -2991,6 +2999,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             (u.role === 'client_admin' || u.role === 'agent_admin'),
         ) ?? state.users.find((u) => u.role === 'super_admin')
 
+      // P0-approve (R8): snapshot of the pre-approve state. If the durable
+      // mirror write fails, this restores the optimistic patch so the UI
+      // never sticks at a stage the server did not commit (the round-8
+      // "sticky 71%" false progress).
+      const preApproveSnapshot = stateRef.current
       let result: PatchApplicationStatusResult = {
         status: 'ERROR',
         httpStatus: 404,
@@ -3104,9 +3117,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         // Keep the machine's stage/progress as-is: normalizeApplication would
         // relabel 'Awaiting Payment' → 'Deposit invoice issued' (50%), which
         // would not match the optimistic UI after a reload.
+        // P0-agent (R8): repair the stale agent id on the durable write — the
+        // listing's real assigned agent (or null) replaces whatever an earlier
+        // defaulted write left on the row. No SQL needed; normal writes heal it.
         const approvedApp: Application = {
           ...ok.application,
           workflowStatus: 'deposit_invoice_sent',
+          agentId: stateRef.current.properties.find((p) => p.id === ok.application.propertyId)
+            ?.agentId?.trim()
+            ? (stateRef.current.properties.find((p) => p.id === ok.application.propertyId)
+                ?.agentId as string)
+            : null,
         }
         const approvedRemotely = await persistApprovedApplication({
           applicationId: id,
@@ -3132,6 +3153,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         )
 
         if (!approvedRemotely) {
+          // P0-approve (R8): roll the optimistic patch back — stage, payments,
+          // lease, unit/property status all return to their pre-approve values
+          // so the UI reflects only what the server actually committed.
+          const snapshot = preApproveSnapshot
+          patch((s) => ({
+            ...s,
+            applications: snapshot.applications,
+            payments: snapshot.payments,
+            tenancies: snapshot.tenancies,
+            units: snapshot.units,
+            properties: snapshot.properties,
+          }))
           // P0-approve: never report success when the durable write failed.
           return {
             ...ok,
@@ -3193,6 +3226,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }
 
       if (transition.effect === 'approve') {
+        // P0-approve (R8): same pre-approve snapshot + revert contract as
+        // approveApplication — a failed durable write must not leave the
+        // optimistic 71% stage behind.
+        const preApproveSnapshot = stateRef.current
         let result: PatchApplicationStatusResult = {
           status: 'ERROR',
           httpStatus: 404,
@@ -3268,6 +3305,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             notifications: [],
           })
           if (!approvedRemotely) {
+            // P0-approve (R8): revert the optimistic patch before surfacing
+            // the failure — the UI must match what the server committed.
+            const snapshot = preApproveSnapshot
+            patch((s) => ({
+              ...s,
+              applications: snapshot.applications,
+              payments: snapshot.payments,
+              tenancies: snapshot.tenancies,
+              units: snapshot.units,
+              properties: snapshot.properties,
+            }))
             return {
               ...result,
               status: 'ERROR',
@@ -3457,9 +3505,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           // Keep the machine's stage/progress (see note in approveApplication —
           // normalizeApplication would relabel the stage and break label
           // agreement across a reload).
+          // P0-agent (R8): same agent repair as approveApplication.
+          const approvedListingAgentId =
+            stateRef.current.properties.find((p) => p.id === ok.application.propertyId)
+              ?.agentId?.trim() || null
           const approvedApp: Application = {
             ...ok.application,
             workflowStatus: 'deposit_invoice_sent',
+            agentId: approvedListingAgentId,
           }
           const approvedRemotely = await persistApprovedApplication({
             applicationId,

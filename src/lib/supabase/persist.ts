@@ -535,6 +535,30 @@ async function upsertViewingSlot(id: string, data: Record<string, unknown>): Pro
 async function upsertTenancy(id: string, data: Record<string, unknown>): Promise<void> {
   const supabase = createClient()
   const uuid = await ensureUuid('tenancy', id)
+  // P0-approve (R8): leases.landlord_id has an FK + NOT NULL — an empty FE id
+  // lands as HTTP 409. Fall back to the building's owner (the same chain the
+  // listing detail uses) before writing; if neither resolves, surface the
+  // real error instead of writing an ownerless lease.
+  let landlordUuid = await userUuid(data.landlordId)
+  if (!landlordUuid) {
+    const unitUuidVal = await unitUuid(data.propertyId)
+    if (unitUuidVal) {
+      const { data: buildingRow } = await supabase
+        .from('units')
+        .select('buildings(landlord_id)')
+        .eq('id', unitUuidVal)
+        .maybeSingle()
+      const buildingLandlord =
+        (buildingRow as { buildings?: { landlord_id?: string | null } | null } | null)?.buildings
+          ?.landlord_id ?? null
+      if (buildingLandlord) landlordUuid = buildingLandlord
+    }
+  }
+  if (!landlordUuid) {
+    throw new Error(
+      `tenancy upsert failed: no landlord resolved for listing ${str(data.propertyId) || id}`,
+    )
+  }
   // P0-approve (R7): leases.lease_reference is NOT NULL with no default —
   // omitting it makes every lease write fail with "null value in column
   // lease_reference". The server lease-create path uses the frontend tenancy
@@ -546,7 +570,7 @@ async function upsertTenancy(id: string, data: Record<string, unknown>): Promise
     client_id: await clientUuid(data.agencyId),
     unit_id: await unitUuid(data.propertyId),
     tenant_id: await userUuid(data.tenantUserId),
-    landlord_id: await userUuid(data.landlordId),
+    landlord_id: landlordUuid,
     agent_id: await userUuid(data.agentId),
     lease_reference: leaseReference,
     start_date: str(data.startDate),
@@ -849,8 +873,26 @@ async function upsertEntity(
   }
 }
 
+// P0-publish (R8): serialize writes per (resource, id). Two fire-and-forget
+// upserts for the SAME entity (e.g. the wizard's updateProperty Draft write
+// then publishProperty's Published write) raced before — the slower earlier
+// write landed last and reverted the newer state (rent Publish → Draft).
+// A later caller now waits for the earlier one to commit first.
+const writeLocks = new Map<string, Promise<void>>()
+
 export async function persistToSupabase(op: PersistOp): Promise<boolean> {
+  const lockKey = `${op.resource}:${op.id}`
+  const previous = writeLocks.get(lockKey) ?? Promise.resolve()
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  writeLocks.set(
+    lockKey,
+    previous.then(() => gate),
+  )
   try {
+    await previous
     if (op.action === 'delete') {
       await deleteEntity(op.resource, op.id)
     } else {
@@ -860,18 +902,45 @@ export async function persistToSupabase(op: PersistOp): Promise<boolean> {
   } catch (err) {
     console.warn('[supabase/persist]', op.resource, op.action, op.id, err)
     return false
+  } finally {
+    release()
+    if (writeLocks.get(lockKey) === gate) {
+      writeLocks.delete(lockKey)
+    }
   }
 }
 
 export async function persistBatchToSupabase(ops: PersistOp[]): Promise<boolean> {
   try {
-    await Promise.all(ops.map((op) => persistToSupabase(op)))
+    // P0-publish (R8): same (resource, id) keys run SEQUENTIALLY through the
+    // persistToSupabase locks; only distinct entities run in parallel. A flat
+    // Promise.all re-introduced the Draft/Published write race.
+    const seen = new Set<string>()
+    const sequential: PersistOp[] = []
+    const parallel: PersistOp[] = []
+    for (const op of ops) {
+      const key = `${op.resource}:${op.id}`
+      if (seen.has(key)) sequential.push(op)
+      else {
+        seen.add(key)
+        parallel.push(op)
+      }
+    }
+    await Promise.all([
+      ...parallel.map((op) => persistToSupabase(op)),
+      ...sequential.map((op) => persistToSupabase(op)),
+    ])
     return true
   } catch {
     return false
   }
 }
 
+/**
+ * DEPRECATED (R8): not called anymore — persistApproveApplication skips the
+ * RPC in Supabase mode because it cannot commit against the current schema.
+ * Kept only so the RPC can be re-verified easily after a DB-side fix.
+ */
 export async function supabaseApproveApplication(params: {
   applicationId: string
   tenancy?: Record<string, unknown>
