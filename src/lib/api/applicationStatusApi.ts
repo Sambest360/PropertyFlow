@@ -110,6 +110,7 @@ export type PatchApplicationStatusError = {
     | 'BOOKING_COLLISION'
     | 'UNIT_OCCUPIED'
     | 'MISSING_UNIT'
+    | 'NO_LANDLORD'
     | 'PERSIST_FAILED'
 }
 

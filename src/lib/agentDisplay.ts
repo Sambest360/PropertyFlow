@@ -102,6 +102,10 @@ export function resolveApplicationAgentName(
   application: ApplicationAgentRef | null | undefined,
   users: Array<{ id: string; name: string }>,
 ): string | null {
+  // P0-agent (R8): `application` is accepted for call-site symmetry (both
+  // detail pages pass the row) but deliberately unused — the listing's agent
+  // is the ONLY source; reading the row is how the phantom agent leaked.
+  void application
   if (!property) return null
   const listingAgentId = property.agentId?.trim() || ''
   if (!listingAgentId) return null
