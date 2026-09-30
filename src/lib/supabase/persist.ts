@@ -97,14 +97,28 @@ function num(v: unknown): number | null {
 }
 
 const APP_STAGE_TO_DB: Record<string, string> = {
-  Started: 'DRAFT',
+  Started: 'SUBMITTED',
+  // P0-approve: the guest/apply flow labels new applications this way.
+  'Application started': 'SUBMITTED',
   // P0-3: guest-submitted apps land at this FE stage.
   'Application submitted': 'SUBMITTED',
   'Documents Pending': 'SUBMITTED',
+  'Documents requested': 'UNDER_REVIEW',
+  'Documents uploaded': 'UNDER_REVIEW',
   'Under Review': 'UNDER_REVIEW',
+  'Agent review': 'UNDER_REVIEW',
   'Credit Check': 'CREDIT_CHECK',
+  'Credit check': 'CREDIT_CHECK',
+  'Conditionally approved': 'APPROVED',
   Approved: 'APPROVED',
+  // P0-approve: the approve machine's post-approval stage. The DB CHECK
+  // constraint has no AWAITING_PAYMENT — status stays APPROVED and the
+  // fine-grained label lives in metadata.stage (single source of truth).
+  'Awaiting Payment': 'APPROVED',
+  'Deposit Paid': 'APPROVED',
+  'Lease Signed': 'APPROVED',
   Rejected: 'REJECTED',
+  Blocked: 'REJECTED',
   Withdrawn: 'WITHDRAWN',
   'Active Tenancy': 'LEASED',
 }
@@ -239,38 +253,106 @@ async function upsertLead(id: string, data: Record<string, unknown>): Promise<vo
 
 async function upsertApplication(id: string, data: Record<string, unknown>): Promise<void> {
   const supabase = createClient()
-  const uuid = await ensureUuid('application', id)
+  let uuid = await ensureUuid('application', id)
   const clientId = await clientUuid(data.agencyId)
   const unitId = await unitUuid(data.propertyId)
   const stage = str(data.stage)
-  await supabase.from('applications').upsert({
-    id: uuid,
-    client_id: clientId,
-    unit_id: unitId,
-    agent_id: await userUuid(data.agentId),
-    applicant_id: await userUuid(data.applicantUserId),
-    reference_code: id,
-    application_type: str(data.type) === 'Purchase' ? 'PURCHASE' : 'RENTAL',
-    status: APP_STAGE_TO_DB[stage] ?? 'UNDER_REVIEW',
-    monthly_income: num(data.income),
-    employment_summary: str(data.employment),
-    message: str(data.notes),
-    move_in_date: str(data.moveInDate) || null,
-    metadata: {
-      stage,
-      progress: data.progress,
-      keyCollection: data.keyCollection,
-      frontend_id: id,
+
+  // P0-approve (409 fix): the app row may exist without an entity_id_map
+  // entry — the approve_application RPC inserts the lease but never seeds the
+  // map, and rows created server-side before this client existed have the
+  // same gap. Minting a fresh uuid then upserting with reference_code: id
+  // violates unique (client_id, reference_code). Resolve the real row by its
+  // natural key first and upsert onto that row's id (same pattern as
+  // upsertLookup).
+  let existingRow: { id: string; metadata: unknown } | null = null
+  if (clientId) {
+    const { data: byRef } = await supabase
+      .from('applications')
+      .select('id, metadata, status')
+      .eq('client_id', clientId)
+      .eq('reference_code', id)
+      .maybeSingle()
+    if (byRef?.id) {
+      uuid = byRef.id as string
+      existingRow = byRef as { id: string; metadata: unknown }
+      await supabase
+        .from('entity_id_map')
+        .upsert(
+          { entity_type: 'application', backend_id: byRef.id as string, frontend_id: id },
+          { onConflict: 'entity_type,frontend_id' },
+        )
+    } else {
+      const { data: byFrontendMeta } = await supabase
+        .from('applications')
+        .select('id, metadata, status')
+        .eq('client_id', clientId)
+        .eq('metadata->>frontend_id', id)
+        .maybeSingle()
+      if (byFrontendMeta?.id) {
+        uuid = byFrontendMeta.id as string
+        existingRow = byFrontendMeta as { id: string; metadata: unknown }
+        await supabase
+          .from('entity_id_map')
+          .upsert(
+            { entity_type: 'application', backend_id: byFrontendMeta.id as string, frontend_id: id },
+            { onConflict: 'entity_type,frontend_id' },
+          )
+      }
+    }
+  }
+
+  // Read-merge-write: keep metadata keys written by other consumers (the
+  // approve RPC writes `stage`, enquiry flows write checkout refs) — only the
+  // incoming keys are overwritten. workflow_status is the machine key that
+  // hydration uses as the single stage source for staff and applicant.
+  const incomingMeta: Record<string, unknown> = {
+    stage,
+    workflow_status: typeof data.workflowStatus === 'string' ? data.workflowStatus : null,
+    progress: data.progress,
+    keyCollection: data.keyCollection,
+    frontend_id: id,
+  }
+  let mergedMeta = incomingMeta
+  const existingMeta = (existingRow?.metadata ?? null) as Record<string, unknown> | null
+  if (existingMeta && typeof existingMeta === 'object' && !Array.isArray(existingMeta)) {
+    mergedMeta = { ...existingMeta, ...incomingMeta }
+  }
+
+  const res = await supabase.from('applications').upsert(
+    {
+      id: uuid,
+      client_id: clientId,
+      unit_id: unitId,
+      agent_id: await userUuid(data.agentId),
+      applicant_id: await userUuid(data.applicantUserId),
+      reference_code: id,
+      application_type: str(data.type) === 'Purchase' ? 'PURCHASE' : 'RENTAL',
+      status: APP_STAGE_TO_DB[stage] ?? 'UNDER_REVIEW',
+      monthly_income: num(data.income),
+      employment_summary: str(data.employment),
+      message: str(data.notes),
+      move_in_date: str(data.moveInDate) || null,
+      metadata: mergedMeta,
+      updated_at: new Date().toISOString(),
     },
-    updated_at: new Date().toISOString(),
-  })
+    { onConflict: 'id', ignoreDuplicates: false },
+  )
+  // supabase-js resolves with { error } instead of throwing — surface RLS /
+  // constraint failures so callers can gate success UI on a durable write.
+  if (res.error) throw new Error(`application upsert failed: ${res.error.message}`)
+}
+
+/** supabase-js resolves with { error } instead of throwing — surface DB/RLS failures. */
+function throwIfUpsertFailed(res: { error: { message: string } | null }, label: string): void {
+  if (res.error) throw new Error(`${label} upsert failed: ${res.error.message}`)
 }
 
 async function upsertPayment(id: string, data: Record<string, unknown>): Promise<void> {
   const supabase = createClient()
   const uuid = await ensureUuid('payment', id)
   const clientId = await clientUuid(data.agencyId)
-  await supabase.from('payments').upsert({
+  const res = await supabase.from('payments').upsert({
     id: uuid,
     client_id: clientId,
     unit_id: await unitUuid(data.propertyId),
@@ -291,12 +373,13 @@ async function upsertPayment(id: string, data: Record<string, unknown>): Promise
     recorded_by: await userUuid(data.recordedByUserId),
     updated_at: new Date().toISOString(),
   })
+  throwIfUpsertFailed(res, 'payment')
 }
 
 async function upsertNotification(id: string, data: Record<string, unknown>): Promise<void> {
   const supabase = createClient()
   const uuid = await ensureUuid('notification', id)
-  await supabase.from('notifications').upsert({
+  const res = await supabase.from('notifications').upsert({
     id: uuid,
     client_id: await clientUuid(data.agencyId),
     user_id: await userUuid(data.userId),
@@ -308,6 +391,7 @@ async function upsertNotification(id: string, data: Record<string, unknown>): Pr
     read_at: data.read ? new Date().toISOString() : null,
     created_at: str(data.at) || new Date().toISOString(),
   })
+  throwIfUpsertFailed(res, 'notification')
 }
 
 async function upsertTicket(id: string, data: Record<string, unknown>): Promise<void> {
@@ -375,23 +459,30 @@ async function upsertMessage(id: string, data: Record<string, unknown>): Promise
 async function upsertActivity(id: string, data: Record<string, unknown>): Promise<void> {
   const supabase = createClient()
   const uuid = await ensureUuid('activity', id)
-  await supabase.from('event_log').upsert({
+  // P0-approve (400 fix): event_log.subject_type is NOT NULL — the previous
+  // payload was rejected with a validation error, silently dropping the
+  // approve audit entry.
+  const res = await supabase.from('event_log').upsert({
     id: uuid,
     client_id: await clientUuid(data.agencyId),
     event_type: 'activity',
+    subject_type: 'agency',
     payload: { text: data.text, user: data.user },
     created_at: str(data.at) || new Date().toISOString(),
   })
+  if (res.error) throw new Error(`event_log upsert failed: ${res.error.message}`)
 }
 
 async function upsertPropertyEvent(id: string, data: Record<string, unknown>): Promise<void> {
   const supabase = createClient()
   const uuid = await ensureUuid('property_event', id)
   const unitId = await unitUuid(data.propertyId)
-  await supabase.from('event_log').upsert({
+  // P0-approve (400 fix): same NOT NULL subject_type as upsertActivity.
+  const res = await supabase.from('event_log').upsert({
     id: uuid,
     client_id: await clientUuid(data.agencyId),
     event_type: 'property_event',
+    subject_type: 'unit',
     subject_id: unitId,
     actor_user_id: await userUuid(data.actorUserId),
     payload: {
@@ -402,6 +493,7 @@ async function upsertPropertyEvent(id: string, data: Record<string, unknown>): P
     },
     created_at: str(data.at) || new Date().toISOString(),
   })
+  if (res.error) throw new Error(`event_log upsert failed: ${res.error.message}`)
 }
 
 async function upsertSuiteAlert(id: string, data: Record<string, unknown>): Promise<void> {
@@ -443,7 +535,7 @@ async function upsertViewingSlot(id: string, data: Record<string, unknown>): Pro
 async function upsertTenancy(id: string, data: Record<string, unknown>): Promise<void> {
   const supabase = createClient()
   const uuid = await ensureUuid('tenancy', id)
-  await supabase.from('leases').upsert({
+  const res = await supabase.from('leases').upsert({
     id: uuid,
     client_id: await clientUuid(data.agencyId),
     unit_id: await unitUuid(data.propertyId),
@@ -458,6 +550,7 @@ async function upsertTenancy(id: string, data: Record<string, unknown>): Promise
     metadata: { keyCollection: data.keyCollection },
     updated_at: new Date().toISOString(),
   })
+  throwIfUpsertFailed(res, 'tenancy')
 }
 
 async function upsertDocument(id: string, data: Record<string, unknown>): Promise<void> {
@@ -512,7 +605,7 @@ async function upsertUnit(id: string, data: Record<string, unknown>): Promise<vo
     listingRaw === 'RENT' || listingRaw === 'SALE' || listingRaw === 'BOTH' || listingRaw === 'NOT_LISTED'
       ? listingRaw
       : 'RENT'
-  await supabase.from('units').upsert({
+  const res = await supabase.from('units').upsert({
     id: uuid,
     client_id: await clientUuid(data.clientId ?? data.agencyId),
     building_id: buildingUuid,
@@ -537,6 +630,7 @@ async function upsertUnit(id: string, data: Record<string, unknown>): Promise<vo
     formatted_address: str(data.formattedAddress) || null,
     updated_at: new Date().toISOString(),
   })
+  throwIfUpsertFailed(res, 'unit')
 }
 
 async function upsertRoom(id: string, data: Record<string, unknown>): Promise<void> {
@@ -571,7 +665,7 @@ async function upsertProperty(id: string, data: Record<string, unknown>): Promis
   const buildingUuid = buildingFe ? await resolveUuid('building', buildingFe) : null
 
   if (buildingUuid) {
-    await supabase.from('units').upsert({
+    const res = await supabase.from('units').upsert({
       id: unitUuidVal,
       client_id: clientId,
       building_id: buildingUuid,
@@ -613,6 +707,9 @@ async function upsertProperty(id: string, data: Record<string, unknown>): Promis
       formatted_address: str(data.formattedAddress) || null,
       updated_at: new Date().toISOString(),
     })
+    throwIfUpsertFailed(res, 'property/unit')
+  } else {
+    throw new Error(`property upsert failed: building ${str(data.buildingId) || id} not resolved`)
   }
 }
 

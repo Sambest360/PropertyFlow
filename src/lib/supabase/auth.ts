@@ -450,7 +450,16 @@ export async function supabaseGetSessionUser(): Promise<AppUser | null> {
   const supabase = createClient()
   const { data } = await supabase.auth.getSession()
   if (!data.session?.user) return null
-  return loadProfileForSession(data.session.user.id)
+  // P0-session hygiene: getSession() reads the local sb-* cache only. A stale
+  // entry (expired/revoked JWT, or a previous staff user's leftover session)
+  // must never hydrate an identity — confirm with the auth server first.
+  const { data: verified, error } = await supabase.auth.getUser()
+  if (error || !verified.user || verified.user.id !== data.session.user.id) {
+    // Purge the dead cache so the next paint resolves as guest.
+    await supabase.auth.signOut().catch(() => {})
+    return null
+  }
+  return loadProfileForSession(verified.user.id)
 }
 
 export function onSupabaseAuthChange(
@@ -462,7 +471,16 @@ export function onSupabaseAuthChange(
       cb(null)
       return
     }
-    const profile = await loadProfileForSession(session.user.id)
+    // P0-session hygiene: INITIAL_SESSION replays the locally cached sb-*
+    // session, so validate it against the auth server before surfacing a
+    // profile — a cached-but-dead session resolves as guest, never as the
+    // previous staff user.
+    const { data: verified, error } = await supabase.auth.getUser()
+    if (error || !verified.user || verified.user.id !== session.user.id) {
+      cb(null)
+      return
+    }
+    const profile = await loadProfileForSession(verified.user.id)
     cb(profile)
   })
   return { unsubscribe: () => data.subscription.unsubscribe() }

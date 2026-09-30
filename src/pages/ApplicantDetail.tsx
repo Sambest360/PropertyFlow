@@ -212,7 +212,7 @@ export default function ApplicantDetail() {
     })
   }
 
-  const runAction = (action: HateoasAction, capture?: WorkflowActionCapture) => {
+  const runAction = async (action: HateoasAction, capture?: WorkflowActionCapture) => {
     const workflowTarget = action.payload_hint?.workflowStatus as string | undefined
     const effect = action.payload_hint?.effect as string | undefined
     const status = action.payload_hint?.status
@@ -236,7 +236,7 @@ export default function ApplicantDetail() {
 
     if (action.key === 'COMPLETE_KEY_HANDOVER' || effect === 'key_handover') {
       const prev = application.stage
-      const result = advanceApplicationWorkflow({
+      const result = await advanceApplicationWorkflow({
         applicationId: application.id,
         actorUserId: user.id,
         targetStatus: (workflowTarget ?? 'keys_handed_over') as import('../lib/applicationWorkflow').WorkflowStatusKey,
@@ -250,7 +250,7 @@ export default function ApplicantDetail() {
 
     if (workflowTarget && !status) {
       const prevStage = application.stage
-      const result = advanceApplicationWorkflow({
+      const result = await advanceApplicationWorkflow({
         applicationId: application.id,
         actorUserId: user.id,
         targetStatus: workflowTarget as import('../lib/applicationWorkflow').WorkflowStatusKey,
@@ -320,7 +320,9 @@ export default function ApplicantDetail() {
     }
     if (!status) return
     const prevStage = application.stage
-    const result = patchApplicationStatus({
+    // P0-approve: the store awaits the durable write and returns ERROR when it
+    // fails, so a success flash only shows after the stage is committed.
+    const result = await patchApplicationStatus({
       applicationId: application.id,
       actorUserId: user.id,
       request: {

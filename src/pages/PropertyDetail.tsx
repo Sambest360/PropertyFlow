@@ -399,7 +399,7 @@ export default function PropertyDetail() {
           canReview={canReview}
           reviewPermissions={reviewPermissions}
           onAdvance={async (appId, targetStatus) => {
-            const result = advanceApplicationWorkflow({
+            const result = await advanceApplicationWorkflow({
               applicationId: appId,
               actorUserId: user.id,
               targetStatus,
@@ -429,7 +429,10 @@ export default function PropertyDetail() {
             })
           }}
           onApprove={async (appId) => {
-            const result = approveApplication(appId)
+            // P0-approve: approveApplication now awaits the durable write and
+            // returns ERROR when it fails, so the success dialog (and the
+            // property-event log entry) only run after the stage is committed.
+            const result = await approveApplication(appId)
             if (result.status === 'ERROR') {
               await alert.success({
                 title: 'Approval failed',

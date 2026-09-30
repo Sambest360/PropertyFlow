@@ -116,12 +116,12 @@ export default function TenantApplicationDetailPage() {
   const workflowStatus = resolveWorkflowStatus(application)
   const progress = workflowProgress(application.type, workflowStatus)
 
-  const runAction = (action: HateoasAction, _capture?: WorkflowActionCapture) => {
+  const runAction = async (action: HateoasAction, _capture?: WorkflowActionCapture) => {
     const workflowTarget = action.payload_hint?.workflowStatus as string | undefined
     const effect = action.payload_hint?.effect as string | undefined
 
     if (workflowTarget && action.key !== 'OPEN_CHECKOUT') {
-      const result = advanceApplicationWorkflow({
+      const result = await advanceApplicationWorkflow({
         applicationId: application.id,
         actorUserId: user.id,
         targetStatus: workflowTarget as import('../../lib/applicationWorkflow').WorkflowStatusKey,
@@ -382,7 +382,7 @@ export default function TenantApplicationDetailPage() {
             onOpenCheckout={
               workflowStatus === 'deposit_invoice_sent' || workflowStatus === 'deposit_requested'
                 ? () =>
-                    runAction({
+                    void runAction({
                       key: 'OPEN_CHECKOUT',
                       label: 'Pay online',
                       method: 'PATCH',

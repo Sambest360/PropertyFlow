@@ -399,7 +399,8 @@ type StoreContextValue = {
   }) => PropertyAsset
   updateProperty: (id: string, patch: Partial<PropertyAsset>) => void
   setPropertyRooms: (id: string, rooms: Room[]) => void
-  publishProperty: (id: string, status?: PropertyAsset['status']) => void
+  /** P0-publish: returns whether the listing actually flipped to a public state. */
+  publishProperty: (id: string, status?: PropertyAsset['status']) => boolean
   deleteProperty: (id: string) => { ok: true } | { ok: false; reason: string }
   restoreProperty: (id: string) => { ok: true } | { ok: false; reason: string }
   createBuilding: (input: Omit<Building, 'id' | 'createdAt' | 'images'> & { images?: string[] }) => Building
@@ -508,19 +509,20 @@ type StoreContextValue = {
     actor?: { userId: string; name: string },
   ) => void
   advanceApplication: (id: string, to?: ApplicationStage) => void
-  approveApplication: (id: string) => PatchApplicationStatusResult
+  /** P0-approve: awaited so callers only show success after a durable write. */
+  approveApplication: (id: string) => Promise<PatchApplicationStatusResult>
   /** Mirrors PATCH /api/v1/applications/{id}/status */
   /** Advance via configurable rental / purchase workflow template */
   advanceApplicationWorkflow: (params: {
     applicationId: string
     actorUserId: string
     targetStatus: WorkflowStatusKey
-  }) => PatchApplicationStatusResult | { status: 'SUCCESS'; application: Application }
+  }) => Promise<PatchApplicationStatusResult | { status: 'SUCCESS'; application: Application }>
   patchApplicationStatus: (params: {
     applicationId: string
     actorUserId: string
     request: PatchApplicationStatusRequest
-  }) => PatchApplicationStatusResult
+  }) => Promise<PatchApplicationStatusResult>
   scheduleMoveIn: (id: string, moveInDate: string, keyCollection: NonNullable<Application['keyCollection']>) => void
   completeKeyHandover: (id: string) => void
   createViewingSlot: (input: Omit<ViewingSlot, 'id' | 'booked' | 'status'> & { capacity?: number }) => ViewingSlot
@@ -1768,7 +1770,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     },
     publishProperty: (id, status = 'Published') => {
       let pe: PropertyEvent | null = null
-      const prev = state.properties.find((x) => x.id === id)
+      // P0-publish: read the freshest committed state, not the render-closure
+      // snapshot. The wizard calls create → publish in the same tick, so `state`
+      // here predates the new property and `prev` was undefined — the property
+      // persist was skipped and the unit patch dereferenced a null object
+      // (TypeError), while the UI still navigated away as if published.
+      const prev = stateRef.current.properties.find((x) => x.id === id)
+      // P0-publish: unknown id must be a no-op result, never a crash.
+      if (!prev) return false
       // P0-1: the public gate reads both the property status AND the linked
       // unit's statusKey — publishing must index both or the listing stays
       // invisible on /browse and /listing/{id}.
@@ -1791,7 +1800,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       // P0-4: Handle both cases where unitId is separate or same as property.id
       const targetUnitId = prev?.unitId === prev?.id ? prev.id : prev?.unitId
       if (targetUnitId) {
-        const unit = state.units.find((u) => u.id === targetUnitId)
+        const unit = stateRef.current.units.find((u) => u.id === targetUnitId)
         if (unit && (unit.statusKey !== nextUnitStatus || unit.listingType !== unitListingType)) {
           unitPatch = { ...unit, statusKey: nextUnitStatus, listingType: unitListingType }
         }
@@ -1835,7 +1844,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           (s) => s.propertyId === id && s.status === 'Open',
         )
         if (!hasOpenSlot) {
-          const agentId = prev.agentId ?? 'unassigned'
+          // P0-agent: only a real assigned agent — never invent a person.
+          const agentId = prev.agentId ?? ''
           const start = new Date()
           start.setDate(start.getDate() + 2)
           start.setHours(10, 0, 0, 0)
@@ -1859,6 +1869,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         }
       }
       scheduleBootstrapRefreshAfterMutation()
+      // P0-publish: the wizard's primary Publish now knows whether the listing
+      // actually flipped to a public state.
+      return Boolean(prev && PUBLIC_ON.includes(status))
     },
     deleteProperty: (id) => {
       const property = stateRef.current.properties.find((x) => x.id === id)
@@ -2640,12 +2653,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }
 
       const documents = buildDocumentChecklist(input.type)
+      // P0-agent: keep only the listing's real assigned agent. An id that does
+      // not exist in the user book (or a blank string) means "unassigned" —
+      // the detail views must never invent a person.
+      const agentId =
+        input.agentId && state.users.some((u) => u.id === input.agentId) ? input.agentId : null
       const app: Application = {
         id: uid('APP'),
         agencyId: input.agencyId,
         propertyId: input.propertyId,
         unitId: unit?.id ?? property?.unitId ?? null,
-        agentId: input.agentId,
+        agentId,
         applicantUserId: input.applicantUserId ?? null,
         applicantName: input.applicantName,
         email: input.email,
@@ -2667,7 +2685,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         submittedAt: new Date().toISOString().slice(0, 10),
         updatedAt: new Date().toISOString().slice(0, 10),
       }
-      patch((s) => ({ ...s, applications: [app, ...s.applications] }))
+      // P0-integrity: normalize once at creation so the stored stage label,
+      // machine status and progress always agree — staff and applicant read
+      // the same triple from here on.
+      const normalizedApp = normalizeApplication(app)
+      patch((s) => ({ ...s, applications: [normalizedApp, ...s.applications] }))
       addActivity(`Application started: ${app.applicantName}`, app.applicantName, app.agencyId)
 
       emitSuiteEvent({
@@ -2693,7 +2715,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         })
       }
 
-      persistUpsert('application', app.id, app as unknown as Record<string, unknown>)
+      // P0-integrity: persist the normalized triple (stage / workflowStatus /
+      // progress), not the pre-normalize object.
+      persistUpsert('application', normalizedApp.id, normalizedApp as unknown as Record<string, unknown>)
 
       // Additive: email confirmation to the applicant (works in both API and
       // Supabase modes since it rides the same origin). Fire-and-forget — a
@@ -2882,7 +2906,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         } as unknown as Record<string, unknown>)
       }
     },
-    approveApplication: (id) => {
+    approveApplication: async (id) => {
       const app = state.applications.find((a) => a.id === id)
       const actorUser =
         state.users.find(
@@ -2982,13 +3006,22 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
       if (result.status === 'SUCCESS') {
         const ok = result
-        void persistApproveApplication({
+        // P0-approve: the RPC is the durable transition (sets APPROVED + stage,
+        // creates the lease). The optimistic UI must not report success until it
+        // commits — previously this was fire-and-forget, so a 409/400 left the
+        // row at its old stage and a reload reverted the badge.
+        const approvedRemotely = await persistApproveApplication({
           applicationId: id,
           actorUserId: actorUser?.id,
           tenancy: ok.side_effects.lease
             ? (ok.side_effects.lease as unknown as Record<string, unknown>)
             : undefined,
         })
+
+        // Mirror the approved application + side effects. upsertApplication now
+        // resolves the row by natural key (no more 409) and event_log rows carry
+        // subject_type (no more 400), so these writes are independent and safe
+        // to fire concurrently.
         persistUpsert('application', id, ok.application as unknown as Record<string, unknown>)
         for (const pay of ok.side_effects.payments) {
           persistUpsert('payment', pay.id, pay as unknown as Record<string, unknown>)
@@ -3004,7 +3037,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           persistUpsert('notification', n.id, n as unknown as Record<string, unknown>)
         }
         if (app?.propertyId) {
-          const prop = state.properties.find((p) => p.id === app.propertyId)
+          const prop = stateRef.current.properties.find((p) => p.id === app.propertyId)
           if (prop) {
             persistUpsert('property', prop.id, {
               ...prop,
@@ -3018,11 +3051,23 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           actorUser?.name ?? 'Agency',
           app?.agencyId ?? null,
         )
+
+        if (!approvedRemotely) {
+          // P0-approve: never report success when the durable write failed.
+          return {
+            ...ok,
+            status: 'ERROR',
+            httpStatus: 502,
+            error:
+              'The approval could not be saved. Nothing was changed — please try again.',
+            code: 'PERSIST_FAILED',
+          } as PatchApplicationStatusResult
+        }
       }
 
       return result
     },
-    advanceApplicationWorkflow: ({ applicationId, actorUserId, targetStatus }) => {
+    advanceApplicationWorkflow: async ({ applicationId, actorUserId, targetStatus }) => {
       const app = state.applications.find((a) => a.id === applicationId)
       if (!app) {
         return {
@@ -3126,6 +3171,25 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             ...result.application,
             workflowStatus: 'deposit_invoice_sent',
           })
+          // P0-approve: this workflow branch shares the same durable approve
+          // transition — commit the RPC (lease + APPROVED status) before any
+          // success UI, matching the direct approve path.
+          const approvedRemotely = await persistApproveApplication({
+            applicationId,
+            actorUserId,
+            tenancy: result.side_effects.lease
+              ? (result.side_effects.lease as unknown as Record<string, unknown>)
+              : undefined,
+          })
+          if (!approvedRemotely) {
+            return {
+              ...result,
+              status: 'ERROR',
+              httpStatus: 502,
+              error: 'The approval could not be saved. Nothing was changed — please try again.',
+              code: 'PERSIST_FAILED',
+            } as PatchApplicationStatusResult
+          }
           persistUpsert('application', applicationId, normalized as unknown as Record<string, unknown>)
           if (isApplicantAcceptanceStatus('deposit_invoice_sent')) {
             notifyAcceptedElsewhere({
@@ -3195,7 +3259,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }
       return { status: 'SUCCESS', application: updated }
     },
-    patchApplicationStatus: ({ applicationId, actorUserId, request }) => {
+    patchApplicationStatus: async ({ applicationId, actorUserId, request }) => {
       let result: PatchApplicationStatusResult = {
         status: 'ERROR',
         httpStatus: 404,
@@ -3295,13 +3359,23 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       if (result.status === 'SUCCESS') {
         const ok = result
         if (ok.api_status === 'APPROVED') {
-          void persistApproveApplication({
+          // P0-approve: the durable transition must commit before success UI.
+          const approvedRemotely = await persistApproveApplication({
             applicationId,
             actorUserId,
             tenancy: ok.side_effects.lease
               ? (ok.side_effects.lease as unknown as Record<string, unknown>)
               : undefined,
           })
+          if (!approvedRemotely) {
+            return {
+              ...ok,
+              status: 'ERROR',
+              httpStatus: 502,
+              error: 'The approval could not be saved. Nothing was changed — please try again.',
+              code: 'PERSIST_FAILED',
+            } as PatchApplicationStatusResult
+          }
         } else {
           persistUpsert(
             'application',

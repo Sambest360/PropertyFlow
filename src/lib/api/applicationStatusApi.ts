@@ -100,7 +100,8 @@ export type PatchApplicationStatusSuccess = {
 
 export type PatchApplicationStatusError = {
   status: 'ERROR'
-  httpStatus: 400 | 403 | 404 | 409 | 422
+  /** 502: the durable persistence layer rejected the transition. */
+  httpStatus: 400 | 403 | 404 | 409 | 422 | 502
   error: string
   code?:
     | 'NOT_FOUND'
@@ -109,6 +110,7 @@ export type PatchApplicationStatusError = {
     | 'BOOKING_COLLISION'
     | 'UNIT_OCCUPIED'
     | 'MISSING_UNIT'
+    | 'PERSIST_FAILED'
 }
 
 export type PatchApplicationStatusResult = PatchApplicationStatusSuccess | PatchApplicationStatusError

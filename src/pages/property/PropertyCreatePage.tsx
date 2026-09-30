@@ -162,11 +162,6 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   const showLandlordPicker = !isLandlord && (isPlatformAdmin || isAgencyManager || isAgentCreator)
 
   const agencies = state.agencies.filter((a) => scopeAgency(a.id) || has('platform.manage'))
-  const agents = state.users.filter(
-    (u) =>
-      (u.role === 'ground_agent' || u.role === 'agent_admin' || u.role === 'agent') &&
-      (has('platform.manage') || u.agencyId === agencyId),
-  )
   const scopedBuildings = state.buildings.filter(
     (b) => has('platform.manage') || b.clientId === (queryAgencyId || agencyId),
   )
@@ -222,7 +217,11 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     landlordManualEmail: '',
     landlordManualPhone: '',
     landlordEntryMode: 'search',
-    agentId: isLandlord ? '' : isFieldAgent(role) ? user.id : agents[0]?.id ?? '',
+    // P0-agent: never pre-select a person. A field agent lists under their own
+    // name; everyone else starts explicitly unassigned and staff assign an
+    // agent on purpose (a defaulted "first agent" invented assignments that
+    // nobody made).
+    agentId: isLandlord ? '' : isFieldAgent(role) ? user.id : '',
     publishAfterSave: isLandlord,
     draftPropertyId: '',
     starterAssets: [],
@@ -426,7 +425,10 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
 
   function saveDraftOnly() {
     setError('')
-    submitProperty('Draft', false)
+    // submitProperty is async; errors are surfaced in-wizard, but a re-entry
+    // guard here keeps double-clicks from submitting two drafts.
+    if (busy) return
+    void submitProperty('Draft', false)
   }
 
   function canSyncServerDraft(): boolean {
@@ -649,7 +651,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     }
   }
 
-  function submitProperty(status: 'Draft' | 'Published', fromReview: boolean) {
+  async function submitProperty(status: 'Draft' | 'Published', fromReview: boolean) {
     const err = validateStep(6)
     if (err) {
       setError(err)
@@ -748,7 +750,16 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     const shouldPublish =
       (fromReview && draft.publishAfterSave && canPublish) || (status === 'Published' && canPublish)
     if (shouldPublish) {
-      publishProperty(propertyId, 'Published')
+      // P0-publish: await the same durable publish path "Make live" uses.
+      // publishProperty now reads committed state, so the same-tick create →
+      // publish sequence resolves the new property instead of crashing with a
+      // TypeError; a false result means the listing did not go live.
+      const published = publishProperty(propertyId, 'Published')
+      if (!published) {
+        setError('Could not publish the listing. It was saved as a draft — retry from the listing page.')
+        setBusy(false)
+        return
+      }
     }
 
     clearDraft()
@@ -1556,7 +1567,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                     ? 'Publish listing'
                     : 'Create listing'
               }
-              onSubmit={() => submitProperty('Draft', true)}
+              onSubmit={() => void submitProperty('Draft', true)}
               busy={busy}
             />
           }

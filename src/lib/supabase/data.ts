@@ -514,6 +514,11 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
   const applicationsRaw = (applicationsRes.data ?? []).map((a) => {
     const meta = (a.metadata as Record<string, unknown> | null) ?? {}
     const stageFromMeta = typeof meta.stage === 'string' ? meta.stage : null
+    // P0-integrity: prefer the persisted machine status so staff and applicant
+    // resolve the exact same stage. metadata.stage alone can disagree with the
+    // DB status column (status won on legacy rows), producing the 13% vs 14%
+    // split the E2E observed.
+    const workflowStatusFromMeta = typeof meta.workflow_status === 'string' && meta.workflow_status ? (meta.workflow_status as import('../../types/domain').Application['workflowStatus']) : null
     const type = a.application_type === 'PURCHASE' ? 'Purchase' : 'Rental'
     return {
       id: a.reference_code,
@@ -525,6 +530,7 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
       email: '',
       phone: '',
       type,
+      workflowStatus: workflowStatusFromMeta ?? undefined,
       stage: stageFromMeta ?? appStage(a.status),
       progress: typeof meta.progress === 'number' ? meta.progress : 50,
       income: a.monthly_income != null ? Number(a.monthly_income) : 0,
