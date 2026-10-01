@@ -14,6 +14,8 @@ import { ActionButtonRow } from '../ActionButtonRow'
 import { TenantApplicationDetailsForm } from '../tenant/TenantApplicationDetailsForm'
 import { Badge, Card, cn } from '../ui'
 import { formatLeadTime } from '../../lib/leadLifecycle'
+import { FicaPackModeABanner } from '../fica/FicaPackModeABanner'
+import { FICA_PACK_KEYS } from '../../lib/ficaPack'
 
 const EARLY_DETAIL_STAGES: WorkflowStatusKey[] = ['application_started', 'application_submitted']
 
@@ -103,6 +105,11 @@ export function LifecycleStagePanel({
       </div>
 
       <div className="space-y-5 p-5">
+        {stageKey === 'fica_verification' ||
+        stageDocs.some((d) => (FICA_PACK_KEYS as readonly string[]).includes(d.key)) ? (
+          <FicaPackModeABanner documents={application.documents} showGate={canReview && !applicantMode} />
+        ) : null}
+
         {showDetailsForm ? (
           <TenantApplicationDetailsForm application={application} onSave={onSaveDetails} autoSave />
         ) : null}

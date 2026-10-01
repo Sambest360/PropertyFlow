@@ -45,6 +45,14 @@ function rentalApp(overrides: Partial<Application> = {}): Application {
   }
 }
 
+function verifiedFicaPackDocs() {
+  return buildDocumentChecklist('Rental').map((d) =>
+    d.key === 'id' || d.key === 'address' || d.key === 'fica'
+      ? { ...d, status: 'verified' as const }
+      : { ...d, status: 'uploaded' as const },
+  )
+}
+
 describe('applicationWorkflow', () => {
   it('maps legacy stages to workflow status', () => {
     const app = rentalApp({ stage: 'Documents Pending' })
@@ -130,8 +138,13 @@ describe('applicationWorkflow', () => {
   // with NO lease must surface 'Approve & create lease'; one holding a lease
   // must keep the plain deposit flow.
   describe('RECOVER_APPROVE lease recovery', () => {
+    // DQ-C2: lease recovery also soft-gated on verified FICA pack
     const leaselessApp = normalizeApplication(
-      rentalApp({ workflowStatus: 'deposit_invoice_sent', stage: 'Deposit invoice issued' }),
+      rentalApp({
+        workflowStatus: 'deposit_invoice_sent',
+        stage: 'Deposit invoice issued',
+        documents: verifiedFicaPackDocs(),
+      }),
     )
 
     it('offers Approve & create lease only when no lease exists', () => {
@@ -159,10 +172,24 @@ describe('applicationWorkflow', () => {
 
     it('never appears for applications already holding an applicant-side approval flow', () => {
       // A lease-less app still at review stage follows the normal approve path
-      const early = normalizeApplication(rentalApp({ workflowStatus: 'agent_review' }))
+      const early = normalizeApplication(
+        rentalApp({ workflowStatus: 'agent_review', documents: verifiedFicaPackDocs() }),
+      )
       const transitions = getAvailableTransitions(early, ['applications.review'], false)
       expect(transitions.find((t) => t.actionKey === 'RECOVER_APPROVE')).toBeUndefined()
       expect(transitions.some((t) => t.actionKey === 'AGENT_APPROVE')).toBe(true)
+    })
+
+    it('hides Approve & create lease when FICA pack is incomplete', () => {
+      const incomplete = normalizeApplication(
+        rentalApp({
+          workflowStatus: 'deposit_invoice_sent',
+          stage: 'Deposit invoice issued',
+          documents: buildDocumentChecklist('Rental').map((d) => ({ ...d, status: 'uploaded' as const })),
+        }),
+      )
+      const transitions = getAvailableTransitions(incomplete, ['applications.review'], false)
+      expect(transitions.find((t) => t.actionKey === 'RECOVER_APPROVE')).toBeUndefined()
     })
   })
 })
@@ -186,7 +213,7 @@ describe('landlord portal review transitions', () => {
       employment: '',
       creditCheck: 'Passed' as const,
       creditConsent: true,
-      documents: [],
+      documents: verifiedFicaPackDocs(),
       docs: [],
       viewingSlotId: null,
       notes: '',
