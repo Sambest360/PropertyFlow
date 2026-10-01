@@ -256,6 +256,11 @@ async function deleteEntity(resource: EntityType, frontendId: string): Promise<v
     activity: 'event_log',
     property_event: 'event_log',
     invoice: 'invoices',
+    trust_transaction: 'trust_transactions',
+    trust_allocation: 'trust_allocations',
+    csv_import_batch: 'csv_import_batches',
+    payout_instruction: 'payout_instructions',
+    deposit_holding: 'deposit_holdings',
   }
   const table = tableByType[resource]
   if (!table) {
@@ -327,6 +332,16 @@ async function upsertEntity(
       return upsertPropertyEvent(frontendId, data)
     case 'invoice':
       return upsertInvoice(frontendId, data)
+    case 'trust_transaction':
+      return upsertTrustTransaction(frontendId, data)
+    case 'trust_allocation':
+      return upsertTrustAllocation(frontendId, data)
+    case 'csv_import_batch':
+      return upsertCsvImportBatch(frontendId, data)
+    case 'payout_instruction':
+      return upsertPayoutInstruction(frontendId, data)
+    case 'deposit_holding':
+      return upsertDepositHolding(frontendId, data)
     default:
       throw Object.assign(new Error(`Unsupported resource: ${resource}`), { status: 400 })
   }
@@ -1541,6 +1556,324 @@ export async function approveApplicationTx(params: {
 
     return { applicationUuid: appUuid, leaseUuid }
   })
+}
+
+
+const TRUST_TXN_STATUSES = new Set([
+  'received',
+  'recognised',
+  'allocated',
+  'split_allocated',
+  'unallocated',
+  'reversed',
+])
+
+const PAYOUT_STATUSES = new Set([
+  'proposed',
+  'pending_approval',
+  'approved',
+  'submitted',
+  'settled',
+  'failed',
+  'cancelled',
+])
+
+const DEPOSIT_STATUSES = new Set([
+  'expected',
+  'held',
+  'release_proposed',
+  'release_approved',
+  'refunded',
+  'applied_to_arrears',
+  'split',
+  'disputed',
+])
+
+const CSV_BATCH_STATUSES = new Set(['pending', 'completed', 'failed'])
+
+function trustTxnStatus(v: unknown): string {
+  const s = str(v, 'unallocated')
+  return TRUST_TXN_STATUSES.has(s) ? s : 'unallocated'
+}
+
+function csvBatchStatus(v: unknown): string {
+  const s = str(v, 'pending')
+  // FE uses "processing"; 007 schema uses "pending"
+  if (s === 'processing') return 'pending'
+  return CSV_BATCH_STATUSES.has(s) ? s : 'pending'
+}
+
+function payoutStatus(v: unknown): string {
+  const s = str(v, 'proposed')
+  return PAYOUT_STATUSES.has(s) ? s : 'proposed'
+}
+
+function depositStatus(v: unknown): string {
+  const s = str(v, 'expected')
+  return DEPOSIT_STATUSES.has(s) ? s : 'expected'
+}
+
+async function resolveOccupancyUuid(occupancyId: unknown): Promise<string | null> {
+  const fe = str(occupancyId)
+  if (!fe) return null
+  if (isUuid(fe)) return fe
+  return (await resolveUuid('tenancy', fe)) ?? null
+}
+
+/** Mode A trust cashbook row — manual/template CSV or allocate status updates. */
+async function upsertTrustTransaction(feId: string, d: Record<string, unknown>): Promise<string> {
+  const uuid = await ensureUuid('trust_transaction', feId)
+  const client = await clientId(d.agencyId)
+  const direction = str(d.direction, 'in') === 'out' ? 'out' : 'in'
+  const amountCents = Math.max(0, Math.round(num(d.amountCents) ?? 0))
+  const valueDate = str(d.valueDate, new Date().toISOString().slice(0, 10)).slice(0, 10)
+
+  await query(
+    `INSERT INTO trust_transactions (
+       id, client_id, direction, amount_cents, currency, value_date, posted_at,
+       partner_txn_id, bank_ref, description, counterparty_hash, status,
+       raw_payload_document_id, created_at, updated_at
+     ) VALUES (
+       $1::uuid, $2::uuid, $3, $4, $5, $6::date, COALESCE($7::timestamptz, NOW()),
+       $8, $9, $10, $11, $12,
+       $13::uuid, COALESCE($14::timestamptz, NOW()), NOW()
+     )
+     ON CONFLICT (id) DO UPDATE SET
+       direction = EXCLUDED.direction,
+       amount_cents = EXCLUDED.amount_cents,
+       currency = EXCLUDED.currency,
+       value_date = EXCLUDED.value_date,
+       posted_at = EXCLUDED.posted_at,
+       partner_txn_id = EXCLUDED.partner_txn_id,
+       bank_ref = EXCLUDED.bank_ref,
+       description = EXCLUDED.description,
+       counterparty_hash = EXCLUDED.counterparty_hash,
+       status = EXCLUDED.status,
+       raw_payload_document_id = EXCLUDED.raw_payload_document_id,
+       updated_at = NOW()`,
+    [
+      uuid,
+      client,
+      direction,
+      amountCents,
+      str(d.currency, 'ZAR') || 'ZAR',
+      valueDate,
+      d.postedAt ? str(d.postedAt) : null,
+      d.partnerTxnId ? str(d.partnerTxnId) : null,
+      d.bankRef ? str(d.bankRef) : null,
+      str(d.description, ''),
+      d.counterpartyHash ? str(d.counterpartyHash) : null,
+      trustTxnStatus(d.status),
+      d.rawPayloadDocumentId && isUuid(str(d.rawPayloadDocumentId))
+        ? str(d.rawPayloadDocumentId)
+        : null,
+      d.createdAt ? str(d.createdAt) : null,
+    ],
+  )
+  return uuid
+}
+
+/** Mode A allocate / suspense lines — durable so allocate survives reload. */
+async function upsertTrustAllocation(feId: string, d: Record<string, unknown>): Promise<string> {
+  const uuid = await ensureUuid('trust_allocation', feId)
+  const client = await clientId(d.agencyId)
+  const txnFe = str(d.trustTransactionId)
+  if (!txnFe) throw new Error('trust_allocation requires trustTransactionId')
+  const txnUuid =
+    (await resolveUuid('trust_transaction', txnFe)) ??
+    (isUuid(txnFe) ? txnFe : null)
+  if (!txnUuid) throw new Error(`Unknown trust_transaction: ${txnFe}`)
+
+  const occupancyUuid = await resolveOccupancyUuid(d.occupancyId)
+  const allocatedBy =
+    (await userId(d.allocatedBy)) ??
+    (d.allocatedBy && isUuid(str(d.allocatedBy)) ? str(d.allocatedBy) : null)
+  const amountCents = Math.max(1, Math.round(num(d.amountCents) ?? 0))
+
+  await query(
+    `INSERT INTO trust_allocations (
+       id, client_id, trust_transaction_id, occupancy_id, bucket_code, charge_id,
+       amount_cents, allocated_by, allocated_at, created_at
+     ) VALUES (
+       $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6::uuid,
+       $7, $8::uuid, COALESCE($9::timestamptz, NOW()), COALESCE($10::timestamptz, NOW())
+     )
+     ON CONFLICT (id) DO UPDATE SET
+       occupancy_id = EXCLUDED.occupancy_id,
+       bucket_code = EXCLUDED.bucket_code,
+       charge_id = EXCLUDED.charge_id,
+       amount_cents = EXCLUDED.amount_cents,
+       allocated_by = EXCLUDED.allocated_by,
+       allocated_at = EXCLUDED.allocated_at`,
+    [
+      uuid,
+      client,
+      txnUuid,
+      occupancyUuid,
+      str(d.bucketCode, 'unallocated') || 'unallocated',
+      d.chargeId && isUuid(str(d.chargeId)) ? str(d.chargeId) : null,
+      amountCents,
+      allocatedBy,
+      d.allocatedAt ? str(d.allocatedAt) : null,
+      d.createdAt ? str(d.createdAt) : null,
+    ],
+  )
+  return uuid
+}
+
+async function upsertCsvImportBatch(feId: string, d: Record<string, unknown>): Promise<string> {
+  const uuid = await ensureUuid('csv_import_batch', feId)
+  const client = await clientId(d.agencyId)
+  const importedBy =
+    (await userId(d.importedBy)) ??
+    (d.importedBy && isUuid(str(d.importedBy)) ? str(d.importedBy) : null)
+
+  await query(
+    `INSERT INTO csv_import_batches (
+       id, client_id, filename, row_count, imported_at, imported_by, status, created_at
+     ) VALUES (
+       $1::uuid, $2::uuid, $3, $4, COALESCE($5::timestamptz, NOW()), $6::uuid, $7,
+       COALESCE($8::timestamptz, NOW())
+     )
+     ON CONFLICT (id) DO UPDATE SET
+       filename = EXCLUDED.filename,
+       row_count = EXCLUDED.row_count,
+       imported_at = EXCLUDED.imported_at,
+       imported_by = EXCLUDED.imported_by,
+       status = EXCLUDED.status`,
+    [
+      uuid,
+      client,
+      str(d.filename, 'template.csv'),
+      Math.max(0, Math.round(num(d.rowCount) ?? 0)),
+      d.importedAt ? str(d.importedAt) : null,
+      importedBy,
+      csvBatchStatus(d.status),
+      d.createdAt ? str(d.createdAt) : null,
+    ],
+  )
+  return uuid
+}
+
+/**
+ * Payout instruction upsert — Mode A keeps submitted ≠ settled;
+ * never invent partner_payout_id or settled_at here.
+ */
+async function upsertPayoutInstruction(feId: string, d: Record<string, unknown>): Promise<string> {
+  const uuid = await ensureUuid('payout_instruction', feId)
+  const client = await clientId(d.agencyId)
+  const occupancyUuid = await resolveOccupancyUuid(d.occupancyId)
+  const unitUuid = d.propertyId
+    ? await resolveUuid('property', str(d.propertyId))
+    : d.unitId
+      ? await resolveUuid('unit', str(d.unitId))
+      : null
+  const proposedBy = await userId(d.proposedBy)
+  const approvedBy = await userId(d.approvedBy)
+  const amountCents = Math.max(1, Math.round(num(d.amountCents) ?? 0))
+  const status = payoutStatus(d.status)
+
+  // Honesty: do not mint partner ids; only persist what the FE already has.
+  const partnerPayoutId = d.partnerPayoutId ? str(d.partnerPayoutId) : null
+  const settledAt =
+    status === 'settled' && d.settledAt ? str(d.settledAt) : d.settledAt ? str(d.settledAt) : null
+
+  await query(
+    `INSERT INTO payout_instructions (
+       id, client_id, occupancy_id, unit_id, payee_type, payee_id, bank_account_id,
+       amount_cents, bucket_code, status, proposed_by, approved_by, submitted_at,
+       settled_at, partner_payout_id, failure_reason, idempotency_key, created_at, updated_at
+     ) VALUES (
+       $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7,
+       $8, $9, $10, $11::uuid, $12::uuid, $13::timestamptz,
+       $14::timestamptz, $15, $16, $17, COALESCE($18::timestamptz, NOW()), NOW()
+     )
+     ON CONFLICT (id) DO UPDATE SET
+       occupancy_id = EXCLUDED.occupancy_id,
+       unit_id = EXCLUDED.unit_id,
+       payee_type = EXCLUDED.payee_type,
+       payee_id = EXCLUDED.payee_id,
+       bank_account_id = EXCLUDED.bank_account_id,
+       amount_cents = EXCLUDED.amount_cents,
+       bucket_code = EXCLUDED.bucket_code,
+       status = EXCLUDED.status,
+       proposed_by = EXCLUDED.proposed_by,
+       approved_by = EXCLUDED.approved_by,
+       submitted_at = EXCLUDED.submitted_at,
+       settled_at = EXCLUDED.settled_at,
+       partner_payout_id = EXCLUDED.partner_payout_id,
+       failure_reason = EXCLUDED.failure_reason,
+       idempotency_key = EXCLUDED.idempotency_key,
+       updated_at = NOW()`,
+    [
+      uuid,
+      client,
+      occupancyUuid,
+      unitUuid,
+      str(d.payeeType, 'landlord'),
+      d.payeeId ? str(d.payeeId) : null,
+      d.bankAccountId ? str(d.bankAccountId) : null,
+      amountCents,
+      str(d.bucketCode, 'owner_payable'),
+      status,
+      proposedBy,
+      approvedBy,
+      d.submittedAt ? str(d.submittedAt) : null,
+      settledAt,
+      partnerPayoutId,
+      d.failureReason ? str(d.failureReason) : null,
+      d.idempotencyKey ? str(d.idempotencyKey) : null,
+      d.createdAt ? str(d.createdAt) : null,
+    ],
+  )
+  return uuid
+}
+
+async function upsertDepositHolding(feId: string, d: Record<string, unknown>): Promise<string> {
+  const uuid = await ensureUuid('deposit_holding', feId)
+  const client = await clientId(d.agencyId)
+  const occupancyUuid = await resolveOccupancyUuid(d.occupancyId)
+  const unitUuid = d.propertyId
+    ? await resolveUuid('property', str(d.propertyId))
+    : d.unitId
+      ? await resolveUuid('unit', str(d.unitId))
+      : null
+
+  await query(
+    `INSERT INTO deposit_holdings (
+       id, client_id, occupancy_id, unit_id, expected_cents, held_cents,
+       interest_accrued_cents, status, statutory_deadline_on, interest_rate_unknown,
+       created_at, updated_at
+     ) VALUES (
+       $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6,
+       $7, $8, $9::date, $10,
+       COALESCE($11::timestamptz, NOW()), NOW()
+     )
+     ON CONFLICT (id) DO UPDATE SET
+       occupancy_id = EXCLUDED.occupancy_id,
+       unit_id = EXCLUDED.unit_id,
+       expected_cents = EXCLUDED.expected_cents,
+       held_cents = EXCLUDED.held_cents,
+       interest_accrued_cents = EXCLUDED.interest_accrued_cents,
+       status = EXCLUDED.status,
+       statutory_deadline_on = EXCLUDED.statutory_deadline_on,
+       interest_rate_unknown = EXCLUDED.interest_rate_unknown,
+       updated_at = NOW()`,
+    [
+      uuid,
+      client,
+      occupancyUuid,
+      unitUuid,
+      Math.max(0, Math.round(num(d.expectedCents) ?? 0)),
+      Math.max(0, Math.round(num(d.heldCents) ?? 0)),
+      Math.max(0, Math.round(num(d.interestAccruedCents) ?? 0)),
+      depositStatus(d.status),
+      d.statutoryDeadlineOn ? str(d.statutoryDeadlineOn).slice(0, 10) : null,
+      bool(d.interestRateUnknown, false),
+      d.createdAt ? str(d.createdAt) : null,
+    ],
+  )
+  return uuid
 }
 
 /** Mark notification(s) read. */

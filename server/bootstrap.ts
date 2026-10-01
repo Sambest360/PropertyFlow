@@ -458,6 +458,30 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
   for (const [backendId, fe] of idCache.agencyBackendToFe) {
     mapCache.set(`agency:${backendId}`, fe)
   }
+  // DQ-M1: FE aliases for trust entities so allocate/import survive reload
+  {
+    const trustTypes = [
+      'trust_transaction',
+      'trust_allocation',
+      'csv_import_batch',
+      'payout_instruction',
+      'deposit_holding',
+      'tenancy',
+    ] as const
+    const trustRows = await query<{
+      entity_type: string
+      frontend_id: string
+      backend_id: string
+    }>(
+      `SELECT entity_type, frontend_id, backend_id::text AS backend_id
+       FROM entity_id_map
+       WHERE entity_type = ANY($1::text[])`,
+      [[...trustTypes]],
+    )
+    for (const row of trustRows) {
+      mapCache.set(`${row.entity_type}:${row.backend_id}`, row.frontend_id)
+    }
+  }
   const mappedFe = (entityType: string, uuid: string, fallback: string) =>
     mapCache.get(`${entityType}:${uuid}`) ?? fallback
 
@@ -908,7 +932,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
 
   // --- Trust & Banking books (P0-7): map client_id → FE agencyId, users → FE ids ---
   const mappedTrustTxns = (trustTxns as Array<Record<string, unknown>>).map((t) => ({
-    id: mappedFe('trust_txn', t.id as string, t.id as string),
+    id: mappedFe('trust_transaction', t.id as string, t.id as string),
     agencyId: agencyFe(t.client_id as string)!,
     direction: t.direction as string,
     amountCents: Number(t.amount_cents),
@@ -928,17 +952,21 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
   const txnUuidToFe = new Map(
     (trustTxns as Array<Record<string, unknown>>).map((t) => [
       t.id as string,
-      mappedFe('trust_txn', t.id as string, t.id as string),
+      mappedFe('trust_transaction', t.id as string, t.id as string),
     ]),
   )
 
   const mappedTrustAllocs = (trustAllocs as Array<Record<string, unknown>>).map((a) => ({
-    id: mappedFe('trust_alloc', a.id as string, a.id as string),
+    id: mappedFe('trust_allocation', a.id as string, a.id as string),
     agencyId: agencyFe(a.client_id as string)!,
     trustTransactionId: a.trust_transaction_id
       ? (txnUuidToFe.get(a.trust_transaction_id as string) ?? (a.trust_transaction_id as string))
       : '',
-    occupancyId: (a.occupancy_id as string) ?? null,
+    occupancyId: a.occupancy_id
+      ? (mapCache.get(`tenancy:${a.occupancy_id as string}`) ??
+          LEASE_IDS[a.occupancy_id as string] ??
+          (a.occupancy_id as string))
+      : null,
     bucketCode: (a.bucket_code as string) ?? 'unallocated',
     chargeId: (a.charge_id as string) ?? null,
     amountCents: Number(a.amount_cents),
@@ -947,7 +975,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
   }))
 
   const mappedPayouts = (payouts as Array<Record<string, unknown>>).map((p) => ({
-    id: mappedFe('payout', p.id as string, p.id as string),
+    id: mappedFe('payout_instruction', p.id as string, p.id as string),
     agencyId: agencyFe(p.client_id as string)!,
     occupancyId: (p.occupancy_id as string) ?? null,
     propertyId: p.unit_id ? (mapProperty(p.unit_id as string) ?? '') : '',
@@ -969,7 +997,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
   }))
 
   const mappedDeposits = (deposits as Array<Record<string, unknown>>).map((d) => ({
-    id: mappedFe('deposit', d.id as string, d.id as string),
+    id: mappedFe('deposit_holding', d.id as string, d.id as string),
     agencyId: agencyFe(d.client_id as string)!,
     occupancyId: (d.occupancy_id as string) ?? '',
     expectedCents: Number(d.expected_cents),
@@ -998,13 +1026,13 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
   }))
 
   const mappedCsvBatches = (csvBatches as Array<Record<string, unknown>>).map((b) => ({
-    id: mappedFe('csv_batch', b.id as string, b.id as string),
+    id: mappedFe('csv_import_batch', b.id as string, b.id as string),
     agencyId: agencyFe(b.client_id as string)!,
     filename: (b.filename as string) ?? '',
     rowCount: Number(b.row_count),
     importedAt: iso(b.imported_at as Date) ?? new Date().toISOString(),
     importedBy: mapUser(b.imported_by as string | null) ?? '',
-    status: b.status as string,
+    status: (b.status as string) === 'pending' ? 'processing' : (b.status as string),
   }))
 
   const mappedPayments = (payments as Array<Record<string, unknown>>).map((p) => ({

@@ -838,6 +838,171 @@ async function upsertProperty(id: string, data: Record<string, unknown>): Promis
   }
 }
 
+
+async function occupancyUuid(occupancyId: unknown): Promise<string | null> {
+  if (!occupancyId) return null
+  const fe = str(occupancyId)
+  if (isUuid(fe)) return fe
+  return resolveUuid('tenancy', fe)
+}
+
+async function upsertTrustTransaction(id: string, data: Record<string, unknown>): Promise<void> {
+  const supabase = createClient()
+  const uuid = await ensureUuid('trust_transaction', id)
+  const clientId = await clientUuid(data.agencyId)
+  if (!clientId) throw new Error('trust_transaction requires agencyId')
+  const statusRaw = str(data.status, 'unallocated')
+  const allowed = new Set([
+    'received',
+    'recognised',
+    'allocated',
+    'split_allocated',
+    'unallocated',
+    'reversed',
+  ])
+  const res = await supabase.from('trust_transactions').upsert({
+    id: uuid,
+    client_id: clientId,
+    direction: str(data.direction, 'in') === 'out' ? 'out' : 'in',
+    amount_cents: Math.max(0, Math.round(num(data.amountCents) ?? 0)),
+    currency: str(data.currency, 'ZAR') || 'ZAR',
+    value_date: str(data.valueDate, new Date().toISOString().slice(0, 10)).slice(0, 10),
+    posted_at: data.postedAt ? str(data.postedAt) : new Date().toISOString(),
+    partner_txn_id: data.partnerTxnId ? str(data.partnerTxnId) : null,
+    bank_ref: data.bankRef ? str(data.bankRef) : null,
+    description: str(data.description, ''),
+    counterparty_hash: data.counterpartyHash ? str(data.counterpartyHash) : null,
+    status: allowed.has(statusRaw) ? statusRaw : 'unallocated',
+    raw_payload_document_id:
+      data.rawPayloadDocumentId && isUuid(str(data.rawPayloadDocumentId))
+        ? str(data.rawPayloadDocumentId)
+        : null,
+    updated_at: new Date().toISOString(),
+  })
+  throwIfUpsertFailed(res, 'trust_transaction')
+}
+
+async function upsertTrustAllocation(id: string, data: Record<string, unknown>): Promise<void> {
+  const supabase = createClient()
+  const uuid = await ensureUuid('trust_allocation', id)
+  const clientId = await clientUuid(data.agencyId)
+  if (!clientId) throw new Error('trust_allocation requires agencyId')
+  const txnFe = str(data.trustTransactionId)
+  if (!txnFe) throw new Error('trust_allocation requires trustTransactionId')
+  const txnUuid =
+    (await resolveUuid('trust_transaction', txnFe)) ?? (isUuid(txnFe) ? txnFe : null)
+  if (!txnUuid) throw new Error(`Unknown trust_transaction: ${txnFe}`)
+  const allocatedBy = await userUuid(data.allocatedBy)
+  const res = await supabase.from('trust_allocations').upsert({
+    id: uuid,
+    client_id: clientId,
+    trust_transaction_id: txnUuid,
+    occupancy_id: await occupancyUuid(data.occupancyId),
+    bucket_code: str(data.bucketCode, 'unallocated') || 'unallocated',
+    charge_id:
+      data.chargeId && isUuid(str(data.chargeId)) ? str(data.chargeId) : null,
+    amount_cents: Math.max(1, Math.round(num(data.amountCents) ?? 0)),
+    allocated_by: allocatedBy,
+    allocated_at: data.allocatedAt ? str(data.allocatedAt) : new Date().toISOString(),
+  })
+  throwIfUpsertFailed(res, 'trust_allocation')
+}
+
+async function upsertCsvImportBatch(id: string, data: Record<string, unknown>): Promise<void> {
+  const supabase = createClient()
+  const uuid = await ensureUuid('csv_import_batch', id)
+  const clientId = await clientUuid(data.agencyId)
+  if (!clientId) throw new Error('csv_import_batch requires agencyId')
+  const statusRaw = str(data.status, 'pending')
+  const status = statusRaw === 'processing' ? 'pending' : statusRaw
+  const res = await supabase.from('csv_import_batches').upsert({
+    id: uuid,
+    client_id: clientId,
+    filename: str(data.filename, 'template.csv'),
+    row_count: Math.max(0, Math.round(num(data.rowCount) ?? 0)),
+    imported_at: data.importedAt ? str(data.importedAt) : new Date().toISOString(),
+    imported_by: await userUuid(data.importedBy),
+    status: ['pending', 'completed', 'failed'].includes(status) ? status : 'pending',
+  })
+  throwIfUpsertFailed(res, 'csv_import_batch')
+}
+
+async function upsertPayoutInstruction(id: string, data: Record<string, unknown>): Promise<void> {
+  const supabase = createClient()
+  const uuid = await ensureUuid('payout_instruction', id)
+  const clientId = await clientUuid(data.agencyId)
+  if (!clientId) throw new Error('payout_instruction requires agencyId')
+  const statusRaw = str(data.status, 'proposed')
+  const allowed = new Set([
+    'proposed',
+    'pending_approval',
+    'approved',
+    'submitted',
+    'settled',
+    'failed',
+    'cancelled',
+  ])
+  const unitId = data.propertyId
+    ? await resolveUuid('property', str(data.propertyId))
+    : null
+  // Honesty: never invent partner_payout_id / settled when FE did not set them
+  const res = await supabase.from('payout_instructions').upsert({
+    id: uuid,
+    client_id: clientId,
+    occupancy_id: await occupancyUuid(data.occupancyId),
+    unit_id: unitId,
+    payee_type: str(data.payeeType, 'landlord'),
+    payee_id: data.payeeId ? str(data.payeeId) : null,
+    bank_account_id: data.bankAccountId ? str(data.bankAccountId) : null,
+    amount_cents: Math.max(1, Math.round(num(data.amountCents) ?? 0)),
+    bucket_code: str(data.bucketCode, 'owner_payable'),
+    status: allowed.has(statusRaw) ? statusRaw : 'proposed',
+    proposed_by: await userUuid(data.proposedBy),
+    approved_by: await userUuid(data.approvedBy),
+    submitted_at: data.submittedAt ? str(data.submittedAt) : null,
+    settled_at: data.settledAt ? str(data.settledAt) : null,
+    partner_payout_id: data.partnerPayoutId ? str(data.partnerPayoutId) : null,
+    failure_reason: data.failureReason ? str(data.failureReason) : null,
+    idempotency_key: data.idempotencyKey ? str(data.idempotencyKey) : null,
+    updated_at: new Date().toISOString(),
+  })
+  throwIfUpsertFailed(res, 'payout_instruction')
+}
+
+async function upsertDepositHolding(id: string, data: Record<string, unknown>): Promise<void> {
+  const supabase = createClient()
+  const uuid = await ensureUuid('deposit_holding', id)
+  const clientId = await clientUuid(data.agencyId)
+  if (!clientId) throw new Error('deposit_holding requires agencyId')
+  const statusRaw = str(data.status, 'expected')
+  const allowed = new Set([
+    'expected',
+    'held',
+    'release_proposed',
+    'release_approved',
+    'refunded',
+    'applied_to_arrears',
+    'split',
+    'disputed',
+  ])
+  const res = await supabase.from('deposit_holdings').upsert({
+    id: uuid,
+    client_id: clientId,
+    occupancy_id: await occupancyUuid(data.occupancyId),
+    unit_id: data.propertyId ? await resolveUuid('property', str(data.propertyId)) : null,
+    expected_cents: Math.max(0, Math.round(num(data.expectedCents) ?? 0)),
+    held_cents: Math.max(0, Math.round(num(data.heldCents) ?? 0)),
+    interest_accrued_cents: Math.max(0, Math.round(num(data.interestAccruedCents) ?? 0)),
+    status: allowed.has(statusRaw) ? statusRaw : 'expected',
+    statutory_deadline_on: data.statutoryDeadlineOn
+      ? str(data.statutoryDeadlineOn).slice(0, 10)
+      : null,
+    interest_rate_unknown: data.interestRateUnknown === true,
+    updated_at: new Date().toISOString(),
+  })
+  throwIfUpsertFailed(res, 'deposit_holding')
+}
+
 async function deleteEntity(resource: EntityType, id: string): Promise<void> {
   const supabase = createClient()
   const uuid = await resolveUuid(resource === 'property' ? 'property' : resource, id)
@@ -860,6 +1025,11 @@ async function deleteEntity(resource: EntityType, id: string): Promise<void> {
     property: 'units',
     activity: 'event_log',
     property_event: 'event_log',
+    trust_transaction: 'trust_transactions',
+    trust_allocation: 'trust_allocations',
+    csv_import_batch: 'csv_import_batches',
+    payout_instruction: 'payout_instructions',
+    deposit_holding: 'deposit_holdings',
   }
   const table = tableMap[resource]
   if (!table) return
@@ -963,6 +1133,16 @@ async function upsertEntity(
       return upsertProperty(id, data)
     case 'lookup':
       return upsertLookup(id, data)
+    case 'trust_transaction':
+      return upsertTrustTransaction(id, data)
+    case 'trust_allocation':
+      return upsertTrustAllocation(id, data)
+    case 'csv_import_batch':
+      return upsertCsvImportBatch(id, data)
+    case 'payout_instruction':
+      return upsertPayoutInstruction(id, data)
+    case 'deposit_holding':
+      return upsertDepositHolding(id, data)
     default:
       console.warn('[supabase/persist] unhandled resource', resource, id)
   }

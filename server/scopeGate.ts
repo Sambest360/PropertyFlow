@@ -300,6 +300,11 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
     lookup: { table: 'client_lookup_configs', clientCol: 'client_id' },
     room: { table: 'rooms', clientCol: 'client_id' },
     asset: { table: 'internal_assets', clientCol: 'client_id' },
+    trust_transaction: { table: 'trust_transactions', clientCol: 'client_id' },
+    trust_allocation: { table: 'trust_allocations', clientCol: 'client_id' },
+    csv_import_batch: { table: 'csv_import_batches', clientCol: 'client_id' },
+    payout_instruction: { table: 'payout_instructions', clientCol: 'client_id' },
+    deposit_holding: { table: 'deposit_holdings', clientCol: 'client_id' },
   }
 
   const spec = tableMap[resource]

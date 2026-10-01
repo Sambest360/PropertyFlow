@@ -649,9 +649,23 @@ type StoreContextValue = {
     transactionId: string
     actorUserId: string
     lines: Array<{ occupancyId: string; bucketCode: string; amountCents: number }>
-  }) => { ok: boolean; error?: string }
+  }) => Promise<{ ok: boolean; error?: string }>
   /** P0-7: park a matched-but-unassignable receipt in suspense (aged + alerted). */
-  markTrustSuspense: (params: { transactionId: string; actorUserId: string }) => void
+  markTrustSuspense: (params: { transactionId: string; actorUserId: string }) => Promise<void>
+  /** DQ-M1 Mode A: template CSV → unallocated TrustTransactions + CsvImportBatch. */
+  importTrustTemplateCsv: (params: {
+    agencyId: string
+    actorUserId: string
+    filename: string
+    csvText: string
+  }) => Promise<{
+    ok: boolean
+    error?: string
+    imported: number
+    duplicates: number
+    parseErrors: string[]
+    batchId?: string
+  }>
   /** P0-7: dual-control payout approval — proposer ≠ approver. */
   approvePayoutInstruction: (params: { instructionId: string; approverUserId: string }) => { ok: boolean; error?: string }
   /** P0-7: submit an approved payout to the (manual/partner) rail. */
@@ -1156,7 +1170,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   // ——— Trust / Banking mutations (P0-7) — every one writes an audit trail ———
 
   const allocateTrustReceipt = useCallback(
-    (params: {
+    async (params: {
       transactionId: string
       actorUserId: string
       lines: Array<{ occupancyId: string; bucketCode: string; amountCents: number }>
@@ -1180,10 +1194,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         bucketCode: l.bucketCode,
         chargeId: null,
         amountCents: l.amountCents,
-        allocatedBy: actor.name,
+        allocatedBy: actor.id,
         allocatedAt: now,
       }))
       const fullyAllocated = total === txn.amountCents
+      const nextStatus = fullyAllocated ? ('allocated' as const) : ('split_allocated' as const)
       patch((s) => ({
         ...s,
         trustAllocations: [...newAllocations, ...s.trustAllocations],
@@ -1191,20 +1206,21 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           t.id === txn.id
             ? {
                 ...t,
-                status: fullyAllocated ? ('allocated' as const) : ('split_allocated' as const),
+                status: nextStatus,
                 updatedAt: now,
               }
             : t,
         ),
       }))
-      for (const a of newAllocations) {
-        persistUpsert('trust_allocation', a.id, a as unknown as Record<string, unknown>)
-      }
-      persistUpsert(
+      // Persist txn first so trust_allocation id-map / FK resolve succeeds
+      await persistUpsert(
         'trust_transaction',
         txn.id,
-        { ...txn, status: fullyAllocated ? 'allocated' : 'split_allocated' } as unknown as Record<string, unknown>,
+        { ...txn, status: nextStatus, updatedAt: now } as unknown as Record<string, unknown>,
       )
+      for (const a of newAllocations) {
+        await persistUpsert('trust_allocation', a.id, a as unknown as Record<string, unknown>)
+      }
       addActivity(
         `Allocated ${txn.description || txn.id} (${(total / 100).toFixed(2)} ZAR) to ${params.lines.length} bucket${params.lines.length === 1 ? '' : 's'}`,
         actor.name,
@@ -1212,11 +1228,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       )
       return { ok: true }
     },
-    [patch, addActivity],
+    [patch, addActivity, persistUpsert],
   )
 
   const markTrustSuspense = useCallback(
-    (params: { transactionId: string; actorUserId: string }) => {
+    async (params: { transactionId: string; actorUserId: string }) => {
       const txn = stateRef.current.trustTransactions.find((t) => t.id === params.transactionId)
       const actor = stateRef.current.users.find((u) => u.id === params.actorUserId)
       if (!txn || !actor) return
@@ -1229,7 +1245,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         bucketCode: 'suspense',
         chargeId: null,
         amountCents: txn.amountCents,
-        allocatedBy: actor.name,
+        allocatedBy: actor.id,
         allocatedAt: now,
       }
       patch((s) => ({
@@ -1239,15 +1255,137 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           t.id === txn.id ? { ...t, status: 'recognised' as const, updatedAt: now } : t,
         ),
       }))
-      persistUpsert('trust_allocation', allocation.id, allocation as unknown as Record<string, unknown>)
-      persistUpsert('trust_transaction', txn.id, { ...txn, status: 'recognised' } as unknown as Record<string, unknown>)
+      await persistUpsert(
+        'trust_transaction',
+        txn.id,
+        { ...txn, status: 'recognised', updatedAt: now } as unknown as Record<string, unknown>,
+      )
+      await persistUpsert(
+        'trust_allocation',
+        allocation.id,
+        allocation as unknown as Record<string, unknown>,
+      )
       addActivity(
         `Moved receipt to suspense (aged + alerted): ${txn.description || txn.id}`,
         actor.name,
         txn.agencyId,
       )
     },
-    [patch, addActivity],
+    [patch, addActivity, persistUpsert],
+  )
+
+  const importTrustTemplateCsv = useCallback(
+    async (params: {
+      agencyId: string
+      actorUserId: string
+      filename: string
+      csvText: string
+    }) => {
+      const {
+        parseTrustTemplateCsv,
+        filterNewTrustCsvRows,
+        buildTrustCsvPartnerTxnId,
+        TRUST_CSV_NON_PRODUCTION_LABEL,
+      } = await import('../lib/trust/csvImport')
+      const actor = stateRef.current.users.find((u) => u.id === params.actorUserId)
+      if (!actor) {
+        return {
+          ok: false,
+          error: 'Actor not found',
+          imported: 0,
+          duplicates: 0,
+          parseErrors: [] as string[],
+        }
+      }
+      const parsed = parseTrustTemplateCsv(params.csvText)
+      if (parsed.rows.length === 0) {
+        return {
+          ok: false,
+          error: parsed.errors[0] ?? 'No importable rows',
+          imported: 0,
+          duplicates: 0,
+          parseErrors: parsed.errors,
+        }
+      }
+      const agencyTxns = stateRef.current.trustTransactions.filter(
+        (t) => t.agencyId === params.agencyId,
+      )
+      const { fresh, duplicateCount } = filterNewTrustCsvRows(parsed.rows, agencyTxns)
+      if (fresh.length === 0) {
+        return {
+          ok: true,
+          imported: 0,
+          duplicates: duplicateCount,
+          parseErrors: parsed.errors,
+          error:
+            duplicateCount > 0
+              ? 'All rows were duplicates (idempotent skip)'
+              : undefined,
+        }
+      }
+      const now = new Date().toISOString()
+      const batchId = uid('csv')
+      const batch: CsvImportBatch = {
+        id: batchId,
+        agencyId: params.agencyId,
+        filename: params.filename || 'template.csv',
+        rowCount: fresh.length,
+        importedAt: now,
+        importedBy: actor.id,
+        status: 'completed',
+      }
+      const newTxns: TrustTransaction[] = fresh.map((row) => {
+        const id = uid('tt')
+        const partnerTxnId = buildTrustCsvPartnerTxnId(row.idempotencyKey)
+        return {
+          id,
+          agencyId: params.agencyId,
+          direction: row.direction,
+          amountCents: row.amountCents,
+          currency: 'ZAR' as const,
+          valueDate: row.valueDate,
+          postedAt: now,
+          partnerTxnId,
+          bankRef: row.bankRef || partnerTxnId,
+          description: `${row.description} [${TRUST_CSV_NON_PRODUCTION_LABEL}]`,
+          counterpartyHash: null,
+          status: 'unallocated' as const,
+          rawPayloadDocumentId: null,
+          createdAt: now,
+          updatedAt: now,
+        }
+      })
+      patch((s) => ({
+        ...s,
+        csvImportBatches: [batch, ...s.csvImportBatches],
+        trustTransactions: [...newTxns, ...s.trustTransactions],
+      }))
+      await persistUpsert(
+        'csv_import_batch',
+        batch.id,
+        batch as unknown as Record<string, unknown>,
+      )
+      for (const txn of newTxns) {
+        await persistUpsert(
+          'trust_transaction',
+          txn.id,
+          txn as unknown as Record<string, unknown>,
+        )
+      }
+      addActivity(
+        `Template CSV import: ${fresh.length} unallocated receipt(s) from ${batch.filename} (Mode A — not bank-confirmed)`,
+        actor.name,
+        params.agencyId,
+      )
+      return {
+        ok: true,
+        imported: fresh.length,
+        duplicates: duplicateCount,
+        parseErrors: parsed.errors,
+        batchId,
+      }
+    },
+    [patch, addActivity, persistUpsert],
   )
 
   const approvePayoutInstruction = useCallback(
@@ -5537,9 +5675,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     dismissToast,
     allocateTrustReceipt,
     markTrustSuspense,
+    importTrustTemplateCsv,
     approvePayoutInstruction,
     submitPayoutInstruction,
-  }), [state, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistDelete, refreshBootstrap, scheduleBootstrapRefreshAfterMutation, issueLeasePackageForTenancy])
+  }), [state, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, importTrustTemplateCsv, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistDelete, refreshBootstrap, scheduleBootstrapRefreshAfterMutation, issueLeasePackageForTenancy])
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }

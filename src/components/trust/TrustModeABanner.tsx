@@ -1,9 +1,9 @@
 /**
- * Mode A Trust soft-demo honesty banner.
- * Not live PayProp / bank-confirmed — same pattern as lease e-sign / rent dunning.
+ * Mode A Trust honesty banner.
+ * Manual/template CSV + in-app allocate — not live PayProp / bank-confirmed.
  */
 export const TRUST_MODE_A_COPY =
-  'Mode A soft-demo / non-production trust book. Figures come from in-app seed and manual allocate/payout actions — not live PayProp or bank-confirmed balances. Bank CSV import/export and partner settlement need partner keys (not wired).'
+  'Mode A soft-demo / non-production trust book. Manual/template CSV ingest and allocate/suspense write to the app database — not live PayProp or bank-confirmed balances. Partner settlement and live bank feeds are not wired.'
 
 export function TrustModeABanner({ extra }: { extra?: string }) {
   return (
