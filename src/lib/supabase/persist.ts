@@ -641,7 +641,12 @@ async function upsertTenancy(id: string, data: Record<string, unknown>): Promise
     rent_amount: num(data.rent) ?? 0,
     deposit_amount: num(data.deposit) ?? 0,
     status: str(data.status) === 'Active' ? 'ACTIVE' : 'PENDING',
-    metadata: { keyCollection: data.keyCollection },
+    metadata: {
+      keyCollection: data.keyCollection,
+      leaseDocumentId: data.leaseDocumentId ?? null,
+      leasePdfUrl: data.leasePdfUrl ?? null,
+      eSign: data.eSign ?? null,
+    },
     updated_at: new Date().toISOString(),
   })
   throwIfUpsertFailed(res, 'tenancy')

@@ -17,6 +17,7 @@ import {
   BarChart3,
   Briefcase,
   KeyRound,
+  FileSignature,
   Landmark,
   GitBranch,
   Bell,
@@ -220,6 +221,12 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
             label: 'Tenants',
             permission: 'occupants.view',
             icon: KeyRound,
+          },
+          {
+            to: '/workspace/people/leases',
+            label: 'Leases',
+            permission: 'occupants.view',
+            icon: FileSignature,
           },
           {
             to: '/workspace/people/landlords',

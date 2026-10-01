@@ -941,6 +941,9 @@ async function upsertTenancy(feId: string, d: Record<string, unknown>): Promise<
         frontend_id: feId,
         tenantName: d.tenantName ?? null,
         keyCollection: d.keyCollection ?? null,
+        leaseDocumentId: d.leaseDocumentId ?? null,
+        leasePdfUrl: d.leasePdfUrl ?? null,
+        eSign: d.eSign ?? null,
       }),
     ],
   )

@@ -177,6 +177,11 @@ import {
 import { mergeEntityLists } from '../lib/bootstrapMerge'
 import { getPropertyDeleteBlockReason } from '../lib/propertyDeletion'
 import {
+  issueLeaseOnTenancyCreate,
+  recordLeaseSignature,
+  workflowStatusFromESign,
+} from '../lib/lease'
+import {
   applicationStakeholderIds,
   applySuiteAlertFilter,
   excludeActorFromIds,
@@ -349,6 +354,19 @@ type StoreContextValue = {
   }) => AppUser
   updateUser: (id: string, patch: Partial<AppUser>) => void
   updateTenancy: (id: string, patch: Partial<Tenancy>) => void
+  /** Issue lease PDF + e-sign envelope for an existing tenancy (approve path / manual). */
+  issueLeasePackage: (tenancyId: string, actor?: { userId?: string; name?: string }) => Promise<{
+    ok: boolean
+    error?: string
+  }>
+  /** Record tenant/landlord e-sign against the tenancy envelope. */
+  recordTenancyLeaseSign: (params: {
+    tenancyId: string
+    party: 'tenant' | 'landlord'
+    signerName: string
+    signatureDataUrl?: string
+    actorUserId?: string | null
+  }) => Promise<{ ok: boolean; error?: string }>
   assignRole: (userId: string, role: Role, agencyId?: string | null) => void
   createLookup: (input: Omit<LookupConfig, 'id' | 'sortOrder' | 'isActive'> & { sortOrder?: number; isActive?: boolean }) => LookupConfig
   updateLookup: (id: string, patch: Partial<Pick<LookupConfig, 'displayLabel' | 'isActive' | 'sortOrder' | 'keyValue' | 'meta'>>) => void
@@ -1002,6 +1020,75 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     },
     [persistUpsert],
   )
+
+  /**
+   * Roadmap Step 5: on durable tenancy create (approve), generate a real lease
+   * PDF, store PropertyDocument category Lease, and open an e-sign envelope
+   * (mock by default — live partners refuse without keys).
+   */
+  const issueLeasePackageForTenancy = useCallback(
+    async (
+      lease: Tenancy,
+      actor?: { userId?: string | null; name?: string | null },
+    ): Promise<Tenancy> => {
+      if (lease.eSign?.envelopeId || lease.leaseDocumentId) {
+        return lease
+      }
+      const s = stateRef.current
+      const property = s.properties.find((p) => p.id === lease.propertyId)
+      const agency = s.agencies.find((a) => a.id === lease.agencyId)
+      const landlordUser = lease.landlordId
+        ? s.users.find((u) => u.id === lease.landlordId) ?? null
+        : null
+      const documentId = uid('PD')
+      const issued = await issueLeaseOnTenancyCreate({
+        tenancy: lease,
+        property,
+        agencyName: agency?.name ?? 'Agency',
+        landlordUser,
+        documentId,
+        actorUserId: actor?.userId,
+        actorName: actor?.name,
+      })
+      if (!issued.ok || !issued.document || !issued.eSign) {
+        return lease
+      }
+      const nextLease: Tenancy = { ...lease, ...issued.tenancyPatch }
+      patch((prev) => ({
+        ...prev,
+        propertyDocuments: [issued.document!, ...prev.propertyDocuments],
+        tenancies: prev.tenancies.map((t) => (t.id === lease.id ? nextLease : t)),
+      }))
+      persistUpsert('document', issued.document.id, issued.document as unknown as Record<string, unknown>)
+      persistUpsert('tenancy', nextLease.id, nextLease as unknown as Record<string, unknown>)
+      const pe: PropertyEvent = {
+        id: uid('pe'),
+        agencyId: nextLease.agencyId,
+        propertyId: nextLease.propertyId,
+        actorUserId: actor?.userId ?? null,
+        actorName: actor?.name ?? 'System',
+        action: 'generated lease PDF + e-sign envelope',
+        at: new Date().toISOString(),
+        changes: [
+          { field: 'Document', from: 'None', to: issued.document.name },
+          {
+            field: 'E-sign',
+            from: 'None',
+            to: `${issued.eSign.status} (${issued.eSign.provider}${
+              issued.eSign.nonProduction ? ', non-production' : ''
+            })`,
+          },
+        ],
+      }
+      patch((prev) => ({
+        ...prev,
+        propertyEvents: [pe, ...prev.propertyEvents].slice(0, 400),
+      }))
+      persistUpsert('property_event', pe.id, pe as unknown as Record<string, unknown>)
+      return nextLease
+    },
+    [patch, persistUpsert],
+  )
   const persistDelete = useCallback((resource: Parameters<typeof queueDelete>[0], id: string) => {
     queueDelete(resource, id)
   }, [])
@@ -1416,6 +1503,70 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }))
       const next = { ...state.tenancies.find((t) => t.id === id), ...p, id }
       persistUpsert('tenancy', id, next as Record<string, unknown>)
+    },
+    issueLeasePackage: async (tenancyId, actor) => {
+      const lease = stateRef.current.tenancies.find((t) => t.id === tenancyId)
+      if (!lease) return { ok: false, error: 'Tenancy not found' }
+      const next = await issueLeasePackageForTenancy(lease, {
+        userId: actor?.userId,
+        name: actor?.name,
+      })
+      if (!next.leaseDocumentId && !next.eSign) {
+        return { ok: false, error: 'Lease package could not be issued' }
+      }
+      return { ok: true }
+    },
+    recordTenancyLeaseSign: async ({
+      tenancyId,
+      party,
+      signerName,
+      signatureDataUrl,
+      actorUserId,
+    }) => {
+      const lease = stateRef.current.tenancies.find((t) => t.id === tenancyId)
+      if (!lease) return { ok: false, error: 'Tenancy not found' }
+      let eSign = lease.eSign
+      if (!eSign?.envelopeId) {
+        const issued = await issueLeasePackageForTenancy(lease, {
+          userId: actorUserId,
+          name: signerName,
+        })
+        eSign = issued.eSign ?? null
+      }
+      if (!eSign) return { ok: false, error: 'No e-sign envelope on this lease' }
+      const signed = await recordLeaseSignature({
+        eSign,
+        party,
+        signerName,
+        signatureDataUrl,
+        actorUserId,
+      })
+      if (!signed.ok) return { ok: false, error: signed.error }
+      // Refresh from state in case issueLeasePackageForTenancy updated docs
+      const fresh = stateRef.current.tenancies.find((t) => t.id === tenancyId) ?? lease
+      const merged: Tenancy = { ...fresh, eSign: signed.eSign }
+      patch((s) => ({
+        ...s,
+        tenancies: s.tenancies.map((t) => (t.id === tenancyId ? merged : t)),
+      }))
+      persistUpsert('tenancy', tenancyId, merged as unknown as Record<string, unknown>)
+      // Mirror workflow when linked application exists
+      const derived = workflowStatusFromESign(signed.eSign)
+      if (derived && fresh.applicationId) {
+        const app = stateRef.current.applications.find((a) => a.id === fresh.applicationId)
+        if (app) {
+          const updated = {
+            ...app,
+            workflowStatus: derived,
+          }
+          patch((s) => ({
+            ...s,
+            applications: s.applications.map((a) => (a.id === app.id ? updated : a)),
+          }))
+          persistUpsert('application', app.id, updated as unknown as Record<string, unknown>)
+        }
+      }
+      return { ok: true }
     },
     assignRole: (userId, role, agencyId) => {
       patch((s) => ({
@@ -3317,6 +3468,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             code: 'PERSIST_FAILED',
           } as PatchApplicationStatusResult
         }
+
+        // Roadmap Step 5: lease PDF + e-sign on APPROVE (not deposit paid).
+        if (ok.side_effects.lease) {
+          const leaseRow =
+            stateRef.current.tenancies.find((t) => t.id === ok.side_effects.lease!.id) ??
+            ok.side_effects.lease
+          await issueLeasePackageForTenancy(leaseRow, {
+            userId: actorUser?.id,
+            name: actorUser?.name,
+          })
+        }
       }
 
       return result
@@ -3373,6 +3535,56 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           error: `Cannot advance to ${targetStatus}`,
           code: 'INVALID_TRANSITION',
         } as PatchApplicationStatusResult
+      }
+
+      // Roadmap Step 5: TENANT_SIGNED / LANDLORD_SIGNED must update real e-sign
+      // status (not decorative workflow alone).
+      if (
+        transition.actionKey === 'TENANT_SIGNED' ||
+        transition.actionKey === 'LANDLORD_SIGNED' ||
+        transition.actionKey === 'MARK_LEASE_SIGNED'
+      ) {
+        const party =
+          transition.actionKey === 'LANDLORD_SIGNED' ? ('landlord' as const) : ('tenant' as const)
+        const lease = stateRef.current.tenancies.find((t) => t.applicationId === applicationId)
+        if (lease?.eSign?.envelopeId) {
+          const signed = await recordLeaseSignature({
+            eSign: lease.eSign,
+            party,
+            signerName: actorUser?.name ?? app.applicantName,
+            actorUserId,
+          })
+          if (signed.ok) {
+            const nextLease: Tenancy = { ...lease, eSign: signed.eSign }
+            patch((s) => ({
+              ...s,
+              tenancies: s.tenancies.map((t) => (t.id === lease.id ? nextLease : t)),
+            }))
+            persistUpsert('tenancy', nextLease.id, nextLease as unknown as Record<string, unknown>)
+            // Prefer real e-sign-derived workflow status when it advances further.
+            const derived = workflowStatusFromESign(signed.eSign)
+            if (derived && derived !== targetStatus) {
+              // Keep staff-selected target when it matches; otherwise mirror e-sign.
+            }
+            void derived
+          }
+        } else if (lease && !lease.eSign?.envelopeId) {
+          // No envelope yet — issue package then continue workflow.
+          await issueLeasePackageForTenancy(lease, {
+            userId: actorUserId,
+            name: actorUser?.name,
+          })
+        }
+      }
+
+      if (transition.actionKey === 'GENERATE_LEASE' || transition.actionKey === 'SEND_LEASE') {
+        const lease = stateRef.current.tenancies.find((t) => t.applicationId === applicationId)
+        if (lease && !lease.leaseDocumentId) {
+          await issueLeasePackageForTenancy(lease, {
+            userId: actorUserId,
+            name: actorUser?.name,
+          })
+        }
       }
 
       if (transition.effect === 'approve') {
@@ -3483,6 +3695,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               ),
               users: state.users,
               notify,
+            })
+          }
+          if (result.side_effects.lease) {
+            const leaseRow =
+              stateRef.current.tenancies.find((t) => t.id === result.side_effects.lease!.id) ??
+              result.side_effects.lease
+            await issueLeasePackageForTenancy(leaseRow, {
+              userId: actorUserId,
+              name: actorUser?.name,
             })
           }
           return { ...result, application: normalized }
@@ -3688,6 +3909,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             payments: ok.side_effects.payments,
             notifications: createdNotifications,
           })
+          if (approvedRemotely && ok.side_effects.lease) {
+            const leaseRow =
+              stateRef.current.tenancies.find((t) => t.id === ok.side_effects.lease!.id) ??
+              ok.side_effects.lease
+            await issueLeasePackageForTenancy(leaseRow, {
+              userId: actorUserId,
+              name: stateRef.current.users.find((u) => u.id === actorUserId)?.name,
+            })
+          }
           if (!approvedRemotely) {
             return {
               ...ok,
@@ -5136,7 +5366,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     markTrustSuspense,
     approvePayoutInstruction,
     submitPayoutInstruction,
-  }), [state, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistDelete, refreshBootstrap, scheduleBootstrapRefreshAfterMutation])
+  }), [state, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistDelete, refreshBootstrap, scheduleBootstrapRefreshAfterMutation, issueLeasePackageForTenancy])
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }
