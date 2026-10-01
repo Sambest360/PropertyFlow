@@ -130,4 +130,16 @@ describe('vercelNodeBridge', () => {
     expect(out).toBeInstanceOf(Response)
     expect(out?.status).toBe(200)
   })
+
+  it('Web-style invocation surfaces fetch failures as JSON 500', async () => {
+    const handler = createVercelNodeHandler(async () => {
+      throw new Error('boot exploded')
+    })
+    const out = await handler(new Request('https://example.com/api/auth/register-supabase'))
+    expect(out).toBeInstanceOf(Response)
+    expect(out?.status).toBe(500)
+    const body = (await out!.json()) as { ok?: boolean; error?: string }
+    expect(body.ok).toBe(false)
+    expect(body.error).toMatch(/boot exploded/)
+  })
 })

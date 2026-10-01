@@ -83,8 +83,23 @@ gateway.get('/health', async (c) => {
 })
 
 gateway.all('*', async (c) => {
-  const app = await getMainApp()
-  return app.fetch(c.req.raw)
+  try {
+    const app = await getMainApp()
+    return app.fetch(c.req.raw)
+  } catch (err) {
+    // P0-guest-register: if server/index (or its src/lib deps) fail to load,
+    // return JSON so the client can fall back / show honest copy — never a
+    // bare Vercel "Internal Server Error" that maps to fake demo-user blame.
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json(
+      {
+        ok: false,
+        error: 'api_boot_failed',
+        message: message || 'API failed to start',
+      },
+      503,
+    )
+  }
 })
 
 export default createVercelNodeHandler((request) => gateway.fetch(request))

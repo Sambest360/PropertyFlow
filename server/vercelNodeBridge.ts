@@ -94,7 +94,12 @@ export function createVercelNodeHandler(fetch: FetchLike) {
     res?: ServerResponse,
   ): Promise<Response | void> {
     if (isWebRequestInvocation(req, res)) {
-      return fetch(req)
+      try {
+        return await fetch(req)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return Response.json({ ok: false, error: message || 'Internal Server Error' }, { status: 500 })
+      }
     }
 
     const nodeReq = req as IncomingMessage

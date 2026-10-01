@@ -323,7 +323,14 @@ async function supabaseSignUpViaServer(
     // with 405 (Method Not Allowed) when the /api serverless function is not
     // (yet) deployed — same "route missing" situation as 404. Fall back to the
     // legacy direct signUp path instead of throwing Registration failed (405).
+    //
+    // P0-guest-register: a bare function crash (plain-text 5xx, often from a
+    // missing src/lib bundle) is also treated as "route unavailable" so empty-DB
+    // guests can still register via GoTrue signUp instead of seeing a fake
+    // "broken demo user" dialog.
     if (res.status === 404 || res.status === 405) return null
+    const contentType = (res.headers.get('content-type') || '').toLowerCase()
+    if (res.status >= 500 && !contentType.includes('application/json')) return null
     const data = (await res.json().catch(() => ({}))) as {
       ok?: boolean
       authUserId?: string
@@ -350,7 +357,9 @@ async function supabaseSignUpViaServer(
     return { authUserId: data.authUserId, bootstrap: Boolean(data.bootstrap) }
   } catch (err) {
     // Network/timeout failures fall back to the legacy path; explicit server
-    // rejections (400/409/…) propagate so the user sees the real problem.
+    // rejections (400/409/…) and post-create redirects propagate so the user
+    // sees the real problem (or the sign-in success flow).
+    if (err instanceof RegistrationRedirectError) throw err
     if (err instanceof Error && typeof (err as { status?: number }).status === 'number') throw err
     return null
   }
@@ -388,13 +397,22 @@ export async function supabaseSignUp(
       // style errors). The account EXISTS at this point — reporting that as a
       // raw error made the wizard appear to fail after "Creating…" and drop
       // back to step 1. Route to the coherent sign-in flow instead.
+      //
+      // P0-guest-register: GoTrue /token 500 (missing identity / transient
+      // auth server error) after a successful server create must not surface
+      // as "broken demo user" — account exists; send them to sign-in.
       const msg = (error.message || '').toLowerCase()
+      const status = typeof error.status === 'number' ? error.status : 0
       if (
+        status >= 500 ||
         msg.includes('refresh') ||
         msg.includes('token') ||
         msg.includes('session') ||
         msg.includes('confirm') ||
-        msg.includes('credential')
+        msg.includes('credential') ||
+        msg.includes('unexpected_failure') ||
+        msg.includes('server error') ||
+        msg.includes('internal server')
       ) {
         throw new RegistrationRedirectError('sign_in_required', input.email.trim())
       }

@@ -85,6 +85,9 @@ export function formatAuthError(message: string, err?: unknown): { title: string
     }
   }
 
+  // Guest/register 500s are ordinary auth/service failures — never blame a
+  // "broken demo user" or surface npm run db:repair-auth in prod guest UX.
+  // repair-auth is an ops tool for seeded QA identities only (see scripts/).
   if (
     lower.includes('server error') ||
     lower.includes('internal server') ||
@@ -92,8 +95,8 @@ export function formatAuthError(message: string, err?: unknown): { title: string
     lower.includes('unexpected_failure')
   ) {
     return {
-      title: 'Sign-in service error',
-      text: 'The auth server returned an error (often a broken demo user). Try again in a moment. If a seeded QA account fails, ask the team to run npm run db:repair-auth.',
+      title: 'Auth service error',
+      text: 'The auth service failed. Try again in a moment. If this keeps happening, contact support.',
     }
   }
 
