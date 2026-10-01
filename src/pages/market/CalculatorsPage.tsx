@@ -138,7 +138,7 @@ function MortgageBondCalculator() {
           <ResultCard label="Estimated monthly repayment" value={formatZAR(result.monthly)} emphasize />
           <ResultCard label="Total repayable" value={formatZAR(result.total)} hint={`Interest ~ ${formatZAR(result.interest)}`} />
           <p className="text-xs leading-relaxed text-ink-500">
-            Estimate only — banks may include fees, insurance, and different rate structures.
+            Estimate only — not a quote. Banks may include fees, insurance, and different rate structures.
           </p>
         </div>
       </div>
@@ -196,7 +196,7 @@ function AffordabilityCalculator() {
           <ResultCard label="Estimated max loan" value={formatZAR(result.loan)} />
           <ResultCard label="Estimated purchase price" value={formatZAR(result.purchase)} emphasize />
           <p className="text-xs leading-relaxed text-ink-500">
-            Uses ~30% of leftover income as a guide. Lenders apply their own credit criteria.
+            Estimate only — not a quote. Uses ~30% of leftover income as a guide. Lenders apply their own credit criteria.
           </p>
         </div>
       </div>
@@ -257,7 +257,7 @@ function AdditionalPaymentCalculator() {
           />
           <ResultCard label="Interest saved" value={formatZAR(result.interestSaved)} emphasize />
           <p className="text-xs leading-relaxed text-ink-500">
-            Assumes extra payments go straight to capital. Confirm with your bank that early payments are allowed without penalties.
+            Estimate only — not a quote. Assumes extra payments go straight to capital. Confirm with your bank that early payments are allowed without penalties.
           </p>
         </div>
       </div>
@@ -345,6 +345,7 @@ export function CalculatorsIndex() {
         <h1 className="mt-2 font-display text-3xl font-semibold text-ink sm:text-4xl">Home loan calculators</h1>
         <p className="mt-3 text-base leading-relaxed text-ink-500">
           Plan your purchase with quick estimates for repayments, affordability, extra payments, and transfer costs.
+          Estimates only — not a quote. Banks and attorneys set final figures.
         </p>
       </div>
 

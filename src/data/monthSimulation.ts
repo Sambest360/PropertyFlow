@@ -20,6 +20,7 @@ import type {
   Viewing,
   ViewingSlot,
 } from '../types/domain'
+import { midTransferDemoChecklist } from '../lib/conveyancing/closingChecklist'
 import { DEMO_SAMPLE_FILES } from '../lib/api/documents'
 
 /** Anchor “today” for the demo month (matches user_info / seed). */
@@ -104,17 +105,20 @@ export const monthApplications: Application[] = [
     email: 'nomsa.d@email.com',
     phone: '+27 71 883 1102',
     type: 'Purchase',
-    workflowStatus: 'application_submitted',
-    stage: 'Application Submitted',
-    progress: 48,
+    // Mid-transfer Mode A demo — real purchase workflow status so next-actions work.
+    // (Was wrongly seeded as rental `application_submitted`.)
+    workflowStatus: 'transfer_processing',
+    stage: 'Transfer attorney processing',
+    progress: 68,
     income: 92000,
     employment: 'Standard Bank — Analyst',
-    creditCheck: 'Not Started',
+    creditCheck: 'Passed',
     creditConsent: true,
     documents: [],
-    docs: ['ID', 'Payslips'],
+    docs: ['ID', 'Payslips', 'FICA', 'Bond letter'],
     viewingSlotId: null,
-    notes: 'Linked from CRM lead LD-2202.',
+    notes: 'Linked from CRM lead LD-2202. Mode A mid-transfer soft-demo — checklist staff-recorded only.',
+    purchaseClosing: midTransferDemoChecklist(),
     submittedAt: '2026-07-21',
     updatedAt: '2026-07-21',
   },
@@ -666,10 +670,10 @@ export const monthActivities: Activity[] = [
   },
   {
     id: 'a6',
-    agencyId: 'ag-garden',
-    text: 'Purchase application APP-905 entered Credit Check',
+    agencyId: 'ag-horizon',
+    text: 'Purchase APP-905 mid-transfer soft-demo — closing checklist staff-recorded (Mode A)',
     at: '2026-07-22T09:30:00.000Z',
-    user: 'Leigh Botha',
+    user: 'Lerato Nkosi',
   },
   {
     id: 'a7',
