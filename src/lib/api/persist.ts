@@ -54,18 +54,43 @@ async function quickHealth(): Promise<boolean> {
   return apiLikelyUp
 }
 
+/**
+ * True only when /api/persist answered with JSON `{ ok: true }`.
+ * An HTTP 200 HTML/SPA shell (Vercel rewrite miss) must NOT count as durable.
+ */
+export function isPersistApiSuccessResponse(
+  status: number,
+  contentType: string | null | undefined,
+  bodyText: string,
+): boolean {
+  if (status < 200 || status >= 300) return false
+  const ct = (contentType ?? '').toLowerCase()
+  if (!ct.includes('application/json')) return false
+  try {
+    const parsed: unknown = JSON.parse(bodyText)
+    return (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      (parsed as { ok?: unknown }).ok === true
+    )
+  } catch {
+    return false
+  }
+}
+
 /** POST /api/persist using DATABASE_URL (bypasses browser RLS). */
-async function persistViaServerApi(op: PersistOp): Promise<boolean> {
+export async function persistViaServerApi(op: PersistOp): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE}/api/persist`, {
       method: 'POST',
       headers: jsonHeaders(),
       body: JSON.stringify(op),
     })
-    if (!res.ok) {
-      const text = await res.text().catch(() => '')
-      console.warn('[persist]', op.resource, op.action, op.id, res.status, text)
-      apiLikelyUp = res.status !== 503
+    const text = await res.text().catch(() => '')
+    const contentType = res.headers.get('content-type')
+    if (!isPersistApiSuccessResponse(res.status, contentType, text)) {
+      console.warn('[persist]', op.resource, op.action, op.id, res.status, text.slice(0, 200))
+      apiLikelyUp = res.status !== 503 && res.status !== 0
       return false
     }
     apiLikelyUp = true
@@ -87,15 +112,13 @@ export function preferServerPersistForApplication(
 
 export async function persistToApi(op: PersistOp): Promise<boolean> {
   if (isSupabaseMode) {
-    // P0-sync (R12): prefer /api/persist FIRST for application upserts.
-    // Browser RLS WITH CHECK (client_id = current_app_client_id()) rejects
-    // END_USER inserts that carry the listing agency client_id — guests then
-    // kept optimistic My Apps rows staff bootstrap never loaded. Server path
-    // uses DATABASE_URL (bypasses RLS) and stamps the same APP-* reference.
-    // Fall back to browser supabase only when the API is unavailable.
+    // P0-sync (R12/R13): application upserts are fail-closed on /api/persist.
+    // Browser RLS cannot stamp listing agency client_id for END_USER; a "soft"
+    // supabase fallback that returns true (or leaves optimistic My Apps) while
+    // staff bootstrap never loads the row is worse than a hard apply error.
+    // createApplication awaits this and rolls back the optimistic APP on false.
     if (preferServerPersistForApplication(op.resource, op.action)) {
-      if (await persistViaServerApi(op)) return true
-      return persistToSupabase(op)
+      return persistViaServerApi(op)
     }
     return persistToSupabase(op)
   }

@@ -640,6 +640,15 @@ app.get('/api/counts', async (c) => {
 
 /** Generic domain persist (RPC). AppStore fire-and-forgets here. */
 app.post('/api/persist', async (c) => {
+  if (!databaseConfigured) {
+    return c.json(
+      {
+        error: 'database_unconfigured',
+        message: databaseConfigError || 'DATABASE_URL is not set',
+      },
+      503,
+    )
+  }
   try {
     const body = (await c.req.json()) as PersistBody
     await requireActorAndGate(c, body)
@@ -655,6 +664,15 @@ app.post('/api/persist', async (c) => {
 
 /** Batch persist for multi-entity ops (e.g. thread + first message). */
 app.post('/api/persist/batch', async (c) => {
+  if (!databaseConfigured) {
+    return c.json(
+      {
+        error: 'database_unconfigured',
+        message: databaseConfigError || 'DATABASE_URL is not set',
+      },
+      503,
+    )
+  }
   try {
     const body = (await c.req.json()) as { ops?: PersistBody[] }
     const ops = Array.isArray(body.ops) ? body.ops : []
