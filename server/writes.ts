@@ -1845,16 +1845,20 @@ async function upsertDepositHolding(feId: string, d: Record<string, unknown>): P
     : d.unitId
       ? await resolveUuid('unit', str(d.unitId))
       : null
+  const releaseProposedBy = await userId(d.releaseProposedBy)
+  const releaseApprovedBy = await userId(d.releaseApprovedBy)
 
   await query(
     `INSERT INTO deposit_holdings (
        id, client_id, occupancy_id, unit_id, expected_cents, held_cents,
        interest_accrued_cents, status, statutory_deadline_on, interest_rate_unknown,
+       release_proposed_by, release_approved_by,
        created_at, updated_at
      ) VALUES (
        $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6,
        $7, $8, $9::date, $10,
-       COALESCE($11::timestamptz, NOW()), NOW()
+       $11::uuid, $12::uuid,
+       COALESCE($13::timestamptz, NOW()), NOW()
      )
      ON CONFLICT (id) DO UPDATE SET
        occupancy_id = EXCLUDED.occupancy_id,
@@ -1865,6 +1869,8 @@ async function upsertDepositHolding(feId: string, d: Record<string, unknown>): P
        status = EXCLUDED.status,
        statutory_deadline_on = EXCLUDED.statutory_deadline_on,
        interest_rate_unknown = EXCLUDED.interest_rate_unknown,
+       release_proposed_by = EXCLUDED.release_proposed_by,
+       release_approved_by = EXCLUDED.release_approved_by,
        updated_at = NOW()`,
     [
       uuid,
@@ -1877,6 +1883,8 @@ async function upsertDepositHolding(feId: string, d: Record<string, unknown>): P
       depositStatus(d.status),
       d.statutoryDeadlineOn ? str(d.statutoryDeadlineOn).slice(0, 10) : null,
       bool(d.interestRateUnknown, false),
+      releaseProposedBy,
+      releaseApprovedBy,
       d.createdAt ? str(d.createdAt) : null,
     ],
   )

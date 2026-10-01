@@ -47,6 +47,14 @@ import type {
   Charge,
   CsvImportBatch,
 } from '../types/domain'
+import {
+  applyApprovePayout,
+  applySubmitPayout,
+  approveDepositRelease,
+  buildHeldDeposit,
+  buildProposedPayout,
+  proposeDepositRelease,
+} from '../lib/trust/depositDualControl'
 import { isPubliclyListed } from '../lib/publicListings'
 import { findByListingId, nextUniquePropertyId } from '../lib/listingIds'
 import {
@@ -666,10 +674,49 @@ type StoreContextValue = {
     parseErrors: string[]
     batchId?: string
   }>
-  /** P0-7: dual-control payout approval — proposer ≠ approver. */
-  approvePayoutInstruction: (params: { instructionId: string; approverUserId: string }) => { ok: boolean; error?: string }
-  /** P0-7: submit an approved payout to the (manual/partner) rail. */
-  submitPayoutInstruction: (params: { instructionId: string; actorUserId: string }) => { ok: boolean; error?: string }
+  /** DQ-M2: create/upsert a held deposit (durable Mode A persist). */
+  upsertHeldDeposit: (params: {
+    agencyId: string
+    actorUserId: string
+    occupancyId: string
+    expectedCents: number
+    heldCents: number
+    depositId?: string
+    statutoryDeadlineOn?: string | null
+  }) => Promise<{ ok: boolean; error?: string; depositId?: string }>
+  /** DQ-M2: propose deposit release (held → release_proposed). */
+  proposeDepositRelease: (params: {
+    depositId: string
+    actorUserId: string
+  }) => Promise<{ ok: boolean; error?: string }>
+  /** DQ-M2: dual-control approve deposit release (proposer ≠ approver). */
+  approveDepositRelease: (params: {
+    depositId: string
+    approverUserId: string
+  }) => Promise<{ ok: boolean; error?: string }>
+  /** DQ-M2 optional: durable propose payout instruction. */
+  proposePayoutInstruction: (params: {
+    agencyId: string
+    actorUserId: string
+    occupancyId?: string | null
+    propertyId: string
+    payeeType?: string
+    payeeId: string
+    bankAccountId?: string
+    amountCents: number
+    bucketCode?: string
+    idempotencyKey?: string
+  }) => Promise<{ ok: boolean; error?: string; instructionId?: string }>
+  /** P0-7 / DQ-M2: dual-control payout approval — proposer ≠ approver; awaits persist. */
+  approvePayoutInstruction: (params: {
+    instructionId: string
+    approverUserId: string
+  }) => Promise<{ ok: boolean; error?: string }>
+  /** P0-7 / DQ-M2: submit approved payout → submitted only (≠ settled); awaits persist. */
+  submitPayoutInstruction: (params: {
+    instructionId: string
+    actorUserId: string
+  }) => Promise<{ ok: boolean; error?: string }>
   runClientBillingCycle: (clientId: string, periodStart?: string, periodEnd?: string) => PlatformInvoice | null
   markInvoicePaid: (invoiceId: string) => void
   toasts: NotificationToast[]
@@ -1388,30 +1435,161 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     [patch, addActivity, persistUpsert],
   )
 
+  const upsertHeldDeposit = useCallback(
+    async (params: {
+      agencyId: string
+      actorUserId: string
+      occupancyId: string
+      expectedCents: number
+      heldCents: number
+      depositId?: string
+      statutoryDeadlineOn?: string | null
+    }) => {
+      const actor = stateRef.current.users.find((u) => u.id === params.actorUserId)
+      if (!actor) return { ok: false, error: 'Actor not found' }
+      const now = new Date().toISOString()
+      const depositId = params.depositId?.trim() || uid('dh')
+      const existing =
+        stateRef.current.depositHoldings.find((d) => d.id === depositId) ?? null
+      const built = buildHeldDeposit({
+        id: depositId,
+        agencyId: params.agencyId,
+        occupancyId: params.occupancyId,
+        expectedCents: params.expectedCents,
+        heldCents: params.heldCents,
+        statutoryDeadlineOn: params.statutoryDeadlineOn,
+        existing,
+        now,
+      })
+      if (built.ok === false) return { ok: false, error: built.error }
+      const row = built.value
+      patch((s) => ({
+        ...s,
+        depositHoldings: existing
+          ? s.depositHoldings.map((d) => (d.id === row.id ? row : d))
+          : [row, ...s.depositHoldings],
+      }))
+      await persistUpsert('deposit_holding', row.id, row as unknown as Record<string, unknown>)
+      addActivity(
+        `Deposit held ${(row.heldCents / 100).toFixed(2)} ZAR for occupancy ${row.occupancyId}`,
+        actor.name,
+        row.agencyId,
+      )
+      return { ok: true, depositId: row.id }
+    },
+    [patch, addActivity, persistUpsert],
+  )
+
+  const proposeDepositReleaseAction = useCallback(
+    async (params: { depositId: string; actorUserId: string }) => {
+      const dep = stateRef.current.depositHoldings.find((d) => d.id === params.depositId)
+      const actor = stateRef.current.users.find((u) => u.id === params.actorUserId)
+      if (!dep || !actor) return { ok: false, error: 'Deposit or actor not found' }
+      const now = new Date().toISOString()
+      const result = proposeDepositRelease(dep, actor.id, now)
+      if (result.ok === false) return { ok: false, error: result.error }
+      const updated = result.value
+      patch((s) => ({
+        ...s,
+        depositHoldings: s.depositHoldings.map((d) => (d.id === updated.id ? updated : d)),
+      }))
+      await persistUpsert('deposit_holding', updated.id, updated as unknown as Record<string, unknown>)
+      addActivity(
+        `Deposit release proposed for occupancy ${updated.occupancyId}`,
+        actor.name,
+        updated.agencyId,
+      )
+      return { ok: true }
+    },
+    [patch, addActivity, persistUpsert],
+  )
+
+  const approveDepositReleaseAction = useCallback(
+    async (params: { depositId: string; approverUserId: string }) => {
+      const dep = stateRef.current.depositHoldings.find((d) => d.id === params.depositId)
+      const approver = stateRef.current.users.find((u) => u.id === params.approverUserId)
+      if (!dep || !approver) return { ok: false, error: 'Deposit or approver not found' }
+      const now = new Date().toISOString()
+      const result = approveDepositRelease(dep, approver.id, now)
+      if (result.ok === false) return { ok: false, error: result.error }
+      const updated = result.value
+      patch((s) => ({
+        ...s,
+        depositHoldings: s.depositHoldings.map((d) => (d.id === updated.id ? updated : d)),
+      }))
+      await persistUpsert('deposit_holding', updated.id, updated as unknown as Record<string, unknown>)
+      addActivity(
+        `Deposit release approved for occupancy ${updated.occupancyId} by ${approver.name}`,
+        approver.name,
+        updated.agencyId,
+      )
+      return { ok: true }
+    },
+    [patch, addActivity, persistUpsert],
+  )
+
+  const proposePayoutInstruction = useCallback(
+    async (params: {
+      agencyId: string
+      actorUserId: string
+      occupancyId?: string | null
+      propertyId: string
+      payeeType?: string
+      payeeId: string
+      bankAccountId?: string
+      amountCents: number
+      bucketCode?: string
+      idempotencyKey?: string
+    }) => {
+      const actor = stateRef.current.users.find((u) => u.id === params.actorUserId)
+      if (!actor) return { ok: false, error: 'Actor not found' }
+      const now = new Date().toISOString()
+      const instructionId = uid('pi')
+      const built = buildProposedPayout({
+        id: instructionId,
+        agencyId: params.agencyId,
+        occupancyId: params.occupancyId ?? null,
+        propertyId: params.propertyId,
+        payeeType: params.payeeType ?? 'landlord',
+        payeeId: params.payeeId,
+        bankAccountId: params.bankAccountId ?? '',
+        amountCents: params.amountCents,
+        bucketCode: params.bucketCode ?? 'owner_payable',
+        proposedBy: actor.id,
+        idempotencyKey: params.idempotencyKey ?? instructionId,
+        now,
+      })
+      if (built.ok === false) return { ok: false, error: built.error }
+      const row = built.value
+      patch((s) => ({
+        ...s,
+        payoutInstructions: [row, ...s.payoutInstructions],
+      }))
+      await persistUpsert('payout_instruction', row.id, row as unknown as Record<string, unknown>)
+      addActivity(
+        `Payout proposed (${(row.amountCents / 100).toFixed(2)} ZAR) — awaiting dual-control approval`,
+        actor.name,
+        row.agencyId,
+      )
+      return { ok: true, instructionId: row.id }
+    },
+    [patch, addActivity, persistUpsert],
+  )
+
   const approvePayoutInstruction = useCallback(
-    (params: { instructionId: string; approverUserId: string }) => {
+    async (params: { instructionId: string; approverUserId: string }) => {
       const inst = stateRef.current.payoutInstructions.find((p) => p.id === params.instructionId)
       const approver = stateRef.current.users.find((u) => u.id === params.approverUserId)
       if (!inst || !approver) return { ok: false, error: 'Instruction or approver not found' }
-      if (inst.status !== 'proposed' && inst.status !== 'pending_approval') {
-        return { ok: false, error: `Payout is ${inst.status} — only proposed payouts can be approved` }
-      }
-      // Dual control: proposer ≠ approver, enforced by user id even across roles.
-      if (inst.proposedBy === approver.id) {
-        return { ok: false, error: 'Dual control: the proposer cannot approve their own payout' }
-      }
       const now = new Date().toISOString()
-      const updated: PayoutInstruction = {
-        ...inst,
-        status: 'approved',
-        approvedBy: approver.id,
-        updatedAt: now,
-      }
+      const result = applyApprovePayout(inst, approver.id, now)
+      if (result.ok === false) return { ok: false, error: result.error }
+      const updated = result.value
       patch((s) => ({
         ...s,
         payoutInstructions: s.payoutInstructions.map((p) => (p.id === inst.id ? updated : p)),
       }))
-      persistUpsert('payout_instruction', inst.id, updated as unknown as Record<string, unknown>)
+      await persistUpsert('payout_instruction', inst.id, updated as unknown as Record<string, unknown>)
       addActivity(
         `Payout approved (${(inst.amountCents / 100).toFixed(2)} ZAR) by ${approver.name}`,
         approver.name,
@@ -1419,39 +1597,32 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       )
       return { ok: true }
     },
-    [patch, addActivity],
+    [patch, addActivity, persistUpsert],
   )
 
   const submitPayoutInstruction = useCallback(
-    (params: { instructionId: string; actorUserId: string }) => {
+    async (params: { instructionId: string; actorUserId: string }) => {
       const inst = stateRef.current.payoutInstructions.find((p) => p.id === params.instructionId)
       const actor = stateRef.current.users.find((u) => u.id === params.actorUserId)
       if (!inst || !actor) return { ok: false, error: 'Instruction or actor not found' }
-      if (inst.status !== 'approved') {
-        return { ok: false, error: 'Payout must be approved before submission' }
-      }
       const now = new Date().toISOString()
-      const updated: PayoutInstruction = {
-        ...inst,
-        status: 'submitted',
-        submittedAt: now,
-        // Manual-mode demo: record shows the instruction left the books; the
-        // bank/settled status comes from a partner event, never faked here.
-        updatedAt: now,
-      }
+      const result = applySubmitPayout(inst, actor.id, now)
+      if (result.ok === false) return { ok: false, error: result.error }
+      const updated = result.value
+      // Honesty: submitted ≠ settled; never invent partnerPayoutId.
       patch((s) => ({
         ...s,
         payoutInstructions: s.payoutInstructions.map((p) => (p.id === inst.id ? updated : p)),
       }))
-      persistUpsert('payout_instruction', inst.id, updated as unknown as Record<string, unknown>)
+      await persistUpsert('payout_instruction', inst.id, updated as unknown as Record<string, unknown>)
       addActivity(
-        `Payout submitted for settlement (${(inst.amountCents / 100).toFixed(2)} ZAR)`,
+        `Payout submitted (in-app only — not settled) (${(inst.amountCents / 100).toFixed(2)} ZAR)`,
         actor.name,
         inst.agencyId,
       )
       return { ok: true }
     },
-    [patch, addActivity],
+    [patch, addActivity, persistUpsert],
   )
 
 
@@ -5676,9 +5847,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     allocateTrustReceipt,
     markTrustSuspense,
     importTrustTemplateCsv,
+    upsertHeldDeposit,
+    proposeDepositRelease: proposeDepositReleaseAction,
+    approveDepositRelease: approveDepositReleaseAction,
+    proposePayoutInstruction,
     approvePayoutInstruction,
     submitPayoutInstruction,
-  }), [state, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, importTrustTemplateCsv, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistDelete, refreshBootstrap, scheduleBootstrapRefreshAfterMutation, issueLeasePackageForTenancy])
+  }), [state, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, importTrustTemplateCsv, upsertHeldDeposit, proposeDepositReleaseAction, approveDepositReleaseAction, proposePayoutInstruction, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistDelete, refreshBootstrap, scheduleBootstrapRefreshAfterMutation, issueLeasePackageForTenancy])
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }
