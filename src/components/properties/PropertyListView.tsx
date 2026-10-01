@@ -349,6 +349,14 @@ export function PropertyListView({
                             </span>
                             <span className="mt-0.5 flex items-center gap-1 truncate text-xs text-ink-500">
                               <MapPin className="h-3 w-3 shrink-0" strokeWidth={ICON_STROKE} aria-hidden />
+                              {item.unitNumber ? `Unit ${item.unitNumber}` : null}
+                              {item.unitNumber ? <span className="text-ink-300">·</span> : null}
+                              {item.buildingName ? (
+                                <>
+                                  {item.buildingName}
+                                  <span className="text-ink-300">·</span>
+                                </>
+                              ) : null}
                               {p.suburb}, {p.city}
                               <span className="text-ink-300">·</span>
                               {p.type}
@@ -476,6 +484,8 @@ export function PropertyListView({
                     />
                   </div>
                   <p className="mt-0.5 truncate text-xs text-ink-500">
+                    {item.unitNumber ? `Unit ${item.unitNumber} · ` : ''}
+                    {item.buildingName ? `${item.buildingName} · ` : ''}
                     {p.suburb}, {p.city} · {p.type}
                   </p>
                   <p className="mt-1.5 font-semibold tabular text-ink">{priceLabel(p, formatZAR)}</p>

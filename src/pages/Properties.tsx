@@ -9,11 +9,12 @@ import { ActionButtonRow } from '../components/ActionButtonRow'
 import { withReturnTo } from '../lib/returnTo'
 import { PropertyMap } from '../components/PropertyMap'
 import { PropertiesToolbar } from '../components/properties/PropertiesToolbar'
-import { PropertyListView } from '../components/properties/PropertyListView'
+import { BuildingTreeView } from '../components/properties/BuildingTreeView'
 import { PropertyPortfolioCard } from '../components/properties/PropertyPortfolioCard'
 import {
   VIEW_STORAGE_KEY,
   type AttentionFilter,
+  type OccupancyFilter,
   type PortfolioProperty,
   type PropertiesViewMode,
   type SortKey,
@@ -21,6 +22,12 @@ import {
 import { useLookupOptions } from '../hooks/useLookupOptions'
 import { VerificationPendingBanner } from '../components/auth/VerificationBanner'
 import { canDeletePropertyRole, isPropertyDeleted } from '../lib/propertyDeletion'
+import {
+  buildingsInScope,
+  groupPortfolioByBuilding,
+  propertyMatchesBuildingFilter,
+  propertyMatchesOccupancyFilter,
+} from '../lib/buildingHierarchy'
 
 function readStoredView(): PropertiesViewMode {
   try {
@@ -52,7 +59,9 @@ export default function Properties() {
   const [listingMode, setListingMode] = useState('all')
   const [suburb, setSuburb] = useState('all')
   const [attention, setAttention] = useState<AttentionFilter>('all')
-  const [sort, setSort] = useState<SortKey>('name')
+  const [buildingFilter, setBuildingFilter] = useState('all')
+  const [occupancy, setOccupancy] = useState<OccupancyFilter>('all')
+  const [sort, setSort] = useState<SortKey>('building')
   const [view, setView] = useState<PropertiesViewMode>(() => readStoredView())
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
@@ -82,9 +91,15 @@ export default function Properties() {
 
   const canViewArchive = has('assets.manage') && canDeletePropertyRole(user.role)
 
+  const buildingById = useMemo(
+    () => new Map(state.buildings.map((b) => [b.id, b])),
+    [state.buildings],
+  )
+
   const portfolio: PortfolioProperty[] = useMemo(() => {
     return scoped.map((property) => {
       const unit = property.unitId ? state.units.find((u) => u.id === property.unitId) : undefined
+      const building = property.buildingId ? buildingById.get(property.buildingId) : undefined
       const openTickets = state.tickets.filter(
         (t) =>
           t.propertyId === property.id &&
@@ -113,9 +128,26 @@ export default function Properties() {
         waitingApps,
         agentName: agent?.name ?? null,
         attentionScore,
+        buildingName: building?.name ?? null,
+        unitNumber: unit?.unitNumber ?? null,
       }
     })
-  }, [scoped, state.units, state.tickets, state.viewings, state.applications, state.users])
+  }, [
+    scoped,
+    state.units,
+    state.tickets,
+    state.viewings,
+    state.applications,
+    state.users,
+    buildingById,
+  ])
+
+  const buildingOptions = useMemo(() => {
+    return buildingsInScope(scoped, state.buildings).map((b) => ({
+      value: b.id,
+      label: b.name,
+    }))
+  }, [scoped, state.buildings])
 
   const suburbs = useMemo(() => {
     const set = new Set<string>()
@@ -133,6 +165,8 @@ export default function Properties() {
       if (type !== 'All' && p.type !== type) return false
       if (listingMode !== 'all' && p.listingMode !== listingMode) return false
       if (suburb !== 'all' && `${p.suburb}, ${p.city}` !== suburb) return false
+      if (!propertyMatchesBuildingFilter(p, buildingFilter)) return false
+      if (!propertyMatchesOccupancyFilter(item.occupancy, occupancy)) return false
 
       if (attention === 'tickets' && item.openTickets === 0) return false
       if (attention === 'viewings' && item.scheduledViewings === 0) return false
@@ -153,11 +187,20 @@ export default function Properties() {
         p.suburb.toLowerCase().includes(needle) ||
         p.city.toLowerCase().includes(needle) ||
         p.id.toLowerCase().includes(needle) ||
-        p.type.toLowerCase().includes(needle)
+        p.type.toLowerCase().includes(needle) ||
+        (item.buildingName?.toLowerCase().includes(needle) ?? false) ||
+        (item.unitNumber?.toLowerCase().includes(needle) ?? false)
       )
     })
 
     rows = [...rows].sort((a, b) => {
+      if (sort === 'building') {
+        const an = a.buildingName ?? 'zzz'
+        const bn = b.buildingName ?? 'zzz'
+        const byBuilding = an.localeCompare(bn)
+        if (byBuilding !== 0) return byBuilding
+        return a.property.title.localeCompare(b.property.title)
+      }
       if (sort === 'suburb') {
         return `${a.property.suburb}${a.property.city}`.localeCompare(
           `${b.property.suburb}${b.property.city}`,
@@ -174,7 +217,23 @@ export default function Properties() {
     })
 
     return rows
-  }, [portfolio, q, status, type, listingMode, suburb, attention, sort])
+  }, [
+    portfolio,
+    q,
+    status,
+    type,
+    listingMode,
+    suburb,
+    attention,
+    buildingFilter,
+    occupancy,
+    sort,
+  ])
+
+  const buildingGroupCount = useMemo(
+    () => groupPortfolioByBuilding(filtered, state.buildings).length,
+    [filtered, state.buildings],
+  )
 
   const filtersActive =
     Boolean(q.trim()) ||
@@ -182,7 +241,9 @@ export default function Properties() {
     type !== 'All' ||
     listingMode !== 'all' ||
     suburb !== 'all' ||
-    attention !== 'all'
+    attention !== 'all' ||
+    buildingFilter !== 'all' ||
+    occupancy !== 'all'
 
   const clearFilters = () => {
     setQ('')
@@ -191,18 +252,20 @@ export default function Properties() {
     setListingMode('all')
     setSuburb('all')
     setAttention('all')
+    setBuildingFilter('all')
+    setOccupancy('all')
   }
 
   const resultLabel =
     filtered.length === portfolio.length
-      ? `${filtered.length} ${filtered.length === 1 ? 'property' : 'properties'}`
-      : `${filtered.length} of ${portfolio.length} properties`
+      ? `${buildingGroupCount} ${buildingGroupCount === 1 ? 'building' : 'buildings'} · ${filtered.length} ${filtered.length === 1 ? 'unit' : 'units'}`
+      : `${filtered.length} of ${portfolio.length} units · ${buildingGroupCount} ${buildingGroupCount === 1 ? 'building' : 'buildings'}`
 
   return (
     <div className="animate-fade-in">
       <PageHeader
         title="Properties"
-        subtitle="Scan your portfolio, spot what needs attention, and open a property for full detail."
+        subtitle="Browse by building, then open a unit for full detail. Filters work across buildings and unit status."
         actions={
           <ActionButtonRow className="sm:w-auto">
             {has('assets.manage') ? (
@@ -242,6 +305,11 @@ export default function Properties() {
         suburbs={suburbs}
         attention={attention}
         onAttentionChange={setAttention}
+        building={buildingFilter}
+        onBuildingChange={setBuildingFilter}
+        buildings={buildingOptions}
+        occupancy={occupancy}
+        onOccupancyChange={setOccupancy}
         sort={sort}
         onSortChange={setSort}
         view={view}
@@ -290,10 +358,11 @@ export default function Properties() {
           </button>
         </Card>
       ) : view === 'list' ? (
-        <PropertyListView
+        <BuildingTreeView
           items={filtered}
-          expandedId={expandedId}
-          onToggle={toggleExpand}
+          buildings={state.buildings}
+          expandedPropertyId={expandedId}
+          onToggleProperty={toggleExpand}
           reducedMotion={reducedMotion}
         />
       ) : view === 'map' ? (
@@ -308,15 +377,28 @@ export default function Properties() {
           </div>
         </Card>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {filtered.map((item) => (
-            <PropertyPortfolioCard
-              key={item.property.id}
-              item={item}
-              expanded={expandedId === item.property.id}
-              onToggle={toggleExpand}
-              reducedMotion={reducedMotion}
-            />
+        <div className="space-y-6">
+          {groupPortfolioByBuilding(filtered, state.buildings).map((group) => (
+            <div key={group.key}>
+              <div className="mb-3 flex flex-wrap items-baseline gap-2">
+                <h2 className="font-display text-lg font-semibold text-ink">{group.label}</h2>
+                <p className="text-xs font-medium text-ink-400">
+                  {group.unitCount} {group.unitCount === 1 ? 'unit' : 'units'}
+                  {group.suburbCity ? ` · ${group.suburbCity}` : ''}
+                </p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {group.items.map((item) => (
+                  <PropertyPortfolioCard
+                    key={item.property.id}
+                    item={item}
+                    expanded={expandedId === item.property.id}
+                    onToggle={toggleExpand}
+                    reducedMotion={reducedMotion}
+                  />
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       )}
