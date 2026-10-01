@@ -14,6 +14,7 @@ import {
   resolveWorkflowStatus,
   workflowProgress,
   workflowStageLabel,
+  PURCHASE_WORKFLOW,
 } from './applicationWorkflow'
 import { buildDocumentChecklist, ensureApplicationDocuments } from './workflow'
 
@@ -199,5 +200,53 @@ describe('landlord portal review transitions', () => {
 
     const staff = getAvailableTransitions(app, ['applications.review'])
     expect(staff.some((t) => t.actionKey === 'CONDITIONALLY_APPROVE')).toBe(true)
+  })
+})
+
+
+describe('Mode A purchase invent-kill labels', () => {
+  function purchaseApp(overrides: Partial<Application> = {}): Application {
+    return {
+      id: 'APP-905',
+      agencyId: 'ag-horizon',
+      propertyId: 'PR-1001',
+      agentId: 'u-lerato',
+      applicantUserId: null,
+      applicantName: 'Nomsa Dlamini',
+      email: 'nomsa.d@email.com',
+      phone: '+27 71 883 1102',
+      type: 'Purchase',
+      workflowStatus: 'transfer_processing',
+      stage: 'Transfer attorney processing',
+      progress: 68,
+      income: 92000,
+      employment: 'Standard Bank — Analyst',
+      creditCheck: 'Passed',
+      creditConsent: true,
+      documents: buildDocumentChecklist('Purchase'),
+      docs: [],
+      viewingSlotId: null,
+      notes: '',
+      submittedAt: '2026-07-21',
+      updatedAt: '2026-07-21',
+      ...overrides,
+    }
+  }
+
+  it('uses staff-recorded bond/lodgement hints — not invented deeds/bank facts', () => {
+    const bond = PURCHASE_WORKFLOW.transitions.find((t) => t.actionKey === 'BOND_APPROVED')
+    const lodge = PURCHASE_WORKFLOW.transitions.find((t) => t.actionKey === 'DEEDS_LODGEMENT')
+    expect(bond?.label).toMatch(/Record bond outcome from bank letter/i)
+    expect(bond?.hint).not.toMatch(/Bank grants home loan/i)
+    expect(lodge?.label).toMatch(/Mark lodgement recorded/i)
+    expect(lodge?.hint).not.toMatch(/Documents lodged at Deeds Office/i)
+  })
+
+  it('offers next-actions from mid-transfer APP-905 status', () => {
+    const app = normalizeApplication(purchaseApp())
+    expect(resolveWorkflowStatus(app)).toBe('transfer_processing')
+    const actions = getAvailableTransitions(app, ['applications.review'])
+    expect(actions.some((a) => a.actionKey === 'COMPLIANCE_CERTS')).toBe(true)
+    expect(primaryNextTransition(app, ['applications.review'])).not.toBeNull()
   })
 })

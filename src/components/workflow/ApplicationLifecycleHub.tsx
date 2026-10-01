@@ -30,6 +30,8 @@ import {
 import { actionNeedsModal, type WorkflowActionCapture } from '../../lib/workflowActionForms'
 import { useStore } from '../../context/AppStore'
 import { LifecycleStagePanel } from './LifecycleStagePanel'
+import { PurchaseClosingChecklistPanel } from '../conveyancing/PurchaseClosingChecklist'
+import { ConveyancingModeABanner } from '../conveyancing/ConveyancingModeABanner'
 import { WorkflowActionModal } from './WorkflowActionModal'
 import { Badge, Card, cn, statusTone } from '../ui'
 import { useAgentDisplay } from '../../hooks/useAgentDisplay'
@@ -225,7 +227,7 @@ export function ApplicationLifecycleHub({
   // action ('Approve & create lease') may only appear when this application has
   // no lease row. Server-authoritative on hydration: the durable lease fetch is
   // the same source Confirm-deposit flows already trust.
-  const { state } = useStore()
+  const { state, updateApplication } = useStore()
   const hasLease = state.tenancies.some((t) => t.applicationId === application.id)
   const { label: agentLabel } = useAgentDisplay()
   const assignedAgent = agentLabel(application.agentId, agentName)
@@ -294,6 +296,10 @@ export function ApplicationLifecycleHub({
 
   return (
     <div className="space-y-5">
+      {application.type === 'Purchase' ? (
+        <ConveyancingModeABanner />
+      ) : null}
+
       <Card className="overflow-hidden border-primary-100 p-0">
         <div className="border-b border-primary-100 bg-gradient-to-r from-primary-50/70 via-white to-brand-50/40 px-5 py-4">
           <h2 className="font-display text-lg font-semibold text-ink">
@@ -395,6 +401,15 @@ export function ApplicationLifecycleHub({
         onUploadDocument={onUploadDocument}
         onSaveDetails={onSaveDetails}
       />
+
+      {application.type === 'Purchase' ? (
+        <PurchaseClosingChecklistPanel
+          key={`${application.id}-${application.purchaseClosing?.updatedAt ?? 'new'}`}
+          application={application}
+          canEdit={canReview && !applicantMode}
+          onSave={(purchaseClosing) => updateApplication(application.id, { purchaseClosing })}
+        />
+      ) : null}
 
       {isTerminalWorkflowStatus(application.type, workflowStatus) ? (
         <BranchOutcomesPanel application={application} />

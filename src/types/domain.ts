@@ -375,6 +375,16 @@ export type Application = {
   updatedAt: string
   /** Audit trail for workflow transitions and document actions */
   workflowEvents?: ApplicationWorkflowEvent[]
+  /**
+   * Mode A soft-demo purchase closing checklist (staff-recorded ticks + optional notes).
+   * Not live attorney / Deeds Office / bank bond partner status.
+   */
+  purchaseClosing?: {
+    ticks: Partial<Record<string, boolean>>
+    attorneyFirmNote?: string
+    lodgementReferenceNote?: string
+    updatedAt?: string
+  }
 }
 
 export type ViewingSlot = {
