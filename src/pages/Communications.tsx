@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { MessageCircle, Plus, Shield } from 'lucide-react'
+import { MessageCircle, Plus } from 'lucide-react'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
 import { BackButton } from '../components/BackButton'
 import { Badge, Button, Card, Input, Modal, PageHeader, Select, Textarea, cn } from '../components/ui'
 import { isAgencyStaff } from '../lib/permissions'
+import { MessagingModeABanner } from '../components/messaging/MessagingModeABanner'
+import { routesToBadgeLabel } from '../lib/messaging/modeA'
 
 const ICON_STROKE = 1.6
 
@@ -55,7 +57,7 @@ export default function Communications() {
       <div className="animate-fade-in space-y-4">
         <PageHeader
           title="Messages"
-          subtitle="In-app messaging with tenants and colleagues — landlords stay out of the thread."
+          subtitle="Mode A in-app triage: owner↔tenant threads and agency conversations — not WhatsApp/SMS."
           actions={
             staff ? (
               <Button className="min-h-11 cursor-pointer" onClick={() => setComposeOpen(true)}>
@@ -66,10 +68,7 @@ export default function Communications() {
           }
         />
 
-        <div className="flex items-start gap-2 rounded-2xl border border-primary-100 bg-primary-50 px-4 py-3 text-sm text-ink-600">
-          <Shield className="mt-0.5 h-4 w-4 shrink-0 text-primary" strokeWidth={ICON_STROKE} />
-          Tenant and maintenance conversations route to the managing agency or assigned agent.
-        </div>
+        <MessagingModeABanner extra="Staff can triage owner↔tenant threads when they are participants or have property book access." />
 
         {role === 'tenant' ? (
           <Card className="flex flex-wrap gap-2 p-4">
@@ -155,7 +154,7 @@ export default function Communications() {
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-semibold text-ink">{t.subject}</span>
                       <span className="mt-0.5 flex items-center gap-2 text-[11px] text-ink-400">
-                        <Badge tone="info">→ {t.routesTo}</Badge>
+                        <Badge tone={t.routesTo === 'landlord' ? 'brand' : 'info'}>→ {routesToBadgeLabel(t.routesTo)}</Badge>
                         {new Date(t.updatedAt).toLocaleString()}
                       </span>
                     </span>
@@ -244,8 +243,7 @@ export default function Communications() {
           users={state.users.filter(
             (u) =>
               u.active &&
-              u.role !== 'landlord' &&
-              (role === 'super_admin' || u.agencyId === agencyId || u.id === user.id),
+              (role === 'super_admin' || u.agencyId === agencyId || u.id === user.id || u.role === 'landlord' || u.role === 'tenant'),
           )}
           properties={properties}
           fromUserId={user.id}
@@ -273,7 +271,7 @@ function ComposeMessageModal({
   open: boolean
   onClose: () => void
   agencyId: string
-  users: { id: string; name: string; email: string }[]
+  users: { id: string; name: string; email: string; role?: string }[]
   properties: { id: string; title: string }[]
   fromUserId: string
   onCreate: (input: {
@@ -282,7 +280,7 @@ function ComposeMessageModal({
     applicationId: string | null
     subject: string
     participantIds: string[]
-    routesTo: 'agency' | 'agent'
+    routesTo: 'agency' | 'agent' | 'landlord'
     fromUserId: string
     initialMessage: string
   }) => void
@@ -308,13 +306,20 @@ function ComposeMessageModal({
       setError('Subject, message, and recipient are required.')
       return
     }
+    const recipient = users.find((u) => u.id === participantId)
+    const routesTo =
+      recipient?.role === 'landlord'
+        ? 'landlord'
+        : recipient?.role === 'tenant'
+          ? 'agent'
+          : 'agency'
     onCreate({
       agencyId,
       propertyId: propertyId || null,
       applicationId: null,
       subject: subject.trim(),
       participantIds: [fromUserId, participantId],
-      routesTo: 'agency',
+      routesTo,
       fromUserId,
       initialMessage: body.trim(),
     })
@@ -325,7 +330,7 @@ function ComposeMessageModal({
       open={open}
       onClose={onClose}
       title="New message"
-      description="Start a conversation with someone in your agency."
+      description="Start an in-app conversation (Mode A — not WhatsApp/SMS). Include landlords or tenants when needed."
       footer={
         <>
           <Button type="button" variant="secondary" onClick={onClose}>
@@ -349,7 +354,7 @@ function ComposeMessageModal({
             .filter((u) => u.id !== fromUserId)
             .map((u) => (
               <option key={u.id} value={u.id}>
-                {u.name} · {u.email}
+                {u.name} · {u.role ?? 'user'} · {u.email}
               </option>
             ))}
         </Select>

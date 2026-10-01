@@ -142,6 +142,7 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'contractors.view',
     'contractors.manage',
     'maintenance.view',
+    'messages.manage',
     'trust.view_own_statement',
   ],
   tenant: [

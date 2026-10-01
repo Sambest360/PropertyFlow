@@ -35,7 +35,7 @@ describe('can / role packs', () => {
   it('landlords can view portfolio documents for owner register', () => {
     expect(can('landlord', 'documents.view')).toBe(true)
     expect(can('landlord', 'portal.owner')).toBe(true)
-    expect(can('landlord', 'messages.manage')).toBe(false)
+    expect(can('landlord', 'messages.manage')).toBe(true)
   })
 })
 

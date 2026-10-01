@@ -289,7 +289,10 @@ export function threadInScope(
   },
 ): boolean {
   const { viewer } = scope
-  if (viewer.role === 'landlord') return false
+  // Mode A: landlords see threads where they are participants (property owner on thread).
+  if (viewer.role === 'landlord') {
+    return thread.participantIds.includes(viewer.userId)
+  }
   if (viewer.role === 'tenant') {
     return thread.participantIds.includes(viewer.userId)
   }

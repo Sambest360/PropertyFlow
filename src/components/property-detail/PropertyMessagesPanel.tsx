@@ -4,6 +4,8 @@ import type { Message, MessageThread } from '../../types/domain'
 import type { AppUser } from '../../types/domain'
 import { Button, Card, Input, Textarea, cn } from '../ui'
 import { ICON_STROKE } from './types'
+import { MessagingModeABanner } from '../messaging/MessagingModeABanner'
+import { routesToBadgeLabel } from '../../lib/messaging/modeA'
 
 function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean)
@@ -48,6 +50,8 @@ export function PropertyMessagesPanel({
   )
 
   return (
+    <div className="space-y-4">
+      <MessagingModeABanner extra="Property threads may include agency staff, tenants, and landlords when they are participants." />
     <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
       <Card className="flex min-h-[22rem] flex-col p-0">
         <div className="flex items-center justify-between gap-2 border-b border-primary-100 px-4 py-3">
@@ -112,6 +116,7 @@ export function PropertyMessagesPanel({
                 )}
               >
                 <p className="truncate text-sm font-semibold text-ink">{t.subject}</p>
+                <p className="mt-0.5 text-[11px] text-ink-500">{routesToBadgeLabel(t.routesTo)}</p>
                 <p className="mt-0.5 text-[11px] tabular text-ink-400">
                   {new Date(t.updatedAt).toLocaleString('en-ZA', {
                     dateStyle: 'medium',
@@ -204,6 +209,7 @@ export function PropertyMessagesPanel({
           </div>
         )}
       </Card>
+    </div>
     </div>
   )
 }

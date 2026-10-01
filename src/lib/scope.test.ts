@@ -174,7 +174,7 @@ describe('ticketInScope / dealInScope / paymentInScope / threadInScope', () => {
     ).toBe(false)
   })
 
-  it('hides landlord threads; field agents need property link', () => {
+  it('landlords see participant threads; field agents need property link', () => {
     const landlordScope = buildPropertyScope(
       { role: 'landlord', userId: 'u-ll-a', agencyId: 'ag-a', agencySuspended: false },
       { properties },
@@ -183,7 +183,14 @@ describe('ticketInScope / dealInScope / paymentInScope / threadInScope', () => {
       threadInScope(landlordScope, {
         agencyId: 'ag-a',
         propertyId: 'p-a1',
-        participantIds: ['u-ll-a'],
+        participantIds: ['u-ll-a', 'u-tenant'],
+      }),
+    ).toBe(true)
+    expect(
+      threadInScope(landlordScope, {
+        agencyId: 'ag-a',
+        propertyId: 'p-a1',
+        participantIds: ['u-other'],
       }),
     ).toBe(false)
     expect(

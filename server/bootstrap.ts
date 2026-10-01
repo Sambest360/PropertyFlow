@@ -1094,7 +1094,12 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
       applicationId: null as string | null,
       subject: th.subject as string,
       participantIds: parts.map((p) => userByUuid.get(p) ?? p),
-      routesTo: (th.routes_to as string) === 'AGENCY' ? 'agency' : 'agent',
+      routesTo:
+        (th.routes_to as string) === 'AGENCY'
+          ? 'agency'
+          : (th.routes_to as string) === 'LANDLORD'
+            ? 'landlord'
+            : 'agent',
       updatedAt: iso(th.updated_at as Date)!,
     }
   })

@@ -20,6 +20,7 @@ import { buildDocumentChecklist } from '../workflow'
 import { normalizeApplication } from '../applicationWorkflow'
 import { canonicalListingId, unitIdForProperty } from '../listingIds'
 import { deriveAgencyContractors } from '../contractors'
+import { mapRoutesToFe } from '../messaging/modeA'
 
 type RoleDb =
   | 'SUPER_ADMIN'
@@ -721,7 +722,7 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
       applicationId: null as string | null,
       subject: th.subject,
       participantIds: parts.map((p) => userByUuid.get(p) ?? p),
-      routesTo: th.routes_to === 'AGENCY' ? 'agency' : 'agent',
+      routesTo: mapRoutesToFe(th.routes_to),
       updatedAt: iso(th.updated_at)!,
     }
   })
