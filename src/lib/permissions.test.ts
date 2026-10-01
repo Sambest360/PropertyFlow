@@ -31,6 +31,12 @@ describe('can / role packs', () => {
     expect(can('tenant', 'applications.view')).toBe(false)
     expect(can('tenant', 'assets.manage')).toBe(false)
   })
+
+  it('landlords can view portfolio documents for owner register', () => {
+    expect(can('landlord', 'documents.view')).toBe(true)
+    expect(can('landlord', 'portal.owner')).toBe(true)
+    expect(can('landlord', 'messages.manage')).toBe(false)
+  })
 })
 
 describe('effectiveCan agency intersection', () => {

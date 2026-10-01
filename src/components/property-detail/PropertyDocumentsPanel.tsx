@@ -6,7 +6,12 @@ import type {
   PropertyDocument,
 } from '../../types/domain'
 import { Badge, Button, Card, Input, Modal, Select, Textarea, cn, statusTone } from '../ui'
-import { resolveDocumentUrl } from '../../lib/api/documents'
+import {
+  categoryFilterOptionsForRole,
+  documentCategoryVisibleToRole,
+  resolveDocumentUrl,
+} from '../../lib/api/documents'
+import { useAuth } from '../../context/AuthContext'
 import { ICON_STROKE } from './types'
 
 const ACCEPTED_STAGES: string[] = [
@@ -47,8 +52,10 @@ export function PropertyDocumentsPanel({
     note?: string,
   ) => void
 }) {
+  const { role } = useAuth()
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<PropertyDocument['category'] | 'all'>('all')
+  const categories = useMemo(() => categoryFilterOptionsForRole(role), [role])
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const [editRow, setEditRow] = useState<AcceptedDocRow | null>(null)
   const [viewRow, setViewRow] = useState<AcceptedDocRow | null>(null)
@@ -57,8 +64,10 @@ export function PropertyDocumentsPanel({
 
   const registerRows = useMemo(() => {
     const needle = query.trim().toLowerCase()
+    const activeCategory = categories.includes(category) ? category : 'all'
     return propertyDocuments
-      .filter((d) => (category === 'all' ? true : d.category === category))
+      .filter((d) => documentCategoryVisibleToRole(d.category, role))
+      .filter((d) => (activeCategory === 'all' ? true : d.category === activeCategory))
       .filter((d) => {
         if (!needle) return true
         return [d.name, d.category, d.status, d.note ?? '', d.applicantName ?? '']
@@ -67,7 +76,7 @@ export function PropertyDocumentsPanel({
           .includes(needle)
       })
       .sort((a, b) => (b.uploadedAt ?? '').localeCompare(a.uploadedAt ?? ''))
-  }, [propertyDocuments, query, category])
+  }, [propertyDocuments, query, category, categories, role])
 
   const applicantRows = useMemo(() => {
     const accepted = applications.filter((a) => ACCEPTED_STAGES.includes(a.stage))
@@ -96,16 +105,6 @@ export function PropertyDocumentsPanel({
         r.status.toLowerCase().includes(q),
     )
   }, [applications, query])
-
-  const categories: Array<PropertyDocument['category'] | 'all'> = [
-    'all',
-    'Title',
-    'Compliance',
-    'Lease',
-    'Inspection',
-    'Marketing',
-    'Other',
-  ]
 
   return (
     <div className="space-y-4">
@@ -136,7 +135,7 @@ export function PropertyDocumentsPanel({
             </div>
             <Select
               className="min-h-11 cursor-pointer sm:w-40"
-              value={category}
+              value={categories.includes(category) ? category : 'all'}
               onChange={(e) => setCategory(e.target.value as typeof category)}
               aria-label="Filter by category"
             >
@@ -206,6 +205,7 @@ export function PropertyDocumentsPanel({
         </div>
       </Card>
 
+      {role !== 'landlord' && role !== 'tenant' ? (
       <Card className="p-5">
         <div className="mb-4">
           <div className="flex items-center gap-2">
@@ -323,6 +323,7 @@ export function PropertyDocumentsPanel({
           )}
         </ul>
       </Card>
+      ) : null}
 
       <Modal
         open={!!viewRow}

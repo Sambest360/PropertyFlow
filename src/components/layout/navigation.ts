@@ -6,6 +6,7 @@ import {
   ClipboardList,
   CreditCard,
   Eye,
+  FileText,
   HardHat,
   Heart,
   Home,
@@ -129,6 +130,12 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
             label: 'Payments',
             permission: 'payments.view',
             icon: CreditCard,
+          },
+          {
+            to: '/workspace/operations/documents',
+            label: 'Documents',
+            permission: 'documents.view',
+            icon: FileText,
           },
           {
             to: '/workspace/operations/communications',

@@ -251,6 +251,14 @@ describe('buildWorkspaceNavForActor portal dedupe', () => {
     expect(dashboardEntry?.end).toBe(true)
   })
 
+
+  it('shows Documents under operations when documents.view is present', () => {
+    expect(previewNavLabels(['documents.view'])).toContain('Documents')
+    expect(previewNavLabels(['payments.view'])).not.toContain('Documents')
+    const labels = previewNavLabels(['documents.view', 'maintenance.view', 'payments.view'])
+    expect(labels).toContain('Documents')
+  })
+
   it('Compliance nav item requires compliance.view', () => {
     expect(previewNavLabels(['compliance.view'])).toContain('Compliance')
     expect(previewNavLabels(['trust.view'])).not.toContain('Compliance')
