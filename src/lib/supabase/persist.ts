@@ -938,6 +938,7 @@ async function upsertEntity(
       return upsertNotification(id, data)
     case 'ticket':
       return upsertTicket(id, data)
+    // thread: Mode A createThread persists via server upsertThread (API) — no client supabase thread case.
     case 'message':
       return upsertMessage(id, data)
     case 'activity':
