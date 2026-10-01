@@ -44,7 +44,7 @@ import {
   supabaseSignOut,
   supabaseSignUp,
 } from '../lib/supabase/auth'
-import { clearSessionArtifacts, isRegisterInFlight, setRegisterInFlight } from '../lib/auth/sessionArtifacts'
+import { clearSessionArtifacts, isLoginInFlight, isRegisterInFlight, setLoginInFlight, setRegisterInFlight } from '../lib/auth/sessionArtifacts'
 
 const AUTH_KEY = 'propertyflow-auth-user'
 const REAL_AUTH_KEY = 'propertyflow-auth-real-user'
@@ -233,7 +233,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // user's live session can fire auth-change events (token refresh,
       // INITIAL_SESSION on a late subscribe). Never hydrate that old identity
       // into the shell mid-registration — the register flow owns the session.
-      if (isRegisterInFlight()) return
+      // P0 empty-DB SA: same for login — a late null from auth-change must not
+      // clear the Super Admin session that login() just applied.
+      if (isRegisterInFlight() || isLoginInFlight()) return
       if (profile) {
         applySessionUser(profile, setSessionUser, setUserId, setRealUserId)
       } else {
@@ -368,31 +370,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isImpersonating,
       demoSwitcherEnabled: DEMO_SWITCHER,
       login: async (email, password) => {
-        if (isSupabaseMode) {
-          const appUser = await supabaseSignIn(email, password)
+        // P0 empty-DB SA: block LoginPage mount purge + auth-change null from
+        // wiping the session we are about to apply.
+        setLoginInFlight(true)
+        try {
+          if (isSupabaseMode) {
+            const appUser = await supabaseSignIn(email, password)
+            setSessionUser(appUser)
+            setUserId(appUser.id)
+            setRealUserId(null)
+            syncActorFromUser(appUserToDto(appUser))
+            void refreshBootstrap({
+              userId: appUser.id,
+              role: appUser.role,
+              agencyId: appUser.agencyId,
+            })
+            return appUser
+          }
+          const res = await apiLogin({ email, password })
+          const appUser = dtoToAppUser(res.user)
           setSessionUser(appUser)
           setUserId(appUser.id)
           setRealUserId(null)
-          syncActorFromUser(appUserToDto(appUser))
+          syncActorFromUser(res.user)
           void refreshBootstrap({
             userId: appUser.id,
             role: appUser.role,
             agencyId: appUser.agencyId,
           })
           return appUser
+        } finally {
+          setLoginInFlight(false)
         }
-        const res = await apiLogin({ email, password })
-        const appUser = dtoToAppUser(res.user)
-        setSessionUser(appUser)
-        setUserId(appUser.id)
-        setRealUserId(null)
-        syncActorFromUser(res.user)
-        void refreshBootstrap({
-          userId: appUser.id,
-          role: appUser.role,
-          agencyId: appUser.agencyId,
-        })
-        return appUser
       },
       register: async (input) => {
         // P0-1: on any failure the visitor must stay anonymous — never attach a
@@ -453,12 +462,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // P0-session (R8): the full anonymous wipe shared by logout and the
         // auth pages' mount purge. Same source of truth as logout — sign out
         // server-side first (best effort), then clear every artifact.
+        // P0 empty-DB SA: if login already started, do not sign out / clear —
+        // LoginPage mounts purge on every visit including /login?next= kicks.
+        if (isLoginInFlight() || isRegisterInFlight()) return
         try {
           if (isSupabaseMode) await supabaseSignOut()
           else await apiLogout()
         } catch {
           /* fall through — artifacts cleared below regardless */
         }
+        if (isLoginInFlight() || isRegisterInFlight()) return
         clearSessionArtifacts({ setSessionUser, setUserId, setRealUserId })
         setApiActor(null)
       },

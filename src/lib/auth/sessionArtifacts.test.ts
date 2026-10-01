@@ -1,6 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import {
   clearSessionArtifacts,
+  isLoginInFlight,
+  setLoginInFlight,
   registerWithSessionGuard,
   AUTH_STORAGE_KEYS,
 } from './sessionArtifacts'
@@ -144,5 +146,16 @@ describe('P0-1 session bleed guard', () => {
     })
     expect(() => clearSessionArtifacts(setters)).not.toThrow()
     expect(setters.setSessionUser).toHaveBeenCalledWith(null)
+  })
+})
+
+describe('loginInFlight (P0 empty-DB SA)', () => {
+  it('toggles login in-flight flag', () => {
+    setLoginInFlight(false)
+    expect(isLoginInFlight()).toBe(false)
+    setLoginInFlight(true)
+    expect(isLoginInFlight()).toBe(true)
+    setLoginInFlight(false)
+    expect(isLoginInFlight()).toBe(false)
   })
 })

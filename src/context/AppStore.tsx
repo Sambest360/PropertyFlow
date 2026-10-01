@@ -161,6 +161,7 @@ import {
   scheduleDeferredFullBootstrap,
 } from '../lib/bootstrapCoord'
 import { readStoredAuthUserId, getApiActor, actorHeaders, type DemoActor } from '../lib/api/actorAuth'
+import { shouldAcceptSupabaseBootstrap, shouldWipeAuthAfterBootstrapMiss } from '../lib/emptyBootstrapAuth'
 import { authHeaders } from '../lib/api/authClient'
 import { buildPublicMarketplaceDemoBootstrap } from '../lib/publicMarketplaceDemo'
 import {
@@ -820,13 +821,24 @@ async function fetchBootstrapFromApi(lite: boolean, actor: DemoActor | null, ful
 
   if (isSupabaseMode) {
     const { fetchSupabaseBootstrap } = await import('../lib/supabase/data')
+    const sessionProof = {
+      actorUserId: actor?.userId ?? null,
+      storedAuthUserId: readStoredAuthUserId(),
+    }
+    let boot: Awaited<ReturnType<typeof fetchSupabaseBootstrap>> | null = null
     try {
-      const boot = await fetchSupabaseBootstrap(lite)
-      // P0-2: with a stale auth id, RLS 401s resolve as EMPTY arrays (not
-      // rejections), so boot can be truthy yet useless. Require units.
-      if (boot?.units?.length) return boot
+      boot = await fetchSupabaseBootstrap(lite)
+      // P0-2: stale auth ids used to yield EMPTY arrays — requiring units
+      // caught that. P0 empty-DB SA: 0 units / 0 agencies with a live session
+      // is valid empty-start, NOT stale-auth (do not wipe propertyflow-auth-user).
+      if (shouldAcceptSupabaseBootstrap({ boot, ...sessionProof })) return boot
     } catch {
-      // Hard failure (network/expired token) — degrade to guest marketplace.
+      // Hard failure (network/expired token).
+      boot = null
+    }
+    if (!shouldWipeAuthAfterBootstrapMiss({ boot, ...sessionProof })) {
+      // Live SA/session: keep auth; return empty boot when present, else null.
+      return boot
     }
     try {
       localStorage.removeItem('propertyflow-auth-user')
