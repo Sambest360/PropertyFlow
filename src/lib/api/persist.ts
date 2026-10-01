@@ -54,9 +54,8 @@ async function quickHealth(): Promise<boolean> {
   return apiLikelyUp
 }
 
-export async function persistToApi(op: PersistOp): Promise<boolean> {
-  if (isSupabaseMode) return persistToSupabase(op)
-  if (!(await quickHealth())) return false
+/** POST /api/persist using DATABASE_URL (bypasses browser RLS). */
+async function persistViaServerApi(op: PersistOp): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE}/api/persist`, {
       method: 'POST',
@@ -69,12 +68,29 @@ export async function persistToApi(op: PersistOp): Promise<boolean> {
       apiLikelyUp = res.status !== 503
       return false
     }
+    apiLikelyUp = true
     return true
   } catch (err) {
     apiLikelyUp = false
     console.warn('[persist] offline / failed', op.resource, op.id, err)
     return false
   }
+}
+
+export async function persistToApi(op: PersistOp): Promise<boolean> {
+  if (isSupabaseMode) {
+    const ok = await persistToSupabase(op)
+    // P0-sync (R11): guest apply under browser RLS often cannot INSERT with the
+    // listing's client_id (mutate policy requires client_id = current_app_client_id,
+    // which is NULL for END_USER). Fall back to the server upsert so staff see
+    // the same APP reference_code the applicant created — same contract, no RPC.
+    if (!ok && op.resource === 'application' && op.action === 'upsert') {
+      return persistViaServerApi(op)
+    }
+    return ok
+  }
+  if (!(await quickHealth())) return false
+  return persistViaServerApi(op)
 }
 
 export async function persistBatchToApi(ops: PersistOp[]): Promise<boolean> {

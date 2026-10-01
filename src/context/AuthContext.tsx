@@ -190,7 +190,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (profile) {
           applySessionUser(profile, setSessionUser, setUserId, setRealUserId)
         } else {
-          setSessionUser(null)
+          // P0-session (R11): leftover propertyflow-auth-* / sb-* must not keep
+          // a signed-out browser looking authenticated on the next probe.
+          clearSessionArtifacts({ setSessionUser, setUserId, setRealUserId })
+          setApiActor(null)
         }
         setAuthReady(true)
         return
@@ -211,7 +214,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           /* ignore */
         }
       } else {
-        setSessionUser(null)
+        clearSessionArtifacts({ setSessionUser, setUserId, setRealUserId })
+        setApiActor(null)
       }
       clearTimeout(readyTimeout)
       setAuthReady(true)
@@ -433,37 +437,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       },
       logout: async () => {
-        // P0-2A (R3): Match the shared signOutAndRedirect behavior for complete
-        // session clearing. A hung/failed network call must never block local clearing.
+        // P0-2A / P0-session (R11): same wipe as signOutAndRedirect (token +
+        // propertyflow-auth-* + sb-*auth*), so leftover Super Admin cannot
+        // resurrect from localStorage alone after a soft logout.
         try {
           if (isSupabaseMode) await supabaseSignOut()
           else await apiLogout()
         } catch {
           /* fall through — session artifacts cleared below regardless */
         }
-        // Clear in-memory state
-        setSessionUser(null)
-        setUserId('')
-        setRealUserId(null)
-        // Clear all localStorage/sessionStorage auth keys
-        try {
-          localStorage.removeItem(AUTH_KEY)
-          localStorage.removeItem(REAL_AUTH_KEY)
-          // Clear any Supabase auth keys
-          const storages = [localStorage, sessionStorage]
-          for (const store of storages) {
-            const keys: string[] = []
-            for (let i = 0; i < store.length; i++) {
-              const key = store.key(i)
-              if (key) keys.push(key)
-            }
-            for (const k of keys) {
-              if (k.startsWith('sb-') && k.includes('auth')) store.removeItem(k)
-            }
-          }
-        } catch {
-          /* ignore */
-        }
+        clearSessionArtifacts({ setSessionUser, setUserId, setRealUserId })
+        setApiActor(null)
       },
       purgeLocalIdentity: async () => {
         // P0-session (R8): the full anonymous wipe shared by logout and the
