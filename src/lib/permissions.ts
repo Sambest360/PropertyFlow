@@ -138,6 +138,7 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'payments.view',
     'reports.view',
     'portal.owner',
+    'documents.view',
     'contractors.view',
     'contractors.manage',
     'maintenance.view',

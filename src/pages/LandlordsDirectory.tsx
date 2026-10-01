@@ -104,7 +104,7 @@ export default function LandlordsDirectory() {
       <div className="animate-fade-in space-y-5">
         <PageHeader
           title="Landlords"
-          subtitle="Property owners linked to your agency. You can add properties without a landlord — use this list when stock is privately owned."
+          subtitle="Property owners linked to your agency. Landlords use My portfolio (owner portal) for assets, landlord-visible payments, maintenance, and applicant review — messaging stays with the agency."
           actions={
             canAddLandlord ? (
               <Link to={addLandlordHref}>

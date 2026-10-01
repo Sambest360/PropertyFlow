@@ -6,6 +6,7 @@ import {
   ClipboardList,
   CreditCard,
   Eye,
+  FileText,
   HardHat,
   Heart,
   Home,
@@ -129,6 +130,12 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
             label: 'Payments',
             permission: 'payments.view',
             icon: CreditCard,
+          },
+          {
+            to: '/workspace/operations/documents',
+            label: 'Documents',
+            permission: 'documents.view',
+            icon: FileText,
           },
           {
             to: '/workspace/operations/communications',
@@ -572,6 +579,73 @@ function buildTenantApplicantNav(
   return dedupeNavEntries([...prepend, ...rest])
 }
 
+
+function buildLandlordOwnerNav(
+  filtered: WorkspaceNavEntry[],
+  portalHome: string,
+): WorkspaceNavEntry[] {
+  const promotedPaths = new Set([
+    portalHome,
+    '/workspace',
+    '/workspace/operations/documents',
+    '/workspace/operations/payments',
+    '/workspace/operations/maintenance',
+    '/workspace/properties',
+    ...TENANT_PORTAL_PATHS,
+    ...CONTRACTOR_PORTAL_PATHS,
+  ])
+
+  const prepend: WorkspaceNavEntry[] = [
+    portalDashboardLink(portalHome),
+    {
+      type: 'link',
+      item: {
+        to: '/workspace/properties',
+        label: 'My properties',
+        anyOf: ['assets.view', 'listings.publish'],
+        icon: Building2,
+      },
+    },
+    {
+      type: 'link',
+      item: {
+        to: '/workspace/operations/documents',
+        label: 'Documents',
+        permission: 'documents.view',
+        icon: FileText,
+      },
+    },
+    {
+      type: 'link',
+      item: {
+        to: '/workspace/operations/payments',
+        label: 'Payments',
+        permission: 'payments.view',
+        icon: CreditCard,
+      },
+    },
+    {
+      type: 'link',
+      item: {
+        to: '/workspace/operations/maintenance',
+        label: 'Maintenance',
+        permission: 'maintenance.view',
+        icon: Wrench,
+      },
+    },
+  ]
+
+  const rest = stripNavPaths(removePortalsGroup(filtered), foreignPortalPathsForRole('landlord')).filter(
+    (entry) => {
+      if (entry.type !== 'link') return true
+      const path = navItemPath(entry.item)
+      return !promotedPaths.has(path)
+    },
+  )
+
+  return dedupeNavEntries([...prepend, ...rest])
+}
+
 function buildPortalActorNav(
   filtered: WorkspaceNavEntry[],
   portalHome: string,
@@ -609,6 +683,10 @@ export function buildWorkspaceNavForActor(input: WorkspaceNavActorInput): Worksp
 
   if (isPureTenantApplicant) {
     return buildTenantApplicantNav(filtered, portalHome, input.tenantOccupancyReady ?? false)
+  }
+
+  if (input.role === 'landlord' && input.has('portal.owner')) {
+    return buildLandlordOwnerNav(filtered, portalHome)
   }
 
   return buildPortalActorNav(filtered, portalHome, input.role)

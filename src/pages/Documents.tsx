@@ -7,25 +7,20 @@ import { RequirePermission } from '../components/RequirePermission'
 import { Badge, Card, Input, PageHeader, Select, statusTone } from '../components/ui'
 import { ResponsiveDataList } from '../components/data/ResponsiveDataList'
 import type { PropertyDocument } from '../types/domain'
-import { resolveDocumentUrl } from '../lib/api/documents'
+import {
+  categoryFilterOptionsForRole,
+  documentCategoryVisibleToRole,
+  resolveDocumentUrl,
+} from '../lib/api/documents'
 
 const ICON_STROKE = 1.6
 
-const CATEGORIES: Array<PropertyDocument['category'] | 'all'> = [
-  'all',
-  'Title',
-  'Compliance',
-  'Lease',
-  'Inspection',
-  'Marketing',
-  'Other',
-]
-
 export default function Documents() {
   const { state } = useStore()
-  const { allowedPropertyIds } = usePropertyScope()
+  const { allowedPropertyIds, role } = usePropertyScope()
+  const categoryOptions = useMemo(() => categoryFilterOptionsForRole(role), [role])
   const [q, setQ] = useState('')
-  const [category, setCategory] = useState<(typeof CATEGORIES)[number]>('all')
+  const [category, setCategory] = useState<PropertyDocument['category'] | 'all'>('all')
 
   const propertyTitle = useMemo(
     () => Object.fromEntries(state.properties.map((p) => [p.id, p.title])),
@@ -33,15 +28,20 @@ export default function Documents() {
   )
 
   const scoped = useMemo(
-    () => state.propertyDocuments.filter((d) => allowedPropertyIds.has(d.propertyId)),
-    [state.propertyDocuments, allowedPropertyIds],
+    () =>
+      state.propertyDocuments.filter(
+        (d) =>
+          allowedPropertyIds.has(d.propertyId) && documentCategoryVisibleToRole(d.category, role),
+      ),
+    [state.propertyDocuments, allowedPropertyIds, role],
   )
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
+    const activeCategory = categoryOptions.includes(category) ? category : 'all'
     return scoped
       .filter((d) => {
-        if (category !== 'all' && d.category !== category) return false
+        if (activeCategory !== 'all' && d.category !== activeCategory) return false
         if (!needle) return true
         const hay = [
           d.name,
@@ -60,15 +60,19 @@ export default function Documents() {
         const bAt = b.uploadedAt ?? ''
         return bAt.localeCompare(aAt) || a.name.localeCompare(b.name)
       })
-  }, [scoped, q, category, propertyTitle])
+  }, [scoped, q, category, categoryOptions, propertyTitle])
+
+  const subtitle =
+    role === 'landlord'
+      ? 'Title, compliance, and lease files for properties you own.'
+      : role === 'tenant'
+        ? 'Lease and compliance documents for your tenancy.'
+        : 'Property register — title, compliance, leases, and inspections for assets in your scope.'
 
   return (
     <RequirePermission permission="documents.view">
       <div className="animate-fade-in space-y-4">
-        <PageHeader
-          title="Documents"
-          subtitle="Property register — title, compliance, leases, and inspections for assets in your scope."
-        />
+        <PageHeader title="Documents" subtitle={subtitle} />
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <Input
@@ -80,11 +84,11 @@ export default function Documents() {
           />
           <Select
             className="min-h-11 cursor-pointer sm:w-44"
-            value={category}
-            onChange={(e) => setCategory(e.target.value as (typeof CATEGORIES)[number])}
+            value={categoryOptions.includes(category) ? category : 'all'}
+            onChange={(e) => setCategory(e.target.value as PropertyDocument['category'] | 'all')}
             aria-label="Filter by category"
           >
-            {CATEGORIES.map((c) => (
+            {categoryOptions.map((c) => (
               <option key={c} value={c}>
                 {c === 'all' ? 'All categories' : c}
               </option>

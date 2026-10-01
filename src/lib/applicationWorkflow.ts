@@ -113,6 +113,8 @@ export type WorkflowTransition = {
   hint: string
   tone?: 'primary' | 'secondary' | 'danger' | 'ghost'
   requires?: Permission[]
+  /** At least one of these permissions (e.g. staff review OR landlord portal). */
+  requiresAny?: Permission[]
   confirm?: string
   /** Side-effect hooks consumed by AppStore */
   effect?: 'approve' | 'schedule_move_in' | 'key_handover' | 'open_checkout'
@@ -329,7 +331,7 @@ export const RENTAL_WORKFLOW: WorkflowTemplate = {
     { from: 'credit_check', to: 'affordability_assessment', actionKey: 'ASSESS_AFFORDABILITY', label: 'Assess affordability', hint: 'Rent-to-income and debt review', tone: 'secondary', requires: ['applications.review'] },
     { from: 'affordability_assessment', to: 'agent_review', actionKey: 'SUBMIT_AGENT_REVIEW', label: 'Submit for agent review', hint: 'Package file for manual decision', tone: 'primary', requires: ['applications.review'] },
     { from: 'agent_review', to: 'landlord_review', actionKey: 'SEND_LANDLORD_REVIEW', label: 'Send to landlord', hint: 'Owner approves or declines tenant', tone: 'secondary', requires: ['applications.review'] },
-    { from: 'landlord_review', to: 'conditionally_approved', actionKey: 'CONDITIONALLY_APPROVE', label: 'Conditionally approve', hint: 'Approve subject to lease and payments', tone: 'primary', requires: ['applications.review'] },
+    { from: 'landlord_review', to: 'conditionally_approved', actionKey: 'CONDITIONALLY_APPROVE', label: 'Conditionally approve', hint: 'Approve subject to lease and payments', tone: 'primary', requiresAny: ['applications.review', 'portal.owner'] },
     { from: 'agent_review', to: 'conditionally_approved', actionKey: 'AGENT_APPROVE', label: 'Approve (agent authority)', hint: 'Skip landlord when mandated', tone: 'primary', requires: ['applications.review'] },
     { from: 'conditionally_approved', to: 'lease_generated', actionKey: 'GENERATE_LEASE', label: 'Generate lease', hint: 'Create lease from agency template', tone: 'primary', requires: ['applications.review'] },
     { from: 'lease_generated', to: 'lease_sent', actionKey: 'SEND_LEASE', label: 'Send lease for signing', hint: 'Email lease to tenant and landlord', tone: 'secondary', requires: ['applications.review'] },
@@ -367,7 +369,7 @@ export const RENTAL_WORKFLOW: WorkflowTemplate = {
     { from: 'viewing_scheduled', to: 'cancelled', actionKey: 'CANCEL_VIEWING', label: 'Cancel viewing', hint: 'Viewing cancelled — reschedule or close', tone: 'ghost', requires: ['applications.review'] },
     { from: 'credit_check', to: 'rejected', actionKey: 'DECLINE_CREDIT', label: 'Decline (credit)', hint: 'Credit declined — notify applicant', tone: 'danger', requires: ['applications.review'], confirm: 'Reject due to credit outcome?' },
     { from: 'agent_review', to: 'rejected', actionKey: 'REJECT_APPLICATION', label: 'Reject application', hint: 'Decline after manual review', tone: 'danger', requires: ['applications.review'], confirm: 'Reject this application?' },
-    { from: 'landlord_review', to: 'rejected', actionKey: 'LANDLORD_REJECTED', label: 'Landlord rejected', hint: 'Owner declined this applicant', tone: 'danger', requires: ['applications.review'], confirm: 'Record landlord rejection?' },
+    { from: 'landlord_review', to: 'rejected', actionKey: 'LANDLORD_REJECTED', label: 'Landlord rejected', hint: 'Owner declined this applicant', tone: 'danger', requiresAny: ['applications.review', 'portal.owner'], confirm: 'Record landlord rejection?' },
     { from: 'deposit_invoice_sent', to: 'cancelled', actionKey: 'CANCEL_NO_DEPOSIT', label: 'Cancel (no deposit)', hint: 'Deposit not received in time', tone: 'danger', requires: ['applications.review'], confirm: 'Cancel — deposit not received?' },
     // P0-approve (R10): recovery for applications already past approval but
     // WITHOUT a durable lease (the stuck 71% defect — the approve machine
@@ -567,6 +569,7 @@ export function getAvailableTransitions(
   return template.transitions.filter((t) => {
     if (t.from !== status) return false
     if (t.requires?.length && !t.requires.every((p) => actorPermissions.includes(p))) return false
+    if (t.requiresAny?.length && !t.requiresAny.some((p) => actorPermissions.includes(p))) return false
     // P0-approve (R10): the recovery transition is only offered when the
     // application is provably WITHOUT a lease. Apps already holding a real
     // lease keep the plain Confirm-deposit flow.
