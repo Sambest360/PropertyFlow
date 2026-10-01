@@ -108,15 +108,15 @@ export default function TrustPayouts() {
     [state.payoutInstructions, agencyId]
   )
 
-  function handleApprove(id: string) {
+  async function handleApprove(id: string) {
     if (!user) return
-    const result = approvePayoutInstruction({ instructionId: id, approverUserId: user.id })
+    const result = await approvePayoutInstruction({ instructionId: id, approverUserId: user.id })
     setActionError(result.ok ? null : (result.error ?? 'Approval failed'))
   }
 
-  function handleSubmit(id: string) {
+  async function handleSubmit(id: string) {
     if (!user) return
-    const result = submitPayoutInstruction({ instructionId: id, actorUserId: user.id })
+    const result = await submitPayoutInstruction({ instructionId: id, actorUserId: user.id })
     setActionError(result.ok ? null : (result.error ?? 'Submission failed'))
   }
 
@@ -215,17 +215,19 @@ export default function TrustPayouts() {
                 <div className="text-right">
                   <p className="text-lg font-semibold text-ink">{formatCents(payout.amountCents)}</p>
                   <div className="mt-2 flex gap-2">
-                    {payout.status === 'proposed' && payout.proposedBy !== user?.id && (
+                    {(payout.status === 'proposed' || payout.status === 'pending_approval') &&
+                      payout.proposedBy !== user?.id && (
                       <Button
                         variant="primary"
                         size="sm"
-                        onClick={() => handleApprove(payout.id)}
+                        onClick={() => void handleApprove(payout.id)}
                       >
                         <CheckCircle2 className="h-4 w-4" />
                         Approve
                       </Button>
                     )}
-                    {payout.status === 'proposed' && payout.proposedBy === user?.id && (
+                    {(payout.status === 'proposed' || payout.status === 'pending_approval') &&
+                      payout.proposedBy === user?.id && (
                       <p className="max-w-[9rem] text-[11px] leading-snug text-ink-400">
                         Awaiting a second user to approve (dual control)
                       </p>
@@ -234,11 +236,16 @@ export default function TrustPayouts() {
                       <Button
                         variant="primary"
                         size="sm"
-                        onClick={() => handleSubmit(payout.id)}
+                        onClick={() => void handleSubmit(payout.id)}
                       >
                         <Wallet className="h-4 w-4" />
                         Submit
                       </Button>
+                    )}
+                    {payout.status === 'submitted' && (
+                      <p className="max-w-[9rem] text-[11px] leading-snug text-ink-400">
+                        Submitted (in-app) — not settled; no partnerPayoutId
+                      </p>
                     )}
                   </div>
                 </div>

@@ -873,6 +873,8 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
     status: d.status as string,
     statutoryDeadlineOn: d.statutory_deadline_on ? dateOnly(d.statutory_deadline_on as string) : null,
     interestRateUnknown: Boolean(d.interest_rate_unknown),
+    releaseProposedBy: mapUserFe(d.release_proposed_by as string | null),
+    releaseApprovedBy: mapUserFe(d.release_approved_by as string | null),
     createdAt: iso(d.created_at as string) ?? new Date().toISOString(),
     updatedAt: iso(d.updated_at as string) ?? new Date().toISOString(),
   }))

@@ -311,6 +311,8 @@ export const seedDepositHoldings: DepositHolding[] = [
     interestAccruedCents: 12500, // R125.00
     status: 'held',
     statutoryDeadlineOn: '2027-01-07', // lease_end + 7 days
+    releaseProposedBy: null,
+    releaseApprovedBy: null,
     interestRateUnknown: false,
     createdAt: '2026-07-15T14:30:00.000Z',
     updatedAt: '2026-08-01T08:00:00.000Z',
@@ -324,6 +326,8 @@ export const seedDepositHoldings: DepositHolding[] = [
     interestAccruedCents: 9500, // R95.00
     status: 'held',
     statutoryDeadlineOn: '2026-10-07', // lease_end + 7 days
+    releaseProposedBy: null,
+    releaseApprovedBy: null,
     interestRateUnknown: false,
     createdAt: '2026-04-01T10:00:00.000Z',
     updatedAt: '2026-08-01T08:00:00.000Z',
@@ -337,6 +341,8 @@ export const seedDepositHoldings: DepositHolding[] = [
     interestAccruedCents: 14500, // R145.00
     status: 'held',
     statutoryDeadlineOn: '2027-05-21', // lease_end + 7 days
+    releaseProposedBy: null,
+    releaseApprovedBy: null,
     interestRateUnknown: false,
     createdAt: '2026-05-15T10:00:00.000Z',
     updatedAt: '2026-08-01T08:00:00.000Z',

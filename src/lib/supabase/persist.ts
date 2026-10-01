@@ -998,6 +998,8 @@ async function upsertDepositHolding(id: string, data: Record<string, unknown>): 
       ? str(data.statutoryDeadlineOn).slice(0, 10)
       : null,
     interest_rate_unknown: data.interestRateUnknown === true,
+    release_proposed_by: await userUuid(data.releaseProposedBy),
+    release_approved_by: await userUuid(data.releaseApprovedBy),
     updated_at: new Date().toISOString(),
   })
   throwIfUpsertFailed(res, 'deposit_holding')

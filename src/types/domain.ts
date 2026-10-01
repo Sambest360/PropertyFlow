@@ -880,6 +880,10 @@ export type DepositHolding = {
   status: 'expected' | 'held' | 'release_proposed' | 'release_approved' | 'refunded' | 'applied_to_arrears' | 'split' | 'disputed'
   statutoryDeadlineOn: string | null
   interestRateUnknown: boolean
+  /** Dual-control: who proposed release (null until propose). */
+  releaseProposedBy: string | null
+  /** Dual-control: who approved release (null until approve; must ≠ proposer). */
+  releaseApprovedBy: string | null
   createdAt: string
   updatedAt: string
 }

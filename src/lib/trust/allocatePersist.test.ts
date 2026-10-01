@@ -9,6 +9,7 @@ const TRUST_PERSIST_RESOURCES = [
   'trust_allocation',
   'csv_import_batch',
   'payout_instruction',
+  'deposit_holding',
 ] as const
 
 describe('DQ-M1 allocate / persist honesty', () => {
@@ -16,6 +17,8 @@ describe('DQ-M1 allocate / persist honesty', () => {
     expect(TRUST_PERSIST_RESOURCES).toContain('trust_transaction')
     expect(TRUST_PERSIST_RESOURCES).toContain('trust_allocation')
     expect(TRUST_PERSIST_RESOURCES).toContain('csv_import_batch')
+    expect(TRUST_PERSIST_RESOURCES).toContain('deposit_holding')
+    expect(TRUST_PERSIST_RESOURCES).toContain('payout_instruction')
   })
 
   it('allocate status transitions stay within 007 schema', () => {
