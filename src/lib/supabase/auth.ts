@@ -4,6 +4,7 @@ import { RegistrationRedirectError } from '../auth/registrationErrors'
 import type { AppUser, Role } from '../../types/domain'
 import type { UserVerification, VerificationDocument } from '../verification'
 import { EMAIL_TO_USER, resolveFrontendRole } from './idMap.js'
+import { resolveAuthChangeDecision } from './authChange.js'
 import type { AuthUserDto } from '../api/authClient'
 
 export function supabaseAuthEnabled(): boolean {
@@ -498,22 +499,34 @@ export function onSupabaseAuthChange(
   cb: (user: AppUser | null) => void,
 ): { unsubscribe: () => void } {
   const supabase = createClient()
-  const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
-    if (!session?.user) {
-      cb(null)
-      return
-    }
-    // P0-session hygiene: INITIAL_SESSION replays the locally cached sb-*
-    // session, so validate it against the auth server before surfacing a
-    // profile — a cached-but-dead session resolves as guest, never as the
-    // previous staff user.
-    const { data: verified, error } = await supabase.auth.getUser()
-    if (error || !verified.user || verified.user.id !== session.user.id) {
-      cb(null)
-      return
-    }
-    const profile = await loadProfileForSession(verified.user.id)
-    cb(profile)
+  const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+    // P0 empty-DB SA: defer async work so we do not await getUser()/profile
+    // while GoTrue still holds the onAuthStateChange lock (deadlock / failed
+    // verify → false signed-out while JWT remains → RequireAuth → /login?next=).
+    setTimeout(() => {
+      void (async () => {
+        const decision = await resolveAuthChangeDecision({
+          sessionUserId: session?.user?.id,
+          verifyUser: async () => {
+            if (!session?.user) return null
+            const { data: verified, error } = await supabase.auth.getUser()
+            if (error || !verified.user) return null
+            return { id: verified.user.id }
+          },
+          loadProfile: loadProfileForSession,
+        })
+        if (decision.action === 'signed_out') {
+          cb(null)
+          return
+        }
+        if (decision.action === 'apply' && decision.profile) {
+          cb(decision.profile as AppUser)
+          return
+        }
+        // keep: live JWT, profile miss — do not cb(null); login() already
+        // applied the Super Admin profile into AuthContext.
+      })()
+    }, 0)
   })
   return { unsubscribe: () => data.subscription.unsubscribe() }
 }

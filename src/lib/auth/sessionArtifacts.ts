@@ -76,3 +76,15 @@ export function setRegisterInFlight(inFlight: boolean): void {
 export function isRegisterInFlight(): boolean {
   return registerInFlight
 }
+
+// P0 empty-DB SA: LoginPage mount purge must not race a concurrent sign-in.
+// Same pattern as registerInFlight — login owns the shell for its duration.
+let loginInFlight = false
+
+export function setLoginInFlight(inFlight: boolean): void {
+  loginInFlight = inFlight
+}
+
+export function isLoginInFlight(): boolean {
+  return loginInFlight
+}
