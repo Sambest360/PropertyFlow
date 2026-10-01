@@ -863,9 +863,12 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
        $13::date, $14::jsonb, COALESCE($15::timestamptz, NOW()), NOW()
      )
      ON CONFLICT (id) DO UPDATE SET
+       -- P0-sync (R12): never leave a null/stale agency client_id on re-upsert.
+       client_id = COALESCE(EXCLUDED.client_id, applications.client_id),
        unit_id = EXCLUDED.unit_id,
        applicant_id = EXCLUDED.applicant_id,
        agent_id = EXCLUDED.agent_id,
+       reference_code = COALESCE(EXCLUDED.reference_code, applications.reference_code),
        status = EXCLUDED.status,
        monthly_income = EXCLUDED.monthly_income,
        employment_summary = EXCLUDED.employment_summary,
@@ -897,10 +900,14 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
         applicantName: d.applicantName ?? null,
         email: d.email ?? null,
         phone: d.phone ?? null,
+        // Match supabase persist keys so staff bootstrap can denormalise name/email.
+        applicant_name: d.applicantName ?? null,
+        applicant_email: d.email ?? null,
         viewingSlotId: d.viewingSlotId ?? null,
         progress: d.progress ?? null,
         keyCollection: d.keyCollection ?? null,
         stage: d.stage ?? null,
+        workflow_status: d.workflowStatus ?? null,
       }),
       d.submittedAt ? str(d.submittedAt) : null,
     ],

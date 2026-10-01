@@ -361,7 +361,9 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
             }>('SELECT * FROM internal_assets'),
       () => query('SELECT * FROM leads ORDER BY created_at DESC LIMIT $1', [limits.leads]),
       () =>
-        query('SELECT * FROM applications ORDER BY submitted_at NULLS LAST LIMIT $1', [
+        // P0-sync (R12): newest first — ASC submitted_at + LIMIT dropped guest apps
+        // past the window while applicants kept optimistic/local copies.
+        query('SELECT * FROM applications ORDER BY updated_at DESC NULLS LAST LIMIT $1', [
           limits.applications,
         ]),
       () => query('SELECT * FROM leases ORDER BY start_date'),
@@ -712,15 +714,24 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     const ref = a.reference_code as string
     const meta = (a.metadata as Record<string, unknown> | null) ?? {}
     const stageFromMeta = typeof meta.stage === 'string' ? meta.stage : null
+    // P0-sync (R12): denormalised guest identity — users join can miss fresh applicants.
+    const metaName =
+      (typeof meta.applicant_name === 'string' && meta.applicant_name.trim()) ||
+      (typeof meta.applicantName === 'string' && meta.applicantName.trim()) ||
+      ''
+    const metaEmail =
+      (typeof meta.applicant_email === 'string' && meta.applicant_email) ||
+      (typeof meta.email === 'string' && meta.email) ||
+      ''
     return {
       id: APP_REF_TO_ID[ref] ?? ref,
       agencyId: agencyFe(a.client_id as string)!,
       propertyId: mapProperty(a.unit_id as string)!,
       agentId: mapUser(a.agent_id as string | null),
       applicantUserId: mapUser(a.applicant_id as string | null),
-      applicantName: 'Applicant',
-      email: '',
-      phone: '',
+      applicantName: metaName || 'Applicant',
+      email: metaEmail,
+      phone: typeof meta.phone === 'string' ? meta.phone : '',
       type: (a.application_type as string) === 'PURCHASE' ? 'Purchase' : 'Rental',
       stage: stageFromMeta ?? appStage(a.status as string),
       progress: typeof meta.progress === 'number' ? meta.progress : 50,

@@ -77,17 +77,27 @@ async function persistViaServerApi(op: PersistOp): Promise<boolean> {
   }
 }
 
+/** Guest Apply must land via DATABASE_URL — browser RLS cannot stamp listing client_id. */
+export function preferServerPersistForApplication(
+  resource: PersistOp['resource'],
+  action: PersistOp['action'],
+): boolean {
+  return resource === 'application' && action === 'upsert'
+}
+
 export async function persistToApi(op: PersistOp): Promise<boolean> {
   if (isSupabaseMode) {
-    const ok = await persistToSupabase(op)
-    // P0-sync (R11): guest apply under browser RLS often cannot INSERT with the
-    // listing's client_id (mutate policy requires client_id = current_app_client_id,
-    // which is NULL for END_USER). Fall back to the server upsert so staff see
-    // the same APP reference_code the applicant created — same contract, no RPC.
-    if (!ok && op.resource === 'application' && op.action === 'upsert') {
-      return persistViaServerApi(op)
+    // P0-sync (R12): prefer /api/persist FIRST for application upserts.
+    // Browser RLS WITH CHECK (client_id = current_app_client_id()) rejects
+    // END_USER inserts that carry the listing agency client_id — guests then
+    // kept optimistic My Apps rows staff bootstrap never loaded. Server path
+    // uses DATABASE_URL (bypasses RLS) and stamps the same APP-* reference.
+    // Fall back to browser supabase only when the API is unavailable.
+    if (preferServerPersistForApplication(op.resource, op.action)) {
+      if (await persistViaServerApi(op)) return true
+      return persistToSupabase(op)
     }
-    return ok
+    return persistToSupabase(op)
   }
   if (!(await quickHealth())) return false
   return persistViaServerApi(op)
