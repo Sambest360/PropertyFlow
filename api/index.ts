@@ -6,10 +6,15 @@
  * /api/auth/register-supabase fell through to the SPA rewrite and answered
  * 405 (HTML for a POST). Restored verbatim from 86d5d99~1 so the register
  * method the client actually calls exists again.
+ *
+ * Handler contract: do NOT use `hono/vercel`'s `handle()` here. That returns a
+ * Web `Response` from a bare function; on this Vite `/api` project Vercel treats
+ * the default export as Node `(req, res)` and ignores the return → 30s
+ * FUNCTION_INVOCATION_TIMEOUT (reproduced on /api/health and ?db=0).
  */
 import { Hono } from 'hono'
-import { handle } from 'hono/vercel'
 import type { Hono as HonoApp } from 'hono'
+import { createVercelNodeHandler } from '../server/vercelNodeBridge.js'
 
 let mainApp: HonoApp | null = null
 let mainLoading: Promise<HonoApp> | null = null
@@ -82,4 +87,4 @@ gateway.all('*', async (c) => {
   return app.fetch(c.req.raw)
 })
 
-export default handle(gateway)
+export default createVercelNodeHandler((request) => gateway.fetch(request))

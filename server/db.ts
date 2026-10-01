@@ -80,12 +80,17 @@ export async function query<T extends pg.QueryResultRow = pg.QueryResultRow>(
 
 /** Fail fast when Postgres is slow or unreachable (serverless cold starts). */
 export async function pingDatabase(timeoutMs = 4_000): Promise<void> {
-  await Promise.race([
-    query('SELECT 1 AS ok'),
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('database ping timed out')), timeoutMs),
-    ),
-  ])
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      query('SELECT 1 AS ok'),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('database ping timed out')), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
 }
 
 export async function withTransaction<T>(
