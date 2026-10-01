@@ -50,6 +50,7 @@ const ContractorPortal = lazy(() => import('./pages/ContractorPortal'))
 const StaffDirectory = lazy(() => import('./pages/StaffDirectory'))
 const StaffDetail = lazy(() => import('./pages/StaffDetail'))
 const TenantDirectory = lazy(() => import('./pages/TenantDirectory'))
+const LeasesDirectory = lazy(() => import('./pages/LeasesDirectory'))
 const LandlordsDirectory = lazy(() => import('./pages/LandlordsDirectory'))
 const OccupantDetail = lazy(() => import('./pages/OccupantDetail'))
 const AdminHub = lazy(() => import('./pages/admin/AdminHub'))
@@ -307,6 +308,7 @@ export default function App() {
                 <Route path="people/staff/:id" element={<Guard permission="users.manage"><StaffDetail /></Guard>} />
                 <Route path="people/tenants" element={<Guard permission="occupants.view"><TenantDirectory /></Guard>} />
                 <Route path="people/tenants/:id" element={<Guard permission="occupants.view"><OccupantDetail /></Guard>} />
+                <Route path="people/leases" element={<Guard permission="occupants.view"><LeasesDirectory /></Guard>} />
                 <Route path="people/landlords" element={<Guard anyOf={['users.manage', 'assets.manage']}><LandlordsDirectory /></Guard>} />
 
                 <Route path="insights/reports" element={<Guard permission="reports.view"><Reports /></Guard>} />

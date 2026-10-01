@@ -592,6 +592,9 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
         contactName: tenant?.name ?? 'Agent',
         contactPhone: '',
       },
+      leaseDocumentId: (meta.leaseDocumentId as string | null | undefined) ?? null,
+      leasePdfUrl: (meta.leasePdfUrl as string | null | undefined) ?? null,
+      eSign: (meta.eSign as import('../../types/domain').TenancyESign | null | undefined) ?? null,
     }
   })
 

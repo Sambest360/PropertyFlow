@@ -783,6 +783,9 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
       deposit: Number(l.deposit_amount),
       status: (l.status as string) === 'ACTIVE' ? ('Active' as const) : ('Pending Move-In' as const),
       keyCollection,
+      leaseDocumentId: (meta.leaseDocumentId as string | null | undefined) ?? null,
+      leasePdfUrl: (meta.leasePdfUrl as string | null | undefined) ?? null,
+      eSign: (meta.eSign as Record<string, unknown> | null | undefined) ?? null,
     }
   })
 

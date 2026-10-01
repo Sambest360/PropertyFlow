@@ -447,6 +447,39 @@ export type PaymentRecord = {
   recordedByName?: string | null
 }
 
+/** Lease e-sign snapshot — see src/lib/lease (roadmap Step 5). */
+export type TenancyESign = {
+  status:
+    | 'not_started'
+    | 'generated'
+    | 'sent'
+    | 'partially_signed'
+    | 'completed'
+    | 'declined'
+    | 'failed'
+  provider: string
+  live: boolean
+  nonProduction: boolean
+  envelopeId: string | null
+  externalReference: string | null
+  leaseDocumentId: string | null
+  pdfUrl: string | null
+  tenant: {
+    status: 'pending' | 'signed' | 'declined' | 'waived'
+    signedAt?: string
+    signerName?: string
+    signatureDataUrl?: string
+  }
+  landlord: {
+    status: 'pending' | 'signed' | 'declined' | 'waived'
+    signedAt?: string
+    signerName?: string
+    signatureDataUrl?: string
+  } | null
+  events: Array<{ at: string; type: string; party?: 'tenant' | 'landlord'; summary: string }>
+  note?: string
+}
+
 export type Tenancy = {
   id: string
   agencyId: string
@@ -468,6 +501,12 @@ export type Tenancy = {
     contactName: string
     contactPhone: string
   }
+  /** PropertyDocument id for the generated lease PDF (category Lease). */
+  leaseDocumentId?: string | null
+  /** Data URL or storage URL for the lease PDF. */
+  leasePdfUrl?: string | null
+  /** Real e-sign status — workflow stages must mirror this, not decorate. */
+  eSign?: TenancyESign | null
 }
 
 export type MessageThread = {
