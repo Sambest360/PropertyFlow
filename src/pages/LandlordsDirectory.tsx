@@ -18,6 +18,7 @@ import { directoryResultLabel } from '../components/directory/DirectoryFilters'
 import { withReturnTo } from '../lib/returnTo'
 import { Badge, Button, PageHeader, cn } from '../components/ui'
 import type { AppUser } from '../types/domain'
+import { OwnerStatementDownloadPanel } from '../components/ownerStatement/OwnerStatementDownloadPanel'
 
 const ICON_STROKE = 1.6
 const VIEW_KEY = 'propertyflow-landlords-view'
@@ -41,6 +42,8 @@ export default function LandlordsDirectory() {
   const [sort, setSort] = useState('name')
 
   const canAddLandlord = has('users.manage') || has('roles.assign')
+  const canDownloadStatement =
+    has('trust.view') || has('payments.view') || has('documents.view') || has('trust.view_own_statement')
   const addLandlordHref = withReturnTo(
     agencyId
       ? `/workspace/admin/users/new?intent=landlord&agencyId=${encodeURIComponent(agencyId)}`
@@ -198,6 +201,18 @@ export default function LandlordsDirectory() {
                     {item.propertyCount} {item.propertyCount === 1 ? 'property' : 'properties'}
                   </Badge>
                   <VerificationStatusBadge user={item.user} />
+                  {canDownloadStatement && item.user.agencyId ? (
+                    <div className="w-full basis-full">
+                      <OwnerStatementDownloadPanel
+                        landlordUserId={item.user.id}
+                        landlordName={item.user.name}
+                        agencyId={item.user.agencyId}
+                        agencyName={item.agencyName}
+                        storeDocument
+                        compact
+                      />
+                    </div>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -227,6 +242,16 @@ export default function LandlordsDirectory() {
                 <p className="mt-4 border-t border-primary-50 pt-3 text-sm text-ink-600">
                   {item.propertyCount} linked {item.propertyCount === 1 ? 'property' : 'properties'}
                 </p>
+                {canDownloadStatement && item.user.agencyId ? (
+                  <OwnerStatementDownloadPanel
+                    landlordUserId={item.user.id}
+                    landlordName={item.user.name}
+                    agencyId={item.user.agencyId}
+                    agencyName={item.agencyName}
+                    storeDocument
+                    compact
+                  />
+                ) : null}
               </div>
             ))}
           </div>
