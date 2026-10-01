@@ -895,6 +895,16 @@ export const seedThreads: MessageThread[] = [
     routesTo: 'agent',
     updatedAt: '2026-07-22T09:00:00.000Z',
   },
+  {
+    id: 'TH-OWNER-1',
+    agencyId: 'ag-horizon',
+    propertyId: 'PR-1002',
+    applicationId: 'APP-903',
+    subject: 'Owner↔tenant — rent timing (Mode A in-app)',
+    participantIds: ['u-lucas', 'u-owner1'],
+    routesTo: 'landlord',
+    updatedAt: '2026-07-25T10:00:00.000Z',
+  },
   ...monthThreads,
 ]
 
@@ -914,6 +924,22 @@ export const seedMessages: Message[] = [
     fromUserId: 'u-james',
     body: 'Thanks Lucas — I logged a maintenance ticket and assigned AquaFix. They will arrange access.',
     at: '2026-07-22T09:00:00.000Z',
+  },
+  {
+    id: 'MSG-OWNER-1',
+    threadId: 'TH-OWNER-1',
+    agencyId: 'ag-horizon',
+    fromUserId: 'u-lucas',
+    body: 'Hi — can we confirm rent due date for August? (In-app only — not WhatsApp.)',
+    at: '2026-07-25T09:45:00.000Z',
+  },
+  {
+    id: 'MSG-OWNER-2',
+    threadId: 'TH-OWNER-1',
+    agencyId: 'ag-horizon',
+    fromUserId: 'u-owner1',
+    body: 'Yes — due on the 1st as per lease. Thanks for checking in-app.',
+    at: '2026-07-25T10:00:00.000Z',
   },
   ...monthMessages,
 ]

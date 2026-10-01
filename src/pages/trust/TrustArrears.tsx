@@ -2,8 +2,10 @@ import { useMemo, useState } from 'react'
 import {
   MessageSquare,
 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { useStore } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
+import { buildArrearsMessageThreadInput, MESSAGING_MODE_A_SHORT } from '../../lib/messaging/modeA'
 import { formatZAR } from '../../data/seed'
 import { PageHeader, Card, Button, Input, EmptyState } from '../../components/ui'
 import { DashboardPage } from '../../components/dashboard'
@@ -22,9 +24,12 @@ function formatDate(dateStr: string): string {
 }
 
 export default function TrustArrears() {
-  const { state } = useStore()
+  const { state, createThread } = useStore()
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [searchQuery, setSearchQuery] = useState('')
+  const [msgBusyId, setMsgBusyId] = useState<string | null>(null)
+  const [msgNote, setMsgNote] = useState<string | null>(null)
 
   const agencyId = user?.agencyId
 
@@ -61,7 +66,12 @@ export default function TrustArrears() {
         title="Arrears"
         subtitle="Demo ageing buckets from seed snapshots (Mode A — not live bank arrears)"
       />
-      <TrustModeABanner extra="Arrears rows are seed/demo snapshots, not live PaymentRecord ageing. Messaging is not wired here." />
+      <TrustModeABanner extra={`Arrears rows are seed/demo snapshots, not live PaymentRecord ageing. Message opens an in-app thread (${MESSAGING_MODE_A_SHORT}).`} />
+      {msgNote ? (
+        <div className="rounded-xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-ink-700" role="status">
+          {msgNote}
+        </div>
+      ) : null}
 
       {/* Summary */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-5">
@@ -172,8 +182,38 @@ export default function TrustArrears() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      disabled
-                      title="Messaging not wired — Step 8"
+                      disabled={msgBusyId === snapshot.id}
+                      title={`Create in-app arrears thread (${MESSAGING_MODE_A_SHORT})`}
+                      onClick={() => {
+                        if (!user?.id) return
+                        const tenancy = state.tenancies.find((t) => t.id === snapshot.occupancyId)
+                        if (!tenancy?.tenantUserId) {
+                          setMsgNote('No tenant on this occupancy — cannot start in-app thread.')
+                          return
+                        }
+                        setMsgBusyId(snapshot.id)
+                        try {
+                          const total =
+                            snapshot.d30 + snapshot.d60 + snapshot.d90 + snapshot.d90plus
+                          const input = buildArrearsMessageThreadInput({
+                            agencyId: snapshot.agencyId,
+                            propertyId: tenancy.propertyId,
+                            applicationId: tenancy.applicationId ?? null,
+                            occupancyId: snapshot.occupancyId,
+                            staffUserId: user.id,
+                            tenantUserId: tenancy.tenantUserId,
+                            landlordId: tenancy.landlordId ?? null,
+                            totalCents: total,
+                          })
+                          const thread = createThread(input)
+                          setMsgNote(
+                            `In-app thread created (${thread.id}) — Mode A only, not WhatsApp/SMS.`,
+                          )
+                          navigate('/workspace/operations/communications')
+                        } finally {
+                          setMsgBusyId(null)
+                        }
+                      }}
                     >
                       <MessageSquare className="h-4 w-4" />
                       Message
@@ -190,7 +230,7 @@ export default function TrustArrears() {
       <Card className="p-5">
         <h3 className="mb-3 text-lg font-semibold text-ink">Arrears Reminder Sequence</h3>
         <div className="space-y-2 text-sm text-ink-600">
-          <p>• <strong>Day +3:</strong> First reminder (in-app message + email)</p>
+          <p>• <strong>Day +3:</strong> First reminder (in-app message — Mode A, not email/SMS)</p>
           <p>• <strong>Day +7:</strong> Second reminder</p>
           <p>• <strong>Day +14:</strong> Final reminder before escalation</p>
           <p>• <strong>Letter of Demand:</strong> PDF "account statement + overdue notice" (not a legal demand)</p>
@@ -200,7 +240,7 @@ export default function TrustArrears() {
       <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-900">
         <strong>Demo note:</strong> Ageing buckets shown here are seed snapshots for soft-demo. Live
         PaymentRecord overdue drives the Payments / dunning Mode A surface — not this Trust page yet.
-        SMS / live messaging is out of scope.
+        SMS / WhatsApp delivery is out of scope — Message creates an in-app thread only.
       </div>
     </DashboardPage>
   )

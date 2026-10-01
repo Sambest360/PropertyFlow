@@ -71,8 +71,31 @@ const raw = {
     { propertyId: 'p-b1', agencyId: 'ag-b' },
   ],
   tickets: [],
-  threads: [],
-  messages: [],
+  threads: [
+    {
+      id: 'th-owner',
+      agencyId: 'ag-a',
+      propertyId: 'p-a1',
+      participantIds: ['u-ll-a', 'u-tenant'],
+    },
+    {
+      id: 'th-agency-only',
+      agencyId: 'ag-a',
+      propertyId: 'p-a1',
+      participantIds: ['u-james', 'u-tenant'],
+    },
+    {
+      id: 'th-other-ll',
+      agencyId: 'ag-a',
+      propertyId: 'p-a2',
+      participantIds: ['u-ll-b', 'u-other-tenant'],
+    },
+  ],
+  messages: [
+    { id: 'm1', threadId: 'th-owner' },
+    { id: 'm2', threadId: 'th-agency-only' },
+    { id: 'm3', threadId: 'th-other-ll' },
+  ],
   notifications: [
     { userId: 'u-james', agencyId: 'ag-a' },
     { userId: 'u-other', agencyId: 'ag-b' },
@@ -144,6 +167,22 @@ describe('Agency bootstrap filtering', () => {
     expect(out.payments).toEqual([
       expect.objectContaining({ partyUserId: 'u-tenant', propertyId: 'p-a1' }),
     ])
+  })
+
+
+  it('landlords keep participant threads on bootstrap (Mode A)', () => {
+    const actor: DemoActor = {
+      userId: 'u-ll-a',
+      role: 'landlord',
+      agencyId: 'ag-a',
+    }
+    const scope = buildPropertyScope(
+      { role: actor.role, userId: actor.userId, agencyId: actor.agencyId, agencySuspended: false },
+      { properties: raw.properties },
+    )
+    const out = filterBootstrapForActor(raw, actor, scope)
+    expect(out.threads.map((t) => t.id)).toEqual(['th-owner'])
+    expect(out.messages.map((m) => m.id)).toEqual(['m1'])
   })
 
   it('leaves platform admin data unscoped', () => {

@@ -748,7 +748,10 @@ export function filterBootstrapForActor(
   })
   const propertyDocuments = raw.propertyDocuments.filter((d) => allowed.has(d.propertyId))
   const threads = raw.threads.filter((th) => {
-    if (actor.role === 'landlord') return false
+    // Mode A: landlords/tenants see threads where they are participants (match client threadInScope).
+    if (actor.role === 'landlord' || actor.role === 'tenant') {
+      return th.participantIds.includes(actor.userId)
+    }
     if (th.participantIds.includes(actor.userId)) return true
     if (!th.propertyId) return false
     return allowed.has(th.propertyId)

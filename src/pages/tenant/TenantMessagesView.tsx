@@ -3,7 +3,12 @@ import { Link } from 'react-router-dom'
 import { MessageCircle, Send } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
 import type { TenantPortalState } from '../../hooks/useTenantPortalState'
-import { Badge, Button, Card, Input, Textarea } from '../../components/ui'
+import { Badge, Button, Card, Input, Select, Textarea } from '../../components/ui'
+import { MessagingModeABanner } from '../../components/messaging/MessagingModeABanner'
+import {
+  resolveTenantComposeTarget,
+  routesToBadgeLabel,
+} from '../../lib/messaging/modeA'
 
 const ICON_STROKE = 1.6
 
@@ -12,6 +17,13 @@ export function TenantMessagesView({ portal }: { portal: TenantPortalState }) {
   const [newSubject, setNewSubject] = useState('')
   const [draft, setDraft] = useState('')
   const [activeId, setActiveId] = useState('')
+  const [target, setTarget] = useState<'landlord' | 'agency'>('landlord')
+
+  const landlordId =
+    portal.tenancy?.landlordId ??
+    state.properties.find((p) => p.id === portal.tenancy?.propertyId)?.landlordId ??
+    portal.property?.landlordId ??
+    null
 
   const threads = useMemo(
     () =>
@@ -31,7 +43,7 @@ export function TenantMessagesView({ portal }: { portal: TenantPortalState }) {
     .filter((m) => m.threadId === active?.id)
     .sort((a, b) => a.at.localeCompare(b.at))
 
-  const nameOf = (id: string) => state.users.find((u) => u.id === id)?.name ?? 'Agency'
+  const nameOf = (id: string) => state.users.find((u) => u.id === id)?.name ?? 'User'
 
   const startThread = () => {
     if (!newSubject.trim() || !portal.user.agencyId) return
@@ -39,13 +51,21 @@ export function TenantMessagesView({ portal }: { portal: TenantPortalState }) {
       portal.tenancy?.agentId ??
       state.properties.find((p) => p.id === portal.tenancy?.propertyId)?.agentId ??
       state.properties.find((p) => p.agencyId === portal.user.agencyId)?.agentId
+    const preferLandlord = target === 'landlord' && Boolean(landlordId)
+    const composed = resolveTenantComposeTarget({
+      preferLandlord,
+      tenantUserId: portal.user.id,
+      landlordId,
+      agentId,
+    })
+    if (composed.participantIds.length < 2 && composed.routesTo !== 'agency') return
     const thread = createThread({
       agencyId: portal.user.agencyId,
       propertyId: portal.tenancy?.propertyId ?? portal.property?.id ?? null,
       applicationId: portal.tenancy?.applicationId ?? portal.app?.id ?? null,
       subject: newSubject.trim(),
-      participantIds: [portal.user.id, agentId].filter(Boolean) as string[],
-      routesTo: agentId ? 'agent' : 'agency',
+      participantIds: composed.participantIds,
+      routesTo: composed.routesTo,
       fromUserId: portal.user.id,
       initialMessage: newSubject.trim(),
     })
@@ -63,7 +83,7 @@ export function TenantMessagesView({ portal }: { portal: TenantPortalState }) {
   if (!portal.occupancyReady) {
     return (
       <Card className="p-6 text-sm text-ink-500">
-        Direct messaging with your agency unlocks once you are approved onto a property.{' '}
+        Messaging unlocks once you are approved onto a property.{' '}
         <Link className="font-semibold text-primary" to="/workspace/portals/tenant/applications">
           View applications
         </Link>
@@ -79,11 +99,24 @@ export function TenantMessagesView({ portal }: { portal: TenantPortalState }) {
           Messages
         </h2>
         <p className="mt-1 text-sm text-ink-500">
-          Chat with your managing agency or assigned agent — landlords are not in these threads.
+          Message your landlord directly, or the managing agency/agent. Mode A in-app — not WhatsApp/SMS.
         </p>
       </div>
 
+      <MessagingModeABanner />
+
       <Card className="flex flex-wrap gap-2 p-4">
+        <Select
+          className="min-h-11 min-w-[10rem] cursor-pointer"
+          value={target}
+          onChange={(e) => setTarget(e.target.value as 'landlord' | 'agency')}
+          aria-label="Message destination"
+        >
+          <option value="landlord" disabled={!landlordId}>
+            Landlord{landlordId ? '' : ' (none on tenancy)'}
+          </option>
+          <option value="agency">Agency / agent</option>
+        </Select>
         <Input
           className="min-h-11 min-w-[200px] flex-1"
           placeholder="New subject (e.g. Parking query)"
@@ -108,7 +141,10 @@ export function TenantMessagesView({ portal }: { portal: TenantPortalState }) {
                   }`}
                 >
                   <span className="line-clamp-2 font-medium text-ink">{t.subject}</span>
-                  <span className="text-[11px] text-ink-400">
+                  <span className="mt-0.5 flex items-center gap-2 text-[11px] text-ink-400">
+                    <Badge tone={t.routesTo === 'landlord' ? 'brand' : 'info'}>
+                      {routesToBadgeLabel(t.routesTo)}
+                    </Badge>
                     {new Date(t.updatedAt).toLocaleDateString('en-ZA')}
                   </span>
                 </button>
@@ -125,7 +161,9 @@ export function TenantMessagesView({ portal }: { portal: TenantPortalState }) {
             <>
               <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-primary-100 pb-3">
                 <p className="font-semibold text-ink">{active.subject}</p>
-                <Badge tone="info">{active.routesTo === 'agent' ? 'Agent' : 'Agency'}</Badge>
+                <Badge tone={active.routesTo === 'landlord' ? 'brand' : 'info'}>
+                  {routesToBadgeLabel(active.routesTo)}
+                </Badge>
               </div>
               <ul className="min-h-0 flex-1 space-y-3 overflow-y-auto">
                 {threadMessages.map((m) => {

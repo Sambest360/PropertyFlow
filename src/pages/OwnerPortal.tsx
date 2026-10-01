@@ -29,6 +29,7 @@ import {
 import { groupPortfolioByBuilding } from '../lib/buildingHierarchy'
 import { gradingLabel } from '../lib/buildingGrading'
 import { rolePermissions } from '../lib/permissions'
+import { OwnerMessagesPanel } from '../components/messaging/OwnerMessagesPanel'
 
 const ICON_STROKE = 1.6
 
@@ -136,7 +137,7 @@ export default function OwnerPortal() {
           image={featured?.images[0]}
           eyebrow="Landlord portal"
           title={featured?.title ?? `Welcome, ${user.name.split(' ')[0]}`}
-          detail="Your assets, rent receipts, and open works. Messaging with tenants stays with the agency."
+          detail="Your assets, rent receipts, open works, and in-app messages with tenants (Mode A — not WhatsApp/SMS)."
           badge={featured?.status ?? 'Owner'}
           badgeTone="brand"
           secondaryBadge={featured?.type}
@@ -180,6 +181,8 @@ export default function OwnerPortal() {
           <StatCard label="Collected" value={formatZAR(collected)} icon={<Banknote className="h-5 w-5" />} />
           <StatCard label="Open works" value={tickets.length} icon={<Wrench className="h-5 w-5" />} />
         </div>
+
+        <OwnerMessagesPanel />
 
         {pendingReviews.length > 0 && (
           <Card className="p-5">
@@ -345,7 +348,7 @@ export default function OwnerPortal() {
               </Link>
             </div>
             <p className="mt-1 text-xs text-ink-500">
-              Landlord-visible receipts only. Tenant messaging stays with the agency.
+              Landlord-visible receipts only. Owner↔tenant messaging is Mode A in-app (not WhatsApp/SMS).
               {overdueAmt > 0
                 ? ` Outstanding overdue (book): ${formatZAR(overdueAmt)}.`
                 : ''}

@@ -836,7 +836,7 @@ CREATE TABLE message_threads (
   application_id  BIGINT UNSIGNED NULL,
   tenancy_id      BIGINT UNSIGNED NULL,
   subject         VARCHAR(200) NOT NULL,
-  routes_to       ENUM('agency','agent') NOT NULL DEFAULT 'agent' COMMENT 'Never landlord',
+  routes_to       ENUM('agency','agent','landlord') NOT NULL DEFAULT 'agent' COMMENT 'Mode A: landlord = owner↔tenant in-app',
   created_by      BIGINT UNSIGNED NULL,
   updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

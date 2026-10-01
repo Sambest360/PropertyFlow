@@ -1248,7 +1248,12 @@ async function upsertThread(feId: string, d: Record<string, unknown>): Promise<s
   const client = await clientId(d.agencyId)
   const unit = await unitIdFromProperty(d.propertyId)
   const app = d.applicationId ? await resolveUuid('application', str(d.applicationId)) : null
-  const routes = str(d.routesTo, 'Agent').toUpperCase().startsWith('AGENCY') ? 'AGENCY' : 'AGENT'
+  const routesRaw = str(d.routesTo, 'Agent').toUpperCase()
+  const routes = routesRaw.startsWith('AGENCY')
+    ? 'AGENCY'
+    : routesRaw.startsWith('LANDLORD')
+      ? 'LANDLORD'
+      : 'AGENT'
 
   // Map participant frontend ids → UUIDs when possible
   const rawParts = Array.isArray(d.participantIds) ? d.participantIds : []

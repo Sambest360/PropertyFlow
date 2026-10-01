@@ -622,7 +622,7 @@ CREATE TABLE message_threads (
   application_id    UUID REFERENCES applications(id) ON DELETE SET NULL,
   subject           VARCHAR(255) NOT NULL,
   routes_to         VARCHAR(20) NOT NULL DEFAULT 'AGENT'
-                      CHECK (routes_to IN ('AGENCY', 'AGENT')),
+                      CHECK (routes_to IN ('AGENCY', 'AGENT', 'LANDLORD')),
   participant_ids   JSONB NOT NULL DEFAULT '[]'::jsonb,
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()

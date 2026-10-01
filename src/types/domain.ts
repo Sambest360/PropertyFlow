@@ -518,8 +518,8 @@ export type MessageThread = {
   applicationId: string | null
   subject: string
   participantIds: string[]
-  /** Tenants message agency/agent only — never landlord */
-  routesTo: 'agency' | 'agent'
+  /** Mode A: agency/agent staff threads, or direct owner↔tenant (landlord). */
+  routesTo: 'agency' | 'agent' | 'landlord'
   updatedAt: string
 }
 
