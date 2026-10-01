@@ -1,6 +1,7 @@
 import type { Application, ApplicationDocument } from '../types/domain'
 import type { Permission } from '../types/domain'
 import { allDocsUploaded, allDocsVerified, ensureApplicationDocuments } from './workflow'
+import { hasScreeningConsent, markScreeningInProgressOnWorkflow } from './screening'
 
 /** Machine-readable workflow statuses — rental (SA residential). */
 export type RentalWorkflowStatus =
@@ -327,7 +328,7 @@ export const RENTAL_WORKFLOW: WorkflowTemplate = {
     { from: 'fica_verification', to: 'employment_verification', actionKey: 'VERIFY_EMPLOYMENT', label: 'Verify employment', hint: 'Confirm employer and role', tone: 'secondary', requires: ['applications.review'] },
     { from: 'employment_verification', to: 'income_verification', actionKey: 'VERIFY_INCOME', label: 'Verify income', hint: 'Validate payslips and bank statements', tone: 'secondary', requires: ['applications.review'] },
     { from: 'income_verification', to: 'reference_checks', actionKey: 'RUN_REFERENCES', label: 'Run reference checks', hint: 'Contact previous landlord or agent', tone: 'secondary', requires: ['applications.review'] },
-    { from: 'reference_checks', to: 'credit_check', actionKey: 'START_CREDIT_CHECK', label: 'Start credit check', hint: 'Run bureau check with POPIA consent', tone: 'secondary', requires: ['applications.review'] },
+    { from: 'reference_checks', to: 'credit_check', actionKey: 'START_CREDIT_CHECK', label: 'Start credit check', hint: 'Run bureau check with POPIA consent', tone: 'secondary', requires: ['applications.review'], guard: (app) => hasScreeningConsent(app) || 'Capture POPIA credit-check consent before starting screening' },
     { from: 'credit_check', to: 'affordability_assessment', actionKey: 'ASSESS_AFFORDABILITY', label: 'Assess affordability', hint: 'Rent-to-income and debt review', tone: 'secondary', requires: ['applications.review'] },
     { from: 'affordability_assessment', to: 'agent_review', actionKey: 'SUBMIT_AGENT_REVIEW', label: 'Submit for agent review', hint: 'Package file for manual decision', tone: 'primary', requires: ['applications.review'] },
     { from: 'agent_review', to: 'landlord_review', actionKey: 'SEND_LANDLORD_REVIEW', label: 'Send to landlord', hint: 'Owner approves or declines tenant', tone: 'secondary', requires: ['applications.review'] },
@@ -650,12 +651,25 @@ export function applyWorkflowTransition(
   )
   if (!valid) return app
 
-  let creditCheck = app.creditCheck
-  if (to === 'credit_check') creditCheck = 'In Progress'
-  if (to === 'rejected' && app.creditCheck === 'In Progress') creditCheck = 'Failed'
-  if (to === 'conditionally_approved' || to === 'deposit_invoice_sent') creditCheck = 'Passed'
+  // Screening status is owned by the screening pipeline — approve must NOT invent Passed.
+  let nextApp: Application = { ...app, workflowStatus: to }
+  if (to === 'credit_check') {
+    nextApp = markScreeningInProgressOnWorkflow(nextApp)
+  }
+  if (to === 'rejected' && (app.screening?.status === 'in_progress' || app.creditCheck === 'In Progress')) {
+    nextApp = {
+      ...nextApp,
+      creditCheck: 'Failed',
+      screening: {
+        ...(app.screening ?? { status: 'in_progress' as const }),
+        status: 'failed',
+        summary: app.screening?.summary ?? 'Marked failed on application rejection while screening was in progress.',
+        checkedAt: new Date().toISOString(),
+      },
+    }
+  }
 
-  let documents = app.documents
+  let documents = nextApp.documents
   if (to === 'documents_uploaded' && !allDocsVerified(documents)) {
     documents = documents.map((d: ApplicationDocument) =>
       d.status === 'required' || d.status === 'uploaded' ? { ...d, status: 'uploaded' as const } : d,
@@ -668,9 +682,8 @@ export function applyWorkflowTransition(
   }
 
   return normalizeApplication({
-    ...app,
+    ...nextApp,
     workflowStatus: to,
-    creditCheck,
     documents,
     updatedAt: new Date().toISOString().slice(0, 10),
   })

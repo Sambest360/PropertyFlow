@@ -34,6 +34,7 @@ import {
 import { supabaseSessionMiddleware } from './supabase/middleware.js'
 import type { PersistBody } from './writes.js'
 import { payfastCreate, payfastItn } from './payfastRoutes.js'
+import { screeningProviderInfo, screeningWebhook } from './screeningRoutes.js'
 import {
   authIpKey,
   authIpRateLimit,
@@ -936,6 +937,8 @@ app.post('/api/notify/application-received', async (c) => {
 app.post('/api/payfast/create', (c) => payfastCreate(c))
 
 app.post('/api/payfast/itn', (c) => payfastItn(c))
+app.get('/api/screening/provider', (c) => screeningProviderInfo(c))
+app.post('/api/screening/webhook', (c) => screeningWebhook(c))
 
 app.post('/api/notifications/mark-read', async (c) => {
   try {

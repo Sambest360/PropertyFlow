@@ -577,11 +577,11 @@ export function patchApplicationStatus(params: {
     provider,
   })
 
+  // Approve must not invent a credit pass — screening status stays as-is.
   const nextApp: Application = {
     ...application,
     stage: 'Awaiting Payment',
     progress: STAGE_PROGRESS['Awaiting Payment'],
-    creditCheck: 'Passed',
     documents: application.documents.map((d) => ({ ...d, status: 'verified' as const })),
     updatedAt: now.toISOString().slice(0, 10),
   }

@@ -91,6 +91,12 @@ import {
 } from '../lib/leadLifecycle'
 import { appendWorkflowEvent } from '../lib/applicationWorkflowEvents'
 import {
+  captureScreeningConsent,
+  overrideScreening,
+  startScreening,
+  type ScreeningAsyncStatus,
+} from '../lib/screening'
+import {
   isContractorApprovedForAgency,
   syncTicketPhotoCount,
 } from '../lib/contractors'
@@ -503,6 +509,23 @@ type StoreContextValue = {
     skipGuards?: boolean
   }) => Promise<Application | SubmitApplicationResult>
   updateApplication: (id: string, patch: Partial<Application>) => void
+  /** POPIA consent capture before bureau screening. */
+  captureApplicationScreeningConsent: (
+    applicationId: string,
+    input?: { grantedBy?: string | null; method?: 'document' | 'checkbox' | 'portal' | 'staff'; note?: string },
+  ) => Application | null
+  /** Start async screening via ScreeningProvider (requires consent). */
+  startApplicationScreening: (params: {
+    applicationId: string
+    actorUserId: string
+  }) => Promise<{ ok: true; application: Application } | { ok: false; error: string }>
+  /** Audited agent override of screening outcome. */
+  overrideApplicationScreening: (params: {
+    applicationId: string
+    actorUserId: string
+    newStatus: Extract<ScreeningAsyncStatus, 'passed' | 'failed' | 'manual_override'>
+    reason: string
+  }) => { ok: true; application: Application } | { ok: false; error: string }
   setDocumentStatus: (
     applicationId: string,
     key: string,
@@ -2864,6 +2887,68 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
       return app
     },
+    captureApplicationScreeningConsent: (applicationId, input) => {
+      let persisted: Application | null = null
+      patch((s) => ({
+        ...s,
+        applications: s.applications.map((a) => {
+          if (a.id !== applicationId) return a
+          const next = captureScreeningConsent(a, {
+            grantedBy: input?.grantedBy ?? null,
+            method: input?.method ?? 'staff',
+            note: input?.note,
+          })
+          persisted = next
+          return next
+        }),
+      }))
+      if (persisted) {
+        persistUpsert('application', applicationId, persisted as unknown as Record<string, unknown>)
+      }
+      return persisted
+    },
+    startApplicationScreening: async ({ applicationId, actorUserId }) => {
+      const app = state.applications.find((a) => a.id === applicationId)
+      if (!app) return { ok: false as const, error: 'Application not found' }
+      const actorUser = state.users.find((u) => u.id === actorUserId)
+      const started = await startScreening(app, {
+        actorUserId,
+        actorName: actorUser?.name ?? 'Agency',
+      })
+      if (started.ok === false) return { ok: false as const, error: started.error }
+      const updated = normalizeApplication(started.application)
+      patch((s) => ({
+        ...s,
+        applications: s.applications.map((a) => (a.id === applicationId ? updated : a)),
+      }))
+      persistUpsert('application', applicationId, updated as unknown as Record<string, unknown>)
+      addActivity(`Screening started for ${updated.applicantName}`, actorUser?.name ?? 'Agency', updated.agencyId)
+      return { ok: true as const, application: updated }
+    },
+    overrideApplicationScreening: ({ applicationId, actorUserId, newStatus, reason }) => {
+      const app = state.applications.find((a) => a.id === applicationId)
+      if (!app) return { ok: false as const, error: 'Application not found' }
+      const actorUser = state.users.find((u) => u.id === actorUserId)
+      const result = overrideScreening(app, {
+        newStatus,
+        reason,
+        byUserId: actorUserId,
+        byName: actorUser?.name ?? 'Agency',
+      })
+      if (result.ok === false) return { ok: false as const, error: result.error }
+      const updated = normalizeApplication(result.application)
+      patch((s) => ({
+        ...s,
+        applications: s.applications.map((a) => (a.id === applicationId ? updated : a)),
+      }))
+      persistUpsert('application', applicationId, updated as unknown as Record<string, unknown>)
+      addActivity(
+        `Screening override for ${updated.applicantName}: ${newStatus}`,
+        actorUser?.name ?? 'Agency',
+        updated.agencyId,
+      )
+      return { ok: true as const, application: updated }
+    },
     updateApplication: (id, p) => {
       const prev = state.applications.find((a) => a.id === id)
       patch((s) => ({
@@ -2941,12 +3026,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           } else {
             next = normalizeApplication({ ...next, documents })
           }
-          const result = {
+          let result: Application = {
             ...next,
             docs: documents.filter((d) => d.status !== 'required').map((d) => d.label),
-            creditConsent: key === 'credit_consent' && status !== 'required' ? true : a.creditConsent,
-            creditCheck: key === 'credit_consent' && status !== 'required' ? 'Consent Received' : a.creditCheck,
             updatedAt: new Date().toISOString().slice(0, 10),
+          }
+          if (key === 'credit_consent' && status !== 'required') {
+            result = captureScreeningConsent(result, {
+              method: 'document',
+              grantedBy: 'Applicant',
+              note: 'Consent document uploaded / verified',
+            })
           }
           persisted = result
           return result
@@ -3002,10 +3092,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           } else {
             next = normalizeApplication({ ...next, documents })
           }
-          const result = {
+          let result: Application = {
             ...next,
             docs: documents.filter((d) => d.status !== 'required').map((d) => d.label),
             updatedAt: new Date().toISOString().slice(0, 10),
+          }
+          if (key === 'credit_consent') {
+            result = captureScreeningConsent(result, {
+              method: 'document',
+              grantedBy: actor?.userId ?? a.applicantUserId ?? a.applicantName,
+              note: `Consent document uploaded: ${file.name}`,
+            })
           }
           persisted = result
           return result
@@ -3417,6 +3514,23 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       // in the same tick, so Submit appeared to flicker and revert (E2E #3);
       // staff now advance the submitted application themselves.
       let updated = normalizeApplication(applyWorkflowTransition(app, targetStatus))
+      // Real screening: entering credit_check starts the provider (consent-gated).
+      // Approve paths must never invent Passed — that lives in the screening pipeline only.
+      if (targetStatus === 'credit_check') {
+        const started = await startScreening(updated, {
+          actorUserId,
+          actorName: actorUser?.name ?? 'Agency',
+        })
+        if (started.ok === false) {
+          return {
+            status: 'ERROR' as const,
+            httpStatus: 422 as const,
+            error: started.error,
+            code: 'INVALID_TRANSITION' as const,
+          }
+        }
+        updated = normalizeApplication(started.application)
+      }
       updated = appendWorkflowEvent(updated, {
         stage: resolveWorkflowStatus(updated),
         actionKey: transition.actionKey,

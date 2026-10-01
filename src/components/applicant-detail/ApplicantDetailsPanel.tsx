@@ -1,21 +1,59 @@
+import { useState } from 'react'
 import { Briefcase, IdCard, ShieldCheck } from 'lucide-react'
 import type { Application } from '../../types/domain'
 import { formatZAR } from '../../data/seed'
 import { statusTone } from '../ui'
 import { DetailSection, FlatField, FlatFieldGrid } from '../detail/FlatFields'
 import { useAgentDisplay } from '../../hooks/useAgentDisplay'
+import { Button } from '../ui'
+import {
+  resolveConsent,
+  resolveScreening,
+  screeningStatusLabel,
+  type ScreeningAsyncStatus,
+} from '../../lib/screening'
 import { ICON_STROKE } from './types'
 
 /** Personal / screening details — flat text, no nested cards. */
 export function ApplicantDetailsPanel({
   application,
   agentName,
+  canReview = false,
+  onCaptureConsent,
+  onStartScreening,
+  onOverrideScreening,
 }: {
   application: Application
   agentName: string | null
+  canReview?: boolean
+  onCaptureConsent?: () => void
+  onStartScreening?: () => void | Promise<void>
+  onOverrideScreening?: (input: {
+    newStatus: Extract<ScreeningAsyncStatus, 'passed' | 'failed' | 'manual_override'>
+    reason: string
+  }) => void
 }) {
   const { label: agentLabel } = useAgentDisplay()
   const assignedAgent = agentLabel(application.agentId, agentName)
+  const screening = resolveScreening(application)
+  const consent = resolveConsent(application)
+  const statusLabel = screeningStatusLabel(screening.status)
+  const tone = statusTone(statusLabel)
+
+  const [overrideOpen, setOverrideOpen] = useState(false)
+  const [overrideReason, setOverrideReason] = useState('')
+  const [overrideStatus, setOverrideStatus] = useState<
+    Extract<ScreeningAsyncStatus, 'passed' | 'failed' | 'manual_override'>
+  >('manual_override')
+  const [busy, setBusy] = useState(false)
+
+  const submitOverride = () => {
+    if (!onOverrideScreening || !overrideReason.trim()) return
+    onOverrideScreening({ newStatus: overrideStatus, reason: overrideReason.trim() })
+    setOverrideOpen(false)
+    setOverrideReason('')
+  }
+
   return (
     <div className="space-y-10">
       <DetailSection
@@ -43,35 +81,69 @@ export function ApplicantDetailsPanel({
 
       <DetailSection
         title="Screening"
-        subtitle="Credit posture, consent, and notes agents should know before proceeding."
+        subtitle="Consent, async bureau status, and audited overrides — approve does not invent a credit pass."
       >
         <div className="grid gap-6 sm:grid-cols-2">
           <div>
             <p className="flex items-center gap-1.5 text-[11px] font-medium text-ink-400">
               <ShieldCheck className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} aria-hidden />
-              Credit check
+              Screening status
             </p>
             <p
               className={`mt-1 text-sm font-semibold ${
-                statusTone(application.creditCheck) === 'warning'
+                tone === 'warning'
                   ? 'text-amber-700'
-                  : statusTone(application.creditCheck) === 'success'
+                  : tone === 'success'
                     ? 'text-emerald-700'
-                    : statusTone(application.creditCheck) === 'danger'
+                    : tone === 'danger'
                       ? 'text-accent-700'
                       : 'text-ink'
               }`}
             >
-              {application.creditCheck}
+              {statusLabel}
             </p>
-            <p className="mt-1 text-sm text-ink-500">
-              POPIA consent: {application.creditConsent ? 'Received' : 'Pending'}
+            <p className="mt-1 text-xs text-ink-500">
+              Legacy label: {application.creditCheck}
+              {screening.provider ? ` · Provider: ${screening.provider}` : ''}
             </p>
+            {screening.summary ? (
+              <p className="mt-2 text-sm text-ink-600">{screening.summary}</p>
+            ) : null}
+            {(screening.score != null || screening.band) && (
+              <p className="mt-1 text-sm text-ink-600">
+                {screening.band ? `Band: ${screening.band}` : null}
+                {screening.band && screening.score != null ? ' · ' : null}
+                {screening.score != null ? `Score: ${screening.score}` : null}
+              </p>
+            )}
+            {screening.externalReference ? (
+              <p className="mt-1 text-xs text-ink-400 tabular-nums">
+                Ref: {screening.externalReference}
+              </p>
+            ) : null}
+            {screening.checkedAt ? (
+              <p className="mt-1 text-xs text-ink-400">Checked {screening.checkedAt}</p>
+            ) : null}
           </div>
           <div>
+            <p className="text-[11px] font-medium text-ink-400">POPIA / NCA consent</p>
+            <p className="mt-1 text-sm font-semibold text-ink">
+              {consent.granted ? 'Received' : 'Pending'}
+            </p>
+            {consent.granted ? (
+              <p className="mt-1 text-xs text-ink-500">
+                {[consent.method, consent.grantedAt, consent.grantedBy]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-ink-500">
+                Consent must be captured before screening can start.
+              </p>
+            )}
             {assignedAgent ? (
               <>
-                <p className="text-[11px] font-medium text-ink-400">Assigned agent</p>
+                <p className="mt-4 text-[11px] font-medium text-ink-400">Assigned agent</p>
                 <p className="mt-1 text-sm font-semibold text-ink">{assignedAgent}</p>
               </>
             ) : null}
@@ -80,6 +152,109 @@ export function ApplicantDetailsPanel({
             </p>
           </div>
         </div>
+
+        {screening.override ? (
+          <div className="mt-4 border-t border-primary-50 pt-4">
+            <p className="text-[11px] font-medium text-amber-700">Latest override (audited)</p>
+            <p className="mt-1 text-sm text-ink-700">
+              {screening.override.byName} · {screening.override.at}
+            </p>
+            <p className="mt-1 text-sm text-ink-600">
+              {screening.override.previousStatus} → {screening.override.newStatus}:{' '}
+              {screening.override.reason}
+            </p>
+            {(screening.overrideHistory?.length ?? 0) > 1 ? (
+              <p className="mt-1 text-xs text-ink-400">
+                {screening.overrideHistory!.length} override(s) on file
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {canReview ? (
+          <div className="mt-4 flex flex-wrap gap-2 border-t border-primary-50 pt-4">
+            {!consent.granted && onCaptureConsent ? (
+              <Button type="button" variant="secondary" size="sm" onClick={onCaptureConsent}>
+                Capture consent
+              </Button>
+            ) : null}
+            {consent.granted &&
+            screening.status !== 'in_progress' &&
+            screening.status !== 'passed' &&
+            screening.status !== 'manual_override' &&
+            onStartScreening ? (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true)
+                  try {
+                    await onStartScreening()
+                  } finally {
+                    setBusy(false)
+                  }
+                }}
+              >
+                Start screening
+              </Button>
+            ) : null}
+            {onOverrideScreening ? (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setOverrideOpen((v) => !v)}
+              >
+                {overrideOpen ? 'Cancel override' : 'Manual override'}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+
+        {canReview && overrideOpen ? (
+          <div className="mt-3 space-y-3 rounded-lg border border-primary-100 bg-primary-50/40 p-3">
+            <label className="block text-[11px] font-medium text-ink-400">
+              Override outcome
+              <select
+                className="mt-1 w-full rounded-md border border-primary-100 bg-white px-2 py-1.5 text-sm text-ink"
+                value={overrideStatus}
+                onChange={(e) =>
+                  setOverrideStatus(
+                    e.target.value as Extract<
+                      ScreeningAsyncStatus,
+                      'passed' | 'failed' | 'manual_override'
+                    >,
+                  )
+                }
+              >
+                <option value="manual_override">Manual override (recorded)</option>
+                <option value="passed">Passed</option>
+                <option value="failed">Failed</option>
+              </select>
+            </label>
+            <label className="block text-[11px] font-medium text-ink-400">
+              Reason (required for audit)
+              <textarea
+                className="mt-1 w-full rounded-md border border-primary-100 bg-white px-2 py-1.5 text-sm text-ink"
+                rows={2}
+                value={overrideReason}
+                onChange={(e) => setOverrideReason(e.target.value)}
+                placeholder="Why is the agent overriding the bureau result?"
+              />
+            </label>
+            <Button
+              type="button"
+              size="sm"
+              disabled={!overrideReason.trim()}
+              onClick={submitOverride}
+            >
+              Save audited override
+            </Button>
+          </div>
+        ) : null}
+
         {application.notes?.trim() && (
           <div className="border-t border-primary-50 pt-4">
             <p className="text-[11px] font-medium text-ink-400">Notes</p>
