@@ -51,7 +51,20 @@ function isApplicantRelatedEvent(ev: PropertyEvent, applicantName: string, appli
 export default function ApplicantDetail() {
   const { id } = useParams()
   const [params, setParams] = useSearchParams()
-  const { state, setDocumentStatus, uploadApplicationDocument, patchApplicationStatus, advanceApplicationWorkflow, scheduleMoveIn, blockApplication, addPropertyEvent, updateApplication } = useStore()
+  const {
+    state,
+    setDocumentStatus,
+    uploadApplicationDocument,
+    patchApplicationStatus,
+    advanceApplicationWorkflow,
+    scheduleMoveIn,
+    blockApplication,
+    addPropertyEvent,
+    updateApplication,
+    captureApplicationScreeningConsent,
+    startApplicationScreening,
+    overrideApplicationScreening,
+  } = useStore()
   const { user, has } = useAuth()
   const { dealVisible, role } = usePropertyScope()
   const alert = useSuiteAlert()
@@ -409,7 +422,34 @@ export default function ApplicantDetail() {
           />
         )}
         {tab === 'details' && (
-          <ApplicantDetailsPanel application={application} agentName={agentName} />
+          <ApplicantDetailsPanel
+            application={application}
+            agentName={agentName}
+            canReview={canReview}
+            onCaptureConsent={() =>
+              captureApplicationScreeningConsent(application.id, {
+                grantedBy: user.id,
+                method: 'staff',
+                note: 'Staff-recorded POPIA consent',
+              })
+            }
+            onStartScreening={async () => {
+              const result = await startApplicationScreening({
+                applicationId: application.id,
+                actorUserId: user.id,
+              })
+              if (result.ok === false) window.alert(result.error)
+            }}
+            onOverrideScreening={({ newStatus, reason }) => {
+              const result = overrideApplicationScreening({
+                applicationId: application.id,
+                actorUserId: user.id,
+                newStatus,
+                reason,
+              })
+              if (result.ok === false) window.alert(result.error)
+            }}
+          />
         )}
         {tab === 'documents' && (
           <ApplicantDocumentsPanel

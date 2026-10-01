@@ -314,8 +314,47 @@ export type Application = {
   employment: string
   idNumberOrPassport?: string
   uploadedDocs?: ApplicationUploadedDocs
+  /**
+   * Legacy display label kept in sync with `screening.status`.
+   * Prefer `screening` for structured async status.
+   */
   creditCheck: 'Not Started' | 'Consent Received' | 'In Progress' | 'Passed' | 'Failed' | 'Pending'
+  /** @deprecated prefer screeningConsent.granted — kept in sync by the screening pipeline. */
   creditConsent: boolean
+  /** POPIA / NCA credit-check consent capture (who / when / method). */
+  screeningConsent?: {
+    granted: boolean
+    grantedAt?: string
+    grantedBy?: string | null
+    method?: 'document' | 'checkbox' | 'portal' | 'staff'
+    note?: string
+  }
+  /** Structured async screening result (pending → in_progress → passed|failed|manual_override). */
+  screening?: {
+    status: 'pending' | 'in_progress' | 'passed' | 'failed' | 'manual_override'
+    provider?: string
+    externalReference?: string | null
+    score?: number | null
+    band?: string | null
+    summary?: string | null
+    checkedAt?: string | null
+    override?: {
+      byUserId: string
+      byName: string
+      at: string
+      reason: string
+      previousStatus: 'pending' | 'in_progress' | 'passed' | 'failed' | 'manual_override'
+      newStatus: 'pending' | 'in_progress' | 'passed' | 'failed' | 'manual_override'
+    } | null
+    overrideHistory?: Array<{
+      byUserId: string
+      byName: string
+      at: string
+      reason: string
+      previousStatus: 'pending' | 'in_progress' | 'passed' | 'failed' | 'manual_override'
+      newStatus: 'pending' | 'in_progress' | 'passed' | 'failed' | 'manual_override'
+    }>
+  }
   documents: ApplicationDocument[]
   /** @deprecated prefer documents[]; kept for display fallbacks */
   docs: string[]

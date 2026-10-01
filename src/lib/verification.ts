@@ -1,5 +1,6 @@
 /**
  * Landlord / contractor onboarding verification helpers.
+ * Credit / bureau screening for applicants lives in `./screening` (roadmap Step 4).
  */
 
 export type VerificationStatus = 'pending' | 'approved' | 'rejected' | 'not_required'
