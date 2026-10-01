@@ -160,7 +160,8 @@ import {
   dedupeBootstrapFetch,
   scheduleDeferredFullBootstrap,
 } from '../lib/bootstrapCoord'
-import { readStoredAuthUserId, getApiActor, type DemoActor } from '../lib/api/actorAuth'
+import { readStoredAuthUserId, getApiActor, actorHeaders, type DemoActor } from '../lib/api/actorAuth'
+import { authHeaders } from '../lib/api/authClient'
 import { buildPublicMarketplaceDemoBootstrap } from '../lib/publicMarketplaceDemo'
 import {
   persistApproveApplication,
@@ -602,7 +603,7 @@ type StoreContextValue = {
     created: PaymentRecord[]
     asOf: string
   }
-  /** Mode A: record/send in-app dunning notice (non-production — no live email/SMS). */
+  /** Mode A: in-app dunning notice always; optional Mailtrap email behind ENABLE_EMAIL_DUNNING (default OFF). */
   sendDunningNotice: (
     paymentId: string,
     opts?: { stage?: DunningStage; actorUserId?: string | null; actorName?: string },
@@ -5257,6 +5258,40 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           action: 'updated',
         })
       }
+
+      // DQ-M4: optional Mailtrap dunning email (server flag ENABLE_EMAIL_DUNNING default OFF).
+      // Resolve tenant email from partyUserId / tenancy; fire-and-forget — fail ≠ fail UI.
+      {
+        const tenantFromUser = payment.partyUserId
+          ? state.users.find((u) => u.id === payment.partyUserId)?.email?.trim()
+          : undefined
+        const tenantFromTenancy = payment.tenancyId
+          ? state.tenancies.find((t) => t.id === payment.tenancyId)?.tenantEmail?.trim()
+          : undefined
+        const tenantEmail = tenantFromUser || tenantFromTenancy || ''
+        if (tenantEmail) {
+          void fetch('/api/notify/dunning-notice', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...actorHeaders(),
+              ...authHeaders(),
+            },
+            body: JSON.stringify({
+              email: tenantEmail,
+              tenantName: payment.partyName,
+              title: draft.title,
+              body: draft.body,
+              stage: draft.stage,
+              propertyTitle: property?.title,
+              amountDisplay: formatZAR(payment.amount),
+              dueDate: payment.dueDate,
+              paymentId: payment.id,
+            }),
+          }).catch(() => {})
+        }
+      }
+
       emitSuiteEvent({
         agencyId: payment.agencyId,
         resource: 'payment',
