@@ -14,6 +14,7 @@ import { useAuth } from '../../context/AuthContext'
 import { formatZAR } from '../../data/seed'
 import { PageHeader, Card, StatCard, Badge, Button, EmptyState } from '../../components/ui'
 import { DashboardPage } from '../../components/dashboard'
+import { TrustModeABanner } from '../../components/trust/TrustModeABanner'
 import { Link } from 'react-router-dom'
 
 /** Format integer cents as ZAR currency */
@@ -136,7 +137,7 @@ export default function TrustDashboard() {
     <DashboardPage>
       <PageHeader
         title="Trust & Banking Dashboard"
-        subtitle="Monitor client funds, allocations, payouts, and arrears"
+        subtitle="Mode A soft-demo trust book — not live PayProp or bank-confirmed"
         actions={
           <div className="flex gap-2">
             <Link to="/workspace/trust/cashbook">
@@ -154,6 +155,8 @@ export default function TrustDashboard() {
           </div>
         }
       />
+
+      <TrustModeABanner />
 
       {/* Summary Stats */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -270,11 +273,9 @@ export default function TrustDashboard() {
         )}
       </Card>
 
-      {/* Client funds disclaimer */}
-      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-        <strong>Note:</strong> Trust amounts shown are based on allocated transactions. Bank-confirmed balances
-        require partner integration or manual reconciliation. "Mark paid" on existing payments is an operational
-        flag, not bank confirmation.
+      <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-900">
+        <strong>Honesty:</strong> Allocated amounts are in-app bookkeeping only. Bank-confirmed balances need a
+        partner (PayProp / bank feed) — not connected. Operational &quot;mark paid&quot; is not bank confirmation.
       </div>
     </DashboardPage>
   )

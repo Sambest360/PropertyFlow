@@ -12,6 +12,7 @@ import { useAuth } from '../../context/AuthContext'
 import { formatZAR } from '../../data/seed'
 import { PageHeader, Card, Badge, Button, Input, Select, EmptyState } from '../../components/ui'
 import { DashboardPage } from '../../components/dashboard'
+import { TrustModeABanner } from '../../components/trust/TrustModeABanner'
 
 
 function formatCents(cents: number): string {
@@ -100,17 +101,22 @@ export default function TrustCashbook() {
     <DashboardPage>
       <PageHeader
         title="Trust Cashbook"
-        subtitle="Immutable record of all trust transactions"
+        subtitle="In-app trust cashbook (Mode A soft-demo — not live bank)"
         actions={
-          <div className="flex gap-2">
-            <Button variant="secondary" size="sm">
-              <Download className="h-4 w-4" />
-              Export CSV
-            </Button>
-            <Button variant="primary" size="sm">
-              <Upload className="h-4 w-4" />
-              Import Bank CSV
-            </Button>
+          <div className="flex flex-col items-end gap-1">
+            <div className="flex gap-2">
+              <Button variant="secondary" size="sm" disabled title="CSV export needs a banking partner — not wired in Mode A">
+                <Download className="h-4 w-4" />
+                Export CSV
+              </Button>
+              <Button variant="primary" size="sm" disabled title="Bank CSV import needs a banking partner — not wired in Mode A">
+                <Upload className="h-4 w-4" />
+                Import Bank CSV
+              </Button>
+            </div>
+            <p className="max-w-xs text-right text-[11px] leading-snug text-ink-400">
+              Partner-gated — no live bank CSV in Mode A soft-demo
+            </p>
           </div>
         }
       />
@@ -254,12 +260,7 @@ export default function TrustCashbook() {
         )}
       </Card>
 
-      {/* Import Notice */}
-      <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
-        <strong>CSV Import:</strong> Upload a bank statement CSV to import trust transactions. The system will
-        attempt to auto-match transactions to existing charges and occupancies. Unmatched transactions will
-        appear in the Unallocated queue for manual allocation.
-      </div>
+      <TrustModeABanner extra="Export/Import CSV buttons are disabled until a banking partner is connected. Seed CSV batches (if any) are demo history only — not a live import." />
     </DashboardPage>
   )
 }

@@ -7,6 +7,7 @@ import { useAuth } from '../../context/AuthContext'
 import { formatZAR } from '../../data/seed'
 import { PageHeader, Card, Button, Input, EmptyState } from '../../components/ui'
 import { DashboardPage } from '../../components/dashboard'
+import { TrustModeABanner } from '../../components/trust/TrustModeABanner'
 
 function formatCents(cents: number): string {
   return formatZAR(cents / 100)
@@ -54,17 +55,13 @@ export default function TrustArrears() {
   const totalD90 = useMemo(() => arrears.reduce((sum, a) => sum + a.d90, 0), [arrears])
   const totalD90Plus = useMemo(() => arrears.reduce((sum, a) => sum + a.d90plus, 0), [arrears])
 
-  function handleSendMessage(occupancyId: string) {
-    // In production, this would open the messages module
-    console.log('Send message to occupancy:', occupancyId)
-  }
-
   return (
     <DashboardPage>
       <PageHeader
         title="Arrears"
-        subtitle="Track and manage tenant arrears by ageing bucket"
+        subtitle="Demo ageing buckets from seed snapshots (Mode A — not live bank arrears)"
       />
+      <TrustModeABanner extra="Arrears rows are seed/demo snapshots, not live PaymentRecord ageing. Messaging is not wired here." />
 
       {/* Summary */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-5">
@@ -175,7 +172,8 @@ export default function TrustArrears() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => handleSendMessage(snapshot.occupancyId)}
+                      disabled
+                      title="Messaging not wired — Step 8"
                     >
                       <MessageSquare className="h-4 w-4" />
                       Message
@@ -199,11 +197,10 @@ export default function TrustArrears() {
         </div>
       </Card>
 
-      {/* Info Banner */}
-      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-        <strong>Note:</strong> Arrears are calculated from charge due dates. The system uses trust-cleared
-        payments when available, falling back to operational "mark paid" status. SMS reminders require a
-        separate vendor integration (not included in MVP).
+      <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-900">
+        <strong>Demo note:</strong> Ageing buckets shown here are seed snapshots for soft-demo. Live
+        PaymentRecord overdue drives the Payments / dunning Mode A surface — not this Trust page yet.
+        SMS / live messaging is out of scope.
       </div>
     </DashboardPage>
   )

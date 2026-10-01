@@ -10,6 +10,7 @@ import { useAuth } from '../../context/AuthContext'
 import { formatZAR } from '../../data/seed'
 import { PageHeader, Card, Badge, Button, EmptyState } from '../../components/ui'
 import { DashboardPage } from '../../components/dashboard'
+import { TrustModeABanner } from '../../components/trust/TrustModeABanner'
 
 function formatCents(cents: number): string {
   return formatZAR(cents / 100)
@@ -124,8 +125,9 @@ export default function TrustPayouts() {
     <DashboardPage>
       <PageHeader
         title="Payouts"
-        subtitle="Manage payout proposals, approvals, and submissions"
+        subtitle="Propose → approve → submit (submitted ≠ settled; no live bank)"
       />
+      <TrustModeABanner extra="Submit records an in-app instruction only — never invents partnerPayoutId or settled status. Seed settled rows are demo history." />
 
       {/* Summary */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -250,11 +252,10 @@ export default function TrustPayouts() {
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{actionError}</div>
       )}
 
-      {/* Dual Control Notice */}
       <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
         <strong>Dual Control:</strong> Payouts require two distinct users — one to propose and one to approve.
-        The approver cannot be the same person who proposed the payout. This ensures segregation of duties
-        for client fund movements.
+        Submit marks the instruction as submitted for settlement tracking only; bank settlement requires a
+        partner event (not simulated as success here).
       </div>
     </DashboardPage>
   )
