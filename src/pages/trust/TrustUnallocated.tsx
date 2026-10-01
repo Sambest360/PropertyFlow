@@ -91,7 +91,7 @@ export default function TrustUnallocated() {
   async function handleAllocate() {
     if (!selectedTxn || !user) return
     setBusy(true)
-    const result = allocateTrustReceipt({
+    const result = await allocateTrustReceipt({
       transactionId: selectedTxn,
       actorUserId: user.id,
       lines: allocations.map((a) => ({
@@ -115,7 +115,9 @@ export default function TrustUnallocated() {
 
   async function handleMarkSuspense() {
     if (!selectedTxn || !user) return
-    markTrustSuspense({ transactionId: selectedTxn, actorUserId: user.id })
+    setBusy(true)
+    await markTrustSuspense({ transactionId: selectedTxn, actorUserId: user.id })
+    setBusy(false)
     await sweetSuccess(
       'Moved to suspense',
       'Matched to the agency but not to an occupancy — it will age and alert until resolved.'
@@ -129,7 +131,7 @@ export default function TrustUnallocated() {
         title="Unallocated Receipts"
         subtitle="Manual allocate / suspense (Mode A soft-demo — not live bank match)"
       />
-      <TrustModeABanner extra="Allocation is in-app only. No auto-match from bank CSV in Mode A." />
+      <TrustModeABanner extra="Allocate/suspense persist to the database (survive reload). No auto-match from live bank CSV — template import only." />
 
       {/* Summary */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -329,7 +331,7 @@ export default function TrustUnallocated() {
 
       <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-900">
         <strong>Demo note:</strong> Split receipts are common in production banking — here you allocate
-        seed/demo lines only. Remainder stays unallocated. No live bank credit feed.
+        Mode A / template-imported lines. Remainder stays unallocated. No live bank credit feed or PayProp match.
       </div>
     </DashboardPage>
   )

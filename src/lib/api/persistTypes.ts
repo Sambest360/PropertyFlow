@@ -27,3 +27,4 @@ export type EntityType =
   | 'trust_allocation'
   | 'payout_instruction'
   | 'deposit_holding'
+  | 'csv_import_batch'

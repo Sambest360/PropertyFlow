@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -6,6 +6,7 @@ import {
   Upload,
   Download,
   Search,
+  FileDown,
 } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
@@ -13,7 +14,12 @@ import { formatZAR } from '../../data/seed'
 import { PageHeader, Card, Badge, Button, Input, Select, EmptyState } from '../../components/ui'
 import { DashboardPage } from '../../components/dashboard'
 import { TrustModeABanner } from '../../components/trust/TrustModeABanner'
-
+import {
+  TRUST_CSV_NON_PRODUCTION_LABEL,
+  trustCsvTemplateSample,
+  trustTransactionsToCsv,
+} from '../../lib/trust/csvImport'
+import { sweetSuccess, sweetError } from '../../lib/sweetAlert'
 
 function formatCents(cents: number): string {
   return formatZAR(cents / 100)
@@ -45,9 +51,20 @@ function statusTone(status: string): 'success' | 'warning' | 'danger' | 'info' |
   }
 }
 
+function downloadText(filename: string, content: string) {
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export default function TrustCashbook() {
-  const { state } = useStore()
+  const { state, importTrustTemplateCsv } = useStore()
   const { user } = useAuth()
+  const fileRef = useRef<HTMLInputElement>(null)
 
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
@@ -55,13 +72,13 @@ export default function TrustCashbook() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [showFilters, setShowFilters] = useState(false)
+  const [busy, setBusy] = useState(false)
 
   const agencyId = user?.agencyId
 
   const transactions = useMemo(() => {
     let result = state.trustTransactions?.filter((t) => !agencyId || t.agencyId === agencyId) ?? []
 
-    // Apply filters
     if (statusFilter !== 'all') {
       result = result.filter((t) => t.status === statusFilter)
     }
@@ -80,7 +97,7 @@ export default function TrustCashbook() {
         (t) =>
           t.description.toLowerCase().includes(query) ||
           t.bankRef?.toLowerCase().includes(query) ||
-          t.partnerTxnId?.toLowerCase().includes(query)
+          t.partnerTxnId?.toLowerCase().includes(query),
       )
     }
 
@@ -89,39 +106,105 @@ export default function TrustCashbook() {
 
   const totalIn = useMemo(
     () => transactions.filter((t) => t.direction === 'in').reduce((sum, t) => sum + t.amountCents, 0),
-    [transactions]
+    [transactions],
   )
 
   const totalOut = useMemo(
     () => transactions.filter((t) => t.direction === 'out').reduce((sum, t) => sum + t.amountCents, 0),
-    [transactions]
+    [transactions],
   )
+
+  function handleExport() {
+    const csv = trustTransactionsToCsv(transactions)
+    downloadText('trust-cashbook-mode-a.csv', csv)
+  }
+
+  function handleDownloadTemplate() {
+    downloadText('trust-template-mode-a.csv', trustCsvTemplateSample())
+  }
+
+  async function handleImportFile(file: File) {
+    if (!user?.agencyId) {
+      await sweetError('Cannot import', 'Agency context required')
+      return
+    }
+    setBusy(true)
+    try {
+      const text = await file.text()
+      const result = await importTrustTemplateCsv({
+        agencyId: user.agencyId,
+        actorUserId: user.id,
+        filename: file.name,
+        csvText: text,
+      })
+      if (!result.ok) {
+        await sweetError(
+          'Import failed',
+          [result.error, ...result.parseErrors].filter(Boolean).join('\n') || 'Parse error',
+        )
+        return
+      }
+      const parts = [
+        `Imported ${result.imported} unallocated receipt(s)`,
+        result.duplicates ? `${result.duplicates} duplicate(s) skipped` : null,
+        TRUST_CSV_NON_PRODUCTION_LABEL,
+      ].filter(Boolean)
+      await sweetSuccess('Template CSV imported', parts.join(' — '))
+    } finally {
+      setBusy(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
 
   return (
     <DashboardPage>
       <PageHeader
         title="Trust Cashbook"
-        subtitle="In-app trust cashbook (Mode A soft-demo — not live bank)"
+        subtitle="In-app trust cashbook (Mode A — template CSV, not live bank)"
         actions={
           <div className="flex flex-col items-end gap-1">
-            <div className="flex gap-2">
-              <Button variant="secondary" size="sm" disabled title="CSV export needs a banking partner — not wired in Mode A">
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={handleDownloadTemplate} title="Download Mode A template CSV">
+                <FileDown className="h-4 w-4" />
+                Template
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleExport}
+                title="Export current cashbook CSV (Mode A — not bank-confirmed)"
+              >
                 <Download className="h-4 w-4" />
                 Export CSV
               </Button>
-              <Button variant="primary" size="sm" disabled title="Bank CSV import needs a banking partner — not wired in Mode A">
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={busy || !user?.agencyId}
+                onClick={() => fileRef.current?.click()}
+                title="Import Mode A template CSV — not a live bank feed"
+              >
                 <Upload className="h-4 w-4" />
-                Import Bank CSV
+                Import Template CSV
               </Button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (f) void handleImportFile(f)
+                }}
+              />
             </div>
-            <p className="max-w-xs text-right text-[11px] leading-snug text-ink-400">
-              Partner-gated — no live bank CSV in Mode A soft-demo
+            <p className="max-w-sm text-right text-[11px] leading-snug text-ink-400">
+              Manual/template CSV only — {TRUST_CSV_NON_PRODUCTION_LABEL}
             </p>
           </div>
         }
       />
 
-      {/* Summary */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card className="p-4">
           <p className="text-sm text-ink-500">Total In</p>
@@ -133,13 +216,12 @@ export default function TrustCashbook() {
         </Card>
         <Card className="p-4">
           <p className="text-sm text-ink-500">Net Movement</p>
-          <p className={`text-xl font-semibold ${(totalIn - totalOut) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+          <p className={`text-xl font-semibold ${totalIn - totalOut >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
             {formatCents(totalIn - totalOut)}
           </p>
         </Card>
       </div>
 
-      {/* Filters */}
       <Card className="p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -152,11 +234,7 @@ export default function TrustCashbook() {
                 className="pl-9"
               />
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowFilters(!showFilters)}
-            >
+            <Button variant="ghost" size="sm" onClick={() => setShowFilters(!showFilters)}>
               <Filter className="h-4 w-4" />
               Filters
             </Button>
@@ -166,7 +244,7 @@ export default function TrustCashbook() {
         {showFilters && (
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-4">
             <div>
-              <label className="block text-sm font-medium text-ink-600 mb-1">Status</label>
+              <label className="mb-1 block text-sm font-medium text-ink-600">Status</label>
               <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
                 <option value="all">All statuses</option>
                 <option value="received">Received</option>
@@ -177,7 +255,7 @@ export default function TrustCashbook() {
               </Select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-600 mb-1">Direction</label>
+              <label className="mb-1 block text-sm font-medium text-ink-600">Direction</label>
               <Select value={directionFilter} onChange={(e) => setDirectionFilter(e.target.value)}>
                 <option value="all">All directions</option>
                 <option value="in">Incoming</option>
@@ -185,35 +263,25 @@ export default function TrustCashbook() {
               </Select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-600 mb-1">From date</label>
-              <Input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-              />
+              <label className="mb-1 block text-sm font-medium text-ink-600">From date</label>
+              <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-ink-600 mb-1">To date</label>
-              <Input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-              />
+              <label className="mb-1 block text-sm font-medium text-ink-600">To date</label>
+              <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
             </div>
           </div>
         )}
       </Card>
 
-      {/* Transactions List */}
       <Card>
         {transactions.length === 0 ? (
           <EmptyState
             title="No transactions found"
-            description="No transactions match your filters. Try adjusting your search criteria."
+            description="Import a Mode A template CSV or adjust filters. Seed rows (if any) are demo history only."
           />
         ) : (
           <div className="divide-y divide-primary-100">
-            {/* Table Header */}
             <div className="grid grid-cols-12 gap-4 bg-primary-50/50 px-4 py-3 text-xs font-medium text-ink-500">
               <div className="col-span-1">Type</div>
               <div className="col-span-2">Date</div>
@@ -223,11 +291,10 @@ export default function TrustCashbook() {
               <div className="col-span-2 text-right">Amount</div>
             </div>
 
-            {/* Transaction Rows */}
             {transactions.map((txn) => (
               <div
                 key={txn.id}
-                className="grid grid-cols-12 gap-4 px-4 py-3 hover:bg-primary-50/30 transition-colors"
+                className="grid grid-cols-12 gap-4 px-4 py-3 transition-colors hover:bg-primary-50/30"
               >
                 <div className="col-span-1">
                   {txn.direction === 'in' ? (
@@ -236,23 +303,22 @@ export default function TrustCashbook() {
                     <ArrowUpRight className="h-5 w-5 text-red-500" />
                   )}
                 </div>
-                <div className="col-span-2 text-sm text-ink-600">
-                  {formatDate(txn.valueDate)}
-                </div>
+                <div className="col-span-2 text-sm text-ink-600">{formatDate(txn.valueDate)}</div>
                 <div className="col-span-4 text-sm text-ink">
                   <p className="font-medium">{txn.description}</p>
                   <p className="text-xs text-ink-400">{txn.partnerTxnId}</p>
                 </div>
-                <div className="col-span-2 text-sm text-ink-500 font-mono">
-                  {txn.bankRef || '—'}
-                </div>
+                <div className="col-span-2 font-mono text-sm text-ink-500">{txn.bankRef || '—'}</div>
                 <div className="col-span-1">
-                  <Badge tone={statusTone(txn.status)}>
-                    {txn.status.replace('_', ' ')}
-                  </Badge>
+                  <Badge tone={statusTone(txn.status)}>{txn.status.replace('_', ' ')}</Badge>
                 </div>
-                <div className={`col-span-2 text-right font-semibold tabular ${txn.direction === 'in' ? 'text-emerald-600' : 'text-red-600'}`}>
-                  {txn.direction === 'in' ? '+' : '-'}{formatCents(txn.amountCents)}
+                <div
+                  className={`col-span-2 text-right font-semibold tabular ${
+                    txn.direction === 'in' ? 'text-emerald-600' : 'text-red-600'
+                  }`}
+                >
+                  {txn.direction === 'in' ? '+' : '-'}
+                  {formatCents(txn.amountCents)}
                 </div>
               </div>
             ))}
@@ -260,7 +326,7 @@ export default function TrustCashbook() {
         )}
       </Card>
 
-      <TrustModeABanner extra="Export/Import CSV buttons are disabled until a banking partner is connected. Seed CSV batches (if any) are demo history only — not a live import." />
+      <TrustModeABanner extra="Template Import writes unallocated receipts to the database. Export is the current in-app cashbook only — not a bank statement download." />
     </DashboardPage>
   )
 }
