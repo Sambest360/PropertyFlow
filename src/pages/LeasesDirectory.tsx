@@ -188,7 +188,7 @@ export default function LeasesDirectory() {
       <div className="animate-fade-in space-y-5">
         <PageHeader
           title="Leases"
-          subtitle="Tenancy leases with generated PDFs and e-sign status. Mock e-sign is non-production; live SigniFlow/DocuSign needs partner keys."
+          subtitle="Tenancy leases with generated PDFs and e-sign status. Mock e-sign is non-production soft-demo. Live SigniFlow needs server keys (DQ-C1); DocuSign stays placeholder."
         />
 
         <DirectoryStatGrid<SignFilter>

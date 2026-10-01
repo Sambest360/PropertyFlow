@@ -1,8 +1,9 @@
 /**
  * E-sign provider adapters (SigniFlow / DocuSign-shaped).
- * - MockDevESignProvider: records sign events locally — labeled non-production.
- * - SigniFlow / DocuSign placeholders: env-gated; refuse without partner keys.
- * DO NOT invent live partner success or outbound HTTP that "works".
+ * - MockDevESignProvider: records sign events locally — labeled non-production (FE soft-demo).
+ * - SigniFlow: browser calls /api/esign/* ; server holds ESIGN_SIGNIFLOW_* keys and does WorkFlow HTTP.
+ *   Never VITE_ESIGN_SIGNIFLOW_*. Never invents signed-live.
+ * - DocuSign: placeholder only (Mode A OUT).
  */
 
 import type {
@@ -97,28 +98,52 @@ export class MockDevESignProvider implements ESignProvider {
   }
 }
 
+type FetchLike = typeof fetch
+
 /**
- * Placeholder for SigniFlow (SA e-sign).
- * Activates only when ESIGN_PROVIDER=signiflow AND partner keys are present.
+ * SigniFlow adapter — proxies to server /api/esign (DQ-C1 Mode A).
+ * Partner HTTP (CreateWorkflow → InitiateFlow) runs only on the server with env keys.
  */
-export class SigniFlowESignProviderPlaceholder implements ESignProvider {
+export class SigniFlowESignProvider implements ESignProvider {
   readonly id = 'signiflow'
   readonly live = true
   readonly nonProduction = false
-  private readonly apiKey?: string
-  private readonly apiUrl?: string
+  private readonly fetchImpl: FetchLike
+  private readonly createPath: string
+  private readonly statusPath: string
+  /** Test-only: simulate "keys absent" refuse without calling network. */
+  private readonly forceUnconfigured: boolean
 
-  constructor(config: { apiKey?: string; apiUrl?: string } = {}) {
-    this.apiKey = config.apiKey
-    this.apiUrl = config.apiUrl
+  constructor(
+    config: {
+      /** @deprecated Ignored for live HTTP — secrets are server-only. Kept for test messaging. */
+      apiKey?: string
+      apiUrl?: string
+      fetchImpl?: FetchLike
+      createPath?: string
+      statusPath?: string
+      /** When true, refuse immediately (honest stub) without fetch. */
+      forceUnconfigured?: boolean
+    } = {},
+  ) {
+    this.fetchImpl = config.fetchImpl ?? fetch
+    this.createPath = config.createPath ?? '/api/esign/create-envelope'
+    this.statusPath = config.statusPath ?? '/api/esign/status'
+    // Legacy: empty apiKey+apiUrl used to mean "not configured" in Step 5 tests.
+    this.forceUnconfigured =
+      config.forceUnconfigured === true ||
+      (config.apiKey !== undefined &&
+        config.apiUrl !== undefined &&
+        !config.apiKey.trim() &&
+        !config.apiUrl.trim())
   }
 
   get configured(): boolean {
-    return Boolean(this.apiKey?.trim() && this.apiUrl?.trim())
+    return !this.forceUnconfigured
   }
 
-  async createEnvelope(_request: ESignCreateEnvelopeRequest): Promise<ESignCreateEnvelopeResponse> {
-    if (!this.configured) {
+  async createEnvelope(request: ESignCreateEnvelopeRequest): Promise<ESignCreateEnvelopeResponse> {
+    if (this.forceUnconfigured) {
       return {
         ok: false,
         provider: this.id,
@@ -129,33 +154,120 @@ export class SigniFlowESignProviderPlaceholder implements ESignProvider {
           'SigniFlow is not configured. Set ESIGN_SIGNIFLOW_API_KEY and ESIGN_SIGNIFLOW_API_URL (partner keys required).',
       }
     }
-    return {
-      ok: false,
-      provider: this.id,
-      live: true,
-      nonProduction: false,
-      status: 'failed',
-      error:
-        'SigniFlow live API adapter is a placeholder. Partner credentials are present in env but the HTTP client is not implemented yet — use mock provider.',
+
+    try {
+      const res = await this.fetchImpl(this.createPath, {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      })
+      const json = (await res.json()) as ESignCreateEnvelopeResponse & { error?: string }
+      if (!res.ok || !json.ok) {
+        return {
+          ok: false,
+          provider: this.id,
+          live: true,
+          nonProduction: false,
+          status: 'failed',
+          error:
+            json.error ??
+            `SigniFlow create-envelope refused (HTTP ${res.status}). Partner keys required on server — never invent signed-live.`,
+        }
+      }
+      return {
+        ok: true,
+        provider: this.id,
+        live: true,
+        nonProduction: false,
+        envelopeId: json.envelopeId ?? null,
+        externalReference: json.externalReference ?? null,
+        status: json.status ?? 'sent',
+        summary: json.summary,
+      }
+    } catch {
+      return {
+        ok: false,
+        provider: this.id,
+        live: true,
+        nonProduction: false,
+        status: 'failed',
+        error:
+          'SigniFlow is not configured. Set ESIGN_PROVIDER=signiflow with ESIGN_SIGNIFLOW_API_KEY and ESIGN_SIGNIFLOW_API_URL on the server (partner keys required). Soft-demo uses mock.',
+      }
     }
   }
 
   async recordSign(request: ESignRecordSignRequest): Promise<ESignRecordSignResponse> {
-    return {
-      ok: false,
-      provider: this.id,
-      party: request.party,
-      status: 'failed',
-      error: this.configured
-        ? 'SigniFlow live sign webhook is not implemented yet — use mock provider.'
-        : 'SigniFlow is not configured (partner keys required).',
+    if (this.forceUnconfigured) {
+      return {
+        ok: false,
+        provider: this.id,
+        party: request.party,
+        status: 'failed',
+        error: 'SigniFlow is not configured (partner keys required).',
+      }
+    }
+
+    // Never invent staff-click signed-live — poll partner status via server.
+    try {
+      const res = await this.fetchImpl(this.statusPath, {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ envelopeId: request.envelopeId }),
+      })
+      const json = (await res.json()) as {
+        ok?: boolean
+        status?: LeaseESignStatus
+        error?: string
+        docStatus?: string
+      }
+      if (!res.ok || !json.ok) {
+        return {
+          ok: false,
+          provider: this.id,
+          party: request.party,
+          status: 'failed',
+          error:
+            json.error ??
+            'SigniFlow status poll refused. Signatures are captured in the partner ceremony — do not invent signed-live.',
+        }
+      }
+      const status = json.status ?? 'sent'
+      if (status === 'completed' || status === 'partially_signed') {
+        return {
+          ok: true,
+          provider: this.id,
+          party: request.party,
+          status,
+          signedAt: new Date().toISOString(),
+          summary: `SigniFlow GetDocStatus: ${json.docStatus ?? status} (partner-confirmed, not staff-click).`,
+        }
+      }
+      return {
+        ok: false,
+        provider: this.id,
+        party: request.party,
+        status,
+        error: `SigniFlow document not yet signed for ${request.party} (status: ${json.docStatus ?? status}). Wait for partner ceremony or webhook.`,
+      }
+    } catch {
+      return {
+        ok: false,
+        provider: this.id,
+        party: request.party,
+        status: 'failed',
+        error:
+          'SigniFlow live sign status is unavailable — use partner ceremony / webhook. Do not invent signed-live.',
+      }
     }
   }
 }
 
+/** @deprecated Alias — prefer SigniFlowESignProvider (DQ-C1). */
+export const SigniFlowESignProviderPlaceholder = SigniFlowESignProvider
+
 /**
- * Placeholder for DocuSign.
- * Activates only when ESIGN_PROVIDER=docusign AND partner keys are present.
+ * Placeholder for DocuSign (Mode A OUT — no live HTTP).
  */
 export class DocuSignESignProviderPlaceholder implements ESignProvider {
   readonly id = 'docusign'
@@ -188,7 +300,7 @@ export class DocuSignESignProviderPlaceholder implements ESignProvider {
         nonProduction: false,
         status: 'failed',
         error:
-          'DocuSign is not configured. Set ESIGN_DOCUSIGN_INTEGRATION_KEY, ESIGN_DOCUSIGN_ACCOUNT_ID, and ESIGN_DOCUSIGN_API_URL (partner keys required).',
+          'DocuSign is not configured. Set ESIGN_DOCUSIGN_INTEGRATION_KEY, ESIGN_DOCUSIGN_ACCOUNT_ID, and ESIGN_DOCUSIGN_API_URL (partner keys required). Mode A ships SigniFlow only.',
       }
     }
     return {
@@ -198,7 +310,7 @@ export class DocuSignESignProviderPlaceholder implements ESignProvider {
       nonProduction: false,
       status: 'failed',
       error:
-        'DocuSign live API adapter is a placeholder. Partner credentials are present in env but the HTTP client is not implemented yet — use mock provider.',
+        'DocuSign live API adapter is a placeholder (Mode A OUT). Partner credentials may be present but HTTP is not implemented — use mock or SigniFlow.',
     }
   }
 
@@ -209,7 +321,7 @@ export class DocuSignESignProviderPlaceholder implements ESignProvider {
       party: request.party,
       status: 'failed',
       error: this.configured
-        ? 'DocuSign live sign webhook is not implemented yet — use mock provider.'
+        ? 'DocuSign live sign webhook is not implemented (Mode A OUT) — use mock provider.'
         : 'DocuSign is not configured (partner keys required).',
     }
   }
@@ -217,16 +329,16 @@ export class DocuSignESignProviderPlaceholder implements ESignProvider {
 
 export type ESignProviderKind = 'mock' | 'signiflow' | 'docusign'
 
-/** Resolve provider from an env map (server or Vite). Defaults to mock. */
+/**
+ * Resolve provider from an env map (server or Vite).
+ * Defaults to mock. SigniFlow never reads API keys from VITE_* .
+ */
 export function eSignProviderFromEnv(
   env: Record<string, string | undefined> = {},
 ): ESignProvider {
   const kind = (env.ESIGN_PROVIDER ?? env.VITE_ESIGN_PROVIDER ?? 'mock').toLowerCase()
   if (kind === 'signiflow') {
-    return new SigniFlowESignProviderPlaceholder({
-      apiKey: env.ESIGN_SIGNIFLOW_API_KEY,
-      apiUrl: env.ESIGN_SIGNIFLOW_API_URL,
-    })
+    return new SigniFlowESignProvider({})
   }
   if (kind === 'docusign') {
     return new DocuSignESignProviderPlaceholder({

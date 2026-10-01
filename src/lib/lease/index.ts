@@ -17,6 +17,7 @@ export type {
 export {
   DocuSignESignProviderPlaceholder,
   MockDevESignProvider,
+  SigniFlowESignProvider,
   SigniFlowESignProviderPlaceholder,
   eSignProviderFromEnv,
   resetMockESignEnvelopes,
