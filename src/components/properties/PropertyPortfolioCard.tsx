@@ -211,7 +211,11 @@ export function PropertyPortfolioCard({
             </div>
             <p className="mt-1 flex items-center gap-1 text-xs text-ink-500">
               <MapPin className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} aria-hidden />
-              {p.suburb}, {p.city}
+              <span className="truncate">
+                {item.unitNumber ? `Unit ${item.unitNumber} · ` : ''}
+                {item.buildingName ? `${item.buildingName} · ` : ''}
+                {p.suburb}, {p.city}
+              </span>
             </p>
             <p className="mt-2 tabular text-lg font-semibold text-ink">{priceLabel(p, formatZAR)}</p>
             {!expanded && (

@@ -4,7 +4,16 @@ import { STANDARD_PROPERTY_STATUSES } from '../../lib/propertyStatus'
 export type PropertiesViewMode = 'list' | 'cards' | 'map'
 
 export type AttentionFilter = 'all' | 'any' | 'tickets' | 'viewings' | 'apps'
-export type SortKey = 'name' | 'suburb' | 'status' | 'price' | 'attention'
+export type OccupancyFilter =
+  | 'all'
+  | 'VACANT'
+  | 'OCCUPIED'
+  | 'UNDER_OFFER'
+  | 'MAINTENANCE'
+  | 'DRAFT'
+  | 'PUBLISHED'
+  | 'unknown'
+export type SortKey = 'name' | 'suburb' | 'status' | 'price' | 'attention' | 'building'
 
 export type PortfolioProperty = {
   property: PropertyAsset
@@ -14,6 +23,9 @@ export type PortfolioProperty = {
   waitingApps: number
   agentName: string | null
   attentionScore: number
+  /** Resolved building display name when linked */
+  buildingName?: string | null
+  unitNumber?: string | null
 }
 
 export const PROPERTY_TYPES = [

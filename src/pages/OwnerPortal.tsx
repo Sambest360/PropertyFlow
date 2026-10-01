@@ -26,6 +26,8 @@ import {
   resolveWorkflowStatus,
   workflowStageLabel,
 } from '../lib/applicationWorkflow'
+import { groupPortfolioByBuilding } from '../lib/buildingHierarchy'
+import { gradingLabel } from '../lib/buildingGrading'
 import { rolePermissions } from '../lib/permissions'
 
 const ICON_STROKE = 1.6
@@ -44,6 +46,16 @@ export default function OwnerPortal() {
   const propertyById = useMemo(
     () => Object.fromEntries(state.properties.map((p) => [p.id, p])),
     [state.properties],
+  )
+
+  /** Building → Units grouping for complexes. */
+  const complexes = useMemo(
+    () =>
+      groupPortfolioByBuilding(
+        scoped.map((property) => ({ property })),
+        state.buildings,
+      ),
+    [scoped, state.buildings],
   )
 
   const payments = useMemo(() => {
@@ -160,7 +172,7 @@ export default function OwnerPortal() {
         )}
 
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard label="Your properties" value={scoped.length} icon={<Building className="h-5 w-5" />} />
+          <StatCard label="Your units" value={scoped.length} icon={<Building className="h-5 w-5" />} />
           <StatCard label="Occupancy" value={`${occupancy}%`} icon={<TrendingUp className="h-5 w-5" />} />
           <StatCard label="Collected" value={formatZAR(collected)} icon={<Banknote className="h-5 w-5" />} />
           <StatCard label="Open works" value={tickets.length} icon={<Wrench className="h-5 w-5" />} />
@@ -243,42 +255,61 @@ export default function OwnerPortal() {
                 View all
               </Link>
             </div>
-            <div className="mt-4 space-y-3">
-              {scoped.map((p) => {
-                const agent = state.users.find((u) => u.id === p.agentId)
-                const managedBy = listedBy(p.agentId, agent?.name, 'agency')
-                const propPay = payments.filter((x) => x.propertyId === p.id)
-                const monthRent = propPay
-                  .filter((x) => x.type === 'Rent' && x.status === 'Paid')
-                  .reduce((n, x) => n + x.amount, 0)
-                return (
-                  <div key={p.id} className="flex gap-4 rounded-2xl border border-primary-50 p-3">
-                    <img src={p.images[0]} alt="" className="h-20 w-28 rounded-xl object-cover" />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <Link
-                          to={`/workspace/properties/${p.id}`}
-                          className="truncate font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                        >
-                          {p.title}
-                        </Link>
-                        <Badge tone={statusTone(p.status)}>{p.status}</Badge>
-                      </div>
-                      <p className="mt-1 text-xs text-ink-500">
-                        {p.suburb}
-                        {managedBy ? ` · Managed by ${managedBy}` : null}
-                      </p>
-                      <p className="mt-2 tabular text-sm font-semibold text-ink">
-                        {p.rent ? `${formatZAR(p.rent)}/mo` : formatZAR(p.price)}
-                      </p>
-                      <p className="mt-1 text-xs text-ink-400">
-                        Receipts: {formatZAR(monthRent)}
-                        {due > 0 ? ` · Outstanding (book): ${formatZAR(due)}` : null}
+            <div className="mt-4 space-y-5">
+              {complexes.map((group) => (
+                <div key={group.key}>
+                  {(group.building || group.unitCount > 1) && (
+                    <div className="mb-2 flex flex-wrap items-baseline gap-2">
+                      <h3 className="text-sm font-semibold text-ink">{group.label}</h3>
+                      {group.building?.grading ? (
+                        <Badge tone="brand">{gradingLabel(group.building.grading)}</Badge>
+                      ) : null}
+                      <p className="text-xs font-medium text-ink-400">
+                        {group.unitCount} unit{group.unitCount === 1 ? '' : 's'}
+                        {group.suburbCity ? ` · ${group.suburbCity}` : ''}
                       </p>
                     </div>
+                  )}
+                  <div className="space-y-3">
+                    {group.items.map(({ property: p }) => {
+                      const agent = state.users.find((u) => u.id === p.agentId)
+                      const managedBy = listedBy(p.agentId, agent?.name, 'agency')
+                      const propPay = payments.filter((x) => x.propertyId === p.id)
+                      const monthRent = propPay
+                        .filter((x) => x.type === 'Rent' && x.status === 'Paid')
+                        .reduce((n, x) => n + x.amount, 0)
+                      return (
+                        <div key={p.id} className="flex gap-4 rounded-2xl border border-primary-50 p-3">
+                          <img src={p.images[0]} alt="" className="h-20 w-28 rounded-xl object-cover" />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <Link
+                                to={`/workspace/properties/${p.id}`}
+                                className="truncate font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                              >
+                                {p.title}
+                              </Link>
+                              <Badge tone={statusTone(p.status)}>{p.status}</Badge>
+                            </div>
+                            <p className="mt-1 text-xs text-ink-500">
+                              {group.building && group.unitCount > 1 ? `${group.label} · ` : ''}
+                              {p.suburb}
+                              {managedBy ? ` · Managed by ${managedBy}` : null}
+                            </p>
+                            <p className="mt-2 tabular text-sm font-semibold text-ink">
+                              {p.rent ? `${formatZAR(p.rent)}/mo` : formatZAR(p.price)}
+                            </p>
+                            <p className="mt-1 text-xs text-ink-400">
+                              Receipts: {formatZAR(monthRent)}
+                              {due > 0 ? ` · Outstanding (book): ${formatZAR(due)}` : null}
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
-                )
-              })}
+                </div>
+              ))}
               {scoped.length === 0 && (
                 <div className="rounded-2xl bg-primary-50/50 p-6 text-center">
                   <p className="font-semibold text-ink">No properties yet</p>

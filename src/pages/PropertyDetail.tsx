@@ -21,6 +21,8 @@ import { PropertyDocumentsPanel } from '../components/property-detail/PropertyDo
 import { PropertyMessagesPanel } from '../components/property-detail/PropertyMessagesPanel'
 import { PropertyHistoryTimeline } from '../components/property-detail/PropertyHistoryTimeline'
 import { PropertyJourneyStrip } from '../components/property-detail/PropertyJourneyStrip'
+import { BuildingUnitsStrip } from '../components/property-detail/BuildingUnitsStrip'
+import { siblingUnitsInBuilding } from '../lib/buildingHierarchy'
 import {
   isPropertyDetailTab,
   type PropertyDetailTab,
@@ -98,6 +100,14 @@ export default function PropertyDetail() {
     () => (p?.buildingId ? state.buildings.find((b) => b.id === p.buildingId) : undefined),
     [p, state.buildings],
   )
+  const siblingUnits = useMemo(() => {
+    if (!p?.buildingId) return []
+    return siblingUnitsInBuilding(
+      state.properties.filter((x) => !isPropertyDeleted(x) && inPropertyScope(x.id)),
+      p.buildingId,
+      p.id,
+    )
+  }, [p, state.properties, inPropertyScope])
   const rooms = useMemo(
     () => (unit ? state.infraRooms.filter((r) => r.unitId === unit.id) : []),
     [state.infraRooms, unit],
@@ -302,6 +312,14 @@ export default function PropertyDetail() {
         deleteBusy={deleteBusy}
         onToggleFeatured={() => updateProperty(p.id, { featured: !p.featured })}
       />
+
+      {(building || siblingUnits.length > 0) ? (
+        <BuildingUnitsStrip
+          building={building}
+          siblings={siblingUnits}
+          currentPropertyId={p.id}
+        />
+      ) : null}
 
       <div className="sticky top-0 z-20 -mx-1 mb-5 bg-white/95 px-1 backdrop-blur-md">
         <DashboardTabs tabs={tabs} value={tab} onChange={setTab} />

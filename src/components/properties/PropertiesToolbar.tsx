@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react'
 import { ChevronDown, LayoutGrid, List, Map, Search, SlidersHorizontal, X } from 'lucide-react'
+import { STANDALONE_BUILDING_KEY } from '../../lib/buildingHierarchy'
 import { cn, Input, Select } from '../ui'
 import {
   PROPERTY_STATUSES,
   PROPERTY_TYPES,
   type AttentionFilter,
+  type OccupancyFilter,
   type PropertiesViewMode,
   type SortKey,
 } from './types'
@@ -18,6 +20,8 @@ function countActiveFilters(input: {
   listingMode: string
   suburb: string
   attention: AttentionFilter
+  building: string
+  occupancy: OccupancyFilter
   sort: SortKey
 }): number {
   let n = 0
@@ -27,6 +31,8 @@ function countActiveFilters(input: {
   if (input.listingMode !== 'all') n += 1
   if (input.suburb !== 'all') n += 1
   if (input.attention !== 'all') n += 1
+  if (input.building !== 'all') n += 1
+  if (input.occupancy !== 'all') n += 1
   if (input.sort !== 'name') n += 1
   return n
 }
@@ -45,6 +51,11 @@ export function PropertiesToolbar({
   suburbs,
   attention,
   onAttentionChange,
+  building,
+  onBuildingChange,
+  buildings,
+  occupancy,
+  onOccupancyChange,
   sort,
   onSortChange,
   view,
@@ -69,6 +80,11 @@ export function PropertiesToolbar({
   suburbs: string[]
   attention: AttentionFilter
   onAttentionChange: (v: AttentionFilter) => void
+  building: string
+  onBuildingChange: (v: string) => void
+  buildings: Array<{ value: string; label: string }>
+  occupancy: OccupancyFilter
+  onOccupancyChange: (v: OccupancyFilter) => void
   sort: SortKey
   onSortChange: (v: SortKey) => void
   view: PropertiesViewMode
@@ -98,8 +114,18 @@ export function PropertiesToolbar({
 
   const activeCount = useMemo(
     () =>
-      countActiveFilters({ query, status, type, listingMode, suburb, attention, sort }),
-    [query, status, type, listingMode, suburb, attention, sort],
+      countActiveFilters({
+        query,
+        status,
+        type,
+        listingMode,
+        suburb,
+        attention,
+        building,
+        occupancy,
+        sort,
+      }),
+    [query, status, type, listingMode, suburb, attention, building, occupancy, sort],
   )
 
   const toggleFilters = () => setFiltersOpen((open) => !open)
@@ -116,10 +142,10 @@ export function PropertiesToolbar({
             />
             <Input
               className="min-h-10 pl-8 text-sm"
-              placeholder="Search properties…"
+              placeholder="Search buildings or units…"
               value={query}
               onChange={(e) => onQueryChange(e.target.value)}
-              aria-label="Search properties"
+              aria-label="Search buildings or units"
             />
           </div>
 
@@ -171,7 +197,7 @@ export function PropertiesToolbar({
           >
             {(
               [
-                ['list', List, 'List'],
+                ['list', List, 'Buildings'],
                 ['cards', LayoutGrid, 'Cards'],
                 ['map', Map, 'Map'],
               ] as const
@@ -207,6 +233,37 @@ export function PropertiesToolbar({
             )}
           >
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <Select
+                className="min-h-11"
+                value={building}
+                onChange={(e) => onBuildingChange(e.target.value)}
+                aria-label="Filter by building"
+              >
+                <option value="all">All buildings</option>
+                {buildings.map((b) => (
+                  <option key={b.value} value={b.value}>
+                    {b.label}
+                  </option>
+                ))}
+                <option value={STANDALONE_BUILDING_KEY}>Standalone only</option>
+              </Select>
+
+              <Select
+                className="min-h-11"
+                value={occupancy}
+                onChange={(e) => onOccupancyChange(e.target.value as OccupancyFilter)}
+                aria-label="Filter by unit occupancy"
+              >
+                <option value="all">All unit statuses</option>
+                <option value="VACANT">Vacant</option>
+                <option value="OCCUPIED">Occupied</option>
+                <option value="UNDER_OFFER">Under offer</option>
+                <option value="MAINTENANCE">Maintenance</option>
+                <option value="DRAFT">Draft unit</option>
+                <option value="PUBLISHED">Published unit</option>
+                <option value="unknown">No unit link</option>
+              </Select>
+
               <Select
                 className="min-h-11"
                 value={status}
@@ -287,6 +344,7 @@ export function PropertiesToolbar({
                 aria-label="Sort properties"
               >
                 <option value="name">Sort: Name</option>
+                <option value="building">Sort: Building</option>
                 <option value="suburb">Sort: Suburb</option>
                 <option value="status">Sort: Status</option>
                 <option value="price">Sort: Price / rent</option>
