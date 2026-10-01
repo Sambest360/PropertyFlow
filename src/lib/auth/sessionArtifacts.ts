@@ -15,6 +15,9 @@ export type SessionArtifactSetters = {
 export const AUTH_STORAGE_KEYS = [
   'propertyflow-auth-user',
   'propertyflow-auth-real-user',
+  // P0-session (R11): AuthContext.logout alone used to miss this API-mode
+  // token; leftover token + sb-*auth* keys resurrected Super Admin on /workspace.
+  'propertyflow-auth-token',
 ] as const
 
 /** Wipe in-memory identity + persisted artifacts. Storage failures are non-fatal. */

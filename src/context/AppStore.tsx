@@ -501,7 +501,7 @@ type StoreContextValue = {
     uploadedDocs?: Application['uploadedDocs']
     /** Skip income/availability guards (admin/demo only) */
     skipGuards?: boolean
-  }) => Application | SubmitApplicationResult
+  }) => Promise<Application | SubmitApplicationResult>
   updateApplication: (id: string, patch: Partial<Application>) => void
   setDocumentStatus: (
     applicationId: string,
@@ -922,18 +922,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       id: string,
       data: Record<string, unknown>,
     ): Promise<boolean> => {
-      if (isSupabaseMode) {
-        try {
-          const { markLocalPersistWrite } = await import('../lib/bootstrapMerge')
-          markLocalPersistWrite(resource, id)
-          const { persistToSupabase } = await import('../lib/supabase/persist')
-          return await persistToSupabase({ resource, action: 'upsert', id, data: { ...data, id } })
-        } catch {
-          return false
-        }
+      try {
+        const { markLocalPersistWrite } = await import('../lib/bootstrapMerge')
+        markLocalPersistWrite(resource, id)
+        // P0-sync (R11): persistToApi falls back to /api/persist for application
+        // upserts when browser RLS rejects the guest write — staff and guest
+        // must share the same reference_code row (no invent search RPC).
+        const { persistToApi } = await import('../lib/api/persist')
+        return await persistToApi({ resource, action: 'upsert', id, data: { ...data, id } })
+      } catch {
+        return false
       }
-      queueUpsert(resource, id, data)
-      return true
     },
     [],
   )
@@ -2666,7 +2665,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       })
       return { ok: true, leadId: id, stage }
     },
-    createApplication: (input) => {
+    createApplication: async (input) => {
       const property =
         state.properties.find((p) => p.id === input.propertyId) ??
         findByListingId(state.properties, input.propertyId)
@@ -2754,13 +2753,25 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       // the detail views must never invent a person.
       const agentId =
         input.agentId && state.users.some((u) => u.id === input.agentId) ? input.agentId : null
-      // P0-sync (R9): the application's agency must match the LISTING's agency.
+      // P0-sync (R9/R11): the application's agency must match the LISTING's agency.
       // A stale/blank payload agency wrote client_id NULL — the RLS select
-      // policy (client_id = current_app_client_id() OR role override) then hid
-      // the row from every staff viewer, while the applicant's own optimistic
-      // copy still rendered. Deriving from the property keeps one agency for
-      // the listing and everything on it.
-      const agencyId = property?.agencyId || input.agencyId
+      // policy then hid the row from every staff viewer, while the applicant's
+      // optimistic copy still rendered. Deriving from the property keeps one
+      // agency for the listing and everything on it.
+      // Prefer listing agency; fall back to the unit's clientId (same FE agency id).
+      const agencyId = (
+        property?.agencyId ||
+        input.agencyId ||
+        unit?.clientId ||
+        ''
+      ).trim()
+      if (!agencyId) {
+        return {
+          status: 'ERROR',
+          error: 'This listing has no agency — application cannot be filed for staff review.',
+          httpStatus: 422,
+        } as SubmitApplicationResult
+      }
       const app: Application = {
         id: uid('APP'),
         agencyId,
@@ -2818,9 +2829,24 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         })
       }
 
-      // P0-integrity: persist the normalized triple (stage / workflowStatus /
-      // progress), not the pre-normalize object.
-      persistUpsert('application', normalizedApp.id, normalizedApp as unknown as Record<string, unknown>)
+      // P0-integrity / P0-sync (R11): await durable persist. Guest My Apps must
+      // not keep an optimistic APP that staff bootstrap can never load.
+      const persisted = await persistUpsert(
+        'application',
+        normalizedApp.id,
+        normalizedApp as unknown as Record<string, unknown>,
+      )
+      if (!persisted) {
+        patch((s) => ({
+          ...s,
+          applications: s.applications.filter((a) => a.id !== normalizedApp.id),
+        }))
+        return {
+          status: 'ERROR',
+          error: 'Application could not be saved for agency review. Please try again.',
+          httpStatus: 500,
+        } as SubmitApplicationResult
+      }
 
       // Additive: email confirmation to the applicant (works in both API and
       // Supabase modes since it rides the same origin). Fire-and-forget — a

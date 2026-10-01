@@ -12,6 +12,10 @@ function fakeStorage() {
     getItem: (k: string) => map.get(k) ?? null,
     setItem: (k: string, v: string) => void map.set(k, v),
     removeItem: (k: string) => void map.delete(k),
+    get length() {
+      return map.size
+    },
+    key: (i: number) => [...map.keys()][i] ?? null,
   }
 }
 
@@ -30,12 +34,15 @@ describe('P0-1 session bleed guard', () => {
   beforeEach(() => {
     storage = fakeStorage()
     vi.stubGlobal('localStorage', storage)
+    vi.stubGlobal('sessionStorage', fakeStorage())
     setters = makeSetters()
   })
 
   it('clears in-memory identity and persisted auth keys', () => {
     storage.setItem(AUTH_STORAGE_KEYS[0], 'u-admin-samuel')
     storage.setItem(AUTH_STORAGE_KEYS[1], 'u-admin-samuel')
+    storage.setItem(AUTH_STORAGE_KEYS[2], 'stale-api-token')
+    storage.setItem('sb-xyz-auth-token', 'stale-supabase')
 
     clearSessionArtifacts(setters)
 
@@ -44,6 +51,8 @@ describe('P0-1 session bleed guard', () => {
     expect(setters.setRealUserId).toHaveBeenCalledWith(null)
     expect(storage.getItem(AUTH_STORAGE_KEYS[0])).toBeNull()
     expect(storage.getItem(AUTH_STORAGE_KEYS[1])).toBeNull()
+    expect(storage.getItem(AUTH_STORAGE_KEYS[2])).toBeNull()
+    expect(storage.getItem('sb-xyz-auth-token')).toBeNull()
   })
 
   it('signup 500 → artifacts cleared and error rethrown (no silent success)', async () => {

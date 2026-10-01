@@ -254,8 +254,28 @@ async function upsertLead(id: string, data: Record<string, unknown>): Promise<vo
 async function upsertApplication(id: string, data: Record<string, unknown>): Promise<void> {
   const supabase = createClient()
   let uuid = await ensureUuid('application', id)
-  const clientId = await clientUuid(data.agencyId)
   const unitId = await unitUuid(data.propertyId)
+  // P0-sync (R11): never write client_id NULL — staff RLS (client_id = agency)
+  // hides those rows while the guest still sees their optimistic copy. Prefer
+  // agencyId resolve; if the FE id is missing from entity_id_map, take the
+  // listing unit's client_id (same agency that owns the rent listing).
+  let clientId = await clientUuid(data.agencyId)
+  if (!clientId && unitId) {
+    const { data: unitRow } = await supabase
+      .from('units')
+      .select('client_id')
+      .eq('id', unitId)
+      .maybeSingle()
+    if (unitRow?.client_id) clientId = unitRow.client_id as string
+  }
+  if (!unitId) {
+    throw new Error(`application upsert failed: unit not resolved for property ${str(data.propertyId) || id}`)
+  }
+  if (!clientId) {
+    throw new Error(
+      `application upsert failed: agency client_id not resolved for agency ${str(data.agencyId) || '(blank)'} / unit ${unitId}`,
+    )
+  }
   const stage = str(data.stage)
 
   // P0-approve (409 fix): the app row may exist without an entity_id_map

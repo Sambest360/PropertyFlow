@@ -53,6 +53,17 @@ export function canWriteEntity(scope: PropertyScope, input: WriteGateInput): boo
     return true
   }
 
+  // P0-sync (R11): guest Apply — applicant upserts their own application row
+  // (marketplace → My Apps). Must be allowed before property-book checks, or
+  // first-time applicants are locked out (they are not yet on the listing book).
+  if (
+    input.resource === 'application' &&
+    input.ownerUserId &&
+    input.ownerUserId === viewer.userId
+  ) {
+    return true
+  }
+
   if (input.ticket) {
     // Tickets: allow assigned / claimable pool (matches ticketInScope), not only primary book.
     return ticketInScope(scope, input.ticket)

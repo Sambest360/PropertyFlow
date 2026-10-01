@@ -814,9 +814,21 @@ async function upsertLead(feId: string, d: Record<string, unknown>): Promise<str
 
 async function upsertApplication(feId: string, d: Record<string, unknown>): Promise<string> {
   const uuid = await ensureUuid('application', feId)
-  const client = await clientId(d.agencyId)
   const unit = await unitIdFromProperty(d.propertyId)
   if (!unit) throw new Error('application requires propertyId')
+  // P0-sync (R11): never insert applications.client_id NULL — staff RLS hides
+  // those rows. Prefer payload agencyId; else inherit the listing unit's client.
+  let client: string
+  try {
+    client = await clientId(d.agencyId)
+  } catch {
+    const rows = await query<{ client_id: string }>(
+      `SELECT client_id::text AS client_id FROM units WHERE id = $1::uuid LIMIT 1`,
+      [unit],
+    )
+    if (!rows[0]?.client_id) throw new Error(`application requires agencyId (got ${String(d.agencyId ?? '')})`)
+    client = rows[0].client_id
+  }
   const applicant = await userId(d.applicantUserId)
   const agent = await userId(d.agentId)
   const status =

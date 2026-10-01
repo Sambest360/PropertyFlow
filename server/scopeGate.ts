@@ -528,6 +528,8 @@ export async function assertPersistAllowed(
   const ownerUserId =
     strField(data, 'userId') ??
     strField(data, 'fromUserId') ??
+    strField(data, 'applicantUserId') ??
+    strField(data, 'tenantUserId') ??
     (body.resource === 'user' ? body.id : null) ??
     existing?.ownerUserId ??
     null

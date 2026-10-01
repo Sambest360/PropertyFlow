@@ -294,7 +294,7 @@ export default function ListingDetail() {
       return
     }
 
-    const appResult = createApplication({
+    const appResult = await createApplication({
       agencyId: p.agencyId,
       propertyId: p.id,
       agentId: p.agentId,
