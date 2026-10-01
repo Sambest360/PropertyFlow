@@ -20,6 +20,7 @@ import { actorCan } from './contracts'
 import { buildDisplayMetadata } from './displayMetadata'
 import { buildBuildingContext, resolveDeposit, resolveTotalEntryFees } from './unitsApi'
 import type { Building } from '../../data/infrastructure'
+import { applicationPassesFicaSoftGate, ficaPackSoftGateMessage } from '../ficaPack'
 
 export type ApplicationStatusApi =
   | 'DRAFT'
@@ -112,6 +113,7 @@ export type PatchApplicationStatusError = {
     | 'MISSING_UNIT'
     | 'NO_LANDLORD'
     | 'PERSIST_FAILED'
+    | 'FICA_PACK_INCOMPLETE'
 }
 
 export type PatchApplicationStatusResult = PatchApplicationStatusSuccess | PatchApplicationStatusError
@@ -187,6 +189,9 @@ const ALLOWED: Record<string, string[]> = {
  * differently, so an actionable hint is safer than leaking the raw mismatch.
  */
 export function guidedTransitionError(result: PatchApplicationStatusError): string {
+  if (result.code === 'FICA_PACK_INCOMPLETE') {
+    return `${result.error} Open the Documents / FICA pack panel and verify ID, proof of address, and FICA declaration (staff action — not live bureau).`
+  }
   if (result.code === 'INVALID_TRANSITION') {
     const lower = (result.error ?? '').toLowerCase()
     if (lower.includes('application started') || lower.includes('documents pending') || lower.includes('application submitted')) {
@@ -401,6 +406,17 @@ export function patchApplicationStatus(params: {
   }
 
   // ——— APPROVED atomic path ———
+  // DQ-C2 Mode A: soft-gate lease creation on verified id+address+fica pack
+  // (staff-managed in-app — not live bureau).
+  if (!applicationPassesFicaSoftGate(application)) {
+    return {
+      status: 'ERROR',
+      httpStatus: 422,
+      error: ficaPackSoftGateMessage(application.documents) ?? 'FICA pack incomplete',
+      code: 'FICA_PACK_INCOMPLETE',
+    }
+  }
+
   const unitId = application.unitId ?? property?.unitId ?? unit?.id ?? null
   if (application.type === 'Rental' && !unitId && !property) {
     return {
@@ -579,11 +595,13 @@ export function patchApplicationStatus(params: {
   })
 
   // Approve must not invent a credit pass — screening status stays as-is.
+  // DQ-C2 Mode A: do not invent verified FICA pack (id/address/fica) either —
+  // staff verify those rows explicitly; lease/move-in soft-gate reads real status.
   const nextApp: Application = {
     ...application,
     stage: 'Awaiting Payment',
     progress: STAGE_PROGRESS['Awaiting Payment'],
-    documents: application.documents.map((d) => ({ ...d, status: 'verified' as const })),
+    documents: application.documents.map((d) => ({ ...d })),
     updatedAt: now.toISOString().slice(0, 10),
   }
 

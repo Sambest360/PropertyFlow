@@ -1,6 +1,7 @@
 import type { Application, ApplicationDocument } from '../types/domain'
 import type { Permission } from '../types/domain'
 import { allDocsUploaded, allDocsVerified, ensureApplicationDocuments } from './workflow'
+import { ficaPackSoftGate } from './ficaPack'
 import { hasScreeningConsent, markScreeningInProgressOnWorkflow } from './screening'
 
 /** Machine-readable workflow statuses — rental (SA residential). */
@@ -254,11 +255,12 @@ export const RENTAL_WORKFLOW: WorkflowTemplate = {
       to: 'conditionally_approved',
       actionKey: 'AGENT_APPROVE',
       label: 'Approve',
-      hint: 'Approve this applicant now (agency authority)',
+      hint: 'Approve this applicant now (agency authority) — requires verified FICA pack',
       tone: 'primary',
       requires: ['applications.review'],
       effect: 'approve',
       confirm: 'Approve this application? The applicant gets tenant access.',
+      guard: (app) => ficaPackSoftGate(app),
     },
     {
       from: 'application_started',
@@ -279,11 +281,12 @@ export const RENTAL_WORKFLOW: WorkflowTemplate = {
       to: 'conditionally_approved',
       actionKey: 'AGENT_APPROVE',
       label: 'Approve',
-      hint: 'Approve this applicant now (agency authority)',
+      hint: 'Approve this applicant now (agency authority) — requires verified FICA pack',
       tone: 'primary',
       requires: ['applications.review'],
       effect: 'approve',
       confirm: 'Approve this application? The applicant gets tenant access.',
+      guard: (app) => ficaPackSoftGate(app),
     },
     {
       from: 'application_submitted',
@@ -324,7 +327,7 @@ export const RENTAL_WORKFLOW: WorkflowTemplate = {
       requires: ['portal.tenant'],
       guard: (app) => allDocsUploaded(app.documents) || 'Upload all required documents first',
     },
-    { from: 'documents_uploaded', to: 'fica_verification', actionKey: 'START_FICA', label: 'Start FICA verification', hint: 'Verify identity against FICA requirements', tone: 'secondary', requires: ['applications.review'] },
+    { from: 'documents_uploaded', to: 'fica_verification', actionKey: 'START_FICA', label: 'Open FICA pack review', hint: 'Staff review ID, address, and FICA declaration in-app (not live bureau)', tone: 'secondary', requires: ['applications.review'] },
     { from: 'fica_verification', to: 'employment_verification', actionKey: 'VERIFY_EMPLOYMENT', label: 'Verify employment', hint: 'Confirm employer and role', tone: 'secondary', requires: ['applications.review'] },
     { from: 'employment_verification', to: 'income_verification', actionKey: 'VERIFY_INCOME', label: 'Verify income', hint: 'Validate payslips and bank statements', tone: 'secondary', requires: ['applications.review'] },
     { from: 'income_verification', to: 'reference_checks', actionKey: 'RUN_REFERENCES', label: 'Run reference checks', hint: 'Contact previous landlord or agent', tone: 'secondary', requires: ['applications.review'] },
@@ -332,10 +335,10 @@ export const RENTAL_WORKFLOW: WorkflowTemplate = {
     { from: 'credit_check', to: 'affordability_assessment', actionKey: 'ASSESS_AFFORDABILITY', label: 'Assess affordability', hint: 'Rent-to-income and debt review', tone: 'secondary', requires: ['applications.review'] },
     { from: 'affordability_assessment', to: 'agent_review', actionKey: 'SUBMIT_AGENT_REVIEW', label: 'Submit for agent review', hint: 'Package file for manual decision', tone: 'primary', requires: ['applications.review'] },
     { from: 'agent_review', to: 'landlord_review', actionKey: 'SEND_LANDLORD_REVIEW', label: 'Send to landlord', hint: 'Owner approves or declines tenant', tone: 'secondary', requires: ['applications.review'] },
-    { from: 'landlord_review', to: 'conditionally_approved', actionKey: 'CONDITIONALLY_APPROVE', label: 'Conditionally approve', hint: 'Approve subject to lease and payments', tone: 'primary', requiresAny: ['applications.review', 'portal.owner'] },
-    { from: 'agent_review', to: 'conditionally_approved', actionKey: 'AGENT_APPROVE', label: 'Approve (agent authority)', hint: 'Skip landlord when mandated', tone: 'primary', requires: ['applications.review'] },
-    { from: 'conditionally_approved', to: 'lease_generated', actionKey: 'GENERATE_LEASE', label: 'Generate lease', hint: 'Create lease from agency template', tone: 'primary', requires: ['applications.review'] },
-    { from: 'lease_generated', to: 'lease_sent', actionKey: 'SEND_LEASE', label: 'Send lease for signing', hint: 'Email lease to tenant and landlord', tone: 'secondary', requires: ['applications.review'] },
+    { from: 'landlord_review', to: 'conditionally_approved', actionKey: 'CONDITIONALLY_APPROVE', label: 'Conditionally approve', hint: 'Approve subject to lease and payments — requires verified FICA pack', tone: 'primary', requiresAny: ['applications.review', 'portal.owner'], guard: (app) => ficaPackSoftGate(app) },
+    { from: 'agent_review', to: 'conditionally_approved', actionKey: 'AGENT_APPROVE', label: 'Approve (agent authority)', hint: 'Skip landlord when mandated — requires verified FICA pack', tone: 'primary', requires: ['applications.review'], guard: (app) => ficaPackSoftGate(app) },
+    { from: 'conditionally_approved', to: 'lease_generated', actionKey: 'GENERATE_LEASE', label: 'Generate lease', hint: 'Create lease from agency template', tone: 'primary', requires: ['applications.review'], guard: (app) => ficaPackSoftGate(app) },
+    { from: 'lease_generated', to: 'lease_sent', actionKey: 'SEND_LEASE', label: 'Send lease for signing', hint: 'Email lease to tenant and landlord', tone: 'secondary', requires: ['applications.review'], guard: (app) => ficaPackSoftGate(app) },
     { from: 'lease_sent', to: 'tenant_signed', actionKey: 'TENANT_SIGNED', label: 'Tenant signed', hint: 'Record tenant digital signature', tone: 'secondary', requires: ['applications.review'] },
     { from: 'tenant_signed', to: 'landlord_signed', actionKey: 'LANDLORD_SIGNED', label: 'Landlord signed', hint: 'Record landlord signature', tone: 'secondary', requires: ['applications.review'] },
     {
@@ -347,17 +350,18 @@ export const RENTAL_WORKFLOW: WorkflowTemplate = {
       tone: 'primary',
       requires: ['applications.review'],
       effect: 'approve',
+      guard: (app) => ficaPackSoftGate(app),
     },
     { from: 'deposit_invoice_sent', to: 'deposit_paid', actionKey: 'CONFIRM_DEPOSIT_PAID', label: 'Confirm deposit paid', hint: 'Payment received on platform or EFT', tone: 'secondary', requires: ['applications.review'] },
     { from: 'deposit_invoice_sent', to: 'deposit_paid', actionKey: 'OPEN_CHECKOUT', label: 'Pay deposit online', hint: 'Open PayFast / Peach checkout', tone: 'primary', requires: ['portal.tenant'], effect: 'open_checkout' },
     { from: 'deposit_paid', to: 'deposit_verified', actionKey: 'VERIFY_DEPOSIT', label: 'Verify deposit', hint: 'Finance confirms cleared funds', tone: 'secondary', requires: ['applications.review'] },
     { from: 'deposit_verified', to: 'first_rent_paid', actionKey: 'CONFIRM_FIRST_RENT', label: "Confirm first month's rent", hint: 'First rental payment received', tone: 'secondary', requires: ['applications.review'] },
     { from: 'first_rent_paid', to: 'rent_verified', actionKey: 'VERIFY_RENT', label: 'Verify rent payment', hint: 'Finance clears first month', tone: 'secondary', requires: ['applications.review'] },
-    { from: 'rent_verified', to: 'inspection_scheduled', actionKey: 'SCHEDULE_MOVE_IN', label: 'Schedule move-in inspection', hint: 'Book ingoing condition inspection', tone: 'secondary', requires: ['applications.review'], effect: 'schedule_move_in' },
+    { from: 'rent_verified', to: 'inspection_scheduled', actionKey: 'SCHEDULE_MOVE_IN', label: 'Schedule move-in inspection', hint: 'Book ingoing condition inspection', tone: 'secondary', requires: ['applications.review'], effect: 'schedule_move_in', guard: (app) => ficaPackSoftGate(app) },
     { from: 'inspection_scheduled', to: 'inspection_completed', actionKey: 'COMPLETE_INSPECTION', label: 'Complete inspection', hint: 'Record ingoing condition report', tone: 'secondary', requires: ['applications.review'] },
     { from: 'inspection_completed', to: 'keys_ready', actionKey: 'KEYS_READY', label: 'Keys ready', hint: 'Keys cut and ready for collection', tone: 'secondary', requires: ['applications.review'] },
     { from: 'keys_ready', to: 'keys_handed_over', actionKey: 'COMPLETE_KEY_HANDOVER', label: 'Hand over keys', hint: 'Confirm keys collected by tenant', tone: 'primary', requires: ['applications.review'], effect: 'key_handover' },
-    { from: 'keys_handed_over', to: 'active_tenancy', actionKey: 'ACTIVATE_TENANCY', label: 'Activate tenancy', hint: 'Lease is live — start rent cycle', tone: 'primary', requires: ['applications.review'] },
+    { from: 'keys_handed_over', to: 'active_tenancy', actionKey: 'ACTIVATE_TENANCY', label: 'Activate tenancy', hint: 'Lease is live — start rent cycle', tone: 'primary', requires: ['applications.review'], guard: (app) => ficaPackSoftGate(app) },
     { from: 'active_tenancy', to: 'renewal_offered', actionKey: 'OFFER_RENEWAL', label: 'Offer renewal', hint: 'Send renewal terms before expiry', tone: 'secondary', requires: ['applications.review'] },
     { from: 'renewal_offered', to: 'renewed', actionKey: 'ACCEPT_RENEWAL', label: 'Renewal accepted', hint: 'New lease term recorded', tone: 'primary', requires: ['applications.review'] },
     { from: 'renewal_offered', to: 'notice_given', actionKey: 'DECLINE_RENEWAL', label: 'Renewal declined', hint: 'Tenant gives notice to vacate', tone: 'secondary', requires: ['applications.review'] },
@@ -384,11 +388,12 @@ export const RENTAL_WORKFLOW: WorkflowTemplate = {
       to: 'conditionally_approved',
       actionKey: 'RECOVER_APPROVE',
       label: 'Approve & create lease',
-      hint: 'No lease exists for this application — run approval to create one',
+      hint: 'No lease exists for this application — run approval to create one (requires verified FICA pack)',
       tone: 'primary',
       requires: ['applications.review'],
       effect: 'approve',
       confirm: 'No lease exists yet. Approve this application now to create the lease and payment schedule?',
+      guard: (app) => ficaPackSoftGate(app),
     },
   ],
 }
@@ -442,11 +447,11 @@ export const PURCHASE_WORKFLOW: WorkflowTemplate = {
     { from: 'seller_review', to: 'offer_rejected', actionKey: 'REJECT_OFFER', label: 'Offer rejected', hint: 'Seller declined offer', tone: 'danger', requires: ['applications.review'], confirm: 'Record offer rejection?' },
     { from: 'offer_accepted', to: 'sale_agreement_signed', actionKey: 'SIGN_SALE_AGREEMENT', label: 'Sale agreement signed', hint: 'OTP signed by both parties', tone: 'primary', requires: ['applications.review'] },
     { from: 'sale_agreement_signed', to: 'attorney_assigned', actionKey: 'ASSIGN_ATTORNEY', label: 'Appoint attorney', hint: 'Transfer attorney assigned', tone: 'secondary', requires: ['applications.review'] },
-    { from: 'attorney_assigned', to: 'fica_verification', actionKey: 'START_FICA', label: 'Start FICA', hint: 'Buyer FICA verification', tone: 'secondary', requires: ['applications.review'] },
+    { from: 'attorney_assigned', to: 'fica_verification', actionKey: 'START_FICA', label: 'Open FICA pack review', hint: 'Staff review buyer ID, address, and FICA declaration in-app (not live bureau)', tone: 'secondary', requires: ['applications.review'] },
     { from: 'fica_verification', to: 'bond_application', actionKey: 'SUBMIT_BOND', label: 'Record bond application submitted', hint: 'Staff recorded that a bond application was submitted (from bank / broker paperwork)', tone: 'secondary', requires: ['applications.review'] },
     { from: 'bond_application', to: 'bond_approved', actionKey: 'BOND_APPROVED', label: 'Record bond outcome from bank letter', hint: 'Staff recorded an approval outcome from a bank letter — not live bank HTTP', tone: 'primary', requires: ['applications.review'] },
     { from: 'bond_application', to: 'bond_declined', actionKey: 'BOND_DECLINED', label: 'Record bond decline from bank letter', hint: 'Staff recorded a decline outcome from a bank letter — not live bank HTTP', tone: 'danger', requires: ['applications.review'], confirm: 'Record bond decline from bank letter?' },
-    { from: 'bond_approved', to: 'deposit_requested', actionKey: 'REQUEST_DEPOSIT', label: 'Request deposit', hint: 'Issue deposit payment request', tone: 'secondary', requires: ['applications.review'], effect: 'approve' },
+    { from: 'bond_approved', to: 'deposit_requested', actionKey: 'REQUEST_DEPOSIT', label: 'Request deposit', hint: 'Issue deposit payment request', tone: 'secondary', requires: ['applications.review'], effect: 'approve', guard: (app) => ficaPackSoftGate(app) },
     { from: 'deposit_requested', to: 'deposit_paid', actionKey: 'CONFIRM_DEPOSIT', label: 'Deposit paid', hint: 'Confirm deposit received', tone: 'secondary', requires: ['applications.review'] },
     { from: 'deposit_paid', to: 'transfer_processing', actionKey: 'START_TRANSFER', label: 'Start transfer', hint: 'Attorney begins transfer process', tone: 'primary', requires: ['applications.review'] },
     { from: 'transfer_processing', to: 'compliance_certificates', actionKey: 'COMPLIANCE_CERTS', label: 'Compliance certificates', hint: 'Electrical, plumbing, beetle certs', tone: 'secondary', requires: ['applications.review'] },
@@ -675,11 +680,8 @@ export function applyWorkflowTransition(
       d.status === 'required' || d.status === 'uploaded' ? { ...d, status: 'uploaded' as const } : d,
     )
   }
-  if (to === 'fica_verification') {
-    documents = documents.map((d) =>
-      d.key === 'fica' || d.key === 'id' ? { ...d, status: 'verified' as const } : d,
-    )
-  }
+  // DQ-C2 Mode A: START_FICA / fica_verification must NOT invent verified
+  // id/address/fica rows. Staff verify each pack item explicitly (not live bureau).
 
   return normalizeApplication({
     ...nextApp,
@@ -777,7 +779,7 @@ const STAGE_REQUIREMENTS: Partial<Record<WorkflowStatusKey, StageRequirements>> 
   fica_verification: {
     actor: 'agent',
     documentKeys: ['id', 'address', 'fica'],
-    waitingLabel: 'Identity verification in progress.',
+    waitingLabel: 'Staff reviewing FICA pack (ID, address, declaration) in-app — not live bureau.',
     etaDays: 1,
   },
   credit_check: {

@@ -2,6 +2,7 @@ import { FileText } from 'lucide-react'
 import type { Application, ApplicationDocument } from '../../types/domain'
 import { Card } from '../ui'
 import { ApplicationDocumentRow } from './ApplicationDocumentRow'
+import { FicaPackModeABanner } from '../fica/FicaPackModeABanner'
 import { ICON_STROKE } from './types'
 
 export function ApplicantDocumentsPanel({
@@ -29,6 +30,10 @@ export function ApplicantDocumentsPanel({
       <p className="mt-1 text-sm text-ink-500">
         Full checklist for this application. Upload and review also happen in the Application lifecycle tab.
       </p>
+
+      <div className="mt-3">
+        <FicaPackModeABanner documents={application.documents} showGate={canReview} />
+      </div>
 
       <ul className="mt-4 space-y-2">
         {application.documents.map((d) => (

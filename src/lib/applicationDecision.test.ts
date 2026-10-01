@@ -6,6 +6,7 @@ import { guidedTransitionError, patchApplicationStatus } from './api/application
 import type { Tenancy } from '../types/domain'
 import { tenantHasApprovedOccupancy } from './tenantOccupancy'
 import { buildApplicantApplicationActions } from './applicantPortalActions'
+import { buildDocumentChecklist } from './workflow'
 
 function app(overrides: Partial<Application> = {}): Application {
   return {
@@ -37,6 +38,15 @@ function app(overrides: Partial<Application> = {}): Application {
 
 const STAFF_PERMS = ['applications.review'] as import('../types/domain').Permission[]
 
+function verifiedFicaPackDocs() {
+  return buildDocumentChecklist('Rental').map((d) =>
+    d.key === 'id' || d.key === 'address' || d.key === 'fica'
+      ? { ...d, status: 'verified' as const }
+      : { ...d, status: 'uploaded' as const },
+  )
+}
+
+
 describe('P0-3: Submitted stage machine', () => {
   it('new guest applications resolve to application_submitted', () => {
     const a = app()
@@ -44,12 +54,18 @@ describe('P0-3: Submitted stage machine', () => {
   })
 
   it('Submitted offers Approve / Move to review / Reject / Request documents to staff', () => {
-    const transitions = getAvailableTransitions(app(), STAFF_PERMS)
-    const keys = transitions.map((t) => t.actionKey)
-    expect(keys).toContain('AGENT_APPROVE')
-    expect(keys).toContain('MOVE_TO_REVIEW')
-    expect(keys).toContain('REJECT_APPLICATION')
-    expect(keys).toContain('REQUEST_DOCUMENTS')
+    // DQ-C2: AGENT_APPROVE soft-gated on verified FICA pack
+    const withoutPack = getAvailableTransitions(app(), STAFF_PERMS)
+    expect(withoutPack.map((t) => t.actionKey)).not.toContain('AGENT_APPROVE')
+    expect(withoutPack.map((t) => t.actionKey)).toContain('MOVE_TO_REVIEW')
+    expect(withoutPack.map((t) => t.actionKey)).toContain('REJECT_APPLICATION')
+    expect(withoutPack.map((t) => t.actionKey)).toContain('REQUEST_DOCUMENTS')
+
+    const withPack = getAvailableTransitions(
+      app({ documents: verifiedFicaPackDocs() }),
+      STAFF_PERMS,
+    )
+    expect(withPack.map((t) => t.actionKey)).toContain('AGENT_APPROVE')
   })
 
   it('Submitted offers no staff transitions to a user without applications.review', () => {
@@ -105,7 +121,7 @@ describe('P0-3: Submitted stage machine', () => {
       squareMeters: 80,
     } as import('../types/domain').Unit
     const result = patchApplicationStatus({
-      application: app({ unitId: 'un-1' }),
+      application: app({ unitId: 'un-1', documents: verifiedFicaPackDocs() }),
       property,
       unit,
       viewings: [],
@@ -184,7 +200,11 @@ function mkListing() {
 function approveFrom(stage: string, workflowStatus?: string) {
   const { property, unit } = mkListing()
   return patchApplicationStatus({
-    application: app({ stage, ...(workflowStatus ? { workflowStatus } : {}) }),
+    application: app({
+      stage,
+      documents: verifiedFicaPackDocs(),
+      ...(workflowStatus ? { workflowStatus } : {}),
+    }),
     property,
     unit,
     viewings: [],
@@ -266,7 +286,11 @@ describe('P0-approve (R10): lease recovery from Deposit invoice issued', () => {
     const { unit } = mkListing()
     const ownerless = { ...mkListing().property, landlordId: '' } as import('../types/domain').PropertyAsset
     const result = patchApplicationStatus({
-      application: app({ stage: 'Deposit invoice issued', workflowStatus: 'deposit_invoice_sent' }),
+      application: app({
+        stage: 'Deposit invoice issued',
+        workflowStatus: 'deposit_invoice_sent',
+        documents: verifiedFicaPackDocs(),
+      }),
       property: ownerless,
       unit,
       viewings: [],
