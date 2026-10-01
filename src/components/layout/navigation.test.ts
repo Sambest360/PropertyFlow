@@ -209,14 +209,31 @@ describe('buildWorkspaceNavForActor portal dedupe', () => {
   it('landlord portal actor gets a single dashboard without tenant or contractor links', () => {
     const entries = buildWorkspaceNavForActor({
       role: 'landlord',
-      has: has(['portal.owner', 'assets.view', 'portal.tenant']),
-      hasAny: hasAny(['portal.owner', 'assets.view', 'portal.tenant']),
+      has: has([
+        'portal.owner',
+        'assets.view',
+        'documents.view',
+        'payments.view',
+        'maintenance.view',
+        'portal.tenant',
+      ]),
+      hasAny: hasAny([
+        'portal.owner',
+        'assets.view',
+        'documents.view',
+        'payments.view',
+        'maintenance.view',
+        'portal.tenant',
+      ]),
     })
     const paths = navPaths(entries)
     const labels = navLabels(entries)
 
     expect(labels.filter((l) => l === 'Dashboard')).toHaveLength(1)
     expect(paths.filter((p) => p === '/workspace/portals/owner')).toHaveLength(1)
+    expect(labels).toContain('Documents')
+    expect(labels).toContain('My properties')
+    expect(labels).toContain('Payments')
     expect(labels).not.toContain('My applications')
     expect(labels).not.toContain('My jobs')
     expect(hasUniquePaths(entries)).toBe(true)

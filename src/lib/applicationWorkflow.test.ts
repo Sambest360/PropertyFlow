@@ -165,3 +165,39 @@ describe('applicationWorkflow', () => {
     })
   })
 })
+
+describe('landlord portal review transitions', () => {
+  it('portal.owner can approve or decline from landlord_review', () => {
+    const app = {
+      id: 'APP-LL-1',
+      agencyId: 'ag-horizon',
+      propertyId: 'PR-1001',
+      agentId: null,
+      applicantUserId: 'u-tenant',
+      applicantName: 'Test Applicant',
+      email: 'a@example.com',
+      phone: '',
+      type: 'Rental' as const,
+      workflowStatus: 'landlord_review',
+      stage: 'Owner / landlord approval',
+      progress: 40,
+      income: 0,
+      employment: '',
+      creditCheck: 'Passed' as const,
+      creditConsent: true,
+      documents: [],
+      docs: [],
+      viewingSlotId: null,
+      notes: '',
+      submittedAt: '2026-01-01',
+      updatedAt: '2026-01-01',
+    }
+    const owner = getAvailableTransitions(app, ['portal.owner'])
+    expect(owner.some((t) => t.actionKey === 'CONDITIONALLY_APPROVE')).toBe(true)
+    expect(owner.some((t) => t.actionKey === 'LANDLORD_REJECTED')).toBe(true)
+    expect(owner.some((t) => t.actionKey === 'SEND_LANDLORD_REVIEW')).toBe(false)
+
+    const staff = getAvailableTransitions(app, ['applications.review'])
+    expect(staff.some((t) => t.actionKey === 'CONDITIONALLY_APPROVE')).toBe(true)
+  })
+})
