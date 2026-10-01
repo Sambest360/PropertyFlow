@@ -429,3 +429,67 @@ export async function sendApplicationApproved(input: {
     ),
   })
 }
+
+/**
+ * DQ-M4 Mode A: optional rent-dunning email behind ENABLE_EMAIL_DUNNING (default OFF).
+ * Unset / false / 0 → never send. When ON, still no-ops if Mailtrap is unconfigured.
+ * Not WhatsApp/SMS/carrier delivery — sandbox/transactional Mailtrap only.
+ */
+export function isEmailDunningEnabled(): boolean {
+  const raw = (
+    process.env.ENABLE_EMAIL_DUNNING ??
+    process.env.DUNNING_EMAIL_ENABLED ??
+    ''
+  )
+    .trim()
+    .toLowerCase()
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
+}
+
+/**
+ * Optional Mailtrap dunning notice (category `rent-dunning`).
+ * Reuses the same title/body staff already saw from buildDunningNotice.
+ * Fire-and-forget from the notify route — fail ≠ fail UI.
+ */
+export async function sendDunningNoticeEmail(input: {
+  email: string
+  tenantName?: string
+  title: string
+  body: string
+  stage: string
+  propertyTitle?: string
+  amountDisplay?: string
+  dueDate?: string
+}): Promise<MailtrapSendResult> {
+  if (!isEmailDunningEnabled()) {
+    return { sent: false, reason: 'ENABLE_EMAIL_DUNNING off (default)' }
+  }
+  const subject = input.title.trim() || `Rent notice · ${input.stage}`
+  const propertyLine = input.propertyTitle
+    ? p(`Property: <strong>${input.propertyTitle}</strong>`)
+    : ''
+  const amountLine = input.amountDisplay
+    ? p(`Amount: <strong>${input.amountDisplay}</strong>`)
+    : ''
+  const dueLine = input.dueDate ? p(`Due date: <strong>${input.dueDate}</strong>`) : ''
+  const stageLine = p(`Stage: <strong>${input.stage}</strong>`)
+  return sendMailtrapEmail({
+    to: input.email,
+    toName: input.tenantName,
+    subject,
+    category: 'rent-dunning',
+    text: input.body,
+    html: shell(
+      subject,
+      (input.tenantName ? p(`Hi <strong>${input.tenantName}</strong>,`) : '') +
+        p(input.body) +
+        propertyLine +
+        amountLine +
+        dueLine +
+        stageLine +
+        p(
+          'This is an optional Mode A sandbox email (ENABLE_EMAIL_DUNNING). It is not WhatsApp, SMS, or carrier delivery confirmation.',
+        ),
+    ),
+  })
+}

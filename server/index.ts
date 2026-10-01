@@ -50,6 +50,7 @@ import {
   sendListingLeadAlert,
   sendApplicationApproved,
   sendApplicationReceived,
+  sendDunningNoticeEmail,
   sendVerificationDecision,
   sendWelcomeEmail,
 } from './mailtrap.js'
@@ -946,6 +947,55 @@ app.post('/api/notify/application-received', async (c) => {
         referenceCode: body.referenceCode ? String(body.referenceCode).trim() : undefined,
       })
     }
+    return c.json({ ok: true }, 202)
+  } catch {
+    return c.json({ ok: true }, 202)
+  }
+})
+
+
+/**
+ * DQ-M4 Mode A: optional Mailtrap rent-dunning email after staff in-app notice.
+ * Auth + rate-limit (same notify bucket as application-received). Flag default OFF —
+ * ENABLE_EMAIL_DUNNING must be truthy and Mailtrap configured or this is a no-op.
+ * Fire-and-forget: never returns send outcome; fail ≠ fail UI.
+ */
+app.post('/api/notify/dunning-notice', async (c) => {
+  try {
+    const body = (await c.req.json()) as {
+      email?: string
+      tenantName?: string
+      title?: string
+      body?: string
+      stage?: string
+      propertyTitle?: string
+      amountDisplay?: string
+      dueDate?: string
+      paymentId?: string
+    }
+    const actor = await resolveRequestActor(c, body as unknown as Record<string, unknown>)
+    if (!actor) {
+      return c.json({ error: 'actor_required', message: 'Staff actor required to send dunning email' }, 401)
+    }
+    const email = String(body.email ?? '').trim()
+    if (!email) {
+      return c.json({ ok: true, emailed: false, reason: 'no_email' }, 202)
+    }
+    const gate = notifyEmailRateLimit(email)
+    if (!gate.ok) {
+      const rl = tooManyRequests(gate.retryAfterSec)
+      return c.json(rl.body, rl.status, rl.headers)
+    }
+    void sendDunningNoticeEmail({
+      email,
+      tenantName: body.tenantName ? String(body.tenantName).trim() : undefined,
+      title: String(body.title ?? 'Rent notice').trim() || 'Rent notice',
+      body: String(body.body ?? '').trim() || 'Rent arrears notice (Mode A).',
+      stage: String(body.stage ?? 'reminder_1').trim() || 'reminder_1',
+      propertyTitle: body.propertyTitle ? String(body.propertyTitle).trim() : undefined,
+      amountDisplay: body.amountDisplay ? String(body.amountDisplay).trim() : undefined,
+      dueDate: body.dueDate ? String(body.dueDate).trim() : undefined,
+    })
     return c.json({ ok: true }, 202)
   } catch {
     return c.json({ ok: true }, 202)

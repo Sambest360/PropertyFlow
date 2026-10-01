@@ -40,4 +40,4 @@ export type DunningNoticeDraft = {
 }
 
 export const DUNNING_NON_PRODUCTION_NOTE =
-  'Non-production Mode A: in-app notice only — no live email/SMS/bank debit.'
+  'Non-production Mode A: in-app notice always; optional Mailtrap email only when ENABLE_EMAIL_DUNNING is on — not WhatsApp/SMS/carrier delivery or bank debit.'

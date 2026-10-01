@@ -15,10 +15,19 @@ credentials.
 | Application submitted — confirmation | Applicant | `application-received` |
 | Application approved | Applicant | `application-approved` |
 | PayFast payment settled | Payer | `payment-receipt` |
+| Rent dunning notice (staff action; **flag default OFF**) | Tenant | `rent-dunning` |
 
 Every send site is fire-and-forget: a mail failure can never fail the API route
 or user flow that triggered it. Unconfigured mail = silent no-op (a reason is
 logged, nothing throws).
+
+
+### Rent dunning (`rent-dunning`) — DQ-M4 Mode A
+
+Requires `ENABLE_EMAIL_DUNNING=true` (or `DUNNING_EMAIL_ENABLED=true`). When unset/false,
+staff dunning stays **in-app only** (Mode A always). When on + Mailtrap configured, the
+staff "Send dunning notice" action may also fire a sandbox email. This is **not**
+WhatsApp, SMS, or carrier delivery confirmation. Failures never fail the UI.
 
 ## Switch to real sending — checklist
 
