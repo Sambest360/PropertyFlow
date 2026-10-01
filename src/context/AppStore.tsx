@@ -3645,8 +3645,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         })
 
         if (result.status === 'SUCCESS') {
+          // Narrow before awaits — `let result` loses discriminant across await.
+          const ok = result
           const normalized = normalizeApplication({
-            ...result.application,
+            ...ok.application,
             workflowStatus: 'deposit_invoice_sent',
           })
           // P0-approve (R7): shared durable transition — direct mirror writes
@@ -3655,15 +3657,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           void persistApproveApplication({
             applicationId,
             actorUserId,
-            tenancy: result.side_effects.lease
-              ? (result.side_effects.lease as unknown as Record<string, unknown>)
+            tenancy: ok.side_effects.lease
+              ? (ok.side_effects.lease as unknown as Record<string, unknown>)
               : undefined,
           })
           const approvedRemotely = await persistApprovedApplication({
             applicationId,
             application: normalized,
-            lease: result.side_effects.lease,
-            payments: result.side_effects.payments,
+            lease: ok.side_effects.lease,
+            payments: ok.side_effects.payments,
             notifications: [],
           })
           if (!approvedRemotely) {
@@ -3679,7 +3681,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               properties: snapshot.properties,
             }))
             return {
-              ...result,
+              ...ok,
               status: 'ERROR',
               httpStatus: 502,
               error: 'The approval-effect branch could not be saved. Nothing was changed — please try again.',
@@ -3697,16 +3699,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               notify,
             })
           }
-          if (result.side_effects.lease) {
+          if (ok.side_effects.lease) {
             const leaseRow =
-              stateRef.current.tenancies.find((t) => t.id === result.side_effects.lease!.id) ??
-              result.side_effects.lease
+              stateRef.current.tenancies.find((t) => t.id === ok.side_effects.lease!.id) ??
+              ok.side_effects.lease
             await issueLeasePackageForTenancy(leaseRow, {
               userId: actorUserId,
               name: actorUser?.name,
             })
           }
-          return { ...result, application: normalized }
+          return { ...ok, application: normalized }
         }
         return result
       }

@@ -131,8 +131,20 @@ export default function LeasesDirectory() {
         userId: user?.id,
         name: user?.name,
       })
-      if (!res.ok) notify({ title: 'Lease issue failed', body: res.error ?? 'Unknown error' })
-      else notify({ title: 'Lease issued', body: 'PDF generated and e-sign envelope opened (mock unless partner keys set).' })
+      if (!res.ok)
+        notify({
+          userId: user?.id ?? 'system',
+          agencyId: user?.agencyId ?? null,
+          title: 'Lease issue failed',
+          body: res.error ?? 'Unknown error',
+        })
+      else
+        notify({
+          userId: user?.id ?? 'system',
+          agencyId: user?.agencyId ?? null,
+          title: 'Lease issued',
+          body: 'PDF generated and e-sign envelope opened (mock unless partner keys set).',
+        })
     } finally {
       setBusyId(null)
     }
@@ -152,9 +164,17 @@ export default function LeasesDirectory() {
         signerName,
         actorUserId: user?.id,
       })
-      if (!res.ok) notify({ title: 'Sign failed', body: res.error ?? 'Unknown error' })
+      if (!res.ok)
+        notify({
+          userId: user?.id ?? 'system',
+          agencyId: user?.agencyId ?? null,
+          title: 'Sign failed',
+          body: res.error ?? 'Unknown error',
+        })
       else
         notify({
+          userId: user?.id ?? 'system',
+          agencyId: user?.agencyId ?? null,
           title: `${party === 'tenant' ? 'Tenant' : 'Landlord'} signed`,
           body: 'E-sign status updated — workflow mirrors real countersign progress.',
         })
@@ -228,17 +248,17 @@ export default function LeasesDirectory() {
               <option value="missing">Missing PDF</option>
             </DirectoryFilterSelect>
           }
-          trailing={
-            q.trim() || signFilter !== 'all' ? (
-              <ClearFiltersButton onClick={clearFilters} />
-            ) : null
-          }
         />
 
         {filtered.length === 0 ? (
           <DirectoryEmpty
             title="No leases match"
-            body="Approve a rental application to create a tenancy — the lease PDF is generated on approve."
+            hint="Approve a rental application to create a tenancy — the lease PDF is generated on approve."
+            action={
+              q.trim() || signFilter !== 'all' ? (
+                <ClearFiltersButton onClick={clearFilters} reducedMotion={reducedMotion} />
+              ) : undefined
+            }
           />
         ) : view === 'cards' ? (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">

@@ -16,11 +16,8 @@ function bytesToDataUrl(bytes: Uint8Array): string {
   for (let i = 0; i < bytes.length; i += chunk) {
     binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
   }
-  const base64 =
-    typeof btoa === 'function'
-      ? btoa(binary)
-      : Buffer.from(bytes).toString('base64')
-  return `data:application/pdf;base64,${base64}`
+  // Browser / Vite client bundle — btoa only (no Node Buffer types).
+  return `data:application/pdf;base64,${btoa(binary)}`
 }
 
 /** Generate a real PDF lease agreement from tenancy + property context. */
