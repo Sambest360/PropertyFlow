@@ -28,6 +28,7 @@ import {
   type WorkflowStatusKey,
 } from '../../lib/applicationWorkflow'
 import { actionNeedsModal, type WorkflowActionCapture } from '../../lib/workflowActionForms'
+import { useStore } from '../../context/AppStore'
 import { LifecycleStagePanel } from './LifecycleStagePanel'
 import { WorkflowActionModal } from './WorkflowActionModal'
 import { Badge, Card, cn, statusTone } from '../ui'
@@ -220,6 +221,12 @@ export function ApplicationLifecycleHub({
   onSaveDetails?: (patch: Partial<Application>) => void
 }) {
   const alert = useSuiteAlert()
+  // P0-approve (R10): lease truth straight from the store — the RECOVER_APPROVE
+  // action ('Approve & create lease') may only appear when this application has
+  // no lease row. Server-authoritative on hydration: the durable lease fetch is
+  // the same source Confirm-deposit flows already trust.
+  const { state } = useStore()
+  const hasLease = state.tenancies.some((t) => t.applicationId === application.id)
   const { label: agentLabel } = useAgentDisplay()
   const assignedAgent = agentLabel(application.agentId, agentName)
   const workflowStatus = resolveWorkflowStatus(application)
@@ -243,6 +250,7 @@ export function ApplicationLifecycleHub({
       : buildApplicationActions({
           application,
           actor: actor as Parameters<typeof buildApplicationActions>[0]['actor'],
+          leaseExists: hasLease,
         })
     const toneRank: Record<string, number> = { primary: 0, secondary: 1, ghost: 2, danger: 3 }
     return [...raw].sort(
@@ -250,7 +258,7 @@ export function ApplicationLifecycleHub({
         (toneRank[resolveTone(a)] ?? 1) - (toneRank[resolveTone(b)] ?? 1) ||
         a.label.localeCompare(b.label),
     )
-  }, [application, applicantMode, actor])
+  }, [application, applicantMode, actor, hasLease])
 
   const handleActionClick = async (action: HateoasAction) => {
     if (actionNeedsModal(action.key)) {

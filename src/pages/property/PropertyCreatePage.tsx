@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Building2,
@@ -238,6 +238,22 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   const { draft, setDraft, clearDraft } = useWizardDraft<PropertyDraft>(wizardStorageKey, seedDraft, {
     omitFromPersist: ['buildingImages'],
   })
+
+  // P0-collision (R10): a leftover wizard draft (sessionStorage) carries a
+  // draftPropertyId from a PREVIOUS listing. Submit treated it as "existing
+  // draft" and overwrote that listing in place — the rent/sale both landing on
+  // unt-ljn8sf. A fresh wizard visit (no ?edit=, no explicit resume) must
+  // never inherit it: clear the id once on mount so this wizard's first submit
+  // mints a NEW listing. The in-session ref below still lets "Save & continue
+  // later" → re-entry within the same mount reuse the id it just created.
+  const sessionDraftPropertyIdRef = useRef('')
+  useEffect(() => {
+    if (isEdit) return
+    if (draft.draftPropertyId) {
+      setDraft((d) => ({ ...d, draftPropertyId: '' }))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const { stepIndex, maxReachableIndex, goNext, goBack, goTo, markReachable, isFirst, isLast } =
     useWizardSteps({ totalSteps: STEPS.length, storageKey: wizardStorageKey })
 
@@ -552,8 +568,16 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       return persistExisting(editPropertyId)
     }
 
-    if (draft.draftPropertyId && state.properties.some((p) => p.id === draft.draftPropertyId)) {
-      return persistExisting(draft.draftPropertyId)
+    // P0-collision (R10): same session-scoped rule as submitProperty — a
+    // draftPropertyId from leftover sessionStorage belongs to a previous
+    // listing; only one recorded during this mount may be updated in place.
+    const sessionOwnedId =
+      sessionDraftPropertyIdRef.current ||
+      (draft.draftPropertyId && state.properties.some((p) => p.id === draft.draftPropertyId)
+        ? draft.draftPropertyId
+        : '')
+    if (sessionOwnedId) {
+      return persistExisting(sessionOwnedId)
     }
 
     const created = createPropertyBundle({
@@ -618,6 +642,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       if (canSyncServerDraft()) {
         const id = syncServerDraft()
         setDraft((d) => ({ ...d, draftPropertyId: id }))
+        sessionDraftPropertyIdRef.current = id
       }
       navigate(returnTo)
     } catch {
@@ -636,9 +661,9 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       return
     }
     setBusy(true)
-    try {
-      const id = syncServerDraft()
-      setDraft((d) => ({ ...d, draftPropertyId: id }))
+    try {      const id = syncServerDraft()
+        setDraft((d) => ({ ...d, draftPropertyId: id }))
+      sessionDraftPropertyIdRef.current = id
       clearDraft()
       try {
         sessionStorage.removeItem(`${wizardStorageKey}:step`)
@@ -668,11 +693,16 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
 
     setBusy(true)
     const patch = buildPropertyPatch(listingImages)
+    // P0-collision (R10): only a draftPropertyId recorded during THIS wizard
+    // session is a legitimate "existing draft" to update. A value restored
+    // from leftover sessionStorage belongs to a previous listing — reusing it
+    // overwrote that listing (the unt-ljn8sf rent/sale collision).
     const existingDraftId = isEdit
       ? editPropertyId!
-      : draft.draftPropertyId && state.properties.some((p) => p.id === draft.draftPropertyId)
-        ? draft.draftPropertyId
-        : null
+      : (sessionDraftPropertyIdRef.current ||
+          (draft.draftPropertyId && state.properties.some((p) => p.id === draft.draftPropertyId)
+            ? draft.draftPropertyId
+            : '')) || null
 
     let propertyId: string
     // P0-publish (R7): snapshot of a property created in this same tick —
@@ -753,6 +783,9 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       // committed state.
       createdProperty = created
       propertyId = created.id
+      // P0-collision (R10): this mount now owns a real listing id — later
+      // saves in the same session update THIS listing, not a new one.
+      sessionDraftPropertyIdRef.current = created.id
     }
 
     const shouldPublish =
@@ -777,7 +810,13 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       /* ignore */
     }
     setBusy(false)
-    navigate(isEdit || isLandlord ? `/workspace/properties/${propertyId}` : returnTo)
+    // P0-collision (R10): a detail URL the current store can't resolve yet
+    // (the async bootstrap refresh may not have landed the new row) renders a
+    // "not found" dead end — fall back to the list, which is always valid.
+    const targetInStore = state.properties.some((p) => p.id === propertyId)
+    const detailTarget =
+      (isEdit || isLandlord) && targetInStore ? `/workspace/properties/${propertyId}` : returnTo
+    navigate(detailTarget)
   }
 
   function renderStep() {

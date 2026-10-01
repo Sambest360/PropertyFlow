@@ -56,9 +56,17 @@ function transitionToAction(transition: WorkflowTransition, applicationId: strin
 export function buildApplicationActions(params: {
   application: Application
   actor: ActorContext
+  /** P0-approve (R10): lease truth for the RECOVER_APPROVE gate — a lease-less
+   *  application stuck past approval must surface 'Approve & create lease'.
+   *  Undefined keeps the legacy optimistic default (lease assumed to exist). */
+  leaseExists?: boolean
 }): HateoasAction[] {
   const permissions = params.actor.permissions ?? []
-  const transitions = getAvailableTransitions(params.application, permissions)
+  const transitions = getAvailableTransitions(
+    params.application,
+    permissions,
+    params.leaseExists ?? true,
+  )
   const raw = transitions.map((t) => transitionToAction(t, params.application.id))
   return filterActionsForActor(raw, params.actor)
 }

@@ -156,7 +156,12 @@ const ALLOWED: Record<string, string[]> = {
   'Agent review': ['CREDIT_CHECK', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
   'Credit check': ['APPROVED', 'REJECTED', 'UNDER_REVIEW'],
   'Conditionally approved': ['APPROVED', 'LEASE_SIGNED', 'REJECTED'],
-  'Deposit invoice issued': ['LEASE_SIGNED', 'REJECTED', 'WITHDRAWN'],
+  'Deposit invoice issued': ['APPROVED', 'LEASE_SIGNED', 'REJECTED', 'WITHDRAWN'],
+  // P0-approve (R10): APPROVED here serves the lease-recovery flow — an
+  // application already past approval with NO durable lease (stuck 71%). The
+  // workflow template gates the 'Approve & create lease' action to lease-less
+  // apps only (RECOVER_APPROVE + leaseExists gate in getAvailableTransitions);
+  // the re-run is idempotent — upsertTenancy dedupes on application_id.
   'Lease signed by tenant': ['LEASED'],
   'Lease signed by landlord': ['LEASED'],
   'Move-in inspection scheduled': ['LEASED'],

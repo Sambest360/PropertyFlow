@@ -584,8 +584,32 @@ async function upsertTenancy(id: string, data: Record<string, unknown>): Promise
   // id as the reference (server/writes.ts: str(d.leaseReference ?? feId)),
   // and the approve RPC mints the same shape ('tn-' || 8 hex chars).
   const leaseReference = str(data.leaseReference ?? data.reference ?? '').slice(0, 60) || id
+  // P0-approve (R10): recovery re-approvals (and the RPC path) must dedupe on
+  // the same application — resolve an existing lease row for this application
+  // and upsert onto IT, so a re-approve updates rather than duplicates.
+  let leaseUuid = uuid
+  const appUuidVal = data.applicationId ? await resolveUuid('application', str(data.applicationId)) : null
+  if (appUuidVal) {
+    const { data: existingLease } = await supabase
+      .from('leases')
+      .select('id')
+      .eq('application_id', appUuidVal)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+    if (existingLease?.id) {
+      leaseUuid = existingLease.id as string
+      await supabase
+        .from('entity_id_map')
+        .upsert(
+          { entity_type: 'tenancy', backend_id: leaseUuid, frontend_id: id },
+          { onConflict: 'entity_type,frontend_id' },
+        )
+    }
+  }
   const res = await supabase.from('leases').upsert({
-    id: uuid,
+    id: leaseUuid,
+    ...(appUuidVal ? { application_id: appUuidVal } : {}),
     client_id: await clientUuid(data.agencyId),
     unit_id: await unitUuid(data.propertyId),
     tenant_id: await userUuid(data.tenantUserId),
@@ -624,10 +648,35 @@ async function upsertBuilding(id: string, data: Record<string, unknown>): Promis
   const supabase = createClient()
   const uuid = await ensureUuid('building', id)
   const clientId = await clientUuid(data.clientId)
+  // P0-approve (R10/D6): the wizard creates a manual landlord and immediately
+  // writes the building that references it. ensureUuid's fresh entity_id_map
+  // row is correct, but an existing staff-updated user row (frontend_id
+  // changed, or an email-matched pre-existing row) resolves differently —
+  // resolve by metadata/frontend_id before falling back to the map so the
+  // building always carries the REAL owner id (leases.landlord_id FK comes
+  // from buildings.landlord_id via upsertTenancy's fallback).
+  let landlordUuid = await userUuid(data.landlordId)
+  if (!landlordUuid && data.landlordId) {
+    const feLandlord = str(data.landlordId)
+    const { data: metaRow } = await supabase
+      .from('users')
+      .select('id')
+      .eq('metadata->>frontend_id', feLandlord)
+      .maybeSingle()
+    if (metaRow?.id) {
+      landlordUuid = metaRow.id as string
+      await supabase
+        .from('entity_id_map')
+        .upsert(
+          { entity_type: 'user', backend_id: metaRow.id as string, frontend_id: feLandlord },
+          { onConflict: 'entity_type,frontend_id' },
+        )
+    }
+  }
   await supabase.from('buildings').upsert({
     id: uuid,
     client_id: clientId,
-    landlord_id: await userUuid(data.landlordId),
+    landlord_id: landlordUuid,
     name: str(data.name, 'Building'),
     address: str(data.addressLine1 ?? data.address, 'Address TBC'),
     city: str(data.city, 'Port Elizabeth'),

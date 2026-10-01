@@ -58,3 +58,32 @@ export function findByListingId<T extends { id: string; unitId?: string | null }
       (item.unitId != null && aliases.has(item.unitId.toLowerCase())),
   )
 }
+
+/**
+ * P0-collision (R10): mint a listing id that does not collide with any known
+ * property. The wizard's leftover-draft bug made a sale listing overwrite a
+ * rent listing's public route — both resolved to the same `unt-XXXX` id — so
+ * create paths must verify uniqueness against the live set before minting.
+ * Comparison is case-insensitive and alias-aware (unt-/PR- variants match).
+ */
+export function nextUniquePropertyId(existingIds: Iterable<string>, generate: () => string): string {
+  const taken = new Set<string>()
+  for (const id of existingIds) {
+    if (!id) continue
+    taken.add(id.toLowerCase())
+    for (const alias of listingIdAliases(id)) taken.add(alias.toLowerCase())
+  }
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const candidate = generate()
+    if (!taken.has(candidate.toLowerCase())) return candidate
+  }
+  // Astronomically unlikely (5 straight 36^6 collisions) but never return a
+  // taken id — force uniqueness with a numeric disambiguator.
+  let suffix = 1
+  let candidate = generate()
+  while (taken.has(candidate.toLowerCase())) {
+    candidate = `${generate()}${suffix}`
+    suffix += 1
+  }
+  return candidate
+}

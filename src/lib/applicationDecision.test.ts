@@ -233,3 +233,51 @@ describe('P0-1 (R4): Approve works on every real application shape', () => {
     expect(submitted.stage).toBe('Application submitted')
   })
 })
+
+// ── P0-approve (R10): stuck-71% recovery — Approve creates a real lease ──
+describe('P0-approve (R10): lease recovery from Deposit invoice issued', () => {
+  it('Approve (recovery) succeeds from "Deposit invoice issued" and mints a lease', () => {
+    const result = approveFrom('Deposit invoice issued', 'deposit_invoice_sent')
+    expect(result.status).toBe('SUCCESS')
+    if (result.status === 'SUCCESS') {
+      expect(result.application.stage).toBe('Awaiting Payment')
+      expect(result.side_effects.lease).not.toBeNull()
+      expect(result.side_effects.lease?.applicationId).toBe('APP-1')
+      expect(result.side_effects.lease?.landlordId).toBe('u-landlord')
+      expect(result.side_effects.payments.length).toBeGreaterThan(0)
+      // Payments bind to the lease so the deposit flow targets a real tenancy
+      expect(result.side_effects.payments.every((p) => p.tenancyId === result.side_effects.lease?.id)).toBe(true)
+    }
+  })
+
+  it('recovery keeps a real deposit + first-month schedule (no fake 71%)', () => {
+    const result = approveFrom('Deposit invoice issued', 'deposit_invoice_sent')
+    expect(result.status).toBe('SUCCESS')
+    if (result.status === 'SUCCESS') {
+      const deposit = result.side_effects.payments.find((p) => p.type === 'Deposit')
+      const firstRent = result.side_effects.payments.find((p) => p.type === 'First Month Rent')
+      expect(deposit).toBeDefined()
+      expect(deposit?.status).toBe('Due')
+      expect(firstRent).toBeDefined()
+    }
+  })
+
+  it('rejects an ownerless listing with fail-fast NO_LANDLORD instead of a leaseless 71%', () => {
+    const { unit } = mkListing()
+    const ownerless = { ...mkListing().property, landlordId: '' } as import('../types/domain').PropertyAsset
+    const result = patchApplicationStatus({
+      application: app({ stage: 'Deposit invoice issued', workflowStatus: 'deposit_invoice_sent' }),
+      property: ownerless,
+      unit,
+      viewings: [],
+      slots: [],
+      existingTenancies: [],
+      request: { status: 'APPROVED', payment_provider: 'auto' },
+      actor: STAFF_ACTOR,
+    })
+    expect(result.status).toBe('ERROR')
+    if (result.status === 'ERROR') {
+      expect(result.code).toBe('NO_LANDLORD')
+    }
+  })
+})

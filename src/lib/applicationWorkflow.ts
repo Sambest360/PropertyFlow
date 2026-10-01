@@ -369,6 +369,24 @@ export const RENTAL_WORKFLOW: WorkflowTemplate = {
     { from: 'agent_review', to: 'rejected', actionKey: 'REJECT_APPLICATION', label: 'Reject application', hint: 'Decline after manual review', tone: 'danger', requires: ['applications.review'], confirm: 'Reject this application?' },
     { from: 'landlord_review', to: 'rejected', actionKey: 'LANDLORD_REJECTED', label: 'Landlord rejected', hint: 'Owner declined this applicant', tone: 'danger', requires: ['applications.review'], confirm: 'Record landlord rejection?' },
     { from: 'deposit_invoice_sent', to: 'cancelled', actionKey: 'CANCEL_NO_DEPOSIT', label: 'Cancel (no deposit)', hint: 'Deposit not received in time', tone: 'danger', requires: ['applications.review'], confirm: 'Cancel — deposit not received?' },
+    // P0-approve (R10): recovery for applications already past approval but
+    // WITHOUT a durable lease (the stuck 71% defect — the approve machine
+    // creates the lease in the same transaction, so an app can only reach this
+    // stage lease-less when the durable write failed earlier). Routed through
+    // the approve effect: the same snapshot/revert approve machine runs and
+    // creates the real lease + payments. Gated by leaseExists in
+    // getAvailableTransitions — offered only to lease-aware callers.
+    {
+      from: 'deposit_invoice_sent',
+      to: 'conditionally_approved',
+      actionKey: 'RECOVER_APPROVE',
+      label: 'Approve & create lease',
+      hint: 'No lease exists for this application — run approval to create one',
+      tone: 'primary',
+      requires: ['applications.review'],
+      effect: 'approve',
+      confirm: 'No lease exists yet. Approve this application now to create the lease and payment schedule?',
+    },
   ],
 }
 
@@ -537,6 +555,10 @@ export function stageVisualState(
 export function getAvailableTransitions(
   app: Application,
   actorPermissions: Permission[],
+  /** P0-approve (R10): caller-supplied lease truth for the recovery gate.
+   *  Defaults to true so every existing caller (and its optimistic store view)
+   *  behaves exactly as before — only lease-aware callers pass false. */
+  leaseExists = true,
 ): WorkflowTransition[] {
   const status = resolveWorkflowStatus(app)
   const template = getWorkflowTemplate(app.type)
@@ -545,6 +567,10 @@ export function getAvailableTransitions(
   return template.transitions.filter((t) => {
     if (t.from !== status) return false
     if (t.requires?.length && !t.requires.every((p) => actorPermissions.includes(p))) return false
+    // P0-approve (R10): the recovery transition is only offered when the
+    // application is provably WITHOUT a lease. Apps already holding a real
+    // lease keep the plain Confirm-deposit flow.
+    if (t.actionKey === 'RECOVER_APPROVE' && leaseExists) return false
     if (t.guard) {
       const ok = t.guard(app)
       if (ok !== true) return false

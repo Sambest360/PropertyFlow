@@ -48,7 +48,7 @@ import type {
   CsvImportBatch,
 } from '../types/domain'
 import { isPubliclyListed } from '../lib/publicListings'
-import { findByListingId } from '../lib/listingIds'
+import { findByListingId, nextUniquePropertyId } from '../lib/listingIds'
 import {
   uid,
   seedAgencyContractors,
@@ -1591,7 +1591,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     },
     createProperty: (input) => {
       // P0-4: Use unt- prefix as canonical public ID for single durable public face
-      const propertyId = uid('unt')
+      // P0-collision (R10): mint against the live property set so a new listing
+      // can never resolve to an existing listing's public route.
+      const propertyId = nextUniquePropertyId(
+        stateRef.current.properties.map((p) => p.id),
+        () => uid('unt'),
+      )
       const property: PropertyAsset = {
         ...input,
         id: propertyId,
@@ -1635,7 +1640,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }
 
       // P0-4: Ensure single durable public ID - property.id is canonical, unit.id is derived
-      const propertyId = uid('unt') // Use unt- prefix as canonical public ID
+      // P0-collision (R10): the wizard's leftover-draft bug reused one listing's
+      // unt- id for a second listing (rent/sale overwrite). Minting here is
+      // collision-guarded against the live property set as belt-and-braces —
+      // the wizard-side stale-draft fix (PropertyCreatePage) is the primary fix.
+      const propertyId = nextUniquePropertyId(
+        stateRef.current.properties.map((p) => p.id),
+        () => uid('unt'),
+      )
       const unitId = propertyId // Unit ID matches property ID for single public face
       const clientId = building.clientId
 
@@ -3199,7 +3211,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
       const actorUser = state.users.find((u) => u.id === actorUserId)
       const permissions = rolePermissions[actorUser?.role ?? 'client_admin'] ?? []
-      let transition = getAvailableTransitions(app, permissions).find((t) => t.to === targetStatus)
+      // P0-approve (R10): the RECOVER_APPROVE transition is gated on lease
+      // existence — a lease-less application stuck past approval must be able
+      // to run it here even though the optimistic store may not have the lease
+      // row hydrated. The server-side ALLOWED check in patchApplicationStatus
+      // is the real gate; this lookup only resolves the transition metadata.
+      const hasLease = state.tenancies.some((t) => t.applicationId === app.id)
+      let transition =
+        getAvailableTransitions(app, permissions, hasLease).find((t) => t.to === targetStatus) ??
+        getAvailableTransitions(app, permissions, true).find((t) => t.to === targetStatus)
       // P0-1 (R4): the shared template gates applicant-side steps behind
       // `applications.review`, which tenants never hold — so an applicant
       // submitting their own application was rejected with INVALID_TRANSITION

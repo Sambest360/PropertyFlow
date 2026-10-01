@@ -124,4 +124,44 @@ describe('applicationWorkflow', () => {
     expect(req?.documentKeys?.length).toBeGreaterThan(0)
     expect(documentsForStage(app, 'documents_requested').length).toBeGreaterThan(0)
   })
+
+  // P0-approve (R10): the stuck-71% recovery — an application past approval
+  // with NO lease must surface 'Approve & create lease'; one holding a lease
+  // must keep the plain deposit flow.
+  describe('RECOVER_APPROVE lease recovery', () => {
+    const leaselessApp = normalizeApplication(
+      rentalApp({ workflowStatus: 'deposit_invoice_sent', stage: 'Deposit invoice issued' }),
+    )
+
+    it('offers Approve & create lease only when no lease exists', () => {
+      const withoutLease = getAvailableTransitions(leaselessApp, ['applications.review'], false)
+      const recover = withoutLease.find((t) => t.actionKey === 'RECOVER_APPROVE')
+      expect(recover).toBeDefined()
+      expect(recover?.effect).toBe('approve')
+      expect(recover?.to).toBe('conditionally_approved')
+
+      const withLease = getAvailableTransitions(leaselessApp, ['applications.review'], true)
+      expect(withLease.find((t) => t.actionKey === 'RECOVER_APPROVE')).toBeUndefined()
+      // Deposit flow remains available in both cases
+      expect(withLease.some((t) => t.actionKey === 'CONFIRM_DEPOSIT_PAID')).toBe(true)
+    })
+
+    it('defaults to lease-exists behavior for legacy callers', () => {
+      const legacy = getAvailableTransitions(leaselessApp, ['applications.review'])
+      expect(legacy.find((t) => t.actionKey === 'RECOVER_APPROVE')).toBeUndefined()
+    })
+
+    it('is permission-gated behind applications.review', () => {
+      const denied = getAvailableTransitions(leaselessApp, [], false)
+      expect(denied.find((t) => t.actionKey === 'RECOVER_APPROVE')).toBeUndefined()
+    })
+
+    it('never appears for applications already holding an applicant-side approval flow', () => {
+      // A lease-less app still at review stage follows the normal approve path
+      const early = normalizeApplication(rentalApp({ workflowStatus: 'agent_review' }))
+      const transitions = getAvailableTransitions(early, ['applications.review'], false)
+      expect(transitions.find((t) => t.actionKey === 'RECOVER_APPROVE')).toBeUndefined()
+      expect(transitions.some((t) => t.actionKey === 'AGENT_APPROVE')).toBe(true)
+    })
+  })
 })
