@@ -312,6 +312,13 @@ async function upsertApplication(id: string, data: Record<string, unknown>): Pro
     progress: data.progress,
     keyCollection: data.keyCollection,
     frontend_id: id,
+    // P0-sync (R9): denormalise the applicant identity into metadata. The
+    // bootstrap's profile-name join reads auth-linked public.users; when that
+    // read fails (RLS context race on freshly-registered guests) staff detail
+    // pages rendered a blank "Applicant". Row metadata is readable by the
+    // same staff policy that reads the row itself.
+    applicant_name: str(data.applicantName) || undefined,
+    applicant_email: str(data.email) || undefined,
   }
   let mergedMeta = incomingMeta
   const existingMeta = (existingRow?.metadata ?? null) as Record<string, unknown> | null
@@ -326,6 +333,10 @@ async function upsertApplication(id: string, data: Record<string, unknown>): Pro
       unit_id: unitId,
       agent_id: await userUuid(data.agentId),
       applicant_id: await userUuid(data.applicantUserId),
+      // P0-sync (R9): the applicant's own contact fields live on the row
+      // metadata (below). PostgREST has no nested applicant_user upsert, so
+      // name/email denormalisation rides metadata.applicant_name/_email —
+      // always readable by the staff policy that reads the row itself.
       reference_code: id,
       application_type: str(data.type) === 'Purchase' ? 'PURCHASE' : 'RENTAL',
       status: APP_STAGE_TO_DB[stage] ?? 'UNDER_REVIEW',
@@ -334,6 +345,14 @@ async function upsertApplication(id: string, data: Record<string, unknown>): Pro
       message: str(data.notes),
       move_in_date: str(data.moveInDate) || null,
       metadata: mergedMeta,
+      // P0-sync (R9): the staff bootstrap orders applications by submitted_at
+      // DESC NULLS LAST with a hard limit — a NULL submitted_at sorted the
+      // guest-created application AFTER every seeded row, past the limit, so
+      // staff detail/list/search all answered "not found" while the applicant
+      // saw their own optimistic row. Stamp it on every write; on conflict the
+      // ON CONFLICT update does not touch the column, so existing rows keep
+      // their original value.
+      submitted_at: str(data.submittedAt) || new Date().toISOString(),
       updated_at: new Date().toISOString(),
     },
     { onConflict: 'id', ignoreDuplicates: false },

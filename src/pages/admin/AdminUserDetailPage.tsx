@@ -284,8 +284,12 @@ function OverviewTab({
   const verification = user.verification
   const docs = verification?.documents ?? []
   const profile = verification?.profile ?? {}
-  const showReview =
-    (user.role === 'landlord' || user.role === 'contractor') && Boolean(verification)
+  // P0-landlord (R9): the review panel previously required an existing
+  // verification object, so landlords CREATED by staff (no self-submitted
+  // docs) were stuck "Pending review" with no Approve control anywhere —
+  // and an unapproved landlord could not be used on leases. Staff-created
+  // landlords/contractors are exactly the ones needing a one-click approval.
+  const showReview = user.role === 'landlord' || user.role === 'contractor'
 
   const applyDecision = async (status: 'approved' | 'rejected') => {
     setError('')
@@ -440,7 +444,7 @@ function OverviewTab({
               <p className="text-sm text-ink-500">No documents attached.</p>
             )}
 
-            {canReview && verification?.status === 'pending' ? (
+            {canReview && (verification?.status ?? 'pending') === 'pending' ? (
               <div className="space-y-3 border-t border-primary-100 pt-4">
                 <label className="block text-sm font-medium text-ink">
                   Decline note (shown to the user if declined)

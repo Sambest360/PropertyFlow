@@ -2742,9 +2742,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       // the detail views must never invent a person.
       const agentId =
         input.agentId && state.users.some((u) => u.id === input.agentId) ? input.agentId : null
+      // P0-sync (R9): the application's agency must match the LISTING's agency.
+      // A stale/blank payload agency wrote client_id NULL — the RLS select
+      // policy (client_id = current_app_client_id() OR role override) then hid
+      // the row from every staff viewer, while the applicant's own optimistic
+      // copy still rendered. Deriving from the property keeps one agency for
+      // the listing and everything on it.
+      const agencyId = property?.agencyId || input.agencyId
       const app: Application = {
         id: uid('APP'),
-        agencyId: input.agencyId,
+        agencyId,
         propertyId: input.propertyId,
         unitId: unit?.id ?? property?.unitId ?? null,
         agentId,
@@ -2777,7 +2784,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       addActivity(`Application started: ${app.applicantName}`, app.applicantName, app.agencyId)
 
       emitSuiteEvent({
-        agencyId: input.agencyId,
+        agencyId,
         resource: 'applicant',
         action: 'created',
         title: 'New application',
@@ -2790,7 +2797,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       if (input.applicantUserId) {
         notify({
           userId: input.applicantUserId,
-          agencyId: input.agencyId,
+          agencyId,
           title: 'Application submitted',
           body: `Your ${input.type.toLowerCase()} application for ${property?.title ?? 'the listing'} was received.`,
           link: `/workspace/portals/tenant/applications/${encodeURIComponent(app.id)}`,

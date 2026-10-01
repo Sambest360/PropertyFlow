@@ -381,7 +381,24 @@ export async function supabaseSignUp(
       email: input.email.trim(),
       password: input.password,
     })
-    if (error) throw new Error(error.message)
+    if (error) {
+      // P0-register (R9): a leftover session's token refresh can 400 between
+      // the purge and the fresh password grant ("Invalid Refresh Token"-
+      // style errors). The account EXISTS at this point — reporting that as a
+      // raw error made the wizard appear to fail after "Creating…" and drop
+      // back to step 1. Route to the coherent sign-in flow instead.
+      const msg = (error.message || '').toLowerCase()
+      if (
+        msg.includes('refresh') ||
+        msg.includes('token') ||
+        msg.includes('session') ||
+        msg.includes('confirm') ||
+        msg.includes('credential')
+      ) {
+        throw new RegistrationRedirectError('sign_in_required', input.email.trim())
+      }
+      throw new Error(error.message)
+    }
     if (!data.user) throw new Error('Registration failed')
 
     let profile = await loadProfileForSession(data.user.id)

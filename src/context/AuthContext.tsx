@@ -263,6 +263,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [sessionUser?.id, userId, realUserId])
 
+  // P0-session (R9): sign-out in ANOTHER tab must not leave this tab holding
+  // the identity. AuthContext reads AUTH_KEY directly from localStorage for
+  // its initial state — when the storage event says the key was REMOVED while
+  // we have no live session proof, drop back to guest.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== AUTH_KEY) return
+      if (e.newValue == null && !sessionUser) {
+        setUserId('')
+        setRealUserId(null)
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [sessionUser])
+
   const isAuthenticated = Boolean(sessionUser)
 
   const impersonating =

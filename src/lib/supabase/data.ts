@@ -230,10 +230,15 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
       ? Promise.resolve({ data: [] as Record<string, unknown>[] })
       : supabase.from('internal_assets').select('*'),
     supabase.from('leads').select('*').order('created_at', { ascending: false }).limit(limits.leads),
+    // P0-sync (R9): order by updated_at (NOT NULL, stamped on every write).
+    // The previous submitted_at ordering pushed NULL-submitted_at rows (guest
+    // applications written before the submitted_at stamp existed) past the
+    // row LIMIT — staff detail/list/search all answered "not found" for an
+    // application the applicant could see.
     supabase
       .from('applications')
       .select('*')
-      .order('submitted_at', { ascending: false, nullsFirst: false })
+      .order('updated_at', { ascending: false })
       .limit(limits.applications),
     supabase
       .from('leases')
@@ -526,8 +531,8 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
       propertyId: mapPropertyFe(a.unit_id)!,
       agentId: mapUserFe(a.agent_id),
       applicantUserId: mapUserFe(a.applicant_id),
-      applicantName: 'Applicant',
-      email: '',
+      applicantName: (typeof meta.applicant_name === 'string' && meta.applicant_name.trim()) || 'Applicant',
+      email: (typeof meta.applicant_email === 'string' && meta.applicant_email) || '',
       phone: '',
       type,
       workflowStatus: workflowStatusFromMeta ?? undefined,
