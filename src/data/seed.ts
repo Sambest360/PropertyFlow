@@ -827,6 +827,7 @@ export const seedTenancies: Tenancy[] = [
     endDate: '2026-12-31',
     rent: 12500,
     deposit: 25000,
+    rentDueDay: 1,
     status: 'Active',
     keyCollection: {
       location: 'Horizon Realty — Walmer office',
@@ -849,6 +850,7 @@ export const seedTenancies: Tenancy[] = [
     endDate: '2026-09-30',
     rent: 9500,
     deposit: 19000,
+    rentDueDay: 1,
     status: 'Active',
     keyCollection: {
       location: 'Algoa Bay Estates — Richmond Hill desk',
@@ -871,6 +873,7 @@ export const seedTenancies: Tenancy[] = [
     endDate: '2027-05-14',
     rent: 14500,
     deposit: 29000,
+    rentDueDay: 1,
     status: 'Active',
     keyCollection: {
       location: 'Bayview Property Group — Framesby office',

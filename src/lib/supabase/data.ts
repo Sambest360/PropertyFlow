@@ -585,6 +585,7 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
       endDate: dateOnly(l.end_date) || null,
       rent: Number(l.rent_amount),
       deposit: Number(l.deposit_amount),
+      rentDueDay: Math.min(28, Math.max(1, Number(l.rent_due_day) || 1)),
       status: l.status === 'ACTIVE' ? ('Active' as const) : ('Pending Move-In' as const),
       keyCollection: meta.keyCollection ?? {
         location: 'Agency office',

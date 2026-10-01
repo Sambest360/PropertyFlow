@@ -1,4 +1,4 @@
-import { Ban, CheckCircle2, CreditCard, Trash2 } from 'lucide-react'
+import { Ban, CheckCircle2, CreditCard, Megaphone, Trash2 } from 'lucide-react'
 import type { PaymentRecord, PropertyAsset } from '../../types/domain'
 import { ActionButtonRow } from '../ActionButtonRow'
 import { BackButton } from '../BackButton'
@@ -18,6 +18,7 @@ export function PaymentDetailHeader({
   payOnlineBusy = false,
   onCancel,
   onRemove,
+  onSendDunning,
 }: {
   payment: PaymentRecord
   property: PropertyAsset | null
@@ -30,6 +31,8 @@ export function PaymentDetailHeader({
   payOnlineBusy?: boolean
   onCancel: () => void
   onRemove: () => void
+  /** Mode A: in-app dunning notice (non-production). */
+  onSendDunning?: () => void
 }) {
   const open = isOpenPayment(payment.status)
 
@@ -75,6 +78,12 @@ export function PaymentDetailHeader({
               </Button>
               {canMaintain ? (
                 <>
+                  {onSendDunning ? (
+                    <Button variant="secondary" className="min-h-11 gap-2" onClick={onSendDunning}>
+                      <Megaphone className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                      Send dunning notice
+                    </Button>
+                  ) : null}
                   <Button variant="secondary" className="min-h-11 gap-2" onClick={onCancel}>
                     <Ban className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
                     Cancel

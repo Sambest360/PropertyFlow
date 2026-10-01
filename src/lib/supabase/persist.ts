@@ -640,6 +640,7 @@ async function upsertTenancy(id: string, data: Record<string, unknown>): Promise
     end_date: str(data.endDate) || null,
     rent_amount: num(data.rent) ?? 0,
     deposit_amount: num(data.deposit) ?? 0,
+    rent_due_day: Math.min(28, Math.max(1, num(data.rentDueDay) ?? 1)),
     status: str(data.status) === 'Active' ? 'ACTIVE' : 'PENDING',
     metadata: {
       keyCollection: data.keyCollection,

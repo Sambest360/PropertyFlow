@@ -4,7 +4,7 @@ import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
 import { RequirePermission } from '../components/RequirePermission'
-import { Card, PageHeader } from '../components/ui'
+import { Button, Card, PageHeader } from '../components/ui'
 import { PaymentsToolbar } from '../components/payments/PaymentsToolbar'
 import { PaymentsListView } from '../components/payments/PaymentsListView'
 import { PaymentPortfolioCard } from '../components/payments/PaymentPortfolioCard'
@@ -33,8 +33,8 @@ function readStoredView(): PaymentsViewMode {
 }
 
 export default function Payments() {
-  const { state } = useStore()
-  const { user, role } = useAuth()
+  const { state, runRentCycle } = useStore()
+  const { user, role, has } = useAuth()
   const { paymentVisible, allowedPropertyIds, agencyId } = usePropertyScope()
   const reducedMotion = usePrefersReducedMotion()
   const navigate = useNavigate()
@@ -50,6 +50,8 @@ export default function Payments() {
   const [sort, setSort] = useState<PaymentSortKey>('attention')
   const [view, setView] = useState<PaymentsViewMode>(() => readStoredView())
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [cycleBusy, setCycleBusy] = useState(false)
+  const [cycleMsg, setCycleMsg] = useState<string | null>(null)
 
   const hideParty = role === 'landlord'
 
@@ -166,6 +168,28 @@ export default function Payments() {
     setAttention('all')
   }
 
+
+  const canManage = has('payments.manage')
+  const overdueCount = portfolio.filter(
+    (item) => item.payment.status === 'Overdue' || item.daysOverdue > 0,
+  ).length
+
+  const handleRunRentCycle = () => {
+    if (!canManage || cycleBusy) return
+    setCycleBusy(true)
+    try {
+      const result = runRentCycle()
+      setCycleMsg(
+        `Rent cycle (Mode A demo): escalated ${result.escalated} overdue · created ${result.created.length} rent row(s) for ${result.asOf}. Schedule/overdue only — no live bank debit.`,
+      )
+      if (result.created.length || result.escalated) {
+        setAttention('overdue')
+      }
+    } finally {
+      setCycleBusy(false)
+    }
+  }
+
   const resultLabel =
     filtered.length === portfolio.length
       ? `${filtered.length} ${filtered.length === 1 ? 'payment' : 'payments'}`
@@ -176,8 +200,30 @@ export default function Payments() {
       <div className="animate-fade-in">
         <PageHeader
           title="Payments"
-          subtitle="Scan the ledger, spot overdue lines and missing proof, then open a payment for full detail."
+          subtitle="Scan the ledger, spot overdue lines and missing proof, then open a payment for full detail. Mode A: schedule/overdue + in-app dunning — no live bank debit."
+          actions={
+            canManage ? (
+              <Button
+                className="min-h-11"
+                variant="secondary"
+                disabled={cycleBusy}
+                onClick={handleRunRentCycle}
+              >
+                {cycleBusy ? 'Running…' : 'Run rent cycle'}
+              </Button>
+            ) : null
+          }
         />
+
+        {cycleMsg ? (
+          <p
+            className="mb-4 rounded-2xl border border-primary-100 bg-primary-50/80 px-4 py-3 text-sm text-ink-600"
+            role="status"
+          >
+            {cycleMsg}
+            {overdueCount > 0 ? ` · ${overdueCount} overdue in view.` : ''}
+          </p>
+        ) : null}
 
         <PaymentsToolbar
           query={q}
