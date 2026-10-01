@@ -10,6 +10,7 @@ import { useAuth } from '../../context/AuthContext'
 import { formatZAR } from '../../data/seed'
 import { PageHeader, Card, Button, Input, EmptyState } from '../../components/ui'
 import { DashboardPage } from '../../components/dashboard'
+import { TrustModeABanner } from '../../components/trust/TrustModeABanner'
 import { sweetSuccess, sweetError } from '../../lib/sweetAlert'
 
 function formatCents(cents: number): string {
@@ -126,8 +127,9 @@ export default function TrustUnallocated() {
     <DashboardPage>
       <PageHeader
         title="Unallocated Receipts"
-        subtitle="Match incoming payments to occupancies and charges"
+        subtitle="Manual allocate / suspense (Mode A soft-demo — not live bank match)"
       />
+      <TrustModeABanner extra="Allocation is in-app only. No auto-match from bank CSV in Mode A." />
 
       {/* Summary */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -325,10 +327,9 @@ export default function TrustUnallocated() {
         </div>
       </div>
 
-      {/* Info Banner */}
-      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-        <strong>Note:</strong> Split receipts are common — one bank credit may cover rent + deposit + arrears.
-        Allocate lines summing to the credit amount. Remainder stays unallocated.
+      <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-900">
+        <strong>Demo note:</strong> Split receipts are common in production banking — here you allocate
+        seed/demo lines only. Remainder stays unallocated. No live bank credit feed.
       </div>
     </DashboardPage>
   )

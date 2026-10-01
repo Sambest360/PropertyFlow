@@ -10,6 +10,7 @@ import { useAuth } from '../../context/AuthContext'
 import { formatZAR } from '../../data/seed'
 import { PageHeader, Card, Badge, EmptyState } from '../../components/ui'
 import { DashboardPage } from '../../components/dashboard'
+import { TrustModeABanner } from '../../components/trust/TrustModeABanner'
 
 function formatCents(cents: number): string {
   return formatZAR(cents / 100)
@@ -87,8 +88,9 @@ export default function TrustDeposits() {
     <DashboardPage>
       <PageHeader
         title="Deposit Register"
-        subtitle="Track tenant deposits, interest, and statutory deadlines"
+        subtitle="Deposit register soft-demo (Mode A — not live trust bank)"
       />
+      <TrustModeABanner />
 
       {/* Summary */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
@@ -254,11 +256,10 @@ export default function TrustDeposits() {
         )}
       </Card>
 
-      {/* Info Banner */}
       <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
-        <strong>Statutory Deadlines (RHA s5(3)):</strong> No deductions → refund by lease_end + 7 days.
+        <strong>Statutory Deadlines (RHA s5(3)) — guidance only:</strong> No deductions → refund by lease_end + 7 days.
         Deductions after joint outgoing → refund by restoration + 14 days. Tenant no-show → refund balance
-        by expiry + 21 days. Deposits must be held interest-bearing for the tenant.
+        by expiry + 21 days. Interest-bearing hold is a compliance reminder — not a live bank interest feed.
       </div>
     </DashboardPage>
   )

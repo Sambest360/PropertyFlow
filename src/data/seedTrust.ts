@@ -382,6 +382,7 @@ export const seedArrearsSnapshots: ArrearsSnapshot[] = [
   },
 ]
 
+/** Demo history only — UI does not claim live bank CSV import in Mode A. */
 export const seedCsvImportBatches: CsvImportBatch[] = [
   {
     id: 'CSV-001',
