@@ -72,6 +72,9 @@ export default function OwnerPortal() {
   const due = payments
     .filter((p) => p.status === 'Due' || p.status === 'Overdue')
     .reduce((n, p) => n + p.amount, 0)
+  const overdueAmt = payments
+    .filter((p) => p.status === 'Overdue')
+    .reduce((n, p) => n + p.amount, 0)
 
   const tickets = useMemo(
     () =>
@@ -343,6 +346,9 @@ export default function OwnerPortal() {
             </div>
             <p className="mt-1 text-xs text-ink-500">
               Landlord-visible receipts only. Tenant messaging stays with the agency.
+              {overdueAmt > 0
+                ? ` Outstanding overdue (book): ${formatZAR(overdueAmt)}.`
+                : ''}
             </p>
             <ul className="mt-4 space-y-2">
               {payments.slice(0, 8).map((p) => (

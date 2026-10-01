@@ -539,6 +539,7 @@ export function patchApplicationStatus(params: {
           endDate: null,
           rent,
           deposit,
+          rentDueDay: 1,
           status: 'Pending Move-In',
           keyCollection: {
             location: 'Agency office',

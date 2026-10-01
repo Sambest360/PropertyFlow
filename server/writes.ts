@@ -907,10 +907,10 @@ async function upsertTenancy(feId: string, d: Record<string, unknown>): Promise<
   await query(
     `INSERT INTO leases (
        id, client_id, unit_id, application_id, tenant_id, landlord_id, agent_id,
-       lease_reference, status, start_date, end_date, rent_amount, deposit_amount, metadata, updated_at
+       lease_reference, status, start_date, end_date, rent_amount, deposit_amount, rent_due_day, metadata, updated_at
      ) VALUES (
        $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::uuid,
-       $8, $9, $10::date, $11::date, $12, $13, $14::jsonb, NOW()
+       $8, $9, $10::date, $11::date, $12, $13, $14, $15::jsonb, NOW()
      )
      ON CONFLICT (id) DO UPDATE SET
        status = EXCLUDED.status,
@@ -918,6 +918,7 @@ async function upsertTenancy(feId: string, d: Record<string, unknown>): Promise<
        end_date = EXCLUDED.end_date,
        rent_amount = EXCLUDED.rent_amount,
        deposit_amount = EXCLUDED.deposit_amount,
+       rent_due_day = EXCLUDED.rent_due_day,
        tenant_id = EXCLUDED.tenant_id,
        landlord_id = EXCLUDED.landlord_id,
        agent_id = EXCLUDED.agent_id,
@@ -937,6 +938,7 @@ async function upsertTenancy(feId: string, d: Record<string, unknown>): Promise<
       d.endDate ? str(d.endDate) : null,
       num(d.rent) ?? 0,
       num(d.deposit) ?? 0,
+      Math.min(28, Math.max(1, num(d.rentDueDay) ?? 1)),
       JSON.stringify({
         frontend_id: feId,
         tenantName: d.tenantName ?? null,
@@ -1503,14 +1505,15 @@ export async function approveApplicationTx(params: {
         client,
         `INSERT INTO leases (
            id, client_id, unit_id, application_id, tenant_id, landlord_id, agent_id,
-           lease_reference, status, start_date, end_date, rent_amount, deposit_amount, metadata, updated_at
+           lease_reference, status, start_date, end_date, rent_amount, deposit_amount, rent_due_day, metadata, updated_at
          ) VALUES (
            $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::uuid,
-           $8, 'PENDING', $9::date, $10::date, $11, $12, $13::jsonb, NOW()
+           $8, 'PENDING', $9::date, $10::date, $11, $12, $13, $14::jsonb, NOW()
          )
          ON CONFLICT (id) DO UPDATE SET
            status = EXCLUDED.status,
            application_id = EXCLUDED.application_id,
+           rent_due_day = EXCLUDED.rent_due_day,
            updated_at = NOW()`,
         [
           leaseUuid,
@@ -1525,6 +1528,7 @@ export async function approveApplicationTx(params: {
           t.endDate ? str(t.endDate) : null,
           num(t.rent) ?? 0,
           num(t.deposit) ?? 0,
+          Math.min(28, Math.max(1, num(t.rentDueDay) ?? 1)),
           JSON.stringify({ frontend_id: str(t.id), from_approval: true }),
         ],
       )

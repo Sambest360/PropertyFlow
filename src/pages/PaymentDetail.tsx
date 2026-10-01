@@ -15,13 +15,14 @@ import {
   type PaymentDetailTab,
 } from '../components/payment-detail/types'
 import { daysPastDue, isOpenPayment, type MarkPaymentPaidDetails } from '../components/payments/types'
+import { canSendDunningNotice } from '../lib/rentCycle'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
 
 export default function PaymentDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
-  const { state, markPaymentPaid, updatePayment, removePayment } = useStore()
+  const { state, markPaymentPaid, updatePayment, removePayment, sendDunningNotice } = useStore()
   const { user, has, role } = useAuth()
   const { paymentVisible, canMutate } = usePropertyScope()
   const alert = useSuiteAlert()
@@ -127,6 +128,31 @@ export default function PaymentDetail() {
     }
   }
 
+
+  const handleSendDunning = () => {
+    if (!payment || !canMaintain) return
+    const result = sendDunningNotice(payment.id, {
+      actorUserId: user.id,
+      actorName: user.name,
+      // Staff may send before Day +3 — force reminder_1 when still early.
+      stage: canSendDunningNotice(payment, new Date().toISOString().slice(0, 10))
+        ? undefined
+        : 'reminder_1',
+    })
+    if (result.ok === false) {
+      void alert.success({
+        title: 'Could not send notice',
+        text: result.reason,
+        tone: 'warning',
+      })
+      return
+    }
+    void alert.success({
+      title: 'Dunning notice recorded',
+      text: `In-app ${result.stage} notice sent (Mode A non-production — no live email/SMS).`,
+    })
+  }
+
   const handleUpdateAttachments = (attachments: NonNullable<typeof payment>['attachments']) => {
     if (!payment) return
     updatePayment(payment.id, { attachments })
@@ -163,6 +189,17 @@ export default function PaymentDetail() {
           payOnlineBusy={payOnlineBusy}
           onCancel={handleCancel}
           onRemove={handleRemove}
+          onSendDunning={
+            canMaintain &&
+            payment &&
+            isOpenPayment(payment.status) &&
+            (payment.type === 'Rent' ||
+              payment.type === 'First Month Rent' ||
+              payment.type === 'Deposit') &&
+            daysPastDue(payment) > 0
+              ? handleSendDunning
+              : undefined
+          }
         />
 
         {(payment.status === 'Overdue' || daysOverdue > 0) && isOpenPayment(payment.status) && (
@@ -171,7 +208,8 @@ export default function PaymentDetail() {
             role="status"
           >
             This payment is <strong>{daysOverdue || 0} days overdue</strong>. Follow up with the
-            party or mark paid once received.
+            party, send an in-app dunning notice, or mark paid once received. Mode A notices are
+            non-production (no live email/SMS/bank debit).
           </p>
         )}
 

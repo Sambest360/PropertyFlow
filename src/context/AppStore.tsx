@@ -59,6 +59,7 @@ import {
   seedDepositHoldings,
   seedArrearsSnapshots,
   seedCsvImportBatches,
+  formatZAR,
 } from '../data/seed'
 import type { AssetCondition, Building, InfraRoom, InternalAsset, LookupConfig, RoomKind, Unit, UnitTemplate } from '../data/infrastructure'
 import { UNIT_TEMPLATES } from '../data/infrastructure'
@@ -181,6 +182,13 @@ import {
   recordLeaseSignature,
   workflowStatusFromESign,
 } from '../lib/lease'
+import {
+  appendDunningNotes,
+  buildDunningNotice,
+  canSendDunningNotice,
+  planRentCycle,
+  type DunningStage,
+} from '../lib/rentCycle'
 import {
   applicationStakeholderIds,
   applySuiteAlertFilter,
@@ -580,6 +588,17 @@ type StoreContextValue = {
   updateViewing: (id: string, patch: Partial<Viewing>) => void
   createPayment: (input: Omit<PaymentRecord, 'id' | 'paidAt' | 'method' | 'status'> & Partial<Pick<PaymentRecord, 'status' | 'paidAt' | 'method'>>) => PaymentRecord
   markPaymentPaid: (id: string, details?: string | MarkPaymentPaidDetails) => void
+  /** Mode A: escalate overdue + ensure next Rent rows for Active tenancies (no live bank). */
+  runRentCycle: (asOf?: string) => {
+    escalated: number
+    created: PaymentRecord[]
+    asOf: string
+  }
+  /** Mode A: record/send in-app dunning notice (non-production — no live email/SMS). */
+  sendDunningNotice: (
+    paymentId: string,
+    opts?: { stage?: DunningStage; actorUserId?: string | null; actorName?: string },
+  ) => { ok: true; stage: DunningStage } | { ok: false; reason: string }
   sendMessage: (threadId: string, fromUserId: string, body: string) => Message
   createThread: (input: Omit<MessageThread, 'id' | 'updatedAt'> & { initialMessage: string; fromUserId: string }) => MessageThread
   createTicket: (input: Omit<MaintenanceTicket, 'id' | 'openedAt' | 'status' | 'cost' | 'photos' | 'contractorId' | 'assignedAgentId' | 'reportedByUserId'> & Partial<Pick<MaintenanceTicket, 'status' | 'cost' | 'photos' | 'contractorId' | 'assignedAgentId' | 'reportedByUserId' | 'categoryKey' | 'unitId' | 'internalAssetId' | 'warrantyCovered'>>) => MaintenanceTicket
@@ -4801,6 +4820,158 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         })
       }
     },
+    runRentCycle: (asOfInput) => {
+      const asOf = (asOfInput ?? new Date().toISOString().slice(0, 10)).slice(0, 10)
+      const plan = planRentCycle({
+        tenancies: state.tenancies,
+        payments: state.payments,
+        asOf,
+      })
+
+      const escalatedIds = new Set(plan.escalations.map((e) => e.paymentId))
+      if (escalatedIds.size > 0) {
+        const updatedRows: PaymentRecord[] = []
+        setState((s) => {
+          const payments = s.payments.map((p) => {
+            if (!escalatedIds.has(p.id) || p.status !== 'Due') return p
+            const next = { ...p, status: 'Overdue' as const }
+            updatedRows.push(next)
+            return next
+          })
+          return { ...s, payments }
+        })
+        for (const row of updatedRows) {
+          persistUpsert('payment', row.id, row as unknown as Record<string, unknown>)
+          const paymentProperty = state.properties.find((p) => p.id === row.propertyId)
+          emitSuiteEvent({
+            agencyId: row.agencyId,
+            resource: 'payment',
+            action: 'updated',
+            title: 'Payment marked overdue',
+            body: `${row.type} · ${row.partyName} is overdue (due ${row.dueDate}).`,
+            link: `/workspace/operations/payments/${row.id}`,
+            recipientUserIds: paymentDeskStakeholderIds(state.users, row, paymentProperty),
+          })
+        }
+      }
+
+      const created: PaymentRecord[] = []
+      for (const input of plan.newRents) {
+        const payment: PaymentRecord = {
+          ...input,
+          id: uid('PAY'),
+          paidAt: null,
+          method: null,
+        }
+        patch((s) => ({ ...s, payments: [payment, ...s.payments] }))
+        addPropertyEvent({
+          agencyId: payment.agencyId,
+          propertyId: payment.propertyId,
+          actorUserId: payment.partyUserId,
+          actorName: payment.partyName,
+          action: 'created a Payment due',
+          changes: [
+            { field: 'Type', from: 'None', to: payment.type },
+            { field: 'Status', from: 'None', to: payment.status },
+          ],
+        })
+        const paymentProperty = state.properties.find((p) => p.id === payment.propertyId)
+        emitSuiteEvent({
+          agencyId: payment.agencyId,
+          resource: 'payment',
+          action: 'created',
+          title: 'Rent scheduled',
+          body: `${payment.type} · ${payment.partyName} due ${payment.dueDate} (Mode A schedule).`,
+          link: `/workspace/operations/payments/${payment.id}`,
+          recipientUserIds: paymentDeskStakeholderIds(state.users, payment, paymentProperty),
+        })
+        if (payment.partyUserId) {
+          notify({
+            userId: payment.partyUserId,
+            agencyId: payment.agencyId,
+            title: 'Rent due',
+            body: `${payment.type} of ${formatZAR(payment.amount)} is due ${payment.dueDate}.`,
+            link: '/workspace/portals/tenant',
+            resource: 'payment',
+            action: 'created',
+          })
+        }
+        persistUpsert('payment', payment.id, payment as unknown as Record<string, unknown>)
+        created.push(payment)
+      }
+
+      return { escalated: escalatedIds.size, created, asOf }
+    },
+    sendDunningNotice: (paymentId, opts) => {
+      const payment = state.payments.find((p) => p.id === paymentId)
+      if (!payment) return { ok: false as const, reason: 'Payment not found' }
+      const asOf = new Date().toISOString().slice(0, 10)
+      if (!canSendDunningNotice(payment, asOf) && !opts?.stage) {
+        return { ok: false as const, reason: 'Payment is not past due' }
+      }
+      const property = state.properties.find((p) => p.id === payment.propertyId)
+      const draft = buildDunningNotice({
+        payment,
+        propertyTitle: property?.title ?? 'your property',
+        asOf,
+        stage: opts?.stage,
+        amountLabel: formatZAR(payment.amount),
+      })
+      if (!draft) {
+        return {
+          ok: false as const,
+          reason: 'Not yet in a dunning window (Day +3). Pass an explicit stage to send early.',
+        }
+      }
+
+      const nextStatus = payment.status === 'Due' ? ('Overdue' as const) : payment.status
+      const notes = appendDunningNotes(payment.notes, draft.notesLine)
+      const next: PaymentRecord = {
+        ...payment,
+        status: nextStatus,
+        notes,
+      }
+      patch((s) => ({
+        ...s,
+        payments: s.payments.map((p) => (p.id === paymentId ? next : p)),
+      }))
+      persistUpsert('payment', paymentId, next as unknown as Record<string, unknown>)
+
+      if (payment.partyUserId) {
+        notify({
+          userId: payment.partyUserId,
+          agencyId: payment.agencyId,
+          title: draft.title,
+          body: draft.body,
+          link: '/workspace/portals/tenant',
+          resource: 'payment',
+          action: 'updated',
+        })
+      }
+      emitSuiteEvent({
+        agencyId: payment.agencyId,
+        resource: 'payment',
+        action: 'updated',
+        title: draft.title,
+        body: `${draft.body} Recorded by ${opts?.actorName ?? 'staff'}.`,
+        link: `/workspace/operations/payments/${payment.id}`,
+        recipientUserIds: paymentDeskStakeholderIds(state.users, payment, property),
+        actorUserId: opts?.actorUserId ?? null,
+      })
+      addPropertyEvent({
+        agencyId: payment.agencyId,
+        propertyId: payment.propertyId,
+        actorUserId: opts?.actorUserId ?? null,
+        actorName: opts?.actorName ?? 'Staff',
+        action: 'sent a dunning notice',
+        changes: [
+          { field: 'Dunning', from: payment.status, to: draft.stage },
+          { field: 'Status', from: payment.status, to: nextStatus },
+        ],
+      })
+      return { ok: true as const, stage: draft.stage }
+    },
+
     createThread: (input) => {
       const thread: MessageThread = {
         id: uid('TH'),
