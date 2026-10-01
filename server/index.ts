@@ -36,6 +36,12 @@ import type { PersistBody } from './writes.js'
 import { payfastCreate, payfastItn } from './payfastRoutes.js'
 import { screeningProviderInfo, screeningWebhook } from './screeningRoutes.js'
 import {
+  esignCreateEnvelope,
+  esignProviderInfo,
+  esignStatus,
+  esignWebhook,
+} from './esignRoutes.js'
+import {
   authIpKey,
   authIpRateLimit,
   authEmailRateLimit,
@@ -1007,6 +1013,11 @@ app.post('/api/payfast/create', (c) => payfastCreate(c))
 app.post('/api/payfast/itn', (c) => payfastItn(c))
 app.get('/api/screening/provider', (c) => screeningProviderInfo(c))
 app.post('/api/screening/webhook', (c) => screeningWebhook(c))
+
+app.get('/api/esign/provider', (c) => esignProviderInfo(c))
+app.post('/api/esign/create-envelope', (c) => esignCreateEnvelope(c))
+app.post('/api/esign/status', (c) => esignStatus(c))
+app.post('/api/esign/webhook', (c) => esignWebhook(c))
 
 app.post('/api/notifications/mark-read', async (c) => {
   try {

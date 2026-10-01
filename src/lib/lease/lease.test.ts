@@ -1,8 +1,9 @@
-import { describe, expect, it, beforeEach } from 'vitest'
+import { describe, expect, it, beforeEach, vi } from 'vitest'
 import { generateLeasePdf } from './generateLeasePdf'
 import {
   DocuSignESignProviderPlaceholder,
   MockDevESignProvider,
+  SigniFlowESignProvider,
   SigniFlowESignProviderPlaceholder,
   eSignProviderFromEnv,
   resetMockESignEnvelopes,
@@ -76,8 +77,8 @@ describe('e-sign providers', () => {
     expect(p.nonProduction).toBe(true)
   })
 
-  it('SigniFlow refuses without keys', async () => {
-    const p = new SigniFlowESignProviderPlaceholder({})
+  it('SigniFlow refuses without keys / unreachable API (honest stub)', async () => {
+    const p = new SigniFlowESignProviderPlaceholder({ forceUnconfigured: true })
     const res = await p.createEnvelope({
       tenancyId: 'TN-1',
       applicationId: null,
@@ -106,9 +107,10 @@ describe('e-sign providers', () => {
     expect(res.error).toMatch(/partner keys/i)
   })
 
-  it('SigniFlow with keys still refuses live HTTP (honest placeholder)', async () => {
-    const p = new SigniFlowESignProviderPlaceholder({
-      apiKey: 'k',
+  it('DocuSign with keys still refuses live HTTP (Mode A OUT placeholder)', async () => {
+    const p = new DocuSignESignProviderPlaceholder({
+      integrationKey: 'k',
+      accountId: 'a',
       apiUrl: 'https://example.invalid',
     })
     const res = await p.createEnvelope({
@@ -121,7 +123,60 @@ describe('e-sign providers', () => {
       landlord: null,
     })
     expect(res.ok).toBe(false)
-    expect(res.error).toMatch(/placeholder/i)
+    expect(res.error).toMatch(/placeholder|Mode A OUT/i)
+  })
+
+  it('SigniFlow createEnvelope uses server API (mocked) — never invents without ok:true', async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          provider: 'signiflow',
+          live: true,
+          nonProduction: false,
+          envelopeId: 'SF-77',
+          externalReference: '77',
+          status: 'sent',
+          summary: 'SigniFlow workflow created and initiated (DocID 77).',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    ) as unknown as typeof fetch
+    const p = new SigniFlowESignProvider({ fetchImpl })
+    const res = await p.createEnvelope({
+      tenancyId: 'TN-1',
+      applicationId: null,
+      leaseDocumentId: 'PD-1',
+      pdfUrl: 'data:application/pdf;base64,AA==',
+      subject: 'Lease',
+      tenant: { name: 'T', email: 't@e.com' },
+      landlord: null,
+    })
+    expect(res.ok).toBe(true)
+    expect(res.envelopeId).toBe('SF-77')
+    expect(res.live).toBe(true)
+    expect(res.nonProduction).toBe(false)
+  })
+
+  it('SigniFlow recordSign does not invent signed-live when partner status is pending', async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          status: 'sent',
+          docStatus: 'Pending',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    ) as unknown as typeof fetch
+    const p = new SigniFlowESignProvider({ fetchImpl })
+    const res = await p.recordSign({
+      envelopeId: 'SF-77',
+      party: 'tenant',
+      signerName: 'T',
+    })
+    expect(res.ok).toBe(false)
+    expect(res.error).toMatch(/not yet signed|partner/i)
   })
 })
 
