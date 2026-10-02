@@ -99,3 +99,23 @@ export function tenantHasApprovedOccupancy(
 export function isTenantOccupancyPermission(permission: string): boolean {
   return (TENANT_OCCUPANCY_PERMISSIONS as readonly string[]).includes(permission)
 }
+
+/**
+ * Fail-closed APP→TN join for the tenant's own application detail.
+ * Caller must already verify the application is in-scope (own identity).
+ * Returns the tenancy linked by applicationId when tenantUserId matches the
+ * session, or when tenantUserId is still null (orphan link / pre-backfill).
+ * Never returns another user's tenancy.
+ */
+export function ownTenancyForApplication(
+  tenancies: readonly Tenancy[],
+  applicationId: string,
+  user: TenantIdentity,
+): Tenancy | undefined {
+  return tenancies.find((t) => {
+    if (t.applicationId !== applicationId) return false
+    if (t.tenantUserId === user.id) return true
+    if (t.tenantUserId) return false
+    return true
+  })
+}
