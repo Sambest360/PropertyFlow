@@ -4,6 +4,7 @@ import { CreditCard, Wallet } from 'lucide-react'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { resolveApplicationAgentName } from '../lib/agentDisplay'
+import { ensureIngoingInspection } from '../lib/pcr'
 import { rolePermissions } from '../lib/permissions'
 import { RequirePermission } from '../components/RequirePermission'
 import { BackButton } from '../components/BackButton'
@@ -245,6 +246,15 @@ export default function ApplicantDetail() {
         contactName: agent?.name ?? 'Agency office',
         contactPhone: agent?.phone ?? '',
       })
+      // Mode A: ensure incoming PCR inspection object exists beside occupancy.
+      const ensured = ensureIngoingInspection(
+        { ...application, moveInDate: capture.moveInDate },
+        new Date().toISOString(),
+        capture.moveInDate,
+      )
+      if (ensured.created || ensured.inspection.scheduledOn !== application.pcrInspections?.find((i) => i.kind === 'incoming')?.scheduledOn) {
+        updateApplication(application.id, { pcrInspections: ensured.application.pcrInspections })
+      }
       logStageChange(prev, 'Move-In Scheduled', 'scheduled move-in')
       setFlash(null)
       return

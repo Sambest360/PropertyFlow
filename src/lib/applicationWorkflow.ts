@@ -7,12 +7,25 @@ import {
   markScreeningInProgressOnWorkflow,
   screeningSoftGate,
 } from './screening'
+import { pcrSoftGate } from './pcr'
 
 /** DQ-C2 + DQ-C3: FICA pack then screening soft-gate for approve / lease / move-in. */
 function approveLeaseSoftGate(app: Application): true | string {
   const fica = ficaPackSoftGate(app)
   if (fica !== true) return fica
   return screeningSoftGate(app)
+}
+
+/** Mode A PCR: keys / move-in soft-gate on incoming soft-sign or audited override. */
+function keysMoveInPcrSoftGate(app: Application): true | string {
+  return pcrSoftGate(app)
+}
+
+/** Activate tenancy: FICA + screening + incoming PCR soft-gate. */
+function activateTenancySoftGate(app: Application): true | string {
+  const base = approveLeaseSoftGate(app)
+  if (base !== true) return base
+  return pcrSoftGate(app)
 }
 
 /** Machine-readable workflow statuses — rental (SA residential). */
@@ -369,16 +382,16 @@ export const RENTAL_WORKFLOW: WorkflowTemplate = {
     { from: 'deposit_verified', to: 'first_rent_paid', actionKey: 'CONFIRM_FIRST_RENT', label: "Confirm first month's rent", hint: 'First rental payment received', tone: 'secondary', requires: ['applications.review'] },
     { from: 'first_rent_paid', to: 'rent_verified', actionKey: 'VERIFY_RENT', label: 'Verify rent payment', hint: 'Finance clears first month', tone: 'secondary', requires: ['applications.review'] },
     { from: 'rent_verified', to: 'inspection_scheduled', actionKey: 'SCHEDULE_MOVE_IN', label: 'Schedule move-in inspection', hint: 'Book ingoing condition inspection', tone: 'secondary', requires: ['applications.review'], effect: 'schedule_move_in', guard: (app) => approveLeaseSoftGate(app) },
-    { from: 'inspection_scheduled', to: 'inspection_completed', actionKey: 'COMPLETE_INSPECTION', label: 'Complete inspection', hint: 'Record ingoing condition report', tone: 'secondary', requires: ['applications.review'] },
-    { from: 'inspection_completed', to: 'keys_ready', actionKey: 'KEYS_READY', label: 'Keys ready', hint: 'Keys cut and ready for collection', tone: 'secondary', requires: ['applications.review'] },
-    { from: 'keys_ready', to: 'keys_handed_over', actionKey: 'COMPLETE_KEY_HANDOVER', label: 'Hand over keys', hint: 'Confirm keys collected by tenant', tone: 'primary', requires: ['applications.review'], effect: 'key_handover' },
-    { from: 'keys_handed_over', to: 'active_tenancy', actionKey: 'ACTIVATE_TENANCY', label: 'Activate tenancy', hint: 'Lease is live — start rent cycle', tone: 'primary', requires: ['applications.review'], guard: (app) => approveLeaseSoftGate(app) },
+    { from: 'inspection_scheduled', to: 'inspection_completed', actionKey: 'COMPLETE_INSPECTION', label: 'Complete inspection', hint: 'Record ingoing condition report (Mode A soft PCR pack — stage flip; soft-sign / override still required for keys)', tone: 'secondary', requires: ['applications.review'] },
+    { from: 'inspection_completed', to: 'keys_ready', actionKey: 'KEYS_READY', label: 'Keys ready', hint: 'Keys cut and ready for collection — requires incoming PCR soft-sign or audited override', tone: 'secondary', requires: ['applications.review'], guard: (app) => keysMoveInPcrSoftGate(app) },
+    { from: 'keys_ready', to: 'keys_handed_over', actionKey: 'COMPLETE_KEY_HANDOVER', label: 'Hand over keys', hint: 'Confirm keys collected by tenant — requires incoming PCR soft-sign or audited override', tone: 'primary', requires: ['applications.review'], effect: 'key_handover', guard: (app) => keysMoveInPcrSoftGate(app) },
+    { from: 'keys_handed_over', to: 'active_tenancy', actionKey: 'ACTIVATE_TENANCY', label: 'Activate tenancy', hint: 'Lease is live — start rent cycle (FICA + screening + incoming PCR soft-gate)', tone: 'primary', requires: ['applications.review'], guard: (app) => activateTenancySoftGate(app) },
     { from: 'active_tenancy', to: 'renewal_offered', actionKey: 'OFFER_RENEWAL', label: 'Offer renewal', hint: 'Send renewal terms before expiry', tone: 'secondary', requires: ['applications.review'] },
     { from: 'renewal_offered', to: 'renewed', actionKey: 'ACCEPT_RENEWAL', label: 'Renewal accepted', hint: 'New lease term recorded', tone: 'primary', requires: ['applications.review'] },
     { from: 'renewal_offered', to: 'notice_given', actionKey: 'DECLINE_RENEWAL', label: 'Renewal declined', hint: 'Tenant gives notice to vacate', tone: 'secondary', requires: ['applications.review'] },
     { from: 'active_tenancy', to: 'notice_given', actionKey: 'RECORD_NOTICE', label: 'Record notice to vacate', hint: 'Tenant or landlord gives notice', tone: 'secondary', requires: ['applications.review'] },
     { from: 'notice_given', to: 'move_out_inspection', actionKey: 'SCHEDULE_MOVE_OUT', label: 'Schedule move-out inspection', hint: 'Book outgoing inspection', tone: 'secondary', requires: ['applications.review'] },
-    { from: 'move_out_inspection', to: 'deposit_refunded', actionKey: 'REFUND_DEPOSIT', label: 'Refund deposit', hint: 'Process deposit after damages assessment', tone: 'primary', requires: ['applications.review'] },
+    { from: 'move_out_inspection', to: 'deposit_refunded', actionKey: 'REFUND_DEPOSIT', label: 'Refund deposit', hint: 'Process deposit after damages assessment — soft-warn if no outgoing PCR path (not hard auto-forfeit; not RHA legal advice)', tone: 'primary', requires: ['applications.review'], confirm: 'Confirm deposit refund / release. Mode A soft-warn: without an outgoing PCR path this is theater honesty only — not a hard auto-forfeit and not RHA legal advice.' },
     { from: 'deposit_refunded', to: 'closed', actionKey: 'CLOSE_FILE', label: 'Close file', hint: 'Archive completed tenancy file', tone: 'secondary', requires: ['applications.review'] },
     // Branch / exit paths
     { from: 'documents_requested', to: 'withdrawn', actionKey: 'WITHDRAW', label: 'Applicant withdraws', hint: 'Applicant cancels application', tone: 'ghost', requires: ['applications.review'], confirm: 'Mark this application as withdrawn?' },
