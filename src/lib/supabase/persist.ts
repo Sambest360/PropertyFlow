@@ -49,7 +49,14 @@ async function ensureUuid(entityType: EntityType | 'agency', frontendId: string)
         ]
       : [{ entity_type: entityType, backend_id: backendId, frontend_id: frontendId }]
 
-  await supabase.from('entity_id_map').upsert(rows, { onConflict: 'entity_type,backend_id' })
+  // P0-5 residual: map upsert must fail-closed — a soft-true map row leaves
+  // building/unit creates with phantom UUIDs that never hydrate after reload.
+  const mapRes = await supabase
+    .from('entity_id_map')
+    .upsert(rows, { onConflict: 'entity_type,backend_id' })
+  if (mapRes.error) {
+    throw new Error(`entity_id_map upsert failed: ${mapRes.error.message}`)
+  }
   return backendId
 }
 
@@ -78,6 +85,35 @@ async function clientUuid(agencyId: unknown): Promise<string | null> {
 async function userUuid(feId: unknown): Promise<string | null> {
   if (!feId) return null
   return resolveUuid('user', String(feId))
+}
+
+/**
+ * P0-5 residual: resolve agent FE id → users.id for unit/property writes.
+ * Mirrors landlord metadata fallback; unmapped agentId fails create (no soft null).
+ */
+async function resolveAgentUuid(agentId: unknown): Promise<string | null> {
+  if (agentId == null || agentId === '') return null
+  const fe = str(agentId)
+  let uuid = await userUuid(fe)
+  if (uuid) return uuid
+  const supabase = createClient()
+  const { data: metaRow } = await supabase
+    .from('users')
+    .select('id')
+    .eq('metadata->>frontend_id', fe)
+    .maybeSingle()
+  if (metaRow?.id) {
+    uuid = metaRow.id as string
+    const mapRes = await supabase.from('entity_id_map').upsert(
+      { entity_type: 'user', backend_id: uuid, frontend_id: fe },
+      { onConflict: 'entity_type,frontend_id' },
+    )
+    if (mapRes.error) {
+      throw new Error(`entity_id_map upsert failed: ${mapRes.error.message}`)
+    }
+    return uuid
+  }
+  throw new Error(`unit/property upsert failed: agent ${fe} not resolved`)
 }
 
 async function unitUuid(propertyId: unknown): Promise<string | null> {
@@ -710,7 +746,9 @@ async function upsertBuilding(id: string, data: Record<string, unknown>): Promis
         )
     }
   }
-  await supabase.from('buildings').upsert({
+  // P0-5 residual: buildings upsert was soft-true under browser RLS (error null,
+  // 0 rows) — wizard looked saved then Properties/listing vanished on reload.
+  const res = await supabase.from('buildings').upsert({
     id: uuid,
     client_id: clientId,
     landlord_id: landlordUuid,
@@ -729,6 +767,7 @@ async function upsertBuilding(id: string, data: Record<string, unknown>): Promis
     images: data.images ?? [],
     updated_at: new Date().toISOString(),
   })
+  throwIfUpsertFailed(res, 'building')
 }
 
 async function resolveBuildingUuidForUnit(buildingFe: string): Promise<string> {
@@ -767,7 +806,7 @@ async function upsertUnit(id: string, data: Record<string, unknown>): Promise<vo
     price: num(data.price),
     rent: num(data.rent),
     status_config_key: str(data.statusKey ?? data.status, 'DRAFT').toUpperCase(),
-    agent_id: await userUuid(data.agentId),
+    agent_id: await resolveAgentUuid(data.agentId),
     description: str(data.description) || null,
     amenities: data.amenities ?? [],
     images: data.images ?? [],
@@ -844,7 +883,7 @@ async function upsertProperty(id: string, data: Record<string, unknown>): Promis
                     : str(data.status) === 'Under Offer'
                       ? 'UNDER_OFFER'
                       : 'PUBLISHED',
-      agent_id: await userUuid(data.agentId),
+      agent_id: await resolveAgentUuid(data.agentId),
       description: str(data.description),
       amenities: data.amenities ?? [],
       images: data.images ?? [],

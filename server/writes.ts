@@ -207,6 +207,16 @@ async function userId(fe: unknown): Promise<string | null> {
   return resolveUuid('user', str(fe))
 }
 
+/** P0-5 residual: agentId set but unmapped → fail create (no soft-null agent). */
+async function requireAgentId(fe: unknown): Promise<string | null> {
+  if (fe == null || fe === '') return null
+  const uuid = await userId(fe)
+  if (!uuid) {
+    throw Object.assign(new Error(`agent not resolved: ${str(fe)}`), { status: 400 })
+  }
+  return uuid
+}
+
 async function unitIdFromProperty(propertyId: unknown): Promise<string | null> {
   if (!propertyId) return null
   return (
@@ -667,7 +677,7 @@ async function upsertProperty(feId: string, d: Record<string, unknown>): Promise
     )
   }
 
-  const agent = await userId(d.agentId)
+  const agent = await requireAgentId(d.agentId)
   const unitNumber = str(d.unitNumber ?? d.title, propFe).slice(0, 40)
 
   await query(
