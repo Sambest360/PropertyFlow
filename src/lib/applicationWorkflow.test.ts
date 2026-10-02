@@ -170,6 +170,13 @@ describe('applicationWorkflow', () => {
       expect(withLease.some((t) => t.actionKey === 'CONFIRM_DEPOSIT_PAID')).toBe(true)
     })
 
+    it('primaryNextTransition prefers Approve & create lease when leaseExists=false', () => {
+      const next = primaryNextTransition(leaselessApp, ['applications.review'], false)
+      expect(next?.actionKey).toBe('RECOVER_APPROVE')
+      const withLease = primaryNextTransition(leaselessApp, ['applications.review'], true)
+      expect(withLease?.actionKey).toBe('CONFIRM_DEPOSIT_PAID')
+    })
+
     it('defaults to lease-exists behavior for legacy callers', () => {
       const legacy = getAvailableTransitions(leaselessApp, ['applications.review'])
       expect(legacy.find((t) => t.actionKey === 'RECOVER_APPROVE')).toBeUndefined()

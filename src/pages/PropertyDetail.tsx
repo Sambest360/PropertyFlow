@@ -425,6 +425,9 @@ export default function PropertyDetail() {
           applications={apps}
           canReview={canReview}
           reviewPermissions={reviewPermissions}
+          leaseExistsForApplication={(appId) =>
+            state.tenancies.some((t) => t.applicationId === appId)
+          }
           onAdvance={async (appId, targetStatus) => {
             const result = await advanceApplicationWorkflow({
               applicationId: appId,

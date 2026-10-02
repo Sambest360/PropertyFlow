@@ -643,8 +643,10 @@ export function getAvailableTransitions(
 export function primaryNextTransition(
   app: Application,
   actorPermissions: Permission[],
+  /** P0-r21: pass false for lease-less deposit apps so RECOVER_APPROVE surfaces. */
+  leaseExists = true,
 ): WorkflowTransition | null {
-  const transitions = getAvailableTransitions(app, actorPermissions)
+  const transitions = getAvailableTransitions(app, actorPermissions, leaseExists)
   if (!transitions.length) return null
   const toneRank: Record<string, number> = { primary: 0, secondary: 1, ghost: 2, danger: 3 }
   return [...transitions].sort((a, b) => {

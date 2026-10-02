@@ -84,6 +84,8 @@ export function PropertyApplicantsPanel({
   onSetDocStatus,
   onSetWorkflowStage,
   onBlock,
+  /** P0-r21: lease truth for RECOVER_APPROVE — defaults assume lease exists. */
+  leaseExistsForApplication,
 }: {
   applications: Application[]
   canReview: boolean
@@ -93,6 +95,7 @@ export function PropertyApplicantsPanel({
   onSetDocStatus: (applicationId: string, key: string, status: ApplicationDocument['status']) => void
   onSetWorkflowStage: (id: string, status: WorkflowStatusKey) => void
   onBlock: (id: string, reason: string) => void
+  leaseExistsForApplication?: (applicationId: string) => boolean
 }) {
   const [query, setQuery] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -157,7 +160,11 @@ export function PropertyApplicantsPanel({
           const uploadedCount = a.documents.filter((d) => d.status !== 'required').length
           const verifiedCount = a.documents.filter((d) => d.status === 'verified').length
           const workflowStatus = resolveWorkflowStatus(a)
-          const nextTransition = canReview ? primaryNextTransition(a, reviewPermissions) : null
+          // P0-r21: lease-less deposit apps must surface Approve & create lease.
+          const leaseExists = leaseExistsForApplication?.(a.id) ?? true
+          const nextTransition = canReview
+            ? primaryNextTransition(a, reviewPermissions, leaseExists)
+            : null
           const guardBlock = nextTransition ? transitionGuardMessage(a, nextTransition) : null
           const stageOptions = workflowStageSelectOptions(a.type)
           const canBlock =
