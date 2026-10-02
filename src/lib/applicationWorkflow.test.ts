@@ -343,3 +343,26 @@ describe('Mode A PCR soft-gate on keys / move-in', () => {
     expect(open.some((a) => a.actionKey === 'KEYS_READY')).toBe(true)
   })
 })
+
+describe('P0 Approve→occupancy from document stages', () => {
+  it('exposes AGENT_APPROVE from documents_uploaded when FICA verified + screening cleared', () => {
+    const app = rentalApp({
+      workflowStatus: 'documents_uploaded',
+      documents: verifiedFicaPackDocs(),
+      ...clearedScreeningFields(),
+    })
+    const transitions = getAvailableTransitions(app, ['applications.review'])
+    expect(transitions.some((t) => t.actionKey === 'AGENT_APPROVE')).toBe(true)
+  })
+
+  it('hides AGENT_APPROVE from documents_uploaded when screening pending', () => {
+    const app = rentalApp({
+      workflowStatus: 'documents_uploaded',
+      documents: verifiedFicaPackDocs(),
+      screening: { status: 'pending', provider: 'mock' },
+      creditCheck: 'In Progress',
+    })
+    const transitions = getAvailableTransitions(app, ['applications.review'])
+    expect(transitions.some((t) => t.actionKey === 'AGENT_APPROVE')).toBe(false)
+  })
+})
