@@ -99,7 +99,10 @@ export function canWriteEntity(scope: PropertyScope, input: WriteGateInput): boo
       (input.resource === 'activity' ||
         input.resource === 'message' ||
         input.resource === 'thread' ||
-        input.resource === 'notification')
+        input.resource === 'notification' ||
+        // P0-5 r15: FA create building→unit→property hits agency-level gate
+        // (no propertyId yet). #44 routed to /api/persist; building was Forbidden.
+        input.resource === 'building')
     return fieldOk
   }
 
