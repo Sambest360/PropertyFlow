@@ -968,6 +968,8 @@ async function upsertTenancy(feId: string, d: Record<string, unknown>): Promise<
         leaseDocumentId: d.leaseDocumentId ?? null,
         leasePdfUrl: d.leasePdfUrl ?? null,
         eSign: d.eSign ?? null,
+        renewalOps: d.renewalOps ?? null,
+        billingSchedule: d.billingSchedule ?? null,
       }),
     ],
   )

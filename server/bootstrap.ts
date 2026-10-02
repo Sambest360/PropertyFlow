@@ -822,6 +822,8 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
       leaseDocumentId: (meta.leaseDocumentId as string | null | undefined) ?? null,
       leasePdfUrl: (meta.leasePdfUrl as string | null | undefined) ?? null,
       eSign: (meta.eSign as Record<string, unknown> | null | undefined) ?? null,
+      renewalOps: (meta.renewalOps as Record<string, unknown> | null | undefined) ?? null,
+      billingSchedule: (meta.billingSchedule as Record<string, unknown> | null | undefined) ?? null,
     }
   })
 

@@ -18,6 +18,11 @@ import { resolveDocumentUrl } from '../lib/api'
 import { eSignStatusLabel as leaseESignLabel } from '../lib/lease'
 import type { Tenancy } from '../types/domain'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
+import { RenewalsModeABanner } from '../components/renewals/RenewalsModeABanner'
+import {
+  LeaseRenewalsPanel,
+  type LeaseRenewalsHandlers,
+} from '../components/renewals/LeaseRenewalsPanel'
 
 const ICON_STROKE = 1.6
 const VIEW_KEY = 'propertyflow-leases-view'
@@ -34,7 +39,19 @@ type LeaseRow = {
 }
 
 export default function LeasesDirectory() {
-  const { state, recordTenancyLeaseSign, issueLeasePackage, notify } = useStore()
+  const {
+    state,
+    recordTenancyLeaseSign,
+    issueLeasePackage,
+    notify,
+    offerLeaseRenewal,
+    acceptLeaseRenewal,
+    declineLeaseRenewal,
+    markLeaseMonthToMonth,
+    sendCpaExpiryNotice,
+    setLeaseEscalation,
+    applyDueLeaseEscalations,
+  } = useStore()
   const { user } = useAuth()
   const { dealVisible } = usePropertyScope()
   const reducedMotion = usePrefersReducedMotion()
@@ -183,13 +200,158 @@ export default function LeasesDirectory() {
     }
   }
 
+  const renewalHandlers: LeaseRenewalsHandlers = {
+    onOffer: ({ tenancyId, offeredEndDate, offeredRent, termMonths }) => {
+      const res = offerLeaseRenewal(tenancyId, { offeredEndDate, offeredRent, termMonths })
+      if (res.ok) {
+        notify({
+          userId: user?.id ?? 'system',
+          agencyId: user?.agencyId ?? null,
+          title: 'Renewal offered',
+          body: 'In-app renewal terms recorded (Mode A — not CPA legal service).',
+        })
+      } else {
+        notify({
+          userId: user?.id ?? 'system',
+          agencyId: user?.agencyId ?? null,
+          title: 'Offer failed',
+          body: 'reason' in res ? res.reason : 'Unknown error',
+        })
+      }
+    },
+    onAccept: (tenancyId) => {
+      const res = acceptLeaseRenewal(tenancyId)
+      if (res.ok) {
+        notify({
+          userId: user?.id ?? 'system',
+          agencyId: user?.agencyId ?? null,
+          title: 'Renewal accepted',
+          body: `Book extended to ${res.newEndDate}; rent ${formatZAR(res.newRent)}.`,
+        })
+      } else {
+        notify({
+          userId: user?.id ?? 'system',
+          agencyId: user?.agencyId ?? null,
+          title: 'Accept failed',
+          body: 'reason' in res ? res.reason : 'Unknown error',
+        })
+      }
+    },
+    onDecline: (tenancyId) => {
+      const res = declineLeaseRenewal(tenancyId)
+      if (res.ok) {
+        notify({
+          userId: user?.id ?? 'system',
+          agencyId: user?.agencyId ?? null,
+          title: 'Renewal declined',
+          body: `Notice given on book (${res.noticeGivenAt}).`,
+        })
+      } else {
+        notify({
+          userId: user?.id ?? 'system',
+          agencyId: user?.agencyId ?? null,
+          title: 'Decline failed',
+          body: 'reason' in res ? res.reason : 'Unknown error',
+        })
+      }
+    },
+    onMonthToMonth: (tenancyId) => {
+      const res = markLeaseMonthToMonth(tenancyId)
+      if (res.ok) {
+        notify({
+          userId: user?.id ?? 'system',
+          agencyId: user?.agencyId ?? null,
+          title: 'Month-to-month noted',
+          body: 'No election — continuing month-to-month on book (not auto 12-mo).',
+        })
+      } else {
+        notify({
+          userId: user?.id ?? 'system',
+          agencyId: user?.agencyId ?? null,
+          title: 'Note failed',
+          body: 'reason' in res ? res.reason : 'Unknown error',
+        })
+      }
+    },
+    onSendCpaNotice: (tenancyId) => {
+      const res = sendCpaExpiryNotice(tenancyId)
+      if (res.ok) {
+        notify({
+          userId: user?.id ?? 'system',
+          agencyId: user?.agencyId ?? null,
+          title: 'CPA-style notice recorded',
+          body: `In-app cpa_expiry_notice${res.late ? ' (late; seek counsel)' : ''} — not live delivery.`,
+        })
+      } else {
+        notify({
+          userId: user?.id ?? 'system',
+          agencyId: user?.agencyId ?? null,
+          title: 'Notice failed',
+          body: 'reason' in res ? res.reason : 'Unknown error',
+        })
+      }
+    },
+    onSetEscalation: ({ tenancyId, escalationPct, nextEscalationOn }) => {
+      const res = setLeaseEscalation(tenancyId, { escalationPct, nextEscalationOn })
+      if (res.ok) {
+        notify({
+          userId: user?.id ?? 'system',
+          agencyId: user?.agencyId ?? null,
+          title: 'Escalation schedule saved',
+          body: 'Staff-set % on book (not live CPI).',
+        })
+      } else {
+        notify({
+          userId: user?.id ?? 'system',
+          agencyId: user?.agencyId ?? null,
+          title: 'Save failed',
+          body: 'reason' in res ? res.reason : 'Unknown error',
+        })
+      }
+    },
+    onApplyEscalation: (tenancyId) => {
+      void tenancyId
+      const result = applyDueLeaseEscalations()
+      notify({
+        userId: user?.id ?? 'system',
+        agencyId: user?.agencyId ?? null,
+        title: 'Escalation apply',
+        body: `Applied ${result.applied} due increase(s) (Mode A).`,
+      })
+    },
+  }
+
   return (
     <RequirePermission permission="occupants.view">
       <div className="animate-fade-in space-y-5">
         <PageHeader
           title="Leases"
-          subtitle="Tenancy leases with generated PDFs and e-sign status. Mock e-sign is non-production soft-demo. Live SigniFlow needs server keys (DQ-C1); DocuSign stays placeholder."
+          subtitle="Tenancy leases with generated PDFs and e-sign status, plus Mode A renewals / scheduled escalation (in-app book — not CPA legal service / not live CPI)."
         />
+
+        <RenewalsModeABanner
+          extra={
+            'Offer / accept / decline and CPA-style notice clock live on each lease row. Apply due escalations runs staff-set % only.'
+          }
+        />
+
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="secondary"
+            className="min-h-10"
+            onClick={() => {
+              const result = applyDueLeaseEscalations()
+              notify({
+                userId: user?.id ?? 'system',
+                agencyId: user?.agencyId ?? null,
+                title: 'Scheduled escalations',
+                body: `Applied ${result.applied} book increase(s) as of ${result.asOf} (Mode A — not live CPI).`,
+              })
+            }}
+          >
+            Apply due escalations
+          </Button>
+        </div>
 
         <DirectoryStatGrid<SignFilter>
           allId="all"
@@ -269,6 +431,7 @@ export default function LeasesDirectory() {
                 busyId={busyId}
                 onIssue={onIssue}
                 onSign={onSign}
+                renewalHandlers={renewalHandlers}
               />
             ))}
           </div>
@@ -324,6 +487,22 @@ export default function LeasesDirectory() {
                 ))}
               </tbody>
             </table>
+            <div className="space-y-3 border-t border-primary-50 p-4">
+              <h3 className="text-sm font-semibold text-ink">Renewals & escalation (Mode A)</h3>
+              {filtered
+                .filter((r) => r.tenancy.status === 'Active' || r.tenancy.status === 'Pending Move-In')
+                .slice(0, 12)
+                .map((row) => (
+                  <LeaseRenewalsPanel
+                    key={`renew-${row.tenancy.id}`}
+                    tenancy={row.tenancy}
+                    propertyTitle={row.propertyTitle}
+                    busy={busyId === row.tenancy.id}
+                    handlers={renewalHandlers}
+                    compact
+                  />
+                ))}
+            </div>
           </div>
         )}
       </div>
@@ -336,11 +515,13 @@ function LeaseCard({
   busyId,
   onIssue,
   onSign,
+  renewalHandlers,
 }: {
   row: LeaseRow
   busyId: string | null
   onIssue: (id: string) => void
   onSign: (id: string, party: 'tenant' | 'landlord') => void
+  renewalHandlers: LeaseRenewalsHandlers
 }) {
   return (
     <article className="flex flex-col gap-3 rounded-2xl border border-primary-100 bg-white p-4 shadow-sm">
@@ -386,6 +567,13 @@ function LeaseCard({
           Tenant record
         </Link>
       </div>
+      <LeaseRenewalsPanel
+        tenancy={row.tenancy}
+        propertyTitle={row.propertyTitle}
+        busy={busyId === row.tenancy.id}
+        handlers={renewalHandlers}
+        compact
+      />
     </article>
   )
 }
