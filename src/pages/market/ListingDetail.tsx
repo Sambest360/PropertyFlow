@@ -343,6 +343,9 @@ export default function ListingDetail() {
         ? `Your reference is ${appRef}. Track progress in your tenant portal under Applications.`
         : 'Track progress in your tenant portal under Applications.',
     )
+    if (appRef) {
+      navigate(`/workspace/portals/tenant/applications/${encodeURIComponent(appRef)}`)
+    }
   }
 
   const applyHref = `/register?next=${encodeURIComponent(`/listing/${p.id}`)}`

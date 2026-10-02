@@ -231,6 +231,12 @@ export function dealInScope(
   entity: { propertyId: string; agentId: string | null | undefined; agencyId: string },
 ): boolean {
   const { viewer } = scope
+  // Tenants (incl. null-agency public applicants): property book only — no canSeeAgency.
+  // Own apps/tenancies populate the book via resolveTenantPropertyIds; LiveSync/bootstrap
+  // must keep APP rows so the portal does not hang after apply.
+  if (viewer.role === 'tenant') {
+    return scope.allowedPropertyIds.has(entity.propertyId)
+  }
   if (!canSeeAgency(viewer.role, viewer.agencyId, viewer.agencySuspended, entity.agencyId)) {
     return false
   }
@@ -243,7 +249,7 @@ export function dealInScope(
       !entity.agentId
     )
   }
-  if (viewer.role === 'landlord' || viewer.role === 'tenant' || viewer.role === 'contractor') {
+  if (viewer.role === 'landlord' || viewer.role === 'contractor') {
     return scope.allowedPropertyIds.has(entity.propertyId)
   }
   return true

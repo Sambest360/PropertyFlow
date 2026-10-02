@@ -10,6 +10,7 @@ import { apiAuthBootstrapNeeded } from '../../lib/api/authClient'
 import { supabaseBootstrapNeeded, supabaseSignOut } from '../../lib/supabase/auth.js'
 import { isSupabaseMode } from '../../lib/api/config'
 import { isRegistrationRedirectError } from '../../lib/auth/registrationErrors'
+import { postRegisterPath } from '../../lib/workspaceRoutes'
 import {
   stashPendingRegistrationDocs,
   validateRegistrationDocSizes,
@@ -54,16 +55,6 @@ const PUBLIC_ROLES = [
 
 type PublicRole = (typeof PUBLIC_ROLES)[number]['value']
 
-function postRegisterPath(role: string, bootstrap: boolean, next: string): string {
-  if (bootstrap) return '/workspace/admin/agencies/new'
-  if (role === 'landlord') return '/workspace/properties'
-  if (role === 'contractor') return '/workspace/contractor'
-  if (role === 'tenant') {
-    if (next.startsWith('/listing/') || next.startsWith('/browse')) return next
-    return '/workspace/tenant'
-  }
-  return next
-}
 
 function StepIndicator({ step, total }: { step: number; total: number }) {
   return (
