@@ -5,6 +5,10 @@ import type { AppUser, Role } from '../../types/domain'
 import type { UserVerification, VerificationDocument } from '../verification'
 import { EMAIL_TO_USER, resolveFrontendRole } from './idMap.js'
 import { resolveAuthChangeDecision } from './authChange.js'
+import {
+  beginDeferredAuthDecision,
+  endDeferredAuthDecision,
+} from '../auth/sessionArtifacts'
 import type { AuthUserDto } from '../api/authClient'
 
 export function supabaseAuthEnabled(): boolean {
@@ -492,9 +496,29 @@ export async function supabaseSignUp(
   return { user: profile, bootstrap }
 }
 
-export async function supabaseSignOut(): Promise<void> {
+export async function supabaseSignOut(opts?: {
+  /** When true at _removeSession time, skip GoTrue session removal (in-flight guest purge invalidated by login). */
+  skipRemoveSession?: () => boolean
+}): Promise<void> {
   const supabase = createClient()
-  await supabase.auth.signOut()
+  const auth = supabase.auth as unknown as {
+    signOut: () => Promise<unknown>
+    _removeSession: () => Promise<void>
+  }
+  if (!opts?.skipRemoveSession) {
+    await auth.signOut()
+    return
+  }
+  const originalRemove = auth._removeSession.bind(auth)
+  auth._removeSession = async () => {
+    if (opts.skipRemoveSession?.()) return
+    await originalRemove()
+  }
+  try {
+    await auth.signOut()
+  } finally {
+    auth._removeSession = originalRemove
+  }
 }
 
 export async function supabaseGetSessionUser(): Promise<AppUser | null> {
@@ -521,28 +545,35 @@ export function onSupabaseAuthChange(
     // P0 empty-DB SA: defer async work so we do not await getUser()/profile
     // while GoTrue still holds the onAuthStateChange lock (deadlock / failed
     // verify → false signed-out while JWT remains → RequireAuth → /login?next=).
+    // Count the decision from schedule through settle so loginInFlight is not
+    // dropped while this callback can still deliver a null.
+    beginDeferredAuthDecision()
     setTimeout(() => {
       void (async () => {
-        const decision = await resolveAuthChangeDecision({
-          sessionUserId: session?.user?.id,
-          verifyUser: async () => {
-            if (!session?.user) return null
-            const { data: verified, error } = await supabase.auth.getUser()
-            if (error || !verified.user) return null
-            return { id: verified.user.id }
-          },
-          loadProfile: loadProfileForSession,
-        })
-        if (decision.action === 'signed_out') {
-          cb(null)
-          return
+        try {
+          const decision = await resolveAuthChangeDecision({
+            sessionUserId: session?.user?.id,
+            verifyUser: async () => {
+              if (!session?.user) return null
+              const { data: verified, error } = await supabase.auth.getUser()
+              if (error || !verified.user) return null
+              return { id: verified.user.id }
+            },
+            loadProfile: loadProfileForSession,
+          })
+          if (decision.action === 'signed_out') {
+            cb(null)
+            return
+          }
+          if (decision.action === 'apply' && decision.profile) {
+            cb(decision.profile as AppUser)
+            return
+          }
+          // keep: live JWT, profile miss — do not cb(null); login() already
+          // applied the Super Admin profile into AuthContext.
+        } finally {
+          endDeferredAuthDecision()
         }
-        if (decision.action === 'apply' && decision.profile) {
-          cb(decision.profile as AppUser)
-          return
-        }
-        // keep: live JWT, profile miss — do not cb(null); login() already
-        // applied the Super Admin profile into AuthContext.
       })()
     }, 0)
   })

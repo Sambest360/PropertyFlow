@@ -97,6 +97,11 @@ let purgeGeneration = 0
 let purgesInFlight = 0
 let staleSignOutIgnores = 0
 let onGuestPurgesDrained: (() => void) | null = null
+// remint59 grace3: once login() invalidates an in-flight guest purge, that
+// signOut must not reach GoTrue _removeSession (it would delete the JWT just
+// written by signInWithPassword). Generation-skip only avoids the later
+// clearSessionArtifacts.
+let suppressGuestSignOutRemove = false
 
 export function guestPurgesInFlight(): number {
   return purgesInFlight
@@ -110,16 +115,28 @@ export function beginGuestPurge(): number {
 
 export function endGuestPurge(): void {
   purgesInFlight = Math.max(0, purgesInFlight - 1)
-  if (purgesInFlight === 0) onGuestPurgesDrained?.()
+  if (purgesInFlight === 0) {
+    // Sign-out has returned (remove either ran or was suppressed). Further
+    // nulls come from the deferred auth decision, not this flag.
+    suppressGuestSignOutRemove = false
+    onGuestPurgesDrained?.()
+  }
 }
 
 export function guestPurgeGenerationCurrent(generation: number): boolean {
   return generation === purgeGeneration
 }
 
+export function guestSignOutRemoveSuppressed(): boolean {
+  return suppressGuestSignOutRemove
+}
+
 export function shieldGuestPurgeForLogin(): void {
   purgeGeneration += 1
-  if (purgesInFlight > 0) staleSignOutIgnores += purgesInFlight
+  if (purgesInFlight > 0) {
+    staleSignOutIgnores += purgesInFlight
+    suppressGuestSignOutRemove = true
+  }
 }
 
 /** True once: a signed-out event belongs to a guest purge login() invalidated. */
@@ -127,6 +144,26 @@ export function consumeStaleSignOutIgnore(): boolean {
   if (staleSignOutIgnores <= 0) return false
   staleSignOutIgnores -= 1
   return true
+}
+
+/**
+ * Deferred onAuthStateChange decisions (setTimeout + getUser). The login hold
+ * must stay up until these settle — a sign-out's SIGNED_OUT / a follow-up
+ * SIGNED_IN can still cb(null) after the purge promise resolves.
+ */
+let deferredAuthDecisions = 0
+
+export function deferredAuthDecisionsInFlight(): number {
+  return deferredAuthDecisions
+}
+
+export function beginDeferredAuthDecision(): void {
+  deferredAuthDecisions += 1
+}
+
+export function endDeferredAuthDecision(): void {
+  deferredAuthDecisions = Math.max(0, deferredAuthDecisions - 1)
+  if (deferredAuthDecisions === 0) onGuestPurgesDrained?.()
 }
 
 /** AuthProvider registers this so the post-navigate hold can drop when the purge settles. */
