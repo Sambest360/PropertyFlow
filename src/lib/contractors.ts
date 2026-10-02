@@ -1,5 +1,5 @@
 import type { AgencyContractor, AppUser, MaintenanceTicket } from '../types/domain'
-import { isVerificationApproved } from './verification'
+import { isVerificationApproved } from './verification.js'
 
 /**
  * Derive the agency contractor roster from contractor-role users' verification
