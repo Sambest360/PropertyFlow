@@ -6,33 +6,132 @@ import { formatZAR } from '../../data/seed'
 import { DetailSection, FlatField, FlatFieldGrid } from '../detail/FlatFields'
 import { eSignStatusLabel } from '../../lib/lease'
 import { ICON_STROKE } from './types'
+import { useStore } from '../../context/AppStore'
+import { useAuth } from '../../context/AuthContext'
+import { RenewalsModeABanner } from '../renewals/RenewalsModeABanner'
+import { LeaseRenewalsPanel } from '../renewals/LeaseRenewalsPanel'
 
 export function TenantLeasePanel({ tenancy }: { tenancy: Tenancy }) {
-  const eSign = tenancy.eSign
-  const pdfUrl = tenancy.leasePdfUrl || eSign?.pdfUrl || null
+  const {
+    offerLeaseRenewal,
+    acceptLeaseRenewal,
+    declineLeaseRenewal,
+    markLeaseMonthToMonth,
+    sendCpaExpiryNotice,
+    setLeaseEscalation,
+    applyDueLeaseEscalations,
+    notify,
+    state,
+  } = useStore()
+  const { user } = useAuth()
+  const live = state.tenancies.find((t) => t.id === tenancy.id) ?? tenancy
+  const eSign = live.eSign
+  const pdfUrl = live.leasePdfUrl || eSign?.pdfUrl || null
   const signLabel = eSign ? eSignStatusLabel(eSign.status) : 'Not issued'
+  const propertyTitle =
+    state.properties.find((p) => p.id === live.propertyId)?.title ?? live.propertyId
+
+  const notifyActor = (title: string, body: string) => {
+    notify({
+      userId: user?.id ?? 'system',
+      agencyId: user?.agencyId ?? live.agencyId,
+      title,
+      body,
+    })
+  }
 
   return (
     <div className="space-y-10">
       <DetailSection title="Lease terms" subtitle="Dates, rent, and deposit for this occupancy.">
         <FlatFieldGrid>
-          <FlatField label="Status" value={tenancy.status} />
-          <FlatField label="Start date" value={tenancy.startDate} />
-          <FlatField label="End date" value={tenancy.endDate ?? 'Open-ended'} />
-          <FlatField label="Monthly rent" value={formatZAR(tenancy.rent)} tabular />
-          <FlatField label="Deposit" value={formatZAR(tenancy.deposit)} tabular />
+          <FlatField label="Status" value={live.status} />
+          <FlatField label="Start date" value={live.startDate} />
+          <FlatField label="End date" value={live.endDate ?? 'Open-ended'} />
+          <FlatField label="Monthly rent" value={formatZAR(live.rent)} tabular />
+          <FlatField label="Deposit" value={formatZAR(live.deposit)} tabular />
         </FlatFieldGrid>
         <div className="pt-1">
-          <Badge tone={statusTone(tenancy.status)}>{tenancy.status}</Badge>
+          <Badge tone={statusTone(live.status)}>{live.status}</Badge>
         </div>
-        {tenancy.applicationId && (
+        {live.applicationId && (
           <Link
-            to={`/workspace/sales/applications/${encodeURIComponent(tenancy.applicationId)}`}
+            to={`/workspace/sales/applications/${encodeURIComponent(live.applicationId)}`}
             className="inline-flex min-h-11 cursor-pointer items-center text-sm font-semibold text-primary hover:underline"
           >
             Open linked application
           </Link>
         )}
+      </DetailSection>
+
+      <DetailSection
+        title="Renewals & scheduled escalation"
+        subtitle="Mode A year-ops clock beside this lease — in-app book only."
+      >
+        <div className="space-y-3">
+          <RenewalsModeABanner />
+          <LeaseRenewalsPanel
+            tenancy={live}
+            propertyTitle={propertyTitle}
+            handlers={{
+              onOffer: ({ tenancyId, offeredEndDate, offeredRent, termMonths }) => {
+                const res = offerLeaseRenewal(tenancyId, {
+                  offeredEndDate,
+                  offeredRent,
+                  termMonths,
+                })
+                if (res.ok) notifyActor('Renewal offered', 'In-app renewal terms recorded (Mode A).')
+                else notifyActor('Offer failed', 'reason' in res ? res.reason : 'Unknown error')
+              },
+              onAccept: (tenancyId) => {
+                const res = acceptLeaseRenewal(tenancyId)
+                if (res.ok) {
+                  notifyActor(
+                    'Renewal accepted',
+                    `Book extended to ${res.newEndDate}; rent ${formatZAR(res.newRent)}.`,
+                  )
+                } else notifyActor('Accept failed', 'reason' in res ? res.reason : 'Unknown error')
+              },
+              onDecline: (tenancyId) => {
+                const res = declineLeaseRenewal(tenancyId)
+                if (res.ok) notifyActor('Renewal declined', `Notice given (${res.noticeGivenAt}).`)
+                else notifyActor('Decline failed', 'reason' in res ? res.reason : 'Unknown error')
+              },
+              onMonthToMonth: (tenancyId) => {
+                const res = markLeaseMonthToMonth(tenancyId)
+                if (res.ok) {
+                  notifyActor(
+                    'Month-to-month noted',
+                    'Continuing month-to-month on book (not auto 12-mo).',
+                  )
+                } else notifyActor('Note failed', 'reason' in res ? res.reason : 'Unknown error')
+              },
+              onSendCpaNotice: (tenancyId) => {
+                const res = sendCpaExpiryNotice(tenancyId)
+                if (res.ok) {
+                  notifyActor(
+                    'CPA-style notice recorded',
+                    `In-app cpa_expiry_notice${res.late ? ' (late; seek counsel)' : ''}.`,
+                  )
+                } else notifyActor('Notice failed', 'reason' in res ? res.reason : 'Unknown error')
+              },
+              onSetEscalation: ({ tenancyId, escalationPct, nextEscalationOn }) => {
+                const res = setLeaseEscalation(tenancyId, {
+                  escalationPct,
+                  nextEscalationOn,
+                })
+                if (res.ok) notifyActor('Escalation saved', 'Staff-set % (not live CPI).')
+                else notifyActor('Save failed', 'reason' in res ? res.reason : 'Unknown error')
+              },
+              onApplyEscalation: () => {
+                const result = applyDueLeaseEscalations()
+                notifyActor(
+                  'Escalation apply',
+                  `Applied ${result.applied} due increase(s) (Mode A).`,
+                )
+              },
+            }}
+          />
+        </div>
       </DetailSection>
 
       <DetailSection
@@ -107,12 +206,12 @@ export function TenantLeasePanel({ tenancy }: { tenancy: Tenancy }) {
       >
         <p className="flex items-center gap-1.5 text-sm font-semibold text-ink">
           <KeyRound className="h-4 w-4 text-primary" strokeWidth={ICON_STROKE} aria-hidden />
-          {tenancy.keyCollection.location}
+          {live.keyCollection.location}
         </p>
-        <p className="mt-2 text-sm text-ink-600">{tenancy.keyCollection.instructions}</p>
+        <p className="mt-2 text-sm text-ink-600">{live.keyCollection.instructions}</p>
         <FlatFieldGrid className="mt-4 border-t border-primary-50 pt-4 lg:grid-cols-2">
-          <FlatField label="Contact" value={tenancy.keyCollection.contactName} />
-          <FlatField label="Phone" value={tenancy.keyCollection.contactPhone || '—'} />
+          <FlatField label="Contact" value={live.keyCollection.contactName} />
+          <FlatField label="Phone" value={live.keyCollection.contactPhone || '—'} />
         </FlatFieldGrid>
       </DetailSection>
     </div>

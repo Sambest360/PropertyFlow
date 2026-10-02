@@ -200,6 +200,19 @@ import {
   type DunningStage,
 } from '../lib/rentCycle'
 import {
+  acceptRenewalOnBook,
+  applyEscalationOnBook,
+  buildCpaExpiryNotice,
+  canSendCpaExpiryNotice,
+  declineRenewalOnBook,
+  ensureRenewalOps,
+  markMonthToMonthOnBook,
+  offerRenewalOnBook,
+  planDueEscalations,
+  setEscalationOnBook,
+  syncCpaNoticeClock,
+} from '../lib/renewals'
+import {
   applicationStakeholderIds,
   applySuiteAlertFilter,
   excludeActorFromIds,
@@ -611,6 +624,38 @@ type StoreContextValue = {
     paymentId: string,
     opts?: { stage?: DunningStage; actorUserId?: string | null; actorName?: string },
   ) => { ok: true; stage: DunningStage } | { ok: false; reason: string }
+  /** Mode A renewals: offer terms on book (beside OFFER_RENEWAL stage). */
+  offerLeaseRenewal: (
+    tenancyId: string,
+    input?: { offeredEndDate?: string; offeredRent?: number; termMonths?: number; asOf?: string },
+  ) => { ok: true } | { ok: false; reason: string }
+  /** Mode A: accept extends term+rent on book. */
+  acceptLeaseRenewal: (
+    tenancyId: string,
+    opts?: { asOf?: string },
+  ) => { ok: true; newEndDate: string; newRent: number } | { ok: false; reason: string }
+  /** Mode A: decline → notice_given on book. */
+  declineLeaseRenewal: (
+    tenancyId: string,
+    opts?: { asOf?: string },
+  ) => { ok: true; noticeGivenAt: string } | { ok: false; reason: string }
+  /** Mode A: no election past lease_end → month-to-month note (not auto 12-mo). */
+  markLeaseMonthToMonth: (
+    tenancyId: string,
+    opts?: { asOf?: string },
+  ) => { ok: true } | { ok: false; reason: string }
+  /** Mode A: in-app cpa_expiry_notice (not live CPA delivery). */
+  sendCpaExpiryNotice: (
+    tenancyId: string,
+    opts?: { asOf?: string },
+  ) => { ok: true; late: boolean } | { ok: false; reason: string }
+  /** Mode A: staff-set escalationPct / nextEscalationOn (not live CPI). */
+  setLeaseEscalation: (
+    tenancyId: string,
+    input: { escalationPct: number | null; nextEscalationOn: string | null; asOf?: string },
+  ) => { ok: true } | { ok: false; reason: string }
+  /** Mode A: apply due scheduled increases across Active tenancies. */
+  applyDueLeaseEscalations: (asOf?: string) => { applied: number; asOf: string }
   sendMessage: (threadId: string, fromUserId: string, body: string) => Message
   createThread: (input: Omit<MessageThread, 'id' | 'updatedAt'> & { initialMessage: string; fromUserId: string }) => MessageThread
   createTicket: (input: Omit<MaintenanceTicket, 'id' | 'openedAt' | 'status' | 'cost' | 'photos' | 'contractorId' | 'assignedAgentId' | 'reportedByUserId'> & Partial<Pick<MaintenanceTicket, 'status' | 'cost' | 'photos' | 'contractorId' | 'assignedAgentId' | 'reportedByUserId' | 'categoryKey' | 'unitId' | 'internalAssetId' | 'warrantyCovered'>>) => MaintenanceTicket
@@ -3932,6 +3977,41 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         }
       }
 
+      // Mode A renewals: OFFER/ACCEPT/DECLINE_RENEWAL must mutate the lease book
+      // (beyond stage-only). People → Leases panel uses the dedicated store actions;
+      // workflow path stays aligned.
+      if (
+        transition.actionKey === 'OFFER_RENEWAL' ||
+        transition.actionKey === 'ACCEPT_RENEWAL' ||
+        transition.actionKey === 'DECLINE_RENEWAL'
+      ) {
+        const lease = stateRef.current.tenancies.find((t) => t.applicationId === applicationId)
+        if (lease) {
+          const asOf = new Date().toISOString().slice(0, 10)
+          let nextLease = lease
+          if (transition.actionKey === 'OFFER_RENEWAL') {
+            nextLease = offerRenewalOnBook(lease, { asOf })
+          } else if (transition.actionKey === 'ACCEPT_RENEWAL') {
+            const offered =
+              (lease.renewalOps?.election ?? 'none') === 'offered'
+                ? lease
+                : offerRenewalOnBook(lease, { asOf })
+            nextLease = acceptRenewalOnBook(offered, asOf).tenancy
+          } else {
+            nextLease = declineRenewalOnBook(lease, asOf).tenancy
+          }
+          patch((s) => ({
+            ...s,
+            tenancies: s.tenancies.map((t) => (t.id === nextLease.id ? nextLease : t)),
+          }))
+          persistUpsert(
+            'tenancy',
+            nextLease.id,
+            nextLease as unknown as Record<string, unknown>,
+          )
+        }
+      }
+
       if (transition.effect === 'approve') {
         // P0-approve (R8): same pre-approve snapshot + revert contract as
         // approveApplication — a failed durable write must not leave the
@@ -5331,6 +5411,261 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       })
       return { ok: true as const, stage: draft.stage }
     },
+
+    offerLeaseRenewal: (tenancyId, input) => {
+      const tenancy = stateRef.current.tenancies.find((t) => t.id === tenancyId)
+      if (!tenancy) return { ok: false as const, reason: 'Tenancy not found' }
+      const asOf = (input?.asOf ?? new Date().toISOString().slice(0, 10)).slice(0, 10)
+      const next = offerRenewalOnBook(tenancy, {
+        asOf,
+        offeredEndDate: input?.offeredEndDate,
+        offeredRent: input?.offeredRent,
+        termMonths: input?.termMonths,
+      })
+      patch((s) => ({
+        ...s,
+        tenancies: s.tenancies.map((t) => (t.id === tenancyId ? next : t)),
+      }))
+      persistUpsert('tenancy', tenancyId, next as unknown as Record<string, unknown>)
+      if (next.applicationId) {
+        const app = stateRef.current.applications.find((a) => a.id === next.applicationId)
+        // Soft stage flip to renewal_offered when currently active_tenancy
+        if (app) {
+          const status = resolveWorkflowStatus(app)
+          if (status === 'active_tenancy') {
+            const updated = normalizeApplication(
+              applyWorkflowTransition(app, 'renewal_offered'),
+            )
+            patch((s) => ({
+              ...s,
+              applications: s.applications.map((a) => (a.id === updated.id ? updated : a)),
+            }))
+            persistUpsert(
+              'application',
+              updated.id,
+              updated as unknown as Record<string, unknown>,
+            )
+          }
+        }
+      }
+      if (next.tenantUserId) {
+        notify({
+          userId: next.tenantUserId,
+          agencyId: next.agencyId,
+          title: 'Renewal offered',
+          body: `In-app renewal terms recorded for your lease (Mode A — not CPA legal service).`,
+          link: '/workspace/portals/tenant',
+          resource: 'applicant',
+          action: 'updated',
+        })
+      }
+      return { ok: true as const }
+    },
+
+    acceptLeaseRenewal: (tenancyId, opts) => {
+      const tenancy = stateRef.current.tenancies.find((t) => t.id === tenancyId)
+      if (!tenancy) return { ok: false as const, reason: 'Tenancy not found' }
+      const asOf = (opts?.asOf ?? new Date().toISOString().slice(0, 10)).slice(0, 10)
+      if ((tenancy.renewalOps?.election ?? 'none') !== 'offered') {
+        return { ok: false as const, reason: 'Offer renewal before accepting' }
+      }
+      const { tenancy: next, newEndDate, newRent } = acceptRenewalOnBook(tenancy, asOf)
+      patch((s) => ({
+        ...s,
+        tenancies: s.tenancies.map((t) => (t.id === tenancyId ? next : t)),
+      }))
+      persistUpsert('tenancy', tenancyId, next as unknown as Record<string, unknown>)
+      if (next.applicationId) {
+        const app = stateRef.current.applications.find((a) => a.id === next.applicationId)
+        if (app) {
+          const status = resolveWorkflowStatus(app)
+          if (status === 'renewal_offered' || status === 'active_tenancy') {
+            const stepped =
+              status === 'active_tenancy'
+                ? applyWorkflowTransition(app, 'renewal_offered')
+                : app
+            const updated = normalizeApplication(applyWorkflowTransition(stepped, 'renewed'))
+            patch((s) => ({
+              ...s,
+              applications: s.applications.map((a) => (a.id === updated.id ? updated : a)),
+            }))
+            persistUpsert(
+              'application',
+              updated.id,
+              updated as unknown as Record<string, unknown>,
+            )
+          }
+        }
+      }
+      if (next.tenantUserId) {
+        notify({
+          userId: next.tenantUserId,
+          agencyId: next.agencyId,
+          title: 'Lease renewed on book',
+          body: `Term extended to ${newEndDate}; rent ${formatZAR(newRent)} (Mode A in-app — not auto e-sign).`,
+          link: '/workspace/portals/tenant',
+          resource: 'applicant',
+          action: 'updated',
+        })
+      }
+      return { ok: true as const, newEndDate, newRent }
+    },
+
+    declineLeaseRenewal: (tenancyId, opts) => {
+      const tenancy = stateRef.current.tenancies.find((t) => t.id === tenancyId)
+      if (!tenancy) return { ok: false as const, reason: 'Tenancy not found' }
+      const asOf = (opts?.asOf ?? new Date().toISOString().slice(0, 10)).slice(0, 10)
+      const { tenancy: next, noticeGivenAt } = declineRenewalOnBook(tenancy, asOf)
+      patch((s) => ({
+        ...s,
+        tenancies: s.tenancies.map((t) => (t.id === tenancyId ? next : t)),
+      }))
+      persistUpsert('tenancy', tenancyId, next as unknown as Record<string, unknown>)
+      if (next.applicationId) {
+        const app = stateRef.current.applications.find((a) => a.id === next.applicationId)
+        if (app) {
+          const status = resolveWorkflowStatus(app)
+          let stepped = app
+          if (status === 'active_tenancy') {
+            stepped = applyWorkflowTransition(app, 'renewal_offered')
+          }
+          const from = resolveWorkflowStatus(stepped)
+          if (from === 'renewal_offered' || from === 'active_tenancy') {
+            const updated = normalizeApplication(
+              from === 'renewal_offered'
+                ? applyWorkflowTransition(stepped, 'notice_given')
+                : applyWorkflowTransition(stepped, 'notice_given'),
+            )
+            patch((s) => ({
+              ...s,
+              applications: s.applications.map((a) => (a.id === updated.id ? updated : a)),
+            }))
+            persistUpsert(
+              'application',
+              updated.id,
+              updated as unknown as Record<string, unknown>,
+            )
+          }
+        }
+      }
+      return { ok: true as const, noticeGivenAt }
+    },
+
+    markLeaseMonthToMonth: (tenancyId, opts) => {
+      const tenancy = stateRef.current.tenancies.find((t) => t.id === tenancyId)
+      if (!tenancy) return { ok: false as const, reason: 'Tenancy not found' }
+      const asOf = (opts?.asOf ?? new Date().toISOString().slice(0, 10)).slice(0, 10)
+      const next = markMonthToMonthOnBook(tenancy, asOf)
+      patch((s) => ({
+        ...s,
+        tenancies: s.tenancies.map((t) => (t.id === tenancyId ? next : t)),
+      }))
+      persistUpsert('tenancy', tenancyId, next as unknown as Record<string, unknown>)
+      return { ok: true as const }
+    },
+
+    sendCpaExpiryNotice: (tenancyId, opts) => {
+      const tenancy = stateRef.current.tenancies.find((t) => t.id === tenancyId)
+      if (!tenancy) return { ok: false as const, reason: 'Tenancy not found' }
+      if (!tenancy.endDate) {
+        return { ok: false as const, reason: 'Open-ended lease has no CPA notice window' }
+      }
+      const asOf = (opts?.asOf ?? new Date().toISOString().slice(0, 10)).slice(0, 10)
+      const ops = ensureRenewalOps(tenancy, asOf)
+      if (!canSendCpaExpiryNotice(tenancy.endDate, ops, asOf)) {
+        return { ok: false as const, reason: 'CPA notice window not open yet' }
+      }
+      const property = stateRef.current.properties.find((p) => p.id === tenancy.propertyId)
+      const draft = buildCpaExpiryNotice({
+        tenantName: tenancy.tenantName,
+        propertyTitle: property?.title ?? 'your property',
+        leaseEnd: tenancy.endDate,
+        asOf,
+        late: ops.cpaNotice.late,
+      })
+      const nextOps = {
+        ...ops,
+        cpaNotice: {
+          ...ops.cpaNotice,
+          noticeSentAt: asOf,
+          late: false,
+          lateFlagNote: null,
+        },
+        auditNotes: [...(ops.auditNotes ?? []), draft.notesLine],
+      }
+      const synced = syncCpaNoticeClock(nextOps, tenancy.endDate, asOf)
+      // Keep noticeSentAt; late cleared because notice was sent
+      synced.cpaNotice.noticeSentAt = asOf
+      synced.cpaNotice.late = false
+      synced.cpaNotice.lateFlagNote = null
+      const next: typeof tenancy = { ...tenancy, renewalOps: synced }
+      patch((s) => ({
+        ...s,
+        tenancies: s.tenancies.map((t) => (t.id === tenancyId ? next : t)),
+      }))
+      persistUpsert('tenancy', tenancyId, next as unknown as Record<string, unknown>)
+      if (tenancy.tenantUserId) {
+        notify({
+          userId: tenancy.tenantUserId,
+          agencyId: tenancy.agencyId,
+          title: draft.title,
+          body: draft.body,
+          link: '/workspace/portals/tenant',
+          resource: 'applicant',
+          action: 'updated',
+        })
+      }
+      return { ok: true as const, late: draft.late }
+    },
+
+    setLeaseEscalation: (tenancyId, input) => {
+      const tenancy = stateRef.current.tenancies.find((t) => t.id === tenancyId)
+      if (!tenancy) return { ok: false as const, reason: 'Tenancy not found' }
+      const asOf = (input.asOf ?? new Date().toISOString().slice(0, 10)).slice(0, 10)
+      const next = setEscalationOnBook(tenancy, {
+        escalationPct: input.escalationPct,
+        nextEscalationOn: input.nextEscalationOn,
+        asOf,
+      })
+      patch((s) => ({
+        ...s,
+        tenancies: s.tenancies.map((t) => (t.id === tenancyId ? next : t)),
+      }))
+      persistUpsert('tenancy', tenancyId, next as unknown as Record<string, unknown>)
+      return { ok: true as const }
+    },
+
+    applyDueLeaseEscalations: (asOfInput) => {
+      const asOf = (asOfInput ?? new Date().toISOString().slice(0, 10)).slice(0, 10)
+      const due = planDueEscalations(stateRef.current.tenancies, asOf)
+      let applied = 0
+      for (const row of due) {
+        const tenancy = stateRef.current.tenancies.find((t) => t.id === row.tenancyId)
+        if (!tenancy) continue
+        const result = applyEscalationOnBook(tenancy, asOf)
+        if (!result) continue
+        const next = result.tenancy
+        patch((s) => ({
+          ...s,
+          tenancies: s.tenancies.map((t) => (t.id === next.id ? next : t)),
+        }))
+        persistUpsert('tenancy', next.id, next as unknown as Record<string, unknown>)
+        if (next.tenantUserId) {
+          notify({
+            userId: next.tenantUserId,
+            agencyId: next.agencyId,
+            title: 'Scheduled rent increase applied',
+            body: `Book rent now ${formatZAR(next.rent)} (+${result.result.appliedPct}% scheduled — not live CPI).`,
+            link: '/workspace/portals/tenant',
+            resource: 'applicant',
+            action: 'updated',
+          })
+        }
+        applied += 1
+      }
+      return { applied, asOf }
+    },
+
 
     createThread: (input) => {
       const thread: MessageThread = {

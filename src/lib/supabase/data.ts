@@ -597,6 +597,8 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
       leaseDocumentId: (meta.leaseDocumentId as string | null | undefined) ?? null,
       leasePdfUrl: (meta.leasePdfUrl as string | null | undefined) ?? null,
       eSign: (meta.eSign as import('../../types/domain').TenancyESign | null | undefined) ?? null,
+      renewalOps: (meta.renewalOps as import('../../types/domain').TenancyRenewalOpsRecord | null | undefined) ?? null,
+      billingSchedule: (meta.billingSchedule as import('../../types/domain').BillingSchedule | null | undefined) ?? null,
     }
   })
 

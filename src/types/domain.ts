@@ -609,6 +609,37 @@ export type Tenancy = {
   leasePdfUrl?: string | null
   /** Real e-sign status — workflow stages must mirror this, not decorate. */
   eSign?: TenancyESign | null
+  /**
+   * Mode A year-ops renewal + soft CPA notice clock (in-app book).
+   * Persisted in leases.metadata.renewalOps. Mirrors src/lib/renewals.
+   */
+  renewalOps?: TenancyRenewalOpsRecord | null
+  /**
+   * Soft BillingSchedule on the occupancy — wires dead escalationPct / nextEscalationOn.
+   * Persisted in leases.metadata.billingSchedule. Staff-set %; not live CPI.
+   */
+  billingSchedule?: BillingSchedule | null
+}
+
+/** Soft Mode A renewal ops (mirrors src/lib/renewals TenancyRenewalOps). */
+export type TenancyRenewalOpsRecord = {
+  election: 'none' | 'offered' | 'accepted' | 'declined' | 'month_to_month'
+  offeredAt: string | null
+  offeredEndDate: string | null
+  offeredRent: number | null
+  offeredTermMonths: number
+  acceptedAt: string | null
+  declinedAt: string | null
+  noticeGivenAt: string | null
+  monthToMonthNote: string | null
+  cpaNotice: {
+    windowOpen: string | null
+    windowClose: string | null
+    noticeSentAt: string | null
+    late: boolean
+    lateFlagNote: string | null
+  }
+  auditNotes: string[]
 }
 
 export type MessageThread = {
