@@ -88,3 +88,48 @@ export function setLoginInFlight(inFlight: boolean): void {
 export function isLoginInFlight(): boolean {
   return loginInFlight
 }
+
+// remint58 grace2: a bare-/login guest purge can already be awaiting signOut
+// when login() starts. Bump the generation so that purge cannot clearSession
+// after the navigation hold drops, and ignore the matching late signed-out
+// auth callback (GoTrue emits it when the pre-login signOut settles).
+let purgeGeneration = 0
+let purgesInFlight = 0
+let staleSignOutIgnores = 0
+let onGuestPurgesDrained: (() => void) | null = null
+
+export function guestPurgesInFlight(): number {
+  return purgesInFlight
+}
+
+/** Capture the generation for a purge that passed the in-flight entry guard. */
+export function beginGuestPurge(): number {
+  purgesInFlight += 1
+  return purgeGeneration
+}
+
+export function endGuestPurge(): void {
+  purgesInFlight = Math.max(0, purgesInFlight - 1)
+  if (purgesInFlight === 0) onGuestPurgesDrained?.()
+}
+
+export function guestPurgeGenerationCurrent(generation: number): boolean {
+  return generation === purgeGeneration
+}
+
+export function shieldGuestPurgeForLogin(): void {
+  purgeGeneration += 1
+  if (purgesInFlight > 0) staleSignOutIgnores += purgesInFlight
+}
+
+/** True once: a signed-out event belongs to a guest purge login() invalidated. */
+export function consumeStaleSignOutIgnore(): boolean {
+  if (staleSignOutIgnores <= 0) return false
+  staleSignOutIgnores -= 1
+  return true
+}
+
+/** AuthProvider registers this so the post-navigate hold can drop when the purge settles. */
+export function setGuestPurgeDrainHook(fn: (() => void) | null): void {
+  onGuestPurgesDrained = fn
+}
