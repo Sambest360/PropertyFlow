@@ -207,14 +207,32 @@ async function userId(fe: unknown): Promise<string | null> {
   return resolveUuid('user', str(fe))
 }
 
-/** P0-5 residual: agentId set but unmapped → fail create (no soft-null agent). */
+/**
+ * P0-5 residual / r16: agentId set but unmapped → fail create (no soft-null agent).
+ * Mirrors browser resolveAgentUuid: entity_id_map first, then users.metadata->>frontend_id
+ * with map upsert; still fail-closed when missing.
+ */
 async function requireAgentId(fe: unknown): Promise<string | null> {
   if (fe == null || fe === '') return null
-  const uuid = await userId(fe)
-  if (!uuid) {
-    throw Object.assign(new Error(`agent not resolved: ${str(fe)}`), { status: 400 })
+  const feStr = str(fe)
+  let uuid = await userId(feStr)
+  if (uuid) return uuid
+  const rows = await query<{ id: string }>(
+    `SELECT id::text AS id FROM users WHERE metadata->>'frontend_id' = $1 LIMIT 1`,
+    [feStr],
+  )
+  const hit = rows[0]?.id
+  if (hit) {
+    await ensureEntityMapTable()
+    await query(
+      `INSERT INTO entity_id_map (entity_type, frontend_id, backend_id)
+       VALUES ('user', $1, $2::uuid)
+       ON CONFLICT (entity_type, frontend_id) DO UPDATE SET backend_id = EXCLUDED.backend_id`,
+      [feStr, hit],
+    )
+    return hit
   }
-  return uuid
+  throw Object.assign(new Error(`agent not resolved: ${feStr}`), { status: 400 })
 }
 
 async function unitIdFromProperty(propertyId: unknown): Promise<string | null> {
