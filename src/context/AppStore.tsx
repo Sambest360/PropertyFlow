@@ -586,13 +586,13 @@ type StoreContextValue = {
     reason: string
     score?: number | null
     externalReference?: string | null
-  }) => { ok: true; application: Application } | { ok: false; error: string }
+  }) => Promise<{ ok: true; application: Application } | { ok: false; error: string }>
   setDocumentStatus: (
     applicationId: string,
     key: string,
     status: ApplicationDocument['status'],
     note?: string,
-  ) => void
+  ) => Promise<boolean>
   uploadApplicationDocument: (
     applicationId: string,
     key: string,
@@ -3579,7 +3579,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       addActivity(`Screening started for ${updated.applicantName}`, actorUser?.name ?? 'Agency', updated.agencyId)
       return { ok: true as const, application: updated }
     },
-    overrideApplicationScreening: ({ applicationId, actorUserId, newStatus, reason, score, externalReference }) => {
+    overrideApplicationScreening: async ({ applicationId, actorUserId, newStatus, reason, score, externalReference }) => {
       const app = state.applications.find((a) => a.id === applicationId)
       if (!app) return { ok: false as const, error: 'Application not found' }
       const actorUser = state.users.find((u) => u.id === actorUserId)
@@ -3593,11 +3593,29 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       })
       if (result.ok === false) return { ok: false as const, error: result.error }
       const updated = normalizeApplication(result.application)
+      const preSnap = app
       patch((s) => ({
         ...s,
         applications: s.applications.map((a) => (a.id === applicationId ? updated : a)),
       }))
-      persistUpsert('application', applicationId, updated as unknown as Record<string, unknown>)
+      try {
+        const { persistToApi } = await import('../lib/api/persist')
+        const ok = await persistToApi({
+          resource: 'application',
+          action: 'upsert',
+          id: applicationId,
+          data: { ...(updated as unknown as Record<string, unknown>), id: applicationId },
+        })
+        if (!ok) throw new Error('screening override persist failed')
+        const { markLocalPersistWrite } = await import('../lib/bootstrapMerge')
+        markLocalPersistWrite('application', applicationId)
+      } catch {
+        patch((s) => ({
+          ...s,
+          applications: s.applications.map((a) => (a.id === applicationId ? preSnap : a)),
+        }))
+        return { ok: false as const, error: 'Could not save screening override' }
+      }
       addActivity(
         `Screening override for ${updated.applicantName}: ${newStatus}`,
         actorUser?.name ?? 'Agency',
@@ -3644,7 +3662,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         } as unknown as Record<string, unknown>)
       }
     },
-    setDocumentStatus: (applicationId, key, status, note) => {
+    setDocumentStatus: async (applicationId, key, status, note) => {
+      // P0 Approve→occupancy: await durable persist (R8 contract). Optimistic
+      // docs must not survive a failed write; mark local write only after success
+      // so LiveSync cannot wipe verified pack after LOCAL_WRITE_TTL.
+      const preSnap = stateRef.current.applications.find((a) => a.id === applicationId) ?? null
+      if (!preSnap) return false
       let persisted: Application | null = null
       patch((s) => ({
         ...s,
@@ -3698,8 +3721,25 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           return result
         }),
       }))
-      if (persisted) {
-        persistUpsert('application', applicationId, persisted as unknown as Record<string, unknown>)
+      if (!persisted) return false
+      try {
+        const { persistToApi } = await import('../lib/api/persist')
+        const ok = await persistToApi({
+          resource: 'application',
+          action: 'upsert',
+          id: applicationId,
+          data: { ...(persisted as unknown as Record<string, unknown>), id: applicationId },
+        })
+        if (!ok) throw new Error('document status persist failed')
+        const { markLocalPersistWrite } = await import('../lib/bootstrapMerge')
+        markLocalPersistWrite('application', applicationId)
+        return true
+      } catch {
+        patch((s) => ({
+          ...s,
+          applications: s.applications.map((a) => (a.id === applicationId ? preSnap : a)),
+        }))
+        return false
       }
     },
     uploadApplicationDocument: (applicationId, key, file, actor) => {

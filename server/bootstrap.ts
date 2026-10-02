@@ -25,6 +25,8 @@ import {
 import { canonicalListingId, unitIdForProperty } from '../src/lib/listingIds.js'
 import { deriveAgencyContractors } from '../src/lib/contractors.js'
 import type { Lead } from '../src/types/domain.js'
+import { hydrateDocumentsFromUploadedJson } from '../src/lib/hydrateApplicationDocs.js'
+import { normalizeApplication } from '../src/lib/applicationWorkflow.js'
 
 /** Global config client id — mirrors src/data/platformLookups. */
 const GLOBAL_CLIENT_ID = 'global'
@@ -733,6 +735,19 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
       (typeof meta.applicant_email === 'string' && meta.applicant_email) ||
       (typeof meta.email === 'string' && meta.email) ||
       ''
+    const type = (a.application_type as string) === 'PURCHASE' ? 'Purchase' : 'Rental'
+    const workflowStatusFromMeta =
+      typeof meta.workflow_status === 'string' && meta.workflow_status
+        ? meta.workflow_status
+        : null
+    const hydrated = hydrateDocumentsFromUploadedJson(type as 'Purchase' | 'Rental', a.uploaded_docs_json)
+    const creditCheck =
+      hydrated.creditCheck ??
+      ((a.status as string) === 'CREDIT_CHECK' ? 'In Progress' : 'Not Started')
+    const screeningFromMeta =
+      meta.screening && typeof meta.screening === 'object' && !Array.isArray(meta.screening)
+        ? meta.screening
+        : null
     return {
       id: APP_REF_TO_ID[ref] ?? ref,
       agencyId: agencyFe(a.client_id as string)!,
@@ -742,15 +757,17 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
       applicantName: metaName || 'Applicant',
       email: metaEmail,
       phone: typeof meta.phone === 'string' ? meta.phone : '',
-      type: (a.application_type as string) === 'PURCHASE' ? 'Purchase' : 'Rental',
+      type,
+      workflowStatus: workflowStatusFromMeta ?? undefined,
       stage: stageFromMeta ?? appStage(a.status as string),
       progress: typeof meta.progress === 'number' ? meta.progress : 50,
       income: a.monthly_income != null ? Number(a.monthly_income) : 0,
       employment: (a.employment_summary as string) ?? '',
-      creditCheck: (a.status as string) === 'CREDIT_CHECK' ? 'In Progress' : 'Not Started',
-      creditConsent: true,
-      documents: [],
-      docs: [],
+      creditCheck,
+      creditConsent: hydrated.creditConsent ?? true,
+      documents: hydrated.documents,
+      docs: hydrated.documents.filter((d) => d.status !== 'required').map((d) => d.label),
+      screening: hydrated.screening ?? screeningFromMeta ?? undefined,
       viewingSlotId: null,
       notes: (a.message as string) ?? '',
       moveInDate: dateOnly(a.move_in_date as Date | null) || undefined,
@@ -1216,7 +1233,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     units: cleanUnits,
     properties,
     leads: mappedLeads,
-    applications: mappedApps,
+    applications: mappedApps.map((row) => normalizeApplication(row as import('../src/types/domain.js').Application)),
     tenancies,
     viewings,
     viewingSlots: mappedViewingSlots,

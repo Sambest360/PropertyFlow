@@ -16,7 +16,7 @@ import {
   resolveFrontendRole,
   type IdMapCache,
 } from './idMap'
-import { buildDocumentChecklist } from '../workflow'
+import { hydrateDocumentsFromUploadedJson } from '../hydrateApplicationDocs'
 import { normalizeApplication } from '../applicationWorkflow'
 import { canonicalListingId, unitIdForProperty } from '../listingIds'
 import { deriveAgencyContractors } from '../contractors'
@@ -526,6 +526,14 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
     // split the E2E observed.
     const workflowStatusFromMeta = typeof meta.workflow_status === 'string' && meta.workflow_status ? (meta.workflow_status as import('../../types/domain').Application['workflowStatus']) : null
     const type = a.application_type === 'PURCHASE' ? 'Purchase' : 'Rental'
+    const hydrated = hydrateDocumentsFromUploadedJson(type, a.uploaded_docs_json)
+    const creditCheck =
+      hydrated.creditCheck ??
+      (a.status === 'CREDIT_CHECK' ? 'In Progress' : 'Not Started')
+    const screeningFromMeta =
+      meta.screening && typeof meta.screening === 'object' && !Array.isArray(meta.screening)
+        ? meta.screening
+        : null
     return {
       id: a.reference_code,
       agencyId: mapAgencyFe(a.client_id)!,
@@ -541,10 +549,11 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
       progress: typeof meta.progress === 'number' ? meta.progress : 50,
       income: a.monthly_income != null ? Number(a.monthly_income) : 0,
       employment: a.employment_summary ?? '',
-      creditCheck: a.status === 'CREDIT_CHECK' ? 'In Progress' : 'Not Started',
-      creditConsent: true,
-      documents: buildDocumentChecklist(type),
-      docs: [],
+      creditCheck,
+      creditConsent: hydrated.creditConsent ?? true,
+      documents: hydrated.documents,
+      docs: hydrated.documents.filter((d) => d.status !== 'required').map((d) => d.label),
+      screening: hydrated.screening ?? screeningFromMeta ?? undefined,
       viewingSlotId: null,
       notes: a.message ?? '',
       moveInDate: dateOnly(a.move_in_date) || undefined,

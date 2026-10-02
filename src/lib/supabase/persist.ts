@@ -400,6 +400,7 @@ async function upsertApplication(id: string, data: Record<string, unknown>): Pro
     // same staff policy that reads the row itself.
     applicant_name: str(data.applicantName) || undefined,
     applicant_email: str(data.email) || undefined,
+    screening: data.screening ?? undefined,
   }
   let mergedMeta = incomingMeta
   const existingMeta = (existingRow?.metadata ?? null) as Record<string, unknown> | null
@@ -425,6 +426,12 @@ async function upsertApplication(id: string, data: Record<string, unknown>): Pro
       employment_summary: str(data.employment),
       message: str(data.notes),
       move_in_date: str(data.moveInDate) || null,
+      uploaded_docs_json: {
+        documents: data.documents ?? data.docs ?? [],
+        creditCheck: data.creditCheck ?? null,
+        creditConsent: data.creditConsent ?? null,
+        screening: data.screening ?? null,
+      },
       metadata: mergedMeta,
       // P0-sync (R9): the staff bootstrap orders applications by submitted_at
       // DESC NULLS LAST with a hard limit — a NULL submitted_at sorted the

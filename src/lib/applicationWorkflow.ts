@@ -341,6 +341,33 @@ export const RENTAL_WORKFLOW: WorkflowTemplate = {
       requires: ['applications.review'],
       guard: (app) => allDocsUploaded(app.documents) || 'Upload or verify all required documents first',
     },
+    // P0 Approve→occupancy: staff Approve from doc stages when FICA verified +
+    // screening passed|manual_override (soft gate). Pending screening requires
+    // audited override first — never invent Passed.
+    {
+      from: 'documents_requested',
+      to: 'conditionally_approved',
+      actionKey: 'AGENT_APPROVE',
+      label: 'Approve',
+      hint: 'Approve once FICA pack is verified and screening is passed or audited override — Mode A, not live TPN',
+      tone: 'primary',
+      requires: ['applications.review'],
+      effect: 'approve',
+      confirm: 'Approve this application? The applicant gets tenant access.',
+      guard: (app) => approveLeaseSoftGate(app),
+    },
+    {
+      from: 'documents_uploaded',
+      to: 'conditionally_approved',
+      actionKey: 'AGENT_APPROVE',
+      label: 'Approve',
+      hint: 'Approve once FICA pack is verified and screening is passed or audited override — Mode A, not live TPN',
+      tone: 'primary',
+      requires: ['applications.review'],
+      effect: 'approve',
+      confirm: 'Approve this application? The applicant gets tenant access.',
+      guard: (app) => approveLeaseSoftGate(app),
+    },
     {
       from: 'documents_requested',
       to: 'documents_uploaded',

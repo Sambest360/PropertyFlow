@@ -38,6 +38,9 @@ const APP_STAGE_TO_DB: Record<string, string> = {
   Started: 'DRAFT',
   'Documents Pending': 'SUBMITTED',
   'Documents Submitted': 'SUBMITTED',
+  // Match browser persist — doc stages are under review, not draft/submit reset.
+  'Documents requested': 'UNDER_REVIEW',
+  'Documents uploaded': 'UNDER_REVIEW',
   'Viewing Booked': 'UNDER_REVIEW',
   'Under Review': 'UNDER_REVIEW',
   'Credit Check': 'CREDIT_CHECK',
@@ -1004,6 +1007,7 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
         documents: d.documents ?? d.docs ?? [],
         creditCheck: d.creditCheck ?? null,
         creditConsent: d.creditConsent ?? null,
+        screening: d.screening ?? null,
       }),
       d.moveInDate ? str(d.moveInDate) : null,
       JSON.stringify({
@@ -1019,6 +1023,7 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
         keyCollection: d.keyCollection ?? null,
         stage: d.stage ?? null,
         workflow_status: d.workflowStatus ?? null,
+        screening: d.screening ?? null,
       }),
       d.submittedAt ? str(d.submittedAt) : null,
     ],
