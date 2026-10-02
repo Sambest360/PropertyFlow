@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
-import { CreditCard, MapPin, Wallet } from 'lucide-react'
+import { CreditCard, FileText, KeyRound, MapPin, Wallet } from 'lucide-react'
 import { useStore, usePublicProperties } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
 import { resolveApplicationAgentName } from '../../lib/agentDisplay'
@@ -20,6 +20,7 @@ import { TenantApplicationPaymentsPanel } from '../../components/tenant/TenantAp
 import { Badge, Button, Card, cn, statusTone } from '../../components/ui'
 import { rolePermissions } from '../../lib/permissions'
 import { getApplicantTasks } from '../../lib/applicantPortalActions'
+import { ownTenancyForApplication } from '../../lib/tenantOccupancy'
 import {
   resolveWorkflowStatus,
   workflowProgress,
@@ -80,6 +81,15 @@ export default function TenantApplicationDetailPage() {
   const payments = useMemo(
     () => state.payments.filter((p) => p.applicationId === application?.id),
     [state.payments, application?.id],
+  )
+
+  // Fail-closed APP→TN join: own application only (inScope).
+  const linkedTenancy = useMemo(
+    () =>
+      application && inScope
+        ? ownTenancyForApplication(state.tenancies, application.id, user)
+        : undefined,
+    [state.tenancies, application, inScope, user],
   )
 
   const tasks = useMemo(
@@ -269,6 +279,64 @@ export default function TenantApplicationDetailPage() {
             </Link>
           </Card>
         </div>
+
+        {linkedTenancy ? (
+          <Card className="mb-5 p-4" data-testid="tenant-app-linked-tenancy">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-ink-400">
+                  Linked tenancy
+                </p>
+                <p className="mt-1 font-semibold tabular text-ink">{linkedTenancy.id}</p>
+                <p className="mt-0.5 text-sm text-ink-500">
+                  {linkedTenancy.startDate}
+                  {linkedTenancy.endDate ? ` → ${linkedTenancy.endDate}` : ' · open-ended'}
+                  {linkedTenancy.rent ? ` · ${formatZAR(linkedTenancy.rent)}/mo` : ''}
+                </p>
+              </div>
+              <div className="flex flex-col items-end gap-2">
+                <Badge tone={statusTone(linkedTenancy.status)}>{linkedTenancy.status}</Badge>
+                {application.stage ? (
+                  <Badge tone="neutral">{application.stage}</Badge>
+                ) : null}
+              </div>
+            </div>
+            {(linkedTenancy.keyCollection?.location?.trim() ||
+              linkedTenancy.keyCollection?.instructions?.trim() ||
+              linkedTenancy.leasePdfUrl?.trim()) && (
+              <div className="mt-3 flex flex-wrap gap-4 border-t border-primary-50 pt-3 text-sm">
+                {linkedTenancy.keyCollection?.location?.trim() ||
+                linkedTenancy.keyCollection?.instructions?.trim() ? (
+                  <div className="min-w-0 flex-1">
+                    <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-400">
+                      <KeyRound className="h-3.5 w-3.5 text-primary" strokeWidth={ICON_STROKE} aria-hidden />
+                      Keys
+                    </p>
+                    <p className="mt-1 font-semibold text-ink">
+                      {linkedTenancy.keyCollection.location || 'Key collection'}
+                    </p>
+                    {linkedTenancy.keyCollection.instructions ? (
+                      <p className="mt-0.5 text-xs text-ink-500">
+                        {linkedTenancy.keyCollection.instructions}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+                {linkedTenancy.leasePdfUrl?.trim() ? (
+                  <a
+                    href={linkedTenancy.leasePdfUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex min-h-11 items-center gap-1.5 font-semibold text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    <FileText className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                    Lease PDF
+                  </a>
+                ) : null}
+              </div>
+            )}
+          </Card>
+        ) : null}
 
         {tasks.length > 0 && (
           <SectionBanner

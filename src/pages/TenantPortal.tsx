@@ -3,7 +3,9 @@ import {
   AlertTriangle,
   Bell,
   FileCheck2,
+  FileText,
   Heart,
+  KeyRound,
   MessageCircle,
   Wrench,
 } from 'lucide-react'
@@ -145,9 +147,13 @@ export default function TenantPortal() {
                       ? 'Pay deposits, report maintenance, message your agency, and lodge complaints — never the landlord.'
                       : 'Track every place you’ve applied for, and keep a wishlist of homes you want to revisit. Tenant tools unlock once you’re approved.'
                   }
-                  badge={portal.app?.stage ?? portal.tenancy?.status ?? 'Applicant'}
+                  badge={
+                    portal.tenancy?.status ?? portal.app?.stage ?? 'Applicant'
+                  }
                   badgeTone={portal.occupancyReady ? 'brand' : 'warning'}
-                  secondaryBadge={portal.app?.type}
+                  secondaryBadge={
+                    portal.tenancy ? portal.tenancy.id : portal.app?.type
+                  }
                   stats={
                     portal.occupancyReady
                       ? [
@@ -182,6 +188,8 @@ export default function TenantPortal() {
                     text={`You have ${duePayments.length} payment${duePayments.length === 1 ? '' : 's'} due — pay the agency only.`}
                   />
                 )}
+
+                {portal.tenancy ? <LinkedTenancyCard tenancy={portal.tenancy} /> : null}
 
                 {portal.occupancyReady ? (
                   <OccupancyQuickLinks
@@ -231,6 +239,65 @@ export default function TenantPortal() {
         )}
       </DashboardPage>
     </RequirePermission>
+  )
+}
+
+function LinkedTenancyCard({
+  tenancy,
+}: {
+  tenancy: NonNullable<ReturnType<typeof useTenantPortalState>['tenancy']>
+}) {
+  const hasKeys = Boolean(
+    tenancy.keyCollection?.location?.trim() ||
+      tenancy.keyCollection?.instructions?.trim(),
+  )
+  const keys = hasKeys ? tenancy.keyCollection : null
+  const leaseHref = tenancy.leasePdfUrl?.trim() || null
+
+  return (
+    <Card className="mb-5 p-4" data-testid="tenant-linked-tenancy">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-ink-400">
+            Your tenancy
+          </p>
+          <p className="mt-1 font-semibold tabular text-ink">{tenancy.id}</p>
+          <p className="mt-0.5 text-sm text-ink-500">
+            {tenancy.startDate}
+            {tenancy.endDate ? ` → ${tenancy.endDate}` : ' · open-ended'}
+            {tenancy.rent ? ` · ${formatZAR(tenancy.rent)}/mo` : ''}
+          </p>
+        </div>
+        <Badge tone={statusTone(tenancy.status)}>{tenancy.status}</Badge>
+      </div>
+      {(keys || leaseHref) && (
+        <div className="mt-3 flex flex-wrap gap-4 border-t border-primary-50 pt-3 text-sm">
+          {keys ? (
+            <div className="min-w-0 flex-1">
+              <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-400">
+                <KeyRound className="h-3.5 w-3.5 text-primary" strokeWidth={1.6} aria-hidden />
+                Keys
+              </p>
+              <p className="mt-1 font-semibold text-ink">{keys.location || 'Key collection'}</p>
+              {keys.instructions ? (
+                <p className="mt-0.5 text-xs text-ink-500">{keys.instructions}</p>
+              ) : null}
+            </div>
+          ) : null}
+          {leaseHref ? (
+            <a
+              href={leaseHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-11 items-center gap-1.5 font-semibold text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              <FileText className="h-4 w-4" strokeWidth={1.6} aria-hidden />
+              Lease PDF
+            </a>
+          ) : null}
+        </div>
+      )}
+    </Card>
   )
 }
 

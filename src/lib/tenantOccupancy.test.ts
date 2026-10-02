@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   isTenantOccupancyPermission,
+  ownTenancyForApplication,
   tenantHasApprovedOccupancy,
 } from './tenantOccupancy'
 import type { Application, Tenancy } from '../types/domain'
@@ -147,5 +148,52 @@ describe('isTenantOccupancyPermission', () => {
     expect(isTenantOccupancyPermission('payments.view')).toBe(true)
     expect(isTenantOccupancyPermission('maintenance.manage')).toBe(true)
     expect(isTenantOccupancyPermission('portal.tenant')).toBe(false)
+  })
+})
+
+function tenancyRow(partial: Partial<Tenancy> & Pick<Tenancy, 'id'>): Tenancy {
+  return {
+    agencyId: 'ag-a',
+    propertyId: 'p-1',
+    landlordId: 'u-ll',
+    agentId: null,
+    applicationId: 'APP-it4z5k',
+    tenantUserId: 'u-tenant',
+    tenantName: 'Tenant',
+    tenantEmail: 'tenant@test.com',
+    startDate: '2026-10-01',
+    endDate: '2027-10-01',
+    rent: 8500,
+    deposit: 17000,
+    status: 'Pending Move-In',
+    keyCollection: {
+      location: '',
+      instructions: '',
+      contactName: '',
+      contactPhone: '',
+    },
+    ...partial,
+  }
+}
+
+describe('ownTenancyForApplication', () => {
+  it('joins own APP→TN by applicationId + tenantUserId', () => {
+    const tn = tenancyRow({ id: 'TN-4050qwl', applicationId: 'APP-it4z5k', tenantUserId: 'u-tenant' })
+    expect(ownTenancyForApplication([tn], 'APP-it4z5k', user)?.id).toBe('TN-4050qwl')
+  })
+
+  it('joins orphan TN (null tenantUserId) for own applicationId', () => {
+    const tn = tenancyRow({ id: 'TN-orphan', tenantUserId: null })
+    expect(ownTenancyForApplication([tn], 'APP-it4z5k', user)?.id).toBe('TN-orphan')
+  })
+
+  it('fail-closed: never returns another tenant\'s TN', () => {
+    const tn = tenancyRow({ id: 'TN-other', tenantUserId: 'u-other' })
+    expect(ownTenancyForApplication([tn], 'APP-it4z5k', user)).toBeUndefined()
+  })
+
+  it('fail-closed: ignores TN linked to a different application', () => {
+    const tn = tenancyRow({ id: 'TN-4050qwl', applicationId: 'APP-other' })
+    expect(ownTenancyForApplication([tn], 'APP-it4z5k', user)).toBeUndefined()
   })
 })
