@@ -495,7 +495,17 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     return mapCache.get(`agency:${clientId}`) ?? mapAgency(clientId)
   }
 
-  const mapUser = (id: string | null | undefined) => (id ? (userByUuid.get(id) ?? id) : null)
+  // P0-5 residual: unmapped backend UUID → Unassigned (null), never leak raw
+  // UUID into FE agent scope checks (FA book vs session FE id).
+  const USER_UUID_RE =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  const mapUser = (id: string | null | undefined) => {
+    if (!id) return null
+    const mapped = userByUuid.get(id)
+    if (mapped) return mapped
+    if (USER_UUID_RE.test(id)) return null
+    return id
+  }
 
   const agencies = clients.map((c) => ({
     id: mappedFe('agency', c.id, mapAgency(c.id)!),

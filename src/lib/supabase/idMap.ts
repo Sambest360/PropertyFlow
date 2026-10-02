@@ -178,13 +178,24 @@ export function mapAgency(cache: IdMapCache, clientId: string | null | undefined
   return feFromCache(cache, 'agency', clientId, CLIENT_TO_AGENCY[clientId] ?? clientId)
 }
 
+const USER_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
 export function mapUser(
   cache: IdMapCache,
   userByUuid: Map<string, string>,
   id: string | null | undefined,
 ): string | null {
   if (!id) return null
-  return userByUuid.get(id) ?? feFromCache(cache, 'user', id, id)
+  const fromUsers = userByUuid.get(id)
+  if (fromUsers) return fromUsers
+  const fromCache = cache.byType.get('user')?.get(id)
+  if (fromCache) return fromCache
+  // P0-5 residual: hydrate to session FE id only. Unmapped backend UUID must
+  // become Unassigned (null) — leaking raw UUID breaks FA canSeeAgentRecord
+  // (viewer FE id !== agent UUID) so the book vanishes after reload.
+  if (USER_UUID_RE.test(id)) return null
+  return id
 }
 
 export function mapProperty(cache: IdMapCache, unitId: string | null | undefined): string | null {

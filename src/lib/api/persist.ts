@@ -128,6 +128,22 @@ export function preferServerPersistForUserMint(
   )
 }
 
+/**
+ * P0-5 residual: FA building→unit→property must hit /api/persist (DATABASE_URL).
+ * Browser RLS soft-true on buildings (error null, 0 rows) let the wizard look
+ * saved while Properties/public listing vanished on reload — #43 serialized
+ * client awaits but did not close the soft-true path. Mirror application mint.
+ */
+export function preferServerPersistForListingHierarchy(
+  resource: PersistOp['resource'],
+  action: PersistOp['action'],
+): boolean {
+  return (
+    (resource === 'building' || resource === 'unit' || resource === 'property') &&
+    action === 'upsert'
+  )
+}
+
 export async function persistToApi(op: PersistOp): Promise<boolean> {
   if (isSupabaseMode) {
     // P0-sync (R12/R13): application upserts are fail-closed on /api/persist.
@@ -142,6 +158,14 @@ export async function persistToApi(op: PersistOp): Promise<boolean> {
     // only exists on the server upsertUser path (not browser RLS upsert).
     if (preferServerPersistForUserMint(op.resource, op.action, op.data)) {
       console.info('[persist] path=server user-mint', { id: op.id })
+      return persistViaServerApi(op)
+    }
+    // P0-5 residual: building/unit/property — same soft-true miss as applications.
+    if (preferServerPersistForListingHierarchy(op.resource, op.action)) {
+      console.info('[persist] path=server listing-hierarchy', {
+        resource: op.resource,
+        id: op.id,
+      })
       return persistViaServerApi(op)
     }
     return persistToSupabase(op)

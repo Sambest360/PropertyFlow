@@ -249,8 +249,14 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   const sessionDraftPropertyIdRef = useRef('')
   useEffect(() => {
     if (isEdit) return
-    if (draft.draftPropertyId) {
-      setDraft((d) => ({ ...d, draftPropertyId: '' }))
+    // P0-5 residual: FA Draft default must not imply live — a leftover
+    // sessionStorage draft may revive publishAfterSave:true from a prior run.
+    if (draft.draftPropertyId || (isAgentCreator && draft.publishAfterSave)) {
+      setDraft((d) => ({
+        ...d,
+        draftPropertyId: '',
+        ...(isAgentCreator ? { publishAfterSave: false } : {}),
+      }))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -828,6 +834,8 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     // P0-collision (R10): a detail URL the current store can't resolve yet
     // (the async bootstrap refresh may not have landed the new row) renders a
     // "not found" dead end — fall back to the list, which is always valid.
+    // P0-5 residual: Draft create must not imply live — only navigate to
+    // detail when we actually published (shouldPublish) or editing/landlord.
     const targetInStore =
       state.properties.some((p) => p.id === propertyId) || Boolean(createdProperty)
     const detailTarget =
@@ -1636,7 +1644,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                     : 'Save changes'
                   : draft.publishAfterSave && canPublish
                     ? 'Publish listing'
-                    : 'Create listing'
+                    : 'Save as draft'
               }
               onSubmit={() => void submitProperty('Draft', true)}
               busy={busy}
