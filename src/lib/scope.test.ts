@@ -222,6 +222,30 @@ describe('ticketInScope / dealInScope / paymentInScope / threadInScope', () => {
       }),
     ).toBe(true)
   })
+
+  it('null-agency tenant keeps deals on their tenant book without canSeeAgency', () => {
+    const tenantScope = buildPropertyScope(
+      { role: 'tenant', userId: 'u-t', agencyId: null, agencySuspended: false },
+      {
+        properties,
+        applications: [
+          {
+            applicantUserId: 'u-t',
+            email: 't@x.com',
+            propertyId: 'p-a1',
+            stage: 'Under Review',
+          },
+        ],
+      },
+    )
+    expect(
+      dealInScope(tenantScope, { propertyId: 'p-a1', agentId: 'u-james', agencyId: 'ag-a' }),
+    ).toBe(true)
+    expect(
+      dealInScope(tenantScope, { propertyId: 'p-a2', agentId: null, agencyId: 'ag-a' }),
+    ).toBe(false)
+  })
+
 })
 
 describe('canMutateProperty', () => {

@@ -200,4 +200,63 @@ describe('Agency bootstrap filtering', () => {
     expect(out.properties).toHaveLength(3)
     expect(out.agencies).toHaveLength(2)
   })
+
+  it('null-agency tenant keeps own applications without agency membership', () => {
+    const actor: DemoActor = {
+      userId: 'u-guest-tenant',
+      role: 'tenant',
+      agencyId: null,
+    }
+    const rawWithApp = {
+      ...raw,
+      users: [
+        ...raw.users,
+        { id: 'u-guest-tenant', email: 'guest.tenant@example.com' },
+      ],
+      applications: [
+        {
+          propertyId: 'p-a1',
+          agencyId: 'ag-a',
+          agentId: 'u-james',
+          applicantUserId: 'u-guest-tenant',
+          email: 'guest.tenant@example.com',
+        },
+        {
+          propertyId: 'p-a1',
+          agencyId: 'ag-a',
+          agentId: 'u-james',
+          applicantUserId: 'u-other-applicant',
+          email: 'other@example.com',
+        },
+      ],
+    }
+    const scope = buildPropertyScope(
+      {
+        role: actor.role,
+        userId: actor.userId,
+        agencyId: null,
+        agencySuspended: false,
+      },
+      {
+        properties: rawWithApp.properties,
+        applications: [
+          {
+            applicantUserId: 'u-guest-tenant',
+            email: 'guest.tenant@example.com',
+            propertyId: 'p-a1',
+            stage: 'Under Review',
+          },
+        ],
+      },
+    )
+    const out = filterBootstrapForActor(rawWithApp, actor, scope)
+    expect(out.scoped).toBe(true)
+    expect(out.applications).toEqual([
+      expect.objectContaining({
+        applicantUserId: 'u-guest-tenant',
+        propertyId: 'p-a1',
+      }),
+    ])
+    expect(out.properties.map((p) => p.id)).toEqual(['p-a1'])
+  })
 })

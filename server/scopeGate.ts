@@ -598,7 +598,13 @@ type BootstrapPayload = {
     buildingId?: string
   }>
   leads: Array<{ propertyId: string; agencyId: string; agentId: string | null }>
-  applications: Array<{ propertyId: string; agencyId: string; agentId: string | null }>
+  applications: Array<{
+    propertyId: string
+    agencyId: string
+    agentId: string | null
+    applicantUserId?: string | null
+    email?: string
+  }>
   tenancies: Array<{
     propertyId: string
     agencyId?: string
@@ -731,9 +737,27 @@ export function filterBootstrapForActor(
   const leads = raw.leads.filter((x) =>
     dealInScope(scope, { propertyId: x.propertyId, agentId: x.agentId, agencyId: x.agencyId }),
   )
-  const applications = raw.applications.filter((x) =>
-    dealInScope(scope, { propertyId: x.propertyId, agentId: x.agentId, agencyId: x.agencyId }),
-  )
+  // Tenants keep own apps by applicant identity (no canSeeAgency) — mirrors client
+  // Applications / TenantPortal filters. Null-agency public applicants must retain APP
+  // after LiveSync bootstrap or the portal hangs empty after apply.
+  const actorEmail =
+    actor.role === 'tenant'
+      ? (
+          raw.users as Array<{ id?: string; email?: string }>
+        ).find((u) => u.id === actor.userId)?.email?.toLowerCase()
+      : undefined
+  const applications = raw.applications.filter((x) => {
+    if (actor.role === 'tenant') {
+      if (x.applicantUserId && x.applicantUserId === actor.userId) return true
+      if (actorEmail && x.email?.toLowerCase() === actorEmail) return true
+      return false
+    }
+    return dealInScope(scope, {
+      propertyId: x.propertyId,
+      agentId: x.agentId,
+      agencyId: x.agencyId,
+    })
+  })
   const viewings = raw.viewings.filter((x) =>
     dealInScope(scope, { propertyId: x.propertyId, agentId: x.agentId, agencyId: x.agencyId }),
   )
