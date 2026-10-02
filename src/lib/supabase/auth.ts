@@ -8,6 +8,7 @@ import { resolveAuthChangeDecision } from './authChange.js'
 import {
   beginDeferredAuthDecision,
   endDeferredAuthDecision,
+  isLoginInFlight,
 } from '../auth/sessionArtifacts'
 import type { AuthUserDto } from '../api/authClient'
 
@@ -524,12 +525,22 @@ export async function supabaseSignOut(opts?: {
 export async function supabaseGetSessionUser(): Promise<AppUser | null> {
   const supabase = createClient()
   const { data } = await supabase.auth.getSession()
-  if (!data.session?.user) return null
+  const snapshotId = data.session?.user?.id
+  if (!snapshotId) return null
   // P0-session hygiene: getSession() reads the local sb-* cache only. A stale
   // entry (expired/revoked JWT, or a previous staff user's leftover session)
   // must never hydrate an identity — confirm with the auth server first.
   const { data: verified, error } = await supabase.auth.getUser()
-  if (error || !verified.user || verified.user.id !== data.session.user.id) {
+  if (error || !verified.user || verified.user.id !== snapshotId) {
+    // remint60: this caller is often the mount probe that started before
+    // login(). A full signOut (not the #60 skipRemoveSession path) revokes
+    // the session sign-in just wrote when getUser misses or the live id
+    // no longer matches the pre-login snapshot. Return null; the probe
+    // ignores it when the hold generation moved or login is in flight.
+    if (isLoginInFlight()) return null
+    const { data: live } = await supabase.auth.getSession()
+    const liveId = live.session?.user?.id
+    if (liveId !== snapshotId) return null
     // Purge the dead cache so the next paint resolves as guest.
     await supabase.auth.signOut().catch(() => {})
     return null

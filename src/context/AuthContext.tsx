@@ -215,12 +215,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, 12_000)
     ;(async () => {
       if (isSupabaseMode) {
+        // remint60: this probe can still be awaiting getUser across login().
+        // Capture the hold generation now; a later miss must not wipe the
+        // session login() painted (APP + TN) once the generation moved or
+        // loginInFlight is up. #60's sign-out credit does not cover this caller.
+        const probeHoldGen = loginHoldGen.current
         const profile = await supabaseGetSessionUser()
         if (cancelled) return
         clearTimeout(readyTimeout)
         clearTimeout(hardReadyTimeout)
         if (profile) {
           applySessionUser(profile, setSessionUser, setUserId, setRealUserId)
+        } else if (loginHoldGen.current !== probeHoldGen || isLoginInFlight()) {
+          // Stale probe. Returning null is fine; do not clearSessionArtifacts.
         } else {
           // P0-session (R11): leftover propertyflow-auth-* / sb-* must not keep
           // a signed-out browser looking authenticated on the next probe.
