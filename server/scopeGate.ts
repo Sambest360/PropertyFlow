@@ -7,12 +7,12 @@ import {
   APP_REF_TO_ID,
   CLIENT_TO_AGENCY,
   LEASE_IDS,
-  mapAgency,
   TICKET_IDS,
   UNIT_TO_PROPERTY,
 } from './idMap.js'
 import { resolveUuid, ensureEntityMapTable } from './entityMap.js'
 import {
+  feAgencyFromCache,
   fePropertyFromUnitCache,
   feUserFromCache,
   loadIdMapCache,
@@ -46,6 +46,13 @@ async function fePropertyFromUnit(unitUuid: string | null | undefined): Promise<
   return fePropertyFromUnitCache(cache, unitUuid)
 }
 
+/** Agency FE id — parity with bootstrap.ts agencyFe (entity_id_map first). */
+async function agencyFe(clientId: string | null | undefined): Promise<string | null> {
+  if (!clientId) return null
+  const cache = await loadIdMapCache()
+  return feAgencyFromCache(cache, clientId)
+}
+
 async function loadPropertyRows(cache: Awaited<ReturnType<typeof loadIdMapCache>>): Promise<FePropertyRow[]> {
   const rows = await query<{
     unit_id: string
@@ -60,7 +67,7 @@ async function loadPropertyRows(cache: Awaited<ReturnType<typeof loadIdMapCache>
   return rows.map((r) => {
     const id =
       fePropertyFromUnitCache(cache, r.unit_id) ?? UNIT_TO_PROPERTY[r.unit_id] ?? r.unit_id
-    const agencyId = mapAgency(r.client_id) ?? CLIENT_TO_AGENCY[r.client_id] ?? r.client_id
+    const agencyId = feAgencyFromCache(cache, r.client_id) ?? CLIENT_TO_AGENCY[r.client_id] ?? r.client_id
     const agentId = feUserFromCache(cache, r.agent_id)
     const landlordId = feUserFromCache(cache, r.landlord_id) ?? 'u-owner1'
     return { id, agencyId, agentId, landlordId }
@@ -146,7 +153,7 @@ async function loadScopeLinks(): Promise<ScopeLinksInput> {
     tickets.push({
       contractorId: feUserFromCache(cache, t.contractor_id),
       propertyId: fePropertyFromUnitCache(cache, t.unit_id) ?? '',
-      agencyId: mapAgency(t.client_id) ?? t.client_id,
+      agencyId: feAgencyFromCache(cache, t.client_id) ?? t.client_id,
       status,
       assignedAgentId: feUserFromCache(cache, t.assigned_to),
     })
@@ -180,20 +187,22 @@ export async function enrichActor(actor: DemoActor): Promise<DemoActor> {
     `SELECT client_id FROM users WHERE id = $1::uuid LIMIT 1`,
     [uuid],
   )
-  const agencyId = mapAgency(rows[0]?.client_id ?? null)
+  const agencyId = await agencyFe(rows[0]?.client_id ?? null)
   return { ...actor, agencyId }
 }
 
 export async function buildActorPropertyScope(actor: DemoActor): Promise<PropertyScope> {
   await ensureEntityMapTable()
   const enriched = await enrichActor(actor)
+  // Header / enrich may still carry a client UUID — normalize to FE for canSeeAgency.
+  const agencyId = (await agencyFe(enriched.agencyId)) ?? enriched.agencyId
   const links = await loadScopeLinks()
-  const agencySuspended = await resolveAgencySuspended(enriched.agencyId)
+  const agencySuspended = await resolveAgencySuspended(agencyId)
   return buildPropertyScope(
     {
       role: enriched.role,
       userId: enriched.userId,
-      agencyId: enriched.agencyId,
+      agencyId,
       agencySuspended,
     },
     links,
@@ -236,6 +245,9 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
     threadId: null,
   }
 
+  const cache = await loadIdMapCache()
+  const toAgencyFe = (clientId: string | null | undefined) => feAgencyFromCache(cache, clientId)
+
   if (resource === 'property' || resource === 'unit') {
     const uuid = (await resolveUuid('property', feId)) ?? (await resolveUuid('unit', feId))
     if (!uuid) return { ...empty, propertyId: feId }
@@ -253,7 +265,7 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
     return {
       ...empty,
       propertyId: feId,
-      agencyId: mapAgency(r.client_id),
+      agencyId: toAgencyFe(r.client_id),
       agentId: await feUserId(r.agent_id),
       landlordId: await feUserId(r.landlord_id),
     }
@@ -339,7 +351,7 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
   if (!uuid) return null
 
   if (resource === 'agency') {
-    return { ...empty, agencyId: mapAgency(uuid) ?? feId }
+    return { ...empty, agencyId: toAgencyFe(uuid) ?? feId }
   }
 
   if (resource === 'ticket') {
@@ -357,7 +369,7 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
     return {
       ...empty,
       propertyId: await fePropertyFromUnit(r.unit_id),
-      agencyId: mapAgency(r.client_id),
+      agencyId: toAgencyFe(r.client_id),
       assignedAgentId: await feUserId(r.assigned_to),
       contractorId: await feUserId(r.contractor_id),
     }
@@ -376,7 +388,7 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
     )
     return {
       ...empty,
-      agencyId: mapAgency(r.client_id),
+      agencyId: toAgencyFe(r.client_id),
       propertyId: await fePropertyFromUnit(th[0]?.unit_id ?? null),
       ownerUserId: await feUserId(r.from_user_id),
       threadId: r.thread_id,
@@ -392,7 +404,7 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
     if (!r) return null
     return {
       ...empty,
-      agencyId: mapAgency(r.client_id),
+      agencyId: toAgencyFe(r.client_id),
       ownerUserId: await feUserId(r.user_id),
     }
   }
@@ -404,7 +416,7 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
     )
     return {
       ...empty,
-      agencyId: mapAgency(rows[0]?.client_id ?? null),
+      agencyId: toAgencyFe(rows[0]?.client_id ?? null),
       ownerUserId: feId,
     }
   }
@@ -418,7 +430,7 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
     if (!r) return null
     return {
       ...empty,
-      agencyId: mapAgency(r.client_id),
+      agencyId: toAgencyFe(r.client_id),
       landlordId: await feUserId(r.landlord_id),
     }
   }
@@ -435,7 +447,7 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
     return {
       ...empty,
       propertyId: await fePropertyFromUnit(r.unit_id),
-      agencyId: mapAgency(r.client_id),
+      agencyId: toAgencyFe(r.client_id),
     }
   }
 
@@ -450,7 +462,7 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
     return {
       ...empty,
       propertyId: await fePropertyFromUnit(r.unit_id),
-      agencyId: mapAgency(r.client_id),
+      agencyId: toAgencyFe(r.client_id),
       partyUserId: await feUserId(r.party_user_id),
     }
   }
@@ -472,7 +484,7 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
     ...empty,
     propertyId: spec.unitCol ? await fePropertyFromUnit(r[spec.unitCol] as string | null) : null,
     agencyId: spec.clientCol
-      ? mapAgency(r[spec.clientCol] as string | null)
+      ? toAgencyFe(r[spec.clientCol] as string | null)
       : null,
     agentId: spec.agentCol ? await feUserId(r[spec.agentCol] as string | null) : null,
   }
@@ -519,11 +531,14 @@ export async function assertPersistAllowed(
     }
   }
 
-  const agencyId =
+  // Normalize agency to FE id space (entity_id_map first) so FE actor agency
+  // never compares against a raw client UUID from loadExisting / payload.
+  const rawAgencyId =
     strField(data, 'agencyId') ??
     strField(data, 'clientId') ??
     existing?.agencyId ??
     actor.agencyId
+  const agencyId = (await agencyFe(rawAgencyId)) ?? rawAgencyId
 
   const agentId = strField(data, 'agentId') ?? existing?.agentId ?? null
   const landlordId = strField(data, 'landlordId') ?? existing?.landlordId ?? null

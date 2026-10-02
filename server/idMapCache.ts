@@ -3,7 +3,7 @@
  * Eliminates N+1 queries in scopeGate.loadScopeLinks().
  */
 import { query } from './db.js'
-import { EMAIL_TO_USER, UNIT_TO_PROPERTY, mapProperty } from './idMap.js'
+import { EMAIL_TO_USER, UNIT_TO_PROPERTY, mapAgency, mapProperty } from './idMap.js'
 import { ensureEntityMapTable } from './entityMap.js'
 
 export type IdMapCache = {
@@ -79,4 +79,13 @@ export function fePropertyFromUnitCache(
     mapProperty(unitUuid) ??
     unitUuid
   )
+}
+
+/** Agency FE id: entity_id_map alias first, then seed CLIENT_TO_AGENCY / passthrough. */
+export function feAgencyFromCache(
+  cache: IdMapCache,
+  clientId: string | null | undefined,
+): string | null {
+  if (!clientId) return null
+  return cache.agencyBackendToFe.get(clientId) ?? mapAgency(clientId)
 }

@@ -8,6 +8,7 @@ import type { Context } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { query } from './db.js'
 import { ensureUuid } from './entityMap.js'
+import { resolveFrontendRole } from '../src/lib/supabase/idMap.js'
 import { ACTOR_AGENCY_HEADER, ACTOR_ROLE_HEADER, ACTOR_USER_HEADER } from './actor.js'
 
 const AUTH_COOKIE = 'pf_session'
@@ -71,15 +72,6 @@ const ROLE_TO_DB: Record<string, string> = {
   contractor: 'CONTRACTOR',
 }
 
-const ROLE_FROM_DB: Record<string, string> = {
-  SUPER_ADMIN: 'super_admin',
-  AGENCY_ADMIN: 'client_admin',
-  AGENT_ADMIN: 'agent_admin',
-  GROUND_AGENT: 'ground_agent',
-  LANDLORD: 'landlord',
-  END_USER: 'tenant',
-  CONTRACTOR: 'contractor',
-}
 
 function authSecret(): string {
   const s = process.env.AUTH_SECRET?.trim()
@@ -166,10 +158,8 @@ async function rowToSession(row: UserRow): Promise<SessionUser> {
     typeof meta.frontend_id === 'string' && meta.frontend_id
       ? meta.frontend_id
       : row.id
-  const feRole =
-    typeof meta.frontend_role === 'string' && meta.frontend_role
-      ? meta.frontend_role
-      : ROLE_FROM_DB[row.role] ?? 'tenant'
+  // DB staff roles override stale metadata (e.g. frontend_role: tenant on GROUND_AGENT)
+  const feRole = resolveFrontendRole(row.role, meta, row.email)
   const verification =
     meta.verification && typeof meta.verification === 'object'
       ? (meta.verification as VerificationMeta)
