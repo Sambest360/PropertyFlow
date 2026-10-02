@@ -31,6 +31,7 @@ import { gradingLabel } from '../lib/buildingGrading'
 import { rolePermissions } from '../lib/permissions'
 import { OwnerMessagesPanel } from '../components/messaging/OwnerMessagesPanel'
 import { OwnerStatementDownloadPanel } from '../components/ownerStatement/OwnerStatementDownloadPanel'
+import { RentRollAuditPackPanel } from '../components/rentRoll/RentRollAuditPackPanel'
 
 const ICON_STROKE = 1.6
 
@@ -423,6 +424,16 @@ export default function OwnerPortal() {
             agencyId={user.agencyId}
             agencyName={state.agencies.find((a) => a.id === user.agencyId)?.name ?? 'Agency'}
             storeDocument
+          />
+        ) : null}
+
+        {user.agencyId ? (
+          <RentRollAuditPackPanel
+            agencyId={user.agencyId}
+            agencyName={state.agencies.find((a) => a.id === user.agencyId)?.name ?? 'Agency'}
+            landlordUserId={user.id}
+            landlordName={user.name}
+            includeOwnerStatements
           />
         ) : null}
 
