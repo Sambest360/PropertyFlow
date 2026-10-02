@@ -18,11 +18,11 @@ screening or live FICA verification.
 - **OK:** “Staff can manage the FICA pack honestly; lease/move-in soft-gated on verified id+address+fica.”
 - **OK:** “START_FICA no longer auto-verifies documents.”
 - **Not OK:** “Live bureau / live FICA verification.”
-- **Not OK:** Expanding to TPN hard-gate (that is DQ-C3).
+- **Not OK:** Claiming live TPN (DQ-C3 Mode A is soft-gate + mock/manual — see docs/screening-mode-a.md).
 
 ## OUT (Mode A)
 
 - Live FICA / bureau integrations
 - Council certs
-- TPN hard-gate (DQ-C3)
+- Live TPN HTTP (DQ-C3 Mode A ships soft-gate + mock/manual only — see docs/screening-mode-a.md)
 - Seed data

@@ -33,6 +33,7 @@ import { LifecycleStagePanel } from './LifecycleStagePanel'
 import { PurchaseClosingChecklistPanel } from '../conveyancing/PurchaseClosingChecklist'
 import { ConveyancingModeABanner } from '../conveyancing/ConveyancingModeABanner'
 import { FicaPackModeABanner } from '../fica/FicaPackModeABanner'
+import { ScreeningModeABanner } from '../screening/ScreeningModeABanner'
 import { WorkflowActionModal } from './WorkflowActionModal'
 import { Badge, Card, cn, statusTone } from '../ui'
 import { useAgentDisplay } from '../../hooks/useAgentDisplay'
@@ -299,6 +300,9 @@ export function ApplicationLifecycleHub({
     <div className="space-y-5">
       {application.type === 'Purchase' ? <ConveyancingModeABanner /> : null}
       <FicaPackModeABanner documents={application.documents} showGate={canReview && !applicantMode} />
+      {application.type === 'Rental' ? (
+        <ScreeningModeABanner application={application} showGate={canReview && !applicantMode} />
+      ) : null}
 
       <Card className="overflow-hidden border-primary-100 p-0">
         <div className="border-b border-primary-100 bg-gradient-to-r from-primary-50/70 via-white to-brand-50/40 px-5 py-4">

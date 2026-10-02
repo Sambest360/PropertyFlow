@@ -21,6 +21,10 @@ import { buildDisplayMetadata } from './displayMetadata'
 import { buildBuildingContext, resolveDeposit, resolveTotalEntryFees } from './unitsApi'
 import type { Building } from '../../data/infrastructure'
 import { applicationPassesFicaSoftGate, ficaPackSoftGateMessage } from '../ficaPack'
+import {
+  applicationPassesScreeningSoftGate,
+  screeningSoftGateMessage,
+} from '../screening'
 
 export type ApplicationStatusApi =
   | 'DRAFT'
@@ -114,6 +118,7 @@ export type PatchApplicationStatusError = {
     | 'NO_LANDLORD'
     | 'PERSIST_FAILED'
     | 'FICA_PACK_INCOMPLETE'
+    | 'SCREENING_INCOMPLETE'
 }
 
 export type PatchApplicationStatusResult = PatchApplicationStatusSuccess | PatchApplicationStatusError
@@ -191,6 +196,9 @@ const ALLOWED: Record<string, string[]> = {
 export function guidedTransitionError(result: PatchApplicationStatusError): string {
   if (result.code === 'FICA_PACK_INCOMPLETE') {
     return `${result.error} Open the Documents / FICA pack panel and verify ID, proof of address, and FICA declaration (staff action — not live bureau).`
+  }
+  if (result.code === 'SCREENING_INCOMPLETE') {
+    return `${result.error} Open Screening details: capture POPIA consent, run mock screening or record an audited manual override (Mode A — not live TPN).`
   }
   if (result.code === 'INVALID_TRANSITION') {
     const lower = (result.error ?? '').toLowerCase()
@@ -416,6 +424,16 @@ export function patchApplicationStatus(params: {
       code: 'FICA_PACK_INCOMPLETE',
     }
   }
+  // DQ-C3 Mode A: soft-gate until screening passed or audited manual_override
+  // (mock/manual — not live TPN). Approve must never invent Passed.
+  if (!applicationPassesScreeningSoftGate(application)) {
+    return {
+      status: 'ERROR',
+      httpStatus: 422,
+      error: screeningSoftGateMessage(application) ?? 'Screening incomplete',
+      code: 'SCREENING_INCOMPLETE',
+    }
+  }
 
   const unitId = application.unitId ?? property?.unitId ?? unit?.id ?? null
   if (application.type === 'Rental' && !unitId && !property) {
@@ -594,9 +612,10 @@ export function patchApplicationStatus(params: {
     provider,
   })
 
-  // Approve must not invent a credit pass — screening status stays as-is.
+  // Invent-kill: approve must not invent a credit pass — screening status stays as-is.
   // DQ-C2 Mode A: do not invent verified FICA pack (id/address/fica) either —
   // staff verify those rows explicitly; lease/move-in soft-gate reads real status.
+  // DQ-C3 Mode A: screening cleared only via mock ingest or audited override — never by this click.
   const nextApp: Application = {
     ...application,
     stage: 'Awaiting Payment',

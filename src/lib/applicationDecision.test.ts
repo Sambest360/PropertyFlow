@@ -46,6 +46,15 @@ function verifiedFicaPackDocs() {
   )
 }
 
+/** DQ-C3 Mode A: approve/lease soft-gate cleared by passed or manual_override. */
+function clearedScreeningFields(): Pick<Application, 'screening' | 'creditCheck' | 'creditConsent'> {
+  return {
+    screening: { status: 'passed', provider: 'mock' },
+    creditCheck: 'Passed',
+    creditConsent: true,
+  }
+}
+
 
 describe('P0-3: Submitted stage machine', () => {
   it('new guest applications resolve to application_submitted', () => {
@@ -61,11 +70,18 @@ describe('P0-3: Submitted stage machine', () => {
     expect(withoutPack.map((t) => t.actionKey)).toContain('REJECT_APPLICATION')
     expect(withoutPack.map((t) => t.actionKey)).toContain('REQUEST_DOCUMENTS')
 
-    const withPack = getAvailableTransitions(
+    // DQ-C3: also needs screening passed|manual_override
+    const withPackOnly = getAvailableTransitions(
       app({ documents: verifiedFicaPackDocs() }),
       STAFF_PERMS,
     )
-    expect(withPack.map((t) => t.actionKey)).toContain('AGENT_APPROVE')
+    expect(withPackOnly.map((t) => t.actionKey)).not.toContain('AGENT_APPROVE')
+
+    const withPackAndScreening = getAvailableTransitions(
+      app({ documents: verifiedFicaPackDocs(), ...clearedScreeningFields() }),
+      STAFF_PERMS,
+    )
+    expect(withPackAndScreening.map((t) => t.actionKey)).toContain('AGENT_APPROVE')
   })
 
   it('Submitted offers no staff transitions to a user without applications.review', () => {
@@ -121,7 +137,7 @@ describe('P0-3: Submitted stage machine', () => {
       squareMeters: 80,
     } as import('../types/domain').Unit
     const result = patchApplicationStatus({
-      application: app({ unitId: 'un-1', documents: verifiedFicaPackDocs() }),
+      application: app({ unitId: 'un-1', documents: verifiedFicaPackDocs(), ...clearedScreeningFields() }),
       property,
       unit,
       viewings: [],
@@ -203,6 +219,7 @@ function approveFrom(stage: string, workflowStatus?: string) {
     application: app({
       stage,
       documents: verifiedFicaPackDocs(),
+      ...clearedScreeningFields(),
       ...(workflowStatus ? { workflowStatus } : {}),
     }),
     property,
@@ -290,6 +307,7 @@ describe('P0-approve (R10): lease recovery from Deposit invoice issued', () => {
         stage: 'Deposit invoice issued',
         workflowStatus: 'deposit_invoice_sent',
         documents: verifiedFicaPackDocs(),
+        ...clearedScreeningFields(),
       }),
       property: ownerless,
       unit,

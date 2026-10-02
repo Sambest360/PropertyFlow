@@ -440,12 +440,14 @@ export default function ApplicantDetail() {
               })
               if (result.ok === false) window.alert(result.error)
             }}
-            onOverrideScreening={({ newStatus, reason }) => {
+            onOverrideScreening={({ newStatus, reason, score, externalReference }) => {
               const result = overrideApplicationScreening({
                 applicationId: application.id,
                 actorUserId: user.id,
                 newStatus,
                 reason,
+                score,
+                externalReference,
               })
               if (result.ok === false) window.alert(result.error)
             }}
