@@ -144,6 +144,19 @@ export function preferServerPersistForListingHierarchy(
   )
 }
 
+/**
+ * P0-r21: lease mint must hit /api/persist (writes.upsertTenancy / unitIdFromProperty).
+ * Browser resolveUuid was exact-only on unit/FE id and wrote unit_id null → 400;
+ * even after alias-aware resolve, keep tenancy on the server path that already
+ * resolves property↔unit aliases.
+ */
+export function preferServerPersistForTenancy(
+  resource: PersistOp['resource'],
+  action: PersistOp['action'],
+): boolean {
+  return resource === 'tenancy' && action === 'upsert'
+}
+
 export async function persistToApi(op: PersistOp): Promise<boolean> {
   if (isSupabaseMode) {
     // P0-sync (R12/R13): application upserts are fail-closed on /api/persist.
@@ -166,6 +179,11 @@ export async function persistToApi(op: PersistOp): Promise<boolean> {
         resource: op.resource,
         id: op.id,
       })
+      return persistViaServerApi(op)
+    }
+    // P0-r21: tenancy/lease mint — unitIdFromProperty on server.
+    if (preferServerPersistForTenancy(op.resource, op.action)) {
+      console.info('[persist] path=server tenancy', { id: op.id })
       return persistViaServerApi(op)
     }
     return persistToSupabase(op)

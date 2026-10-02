@@ -63,14 +63,28 @@ async function ensureUuid(entityType: EntityType | 'agency', frontendId: string)
 async function resolveUuid(entityType: EntityType | 'agency', frontendId: string): Promise<string | null> {
   if (isUuid(frontendId)) return frontendId
   const supabase = createClient()
-  const et = entityType === 'property' ? 'unit' : entityType
-  const { data } = await supabase
-    .from('entity_id_map')
-    .select('backend_id')
-    .eq('entity_type', et)
-    .eq('frontend_id', frontendId)
-    .maybeSingle()
-  return data?.backend_id ?? null
+  // P0-r21: property/unit FE ids (0ezv31 ↔ unt-0ezv31) share one unit UUID in
+  // entity_id_map under either entity_type. Mirror ensureUuid + server
+  // entityMap.resolveUuid — exact-only lookup left leases.unit_id null → 400.
+  const idsToTry =
+    entityType === 'property' || entityType === 'unit'
+      ? listingIdAliases(frontendId)
+      : [frontendId]
+  const typesToTry =
+    entityType === 'property' || entityType === 'unit' ? (['unit', 'property'] as const) : [entityType]
+
+  for (const et of typesToTry) {
+    for (const fe of idsToTry) {
+      const { data } = await supabase
+        .from('entity_id_map')
+        .select('backend_id')
+        .eq('entity_type', et)
+        .eq('frontend_id', fe)
+        .maybeSingle()
+      if (data?.backend_id) return data.backend_id
+    }
+  }
+  return null
 }
 
 async function clientUuid(agencyId: unknown): Promise<string | null> {
@@ -695,11 +709,19 @@ async function upsertTenancy(id: string, data: Record<string, unknown>): Promise
         )
     }
   }
+  // P0-r21: never upsert leases.unit_id null — Postgres NOT NULL → HTTP 400.
+  // Prefer alias-aware resolveUuid; if still unresolved, fail closed.
+  const resolvedUnitId = await unitUuid(data.propertyId)
+  if (!resolvedUnitId) {
+    throw new Error(
+      `tenancy upsert failed: unit_id unresolved for listing ${str(data.propertyId) || id}`,
+    )
+  }
   const res = await supabase.from('leases').upsert({
     id: leaseUuid,
     ...(appUuidVal ? { application_id: appUuidVal } : {}),
     client_id: await clientUuid(data.agencyId),
-    unit_id: await unitUuid(data.propertyId),
+    unit_id: resolvedUnitId,
     tenant_id: await userUuid(data.tenantUserId),
     landlord_id: landlordUuid,
     agent_id: await userUuid(data.agentId),
