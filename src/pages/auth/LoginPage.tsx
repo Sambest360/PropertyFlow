@@ -38,17 +38,21 @@ export default function LoginPage() {
   // P0-session (R8): auth pages are anonymous zones. A previous user's live
   // Supabase session (shared browser / stale tab) must never hydrate here —
   // otherwise /login silently redirects into that user's workspace (the
-  // sticky "Riaan / Samuel" symptom). Purge intentional /login visits early.
+  // sticky "Riaan / Samuel" symptom). Purge intentional /login visits early
+  // while still a guest.
   // Mode A Sipho: RequireAuth false-guest bounce (/login?next=/workspace/…)
   // must NOT purge until authReady confirms guest — otherwise we wipe a
   // still-verifying JWT mid-probe (My applications Sign-in bounce).
   // Only an explicit ?next= query counts as a bounce (default next=/workspace
-  // on bare /login must still purge immediately).
+  // on bare /login must still purge immediately for guests).
+  // remint57 / Mode A sign-in grace: always skip purge once isAuthenticated —
+  // bare /login post-login re-fires this effect after login() clears
+  // loginInFlight; purging then wipes mid-navigate → Suspense Loading → /login.
   useEffect(() => {
+    if (isAuthenticated) return
     const bouncedToWorkspace = Boolean(nextParam?.startsWith('/workspace'))
     if (bouncedToWorkspace) {
       if (!authReady) return
-      if (isAuthenticated) return
     }
     void purgeLocalIdentity()
     // eslint-disable-next-line react-hooks/exhaustive-deps
