@@ -237,6 +237,29 @@ export type PropertyAsset = {
   solarCapacityKw?: number
   hasBorehole?: boolean
   grading?: string | null
+  /**
+   * Soft Mode A syndication: staff-flagged mandate active for soft-warn only.
+   * Not a full mandate engine — incomplete → soft warning, not hard block.
+   */
+  mandateActive?: boolean | null
+  /** Manual portal publication records (export pack / live_manual). */
+  syndicationPublications?: ListingPublicationRecord[]
+}
+
+/** Soft Mode A portal publication row (mirrors src/lib/syndication types). */
+export type ListingPublicationRecord = {
+  id: string
+  propertyId: string
+  unitId?: string | null
+  portalCode: 'propertyflow_marketplace' | 'property24' | 'private_property' | 'other'
+  status: 'draft' | 'ready' | 'exported_manual' | 'live_manual' | 'error' | 'unpublished'
+  externalListingId?: string | null
+  liveUrl?: string | null
+  lastError?: string | null
+  lastPayloadHash?: string | null
+  exportedAt?: string | null
+  liveManualAt?: string | null
+  unpublishedAt?: string | null
 }
 
 /** One configured requirement on a lead-pipeline step. */
@@ -277,6 +300,13 @@ export type Lead = {
   email: string
   phone: string
   channel: string
+  /**
+   * Portal / syndication source code (property24, private_property, marketplace, …).
+   * Mode A lead CSV sets this beside channel for CRM filters + dedupe.
+   */
+  source?: string
+  /** Partner / CSV external lead id — primary dedupe key for portal imports. */
+  externalId?: string | null
   stage: string
   type: 'Buy' | 'Rent'
   value: number
