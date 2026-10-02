@@ -20,6 +20,7 @@ import { PropertyPaymentsPanel } from '../components/property-detail/PropertyPay
 import { PropertyDocumentsPanel } from '../components/property-detail/PropertyDocumentsPanel'
 import { PropertyMessagesPanel } from '../components/property-detail/PropertyMessagesPanel'
 import { PropertyHistoryTimeline } from '../components/property-detail/PropertyHistoryTimeline'
+import { PropertySyndicationPanel } from '../components/syndication/PropertySyndicationPanel'
 import { PropertyJourneyStrip } from '../components/property-detail/PropertyJourneyStrip'
 import { BuildingUnitsStrip } from '../components/property-detail/BuildingUnitsStrip'
 import { siblingUnitsInBuilding } from '../lib/buildingHierarchy'
@@ -228,6 +229,7 @@ export default function PropertyDetail() {
     { id: 'payments', label: 'Payments', count: overduePayments },
     { id: 'documents', label: 'Documents', count: acceptedDocCount },
     { id: 'messages', label: 'Messages', count: threads.length },
+    { id: 'portals', label: 'Portals' },
     { id: 'history', label: 'History', count: events.length },
   ]
 
@@ -696,6 +698,14 @@ export default function PropertyDetail() {
             void thread
           }}
           onSend={(threadId, body) => sendMessage(threadId, user.id, body)}
+        />
+      )}
+
+      {tab === 'portals' && (
+        <PropertySyndicationPanel
+          property={p}
+          canManage={canManage}
+          onPropertyPatch={(patch) => updateProperty(p.id, patch)}
         />
       )}
 

@@ -35,6 +35,7 @@ import {
   type ClosedLeadStage,
 } from '../lib/leadLifecycle'
 import { CloseLeadModal } from '../components/lead-detail/CloseLeadModal'
+import { LeadCsvImportPanel } from '../components/syndication/LeadCsvImportPanel'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
 import type { Lead } from '../types/domain'
 import { useLookupOptions } from '../hooks/useLookupOptions'
@@ -323,6 +324,30 @@ export default function CRM() {
                 New lead
               </Button>
             ) : null
+          }
+        />
+
+        <LeadCsvImportPanel
+          canImport={has('leads.manage')}
+          leads={state.leads}
+          properties={state.properties}
+          agencyId={agencyId}
+          onCreateLead={(draft) =>
+            createLead({
+              agencyId: draft.agencyId,
+              propertyId: draft.propertyId,
+              agentId: draft.agentId,
+              name: draft.name,
+              email: draft.email,
+              phone: draft.phone,
+              channel: draft.channel,
+              source: draft.source,
+              externalId: draft.externalId,
+              type: draft.type,
+              value: draft.value,
+              notes: draft.notes,
+              stage: draft.stage,
+            })
           }
         />
 
