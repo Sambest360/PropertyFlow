@@ -1,17 +1,42 @@
 import type { PostgresBootstrap } from './api/postgresClient'
 
 /** Coordinates lite/full bootstrap fetches so mount + auth don't duplicate network work. */
-let inflightLite: Promise<PostgresBootstrap | null> | null = null
-let inflightFull: Promise<PostgresBootstrap | null> | null = null
+
+type InflightSlot = {
+  key: string
+  promise: Promise<PostgresBootstrap | null>
+}
+
+let inflightLite: InflightSlot | null = null
+let inflightFull: InflightSlot | null = null
 let lastLiteAt = 0
 let lastFullAt = 0
+let lastLiteKey = 'null'
+let lastFullKey = 'null'
 
 const LITE_COOLDOWN_MS = 8_000
 const FULL_COOLDOWN_MS = 45_000
 
-export function markBootstrapFetched(lite: boolean): void {
-  if (lite) lastLiteAt = Date.now()
-  else lastFullAt = Date.now()
+/** Stable dedupe key: role + userId so tenant never adopts a null-actor inflight. */
+export function bootstrapActorKey(actor?: {
+  userId?: string | null
+  role?: string | null
+} | null): string {
+  const userId = actor?.userId?.trim() || ''
+  const role = actor?.role?.trim() || ''
+  if (!userId && !role) return 'null'
+  return `${role || 'unknown'}:${userId || 'unknown'}`
+}
+
+export function markBootstrapFetched(lite: boolean, actorKey?: string | null): void {
+  const key = (actorKey ?? 'null').trim() || 'null'
+  if (lite) {
+    lastLiteAt = Date.now()
+    lastLiteKey = key
+  } else {
+    lastFullAt = Date.now()
+    lastFullKey = key
+  }
 }
 
 /** Skip auth-triggered refresh when mount/bootstrap just hydrated the store. */
@@ -22,41 +47,47 @@ export function shouldSkipAuthBootstrapRefresh(): boolean {
 export function dedupeBootstrapFetch(
   lite: boolean,
   fetcher: () => Promise<PostgresBootstrap | null>,
-  opts?: { force?: boolean },
+  opts?: { force?: boolean; actorKey?: string | null },
 ): Promise<PostgresBootstrap | null> {
+  const key = (opts?.actorKey ?? 'null').trim() || 'null'
+
   if (lite) {
     if (!opts?.force) {
-      if (inflightLite) return inflightLite
-      if (Date.now() - lastLiteAt < LITE_COOLDOWN_MS) {
+      // Same-actor only — refuse tenant adopting null-actor (or vice versa) inflight.
+      if (inflightLite && inflightLite.key === key) return inflightLite.promise
+      // Cooldown is per actor key so null-actor hydrate cannot suppress tenant refresh.
+      if (key === lastLiteKey && Date.now() - lastLiteAt < LITE_COOLDOWN_MS) {
         return Promise.resolve(null)
       }
     }
-    inflightLite = fetcher()
+    const promise = fetcher()
       .then((boot) => {
-        if (boot) markBootstrapFetched(true)
+        if (boot) markBootstrapFetched(true, key)
         return boot
       })
       .finally(() => {
-        inflightLite = null
+        if (inflightLite?.promise === promise) inflightLite = null
       })
-    return inflightLite
+    inflightLite = { key, promise }
+    return promise
   }
 
   if (!opts?.force) {
-    if (inflightFull) return inflightFull
-    if (Date.now() - lastFullAt < FULL_COOLDOWN_MS) {
+    if (inflightFull && inflightFull.key === key) return inflightFull.promise
+    if (key === lastFullKey && Date.now() - lastFullAt < FULL_COOLDOWN_MS) {
       return Promise.resolve(null)
     }
   }
-  inflightFull = fetcher()
+  const promise = fetcher()
     .then((boot) => {
-      if (boot) markBootstrapFetched(false)
+      if (boot) markBootstrapFetched(false, key)
       return boot
     })
     .finally(() => {
-      inflightFull = null
+      if (inflightFull?.promise === promise) inflightFull = null
     })
-  return inflightFull
+  inflightFull = { key, promise }
+  return promise
 }
 
 export function scheduleDeferredFullBootstrap(run: () => void): void {
@@ -65,4 +96,14 @@ export function scheduleDeferredFullBootstrap(run: () => void): void {
     return
   }
   setTimeout(run, 2_000)
+}
+
+/** Test-only: clear inflight + cooldown clocks. */
+export function resetBootstrapCoordForTests(): void {
+  inflightLite = null
+  inflightFull = null
+  lastLiteAt = 0
+  lastFullAt = 0
+  lastLiteKey = 'null'
+  lastFullKey = 'null'
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   isTenantBootstrapActor,
   shouldAcceptSupabaseBootstrap,
+  shouldSoftMissEmptyApplicationsBootstrap,
   shouldWipeAuthAfterBootstrapMiss,
 } from './emptyBootstrapAuth'
 
@@ -146,6 +147,98 @@ describe('tenant remint fail-closed (Sipho durable empty)', () => {
   })
 
   it('SA empty-units path still accepts with live session (0 apps OK)', () => {
+    expect(
+      shouldAcceptSupabaseBootstrap({
+        boot: { units: [], applications: [] },
+        actorUserId: 'sa-1',
+        storedAuthUserId: 'sa-1',
+        actorRole: 'super_admin',
+      }),
+    ).toBe(true)
+  })
+})
+
+describe('null-actor bootstrap race (remint56)', () => {
+  it('null actorRole + AUTH_KEY + empty apps + units ⇒ accept false', () => {
+    expect(
+      shouldAcceptSupabaseBootstrap({
+        boot: { units: [{ id: 'u1' }], applications: [] },
+        actorUserId: null,
+        storedAuthUserId: 'u-50cc6e30',
+        actorRole: null,
+      }),
+    ).toBe(false)
+  })
+
+  it('null actorRole + AUTH_KEY + empty apps ⇒ soft-miss true', () => {
+    expect(
+      shouldSoftMissEmptyApplicationsBootstrap({
+        boot: { units: [{ id: 'u1' }], applications: [] },
+        actorUserId: null,
+        storedAuthUserId: 'u-50cc6e30',
+        actorRole: null,
+      }),
+    ).toBe(true)
+    expect(
+      shouldSoftMissEmptyApplicationsBootstrap({
+        boot: { units: [{ id: 'u1' }], applications: [] },
+        actorUserId: null,
+        storedAuthUserId: 'u-50cc6e30',
+        actorRole: 'tenant',
+      }),
+    ).toBe(true)
+    expect(
+      shouldSoftMissEmptyApplicationsBootstrap({
+        boot: { units: [], applications: [] },
+        actorUserId: 'sa-1',
+        storedAuthUserId: 'sa-1',
+        actorRole: 'super_admin',
+      }),
+    ).toBe(false)
+  })
+
+  it('null actorRole + actorUserId + empty apps + units ⇒ accept false', () => {
+    expect(
+      shouldAcceptSupabaseBootstrap({
+        boot: { units: [{ id: 'u1' }], applications: [] },
+        actorUserId: 'u-50cc6e30',
+        storedAuthUserId: null,
+        actorRole: undefined,
+      }),
+    ).toBe(false)
+  })
+
+  it('null actorRole without live session + units + empty apps ⇒ still accept (legacy guest/units path)', () => {
+    expect(
+      shouldAcceptSupabaseBootstrap({
+        boot: { units: [{ id: 'u1' }], applications: [] },
+        actorUserId: null,
+        storedAuthUserId: null,
+        actorRole: null,
+      }),
+    ).toBe(true)
+  })
+
+  it('#56 tenant paths remain: tenant + empty apps ⇒ reject; tenant + apps ⇒ accept', () => {
+    expect(
+      shouldAcceptSupabaseBootstrap({
+        boot: { units: [{ id: 'u1' }], applications: [] },
+        actorUserId: 'u-50cc6e30',
+        storedAuthUserId: 'u-50cc6e30',
+        actorRole: 'tenant',
+      }),
+    ).toBe(false)
+    expect(
+      shouldAcceptSupabaseBootstrap({
+        boot: { units: [], applications: [{ id: 'APP-it4z5k' }] },
+        actorUserId: 'u-50cc6e30',
+        storedAuthUserId: 'u-50cc6e30',
+        actorRole: 'tenant',
+      }),
+    ).toBe(true)
+  })
+
+  it('SA empty-units path remains with explicit SA role', () => {
     expect(
       shouldAcceptSupabaseBootstrap({
         boot: { units: [], applications: [] },
