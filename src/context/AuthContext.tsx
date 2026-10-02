@@ -176,17 +176,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // P0-8 (E2E #2): a stalled session probe must never wedge the shell on
     // "Checking session…". Resolve as guest after the timeout; a late profile
     // still applies through onAuthStateChange / refresh.
+    // Mode A Sipho: do NOT flip authReady→guest at 5s while propertyflow-auth-user
+    // still suggests a JWT — that opened RequireAuth→/login→purgeLocalIdentity
+    // and wiped a still-verifying session (My applications Sign-in bounce).
     const readyTimeout = window.setTimeout(() => {
-      if (!cancelled) {
-        setSessionUser((prev) => prev)
-        setAuthReady(true)
+      if (cancelled) return
+      try {
+        if (localStorage.getItem(AUTH_KEY)) return
+      } catch {
+        /* ignore */
       }
+      setAuthReady(true)
     }, 5000)
+    const hardReadyTimeout = window.setTimeout(() => {
+      if (!cancelled) setAuthReady(true)
+    }, 12_000)
     ;(async () => {
       if (isSupabaseMode) {
         const profile = await supabaseGetSessionUser()
         if (cancelled) return
         clearTimeout(readyTimeout)
+        clearTimeout(hardReadyTimeout)
         if (profile) {
           applySessionUser(profile, setSessionUser, setUserId, setRealUserId)
         } else {
@@ -199,6 +209,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return
       }
       if (!isApiEnabled) {
+        clearTimeout(readyTimeout)
+        clearTimeout(hardReadyTimeout)
         setAuthReady(true)
         return
       }
@@ -218,11 +230,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setApiActor(null)
       }
       clearTimeout(readyTimeout)
+      clearTimeout(hardReadyTimeout)
       setAuthReady(true)
     })()
     return () => {
       cancelled = true
       clearTimeout(readyTimeout)
+      clearTimeout(hardReadyTimeout)
     }
   }, [])
 

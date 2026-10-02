@@ -26,7 +26,8 @@ export default function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const [params] = useSearchParams()
-  const next = params.get('next') || (location.state as { from?: string } | null)?.from || '/workspace'
+  const nextParam = params.get('next')
+  const next = nextParam || (location.state as { from?: string } | null)?.from || '/workspace'
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -37,12 +38,21 @@ export default function LoginPage() {
   // P0-session (R8): auth pages are anonymous zones. A previous user's live
   // Supabase session (shared browser / stale tab) must never hydrate here —
   // otherwise /login silently redirects into that user's workspace (the
-  // sticky "Riaan / Samuel" symptom). Purge on mount, before the session
-  // probe resolves.
+  // sticky "Riaan / Samuel" symptom). Purge intentional /login visits early.
+  // Mode A Sipho: RequireAuth false-guest bounce (/login?next=/workspace/…)
+  // must NOT purge until authReady confirms guest — otherwise we wipe a
+  // still-verifying JWT mid-probe (My applications Sign-in bounce).
+  // Only an explicit ?next= query counts as a bounce (default next=/workspace
+  // on bare /login must still purge immediately).
   useEffect(() => {
+    const bouncedToWorkspace = Boolean(nextParam?.startsWith('/workspace'))
+    if (bouncedToWorkspace) {
+      if (!authReady) return
+      if (isAuthenticated) return
+    }
     void purgeLocalIdentity()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [authReady, isAuthenticated, nextParam])
 
   useEffect(() => {
     void (isSupabaseMode ? supabaseBootstrapNeeded() : apiAuthBootstrapNeeded()).then(setBootstrapNeeded)

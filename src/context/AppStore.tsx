@@ -161,7 +161,7 @@ import {
   scheduleDeferredFullBootstrap,
 } from '../lib/bootstrapCoord'
 import { readStoredAuthUserId, getApiActor, actorHeaders, type DemoActor } from '../lib/api/actorAuth'
-import { shouldAcceptSupabaseBootstrap, shouldWipeAuthAfterBootstrapMiss } from '../lib/emptyBootstrapAuth'
+import { isTenantBootstrapActor, shouldAcceptSupabaseBootstrap, shouldWipeAuthAfterBootstrapMiss } from '../lib/emptyBootstrapAuth'
 import { authHeaders } from '../lib/api/authClient'
 import { buildPublicMarketplaceDemoBootstrap } from '../lib/publicMarketplaceDemo'
 import {
@@ -881,20 +881,32 @@ async function fetchBootstrapFromApi(lite: boolean, actor: DemoActor | null, ful
     const sessionProof = {
       actorUserId: actor?.userId ?? null,
       storedAuthUserId: readStoredAuthUserId(),
+      actorRole: actor?.role ?? null,
     }
     let boot: Awaited<ReturnType<typeof fetchSupabaseBootstrap>> | null = null
     try {
-      boot = await fetchSupabaseBootstrap(lite)
+      boot = await fetchSupabaseBootstrap(lite, { actorRole: actor?.role ?? null })
       // P0-2: stale auth ids used to yield EMPTY arrays — requiring units
       // caught that. P0 empty-DB SA: 0 units / 0 agencies with a live session
       // is valid empty-start, NOT stale-auth (do not wipe propertyflow-auth-user).
+      // Mode A Sipho: END_USER/tenant + applications:[] under live session is
+      // NOT remint success — data.ts already awaited session + retried apps.
       if (shouldAcceptSupabaseBootstrap({ boot, ...sessionProof })) return boot
     } catch {
       // Hard failure (network/expired token).
       boot = null
     }
     if (!shouldWipeAuthAfterBootstrapMiss({ boot, ...sessionProof })) {
-      // Live SA/session: keep auth; return empty boot when present, else null.
+      // Live SA/session: keep auth. SA empty-start may still accept above.
+      // Tenant empty-apps after retries: soft hydrate-miss — do NOT lock
+      // applications:[] as success (refreshBootstrap keeps prior state).
+      if (
+        boot &&
+        isTenantBootstrapActor(sessionProof.actorRole) &&
+        (!Array.isArray(boot.applications) || boot.applications.length === 0)
+      ) {
+        return null
+      }
       return boot
     }
     try {

@@ -183,10 +183,117 @@ function mappedFe(
   return feFromCache(cache, entityType, uuid, fallback) ?? fallback
 }
 
-export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBootstrap | null> {
+
+export type FetchSupabaseBootstrapOpts = {
+  /** FE role (`tenant`) or DB role (`END_USER`) — gates tenant apps retry. */
+  actorRole?: string | null
+}
+
+function isTenantBootstrapRole(role?: string | null): boolean {
+  const r = (role ?? '').trim().toLowerCase()
+  return r === 'tenant' || r === 'end_user' || r === 'applicant'
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * Await a confirmed JWT on the data client before RLS-scoped selects.
+ * AuthContext session proof can exist while createClient() has not yet
+ * attached the token — tenant applications then return [] under live chrome.
+ */
+async function awaitConfirmedDataClientSession(
+  supabase: ReturnType<typeof createClient>,
+  attempts = 4,
+  baseDelayMs = 150,
+): Promise<boolean> {
+  for (let i = 0; i < attempts; i++) {
+    const { data: sessionData } = await supabase.auth.getSession()
+    if (sessionData.session?.user?.id) {
+      const { data: verified, error } = await supabase.auth.getUser()
+      if (!error && verified.user?.id) return true
+    }
+    if (i < attempts - 1) await delay(baseDelayMs * (i + 1))
+  }
+  return false
+}
+
+async function fetchApplicationsWithTenantRetry(
+  supabase: ReturnType<typeof createClient>,
+  limit: number,
+  actorRole: string | null | undefined,
+  initial: { data: Record<string, unknown>[] | null; error: { message?: string } | null },
+): Promise<{ data: Record<string, unknown>[]; error: { message?: string } | null }> {
+  let data = (initial.data ?? []) as Record<string, unknown>[]
+  let error = initial.error
+
+  const tenant = isTenantBootstrapRole(actorRole)
+  if (!tenant) {
+    return { data, error }
+  }
+
+  if (!error && data.length > 0) {
+    return { data, error: null }
+  }
+
+  console.warn('[bootstrap] tenant applications empty/error; awaiting session + retry', {
+    error: error?.message ?? null,
+    rows: data.length,
+    actorRole: actorRole ?? null,
+  })
+
+  const sessionOk = await awaitConfirmedDataClientSession(supabase)
+  if (!sessionOk) {
+    console.warn('[bootstrap] tenant data-client session not confirmed before applications retry')
+  }
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const retry = await supabase
+      .from('applications')
+      .select('*')
+      .order('updated_at', { ascending: false })
+      .limit(limit)
+    if (retry.error) {
+      console.warn('[bootstrap] applications retry error', {
+        attempt: attempt + 1,
+        message: retry.error.message,
+      })
+      error = retry.error
+    } else {
+      error = null
+      data = (retry.data ?? []) as Record<string, unknown>[]
+      if (data.length > 0) {
+        return { data, error: null }
+      }
+    }
+    if (attempt < 2) await delay(200 * (attempt + 1))
+  }
+
+  console.warn('[bootstrap] tenant applications still empty after retries', {
+    rows: data.length,
+    error: error?.message ?? null,
+  })
+  return { data, error }
+}
+
+export async function fetchSupabaseBootstrap(
+  lite = true,
+  opts?: FetchSupabaseBootstrapOpts,
+): Promise<PostgresBootstrap | null> {
   const supabase = createClient()
   const limits = lite ? LITE_LIMITS : FULL_LIMITS
   const skipHeavy = lite
+  const actorRole = opts?.actorRole ?? null
+
+  // Tenant remint: confirm JWT on the data client before the parallel select fan-out
+  // so applications RLS (applicant_id = current_app_user_id) can see APP rows.
+  if (isTenantBootstrapRole(actorRole)) {
+    const ok = await awaitConfirmedDataClientSession(supabase)
+    if (!ok) {
+      console.warn('[bootstrap] tenant session not confirmed on data client before bootstrap')
+    }
+  }
 
   const [
     idMapRes,
@@ -219,6 +326,7 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
     arrearsRes,
     csvBatchesRes,
   ] = await Promise.all([
+
     supabase.from('entity_id_map').select('entity_type, backend_id, frontend_id'),
     supabase.from('clients').select('id, company_name, subdomain, status, city, created_at, settings'),
     supabase.from('users').select('id, client_id, email, first_name, last_name, phone, role, active, metadata'),
@@ -517,7 +625,15 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
     updatedAt: dateOnly(l.updated_at),
   }))
 
-  const applicationsRaw = (applicationsRes.data ?? []).map((a) => {
+  const applicationsResolved = await fetchApplicationsWithTenantRetry(
+    supabase,
+    limits.applications,
+    actorRole,
+    applicationsRes as { data: Record<string, unknown>[] | null; error: { message?: string } | null },
+  )
+  const applicationsResData = applicationsResolved.data
+
+  const applicationsRaw = applicationsResData.map((a) => {
     const meta = (a.metadata as Record<string, unknown> | null) ?? {}
     const stageFromMeta = typeof meta.stage === 'string' ? meta.stage : null
     // P0-integrity: prefer the persisted machine status so staff and applicant
@@ -535,31 +651,31 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
         ? meta.screening
         : null
     return {
-      id: a.reference_code,
-      agencyId: mapAgencyFe(a.client_id)!,
-      propertyId: mapPropertyFe(a.unit_id)!,
-      agentId: mapUserFe(a.agent_id),
-      applicantUserId: mapUserFe(a.applicant_id),
+      id: a.reference_code as string,
+      agencyId: mapAgencyFe(a.client_id as string | null)!,
+      propertyId: mapPropertyFe(a.unit_id as string | null)!,
+      agentId: mapUserFe(a.agent_id as string | null),
+      applicantUserId: mapUserFe(a.applicant_id as string | null),
       applicantName: (typeof meta.applicant_name === 'string' && meta.applicant_name.trim()) || 'Applicant',
       email: (typeof meta.applicant_email === 'string' && meta.applicant_email) || '',
       phone: '',
       type,
       workflowStatus: workflowStatusFromMeta ?? undefined,
-      stage: stageFromMeta ?? appStage(a.status),
+      stage: stageFromMeta ?? appStage(a.status as string),
       progress: typeof meta.progress === 'number' ? meta.progress : 50,
       income: a.monthly_income != null ? Number(a.monthly_income) : 0,
-      employment: a.employment_summary ?? '',
+      employment: (a.employment_summary as string | null) ?? '',
       creditCheck,
       creditConsent: hydrated.creditConsent ?? true,
       documents: hydrated.documents,
       docs: hydrated.documents.filter((d) => d.status !== 'required').map((d) => d.label),
       screening: hydrated.screening ?? screeningFromMeta ?? undefined,
       viewingSlotId: null,
-      notes: a.message ?? '',
-      moveInDate: dateOnly(a.move_in_date) || undefined,
+      notes: (a.message as string | null) ?? '',
+      moveInDate: dateOnly(a.move_in_date as string | null) || undefined,
       keyCollection: meta.keyCollection as Record<string, unknown> | undefined,
-      submittedAt: dateOnly(a.submitted_at) || dateOnly(a.created_at),
-      updatedAt: dateOnly(a.updated_at),
+      submittedAt: dateOnly(a.submitted_at as string | null) || dateOnly(a.created_at as string | null),
+      updatedAt: dateOnly(a.updated_at as string | null),
       applicantUuid: a.applicant_id as string | null,
     }
   })
@@ -579,7 +695,7 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
 
   // Mode A Sipho: preserve TN↔APP join across rehydrate (mirrors server/bootstrap).
   const appUuidToFeId = new Map<string, string>(
-    (applicationsRes.data ?? []).map((a: { id: string; reference_code: string }) => [
+    applicationsResData.map((a: { id: string; reference_code: string }) => [
       a.id,
       mappedFe(cache, 'application', a.id, a.reference_code),
     ]),
