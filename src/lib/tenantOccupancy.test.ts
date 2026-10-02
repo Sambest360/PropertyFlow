@@ -114,6 +114,23 @@ describe('tenantHasApprovedOccupancy', () => {
     ).toBe(true)
   })
 
+
+  it('Mode A Sipho: unlocks from stage Deposit paid (lowercase p)', () => {
+    expect(
+      tenantHasApprovedOccupancy([app({ id: 'a1', stage: 'Deposit paid' })], [], user),
+    ).toBe(true)
+  })
+
+  it('Mode A Sipho: unlocks from workflow status deposit_paid', () => {
+    expect(
+      tenantHasApprovedOccupancy(
+        [app({ id: 'a1', stage: 'Application started', workflowStatus: 'deposit_paid' })],
+        [],
+        user,
+      ),
+    ).toBe(true)
+  })
+
   it('ignores other people’s applications', () => {
     expect(
       tenantHasApprovedOccupancy(

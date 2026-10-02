@@ -58,9 +58,24 @@ export function useTenantPortalState(): TenantPortalState {
   )
 
   const app = apps.find((a) => a.stage !== 'Active Tenancy') ?? apps[0]
-  const tenancy = state.tenancies.find(
-    (t) => t.tenantUserId === user.id && !blockedIds.has(t.propertyId),
-  )
+  // Prefer tenantUserId match; when orphan lease has null tenantUserId, resolve by
+  // applicationId where app email/applicantUserId matches session (own identity only).
+  const tenancy =
+    state.tenancies.find(
+      (t) => t.tenantUserId === user.id && !blockedIds.has(t.propertyId),
+    ) ??
+    state.tenancies.find((t) => {
+      if (t.tenantUserId) return false
+      if (!t.applicationId || blockedIds.has(t.propertyId)) return false
+      const linked = state.applications.find((a) => a.id === t.applicationId)
+      if (!linked) return false
+      return (
+        linked.applicantUserId === user.id ||
+        (!!user.email &&
+          !!linked.email &&
+          linked.email.toLowerCase() === user.email.toLowerCase())
+      )
+    })
 
   const property = app
     ? (state.properties.find((p) => p.id === app.propertyId) ?? null)

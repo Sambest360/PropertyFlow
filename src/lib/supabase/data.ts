@@ -577,6 +577,14 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
     return normalizeApplication(appRow as import('../../types/domain').Application)
   })
 
+  // Mode A Sipho: preserve TN↔APP join across rehydrate (mirrors server/bootstrap).
+  const appUuidToFeId = new Map<string, string>(
+    (applicationsRes.data ?? []).map((a: { id: string; reference_code: string }) => [
+      a.id,
+      mappedFe(cache, 'application', a.id, a.reference_code),
+    ]),
+  )
+
   const tenancies = (leasesRes.data ?? []).map((l) => {
     const tenantUserId = mapUserFe(l.tenant_id)
     const tenant = appUsers.find((x) => x.id === tenantUserId)
@@ -587,7 +595,9 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
       propertyId: mapPropertyFe(l.unit_id)!,
       landlordId: mapUserFe(l.landlord_id) ?? '',
       agentId: mapUserFe(l.agent_id),
-      applicationId: null as string | null,
+      applicationId: l.application_id
+        ? (appUuidToFeId.get(l.application_id) ?? null)
+        : null,
       tenantUserId,
       tenantName: tenant?.name ?? 'Tenant',
       tenantEmail: tenant?.email ?? '',

@@ -8,6 +8,8 @@ export const TENANT_OCCUPANCY_STAGES: ReadonlySet<string> = new Set([
   'Conditionally approved',
   'Awaiting Payment',
   'Deposit Paid',
+  // Mode A workflow label (lowercase p) — matches applicationWorkflow stage()
+  'Deposit paid',
   'Lease Signed',
   'Move-In Scheduled',
   'Keys Handed Over',
@@ -30,6 +32,8 @@ export const TENANT_OCCUPANCY_STAGES: ReadonlySet<string> = new Set([
 export const TENANT_OCCUPANCY_WORKFLOW_STATUSES: ReadonlySet<string> = new Set([
   'conditionally_approved',
   'deposit_invoice_sent',
+  // Mode A Confirm deposit — unlocks portal occupancy without inventing Passed/TPN
+  'deposit_paid',
   'lease_generated',
   'lease_sent',
   'tenant_signed',
