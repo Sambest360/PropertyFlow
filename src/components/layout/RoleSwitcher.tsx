@@ -132,7 +132,7 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
 
     items.push(
       { kind: 'link', label: 'Browse homes', to: '/browse', icon: Home },
-      { kind: 'link', label: 'Help & support', to: '/workspace/admin', icon: HelpCircle },
+      { kind: 'link', label: 'Help & support', to: '/workspace/help', icon: HelpCircle },
     )
 
     if (isImpersonating) {

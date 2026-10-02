@@ -73,6 +73,7 @@ const TrustUnallocated = lazy(() => import('./pages/trust/TrustUnallocated'))
 const TrustPayouts = lazy(() => import('./pages/trust/TrustPayouts'))
 const TrustDeposits = lazy(() => import('./pages/trust/TrustDeposits'))
 const TrustArrears = lazy(() => import('./pages/trust/TrustArrears'))
+const HelpPage = lazy(() => import('./pages/HelpPage'))
 
 function PageFallback() {
   return (
@@ -312,6 +313,7 @@ export default function App() {
                 <Route path="people/landlords" element={<Guard anyOf={['users.manage', 'assets.manage']}><LandlordsDirectory /></Guard>} />
 
                 <Route path="insights/reports" element={<Guard permission="reports.view"><Reports /></Guard>} />
+                <Route path="help" element={<HelpPage />} />
                 <Route path="admin" element={<Guard anyOf={['users.manage', 'roles.assign', 'tenant.manage', 'config.manage', 'platform.manage']}><AdminHub /></Guard>} />
                 <Route path="admin/users" element={<Guard anyOf={['users.manage', 'roles.assign']}><AdminUsersPage /></Guard>} />
                 <Route path="admin/users/new" element={<Guard anyOf={['users.manage', 'roles.assign']}><AdminUserCreatePage /></Guard>} />

@@ -3,7 +3,8 @@ import { MessageCircle, Send } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
 import { useAuth, usePropertyScope } from '../../context/AuthContext'
 import { Badge, Button, Card, Input, Select, Textarea } from '../ui'
-import { MessagingModeABanner } from './MessagingModeABanner'
+import { FieldHelp } from '../onboarding/FieldHelp'
+import { MESSAGING_MODE_A_BANNER } from '../../lib/messaging/modeA'
 import {
   resolveOwnerComposeTarget,
   routesToBadgeLabel,
@@ -103,12 +104,12 @@ export function OwnerMessagesPanel() {
       <div className="flex items-center gap-2">
         <MessageCircle className="h-5 w-5 text-primary" strokeWidth={ICON_STROKE} aria-hidden />
         <h2 className="font-display text-lg font-semibold text-ink">Messages</h2>
+        <FieldHelp title="Messaging" body={MESSAGING_MODE_A_BANNER} />
       </div>
       <p className="text-sm text-ink-500">
         Compose and reply with tenants on your properties. Agency may appear on the thread when
-        assigned. Mode A in-app — not WhatsApp/SMS.
+        assigned.
       </p>
-      <MessagingModeABanner />
 
       <div className="grid gap-2 rounded-2xl border border-primary-100 bg-primary-50/40 p-3 sm:grid-cols-2">
         <Select

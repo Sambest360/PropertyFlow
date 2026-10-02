@@ -11,7 +11,8 @@ import { useAuth } from '../../context/AuthContext'
 import { formatZAR } from '../../data/seed'
 import { PageHeader, Card, Badge, Button, EmptyState } from '../../components/ui'
 import { DashboardPage } from '../../components/dashboard'
-import { TrustModeABanner } from '../../components/trust/TrustModeABanner'
+import { FieldHelp } from '../../components/onboarding/FieldHelp'
+import { TRUST_MODE_A_COPY } from '../../lib/trust/modeA'
 
 function formatCents(cents: number): string {
   return formatZAR(cents / 100)
@@ -140,9 +141,9 @@ export default function TrustDeposits() {
     <DashboardPage>
       <PageHeader
         title="Deposit Register"
-        subtitle="Deposit register Mode A — create/held + dual-control release (not live trust bank)"
+        subtitle="Deposit register — create/held + dual-control release"
       />
-      <TrustModeABanner extra="Release approve is in-app status only (release_approved ≠ refunded / bank payout). No PayProp." />
+      <div className="mb-2"><FieldHelp title="Trust deposits" body={TRUST_MODE_A_COPY} /></div>
 
       {/* Summary */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
@@ -199,7 +200,7 @@ export default function TrustDeposits() {
       <Card className="p-5">
         <h3 className="mb-3 text-lg font-semibold text-ink">Record held deposit</h3>
         <p className="mb-4 text-sm text-ink-500">
-          Mode A durable create/upsert — survives reload via deposit_holding persist. Not a bank receipt.
+          Durable create/upsert — survives reload via deposit_holding persist. Not a bank receipt.
         </p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
           <label className="text-sm">

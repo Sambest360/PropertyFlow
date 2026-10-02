@@ -95,9 +95,6 @@ export function OwnerStatementDownloadPanel({
   if (compact) {
     return (
       <div className="mt-3 space-y-2 border-t border-primary-50 pt-3">
-        <p className="text-xs text-amber-800" role="status">
-          {OWNER_STATEMENT_MODE_A_COPY}
-        </p>
         <div className="flex flex-wrap items-end gap-2">
           <label className="text-xs text-ink-500">
             From
@@ -135,17 +132,16 @@ export function OwnerStatementDownloadPanel({
 
   return (
     <div
-      className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 shadow-sm"
+      className="rounded-2xl border border-primary-100 bg-white p-4 shadow-sm"
       data-testid="owner-statement-download-panel"
     >
       <div className="flex items-start gap-3">
-        <FileText className="mt-0.5 h-5 w-5 shrink-0 text-amber-800" strokeWidth={ICON_STROKE} aria-hidden />
+        <FileText className="mt-0.5 h-5 w-5 shrink-0 text-ink-500" strokeWidth={ICON_STROKE} aria-hidden />
         <div className="min-w-0 flex-1 space-y-3">
           <div>
-            <h3 className="text-sm font-semibold text-ink">Owner statement PDF (Mode A)</h3>
-            <p className="mt-1 text-xs text-amber-900" role="status">
-              {OWNER_STATEMENT_MODE_A_COPY}
-            </p>
+            <h3 className="text-sm font-semibold text-ink" title={OWNER_STATEMENT_MODE_A_COPY}>
+              Owner statement PDF
+            </h3>
           </div>
           <div className="flex flex-wrap items-end gap-3">
             <label className="text-xs font-medium text-ink-600">

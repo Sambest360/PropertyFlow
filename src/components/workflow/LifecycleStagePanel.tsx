@@ -14,9 +14,9 @@ import { ActionButtonRow } from '../ActionButtonRow'
 import { TenantApplicationDetailsForm } from '../tenant/TenantApplicationDetailsForm'
 import { Badge, Card, cn } from '../ui'
 import { formatLeadTime } from '../../lib/leadLifecycle'
-import { FicaPackModeABanner } from '../fica/FicaPackModeABanner'
-import { ScreeningModeABanner } from '../screening/ScreeningModeABanner'
-import { PcrModeABanner } from '../pcr/PcrModeABanner'
+import { FicaPackGateStatus } from '../fica/FicaPackGateStatus'
+import { ScreeningGateStatus } from '../screening/ScreeningGateStatus'
+import { PcrGateStatus } from '../pcr/PcrGateStatus'
 import { FICA_PACK_KEYS } from '../../lib/ficaPack'
 
 const EARLY_DETAIL_STAGES: WorkflowStatusKey[] = ['application_started', 'application_submitted']
@@ -107,25 +107,28 @@ export function LifecycleStagePanel({
       </div>
 
       <div className="space-y-5 p-5">
-        {stageKey === 'fica_verification' ||
-        stageDocs.some((d) => (FICA_PACK_KEYS as readonly string[]).includes(d.key)) ? (
-          <FicaPackModeABanner documents={application.documents} showGate={canReview && !applicantMode} />
+        {canReview &&
+        !applicantMode &&
+        (stageKey === 'fica_verification' ||
+          stageDocs.some((d) => (FICA_PACK_KEYS as readonly string[]).includes(d.key))) ? (
+          <FicaPackGateStatus documents={application.documents} />
         ) : null}
 
-        {application.type === 'Rental' &&
+        {canReview &&
+        !applicantMode &&
+        application.type === 'Rental' &&
         (stageKey === 'credit_check' ||
           stageKey === 'agent_review' ||
           stageKey === 'landlord_review' ||
           stageKey === 'conditionally_approved' ||
           stageKey === 'lease_generated' ||
           stageKey === 'lease_sent') ? (
-          <ScreeningModeABanner
-            application={application}
-            showGate={canReview && !applicantMode}
-          />
+          <ScreeningGateStatus application={application} />
         ) : null}
 
-        {application.type === 'Rental' &&
+        {canReview &&
+        !applicantMode &&
+        application.type === 'Rental' &&
         (stageKey === 'inspection_scheduled' ||
           stageKey === 'inspection_completed' ||
           stageKey === 'keys_ready' ||
@@ -133,10 +136,7 @@ export function LifecycleStagePanel({
           stageKey === 'active_tenancy' ||
           stageKey === 'move_out_inspection' ||
           stageKey === 'deposit_refunded') ? (
-          <PcrModeABanner
-            application={application}
-            showGate={canReview && !applicantMode}
-          />
+          <PcrGateStatus application={application} />
         ) : null}
 
         {showDetailsForm ? (

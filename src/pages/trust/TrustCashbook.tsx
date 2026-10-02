@@ -13,7 +13,8 @@ import { useAuth } from '../../context/AuthContext'
 import { formatZAR } from '../../data/seed'
 import { PageHeader, Card, Badge, Button, Input, Select, EmptyState } from '../../components/ui'
 import { DashboardPage } from '../../components/dashboard'
-import { TrustModeABanner } from '../../components/trust/TrustModeABanner'
+import { FieldHelp } from '../../components/onboarding/FieldHelp'
+import { TRUST_MODE_A_COPY } from '../../lib/trust/modeA'
 import {
   TRUST_CSV_NON_PRODUCTION_LABEL,
   trustCsvTemplateSample,
@@ -160,12 +161,13 @@ export default function TrustCashbook() {
     <DashboardPage>
       <PageHeader
         title="Trust Cashbook"
-        subtitle="In-app trust cashbook (Mode A — template CSV, not live bank)"
+        subtitle="In-app trust cashbook — template CSV import/export"
         actions={
           <div className="flex flex-col items-end gap-1">
             <div className="flex flex-wrap justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={handleDownloadTemplate} title="Download Mode A template CSV">
                 <FileDown className="h-4 w-4" />
+      <div className="mb-2"><FieldHelp title="Trust cashbook" body={TRUST_MODE_A_COPY} /></div>
                 Template
               </Button>
               <Button
@@ -325,8 +327,6 @@ export default function TrustCashbook() {
           </div>
         )}
       </Card>
-
-      <TrustModeABanner extra="Template Import writes unallocated receipts to the database. Export is the current in-app cashbook only — not a bank statement download." />
     </DashboardPage>
   )
 }

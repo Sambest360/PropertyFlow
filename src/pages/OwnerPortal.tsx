@@ -139,7 +139,7 @@ export default function OwnerPortal() {
           image={featured?.images[0]}
           eyebrow="Landlord portal"
           title={featured?.title ?? `Welcome, ${user.name.split(' ')[0]}`}
-          detail="Your assets, rent receipts, open works, and in-app messages with tenants (Mode A — not WhatsApp/SMS)."
+          detail="Your assets, rent receipts, open works, and in-app messages with tenants."
           badge={featured?.status ?? 'Owner'}
           badgeTone="brand"
           secondaryBadge={featured?.type}
@@ -350,7 +350,7 @@ export default function OwnerPortal() {
               </Link>
             </div>
             <p className="mt-1 text-xs text-ink-500">
-              Landlord-visible receipts only. Owner↔tenant messaging is Mode A in-app (not WhatsApp/SMS).
+              Landlord-visible receipts only. Owner↔tenant messaging is in-app.
               {overdueAmt > 0
                 ? ` Outstanding overdue (book): ${formatZAR(overdueAmt)}.`
                 : ''}

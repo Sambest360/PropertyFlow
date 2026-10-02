@@ -26,7 +26,8 @@ import {
   type ItemCondition,
   type PropertyConditionInspection,
 } from '../../lib/pcr'
-import { PcrModeABanner } from './PcrModeABanner'
+import { PcrGateStatus } from './PcrGateStatus'
+import { FieldHelp } from '../onboarding/FieldHelp'
 import { Badge, Button, Card } from '../ui'
 
 const CONDITIONS: ItemCondition[] = [
@@ -211,13 +212,15 @@ export function InspectionPcrPanel({
 
   return (
     <div className="space-y-4" data-testid="inspection-pcr-panel">
-      <PcrModeABanner application={application} showGate={canReview} />
+      {canReview ? <PcrGateStatus application={application} /> : null}
 
       <Card className="space-y-4 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h3 className="font-display text-lg font-semibold text-ink">PCR pack (Mode A)</h3>
-            <p className="mt-1 text-sm text-ink-500">{PCR_MODE_A_COPY}</p>
+            <h3 className="inline-flex items-center gap-1.5 font-display text-lg font-semibold text-ink">
+              PCR pack
+              <FieldHelp title="PCR / inspections" body={PCR_MODE_A_COPY} />
+            </h3>
           </div>
           <div className="flex gap-2">
             <Button

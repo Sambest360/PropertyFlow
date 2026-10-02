@@ -14,7 +14,8 @@ import { useAuth } from '../../context/AuthContext'
 import { formatZAR } from '../../data/seed'
 import { PageHeader, Card, StatCard, Badge, Button, EmptyState } from '../../components/ui'
 import { DashboardPage } from '../../components/dashboard'
-import { TrustModeABanner } from '../../components/trust/TrustModeABanner'
+import { FieldHelp } from '../../components/onboarding/FieldHelp'
+import { TRUST_MODE_A_COPY } from '../../lib/trust/modeA'
 import { Link } from 'react-router-dom'
 
 /** Format integer cents as ZAR currency */
@@ -137,9 +138,10 @@ export default function TrustDashboard() {
     <DashboardPage>
       <PageHeader
         title="Trust & Banking Dashboard"
-        subtitle="Mode A soft-demo trust book — not live PayProp or bank-confirmed"
+        subtitle="In-app trust book overview"
         actions={
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            <FieldHelp title="Trust book" body={TRUST_MODE_A_COPY} />
             <Link to="/workspace/trust/cashbook">
               <Button variant="secondary" size="sm">
                 <FileText className="h-4 w-4" />
@@ -155,8 +157,6 @@ export default function TrustDashboard() {
           </div>
         }
       />
-
-      <TrustModeABanner />
 
       {/* Summary Stats */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -272,11 +272,6 @@ export default function TrustDashboard() {
           </div>
         )}
       </Card>
-
-      <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-900">
-        <strong>Honesty:</strong> Allocated amounts are in-app bookkeeping only. Bank-confirmed balances need a
-        partner (PayProp / bank feed) — not connected. Operational &quot;mark paid&quot; is not bank confirmation.
-      </div>
     </DashboardPage>
   )
 }

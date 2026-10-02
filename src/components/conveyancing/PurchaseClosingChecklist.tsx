@@ -8,7 +8,8 @@ import {
   type PurchaseClosingChecklist,
 } from '../../lib/conveyancing/closingChecklist'
 import { Button, Card, Input } from '../ui'
-import { ConveyancingModeABanner } from './ConveyancingModeABanner'
+import { FieldHelp } from '../onboarding/FieldHelp'
+import { CONVEYANCING_MODE_A_COPY } from '../../lib/conveyancing/closingChecklist'
 
 export function PurchaseClosingChecklistPanel({
   application,
@@ -52,17 +53,18 @@ export function PurchaseClosingChecklistPanel({
     <Card className="space-y-4 border-primary-100 p-5" data-testid="purchase-closing-checklist">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="font-display text-lg font-semibold text-ink">Purchase closing checklist</h3>
+          <h3 className="inline-flex items-center gap-1.5 font-display text-lg font-semibold text-ink">
+            Purchase closing checklist
+            <FieldHelp title="Conveyancing" body={CONVEYANCING_MODE_A_COPY} />
+          </h3>
           <p className="mt-1 text-sm text-ink-500">
-            Manual staff ticks for soft-demo tracking — not live conveyancing status.
+            Manual staff ticks for checklist tracking — Ticks below are checklist/status only.
           </p>
         </div>
         <p className="text-sm font-semibold tabular text-ink">
           {progress.done}/{progress.total} · {progress.pct}%
         </p>
       </div>
-
-      <ConveyancingModeABanner extra="Ticks below are checklist/status only." />
 
       <ul className="space-y-2">
         {CLOSING_CHECKLIST_ITEMS.map((item) => {
