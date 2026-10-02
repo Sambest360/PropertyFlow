@@ -805,6 +805,14 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     }
   }
 
+  // Mode A Sipho: preserve TN↔APP join across rehydrate (was hardcoded null).
+  const appUuidToFeId = new Map<string, string>()
+  for (const a of applications as Array<Record<string, unknown>>) {
+    const ref = a.reference_code as string
+    const fe = mappedFe('application', a.id as string, APP_REF_TO_ID[ref] ?? ref)
+    appUuidToFeId.set(a.id as string, fe)
+  }
+
   const tenancies = (leases as Array<Record<string, unknown>>).map((l) => {
     const tenantUserId = mapUser(l.tenant_id as string | null)
     const tenant = appUsers.find((x) => x.id === tenantUserId)
@@ -835,7 +843,9 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
       propertyId: mappedFe('property', l.unit_id as string, mapProperty(l.unit_id as string)!),
       landlordId: mapUser(l.landlord_id as string | null) ?? '',
       agentId: mapUser(l.agent_id as string | null),
-      applicationId: null as string | null,
+      applicationId: l.application_id
+        ? (appUuidToFeId.get(l.application_id as string) ?? null)
+        : null,
       tenantUserId,
       tenantName: tenant?.name ?? 'Tenant',
       tenantEmail: tenant?.email ?? '',

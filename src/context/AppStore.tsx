@@ -1145,17 +1145,45 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       payments: PaymentRecord[]
       notifications: AppNotification[]
     }): Promise<boolean> => {
+      // Mode A Sipho: repair null applicant/tenant from email → store users before persist.
+      // Fail-closed if lease still has no tenantUserId after repair — no orphan PENDING.
+      let application = input.application
+      let lease = input.lease
+      if (lease && !lease.tenantUserId) {
+        const email = (lease.tenantEmail || application.email || '').trim().toLowerCase()
+        const matched = email
+          ? stateRef.current.users.find((u) => u.email?.toLowerCase() === email)
+          : undefined
+        if (matched) {
+          lease = { ...lease, tenantUserId: matched.id }
+          if (!application.applicantUserId) {
+            application = { ...application, applicantUserId: matched.id }
+          }
+          patch((s) => ({
+            ...s,
+            applications: s.applications.map((a) =>
+              a.id === application.id ? { ...a, applicantUserId: matched.id } : a,
+            ),
+            tenancies: s.tenancies.map((t) =>
+              t.id === lease!.id ? { ...t, tenantUserId: matched.id } : t,
+            ),
+          }))
+        } else {
+          return false
+        }
+      }
       const applicationOk = await persistUpsert(
         'application',
         input.applicationId,
-        input.application as unknown as Record<string, unknown>,
+        application as unknown as Record<string, unknown>,
       )
       if (!applicationOk) return false
-      if (input.lease) {
+      if (lease) {
+        if (!lease.tenantUserId) return false
         const leaseOk = await persistUpsert(
           'tenancy',
-          input.lease.id,
-          input.lease as unknown as Record<string, unknown>,
+          lease.id,
+          lease as unknown as Record<string, unknown>,
         )
         if (!leaseOk) return false
       }
@@ -1168,7 +1196,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }
       return true
     },
-    [persistUpsert],
+    [persistUpsert, patch],
   )
 
   /**

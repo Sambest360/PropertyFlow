@@ -34,7 +34,8 @@ const ROLE_TO_DB: Record<string, string> = {
   contractor: 'CONTRACTOR',
 }
 
-const APP_STAGE_TO_DB: Record<string, string> = {
+/** Exported for focused Mode A stage→DB map tests (Sipho Deposit paid). */
+export const APP_STAGE_TO_DB: Record<string, string> = {
   Started: 'DRAFT',
   'Documents Pending': 'SUBMITTED',
   'Documents Submitted': 'SUBMITTED',
@@ -47,6 +48,8 @@ const APP_STAGE_TO_DB: Record<string, string> = {
   Approved: 'APPROVED',
   'Awaiting Payment': 'APPROVED',
   'Deposit Paid': 'APPROVED',
+  // Mode A canonical label (applicationWorkflow) — lowercase p
+  'Deposit paid': 'APPROVED',
   'Lease Signed': 'LEASED',
   'Move-In Scheduled': 'LEASED',
   'Keys Handed Over': 'LEASED',
@@ -209,6 +212,70 @@ async function userId(fe: unknown): Promise<string | null> {
   if (!fe) return null
   return resolveUuid('user', str(fe))
 }
+
+
+/**
+ * Mode A Sipho portal: resolve end-user uuid from FE id and/or email.
+ * Prefer entity_id_map / users.id; fall back to LOWER(users.email).
+ * When FE id + email both present and email hits, repair entity_id_map.
+ */
+async function resolveUserUuidByEmail(email: unknown): Promise<string | null> {
+  const e = typeof email === 'string' ? email.trim().toLowerCase() : ''
+  if (!e || !e.includes('@')) return null
+  const rows = await query<{ id: string }>(
+    `SELECT id::text AS id FROM users WHERE LOWER(TRIM(email)) = $1 LIMIT 1`,
+    [e],
+  )
+  return rows[0]?.id ?? null
+}
+
+async function linkUserFeToUuid(feStr: string, uuid: string): Promise<void> {
+  await ensureEntityMapTable()
+  await query(
+    `DELETE FROM entity_id_map
+     WHERE entity_type = 'user' AND backend_id = $1::uuid AND frontend_id <> $2`,
+    [uuid, feStr],
+  )
+  await query(
+    `INSERT INTO entity_id_map (entity_type, frontend_id, backend_id)
+     VALUES ('user', $1, $2::uuid)
+     ON CONFLICT (entity_type, frontend_id) DO UPDATE SET backend_id = EXCLUDED.backend_id`,
+    [feStr, uuid],
+  )
+}
+
+/** Resolve applicant/tenant uuid — FE user id first, else email → users. */
+async function resolveApplicantOrTenantUuid(opts: {
+  userFeId?: unknown
+  email?: unknown
+}): Promise<string | null> {
+  const feRaw = opts.userFeId
+  if (feRaw != null && feRaw !== '') {
+    const feStr = str(feRaw)
+    let uuid = await userId(feStr)
+    if (uuid) {
+      const live = await query<{ id: string }>(
+        `SELECT id::text AS id FROM users WHERE id = $1::uuid LIMIT 1`,
+        [uuid],
+      )
+      if (live[0]?.id) return uuid
+    }
+    if (isUuid(feStr)) {
+      const live = await query<{ id: string }>(
+        `SELECT id::text AS id FROM users WHERE id = $1::uuid LIMIT 1`,
+        [feStr],
+      )
+      if (live[0]?.id) return feStr
+    }
+  }
+  const fromEmail = await resolveUserUuidByEmail(opts.email)
+  if (fromEmail && feRaw != null && feRaw !== '') {
+    const feStr = str(feRaw)
+    if (!isUuid(feStr)) await linkUserFeToUuid(feStr, fromEmail)
+  }
+  return fromEmail
+}
+
 
 /**
  * P0-5 residual / r17: agentId set but unmapped → fail create (no soft-null agent).
@@ -958,7 +1025,11 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
     if (!rows[0]?.client_id) throw new Error(`application requires agencyId (got ${String(d.agencyId ?? '')})`)
     client = rows[0].client_id
   }
-  const applicant = await userId(d.applicantUserId)
+  // Mode A Sipho: if applicantUserId missing, resolve from email → users and persist.
+  let applicant = await resolveApplicantOrTenantUuid({
+    userFeId: d.applicantUserId,
+    email: d.email,
+  })
   const agent = await userId(d.agentId)
   const status =
     APP_STAGE_TO_DB[str(d.stage)] ??
@@ -1036,10 +1107,47 @@ async function upsertTenancy(feId: string, d: Record<string, unknown>): Promise<
   const client = await clientId(d.agencyId)
   const unit = await unitIdFromProperty(d.propertyId)
   if (!unit) throw new Error('tenancy requires propertyId')
-  const tenant = await userId(d.tenantUserId)
+  // Mode A Sipho: honor FE tenantUserId; else email / linked application applicant.
+  // Fail-closed — never mint orphan PENDING lease with tenant_id NULL.
+  let tenant = await resolveApplicantOrTenantUuid({
+    userFeId: d.tenantUserId,
+    email: d.tenantEmail ?? d.email,
+  })
+  const app = d.applicationId ? await resolveUuid('application', str(d.applicationId)) : null
+  if (!tenant && app) {
+    const appRows = await query<{
+      applicant_id: string | null
+      email: string | null
+    }>(
+      `SELECT applicant_id::text AS applicant_id,
+              COALESCE(metadata->>'email', metadata->>'applicant_email') AS email
+         FROM applications WHERE id = $1::uuid LIMIT 1`,
+      [app],
+    )
+    const row = appRows[0]
+    if (row?.applicant_id) {
+      tenant = row.applicant_id
+    } else if (row?.email) {
+      tenant = await resolveApplicantOrTenantUuid({ email: row.email })
+      if (tenant) {
+        await query(
+          `UPDATE applications SET applicant_id = $2::uuid, updated_at = NOW()
+            WHERE id = $1::uuid AND applicant_id IS NULL`,
+          [app, tenant],
+        )
+      }
+    }
+  }
+  if (!tenant) {
+    throw Object.assign(
+      new Error(
+        'tenancy requires resolvable tenantUserId or applicant email — refusing orphan PENDING lease',
+      ),
+      { status: 400 },
+    )
+  }
   const landlord = await userId(d.landlordId)
   const agent = await userId(d.agentId)
-  const app = d.applicationId ? await resolveUuid('application', str(d.applicationId)) : null
   const status = TENANCY_STATUS_TO_DB[str(d.status, 'Active')] ?? 'ACTIVE'
 
   await query(
@@ -1621,9 +1729,35 @@ export async function approveApplicationTx(params: {
       agent_id: string | null
       status: string
       monthly_income: string | null
+      metadata: Record<string, unknown> | null
     }>(client, `SELECT * FROM applications WHERE id = $1::uuid FOR UPDATE`, [appUuid])
     const app = apps[0]
     if (!app) throw Object.assign(new Error('Application not found'), { status: 404 })
+
+    // Mode A Sipho: link applicant before lease mint — null applicant_id minted orphan TN.
+    let applicantId = app.applicant_id
+    const t = params.tenancy
+    if (!applicantId) {
+      const meta = app.metadata ?? {}
+      const metaEmail =
+        (typeof meta.email === 'string' && meta.email) ||
+        (typeof meta.applicant_email === 'string' && meta.applicant_email) ||
+        (typeof t?.tenantEmail === 'string' && t.tenantEmail) ||
+        (typeof t?.email === 'string' && t.email) ||
+        null
+      applicantId = await resolveApplicantOrTenantUuid({
+        userFeId: t?.tenantUserId,
+        email: metaEmail,
+      })
+      if (applicantId) {
+        await clientQuery(
+          client,
+          `UPDATE applications SET applicant_id = $2::uuid, updated_at = NOW()
+           WHERE id = $1::uuid AND applicant_id IS NULL`,
+          [appUuid, applicantId],
+        )
+      }
+    }
 
     const actorUuid = params.actorUserId
       ? await resolveUuid('user', params.actorUserId)
@@ -1642,8 +1776,16 @@ export async function approveApplicationTx(params: {
     )
 
     let leaseUuid: string | null = null
-    const t = params.tenancy
     if (t?.id) {
+      // Fail-closed: do not mint orphan PENDING lease when tenant cannot be resolved.
+      if (!applicantId) {
+        throw Object.assign(
+          new Error(
+            'Cannot mint lease without linked applicant/tenant — resolve applicantUserId or email first',
+          ),
+          { status: 400 },
+        )
+      }
       leaseUuid = await ensureUuid('tenancy', str(t.id))
       const landlord = t.landlordId ? await resolveUuid('user', str(t.landlordId)) : null
       await clientQuery(
@@ -1658,6 +1800,7 @@ export async function approveApplicationTx(params: {
          ON CONFLICT (id) DO UPDATE SET
            status = EXCLUDED.status,
            application_id = EXCLUDED.application_id,
+           tenant_id = COALESCE(EXCLUDED.tenant_id, leases.tenant_id),
            rent_due_day = EXCLUDED.rent_due_day,
            updated_at = NOW()`,
         [
@@ -1665,7 +1808,7 @@ export async function approveApplicationTx(params: {
           app.client_id,
           app.unit_id,
           appUuid,
-          app.applicant_id,
+          applicantId,
           landlord,
           app.agent_id,
           str(t.id),
