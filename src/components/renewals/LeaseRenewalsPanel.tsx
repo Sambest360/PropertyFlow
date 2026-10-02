@@ -14,7 +14,8 @@ import {
   isEscalationDue,
   needsMonthToMonthNote,
 } from '../../lib/renewals'
-import { RenewalsModeABanner } from './RenewalsModeABanner'
+import { FieldHelp } from '../onboarding/FieldHelp'
+import { RENEWALS_MODE_A_COPY } from '../../lib/renewals'
 
 export type LeaseRenewalsHandlers = {
   onOffer: (input: {
@@ -91,10 +92,9 @@ export function LeaseRenewalsPanel({
       }
       data-testid={`lease-renewals-panel-${tenancy.id}`}
     >
-      {!compact ? <RenewalsModeABanner /> : null}
-
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="text-sm font-semibold text-ink">Renewals & escalation</h3>
+        {!compact ? <FieldHelp title="Renewals / escalation" body={RENEWALS_MODE_A_COPY} /> : null}
         <Badge tone="neutral">{electionLabel}</Badge>
         {ops.cpaNotice.late ? (
           <Badge tone="danger">CPA late · {CPA_NOTICE_LATE_COPY}</Badge>

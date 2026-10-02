@@ -4,8 +4,8 @@ import type { Message, MessageThread } from '../../types/domain'
 import type { AppUser } from '../../types/domain'
 import { Button, Card, Input, Textarea, cn } from '../ui'
 import { ICON_STROKE } from './types'
-import { MessagingModeABanner } from '../messaging/MessagingModeABanner'
-import { routesToBadgeLabel } from '../../lib/messaging/modeA'
+import { FieldHelp } from '../onboarding/FieldHelp'
+import { MESSAGING_MODE_A_BANNER, routesToBadgeLabel } from '../../lib/messaging/modeA'
 
 function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean)
@@ -51,13 +51,13 @@ export function PropertyMessagesPanel({
 
   return (
     <div className="space-y-4">
-      <MessagingModeABanner extra="Property threads may include agency staff, tenants, and landlords when they are participants." />
     <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
       <Card className="flex min-h-[22rem] flex-col p-0">
         <div className="flex items-center justify-between gap-2 border-b border-primary-100 px-4 py-3">
           <div className="flex items-center gap-2">
             <MessageSquare className="h-5 w-5 text-ink-500" strokeWidth={ICON_STROKE} aria-hidden />
             <h2 className="font-semibold text-ink">Threads</h2>
+            <FieldHelp title="Messaging" body={MESSAGING_MODE_A_BANNER} />
           </div>
           {canManage && (
             <Button

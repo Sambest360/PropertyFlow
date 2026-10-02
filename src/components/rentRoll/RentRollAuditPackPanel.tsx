@@ -23,7 +23,6 @@ import {
   defaultOwnerStatementPeriod,
   generateOwnerStatementPdf,
 } from '../../lib/ownerStatement'
-import { RentRollModeABanner } from './RentRollModeABanner'
 
 const ICON_STROKE = 1.6
 
@@ -206,9 +205,6 @@ export function RentRollAuditPackPanel({
   if (compact) {
     return (
       <div className="mt-3 space-y-2 border-t border-primary-50 pt-3" data-testid="rent-roll-audit-pack-panel">
-        <p className="text-xs text-amber-800" role="status">
-          {RENT_ROLL_MODE_A_COPY}
-        </p>
         <div className="flex flex-wrap items-end gap-2">
           <label className="text-xs text-ink-500">
             As-at
@@ -257,17 +253,18 @@ export function RentRollAuditPackPanel({
 
   return (
     <div
-      className="space-y-3 rounded-2xl border border-amber-200 bg-amber-50/60 p-4 shadow-sm"
+      className="space-y-3 rounded-2xl border border-primary-100 bg-white p-4 shadow-sm"
       data-testid="rent-roll-audit-pack-panel"
     >
-      <RentRollModeABanner extra="Safe claim: rent roll + soft audit pack beside Mode A owner statements — not trust-audited." />
       <div className="flex items-start gap-3">
-        <FileArchive className="mt-0.5 h-5 w-5 shrink-0 text-amber-800" strokeWidth={ICON_STROKE} aria-hidden />
+        <FileArchive className="mt-0.5 h-5 w-5 shrink-0 text-ink-500" strokeWidth={ICON_STROKE} aria-hidden />
         <div className="min-w-0 flex-1 space-y-3">
           <div>
-            <h3 className="text-sm font-semibold text-ink">As-at rent roll + soft audit pack (Mode A)</h3>
-            <p className="mt-1 text-xs text-amber-900" role="status">
-              Point-in-time rent roll (CSV/PDF) and a soft pack that reuses Trust soft CSV + Mode A owner
+            <h3 className="text-sm font-semibold text-ink" title={`${RENT_ROLL_MODE_A_COPY} ${AUDIT_PACK_MODE_A_COPY}`}>
+              As-at rent roll + soft audit pack
+            </h3>
+            <p className="mt-1 text-xs text-ink-500">
+              Point-in-time rent roll (CSV/PDF) and a soft pack that reuses Trust soft CSV + owner
               statements. Live remittance stays refuse-closed.
             </p>
           </div>

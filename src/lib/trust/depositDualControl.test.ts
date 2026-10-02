@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { TRUST_MODE_A_COPY } from '../../components/trust/TrustModeABanner'
+import { TRUST_MODE_A_COPY } from './modeA'
 import type { DepositHolding, PayoutInstruction } from '../../types/domain'
 import {
   DEPOSIT_PERSIST_RESOURCE,

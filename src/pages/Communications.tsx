@@ -6,7 +6,8 @@ import { RequirePermission } from '../components/RequirePermission'
 import { BackButton } from '../components/BackButton'
 import { Badge, Button, Card, Input, Modal, PageHeader, Select, Textarea, cn } from '../components/ui'
 import { isAgencyStaff } from '../lib/permissions'
-import { MessagingModeABanner } from '../components/messaging/MessagingModeABanner'
+import { FieldHelp } from '../components/onboarding/FieldHelp'
+import { MESSAGING_MODE_A_BANNER } from '../lib/messaging/modeA'
 import { routesToBadgeLabel } from '../lib/messaging/modeA'
 
 const ICON_STROKE = 1.6
@@ -57,18 +58,19 @@ export default function Communications() {
       <div className="animate-fade-in space-y-4">
         <PageHeader
           title="Messages"
-          subtitle="Mode A in-app triage: owner↔tenant threads and agency conversations — not WhatsApp/SMS."
+          subtitle="In-app triage: owner↔tenant threads and agency conversations."
           actions={
-            staff ? (
-              <Button className="min-h-11 cursor-pointer" onClick={() => setComposeOpen(true)}>
-                <Plus className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                New message
-              </Button>
-            ) : null
+            <>
+              <FieldHelp title="Messaging" body={MESSAGING_MODE_A_BANNER} />
+              {staff ? (
+                <Button className="min-h-11 cursor-pointer" onClick={() => setComposeOpen(true)} title={MESSAGING_MODE_A_BANNER}>
+                  <Plus className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                  New message
+                </Button>
+              ) : null}
+            </>
           }
         />
-
-        <MessagingModeABanner extra="Staff can triage owner↔tenant threads when they are participants or have property book access." />
 
         {role === 'tenant' ? (
           <Card className="flex flex-wrap gap-2 p-4">
@@ -330,7 +332,7 @@ function ComposeMessageModal({
       open={open}
       onClose={onClose}
       title="New message"
-      description="Start an in-app conversation (Mode A — not WhatsApp/SMS). Include landlords or tenants when needed."
+      description="Start an in-app conversation. Include landlords or tenants when needed."
       footer={
         <>
           <Button type="button" variant="secondary" onClick={onClose}>

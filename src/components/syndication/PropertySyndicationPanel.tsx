@@ -6,7 +6,8 @@ import { useMemo, useState } from 'react'
 import { Download, Upload } from 'lucide-react'
 import type { PropertyAsset } from '../../types/domain'
 import { Button, Card, Badge } from '../ui'
-import { SyndicationModeABanner } from './SyndicationModeABanner'
+import { FieldHelp } from '../onboarding/FieldHelp'
+import { SYNDICATION_MODE_A_COPY } from '../../lib/syndication'
 import {
   assessPropertySyndicationReadiness,
   attemptLivePartnerPush,
@@ -96,22 +97,23 @@ export function PropertySyndicationPanel({
 
   return (
     <div className="space-y-4" data-testid="property-syndication-panel">
-      <SyndicationModeABanner extra="Safe claim: export pack + lead CSV into CRM beside own marketplace — not live syndication." />
-
       <Card className="space-y-3 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-base font-semibold text-ink-900">Export readiness</h3>
+          <h3 className="inline-flex items-center gap-1.5 text-base font-semibold text-ink-900">
+            Export readiness
+            <FieldHelp title="Syndication" body={SYNDICATION_MODE_A_COPY} />
+          </h3>
           <Badge tone={readiness.ready ? 'success' : 'warning'}>
             Score {readiness.score}/{readiness.maxScore}
             {readiness.ready ? ' · pack-ready' : ' · fix errors'}
           </Badge>
         </div>
         {readiness.mandateSoftWarn ? (
-          <p className="rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-sm text-amber-900" data-testid="mandate-soft-warn">
+          <p className="rounded-lg border border-primary-100 bg-primary-50/50 px-3 py-2 text-sm text-ink-600" data-testid="mandate-soft-warn">
             {readiness.mandateSoftWarn}
           </p>
         ) : (
-          <p className="text-sm text-ink-500">Mandate marked active (soft Mode A flag).</p>
+          <p className="text-sm text-ink-500">Mandate marked active (soft completeness flag).</p>
         )}
         {canManage ? (
           <label className="flex items-center gap-2 text-sm text-ink-700">

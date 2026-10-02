@@ -31,10 +31,14 @@ import { actionNeedsModal, type WorkflowActionCapture } from '../../lib/workflow
 import { useStore } from '../../context/AppStore'
 import { LifecycleStagePanel } from './LifecycleStagePanel'
 import { PurchaseClosingChecklistPanel } from '../conveyancing/PurchaseClosingChecklist'
-import { ConveyancingModeABanner } from '../conveyancing/ConveyancingModeABanner'
-import { FicaPackModeABanner } from '../fica/FicaPackModeABanner'
-import { ScreeningModeABanner } from '../screening/ScreeningModeABanner'
-import { PcrModeABanner } from '../pcr/PcrModeABanner'
+import { FicaPackGateStatus } from '../fica/FicaPackGateStatus'
+import { ScreeningGateStatus } from '../screening/ScreeningGateStatus'
+import { PcrGateStatus } from '../pcr/PcrGateStatus'
+import { FieldHelp } from '../onboarding/FieldHelp'
+import { FICA_PACK_MODE_A_COPY } from '../../lib/ficaPack'
+import { SCREENING_MODE_A_COPY } from '../../lib/screening'
+import { PCR_MODE_A_COPY } from '../../lib/pcr'
+import { CONVEYANCING_MODE_A_COPY } from '../../lib/conveyancing/closingChecklist'
 import { InspectionPcrPanel } from '../pcr/InspectionPcrPanel'
 import { WorkflowActionModal } from './WorkflowActionModal'
 import { Badge, Card, cn, statusTone } from '../ui'
@@ -300,13 +304,36 @@ export function ApplicationLifecycleHub({
 
   return (
     <div className="space-y-5">
-      {application.type === 'Purchase' ? <ConveyancingModeABanner /> : null}
-      <FicaPackModeABanner documents={application.documents} showGate={canReview && !applicantMode} />
-      {application.type === 'Rental' ? (
-        <ScreeningModeABanner application={application} showGate={canReview && !applicantMode} />
-      ) : null}
-      {application.type === 'Rental' ? (
-        <PcrModeABanner application={application} showGate={canReview && !applicantMode} />
+      {canReview && !applicantMode ? (
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="inline-flex items-center gap-1 text-sm font-medium text-ink">
+              FICA pack
+              <FieldHelp title="FICA pack" body={FICA_PACK_MODE_A_COPY} />
+            </span>
+            {application.type === 'Rental' ? (
+              <span className="inline-flex items-center gap-1 text-sm font-medium text-ink">
+                Screening
+                <FieldHelp title="Screening" body={SCREENING_MODE_A_COPY} />
+              </span>
+            ) : null}
+            {application.type === 'Rental' ? (
+              <span className="inline-flex items-center gap-1 text-sm font-medium text-ink">
+                PCR
+                <FieldHelp title="PCR / inspections" body={PCR_MODE_A_COPY} />
+              </span>
+            ) : null}
+            {application.type === 'Purchase' ? (
+              <span className="inline-flex items-center gap-1 text-sm font-medium text-ink">
+                Conveyancing
+                <FieldHelp title="Conveyancing" body={CONVEYANCING_MODE_A_COPY} />
+              </span>
+            ) : null}
+          </div>
+          <FicaPackGateStatus documents={application.documents} />
+          {application.type === 'Rental' ? <ScreeningGateStatus application={application} /> : null}
+          {application.type === 'Rental' ? <PcrGateStatus application={application} /> : null}
+        </div>
       ) : null}
 
       <Card className="overflow-hidden border-primary-100 p-0">

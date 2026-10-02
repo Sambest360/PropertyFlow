@@ -10,7 +10,8 @@ import { useAuth } from '../../context/AuthContext'
 import { formatZAR } from '../../data/seed'
 import { PageHeader, Card, Button, Input, EmptyState } from '../../components/ui'
 import { DashboardPage } from '../../components/dashboard'
-import { TrustModeABanner } from '../../components/trust/TrustModeABanner'
+import { FieldHelp } from '../../components/onboarding/FieldHelp'
+import { TRUST_MODE_A_COPY } from '../../lib/trust/modeA'
 import { sweetSuccess, sweetError } from '../../lib/sweetAlert'
 
 function formatCents(cents: number): string {
@@ -129,9 +130,9 @@ export default function TrustUnallocated() {
     <DashboardPage>
       <PageHeader
         title="Unallocated Receipts"
-        subtitle="Manual allocate / suspense (Mode A soft-demo — not live bank match)"
+        subtitle="Manual allocate / suspense"
       />
-      <TrustModeABanner extra="Allocate/suspense persist to the database (survive reload). No auto-match from live bank CSV — template import only." />
+      <div className="mb-2"><FieldHelp title="Unallocated receipts" body={TRUST_MODE_A_COPY} /></div>
 
       {/* Summary */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -327,11 +328,6 @@ export default function TrustUnallocated() {
             </Card>
           )}
         </div>
-      </div>
-
-      <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-900">
-        <strong>Demo note:</strong> Split receipts are common in production banking — here you allocate
-        Mode A / template-imported lines. Remainder stays unallocated. No live bank credit feed or PayProp match.
       </div>
     </DashboardPage>
   )

@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { FileUp } from 'lucide-react'
 import type { Lead, PropertyAsset } from '../../types/domain'
 import { Button, Card } from '../ui'
-import { SyndicationModeABanner } from './SyndicationModeABanner'
+import { FieldHelp } from '../onboarding/FieldHelp'
 import {
   LEAD_CSV_HONESTY,
   LEAD_CSV_TEMPLATE_HEADER,
@@ -88,8 +88,10 @@ export function LeadCsvImportPanel({
     <Card className="space-y-3 p-4" data-testid="lead-csv-import-panel">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="font-semibold text-ink-900">Portal lead CSV</h3>
-          <p className="text-xs text-ink-500">{LEAD_CSV_HONESTY}</p>
+          <h3 className="inline-flex items-center gap-1.5 font-semibold text-ink-900">
+            Portal lead CSV
+            <FieldHelp title="Lead CSV import" body={LEAD_CSV_HONESTY} />
+          </h3>
         </div>
         <Button className="min-h-10" variant="secondary" onClick={() => setOpen((v) => !v)}>
           <FileUp className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
@@ -98,7 +100,6 @@ export function LeadCsvImportPanel({
       </div>
       {open ? (
         <div className="space-y-3">
-          <SyndicationModeABanner />
           <p className="text-xs text-ink-500">
             Header: <code className="rounded bg-primary-50 px-1">{LEAD_CSV_TEMPLATE_HEADER}</code>
           </p>

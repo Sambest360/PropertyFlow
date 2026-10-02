@@ -647,7 +647,7 @@ export function WorkspaceSidebar({
         )}
       >
         <Link
-          to="/workspace/admin"
+          to="/workspace/help"
           title={collapsed ? 'Help' : undefined}
           className={footerClass(collapsed)}
         >

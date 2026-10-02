@@ -12,7 +12,9 @@ import {
   screeningStatusLabel,
   type ScreeningAsyncStatus,
 } from '../../lib/screening'
-import { ScreeningModeABanner } from '../screening/ScreeningModeABanner'
+import { ScreeningGateStatus } from '../screening/ScreeningGateStatus'
+import { FieldHelp } from '../onboarding/FieldHelp'
+import { SCREENING_MODE_A_COPY } from '../../lib/screening'
 import { ICON_STROKE } from './types'
 
 /** Personal / screening details — flat text, no nested cards. */
@@ -96,11 +98,12 @@ export function ApplicantDetailsPanel({
 
       <DetailSection
         title="Screening"
-        subtitle="Consent, mock/manual bureau status, and audited overrides — not live TPN; approve does not invent a credit pass."
+        subtitle="Consent, mock/manual bureau status, and audited overrides — approve does not invent a credit pass."
+        actions={<FieldHelp title="Screening" body={SCREENING_MODE_A_COPY} />}
       >
-        {application.type === 'Rental' ? (
+        {application.type === 'Rental' && canReview ? (
           <div className="mb-4">
-            <ScreeningModeABanner application={application} showGate={canReview} />
+            <ScreeningGateStatus application={application} />
           </div>
         ) : null}
 
@@ -237,7 +240,7 @@ export function ApplicantDetailsPanel({
         {canReview && overrideOpen ? (
           <div className="mt-3 space-y-3 rounded-lg border border-primary-100 bg-primary-50/40 p-3">
             <p className="text-xs text-ink-500">
-              Manual bureau record (Mode A) — audited staff entry, not live TPN. Cleared status for
+              Manual bureau record — audited staff entry. Cleared status for
               soft-gate is <strong>passed</strong> or <strong>manual_override</strong>.
             </p>
             <label className="block text-[11px] font-medium text-ink-400">

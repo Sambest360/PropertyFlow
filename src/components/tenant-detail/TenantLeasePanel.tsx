@@ -8,7 +8,8 @@ import { eSignStatusLabel } from '../../lib/lease'
 import { ICON_STROKE } from './types'
 import { useStore } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
-import { RenewalsModeABanner } from '../renewals/RenewalsModeABanner'
+import { FieldHelp } from '../onboarding/FieldHelp'
+import { RENEWALS_MODE_A_COPY } from '../../lib/renewals'
 import { LeaseRenewalsPanel } from '../renewals/LeaseRenewalsPanel'
 
 export function TenantLeasePanel({ tenancy }: { tenancy: Tenancy }) {
@@ -65,10 +66,10 @@ export function TenantLeasePanel({ tenancy }: { tenancy: Tenancy }) {
 
       <DetailSection
         title="Renewals & scheduled escalation"
-        subtitle="Mode A year-ops clock beside this lease — in-app book only."
+        subtitle="Year-ops clock beside this lease — in-app book only."
+        actions={<FieldHelp title="Renewals / escalation" body={RENEWALS_MODE_A_COPY} />}
       >
         <div className="space-y-3">
-          <RenewalsModeABanner />
           <LeaseRenewalsPanel
             tenancy={live}
             propertyTitle={propertyTitle}

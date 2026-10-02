@@ -2,7 +2,9 @@ import { FileText } from 'lucide-react'
 import type { Application, ApplicationDocument } from '../../types/domain'
 import { Card } from '../ui'
 import { ApplicationDocumentRow } from './ApplicationDocumentRow'
-import { FicaPackModeABanner } from '../fica/FicaPackModeABanner'
+import { FicaPackGateStatus } from '../fica/FicaPackGateStatus'
+import { FieldHelp } from '../onboarding/FieldHelp'
+import { FICA_PACK_MODE_A_COPY } from '../../lib/ficaPack'
 import { ICON_STROKE } from './types'
 
 export function ApplicantDocumentsPanel({
@@ -26,14 +28,17 @@ export function ApplicantDocumentsPanel({
       <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-ink">
         <FileText className="h-5 w-5 text-ink-500" strokeWidth={ICON_STROKE} aria-hidden />
         Documents
+        <FieldHelp title="FICA pack" body={FICA_PACK_MODE_A_COPY} />
       </h2>
       <p className="mt-1 text-sm text-ink-500">
         Full checklist for this application. Upload and review also happen in the Application lifecycle tab.
       </p>
 
-      <div className="mt-3">
-        <FicaPackModeABanner documents={application.documents} showGate={canReview} />
-      </div>
+      {canReview ? (
+        <div className="mt-3">
+          <FicaPackGateStatus documents={application.documents} />
+        </div>
+      ) : null}
 
       <ul className="mt-4 space-y-2">
         {application.documents.map((d) => (

@@ -18,7 +18,8 @@ import { resolveDocumentUrl } from '../lib/api'
 import { eSignStatusLabel as leaseESignLabel } from '../lib/lease'
 import type { Tenancy } from '../types/domain'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
-import { RenewalsModeABanner } from '../components/renewals/RenewalsModeABanner'
+import { FieldHelp } from '../components/onboarding/FieldHelp'
+import { RENEWALS_MODE_A_COPY } from '../lib/renewals'
 import {
   LeaseRenewalsPanel,
   type LeaseRenewalsHandlers,
@@ -326,13 +327,8 @@ export default function LeasesDirectory() {
       <div className="animate-fade-in space-y-5">
         <PageHeader
           title="Leases"
-          subtitle="Tenancy leases with generated PDFs and e-sign status, plus Mode A renewals / scheduled escalation (in-app book — not CPA legal service / not live CPI)."
-        />
-
-        <RenewalsModeABanner
-          extra={
-            'Offer / accept / decline and CPA-style notice clock live on each lease row. Apply due escalations runs staff-set % only.'
-          }
+          subtitle="Tenancy leases with generated PDFs and e-sign status, plus renewals / scheduled escalation."
+          actions={<FieldHelp title="Renewals / escalation" body={RENEWALS_MODE_A_COPY} />}
         />
 
         <div className="flex flex-wrap gap-2">
@@ -488,7 +484,7 @@ export default function LeasesDirectory() {
               </tbody>
             </table>
             <div className="space-y-3 border-t border-primary-50 p-4">
-              <h3 className="text-sm font-semibold text-ink">Renewals & escalation (Mode A)</h3>
+              <h3 className="text-sm font-semibold text-ink">Renewals & escalation</h3>
               {filtered
                 .filter((r) => r.tenancy.status === 'Active' || r.tenancy.status === 'Pending Move-In')
                 .slice(0, 12)

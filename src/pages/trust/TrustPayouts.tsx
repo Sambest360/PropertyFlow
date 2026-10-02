@@ -10,7 +10,8 @@ import { useAuth } from '../../context/AuthContext'
 import { formatZAR } from '../../data/seed'
 import { PageHeader, Card, Badge, Button, EmptyState } from '../../components/ui'
 import { DashboardPage } from '../../components/dashboard'
-import { TrustModeABanner } from '../../components/trust/TrustModeABanner'
+import { FieldHelp } from '../../components/onboarding/FieldHelp'
+import { TRUST_MODE_A_COPY } from '../../lib/trust/modeA'
 
 function formatCents(cents: number): string {
   return formatZAR(cents / 100)
@@ -127,7 +128,7 @@ export default function TrustPayouts() {
         title="Payouts"
         subtitle="Propose → approve → submit (submitted ≠ settled; no live bank)"
       />
-      <TrustModeABanner extra="Submit records an in-app instruction only — never invents partnerPayoutId or settled status. Seed settled rows are demo history." />
+      <div className="mb-2"><FieldHelp title="Trust payouts" body={TRUST_MODE_A_COPY} /></div>
 
       {/* Summary */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
