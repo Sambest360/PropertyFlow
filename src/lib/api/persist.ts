@@ -141,6 +141,7 @@ export async function persistToApi(op: PersistOp): Promise<boolean> {
     // P0-sa-mint: staff/agent create with temp password — Auth + link + verify
     // only exists on the server upsertUser path (not browser RLS upsert).
     if (preferServerPersistForUserMint(op.resource, op.action, op.data)) {
+      console.info('[persist] path=server user-mint', { id: op.id })
       return persistViaServerApi(op)
     }
     return persistToSupabase(op)

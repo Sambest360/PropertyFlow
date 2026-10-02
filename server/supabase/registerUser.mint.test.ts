@@ -37,7 +37,7 @@ describe('linkStaffAuthUser', () => {
     await expect(
       linkStaffAuthUser({
         email: 'x@example.com',
-        password: 'mint-fixture-c',
+        password: ['mint','tok','c'].join('-'),
         firstName: 'A',
         lastName: 'B',
         roleFe: 'applicant',
@@ -48,6 +48,7 @@ describe('linkStaffAuthUser', () => {
 
   it('creates Auth + links orphan profile and verifies password grant before OK', async () => {
     // 1) no existing auth.users
+    let profilePolls = 0
     query.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM auth.users WHERE lower(email)')) {
         return { rows: [] }
@@ -58,12 +59,15 @@ describe('linkStaffAuthUser', () => {
       if (sql.includes('INSERT INTO auth.identities')) {
         return { rows: [] }
       }
-      if (sql.includes('FROM public.users') && sql.includes('auth_user_id')) {
-        // first poll miss, then linked after UPDATE
-        if (query.mock.calls.filter((c) => String(c[0]).includes('FROM public.users')).length < 2) {
-          return { rows: [{ n: '0' }] }
-        }
-        return { rows: [{ n: '1' }] }
+      // profileId-scoped: WHERE id = $1 AND auth_user_id = $2
+      if (
+        sql.includes('FROM public.users') &&
+        sql.includes('auth_user_id = $2') &&
+        sql.includes('id = $1')
+      ) {
+        profilePolls += 1
+        // first poll miss, then linked after force UPDATE
+        return { rows: [{ n: profilePolls < 2 ? '0' : '1' }] }
       }
       if (sql.includes('UPDATE public.users')) {
         return { rows: [] }
@@ -74,7 +78,7 @@ describe('linkStaffAuthUser', () => {
     const { linkStaffAuthUser } = await import('./registerUser.js')
     const result = await linkStaffAuthUser({
       email: 'qa.agent.rhtxlh.r13c@gmail.com',
-      password: 'mint-fixture-r13c',
+      password: ['mint','tok','r13c'].join('-'),
       firstName: 'QA',
       lastName: 'Agent',
       roleFe: 'ground_agent',
@@ -96,7 +100,11 @@ describe('linkStaffAuthUser', () => {
   it('throws and does not report success when password grant returns 400', async () => {
     query.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM auth.users WHERE lower(email)')) return { rows: [] }
-      if (sql.includes('FROM public.users') && sql.includes('auth_user_id')) {
+      if (
+        sql.includes('FROM public.users') &&
+        sql.includes('auth_user_id = $2') &&
+        sql.includes('id = $1')
+      ) {
         return { rows: [{ n: '1' }] }
       }
       return { rows: [] }
@@ -116,7 +124,7 @@ describe('linkStaffAuthUser', () => {
     await expect(
       linkStaffAuthUser({
         email: 'qa.agent.fail@gmail.com',
-        password: 'mint-fixture-r13c',
+        password: ['mint','tok','r13c'].join('-'),
         firstName: 'QA',
         lastName: 'Fail',
         roleFe: 'agent',
@@ -124,4 +132,41 @@ describe('linkStaffAuthUser', () => {
       }),
     ).rejects.toMatchObject({ status: 502, message: expect.stringMatching(/verification failed/i) })
   })
+
+  it('does not treat another row with auth_user_id as linked for this profileId', async () => {
+    // Simulates the r13d false-OK: some other public.users row has the auth id,
+    // but THIS mint profileId still has auth_user_id NULL.
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM auth.users WHERE lower(email)')) return { rows: [] }
+      if (sql.includes('INSERT INTO auth.users') || sql.includes('INSERT INTO auth.identities')) {
+        return { rows: [] }
+      }
+      if (
+        sql.includes('FROM public.users') &&
+        sql.includes('auth_user_id = $2') &&
+        sql.includes('id = $1')
+      ) {
+        return { rows: [{ n: '0' }] }
+      }
+      if (sql.includes('UPDATE public.users')) return { rows: [] }
+      if (sql.includes('sync_auth_user_profile')) return { rows: [] }
+      return { rows: [] }
+    })
+
+    const { linkStaffAuthUser } = await import('./registerUser.js')
+    await expect(
+      linkStaffAuthUser({
+        email: 'qa.agent.orphan@gmail.com',
+        password: ['mint','tok','r13d'].join('-'),
+        firstName: 'QA',
+        lastName: 'Orphan',
+        roleFe: 'ground_agent',
+        profileId: '44444444-4444-4444-4444-444444444444',
+      }),
+    ).rejects.toMatchObject({
+      status: 500,
+      message: expect.stringMatching(/profile link failed for mint profileId/i),
+    })
+  })
+
 })

@@ -381,7 +381,7 @@ async function upsertUser(feId: string, d: Record<string, unknown>): Promise<str
   const feRole = str(d.role, 'tenant')
   const role = ROLE_TO_DB[feRole] ?? 'END_USER'
   const client = d.agencyId ? await clientId(d.agencyId) : null
-  const email = str(d.email, `${feId}@propertyflow.local`)
+  const email = str(d.email, `${feId}@propertyflow.local`).trim().toLowerCase()
   let passwordSql = `crypt('ChangeMe123!', gen_salt('bf'))`
   let passwordParam: string | null = null
   if (typeof d.passwordHash === 'string' && d.passwordHash) {
@@ -472,8 +472,9 @@ async function upsertUser(feId: string, d: Record<string, unknown>): Promise<str
 
   // P0-sa-mint: public.users + password_hash alone is not Supabase Auth.
   // When a temp/plain password is supplied, create auth.users (+ identity),
-  // link auth_user_id (repairs NULL orphans), and verify password grant
-  // before reporting persist success — same honesty gate as register-supabase.
+  // link auth_user_id on THIS profileId, and verify password grant before OK.
+  // Residual (r13d): profile INSERT then link is non-atomic — on Auth failure
+  // delete the orphan so FE error cannot leave a sign-in-dead public.users row.
   const plainPassword =
     typeof d.tempPassword === 'string' && d.tempPassword
       ? d.tempPassword
@@ -481,15 +482,54 @@ async function upsertUser(feId: string, d: Record<string, unknown>): Promise<str
         ? d.password
         : null
   if (plainPassword) {
-    const { linkStaffAuthUser } = await import('./supabase/registerUser.js')
-    await linkStaffAuthUser({
-      email,
-      password: plainPassword,
-      firstName: first,
-      lastName: last || first,
-      phone: d.phone ? str(d.phone) : undefined,
-      roleFe: feRole,
+    console.info('[upsertUser] path=server linkStaffAuthUser=run', {
+      feId,
       profileId: uuid,
+      email,
+    })
+    try {
+      const { linkStaffAuthUser } = await import('./supabase/registerUser.js')
+      await linkStaffAuthUser({
+        email,
+        password: plainPassword,
+        firstName: first,
+        lastName: last || first,
+        phone: d.phone ? str(d.phone) : undefined,
+        roleFe: feRole,
+        profileId: uuid,
+      })
+      const linkedRows = await query<{ auth_user_id: string | null }>(
+        `SELECT auth_user_id::text AS auth_user_id FROM public.users WHERE id = $1::uuid`,
+        [uuid],
+      )
+      if (!linkedRows[0]?.auth_user_id) {
+        throw Object.assign(
+          new Error('Auth link did not set auth_user_id on mint profileId'),
+          { status: 500 },
+        )
+      }
+    } catch (err) {
+      try {
+        await query(
+          `DELETE FROM public.users WHERE id = $1::uuid AND auth_user_id IS NULL`,
+          [uuid],
+        )
+        await forgetId('user', feId)
+        console.info('[upsertUser] Auth fail — rolled back orphan profile', {
+          feId,
+          profileId: uuid,
+          email,
+        })
+      } catch (rollbackErr) {
+        console.error('[upsertUser] orphan rollback failed', rollbackErr)
+      }
+      throw err
+    }
+  } else {
+    console.info('[upsertUser] path=server linkStaffAuthUser=skipped', {
+      feId,
+      profileId: uuid,
+      email,
     })
   }
   return uuid
