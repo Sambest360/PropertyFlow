@@ -19,6 +19,7 @@ import { withReturnTo } from '../lib/returnTo'
 import { Badge, Button, PageHeader, cn } from '../components/ui'
 import type { AppUser } from '../types/domain'
 import { OwnerStatementDownloadPanel } from '../components/ownerStatement/OwnerStatementDownloadPanel'
+import { RentRollAuditPackPanel } from '../components/rentRoll/RentRollAuditPackPanel'
 
 const ICON_STROKE = 1.6
 const VIEW_KEY = 'propertyflow-landlords-view'
@@ -211,6 +212,14 @@ export default function LandlordsDirectory() {
                         storeDocument
                         compact
                       />
+                      <RentRollAuditPackPanel
+                        agencyId={item.user.agencyId}
+                        agencyName={item.agencyName}
+                        landlordUserId={item.user.id}
+                        landlordName={item.user.name}
+                        compact
+                        includeOwnerStatements={false}
+                      />
                     </div>
                   ) : null}
                 </li>
@@ -243,14 +252,24 @@ export default function LandlordsDirectory() {
                   {item.propertyCount} linked {item.propertyCount === 1 ? 'property' : 'properties'}
                 </p>
                 {canDownloadStatement && item.user.agencyId ? (
-                  <OwnerStatementDownloadPanel
-                    landlordUserId={item.user.id}
-                    landlordName={item.user.name}
-                    agencyId={item.user.agencyId}
-                    agencyName={item.agencyName}
-                    storeDocument
-                    compact
-                  />
+                  <>
+                    <OwnerStatementDownloadPanel
+                      landlordUserId={item.user.id}
+                      landlordName={item.user.name}
+                      agencyId={item.user.agencyId}
+                      agencyName={item.agencyName}
+                      storeDocument
+                      compact
+                    />
+                    <RentRollAuditPackPanel
+                      agencyId={item.user.agencyId}
+                      agencyName={item.agencyName}
+                      landlordUserId={item.user.id}
+                      landlordName={item.user.name}
+                      compact
+                      includeOwnerStatements={false}
+                    />
+                  </>
                 ) : null}
               </div>
             ))}

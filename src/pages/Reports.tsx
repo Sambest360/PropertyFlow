@@ -34,6 +34,7 @@ import { Button, Select, cn } from '../components/ui'
 import { formatZAR } from '../data/seed'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
 import { buildReportMetrics, type ReportTab } from '../lib/reportMetrics'
+import { RentRollAuditPackPanel } from '../components/rentRoll/RentRollAuditPackPanel'
 
 type Audience = 'platform' | 'agency' | 'owner'
 
@@ -239,6 +240,16 @@ export default function Reports() {
         {activeTab !== 'overview' && showOccupancy && (
           <OccupancyStrip metrics={metrics} />
         )}
+
+        {showOccupancy && agencyId ? (
+          <RentRollAuditPackPanel
+            agencyId={agencyId}
+            agencyName={agencyName || 'Agency'}
+            landlordUserId={audience === 'owner' ? user.id : null}
+            landlordName={audience === 'owner' ? user.name : null}
+            includeOwnerStatements={audience !== 'owner'}
+          />
+        ) : null}
 
         {showPipeline && activeTab !== 'overview' && (
           <div className="grid gap-5 xl:grid-cols-2">
