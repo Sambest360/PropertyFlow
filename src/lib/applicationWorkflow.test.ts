@@ -307,3 +307,39 @@ describe('Mode A purchase invent-kill labels', () => {
     expect(primaryNextTransition(app, ['applications.review'])).not.toBeNull()
   })
 })
+
+describe('Mode A PCR soft-gate on keys / move-in', () => {
+  it('hides KEYS_READY until incoming PCR soft-signed or override', () => {
+    const app = normalizeApplication(
+      rentalApp({
+        workflowStatus: 'inspection_completed',
+        stage: 'Move-in inspection completed',
+        documents: verifiedFicaPackDocs(),
+        ...clearedScreeningFields(),
+      }),
+    )
+    const blocked = getAvailableTransitions(app, ['applications.review'])
+    expect(blocked.some((a) => a.actionKey === 'KEYS_READY')).toBe(false)
+
+    const cleared = normalizeApplication({
+      ...app,
+      pcrInspections: [
+        {
+          id: 'pcr-in-APP-1',
+          agencyId: app.agencyId,
+          applicationId: app.id,
+          propertyId: app.propertyId,
+          kind: 'incoming',
+          status: 'signed',
+          rooms: [],
+          generalNotes: '',
+          ingoingPcrSigned: true,
+          createdAt: '2026-10-01T10:00:00+02:00',
+          updatedAt: '2026-10-01T10:00:00+02:00',
+        },
+      ],
+    })
+    const open = getAvailableTransitions(cleared, ['applications.review'])
+    expect(open.some((a) => a.actionKey === 'KEYS_READY')).toBe(true)
+  })
+})

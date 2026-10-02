@@ -16,6 +16,7 @@ import { Badge, Card, cn } from '../ui'
 import { formatLeadTime } from '../../lib/leadLifecycle'
 import { FicaPackModeABanner } from '../fica/FicaPackModeABanner'
 import { ScreeningModeABanner } from '../screening/ScreeningModeABanner'
+import { PcrModeABanner } from '../pcr/PcrModeABanner'
 import { FICA_PACK_KEYS } from '../../lib/ficaPack'
 
 const EARLY_DETAIL_STAGES: WorkflowStatusKey[] = ['application_started', 'application_submitted']
@@ -119,6 +120,20 @@ export function LifecycleStagePanel({
           stageKey === 'lease_generated' ||
           stageKey === 'lease_sent') ? (
           <ScreeningModeABanner
+            application={application}
+            showGate={canReview && !applicantMode}
+          />
+        ) : null}
+
+        {application.type === 'Rental' &&
+        (stageKey === 'inspection_scheduled' ||
+          stageKey === 'inspection_completed' ||
+          stageKey === 'keys_ready' ||
+          stageKey === 'keys_handed_over' ||
+          stageKey === 'active_tenancy' ||
+          stageKey === 'move_out_inspection' ||
+          stageKey === 'deposit_refunded') ? (
+          <PcrModeABanner
             application={application}
             showGate={canReview && !applicantMode}
           />

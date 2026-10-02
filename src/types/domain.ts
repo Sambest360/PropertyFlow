@@ -415,6 +415,66 @@ export type Application = {
     lodgementReferenceNote?: string
     updatedAt?: string
   }
+  /**
+   * Mode A soft PCR / inspections beside occupancy (incoming + outgoing).
+   * Not PropertyInspect parity / not RHA legal advice / not a full field PCR product.
+   */
+  pcrInspections?: PropertyConditionInspectionRecord[]
+}
+
+/** Soft Mode A PCR inspection row (mirrors src/lib/pcr types). */
+export type PropertyConditionInspectionRecord = {
+  id: string
+  agencyId: string
+  applicationId: string
+  propertyId: string
+  tenancyId?: string | null
+  unitId?: string | null
+  kind: 'incoming' | 'outgoing'
+  status: 'draft' | 'scheduled' | 'in_progress' | 'completed' | 'signed' | 'no_show_override'
+  scheduledOn?: string | null
+  completedAt?: string | null
+  rooms: Array<{
+    id: string
+    name: string
+    notes: string
+    items: Array<{
+      id: string
+      label: string
+      condition: 'excellent' | 'good' | 'fair' | 'poor' | 'damaged' | 'missing' | 'not_checked'
+      notes: string
+      photos: Array<{ id: string; url: string; caption?: string; capturedAt?: string }>
+      needsMaintenance?: boolean
+    }>
+  }>
+  generalNotes: string
+  staffSignature?: {
+    role: 'staff' | 'tenant'
+    signedByUserId: string | null
+    signedByName: string
+    signedAt: string
+    method: 'in_app_ack' | 'staff_recorded'
+    note?: string
+  } | null
+  tenantSignature?: {
+    role: 'staff' | 'tenant'
+    signedByUserId: string | null
+    signedByName: string
+    signedAt: string
+    method: 'in_app_ack' | 'staff_recorded'
+    note?: string
+  } | null
+  noShowOverride?: {
+    byUserId: string
+    byName: string
+    at: string
+    reason: string
+    kind: 'tenant_no_show' | 'admin_override'
+  } | null
+  /** Soft-gate flag for keys / move-in (incoming). */
+  ingoingPcrSigned: boolean
+  createdAt: string
+  updatedAt: string
 }
 
 export type ViewingSlot = {

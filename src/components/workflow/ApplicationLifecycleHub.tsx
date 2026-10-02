@@ -34,6 +34,8 @@ import { PurchaseClosingChecklistPanel } from '../conveyancing/PurchaseClosingCh
 import { ConveyancingModeABanner } from '../conveyancing/ConveyancingModeABanner'
 import { FicaPackModeABanner } from '../fica/FicaPackModeABanner'
 import { ScreeningModeABanner } from '../screening/ScreeningModeABanner'
+import { PcrModeABanner } from '../pcr/PcrModeABanner'
+import { InspectionPcrPanel } from '../pcr/InspectionPcrPanel'
 import { WorkflowActionModal } from './WorkflowActionModal'
 import { Badge, Card, cn, statusTone } from '../ui'
 import { useAgentDisplay } from '../../hooks/useAgentDisplay'
@@ -303,6 +305,9 @@ export function ApplicationLifecycleHub({
       {application.type === 'Rental' ? (
         <ScreeningModeABanner application={application} showGate={canReview && !applicantMode} />
       ) : null}
+      {application.type === 'Rental' ? (
+        <PcrModeABanner application={application} showGate={canReview && !applicantMode} />
+      ) : null}
 
       <Card className="overflow-hidden border-primary-100 p-0">
         <div className="border-b border-primary-100 bg-gradient-to-r from-primary-50/70 via-white to-brand-50/40 px-5 py-4">
@@ -412,6 +417,30 @@ export function ApplicationLifecycleHub({
           application={application}
           canEdit={canReview && !applicantMode}
           onSave={(purchaseClosing) => updateApplication(application.id, { purchaseClosing })}
+        />
+      ) : null}
+
+      {application.type === 'Rental' && !applicantMode ? (
+        <InspectionPcrPanel
+          application={application}
+          propertyTitle={property?.title ?? 'Property'}
+          propertyAddress={
+            property
+              ? [property.address, property.suburb, property.city].filter(Boolean).join(', ')
+              : '—'
+          }
+          agencyName={
+            state.agencies.find((a) => a.id === application.agencyId)?.name ?? 'Agency'
+          }
+          canReview={canReview}
+          actor={{
+            userId: actor.userId,
+            name: state.users.find((u) => u.id === actor.userId)?.name ?? 'Staff',
+          }}
+          onSave={(patch) => {
+            updateApplication(application.id, patch)
+            onSaveDetails?.(patch)
+          }}
         />
       ) : null}
 

@@ -147,7 +147,10 @@ export function getActionFormSpec(actionKey: string, application: Application): 
     return {
       kind: 'fields',
       title: actionKey === 'COMPLETE_VIEWING' ? 'Complete viewing' : 'Complete inspection',
-      description: 'Record attendance and any notes for the file.',
+      description:
+        actionKey === 'COMPLETE_INSPECTION'
+          ? 'Stage-flip complete inspection. Soft-sign the Mode A PCR pack (or audited no-show override) still required before keys / move-in — not PropertyInspect parity.'
+          : 'Record attendance and any notes for the file.',
       confirmLabel: 'Mark complete',
       fields: [{ key: 'notes', label: 'Notes', type: 'textarea', placeholder: 'Feedback, attendance, condition notes…' }],
     }
