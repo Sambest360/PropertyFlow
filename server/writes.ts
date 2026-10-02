@@ -469,6 +469,29 @@ async function upsertUser(feId: string, d: Record<string, unknown>): Promise<str
       ],
     )
   }
+
+  // P0-sa-mint: public.users + password_hash alone is not Supabase Auth.
+  // When a temp/plain password is supplied, create auth.users (+ identity),
+  // link auth_user_id (repairs NULL orphans), and verify password grant
+  // before reporting persist success — same honesty gate as register-supabase.
+  const plainPassword =
+    typeof d.tempPassword === 'string' && d.tempPassword
+      ? d.tempPassword
+      : typeof d.password === 'string' && d.password
+        ? d.password
+        : null
+  if (plainPassword) {
+    const { linkStaffAuthUser } = await import('./supabase/registerUser.js')
+    await linkStaffAuthUser({
+      email,
+      password: plainPassword,
+      firstName: first,
+      lastName: last || first,
+      phone: d.phone ? str(d.phone) : undefined,
+      roleFe: feRole,
+      profileId: uuid,
+    })
+  }
   return uuid
 }
 

@@ -110,6 +110,24 @@ export function preferServerPersistForApplication(
   return resource === 'application' && action === 'upsert'
 }
 
+/**
+ * P0-sa-mint: user upserts that carry a temp/plain password must hit the server
+ * path (upsertUser → linkStaffAuthUser). Browser Supabase persist only writes
+ * public.users and leaves auth_user_id NULL — toast-only agents that cannot sign in.
+ */
+export function preferServerPersistForUserMint(
+  resource: PersistOp['resource'],
+  action: PersistOp['action'],
+  data?: Record<string, unknown>,
+): boolean {
+  if (resource !== 'user' || action !== 'upsert') return false
+  const d = data ?? {}
+  return (
+    (typeof d.tempPassword === 'string' && d.tempPassword.length > 0) ||
+    (typeof d.password === 'string' && d.password.length > 0)
+  )
+}
+
 export async function persistToApi(op: PersistOp): Promise<boolean> {
   if (isSupabaseMode) {
     // P0-sync (R12/R13): application upserts are fail-closed on /api/persist.
@@ -118,6 +136,11 @@ export async function persistToApi(op: PersistOp): Promise<boolean> {
     // staff bootstrap never loads the row is worse than a hard apply error.
     // createApplication awaits this and rolls back the optimistic APP on false.
     if (preferServerPersistForApplication(op.resource, op.action)) {
+      return persistViaServerApi(op)
+    }
+    // P0-sa-mint: staff/agent create with temp password — Auth + link + verify
+    // only exists on the server upsertUser path (not browser RLS upsert).
+    if (preferServerPersistForUserMint(op.resource, op.action, op.data)) {
       return persistViaServerApi(op)
     }
     return persistToSupabase(op)

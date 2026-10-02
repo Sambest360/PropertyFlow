@@ -91,7 +91,7 @@ function fullDisplayName(first: string, last: string): string {
 export default function AdminUserCreatePage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { state, createUser, updateProperty, updateTenancy, notify } = useStore()
+  const { state, createUserDurable, updateProperty, updateTenancy, notify } = useStore()
   const { has, user: authUser } = useAuth()
   const { agencyId: scopeAgencyId } = useAgencyScope()
   const isPlatform = has('platform.manage')
@@ -172,6 +172,7 @@ export default function AdminUserCreatePage() {
   const [sendInvite, setSendInvite] = useState(true)
   const [tempPassword, setTempPassword] = useState('ChangeMe123!')
   const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
 
   const selectedAgencyId = lockAgency ? defaultAgencyId : agencyId
   const selectedAgency = useMemo(
@@ -406,7 +407,8 @@ export default function AdminUserCreatePage() {
     setStepId(next.id as StepId)
   }
 
-  const finish = () => {
+  const finish = async () => {
+    if (submitting) return
     const agency = state.agencies.find((a) => a.id === selectedAgencyId)
     const allowed = agency?.enabledPermissions?.length
       ? new Set(agency.enabledPermissions)
@@ -419,7 +421,10 @@ export default function AdminUserCreatePage() {
         ? Math.min(100, Math.max(0, Number(commissionSharePct) || 0))
         : undefined
 
-    const created = createUser({
+    const plainTemp = tempPassword.trim() || 'ChangeMe123!'
+    setSubmitting(true)
+    setError('')
+    const result = await createUserDurable({
       name: fullDisplayName(firstName, lastName),
       firstName: firstName.trim(),
       lastName: lastName.trim(),
@@ -438,7 +443,7 @@ export default function AdminUserCreatePage() {
       licenseStatus: defaultLicenseStatus(role),
       commissionSharePct: commission,
       active: true,
-      tempPassword: tempPassword.trim() || 'ChangeMe123!',
+      tempPassword: plainTemp,
       verification: needsComplianceStep(role)
         ? {
             status: 'pending',
@@ -455,6 +460,14 @@ export default function AdminUserCreatePage() {
         : undefined,
     })
 
+    if (result.ok === false) {
+      setSubmitting(false)
+      setError(result.error || 'User could not be created.')
+      return
+    }
+
+    const created = result.user
+
     if (role === 'tenant' && tenancyId) {
       updateTenancy(tenancyId, {
         tenantUserId: created.id,
@@ -469,6 +482,7 @@ export default function AdminUserCreatePage() {
       }
     }
 
+    // Success notify ONLY after durable Auth+profile write verified.
     if (sendInvite) {
       const agencyLabel =
         role === 'super_admin' ? 'PropertyFlow' : selectedAgency?.name ?? 'your agency'
@@ -484,18 +498,18 @@ export default function AdminUserCreatePage() {
         userId: authUser.id,
         agencyId: authUser.agencyId,
         title: 'User created — copy temp password',
-        body: `Account ${created.email} / temp password: ${tempPassword.trim() || 'ChangeMe123!'}. Share securely; they should change it after first login.`,
+        body: `Account ${created.email} / temp password: ${plainTemp}. Share securely; they should change it after first login.`,
         link: `/workspace/admin/users/${created.id}`,
       })
     }
 
-    navigate(`/workspace/admin/users/${created.id}?tab=access`)
     try {
       sessionStorage.removeItem(`${USER_DRAFT_KEY}:draft`)
       sessionStorage.removeItem(`${USER_DRAFT_KEY}:step`)
     } catch {
       /* ignore */
     }
+    navigate(`/workspace/admin/users/${created.id}?tab=access`)
   }
 
   const submit = (e: FormEvent) => {
@@ -563,7 +577,7 @@ export default function AdminUserCreatePage() {
       return
     }
 
-    finish()
+    void finish()
   }
 
   const pageTitle = intentLandlord
@@ -642,8 +656,13 @@ export default function AdminUserCreatePage() {
                 type="submit"
                 form="add-user-form"
                 className="min-h-11 cursor-pointer"
+                disabled={submitting && stepId === 'review'}
               >
-                {stepId === 'review' ? 'Create user' : 'Continue'}
+                {stepId === 'review'
+                  ? submitting
+                    ? 'Creating…'
+                    : 'Create user'
+                  : 'Continue'}
               </Button>
             </>
           }
