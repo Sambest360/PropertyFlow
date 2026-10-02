@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { AppUser, Permission, Role } from '../types/domain'
 import {
   canImpersonateTarget,
@@ -44,7 +44,20 @@ import {
   supabaseSignOut,
   supabaseSignUp,
 } from '../lib/supabase/auth'
-import { clearSessionArtifacts, isLoginInFlight, isRegisterInFlight, setLoginInFlight, setRegisterInFlight } from '../lib/auth/sessionArtifacts'
+import {
+  beginGuestPurge,
+  clearSessionArtifacts,
+  consumeStaleSignOutIgnore,
+  endGuestPurge,
+  guestPurgeGenerationCurrent,
+  guestPurgesInFlight,
+  isLoginInFlight,
+  isRegisterInFlight,
+  setGuestPurgeDrainHook,
+  setLoginInFlight,
+  setRegisterInFlight,
+  shieldGuestPurgeForLogin,
+} from '../lib/auth/sessionArtifacts'
 
 const AUTH_KEY = 'propertyflow-auth-user'
 const REAL_AUTH_KEY = 'propertyflow-auth-real-user'
@@ -152,6 +165,8 @@ type AuthContextValue = {
    *  Auth pages call this on mount so a previous user's live session can never
    *  hydrate there ("Riaan on /register", "Samuel on /login"). */
   purgeLocalIdentity: () => Promise<void>
+  /** True while login() is shielding the session through the first portal commit. */
+  loginInFlight: boolean
   switchUser: (userId: string) => void
   impersonate: (userId: string) => boolean
   stopImpersonation: () => void
@@ -168,6 +183,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { state, addActivity, refreshBootstrap } = useStore()
   const [authReady, setAuthReady] = useState(false)
   const [sessionUser, setSessionUser] = useState<AppUser | null>(null)
+  // remint58 grace2: React mirror of the module loginInFlight flag so
+  // RequireAuth re-renders when the post-sign-in hold drops.
+  const [loginInFlight, setLoginInFlightState] = useState(false)
+  const loginHoldGen = useRef(0)
+  const releaseRequestedGen = useRef<number | null>(null)
   const [userId, setUserId] = useState(() => localStorage.getItem(AUTH_KEY) || '')
   const [realUserId, setRealUserId] = useState<string | null>(() => localStorage.getItem(REAL_AUTH_KEY))
 
@@ -249,14 +269,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // into the shell mid-registration — the register flow owns the session.
       // P0 empty-DB SA: same for login — a late null from auth-change must not
       // clear the Super Admin session that login() just applied.
-      if (isRegisterInFlight() || isLoginInFlight()) return
       if (profile) {
+        // Mid-login the login() apply already owns the shell; ignore echoes.
+        if (isRegisterInFlight() || isLoginInFlight()) return
         applySessionUser(profile, setSessionUser, setUserId, setRealUserId)
-      } else {
-        setSessionUser(null)
-        setUserId('')
-        setRealUserId(null)
+        return
       }
+      // remint58: a guest-mount signOut can resolve after login() and emit
+      // signed-out. Ignore that null while the hold is up, and once more if
+      // it was armed as a stale pre-login purge (even after the hold drops).
+      if (isRegisterInFlight()) return
+      if (isLoginInFlight()) {
+        consumeStaleSignOutIgnore()
+        return
+      }
+      if (consumeStaleSignOutIgnore()) return
+      setSessionUser(null)
+      setUserId('')
+      setRealUserId(null)
     })
     return unsubscribe
   }, [])
@@ -359,6 +389,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [user, realUser, isImpersonating, state.agencies, isAuthenticated])
 
+  const releaseLoginHold = useCallback(() => {
+    const gen = releaseRequestedGen.current
+    if (gen == null) return
+    // An in-flight guest purge must finish (and skip its clear) before the
+    // shield drops — otherwise its late signOut null races the portal commit.
+    if (guestPurgesInFlight() > 0) return
+    window.setTimeout(() => {
+      window.setTimeout(() => {
+        if (releaseRequestedGen.current !== gen) return
+        if (guestPurgesInFlight() > 0) return
+        releaseRequestedGen.current = null
+        setLoginInFlight(false)
+        setLoginInFlightState(false)
+      }, 0)
+    }, 0)
+  }, [])
+
+  useEffect(() => {
+    setGuestPurgeDrainHook(() => {
+      if (releaseRequestedGen.current == null) return
+      releaseLoginHold()
+    })
+    return () => setGuestPurgeDrainHook(null)
+  }, [releaseLoginHold])
+
   const value = useMemo<AuthContextValue>(() => {
     const agencyEnabled = agency?.enabledPermissions
     const occupancyReady =
@@ -383,10 +438,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       authReady,
       isImpersonating,
       demoSwitcherEnabled: DEMO_SWITCHER,
+      loginInFlight,
       login: async (email, password) => {
         // P0 empty-DB SA: block LoginPage mount purge + auth-change null from
         // wiping the session we are about to apply.
+        // remint58 grace2: do NOT drop the shield in finally. LoginPage
+        // navigates only after this promise resolves; a guest purge that
+        // already awaited signOut, and the deferred signed-out callback,
+        // must still see the hold (or a generation ignore) until the portal
+        // route has committed.
+        const holdGen = ++loginHoldGen.current
+        releaseRequestedGen.current = null
         setLoginInFlight(true)
+        setLoginInFlightState(true)
+        shieldGuestPurgeForLogin()
         try {
           if (isSupabaseMode) {
             const appUser = await supabaseSignIn(email, password)
@@ -399,6 +464,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               role: appUser.role,
               agencyId: appUser.agencyId,
             })
+            if (loginHoldGen.current === holdGen) {
+              releaseRequestedGen.current = holdGen
+              releaseLoginHold()
+            }
             return appUser
           }
           const res = await apiLogin({ email, password })
@@ -412,9 +481,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             role: appUser.role,
             agencyId: appUser.agencyId,
           })
+          if (loginHoldGen.current === holdGen) {
+            releaseRequestedGen.current = holdGen
+            releaseLoginHold()
+          }
           return appUser
-        } finally {
-          setLoginInFlight(false)
+        } catch (err) {
+          // The guest purge was invalidated for this attempt; on failure it
+          // will not clear. Restore anonymity ourselves.
+          if (loginHoldGen.current === holdGen) {
+            releaseRequestedGen.current = null
+            setLoginInFlight(false)
+            setLoginInFlightState(false)
+            clearSessionArtifacts({ setSessionUser, setUserId, setRealUserId })
+            setApiActor(null)
+          }
+          throw err
         }
       },
       register: async (input) => {
@@ -478,16 +560,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // server-side first (best effort), then clear every artifact.
         // P0 empty-DB SA: if login already started, do not sign out / clear —
         // LoginPage mounts purge on every visit including /login?next= kicks.
+        // remint58: a purge that started before login() must not clear after
+        // signOut resolves — login() bumps the purge generation.
         if (isLoginInFlight() || isRegisterInFlight()) return
+        const generation = beginGuestPurge()
         try {
-          if (isSupabaseMode) await supabaseSignOut()
-          else await apiLogout()
-        } catch {
-          /* fall through — artifacts cleared below regardless */
+          try {
+            if (isSupabaseMode) await supabaseSignOut()
+            else await apiLogout()
+          } catch {
+            /* fall through — artifacts cleared below regardless */
+          }
+          if (isLoginInFlight() || isRegisterInFlight()) return
+          if (!guestPurgeGenerationCurrent(generation)) return
+          clearSessionArtifacts({ setSessionUser, setUserId, setRealUserId })
+          setApiActor(null)
+        } finally {
+          endGuestPurge()
         }
-        if (isLoginInFlight() || isRegisterInFlight()) return
-        clearSessionArtifacts({ setSessionUser, setUserId, setRealUserId })
-        setApiActor(null)
       },
       switchUser: (id: string) => {
         if (!DEMO_SWITCHER) return
@@ -555,7 +645,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     addActivity,
     isAuthenticated,
     authReady,
+    loginInFlight,
     refreshBootstrap,
+    releaseLoginHold,
   ])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

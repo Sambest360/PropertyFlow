@@ -1,8 +1,14 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import {
+  beginGuestPurge,
   clearSessionArtifacts,
+  consumeStaleSignOutIgnore,
+  endGuestPurge,
+  guestPurgeGenerationCurrent,
+  guestPurgesInFlight,
   isLoginInFlight,
   setLoginInFlight,
+  shieldGuestPurgeForLogin,
   registerWithSessionGuard,
   AUTH_STORAGE_KEYS,
 } from './sessionArtifacts'
@@ -157,5 +163,20 @@ describe('loginInFlight (P0 empty-DB SA)', () => {
     expect(isLoginInFlight()).toBe(true)
     setLoginInFlight(false)
     expect(isLoginInFlight()).toBe(false)
+  })
+})
+
+describe('remint58 login purge shield', () => {
+  it('invalidates an in-flight guest purge and arms one stale signed-out ignore', () => {
+    setLoginInFlight(false)
+    const generation = beginGuestPurge()
+    expect(guestPurgeGenerationCurrent(generation)).toBe(true)
+    expect(guestPurgesInFlight()).toBe(1)
+    shieldGuestPurgeForLogin()
+    expect(guestPurgeGenerationCurrent(generation)).toBe(false)
+    expect(consumeStaleSignOutIgnore()).toBe(true)
+    expect(consumeStaleSignOutIgnore()).toBe(false)
+    endGuestPurge()
+    expect(guestPurgesInFlight()).toBe(0)
   })
 })
