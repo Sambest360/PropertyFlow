@@ -157,11 +157,16 @@ import {
 import type { PostgresBootstrap } from '../lib/api/postgresClient'
 import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
 import {
+  bootstrapActorKey,
   dedupeBootstrapFetch,
   scheduleDeferredFullBootstrap,
 } from '../lib/bootstrapCoord'
 import { readStoredAuthUserId, getApiActor, actorHeaders, type DemoActor } from '../lib/api/actorAuth'
-import { isTenantBootstrapActor, shouldAcceptSupabaseBootstrap, shouldWipeAuthAfterBootstrapMiss } from '../lib/emptyBootstrapAuth'
+import {
+  shouldAcceptSupabaseBootstrap,
+  shouldSoftMissEmptyApplicationsBootstrap,
+  shouldWipeAuthAfterBootstrapMiss,
+} from '../lib/emptyBootstrapAuth'
 import { authHeaders } from '../lib/api/authClient'
 import { buildPublicMarketplaceDemoBootstrap } from '../lib/publicMarketplaceDemo'
 import {
@@ -246,8 +251,73 @@ function actorFromUsers(
   return { userId: u.id, role: u.role, agencyId: u.agencyId }
 }
 
+/**
+ * Prefer Auth/getApiActor over mount-time users hydrate.
+ * actorFromUsers returns null until users row exists even when AUTH_KEY is set —
+ * that null-actor race bypassed #56 tenant fail-closed.
+ */
+function resolveBootstrapActor(
+  users: AppUser[],
+  override?: DemoActor | null,
+): DemoActor | null {
+  if (override) return override
+  const api = getApiActor()
+  if (api?.userId && api.role) return api
+  return actorFromUsers(users)
+}
+
+/** Preserve portal apps/TN FE user ids when a later boot re-emits null FE links. */
+function preservePortalFeLinks(base: AppState, boot: PostgresBootstrap): PostgresBootstrap {
+  const liveId = readStoredAuthUserId() ?? getApiActor()?.userId ?? null
+  if (!liveId) return boot
+
+  const bootApps = (boot.applications as Array<Record<string, unknown>> | undefined) ?? undefined
+  const bootTns = (boot.tenancies as Array<Record<string, unknown>> | undefined) ?? undefined
+
+  let applications = boot.applications
+  let tenancies = boot.tenancies
+
+  if (Array.isArray(bootApps)) {
+    const baseById = new Map(base.applications.map((a) => [a.id, a]))
+    applications = bootApps.map((row) => {
+      const id = typeof row.id === 'string' ? row.id : ''
+      const prev = id ? baseById.get(id) : undefined
+      if (!prev) return row
+      const remoteApplicant = row.applicantUserId
+      if (
+        prev.applicantUserId === liveId &&
+        (remoteApplicant == null || remoteApplicant === '')
+      ) {
+        return { ...row, applicantUserId: prev.applicantUserId }
+      }
+      return row
+    }) as typeof boot.applications
+  }
+
+  if (Array.isArray(bootTns)) {
+    const baseById = new Map(base.tenancies.map((t) => [t.id, t]))
+    tenancies = bootTns.map((row) => {
+      const id = typeof row.id === 'string' ? row.id : ''
+      const prev = id ? baseById.get(id) : undefined
+      if (!prev) return row
+      const remoteTenant = row.tenantUserId
+      if (
+        prev.tenantUserId === liveId &&
+        (remoteTenant == null || remoteTenant === '')
+      ) {
+        return { ...row, tenantUserId: prev.tenantUserId }
+      }
+      return row
+    }) as typeof boot.tenancies
+  }
+
+  if (applications === boot.applications && tenancies === boot.tenancies) return boot
+  return { ...boot, applications, tenancies }
+}
+
 /** When Postgres bootstrap succeeds, merge server rows with recent local writes. */
 function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppState {
+  boot = preservePortalFeLinks(base, boot)
   const agencies = ((boot.agencies as Agency[]) ?? []).map((a) => ({
     ...a,
     enabledPermissions:
@@ -867,7 +937,15 @@ function loadState(): AppState {
 const StoreContext = createContext<StoreContextValue | null>(null)
 
 async function fetchBootstrapFromApi(lite: boolean, actor: DemoActor | null, fullTimeoutMs = 10_000) {
-  const guest = !actor?.userId && !readStoredAuthUserId()
+  // Prefer live Auth actor when callers still pass mount-time null.
+  const apiActor = getApiActor()
+  const effective =
+    actor?.userId && actor.role
+      ? actor
+      : apiActor?.userId && apiActor.role
+        ? apiActor
+        : actor
+  const guest = !effective?.userId && !readStoredAuthUserId()
 
   if (isSupabaseMode && guest) {
     const { fetchPublicMarketplaceBootstrap } = await import('../lib/supabase/publicMarketplace')
@@ -879,18 +957,19 @@ async function fetchBootstrapFromApi(lite: boolean, actor: DemoActor | null, ful
   if (isSupabaseMode) {
     const { fetchSupabaseBootstrap } = await import('../lib/supabase/data')
     const sessionProof = {
-      actorUserId: actor?.userId ?? null,
+      actorUserId: effective?.userId ?? apiActor?.userId ?? null,
       storedAuthUserId: readStoredAuthUserId(),
-      actorRole: actor?.role ?? null,
+      actorRole: effective?.role ?? apiActor?.role ?? null,
     }
     let boot: Awaited<ReturnType<typeof fetchSupabaseBootstrap>> | null = null
     try {
-      boot = await fetchSupabaseBootstrap(lite, { actorRole: actor?.role ?? null })
+      boot = await fetchSupabaseBootstrap(lite, { actorRole: sessionProof.actorRole })
       // P0-2: stale auth ids used to yield EMPTY arrays — requiring units
       // caught that. P0 empty-DB SA: 0 units / 0 agencies with a live session
       // is valid empty-start, NOT stale-auth (do not wipe propertyflow-auth-user).
       // Mode A Sipho: END_USER/tenant + applications:[] under live session is
       // NOT remint success — data.ts already awaited session + retried apps.
+      // remint56: null actorRole + AUTH_KEY + empty apps also fail-closed.
       if (shouldAcceptSupabaseBootstrap({ boot, ...sessionProof })) return boot
     } catch {
       // Hard failure (network/expired token).
@@ -898,13 +977,9 @@ async function fetchBootstrapFromApi(lite: boolean, actor: DemoActor | null, ful
     }
     if (!shouldWipeAuthAfterBootstrapMiss({ boot, ...sessionProof })) {
       // Live SA/session: keep auth. SA empty-start may still accept above.
-      // Tenant empty-apps after retries: soft hydrate-miss — do NOT lock
-      // applications:[] as success (refreshBootstrap keeps prior state).
-      if (
-        boot &&
-        isTenantBootstrapActor(sessionProof.actorRole) &&
-        (!Array.isArray(boot.applications) || boot.applications.length === 0)
-      ) {
+      // Tenant / null-actor empty-apps after retries: soft hydrate-miss — do NOT
+      // lock applications:[] as success (refreshBootstrap keeps prior state).
+      if (shouldSoftMissEmptyApplicationsBootstrap({ boot, ...sessionProof })) {
         return null
       }
       return boot
@@ -921,7 +996,7 @@ async function fetchBootstrapFromApi(lite: boolean, actor: DemoActor | null, ful
   }
 
   const { fetchPostgresBootstrap } = await import('../lib/api/postgresClient')
-  const boot = await fetchPostgresBootstrap(fullTimeoutMs, actor, lite)
+  const boot = await fetchPostgresBootstrap(fullTimeoutMs, effective, lite)
   if (boot) return boot
   if (guest) return buildPublicMarketplaceDemoBootstrap()
   return null
@@ -967,8 +1042,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       opts?: { full?: boolean; force?: boolean; ingestNotifications?: boolean },
     ) => {
     const resolved =
-      actor === undefined ? actorFromUsers(stateRef.current.users) : actor
+      actor === undefined
+        ? resolveBootstrapActor(stateRef.current.users)
+        : resolveBootstrapActor(stateRef.current.users, actor)
     const lite = !opts?.full
+    const actorKey = bootstrapActorKey(resolved)
     const fetchBoot = () => fetchBootstrapFromApi(lite, resolved, opts?.full ? 20_000 : 10_000)
     const prevNotifications = stateRef.current.notifications
     const prevSuiteAlerts = stateRef.current.suiteAlerts
@@ -979,7 +1057,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       return
     }
 
-    const boot = await dedupeBootstrapFetch(lite, fetchBoot, { force: opts?.force })
+    const boot = await dedupeBootstrapFetch(lite, fetchBoot, { force: opts?.force, actorKey })
     if (!boot) {
       setState((prev) => ensureGuestMarketplace(prev))
       return
@@ -1005,21 +1083,30 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     }
     if (!opts?.full && isSupabaseMode) {
       scheduleDeferredFullBootstrap(() => {
-        void dedupeBootstrapFetch(false, () => fetchBootstrapFromApi(false, resolved, 25_000)).then(
-          (full) => {
-            if (!full) return
-            setState((prev) => applyPostgresBootstrap(prev, full))
-          },
-        )
+        // Re-resolve at run time — do not close over mount-time null actor.
+        const deferredActor = resolveBootstrapActor(stateRef.current.users)
+        const deferredKey = bootstrapActorKey(deferredActor)
+        void dedupeBootstrapFetch(
+          false,
+          () => fetchBootstrapFromApi(false, deferredActor, 25_000),
+          { actorKey: deferredKey },
+        ).then((full) => {
+          if (!full) return
+          setState((prev) => applyPostgresBootstrap(prev, full))
+        })
       })
     } else if (!opts?.full && isApiEnabled) {
       scheduleDeferredFullBootstrap(() => {
-        void dedupeBootstrapFetch(false, () => fetchBootstrapFromApi(false, resolved, 25_000)).then(
-          (full) => {
-            if (!full) return
-            setState((prev) => applyPostgresBootstrap(prev, full))
-          },
-        )
+        const deferredActor = resolveBootstrapActor(stateRef.current.users)
+        const deferredKey = bootstrapActorKey(deferredActor)
+        void dedupeBootstrapFetch(
+          false,
+          () => fetchBootstrapFromApi(false, deferredActor, 25_000),
+          { actorKey: deferredKey },
+        ).then((full) => {
+          if (!full) return
+          setState((prev) => applyPostgresBootstrap(prev, full))
+        })
       })
     }
   },
@@ -1033,7 +1120,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     }
     refreshAfterMutationRef.current = window.setTimeout(() => {
       refreshAfterMutationRef.current = null
-      const actor = actorFromUsers(stateRef.current.users)
+      const actor = resolveBootstrapActor(stateRef.current.users)
       void refreshBootstrap(actor, { force: true })
     }, 1500)
   }, [refreshBootstrap])
@@ -1049,8 +1136,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       stateRef.current.properties.length > 0
 
     const run = async () => {
-      const actor = actorFromUsers(stateRef.current.users)
-      const boot = await dedupeBootstrapFetch(true, () => fetchBootstrapFromApi(true, actor, 10_000))
+      const actor = resolveBootstrapActor(stateRef.current.users)
+      const actorKey = bootstrapActorKey(actor)
+      const boot = await dedupeBootstrapFetch(
+        true,
+        () => fetchBootstrapFromApi(true, actor, 10_000),
+        { actorKey },
+      )
       if (cancelled) return
       if (!boot) {
         setState((prev) => ensureGuestMarketplace(prev))
@@ -1069,12 +1161,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       )
       scheduleDeferredFullBootstrap(() => {
         if (cancelled) return
-        void dedupeBootstrapFetch(false, () => fetchBootstrapFromApi(false, actor, 25_000)).then(
-          (full) => {
-            if (cancelled || !full) return
-            setState((prev) => applyPostgresBootstrap(prev, full))
-          },
-        )
+        // Re-resolve at run time — mount may have closed over null before Auth hydrate.
+        const deferredActor = resolveBootstrapActor(stateRef.current.users)
+        const deferredKey = bootstrapActorKey(deferredActor)
+        void dedupeBootstrapFetch(
+          false,
+          () => fetchBootstrapFromApi(false, deferredActor, 25_000),
+          { actorKey: deferredKey },
+        ).then((full) => {
+          if (cancelled || !full) return
+          setState((prev) => applyPostgresBootstrap(prev, full))
+        })
       })
     }
 
@@ -1860,7 +1957,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem(PG_HYDRATED_FLAG)
       setState(defaultState())
       setToasts([])
-      const actor = actorFromUsers(defaultState().users)
+      const actor = resolveBootstrapActor(defaultState().users)
       if (!isApiEnabled && !isSupabaseMode) return
       void fetchBootstrapFromApi(false, actor).then((boot) => {
         if (!boot) return
