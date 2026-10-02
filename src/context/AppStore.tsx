@@ -383,6 +383,15 @@ type StoreContextValue = {
     password?: string
     tempPassword?: string
   }) => AppUser
+  /**
+   * P0-sa-mint: await durable Auth+profile persist before success UI.
+   * Rolls back the optimistic user when Auth link / grant verify fails.
+   */
+  createUserDurable: (input: Omit<AppUser, 'id' | 'active'> & {
+    active?: boolean
+    password?: string
+    tempPassword?: string
+  }) => Promise<{ ok: true; user: AppUser } | { ok: false; error: string; user?: AppUser }>
   updateUser: (id: string, patch: Partial<AppUser>) => void
   updateTenancy: (id: string, patch: Partial<Tenancy>) => void
   /** Issue lease PDF + e-sign envelope for an existing tenancy (approve path / manual). */
@@ -1871,6 +1880,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               : undefined,
       }
       patch((s) => ({ ...s, users: [...s.users, user] }))
+      // Fire-and-forget for legacy callers (e.g. landlord picker). Prefer
+      // createUserDurable for SA staff mint so success UI cannot race Auth.
       persistUpsert('user', user.id, {
         ...(user as unknown as Record<string, unknown>),
         ...(password ? { password } : {}),
@@ -1878,6 +1889,42 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ...(!password && !tempPassword ? { tempPassword: 'ChangeMe123!' } : {}),
       })
       return user
+    },
+    createUserDurable: async (input) => {
+      const { password, tempPassword, ...rest } = input as typeof input & {
+        password?: string
+        tempPassword?: string
+      }
+      const plain =
+        (typeof tempPassword === 'string' && tempPassword.trim()) ||
+        (typeof password === 'string' && password.trim()) ||
+        'ChangeMe123!'
+      const user: AppUser = {
+        ...rest,
+        id: uid('u'),
+        active: input.active ?? true,
+        enabledPermissions:
+          input.role === 'super_admin'
+            ? undefined
+            : input.enabledPermissions?.length
+              ? input.enabledPermissions
+              : undefined,
+      }
+      patch((s) => ({ ...s, users: [...s.users, user] }))
+      const ok = await persistUpsert('user', user.id, {
+        ...(user as unknown as Record<string, unknown>),
+        tempPassword: plain,
+      })
+      if (!ok) {
+        patch((s) => ({ ...s, users: s.users.filter((u) => u.id !== user.id) }))
+        return {
+          ok: false as const,
+          error:
+            'Could not create a sign-in account for this user. Check the email is unused and try again — no success until Auth is verified.',
+          user,
+        }
+      }
+      return { ok: true as const, user }
     },
     updateUser: (id, p) => {
       patch((s) => ({ ...s, users: s.users.map((u) => (u.id === id ? { ...u, ...p } : u)) }))

@@ -1,0 +1,142 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { preferServerPersistForUserMint } from './persist'
+
+const persistToSupabase = vi.fn(async () => true)
+
+vi.mock('./config', () => ({
+  isApiEnabled: false,
+  isSupabaseMode: true,
+}))
+
+vi.mock('../supabase/persist', () => ({
+  persistToSupabase: (...args: unknown[]) => persistToSupabase(...args),
+  persistBatchToSupabase: vi.fn(async () => true),
+  supabaseMarkNotificationsRead: vi.fn(async () => true),
+}))
+
+vi.mock('./actorAuth', () => ({
+  actorHeaders: () => ({}),
+}))
+
+vi.mock('./authClient', () => ({
+  authHeaders: () => ({}),
+}))
+
+vi.mock('../bootstrapMerge', () => ({
+  markLocalPersistWrite: vi.fn(),
+}))
+
+describe('preferServerPersistForUserMint', () => {
+  it('routes user upserts with tempPassword through /api/persist', () => {
+    expect(
+      preferServerPersistForUserMint('user', 'upsert', { tempPassword: 'mint-fixture-a' }),
+    ).toBe(true)
+  })
+
+  it('routes user upserts with password through /api/persist', () => {
+    expect(preferServerPersistForUserMint('user', 'upsert', { password: 'mint-fixture-b' })).toBe(
+      true,
+    )
+  })
+
+  it('does not force password-less user upserts onto the server path', () => {
+    expect(preferServerPersistForUserMint('user', 'upsert', { email: 'a@b.co' })).toBe(false)
+    expect(preferServerPersistForUserMint('user', 'delete', { tempPassword: 'x' })).toBe(false)
+    expect(preferServerPersistForUserMint('agency', 'upsert', { tempPassword: 'x' })).toBe(false)
+  })
+})
+
+describe('persistToApi user mint fail-closed (supabase mode)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+    persistToSupabase.mockClear()
+  })
+
+  it('does not toast-path via supabase when /api/persist is false-ok HTML', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response('<!doctype html><html></html>', {
+            status: 200,
+            headers: { 'content-type': 'text/html' },
+          }),
+      ),
+    )
+    const { persistToApi } = await import('./persist')
+    const ok = await persistToApi({
+      resource: 'user',
+      action: 'upsert',
+      id: 'u-agent1',
+      data: {
+        id: 'u-agent1',
+        email: 'qa.agent@example.com',
+        role: 'ground_agent',
+        tempPassword: 'mint-fixture-r13c',
+      },
+    })
+    expect(ok).toBe(false)
+    expect(persistToSupabase).not.toHaveBeenCalled()
+  })
+
+  it('returns true only when /api/persist returns JSON { ok: true }', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ ok: true, id: 'u-agent1', uuid: 'uuid-1' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+      ),
+    )
+    const { persistToApi } = await import('./persist')
+    const ok = await persistToApi({
+      resource: 'user',
+      action: 'upsert',
+      id: 'u-agent1',
+      data: {
+        id: 'u-agent1',
+        email: 'qa.agent@example.com',
+        role: 'ground_agent',
+        tempPassword: 'mint-fixture-r13c',
+      },
+    })
+    expect(ok).toBe(true)
+    expect(persistToSupabase).not.toHaveBeenCalled()
+  })
+
+  it('returns false when Auth link fails on the server (HTTP 502 JSON error)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: 'persist_failed',
+              message: 'Auth linked but sign-in verification failed (status 400)',
+            }),
+            {
+              status: 502,
+              headers: { 'content-type': 'application/json' },
+            },
+          ),
+      ),
+    )
+    const { persistToApi } = await import('./persist')
+    const ok = await persistToApi({
+      resource: 'user',
+      action: 'upsert',
+      id: 'u-agent1',
+      data: {
+        id: 'u-agent1',
+        email: 'qa.agent@example.com',
+        role: 'ground_agent',
+        tempPassword: 'mint-fixture-r13c',
+      },
+    })
+    expect(ok).toBe(false)
+    expect(persistToSupabase).not.toHaveBeenCalled()
+  })
+})

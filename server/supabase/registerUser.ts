@@ -282,3 +282,198 @@ export async function registerSupabaseUserDirect(
 
   return { authUserId: id, email, roleFe, bootstrap }
 }
+
+/** Roles SA / agency-admin mint may assign — broader than public self-register. */
+export const STAFF_MINT_ROLES = new Set([
+  'super_admin',
+  'client_admin',
+  'agent_admin',
+  'ground_agent',
+  'agent',
+  'landlord',
+  'tenant',
+  'contractor',
+])
+
+export type LinkStaffAuthInput = {
+  email: string
+  password: string
+  firstName: string
+  lastName: string
+  phone?: string
+  roleFe: string
+  /** public.users.id already written by upsertUser */
+  profileId: string
+}
+
+export type LinkStaffAuthResult = {
+  authUserId: string
+  email: string
+  roleFe: string
+  repairedOrphan: boolean
+}
+
+function statusError(message: string, status: number): Error & { status: number } {
+  const err = new Error(message) as Error & { status: number }
+  err.status = status
+  return err
+}
+
+/**
+ * SA / staff mint: ensure auth.users (+ identity) exists for an already-upserted
+ * public.users row, link auth_user_id, and verify a real GoTrue password grant
+ * before the caller reports success. Repairs Kelly-style orphans (profile with
+ * auth_user_id NULL, no auth.users row) on the same email.
+ *
+ * Shared with registerSupabaseUserDirect (insertGoTrueUser + goTruePasswordSignIn).
+ */
+export async function linkStaffAuthUser(input: LinkStaffAuthInput): Promise<LinkStaffAuthResult> {
+  if (!directRegisterConfigured()) {
+    throw statusError('DATABASE_URL is not configured', 503)
+  }
+  const email = input.email.trim().toLowerCase()
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw statusError('Valid email is required', 400)
+  }
+  if (!input.password || input.password.length < 8) {
+    throw statusError('Password must be at least 8 characters', 400)
+  }
+  const roleFe = (input.roleFe || 'tenant').trim()
+  if (!STAFF_MINT_ROLES.has(roleFe)) {
+    throw statusError(`Role not allowed for staff mint: ${roleFe}`, 400)
+  }
+  const first = input.firstName?.trim()
+  const last = input.lastName?.trim()
+  if (!first || !last) {
+    throw statusError('First name and surname are required', 400)
+  }
+  if (!input.profileId) {
+    throw statusError('profileId is required', 400)
+  }
+
+  const existingAuth = await pool!.query<{ id: string }>(
+    `SELECT id::text AS id FROM auth.users WHERE lower(email) = $1 LIMIT 1`,
+    [email],
+  )
+  let authUserId = existingAuth.rows[0]?.id ?? null
+  let repairedOrphan = false
+
+  const userMetadata: Record<string, unknown> = {
+    first_name: first,
+    last_name: last,
+    phone: input.phone?.trim() ?? '',
+    role: roleFe,
+  }
+
+  if (!authUserId) {
+    authUserId = crypto.randomUUID()
+    await insertGoTrueUser({
+      id: authUserId,
+      email,
+      password: input.password,
+      userMetadata,
+    })
+    repairedOrphan = true
+  } else {
+    // Re-mint / password rotate for an existing Auth row (e.g. retry after failed link).
+    await pool!.query(
+      `UPDATE auth.users
+       SET encrypted_password = crypt($2, gen_salt('bf', 10)),
+           email_confirmed_at = COALESCE(email_confirmed_at, NOW()),
+           raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb) || $3::jsonb,
+           updated_at = NOW()
+       WHERE id = $1::uuid`,
+      [authUserId, input.password, JSON.stringify(userMetadata)],
+    )
+    const identityData = JSON.stringify({
+      sub: authUserId,
+      email,
+      email_verified: true,
+      phone_verified: false,
+    })
+    try {
+      await pool!.query(
+        `INSERT INTO auth.identities (
+           id, user_id, identity_data, provider, provider_id, last_sign_in_at, created_at, updated_at
+         )
+         SELECT $1::uuid, $2::uuid, $3::jsonb, 'email', $4, NOW(), NOW(), NOW()
+         WHERE NOT EXISTS (
+           SELECT 1 FROM auth.identities WHERE user_id = $2::uuid AND provider = 'email'
+         )`,
+        [crypto.randomUUID(), authUserId, identityData, email],
+      )
+    } catch {
+      await pool!.query(
+        `INSERT INTO auth.identities (
+           id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at
+         )
+         SELECT $1::uuid, $2::uuid, $3::jsonb, 'email', NOW(), NOW(), NOW()
+         WHERE NOT EXISTS (
+           SELECT 1 FROM auth.identities WHERE user_id = $2::uuid AND provider = 'email'
+         )`,
+        [crypto.randomUUID(), authUserId, identityData],
+      )
+    }
+  }
+
+  // Trigger may ON CONFLICT (email) link auth_user_id; poll then force-link the
+  // upsertUser profile id so we never leave Kelly-style NULL orphans.
+  let linked = false
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const prof = await pool!.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM public.users
+       WHERE auth_user_id = $1::uuid OR (id = $2::uuid AND auth_user_id IS NOT NULL)`,
+      [authUserId, input.profileId],
+    )
+    if (Number(prof.rows[0]?.n ?? 0) > 0) {
+      linked = true
+      break
+    }
+    await new Promise((r) => setTimeout(r, 250))
+  }
+  if (!linked) {
+    await pool!.query(
+      `UPDATE public.users
+       SET auth_user_id = $1::uuid, updated_at = NOW()
+       WHERE id = $2::uuid AND (auth_user_id IS NULL OR auth_user_id = $1::uuid)`,
+      [authUserId, input.profileId],
+    )
+    // Also link by email if upsert used a different id than the orphan Kelly row.
+    await pool!.query(
+      `UPDATE public.users
+       SET auth_user_id = $1::uuid, updated_at = NOW()
+       WHERE lower(email) = $2 AND auth_user_id IS NULL`,
+      [authUserId, email],
+    )
+    const prof = await pool!.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM public.users WHERE auth_user_id = $1::uuid`,
+      [authUserId],
+    )
+    linked = Number(prof.rows[0]?.n ?? 0) > 0
+  }
+  if (!linked) {
+    try {
+      await pool!.query('SELECT public.sync_auth_user_profile($1::uuid)', [authUserId])
+      const prof = await pool!.query<{ n: string }>(
+        `SELECT COUNT(*)::text AS n FROM public.users WHERE auth_user_id = $1::uuid`,
+        [authUserId],
+      )
+      linked = Number(prof.rows[0]?.n ?? 0) > 0
+    } catch {
+      /* fall through */
+    }
+  }
+  if (!linked) {
+    throw statusError('Auth user created but profile link failed', 500)
+  }
+
+  const probe = await goTruePasswordSignIn(email, input.password)
+  if (!probe.ok) {
+    throw statusError(
+      `Auth linked but sign-in verification failed (status ${probe.status || 'network'})`,
+      502,
+    )
+  }
+
+  return { authUserId, email, roleFe, repairedOrphan }
+}
