@@ -427,7 +427,7 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
     const unitAssets = assets.filter((a) => a.unit_id === u._unitUuid)
     const statusKey = u.statusKey
     const status =
-      statusKey === 'DRAFT'
+      statusKey === 'DRAFT' || statusKey === 'OFF_MARKET' || statusKey === 'NOT_LISTED'
         ? 'Draft'
         : statusKey === 'OCCUPIED'
           ? 'Rented'
@@ -442,7 +442,7 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
     return {
       id: u._propertyId,
       agencyId: u.clientId,
-      landlordId: b?.landlordId ?? 'u-owner1',
+      landlordId: b?.landlordId ?? '',
       agentId: u.agentId,
       buildingId: u.buildingId,
       unitId: u.id,
@@ -576,7 +576,7 @@ export async function fetchSupabaseBootstrap(lite = true): Promise<PostgresBoots
       id: mappedFe(cache, 'tenancy', l.id, l.id),
       agencyId: mapAgencyFe(l.client_id)!,
       propertyId: mapPropertyFe(l.unit_id)!,
-      landlordId: mapUserFe(l.landlord_id) ?? 'u-owner1',
+      landlordId: mapUserFe(l.landlord_id) ?? '',
       agentId: mapUserFe(l.agent_id),
       applicationId: null as string | null,
       tenantUserId,

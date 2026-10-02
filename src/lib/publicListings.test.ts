@@ -105,3 +105,26 @@ describe('isPubliclyListed', () => {
     expect(isPubliclyListed(p, { units: [], users: [landlord] as never })).toBe(false)
   })
 })
+
+  it('OFF_MARKET unit status is not publicly listed (Draft/OFF_MARKET alignment)', () => {
+    const p = baseProperty({ status: 'Published' })
+    expect(
+      isPubliclyListed(p, { units: [baseUnit({ statusKey: 'OFF_MARKET' })] }),
+    ).toBe(false)
+    expect(
+      isPubliclyListed(p, { units: [baseUnit({ statusKey: 'DRAFT' })] }),
+    ).toBe(false)
+  })
+
+  it('AVAILABLE unit status stays public (legacy publish alias)', () => {
+    const p = baseProperty({ status: 'Published' })
+    expect(
+      isPubliclyListed(p, { units: [baseUnit({ statusKey: 'AVAILABLE' })] }),
+    ).toBe(true)
+  })
+
+  it('blank landlordId does not invent a user — listing stays public when otherwise live', () => {
+    const p = baseProperty({ status: 'Published', landlordId: '' })
+    expect(isPubliclyListed(p, { units: [baseUnit()], users: [] })).toBe(true)
+  })
+

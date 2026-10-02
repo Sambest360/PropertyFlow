@@ -19,6 +19,7 @@ export const PUBLIC_UNIT_STATUS_KEYS = new Set([
   // bootstrap maps it to property status "Published", so it must stay public
   // or pre-fix rows vanish from /browse while staff still see them as live.
   'AVAILABLE',
+  // OFF_MARKET / DRAFT / NOT_LISTED intentionally omitted — Draft alignment.
 ])
 
 /**

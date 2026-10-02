@@ -161,12 +161,18 @@ function listingType(mode: unknown): string {
 }
 
 function unitStatusFromProperty(status: unknown, deletedAt?: unknown): string {
+  // P0-5: align with client persist + isPubliclyListed vocabulary.
+  // Draft/Archived → DRAFT (OFF_MARKET kept as bootstrap alias only).
+  // Published → PUBLISHED (AVAILABLE remains a legacy public alias on read).
   if (deletedAt) return 'DELETED'
   const s = String(status ?? '')
   if (s === 'Rented' || s === 'Occupied') return 'OCCUPIED'
   if (s === 'Maintenance') return 'MAINTENANCE'
-  if (s === 'Draft' || s === 'Archived') return 'OFF_MARKET'
-  return 'AVAILABLE'
+  if (s === 'Featured') return 'FEATURED'
+  if (s === 'Under Offer') return 'UNDER_OFFER'
+  if (s === 'Draft' || s === 'Archived') return 'DRAFT'
+  if (s === 'Published') return 'PUBLISHED'
+  return 'PUBLISHED'
 }
 
 async function clientId(agencyId: unknown): Promise<string> {

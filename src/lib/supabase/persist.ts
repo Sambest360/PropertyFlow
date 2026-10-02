@@ -731,11 +731,23 @@ async function upsertBuilding(id: string, data: Record<string, unknown>): Promis
   })
 }
 
+async function resolveBuildingUuidForUnit(buildingFe: string): Promise<string> {
+  // P0-5: never silent-skip unit writes when the building map is still catching up
+  // after a same-tick building→unit create. Retry briefly, then fail closed.
+  const fe = str(buildingFe)
+  if (!fe) throw new Error('unit upsert failed: buildingId missing')
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const buildingUuid = await resolveUuid('building', fe)
+    if (buildingUuid) return buildingUuid
+    await new Promise((r) => setTimeout(r, 40 * (attempt + 1)))
+  }
+  throw new Error(`unit upsert failed: building ${fe} not resolved`)
+}
+
 async function upsertUnit(id: string, data: Record<string, unknown>): Promise<void> {
   const supabase = createClient()
   const uuid = await ensureUuid('unit', id)
-  const buildingUuid = await resolveUuid('building', str(data.buildingId))
-  if (!buildingUuid) return
+  const buildingUuid = await resolveBuildingUuidForUnit(str(data.buildingId))
   const listingRaw = str(data.listingType ?? data.listingMode, 'rent').toUpperCase()
   const listingType =
     listingRaw === 'RENT' || listingRaw === 'SALE' || listingRaw === 'BOTH' || listingRaw === 'NOT_LISTED'

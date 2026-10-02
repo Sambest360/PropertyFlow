@@ -243,7 +243,14 @@ export default function PropertyDetail() {
     }
     setPublishBusy(true)
     try {
-      publishProperty(p.id, 'Published')
+      const published = await publishProperty(p.id, 'Published')
+      if (!published) {
+        await sweetWarning(
+          'Could not publish',
+          'The listing status did not save. Try again from this page.',
+        )
+        return
+      }
       await sweetSuccess('Listing is live', `${p.title} is now visible on the marketplace.`)
     } finally {
       setPublishBusy(false)
