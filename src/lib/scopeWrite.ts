@@ -8,6 +8,7 @@ import { canSeeAgency, type PropertyAccessSubject } from './agencyScope.js'
 import { isFieldAgent } from './permissions.js'
 import {
   canMutateProperty,
+  dealInScope,
   isAgencyWideRole,
   propertyInScope,
   ticketInScope,
@@ -22,6 +23,11 @@ export type WriteGateInput = {
   /** Property row used for landlord/agent mutate checks. */
   property: PropertyAccessSubject | null
   agencyId: string | null
+  /**
+   * Deal assignee (application / lead / viewing / viewing_slot).
+   * Used with dealInScope so FA Unassigned pool matches list (#41).
+   */
+  agentId?: string | null
   /** Existing / payload ticket fields for ticket-scoped writes. */
   ticket?: {
     propertyId: string
@@ -31,6 +37,24 @@ export type WriteGateInput = {
   } | null
   /** For notification / message ownership shortcuts. */
   ownerUserId?: string | null
+}
+
+/** Deal resources whose write gate mirrors dealInScope (list #41). */
+const DEAL_WRITE_RESOURCES = new Set([
+  'application',
+  'lead',
+  'viewing',
+  'viewing_slot',
+])
+
+function dealWriteAllowed(scope: PropertyScope, input: WriteGateInput): boolean {
+  if (!input.propertyId || !input.agencyId) return false
+  if (!DEAL_WRITE_RESOURCES.has(input.resource)) return false
+  return dealInScope(scope, {
+    propertyId: input.propertyId,
+    agentId: input.agentId,
+    agencyId: input.agencyId,
+  })
 }
 
 /**
@@ -83,8 +107,12 @@ export function canWriteEntity(scope: PropertyScope, input: WriteGateInput): boo
       ) {
         return true
       }
+      // P0 r19: application|lead|viewing|viewing_slot — dealInScope before hard deny
+      // (in-agency + book | assigned | Unassigned). Do not open via agency fieldOk.
+      if (dealWriteAllowed(scope, input)) return true
       return false
     }
+    if (dealWriteAllowed(scope, input)) return true
     return propertyInScope(scope, input.propertyId)
   }
 

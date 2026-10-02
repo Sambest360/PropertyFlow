@@ -562,6 +562,7 @@ export async function assertPersistAllowed(
     propertyId,
     property,
     agencyId,
+    agentId,
     ownerUserId,
     ticket:
       body.resource === 'ticket' && propertyId && agencyId
