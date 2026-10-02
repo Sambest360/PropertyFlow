@@ -29,10 +29,11 @@ vi.mock('./entityMap.js', () => ({
 
 const AGENCY_UUID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const AGENT_UUID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+const ORPHAN_UUID = '5d4d9c75-1111-4111-8111-111111111111'
 const UNIT_UUID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 const BUILDING_UUID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
 
-describe('requireAgentId metadata fallback (P0-5 r16)', () => {
+describe('requireAgentId orphan-map verify + metadata repair (P0-5 r17)', () => {
   beforeEach(() => {
     query.mockReset()
     ensureUuid.mockClear()
@@ -56,12 +57,79 @@ describe('requireAgentId metadata fallback (P0-5 r16)', () => {
     vi.resetModules()
   })
 
+  it('stale map + live metadata → unit OK and repairs map to live users.id', async () => {
+    resolveUuid.mockImplementation(async (et: string, _fe: string) => {
+      if (et === 'agency') return AGENCY_UUID
+      if (et === 'building') return BUILDING_UUID
+      if (et === 'user') return ORPHAN_UUID
+      return null
+    })
+    query.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('FROM users WHERE id =')) {
+        expect(params?.[0]).toBe(ORPHAN_UUID)
+        return []
+      }
+      if (sql.includes("metadata->>'frontend_id'")) {
+        expect(params?.[0]).toBe('u-95838e33')
+        return [{ id: AGENT_UUID }]
+      }
+      if (sql.includes('DELETE FROM entity_id_map')) {
+        expect(params?.[0]).toBe(AGENT_UUID)
+        expect(params?.[1]).toBe('u-95838e33')
+        return []
+      }
+      if (sql.includes('INSERT INTO entity_id_map')) {
+        expect(params?.[0]).toBe('u-95838e33')
+        expect(params?.[1]).toBe(AGENT_UUID)
+        return []
+      }
+      if (sql.includes('INSERT INTO units') || sql.includes('INSERT INTO buildings')) return []
+      if (sql.includes('UPDATE buildings')) return []
+      return []
+    })
+
+    const { handlePersist } = await import('./writes.js')
+    const result = await handlePersist({
+      resource: 'unit',
+      action: 'upsert',
+      id: 'unt-fixture-r17',
+      data: {
+        agencyId: 'ag-fixture',
+        buildingId: 'bld-fixture',
+        agentId: 'u-95838e33',
+        title: 'Claremont fixture R17',
+        rent: 18000,
+        listingMode: 'draft',
+      },
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.uuid).toBe(UNIT_UUID)
+
+    const orphanCheck = query.mock.calls.find((c) => String(c[0]).includes('FROM users WHERE id ='))
+    expect(orphanCheck).toBeTruthy()
+
+    const metaLookup = query.mock.calls.find((c) =>
+      String(c[0]).includes("metadata->>'frontend_id'"),
+    )
+    expect(metaLookup).toBeTruthy()
+
+    const mapUpsert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO entity_id_map'))
+    expect(mapUpsert).toBeTruthy()
+    expect(mapUpsert![1]).toEqual(['u-95838e33', AGENT_UUID])
+
+    const unitInsert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO units'))
+    expect(unitInsert).toBeTruthy()
+    expect(unitInsert![1][12]).toBe(AGENT_UUID)
+  })
+
   it('resolves agent via users.metadata->>frontend_id and upserts entity_id_map', async () => {
     query.mockImplementation(async (sql: string, params?: unknown[]) => {
       if (sql.includes("metadata->>'frontend_id'")) {
         expect(params?.[0]).toBe('u-fa-r16')
         return [{ id: AGENT_UUID }]
       }
+      if (sql.includes('DELETE FROM entity_id_map')) return []
       if (sql.includes('INSERT INTO entity_id_map')) {
         expect(params?.[0]).toBe('u-fa-r16')
         expect(params?.[1]).toBe(AGENT_UUID)
@@ -101,7 +169,6 @@ describe('requireAgentId metadata fallback (P0-5 r16)', () => {
 
     const unitInsert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO units'))
     expect(unitInsert).toBeTruthy()
-    // agent_id is $13 in the units INSERT
     expect(unitInsert![1][12]).toBe(AGENT_UUID)
   })
 
@@ -135,14 +202,55 @@ describe('requireAgentId metadata fallback (P0-5 r16)', () => {
     expect(unitInsert).toBeFalsy()
   })
 
-  it('keeps hierarchy path: mapped userId wins without metadata query', async () => {
+  it('orphan map + no metadata still 400 (dead agent)', async () => {
+    resolveUuid.mockImplementation(async (et: string, _fe: string) => {
+      if (et === 'agency') return AGENCY_UUID
+      if (et === 'building') return BUILDING_UUID
+      if (et === 'user') return ORPHAN_UUID
+      return null
+    })
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM users WHERE id =')) return []
+      if (sql.includes("metadata->>'frontend_id'")) return []
+      if (sql.includes('INSERT INTO buildings')) return []
+      return []
+    })
+
+    const { handlePersist } = await import('./writes.js')
+    await expect(
+      handlePersist({
+        resource: 'unit',
+        action: 'upsert',
+        id: 'unt-fixture-r17-dead',
+        data: {
+          agencyId: 'ag-fixture',
+          buildingId: 'bld-fixture',
+          agentId: 'u-dead-agent',
+          title: 'Should not persist',
+          rent: 1,
+        },
+      }),
+    ).rejects.toMatchObject({
+      status: 400,
+      message: 'agent not resolved: u-dead-agent',
+    })
+
+    const unitInsert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO units'))
+    expect(unitInsert).toBeFalsy()
+  })
+
+  it('keeps hierarchy path: live mapped userId wins without metadata query', async () => {
     resolveUuid.mockImplementation(async (et: string, _fe: string) => {
       if (et === 'agency') return AGENCY_UUID
       if (et === 'building') return BUILDING_UUID
       if (et === 'user') return AGENT_UUID
       return null
     })
-    query.mockImplementation(async (sql: string) => {
+    query.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('FROM users WHERE id =')) {
+        expect(params?.[0]).toBe(AGENT_UUID)
+        return [{ id: AGENT_UUID }]
+      }
       if (sql.includes('INSERT INTO units') || sql.includes('UPDATE buildings')) return []
       return []
     })

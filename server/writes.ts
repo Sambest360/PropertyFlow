@@ -208,15 +208,23 @@ async function userId(fe: unknown): Promise<string | null> {
 }
 
 /**
- * P0-5 residual / r16: agentId set but unmapped → fail create (no soft-null agent).
- * Mirrors browser resolveAgentUuid: entity_id_map first, then users.metadata->>frontend_id
- * with map upsert; still fail-closed when missing.
+ * P0-5 residual / r17: agentId set but unmapped → fail create (no soft-null agent).
+ * Map first, then verify users.id exists (orphan map UUID must not win). On miss/orphan,
+ * fall through to users.metadata->>frontend_id and repair entity_id_map FE→live id
+ * (respect unique entity_type+backend_id). Still fail-closed when neither resolves.
  */
 async function requireAgentId(fe: unknown): Promise<string | null> {
   if (fe == null || fe === '') return null
   const feStr = str(fe)
   let uuid = await userId(feStr)
-  if (uuid) return uuid
+  if (uuid) {
+    const live = await query<{ id: string }>(
+      `SELECT id::text AS id FROM users WHERE id = $1::uuid LIMIT 1`,
+      [uuid],
+    )
+    if (live[0]?.id) return uuid
+    // Orphan map row (no users row) — fall through to metadata repair.
+  }
   const rows = await query<{ id: string }>(
     `SELECT id::text AS id FROM users WHERE metadata->>'frontend_id' = $1 LIMIT 1`,
     [feStr],
@@ -224,6 +232,12 @@ async function requireAgentId(fe: unknown): Promise<string | null> {
   const hit = rows[0]?.id
   if (hit) {
     await ensureEntityMapTable()
+    // Free unique (entity_type, backend_id) if another FE already owns the live UUID.
+    await query(
+      `DELETE FROM entity_id_map
+       WHERE entity_type = 'user' AND backend_id = $1::uuid AND frontend_id <> $2`,
+      [hit, feStr],
+    )
     await query(
       `INSERT INTO entity_id_map (entity_type, frontend_id, backend_id)
        VALUES ('user', $1, $2::uuid)

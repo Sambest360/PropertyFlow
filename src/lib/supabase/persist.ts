@@ -88,15 +88,20 @@ async function userUuid(feId: unknown): Promise<string | null> {
 }
 
 /**
- * P0-5 residual: resolve agent FE id → users.id for unit/property writes.
- * Mirrors landlord metadata fallback; unmapped agentId fails create (no soft null).
+ * P0-5 residual / r17: resolve agent FE id → users.id for unit/property writes.
+ * Verify mapped UUID exists in users; orphan map falls through to metadata and repairs
+ * entity_id_map (respect unique entity_type+backend_id). Unmapped agentId fails create.
  */
 async function resolveAgentUuid(agentId: unknown): Promise<string | null> {
   if (agentId == null || agentId === '') return null
   const fe = str(agentId)
   let uuid = await userUuid(fe)
-  if (uuid) return uuid
   const supabase = createClient()
+  if (uuid) {
+    const { data: live } = await supabase.from('users').select('id').eq('id', uuid).maybeSingle()
+    if (live?.id) return live.id as string
+    // Orphan map — fall through to metadata repair.
+  }
   const { data: metaRow } = await supabase
     .from('users')
     .select('id')
@@ -104,6 +109,15 @@ async function resolveAgentUuid(agentId: unknown): Promise<string | null> {
     .maybeSingle()
   if (metaRow?.id) {
     uuid = metaRow.id as string
+    const conflict = await supabase
+      .from('entity_id_map')
+      .delete()
+      .eq('entity_type', 'user')
+      .eq('backend_id', uuid)
+      .neq('frontend_id', fe)
+    if (conflict.error) {
+      throw new Error(`entity_id_map conflict clear failed: ${conflict.error.message}`)
+    }
     const mapRes = await supabase.from('entity_id_map').upsert(
       { entity_type: 'user', backend_id: uuid, frontend_id: fe },
       { onConflict: 'entity_type,frontend_id' },
