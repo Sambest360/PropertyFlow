@@ -29,12 +29,12 @@ vi.mock('../bootstrapMerge', () => ({
 describe('preferServerPersistForUserMint', () => {
   it('routes user upserts with tempPassword through /api/persist', () => {
     expect(
-      preferServerPersistForUserMint('user', 'upsert', { tempPassword: 'mint-fixture-a' }),
+      preferServerPersistForUserMint('user', 'upsert', { tempPassword: 'x' }),
     ).toBe(true)
   })
 
   it('routes user upserts with password through /api/persist', () => {
-    expect(preferServerPersistForUserMint('user', 'upsert', { password: 'mint-fixture-b' })).toBe(
+    expect(preferServerPersistForUserMint('user', 'upsert', { password: 'x' })).toBe(
       true,
     )
   })
@@ -73,7 +73,7 @@ describe('persistToApi user mint fail-closed (supabase mode)', () => {
         id: 'u-agent1',
         email: 'qa.agent@example.com',
         role: 'ground_agent',
-        tempPassword: 'mint-fixture-r13c',
+        tempPassword: 'x',
       },
     })
     expect(ok).toBe(false)
@@ -100,7 +100,7 @@ describe('persistToApi user mint fail-closed (supabase mode)', () => {
         id: 'u-agent1',
         email: 'qa.agent@example.com',
         role: 'ground_agent',
-        tempPassword: 'mint-fixture-r13c',
+        tempPassword: 'x',
       },
     })
     expect(ok).toBe(true)
@@ -133,7 +133,7 @@ describe('persistToApi user mint fail-closed (supabase mode)', () => {
         id: 'u-agent1',
         email: 'qa.agent@example.com',
         role: 'ground_agent',
-        tempPassword: 'mint-fixture-r13c',
+        tempPassword: 'x',
       },
     })
     expect(ok).toBe(false)

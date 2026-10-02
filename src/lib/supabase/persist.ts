@@ -180,6 +180,17 @@ async function upsertAgency(id: string, data: Record<string, unknown>): Promise<
 }
 
 async function upsertUser(id: string, data: Record<string, unknown>): Promise<void> {
+  // Belt-and-suspenders (P0 residual): passworded staff mint must never write
+  // public.users-only via browser RLS — Auth + link only exists on /api/persist.
+  const hasMintPassword =
+    (typeof data.tempPassword === 'string' && data.tempPassword.length > 0) ||
+    (typeof data.password === 'string' && data.password.length > 0)
+  if (hasMintPassword) {
+    console.warn('[supabase/persist] path=supabase linkStaffAuthUser=refused', { id })
+    throw new Error(
+      'Staff mint with password must use /api/persist (Auth + link). Browser user upsert refused.',
+    )
+  }
   const supabase = createClient()
   const uuid = await ensureUuid('user', id)
   const clientId = await clientUuid(data.agencyId)

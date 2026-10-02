@@ -416,16 +416,21 @@ export async function linkStaffAuthUser(input: LinkStaffAuthInput): Promise<Link
     }
   }
 
-  // Trigger may ON CONFLICT (email) link auth_user_id; poll then force-link the
-  // upsertUser profile id so we never leave Kelly-style NULL orphans.
-  let linked = false
-  for (let attempt = 0; attempt < 10; attempt++) {
+  // P0 residual: only THIS mint profileId counts as linked. An any-row poll
+  // (auth_user_id = $auth OR id=$profile AND auth_user_id IS NOT NULL) could
+  // return OK while the upsertUser row stayed NULL — Kelly r13c/r13d orphan.
+  const profileLinked = async (): Promise<boolean> => {
     const prof = await pool!.query<{ n: string }>(
       `SELECT COUNT(*)::text AS n FROM public.users
-       WHERE auth_user_id = $1::uuid OR (id = $2::uuid AND auth_user_id IS NOT NULL)`,
-      [authUserId, input.profileId],
+       WHERE id = $1::uuid AND auth_user_id = $2::uuid`,
+      [input.profileId, authUserId],
     )
-    if (Number(prof.rows[0]?.n ?? 0) > 0) {
+    return Number(prof.rows[0]?.n ?? 0) > 0
+  }
+
+  let linked = false
+  for (let attempt = 0; attempt < 10; attempt++) {
+    if (await profileLinked()) {
       linked = true
       break
     }
@@ -438,33 +443,25 @@ export async function linkStaffAuthUser(input: LinkStaffAuthInput): Promise<Link
        WHERE id = $2::uuid AND (auth_user_id IS NULL OR auth_user_id = $1::uuid)`,
       [authUserId, input.profileId],
     )
-    // Also link by email if upsert used a different id than the orphan Kelly row.
+    // Also link by email if a prior orphan row shares the email (repair path).
     await pool!.query(
       `UPDATE public.users
        SET auth_user_id = $1::uuid, updated_at = NOW()
        WHERE lower(email) = $2 AND auth_user_id IS NULL`,
       [authUserId, email],
     )
-    const prof = await pool!.query<{ n: string }>(
-      `SELECT COUNT(*)::text AS n FROM public.users WHERE auth_user_id = $1::uuid`,
-      [authUserId],
-    )
-    linked = Number(prof.rows[0]?.n ?? 0) > 0
+    linked = await profileLinked()
   }
   if (!linked) {
     try {
       await pool!.query('SELECT public.sync_auth_user_profile($1::uuid)', [authUserId])
-      const prof = await pool!.query<{ n: string }>(
-        `SELECT COUNT(*)::text AS n FROM public.users WHERE auth_user_id = $1::uuid`,
-        [authUserId],
-      )
-      linked = Number(prof.rows[0]?.n ?? 0) > 0
+      linked = await profileLinked()
     } catch {
       /* fall through */
     }
   }
   if (!linked) {
-    throw statusError('Auth user created but profile link failed', 500)
+    throw statusError('Auth user created but profile link failed for mint profileId', 500)
   }
 
   const probe = await goTruePasswordSignIn(email, input.password)
