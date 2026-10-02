@@ -81,4 +81,63 @@ describe('canWriteEntity', () => {
       }),
     ).toBe(true)
   })
+
+  // P0-5 r15 residual: FA building create is agency-level (no propertyId yet).
+  // Unit/property synthesize a property subject after the building exists.
+  it('allows field agent (ground_agent) agency-level building upsert', () => {
+    expect(
+      canWriteEntity(james, {
+        resource: 'building',
+        propertyId: null,
+        property: null,
+        agencyId: 'ag-a',
+      }),
+    ).toBe(true)
+  })
+
+  it('allows field agent (agent) agency-level building upsert', () => {
+    const candidate = buildPropertyScope(
+      { role: 'agent', userId: 'u-cand', agencyId: 'ag-a', agencySuspended: false },
+      { properties },
+    )
+    expect(
+      canWriteEntity(candidate, {
+        resource: 'building',
+        propertyId: null,
+        property: null,
+        agencyId: 'ag-a',
+      }),
+    ).toBe(true)
+  })
+
+  it('rejects field agent building upsert in another agency', () => {
+    expect(
+      canWriteEntity(james, {
+        resource: 'building',
+        propertyId: null,
+        property: null,
+        agencyId: 'ag-b',
+      }),
+    ).toBe(false)
+  })
+
+  it('still rejects field agent agency-level writes for non-fieldOk resources', () => {
+    expect(
+      canWriteEntity(james, {
+        resource: 'lookup',
+        propertyId: null,
+        property: null,
+        agencyId: 'ag-a',
+      }),
+    ).toBe(false)
+    expect(
+      canWriteEntity(james, {
+        resource: 'invoice',
+        propertyId: null,
+        property: null,
+        agencyId: 'ag-a',
+      }),
+    ).toBe(false)
+  })
+
 })
