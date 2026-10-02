@@ -1,12 +1,17 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import {
+  beginDeferredAuthDecision,
   beginGuestPurge,
   clearSessionArtifacts,
   consumeStaleSignOutIgnore,
+  deferredAuthDecisionsInFlight,
+  endDeferredAuthDecision,
   endGuestPurge,
   guestPurgeGenerationCurrent,
   guestPurgesInFlight,
+  guestSignOutRemoveSuppressed,
   isLoginInFlight,
+  setGuestPurgeDrainHook,
   setLoginInFlight,
   shieldGuestPurgeForLogin,
   registerWithSessionGuard,
@@ -178,5 +183,42 @@ describe('remint58 login purge shield', () => {
     expect(consumeStaleSignOutIgnore()).toBe(false)
     endGuestPurge()
     expect(guestPurgesInFlight()).toBe(0)
+  })
+})
+
+describe('remint59 grace3 hold hole', () => {
+  it('invalidating an in-flight purge suppresses GoTrue remove without spending the post-hold credit', () => {
+    const generation = beginGuestPurge()
+    shieldGuestPurgeForLogin()
+    expect(guestPurgeGenerationCurrent(generation)).toBe(false)
+    expect(guestSignOutRemoveSuppressed()).toBe(true)
+    // Credit stays armed for a null after the hold drops.
+    expect(consumeStaleSignOutIgnore()).toBe(true)
+    expect(guestSignOutRemoveSuppressed()).toBe(true)
+    endGuestPurge()
+    expect(guestSignOutRemoveSuppressed()).toBe(false)
+    expect(guestPurgesInFlight()).toBe(0)
+    expect(consumeStaleSignOutIgnore()).toBe(false)
+  })
+
+  it('does not suppress remove or arm a credit when no guest purge is in flight', () => {
+    shieldGuestPurgeForLogin()
+    expect(guestSignOutRemoveSuppressed()).toBe(false)
+    expect(consumeStaleSignOutIgnore()).toBe(false)
+  })
+
+  it('keeps the deferred auth decision in flight until it settles, then drains once', () => {
+    const drained = vi.fn()
+    setGuestPurgeDrainHook(drained)
+    beginDeferredAuthDecision()
+    beginDeferredAuthDecision()
+    expect(deferredAuthDecisionsInFlight()).toBe(2)
+    endDeferredAuthDecision()
+    expect(deferredAuthDecisionsInFlight()).toBe(1)
+    expect(drained).not.toHaveBeenCalled()
+    endDeferredAuthDecision()
+    expect(deferredAuthDecisionsInFlight()).toBe(0)
+    expect(drained).toHaveBeenCalledTimes(1)
+    setGuestPurgeDrainHook(null)
   })
 })

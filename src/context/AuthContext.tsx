@@ -48,9 +48,11 @@ import {
   beginGuestPurge,
   clearSessionArtifacts,
   consumeStaleSignOutIgnore,
+  deferredAuthDecisionsInFlight,
   endGuestPurge,
   guestPurgeGenerationCurrent,
   guestPurgesInFlight,
+  guestSignOutRemoveSuppressed,
   isLoginInFlight,
   isRegisterInFlight,
   setGuestPurgeDrainHook,
@@ -278,11 +280,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // remint58: a guest-mount signOut can resolve after login() and emit
       // signed-out. Ignore that null while the hold is up, and once more if
       // it was armed as a stale pre-login purge (even after the hold drops).
+      // remint59 grace3: do NOT spend the one post-hold credit while the hold
+      // is still up — that credit is only for a null that arrives at the
+      // check below, after releaseLoginHold.
       if (isRegisterInFlight()) return
-      if (isLoginInFlight()) {
-        consumeStaleSignOutIgnore()
-        return
-      }
+      if (isLoginInFlight()) return
       if (consumeStaleSignOutIgnore()) return
       setSessionUser(null)
       setUserId('')
@@ -394,11 +396,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (gen == null) return
     // An in-flight guest purge must finish (and skip its clear) before the
     // shield drops — otherwise its late signOut null races the portal commit.
+    // remint59 grace3: two macrotasks after purge drain is not enough. The
+    // sign-out's deferred SIGNED_OUT / SIGNED_IN getUser can still cb(null)
+    // after that. Stay up until that decision can no longer reach the
+    // post-hold setSessionUser(null).
     if (guestPurgesInFlight() > 0) return
+    if (deferredAuthDecisionsInFlight() > 0) return
     window.setTimeout(() => {
       window.setTimeout(() => {
         if (releaseRequestedGen.current !== gen) return
         if (guestPurgesInFlight() > 0) return
+        if (deferredAuthDecisionsInFlight() > 0) return
         releaseRequestedGen.current = null
         setLoginInFlight(false)
         setLoginInFlightState(false)
@@ -566,8 +574,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const generation = beginGuestPurge()
         try {
           try {
-            if (isSupabaseMode) await supabaseSignOut()
-            else await apiLogout()
+            if (isSupabaseMode) {
+              // Once shieldGuestPurgeForLogin invalidates this purge, skip
+              // GoTrue _removeSession. A generation check after this await
+              // cannot put the JWT back.
+              await supabaseSignOut({ skipRemoveSession: guestSignOutRemoveSuppressed })
+            } else await apiLogout()
           } catch {
             /* fall through — artifacts cleared below regardless */
           }
