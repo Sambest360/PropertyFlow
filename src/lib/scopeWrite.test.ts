@@ -30,12 +30,14 @@ describe('canWriteEntity', () => {
   })
 
   it('rejects ground agent upserts on another agent’s property', () => {
+    // Deal row assigned to Priya on her listing — off James's book → deny (r19)
     expect(
       canWriteEntity(james, {
         resource: 'lead',
         propertyId: 'p-a2',
         property: properties[1]!,
         agencyId: 'ag-a',
+        agentId: 'u-priya',
       }),
     ).toBe(false)
     expect(
@@ -136,6 +138,103 @@ describe('canWriteEntity', () => {
         propertyId: null,
         property: null,
         agencyId: 'ag-a',
+      }),
+    ).toBe(false)
+  })
+
+  // P0 r19: deal write mirrors dealInScope (#41) — Unassigned pool before hard deny.
+  // application is NOT added to agency-level fieldOk (laundry stays closed).
+  it('allows FA Unassigned off-book in-agency application write', () => {
+    // p-a2 is Priya's listing (off James's book); agentId null = Unassigned pool
+    expect(
+      canWriteEntity(james, {
+        resource: 'application',
+        propertyId: 'p-a2',
+        property: properties[1]!,
+        agencyId: 'ag-a',
+        agentId: null,
+      }),
+    ).toBe(true)
+    expect(
+      canWriteEntity(james, {
+        resource: 'lead',
+        propertyId: 'p-a2',
+        property: properties[1]!,
+        agencyId: 'ag-a',
+        agentId: '',
+      }),
+    ).toBe(true)
+  })
+
+  it('denies FA Unassigned application write cross-agency', () => {
+    const offAgencyProp = {
+      id: 'p-b1',
+      agencyId: 'ag-b',
+      agentId: 'u-zane',
+      landlordId: 'u-ll-c',
+    }
+    expect(
+      canWriteEntity(james, {
+        resource: 'application',
+        propertyId: 'p-b1',
+        property: offAgencyProp,
+        agencyId: 'ag-b',
+        agentId: null,
+      }),
+    ).toBe(false)
+  })
+
+  it('denies FA write on other agent’s assigned off-book application', () => {
+    // p-a2 Priya's listing + assigned to Priya — not Unassigned, not James's book
+    expect(
+      canWriteEntity(james, {
+        resource: 'application',
+        propertyId: 'p-a2',
+        property: properties[1]!,
+        agencyId: 'ag-a',
+        agentId: 'u-priya',
+      }),
+    ).toBe(false)
+  })
+
+  it('SA unchanged: super_admin still writes any application', () => {
+    const sa = buildPropertyScope(
+      { role: 'super_admin', userId: 'u-sa', agencyId: null, agencySuspended: false },
+      { properties },
+    )
+    expect(
+      canWriteEntity(sa, {
+        resource: 'application',
+        propertyId: 'p-a2',
+        property: properties[1]!,
+        agencyId: 'ag-a',
+        agentId: 'u-priya',
+      }),
+    ).toBe(true)
+    expect(
+      canWriteEntity(sa, {
+        resource: 'application',
+        propertyId: 'p-b1',
+        property: {
+          id: 'p-b1',
+          agencyId: 'ag-b',
+          agentId: null,
+          landlordId: 'u-ll-c',
+        },
+        agencyId: 'ag-b',
+        agentId: null,
+      }),
+    ).toBe(true)
+  })
+
+  it('does not open application via agency-level fieldOk (no propertyId)', () => {
+    expect(
+      canWriteEntity(james, {
+        resource: 'application',
+        propertyId: null,
+        property: null,
+        agencyId: 'ag-a',
+        agentId: null,
       }),
     ).toBe(false)
   })
