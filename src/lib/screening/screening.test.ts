@@ -2,16 +2,22 @@ import { describe, expect, it } from 'vitest'
 import type { Application } from '../../types/domain'
 import { buildDocumentChecklist } from '../workflow'
 import { applyWorkflowTransition, getAvailableTransitions, normalizeApplication } from '../applicationWorkflow'
+import { patchApplicationStatus } from '../api/applicationStatusApi'
 import {
   MockDevScreeningProvider,
   TpnScreeningProviderPlaceholder,
+  applicationPassesScreeningSoftGate,
   captureScreeningConsent,
   creditCheckLabelFromScreening,
   hasScreeningConsent,
   ingestScreeningWebhook,
+  isScreeningClearedForLease,
+  isScreeningSoftGatedAction,
   overrideScreening,
   resolveScreening,
   screeningProviderFromEnv,
+  screeningSoftGate,
+  SCREENING_MODE_A_COPY,
   startScreening,
 } from './index'
 
@@ -133,6 +139,11 @@ describe('screening pipeline', () => {
         })),
       }),
     )
+    // Soft-gate hides approve until passed|manual_override
+    expect(
+      getAvailableTransitions(app, ['applications.review']).some((a) => a.actionKey === 'AGENT_APPROVE'),
+    ).toBe(false)
+    // Direct status jump (legacy helper) still must not invent Passed
     app = applyWorkflowTransition(app, 'conditionally_approved')
     expect(app.workflowStatus).toBe('conditionally_approved')
     expect(app.creditCheck).not.toBe('Passed')
@@ -224,5 +235,210 @@ describe('screening pipeline', () => {
     expect(p.id).toBe('mock')
     const tpn = screeningProviderFromEnv({ SCREENING_PROVIDER: 'tpn' })
     expect(tpn.id).toBe('tpn')
+  })
+})
+
+
+describe('DQ-C3 screening soft-gate Mode A', () => {
+  const verifiedDocs = () =>
+    buildDocumentChecklist('Rental').map((d) => ({ ...d, status: 'verified' as const }))
+
+  it('honesty copy denies live TPN', () => {
+    expect(SCREENING_MODE_A_COPY).toMatch(/not live TPN/i)
+    expect(SCREENING_MODE_A_COPY).toMatch(/mock or manual/i)
+  })
+
+  it('clears soft-gate only for passed or manual_override', () => {
+    const pending = rentalApp({ screening: { status: 'pending', provider: 'mock' } })
+    expect(isScreeningClearedForLease(pending)).toBe(false)
+    expect(applicationPassesScreeningSoftGate(pending)).toBe(false)
+    expect(screeningSoftGate(pending)).toMatch(/blocked until screening/i)
+
+    const failed = rentalApp({ screening: { status: 'failed', provider: 'mock' } })
+    expect(isScreeningClearedForLease(failed)).toBe(false)
+
+    const passed = rentalApp({ screening: { status: 'passed', provider: 'mock' } })
+    expect(isScreeningClearedForLease(passed)).toBe(true)
+    expect(screeningSoftGate(passed)).toBe(true)
+
+    const overridden = rentalApp({ screening: { status: 'manual_override', provider: 'manual' } })
+    expect(isScreeningClearedForLease(overridden)).toBe(true)
+
+    // Purchase paths are not gated on tenant TPN/manual screening
+    expect(
+      applicationPassesScreeningSoftGate(
+        rentalApp({ type: 'Purchase', screening: { status: 'pending', provider: 'mock' } }),
+      ),
+    ).toBe(true)
+  })
+
+  it('soft-gates AGENT_APPROVE / GENERATE_LEASE until screening cleared', () => {
+    const incomplete = normalizeApplication(
+      rentalApp({
+        workflowStatus: 'conditionally_approved',
+        documents: verifiedDocs(),
+        screening: { status: 'pending', provider: 'mock' },
+        creditConsent: true,
+      }),
+    )
+    const blocked = getAvailableTransitions(incomplete, ['applications.review'])
+    expect(blocked.some((t) => t.actionKey === 'GENERATE_LEASE')).toBe(false)
+
+    const ready = normalizeApplication(
+      rentalApp({
+        workflowStatus: 'conditionally_approved',
+        documents: verifiedDocs(),
+        screening: { status: 'manual_override', provider: 'manual' },
+        creditCheck: 'Passed',
+        creditConsent: true,
+      }),
+    )
+    const open = getAvailableTransitions(ready, ['applications.review'])
+    expect(open.some((t) => t.actionKey === 'GENERATE_LEASE')).toBe(true)
+
+    const review = normalizeApplication(
+      rentalApp({
+        workflowStatus: 'agent_review',
+        documents: verifiedDocs(),
+        screening: { status: 'in_progress', provider: 'mock' },
+        creditConsent: true,
+      }),
+    )
+    expect(
+      getAvailableTransitions(review, ['applications.review']).some(
+        (t) => t.actionKey === 'AGENT_APPROVE',
+      ),
+    ).toBe(false)
+
+    expect(isScreeningSoftGatedAction('AGENT_APPROVE')).toBe(true)
+    expect(isScreeningSoftGatedAction('GENERATE_LEASE')).toBe(true)
+    expect(isScreeningSoftGatedAction('SCHEDULE_MOVE_IN')).toBe(true)
+  })
+
+  it('START_CREDIT_CHECK copy clarifies mock/manual not live bureau', () => {
+    const app = normalizeApplication(
+      rentalApp({
+        creditConsent: true,
+        screeningConsent: { granted: true, method: 'portal' },
+        workflowStatus: 'reference_checks',
+        documents: verifiedDocs(),
+      }),
+    )
+    const start = getAvailableTransitions(app, ['applications.review']).find(
+      (a) => a.actionKey === 'START_CREDIT_CHECK',
+    )
+    expect(start).toBeDefined()
+    expect(start!.label).toMatch(/mock\/manual/i)
+    expect(start!.hint).toMatch(/not live TPN/i)
+  })
+
+  it('manual override accepts optional score and external ref', () => {
+    const app = captureScreeningConsent(rentalApp(), { method: 'staff', grantedBy: 'agent-1' })
+    const ok = overrideScreening(app, {
+      newStatus: 'manual_override',
+      reason: 'Prior landlord reference on file',
+      byUserId: 'agent-1',
+      byName: 'Agent One',
+      score: 655,
+      externalReference: 'STAFF-REF-42',
+    })
+    expect(ok.ok).toBe(true)
+    if (!ok.ok) return
+    expect(ok.application.screening?.score).toBe(655)
+    expect(ok.application.screening?.externalReference).toBe('STAFF-REF-42')
+    expect(isScreeningClearedForLease(ok.application)).toBe(true)
+  })
+
+  it('APPROVED path soft-gates until screening passed or manual_override', () => {
+    const actor = {
+      userId: 'u-staff',
+      role: 'client_admin' as const,
+      agencyId: 'AG-1',
+      permissions: ['applications.review' as const],
+    }
+    const property = {
+      id: 'P-1',
+      agencyId: 'AG-1',
+      landlordId: 'u-ll',
+      agentId: null,
+      unitId: 'un-1',
+      title: 'Unit',
+      type: 'Apartment',
+      status: 'Published',
+      listingMode: 'rent',
+      rent: 10000,
+      price: null,
+      city: 'Cape Town',
+      suburb: 'CBD',
+      beds: 1,
+      baths: 1,
+      parking: 0,
+      area: 40,
+      amenities: [],
+      images: [],
+      featured: false,
+      createdAt: '2026-09-01',
+    } as import('../../types/domain').PropertyAsset
+    const unit = {
+      id: 'un-1',
+      buildingId: 'bld-1',
+      unitNumber: '1',
+      statusKey: 'PUBLISHED',
+      listingType: 'rent',
+      rent: 10000,
+      beds: 1,
+      baths: 1,
+      parking: 0,
+      squareMeters: 40,
+    } as import('../../types/domain').Unit
+
+    const blocked = patchApplicationStatus({
+      application: rentalApp({
+        unitId: 'un-1',
+        stage: 'Application submitted',
+        workflowStatus: 'application_submitted',
+        documents: verifiedDocs(),
+        screening: { status: 'pending', provider: 'mock' },
+        creditConsent: true,
+      }),
+      property,
+      unit,
+      viewings: [],
+      slots: [],
+      existingTenancies: [],
+      request: { status: 'APPROVED', payment_provider: 'auto' },
+      actor,
+    })
+    expect(blocked.status).toBe('ERROR')
+    if (blocked.status === 'ERROR') {
+      expect(blocked.code).toBe('SCREENING_INCOMPLETE')
+      expect(blocked.error).toMatch(/not live TPN/i)
+    }
+
+    const ok = patchApplicationStatus({
+      application: rentalApp({
+        unitId: 'un-1',
+        stage: 'Application submitted',
+        workflowStatus: 'application_submitted',
+        documents: verifiedDocs(),
+        screening: { status: 'passed', provider: 'mock' },
+        creditCheck: 'Passed',
+        creditConsent: true,
+      }),
+      property,
+      unit,
+      viewings: [],
+      slots: [],
+      existingTenancies: [],
+      request: { status: 'APPROVED', payment_provider: 'auto' },
+      actor,
+    })
+    expect(ok.status).toBe('SUCCESS')
+    if (ok.status === 'SUCCESS') {
+      // Invent-kill: approve must not invent Passed from a non-cleared state —
+      // here screening was already passed and must stay as-is.
+      expect(ok.application.screening?.status).toBe('passed')
+      expect(ok.application.creditCheck).toBe('Passed')
+    }
   })
 })

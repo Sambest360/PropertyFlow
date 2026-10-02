@@ -561,6 +561,8 @@ type StoreContextValue = {
     actorUserId: string
     newStatus: Extract<ScreeningAsyncStatus, 'passed' | 'failed' | 'manual_override'>
     reason: string
+    score?: number | null
+    externalReference?: string | null
   }) => { ok: true; application: Application } | { ok: false; error: string }
   setDocumentStatus: (
     applicationId: string,
@@ -3417,7 +3419,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       addActivity(`Screening started for ${updated.applicantName}`, actorUser?.name ?? 'Agency', updated.agencyId)
       return { ok: true as const, application: updated }
     },
-    overrideApplicationScreening: ({ applicationId, actorUserId, newStatus, reason }) => {
+    overrideApplicationScreening: ({ applicationId, actorUserId, newStatus, reason, score, externalReference }) => {
       const app = state.applications.find((a) => a.id === applicationId)
       if (!app) return { ok: false as const, error: 'Application not found' }
       const actorUser = state.users.find((u) => u.id === actorUserId)
@@ -3426,6 +3428,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         reason,
         byUserId: actorUserId,
         byName: actorUser?.name ?? 'Agency',
+        score,
+        externalReference,
       })
       if (result.ok === false) return { ok: false as const, error: result.error }
       const updated = normalizeApplication(result.application)

@@ -98,6 +98,10 @@ describe('DQ-C2 FICA pack Mode A', () => {
       rentalApp({
         workflowStatus: 'conditionally_approved',
         documents: withPackStatus('verified'),
+        // DQ-C3: screening soft-gate also applies — pass or manual_override required
+        screening: { status: 'passed', provider: 'mock' },
+        creditCheck: 'Passed',
+        creditConsent: true,
       }),
     )
     const open = getAvailableTransitions(ready, ['applications.review'])
@@ -204,6 +208,9 @@ describe('DQ-C2 FICA pack Mode A', () => {
         stage: 'Application submitted',
         workflowStatus: 'application_submitted',
         documents: withPackStatus('verified'),
+        screening: { status: 'passed', provider: 'mock' },
+        creditCheck: 'Passed',
+        creditConsent: true,
       }),
       property,
       unit,

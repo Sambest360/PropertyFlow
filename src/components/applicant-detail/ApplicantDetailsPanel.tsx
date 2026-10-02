@@ -12,6 +12,7 @@ import {
   screeningStatusLabel,
   type ScreeningAsyncStatus,
 } from '../../lib/screening'
+import { ScreeningModeABanner } from '../screening/ScreeningModeABanner'
 import { ICON_STROKE } from './types'
 
 /** Personal / screening details — flat text, no nested cards. */
@@ -31,6 +32,8 @@ export function ApplicantDetailsPanel({
   onOverrideScreening?: (input: {
     newStatus: Extract<ScreeningAsyncStatus, 'passed' | 'failed' | 'manual_override'>
     reason: string
+    score?: number | null
+    externalReference?: string | null
   }) => void
 }) {
   const { label: agentLabel } = useAgentDisplay()
@@ -45,13 +48,25 @@ export function ApplicantDetailsPanel({
   const [overrideStatus, setOverrideStatus] = useState<
     Extract<ScreeningAsyncStatus, 'passed' | 'failed' | 'manual_override'>
   >('manual_override')
+  const [overrideScore, setOverrideScore] = useState('')
+  const [overrideRef, setOverrideRef] = useState('')
   const [busy, setBusy] = useState(false)
 
   const submitOverride = () => {
     if (!onOverrideScreening || !overrideReason.trim()) return
-    onOverrideScreening({ newStatus: overrideStatus, reason: overrideReason.trim() })
+    const trimmedScore = overrideScore.trim()
+    const parsedScore =
+      trimmedScore === '' ? undefined : Number.isFinite(Number(trimmedScore)) ? Number(trimmedScore) : undefined
+    onOverrideScreening({
+      newStatus: overrideStatus,
+      reason: overrideReason.trim(),
+      score: parsedScore,
+      externalReference: overrideRef.trim() ? overrideRef.trim() : undefined,
+    })
     setOverrideOpen(false)
     setOverrideReason('')
+    setOverrideScore('')
+    setOverrideRef('')
   }
 
   return (
@@ -81,8 +96,14 @@ export function ApplicantDetailsPanel({
 
       <DetailSection
         title="Screening"
-        subtitle="Consent, async bureau status, and audited overrides — approve does not invent a credit pass."
+        subtitle="Consent, mock/manual bureau status, and audited overrides — not live TPN; approve does not invent a credit pass."
       >
+        {application.type === 'Rental' ? (
+          <div className="mb-4">
+            <ScreeningModeABanner application={application} showGate={canReview} />
+          </div>
+        ) : null}
+
         <div className="grid gap-6 sm:grid-cols-2">
           <div>
             <p className="flex items-center gap-1.5 text-[11px] font-medium text-ink-400">
@@ -197,7 +218,7 @@ export function ApplicantDetailsPanel({
                   }
                 }}
               >
-                Start screening
+                Start screening (mock/manual)
               </Button>
             ) : null}
             {onOverrideScreening ? (
@@ -207,7 +228,7 @@ export function ApplicantDetailsPanel({
                 size="sm"
                 onClick={() => setOverrideOpen((v) => !v)}
               >
-                {overrideOpen ? 'Cancel override' : 'Manual override'}
+                {overrideOpen ? 'Cancel override' : 'Manual bureau record'}
               </Button>
             ) : null}
           </div>
@@ -215,6 +236,10 @@ export function ApplicantDetailsPanel({
 
         {canReview && overrideOpen ? (
           <div className="mt-3 space-y-3 rounded-lg border border-primary-100 bg-primary-50/40 p-3">
+            <p className="text-xs text-ink-500">
+              Manual bureau record (Mode A) — audited staff entry, not live TPN. Cleared status for
+              soft-gate is <strong>passed</strong> or <strong>manual_override</strong>.
+            </p>
             <label className="block text-[11px] font-medium text-ink-400">
               Override outcome
               <select
@@ -241,9 +266,31 @@ export function ApplicantDetailsPanel({
                 rows={2}
                 value={overrideReason}
                 onChange={(e) => setOverrideReason(e.target.value)}
-                placeholder="Why is the agent overriding the bureau result?"
+                placeholder="Why is the agent recording this mock/manual bureau outcome?"
               />
             </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-[11px] font-medium text-ink-400">
+                Score (optional staff field)
+                <input
+                  type="number"
+                  className="mt-1 w-full rounded-md border border-primary-100 bg-white px-2 py-1.5 text-sm text-ink"
+                  value={overrideScore}
+                  onChange={(e) => setOverrideScore(e.target.value)}
+                  placeholder="e.g. 720"
+                />
+              </label>
+              <label className="block text-[11px] font-medium text-ink-400">
+                External ref (optional)
+                <input
+                  type="text"
+                  className="mt-1 w-full rounded-md border border-primary-100 bg-white px-2 py-1.5 text-sm text-ink"
+                  value={overrideRef}
+                  onChange={(e) => setOverrideRef(e.target.value)}
+                  placeholder="Staff-recorded bureau / file ref"
+                />
+              </label>
+            </div>
             <Button
               type="button"
               size="sm"

@@ -284,6 +284,10 @@ export function overrideScreening(
     byUserId: string
     byName: string
     at?: string
+    /** Optional staff-recorded bureau score (manual record — not live TPN). */
+    score?: number | null
+    /** Optional staff-recorded external / bureau reference. */
+    externalReference?: string | null
   },
 ): StartScreeningResult {
   const reason = input.reason.trim()
@@ -307,6 +311,11 @@ export function overrideScreening(
     provider: screening.provider ?? 'manual',
     summary: `Manual override → ${input.newStatus}: ${reason}`,
     checkedAt: at,
+    score: input.score !== undefined ? input.score : screening.score,
+    externalReference:
+      input.externalReference !== undefined
+        ? input.externalReference
+        : screening.externalReference,
     override: audit,
     overrideHistory: [...(screening.overrideHistory ?? []), audit],
   }
@@ -338,4 +347,62 @@ export function markScreeningInProgressOnWorkflow(app: Application): Application
       (consent.granted ? 'Credit check stage entered — awaiting bureau result.' : 'Consent required before bureau check.'),
   }
   return syncCompat(app, next, consent)
+}
+
+/**
+ * DQ-C3 Mode A — screening soft-gate for approve / lease / move-in.
+ * Cleared only when screening is `passed` or audited `manual_override`.
+ * NOT live TPN; approve must never invent Passed.
+ */
+export const SCREENING_MODE_A_COPY =
+  'Mode A soft-demo / non-production screening. Staff capture POPIA consent and record mock or manual bureau outcomes in-app only — not live TPN, and not a live bureau hard-gate.'
+
+/** Same action family as DQ-C2 FICA soft-gate (rental approve / lease / move-in). */
+export const SCREENING_SOFT_GATED_ACTION_KEYS = [
+  'GENERATE_LEASE',
+  'SEND_LEASE',
+  'SCHEDULE_MOVE_IN',
+  'ACTIVATE_TENANCY',
+  'RECOVER_APPROVE',
+  'AGENT_APPROVE',
+  'CONDITIONALLY_APPROVE',
+  'ISSUE_DEPOSIT_INVOICE',
+  'REQUEST_DEPOSIT',
+] as const
+
+export type ScreeningSoftGatedActionKey = (typeof SCREENING_SOFT_GATED_ACTION_KEYS)[number]
+
+export function isScreeningSoftGatedAction(actionKey: string): boolean {
+  return (SCREENING_SOFT_GATED_ACTION_KEYS as readonly string[]).includes(actionKey)
+}
+
+/** True when async screening status is passed or audited manual_override. */
+export function isScreeningClearedForLease(
+  app: Pick<Application, 'screening' | 'creditCheck'>,
+): boolean {
+  const status = resolveScreening(app as Application).status
+  return status === 'passed' || status === 'manual_override'
+}
+
+export function screeningSoftGateMessage(
+  app: Pick<Application, 'screening' | 'creditCheck' | 'type'>,
+): string | null {
+  // Purchase paths use FICA + conveyancing; tenant TPN/manual screening is rental Mode A.
+  if (app.type === 'Purchase') return null
+  if (isScreeningClearedForLease(app)) return null
+  const status = resolveScreening(app as Application).status
+  return `Approve / lease / move-in blocked until screening is passed or recorded via audited manual override (current: ${status} — Mode A mock/manual, not live TPN).`
+}
+
+/** Guard helper for workflow transitions — returns true or a clear block reason. */
+export function screeningSoftGate(
+  app: Pick<Application, 'screening' | 'creditCheck' | 'type'>,
+): true | string {
+  return screeningSoftGateMessage(app) ?? true
+}
+
+export function applicationPassesScreeningSoftGate(
+  app: Pick<Application, 'screening' | 'creditCheck' | 'type'>,
+): boolean {
+  return screeningSoftGateMessage(app) === null
 }

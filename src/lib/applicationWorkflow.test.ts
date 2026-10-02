@@ -53,6 +53,15 @@ function verifiedFicaPackDocs() {
   )
 }
 
+/** DQ-C3 Mode A: approve/lease soft-gate cleared by passed or manual_override. */
+function clearedScreeningFields(): Pick<Application, 'screening' | 'creditCheck' | 'creditConsent'> {
+  return {
+    screening: { status: 'passed', provider: 'mock' },
+    creditCheck: 'Passed',
+    creditConsent: true,
+  }
+}
+
 describe('applicationWorkflow', () => {
   it('maps legacy stages to workflow status', () => {
     const app = rentalApp({ stage: 'Documents Pending' })
@@ -144,6 +153,7 @@ describe('applicationWorkflow', () => {
         workflowStatus: 'deposit_invoice_sent',
         stage: 'Deposit invoice issued',
         documents: verifiedFicaPackDocs(),
+        ...clearedScreeningFields(),
       }),
     )
 
@@ -173,7 +183,11 @@ describe('applicationWorkflow', () => {
     it('never appears for applications already holding an applicant-side approval flow', () => {
       // A lease-less app still at review stage follows the normal approve path
       const early = normalizeApplication(
-        rentalApp({ workflowStatus: 'agent_review', documents: verifiedFicaPackDocs() }),
+        rentalApp({
+          workflowStatus: 'agent_review',
+          documents: verifiedFicaPackDocs(),
+          ...clearedScreeningFields(),
+        }),
       )
       const transitions = getAvailableTransitions(early, ['applications.review'], false)
       expect(transitions.find((t) => t.actionKey === 'RECOVER_APPROVE')).toBeUndefined()
@@ -186,6 +200,21 @@ describe('applicationWorkflow', () => {
           workflowStatus: 'deposit_invoice_sent',
           stage: 'Deposit invoice issued',
           documents: buildDocumentChecklist('Rental').map((d) => ({ ...d, status: 'uploaded' as const })),
+        }),
+      )
+      const transitions = getAvailableTransitions(incomplete, ['applications.review'], false)
+      expect(transitions.find((t) => t.actionKey === 'RECOVER_APPROVE')).toBeUndefined()
+    })
+
+    it('hides Approve & create lease when screening is incomplete (DQ-C3)', () => {
+      const incomplete = normalizeApplication(
+        rentalApp({
+          workflowStatus: 'deposit_invoice_sent',
+          stage: 'Deposit invoice issued',
+          documents: verifiedFicaPackDocs(),
+          screening: { status: 'pending', provider: 'mock' },
+          creditCheck: 'Not Started',
+          creditConsent: true,
         }),
       )
       const transitions = getAvailableTransitions(incomplete, ['applications.review'], false)
@@ -213,6 +242,7 @@ describe('landlord portal review transitions', () => {
       employment: '',
       creditCheck: 'Passed' as const,
       creditConsent: true,
+      screening: { status: 'passed' as const, provider: 'mock' as const },
       documents: verifiedFicaPackDocs(),
       docs: [],
       viewingSlotId: null,

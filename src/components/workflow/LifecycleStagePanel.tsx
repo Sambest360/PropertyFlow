@@ -15,6 +15,7 @@ import { TenantApplicationDetailsForm } from '../tenant/TenantApplicationDetails
 import { Badge, Card, cn } from '../ui'
 import { formatLeadTime } from '../../lib/leadLifecycle'
 import { FicaPackModeABanner } from '../fica/FicaPackModeABanner'
+import { ScreeningModeABanner } from '../screening/ScreeningModeABanner'
 import { FICA_PACK_KEYS } from '../../lib/ficaPack'
 
 const EARLY_DETAIL_STAGES: WorkflowStatusKey[] = ['application_started', 'application_submitted']
@@ -108,6 +109,19 @@ export function LifecycleStagePanel({
         {stageKey === 'fica_verification' ||
         stageDocs.some((d) => (FICA_PACK_KEYS as readonly string[]).includes(d.key)) ? (
           <FicaPackModeABanner documents={application.documents} showGate={canReview && !applicantMode} />
+        ) : null}
+
+        {application.type === 'Rental' &&
+        (stageKey === 'credit_check' ||
+          stageKey === 'agent_review' ||
+          stageKey === 'landlord_review' ||
+          stageKey === 'conditionally_approved' ||
+          stageKey === 'lease_generated' ||
+          stageKey === 'lease_sent') ? (
+          <ScreeningModeABanner
+            application={application}
+            showGate={canReview && !applicantMode}
+          />
         ) : null}
 
         {showDetailsForm ? (
