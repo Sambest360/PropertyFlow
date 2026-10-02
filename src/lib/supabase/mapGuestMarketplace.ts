@@ -176,16 +176,18 @@ export function mapGuestMarketplacePayload(payload: {
     const unitRooms = roomsRaw.filter((r) => String(r.unit_id) === u._unitUuid)
     const statusKey = u.statusKey
     const status =
-      statusKey === 'FEATURED' || u.featured
-        ? 'Featured'
-        : statusKey === 'UNDER_OFFER'
-          ? 'Under Offer'
-          : 'Published'
+      statusKey === 'DRAFT' || statusKey === 'OFF_MARKET' || statusKey === 'NOT_LISTED'
+        ? 'Draft'
+        : statusKey === 'FEATURED' || u.featured
+          ? 'Featured'
+          : statusKey === 'UNDER_OFFER'
+            ? 'Under Offer'
+            : 'Published'
 
     return {
       id: u._propertyId,
       agencyId: u.clientId,
-      landlordId: b?.landlordId ?? 'u-owner1',
+      landlordId: b?.landlordId ?? '',
       agentId: u.agentId,
       buildingId: u.buildingId,
       unitId: u.id,

@@ -635,7 +635,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     return {
       id: u._propertyId,
       agencyId: u.clientId,
-      landlordId: b?.landlordId ?? 'u-owner1',
+      landlordId: b?.landlordId ?? '',
       agentId: u.agentId,
       buildingId: u.buildingId,
       unitId: u.id,
@@ -806,7 +806,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
       id: mappedFe('tenancy', l.id as string, LEASE_IDS[l.id as string] ?? (l.id as string)),
       agencyId: agencyFe(l.client_id as string)!,
       propertyId: mappedFe('property', l.unit_id as string, mapProperty(l.unit_id as string)!),
-      landlordId: mapUser(l.landlord_id as string | null) ?? 'u-owner1',
+      landlordId: mapUser(l.landlord_id as string | null) ?? '',
       agentId: mapUser(l.agent_id as string | null),
       applicationId: null as string | null,
       tenantUserId,

@@ -501,7 +501,12 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     return {
       agencyId: resolvedAgencyId,
       landlordId: resolvedLandlordId,
-      agentId: isLandlord ? null : draft.agentId || null,
+      // P0-5: FA always persists resolvable agentId (self); managers may leave Unassigned.
+      agentId: isLandlord
+        ? null
+        : isAgentCreator
+          ? draft.agentId || user.id
+          : draft.agentId || null,
       title,
       type: draft.propertyType,
       listingMode: draft.listingMode,
@@ -540,7 +545,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     }
   }
 
-  function syncServerDraft(): string {
+  async function syncServerDraft(): Promise<string> {
     const { resolvedAgencyId, resolvedLandlordId, title, unitNumber, listingImages, roomRows, starterAssets } =
       buildSubmitContext()
 
@@ -580,7 +585,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       return persistExisting(sessionOwnedId)
     }
 
-    const created = createPropertyBundle({
+    const created = await createPropertyBundle({
       existingBuildingId: draft.existingBuildingId || undefined,
       building: draft.existingBuildingId
         ? undefined
@@ -606,7 +611,11 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
         listingType: draft.listingMode,
         price: draft.price ? Number(draft.price) : null,
         rent: draft.rent ? Number(draft.rent) : null,
-        agentId: isLandlord ? null : draft.agentId || null,
+        agentId: isLandlord
+          ? null
+          : isAgentCreator
+            ? draft.agentId || user.id
+            : draft.agentId || null,
         squareMeters: totalAreaSqm,
         bedrooms: roomSummary.bedrooms,
         bathrooms: roomSummary.bathrooms,
@@ -635,12 +644,12 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     return created.id
   }
 
-  function handleSaveAndContinueLater() {
+  async function handleSaveAndContinueLater() {
     setError('')
     setBusy(true)
     try {
       if (canSyncServerDraft()) {
-        const id = syncServerDraft()
+        const id = await syncServerDraft()
         setDraft((d) => ({ ...d, draftPropertyId: id }))
         sessionDraftPropertyIdRef.current = id
       }
@@ -653,7 +662,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   }
 
   /** Assets step: finish the listing as a Draft now, add inventory on the detail page. */
-  function handleAddAssetsLater() {
+  async function handleAddAssetsLater() {
     setError('')
     if (!canSyncServerDraft()) {
       setError('Add a building name or street address first so the listing can be saved.')
@@ -661,8 +670,9 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       return
     }
     setBusy(true)
-    try {      const id = syncServerDraft()
-        setDraft((d) => ({ ...d, draftPropertyId: id }))
+    try {
+      const id = await syncServerDraft()
+      setDraft((d) => ({ ...d, draftPropertyId: id }))
       sessionDraftPropertyIdRef.current = id
       clearDraft()
       try {
@@ -692,6 +702,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     }
 
     setBusy(true)
+    try {
     const patch = buildPropertyPatch(listingImages)
     // P0-collision (R10): only a draftPropertyId recorded during THIS wizard
     // session is a legitimate "existing draft" to update. A value restored
@@ -727,7 +738,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       propertyId = existingDraftId
     } else {
       const { resolvedAgencyId, resolvedLandlordId, title, unitNumber, roomRows, starterAssets } = buildSubmitContext()
-      const created = createPropertyBundle({
+      const created = await createPropertyBundle({
         existingBuildingId: draft.existingBuildingId || undefined,
         building: draft.existingBuildingId
           ? undefined
@@ -753,7 +764,11 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
           listingType: draft.listingMode,
           price: draft.price ? Number(draft.price) : null,
           rent: draft.rent ? Number(draft.rent) : null,
-          agentId: isLandlord ? null : draft.agentId || null,
+          agentId: isLandlord
+          ? null
+          : isAgentCreator
+            ? draft.agentId || user.id
+            : draft.agentId || null,
           squareMeters: totalAreaSqm,
           bedrooms: roomSummary.bedrooms,
           bathrooms: roomSummary.bathrooms,
@@ -791,11 +806,11 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     const shouldPublish =
       (fromReview && draft.publishAfterSave && canPublish) || (status === 'Published' && canPublish)
     if (shouldPublish) {
-      // P0-publish: await the same durable publish path "Make live" uses.
+      // P0-5: await durable publish; do not navigate "live" until committed.
       // P0-publish (R7): pass the same-tick created snapshot so publish can
       // resolve the new property before React re-renders; a false result
       // means the listing did not go live.
-      const published = publishProperty(propertyId, 'Published', createdProperty)
+      const published = await publishProperty(propertyId, 'Published', createdProperty)
       if (!published) {
         setError('Could not publish the listing. It was saved as a draft — retry from the listing page.')
         setBusy(false)
@@ -813,10 +828,19 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     // P0-collision (R10): a detail URL the current store can't resolve yet
     // (the async bootstrap refresh may not have landed the new row) renders a
     // "not found" dead end — fall back to the list, which is always valid.
-    const targetInStore = state.properties.some((p) => p.id === propertyId)
+    const targetInStore =
+      state.properties.some((p) => p.id === propertyId) || Boolean(createdProperty)
     const detailTarget =
       (isEdit || isLandlord) && targetInStore ? `/workspace/properties/${propertyId}` : returnTo
     navigate(detailTarget)
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : 'Could not save the listing. Try again.'
+      setError(message)
+      setBusy(false)
+    }
   }
 
   function renderStep() {

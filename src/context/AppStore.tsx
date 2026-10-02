@@ -460,18 +460,19 @@ type StoreContextValue = {
       brand?: string
       condition: AssetCondition
     }>
-  }) => PropertyAsset
+  }) => Promise<PropertyAsset>
   updateProperty: (id: string, patch: Partial<PropertyAsset>) => void
   setPropertyRooms: (id: string, rooms: Room[]) => void
   /** P0-publish: returns whether the listing actually flipped to a public state.
    *  P0-publish (R7): `created` lets the wizard pass the just-created property
    *  snapshot — same-tick create→publish runs before React re-renders, so
-   *  stateRef.current does not contain the new property yet. */
+   *  stateRef.current does not contain the new property yet.
+   *  P0-5: awaits durable property+unit status writes; false until committed. */
   publishProperty: (
     id: string,
     status?: PropertyAsset['status'],
     created?: PropertyAsset,
-  ) => boolean
+  ) => Promise<boolean>
   deleteProperty: (id: string) => { ok: true } | { ok: false; reason: string }
   restoreProperty: (id: string) => { ok: true } | { ok: false; reason: string }
   createBuilding: (input: Omit<Building, 'id' | 'createdAt' | 'images'> & { images?: string[] }) => Building
@@ -2226,7 +2227,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       persistUpsert('property', property.id, property as unknown as Record<string, unknown>)
       return property
     },
-    createPropertyBundle: (input) => {
+    createPropertyBundle: async (input) => {
       const template =
         input.unitTemplateId && input.unitTemplateId !== 'custom'
           ? UNIT_TEMPLATES.find((t) => t.id === input.unitTemplateId)
@@ -2268,11 +2269,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         roomDrafts.map((r) => ({ kind: r.kind, beds: r.beds, baths: r.baths })),
       )
 
+      // P0-5: persist a resolvable agentId on both unit + property (FA book /
+      // Unassigned). Prefer unit.agentId, then property.agentId — never invent.
+      const resolvedAgentId = input.unit.agentId || input.property.agentId || null
+
       const unit: Unit = {
         id: unitId,
         clientId,
         buildingId: building.id,
-        agentId: input.unit.agentId,
+        agentId: resolvedAgentId,
         unitNumber: input.unit.unitNumber,
         title: input.unit.title,
         squareMeters: input.unit.squareMeters ?? template?.squareMeters ?? 0,
@@ -2352,6 +2357,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         id: propertyId, // P0-4: Use same ID as unit for single durable public ID
         buildingId: building.id,
         unitId,
+        agentId: resolvedAgentId,
         beds,
         baths,
         garages: roomTotals.garages,
@@ -2380,21 +2386,37 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         recipientUserIds: propertyDeskStakeholderIds(state.users, property),
       })
 
+      // P0-5: serialize building → unit → property; fail closed on upsert false
+      // so the wizard never navigates "live" on a phantom local-only row.
       if (!existingBuilding) {
-        persistUpsert('building', building.id, building as unknown as Record<string, unknown>)
+        const buildingOk = await persistUpsert(
+          'building',
+          building.id,
+          building as unknown as Record<string, unknown>,
+        )
+        if (!buildingOk) {
+          throw new Error('Could not save the building. Try again.')
+        }
       }
-      persistUpsert('unit', unit.id, {
+      const unitOk = await persistUpsert('unit', unit.id, {
         ...unit,
         agencyId: property.agencyId,
         unitNumber: input.unit.unitNumber,
       } as unknown as Record<string, unknown>)
-      for (const room of infraRooms) {
-        persistUpsert('room', room.id, room as unknown as Record<string, unknown>)
+      if (!unitOk) {
+        throw new Error('Could not save the unit. Try again.')
       }
-      persistUpsert('property', property.id, {
+      for (const room of infraRooms) {
+        // Rooms are non-gating for listing durability (unit+property are).
+        void persistUpsert('room', room.id, room as unknown as Record<string, unknown>)
+      }
+      const propertyOk = await persistUpsert('property', property.id, {
         ...property,
         unitNumber: input.unit.unitNumber,
       } as unknown as Record<string, unknown>)
+      if (!propertyOk) {
+        throw new Error('Could not save the property. Try again.')
+      }
 
       return property
     },
@@ -2465,7 +2487,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       if (prev) persistUpsert('property', id, { ...prev, rooms, beds, baths } as unknown as Record<string, unknown>)
       scheduleBootstrapRefreshAfterMutation()
     },
-    publishProperty: (id, status = 'Published', created?: PropertyAsset) => {
+    publishProperty: async (id, status = 'Published', created?: PropertyAsset) => {
       let pe: PropertyEvent | null = null
       // P0-publish: read the freshest committed state, not the render-closure
       // snapshot. The wizard calls create → publish in the same tick, so `state`
@@ -2539,10 +2561,56 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           propertyEvents: [pe!, ...s.propertyEvents].slice(0, 400),
         }
       })
-      // P0-4: Atomic persistence - both property and unit must be updated together
-      if (prev) persistUpsert('property', id, { ...prev, status, id } as Record<string, unknown>)
-      if (unitPatch) persistUpsert('unit', unitPatch.id, unitPatch as unknown as Record<string, unknown>)
-      if (pe) persistUpsert('property_event', pe.id, pe as unknown as Record<string, unknown>)
+      // P0-5: await property + unit status writes; fail closed before "live".
+      if (prev) {
+        const propertyOk = await persistUpsert(
+          'property',
+          id,
+          { ...prev, status, id } as Record<string, unknown>,
+        )
+        if (!propertyOk) return false
+      }
+      if (unitPatch) {
+        const unitOk = await persistUpsert(
+          'unit',
+          unitPatch.id,
+          unitPatch as unknown as Record<string, unknown>,
+        )
+        if (!unitOk) return false
+      } else if (prev && targetUnitId && PUBLIC_ON.includes(status)) {
+        // Same-tick create may leave unit out of stateRef; still stamp unit status.
+        const fallbackUnit = stateRef.current.units.find((u) => u.id === targetUnitId)
+        const unitPayload = fallbackUnit
+          ? { ...fallbackUnit, statusKey: nextUnitStatus, listingType: unitListingType }
+          : {
+              id: targetUnitId,
+              buildingId: prev.buildingId,
+              clientId: prev.agencyId,
+              agencyId: prev.agencyId,
+              agentId: prev.agentId,
+              unitNumber: prev.id.replace(/^unt-/, '') || 'MAIN',
+              title: prev.title,
+              statusKey: nextUnitStatus,
+              listingType: unitListingType,
+              price: prev.price,
+              rent: prev.rent,
+              squareMeters: prev.area,
+              bedrooms: prev.beds,
+              bathrooms: prev.baths,
+              parking: prev.parking,
+              description: prev.description,
+              amenities: prev.amenities,
+              images: prev.images,
+              featured: prev.featured,
+            }
+        const unitOk = await persistUpsert(
+          'unit',
+          targetUnitId,
+          unitPayload as unknown as Record<string, unknown>,
+        )
+        if (!unitOk) return false
+      }
+      if (pe) void persistUpsert('property_event', pe.id, pe as unknown as Record<string, unknown>)
       if (prev && PUBLIC_ON.includes(status)) {
         const hasOpenSlot = stateRef.current.viewingSlots.some(
           (s) => s.propertyId === id && s.status === 'Open',
