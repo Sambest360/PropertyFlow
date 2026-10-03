@@ -8,7 +8,6 @@ import { createHash } from 'node:crypto'
 import { query } from './db.js'
 import { resolveUuid } from './entityMap.js'
 import { AGENCY_TO_CLIENT } from './idMap.js'
-import { seedBuildings, seedUnits, propertiesFromInfrastructure } from '../src/data/infraSeed.js'
 import { canonicalListingId, listingIdAliases, unitIdForProperty } from '../src/lib/listingIds.js'
 
 /** Bayview Property Group — seed client on the Framesby cottage (seed.sql). */
@@ -19,9 +18,41 @@ const HORIZON_CLIENT = AGENCY_TO_CLIENT['ag-horizon']!
 const FRAMESBY_UNIT = 'a4000001-0001-4000-8000-000000000008'
 /** seed.sql PR-1012 Beachview Towers B14. Not the public Humewood apartment. */
 const BEACHVIEW_B14 = 'a4000001-0001-4000-8000-000000000003'
-/** Public page id (propertiesFromInfrastructure), not a units uuid. */
+/**
+ * Public page listing (infra seed unt-skyline-b14 → PR-1011).
+ * Do not import src/data/infraSeed.js here. That file imports ./platformLookups
+ * with no extension. Vercel ships api/index as Node ESM and includeFiles is only
+ * server/**, src/lib/**, src/types/**, so /var/task/src/data/platformLookups is
+ * missing and both saves throw before a unit is written.
+ * These fields match the guest page: Humewood Beach Apartment B14, ag-horizon.
+ */
 const PUBLIC_PROPERTY_ID = 'PR-1011'
 const PUBLIC_UNIT_ID = 'unt-skyline-b14'
+const PUBLIC_HUMEWOOD = {
+  title: 'Humewood Beach Apartment B14',
+  agencyId: 'ag-horizon',
+  unitNumber: 'B14',
+  squareMeters: 92,
+  bedrooms: 2,
+  bathrooms: 1,
+  parking: 1,
+  listingType: 'rent',
+  price: null as number | null,
+  rent: 11_800,
+  statusKey: 'VACANT',
+  description: 'Same tower, west-facing — ready for corporate rental.',
+  amenities: ['Gym', 'Concierge', 'Generator'],
+  image: 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=800&q=80',
+  featured: false,
+  lat: -33.9781,
+  lng: 25.6452,
+  buildingName: 'Beachview Towers',
+  addressLine1: 'Beach Road',
+  suburb: 'Humewood',
+  city: 'Port Elizabeth',
+  province: 'Eastern Cape',
+  formattedAddress: 'Beach Road, Humewood, Port Elizabeth, South Africa',
+}
 
 type ListingCandidate = {
   id: string
@@ -80,12 +111,7 @@ function acceptLive(unitId: string, clientId: string): LiveListing | null {
  * a units.id to save. Do not update the Framesby cottage or its Bayview client.
  */
 async function materializePublicHumewoodUnit(): Promise<LiveListing | null> {
-  const page = propertiesFromInfrastructure().find(
-    (p) => p.id === PUBLIC_PROPERTY_ID && p.unitId === PUBLIC_UNIT_ID,
-  )
-  const unit = seedUnits.find((u) => u.id === PUBLIC_UNIT_ID)
-  const building = unit ? seedBuildings.find((b) => b.id === unit.buildingId) : undefined
-  if (!page || !unit || !building) return null
+  const page = PUBLIC_HUMEWOOD
   if (page.title !== 'Humewood Beach Apartment B14') return null
   const clientId = AGENCY_TO_CLIENT[page.agencyId]
   if (!clientId || clientId !== HORIZON_CLIENT) return null
@@ -95,6 +121,7 @@ async function materializePublicHumewoodUnit(): Promise<LiveListing | null> {
   const accepted = acceptLive(unitId, clientId)
   if (!accepted) return null
 
+  const images = JSON.stringify([page.image])
   await query(
     `INSERT INTO buildings (
        id, client_id, name, address, city, province, suburb, lat, lng, formatted_address, images, updated_at
@@ -105,15 +132,15 @@ async function materializePublicHumewoodUnit(): Promise<LiveListing | null> {
     [
       buildingId,
       clientId,
-      building.name,
-      building.addressLine1,
-      building.city,
-      building.province,
-      building.suburb,
-      building.lat,
-      building.lng,
+      page.buildingName,
+      page.addressLine1,
+      page.city,
+      page.province,
+      page.suburb,
+      page.lat,
+      page.lng,
       page.formattedAddress,
-      JSON.stringify(building.images ?? []),
+      images,
     ],
   )
 
@@ -132,22 +159,22 @@ async function materializePublicHumewoodUnit(): Promise<LiveListing | null> {
       unitId,
       buildingId,
       clientId,
-      unit.unitNumber,
-      unit.squareMeters,
-      unit.bedrooms,
-      unit.bathrooms,
-      unit.parking,
-      dbListingType(unit.listingType),
-      unit.price,
-      unit.rent,
-      unit.statusKey,
+      page.unitNumber,
+      page.squareMeters,
+      page.bedrooms,
+      page.bathrooms,
+      page.parking,
+      dbListingType(page.listingType),
+      page.price,
+      page.rent,
+      page.statusKey,
       page.title,
-      unit.description,
-      JSON.stringify(unit.amenities ?? []),
-      JSON.stringify(unit.images.length ? unit.images : building.images),
-      unit.featured,
-      unit.lat ?? building.lat,
-      unit.lng ?? building.lng,
+      page.description,
+      JSON.stringify(page.amenities),
+      images,
+      page.featured,
+      page.lat,
+      page.lng,
     ],
   )
 
