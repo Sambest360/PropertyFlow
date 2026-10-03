@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { AGENCY_TO_CLIENT } from './idMap.js'
 import { buildPropertyScope, dealInScope } from '../src/lib/scope.js'
 
 /**
@@ -8,8 +9,8 @@ import { buildPropertyScope, dealInScope } from '../src/lib/scope.js'
  */
 const db = vi.hoisted(() => ({
   mapRows: [] as Array<{ entity_type: string; frontend_id: string; backend_id: string }>,
-  units: new Map<string, { id: string; client_id: string | null; building_id: string }>(),
-  buildings: new Map<string, { id: string; client_id: string | null }>(),
+  units: new Map<string, { id: string; client_id: string | null; building_id: string; unit_number?: string; title?: string }>(),
+  buildings: new Map<string, { id: string; client_id: string | null; suburb?: string }>(),
 }))
 
 const query = vi.hoisted(() => vi.fn())
@@ -54,8 +55,8 @@ describe('guest public apply inherits listing agency (PR-1011)', () => {
     ]
     db.units = new Map([
       [LIVE_UNIT, { id: LIVE_UNIT, client_id: HORIZON_CLIENT, building_id: LIVE_BUILDING }],
-      // Framesby seed unit: empty client_id. Building client is Bayview.
-      [FRAMESBY_UNIT, { id: FRAMESBY_UNIT, client_id: null, building_id: BAYVIEW_BUILDING }],
+      // seed.sql: Framesby unit client is Bayview, same as the building. Do not null it.
+      [FRAMESBY_UNIT, { id: FRAMESBY_UNIT, client_id: BAYVIEW_CLIENT, building_id: BAYVIEW_BUILDING }],
     ])
     db.buildings = new Map([
       [LIVE_BUILDING, { id: LIVE_BUILDING, client_id: HORIZON_CLIENT }],
@@ -72,6 +73,24 @@ describe('guest public apply inherits listing agency (PR-1011)', () => {
           rememberMapRow(String(values[i]), String(values[i + 1]), String(values[i + 2]), update)
         }
         return []
+      }
+
+      if (sql.includes('NOT (u.id = ANY') && sql.includes('Humewood Beach Apartment B14')) {
+        const seedIds = new Set((params?.[0] as string[]) ?? [])
+        const matched = [...db.units.values()].filter((unit) => {
+          if (seedIds.has(unit.id)) return false
+          const title = unit.title ?? ''
+          return title.includes('Humewood Beach Apartment B14') && !title.includes('Beachview')
+        })
+        return matched.map((unit) => {
+          const building = db.buildings.get(unit.building_id)
+          return {
+            id: unit.id,
+            backend_id: unit.id,
+            unit_client: unit.client_id,
+            building_client: building?.client_id ?? null,
+          }
+        })
       }
 
       if (sql.includes('entity_id_map') && sql.includes('JOIN units')) {
@@ -169,5 +188,83 @@ describe('guest public apply inherits listing agency (PR-1011)', () => {
         agencyId: 'ag-horizon',
       }),
     ).toBe(true)
+  })
+
+  it('does not stamp Framesby when the live Humewood map hit is missing', async () => {
+    // entity_id_map only has the Framesby seed (unit client stays Bayview).
+    // The live Humewood Beach Apartment B14 row is in units, not under PR-1012.
+    // Beachview Towers B14 (…0003) is also present and must not be chosen.
+    const BEACHVIEW_B14 = 'a4000001-0001-4000-8000-000000000003'
+    const BEACHVIEW_TOWERS = 'a3000001-0001-4000-8000-000000000002'
+    db.mapRows = [
+      { entity_type: 'property', frontend_id: 'PR-1011', backend_id: FRAMESBY_UNIT },
+      { entity_type: 'unit', frontend_id: 'unt-PR-1011', backend_id: FRAMESBY_UNIT },
+    ]
+    db.units = new Map([
+      [FRAMESBY_UNIT, { id: FRAMESBY_UNIT, client_id: BAYVIEW_CLIENT, building_id: BAYVIEW_BUILDING, title: 'Framesby cottage — Protea Lane' }],
+      [LIVE_UNIT, { id: LIVE_UNIT, client_id: HORIZON_CLIENT, building_id: LIVE_BUILDING, title: 'Humewood Beach Apartment B14', unit_number: 'B14' }],
+      [BEACHVIEW_B14, { id: BEACHVIEW_B14, client_id: HORIZON_CLIENT, building_id: BEACHVIEW_TOWERS, title: 'Beachview Towers B14 — 2-bed rental', unit_number: 'B14' }],
+    ])
+    db.buildings.set(LIVE_BUILDING, { id: LIVE_BUILDING, client_id: HORIZON_CLIENT, suburb: 'Humewood' })
+    db.buildings.set(BEACHVIEW_TOWERS, { id: BEACHVIEW_TOWERS, client_id: HORIZON_CLIENT, suburb: 'Humewood' })
+    expect(db.units.get(FRAMESBY_UNIT)?.client_id).toBe(BAYVIEW_CLIENT)
+
+    const { handlePersist } = await import('./writes.js')
+    const result = await handlePersist({
+      resource: 'application',
+      action: 'upsert',
+      id: 'APP-naledi',
+      data: {
+        propertyId: 'PR-1011',
+        applicantName: 'Naledi Dlamini',
+        email: 'naledi.dlamini.d03@gmail.com',
+        type: 'Rental',
+        stage: 'Application submitted',
+      },
+    })
+    expect(result.ok).toBe(true)
+    const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO applications'))
+    expect(insert).toBeTruthy()
+    const params = insert![1] as unknown[]
+    expect(params[1]).toBe(HORIZON_CLIENT)
+    expect(params[1]).toBe(AGENCY_TO_CLIENT['ag-horizon'])
+    expect(params[1]).not.toBe(BAYVIEW_CLIENT)
+    expect(params[2]).toBe(LIVE_UNIT)
+    expect(params[2]).not.toBe(FRAMESBY_UNIT)
+    expect(params[2]).not.toBe(BEACHVIEW_B14)
+  })
+
+  it('does not stamp Bayview when the live unit and building have no client', async () => {
+    db.mapRows = [
+      { entity_type: 'property', frontend_id: 'PR-1011', backend_id: LIVE_UNIT },
+      { entity_type: 'unit', frontend_id: 'unt-PR-1011', backend_id: FRAMESBY_UNIT },
+    ]
+    db.units.set(LIVE_UNIT, { id: LIVE_UNIT, client_id: null, building_id: LIVE_BUILDING, unit_number: 'B14', title: 'Humewood Beach Apartment B14' })
+    db.buildings.set(LIVE_BUILDING, { id: LIVE_BUILDING, client_id: null, suburb: 'Humewood' })
+    db.units.set(FRAMESBY_UNIT, { id: FRAMESBY_UNIT, client_id: BAYVIEW_CLIENT, building_id: BAYVIEW_BUILDING })
+    expect(db.units.get(FRAMESBY_UNIT)?.client_id).toBe(BAYVIEW_CLIENT)
+    db.buildings.set(BAYVIEW_BUILDING, { id: BAYVIEW_BUILDING, client_id: BAYVIEW_CLIENT })
+
+    const { handlePersist } = await import('./writes.js')
+    const result = await handlePersist({
+      resource: 'application',
+      action: 'upsert',
+      id: 'APP-naledi-empty',
+      data: {
+        propertyId: 'PR-1011',
+        applicantName: 'Naledi Dlamini',
+        email: 'naledi.dlamini.d03@gmail.com',
+        type: 'Rental',
+        stage: 'Application submitted',
+      },
+    })
+    expect(result.ok).toBe(true)
+    const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO applications'))
+    const params = insert![1] as unknown[]
+    expect(params[1]).toBe(HORIZON_CLIENT)
+    expect(params[1]).not.toBe(BAYVIEW_CLIENT)
+    expect(params[2]).toBe(LIVE_UNIT)
+    expect(params[2]).not.toBe(FRAMESBY_UNIT)
+    expect(params[2]).not.toBe('a4000001-0001-4000-8000-000000000003')
   })
 })
