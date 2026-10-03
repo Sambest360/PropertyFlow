@@ -1,5 +1,6 @@
 import { query } from './db.js'
 import { ensureUuid, resolveUuid } from './entityMap.js'
+import { resolveLiveListing } from './listingResolve.js'
 
 export type PublicEnquiryInput = {
   propertyId: string
@@ -35,11 +36,18 @@ async function resolvePublicUnit(propertyFeId: string): Promise<{
   statusKey: string
   value: number
 } | null> {
-  const unitUuid = await resolveUuid('unit', propertyFeId).catch(() => null)
-    ?? (await resolveUuid('property', propertyFeId).catch(() => null))
-  if (!unitUuid) return null
+  // query() returns the row array, not { rows }. Destructuring { rows }
+  // left rows undefined and rows[0] threw "reading '0'" on Register interest.
+  // Also skip the static Framesby uuid resolveUuid returns for PR-1011.
+  let listing: { unitId: string; clientId: string }
+  try {
+    listing = await resolveLiveListing(propertyFeId)
+  } catch (err) {
+    if (err instanceof Error && err.message === 'application requires propertyId') return null
+    throw err
+  }
 
-  const { rows } = await query<{
+  const rows = await query<{
     id: string
     client_id: string
     agent_id: string | null
@@ -49,14 +57,14 @@ async function resolvePublicUnit(propertyFeId: string): Promise<{
   }>(
     `SELECT id, client_id, agent_id, status_config_key, price::text, rent::text
      FROM units WHERE id = $1::uuid LIMIT 1`,
-    [unitUuid],
+    [listing.unitId],
   )
   const row = rows[0]
   if (!row) return null
   const value = Number(row.price ?? row.rent ?? 0)
   return {
     unitId: row.id,
-    clientId: row.client_id,
+    clientId: listing.clientId || row.client_id,
     agentId: row.agent_id,
     statusKey: row.status_config_key,
     value,
@@ -137,7 +145,7 @@ export async function submitPublicListingEnquiry(
   let bookingFeId: string | null = null
   if (action === 'viewing' && input.slotId) {
     const slotUuid = await resolveUuid('viewing_slot', str(input.slotId))
-    const { rows: slotRows } = await query<{
+    const slotRows = await query<{
       slot_date: string
       slot_time: string
       capacity: number
