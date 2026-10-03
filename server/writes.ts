@@ -12,7 +12,7 @@ import {
   type EntityType,
 } from './entityMap.js'
 import { SUB_FE_TO_UUID } from './idMap.js'
-import { listingIdAliases } from '../src/lib/listingIds.js'
+import { canonicalListingId, listingIdAliases, unitIdForProperty } from '../src/lib/listingIds.js'
 import { supabaseAuthConfigured } from './supabase/env.js'
 
 export type PersistAction = 'upsert' | 'delete' | 'patch'
@@ -1021,56 +1021,77 @@ async function upsertLead(feId: string, d: Record<string, unknown>): Promise<str
 }
 
 
-/**
- * Public apply (PR-1011): resolveUuid may return a static seed unit that is
- * not the live listing. Prefer the entity_id_map row that actually exists in
- * units, then a resolved uuid that is a real units row. Never invent a unit.
- */
-async function listingUnitId(propertyId: unknown): Promise<string | null> {
-  if (propertyId == null || propertyId === '') return null
-  const fe = str(propertyId)
-  const aliases = listingIdAliases(fe)
-  if (aliases.length) {
-    const mapped = await query<{ id: string }>(
-      `SELECT u.id::text AS id
-       FROM entity_id_map m
-       JOIN units u ON u.id = m.backend_id
-       WHERE m.entity_type = ANY($1::text[])
-         AND m.frontend_id = ANY($2::text[])
-       LIMIT 1`,
-      [['property', 'unit'], aliases],
-    )
-    if (mapped[0]?.id) return mapped[0].id
-  }
-  const resolved =
-    (await resolveUuid('property', fe)) ?? (await resolveUuid('unit', fe))
-  if (!resolved) return null
-  const live = await query<{ id: string }>(
-    `SELECT id::text AS id FROM units WHERE id = $1::uuid LIMIT 1`,
-    [resolved],
-  )
-  return live[0]?.id ?? null
+type ListingCandidate = {
+  id: string
+  backend_id: string
+  unit_client: string | null
+  building_client: string | null
 }
 
 /**
- * Guest/public payload often has no agency id. Stamp the listing unit's
- * client (else its building) so an agency admin for that agency can open
- * the application. A payload agency is used only when it is a real clients row.
+ * PR-1011 is both the static Framesby seed (resolveUuid returns that uuid
+ * first, and ensureEntityMapTable inserts the same pair) and the live
+ * Humewood listing. Load every map hit — never LIMIT 1 — then:
+ *   1. Prefer a non-seed unit that has a client.
+ *   2. Skip seed rows with an empty unit client_id (do not inherit the
+ *      seed building client — that is how Bayview got stamped on Humewood).
+ *   3. Use a seed row only when it is the only unit and its own client_id is set.
  */
+async function resolveListingForApplication(
+  propertyId: unknown,
+): Promise<{ unitId: string; clientId: string }> {
+  if (propertyId == null || String(propertyId).trim() === '') {
+    throw new Error('application requires propertyId')
+  }
+  const fe = canonicalListingId(str(propertyId))
+  const aliases = listingIdAliases(fe)
+  const seedIds = new Set<string>()
+  const propSeed = await resolveUuid('property', fe)
+  const unitSeed = await resolveUuid('unit', unitIdForProperty(fe))
+  if (propSeed) seedIds.add(propSeed)
+  if (unitSeed) seedIds.add(unitSeed)
+
+  const rows = aliases.length
+    ? await query<ListingCandidate>(
+        `SELECT u.id::text AS id,
+                m.backend_id::text AS backend_id,
+                NULLIF(BTRIM(u.client_id::text), '') AS unit_client,
+                NULLIF(BTRIM(b.client_id::text), '') AS building_client
+         FROM entity_id_map m
+         JOIN units u ON u.id = m.backend_id
+         LEFT JOIN buildings b ON b.id = u.building_id
+         WHERE m.entity_type = ANY($1::text[])
+           AND m.frontend_id = ANY($2::text[])`,
+        [['property', 'unit'], aliases],
+      )
+    : []
+
+  const ranked = rows.map((r) => {
+    const seed = seedIds.has(r.id) || seedIds.has(r.backend_id)
+    const unitClient = (r.unit_client ?? '').trim()
+    const buildingClient = (r.building_client ?? '').trim()
+    return { id: r.id, seed, unitClient, buildingClient }
+  })
+
+  const live = ranked.find((r) => !r.seed && (r.unitClient || r.buildingClient))
+  if (live) {
+    return { unitId: live.id, clientId: live.unitClient || live.buildingClient }
+  }
+
+  // Empty-client seed must not fall through to the seed building (Bayview).
+  const seedWithOwnClient = ranked.find((r) => r.seed && r.unitClient)
+  if (seedWithOwnClient) {
+    return { unitId: seedWithOwnClient.id, clientId: seedWithOwnClient.unitClient }
+  }
+
+  throw new Error('application requires propertyId')
+}
+
+/** Payload agency wins only when it is a real clients row; otherwise the listing. */
 async function agencyClientForApplication(
   payloadAgency: unknown,
-  unitUuid: string,
+  listingClientId: string,
 ): Promise<string> {
-  const listing = await query<{ client_id: string | null }>(
-    `SELECT COALESCE(u.client_id, b.client_id)::text AS client_id
-     FROM units u
-     JOIN buildings b ON b.id = u.building_id
-     WHERE u.id = $1::uuid
-     LIMIT 1`,
-    [unitUuid],
-  )
-  const listingClient = listing[0]?.client_id?.trim() || null
-
   const raw =
     payloadAgency == null || String(payloadAgency).trim() === '' ? '' : str(payloadAgency)
   if (raw) {
@@ -1085,19 +1106,19 @@ async function agencyClientForApplication(
       /* unresolved public agency id — inherit the listing */
     }
   }
-  if (!listingClient) {
+  if (!listingClientId) {
     throw new Error(`application requires agencyId (got ${String(payloadAgency ?? '')})`)
   }
-  return listingClient
+  return listingClientId
 }
 
 async function upsertApplication(feId: string, d: Record<string, unknown>): Promise<string> {
   const uuid = await ensureUuid('application', feId)
-  // Public listing payload may omit agencyId. Resolve the live listing row
-  // (not a stale static alias) and inherit that unit's agency.
-  const unit = await listingUnitId(d.propertyId)
-  if (!unit) throw new Error('application requires propertyId')
-  const client = await agencyClientForApplication(d.agencyId, unit)
+  // Public payload may omit agencyId. Pick the live mapped unit, not the
+  // static Framesby seed resolveUuid returns first.
+  const listing = await resolveListingForApplication(d.propertyId)
+  const unit = listing.unitId
+  const client = await agencyClientForApplication(d.agencyId, listing.clientId)
   // Mode A Sipho: if applicantUserId missing, resolve from email → users and persist.
   let applicant = await resolveApplicantOrTenantUuid({
     userFeId: d.applicantUserId,
