@@ -1,16 +1,26 @@
+import { createRequire } from 'node:module'
 import { describe, expect, it } from 'vitest'
 import {
   connectionStringForPool,
   connectionTimeoutMsForRuntime,
   isRemoteDatabaseUrl,
+  poolConfigForDatabaseUrl,
   poolMaxForRuntime,
   resolveDatabaseUrl,
 } from './dbConfig'
 
+const require = createRequire(import.meta.url)
+const ConnectionParameters = require('pg/lib/connection-parameters') as new (
+  config: Record<string, unknown>,
+) => {
+  ssl?: false | { rejectUnauthorized?: boolean; checkServerIdentity?: () => void }
+  host?: string
+}
+
 describe('isRemoteDatabaseUrl', () => {
   it('treats local URLs without ssl as local', () => {
     expect(
-      isRemoteDatabaseUrl('postgresql://user@127.0.0.1:5432/propertyflow', undefined),
+      isRemoteDatabaseUrl('postgresql://user@127.0.0.1:5432/propertyflow'),
     ).toBe(false)
   })
 
@@ -18,21 +28,24 @@ describe('isRemoteDatabaseUrl', () => {
     expect(
       isRemoteDatabaseUrl(
         'postgresql://postgres.abc@aws-0-eu-west-1.pooler.supabase.com:6543/postgres',
-        undefined,
       ),
     ).toBe(true)
     expect(
-      isRemoteDatabaseUrl('postgresql://x@db.abc.supabase.co:5432/postgres', undefined),
+      isRemoteDatabaseUrl('postgresql://x@db.abc.supabase.co:5432/postgres'),
     ).toBe(true)
   })
 
-  it('treats sslmode query or DATABASE_SSL=1 as remote', () => {
+  it('treats any non-localhost host as remote, even without sslmode', () => {
+    expect(isRemoteDatabaseUrl('postgresql://user@db.example.com:5432/app')).toBe(true)
+  })
+
+  it('keeps localhost local even when sslmode or a TLS env flag is present', () => {
     expect(
-      isRemoteDatabaseUrl('postgresql://user@127.0.0.1:5432/db?sslmode=require', undefined),
-    ).toBe(true)
-    expect(
-      isRemoteDatabaseUrl('postgresql://user@127.0.0.1:5432/db', '1'),
-    ).toBe(true)
+      isRemoteDatabaseUrl('postgresql://user@127.0.0.1:5432/db?sslmode=require'),
+    ).toBe(false)
+    expect(isRemoteDatabaseUrl('postgresql://user@localhost:5432/db')).toBe(false)
+    expect(isRemoteDatabaseUrl('postgresql://user@LOCALHOST:5432/db')).toBe(false)
+    expect(isRemoteDatabaseUrl('postgresql://user@[::1]:5432/db')).toBe(false)
   })
 })
 
@@ -42,16 +55,26 @@ describe('connectionStringForPool', () => {
     expect(connectionStringForPool(url, false)).toBe(url)
   })
 
-  it('forces libpq-compat require for remote URLs', () => {
+  it('forces verify-full and strips libpq-compat for remote URLs', () => {
     const out = connectionStringForPool(
-      'postgresql://u:p@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?sslmode=verify-full',
+      'postgresql://u:p@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?sslmode=require&uselibpqcompat=true',
       true,
     )
     const parsed = new URL(out)
-    expect(parsed.searchParams.get('sslmode')).toBe('require')
-    expect(parsed.searchParams.get('uselibpqcompat')).toBe('true')
+    expect(parsed.searchParams.get('sslmode')).toBe('verify-full')
+    expect(parsed.searchParams.has('uselibpqcompat')).toBe(false)
     expect(parsed.searchParams.get('connect_timeout')).toBe('5')
     expect(parsed.searchParams.get('pgbouncer')).toBe('true')
+  })
+
+  it('appends sslrootcert when a CA path is provided', () => {
+    const out = connectionStringForPool(
+      'postgresql://u:p@db.example.com:5432/app',
+      true,
+      '/etc/ssl/db-ca.pem',
+    )
+    expect(new URL(out).searchParams.get('sslrootcert')).toBe('/etc/ssl/db-ca.pem')
+    expect(new URL(out).searchParams.get('sslmode')).toBe('verify-full')
   })
 
   it('returns the raw string when URL parsing fails', () => {
@@ -84,6 +107,8 @@ describe('resolveDatabaseUrl', () => {
     const r = resolveDatabaseUrl({ vercel: '1' })
     expect(r.configured).toBe(false)
     expect(r.error).toMatch(/DATABASE_URL/)
+    expect(r.error).toMatch(/pooled Postgres URL/)
+    expect(r.error).not.toMatch(/Supabase/)
   })
 
   it('rejects localhost URLs on Vercel', () => {
@@ -93,6 +118,8 @@ describe('resolveDatabaseUrl', () => {
     })
     expect(r.configured).toBe(false)
     expect(r.error).toMatch(/localhost/)
+    expect(r.error).toMatch(/pooled Postgres URL/)
+    expect(r.error).not.toMatch(/Supabase/)
   })
 
   it('accepts a pooler URI', () => {
@@ -110,5 +137,61 @@ describe('resolveDatabaseUrl', () => {
     })
     expect(r.configured).toBe(true)
     expect(r.url).toBe('postgresql://dev@127.0.0.1:5432/propertyflow')
+  })
+})
+
+const WEAK_SSLMODES = ['disable', 'allow', 'prefer', 'require', 'verify-ca', 'no-verify'] as const
+
+describe('pool TLS verification', () => {
+  it('resolves a non-localhost URL to verify-full with certificate checks on', () => {
+    const input =
+      'postgresql://u:p@db.example.com:5432/app?sslmode=require&uselibpqcompat=true&ssl=no-verify'
+    const cfg = poolConfigForDatabaseUrl(input)
+    const parsed = new URL(cfg.connectionString)
+
+    expect(cfg.connectionString.toLowerCase()).not.toContain('uselibpqcompat')
+    expect(parsed.searchParams.get('sslmode')).toBe('verify-full')
+    for (const mode of WEAK_SSLMODES) {
+      expect(parsed.searchParams.get('sslmode')).not.toBe(mode)
+    }
+    expect(parsed.searchParams.get('ssl')).not.toBe('no-verify')
+    expect(cfg.ssl?.rejectUnauthorized).not.toBe(false)
+
+    // Same merge pg's ConnectionParameters uses: the URL overwrites `ssl`.
+    const resolved = new ConnectionParameters({
+      connectionString: cfg.connectionString,
+      ssl: cfg.ssl,
+    })
+    expect(resolved.host).toBe('db.example.com')
+    expect(resolved.ssl).not.toBe(false)
+    expect(typeof resolved.ssl).toBe('object')
+    expect(resolved.ssl && resolved.ssl.rejectUnauthorized).not.toBe(false)
+    expect(resolved.ssl && resolved.ssl.checkServerIdentity).toBeUndefined()
+  })
+
+  it('upgrades every weaker sslmode on a remote host', () => {
+    for (const mode of WEAK_SSLMODES) {
+      const cfg = poolConfigForDatabaseUrl(
+        `postgresql://u:p@db.example.com/app?sslmode=${mode}&UseLibpqCompat=true`,
+      )
+      const parsed = new URL(cfg.connectionString)
+      expect(parsed.searchParams.get('sslmode')).toBe('verify-full')
+      expect(parsed.searchParams.has('uselibpqcompat')).toBe(false)
+      expect(parsed.searchParams.has('UseLibpqCompat')).toBe(false)
+      expect(cfg.ssl?.rejectUnauthorized).toBe(true)
+    }
+  })
+
+  it('leaves a localhost URL without TLS', () => {
+    for (const url of [
+      'postgresql://user@127.0.0.1:5432/propertyflow',
+      'postgresql://user@localhost:5432/propertyflow',
+      'postgresql://user@[::1]:5432/propertyflow',
+    ]) {
+      const cfg = poolConfigForDatabaseUrl(url)
+      expect(cfg.connectionString).toBe(url)
+      expect(cfg.ssl).toBeUndefined()
+      expect(cfg.connectionString).not.toContain('sslmode')
+    }
   })
 })

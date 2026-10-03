@@ -193,7 +193,7 @@ app.get('/api/health', async (c) => {
         database: 'down',
         error: message,
         warning: databaseConfigWarning,
-        hint: 'Use the Supabase Transaction pooler URI (port 6543) and redeploy after setting DATABASE_URL.',
+        hint: 'Use a pooled Postgres URL (port 6543) and redeploy after setting DATABASE_URL.',
         at: new Date().toISOString(),
       },
       503,

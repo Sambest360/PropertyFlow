@@ -67,10 +67,10 @@ Vite proxies `/api` → `:8787`. AppStore merges bootstrap entities into state w
 2. Enable RLS on public tables and revoke `anon` / `authenticated` table grants so only the server role can read/write. Do **not** use `FORCE ROW LEVEL SECURITY` if the API connects as `postgres` (FORCE would lock the server out).
 3. Set `DATABASE_URL` to the **Transaction pooler** URI (`…pooler.supabase.com:6543`, user `postgres.<project-ref>`), not the direct `db.*.supabase.co:5432` URL, for serverless. Prefer **Session** pooler (`:5432` on the pooler host) for long local bootstrap sessions if transaction mode stalls.
 4. Local / Vercel env checklist:
-   - `DATABASE_URL` — pooler URI with `sslmode=require` (server rewrites to libpq-compat)
+   - `DATABASE_URL` — pooled Postgres URL. Non-localhost connections use `sslmode=verify-full` (certificate and hostname, Node CA store).
    - `AUTH_SECRET` — long random string
    - `NODEJS_HELPERS=0` — on Vercel (Hono POST body compatibility)
-   - Optional: `CORS_ORIGINS`, `DATABASE_SSL=1`
+   - Optional: `CORS_ORIGINS`, `DATABASE_SSL_CA` (PEM path when the server cert is not in Node's CA store)
 5. Deploy: Vite SPA + `api/index.ts` (Hono via `hono/vercel`). `vercel.json` rewrites `/api/*` to the function and SPA routes to `/index.html`.
 6. Verify:
 

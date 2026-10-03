@@ -2,10 +2,9 @@ import { config as loadEnv } from 'dotenv'
 import { resolve } from 'node:path'
 import pg from 'pg'
 import {
-  connectionStringForPool,
   connectionTimeoutMsForRuntime,
   databaseUrlRuntimeWarning,
-  isRemoteDatabaseUrl,
+  poolConfigForDatabaseUrl,
   poolMaxForRuntime,
   resolveDatabaseUrl,
 } from './dbConfig.js'
@@ -32,10 +31,11 @@ export const databaseConfigWarning =
     ? databaseUrlRuntimeWarning(resolved.url)
     : undefined
 
-const isRemote = resolved.configured && isRemoteDatabaseUrl(resolved.url)
-const DATABASE_URL = resolved.configured
-  ? connectionStringForPool(resolved.url, isRemote)
-  : resolved.url
+const tls = resolved.configured
+  ? poolConfigForDatabaseUrl(resolved.url, {
+      caPath: process.env.DATABASE_SSL_CA,
+    })
+  : null
 const poolMax = poolMaxForRuntime({
   vercel: process.env.VERCEL,
   lambda: process.env.AWS_LAMBDA_FUNCTION_NAME,
@@ -45,9 +45,9 @@ const connectionTimeoutMillis = connectionTimeoutMsForRuntime({
   lambda: process.env.AWS_LAMBDA_FUNCTION_NAME,
 })
 
-export const pool = resolved.configured
+export const pool = tls
   ? new Pool({
-      connectionString: DATABASE_URL,
+      connectionString: tls.connectionString,
       max: poolMax,
       // Keep idle clients from pinning transaction-mode pooler sessions.
       allowExitOnIdle: true,
@@ -55,7 +55,9 @@ export const pool = resolved.configured
       connectionTimeoutMillis,
       // Cap long queries so bootstrap cannot eat the whole function budget.
       options: '-c statement_timeout=20000',
-      ssl: isRemote ? { rejectUnauthorized: false } : undefined,
+      // Overwritten by the connection string inside pg (see dbConfig.ts).
+      // verify-full on that string is what actually enables certificate checks.
+      ssl: tls.ssl,
     })
   : null
 

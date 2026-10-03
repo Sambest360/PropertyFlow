@@ -74,7 +74,7 @@ gateway.get('/health', async (c) => {
         ok: false,
         database: 'down',
         error: message,
-        hint: 'Use Supabase Transaction pooler port 6543 in DATABASE_URL, then redeploy.',
+        hint: 'Use a pooled Postgres URL (port 6543) in DATABASE_URL, then redeploy.',
         at,
       },
       503,
