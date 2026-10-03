@@ -20,8 +20,8 @@ import type {
   Viewing,
   ViewingSlot,
 } from '../types/domain'
-import { midTransferDemoChecklist } from '../lib/conveyancing/closingChecklist'
-import { DEMO_SAMPLE_FILES } from '../lib/api/documents'
+import { midTransferDemoChecklist } from '../lib/conveyancing/closingChecklist.js'
+import { DEMO_SAMPLE_FILES } from '../lib/api/documents.js'
 
 /** Anchor “today” for the demo month (matches user_info / seed). */
 export const SIM_TODAY = '2026-07-26'

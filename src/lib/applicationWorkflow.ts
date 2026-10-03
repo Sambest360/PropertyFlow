@@ -1,13 +1,13 @@
 import type { Application, ApplicationDocument } from '../types/domain'
 import type { Permission } from '../types/domain'
-import { allDocsUploaded, allDocsVerified, ensureApplicationDocuments } from './workflow'
-import { ficaPackSoftGate } from './ficaPack'
+import { allDocsUploaded, allDocsVerified, ensureApplicationDocuments } from './workflow.js'
+import { ficaPackSoftGate } from './ficaPack.js'
 import {
   hasScreeningConsent,
   markScreeningInProgressOnWorkflow,
   screeningSoftGate,
-} from './screening'
-import { pcrSoftGate } from './pcr'
+} from './screening/index.js'
+import { pcrSoftGate } from './pcr/index.js'
 
 /** DQ-C2 + DQ-C3: FICA pack then screening soft-gate for approve / lease / move-in. */
 function approveLeaseSoftGate(app: Application): true | string {

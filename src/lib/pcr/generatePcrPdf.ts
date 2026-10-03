@@ -4,7 +4,7 @@
  */
 
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib'
-import { PCR_MODE_A_COPY, countCheckedItems, inspectionStatusLabel } from './inspections'
+import { PCR_MODE_A_COPY, countCheckedItems, inspectionStatusLabel } from './inspections.js'
 import type { PcrPdfInput, PcrPdfResult, PropertyConditionInspection } from './types'
 
 const PAGE_W = 595.28

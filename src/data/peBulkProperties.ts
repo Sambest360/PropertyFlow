@@ -2,7 +2,7 @@
  * 100 Port Elizabeth listings — 10 per suburb in peAreas.ts (PR-2101…PR-2200).
  */
 import type { PropertyAsset } from '../types/domain'
-import { PE_AREAS } from './peAreas'
+import { PE_AREAS } from './peAreas.js'
 
 const img = {
   house: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800&q=80',

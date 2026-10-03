@@ -5,7 +5,7 @@
  */
 
 import type { Application } from '../../types/domain'
-import { findInspection, isIngoingPcrSigned } from './inspections'
+import { findInspection, isIngoingPcrSigned } from './inspections.js'
 
 /** Keys / key-handover / activate after incoming PCR. */
 export const PCR_SOFT_GATED_ACTION_KEYS = [
