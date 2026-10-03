@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AGENCY_TO_CLIENT, UNIT_TO_PROPERTY } from './idMap.js'
+import { AGENCY_TO_CLIENT } from './idMap.js'
 import { buildPropertyScope, dealInScope } from '../src/lib/scope.js'
 
 /**
@@ -75,20 +75,12 @@ describe('guest public apply inherits listing agency (PR-1011)', () => {
         return []
       }
 
-      if (sql.includes('NOT (u.id = ANY') && sql.includes('Humewood')) {
+      if (sql.includes('NOT (u.id = ANY') && sql.includes('Humewood Beach Apartment B14')) {
         const seedIds = new Set((params?.[0] as string[]) ?? [])
         const matched = [...db.units.values()].filter((unit) => {
           if (seedIds.has(unit.id)) return false
-          const building = db.buildings.get(unit.building_id)
           const title = unit.title ?? ''
-          const suburb = building?.suburb ?? ''
-          return (
-            title.includes('Humewood Beach Apartment B14') ||
-            (unit.unit_number === 'B14' &&
-              (suburb.toLowerCase() === 'humewood' ||
-                title.includes('Humewood') ||
-                title.includes('Beachview Towers B14')))
-          )
+          return title.includes('Humewood Beach Apartment B14') && !title.includes('Beachview')
         })
         return matched.map((unit) => {
           const building = db.buildings.get(unit.building_id)
@@ -199,19 +191,23 @@ describe('guest public apply inherits listing agency (PR-1011)', () => {
   })
 
   it('does not stamp Framesby when the live Humewood map hit is missing', async () => {
-    // Only the Framesby seed is mapped. No title/B14 row for the fallback query.
-    // Framesby unit client stays Bayview, as in seed.sql.
+    // entity_id_map only has the Framesby seed (unit client stays Bayview).
+    // The live Humewood Beach Apartment B14 row is in units, not under PR-1012.
+    // Beachview Towers B14 (…0003) is also present and must not be chosen.
+    const BEACHVIEW_B14 = 'a4000001-0001-4000-8000-000000000003'
+    const BEACHVIEW_TOWERS = 'a3000001-0001-4000-8000-000000000002'
     db.mapRows = [
       { entity_type: 'property', frontend_id: 'PR-1011', backend_id: FRAMESBY_UNIT },
       { entity_type: 'unit', frontend_id: 'unt-PR-1011', backend_id: FRAMESBY_UNIT },
     ]
     db.units = new Map([
       [FRAMESBY_UNIT, { id: FRAMESBY_UNIT, client_id: BAYVIEW_CLIENT, building_id: BAYVIEW_BUILDING, title: 'Framesby cottage — Protea Lane' }],
+      [LIVE_UNIT, { id: LIVE_UNIT, client_id: HORIZON_CLIENT, building_id: LIVE_BUILDING, title: 'Humewood Beach Apartment B14', unit_number: 'B14' }],
+      [BEACHVIEW_B14, { id: BEACHVIEW_B14, client_id: HORIZON_CLIENT, building_id: BEACHVIEW_TOWERS, title: 'Beachview Towers B14 — 2-bed rental', unit_number: 'B14' }],
     ])
+    db.buildings.set(LIVE_BUILDING, { id: LIVE_BUILDING, client_id: HORIZON_CLIENT, suburb: 'Humewood' })
+    db.buildings.set(BEACHVIEW_TOWERS, { id: BEACHVIEW_TOWERS, client_id: HORIZON_CLIENT, suburb: 'Humewood' })
     expect(db.units.get(FRAMESBY_UNIT)?.client_id).toBe(BAYVIEW_CLIENT)
-    const humewoodB14 = Object.entries(UNIT_TO_PROPERTY).find(([, fe]) => fe === 'PR-1012')?.[0]
-    expect(humewoodB14).toBeTruthy()
-    expect(humewoodB14).not.toBe(FRAMESBY_UNIT)
 
     const { handlePersist } = await import('./writes.js')
     const result = await handlePersist({
@@ -233,8 +229,9 @@ describe('guest public apply inherits listing agency (PR-1011)', () => {
     expect(params[1]).toBe(HORIZON_CLIENT)
     expect(params[1]).toBe(AGENCY_TO_CLIENT['ag-horizon'])
     expect(params[1]).not.toBe(BAYVIEW_CLIENT)
-    expect(params[2]).toBe(humewoodB14)
+    expect(params[2]).toBe(LIVE_UNIT)
     expect(params[2]).not.toBe(FRAMESBY_UNIT)
+    expect(params[2]).not.toBe(BEACHVIEW_B14)
   })
 
   it('does not stamp Bayview when the live unit and building have no client', async () => {
@@ -268,5 +265,6 @@ describe('guest public apply inherits listing agency (PR-1011)', () => {
     expect(params[1]).not.toBe(BAYVIEW_CLIENT)
     expect(params[2]).toBe(LIVE_UNIT)
     expect(params[2]).not.toBe(FRAMESBY_UNIT)
+    expect(params[2]).not.toBe('a4000001-0001-4000-8000-000000000003')
   })
 })

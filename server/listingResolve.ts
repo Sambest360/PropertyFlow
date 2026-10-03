@@ -6,19 +6,13 @@
  */
 import { query } from './db.js'
 import { resolveUuid } from './entityMap.js'
-import { AGENCY_TO_CLIENT, UNIT_TO_PROPERTY } from './idMap.js'
+import { AGENCY_TO_CLIENT } from './idMap.js'
 import { canonicalListingId, listingIdAliases, unitIdForProperty } from '../src/lib/listingIds.js'
 
 /** Bayview Property Group — seed client on the Framesby cottage (seed.sql). */
 const BAYVIEW_CLIENT = AGENCY_TO_CLIENT['ag-garden']!
-/** Horizon Realty — client on Humewood Beachview Towers (seed.sql). */
+/** Horizon Realty — agency on the live Humewood Beach Apartment (not Beachview Towers). */
 const HORIZON_CLIENT = AGENCY_TO_CLIENT['ag-horizon']!
-/**
- * Postgres seed Humewood B14 (Beachview Towers, unit_number B14, Horizon).
- * Public PR-1011 collides with the Framesby cottage; this is the real listing.
- */
-const HUMEWOOD_B14_UNIT =
-  Object.entries(UNIT_TO_PROPERTY).find(([, fe]) => fe === 'PR-1012')?.[0] ?? ''
 
 type ListingCandidate = {
   id: string
@@ -99,6 +93,8 @@ export async function resolveLiveListing(propertyId: unknown): Promise<LiveListi
     // Map hit missing, or the live row and its building have no usable client.
     // Do not fall through to the Framesby seed (that stamps Bayview, or throws).
     const seedList = [...seedIds]
+    // Units row for this listing when entity_id_map only has the Framesby seed.
+    // Match the live title only. Beachview Towers B14 is PR-1012 (…0003), not PR-1011.
     const fallback = seedList.length
       ? await query<ListingCandidate>(
           `SELECT u.id::text AS id,
@@ -108,17 +104,8 @@ export async function resolveLiveListing(propertyId: unknown): Promise<LiveListi
            FROM units u
            LEFT JOIN buildings b ON b.id = u.building_id
            WHERE NOT (u.id = ANY($1::uuid[]))
-             AND (
-               u.title ILIKE '%Humewood Beach Apartment B14%'
-               OR (
-                 u.unit_number = 'B14'
-                 AND (
-                   b.suburb ILIKE 'Humewood'
-                   OR u.title ILIKE '%Humewood%'
-                   OR u.title ILIKE '%Beachview Towers B14%'
-                 )
-               )
-             )`,
+             AND u.title ILIKE '%Humewood Beach Apartment B14%'
+             AND u.title NOT ILIKE '%Beachview%'`,
           [seedList],
         )
       : []
@@ -136,11 +123,7 @@ export async function resolveLiveListing(propertyId: unknown): Promise<LiveListi
     if (liveEmpty) {
       return { unitId: liveEmpty.id, clientId: HORIZON_CLIENT }
     }
-    // Title/map miss: do not throw and do not use the Framesby seed (its unit
-    // client is Bayview). The seeded Humewood B14 row is already Horizon.
-    if (HUMEWOOD_B14_UNIT) {
-      return { unitId: HUMEWOOD_B14_UNIT, clientId: HORIZON_CLIENT }
-    }
+    // No live Humewood row. Do not stamp Framesby, Bayview, or Beachview PR-1012.
     throw new Error('application requires propertyId')
   }
 
