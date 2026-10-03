@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { AGENCY_TO_CLIENT, UNIT_TO_PROPERTY } from './idMap.js'
 import { buildPropertyScope, dealInScope } from '../src/lib/scope.js'
 
 /**
@@ -54,8 +55,8 @@ describe('guest public apply inherits listing agency (PR-1011)', () => {
     ]
     db.units = new Map([
       [LIVE_UNIT, { id: LIVE_UNIT, client_id: HORIZON_CLIENT, building_id: LIVE_BUILDING }],
-      // Framesby seed unit: empty client_id. Building client is Bayview.
-      [FRAMESBY_UNIT, { id: FRAMESBY_UNIT, client_id: null, building_id: BAYVIEW_BUILDING }],
+      // seed.sql: Framesby unit client is Bayview, same as the building. Do not null it.
+      [FRAMESBY_UNIT, { id: FRAMESBY_UNIT, client_id: BAYVIEW_CLIENT, building_id: BAYVIEW_BUILDING }],
     ])
     db.buildings = new Map([
       [LIVE_BUILDING, { id: LIVE_BUILDING, client_id: HORIZON_CLIENT }],
@@ -198,19 +199,19 @@ describe('guest public apply inherits listing agency (PR-1011)', () => {
   })
 
   it('does not stamp Framesby when the live Humewood map hit is missing', async () => {
+    // Only the Framesby seed is mapped. No title/B14 row for the fallback query.
+    // Framesby unit client stays Bayview, as in seed.sql.
     db.mapRows = [
       { entity_type: 'property', frontend_id: 'PR-1011', backend_id: FRAMESBY_UNIT },
       { entity_type: 'unit', frontend_id: 'unt-PR-1011', backend_id: FRAMESBY_UNIT },
     ]
-    db.units.set(LIVE_UNIT, {
-      id: LIVE_UNIT,
-      client_id: HORIZON_CLIENT,
-      building_id: LIVE_BUILDING,
-      unit_number: 'B14',
-      title: 'Humewood Beach Apartment B14',
-    })
-    db.buildings.set(LIVE_BUILDING, { id: LIVE_BUILDING, client_id: HORIZON_CLIENT, suburb: 'Humewood' })
-    db.units.set(FRAMESBY_UNIT, { id: FRAMESBY_UNIT, client_id: BAYVIEW_CLIENT, building_id: BAYVIEW_BUILDING })
+    db.units = new Map([
+      [FRAMESBY_UNIT, { id: FRAMESBY_UNIT, client_id: BAYVIEW_CLIENT, building_id: BAYVIEW_BUILDING, title: 'Framesby cottage — Protea Lane' }],
+    ])
+    expect(db.units.get(FRAMESBY_UNIT)?.client_id).toBe(BAYVIEW_CLIENT)
+    const humewoodB14 = Object.entries(UNIT_TO_PROPERTY).find(([, fe]) => fe === 'PR-1012')?.[0]
+    expect(humewoodB14).toBeTruthy()
+    expect(humewoodB14).not.toBe(FRAMESBY_UNIT)
 
     const { handlePersist } = await import('./writes.js')
     const result = await handlePersist({
@@ -230,8 +231,9 @@ describe('guest public apply inherits listing agency (PR-1011)', () => {
     expect(insert).toBeTruthy()
     const params = insert![1] as unknown[]
     expect(params[1]).toBe(HORIZON_CLIENT)
+    expect(params[1]).toBe(AGENCY_TO_CLIENT['ag-horizon'])
     expect(params[1]).not.toBe(BAYVIEW_CLIENT)
-    expect(params[2]).toBe(LIVE_UNIT)
+    expect(params[2]).toBe(humewoodB14)
     expect(params[2]).not.toBe(FRAMESBY_UNIT)
   })
 
@@ -242,7 +244,8 @@ describe('guest public apply inherits listing agency (PR-1011)', () => {
     ]
     db.units.set(LIVE_UNIT, { id: LIVE_UNIT, client_id: null, building_id: LIVE_BUILDING, unit_number: 'B14', title: 'Humewood Beach Apartment B14' })
     db.buildings.set(LIVE_BUILDING, { id: LIVE_BUILDING, client_id: null, suburb: 'Humewood' })
-    db.units.set(FRAMESBY_UNIT, { id: FRAMESBY_UNIT, client_id: null, building_id: BAYVIEW_BUILDING })
+    db.units.set(FRAMESBY_UNIT, { id: FRAMESBY_UNIT, client_id: BAYVIEW_CLIENT, building_id: BAYVIEW_BUILDING })
+    expect(db.units.get(FRAMESBY_UNIT)?.client_id).toBe(BAYVIEW_CLIENT)
     db.buildings.set(BAYVIEW_BUILDING, { id: BAYVIEW_BUILDING, client_id: BAYVIEW_CLIENT })
 
     const { handlePersist } = await import('./writes.js')
@@ -262,6 +265,7 @@ describe('guest public apply inherits listing agency (PR-1011)', () => {
     const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO applications'))
     const params = insert![1] as unknown[]
     expect(params[1]).toBe(HORIZON_CLIENT)
+    expect(params[1]).not.toBe(BAYVIEW_CLIENT)
     expect(params[2]).toBe(LIVE_UNIT)
     expect(params[2]).not.toBe(FRAMESBY_UNIT)
   })

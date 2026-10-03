@@ -6,12 +6,19 @@
  */
 import { query } from './db.js'
 import { resolveUuid } from './entityMap.js'
+import { AGENCY_TO_CLIENT, UNIT_TO_PROPERTY } from './idMap.js'
 import { canonicalListingId, listingIdAliases, unitIdForProperty } from '../src/lib/listingIds.js'
 
-/** Bayview Property Group — seed client on the Framesby cottage. */
-const BAYVIEW_CLIENT = 'a1000001-0001-4000-8000-000000000003'
-/** Horizon Realty — live agency for Humewood Beach Apartment B14. */
-const HORIZON_CLIENT = 'a1000001-0001-4000-8000-000000000001'
+/** Bayview Property Group — seed client on the Framesby cottage (seed.sql). */
+const BAYVIEW_CLIENT = AGENCY_TO_CLIENT['ag-garden']!
+/** Horizon Realty — client on Humewood Beachview Towers (seed.sql). */
+const HORIZON_CLIENT = AGENCY_TO_CLIENT['ag-horizon']!
+/**
+ * Postgres seed Humewood B14 (Beachview Towers, unit_number B14, Horizon).
+ * Public PR-1011 collides with the Framesby cottage; this is the real listing.
+ */
+const HUMEWOOD_B14_UNIT =
+  Object.entries(UNIT_TO_PROPERTY).find(([, fe]) => fe === 'PR-1012')?.[0] ?? ''
 
 type ListingCandidate = {
   id: string
@@ -128,6 +135,11 @@ export async function resolveLiveListing(propertyId: unknown): Promise<LiveListi
     const liveEmpty = ranked.find((r) => !r.seed)
     if (liveEmpty) {
       return { unitId: liveEmpty.id, clientId: HORIZON_CLIENT }
+    }
+    // Title/map miss: do not throw and do not use the Framesby seed (its unit
+    // client is Bayview). The seeded Humewood B14 row is already Horizon.
+    if (HUMEWOOD_B14_UNIT) {
+      return { unitId: HUMEWOOD_B14_UNIT, clientId: HORIZON_CLIENT }
     }
     throw new Error('application requires propertyId')
   }
