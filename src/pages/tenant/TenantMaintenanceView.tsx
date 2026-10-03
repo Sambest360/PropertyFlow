@@ -79,7 +79,7 @@ export function TenantMaintenanceView({ portal }: { portal: TenantPortalState })
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" data-tip-target="tenant-maintenance">
       <div>
         <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-ink">
           <Wrench className="h-5 w-5 text-primary" strokeWidth={1.6} aria-hidden />

@@ -29,7 +29,10 @@ export function PageHeader({
   const collapseMobile = actionItems.length > 1
 
   return (
-    <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between animate-slide-up">
+    <div
+      className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between animate-slide-up"
+      data-tip-target="page-header"
+    >
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-[1.75rem]">{title}</h1>
         {subtitle && <p className="mt-1 text-sm text-ink-400">{subtitle}</p>}

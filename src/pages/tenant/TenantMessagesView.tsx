@@ -93,7 +93,7 @@ export function TenantMessagesView({ portal }: { portal: TenantPortalState }) {
   }
 
   return (
-    <div className="space-y-5">
+    <div data-tip-target="tenant-messages" className="space-y-5">
       <div>
         <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-ink">
           <MessageCircle className="h-5 w-5 text-primary" strokeWidth={ICON_STROKE} aria-hidden />

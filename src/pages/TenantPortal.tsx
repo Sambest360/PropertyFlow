@@ -134,6 +134,7 @@ export default function TenantPortal() {
             )}
             {view === 'home' && (
               <>
+                <div data-tip-target="tenant-hero">
                 <AttentionHero
                   image={portal.property?.images[0] ?? wishlistProperties[0]?.images[0]}
                   eyebrow={portal.occupancyReady ? 'Tenant portal' : 'Applicant home'}
@@ -181,6 +182,7 @@ export default function TenantPortal() {
                       : { to: '/browse', label: 'Browse' }
                   }
                 />
+                </div>
 
                 {portal.occupancyReady && duePayments.length > 0 && (
                   <SectionBanner
@@ -228,12 +230,14 @@ export default function TenantPortal() {
             )}
 
             {view === 'applications' && (
+              <div data-tip-target="tenant-applications">
               <ApplicationsPanel
                 apps={portal.apps}
                 properties={state.properties}
                 onUpload={(appId, key) => setDocumentStatus(appId, key, 'uploaded')}
                 expanded
               />
+              </div>
             )}
           </>
         )}
