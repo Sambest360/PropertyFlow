@@ -10,7 +10,7 @@ export default function AdminAllUsersPage() {
           title="All users"
           subtitle="Every account on the platform — impersonate any user to troubleshoot or verify their experience."
         />
-        <AllAccountsDirectory returnTo="/workspace/admin/all-users" />
+        <AllAccountsDirectory returnTo="/workspace/admin/all-users" showLandlordWaitingList />
       </div>
     </RequirePermission>
   )
