@@ -122,7 +122,7 @@ const WALKTHROUGH_RULES: Array<{
     }),
   },
   {
-    match: prefix('/calculators'),
+    match: exact('/calculators'),
     tour: () => ({
       id: 'tour-market-calculators',
       steps: [

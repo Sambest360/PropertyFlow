@@ -49,7 +49,9 @@ describe('resolvePageTour', () => {
   it('adds guest saved and calculators walkthroughs', () => {
     expect(resolvePageTour('/saved', null)?.id).toBe('tour-market-saved')
     expect(resolvePageTour('/calculators', null)?.id).toBe('tour-market-calculators')
-    expect(resolvePageTour('/calculators/mortgage-bond', null)?.id).toBe('tour-market-calculators')
+    // Tool subroutes use CalculatorShell (no calc-tools target) — index-only tour.
+    expect(resolvePageTour('/calculators/mortgage-bond', null)).toBeNull()
+    expect(resolvePageTour('/calculators/affordability', null)).toBeNull()
   })
 
   it('adds staff list walkthroughs with welcome-then-target shape', () => {
