@@ -28,4 +28,25 @@ export function getSupabaseUrl(): string {
       undefined
     )
   }
-  
+
+/**
+ * GoTrue is usable only when both a project URL and a publishable/anon key
+ * are set. API-mode Neon has neither; staff mint must not require auth.users.
+ * Same URL/key pair as goTruePasswordSignIn in registerUser.ts.
+ */
+export function supabaseAuthConfigured(): boolean {
+  const url = (
+    process.env.VITE_SUPABASE_URL ||
+    process.env.SUPABASE_URL ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    ''
+  ).trim()
+  const key = (
+    process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    process.env.SUPABASE_PUBLISHABLE_KEY ||
+    process.env.SUPABASE_ANON_KEY ||
+    ''
+  ).trim()
+  return Boolean(url && key)
+}
