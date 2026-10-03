@@ -3573,13 +3573,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       // optimistic copy still rendered. Deriving from the property keeps one
       // agency for the listing and everything on it.
       // Prefer listing agency; fall back to the unit's clientId (same FE agency id).
+      // Public listing cards often omit agencyId (PR-1011 showed no Horizon
+      // agency). Do not block the guest — the server inherits client_id from
+      // the live listing/unit row. Still refuse when there is no listing to
+      // resolve against.
       const agencyId = (
         property?.agencyId ||
         input.agencyId ||
         unit?.clientId ||
         ''
       ).trim()
-      if (!agencyId) {
+      if (!agencyId && !input.propertyId?.trim()) {
         return {
           status: 'ERROR',
           error: 'This listing has no agency — application cannot be filed for staff review.',

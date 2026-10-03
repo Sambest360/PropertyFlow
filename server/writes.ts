@@ -12,6 +12,7 @@ import {
   type EntityType,
 } from './entityMap.js'
 import { SUB_FE_TO_UUID } from './idMap.js'
+import { listingIdAliases } from '../src/lib/listingIds.js'
 import { supabaseAuthConfigured } from './supabase/env.js'
 
 export type PersistAction = 'upsert' | 'delete' | 'patch'
@@ -1019,23 +1020,84 @@ async function upsertLead(feId: string, d: Record<string, unknown>): Promise<str
   return uuid
 }
 
+
+/**
+ * Public apply (PR-1011): resolveUuid may return a static seed unit that is
+ * not the live listing. Prefer the entity_id_map row that actually exists in
+ * units, then a resolved uuid that is a real units row. Never invent a unit.
+ */
+async function listingUnitId(propertyId: unknown): Promise<string | null> {
+  if (propertyId == null || propertyId === '') return null
+  const fe = str(propertyId)
+  const aliases = listingIdAliases(fe)
+  if (aliases.length) {
+    const mapped = await query<{ id: string }>(
+      `SELECT u.id::text AS id
+       FROM entity_id_map m
+       JOIN units u ON u.id = m.backend_id
+       WHERE m.entity_type = ANY($1::text[])
+         AND m.frontend_id = ANY($2::text[])
+       LIMIT 1`,
+      [['property', 'unit'], aliases],
+    )
+    if (mapped[0]?.id) return mapped[0].id
+  }
+  const resolved =
+    (await resolveUuid('property', fe)) ?? (await resolveUuid('unit', fe))
+  if (!resolved) return null
+  const live = await query<{ id: string }>(
+    `SELECT id::text AS id FROM units WHERE id = $1::uuid LIMIT 1`,
+    [resolved],
+  )
+  return live[0]?.id ?? null
+}
+
+/**
+ * Guest/public payload often has no agency id. Stamp the listing unit's
+ * client (else its building) so an agency admin for that agency can open
+ * the application. A payload agency is used only when it is a real clients row.
+ */
+async function agencyClientForApplication(
+  payloadAgency: unknown,
+  unitUuid: string,
+): Promise<string> {
+  const listing = await query<{ client_id: string | null }>(
+    `SELECT COALESCE(u.client_id, b.client_id)::text AS client_id
+     FROM units u
+     JOIN buildings b ON b.id = u.building_id
+     WHERE u.id = $1::uuid
+     LIMIT 1`,
+    [unitUuid],
+  )
+  const listingClient = listing[0]?.client_id?.trim() || null
+
+  const raw =
+    payloadAgency == null || String(payloadAgency).trim() === '' ? '' : str(payloadAgency)
+  if (raw) {
+    try {
+      const resolved = await clientId(raw)
+      const ok = await query<{ id: string }>(
+        `SELECT id::text AS id FROM clients WHERE id = $1::uuid LIMIT 1`,
+        [resolved],
+      )
+      if (ok[0]?.id) return ok[0].id
+    } catch {
+      /* unresolved public agency id — inherit the listing */
+    }
+  }
+  if (!listingClient) {
+    throw new Error(`application requires agencyId (got ${String(payloadAgency ?? '')})`)
+  }
+  return listingClient
+}
+
 async function upsertApplication(feId: string, d: Record<string, unknown>): Promise<string> {
   const uuid = await ensureUuid('application', feId)
-  const unit = await unitIdFromProperty(d.propertyId)
+  // Public listing payload may omit agencyId. Resolve the live listing row
+  // (not a stale static alias) and inherit that unit's agency.
+  const unit = await listingUnitId(d.propertyId)
   if (!unit) throw new Error('application requires propertyId')
-  // P0-sync (R11): never insert applications.client_id NULL — staff RLS hides
-  // those rows. Prefer payload agencyId; else inherit the listing unit's client.
-  let client: string
-  try {
-    client = await clientId(d.agencyId)
-  } catch {
-    const rows = await query<{ client_id: string }>(
-      `SELECT client_id::text AS client_id FROM units WHERE id = $1::uuid LIMIT 1`,
-      [unit],
-    )
-    if (!rows[0]?.client_id) throw new Error(`application requires agencyId (got ${String(d.agencyId ?? '')})`)
-    client = rows[0].client_id
-  }
+  const client = await agencyClientForApplication(d.agencyId, unit)
   // Mode A Sipho: if applicantUserId missing, resolve from email → users and persist.
   let applicant = await resolveApplicantOrTenantUuid({
     userFeId: d.applicantUserId,
