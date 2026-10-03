@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AGENCY_TO_CLIENT } from './idMap.js'
+import { AGENCY_TO_CLIENT, mapProperty } from './idMap.js'
+import { PUBLIC_HUMEWOOD_UNIT_ID } from './listingResolve.js'
 import { buildPropertyScope, dealInScope } from '../src/lib/scope.js'
 
 /**
@@ -393,5 +394,68 @@ describe('guest public apply inherits listing agency (PR-1011)', () => {
     expect(second?.unit_id).toBe(reloaded[0]?.unit_id)
     expect(second?.client_id).toBe(HORIZON_CLIENT)
     expect(db.units.get(FRAMESBY_UNIT)?.client_id).toBe(BAYVIEW_CLIENT)
+  })
+
+  it('saves the guest full application on Humewood when the listing agent is not a users row', async () => {
+    const BEACHVIEW_B14 = 'a4000001-0001-4000-8000-000000000003'
+    db.mapRows = [
+      { entity_type: 'property', frontend_id: 'PR-1011', backend_id: FRAMESBY_UNIT },
+      { entity_type: 'unit', frontend_id: 'unt-PR-1011', backend_id: FRAMESBY_UNIT },
+    ]
+    db.units = new Map([
+      [FRAMESBY_UNIT, { id: FRAMESBY_UNIT, client_id: BAYVIEW_CLIENT, building_id: BAYVIEW_BUILDING, title: 'Framesby cottage — Protea Lane' }],
+      [BEACHVIEW_B14, { id: BEACHVIEW_B14, client_id: HORIZON_CLIENT, building_id: 'a3000001-0001-4000-8000-000000000002', title: 'Beachview Towers B14 — 2-bed rental' }],
+    ])
+    expect(PUBLIC_HUMEWOOD_UNIT_ID).toBe('40588530-0459-4dd3-9ef4-1eb521982479')
+    expect(mapProperty(PUBLIC_HUMEWOOD_UNIT_ID)).toBe('PR-1011')
+    expect(mapProperty(FRAMESBY_UNIT)).toBe('PR-1011')
+    expect(mapProperty(BEACHVIEW_B14)).not.toBe('PR-1011')
+
+    const { handlePersist } = await import('./writes.js')
+    const result = await handlePersist({
+      resource: 'application',
+      action: 'upsert',
+      id: 'APP-zanele',
+      data: {
+        propertyId: 'PR-1011',
+        agencyId: 'ag-horizon',
+        agentId: 'u-james',
+        applicantUserId: 'u-zanele',
+        applicantName: 'Zanele Mthembu',
+        email: 'zanele.mthembu.d03@gmail.com',
+        phone: '0820000000',
+        type: 'Rental',
+        stage: 'Application submitted',
+        income: 18000,
+        employment: 'Declared on application',
+      },
+    })
+    expect(result.ok).toBe(true)
+    expect(result.id).toBe('APP-zanele')
+    const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO applications'))
+    expect(insert).toBeTruthy()
+    const params = insert![1] as unknown[]
+    expect(params[1]).toBe(HORIZON_CLIENT)
+    expect(params[1]).not.toBe(BAYVIEW_CLIENT)
+    expect(params[2]).toBe(PUBLIC_HUMEWOOD_UNIT_ID)
+    expect(params[2]).not.toBe(FRAMESBY_UNIT)
+    expect(params[2]).not.toBe(BEACHVIEW_B14)
+    // u-james static uuid is not a users row — do not fail the agent FK.
+    expect(params[4]).toBeNull()
+    expect(params[7]).toBe('SUBMITTED')
+    const saved = db.units.get(String(params[2]))
+    expect(saved?.title).toBe('Humewood Beach Apartment B14')
+    expect(saved?.client_id).toBe(HORIZON_CLIENT)
+    expect(db.units.get(FRAMESBY_UNIT)?.client_id).toBe(BAYVIEW_CLIENT)
+
+    const { query: readQuery } = await import('./db.js')
+    const reloaded = await readQuery<{ id: string; client_id: string; unit_id: string; reference_code: string }>(
+      `SELECT id::text AS id, client_id::text, unit_id::text, reference_code FROM applications WHERE id = $1::uuid`,
+      [result.uuid],
+    )
+    expect(reloaded).toHaveLength(1)
+    expect(reloaded[0]?.reference_code).toBe('APP-zanele')
+    expect(reloaded[0]?.unit_id).toBe(PUBLIC_HUMEWOOD_UNIT_ID)
+    expect(mapProperty(reloaded[0]?.unit_id)).toBe('PR-1011')
   })
 })

@@ -409,7 +409,17 @@ export function mapAgency(clientId: string | null | undefined): string | null {
   return CLIENT_TO_AGENCY[clientId] ?? clientId
 }
 
+/**
+ * Public Humewood Beach Apartment B14 (unt-skyline-b14), not the Framesby
+ * seed row that also displays as PR-1011. Must match listingResolve
+ * PUBLIC_HUMEWOOD_UNIT_ID (hash of unit:unt-skyline-b14).
+ */
+const PUBLIC_HUMEWOOD_UNIT_ID = '40588530-0459-4dd3-9ef4-1eb521982479'
+
 export function mapProperty(unitId: string | null | undefined): string | null {
   if (!unitId) return null
+  // Reload must see this application on /listing/PR-1011. The raw unit uuid
+  // does not match the public property id, so the listing says there is no application.
+  if (unitId === PUBLIC_HUMEWOOD_UNIT_ID) return 'PR-1011'
   return UNIT_TO_PROPERTY[unitId] ?? unitId
 }
