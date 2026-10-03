@@ -11,6 +11,7 @@ const db = vi.hoisted(() => ({
   mapRows: [] as Array<{ entity_type: string; frontend_id: string; backend_id: string }>,
   units: new Map<string, { id: string; client_id: string | null; building_id: string; unit_number?: string; title?: string }>(),
   buildings: new Map<string, { id: string; client_id: string | null; suburb?: string }>(),
+  applications: new Map<string, { id: string; client_id: string; unit_id: string; reference_code: string }>(),
 }))
 
 const query = vi.hoisted(() => vi.fn())
@@ -62,6 +63,7 @@ describe('guest public apply inherits listing agency (PR-1011)', () => {
       [LIVE_BUILDING, { id: LIVE_BUILDING, client_id: HORIZON_CLIENT }],
       [BAYVIEW_BUILDING, { id: BAYVIEW_BUILDING, client_id: BAYVIEW_CLIENT }],
     ])
+    db.applications = new Map()
     query.mockReset()
     query.mockImplementation(async (sql: string, params?: unknown[]) => {
       if (sql.includes('CREATE TABLE') || sql.includes('CREATE UNIQUE')) return []
@@ -125,8 +127,44 @@ describe('guest public apply inherits listing agency (PR-1011)', () => {
       }
 
       if (sql.includes('FROM users') || sql.includes('FROM clients')) return []
-      if (sql.includes('INSERT INTO applications')) return []
-      throw new Error(`unexpected sql: ${sql.slice(0, 160)}`)
+      if (sql.includes('INSERT INTO buildings')) {
+        const vals = params ?? []
+        db.buildings.set(String(vals[0]), {
+          id: String(vals[0]),
+          client_id: vals[1] == null ? null : String(vals[1]),
+          suburb: vals[6] == null ? undefined : String(vals[6]),
+        })
+        return []
+      }
+      if (sql.includes('INSERT INTO units')) {
+        const vals = params ?? []
+        const id = String(vals[0])
+        db.units.set(id, {
+          id,
+          client_id: vals[2] == null ? null : String(vals[2]),
+          building_id: String(vals[1]),
+          unit_number: String(vals[3]),
+          title: String(vals[12]),
+        })
+        return []
+      }
+      if (sql.includes('INSERT INTO applications')) {
+        const vals = params ?? []
+        const id = String(vals[0])
+        db.applications.set(id, {
+          id,
+          client_id: String(vals[1]),
+          unit_id: String(vals[2]),
+          reference_code: String(vals[5]),
+        })
+        return []
+      }
+      if (sql.includes('FROM applications') && sql.includes('WHERE id')) {
+        const id = String(params?.[0] ?? '')
+        const row = db.applications.get(id)
+        return row ? [row] : []
+      }
+      throw new Error(`unexpected sql: ${sql.slice(0, 180)}`)
     })
   })
 
@@ -266,5 +304,94 @@ describe('guest public apply inherits listing agency (PR-1011)', () => {
     expect(params[2]).toBe(LIVE_UNIT)
     expect(params[2]).not.toBe(FRAMESBY_UNIT)
     expect(params[2]).not.toBe('a4000001-0001-4000-8000-000000000003')
+  })
+
+  it('saves a Humewood application when seed.sql has no Humewood title row', async () => {
+    const BEACHVIEW_B14 = 'a4000001-0001-4000-8000-000000000003'
+    const BEACHVIEW_TOWERS = 'a3000001-0001-4000-8000-000000000002'
+    db.mapRows = [
+      { entity_type: 'property', frontend_id: 'PR-1011', backend_id: FRAMESBY_UNIT },
+      { entity_type: 'unit', frontend_id: 'unt-PR-1011', backend_id: FRAMESBY_UNIT },
+    ]
+    db.units = new Map([
+      [
+        FRAMESBY_UNIT,
+        {
+          id: FRAMESBY_UNIT,
+          client_id: BAYVIEW_CLIENT,
+          building_id: BAYVIEW_BUILDING,
+          title: 'Framesby cottage — Protea Lane',
+          unit_number: 'MAIN',
+        },
+      ],
+      [
+        BEACHVIEW_B14,
+        {
+          id: BEACHVIEW_B14,
+          client_id: HORIZON_CLIENT,
+          building_id: BEACHVIEW_TOWERS,
+          title: 'Beachview Towers B14 — 2-bed rental',
+          unit_number: 'B14',
+        },
+      ],
+    ])
+    db.buildings.set(BEACHVIEW_TOWERS, { id: BEACHVIEW_TOWERS, client_id: HORIZON_CLIENT, suburb: 'Humewood' })
+    expect([...db.units.values()].some((u) => (u.title ?? '').includes('Humewood Beach Apartment B14'))).toBe(false)
+    expect(db.units.get(FRAMESBY_UNIT)?.client_id).toBe(BAYVIEW_CLIENT)
+
+    const { handlePersist } = await import('./writes.js')
+    const { query: readQuery } = await import('./db.js')
+    const result = await handlePersist({
+      resource: 'application',
+      action: 'upsert',
+      id: 'APP-humewood-guest',
+      data: {
+        propertyId: 'PR-1011',
+        applicantName: 'Naledi Dlamini',
+        email: 'naledi.dlamini.d03@gmail.com',
+        type: 'Rental',
+        stage: 'Application submitted',
+      },
+    })
+    expect(result.ok).toBe(true)
+    expect(result.id).toBe('APP-humewood-guest')
+
+    const reloaded = await readQuery<{ id: string; client_id: string; unit_id: string }>(
+      `SELECT id::text AS id, client_id::text AS client_id, unit_id::text AS unit_id
+       FROM applications WHERE id = $1::uuid`,
+      [result.uuid],
+    )
+    expect(reloaded).toHaveLength(1)
+    expect(reloaded[0]?.id).toBe(result.uuid)
+    expect(reloaded[0]?.client_id).toBe(HORIZON_CLIENT)
+    expect(reloaded[0]?.client_id).toBe(AGENCY_TO_CLIENT['ag-horizon'])
+    expect(reloaded[0]?.client_id).not.toBe(BAYVIEW_CLIENT)
+    expect(reloaded[0]?.unit_id).not.toBe(FRAMESBY_UNIT)
+    expect(reloaded[0]?.unit_id).not.toBe(BEACHVIEW_B14)
+    expect(reloaded[0]?.unit_id).not.toBe('PR-1011')
+    expect(reloaded[0]?.unit_id).not.toBe('unt-skyline-b14')
+
+    const saved = db.units.get(reloaded[0]!.unit_id)
+    expect(saved?.title).toBe('Humewood Beach Apartment B14')
+    expect(saved?.client_id).toBe(HORIZON_CLIENT)
+    expect(db.units.get(FRAMESBY_UNIT)?.client_id).toBe(BAYVIEW_CLIENT)
+
+    const again = await handlePersist({
+      resource: 'application',
+      action: 'upsert',
+      id: 'APP-humewood-unit-fe',
+      data: {
+        propertyId: 'unt-skyline-b14',
+        applicantName: 'Naledi Dlamini',
+        email: 'naledi.dlamini.d03@gmail.com',
+        type: 'Rental',
+        stage: 'Application submitted',
+      },
+    })
+    expect(again.ok).toBe(true)
+    const second = db.applications.get(again.uuid)
+    expect(second?.unit_id).toBe(reloaded[0]?.unit_id)
+    expect(second?.client_id).toBe(HORIZON_CLIENT)
+    expect(db.units.get(FRAMESBY_UNIT)?.client_id).toBe(BAYVIEW_CLIENT)
   })
 })

@@ -41,6 +41,8 @@ const BAYVIEW_BUILDING = 'a3000001-0001-4000-8000-000000000007'
 const LIVE_UNIT = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 const LIVE_BUILDING = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
 const HORIZON_CLIENT = 'a1000001-0001-4000-8000-000000000001'
+const BEACHVIEW_B14 = 'a4000001-0001-4000-8000-000000000003'
+const BEACHVIEW_TOWERS = 'a3000001-0001-4000-8000-000000000002'
 
 function rememberMapRow(entityType: string, frontendId: string, backendId: string, update: boolean) {
   const sameFe = db.mapRows.find((r) => r.entity_type === entityType && r.frontend_id === frontendId)
@@ -154,6 +156,31 @@ describe('guest register-interest on PR-1011', () => {
         ]
       }
       if (sql.includes('INSERT INTO leads')) return []
+      if (sql.includes('INSERT INTO buildings')) {
+        const vals = params ?? []
+        db.buildings.set(String(vals[0]), {
+          id: String(vals[0]),
+          client_id: vals[1] == null ? null : String(vals[1]),
+          suburb: vals[6] == null ? undefined : String(vals[6]),
+        })
+        return []
+      }
+      if (sql.includes('INSERT INTO units')) {
+        const vals = params ?? []
+        const id = String(vals[0])
+        db.units.set(id, {
+          id,
+          client_id: vals[2] == null ? null : String(vals[2]),
+          building_id: String(vals[1]),
+          agent_id: null,
+          status_config_key: String(vals[11]),
+          price: vals[9] == null ? null : String(vals[9]),
+          rent: vals[10] == null ? null : String(vals[10]),
+          unit_number: String(vals[3]),
+          title: String(vals[12]),
+        })
+        return []
+      }
       throw new Error(`unexpected sql: ${sql.slice(0, 180)}`)
     })
   })
@@ -194,5 +221,70 @@ describe('guest register-interest on PR-1011', () => {
     expect(params[1]).not.toBe(BAYVIEW_CLIENT)
     expect(params[2]).toBe(LIVE_UNIT)
     expect(params[2]).not.toBe(FRAMESBY_UNIT)
+  })
+
+  it('does not throw property_not_found when seed.sql has no Humewood title row', async () => {
+    db.units.delete(LIVE_UNIT)
+    db.units.set(BEACHVIEW_B14, {
+      id: BEACHVIEW_B14,
+      client_id: HORIZON_CLIENT,
+      building_id: BEACHVIEW_TOWERS,
+      agent_id: null,
+      status_config_key: 'AVAILABLE',
+      price: null,
+      rent: '11800',
+      unit_number: 'B14',
+      title: 'Beachview Towers B14 — 2-bed rental',
+    })
+    db.buildings.set(BEACHVIEW_TOWERS, {
+      id: BEACHVIEW_TOWERS,
+      client_id: HORIZON_CLIENT,
+      suburb: 'Humewood',
+    })
+    db.mapRows = [
+      { entity_type: 'property', frontend_id: 'PR-1011', backend_id: FRAMESBY_UNIT },
+      { entity_type: 'unit', frontend_id: 'unt-PR-1011', backend_id: FRAMESBY_UNIT },
+    ]
+    expect(db.units.get(FRAMESBY_UNIT)?.client_id).toBe(BAYVIEW_CLIENT)
+    expect([...db.units.values()].some((u) => (u.title ?? '').includes('Humewood Beach Apartment B14'))).toBe(false)
+
+    const { submitPublicListingEnquiry } = await import('./publicEnquiry.js')
+    const register = (propertyId: string) =>
+      submitPublicListingEnquiry({
+        propertyId,
+        action: 'lead',
+        firstName: 'Naledi',
+        lastName: 'Dlamini',
+        email: 'naledi.dlamini.d03@gmail.com',
+        interestType: 'Rent',
+      })
+
+    const first = await register('PR-1011')
+    const second = await register('unt-skyline-b14')
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+    expect(first.unitId).toBe(second.unitId)
+    expect(first.unitId).not.toBe(FRAMESBY_UNIT)
+    expect(first.unitId).not.toBe(BEACHVIEW_B14)
+    expect(first.unitId).not.toBe('PR-1011')
+    expect(first.unitId).not.toBe('unt-skyline-b14')
+
+    const saved = db.units.get(first.unitId)
+    expect(saved?.title).toBe('Humewood Beach Apartment B14')
+    expect(saved?.client_id).toBe(HORIZON_CLIENT)
+    expect(saved?.client_id).not.toBe(BAYVIEW_CLIENT)
+    expect(db.units.get(FRAMESBY_UNIT)?.client_id).toBe(BAYVIEW_CLIENT)
+    expect(db.units.get(FRAMESBY_UNIT)?.title).toBe('Framesby cottage — Protea Lane')
+
+    const inserts = query.mock.calls.filter((c) => String(c[0]).includes('INSERT INTO leads'))
+    expect(inserts).toHaveLength(2)
+    for (const insert of inserts) {
+      const params = insert[1] as unknown[]
+      expect(params[1]).toBe(HORIZON_CLIENT)
+      expect(params[1]).not.toBe(BAYVIEW_CLIENT)
+      expect(params[2]).toBe(first.unitId)
+      expect(params[2]).not.toBe(FRAMESBY_UNIT)
+      expect(params[2]).not.toBe(BEACHVIEW_B14)
+    }
   })
 })
