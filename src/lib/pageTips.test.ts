@@ -71,6 +71,16 @@ describe('resolvePageTour', () => {
     )
   })
 
+
+  it('excludes landlord from staff list walkthroughs', () => {
+    expect(resolvePageTour('/workspace/properties', 'landlord')).toBeNull()
+    expect(resolvePageTour('/workspace/operations/maintenance', 'landlord')).toBeNull()
+    expect(resolvePageTour('/workspace/operations/payments', 'landlord')).toBeNull()
+    expect(resolvePageTour('/workspace/operations/documents', 'landlord')).toBeNull()
+    expect(resolvePageTour('/workspace/people/landlords', 'landlord')).toBeNull()
+    expect(resolvePageTour('/workspace/portals/owner', 'landlord')).toBeNull()
+  })
+
   it('adds super-admin and tenant portal walkthroughs', () => {
     expect(resolvePageTour('/workspace/admin/agencies', 'super_admin')?.id).toBe(
       'tour-admin-agencies',

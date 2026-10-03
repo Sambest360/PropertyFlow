@@ -215,7 +215,7 @@ const WALKTHROUGH_RULES: Array<{
   // —— Staff list pages ——
   {
     match: exact('/workspace/properties'),
-    roles: ['client_admin', 'agent_admin', 'ground_agent', 'agent', 'landlord'],
+    roles: ['client_admin', 'agent_admin', 'ground_agent', 'agent'],
     tour: () => ({
       id: 'tour-properties-list',
       steps: [
@@ -319,7 +319,7 @@ const WALKTHROUGH_RULES: Array<{
   },
   {
     match: exact('/workspace/operations/maintenance'),
-    roles: ['client_admin', 'agent_admin', 'ground_agent', 'agent', 'landlord'],
+    roles: ['client_admin', 'agent_admin', 'ground_agent', 'agent'],
     tour: () => ({
       id: 'tour-ops-maintenance',
       steps: [
@@ -345,7 +345,7 @@ const WALKTHROUGH_RULES: Array<{
   },
   {
     match: exact('/workspace/operations/payments'),
-    roles: ['client_admin', 'agent_admin', 'ground_agent', 'landlord'],
+    roles: ['client_admin', 'agent_admin', 'ground_agent'],
     tour: () => ({
       id: 'tour-ops-payments',
       steps: [
@@ -371,7 +371,7 @@ const WALKTHROUGH_RULES: Array<{
   },
   {
     match: exact('/workspace/operations/documents'),
-    roles: ['client_admin', 'agent_admin', 'ground_agent', 'agent', 'landlord'],
+    roles: ['client_admin', 'agent_admin', 'ground_agent', 'agent'],
     tour: () => ({
       id: 'tour-ops-documents',
       steps: [
