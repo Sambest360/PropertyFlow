@@ -12,6 +12,7 @@ import {
   type EntityType,
 } from './entityMap.js'
 import { SUB_FE_TO_UUID } from './idMap.js'
+import { supabaseAuthConfigured } from './supabase/env.js'
 
 export type PersistAction = 'upsert' | 'delete' | 'patch'
 export type PersistBody = {
@@ -588,18 +589,21 @@ async function upsertUser(feId: string, d: Record<string, unknown>): Promise<str
     )
   }
 
-  // P0-sa-mint: public.users + password_hash alone is not Supabase Auth.
-  // When a temp/plain password is supplied, create auth.users (+ identity),
-  // link auth_user_id on THIS profileId, and verify password grant before OK.
+  // P0-sa-mint: when Supabase Auth is configured, public.users + password_hash
+  // alone is not a sign-in. Create auth.users (+ identity), link auth_user_id
+  // on THIS profileId, and verify a password grant before OK.
   // Residual (r13d): profile INSERT then link is non-atomic — on Auth failure
   // delete the orphan so FE error cannot leave a sign-in-dead public.users row.
+  // API-mode Neon has no Supabase Auth and no auth_user_id column. The bcrypt
+  // password_hash written above is what POST /api/auth/login already checks,
+  // so skip the link unless GoTrue is actually configured.
   const plainPassword =
     typeof d.tempPassword === 'string' && d.tempPassword
       ? d.tempPassword
       : typeof d.password === 'string' && d.password
         ? d.password
         : null
-  if (plainPassword) {
+  if (plainPassword && supabaseAuthConfigured()) {
     console.info('[upsertUser] path=server linkStaffAuthUser=run', {
       feId,
       profileId: uuid,
@@ -643,6 +647,13 @@ async function upsertUser(feId: string, d: Record<string, unknown>): Promise<str
       }
       throw err
     }
+  } else if (plainPassword) {
+    console.info('[upsertUser] path=server linkStaffAuthUser=skipped', {
+      feId,
+      profileId: uuid,
+      email,
+      reason: 'supabase-auth-not-configured',
+    })
   } else {
     console.info('[upsertUser] path=server linkStaffAuthUser=skipped', {
       feId,

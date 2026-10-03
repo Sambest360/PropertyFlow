@@ -30,8 +30,30 @@ vi.mock('./auth.js', () => ({
   hashPassword: vi.fn(async (p: string) => `hashed:${p}`),
 }))
 
+const SUPABASE_AUTH_ENV = [
+  'VITE_SUPABASE_URL',
+  'SUPABASE_URL',
+  'NEXT_PUBLIC_SUPABASE_URL',
+  'VITE_SUPABASE_PUBLISHABLE_KEY',
+  'VITE_SUPABASE_ANON_KEY',
+  'SUPABASE_PUBLISHABLE_KEY',
+  'SUPABASE_ANON_KEY',
+] as const
+
 describe('upsertUser mint residual (Auth-fail rollback)', () => {
+  const savedEnv: Record<string, string | undefined> = {}
+
   beforeEach(() => {
+    // These cases cover the Supabase link path. upsertUser only runs it when
+    // GoTrue URL + key are set (API-mode Neon leaves them unset).
+    for (const key of SUPABASE_AUTH_ENV) savedEnv[key] = process.env[key]
+    delete process.env.SUPABASE_URL
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL
+    delete process.env.VITE_SUPABASE_PUBLISHABLE_KEY
+    delete process.env.SUPABASE_PUBLISHABLE_KEY
+    delete process.env.SUPABASE_ANON_KEY
+    process.env.VITE_SUPABASE_URL = 'https://example.supabase.co'
+    process.env.VITE_SUPABASE_ANON_KEY = 'anon-test-key'
     query.mockReset()
     ensureUuid.mockClear()
     forgetId.mockClear()
@@ -45,6 +67,10 @@ describe('upsertUser mint residual (Auth-fail rollback)', () => {
   })
 
   afterEach(() => {
+    for (const key of SUPABASE_AUTH_ENV) {
+      if (savedEnv[key] === undefined) delete process.env[key]
+      else process.env[key] = savedEnv[key]
+    }
     vi.resetModules()
   })
 
