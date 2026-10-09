@@ -117,6 +117,48 @@ describe('landlord trust rows on bootstrap', () => {
   })
 })
 
+describe('landlord trust rows: agency from the property', () => {
+  type Raw = ReturnType<typeof payload>
+  function view(mut: (r: Raw) => void, agencyId: string | null = 'ag-a') {
+    const raw = payload()
+    mut(raw)
+    const actor: DemoActor = { userId: 'u-ll-a', role: 'landlord', agencyId }
+    const scope = buildPropertyScope(
+      { role: 'landlord', userId: 'u-ll-a', agencyId, agencySuspended: false },
+      { properties: raw.properties },
+    )
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const out = filterBootstrapForActor(raw as any, actor, scope)
+    return {
+      al: (out.trustAllocations ?? []).map((a) => (a as { id: string }).id),
+      po: (out.payoutInstructions ?? []).map((p) => (p as { id: string }).id),
+    }
+  }
+  const allocOn = (id: string, agencyId: string | null) => ({
+    ...payload().trustAllocations[0], id, agencyId,
+  })
+  it('a null-agency allocation is excluded', () => {
+    expect(view((r) => { (r.trustAllocations as unknown[]).push(allocOn('al-null', null)) }).al).toEqual(['al-own'])
+  })
+  it('an other-agency allocation is excluded', () => {
+    expect(view((r) => { (r.trustAllocations as unknown[]).push(allocOn('al-b', 'ag-b')) }).al).toEqual(['al-own'])
+  })
+  it('a null-agency payout is excluded', () => {
+    expect(view((r) => { (r.payoutInstructions as unknown[]).push({ ...r.payoutInstructions[0], id: 'po-null', agencyId: null }) }).po).toEqual(['po-own'])
+  })
+  it('a null-agency property gives nothing', () => {
+    const out = view((r) => {
+      ;(r.properties[0] as { agencyId: string | null }).agencyId = null
+      ;(r.trustAllocations as unknown[]).push(allocOn('al-null', null))
+      ;(r.payoutInstructions as unknown[]).push({ ...r.payoutInstructions[0], id: 'po-null', agencyId: null })
+    })
+    expect(out).toEqual({ al: [], po: [] })
+  })
+  it('a landlord with no session agency still gets the valid rows on their own property', () => {
+    expect(view(() => {}, null)).toEqual({ al: ['al-own'], po: ['po-own'] })
+  })
+})
+
 describe('suite alerts: no null-agency pass-through', () => {
   it('agency admin does not get null-agency suite alerts', () => {
     const raw = payload()
@@ -141,8 +183,11 @@ describe('demo actor headers in production', () => {
   it('ALLOW_DEMO_ACTOR is ignored when NODE_ENV=production', () => {
     expect(demoActorHeadersAllowed({ ALLOW_DEMO_ACTOR: '1', NODE_ENV: 'production' } as NodeJS.ProcessEnv)).toBe(false)
   })
-  it('ALLOW_DEMO_ACTOR still opts in on a non-production host', () => {
-    expect(demoActorHeadersAllowed({ ALLOW_DEMO_ACTOR: '1', VERCEL: '1' } as NodeJS.ProcessEnv)).toBe(true)
+  it('ALLOW_DEMO_ACTOR is ignored with VERCEL=1 (vercel dev)', () => {
+    expect(demoActorHeadersAllowed({ ALLOW_DEMO_ACTOR: '1', VERCEL: '1' } as NodeJS.ProcessEnv)).toBe(false)
+  })
+  it('ALLOW_DEMO_ACTOR still opts in on a plain local host', () => {
+    expect(demoActorHeadersAllowed({ ALLOW_DEMO_ACTOR: '1' } as NodeJS.ProcessEnv)).toBe(true)
   })
 })
 

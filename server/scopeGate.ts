@@ -1761,30 +1761,37 @@ function filterBootstrapEntitiesForActor(
   // from the trust books. Ids matched in every form the actor may carry.
   const isLandlord = actor.role === 'landlord'
   const mine = (id: unknown) => typeof id === 'string' && id !== '' && actorIds.has(id)
-  const ownPropertyIds = new Set(
+  // Agency comes from the property, never the session: a row passes only
+  // with a non-null agencyId equal to its property's non-null agencyId.
+  const ownPropertyAgency = new Map<string, string>(
     isLandlord
-      ? (raw.properties as Array<{ id: string; landlordId?: string | null }>)
-          .filter((p) => mine(p.landlordId))
-          .map((p) => p.id)
+      ? (raw.properties as Array<{ id: string; landlordId?: string | null; agencyId?: string | null }>)
+          .filter((p) => mine(p.landlordId) && Boolean(p.agencyId))
+          .map((p) => [p.id, p.agencyId as string])
       : [],
   )
-  const ownTenancyIds = new Set(
+  const tenancyProperty = new Map<string, string>(
     isLandlord
       ? (raw.tenancies as Array<{ id: string; landlordId?: string | null; propertyId?: string }>)
-          .filter((t) => mine(t.landlordId) && Boolean(t.propertyId) && ownPropertyIds.has(t.propertyId!))
-          .map((t) => t.id)
+          .filter((t) => mine(t.landlordId) && Boolean(t.propertyId) && ownPropertyAgency.has(t.propertyId!))
+          .map((t) => [t.id, t.propertyId as string])
       : [],
   )
+  const sameAgency = (rowAgency: unknown, propertyId: string | undefined) =>
+    typeof rowAgency === 'string' &&
+    rowAgency !== '' &&
+    Boolean(propertyId) &&
+    ownPropertyAgency.get(propertyId!) === rowAgency
   const landlordAllocations = isLandlord
     ? (raw.trustAllocations ?? []).filter((a) => {
-        const occ = (a as { occupancyId?: string | null }).occupancyId
-        return Boolean(occ) && ownTenancyIds.has(occ!)
+        const r = a as { occupancyId?: string | null; agencyId?: string | null }
+        return Boolean(r.occupancyId) && sameAgency(r.agencyId, tenancyProperty.get(r.occupancyId!))
       })
     : null
   const landlordPayouts = isLandlord
     ? (raw.payoutInstructions ?? []).filter((p) => {
-        const r = p as { payeeType?: string; payeeId?: string; propertyId?: string }
-        return r.payeeType === 'landlord' && mine(r.payeeId) && Boolean(r.propertyId) && ownPropertyIds.has(r.propertyId!)
+        const r = p as { payeeType?: string; payeeId?: string; propertyId?: string; agencyId?: string | null }
+        return r.payeeType === 'landlord' && mine(r.payeeId) && sameAgency(r.agencyId, r.propertyId)
       })
     : null
 
