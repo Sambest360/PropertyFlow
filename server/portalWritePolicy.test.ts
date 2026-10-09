@@ -375,3 +375,36 @@ describe('landlord and contractor allow-lists', () => {
     await expect403(gate(CONTRACTOR, { resource: 'ticket', action: 'upsert', id: 'TK-brand-new', data: { propertyId: 'p-1', agencyId: 'ag-a' } }))
   })
 })
+
+describe("Follow-up: a tenant's own ticket never sets assignment, cost or status", () => {
+  const LOCKED = { contractorId: 'u-co', assignedAgentId: 'u-agent', assignedTo: 'u-agent', cost: 9999, status: 'Completed' }
+
+  it('update and create both strip contractorId, assignedAgentId, cost and status', async () => {
+    const upd: Body = { resource: 'ticket', action: 'upsert', id: 'TK-mine', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', title: 'Leak', ...LOCKED } }
+    await expect(gate(TENANT, upd)).resolves.toEqual({})
+    expect(upd.data).toEqual({ propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', title: 'Leak' })
+    const created: Body = { resource: 'ticket', action: 'upsert', id: 'TK-new', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', ...LOCKED } }
+    await expect(gate(TENANT, created)).resolves.toEqual({})
+    expect(created.data).toEqual({ propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t' })
+  })
+
+  it('the stripped write keeps the stored assignment, cost and status (upsertTicket)', async () => {
+    const body: Body = { resource: 'ticket', action: 'upsert', id: 'TK-mine', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', title: 'Leak', ...LOCKED } }
+    await gate(TENANT, body)
+    resolveUuid.mockImplementation(async (_t: string, fe: string) => (fe === 'p-1' ? UN1 : (UUID[fe] ?? null)))
+    const { handlePersist } = await import('./writes.js')
+    await handlePersist(body as never)
+    const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO maintenance_tickets'))!
+    const sql = String(insert[0]).replace(/\s+/g, ' ')
+    const params = insert[1] as unknown[]
+    expect(sql).toContain('assigned_to = CASE WHEN $19::boolean THEN EXCLUDED.assigned_to ELSE maintenance_tickets.assigned_to END')
+    expect(sql).toContain('contractor_id = CASE WHEN $20::boolean THEN EXCLUDED.contractor_id ELSE maintenance_tickets.contractor_id END')
+    expect(sql).toContain('status = CASE WHEN $21::boolean THEN EXCLUDED.status ELSE maintenance_tickets.status END')
+    expect(sql).toContain('cost_actual = CASE WHEN $22::boolean THEN EXCLUDED.cost_actual ELSE maintenance_tickets.cost_actual END')
+    // A new tenant ticket goes to the unit's agent.
+    expect(sql).toContain('CASE WHEN $19::boolean THEN $6::uuid ELSE (SELECT u.agent_id FROM units u WHERE u.id = $3::uuid) END')
+    expect(params.slice(18, 22)).toEqual([false, false, false, false])
+    expect(params).not.toContain(9999)
+    expect(params[11]).toBe('OPEN')
+  })
+})

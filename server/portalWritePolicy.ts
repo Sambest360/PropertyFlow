@@ -16,7 +16,8 @@
  *   viewing           own booking: applicantEmail = their account email
  *   viewing_slot      booking recount only: booked_count = live count of
  *                     non-cancelled bookings, and only on a slot they booked
- *   ticket            own maintenance ticket / complaint (reportedByUserId)
+ *   ticket            own maintenance ticket / complaint (reportedByUserId);
+ *                     contractorId / assignedAgentId / cost / status stripped
  *   thread / message  threads they participate in; messages from themselves
  *   tenancy           their own lease signature only (eSign.tenant; the
  *                     server merges it into the stored envelope)
@@ -163,6 +164,15 @@ export async function landlordApplicationDecision(
   }
   return { handled: { ok: true, id: body.id, uuid } }
 }
+
+/** Fields a tenant never sets on their own ticket (create or update). */
+export const TENANT_TICKET_LOCKED_FIELDS = [
+  'contractorId',
+  'assignedAgentId',
+  'assignedTo',
+  'cost',
+  'status',
+] as const
 
 export const PORTAL_ROLES: ReadonlySet<string> = new Set(['tenant', 'landlord', 'contractor'])
 
@@ -331,6 +341,9 @@ export async function enforcePortalWritePolicy(
         } else if (sentReporter !== actor.userId) {
           throw deny('a new ticket must be reported by themselves')
         }
+        // Assignment, cost and status are staff / contractor fields; the
+        // writer keeps the stored values when they are absent.
+        for (const k of TENANT_TICKET_LOCKED_FIELDS) delete data[k]
         return {}
       }
       if (isContractor) {

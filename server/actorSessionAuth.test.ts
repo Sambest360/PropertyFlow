@@ -903,7 +903,7 @@ describe('Jim B5: trust writes and payout dual control', () => {
   })
 })
 
-describe('Follow-up: deposit release dual control', () => {
+describe('Follow-up: deposit release dual control and payout bank account', () => {
   const DH = (n: number) => `c8000001-0001-4000-8000-0000000000${String(n).padStart(2, '0')}`
   const PO = (n: number) => `c7000001-0001-4000-8000-0000000000${String(n).padStart(2, '0')}`
   const uuidOf = (fe: string) => db.users.find((u) => u.fe === fe)!.id
@@ -1048,6 +1048,25 @@ describe('Follow-up: deposit release dual control', () => {
     expect((await call('u-admin', DH(77), 'propose-release')).status).toBe(404)
     production()
     expect((await app.request(`/api/trust/deposits/${DH(1)}/propose-release`, { method: 'POST', body: '{}' })).status).toBe(401)
+  })
+
+  const payout = (bankAccountId: unknown, n = 50) => ({
+    resource: 'payout_instruction',
+    action: 'upsert',
+    id: PO(n),
+    data: { agencyId: 'ag-horizon', propertyId: 'p-1', payeeId: 'u-ll', amountCents: 5000, bankAccountId },
+  })
+
+  it("a payout may name a bank account already on file for the actor's agency, or none", async () => {
+    expect((await persist('u-admin', payout('BA-HZN-1', 51))).status).toBe(200)
+    expect((await persist('u-admin', payout('', 52))).status).toBe(200)
+  })
+
+  it("a payout naming another agency's, a shared or an unknown bank account is refused", async () => {
+    for (const bank of ['BA-CAPE-1', 'BA-SHARED', 'BA-NEW-999']) {
+      expect((await persist('u-admin', payout(bank))).status, bank).toBe(403)
+    }
+    expect(db.writes.some((w) => w.startsWith('INSERT INTO payout_instructions'))).toBe(false)
   })
 })
 

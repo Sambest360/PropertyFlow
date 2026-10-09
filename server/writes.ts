@@ -1528,6 +1528,10 @@ async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<s
   const unit = await unitIdFromProperty(d.propertyId ?? d.unitId)
   if (!unit) throw new Error('ticket requires propertyId')
   const reported = await userId(d.reportedByUserId)
+  // Absent assignment / cost / status (a tenant's own ticket has them
+  // stripped) keep the stored values on update.
+  const has = (k: string) => d[k] !== undefined
+  const assignSent = has('assignedAgentId') || has('assignedTo')
   const assigned = await userId(d.assignedAgentId ?? d.assignedTo)
   const contractor = await userId(d.contractorId)
   const asset = d.internalAssetId ? await resolveUuid('asset', str(d.internalAssetId)) : null
@@ -1540,25 +1544,28 @@ async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<s
        category_key, title, description, priority, status, warranty_covered,
        escalated_at, cost_estimate, cost_actual, photos, completed_at, updated_at
      ) VALUES (
-       $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::uuid,
+       $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid,
+       -- A new ticket without an assignment (tenant-reported) goes to the unit's agent.
+       CASE WHEN $19::boolean THEN $6::uuid ELSE (SELECT u.agent_id FROM units u WHERE u.id = $3::uuid) END,
+       $7::uuid,
        $8, $9, $10, $11, $12, $13,
        $14::timestamptz, $15, $16, $17::jsonb, $18::timestamptz, NOW()
      )
      ON CONFLICT (id) DO UPDATE SET
        asset_id = EXCLUDED.asset_id,
-       assigned_to = EXCLUDED.assigned_to,
-       contractor_id = EXCLUDED.contractor_id,
+       assigned_to = CASE WHEN $19::boolean THEN EXCLUDED.assigned_to ELSE maintenance_tickets.assigned_to END,
+       contractor_id = CASE WHEN $20::boolean THEN EXCLUDED.contractor_id ELSE maintenance_tickets.contractor_id END,
        category_key = EXCLUDED.category_key,
        title = EXCLUDED.title,
        description = EXCLUDED.description,
        priority = EXCLUDED.priority,
-       status = EXCLUDED.status,
+       status = CASE WHEN $21::boolean THEN EXCLUDED.status ELSE maintenance_tickets.status END,
        warranty_covered = EXCLUDED.warranty_covered,
        escalated_at = COALESCE(EXCLUDED.escalated_at, maintenance_tickets.escalated_at),
-       cost_estimate = EXCLUDED.cost_estimate,
-       cost_actual = EXCLUDED.cost_actual,
+       cost_estimate = CASE WHEN $22::boolean THEN EXCLUDED.cost_estimate ELSE maintenance_tickets.cost_estimate END,
+       cost_actual = CASE WHEN $22::boolean THEN EXCLUDED.cost_actual ELSE maintenance_tickets.cost_actual END,
        photos = EXCLUDED.photos,
-       completed_at = EXCLUDED.completed_at,
+       completed_at = CASE WHEN $21::boolean THEN EXCLUDED.completed_at ELSE maintenance_tickets.completed_at END,
        updated_at = NOW()`,
     [
       uuid,
@@ -1579,6 +1586,10 @@ async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<s
       num(d.cost),
       JSON.stringify(Array.isArray(d.photos) ? d.photos : []),
       status === 'COMPLETED' || status === 'RESOLVED' ? new Date().toISOString() : null,
+      assignSent,
+      has('contractorId'),
+      has('status'),
+      has('cost'),
     ],
   )
   return uuid

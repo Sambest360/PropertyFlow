@@ -646,6 +646,39 @@ export async function enforceTrustWritePolicy(
   if (!(await actorStoredCan(actor, TRUST_WRITE_PERMS[body.resource] ?? []))) {
     throw deny('missing trust permission')
   }
+  if (body.resource === 'payout_instruction') {
+    // Deletes were refused above, so this is a create.
+    await assertBankAccountInAgency(data, actor.agencyId, deny)
+  }
+}
+
+/**
+ * bank_account_id is free text (no bank account register yet). A non-super
+ * payout may only name a bank account already on file for the actor's agency:
+ * one that appears on that agency's existing payout instructions and on no
+ * other agency's. Blank is allowed (the account is captured later). A new
+ * account id is refused until a super admin records it.
+ */
+async function assertBankAccountInAgency(
+  data: Record<string, unknown>,
+  actorAgencyFe: string,
+  deny: (why: string) => Error,
+): Promise<void> {
+  const raw = data.bankAccountId ?? data.bank_account_id
+  if (raw == null || (typeof raw === 'string' && raw.trim() === '')) return
+  if (typeof raw !== 'string') throw deny('bankAccountId must be a string')
+  const bank = raw.trim()
+  const client = (await resolveUuid('agency', actorAgencyFe)) ?? actorAgencyFe
+  const rows = await query<{ client_id: string }>(
+    `SELECT DISTINCT client_id::text AS client_id FROM payout_instructions WHERE bank_account_id = $1`,
+    [bank],
+  )
+  const owners = new Set<string>()
+  for (const r of rows) owners.add((await agencyFeId(r.client_id)) ?? r.client_id)
+  const mine = owners.has(actorAgencyFe) || rows.some((r) => r.client_id === client)
+  if (!mine || owners.size > 1) {
+    throw deny(`bank account ${bank} is not on file for your agency`)
+  }
 }
 
 async function storedUserEmail(feId: string): Promise<string | null> {
