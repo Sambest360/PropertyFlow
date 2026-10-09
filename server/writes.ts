@@ -498,7 +498,7 @@ async function upsertAgency(feId: string, d: Record<string, unknown>): Promise<s
 async function upsertUser(feId: string, d: Record<string, unknown>): Promise<string> {
   const uuid = await ensureUuid('user', feId)
   const { first, last } = splitName(str(d.name, 'User'))
-  const feRole = str(d.role, 'tenant')
+  const feRole = str(d.role, 'tenant').trim().toLowerCase() || 'tenant'
   const role = ROLE_TO_DB[feRole] ?? 'END_USER'
   const client = d.agencyId ? await clientId(d.agencyId) : null
   const email = str(d.email, `${feId}@propertyflow.local`).trim().toLowerCase()

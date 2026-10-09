@@ -460,3 +460,39 @@ describe('Angela #80: agency-created landlords and contractors start pending', (
     }
   })
 })
+
+describe('Jim B6: role is normalised and checked against an allow-list', () => {
+  it("' super_admin' (and other spellings) from an agency admin is refused", async () => {
+    for (const role of [' super_admin', 'super_admin ', 'SUPER_ADMIN', ' Super_Admin\t']) {
+      await expect403(gate(ADMIN, { resource: 'user', action: 'upsert', id: 'u-agent', data: { role } }))
+      await expect403(gate(ADMIN, { resource: 'user', action: 'upsert', id: 'u-new', data: { role, agencyId: 'ag-a' } }))
+    }
+  })
+
+  it('a role outside the agency-assignable list is refused', async () => {
+    await expect403(gate(ADMIN, { resource: 'user', action: 'upsert', id: 'u-agent', data: { role: 'platform_owner' } }))
+    await expect403(gate(ADMIN, { resource: 'user', action: 'upsert', id: 'u-agent', data: { role: 'super-admin' } }))
+  })
+
+  it('an allowed role is stored normalised, and upsertUser maps it to the right DB role', async () => {
+    const body = await gate(ADMIN, { resource: 'user', action: 'upsert', id: 'u-agent', data: { name: 'A', role: '  Agent_Admin ' } })
+    expect((body.data as Record<string, unknown>).role).toBe('agent_admin')
+    const { handlePersist } = await import('./writes.js')
+    await handlePersist(body as never)
+    const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO users'))!
+    const params = insert[1] as unknown[]
+    expect(params[6]).toBe('AGENT_ADMIN')
+    expect(JSON.parse(String(params[8])).frontend_role).toBe('agent_admin')
+  })
+
+  it('a tenant sending a padded super_admin role still has it stripped', async () => {
+    const body = await gate(TENANT, { resource: 'user', action: 'upsert', id: 'u-t', data: { name: 'T', role: ' super_admin' } })
+    expect(body.data).toEqual({ name: 'T' })
+  })
+
+  it('a super admin may still assign super_admin; an unknown role is a 400', async () => {
+    const body = await gate(SA, { resource: 'user', action: 'upsert', id: 'u-agent', data: { role: ' Super_Admin ' } })
+    expect((body.data as Record<string, unknown>).role).toBe('super_admin')
+    await expect(gate(SA, { resource: 'user', action: 'upsert', id: 'u-agent', data: { role: 'root' } })).rejects.toMatchObject({ status: 400 })
+  })
+})

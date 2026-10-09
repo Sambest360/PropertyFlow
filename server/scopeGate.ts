@@ -549,6 +549,35 @@ function stripFields(data: Record<string, unknown>, keys: readonly string[]): vo
   for (const k of keys) delete data[k]
 }
 
+/** Roles an agency admin may assign (never super_admin). */
+export const AGENCY_ASSIGNABLE_ROLES: ReadonlySet<string> = new Set([
+  'client_admin',
+  'agent_admin',
+  'ground_agent',
+  'agent',
+  'landlord',
+  'tenant',
+  'contractor',
+])
+const ALL_ROLES: ReadonlySet<string> = new Set([...AGENCY_ASSIGNABLE_ROLES, 'super_admin'])
+
+/**
+ * Trim + lowercase data.role in place so ' super_admin' / 'Super_Admin' cannot
+ * slip past an exact-match check and get stored. Blank / non-string roles are
+ * dropped (upsertUser then keeps the stored role). Returns the normalised role.
+ */
+function normaliseRoleField(data: Record<string, unknown>): string | undefined {
+  if (!Object.prototype.hasOwnProperty.call(data, 'role')) return undefined
+  const raw = data.role
+  const role = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
+  if (!role) {
+    delete data.role
+    return undefined
+  }
+  data.role = role
+  return role
+}
+
 /** Roles whose accounts need a super-admin verification decision before going live. */
 const VERIFIED_ROLES: ReadonlySet<string> = new Set(['landlord', 'contractor'])
 
@@ -596,12 +625,18 @@ export async function enforceUserWritePolicy(
   body: PersistBody,
   existing: ExistingRow | null,
 ): Promise<void> {
-  if (actor.role === 'super_admin') return
   const deny = (why: string) =>
     forbiddenError(`Forbidden: ${actor.role} ${actor.userId} cannot ${body.action} user ${body.id} (${why})`)
-  if (body.action === 'delete') throw deny('only a super admin may delete users')
   const data = (body.data ?? {}) as Record<string, unknown>
-  body.data = data
+  if (body.action !== 'delete') body.data = data
+  const role = normaliseRoleField(data)
+  if (actor.role === 'super_admin') {
+    if (role !== undefined && !ALL_ROLES.has(role)) {
+      throw Object.assign(new Error(`Unknown role: ${role}`), { status: 400 })
+    }
+    return
+  }
+  if (body.action === 'delete') throw deny('only a super admin may delete users')
   const submittedVerification = data.verification
   stripFields(data, ['verification'])
 
@@ -610,7 +645,10 @@ export async function enforceUserWritePolicy(
     if (existing && existing.agencyId !== actor.agencyId) {
       throw deny('user is outside your agency')
     }
-    if (data.role === 'super_admin') throw deny('cannot assign super_admin')
+    if (role === 'super_admin') throw deny('cannot assign super_admin')
+    if (role !== undefined && !AGENCY_ASSIGNABLE_ROLES.has(role)) {
+      throw deny(`role ${role} is not agency-assignable`)
+    }
     if (Object.prototype.hasOwnProperty.call(data, 'agencyId') && data.agencyId !== undefined) {
       const raw = data.agencyId == null || data.agencyId === '' ? null : String(data.agencyId)
       const target = raw ? ((await agencyFe(raw)) ?? raw) : null
@@ -618,7 +656,7 @@ export async function enforceUserWritePolicy(
     } else if (!existing) {
       data.agencyId = actor.agencyId
     }
-    if (!existing && typeof data.role === 'string' && VERIFIED_ROLES.has(data.role)) {
+    if (!existing && role !== undefined && VERIFIED_ROLES.has(role)) {
       data.verification = pendingVerificationForCreate(submittedVerification)
     }
     return
