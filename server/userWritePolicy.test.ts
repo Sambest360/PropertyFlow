@@ -35,6 +35,19 @@ vi.mock('./entityMap.js', () => ({
 
 vi.mock('./supabase/registerUser.js', () => ({ linkStaffAuthUser: vi.fn() }))
 
+/** Listing → unit for applications (p-1 public, p-2 landlord u-o's, p-draft not listed). */
+vi.mock('./listingResolve.js', async () => {
+  const actual = await vi.importActual<typeof import('./listingResolve.js')>('./listingResolve.js')
+  return {
+    ...actual,
+    resolveLiveListing: async (p: unknown) => {
+      const unit = LISTING_UNIT[String(p)]
+      if (!unit) throw new Error(`no live listing for ${String(p)}`)
+      return { unitId: unit, clientId: CA }
+    },
+  }
+})
+
 const loadIdMapCache = vi.fn()
 vi.mock('./idMapCache.js', async () => {
   const actual = await vi.importActual<typeof import('./idMapCache.js')>('./idMapCache.js')
@@ -45,6 +58,11 @@ const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')
 const CA = id(1)
 const CB = id(2)
 const UN1 = id(10)
+const UN2 = id(11)
+const UN3 = id(12)
+const LISTING_UNIT: Record<string, string> = { 'p-1': UN1, 'p-2': UN2, 'p-draft': UN3 }
+/** units.status_config_key per unit (isPubliclyListedForApplication). */
+const unitStatus: Record<string, string> = { [UN1]: 'PUBLISHED', [UN2]: 'PUBLISHED', [UN3]: 'DRAFT' }
 const UUID: Record<string, string> = {
   'u-t': id(20),
   'u-o': id(21),
@@ -55,6 +73,7 @@ const UUID: Record<string, string> = {
   'u-admin-noperm': id(26),
   'A-t': id(30),
   'A-o': id(31),
+  'A-l': id(32),
   'N-o': id(40),
   'N-t': id(41),
   'ag-a': CA,
@@ -62,7 +81,7 @@ const UUID: Record<string, string> = {
 }
 const FE_BY_UUID = new Map(Object.entries(UUID).map(([fe, u]) => [u, fe]))
 
-const users: Record<string, { client: string | null; metadata: Record<string, unknown>; email?: string }> = {
+const users: Record<string, { client: string | null; metadata: Record<string, unknown>; email?: string; role?: string }> = {
   [UUID['u-t']]: { client: null, metadata: {} },
   [UUID['u-o']]: { client: null, metadata: {} },
   [UUID['u-admin']]: { client: CA, metadata: {} },
@@ -71,9 +90,20 @@ const users: Record<string, { client: string | null; metadata: Record<string, un
   [UUID['u-b']]: { client: CB, metadata: {} },
   [UUID['u-sa']]: { client: null, metadata: {} },
 }
-const applications: Record<string, { applicant: string | null; unit: string; client: string; ref: string }> = {
+type AppRow = {
+  applicant: string | null
+  unit: string
+  client: string
+  ref: string
+  wf?: string
+  docsJson?: Record<string, unknown>
+  metadata?: Record<string, unknown>
+}
+const applications: Record<string, AppRow> = {
   [UUID['A-t']]: { applicant: UUID['u-t'], unit: UN1, client: CA, ref: 'A-t' },
-  [UUID['A-o']]: { applicant: UUID['u-o'], unit: UN1, client: CA, ref: 'A-o' },
+  [UUID['A-o']]: { applicant: UUID['u-o'], unit: UN1, client: CA, ref: 'A-o', wf: 'landlord_review' },
+  // On landlord u-o's own property (UN2), waiting for the landlord.
+  [UUID['A-l']]: { applicant: UUID['u-t'], unit: UN2, client: CA, ref: 'A-l', wf: 'landlord_review' },
 }
 const notifications: Record<string, { user: string; client: string | null }> = {
   [UUID['N-o']]: { user: UUID['u-o'], client: CA },
@@ -83,7 +113,29 @@ const notifications: Record<string, { user: string; client: string | null }> = {
 function answer(sqlRaw: string, params: unknown[] = []): unknown[] {
   const sql = sqlRaw.replace(/\s+/g, ' ').trim()
   if (sql.includes('FROM units u JOIN buildings b ON b.id = u.building_id') && !sql.includes('WHERE')) {
-    return [{ unit_id: UN1, client_id: CA, agent_id: UUID['u-agent'], landlord_id: null }]
+    return [
+      { unit_id: UN1, client_id: CA, agent_id: UUID['u-agent'], landlord_id: null },
+      { unit_id: UN2, client_id: CA, agent_id: UUID['u-agent'], landlord_id: UUID['u-o'] },
+      { unit_id: UN3, client_id: CA, agent_id: UUID['u-agent'], landlord_id: null },
+    ]
+  }
+  if (sql.includes('FROM units u LEFT JOIN buildings b') && sql.includes('WHERE u.id')) {
+    const st = unitStatus[String(params[0])]
+    return st ? [{ status_config_key: st, listing_type: 'RENT', landlord_verification: null }] : []
+  }
+  if (/SELECT role, metadata, email FROM users WHERE id = \$1::uuid/.test(sql)) {
+    const u = users[String(params[0])]
+    return u ? [{ role: u.role ?? '', metadata: u.metadata, email: u.email ?? null }] : []
+  }
+  if (sql.startsWith('SELECT uploaded_docs_json, metadata')) {
+    const a = applications[String(params[0])]
+    return a
+      ? [{ uploaded_docs_json: a.docsJson ?? {}, metadata: a.metadata ?? {}, unit_id: a.unit, client_id: a.client }]
+      : []
+  }
+  if (sql.startsWith('UPDATE applications SET status')) {
+    const a = applications[String(params[0])]
+    return a && a.wf === 'landlord_review' ? [{ id: String(params[0]) }] : []
   }
   if (sql.includes('FROM applications a LEFT JOIN users u')) {
     return Object.values(applications).map((a) => ({
@@ -130,7 +182,11 @@ beforeEach(() => {
   loadIdMapCache.mockReset()
   loadIdMapCache.mockResolvedValue({
     userBackendToFe: new Map([...FE_BY_UUID].filter(([, fe]) => fe.startsWith('u-'))),
-    unitBackendToPropertyFe: new Map([[UN1, 'p-1']]),
+    unitBackendToPropertyFe: new Map([
+      [UN1, 'p-1'],
+      [UN2, 'p-2'],
+      [UN3, 'p-draft'],
+    ]),
     agencyBackendToFe: new Map([
       [CA, 'ag-a'],
       [CB, 'ag-b'],
@@ -162,6 +218,7 @@ async function expect403(p: Promise<unknown>) {
 const TENANT = { userId: 'u-t', role: 'tenant', agencyId: null }
 const ADMIN = { userId: 'u-admin', role: 'client_admin', agencyId: 'ag-a' }
 const SA = { userId: 'u-sa', role: 'super_admin', agencyId: null }
+const LANDLORD = { userId: 'u-o', role: 'landlord', agencyId: null }
 
 describe('user writes: self-promotion and cross-user writes', () => {
   it('a tenant making themselves super_admin is refused: privileged fields are stripped', async () => {
@@ -635,5 +692,301 @@ describe('Jim B8: designated super-admin emails are reserved and never grant the
     const { resolveFrontendRole } = await import('../src/lib/supabase/idMap.js')
     expect(resolveFrontendRole('END_USER', { frontend_role: 'super_admin' }, 'x@y.test')).toBe('tenant')
     expect(resolveFrontendRole('LANDLORD', { frontend_role: ' Super_Admin ' }, 'x@y.test')).toBe('landlord')
+  })
+})
+
+async function persistAndInsert(body: Body) {
+  const { handlePersist } = await import('./writes.js')
+  await handlePersist(body as never)
+  return query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO applications'))
+}
+
+describe('Angela #80 (330a350): role change to landlord / contractor goes back to pending', () => {
+  async function storedUserMeta(body: Body) {
+    const { handlePersist } = await import('./writes.js')
+    await handlePersist(body as never)
+    const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO users'))!
+    return JSON.parse(String((insert[1] as unknown[])[8])) as Record<string, unknown>
+  }
+
+  for (const role of ['landlord', 'contractor']) {
+    it(`an agency admin changing an existing tenant to ${role} sets verification pending with a server submittedAt`, async () => {
+      users[UUID['u-o']] = {
+        client: CA,
+        role: 'END_USER',
+        metadata: { frontend_role: 'tenant', verification: { status: 'approved', reviewedBy: 'u-sa' } },
+      }
+      try {
+        const before = Date.now()
+        const body = await gate(ADMIN, {
+          resource: 'user',
+          action: 'upsert',
+          id: 'u-o',
+          data: {
+            name: 'Owner',
+            role: ` ${role.toUpperCase()} `,
+            verification: { status: 'approved', submittedAt: '2000-01-01T00:00:00.000Z', reviewedBy: 'u-admin' },
+          },
+        })
+        const v = (body.data as Record<string, unknown>).verification as Record<string, unknown>
+        expect(v).toMatchObject({ status: 'pending', reviewedAt: null, reviewedBy: null, rejectNote: null })
+        expect(Date.parse(String(v.submittedAt))).toBeGreaterThanOrEqual(before - 1000)
+        expect(v.submittedAt).not.toBe('2000-01-01T00:00:00.000Z')
+        const meta = await storedUserMeta(body)
+        expect((meta.verification as Record<string, unknown>).status).toBe('pending')
+      } finally {
+        users[UUID['u-o']] = { client: null, metadata: {} }
+      }
+    })
+  }
+
+  it('an existing landlord re-saved as landlord keeps their verification (no change of role)', async () => {
+    users[UUID['u-o']] = { client: CA, role: 'LANDLORD', metadata: { verification: { status: 'approved' } } }
+    try {
+      const body = await gate(ADMIN, { resource: 'user', action: 'upsert', id: 'u-o', data: { name: 'O', role: 'landlord' } })
+      expect(body.data).not.toHaveProperty('verification')
+    } finally {
+      users[UUID['u-o']] = { client: null, metadata: {} }
+    }
+  })
+
+  it('a create drops a client-set lookedAt from the submitted documents', async () => {
+    const body = await gate(ADMIN, {
+      resource: 'user',
+      action: 'upsert',
+      id: 'u-new-ll',
+      data: {
+        name: 'New Landlord',
+        role: 'landlord',
+        email: 'll2@a.test',
+        verification: {
+          status: 'approved',
+          documents: [
+            { key: 'id_copy', label: 'ID', name: 'id.pdf', mimeType: 'application/pdf', dataUrl: 'data:x', uploadedAt: '2026-10-01', lookedAt: '2026-10-02' },
+          ],
+        },
+      },
+    })
+    const v = (body.data as Record<string, unknown>).verification as Record<string, unknown>
+    expect(v.status).toBe('pending')
+    const docs = v.documents as Array<Record<string, unknown>>
+    expect(docs).toHaveLength(1)
+    expect(docs[0]).not.toHaveProperty('lookedAt')
+    expect(docs[0]).toMatchObject({ key: 'id_copy', name: 'id.pdf', dataUrl: 'data:x' })
+  })
+})
+
+describe('Angela #80 (330a350): landlord application writes change only the decision fields', () => {
+  it('a landlord decision on their own property is a narrow UPDATE (no generic upsert, extras ignored)', async () => {
+    const { assertPersistAllowed } = await import('./scopeGate.js')
+    const body: Body = {
+      resource: 'application',
+      action: 'upsert',
+      id: 'A-l',
+      data: {
+        workflowStatus: 'rejected',
+        stage: 'Approved',
+        status: 'APPROVED',
+        email: '',
+        phone: '',
+        documents: [],
+        agentId: 'u-o',
+        applicantUserId: 'u-o',
+        income: 1,
+        propertyId: 'p-1',
+      },
+    }
+    const out = await assertPersistAllowed(LANDLORD as never, body as never)
+    expect(out.handled).toMatchObject({ ok: true, id: 'A-l' })
+    const upd = query.mock.calls.find((c) => String(c[0]).includes('UPDATE applications'))!
+    expect(upd[1]).toEqual([UUID['A-l'], 'REJECTED', 'rejected', 'Rejected', 0])
+    expect(String(upd[0])).toContain("metadata->>'workflow_status' = 'landlord_review'")
+    expect(query.mock.calls.some((c) => String(c[0]).includes('INSERT INTO applications'))).toBe(false)
+    const { LANDLORD_APPLICATION_DECISION_FIELDS } = await import('./portalWritePolicy.js')
+    expect([...LANDLORD_APPLICATION_DECISION_FIELDS]).toEqual(['workflowStatus', 'stage', 'progress'])
+  })
+
+  it('a landlord conditional approval derives stage / progress on the server', async () => {
+    const { assertPersistAllowed } = await import('./scopeGate.js')
+    const out = await assertPersistAllowed(LANDLORD as never, {
+      resource: 'application', action: 'upsert', id: 'A-l', data: { workflowStatus: 'conditionally_approved', progress: 100 },
+    } as never)
+    expect(out.handled).toBeTruthy()
+    const upd = query.mock.calls.find((c) => String(c[0]).includes('UPDATE applications'))!
+    expect(upd[1]).toEqual([UUID['A-l'], null, 'conditionally_approved', 'Conditionally approved', 45])
+  })
+
+  it('the server stage / progress table matches the client workflow', async () => {
+    const { LANDLORD_APPLICATION_DECISIONS } = await import('./portalWritePolicy.js')
+    const { workflowProgress, workflowStageLabel } = await import('../src/lib/applicationWorkflow.js')
+    for (const [key, d] of Object.entries(LANDLORD_APPLICATION_DECISIONS)) {
+      expect(d.stage).toBe(workflowStageLabel('Rental', key as never))
+      expect(d.progress).toBe(workflowProgress('Rental', key as never))
+    }
+  })
+
+  it('anything but a review decision is refused', async () => {
+    for (const data of [{ workflowStatus: 'lease_signed' }, { stage: 'Approved' }, { email: 'x@y.test' }]) {
+      await expect403(gate(LANDLORD, { resource: 'application', action: 'upsert', id: 'A-l', data }))
+    }
+    expect(query.mock.calls.some((c) => String(c[0]).includes('INSERT INTO applications'))).toBe(false)
+  })
+
+  it('a decision on an application not waiting for the landlord is a 409', async () => {
+    applications[UUID['A-l']].wf = 'conditionally_approved'
+    try {
+      await expect(
+        gate(LANDLORD, { resource: 'application', action: 'upsert', id: 'A-l', data: { workflowStatus: 'rejected' } }),
+      ).rejects.toMatchObject({ status: 409 })
+    } finally {
+      applications[UUID['A-l']].wf = 'landlord_review'
+    }
+  })
+
+  it("a landlord cannot decide on an application on someone else's property, even naming their own", async () => {
+    await expect403(
+      gate(LANDLORD, { resource: 'application', action: 'upsert', id: 'A-o', data: { workflowStatus: 'rejected', propertyId: 'p-2' } }),
+    )
+  })
+})
+
+describe('Angela #80 (330a350): a redacted application row never blanks the stored values', () => {
+  const STORED_DOCS = {
+    documents: [
+      { key: 'id', label: 'ID', status: 'uploaded', file: { name: 'id.pdf', dataUrl: 'data:id' }, uploadedAt: '2026-10-01' },
+      { key: 'payslips', label: 'Payslips', status: 'verified', file: { name: 'p.pdf', dataUrl: 'data:p' } },
+    ],
+    creditCheck: 'Passed',
+    screening: { status: 'passed' },
+  }
+  const STORED_META = {
+    email: 'real@applicant.test',
+    applicant_email: 'real@applicant.test',
+    phone: '0821234567',
+    keyCollection: { contactPhone: '0839999999', emailSentAt: '2026-10-03' },
+    stage: 'Under Review',
+    workflow_status: 'agent_review',
+  }
+
+  it('blank email / phone, file-less documents and a blank key-collection phone keep the stored values', async () => {
+    applications[UUID['A-t']].docsJson = STORED_DOCS
+    applications[UUID['A-t']].metadata = STORED_META
+    try {
+      const { redactApplicationContact } = await import('./scopeGate.js')
+      const redacted = redactApplicationContact({
+        id: 'A-t',
+        propertyId: 'p-1',
+        agencyId: 'ag-a',
+        applicantUserId: 'u-t',
+        applicantName: 'Tess',
+        email: STORED_META.email,
+        phone: STORED_META.phone,
+        documents: STORED_DOCS.documents.map((d) => (d.key === 'payslips' ? { ...d, status: 'rejected' } : d)),
+        keyCollection: { contactPhone: '0839999999', emailSentAt: '2026-10-04' },
+        stage: 'Under Review',
+        workflowStatus: 'agent_review',
+      })
+      expect(redacted.email).toBe('')
+      const insert = (await persistAndInsert({ resource: 'application', action: 'upsert', id: 'A-t', data: redacted as never }))!
+      const params = insert[1] as unknown[]
+      const docs = JSON.parse(String(params[11])) as { documents: Array<Record<string, unknown>>; creditCheck: unknown; screening: unknown }
+      expect(docs.documents.map((d) => (d.file as { dataUrl: string }).dataUrl)).toEqual(['data:id', 'data:p'])
+      // A real field change in the redacted row still lands.
+      expect(docs.documents[1].status).toBe('rejected')
+      expect(docs.documents[0].uploadedAt).toBe('2026-10-01')
+      expect(docs.creditCheck).toBe('Passed')
+      expect(docs.screening).toEqual({ status: 'passed' })
+      const meta = JSON.parse(String(params[13])) as Record<string, unknown>
+      // Blank contact keys are left out, so metadata || EXCLUDED keeps the stored ones.
+      expect(meta).not.toHaveProperty('email')
+      expect(meta).not.toHaveProperty('applicant_email')
+      expect(meta).not.toHaveProperty('phone')
+      expect(meta.keyCollection).toEqual({ contactPhone: '0839999999', emailSentAt: '2026-10-04' })
+    } finally {
+      delete applications[UUID['A-t']].docsJson
+      delete applications[UUID['A-t']].metadata
+    }
+  })
+
+  it('a row with no documents at all keeps the stored list', async () => {
+    applications[UUID['A-t']].docsJson = STORED_DOCS
+    try {
+      const insert = (await persistAndInsert({
+        resource: 'application', action: 'upsert', id: 'A-t', data: { propertyId: 'p-1', applicantUserId: 'u-t', notes: 'n' },
+      }))!
+      const docs = JSON.parse(String((insert[1] as unknown[])[11])) as { documents: unknown[] }
+      expect(docs.documents).toEqual(STORED_DOCS.documents)
+    } finally {
+      delete applications[UUID['A-t']].docsJson
+    }
+  })
+
+  it('a new application with a blank email still writes the keys (nothing to keep)', async () => {
+    const insert = (await persistAndInsert({
+      resource: 'application', action: 'upsert', id: 'A-new', data: { propertyId: 'p-1', email: '', phone: '' },
+    }))!
+    const meta = JSON.parse(String((insert[1] as unknown[])[13])) as Record<string, unknown>
+    expect(meta).toMatchObject({ email: null, applicant_email: null, phone: null })
+  })
+})
+
+describe('Angela #80 (330a350): tenant application writes', () => {
+  it('a tenant update strips stage, status, workflowStatus, agentId and agencyId and keeps the stored listing', async () => {
+    const body = await gate(TENANT, {
+      resource: 'application',
+      action: 'upsert',
+      id: 'A-t',
+      data: {
+        applicantUserId: 'u-t',
+        propertyId: 'p-2',
+        unitId: 'unt-p-2',
+        agencyId: 'ag-b',
+        agentId: 'u-agent',
+        stage: 'Approved',
+        status: 'APPROVED',
+        workflowStatus: 'conditionally_approved',
+        progress: 100,
+        screening: { status: 'passed' },
+        creditCheck: 'Passed',
+        phone: '0820000000',
+      },
+    })
+    expect(body.data).toEqual({ applicantUserId: 'u-t', phone: '0820000000' })
+    const insert = (await persistAndInsert(body))!
+    const sql = String(insert[0])
+    const params = insert[1] as unknown[]
+    expect(params[2]).toBe(UN1) // stored unit, not p-2's
+    expect(sql).toContain('status = CASE WHEN $16::boolean THEN EXCLUDED.status ELSE applications.status END')
+    expect(sql).toContain('agent_id = CASE WHEN $17::boolean THEN EXCLUDED.agent_id ELSE applications.agent_id END')
+    expect(params[15]).toBe(false)
+    expect(params[16]).toBe(false)
+    const meta = JSON.parse(String(params[13])) as Record<string, unknown>
+    expect(meta).not.toHaveProperty('stage')
+    expect(meta).not.toHaveProperty('workflow_status')
+    expect(meta).not.toHaveProperty('progress')
+  })
+
+  it('a tenant can create an application only on a publicly listed property', async () => {
+    await expect403(
+      gate(TENANT, { resource: 'application', action: 'upsert', id: 'A-new', data: { applicantUserId: 'u-t', propertyId: 'p-draft' } }),
+    )
+    await expect403(
+      gate(TENANT, { resource: 'application', action: 'upsert', id: 'A-new', data: { applicantUserId: 'u-t', propertyId: 'p-nowhere' } }),
+    )
+    const ok = await gate(TENANT, {
+      resource: 'application',
+      action: 'upsert',
+      id: 'A-new',
+      data: { applicantUserId: 'u-t', propertyId: 'p-1', stage: 'Approved', agentId: 'u-agent' },
+    })
+    expect(ok.data).toEqual({ applicantUserId: 'u-t', propertyId: 'p-1' })
+  })
+})
+
+describe('Angela #80 (330a350): a landlord never decides their own application', () => {
+  it('a landlord who is the applicant on a property they do not own is refused', async () => {
+    // A-o: applicant u-o (our landlord), on p-1 (no landlord) — applicant shortcut must not reach the decision.
+    await expect403(gate(LANDLORD, { resource: 'application', action: 'upsert', id: 'A-o', data: { workflowStatus: 'conditionally_approved' } }))
+    expect(query.mock.calls.some((c) => String(c[0]).includes('UPDATE applications'))).toBe(false)
   })
 })

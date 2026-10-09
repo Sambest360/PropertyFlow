@@ -10,7 +10,9 @@
  * tenant
  *   user              own row (enforceUserWritePolicy)
  *   notification      own
- *   application       own (create / update, never delete)
+ *   application       own (create / update, never delete); APPLICANT_LOCKED_FIELDS
+ *                     stripped, stored listing kept on update, create only on
+ *                     a publicly listed property
  *   viewing           own booking: applicantEmail = their account email
  *   viewing_slot      booking recount only: booked_count = live count of
  *                     non-cancelled bookings, and only on a slot they booked
@@ -23,7 +25,9 @@
  *   property_event    append only (create)
  * landlord
  *   user, notification, thread / message as above
- *   application       update (review decision) on their own properties, no create / delete
+ *   application       review decision only (LANDLORD_APPLICATION_DECISION_FIELDS,
+ *                     landlord_review -> conditionally_approved | rejected) on
+ *                     their own properties; narrow UPDATE; no create / delete
  *   tenancy           their own countersignature only (eSign.landlord)
  *   property / unit / building / room / asset
  *                     their own listings (landlordId, if sent, must be them), no delete
@@ -44,7 +48,121 @@ import { query } from './db.js'
 import { resolveUuid } from './entityMap.js'
 import { LEASE_IDS, TICKET_IDS } from './idMap.js'
 import { forbiddenError, type DemoActor } from './actor.js'
-import type { PersistBody } from './writes.js'
+import { APP_STAGE_TO_DB, type PersistBody } from './writes.js'
+import { resolveLiveListing } from './listingResolve.js'
+
+/**
+ * Fields a tenant / contractor may never set on their own application (create
+ * or update). The writer keeps the stored value when they are absent.
+ */
+export const APPLICANT_LOCKED_FIELDS = [
+  'stage',
+  'status',
+  'workflowStatus',
+  'progress',
+  'agentId',
+  'agencyId',
+  'clientId',
+  'screening',
+  'creditCheck',
+] as const
+
+/**
+ * The only application fields a landlord write may change: the review
+ * decision. Stage and progress are derived on the server from workflowStatus;
+ * updated_at is set by the server. Everything else in the payload is ignored.
+ */
+export const LANDLORD_APPLICATION_DECISION_FIELDS = ['workflowStatus', 'stage', 'progress'] as const
+
+/**
+ * Landlord decisions: only out of landlord_review (rental template actions
+ * CONDITIONALLY_APPROVE / LANDLORD_REJECTED). Stage label and progress mirror
+ * src/lib/applicationWorkflow (workflowStageLabel / workflowProgress, pinned by
+ * a test) so the server bundle does not pull the client workflow module.
+ */
+export const LANDLORD_APPLICATION_DECISIONS: Readonly<
+  Record<string, { stage: string; progress: number }>
+> = {
+  conditionally_approved: { stage: 'Conditionally approved', progress: 45 },
+  rejected: { stage: 'Rejected', progress: 0 },
+}
+
+const PUBLIC_UNIT_STATUS_KEYS = new Set(['PUBLISHED', 'FEATURED', 'VACANT', 'UNDER_OFFER', 'AVAILABLE'])
+
+/**
+ * Server-side isPubliclyListed for a single listing (same rule as the guest
+ * marketplace slice): live unit with a public status, listed (not NOT_LISTED),
+ * and a landlord who is not pending / rejected verification.
+ */
+export async function isPubliclyListedForApplication(propertyId: unknown): Promise<boolean> {
+  let unitId: string
+  try {
+    unitId = (await resolveLiveListing(propertyId)).unitId
+  } catch {
+    return false
+  }
+  if (!unitId) return false
+  const rows = await query<{
+    status_config_key: string | null
+    listing_type: string | null
+    landlord_verification: string | null
+  }>(
+    `SELECT u.status_config_key, u.listing_type,
+            l.metadata->'verification'->>'status' AS landlord_verification
+       FROM units u
+       LEFT JOIN buildings b ON b.id = u.building_id
+       LEFT JOIN users l ON l.id = b.landlord_id
+      WHERE u.id = $1::uuid`,
+    [unitId],
+  )
+  const r = rows[0]
+  if (!r) return false
+  if (!PUBLIC_UNIT_STATUS_KEYS.has(String(r.status_config_key ?? '').toUpperCase())) return false
+  if (String(r.listing_type ?? '').toUpperCase() === 'NOT_LISTED') return false
+  if (r.landlord_verification === 'pending' || r.landlord_verification === 'rejected') return false
+  return true
+}
+
+/**
+ * Landlord application write, after the scope gate passed (own property): a
+ * narrow UPDATE of the decision fields only, conditional on the application
+ * still waiting for the landlord. Stage / progress / status are derived here.
+ */
+export async function landlordApplicationDecision(
+  actor: DemoActor,
+  body: PersistBody,
+): Promise<PortalOutcome> {
+  const deny = (why: string) =>
+    forbiddenError(`Forbidden: landlord ${actor.userId} cannot ${body.action} application ${body.id} (${why})`)
+  const data = (body.data ?? {}) as Record<string, unknown>
+  const to = str(data.workflowStatus)
+  const decision = to ? LANDLORD_APPLICATION_DECISIONS[to] : undefined
+  if (!to || !decision) {
+    throw deny('a landlord may only record the review decision (conditionally_approved or rejected)')
+  }
+  const uuid = await resolveUuid('application', body.id)
+  if (!uuid) throw deny('unknown application')
+  const { stage, progress } = decision
+  const status = APP_STAGE_TO_DB[stage] ?? null
+  const rows = await query<{ id: string }>(
+    `UPDATE applications
+        SET status = COALESCE($2, status),
+            metadata = COALESCE(metadata, '{}'::jsonb)
+              || jsonb_build_object('workflow_status', $3::text, 'stage', $4::text, 'progress', $5::int),
+            updated_at = NOW()
+      WHERE id = $1::uuid
+        AND application_type = 'RENTAL'
+        AND metadata->>'workflow_status' = 'landlord_review'
+      RETURNING id::text AS id`,
+    [uuid, status, to, stage, progress],
+  )
+  if (!rows[0]) {
+    throw Object.assign(new Error('Conflict: application is not waiting for the landlord decision'), {
+      status: 409,
+    })
+  }
+  return { handled: { ok: true, id: body.id, uuid } }
+}
 
 export const PORTAL_ROLES: ReadonlySet<string> = new Set(['tenant', 'landlord', 'contractor'])
 
@@ -131,9 +249,23 @@ export async function enforcePortalWritePolicy(
     case 'application': {
       if (isLandlord) {
         if (!existing) throw deny('landlords review applications, they do not create them')
-        return {} // property ownership checked by canWriteEntity
+        // Property ownership is checked by canWriteEntity; the write itself is
+        // then narrowed to the decision fields (landlordApplicationDecision).
+        return {}
       }
-      return {} // tenant / contractor: own-application rule in assertPersistAllowed
+      // Tenant / contractor (own-application rule in assertPersistAllowed).
+      // Workflow, assignment and agency are staff fields; the listing of an
+      // existing application is fixed (the stored unit is kept).
+      for (const k of APPLICANT_LOCKED_FIELDS) delete data[k]
+      if (existing) {
+        delete data.propertyId
+        delete data.unitId
+        return {}
+      }
+      if (!(await isPubliclyListedForApplication(data.propertyId))) {
+        throw deny('applications are only taken on publicly listed properties')
+      }
+      return {}
     }
 
     case 'viewing': {

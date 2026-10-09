@@ -1077,24 +1077,156 @@ async function agencyClientForApplication(
   return listingClientId
 }
 
+function blank(v: unknown): boolean {
+  return v == null || (typeof v === 'string' && v.trim() === '')
+}
+
+type JsonRow = Record<string, unknown>
+function asRow(v: unknown): JsonRow | null {
+  if (typeof v === 'string') {
+    try {
+      return asRow(JSON.parse(v))
+    } catch {
+      return null
+    }
+  }
+  return v && typeof v === 'object' && !Array.isArray(v) ? (v as JsonRow) : null
+}
+
+/**
+ * Fields a redacted application row lacks (or carries blank) keep the stored
+ * value: email / phone (metadata keys left out of the merge when blank),
+ * document files and other per-document fields (merged by key over the stored
+ * document), the whole document list when the payload has none, and
+ * keyCollection.contactPhone.
+ */
+export function mergeRedactedApplicationFields(
+  d: Record<string, unknown>,
+  stored: { uploaded_docs_json: unknown; metadata: unknown } | null,
+): { contact: JsonRow; documents: unknown[]; keyCollection: unknown; storedDocsJson: JsonRow } {
+  const meta = asRow(stored?.metadata) ?? {}
+  const docsJson = asRow(stored?.uploaded_docs_json) ?? {}
+  const storedDocs = Array.isArray(docsJson.documents) ? (docsJson.documents as JsonRow[]) : []
+
+  const contact: JsonRow = {}
+  if (!blank(d.email)) {
+    contact.email = d.email
+    contact.applicant_email = d.email
+  } else if (!stored) {
+    contact.email = null
+    contact.applicant_email = null
+  }
+  if (!blank(d.phone)) contact.phone = d.phone
+  else if (!stored) contact.phone = null
+
+  const sentDocs = (d.documents ?? d.docs) as unknown
+  let documents: unknown[]
+  if (!Array.isArray(sentDocs)) {
+    documents = storedDocs
+  } else {
+    documents = sentDocs.map((raw) => {
+      const doc = asRow(raw)
+      if (!doc) return raw
+      const prev = storedDocs.find((x) => x && x.key === doc.key)
+      if (!prev) return doc
+      const merged: JsonRow = { ...prev, ...doc }
+      // A redacted document has no file: keep the stored one.
+      if (doc.file == null && prev.file != null) merged.file = prev.file
+      return merged
+    })
+  }
+
+  let keyCollection: unknown = d.keyCollection ?? null
+  const kc = asRow(d.keyCollection)
+  const prevKc = asRow(meta.keyCollection)
+  if (kc && prevKc && blank(kc.contactPhone) && !blank(prevKc.contactPhone)) {
+    keyCollection = { ...kc, contactPhone: prevKc.contactPhone }
+  } else if (d.keyCollection === undefined && prevKc) {
+    keyCollection = prevKc
+  }
+  return { contact, documents, keyCollection, storedDocsJson: docsJson }
+}
+
 async function upsertApplication(feId: string, d: Record<string, unknown>): Promise<string> {
   const uuid = await ensureUuid('application', feId)
+  // Stored row (if any). Redacted rows (bootstrap for non-full viewers blanks
+  // email / phone, strips document files and the key-collection phone) and
+  // narrowed portal writes (tenant updates have stage / status / agent / agency
+  // / listing stripped) must never blank the stored values: absent fields keep
+  // the stored value (see mergeRedactedApplicationFields).
+  const storedRows = await query<{
+    uploaded_docs_json: unknown
+    metadata: unknown
+    unit_id?: string | null
+    client_id?: string | null
+  }>(
+    `SELECT uploaded_docs_json, metadata, unit_id::text AS unit_id, client_id::text AS client_id
+       FROM applications WHERE id = $1::uuid`,
+    [uuid],
+  )
+  const stored = storedRows[0] ?? null
+  const kept = mergeRedactedApplicationFields(d, stored)
+  const has = (k: string) => d[k] !== undefined
+
   // Public payload may omit agencyId. Pick the live mapped unit, not the
-  // static Framesby seed resolveUuid returns first.
-  const listing = await resolveListingForApplication(d.propertyId)
-  const unit = listing.unitId
-  const client = await agencyClientForApplication(d.agencyId, listing.clientId)
+  // static Framesby seed resolveUuid returns first. An update without a
+  // propertyId keeps the stored unit.
+  let unit: string
+  let listingClient: string | null
+  if (!has('propertyId') && stored?.unit_id) {
+    unit = stored.unit_id
+    listingClient = stored.client_id ?? null
+  } else {
+    const listing = await resolveListingForApplication(d.propertyId)
+    unit = listing.unitId
+    listingClient = listing.clientId
+  }
+  const client = await agencyClientForApplication(d.agencyId, listingClient ?? '')
   // Mode A Sipho: if applicantUserId missing, resolve from email → users and persist.
   let applicant = await resolveApplicantOrTenantUuid({
     userFeId: d.applicantUserId,
     email: d.email,
   })
-  const agent = await userId(d.agentId)
+  let agent = await userId(d.agentId)
+  if (!agent && !has('agentId') && !stored) {
+    // New application without an agent (portal applicants cannot pick one):
+    // the listing's agent.
+    const u = await query<{ agent_id: string | null }>(
+      `SELECT agent_id::text AS agent_id FROM units WHERE id = $1::uuid`,
+      [unit],
+    )
+    agent = u[0]?.agent_id ?? null
+  }
+  const statusSent = has('stage') || has('status')
   const status =
     APP_STAGE_TO_DB[str(d.stage)] ??
     str(d.status, 'SUBMITTED').toUpperCase().replace(/\s+/g, '_')
   const appType = str(d.type, 'Rental').toLowerCase().startsWith('p') ? 'PURCHASE' : 'RENTAL'
   const ref = str(d.referenceCode ?? feId)
+
+  const docsJson: Record<string, unknown> = { documents: kept.documents }
+  for (const k of ['creditCheck', 'creditConsent', 'screening']) {
+    docsJson[k] = has(k) ? d[k] : (kept.storedDocsJson[k] ?? null)
+  }
+  // Metadata merges over the stored object: on update an absent field is left
+  // out so the stored key survives.
+  const meta: Record<string, unknown> = {
+    frontend_id: feId,
+    ...kept.contact,
+    keyCollection: kept.keyCollection,
+  }
+  const metaFields: Array<[string, string]> = [
+    ['applicantName', 'applicantName'],
+    ['applicant_name', 'applicantName'],
+    ['viewingSlotId', 'viewingSlotId'],
+    ['progress', 'progress'],
+    ['stage', 'stage'],
+    ['workflow_status', 'workflowStatus'],
+    ['screening', 'screening'],
+  ]
+  for (const [key, field] of metaFields) {
+    if (has(field) || !stored) meta[key] = d[field] ?? null
+  }
 
   await query(
     `INSERT INTO applications (
@@ -1110,10 +1242,10 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
        -- P0-sync (R12): never leave a null/stale agency client_id on re-upsert.
        client_id = COALESCE(EXCLUDED.client_id, applications.client_id),
        unit_id = EXCLUDED.unit_id,
-       applicant_id = EXCLUDED.applicant_id,
-       agent_id = EXCLUDED.agent_id,
+       applicant_id = COALESCE(EXCLUDED.applicant_id, applications.applicant_id),
+       agent_id = CASE WHEN $17::boolean THEN EXCLUDED.agent_id ELSE applications.agent_id END,
        reference_code = COALESCE(EXCLUDED.reference_code, applications.reference_code),
-       status = EXCLUDED.status,
+       status = CASE WHEN $16::boolean THEN EXCLUDED.status ELSE applications.status END,
        monthly_income = EXCLUDED.monthly_income,
        employment_summary = EXCLUDED.employment_summary,
        message = EXCLUDED.message,
@@ -1133,29 +1265,12 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
       num(d.income),
       d.employment ? str(d.employment) : null,
       d.notes ? str(d.notes) : null,
-      JSON.stringify({
-        documents: d.documents ?? d.docs ?? [],
-        creditCheck: d.creditCheck ?? null,
-        creditConsent: d.creditConsent ?? null,
-        screening: d.screening ?? null,
-      }),
+      JSON.stringify(docsJson),
       d.moveInDate ? str(d.moveInDate) : null,
-      JSON.stringify({
-        frontend_id: feId,
-        applicantName: d.applicantName ?? null,
-        email: d.email ?? null,
-        phone: d.phone ?? null,
-        // Match supabase persist keys so staff bootstrap can denormalise name/email.
-        applicant_name: d.applicantName ?? null,
-        applicant_email: d.email ?? null,
-        viewingSlotId: d.viewingSlotId ?? null,
-        progress: d.progress ?? null,
-        keyCollection: d.keyCollection ?? null,
-        stage: d.stage ?? null,
-        workflow_status: d.workflowStatus ?? null,
-        screening: d.screening ?? null,
-      }),
+      JSON.stringify(meta),
       d.submittedAt ? str(d.submittedAt) : null,
+      statusSent,
+      has('agentId'),
     ],
   )
   return uuid

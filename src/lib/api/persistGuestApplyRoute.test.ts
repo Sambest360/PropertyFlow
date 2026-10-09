@@ -145,6 +145,22 @@ vi.mock('../../../server/db.js', () => {
     if (/SELECT id::text AS id FROM clients WHERE id = \$1::uuid/.test(sql)) {
       return db.clients.has(String(params[0])) ? [{ id: String(params[0]) }] : []
     }
+    // #80: upsertApplication reads the stored row (redacted-field merge), the
+    // listing agent for a portal create, and the gate checks the listing is public.
+    if (sql.includes('SELECT uploaded_docs_json, metadata') && sql.includes('FROM applications WHERE id')) {
+      const a = db.applications.get(String(params[0]))
+      return a ? [{ uploaded_docs_json: a.params[11], metadata: a.params[13], unit_id: a.params[2], client_id: a.params[1] }] : []
+    }
+    if (/SELECT agent_id::text AS agent_id FROM units WHERE id = \$1::uuid/.test(sql)) {
+      const u = db.units.get(String(params[0]))
+      return u ? [{ agent_id: u.agent_id }] : []
+    }
+    if (sql.includes('FROM units u') && sql.includes('LEFT JOIN users l') && sql.includes('WHERE u.id = $1::uuid')) {
+      // Every unit in this store is a published rental listing.
+      return db.units.has(String(params[0]))
+        ? [{ status_config_key: 'PUBLISHED', listing_type: 'RENT', landlord_verification: null }]
+        : []
+    }
     if (sql.includes('INSERT INTO applications')) {
       db.applications.set(String(params[0]), { id: String(params[0]), params })
       return []

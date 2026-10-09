@@ -34,8 +34,13 @@ import { canWriteEntity } from '../src/lib/scopeWrite.js'
 import type { PropertyAccessSubject } from '../src/lib/agencyScope.js'
 import type { Permission, Role } from '../src/types/domain.js'
 import { effectiveCan } from '../src/lib/permissions.js'
-import { isReservedSuperAdminEmail } from '../src/lib/supabase/idMap.js'
-import { enforcePortalWritePolicy, PORTAL_ROLES as PORTAL_WRITE_ROLES, type PortalOutcome } from './portalWritePolicy.js'
+import { isReservedSuperAdminEmail, resolveFrontendRole } from '../src/lib/supabase/idMap.js'
+import {
+  enforcePortalWritePolicy,
+  landlordApplicationDecision,
+  PORTAL_ROLES as PORTAL_WRITE_ROLES,
+  type PortalOutcome,
+} from './portalWritePolicy.js'
 
 type FePropertyRow = PropertyAccessSubject & { id: string }
 
@@ -704,9 +709,46 @@ function pendingVerificationForCreate(submitted: unknown): Record<string, unknow
   if (submitted && typeof submitted === 'object') {
     const s = submitted as Record<string, unknown>
     if (s.profile && typeof s.profile === 'object' && !Array.isArray(s.profile)) out.profile = s.profile
-    if (Array.isArray(s.documents)) out.documents = s.documents
+    // lookedAt is set by the reviewer when they open a document, never by the
+    // submitter: drop it so a create cannot pre-mark documents as reviewed.
+    if (Array.isArray(s.documents)) {
+      out.documents = (s.documents as unknown[]).map((doc) => {
+        if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return doc
+        const { lookedAt: _l, ...rest } = doc as Record<string, unknown>
+        void _l
+        return rest
+      })
+    }
   }
   return out
+}
+
+/**
+ * Non-super role change of an existing user onto landlord / contractor: back to
+ * pending with a server-set submittedAt, review fields cleared. upsertUser
+ * merges verification by key, so the stored profile and documents stay.
+ */
+function pendingVerificationForRoleChange(): Record<string, unknown> {
+  return {
+    status: 'pending',
+    submittedAt: new Date().toISOString(),
+    reviewedAt: null,
+    reviewedBy: null,
+    rejectNote: null,
+  }
+}
+
+/** Stored frontend role of a user row (null when the row is unknown). */
+async function storedUserRole(feId: string): Promise<string | null> {
+  const uuid = await resolveUuid('user', feId)
+  if (!uuid) return null
+  const rows = await query<{ role: string | null; metadata: Record<string, unknown> | null; email: string | null }>(
+    `SELECT role, metadata, email FROM users WHERE id = $1::uuid`,
+    [uuid],
+  )
+  const r = rows[0]
+  if (!r) return null
+  return resolveFrontendRole(String(r.role ?? ''), r.metadata ?? null, r.email)
 }
 
 /**
@@ -787,6 +829,10 @@ export async function enforceUserWritePolicy(
     if (!existing && role !== undefined && VERIFIED_ROLES.has(role)) {
       data.verification = pendingVerificationForCreate(submittedVerification)
     }
+    if (existing && role !== undefined && VERIFIED_ROLES.has(role)) {
+      const before = await storedUserRole(body.id)
+      if (before !== role) data.verification = pendingVerificationForRoleChange()
+    }
     return
   }
   if (!own) throw deny('not your user row')
@@ -804,7 +850,10 @@ export async function assertPersistAllowed(
   const data = body.data ?? {}
   const existing = await loadExisting(body.resource, body.id)
 
+  // An existing application stays on its stored listing: a payload propertyId
+  // must not move the scope check onto another property.
   let propertyId =
+    (body.resource === 'application' && existing?.propertyId ? existing.propertyId : null) ??
     strField(data, 'propertyId') ??
     (body.resource === 'property' || body.resource === 'unit' ? body.id : null) ??
     existing?.propertyId ??
@@ -926,6 +975,20 @@ export async function assertPersistAllowed(
     throw forbiddenError(
       `Forbidden: ${actor.role} ${actor.userId} cannot ${body.action} ${body.resource} ${body.id}`,
     )
+  }
+  if (actor.role === 'landlord' && body.resource === 'application') {
+    // The decision belongs to the property's landlord only: canWriteEntity
+    // also passes on the applicant-owner shortcut, and a landlord must never
+    // decide an application they made themselves.
+    // Re-read the stored property (never the payload-built fallback subject).
+    const owned = await propertySubject(propertyId)
+    if (!owned || owned.landlordId !== actor.userId || ownerUserId === actor.userId) {
+      throw forbiddenError(
+        `Forbidden: landlord ${actor.userId} cannot decide application ${body.id} (not the landlord of its property)`,
+      )
+    }
+    // The write is narrowed to the decision fields.
+    return landlordApplicationDecision(actor, body)
   }
   return {}
 }
