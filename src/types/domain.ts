@@ -797,6 +797,10 @@ export type PropertyDocument = {
   /** When sourced from an accepted applicant pack */
   applicationId?: string | null
   applicantName?: string | null
+  /** Tenancy (lease) the document belongs to, when linked. */
+  tenancyId?: string | null
+  /** FE user id of the uploader, when known. */
+  uploadedByUserId?: string | null
 }
 
 export type PropertyEventChange = {
