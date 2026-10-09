@@ -11,6 +11,7 @@ import { ScrollToTop } from './components/ScrollToTop'
 import { RequirePermission } from './components/RequirePermission'
 
 import { RequireAuth } from './components/RequireAuth'
+import { useAuth } from './context/AuthContext'
 
 const MarketHome = lazy(() => import('./pages/market/MarketHome'))
 const BrowsePage = lazy(() => import('./pages/market/BrowsePage'))
@@ -97,6 +98,13 @@ function Guard({
       {children}
     </RequirePermission>
   )
+}
+
+/** Landlords keep assets.manage but have no agency landlord directory; send them to their portal. */
+function LandlordsDirectoryRoute({ children }: { children: ReactNode }) {
+  const { role } = useAuth()
+  if (role === 'landlord') return <Navigate to="/workspace/portals/owner" replace />
+  return <>{children}</>
 }
 
 function RedirectPropertyAsset() {
@@ -310,7 +318,7 @@ export default function App() {
                 <Route path="people/tenants" element={<Guard permission="occupants.view"><TenantDirectory /></Guard>} />
                 <Route path="people/tenants/:id" element={<Guard permission="occupants.view"><OccupantDetail /></Guard>} />
                 <Route path="people/leases" element={<Guard permission="occupants.view"><LeasesDirectory /></Guard>} />
-                <Route path="people/landlords" element={<Guard anyOf={['users.manage', 'assets.manage']}><LandlordsDirectory /></Guard>} />
+                <Route path="people/landlords" element={<Guard anyOf={['users.manage', 'assets.manage']}><LandlordsDirectoryRoute><LandlordsDirectory /></LandlordsDirectoryRoute></Guard>} />
 
                 <Route path="insights/reports" element={<Guard permission="reports.view"><Reports /></Guard>} />
                 <Route path="help" element={<HelpPage />} />

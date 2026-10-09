@@ -663,7 +663,9 @@ function buildLandlordOwnerNav(
     },
   ]
 
-  const rest = stripNavPaths(removePortalsGroup(filtered), foreignPortalPathsForRole('landlord')).filter(
+  // CR6: landlords keep assets.manage (own properties) but never see the agency Landlords directory.
+  const landlordHidden = new Set([...foreignPortalPathsForRole('landlord'), '/workspace/people/landlords'])
+  const rest = stripNavPaths(removePortalsGroup(filtered), landlordHidden).filter(
     (entry) => {
       if (entry.type !== 'link') return true
       const path = navItemPath(entry.item)
