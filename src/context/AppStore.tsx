@@ -2174,6 +2174,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       if (!eSign) return { ok: false, error: 'No e-sign envelope on this lease' }
       const signed = await recordLeaseSignature({
         eSign,
+        tenancyId,
         party,
         signerName,
         signatureDataUrl,
@@ -4324,6 +4325,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           leaseSignSave = Promise.resolve(false)
           const signed = await recordLeaseSignature({
             eSign: lease.eSign,
+            tenancyId: lease.id,
             party,
             signerName: actorUser?.name ?? app.applicantName,
             actorUserId,

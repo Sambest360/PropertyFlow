@@ -38,6 +38,8 @@ export type IssueLeaseResult = {
 
 export type RecordLeaseSignInput = {
   eSign: LeaseESignState
+  /** Lease id — forwarded to the provider so the server can scope the status poll. */
+  tenancyId?: string | null
   party: LeaseSignParty
   signerName: string
   signatureDataUrl?: string
@@ -321,6 +323,7 @@ export async function recordLeaseSignature(
 
   const res = await provider.recordSign({
     envelopeId: prev.envelopeId,
+    tenancyId: input.tenancyId ?? null,
     party: input.party,
     signerName: input.signerName,
     signatureDataUrl: input.signatureDataUrl,

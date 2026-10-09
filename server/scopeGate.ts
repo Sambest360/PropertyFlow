@@ -222,6 +222,78 @@ export async function buildActorPropertyScope(actor: DemoActor): Promise<Propert
   )
 }
 
+export type TenancyAccess = {
+  leaseUuid: string
+  propertyId: string | null
+  agencyId: string | null
+  tenantUserId: string | null
+  eSign: Record<string, unknown> | null
+}
+
+/**
+ * Read gate for one lease (tenancy): super admin; the lease's tenant; or the
+ * lease's property is in the actor's property scope (agency-wide roles: the
+ * lease is in their agency). Throws 404 when the lease is unknown, 403 when
+ * it is outside scope.
+ */
+export async function assertTenancyReadable(
+  actor: DemoActor,
+  tenancyFeId: string,
+): Promise<TenancyAccess> {
+  let uuid = await resolveUuid('tenancy', tenancyFeId)
+  if (!uuid) {
+    uuid = Object.entries(LEASE_IDS).find(([, v]) => v === tenancyFeId)?.[0] ?? null
+  }
+  const notFound = Object.assign(new Error('Lease not found'), { status: 404 })
+  if (!uuid) throw notFound
+  const rows = await query<{
+    id: string
+    unit_id: string | null
+    client_id: string | null
+    tenant_id: string | null
+    metadata: Record<string, unknown> | null
+  }>(
+    `SELECT id::text AS id, unit_id::text AS unit_id, client_id::text AS client_id,
+            tenant_id::text AS tenant_id, metadata
+     FROM leases WHERE id = $1::uuid LIMIT 1`,
+    [uuid],
+  )
+  const r = rows[0]
+  if (!r) throw notFound
+  const meta = r.metadata ?? {}
+  const access: TenancyAccess = {
+    leaseUuid: r.id,
+    propertyId: await fePropertyFromUnit(r.unit_id),
+    agencyId: await agencyFe(r.client_id),
+    tenantUserId: await feUserId(r.tenant_id),
+    eSign:
+      meta.eSign && typeof meta.eSign === 'object' ? (meta.eSign as Record<string, unknown>) : null,
+  }
+  if (actor.role === 'super_admin') return access
+  if (access.tenantUserId && access.tenantUserId === actor.userId) return access
+  const scope = await buildActorPropertyScope(actor)
+  if (access.propertyId && scope.allowedPropertyIds.has(access.propertyId)) return access
+  if (
+    isAgencyWideRole(actor.role as Role) &&
+    scope.viewer.agencyId &&
+    access.agencyId === scope.viewer.agencyId
+  ) {
+    return access
+  }
+  throw forbiddenError('Lease is outside your scope')
+}
+
+/** FE agency id for a client UUID (entity_id_map first, then seed map). */
+export async function agencyFeForClient(clientId: string | null | undefined): Promise<string | null> {
+  return agencyFe(clientId)
+}
+
+/** Actor agency normalised to the FE id space used by bootstrap rows. */
+export async function normalizedActorAgency(actor: DemoActor): Promise<string | null> {
+  const enriched = await enrichActor(actor)
+  return (await agencyFe(enriched.agencyId)) ?? enriched.agencyId
+}
+
 type ExistingRow = {
   propertyId: string | null
   agencyId: string | null

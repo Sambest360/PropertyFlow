@@ -99,6 +99,8 @@ export type ESignCreateEnvelopeResponse = {
 
 export type ESignRecordSignRequest = {
   envelopeId: string
+  /** Lease the envelope belongs to (server scope + envelope binding on status). */
+  tenancyId?: string | null
   party: LeaseSignParty
   signerName: string
   signatureDataUrl?: string
