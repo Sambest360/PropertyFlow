@@ -157,6 +157,7 @@ import {
 } from '../lib/blockedApplicants'
 import type { PostgresBootstrap } from '../lib/api/postgresClient'
 import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
+import { leaseSignatureSaved } from '../lib/leaseSignatureOrdering'
 import { persistRefusalMessage } from '../lib/api/persistRefusal'
 import {
   bootstrapActorKey,
@@ -4329,6 +4330,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         } as PatchApplicationStatusResult
       }
 
+      // Lease save carrying a signature made in this step (null: none).
+      let leaseSignSave: Promise<boolean> | null = null
       // Roadmap Step 5: TENANT_SIGNED / LANDLORD_SIGNED must update real e-sign
       // status (not decorative workflow alone).
       if (
@@ -4340,6 +4343,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           transition.actionKey === 'LANDLORD_SIGNED' ? ('landlord' as const) : ('tenant' as const)
         const lease = stateRef.current.tenancies.find((t) => t.applicationId === applicationId)
         if (lease?.eSign?.envelopeId) {
+          // Signing attempted: until the signed lease is saved, the
+          // application does not move.
+          leaseSignSave = Promise.resolve(false)
           const signed = await recordLeaseSignature({
             eSign: lease.eSign,
             party,
@@ -4352,7 +4358,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               ...s,
               tenancies: s.tenancies.map((t) => (t.id === lease.id ? nextLease : t)),
             }))
-            persistUpsert('tenancy', nextLease.id, nextLease as unknown as Record<string, unknown>)
+            // The application write below waits for this save (Angela #80):
+            // like recordTenancyLeaseSign's leaseSaved.then.
+            leaseSignSave = persistUpsert('tenancy', nextLease.id, nextLease as unknown as Record<string, unknown>)
             // Prefer real e-sign-derived workflow status when it advances further.
             const derived = workflowStatusFromESign(signed.eSign)
             if (derived && derived !== targetStatus) {
@@ -4361,6 +4369,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             void derived
           }
         } else if (lease && !lease.eSign?.envelopeId) {
+          // The applicant cannot be marked signed without a signature on an
+          // envelope (the server refuses it); staff marking a paper lease
+          // signed continue as before.
+          if (app.applicantUserId === actorUserId) leaseSignSave = Promise.resolve(false)
           // No envelope yet — issue package then continue workflow.
           await issueLeasePackageForTenancy(lease, {
             userId: actorUserId,
@@ -4564,6 +4576,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       // The previous auto-chain to documents_requested overwrote the status
       // in the same tick, so Submit appeared to flicker and revert (E2E #3);
       // staff now advance the submitted application themselves.
+      // Signing step: the application moves only after the lease save with
+      // the signature succeeded (the server checks the stored envelope).
+      const notRecorded = await leaseSignatureSaved(leaseSignSave)
+      if (notRecorded) {
+        return {
+          status: 'ERROR' as const,
+          httpStatus: 409 as const,
+          error: notRecorded.error,
+          code: notRecorded.code,
+        }
+      }
       let updated = normalizeApplication(applyWorkflowTransition(app, targetStatus))
       // Real screening: entering credit_check starts the provider (consent-gated).
       // Approve paths must never invent Passed — that lives in the screening pipeline only.

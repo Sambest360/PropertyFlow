@@ -184,7 +184,7 @@ async function landlordESignMirror(actor: DemoActor, body: PersistBody, to: stri
   if (fromLease !== to) {
     throw Object.assign(
       forbiddenError(`Forbidden: landlord ${actor.userId} cannot set ${to}; the stored lease envelope does not show it`),
-      { code: 'APPLICATION_TRANSITION_FORBIDDEN' },
+      { code: 'LEASE_SIGNATURE_NOT_RECORDED' },
     )
   }
   const rows = await query<{ workflow_status: string | null }>(

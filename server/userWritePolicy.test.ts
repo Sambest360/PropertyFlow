@@ -1190,7 +1190,7 @@ describe('Angela / Jim #80 (c3f25ac): applicant moves on their own application',
     setApp({ wf: 'lease_sent', status: 'APPROVED' })
     // Envelope not signed yet: the tenant cannot claim tenant_signed.
     leaseESign[UUID['A-t']] = { status: 'sent', tenant: { status: 'pending' } }
-    await refusedWith(tenantWrite({ workflowStatus: 'tenant_signed', stage: 'Tenant signed' }))
+    await refusedWith(tenantWrite({ workflowStatus: 'tenant_signed', stage: 'Tenant signed' }), 'LEASE_SIGNATURE_NOT_RECORDED')
     leaseESign[UUID['A-t']] = { status: 'partially_signed', tenant: { status: 'signed' } }
     const { workflowStageLabel } = await import('../src/lib/applicationWorkflow.js')
     const body = await tenantWrite({ workflowStatus: 'tenant_signed', stage: workflowStageLabel('Rental', 'tenant_signed') })
@@ -1223,7 +1223,7 @@ describe('Angela / Jim #80 (c3f25ac): applicant moves on their own application',
   it("eSign mirror: the landlord's countersign is a narrow update, only when the envelope shows it", async () => {
     applications[UUID['A-l']].wf = 'tenant_signed'
     try {
-      await refusedWith(gate(LANDLORD, { resource: 'application', action: 'upsert', id: 'A-l', data: { workflowStatus: 'landlord_signed' } }))
+      await refusedWith(gate(LANDLORD, { resource: 'application', action: 'upsert', id: 'A-l', data: { workflowStatus: 'landlord_signed' } }), 'LEASE_SIGNATURE_NOT_RECORDED')
       leaseESign[UUID['A-l']] = { status: 'completed', landlord: { status: 'signed' }, tenant: { status: 'signed' } }
       const { assertPersistAllowed } = await import('./scopeGate.js')
       const out = await assertPersistAllowed(LANDLORD as never, {
