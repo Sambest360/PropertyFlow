@@ -383,18 +383,20 @@ describe("Follow-up: a tenant's own ticket never sets assignment, cost or status
     assignedTo: 'u-agent',
     cost: 9999,
     status: 'Completed',
-    priority: 'Emergency',
     warrantyCovered: true,
     warranty_covered: true,
+    escalatedAt: '2026-10-01T00:00:00Z',
+    escalated_at: '2026-10-01T00:00:00Z',
   }
 
   it('update and create both strip contractorId, assignedAgentId, cost and status', async () => {
     const upd: Body = { resource: 'ticket', action: 'upsert', id: 'TK-mine', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', title: 'Leak', ...LOCKED } }
     await expect(gate(TENANT, upd)).resolves.toEqual({})
-    expect(upd.data).toEqual({ propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', title: 'Leak' })
+    // warrantyCovered is the server's value (no asset: not covered).
+    expect(upd.data).toEqual({ propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', title: 'Leak', warrantyCovered: false })
     const created: Body = { resource: 'ticket', action: 'upsert', id: 'TK-new', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', ...LOCKED } }
     await expect(gate(TENANT, created)).resolves.toEqual({})
-    expect(created.data).toEqual({ propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t' })
+    expect(created.data).toEqual({ propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', warrantyCovered: false })
   })
 
   it('the stripped write keeps the stored assignment, cost and status (upsertTicket)', async () => {
@@ -417,10 +419,11 @@ describe("Follow-up: a tenant's own ticket never sets assignment, cost or status
     expect(params[11]).toBe('OPEN')
   })
 
-  it('#83: priority and warranty_covered are stripped too, and the writer keeps the stored values', async () => {
+  it('#83: a tenant escalatedAt / warranty_covered is never used; the writer stores the server values', async () => {
     const body: Body = { resource: 'ticket', action: 'upsert', id: 'TK-mine', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', title: 'Leak', ...LOCKED } }
     await gate(TENANT, body)
-    for (const k of ['priority', 'warrantyCovered', 'warranty_covered']) expect(body.data).not.toHaveProperty(k)
+    for (const k of ['escalatedAt', 'escalated_at', 'warranty_covered']) expect(body.data).not.toHaveProperty(k)
+    expect((body.data as Record<string, unknown>).warrantyCovered).toBe(false)
     resolveUuid.mockImplementation(async (_t: string, fe: string) => (fe === 'p-1' ? UN1 : (UUID[fe] ?? null)))
     const { handlePersist } = await import('./writes.js')
     await handlePersist(body as never)
@@ -428,12 +431,10 @@ describe("Follow-up: a tenant's own ticket never sets assignment, cost or status
     const sql = String(insert[0]).replace(/\s+/g, ' ')
     const params = insert[1] as unknown[]
     expect(sql).toContain('priority = CASE WHEN $23::boolean THEN EXCLUDED.priority ELSE maintenance_tickets.priority END')
-    expect(sql).toContain(
-      'warranty_covered = CASE WHEN $24::boolean THEN EXCLUDED.warranty_covered ELSE maintenance_tickets.warranty_covered END',
-    )
-    expect(params.slice(22, 24)).toEqual([false, false])
-    expect(params[10]).toBe('MEDIUM') // insert default only; an update keeps the stored priority
-    expect(params[12]).toBe(false)
+    expect(sql).toContain('escalated_at = COALESCE(EXCLUDED.escalated_at, maintenance_tickets.escalated_at)')
+    expect(params[13]).toBeNull() // escalated_at: stored value kept
+    expect(params[12]).toBe(false) // warranty_covered: server value
+    expect(params.slice(22, 24)).toEqual([false, true])
   })
 
   it('#83: a new tenant ticket is routed to the agency preferred vendor on the server (resolvePreferredVendor)', async () => {
@@ -476,5 +477,114 @@ describe("Follow-up: a tenant's own ticket never sets assignment, cost or status
     }
     await gate(TENANT, upd)
     expect(upd.data).not.toHaveProperty('contractorId')
+  })
+})
+
+describe('#83 (Angela 7ee4cf9): tenant ticket priority, warranty and escalation', () => {
+  const ASSET = '00000000-0000-4000-8000-0000000000a1'
+  const assets: Record<string, { warranty_expires_at: string | null; unit_id: string }> = {}
+  let storedTicket: { priority: string; created_at: string; unit_id: string; asset_id: string | null } | null
+  beforeEach(() => {
+    storedTicket = null
+    for (const k of Object.keys(assets)) delete assets[k]
+    const base = query.getMockImplementation()!
+    query.mockImplementation(async (sql: string, params?: unknown[]) => {
+      const q = sql.replace(/\s+/g, ' ')
+      if (q.startsWith('SELECT warranty_expires_at, unit_id::text AS unit_id FROM internal_assets')) {
+        const a = assets[String(params?.[0])]
+        return a ? [a] : []
+      }
+      if (q.startsWith('SELECT priority, created_at, unit_id::text AS unit_id, asset_id::text AS asset_id FROM maintenance_tickets')) {
+        return storedTicket && params?.[0] === UUID['TK-mine'] ? [storedTicket] : []
+      }
+      return base(sql, params)
+    })
+    resolveUuid.mockImplementation(async (t: string, fe: string) => {
+      if (t === 'property' && fe === 'p-1') return UN1
+      if (t === 'asset' && fe === 'IA-geyser') return ASSET
+      if (t === 'asset' && fe === 'IA-elsewhere') return '00000000-0000-4000-8000-0000000000a2'
+      return UUID[fe] ?? null
+    })
+  })
+  const newTicket = (extra: Record<string, unknown>): Body => ({
+    resource: 'ticket', action: 'upsert', id: 'TK-new', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', title: 'Geyser', ...extra },
+  })
+
+  it('priority is accepted from Low / Medium / High / Emergency (any case) and stored as such', async () => {
+    for (const [sent, kept] of [['Low', 'Low'], ['MEDIUM', 'Medium'], ['high', 'High'], ['EMERGENCY', 'Emergency']] as const) {
+      const b = newTicket({ priority: sent })
+      await gate(TENANT, b)
+      expect((b.data as Record<string, unknown>).priority).toBe(kept)
+    }
+    const b = newTicket({ priority: 'EMERGENCY' })
+    await gate(TENANT, b)
+    const { handlePersist } = await import('./writes.js')
+    await handlePersist(b as never)
+    const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO maintenance_tickets'))!
+    expect((insert[1] as unknown[])[10]).toBe('EMERGENCY')
+    expect((insert[1] as unknown[])[22]).toBe(true)
+  })
+
+  it('anything outside the list is a 400 TICKET_PRIORITY_INVALID (not a silent default)', async () => {
+    for (const p of ['Urgent', 'Critical', '', 5, null]) {
+      await expect(gate(TENANT, newTicket({ priority: p }))).rejects.toMatchObject({ status: 400, code: 'TICKET_PRIORITY_INVALID' })
+    }
+  })
+
+  it('re-sending the stored priority (an Urgent set by staff) is no change; changing it must use the list', async () => {
+    storedTicket = { priority: 'URGENT', created_at: '2026-10-01T08:00:00Z', unit_id: UN1, asset_id: null }
+    const same: Body = { resource: 'ticket', action: 'upsert', id: 'TK-mine', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', priority: 'Urgent' } }
+    await gate(TENANT, same)
+    expect(same.data).not.toHaveProperty('priority')
+    const up: Body = { resource: 'ticket', action: 'upsert', id: 'TK-mine', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', priority: 'Emergency' } }
+    await gate(TENANT, up)
+    expect((up.data as Record<string, unknown>).priority).toBe('Emergency')
+  })
+
+  it('complaint severity maps onto the list; Urgent escalates as Emergency', async () => {
+    const { COMPLAINT_SEVERITY_TO_PRIORITY, tenantPriorityToApi, TENANT_TICKET_PRIORITIES } = await import('../src/lib/tenantTicketPriority.js')
+    expect(COMPLAINT_SEVERITY_TO_PRIORITY).toEqual({ Low: 'Low', Medium: 'Medium', High: 'High', Urgent: 'Emergency' })
+    expect([...TENANT_TICKET_PRIORITIES]).toEqual(['Low', 'Medium', 'High', 'Emergency'])
+    const { toUiPriority, needsEmergencyEscalation } = await import('../src/lib/maintenanceApi.js')
+    const ui = toUiPriority(tenantPriorityToApi(COMPLAINT_SEVERITY_TO_PRIORITY.Urgent))
+    expect(ui).toBe('Emergency')
+    const openedAt = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+    expect(needsEmergencyEscalation({ priority: ui, status: 'Requested', openedAt, escalatedAt: null })).toBe(true)
+    // The API form of every complaint severity passes the server list.
+    for (const sev of Object.keys(COMPLAINT_SEVERITY_TO_PRIORITY) as Array<keyof typeof COMPLAINT_SEVERITY_TO_PRIORITY>) {
+      const b = newTicket({ priority: tenantPriorityToApi(COMPLAINT_SEVERITY_TO_PRIORITY[sev]) })
+      await expect(gate(TENANT, b)).resolves.toEqual({})
+    }
+  })
+
+  it('warranty_covered comes from the asset warranty on the ticket date, never from the tenant', async () => {
+    const future = new Date(Date.now() + 365 * 86400000).toISOString()
+    assets[ASSET] = { warranty_expires_at: future, unit_id: UN1 }
+    const covered = newTicket({ internalAssetId: 'IA-geyser', warrantyCovered: false })
+    await gate(TENANT, covered)
+    expect((covered.data as Record<string, unknown>).warrantyCovered).toBe(true)
+
+    assets[ASSET] = { warranty_expires_at: '2020-01-01T00:00:00Z', unit_id: UN1 }
+    const expired = newTicket({ internalAssetId: 'IA-geyser', warrantyCovered: true, warranty_covered: true })
+    await gate(TENANT, expired)
+    expect((expired.data as Record<string, unknown>).warrantyCovered).toBe(false)
+
+    // Existing ticket: judged on its own date (created_at), with the stored asset.
+    assets[ASSET] = { warranty_expires_at: '2026-10-05T00:00:00Z', unit_id: UN1 }
+    storedTicket = { priority: 'MEDIUM', created_at: '2026-10-01T08:00:00Z', unit_id: UN1, asset_id: ASSET }
+    const upd: Body = { resource: 'ticket', action: 'upsert', id: 'TK-mine', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', warrantyCovered: false } }
+    await gate(TENANT, upd)
+    expect((upd.data as Record<string, unknown>).warrantyCovered).toBe(true)
+
+    // No asset: not covered, whatever the tenant says.
+    const none = newTicket({ warrantyCovered: true })
+    await gate(TENANT, none)
+    expect((none.data as Record<string, unknown>).warrantyCovered).toBe(false)
+  })
+
+  it('an asset on another unit (or unknown) is a 400', async () => {
+    assets['00000000-0000-4000-8000-0000000000a2'] = { warranty_expires_at: null, unit_id: UN2 }
+    await expect(gate(TENANT, newTicket({ internalAssetId: 'IA-elsewhere' }))).rejects.toMatchObject({ status: 400, code: 'TICKET_ASSET_NOT_ON_UNIT' })
+    await expect(gate(TENANT, newTicket({ internalAssetId: 'IA-nope' }))).rejects.toMatchObject({ status: 400, code: 'TICKET_ASSET_NOT_ON_UNIT' })
   })
 })

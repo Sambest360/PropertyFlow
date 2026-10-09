@@ -50,6 +50,7 @@
 import { query } from './db.js'
 import { ensureUuid, resolveUuid } from './entityMap.js'
 import { SEED_VENDOR_ROUTES, resolvePreferredVendor } from '../src/lib/maintenanceApi.js'
+import { TENANT_TICKET_PRIORITIES, normalizeTenantTicketPriority } from '../src/lib/tenantTicketPriority.js'
 import { LEASE_IDS, TICKET_IDS } from './idMap.js'
 import { forbiddenError, type DemoActor } from './actor.js'
 import { APP_STAGE_TO_DB, type PersistBody } from './writes.js'
@@ -216,10 +217,41 @@ export const TENANT_TICKET_LOCKED_FIELDS = [
   'assignedTo',
   'cost',
   'status',
-  'priority',
   'warrantyCovered',
   'warranty_covered',
+  'escalatedAt',
+  'escalated_at',
 ] as const
+
+function badRequest(code: string, message: string): Error & { status: number; code: string } {
+  return Object.assign(new Error(`Bad request: ${message}`), { status: 400, code })
+}
+
+/**
+ * Warranty cover for a ticket, worked out on the server: the linked asset
+ * (internal_assets.warranty_expires_at; it must be on the ticket's unit)
+ * still under warranty on the ticket date (stored created_at, now for a new
+ * ticket). Units carry no warranty fields in the schema, so no asset means
+ * not covered.
+ */
+export async function ticketWarrantyCovered(
+  assetUuid: string | null,
+  unitUuid: string | null,
+  ticketDate: Date | string | null,
+): Promise<boolean> {
+  if (!assetUuid) return false
+  const rows = await query<{ warranty_expires_at: Date | string | null; unit_id: string | null }>(
+    `SELECT warranty_expires_at, unit_id::text AS unit_id FROM internal_assets WHERE id = $1::uuid`,
+    [assetUuid],
+  )
+  const a = rows[0]
+  if (!a || (unitUuid && a.unit_id !== unitUuid)) {
+    throw badRequest('TICKET_ASSET_NOT_ON_UNIT', 'the linked asset is not on this unit')
+  }
+  if (!a.warranty_expires_at) return false
+  const at = ticketDate ? new Date(ticketDate) : new Date()
+  return new Date(a.warranty_expires_at).getTime() >= at.getTime()
+}
 
 /**
  * Server mirror of AppStore createTicket's vendor routing
@@ -410,22 +442,64 @@ export async function enforcePortalWritePolicy(
         } else if (sentReporter !== actor.userId) {
           throw deny('a new ticket must be reported by themselves')
         }
-        // Assignment, cost, status, priority and warranty are staff /
-        // contractor fields; the writer keeps the stored values when they are
-        // absent (defaults on create).
+        // Assignment, cost, status, warranty and escalation are staff /
+        // contractor / server fields; the writer keeps the stored values when
+        // they are absent (defaults on create).
         for (const k of TENANT_TICKET_LOCKED_FIELDS) delete data[k]
+        const stored = rows[0]
+          ? (
+              await query<{ priority: string | null; created_at: Date | string | null; unit_id: string | null; asset_id: string | null }>(
+                `SELECT priority, created_at, unit_id::text AS unit_id, asset_id::text AS asset_id
+                   FROM maintenance_tickets WHERE id = $1::uuid`,
+                [uuid],
+              )
+            )[0] ?? null
+          : null
+
+        // Priority from the fixed tenant list; anything else is a 400.
+        // Re-sending the stored priority (e.g. an Urgent set by staff) is no change.
+        if (Object.prototype.hasOwnProperty.call(data, 'priority')) {
+          const sent = data.priority
+          const same = stored?.priority && typeof sent === 'string' && sent.trim().toUpperCase() === stored.priority.toUpperCase()
+          if (same) {
+            delete data.priority
+          } else {
+            const p = normalizeTenantTicketPriority(sent)
+            if (!p) {
+              throw badRequest(
+                'TICKET_PRIORITY_INVALID',
+                `priority must be one of ${TENANT_TICKET_PRIORITIES.join(', ')}`,
+              )
+            }
+            data.priority = p
+          }
+        }
+
+        let unit: string | null = stored?.unit_id ?? null
         if (!rows[0]) {
-          // New ticket: route it to the agency's preferred vendor for the
-          // category, as the client does (AppStore createTicket).
-          const unit =
+          unit =
             (await resolveUuid('property', str(data.propertyId) ?? '')) ??
             (await resolveUuid('unit', str(data.unitId ?? data.propertyId) ?? ''))
+          // New ticket: route it to the agency's preferred vendor for the
+          // category, as the client does (AppStore createTicket).
           const u = unit
             ? await query<{ client_id: string | null }>(`SELECT client_id::text AS client_id FROM units WHERE id = $1::uuid`, [unit])
             : []
           const vendor = await preferredVendorForTicket(u[0]?.client_id ?? null, str(data.categoryKey) ?? 'GENERAL')
           if (vendor) data.contractorId = vendor
         }
+        // Warranty cover: from the asset's warranty on the ticket date, never
+        // from the tenant.
+        const assetSent = Object.prototype.hasOwnProperty.call(data, 'internalAssetId')
+        const asset = assetSent
+          ? str(data.internalAssetId)
+            ? await resolveUuid('asset', str(data.internalAssetId)!)
+            : null
+          : (stored?.asset_id ?? null)
+        if (assetSent && str(data.internalAssetId) && !asset) {
+          throw badRequest('TICKET_ASSET_NOT_ON_UNIT', 'unknown asset')
+        }
+        data.warrantyCovered = await ticketWarrantyCovered(asset, unit, stored?.created_at ?? null)
         return {}
       }
       if (isContractor) {

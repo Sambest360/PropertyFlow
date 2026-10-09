@@ -2,6 +2,11 @@ import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { Wrench } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
+import {
+  TENANT_TICKET_PRIORITIES,
+  tenantPriorityToApi,
+  type TenantTicketPriority,
+} from '../../lib/tenantTicketPriority'
 import type { TenantPortalState } from '../../hooks/useTenantPortalState'
 import { Badge, Button, Card, Input, Select, statusTone } from '../../components/ui'
 
@@ -9,9 +14,7 @@ export function TenantMaintenanceView({ portal }: { portal: TenantPortalState })
   const { state, createMaintenanceTicket } = useStore()
   const [title, setTitle] = useState('')
   const [assetLabel, setAssetLabel] = useState('Kitchen tap')
-  const [priority, setPriority] = useState<'Low' | 'Medium' | 'High' | 'Urgent' | 'Emergency'>(
-    'Medium',
-  )
+  const [priority, setPriority] = useState<TenantTicketPriority>('Medium')
   const [done, setDone] = useState('')
 
   const maintenanceTickets = portal.tickets.filter((t) => !t.title.startsWith('Complaint:'))
@@ -49,10 +52,7 @@ export function TenantMaintenanceView({ portal }: { portal: TenantPortalState })
         unit_id: prop.unitId,
         internal_asset_id: matchedAsset?.id ?? null,
         category_key: category,
-        priority:
-          priority === 'Emergency'
-            ? 'EMERGENCY'
-            : (priority.toUpperCase() as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'),
+        priority: tenantPriorityToApi(priority),
         title: title.trim(),
         description: `Tenant-reported via portal (${assetLabel}). Routed to agency/agent — not the landlord. ${title.trim()}`,
       },
@@ -109,7 +109,7 @@ export function TenantMaintenanceView({ portal }: { portal: TenantPortalState })
               value={priority}
               onChange={(e) => setPriority(e.target.value as typeof priority)}
             >
-              {['Low', 'Medium', 'High', 'Urgent', 'Emergency'].map((p) => (
+              {TENANT_TICKET_PRIORITIES.map((p) => (
                 <option key={p} value={p}>
                   {p}
                 </option>
