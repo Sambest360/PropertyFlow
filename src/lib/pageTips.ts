@@ -371,7 +371,7 @@ const RULES: TipRule[] = [
     content: () => ({
       id: 'ops-payments',
       title: 'Rent & payments',
-      body: 'Track due, overdue, and settled amounts across your portfolio. Open a payment to attach proof or mark it paid.',
+      body: 'Track due, overdue, and paid amounts across your portfolio. Open a payment to attach proof or mark it paid.',
     }),
   },
   {
@@ -379,7 +379,7 @@ const RULES: TipRule[] = [
     content: () => ({
       id: 'payment-detail',
       title: 'Payment record',
-      body: 'Confirm amount, period, and tenant before recording settlement. Attach bank proof for audit trails.',
+      body: 'Confirm amount, period, and tenant before marking it paid. Attach proof of payment for audit trails.',
     }),
   },
 
