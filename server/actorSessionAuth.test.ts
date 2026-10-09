@@ -522,12 +522,30 @@ describe('actor identity: session first, demo headers only outside production', 
     expect(db.writes).toEqual([])
   })
 
-  it('ALLOW_DEMO_ACTOR=1 still overrides NODE_ENV=production and VERCEL_ENV', async () => {
+  it('ALLOW_DEMO_ACTOR=1 still overrides NODE_ENV=production off Vercel production', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    vi.stubEnv('VERCEL_ENV', 'preview')
+    vi.stubEnv('ALLOW_DEMO_ACTOR', '1')
+    const res = await bootstrap({ 'X-User-Id': 'u-tenant', 'X-Role': 'tenant' })
+    expect(res.status).toBe(200)
+  })
+
+  it('ALLOW_DEMO_ACTOR=1 is ignored when VERCEL_ENV=production (sign-in required)', async () => {
     vi.stubEnv('NODE_ENV', 'production')
     vi.stubEnv('VERCEL_ENV', 'production')
     vi.stubEnv('ALLOW_DEMO_ACTOR', '1')
     const res = await bootstrap({ 'X-User-Id': 'u-tenant', 'X-Role': 'tenant' })
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(401)
+    expect(JSON.stringify(await res.json())).toMatch(/sign[- ]in required/i)
+    const persist = await app.request('/api/persist', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'X-User-Id': 'u-tenant', 'X-Role': 'tenant' },
+      body: JSON.stringify({ op: 'upsert', resource: 'ticket', id: 'tk-x', data: {} }),
+    })
+    expect(persist.status).toBe(401)
+    const text = JSON.stringify(await persist.json())
+    expect(text).toMatch(/Sign-in required/)
+    expect(text).not.toMatch(/X-User-Id/)
   })
 
   it('notifications/mark-read and dunning-notice ignore forged headers in production', async () => {

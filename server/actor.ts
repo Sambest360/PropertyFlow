@@ -80,10 +80,18 @@ export function parseDemoActor(
   return resolveDemoActor({ userId, role, agencyId: agencyRaw })
 }
 
-export function actorRequiredError(): Error & { status: number } {
-  return Object.assign(new Error('Actor identity required (X-User-Id + X-Role)'), {
-    status: 401,
-  })
+export const SIGN_IN_REQUIRED_MESSAGE = 'Sign-in required. Please sign in and try again.'
+
+/**
+ * 401 for a request with no actor. Where demo headers are not trusted
+ * (production / preview), the only way in is a session, so say sign-in is
+ * required rather than pointing at headers the server would ignore.
+ */
+export function actorRequiredError(env: NodeJS.ProcessEnv = process.env): Error & { status: number } {
+  const message = demoActorHeadersAllowed(env)
+    ? 'Actor identity required (X-User-Id + X-Role)'
+    : SIGN_IN_REQUIRED_MESSAGE
+  return Object.assign(new Error(message), { status: 401 })
 }
 
 export function forbiddenError(message = 'Outside property scope'): Error & { status: number } {
@@ -93,10 +101,12 @@ export function forbiddenError(message = 'Outside property scope'): Error & { st
 /**
  * Demo actor headers / body fields are trusted only outside production:
  * VERCEL, VERCEL_ENV and NODE_ENV=production all unset (local dev, tests), or
- * an explicit ALLOW_DEMO_ACTOR=1 opt-in. Otherwise (Vercel production/preview,
+ * an explicit ALLOW_DEMO_ACTOR=1 opt-in (ignored when VERCEL_ENV=production). Otherwise (Vercel production/preview,
  * any production Node) identity comes from the verified session.
  */
 export function demoActorHeadersAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
+  // Never in Vercel production, even with the opt-in set.
+  if (env.VERCEL_ENV?.trim() === 'production') return false
   if (env.ALLOW_DEMO_ACTOR?.trim() === '1') return true
   if (env.VERCEL?.trim()) return false
   if (env.VERCEL_ENV?.trim()) return false
