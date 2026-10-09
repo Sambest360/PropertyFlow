@@ -10,7 +10,7 @@ import {
   YAxis,
 } from 'recharts'
 import { Download, Sparkles } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
@@ -35,6 +35,8 @@ import { formatZAR } from '../data/seed'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
 import { buildReportMetrics, type ReportTab } from '../lib/reportMetrics'
 import { RentRollAuditPackPanel } from '../components/rentRoll/RentRollAuditPackPanel'
+import { OwnerStatementReport } from '../components/reports/OwnerStatementReport'
+import { RentRollReport } from '../components/reports/RentRollReport'
 
 type Audience = 'platform' | 'agency' | 'owner'
 
@@ -44,6 +46,8 @@ const AGENCY_TABS: Array<{ id: ReportTab; label: string }> = [
   { id: 'team', label: 'Team report' },
   { id: 'collections', label: 'Collections' },
   { id: 'operations', label: 'Operations' },
+  { id: 'owner-statement', label: 'Owner statement' },
+  { id: 'rent-roll', label: 'Rent roll' },
 ]
 
 const PLATFORM_TABS: Array<{ id: ReportTab; label: string }> = [
@@ -59,6 +63,8 @@ const OWNER_TABS: Array<{ id: ReportTab; label: string }> = [
   { id: 'overview', label: 'General report' },
   { id: 'occupancy', label: 'Occupancy' },
   { id: 'payments', label: 'Payments' },
+  { id: 'owner-statement', label: 'Owner statement' },
+  { id: 'rent-roll', label: 'Rent roll' },
 ]
 
 function downloadCsv(filename: string, rows: string[][]) {
@@ -86,7 +92,19 @@ export default function Reports() {
       : 'agency'
 
   const tabs = audience === 'platform' ? PLATFORM_TABS : audience === 'owner' ? OWNER_TABS : AGENCY_TABS
-  const [tab, setTab] = useState<ReportTab>('overview')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab = (searchParams.get('tab') ?? 'overview') as ReportTab
+  const setTab = (id: ReportTab) => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (id === 'overview') next.delete('tab')
+        else next.set('tab', id)
+        return next
+      },
+      { replace: true },
+    )
+  }
   const [agencyFilter, setAgencyFilter] = useState(isPlatform ? 'all' : agencyId ?? 'all')
 
   const activeTab = tabs.some((t) => t.id === tab) ? tab : tabs[0].id
@@ -169,6 +187,8 @@ export default function Reports() {
     activeTab === 'maintenance'
   const showOccupancy =
     activeTab === 'overview' || activeTab === 'occupancy'
+  const isBookTab = activeTab === 'owner-statement' || activeTab === 'rent-roll'
+  const ownerLandlord = audience === 'owner' ? { id: user.id, name: user.name } : null
 
   return (
     <RequirePermission permission="reports.view">
@@ -198,14 +218,16 @@ export default function Reports() {
                   ))}
                 </Select>
               ) : null}
-              <Button
-                variant="secondary"
-                className="min-h-11 cursor-pointer"
-                onClick={exportCurrent}
-              >
-                <Download className="h-4 w-4" strokeWidth={1.6} aria-hidden />
-                Download report
-              </Button>
+              {!isBookTab ? (
+                <Button
+                  variant="secondary"
+                  className="min-h-11 cursor-pointer"
+                  onClick={exportCurrent}
+                >
+                  <Download className="h-4 w-4" strokeWidth={1.6} aria-hidden />
+                  Download report
+                </Button>
+              ) : null}
               <Button className="min-h-11 cursor-pointer">
                 <Sparkles className="h-4 w-4" strokeWidth={1.6} aria-hidden />
                 Insights
@@ -235,6 +257,22 @@ export default function Reports() {
 
             {showOccupancy ? <OccupancyStrip metrics={metrics} /> : null}
           </>
+        ) : null}
+
+        {activeTab === 'owner-statement' && agencyId ? (
+          <OwnerStatementReport
+            agencyId={agencyId}
+            agencyName={agencyName || 'Agency'}
+            fixedLandlord={ownerLandlord}
+          />
+        ) : null}
+
+        {activeTab === 'rent-roll' && agencyId ? (
+          <RentRollReport
+            agencyId={agencyId}
+            agencyName={agencyName || 'Agency'}
+            fixedLandlord={ownerLandlord}
+          />
         ) : null}
 
         {activeTab !== 'overview' && showOccupancy && (

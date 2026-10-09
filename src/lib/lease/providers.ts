@@ -300,7 +300,7 @@ export class DocuSignESignProviderPlaceholder implements ESignProvider {
         nonProduction: false,
         status: 'failed',
         error:
-          'DocuSign is not configured. Set ESIGN_DOCUSIGN_INTEGRATION_KEY, ESIGN_DOCUSIGN_ACCOUNT_ID, and ESIGN_DOCUSIGN_API_URL (partner keys required). Mode A ships SigniFlow only.',
+          'DocuSign is not configured. Set ESIGN_DOCUSIGN_INTEGRATION_KEY, ESIGN_DOCUSIGN_ACCOUNT_ID, and ESIGN_DOCUSIGN_API_URL (partner keys required). Only SigniFlow is available.',
       }
     }
     return {
@@ -310,7 +310,7 @@ export class DocuSignESignProviderPlaceholder implements ESignProvider {
       nonProduction: false,
       status: 'failed',
       error:
-        'DocuSign live API adapter is a placeholder (Mode A OUT). Partner credentials may be present but HTTP is not implemented — use mock or SigniFlow.',
+        'DocuSign live API adapter is a placeholder (not available). Partner credentials may be present but HTTP is not implemented — use mock or SigniFlow.',
     }
   }
 
@@ -321,7 +321,7 @@ export class DocuSignESignProviderPlaceholder implements ESignProvider {
       party: request.party,
       status: 'failed',
       error: this.configured
-        ? 'DocuSign live sign webhook is not implemented (Mode A OUT) — use mock provider.'
+        ? 'DocuSign live sign webhook is not implemented (not available) — use mock provider.'
         : 'DocuSign is not configured (partner keys required).',
     }
   }

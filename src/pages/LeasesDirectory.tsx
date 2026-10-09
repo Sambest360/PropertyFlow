@@ -209,7 +209,7 @@ export default function LeasesDirectory() {
           userId: user?.id ?? 'system',
           agencyId: user?.agencyId ?? null,
           title: 'Renewal offered',
-          body: 'In-app renewal terms recorded (Mode A — not CPA legal service).',
+          body: 'In-app renewal terms recorded (not CPA legal service).',
         })
       } else {
         notify({
@@ -317,7 +317,7 @@ export default function LeasesDirectory() {
         userId: user?.id ?? 'system',
         agencyId: user?.agencyId ?? null,
         title: 'Escalation apply',
-        body: `Applied ${result.applied} due increase(s) (Mode A).`,
+        body: `Applied ${result.applied} due increase(s) (in-app).`,
       })
     },
   }
@@ -341,7 +341,7 @@ export default function LeasesDirectory() {
                 userId: user?.id ?? 'system',
                 agencyId: user?.agencyId ?? null,
                 title: 'Scheduled escalations',
-                body: `Applied ${result.applied} book increase(s) as of ${result.asOf} (Mode A — not live CPI).`,
+                body: `Applied ${result.applied} book increase(s) as of ${result.asOf} (in-app — not live CPI).`,
               })
             }}
           >

@@ -122,7 +122,7 @@ export function InspectionPcrPanel({
         { id: `ph-${Date.now()}`, url, caption: file.name, capturedAt: nowIso() },
         nowIso(),
       )
-      persist(next, 'Photo attached (Mode A soft demo — not a native field camera).')
+      persist(next, 'Photo attached (in-app — not a native field camera).')
     }
     reader.readAsDataURL(file)
   }
@@ -147,7 +147,7 @@ export function InspectionPcrPanel({
         method: 'staff_recorded',
       },
       nowIso(),
-      'Staff-recorded tenant ack (Mode A soft).',
+      'Staff-recorded tenant ack (in-app).',
     )
     if (res.ok === false) {
       setFlash(res.error)
@@ -263,7 +263,7 @@ export function InspectionPcrPanel({
               <div>
                 <dt className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">Status</dt>
                 <dd className="mt-1">
-                  <Badge tone={inspection.ingoingPcrSigned || inspection.status === 'signed' ? 'success' : 'warning'}>
+                  <Badge tone={inspection.ingoingPcrSigned || inspection.status === 'signed' ? 'success' : 'neutral'}>
                     {inspectionStatusLabel(inspection.status)}
                   </Badge>
                 </dd>
@@ -398,10 +398,10 @@ export function InspectionPcrPanel({
             ) : null}
 
             {canReview && kind === 'incoming' && !inspection.ingoingPcrSigned ? (
-              <div className="space-y-2 rounded-xl border border-amber-100 bg-amber-50/50 p-3">
+              <div className="space-y-2 rounded-xl border border-primary-100 bg-primary-50/50 p-3">
                 <p className="text-sm font-medium text-ink">No-show / admin override (audited)</p>
                 <textarea
-                  className="w-full rounded-lg border border-amber-200 bg-white px-2 py-1.5 text-sm"
+                  className="w-full rounded-lg border border-primary-200 bg-white px-2 py-1.5 text-sm"
                   rows={2}
                   placeholder="Documented reason (required)…"
                   value={overrideReason}
@@ -433,7 +433,7 @@ export function InspectionPcrPanel({
               </div>
             ) : null}
 
-            <div className="rounded-xl border border-amber-100 bg-amber-50/40 p-3 text-sm">
+            <div className="rounded-xl border border-primary-100 bg-primary-50/40 p-3 text-sm">
               <label className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -443,7 +443,7 @@ export function InspectionPcrPanel({
                 <span>Theater check: claiming deposit damage / deduction</span>
               </label>
               {damageWarn ? (
-                <p className="mt-2 text-amber-900" data-testid="deposit-damage-soft-warn">
+                <p className="mt-2 text-ink-700" data-testid="deposit-damage-soft-warn">
                   {damageWarn}
                 </p>
               ) : claimDamage ? (

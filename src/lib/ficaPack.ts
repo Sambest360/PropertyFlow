@@ -11,7 +11,7 @@ export const FICA_PACK_KEYS = ['id', 'address', 'fica'] as const
 export type FicaPackKey = (typeof FICA_PACK_KEYS)[number]
 
 export const FICA_PACK_MODE_A_COPY =
-  'Mode A soft-demo / non-production FICA pack. Staff review ID, proof of address, and FICA declaration in-app only — not live bureau screening, not live FICA verification, and not a TPN hard-gate.'
+  'Non-production FICA pack. Staff review ID, proof of address, and FICA declaration in-app only — not live bureau screening, not live FICA verification, and not a TPN hard-gate.'
 
 /** Workflow actions that create a lease or advance move-in / occupancy. */
 export const FICA_SOFT_GATED_ACTION_KEYS = [

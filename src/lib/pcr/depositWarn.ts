@@ -7,7 +7,7 @@ import type { Application } from '../../types/domain'
 import { findInspection } from './inspections.js'
 
 export const DEPOSIT_DAMAGE_SOFT_WARN =
-  'Theater honesty (Mode A): damage / deduction talk without an outgoing inspection path is a soft warning only — not a hard auto-forfeit, and not RHA statutory deposit advice.'
+  'Damage / deduction talk without an outgoing inspection path is a soft warning only — not a hard auto-forfeit, and not RHA statutory deposit advice.'
 
 /**
  * Soft-warn when staff claim deposit damage / deductions without an outgoing PCR.
@@ -32,5 +32,5 @@ export function refundDepositOutgoingSoftWarn(
 ): string | null {
   if (!app || app.type === 'Purchase') return null
   if (findInspection(app, 'outgoing')) return null
-  return 'Soft-warn: no outgoing PCR path on file. Process deposit carefully — Mode A does not auto-forfeit; not RHA legal advice.'
+  return 'Soft-warn: no outgoing PCR path on file. Process deposit carefully — PropertyFlow does not auto-forfeit; not RHA legal advice.'
 }

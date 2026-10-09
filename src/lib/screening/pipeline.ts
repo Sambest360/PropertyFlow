@@ -355,7 +355,7 @@ export function markScreeningInProgressOnWorkflow(app: Application): Application
  * NOT live TPN; approve must never invent Passed.
  */
 export const SCREENING_MODE_A_COPY =
-  'Mode A soft-demo / non-production screening. Staff capture POPIA consent and record mock or manual bureau outcomes in-app only — not live TPN, and not a live bureau hard-gate.'
+  'Non-production screening. Staff capture POPIA consent and record mock or manual bureau outcomes in-app only — not live TPN, and not a live bureau hard-gate.'
 
 /** Same action family as DQ-C2 FICA soft-gate (rental approve / lease / move-in). */
 export const SCREENING_SOFT_GATED_ACTION_KEYS = [
@@ -391,7 +391,7 @@ export function screeningSoftGateMessage(
   if (app.type === 'Purchase') return null
   if (isScreeningClearedForLease(app)) return null
   const status = resolveScreening(app as Application).status
-  return `Approve / lease / move-in blocked until screening is passed or recorded via audited manual override (current: ${status} — Mode A mock/manual, not live TPN).`
+  return `Approve / lease / move-in blocked until screening is passed or recorded via audited manual override (current: ${status} — in-app mock/manual, not live TPN).`
 }
 
 /** Guard helper for workflow transitions — returns true or a clear block reason. */

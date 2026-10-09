@@ -900,7 +900,7 @@ export const seedThreads: MessageThread[] = [
     agencyId: 'ag-horizon',
     propertyId: 'PR-1002',
     applicationId: 'APP-903',
-    subject: 'Owner↔tenant — rent timing (Mode A in-app)',
+    subject: 'Owner↔tenant — rent timing (in-app)',
     participantIds: ['u-lucas', 'u-owner1'],
     routesTo: 'landlord',
     updatedAt: '2026-07-25T10:00:00.000Z',

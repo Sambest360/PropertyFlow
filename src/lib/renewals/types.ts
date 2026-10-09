@@ -7,15 +7,15 @@ import type { BillingSchedule, Tenancy } from '../../types/domain'
 
 /** Honesty — UI banner + notice footer (safe claim). */
 export const RENEWALS_MODE_A_COPY =
-  'Mode A soft year-ops renewal clock + escalate/renew/decline + scheduled book increase — in-app only; not CPA legal service, not live notice delivery, not live CPI.'
+  'In-app year-ops renewal clock + escalate/renew/decline + scheduled book increase — in-app only; not CPA legal service, not live notice delivery, not live CPI.'
 
 export const CPA_NOTICE_LATE_COPY = 'late; seek counsel'
 
 export const CPA_DELIVERY_REFUSE_COPY =
-  'Live CPA / WhatsApp / SMS / email statutory notice delivery is refuse-closed in Mode A — in-app notice only (Mailtrap/WhatsApp stay flag-gated or refuse-closed as today).'
+  'Live CPA / WhatsApp / SMS / email statutory notice delivery is off — in-app notice only (Mailtrap/WhatsApp stay flag-gated or refuse-closed as today).'
 
 export const CPI_REFUSE_COPY =
-  'Live CPI HTTP is refuse-closed in Mode A — staff set escalationPct on the book; no automated CPI fetch.'
+  'Live CPI HTTP is off — staff set escalationPct on the book; no automated CPI fetch.'
 
 /** Soft CPA-style window: ≈80 biz days (open) → ≈40 biz days (close) before lease_end. */
 export const CPA_NOTICE_OPEN_BIZ_DAYS = 80

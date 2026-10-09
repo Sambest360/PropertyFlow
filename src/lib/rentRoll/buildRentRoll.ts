@@ -97,6 +97,10 @@ export function buildRentRollAsAt(input: RentRollAsAtInput): RentRollBook {
         depositZar: t.deposit,
         rentDueDay: t.rentDueDay ?? 1,
         arrearsZar: arrearsForTenancy(t.id, payments, asAt),
+        increaseDate: t.billingSchedule?.nextEscalationOn
+          ? ymd(t.billingSchedule.nextEscalationOn)
+          : null,
+        escalationPct: t.billingSchedule?.escalationPct ?? null,
       }
     })
     .sort(

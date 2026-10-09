@@ -115,9 +115,7 @@ export function ApplicantDetailsPanel({
             </p>
             <p
               className={`mt-1 text-sm font-semibold ${
-                tone === 'warning'
-                  ? 'text-amber-700'
-                  : tone === 'success'
+                tone === 'success'
                     ? 'text-emerald-700'
                     : tone === 'danger'
                       ? 'text-accent-700'
@@ -179,7 +177,7 @@ export function ApplicantDetailsPanel({
 
         {screening.override ? (
           <div className="mt-4 border-t border-primary-50 pt-4">
-            <p className="text-[11px] font-medium text-amber-700">Latest override (audited)</p>
+            <p className="text-[11px] font-medium text-ink-500">Latest override (audited)</p>
             <p className="mt-1 text-sm text-ink-700">
               {screening.override.byName} · {screening.override.at}
             </p>

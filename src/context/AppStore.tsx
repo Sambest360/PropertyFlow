@@ -1628,7 +1628,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         )
       }
       addActivity(
-        `Template CSV import: ${fresh.length} unallocated receipt(s) from ${batch.filename} (Mode A — not bank-confirmed)`,
+        `Template CSV import: ${fresh.length} unallocated receipt(s) from ${batch.filename} (recorded in PropertyFlow, not yet matched to the bank)`,
         actor.name,
         params.agencyId,
       )
@@ -5586,7 +5586,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           resource: 'payment',
           action: 'created',
           title: 'Rent scheduled',
-          body: `${payment.type} · ${payment.partyName} due ${payment.dueDate} (Mode A schedule).`,
+          body: `${payment.type} · ${payment.partyName} due ${payment.dueDate} (in-app schedule).`,
           link: `/workspace/operations/payments/${payment.id}`,
           recipientUserIds: paymentDeskStakeholderIds(state.users, payment, paymentProperty),
         })
@@ -5752,7 +5752,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           userId: next.tenantUserId,
           agencyId: next.agencyId,
           title: 'Renewal offered',
-          body: `In-app renewal terms recorded for your lease (Mode A — not CPA legal service).`,
+          body: `In-app renewal terms recorded for your lease (not CPA legal service).`,
           link: '/workspace/portals/tenant',
           resource: 'applicant',
           action: 'updated',
@@ -5801,7 +5801,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           userId: next.tenantUserId,
           agencyId: next.agencyId,
           title: 'Lease renewed on book',
-          body: `Term extended to ${newEndDate}; rent ${formatZAR(newRent)} (Mode A in-app — not auto e-sign).`,
+          body: `Term extended to ${newEndDate}; rent ${formatZAR(newRent)} (in-app — not auto e-sign).`,
           link: '/workspace/portals/tenant',
           resource: 'applicant',
           action: 'updated',

@@ -180,7 +180,7 @@ export default function Payments() {
     try {
       const result = runRentCycle()
       setCycleMsg(
-        `Rent cycle (Mode A demo): escalated ${result.escalated} overdue · created ${result.created.length} rent row(s) for ${result.asOf}. Schedule/overdue only — no live bank debit.`,
+        `Rent cycle (in-app): escalated ${result.escalated} overdue · created ${result.created.length} rent row(s) for ${result.asOf}. Schedule/overdue only — no live bank debit.`,
       )
       if (result.created.length || result.escalated) {
         setAttention('overdue')
@@ -200,7 +200,7 @@ export default function Payments() {
       <div className="animate-fade-in">
         <PageHeader
           title="Payments"
-          subtitle="Scan the ledger, spot overdue lines and missing proof, then open a payment for full detail. Mode A: schedule/overdue + in-app dunning — no live bank debit."
+          subtitle="Scan the ledger, spot overdue lines and missing proof, then open a payment for full detail. Schedule/overdue + in-app dunning — no live bank debit."
           actions={
             canManage ? (
               <Button

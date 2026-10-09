@@ -20,6 +20,9 @@ import {
   isTenancyOnRentRollAsAt,
   remittanceAdapterFromEnv,
   rentRollToCsv,
+  RENT_ROLL_TABLE_COLUMNS,
+  rentRollCellText,
+  rentRollTableToCsv,
 } from './index'
 import { RemittanceNotConfiguredError } from './types'
 
@@ -166,7 +169,7 @@ describe('buildRentRollAsAt', () => {
     const copy = RENT_ROLL_MODE_A_COPY.toLowerCase()
     expect(copy).toMatch(/not trust-audited/)
     expect(copy).toMatch(/not a ppra opinion/)
-    expect(copy).toMatch(/not bank-confirmed/)
+    expect(copy).toContain('recorded in propertyflow, not yet matched to the bank')
     expect(AUDIT_PACK_MODE_A_COPY.toLowerCase()).toMatch(/not a statutory audit pack/)
   })
 })
@@ -278,7 +281,7 @@ describe('buildSoftAuditPack', () => {
     expect(pack.indexJson).toMatch(/live remittance/)
     expect(pack.rentRoll.rows).toHaveLength(1)
     const trustFile = pack.files.find((f) => f.path.startsWith('trust-soft'))
-    expect(trustFile?.content).toMatch(/not bank-confirmed/i)
+    expect(trustFile?.content).toMatch(/not yet matched to the bank/i)
   })
 })
 
@@ -292,7 +295,7 @@ describe('remittance adapters', () => {
     const bad = await attemptLiveRemittance(refuse)
     expect(bad.ok).toBe(false)
     if (!bad.ok) {
-      expect(bad.error.toLowerCase()).toMatch(/refuse/)
+      expect(bad.error.toLowerCase()).toMatch(/live remittance is off/)
       expect(bad.error.toLowerCase()).toMatch(/payprop|remittance/)
     }
     expect(() => assertRemittanceNotLive(refuse)).toThrow(RemittanceNotConfiguredError)
@@ -306,5 +309,74 @@ describe('remittance adapters', () => {
     expect(adapter.live).toBe(true)
     const result = await adapter.pushLiveRemittance()
     expect(result.ok).toBe(false)
+  })
+})
+
+describe('rent roll table (Reports tab)', () => {
+  const base = {
+    agencyId: 'ag-horizon',
+    agencyName: 'Horizon Realty',
+    asAt: '2026-10-01',
+    properties: [property()],
+    payments: [payment()],
+    landlords: [landlord()],
+    generatedAt: '2026-10-02T08:00:00.000Z',
+  }
+
+  it('keeps the column order tenant, unit, owner, charged, outstanding, lease expiry, increase date', () => {
+    expect(RENT_ROLL_TABLE_COLUMNS.map((c) => c.label)).toEqual([
+      'Tenant',
+      'Unit',
+      'Owner',
+      'Charged',
+      'Outstanding',
+      'Lease expiry',
+      'Increase date',
+    ])
+  })
+
+  it('reads the increase date from the billing schedule and leaves lease expiry blank when null', () => {
+    const book = buildRentRollAsAt({
+      ...base,
+      tenancies: [
+        tenancy({
+          endDate: null,
+          billingSchedule: {
+            id: 'BS-1',
+            agencyId: 'ag-horizon',
+            occupancyId: 'TN-1',
+            chargeType: 'rent',
+            amountCents: 1250000,
+            dayOfMonth: 1,
+            startOn: '2026-06-01',
+            endOn: null,
+            escalationPct: 8,
+            nextEscalationOn: '2027-06-01',
+            createdAt: '2026-06-01T00:00:00.000Z',
+            updatedAt: '2026-06-01T00:00:00.000Z',
+          },
+        }),
+      ],
+    })
+    const row = book.rows[0]
+    expect(row.increaseDate).toBe('2027-06-01')
+    expect(row.escalationPct).toBe(8)
+    expect(rentRollCellText(row, 'leaseExpiry')).toBe('')
+    expect(rentRollCellText(row, 'increaseDate')).toBe('2027-06-01 (+8%)')
+  })
+
+  it('has a blank increase date when no billing schedule is set', () => {
+    const book = buildRentRollAsAt({ ...base, tenancies: [tenancy()] })
+    expect(book.rows[0].increaseDate).toBeNull()
+    expect(rentRollCellText(book.rows[0], 'increaseDate')).toBe('')
+    expect(rentRollCellText(book.rows[0], 'leaseExpiry')).toBe('2026-12-31')
+  })
+
+  it('exports CSV with the on-screen names and order for visible columns', () => {
+    const book = buildRentRollAsAt({ ...base, tenancies: [tenancy()] })
+    const csv = rentRollTableToCsv(book.rows, ['tenant', 'outstanding', 'unit'])
+    const [header, first] = csv.split('\n')
+    expect(header).toBe('Tenant,Unit,Outstanding')
+    expect(first).toBe('Lucas Pretorius,Humewood B12,12500.00')
   })
 })

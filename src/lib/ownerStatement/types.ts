@@ -15,7 +15,7 @@ import type {
 
 /** Honesty label — UI banner + PDF header (safe claim). */
 export const OWNER_STATEMENT_MODE_A_COPY =
-  'Mode A owner statement PDF from in-app book (payments / allocations / payouts submitted) - not bank-confirmed, not PayProp settled.'
+  'Owner statement PDF from in-app book (payments / allocations / payouts submitted) - recorded in PropertyFlow, not yet matched to the bank.'
 
 /** Payout statuses eligible for the Mode A book (≤ submitted). Never treat as bank settlement. */
 export const OWNER_STATEMENT_PAYOUT_STATUSES = [
@@ -56,6 +56,8 @@ export type OwnerStatementPaymentLine = {
   description: string
   amountZar: number
   status: string
+  /** PaymentRecord.type — lets the table split Rent vs Commission. */
+  paymentType?: PaymentRecord['type']
 }
 
 export type OwnerStatementAllocationLine = {

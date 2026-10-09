@@ -12,7 +12,12 @@ import {
   generateOwnerStatementPdf,
   isModeAStatementPayout,
   ownerStatementDocumentDraft,
+  OWNER_STATEMENT_TABLE_COLUMNS,
+  OWNER_STATEMENT_TABLE_FOOTER,
+  buildOwnerStatementTable,
+  ownerStatementTableToCsv,
 } from './index'
+import type { OwnerStatementBook } from './types'
 
 function property(overrides: Partial<PropertyAsset> = {}): PropertyAsset {
   return {
@@ -180,8 +185,8 @@ describe('buildOwnerStatementBook', () => {
   })
 
   it('honesty banner denies PayProp / bank', () => {
-    expect(OWNER_STATEMENT_MODE_A_COPY.toLowerCase()).toMatch(/not bank-confirmed/)
-    expect(OWNER_STATEMENT_MODE_A_COPY.toLowerCase()).toMatch(/not payprop settled/)
+    expect(OWNER_STATEMENT_MODE_A_COPY.toLowerCase()).toContain('recorded in propertyflow, not yet matched to the bank')
+    expect(OWNER_STATEMENT_MODE_A_COPY.toLowerCase()).not.toMatch(/payprop/)
     expect(OWNER_STATEMENT_MODE_A_COPY.toLowerCase()).not.toMatch(/live payprop remittance api/)
   })
 })
@@ -200,8 +205,7 @@ describe('generateOwnerStatementPdf', () => {
 
     // FlateDecode streams hide literals; honesty is asserted on book + constant (drawn into PDF).
     expect(pdf.book.honesty).toBe(OWNER_STATEMENT_MODE_A_COPY)
-    expect(pdf.book.honesty.toLowerCase()).toMatch(/not bank-confirmed/)
-    expect(pdf.book.honesty.toLowerCase()).toMatch(/not payprop settled/)
+    expect(pdf.book.honesty.toLowerCase()).toContain('recorded in propertyflow, not yet matched to the bank')
     expect(pdf.book.honesty.toLowerCase()).not.toMatch(/partnerpayoutid/)
     expect(JSON.stringify(pdf.book.payouts)).not.toMatch(/partnerPayoutId/)
   })
@@ -235,5 +239,66 @@ describe('ownerStatementDocumentDraft', () => {
     expect(draft.category).toBe('Other')
     expect(draft.note).toBe(OWNER_STATEMENT_MODE_A_COPY)
     expect(draft.name).toMatch(/Owner statement/)
+  })
+})
+
+describe('owner statement table (Reports tab)', () => {
+  const book = {
+    landlordUserId: 'u-owner1',
+    landlordName: 'Horizon Trust',
+    agencyId: 'ag-horizon',
+    agencyName: 'Horizon Realty',
+    period: { start: '2026-09-01', end: '2026-09-30' },
+    propertyTitles: ['Humewood B12', 'Summerstrand 4'],
+    payments: [],
+    allocations: [],
+    payouts: [],
+    lines: [
+      { kind: 'payment', id: 'P1', date: '2026-09-01', propertyTitle: 'Humewood B12', description: 'Rent, September', amountZar: 12500, status: 'Paid', paymentType: 'Rent' },
+      { kind: 'payment', id: 'P2', date: '2026-09-02', propertyTitle: 'Humewood B12', description: 'Commission', amountZar: 1000, status: 'Paid', paymentType: 'Commission' },
+      { kind: 'allocation', id: 'A1', date: '2026-09-03', propertyTitle: 'Humewood B12', description: 'Levies', amountZar: 300, bucketCode: 'levies' },
+      { kind: 'payout', id: 'O1', date: '2026-09-05', propertyTitle: 'Humewood B12', description: 'Owner payout', amountZar: 11200, status: 'submitted' },
+      { kind: 'payment', id: 'P3', date: '2026-09-01', propertyTitle: 'Summerstrand 4', description: 'Rent', amountZar: 9000, status: 'Paid', paymentType: 'Rent' },
+      { kind: 'payment', id: 'P4', date: '2026-09-01', propertyTitle: 'Summerstrand 4', description: 'First month', amountZar: 4000, status: 'Paid', paymentType: 'First Month Rent' },
+      { kind: 'payment', id: 'P5', date: '2026-09-10', propertyTitle: 'Summerstrand 4', description: 'Rent due', amountZar: 9000, status: 'Due', paymentType: 'Rent' },
+      { kind: 'payment', id: 'P6', date: '2026-09-11', propertyTitle: 'Summerstrand 4', description: 'Deposit', amountZar: 18000, status: 'Paid', paymentType: 'Deposit' },
+      { kind: 'payment', id: 'P7', date: '2026-09-12', propertyTitle: 'Summerstrand 4', description: 'Overdue rent', amountZar: 9000, status: 'Overdue', paymentType: 'Rent' },
+    ],
+    totals: { paymentsZar: 0, allocationsZar: 0, payoutsSubmittedZar: 0 },
+    honesty: OWNER_STATEMENT_MODE_A_COPY,
+    generatedAt: '2026-10-02T08:00:00.000Z',
+  } as unknown as OwnerStatementBook
+
+  it('uses Rent, Commission, Other allocations, Net paid and no Recoveries/Expenses columns', () => {
+    const labels = OWNER_STATEMENT_TABLE_COLUMNS.map((c) => c.label)
+    expect(labels).toEqual(['Date', 'Property', 'Description', 'Rent', 'Commission', 'Other allocations', 'Net paid'])
+    expect(labels).not.toContain('Recoveries')
+    expect(labels).not.toContain('Expenses')
+  })
+
+  it('places each line in one column and filters by property', () => {
+    const { rows, totals } = buildOwnerStatementTable(book, { propertyTitle: 'Humewood B12' })
+    expect(rows).toHaveLength(4)
+    expect(totals).toEqual({ rent: 12500, commission: 1000, otherAllocations: 300, netPaid: 11200 })
+  })
+
+  it('Rent counts only Paid Rent / First Month Rent; other payments stay out of the totals', () => {
+    const { rows, totals } = buildOwnerStatementTable(book, { propertyTitle: 'Summerstrand 4' })
+    expect(rows).toHaveLength(5)
+    expect(totals).toEqual({ rent: 13000, commission: 0, otherAllocations: 0, netPaid: 0 })
+    const byId = Object.fromEntries(rows.map((r) => [r.id, r]))
+    expect(byId['payment-P4'].rent).toBe(4000)
+    for (const id of ['payment-P5', 'payment-P6', 'payment-P7']) {
+      expect(byId[id]).toMatchObject({ rent: null, commission: null, otherAllocations: null, netPaid: null })
+    }
+  })
+
+  it('exports CSV with on-screen headers, a total row and the in-app-book footer', () => {
+    const { rows, totals } = buildOwnerStatementTable(book)
+    const lines = ownerStatementTableToCsv(rows, totals, ['date', 'description', 'rent', 'netPaid']).split('\n')
+    expect(lines[0]).toBe('Date,Description,Rent,Net paid')
+    expect(lines[1]).toBe('2026-09-01,"Rent, September",12500.00,')
+    expect(lines[lines.length - 2]).toBe('Total,,25500.00,11200.00')
+    expect(lines[lines.length - 1]).toBe(`"${OWNER_STATEMENT_TABLE_FOOTER}"`)
   })
 })

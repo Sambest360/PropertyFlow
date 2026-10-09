@@ -123,7 +123,7 @@ describe('e-sign providers', () => {
       landlord: null,
     })
     expect(res.ok).toBe(false)
-    expect(res.error).toMatch(/placeholder|Mode A OUT/i)
+    expect(res.error).toMatch(/placeholder/i)
   })
 
   it('SigniFlow createEnvelope uses server API (mocked) — never invents without ok:true', async () => {

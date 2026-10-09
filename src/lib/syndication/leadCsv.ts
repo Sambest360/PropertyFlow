@@ -10,7 +10,7 @@ export const LEAD_CSV_TEMPLATE_HEADER =
   'external_id,portal_code,listing_id,name,email,phone,message,type'
 
 export const LEAD_CSV_HONESTY =
-  'Mode A lead CSV import into CRM — not live Property24 / Private Property lead pull.'
+  'Lead CSV import into CRM — not live Property24 / Private Property lead pull.'
 
 export type ParsedLeadCsvRow = PortalLead & {
   lineNumber: number
