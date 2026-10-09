@@ -3,8 +3,8 @@
  * Warranty check → category vendor routing → emergency escalation → resolve + asset audit.
  */
 
-import type { AssetCondition, InternalAsset } from '../data/infrastructure'
-import type { AppUser, MaintenanceTicket } from '../types/domain'
+import type { AssetCondition, InternalAsset } from '../data/infrastructure.js'
+import type { AppUser, MaintenanceTicket } from '../types/domain.js'
 
 export const EMERGENCY_ESCALATION_MS = 2 * 60 * 60 * 1000 // 2 hours
 

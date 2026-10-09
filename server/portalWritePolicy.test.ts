@@ -377,7 +377,16 @@ describe('landlord and contractor allow-lists', () => {
 })
 
 describe("Follow-up: a tenant's own ticket never sets assignment, cost or status", () => {
-  const LOCKED = { contractorId: 'u-co', assignedAgentId: 'u-agent', assignedTo: 'u-agent', cost: 9999, status: 'Completed' }
+  const LOCKED = {
+    contractorId: 'u-co',
+    assignedAgentId: 'u-agent',
+    assignedTo: 'u-agent',
+    cost: 9999,
+    status: 'Completed',
+    priority: 'Emergency',
+    warrantyCovered: true,
+    warranty_covered: true,
+  }
 
   it('update and create both strip contractorId, assignedAgentId, cost and status', async () => {
     const upd: Body = { resource: 'ticket', action: 'upsert', id: 'TK-mine', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', title: 'Leak', ...LOCKED } }
@@ -406,5 +415,66 @@ describe("Follow-up: a tenant's own ticket never sets assignment, cost or status
     expect(params.slice(18, 22)).toEqual([false, false, false, false])
     expect(params).not.toContain(9999)
     expect(params[11]).toBe('OPEN')
+  })
+
+  it('#83: priority and warranty_covered are stripped too, and the writer keeps the stored values', async () => {
+    const body: Body = { resource: 'ticket', action: 'upsert', id: 'TK-mine', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', title: 'Leak', ...LOCKED } }
+    await gate(TENANT, body)
+    for (const k of ['priority', 'warrantyCovered', 'warranty_covered']) expect(body.data).not.toHaveProperty(k)
+    resolveUuid.mockImplementation(async (_t: string, fe: string) => (fe === 'p-1' ? UN1 : (UUID[fe] ?? null)))
+    const { handlePersist } = await import('./writes.js')
+    await handlePersist(body as never)
+    const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO maintenance_tickets'))!
+    const sql = String(insert[0]).replace(/\s+/g, ' ')
+    const params = insert[1] as unknown[]
+    expect(sql).toContain('priority = CASE WHEN $23::boolean THEN EXCLUDED.priority ELSE maintenance_tickets.priority END')
+    expect(sql).toContain(
+      'warranty_covered = CASE WHEN $24::boolean THEN EXCLUDED.warranty_covered ELSE maintenance_tickets.warranty_covered END',
+    )
+    expect(params.slice(22, 24)).toEqual([false, false])
+    expect(params[10]).toBe('MEDIUM') // insert default only; an update keeps the stored priority
+    expect(params[12]).toBe(false)
+  })
+
+  it('#83: a new tenant ticket is routed to the agency preferred vendor on the server (resolvePreferredVendor)', async () => {
+    const { SEED_VENDOR_ROUTES, resolvePreferredVendor } = await import('../src/lib/maintenanceApi.js')
+    const agencyFe = SEED_VENDOR_ROUTES[0].clientId
+    const expected = resolvePreferredVendor(SEED_VENDOR_ROUTES, agencyFe, 'PLUMBING')
+    expect(expected).toBeTruthy()
+    resolveUuid.mockImplementation(async (t: string, fe: string) => {
+      if (t === 'property' && fe === 'p-1') return UN1
+      if (t === 'agency' && fe === agencyFe) return CA
+      if (t === 'agency') return null
+      return UUID[fe] ?? null
+    })
+    const base = query.getMockImplementation()!
+    query.mockImplementation(async (sql: string, params?: unknown[]) =>
+      /SELECT client_id::text AS client_id FROM units WHERE id = \$1::uuid/.test(sql) && params?.[0] === UN1
+        ? [{ client_id: CA }]
+        : base(sql, params),
+    )
+    const created: Body = {
+      resource: 'ticket', action: 'upsert', id: 'TK-new',
+      data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', categoryKey: 'PLUMBING', contractorId: 'u-co' },
+    }
+    await expect(gate(TENANT, created)).resolves.toEqual({})
+    // The tenant's own pick is dropped; the server's routing wins.
+    expect((created.data as Record<string, unknown>).contractorId).toBe(expected)
+
+    // No route for the category: agency queue (no contractor).
+    const general: Body = {
+      resource: 'ticket', action: 'upsert', id: 'TK-new',
+      data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', categoryKey: 'NO_SUCH_CATEGORY' },
+    }
+    await gate(TENANT, general)
+    expect(general.data).not.toHaveProperty('contractorId')
+
+    // An update of an existing ticket is never re-routed.
+    const upd: Body = {
+      resource: 'ticket', action: 'upsert', id: 'TK-mine',
+      data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', categoryKey: 'PLUMBING' },
+    }
+    await gate(TENANT, upd)
+    expect(upd.data).not.toHaveProperty('contractorId')
   })
 })

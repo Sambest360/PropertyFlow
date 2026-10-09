@@ -49,6 +49,7 @@
  */
 import { query } from './db.js'
 import { ensureUuid, resolveUuid } from './entityMap.js'
+import { SEED_VENDOR_ROUTES, resolvePreferredVendor } from '../src/lib/maintenanceApi.js'
 import { LEASE_IDS, TICKET_IDS } from './idMap.js'
 import { forbiddenError, type DemoActor } from './actor.js'
 import { APP_STAGE_TO_DB, type PersistBody } from './writes.js'
@@ -215,7 +216,30 @@ export const TENANT_TICKET_LOCKED_FIELDS = [
   'assignedTo',
   'cost',
   'status',
+  'priority',
+  'warrantyCovered',
+  'warranty_covered',
 ] as const
+
+/**
+ * Server mirror of AppStore createTicket's vendor routing
+ * (resolvePreferredVendor over the agency's category routes): the preferred
+ * contractor for a new tenant ticket on a listing of `unitClientUuid`.
+ * Routes are the shared SEED_VENDOR_ROUTES (there is no vendor-route table;
+ * the client reads the same seed).
+ */
+export async function preferredVendorForTicket(
+  unitClientUuid: string | null,
+  categoryKey: string,
+): Promise<string | null> {
+  if (!unitClientUuid) return null
+  const agencies = [...new Set(SEED_VENDOR_ROUTES.map((r) => r.clientId))]
+  for (const agencyFe of agencies) {
+    if ((await resolveUuid('agency', agencyFe)) !== unitClientUuid) continue
+    return resolvePreferredVendor(SEED_VENDOR_ROUTES, agencyFe, categoryKey)
+  }
+  return null
+}
 
 export const PORTAL_ROLES: ReadonlySet<string> = new Set(['tenant', 'landlord', 'contractor'])
 
@@ -386,9 +410,22 @@ export async function enforcePortalWritePolicy(
         } else if (sentReporter !== actor.userId) {
           throw deny('a new ticket must be reported by themselves')
         }
-        // Assignment, cost and status are staff / contractor fields; the
-        // writer keeps the stored values when they are absent.
+        // Assignment, cost, status, priority and warranty are staff /
+        // contractor fields; the writer keeps the stored values when they are
+        // absent (defaults on create).
         for (const k of TENANT_TICKET_LOCKED_FIELDS) delete data[k]
+        if (!rows[0]) {
+          // New ticket: route it to the agency's preferred vendor for the
+          // category, as the client does (AppStore createTicket).
+          const unit =
+            (await resolveUuid('property', str(data.propertyId) ?? '')) ??
+            (await resolveUuid('unit', str(data.unitId ?? data.propertyId) ?? ''))
+          const u = unit
+            ? await query<{ client_id: string | null }>(`SELECT client_id::text AS client_id FROM units WHERE id = $1::uuid`, [unit])
+            : []
+          const vendor = await preferredVendorForTicket(u[0]?.client_id ?? null, str(data.categoryKey) ?? 'GENERAL')
+          if (vendor) data.contractorId = vendor
+        }
         return {}
       }
       if (isContractor) {

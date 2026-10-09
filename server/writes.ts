@@ -1540,8 +1540,8 @@ async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<s
   const unit = await unitIdFromProperty(d.propertyId ?? d.unitId)
   if (!unit) throw new Error('ticket requires propertyId')
   const reported = await userId(d.reportedByUserId)
-  // Absent assignment / cost / status (a tenant's own ticket has them
-  // stripped) keep the stored values on update.
+  // Absent assignment / cost / status / priority / warranty (a tenant's own
+  // ticket has them stripped) keep the stored values on update.
   const has = (k: string) => d[k] !== undefined
   const assignSent = has('assignedAgentId') || has('assignedTo')
   const assigned = await userId(d.assignedAgentId ?? d.assignedTo)
@@ -1570,9 +1570,9 @@ async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<s
        category_key = EXCLUDED.category_key,
        title = EXCLUDED.title,
        description = EXCLUDED.description,
-       priority = EXCLUDED.priority,
+       priority = CASE WHEN $23::boolean THEN EXCLUDED.priority ELSE maintenance_tickets.priority END,
        status = CASE WHEN $21::boolean THEN EXCLUDED.status ELSE maintenance_tickets.status END,
-       warranty_covered = EXCLUDED.warranty_covered,
+       warranty_covered = CASE WHEN $24::boolean THEN EXCLUDED.warranty_covered ELSE maintenance_tickets.warranty_covered END,
        escalated_at = COALESCE(EXCLUDED.escalated_at, maintenance_tickets.escalated_at),
        cost_estimate = CASE WHEN $22::boolean THEN EXCLUDED.cost_estimate ELSE maintenance_tickets.cost_estimate END,
        cost_actual = CASE WHEN $22::boolean THEN EXCLUDED.cost_actual ELSE maintenance_tickets.cost_actual END,
@@ -1602,6 +1602,8 @@ async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<s
       has('contractorId'),
       has('status'),
       has('cost'),
+      has('priority'),
+      has('warrantyCovered'),
     ],
   )
   return uuid
