@@ -203,5 +203,18 @@ describe('Spec 3 tour copy and targets', () => {
   it('tour-insights-reports step 2 targets the report tab bar', () => {
     const tour = resolvePageTour('/workspace/insights/reports', 'agent_admin')
     expect(tour?.steps[1]?.target).toBe('[data-tip-target="report-tabs"]')
+    expect(tour?.steps[1]?.body).toBe('Pick a report tab, then set the dates.')
+  })
+
+  it('tour-trust-arrears step 2 targets the first-row message button', () => {
+    const tour = resolvePageTour('/workspace/trust/arrears', 'agent_admin')
+    expect(tour?.id).toBe('tour-trust-arrears')
+    expect(tour?.steps[1]?.target).toBe('[data-tip-target="trust-arrears-message"]')
+  })
+
+  it('tour-trust-unallocated step 2 targets the allocation selection panel', () => {
+    const tour = resolvePageTour('/workspace/trust/unallocated', 'agent_admin')
+    expect(tour?.id).toBe('tour-trust-unallocated')
+    expect(tour?.steps[1]?.target).toBe('[data-tip-target="trust-unallocated-selection"]')
   })
 })

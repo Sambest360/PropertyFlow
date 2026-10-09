@@ -487,7 +487,7 @@ const WALKTHROUGH_RULES: Array<{
         {
           title: 'Allocation tools',
           body: 'Select one or more receipts. Allocate them from the selection panel.',
-          target: '[data-tip-target="page-header"]',
+          target: '[data-tip-target="trust-unallocated-selection"]',
           placement: 'below',
         },
         {
@@ -565,7 +565,7 @@ const WALKTHROUGH_RULES: Array<{
         {
           title: 'Arrears tools',
           body: 'Use the message button on a row to write to that tenant in PropertyFlow.',
-          target: '[data-tip-target="page-header"]',
+          target: '[data-tip-target="trust-arrears-message"]',
           placement: 'below',
         },
         {
@@ -824,7 +824,7 @@ const WALKTHROUGH_RULES: Array<{
         },
         {
           title: 'Report tools',
-          body: 'Pick a report type and date range from the page header.',
+          body: 'Pick a report tab, then set the dates.',
           target: '[data-tip-target="report-tabs"]',
           placement: 'below',
         },
