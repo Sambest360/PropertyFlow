@@ -224,7 +224,7 @@ export async function payfastItn(c: Context) {
           expected.clientUuid,
           expected.partyUserId,
           paid ? 'Payment received via PayFast' : 'PayFast payment cancelled',
-          `${expected.paymentType} of R${(expected.amount).toFixed(2)} for ${expected.partyName} — ${paid ? 'settled' : 'cancelled'} via PayFast.`,
+          `${expected.paymentType} of R${(expected.amount).toFixed(2)} for ${expected.partyName} — ${paid ? 'paid' : 'cancelled'} via PayFast.`,
         ],
       )
     })
@@ -236,11 +236,11 @@ export async function payfastItn(c: Context) {
             `SELECT email, first_name FROM users WHERE id = $1::uuid LIMIT 1`,
             [expected.partyUserId],
           )
-          const email = payer.rows[0]?.email
+          const email = payer[0]?.email
           if (email) {
             await sendPaymentReceipt({
               email,
-              payerName: payer.rows[0]?.first_name,
+              payerName: payer[0]?.first_name,
               paymentId: expected.id,
               amountDisplay: `R${expected.amount.toFixed(2)}`,
               status: verdict.status,
