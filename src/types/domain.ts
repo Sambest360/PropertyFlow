@@ -126,7 +126,8 @@ export type AppUser = {
   /** When set, persisted as separate columns — `name` remains the display label. */
   firstName?: string
   lastName?: string
-  email: string
+  /** Absent on redacted bootstrap users (other people outside your admin scope). */
+  email?: string
   role: Role
   agencyId: string | null
   phone?: string
@@ -197,6 +198,8 @@ export type PropertyAsset = {
   agencyId: string
   landlordId: string
   agentId: string | null
+  /** Public marketplace only: the listing agent's display name (no user id). */
+  agentName?: string | null
   /** Links flat listing → infrastructure unit when present */
   buildingId?: string | null
   unitId?: string | null
@@ -797,6 +800,10 @@ export type PropertyDocument = {
   /** When sourced from an accepted applicant pack */
   applicationId?: string | null
   applicantName?: string | null
+  /** Tenancy (lease) the document belongs to, when linked. */
+  tenancyId?: string | null
+  /** FE user id of the uploader, when known. */
+  uploadedByUserId?: string | null
 }
 
 export type PropertyEventChange = {

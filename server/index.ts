@@ -637,7 +637,8 @@ app.get('/api/public/marketplace', async (c) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[api/public/marketplace]', message)
-    return c.json({ error: 'marketplace_failed', message }, 500)
+    // Generic body only: never echo database / driver text to signed-out visitors.
+    return c.json({ error: 'marketplace_failed', message: 'Listings are unavailable right now.' }, 500)
   }
 })
 

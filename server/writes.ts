@@ -502,6 +502,11 @@ async function upsertUser(feId: string, d: Record<string, unknown>): Promise<str
   const role = ROLE_TO_DB[feRole] ?? 'END_USER'
   const client = d.agencyId ? await clientId(d.agencyId) : null
   const email = str(d.email, `${feId}@propertyflow.local`).trim().toLowerCase()
+  // A redacted bootstrap user (no email / phone) written back must not wipe the
+  // stored contact details: on update, keep the existing value when the field is
+  // missing (absent, null or blank) from the payload.
+  const hasEmail = typeof d.email === 'string' && d.email.trim() !== ''
+  const hasPhone = typeof d.phone === 'string' && d.phone.trim() !== ''
   let passwordSql = `crypt('ChangeMe123!', gen_salt('bf'))`
   let passwordParam: string | null = null
   if (typeof d.passwordHash === 'string' && d.passwordHash) {
@@ -537,11 +542,11 @@ async function upsertUser(feId: string, d: Record<string, unknown>): Promise<str
        )
        ON CONFLICT (id) DO UPDATE SET
          client_id = EXCLUDED.client_id,
-         email = EXCLUDED.email,
+         email = CASE WHEN $11::boolean THEN EXCLUDED.email ELSE users.email END,
          password_hash = COALESCE(EXCLUDED.password_hash, users.password_hash),
          first_name = EXCLUDED.first_name,
          last_name = EXCLUDED.last_name,
-         phone = EXCLUDED.phone,
+         phone = CASE WHEN $12::boolean THEN EXCLUDED.phone ELSE users.phone END,
          role = EXCLUDED.role,
          active = EXCLUDED.active,
          metadata = users.metadata || EXCLUDED.metadata,
@@ -557,6 +562,8 @@ async function upsertUser(feId: string, d: Record<string, unknown>): Promise<str
         bool(d.active, true),
         JSON.stringify(meta),
         passwordParam,
+        hasEmail,
+        hasPhone,
       ],
     )
   } else {
@@ -568,10 +575,10 @@ async function upsertUser(feId: string, d: Record<string, unknown>): Promise<str
        )
        ON CONFLICT (id) DO UPDATE SET
          client_id = EXCLUDED.client_id,
-         email = EXCLUDED.email,
+         email = CASE WHEN $10::boolean THEN EXCLUDED.email ELSE users.email END,
          first_name = EXCLUDED.first_name,
          last_name = EXCLUDED.last_name,
-         phone = EXCLUDED.phone,
+         phone = CASE WHEN $11::boolean THEN EXCLUDED.phone ELSE users.phone END,
          role = EXCLUDED.role,
          active = EXCLUDED.active,
          metadata = users.metadata || EXCLUDED.metadata,
@@ -586,6 +593,8 @@ async function upsertUser(feId: string, d: Record<string, unknown>): Promise<str
         role,
         bool(d.active, true),
         JSON.stringify(meta),
+        hasEmail,
+        hasPhone,
       ],
     )
   }

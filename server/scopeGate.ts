@@ -887,6 +887,180 @@ export function filterBootstrapUsersForActor(
   return out
 }
 
+/** Portal (non-staff) roles: rows are narrowed to the actor's own records. */
+const PORTAL_ROLES: ReadonlySet<string> = new Set(['tenant', 'landlord', 'contractor'])
+
+/** Roles that never receive trust-book rows in bootstrap (B1). */
+const NO_TRUST_ROLES: ReadonlySet<string> = new Set([
+  'tenant',
+  'landlord',
+  'contractor',
+  'agent',
+  'ground_agent',
+])
+
+type Row = Record<string, unknown>
+
+const lc = (v: unknown): string => (typeof v === 'string' ? v.trim().toLowerCase() : '')
+
+/** Lead with the prospect's contact fields removed (name kept). */
+export function redactLeadContact<T extends object>(row: T): T {
+  return { ...row, email: '', phone: '' }
+}
+
+/**
+ * Application with the applicant's contact + identity fields removed. Name,
+ * stage, income and employment stay so a landlord can still do landlord review.
+ */
+export function redactApplicationContact<T extends object>(row: T): T {
+  const {
+    idNumberOrPassport: _id,
+    uploadedDocs: _docs,
+    ...rest
+  } = row as Row
+  void _id
+  void _docs
+  return { ...rest, email: '', phone: '' } as T
+}
+
+/** Viewing with the visitor's email removed (name kept). */
+export function redactViewingContact<T extends object>(row: T): T {
+  const { applicantEmail: _e, ...rest } = row as Row
+  void _e
+  return rest as T
+}
+
+/** Tenancy with the tenant's email and the key-collection phone removed. */
+export function redactTenancyContact<T extends object>(row: T): T {
+  const r = row as Row
+  const kc = r.keyCollection
+  return {
+    ...r,
+    tenantEmail: '',
+    ...(kc && typeof kc === 'object'
+      ? { keyCollection: { ...(kc as Row), contactPhone: '' } }
+      : {}),
+  } as T
+}
+
+/** Document sourced from an applicant pack (another person's file). */
+function isApplicantDocument(d: Row): boolean {
+  if (d.tenancyId) return false
+  return Boolean(d.applicationId) || Boolean(d.applicantName)
+}
+
+type PortalCollections = {
+  leads: unknown[]
+  applications: unknown[]
+  viewings: unknown[]
+  tenancies: unknown[]
+  propertyDocuments: unknown[]
+}
+
+/**
+ * Own-rows rule for portal roles (tenant, landlord, contractor) on the
+ * collections that carry other people's contact details or files.
+ *
+ * Tenant (incl. a public applicant whose property entered scope by applying):
+ * - leads: only leads under their own email
+ * - applications: only their own (applicantUserId or email)
+ * - viewings: only viewings booked under their email (or, when the viewing has
+ *   no email, under their exact name)
+ * - tenancies: only their own (tenantUserId, or an unlinked lease created from
+ *   their own application)
+ * - propertyDocuments: documents they uploaded, documents linked to their own
+ *   application or tenancy (incl. the lease PDF), and non-applicant Compliance
+ *   documents on a property where they hold their own tenancy
+ *
+ * Landlord (property scope = properties they own):
+ * - leads / applications / viewings / tenancies on their own properties stay
+ *   (owner portal landlord review, owner statement, rent roll, messaging a
+ *   tenant on the book), with other people's email, phone, ID number and
+ *   applicant-pack files removed. Names stay.
+ * - propertyDocuments on their own properties, minus applicant-pack files.
+ *
+ * Contractor (property scope = properties with their jobs):
+ * - no leads, applications, viewings or tenancies
+ * - propertyDocuments: only documents they uploaded
+ */
+export function narrowPortalCollections(
+  input: PortalCollections,
+  actor: DemoActor,
+  actorUser: { email?: string; name?: string } | undefined,
+): PortalCollections {
+  const role = actor.role
+  if (role === 'contractor') {
+    return {
+      leads: [],
+      applications: [],
+      viewings: [],
+      tenancies: [],
+      propertyDocuments: (input.propertyDocuments as Row[]).filter(
+        (d) => d.uploadedByUserId === actor.userId,
+      ),
+    }
+  }
+  if (role === 'landlord') {
+    return {
+      leads: (input.leads as Row[]).map(redactLeadContact),
+      applications: (input.applications as Row[]).map(redactApplicationContact),
+      viewings: (input.viewings as Row[]).map(redactViewingContact),
+      tenancies: (input.tenancies as Row[]).map((t) =>
+        t.tenantUserId === actor.userId ? t : redactTenancyContact(t),
+      ),
+      propertyDocuments: (input.propertyDocuments as Row[]).filter(
+        (d) => d.uploadedByUserId === actor.userId || !isApplicantDocument(d),
+      ),
+    }
+  }
+  if (role !== 'tenant') return input
+
+  const email = lc(actorUser?.email)
+  const name = lc(actorUser?.name)
+  const ownApps = (input.applications as Row[]).filter(
+    (a) =>
+      (Boolean(a.applicantUserId) && a.applicantUserId === actor.userId) ||
+      (Boolean(email) && lc(a.email) === email),
+  )
+  const ownAppIds = new Set(ownApps.map((a) => a.id).filter((id): id is string => typeof id === 'string'))
+  const ownTenancies = (input.tenancies as Row[]).filter(
+    (t) =>
+      (Boolean(t.tenantUserId) && t.tenantUserId === actor.userId) ||
+      (!t.tenantUserId && typeof t.applicationId === 'string' && ownAppIds.has(t.applicationId)),
+  )
+  const ownTenancyIds = new Set(
+    ownTenancies.map((t) => t.id).filter((id): id is string => typeof id === 'string'),
+  )
+  const leaseDocIds = new Set(
+    ownTenancies
+      .flatMap((t) => [t.leaseDocumentId, (t.eSign as Row | null | undefined)?.leaseDocumentId])
+      .filter((id): id is string => typeof id === 'string' && Boolean(id)),
+  )
+  const tenancyPropertyIds = new Set(ownTenancies.map((t) => t.propertyId as string))
+  return {
+    leads: (input.leads as Row[]).filter((l) => Boolean(email) && lc(l.email) === email),
+    applications: ownApps,
+    viewings: (input.viewings as Row[]).filter((v) => {
+      const vEmail = lc(v.applicantEmail)
+      if (vEmail) return Boolean(email) && vEmail === email
+      return Boolean(name) && lc(v.applicantName) === name
+    }),
+    tenancies: ownTenancies,
+    propertyDocuments: (input.propertyDocuments as Row[]).filter((d) => {
+      if (d.uploadedByUserId === actor.userId) return true
+      if (typeof d.applicationId === 'string' && ownAppIds.has(d.applicationId)) return true
+      if (typeof d.tenancyId === 'string' && ownTenancyIds.has(d.tenancyId)) return true
+      if (typeof d.id === 'string' && leaseDocIds.has(d.id)) return true
+      return (
+        d.category === 'Compliance' &&
+        !isApplicantDocument(d) &&
+        !d.tenancyId &&
+        tenancyPropertyIds.has(d.propertyId as string)
+      )
+    }),
+  }
+}
+
 /**
  * Filter a full bootstrap payload for an actor (super admin keeps everything).
  * Users are always narrowed + redacted for non-super-admins (see
@@ -941,7 +1115,8 @@ function filterBootstrapEntitiesForActor(
       }
     }
     const ag = actor.agencyId
-    const inAg = (agencyId: string | null | undefined) => !ag || agencyId === ag
+    // No pass-through for agency-wide staff without an agency (B1).
+    const inAg = (agencyId: string | null | undefined) => Boolean(ag) && agencyId === ag
     const props = raw.properties.filter((p) => inAg(p.agencyId))
     const propIds = new Set(props.map((p) => p.id))
     const buildingIds = new Set(
@@ -1053,6 +1228,23 @@ function filterBootstrapEntitiesForActor(
   const messages = raw.messages.filter((m) => threadIds.has(m.threadId))
   const notifications = raw.notifications.filter((n) => n.userId === actor.userId)
 
+  // Portal roles: own rows only in the collections that carry other people's
+  // contact details or files (property scope alone is too wide — applying to a
+  // listing puts that property in a tenant's scope).
+  const portal = PORTAL_ROLES.has(actor.role)
+    ? narrowPortalCollections(
+        { leads, applications, viewings, tenancies, propertyDocuments },
+        actor,
+        (raw.users as Array<{ id?: string; email?: string; name?: string }>).find(
+          (u) => u.id === actor.userId,
+        ),
+      )
+    : null
+  const ownAgency = actor.agencyId
+  const noTrust = NO_TRUST_ROLES.has(actor.role)
+  const trustRows = <T extends { agencyId?: string | null }>(rows: T[] | undefined): T[] =>
+    noTrust || !ownAgency ? [] : (rows ?? []).filter((x) => x.agencyId === ownAgency)
+
   return {
     ...raw,
     scoped: true,
@@ -1066,45 +1258,37 @@ function filterBootstrapEntitiesForActor(
       const pid = u.id.startsWith('unt-') ? u.id.slice(4) : null
       return (pid && propIds.has(pid)) || (u.buildingId ? buildingIds.has(u.buildingId) : false)
     }),
-    leads,
-    applications,
-    tenancies,
-    viewings,
+    leads: (portal?.leads ?? leads) as BootstrapPayload['leads'],
+    applications: (portal?.applications ?? applications) as BootstrapPayload['applications'],
+    tenancies: (portal?.tenancies ?? tenancies) as BootstrapPayload['tenancies'],
+    viewings: (portal?.viewings ?? viewings) as BootstrapPayload['viewings'],
     viewingSlots,
     payments,
-    propertyDocuments,
+    propertyDocuments: (portal?.propertyDocuments ??
+      propertyDocuments) as BootstrapPayload['propertyDocuments'],
     tickets,
     threads,
     messages,
     notifications,
+    // No null-agency pass-through (B1): a no-agency actor gets none of these.
     suiteAlerts: (raw.suiteAlerts ?? []).filter(
-      (s) => s.agencyId == null || s.agencyId === actor.agencyId,
+      (s) => Boolean(ownAgency) && s.agencyId === ownAgency,
     ),
     activities: (raw.activities ?? []).filter(
-      (a) => !a.agencyId || a.agencyId === actor.agencyId,
+      (a) => Boolean(ownAgency) && a.agencyId === ownAgency,
     ),
     propertyEvents: (raw.propertyEvents ?? []).filter(
       (e) => e.propertyId && propIds.has(e.propertyId),
     ),
     invoices: [],
-    // Trust books: property-locked actors get only their own agency's rows (P0-7).
-    trustTransactions: (raw.trustTransactions ?? []).filter(
-      (x) => !actor.agencyId || x.agencyId === actor.agencyId,
-    ),
-    trustAllocations: (raw.trustAllocations ?? []).filter(
-      (x) => !actor.agencyId || x.agencyId === actor.agencyId,
-    ),
-    payoutInstructions: (raw.payoutInstructions ?? []).filter(
-      (x) => !actor.agencyId || x.agencyId === actor.agencyId,
-    ),
-    depositHoldings: (raw.depositHoldings ?? []).filter(
-      (x) => !actor.agencyId || x.agencyId === actor.agencyId,
-    ),
-    arrearsSnapshots: (raw.arrearsSnapshots ?? []).filter(
-      (x) => !actor.agencyId || x.agencyId === actor.agencyId,
-    ),
-    csvImportBatches: (raw.csvImportBatches ?? []).filter(
-      (x) => !actor.agencyId || x.agencyId === actor.agencyId,
-    ),
+    // Trust books (B1): tenants, landlords, contractors and field agents get
+    // none; everyone else only their own agency's rows, never a null-agency
+    // pass-through.
+    trustTransactions: trustRows(raw.trustTransactions),
+    trustAllocations: trustRows(raw.trustAllocations),
+    payoutInstructions: trustRows(raw.payoutInstructions),
+    depositHoldings: trustRows(raw.depositHoldings),
+    arrearsSnapshots: trustRows(raw.arrearsSnapshots),
+    csvImportBatches: trustRows(raw.csvImportBatches),
   }
 }

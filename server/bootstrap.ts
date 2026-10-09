@@ -1127,7 +1127,18 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     uploadedAt: dateOnly(d.uploaded_at as Date | null) || dateOnly(d.created_at as Date),
     fileUrl: (d.storage_url as string) ?? undefined,
     note: (d.note as string) ?? undefined,
-    applicationId: null as string | null,
+    applicationId: d.application_id
+      ? (appUuidToFeId.get(d.application_id as string) ?? null)
+      : (null as string | null),
+    // Links the scope gate uses for the portal own-rows rule (tenant docs).
+    tenancyId: d.lease_id
+      ? mappedFe(
+          'tenancy',
+          d.lease_id as string,
+          LEASE_IDS[d.lease_id as string] ?? (d.lease_id as string),
+        )
+      : (null as string | null),
+    uploadedByUserId: mapUser(d.uploaded_by as string | null),
     applicantName: (d.applicant_name as string) ?? undefined,
   }))
 

@@ -89,7 +89,7 @@ export default function ComplianceDashboard() {
         .map((u) => ({
           userId: u.id,
           name: u.name,
-          email: u.email,
+          email: u.email ?? '',
           role: u.role,
           status: u.verification!.status,
           submittedAt: u.verification?.submittedAt,

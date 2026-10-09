@@ -98,7 +98,7 @@ describe('bootstrap user redaction', () => {
 })
 
 describe('guest marketplace slice', () => {
-  it('keeps published listings and a name-only directory, drops everything private', () => {
+  it('keeps published listings, sends no users, drops everything private', () => {
     const out = filterBootstrapForGuest({
       source: 'postgres',
       fetchedAt: 'now',
@@ -123,7 +123,7 @@ describe('guest marketplace slice', () => {
     expect((out.properties as Array<{ id: string }>).map((p) => p.id)).toEqual(['p-pub'])
     expect((out.units as Array<{ id: string }>).map((x) => x.id)).toEqual(['unt-p-pub'])
     expect((out.agencies as Array<{ id: string }>).map((x) => x.id)).toEqual(['ag-a'])
-    expect((out.users as Array<{ id: string }>).map((x) => x.id).sort()).toEqual(['u-james', 'u-ll'])
+    expect(out.users).toEqual([])
     const json = JSON.stringify(out)
     expect(json).not.toContain('@x.test')
     expect(json).not.toContain('phone-')
@@ -134,5 +134,32 @@ describe('guest marketplace slice', () => {
     for (const k of ['leads', 'applications', 'payments', 'threads', 'trustTransactions']) {
       expect(out[k]).toEqual([])
     }
+  })
+
+  it('drops landlord identity, verification status and agent ids; keeps the agent display name', () => {
+    const out = filterBootstrapForGuest({
+      agencies: [{ id: 'ag-a', name: 'A' }],
+      users,
+      buildings: [{ id: 'b-1', landlordId: 'u-ll' }],
+      units: [{ id: 'unt-p-pub', buildingId: 'b-1', agentId: 'u-james', listingType: 'rent', statusKey: 'PUBLISHED' }],
+      properties: [
+        { id: 'p-pub', unitId: 'unt-p-pub', status: 'Published', agencyId: 'ag-a', agentId: 'u-james', landlordId: 'u-ll' },
+        { id: 'p-noagent', status: 'Published', agencyId: 'ag-a', agentId: null, landlordId: 'u-ll' },
+      ],
+      viewingSlots: [{ id: 'VS1', propertyId: 'p-pub', agentId: 'u-james' }],
+    })
+    const props = out.properties as Array<Record<string, unknown>>
+    expect(props.map((p) => [p.id, p.agentId, p.landlordId, p.agentName])).toEqual([
+      ['p-pub', null, '', 'u-james name'],
+      ['p-noagent', null, '', null],
+    ])
+    expect((out.units as Array<Record<string, unknown>>)[0].agentId).toBeNull()
+    expect((out.buildings as Array<Record<string, unknown>>)[0].landlordId).toBeNull()
+    expect((out.viewingSlots as Array<Record<string, unknown>>)[0].agentId).toBe('')
+    const json = JSON.stringify(out)
+    expect(json).not.toContain('u-ll')
+    expect(json).not.toContain('"u-james"')
+    expect(json).not.toContain('approved')
+    expect(json).not.toContain('verification')
   })
 })
