@@ -150,8 +150,8 @@ export default function TrustPayouts() {
           <p className="text-xs text-ink-400">{formatCents(pendingTotal)} total</p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-ink-500">{PAYOUT_LABELS.completedThisPeriod}</p>
-          <p className="text-xl font-semibold text-emerald-600">{formatCents(settledTotal)}</p>
+          <p className="text-sm text-ink-500">{PAYOUT_LABELS.markedCompleteCard}</p>
+          <p className="text-xl font-semibold text-ink">{formatCents(settledTotal)}</p>
         </Card>
         <Card className="p-4">
           <p className="text-sm text-ink-500">Total Payouts</p>
@@ -215,7 +215,7 @@ export default function TrustPayouts() {
                     )}
                     {payout.settledAt && (
                       <p className="text-sm text-emerald-600">
-                        {PAYOUT_LABELS.completedOn}: {formatDate(payout.settledAt)}
+                        {PAYOUT_LABELS.markedCompleteOn}: {formatDate(payout.settledAt)}
                       </p>
                     )}
                     {payout.failureReason && (

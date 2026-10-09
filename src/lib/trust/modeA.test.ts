@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { TRUST_MODE_A_COPY } from './modeA'
 import { MESSAGING_MODE_A_SHORT, buildArrearsMessageThreadInput } from '../messaging/modeA'
 import { TRUST_CSV_NON_PRODUCTION_LABEL } from './csvImport'
-import { PAYOUT_LABELS, payoutStatusLabel } from './payoutLabels'
+import { PAYOUT_LABELS, PAYOUT_MARKED_COMPLETE, payoutStatusLabel } from './payoutLabels'
 import { OWNER_STATEMENT_MODE_A_COPY } from '../ownerStatement/types'
 import { RENT_ROLL_MODE_A_COPY } from '../rentRoll/types'
 
@@ -37,7 +37,8 @@ describe('Trust ledger note (CR9)', () => {
       ...Object.values(PAYOUT_LABELS),
       ...payoutStatuses.map(payoutStatusLabel),
     ]) {
-      expect(text).not.toMatch(BANNED)
+      // Jim's exact payout wording is the only allowed use of 'bank-confirmed'.
+      expect(text.split(PAYOUT_MARKED_COMPLETE).join('')).not.toMatch(BANNED)
     }
     expect(msg.initialMessage).toContain('Outstanding: R1250.00.')
     // Owner statement / rent roll copy: core CR9 words (also in the stricter list above).
@@ -50,8 +51,11 @@ describe('Trust ledger note (CR9)', () => {
 })
 
 describe('payout display labels (CR9 follow-up)', () => {
-  it('shows the settled status value as completed without changing other statuses', () => {
-    expect(payoutStatusLabel('settled')).toBe('completed')
+  it('shows the settled status value as marked complete without changing other statuses', () => {
+    expect(PAYOUT_MARKED_COMPLETE).toBe('Marked complete (not bank-confirmed)')
+    expect(payoutStatusLabel('settled')).toBe('Marked complete (not bank-confirmed)')
+    expect(PAYOUT_LABELS.markedCompleteCard).not.toMatch(/this period/i)
+    expect(Object.values(PAYOUT_LABELS).join(' ')).not.toMatch(/\bcompleted\b/i)
     expect(payoutStatusLabel('pending_approval')).toBe('pending approval')
     expect(payoutStatusLabel('submitted')).toBe('submitted')
   })
