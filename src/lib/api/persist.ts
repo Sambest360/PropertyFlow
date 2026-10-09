@@ -25,9 +25,6 @@ export type PersistOp = {
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''
 
-let apiLikelyUp: boolean | null = null
-let lastHealthCheck = 0
-
 function jsonHeaders(): Record<string, string> {
   return {
     'Content-Type': 'application/json',
@@ -36,22 +33,16 @@ function jsonHeaders(): Record<string, string> {
   }
 }
 
-async function quickHealth(): Promise<boolean> {
-  if (!isApiEnabled) return false
-  const now = Date.now()
-  if (apiLikelyUp != null && now - lastHealthCheck < 15_000) return apiLikelyUp
-  lastHealthCheck = now
-  const ctrl = new AbortController()
-  const t = setTimeout(() => ctrl.abort(), 800)
-  try {
-    const res = await fetch(`${API_BASE}/api/health`, { signal: ctrl.signal })
-    apiLikelyUp = res.ok
-  } catch {
-    apiLikelyUp = false
-  } finally {
-    clearTimeout(t)
-  }
-  return apiLikelyUp
+/**
+ * Saves never wait on GET /api/health. That check pings the database and
+ * answered in 1.3-2.3 s live, past the old 800 ms abort, so every Postgres-API
+ * save returned false without posting. Each save now posts and the real
+ * response decides: a non-ok answer or a network error still fails the save.
+ * The only pre-check is configuration: with no API configured there is nothing
+ * to post to.
+ */
+function apiConfigured(): boolean {
+  return isApiEnabled
 }
 
 /**
@@ -90,13 +81,10 @@ export async function persistViaServerApi(op: PersistOp): Promise<boolean> {
     const contentType = res.headers.get('content-type')
     if (!isPersistApiSuccessResponse(res.status, contentType, text)) {
       console.warn('[persist]', op.resource, op.action, op.id, res.status, text.slice(0, 200))
-      apiLikelyUp = res.status !== 503 && res.status !== 0
       return false
     }
-    apiLikelyUp = true
     return true
   } catch (err) {
-    apiLikelyUp = false
     console.warn('[persist] offline / failed', op.resource, op.id, err)
     return false
   }
@@ -188,14 +176,14 @@ export async function persistToApi(op: PersistOp): Promise<boolean> {
     }
     return persistToSupabase(op)
   }
-  if (!(await quickHealth())) return false
+  if (!apiConfigured()) return false
   return persistViaServerApi(op)
 }
 
 export async function persistBatchToApi(ops: PersistOp[]): Promise<boolean> {
   if (!ops.length) return true
   if (isSupabaseMode) return persistBatchToSupabase(ops)
-  if (!(await quickHealth())) return false
+  if (!apiConfigured()) return false
   try {
     const res = await fetch(`${API_BASE}/api/persist/batch`, {
       method: 'POST',
@@ -208,7 +196,6 @@ export async function persistBatchToApi(ops: PersistOp[]): Promise<boolean> {
     }
     return true
   } catch (err) {
-    apiLikelyUp = false
     console.warn('[persist/batch] failed', err)
     return false
   }
@@ -229,7 +216,7 @@ export async function persistApproveApplication(params: {
     // server approve route below.
     return true
   }
-  if (!(await quickHealth())) return false
+  if (!apiConfigured()) return false
   try {
     const res = await fetch(
       `${API_BASE}/api/applications/${encodeURIComponent(params.applicationId)}/approve`,
@@ -244,7 +231,6 @@ export async function persistApproveApplication(params: {
     )
     return res.ok
   } catch {
-    apiLikelyUp = false
     return false
   }
 }
@@ -255,7 +241,7 @@ export async function persistMarkNotificationsRead(params: {
   all?: boolean
 }): Promise<boolean> {
   if (isSupabaseMode) return supabaseMarkNotificationsRead(params)
-  if (!(await quickHealth())) return false
+  if (!apiConfigured()) return false
   try {
     const res = await fetch(`${API_BASE}/api/notifications/mark-read`, {
       method: 'POST',
@@ -264,7 +250,6 @@ export async function persistMarkNotificationsRead(params: {
     })
     return res.ok
   } catch {
-    apiLikelyUp = false
     return false
   }
 }
