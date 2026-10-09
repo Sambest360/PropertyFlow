@@ -32,13 +32,15 @@ describe('Trust ledger note (CR9)', () => {
       MESSAGING_MODE_A_SHORT,
       msg.initialMessage,
       TRUST_CSV_NON_PRODUCTION_LABEL,
+      OWNER_STATEMENT_MODE_A_COPY,
+      RENT_ROLL_MODE_A_COPY,
       ...Object.values(PAYOUT_LABELS),
       ...payoutStatuses.map(payoutStatusLabel),
     ]) {
       expect(text).not.toMatch(BANNED)
     }
     expect(msg.initialMessage).toContain('Outstanding: R1250.00.')
-    // Owner statement / rent roll copy keep their existing 'Mode A' prefix; core CR9 words only.
+    // Owner statement / rent roll copy: core CR9 words (also in the stricter list above).
     const CORE_BANNED = /bank-reconciled|reconciled|ppra-compliant|compliant|settled|paid out|bank-confirmed/i
     for (const text of [OWNER_STATEMENT_MODE_A_COPY, RENT_ROLL_MODE_A_COPY]) {
       expect(text).not.toMatch(CORE_BANNED)
