@@ -26,6 +26,8 @@ export {
   OWNER_STATEMENT_TABLE_COLUMNS,
   OWNER_STATEMENT_TABLE_FOOTER,
   OWNER_STATEMENT_TOTALS_FOOTER,
+  ownerStatementPaymentColumn,
+  ownerStatementPaymentsSubtotal,
   buildOwnerStatementTable,
   ownerStatementCellText,
   ownerStatementRow,
