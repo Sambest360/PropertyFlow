@@ -8,17 +8,15 @@ import { useMemo, useState, type FormEvent } from 'react'
 import { CheckCircle2, Inbox, Send } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useStore } from '../../context/AppStore'
-import { Badge, Button, Card, Input, Select, Textarea } from '../ui'
+import { Badge, Button, Card, Input, Textarea } from '../ui'
 import {
   SUPPORT_BODY_MAX,
   SUPPORT_NOTE_MAX,
   SUPPORT_SUBJECT_MAX,
-  SUPPORT_TICKET_CATEGORIES,
   canResolveSupportTicket,
   isSupportDeskViewer,
   supportTicketRoutingAgency,
   type SupportTicket,
-  type SupportTicketCategory,
 } from '../../lib/supportTickets'
 
 const ICON_STROKE = 1.6
@@ -27,10 +25,6 @@ function fmt(at: string | null | undefined): string {
   if (!at) return ''
   const d = new Date(at)
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleString()
-}
-
-function categoryLabel(v: string): string {
-  return SUPPORT_TICKET_CATEGORIES.find((c) => c.value === v)?.label ?? 'Other'
 }
 
 function StatusBadge({ status }: { status: SupportTicket['status'] }) {
@@ -102,7 +96,6 @@ export function HelpDesk() {
 
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
-  const [category, setCategory] = useState<SupportTicketCategory>('question')
   const [submitting, setSubmitting] = useState(false)
   const [submitMsg, setSubmitMsg] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
 
@@ -115,7 +108,6 @@ export function HelpDesk() {
       actor: { id: user.id, name: user.name, role: user.role, agencyId: user.agencyId },
       subject,
       body,
-      category,
     })
     setSubmitting(false)
     if (res.ok === false) {
@@ -124,7 +116,6 @@ export function HelpDesk() {
     }
     setSubject('')
     setBody('')
-    setCategory('question')
     setSubmitMsg({
       tone: 'ok',
       text: routesToAgency
@@ -197,21 +188,6 @@ export function HelpDesk() {
               />
             </label>
             <label className="block text-sm font-medium text-ink">
-              Category
-              <Select
-                className="mt-1 w-full"
-                value={category}
-                onChange={(e) => setCategory(e.target.value as SupportTicketCategory)}
-                data-testid="help-ticket-category"
-              >
-                {SUPPORT_TICKET_CATEGORIES.map((c) => (
-                  <option key={c.value} value={c.value}>
-                    {c.label}
-                  </option>
-                ))}
-              </Select>
-            </label>
-            <label className="block text-sm font-medium text-ink">
               What do you need help with?
               <Textarea
                 className="mt-1"
@@ -263,7 +239,7 @@ export function HelpDesk() {
                     <StatusBadge status={t.status} />
                   </div>
                   <p className="text-xs text-ink-400">
-                    {categoryLabel(t.category)} · {fmt(t.createdAt)} · {agencyName(t.agencyId)}
+                    {fmt(t.createdAt)} · {agencyName(t.agencyId)}
                   </p>
                   <TicketBody ticket={t} />
                 </li>
@@ -302,7 +278,7 @@ export function HelpDesk() {
                     <StatusBadge status={t.status} />
                   </div>
                   <p className="text-xs text-ink-400">
-                    {t.submitterName || 'Unknown user'} · {categoryLabel(t.category)} ·{' '}
+                    {t.submitterName || 'Unknown user'} ·{' '}
                     {fmt(t.createdAt)}
                     {user.role === 'super_admin' ? ` · ${agencyName(t.agencyId)}` : ''}
                   </p>

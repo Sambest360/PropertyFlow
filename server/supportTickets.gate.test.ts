@@ -22,6 +22,8 @@ type EventRow = {
 const db = vi.hoisted(() => ({
   map: [] as Array<{ entity_type: string; frontend_id: string; backend_id: string }>,
   events: new Map<string, EventRow>(),
+  /** clients.settings.enabledPermissions by client uuid. */
+  clientPerms: new Map<string, string[]>(),
 }))
 const query = vi.hoisted(() => vi.fn())
 
@@ -60,6 +62,9 @@ function fakeQuery(sql: string, params: unknown[] = []): unknown[] {
       .map((r) => ({ backend_id: r.backend_id }))
   }
   if (sql.includes('FROM entity_id_map')) return db.map
+  if (sql.includes("settings->'enabledPermissions'") && sql.includes('FROM clients')) {
+    return [{ enabled: db.clientPerms.get(String(params[0])) ?? null }]
+  }
   if (sql.includes('FROM users')) return []
   if (sql.includes('FROM clients')) return []
   if (sql.includes('FROM units') || sql.includes('FROM applications') || sql.includes('FROM leases')) return []
@@ -128,6 +133,7 @@ describe('CR7 support tickets — scope gate + writer', () => {
   beforeEach(() => {
     db.map = []
     db.events = new Map()
+    db.clientPerms = new Map()
     query.mockReset()
     query.mockImplementation(async (sql: string, params?: unknown[]) => fakeQuery(sql, params ?? []))
   })
@@ -139,7 +145,6 @@ describe('CR7 support tickets — scope gate + writer', () => {
       data: {
         subject: 'Cannot see my lease',
         body: 'The lease tab is empty.',
-        category: 'problem',
         submittedByUserId: 'u-tenant-h',
         submitterName: 'Tina Tenant',
         status: 'resolved',
@@ -240,7 +245,6 @@ describe('CR7 support tickets — scope gate + writer', () => {
       data: {
         subject: 'Original subject',
         body: 'Original body',
-        category: 'account',
         submittedByUserId: 'u-tenant-h',
         submitterName: 'Tina Tenant',
       },
@@ -262,7 +266,6 @@ describe('CR7 support tickets — scope gate + writer', () => {
     expect(row?.payload).toMatchObject({
       subject: 'Original subject',
       body: 'Original body',
-      category: 'account',
       submittedByUserId: 'u-tenant-h',
       submitterName: 'Tina Tenant',
       status: 'resolved',
@@ -284,6 +287,59 @@ describe('CR7 support tickets — scope gate + writer', () => {
         data: { status: 'resolved', resolutionNote: 'again' },
       }),
     ).rejects.toMatchObject({ status: 403 })
+  })
+
+  it('gives 403 for a non-ticket event_log UUID', async () => {
+    const ACTIVITY_UUID = '0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f'
+    db.events.set(ACTIVITY_UUID, {
+      id: ACTIVITY_UUID,
+      client_id: HORIZON,
+      event_type: 'activity',
+      subject_type: 'agency',
+      actor_user_id: null,
+      payload: { text: 'Lease signed', user: 'System' },
+    })
+    for (const [actor, data] of [
+      [tenant, { subject: 's', body: 'b', submittedByUserId: 'u-tenant-h' }],
+      [horizonAdmin, { status: 'resolved', resolutionNote: 'x' }],
+      [superAdmin, { status: 'resolved', resolutionNote: 'x' }],
+    ] as const) {
+      await expect(
+        gateAndPersist(actor, { action: 'upsert', id: ACTIVITY_UUID, data: { ...data } }),
+      ).rejects.toMatchObject({ status: 403 })
+    }
+    const row = db.events.get(ACTIVITY_UUID)
+    expect(row?.event_type).toBe('activity')
+    expect(row?.payload).toEqual({ text: 'Lease signed', user: 'System' })
+  })
+
+  it('gives 403 when the agency has users.manage turned off (effectiveCan)', async () => {
+    await gateAndPersist(tenant, {
+      action: 'upsert',
+      id: 'HD-pack-off',
+      data: { subject: 's', body: 'b', submittedByUserId: 'u-tenant-h' },
+    })
+    db.clientPerms.set(HORIZON, ['assets.view', 'maintenance.view', 'messages.manage'])
+    const { resolveActorUsersManage } = await import('./scopeGate.js')
+    expect(await resolveActorUsersManage(horizonAdmin)).toBe(false)
+    await expect(
+      gateAndPersist(horizonAdmin, {
+        action: 'upsert',
+        id: 'HD-pack-off',
+        data: { status: 'resolved', resolutionNote: 'blocked' },
+      }),
+    ).rejects.toMatchObject({ status: 403 })
+    expect((await rowFor('HD-pack-off'))?.payload.status).toBe('open')
+
+    // Pack back on → the same admin may resolve.
+    db.clientPerms.set(HORIZON, ['users.manage', 'assets.view'])
+    expect(await resolveActorUsersManage(horizonAdmin)).toBe(true)
+    await gateAndPersist(horizonAdmin, {
+      action: 'upsert',
+      id: 'HD-pack-off',
+      data: { status: 'resolved', resolutionNote: 'ok' },
+    })
+    expect((await rowFor('HD-pack-off'))?.payload.status).toBe('resolved')
   })
 
   it('allows delete for super admin only', async () => {
@@ -332,13 +388,13 @@ describe('CR7 support tickets — bootstrap filter', () => {
     notifications: [],
     supportTickets: tickets,
   }
-  const run = async (actor: DemoActor) => {
+  const run = async (actor: DemoActor, usersManage?: boolean) => {
     const { filterBootstrapForActor } = await import('./scopeGate.js')
     const scope = buildPropertyScope(
       { role: actor.role, userId: actor.userId, agencyId: actor.agencyId, agencySuspended: false },
       { properties: [] },
     )
-    return (filterBootstrapForActor(raw, actor, scope).supportTickets ?? []).map(
+    return (filterBootstrapForActor(raw, actor, scope, { usersManage }).supportTickets ?? []).map(
       (t) => (t as { id: string }).id,
     )
   }
@@ -356,6 +412,10 @@ describe('CR7 support tickets — bootstrap filter', () => {
   it('shows an agency admin their agency desk plus their own, never other platform or other agency tickets', async () => {
     expect((await run(horizonAdmin)).sort()).toEqual(['HD-p1', 'HD-t1', 'HD-t2'])
     expect(await run(capeAdmin)).toEqual(['HD-c1'])
+  })
+
+  it('drops the agency desk when users.manage is off for the agency admin', async () => {
+    expect(await run(horizonAdmin, false)).toEqual(['HD-p1'])
   })
 
   it('shows super admin all tickets', async () => {

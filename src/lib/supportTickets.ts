@@ -15,15 +15,6 @@ import type { Role } from '../types/domain.js'
 
 export type SupportTicketStatus = 'open' | 'resolved'
 
-export type SupportTicketCategory = 'question' | 'problem' | 'account' | 'other'
-
-export const SUPPORT_TICKET_CATEGORIES: Array<{ value: SupportTicketCategory; label: string }> = [
-  { value: 'question', label: 'Question' },
-  { value: 'problem', label: 'Something is not working' },
-  { value: 'account', label: 'Account or access' },
-  { value: 'other', label: 'Other' },
-]
-
 export type SupportTicket = {
   id: string
   /** Routed agency (FE id). null = platform / PropertyFlow support. */
@@ -33,7 +24,6 @@ export type SupportTicket = {
   submitterRole: string
   subject: string
   body: string
-  category: SupportTicketCategory
   status: SupportTicketStatus
   createdAt: string
   resolvedByUserId?: string | null
@@ -112,10 +102,4 @@ export function filterSupportTicketsForViewer<
   return tickets.filter(
     (t) => t.submittedByUserId === viewer.userId || isOnSupportDesk(viewer, t),
   )
-}
-
-export function normalizeSupportCategory(v: unknown): SupportTicketCategory {
-  return SUPPORT_TICKET_CATEGORIES.some((c) => c.value === v)
-    ? (v as SupportTicketCategory)
-    : 'other'
 }

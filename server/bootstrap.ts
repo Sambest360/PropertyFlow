@@ -979,7 +979,6 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
       submitterRole: text(payload.submitterRole),
       subject: text(payload.subject),
       body: text(payload.body),
-      category: text(payload.category) || 'other',
       status: payload.status === 'resolved' ? 'resolved' : 'open',
       createdAt: iso(e.created_at as Date)!,
       resolvedByUserId: text(payload.resolvedByUserId) || null,

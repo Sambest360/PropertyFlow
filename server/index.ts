@@ -580,12 +580,19 @@ app.get('/api/bootstrap', async (c) => {
       return c.json({ ...data, supportTickets: [], scoped: false, actor: null })
     }
     const actor = await enrichActor(rawActor)
-    const { buildActorPropertyScope, filterBootstrapForActor } = await loadScopeGateModule()
+    const { buildActorPropertyScope, filterBootstrapForActor, resolveActorUsersManage } =
+      await loadScopeGateModule()
     const scope = await buildActorPropertyScope(actor)
+    // CR7: agency desk tickets only when users.manage is effective (agency pack applied).
+    const usersManage =
+      actor.role === 'client_admin' || actor.role === 'agent_admin'
+        ? await resolveActorUsersManage(actor)
+        : undefined
     const filtered = filterBootstrapForActor(
       data as Parameters<typeof filterBootstrapForActor>[0],
       actor,
       scope,
+      { usersManage },
     )
     return c.json(filtered)
   } catch (err) {

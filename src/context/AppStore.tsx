@@ -183,10 +183,8 @@ import {
   SUPPORT_NOTE_MAX,
   SUPPORT_SUBJECT_MAX,
   canResolveSupportTicket,
-  normalizeSupportCategory,
   supportTicketRoutingAgency,
   type SupportTicket,
-  type SupportTicketCategory,
 } from '../lib/supportTickets'
 import {
   collectViewingAttendeeUserIds,
@@ -767,7 +765,6 @@ type StoreContextValue = {
     actor: { id: string; name: string; role: Role; agencyId: string | null }
     subject: string
     body: string
-    category: SupportTicketCategory
   }) => Promise<{ ok: true; ticket: SupportTicket } | { ok: false; error: string }>
   /** CR7: resolve an open ticket once, with a note. Resolved tickets are read-only. */
   resolveSupportTicket: (input: {
@@ -6205,7 +6202,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         emergencyQueued,
       }
     },
-    submitSupportTicket: async ({ actor, subject, body, category }) => {
+    submitSupportTicket: async ({ actor, subject, body }) => {
       const cleanSubject = subject.trim().slice(0, SUPPORT_SUBJECT_MAX)
       const cleanBody = body.trim().slice(0, SUPPORT_BODY_MAX)
       if (!actor.id || actor.id === 'guest') {
@@ -6223,7 +6220,6 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         submitterRole: actor.role,
         subject: cleanSubject,
         body: cleanBody,
-        category: normalizeSupportCategory(category),
         status: 'open',
         createdAt: new Date().toISOString(),
       }
@@ -6238,7 +6234,6 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             id: ticket.id,
             subject: ticket.subject,
             body: ticket.body,
-            category: ticket.category,
             submittedByUserId: ticket.submittedByUserId,
             submitterName: ticket.submitterName,
           },

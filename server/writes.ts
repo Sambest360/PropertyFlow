@@ -18,7 +18,6 @@ import {
   SUPPORT_BODY_MAX,
   SUPPORT_NOTE_MAX,
   SUPPORT_SUBJECT_MAX,
-  normalizeSupportCategory,
 } from '../src/lib/supportTickets.js'
 
 export type PersistAction = 'upsert' | 'delete' | 'patch'
@@ -1730,7 +1729,7 @@ async function upsertPropertyEvent(feId: string, d: Record<string, unknown>): Pr
  * actor. This writer:
  *  - on insert always stores status 'open', whatever the payload says;
  *  - on conflict merges ONLY the status / resolution keys into payload — never
- *    subject, body, category, submitter or client_id — and only while the row
+ *    subject, body, submitter or client_id — and only while the row
  *    is still open (a resolved ticket is read-only).
  */
 async function upsertSupportTicket(feId: string, d: Record<string, unknown>): Promise<string> {
@@ -1741,7 +1740,6 @@ async function upsertSupportTicket(feId: string, d: Record<string, unknown>): Pr
     frontendId: feId,
     subject: str(d.subject, '').slice(0, SUPPORT_SUBJECT_MAX),
     body: str(d.body, '').slice(0, SUPPORT_BODY_MAX),
-    category: normalizeSupportCategory(d.category),
     submittedByUserId: str(d.submittedByUserId, ''),
     submitterName: str(d.submitterName, ''),
     submitterRole: str(d.submitterRole, ''),

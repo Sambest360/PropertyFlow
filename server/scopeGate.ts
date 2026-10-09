@@ -32,7 +32,8 @@ import {
 } from '../src/lib/scope.js'
 import { canWriteEntity } from '../src/lib/scopeWrite.js'
 import type { PropertyAccessSubject } from '../src/lib/agencyScope.js'
-import type { Role } from '../src/types/domain.js'
+import type { Permission, Role } from '../src/types/domain.js'
+import { effectiveCan } from '../src/lib/permissions.js'
 import {
   canResolveSupportTicket,
   filterSupportTicketsForViewer,
@@ -548,6 +549,43 @@ async function loadSupportTicketRow(feId: string): Promise<
   }
 }
 
+function permissionList(v: unknown): Permission[] | null {
+  // Empty / missing = not configured → role defaults (parity with AppStore
+  // applyPostgresBootstrap and userBasePermissions).
+  return Array.isArray(v) && v.length ? (v.filter((p) => typeof p === 'string') as Permission[]) : null
+}
+
+/**
+ * users.manage as the actor effectively holds it: user pack ∩ agency
+ * enabledPermissions (clients.settings), via effectiveCan. Loads the agency
+ * row the same way resolveAgencySuspended does.
+ */
+export async function resolveActorUsersManage(actor: DemoActor): Promise<boolean> {
+  if (actor.role === 'super_admin') return true
+  const agency = (await agencyFe(actor.agencyId)) ?? actor.agencyId
+  let agencyEnabled: Permission[] | null = null
+  if (agency) {
+    const clientUuid = await resolveUuid('agency', agency)
+    if (clientUuid) {
+      const rows = await query<{ enabled: unknown }>(
+        `SELECT settings->'enabledPermissions' AS enabled FROM clients WHERE id = $1::uuid LIMIT 1`,
+        [clientUuid],
+      )
+      agencyEnabled = permissionList(rows[0]?.enabled)
+    }
+  }
+  let userEnabled: Permission[] | null = null
+  const userUuid = await resolveUuid('user', actor.userId)
+  if (userUuid) {
+    const rows = await query<{ enabled: unknown }>(
+      `SELECT metadata->'enabledPermissions' AS enabled FROM users WHERE id = $1::uuid LIMIT 1`,
+      [userUuid],
+    )
+    userEnabled = permissionList(rows[0]?.enabled)
+  }
+  return effectiveCan(actor.role, 'users.manage', agencyEnabled, userEnabled)
+}
+
 export async function assertSupportTicketAllowed(
   actor: DemoActor,
   body: PersistBody,
@@ -572,7 +610,6 @@ export async function assertSupportTicketAllowed(
     body.data = {
       subject: data.subject,
       body: data.body,
-      category: data.category,
       submitterName: data.submitterName,
       submittedByUserId: actor.userId,
       submitterRole: actor.role,
@@ -583,7 +620,8 @@ export async function assertSupportTicketAllowed(
   }
 
   if (row.status === 'resolved') throw deny('resolved tickets are read-only')
-  if (!canResolveSupportTicket(viewer, { agencyId: row.agencyId })) {
+  const hasUsersManage = await resolveActorUsersManage(actor)
+  if (!canResolveSupportTicket({ ...viewer, hasUsersManage }, { agencyId: row.agencyId })) {
     throw deny('not on this desk')
   }
   if (strField(data, 'status') !== 'resolved') throw deny('only resolve is allowed')
@@ -769,6 +807,8 @@ export function filterBootstrapForActor(
   raw: BootstrapPayload,
   actor: DemoActor,
   scope: PropertyScope,
+  /** CR7: effective users.manage (resolveActorUsersManage); role default when omitted. */
+  opts?: { usersManage?: boolean },
 ): BootstrapPayload {
   const agencyWide = isAgencyWideRole(actor.role as Role) || actor.role === 'super_admin'
   const scoped = !agencyWide
@@ -842,6 +882,7 @@ export function filterBootstrapForActor(
         userId: actor.userId,
         role: actor.role as Role,
         agencyId: actor.agencyId,
+        hasUsersManage: opts?.usersManage,
       }),
     }
   }
