@@ -4883,7 +4883,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         for (const userId of recipientIds) {
           const sample = linkedBefore.find(
             (v) =>
-              state.users.find((u) => u.id === userId)?.email.toLowerCase() ===
+              state.users.find((u) => u.id === userId)?.email?.toLowerCase() ===
                 v.applicantEmail?.toLowerCase(),
           ) ?? linkedBefore[0]
           notify({
