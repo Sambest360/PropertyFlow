@@ -345,3 +345,118 @@ describe('own-row checks use the existing owner before the payload', () => {
     ).resolves.toBeDefined()
   })
 })
+
+describe('Angela #80: agency-created landlords and contractors start pending', () => {
+  async function storedMeta(body: Body) {
+    const { handlePersist } = await import('./writes.js')
+    await handlePersist(body as never)
+    const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO users'))!
+    return JSON.parse(String((insert[1] as unknown[])[8])) as Record<string, unknown>
+  }
+
+  it('an agency admin creating a landlord stores verification pending, ignoring the client status', async () => {
+    const body = await gate(ADMIN, {
+      resource: 'user',
+      action: 'upsert',
+      id: 'u-new-ll',
+      data: {
+        name: 'New Landlord',
+        role: 'landlord',
+        email: 'll@a.test',
+        verification: {
+          status: 'approved',
+          reviewedBy: 'u-admin',
+          reviewedAt: '2026-10-09',
+          profile: { company: 'LL Co' },
+          documents: [{ key: 'id', name: 'id.pdf' }],
+        },
+      },
+    })
+    const v = (body.data as Record<string, unknown>).verification as Record<string, unknown>
+    expect(v.status).toBe('pending')
+    expect(typeof v.submittedAt).toBe('string')
+    expect(v).not.toHaveProperty('reviewedBy')
+    expect(v).not.toHaveProperty('reviewedAt')
+    // Submissions (wizard profile + uploaded docs) are kept, decisions are not.
+    expect(v.profile).toEqual({ company: 'LL Co' })
+    expect(v.documents).toEqual([{ key: 'id', name: 'id.pdf' }])
+    const meta = await storedMeta(body)
+    expect((meta.verification as Record<string, unknown>).status).toBe('pending')
+  })
+
+  it("that pending landlord's listing is not guest-visible on the public marketplace", async () => {
+    const body = await gate(ADMIN, {
+      resource: 'user',
+      action: 'upsert',
+      id: 'u-new-ll',
+      data: { name: 'New Landlord', role: 'landlord', email: 'll@a.test' },
+    })
+    const meta = await storedMeta(body)
+    const { filterBootstrapForGuest } = await import('./guestMarketplace.js')
+    const listing = {
+      source: 'postgres',
+      fetchedAt: 'now',
+      agencies: [{ id: 'ag-a', name: 'A', status: 'Active' }],
+      users: [{ id: 'u-new-ll', role: 'landlord', verification: meta.verification }],
+      buildings: [{ id: 'b-1' }],
+      units: [{ id: 'unt-p-ll', buildingId: 'b-1', listingType: 'rent', statusKey: 'PUBLISHED' }],
+      properties: [
+        { id: 'p-ll', unitId: 'unt-p-ll', status: 'Published', agencyId: 'ag-a', agentId: null, landlordId: 'u-new-ll' },
+      ],
+    }
+    const out = filterBootstrapForGuest(listing)
+    expect(out.properties).toEqual([])
+    const { isPubliclyListed } = await import('../src/lib/publicListings.js')
+    expect(
+      isPubliclyListed(listing.properties[0] as never, {
+        units: listing.units as never,
+        users: listing.users as never,
+      }),
+    ).toBe(false)
+    // Control: once a super admin approves, the same listing is visible.
+    const approved = filterBootstrapForGuest({
+      ...listing,
+      users: [{ id: 'u-new-ll', role: 'landlord', verification: { status: 'approved' } }],
+    })
+    expect((approved.properties as Array<{ id: string }>).map((p) => p.id)).toEqual(['p-ll'])
+  })
+
+  it('an agency admin creating a contractor stores verification pending', async () => {
+    const body = await gate(ADMIN, {
+      resource: 'user',
+      action: 'upsert',
+      id: 'u-new-co',
+      data: { name: 'Fix It', role: 'contractor', email: 'co@a.test', verification: { status: 'approved' } },
+    })
+    const meta = await storedMeta(body)
+    expect((meta.verification as Record<string, unknown>).status).toBe('pending')
+  })
+
+  it('a super admin create is unchanged (their verification is written as sent)', async () => {
+    const body = await gate(SA, {
+      resource: 'user',
+      action: 'upsert',
+      id: 'u-new-ll',
+      data: { name: 'New Landlord', role: 'landlord', agencyId: 'ag-a', verification: { status: 'approved', reviewedBy: 'u-sa' } },
+    })
+    const meta = await storedMeta(body)
+    expect(meta.verification).toEqual({ status: 'approved', reviewedBy: 'u-sa' })
+  })
+
+  it('an agency admin edit of an existing landlord does not touch verification', async () => {
+    users[UUID['u-o']] = { client: CA, metadata: { frontend_role: 'landlord', verification: { status: 'approved' } } }
+    try {
+      const body = await gate(ADMIN, {
+        resource: 'user',
+        action: 'upsert',
+        id: 'u-o',
+        data: { name: 'Owner Renamed', role: 'landlord', verification: { status: 'pending' } },
+      })
+      expect(body.data).not.toHaveProperty('verification')
+      const meta = await storedMeta(body)
+      expect(meta).not.toHaveProperty('verification')
+    } finally {
+      users[UUID['u-o']] = { client: null, metadata: {} }
+    }
+  })
+})

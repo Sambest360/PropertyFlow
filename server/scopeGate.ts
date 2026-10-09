@@ -549,12 +549,35 @@ function stripFields(data: Record<string, unknown>, keys: readonly string[]): vo
   for (const k of keys) delete data[k]
 }
 
+/** Roles whose accounts need a super-admin verification decision before going live. */
+const VERIFIED_ROLES: ReadonlySet<string> = new Set(['landlord', 'contractor'])
+
+/**
+ * Non-super create of a landlord / contractor: the server sets verification to
+ * pending itself, whatever the client sent. Only the submission keys (profile,
+ * documents: what the staff wizard uploaded) are kept; status, review fields and
+ * notes are always the server's. Pending landlords stay off the marketplace.
+ */
+function pendingVerificationForCreate(submitted: unknown): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    status: 'pending',
+    submittedAt: new Date().toISOString(),
+  }
+  if (submitted && typeof submitted === 'object') {
+    const s = submitted as Record<string, unknown>
+    if (s.profile && typeof s.profile === 'object' && !Array.isArray(s.profile)) out.profile = s.profile
+    if (Array.isArray(s.documents)) out.documents = s.documents
+  }
+  return out
+}
+
 /**
  * User row writes (resource 'user'). The owner is body.id only.
  *
  * - super_admin: anything.
  * - Non-super: never delete a user row; verification is always stripped
- *   (verification decisions go through the super-admin route only).
+ *   (verification decisions go through the super-admin route only). On a
+ *   create of a landlord / contractor the server sets it to pending instead.
  * - Agency admin (client_admin / agent_admin with users.manage): may create and
  *   edit users in their own agency, incl. role (never super_admin), active and
  *   permissions. 403 for a user outside their agency, a super_admin role, or
@@ -579,6 +602,7 @@ export async function enforceUserWritePolicy(
   if (body.action === 'delete') throw deny('only a super admin may delete users')
   const data = (body.data ?? {}) as Record<string, unknown>
   body.data = data
+  const submittedVerification = data.verification
   stripFields(data, ['verification'])
 
   const own = body.id === actor.userId
@@ -593,6 +617,9 @@ export async function enforceUserWritePolicy(
       if (target !== actor.agencyId) throw deny('cannot move a user to another agency')
     } else if (!existing) {
       data.agencyId = actor.agencyId
+    }
+    if (!existing && typeof data.role === 'string' && VERIFIED_ROLES.has(data.role)) {
+      data.verification = pendingVerificationForCreate(submittedVerification)
     }
     return
   }
