@@ -156,8 +156,8 @@ export default function OwnerPortal() {
           }
           propertyLink={
             featured
-              ? { to: `/workspace/properties/${featured.id}` }
-              : { to: '/workspace', label: 'Dashboard' }
+              ? { to: `/workspace/properties/${featured.id}/edit`, label: 'Edit property' }
+              : undefined
           }
         />
 
