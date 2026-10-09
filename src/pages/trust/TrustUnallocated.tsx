@@ -201,7 +201,7 @@ export default function TrustUnallocated() {
         </div>
 
         {/* Allocation Panel */}
-        <div>
+        <div data-tip-target="trust-unallocated-selection">
           <h3 className="mb-3 text-lg font-semibold text-ink">Allocation</h3>
           {selectedTransaction ? (
             <Card className="p-4">

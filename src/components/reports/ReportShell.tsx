@@ -14,7 +14,10 @@ export function ReportsPageHeader({
   actions?: ReactNode
 }) {
   return (
-    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+    <div
+      className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"
+      data-tip-target="page-header"
+    >
       <div>
         <h1 className="font-display text-2xl font-semibold tracking-tight text-ink sm:text-[1.75rem]">
           {greeting}
@@ -40,6 +43,7 @@ export function ReportTabBar<T extends string>({
       className="flex flex-wrap gap-2 border-b border-primary-100 pb-1"
       role="tablist"
       aria-label="Report views"
+      data-tip-target="report-tabs"
     >
       {tabs.map((tab) => (
         <button

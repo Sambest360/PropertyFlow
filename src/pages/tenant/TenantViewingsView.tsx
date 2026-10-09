@@ -50,15 +50,17 @@ export function TenantViewingsView({ portal }: { portal: TenantPortalState }) {
 
   if (viewings.length === 0) {
     return (
+      <div data-tip-target="tenant-viewings">
       <EmptyState
         title="No viewings yet"
         description="Open any listing and tap “Book a viewing” — your booked viewings will appear here."
       />
+      </div>
     )
   }
 
   return (
-    <div className="space-y-4">
+    <div data-tip-target="tenant-viewings" className="space-y-4">
       <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Viewing filter">
         {(
           [

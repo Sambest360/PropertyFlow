@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useStore } from '../context/AppStore'
 import {
   arePageTipsDisabled,
   hasPageTipsPreference,
   hasSeenPageTip,
-  isTourSessionCooldownActive,
   markPageTipSeen,
   markTourSessionCooldown,
   resolvePageTour,
@@ -14,6 +14,7 @@ import {
   type PageTour,
   type PageTourStep,
 } from '../lib/pageTips'
+import { tenantHasApprovedOccupancy } from '../lib/tenantOccupancy'
 
 const ANON_USER_ID = 'anon'
 
@@ -30,6 +31,7 @@ export function usePageTour(): {
 } {
   const { pathname } = useLocation()
   const { user, isImpersonating } = useAuth()
+  const { state } = useStore()
   const [stepIndex, setStepIndex] = useState(0)
   const [skippedLocal, setSkippedLocal] = useState(false)
   // Re-render when tips preferences/seen marks change (e.g. "Show page tips").
@@ -49,11 +51,24 @@ export function usePageTour(): {
   const tipsAllowed = userId === ANON_USER_ID || hasPageTipsPreference(userId)
   const tipsDisabled = arePageTipsDisabled(userId)
 
+  const tenantOccupancyReady = useMemo(() => {
+    if (!user || user.role !== 'tenant') return true
+    return tenantHasApprovedOccupancy(state.applications, state.tenancies, user)
+  }, [user, state.applications, state.tenancies])
+
   const tour = useMemo(() => {
     if (isImpersonating || tipsDisabled) return null
     if (!tipsAllowed && userId !== ANON_USER_ID) return null
-    return resolvePageTour(pathname, user?.role ?? null)
-  }, [pathname, user?.role, isImpersonating, tipsDisabled, tipsAllowed, userId])
+    return resolvePageTour(pathname, user?.role ?? null, { tenantOccupancyReady })
+  }, [
+    pathname,
+    user?.role,
+    isImpersonating,
+    tipsDisabled,
+    tipsAllowed,
+    userId,
+    tenantOccupancyReady,
+  ])
 
   useEffect(() => {
     setStepIndex(0)
@@ -61,9 +76,9 @@ export function usePageTour(): {
   }, [pathname, tour?.id])
 
   const alreadySeen = tour ? hasSeenPageTip(userId, tour.id) : true
-  const sessionPaused = isTourSessionCooldownActive()
-  const activeTour =
-    tour && !alreadySeen && !skippedLocal && !sessionPaused ? tour : null
+  // Session cooldown still records when a tip is marked seen, but it must not
+  // suppress a different page's first visit in the same sitting.
+  const activeTour = tour && !alreadySeen && !skippedLocal ? tour : null
   const totalSteps = activeTour?.steps.length ?? 0
   const step = activeTour?.steps[stepIndex] ?? null
   const isFirst = stepIndex === 0
