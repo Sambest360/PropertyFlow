@@ -3,6 +3,7 @@
  * Accepts frontend demo IDs; resolves/registers UUIDs via entity_id_map.
  */
 import { query, withTransaction, clientQuery } from './db.js'
+import { isAcceptanceStatus, notifyAcceptedElsewhereServer } from './acceptedElsewhere.js'
 import {
   ensureEntityMapTable,
   ensureUuid,
@@ -48,6 +49,9 @@ export const APP_STAGE_TO_DB: Record<string, string> = {
   'Under Review': 'UNDER_REVIEW',
   'Credit Check': 'CREDIT_CHECK',
   Approved: 'APPROVED',
+  // Workflow label for conditionally_approved (landlord / staff decision);
+  // without it the decision wrote status NULL / kept SUBMITTED.
+  'Conditionally approved': 'APPROVED',
   'Awaiting Payment': 'APPROVED',
   'Deposit Paid': 'APPROVED',
   // Mode A canonical label (applicationWorkflow) — lowercase p
@@ -1094,11 +1098,14 @@ function asRow(v: unknown): JsonRow | null {
 }
 
 /**
- * Fields a redacted application row lacks (or carries blank) keep the stored
- * value: email / phone (metadata keys left out of the merge when blank),
- * document files and other per-document fields (merged by key over the stored
- * document), the whole document list when the payload has none, and
- * keyCollection.contactPhone.
+ * Application fields on update. email / phone / keyCollection: written as
+ * sent (staff may clear a phone to blank), kept when absent. Redacted rows
+ * only reach landlords, whose writes are the narrow decision UPDATE, and a
+ * portal applicant's blank email / phone is dropped by the portal policy
+ * before it gets here, so the keep-stored rule is not needed for blanks.
+ * Documents: merged by key over the stored document, a document sent without
+ * a file keeps the stored file, and the stored list is kept when the payload
+ * has none.
  */
 export function mergeRedactedApplicationFields(
   d: Record<string, unknown>,
@@ -1109,15 +1116,12 @@ export function mergeRedactedApplicationFields(
   const storedDocs = Array.isArray(docsJson.documents) ? (docsJson.documents as JsonRow[]) : []
 
   const contact: JsonRow = {}
-  if (!blank(d.email)) {
-    contact.email = d.email
-    contact.applicant_email = d.email
-  } else if (!stored) {
-    contact.email = null
-    contact.applicant_email = null
+  if (d.email !== undefined || !stored) {
+    const email = blank(d.email) ? null : d.email
+    contact.email = email
+    contact.applicant_email = email
   }
-  if (!blank(d.phone)) contact.phone = d.phone
-  else if (!stored) contact.phone = null
+  if (d.phone !== undefined || !stored) contact.phone = blank(d.phone) ? null : d.phone
 
   const sentDocs = (d.documents ?? d.docs) as unknown
   let documents: unknown[]
@@ -1136,31 +1140,25 @@ export function mergeRedactedApplicationFields(
     })
   }
 
-  let keyCollection: unknown = d.keyCollection ?? null
-  const kc = asRow(d.keyCollection)
-  const prevKc = asRow(meta.keyCollection)
-  if (kc && prevKc && blank(kc.contactPhone) && !blank(prevKc.contactPhone)) {
-    keyCollection = { ...kc, contactPhone: prevKc.contactPhone }
-  } else if (d.keyCollection === undefined && prevKc) {
-    keyCollection = prevKc
-  }
+  const keyCollection: unknown =
+    d.keyCollection !== undefined ? d.keyCollection : (asRow(meta.keyCollection) ?? null)
   return { contact, documents, keyCollection, storedDocsJson: docsJson }
 }
 
 async function upsertApplication(feId: string, d: Record<string, unknown>): Promise<string> {
   const uuid = await ensureUuid('application', feId)
-  // Stored row (if any). Redacted rows (bootstrap for non-full viewers blanks
-  // email / phone, strips document files and the key-collection phone) and
-  // narrowed portal writes (tenant updates have stage / status / agent / agency
-  // / listing stripped) must never blank the stored values: absent fields keep
-  // the stored value (see mergeRedactedApplicationFields).
+  // Stored row (if any). Narrowed writes (portal applicant: unchanged workflow
+  // fields, agent / agency / listing dropped) must never blank the stored
+  // values: absent fields keep the stored value (mergeRedactedApplicationFields).
   const storedRows = await query<{
     uploaded_docs_json: unknown
     metadata: unknown
     unit_id?: string | null
     client_id?: string | null
+    applicant_id?: string | null
   }>(
-    `SELECT uploaded_docs_json, metadata, unit_id::text AS unit_id, client_id::text AS client_id
+    `SELECT uploaded_docs_json, metadata, unit_id::text AS unit_id, client_id::text AS client_id,
+            applicant_id::text AS applicant_id
        FROM applications WHERE id = $1::uuid`,
     [uuid],
   )
@@ -1182,11 +1180,16 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
     listingClient = listing.clientId
   }
   const client = await agencyClientForApplication(d.agencyId, listingClient ?? '')
-  // Mode A Sipho: if applicantUserId missing, resolve from email → users and persist.
-  let applicant = await resolveApplicantOrTenantUuid({
-    userFeId: d.applicantUserId,
-    email: d.email,
-  })
+  // Mode A Sipho: if applicantUserId missing, resolve from email → users and
+  // persist. Only while no applicant is stored: an update without
+  // applicantUserId keeps the stored applicant (never re-resolved by email).
+  const applicant =
+    stored?.applicant_id && !has('applicantUserId')
+      ? stored.applicant_id
+      : await resolveApplicantOrTenantUuid({
+          userFeId: d.applicantUserId,
+          email: d.email,
+        })
   let agent = await userId(d.agentId)
   if (!agent && !has('agentId') && !stored) {
     // New application without an agent (portal applicants cannot pick one):
@@ -1197,10 +1200,13 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
     )
     agent = u[0]?.agent_id ?? null
   }
-  const statusSent = has('stage') || has('status')
+  // Status from the stage label, else an explicit status; a stage with no DB
+  // mapping (e.g. lease_sent) keeps the stored status instead of resetting it
+  // to SUBMITTED.
+  const statusFromStage = APP_STAGE_TO_DB[str(d.stage)]
+  const statusSent = Boolean(statusFromStage) || !blank(d.status)
   const status =
-    APP_STAGE_TO_DB[str(d.stage)] ??
-    str(d.status, 'SUBMITTED').toUpperCase().replace(/\s+/g, '_')
+    statusFromStage ?? str(d.status, 'SUBMITTED').toUpperCase().replace(/\s+/g, '_')
   const appType = str(d.type, 'Rental').toLowerCase().startsWith('p') ? 'PURCHASE' : 'RENTAL'
   const ref = str(d.referenceCode ?? feId)
 
@@ -1273,6 +1279,12 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
       has('agentId'),
     ],
   )
+  // "Accepted elsewhere" notices are written here, not by the client (the
+  // gate refuses a client notification for another agency's staff).
+  const prevWorkflow = str(asRow(stored?.metadata)?.workflow_status)
+  if (has('workflowStatus') && isAcceptanceStatus(d.workflowStatus) && !isAcceptanceStatus(prevWorkflow)) {
+    await notifyAcceptedElsewhereServer(uuid)
+  }
   return uuid
 }
 

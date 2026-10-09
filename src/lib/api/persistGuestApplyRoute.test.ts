@@ -149,7 +149,23 @@ vi.mock('../../../server/db.js', () => {
     // listing agent for a portal create, and the gate checks the listing is public.
     if (sql.includes('SELECT uploaded_docs_json, metadata') && sql.includes('FROM applications WHERE id')) {
       const a = db.applications.get(String(params[0]))
-      return a ? [{ uploaded_docs_json: a.params[11], metadata: a.params[13], unit_id: a.params[2], client_id: a.params[1] }] : []
+      return a
+        ? [{ uploaded_docs_json: a.params[11], metadata: a.params[13], unit_id: a.params[2], client_id: a.params[1], applicant_id: a.params[3] }]
+        : []
+    }
+    // loadExisting for an update (scope gate).
+    if (sql.includes('FROM "applications" WHERE id = $1::uuid')) {
+      const a = db.applications.get(String(params[0]))
+      return a
+        ? [{ id: a.id, unit_id: a.params[2], client_id: a.params[1], agent_id: a.params[4], applicant_id: a.params[3] }]
+        : []
+    }
+    // Applicant policy (#80 c3f25ac) reads the stored workflow before an update.
+    if (/^SELECT status, application_type, metadata, uploaded_docs_json FROM applications WHERE id = \$1::uuid$/.test(sql.trim())) {
+      const a = db.applications.get(String(params[0]))
+      return a
+        ? [{ status: a.params[7], application_type: a.params[6], metadata: a.params[13], uploaded_docs_json: a.params[11] }]
+        : []
     }
     if (/SELECT agent_id::text AS agent_id FROM units WHERE id = \$1::uuid/.test(sql)) {
       const u = db.units.get(String(params[0]))
@@ -162,7 +178,17 @@ vi.mock('../../../server/db.js', () => {
         : []
     }
     if (sql.includes('INSERT INTO applications')) {
-      db.applications.set(String(params[0]), { id: String(params[0]), params })
+      // ON CONFLICT: status kept unless $16, metadata merged over the stored one.
+      const prev = db.applications.get(String(params[0]))
+      if (prev) {
+        const next = [...params]
+        if (params[15] === false) next[7] = prev.params[7]
+        next[13] = JSON.stringify({ ...JSON.parse(String(prev.params[13])), ...JSON.parse(String(params[13])) })
+        if (params[3] == null) next[3] = prev.params[3]
+        db.applications.set(String(params[0]), { id: String(params[0]), params: next })
+      } else {
+        db.applications.set(String(params[0]), { id: String(params[0]), params })
+      }
       return []
     }
     throw new Error(`unexpected sql in guest apply route test: ${sql.slice(0, 160)}`)
@@ -318,6 +344,54 @@ describe('guest full application on PR-1011 reaches /api/persist (API mode)', ()
     expect(
       db.map.find((r) => r.entity_type === 'application' && r.frontend_id === 'APP-guest-pr1011')?.backend_id,
     ).toBe(saved.id)
+  })
+
+  it('#69 / Angela c3f25ac: the guest save keeps its initial stage after reload (stored stage, workflowStatus, status)', async () => {
+    const { persistToApi } = await import('./persist')
+    const appRow = await guestApplication()
+    expect(
+      await persistToApi({
+        resource: 'application',
+        action: 'upsert',
+        id: appRow.id,
+        data: { ...(appRow as unknown as Record<string, unknown>), id: appRow.id },
+      }),
+    ).toBe(true)
+    const stored = () => {
+      const saved = [...db.applications.values()][0]!
+      return { status: saved.params[7], meta: JSON.parse(String(saved.params[13])) as Record<string, unknown> }
+    }
+    // What a reload reads back: never a null workflow_status / stage.
+    const { normalizeApplication, workflowProgress } = await import('../applicationWorkflow')
+    expect(stored().status).toBe('SUBMITTED')
+    expect(stored().meta).toMatchObject({
+      workflow_status: 'application_submitted',
+      stage: 'Application submitted',
+      progress: workflowProgress('Rental', 'application_submitted'),
+    })
+    const reloaded = normalizeApplication({
+      ...appRow,
+      workflowStatus: stored().meta.workflow_status,
+      stage: stored().meta.stage,
+    } as Application)
+    expect(reloaded.workflowStatus).toBe('application_submitted')
+    expect(reloaded.stage).toBe('Application submitted')
+
+    // The guest edits their phone after the reload: still application_submitted.
+    expect(
+      await persistToApi({
+        resource: 'application',
+        action: 'upsert',
+        id: appRow.id,
+        data: { ...(reloaded as unknown as Record<string, unknown>), id: appRow.id, phone: '0830000000' },
+      }),
+    ).toBe(true)
+    expect(stored().status).toBe('SUBMITTED')
+    expect(stored().meta).toMatchObject({
+      workflow_status: 'application_submitted',
+      stage: 'Application submitted',
+      phone: '0830000000',
+    })
   })
 
   it('answers false when the real scope gate refuses the application', async () => {

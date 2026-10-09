@@ -75,6 +75,8 @@ const UUID: Record<string, string> = {
   'A-o': id(31),
   'A-l': id(32),
   'N-o': id(40),
+  'VS-1': id(50),
+  'VS-2': id(51),
   'N-t': id(41),
   'ag-a': CA,
   'ag-b': CB,
@@ -98,7 +100,13 @@ type AppRow = {
   wf?: string
   docsJson?: Record<string, unknown>
   metadata?: Record<string, unknown>
+  status?: string
+  type?: 'RENTAL' | 'PURCHASE'
 }
+/** Stored lease envelope per application uuid (eSign mirror). */
+const leaseESign: Record<string, Record<string, unknown>> = {}
+/** Live bookings: slot uuid -> visitor emails (viewingSlotId lock). */
+const slotBookings: Record<string, string[]> = {}
 const applications: Record<string, AppRow> = {
   [UUID['A-t']]: { applicant: UUID['u-t'], unit: UN1, client: CA, ref: 'A-t' },
   [UUID['A-o']]: { applicant: UUID['u-o'], unit: UN1, client: CA, ref: 'A-o', wf: 'landlord_review' },
@@ -130,8 +138,47 @@ function answer(sqlRaw: string, params: unknown[] = []): unknown[] {
   if (sql.startsWith('SELECT uploaded_docs_json, metadata')) {
     const a = applications[String(params[0])]
     return a
-      ? [{ uploaded_docs_json: a.docsJson ?? {}, metadata: a.metadata ?? {}, unit_id: a.unit, client_id: a.client }]
+      ? [
+          {
+            uploaded_docs_json: a.docsJson ?? {},
+            metadata: { ...(a.wf ? { workflow_status: a.wf } : {}), ...(a.metadata ?? {}) },
+            unit_id: a.unit,
+            client_id: a.client,
+            applicant_id: a.applicant,
+          },
+        ]
       : []
+  }
+  if (sql.startsWith('SELECT status, application_type, metadata, uploaded_docs_json FROM applications')) {
+    const a = applications[String(params[0])]
+    return a
+      ? [
+          {
+            status: a.status ?? 'SUBMITTED',
+            application_type: a.type ?? 'RENTAL',
+            metadata: { ...(a.wf ? { workflow_status: a.wf } : {}), ...(a.metadata ?? {}) },
+            uploaded_docs_json: a.docsJson ?? {},
+          },
+        ]
+      : []
+  }
+  if (sql.startsWith("SELECT metadata->'eSign' AS esign FROM leases")) {
+    const e = leaseESign[String(params[0])]
+    return e ? [{ esign: e }] : []
+  }
+  if (sql.startsWith("SELECT metadata->>'workflow_status' AS workflow_status FROM applications")) {
+    const a = applications[String(params[0])]
+    return a ? [{ workflow_status: a.wf ?? null }] : []
+  }
+  if (sql.includes('WHERE b.landlord_id = $1::uuid AND u.client_id = $2::uuid')) {
+    return [{ n: params[0] === UUID['u-o'] && params[1] === CA ? 1 : 0 }]
+  }
+  if (sql.includes("CONCAT_WS(' ', first_name, last_name)")) {
+    return params[0] === UUID['u-o'] ? [{ name: 'Olive Owner' }] : []
+  }
+  if (sql.includes('FROM bookings') && sql.includes('slot_id = $1::uuid')) {
+    const emails = slotBookings[String(params[0])] ?? []
+    return [{ n: emails.filter((e) => e === params[1]).length }]
   }
   if (sql.startsWith('UPDATE applications SET status')) {
     const a = applications[String(params[0])]
@@ -806,14 +853,14 @@ describe('Angela #80 (330a350): landlord application writes change only the deci
     expect([...LANDLORD_APPLICATION_DECISION_FIELDS]).toEqual(['workflowStatus', 'stage', 'progress'])
   })
 
-  it('a landlord conditional approval derives stage / progress on the server', async () => {
+  it('a landlord conditional approval derives stage / progress and stores status APPROVED (not null)', async () => {
     const { assertPersistAllowed } = await import('./scopeGate.js')
     const out = await assertPersistAllowed(LANDLORD as never, {
       resource: 'application', action: 'upsert', id: 'A-l', data: { workflowStatus: 'conditionally_approved', progress: 100 },
     } as never)
     expect(out.handled).toBeTruthy()
     const upd = query.mock.calls.find((c) => String(c[0]).includes('UPDATE applications'))!
-    expect(upd[1]).toEqual([UUID['A-l'], null, 'conditionally_approved', 'Conditionally approved', 45])
+    expect(upd[1]).toEqual([UUID['A-l'], 'APPROVED', 'conditionally_approved', 'Conditionally approved', 45])
   })
 
   it('the server stage / progress table matches the client workflow', async () => {
@@ -868,44 +915,65 @@ describe('Angela #80 (330a350): a redacted application row never blanks the stor
     workflow_status: 'agent_review',
   }
 
-  it('blank email / phone, file-less documents and a blank key-collection phone keep the stored values', async () => {
+  it('file-less documents keep the stored files; a staff write of blank email / phone clears them (Jim nit)', async () => {
     applications[UUID['A-t']].docsJson = STORED_DOCS
     applications[UUID['A-t']].metadata = STORED_META
     try {
-      const { redactApplicationContact } = await import('./scopeGate.js')
-      const redacted = redactApplicationContact({
+      const body = await gate(ADMIN, {
+        resource: 'application',
+        action: 'upsert',
         id: 'A-t',
-        propertyId: 'p-1',
-        agencyId: 'ag-a',
-        applicantUserId: 'u-t',
-        applicantName: 'Tess',
-        email: STORED_META.email,
-        phone: STORED_META.phone,
-        documents: STORED_DOCS.documents.map((d) => (d.key === 'payslips' ? { ...d, status: 'rejected' } : d)),
-        keyCollection: { contactPhone: '0839999999', emailSentAt: '2026-10-04' },
-        stage: 'Under Review',
-        workflowStatus: 'agent_review',
+        data: {
+          propertyId: 'p-1',
+          agencyId: 'ag-a',
+          applicantUserId: 'u-t',
+          applicantName: 'Tess',
+          email: '',
+          phone: '',
+          documents: STORED_DOCS.documents.map(({ file: _f, ...d }) => (d.key === 'payslips' ? { ...d, status: 'rejected' } : d)),
+          keyCollection: { contactPhone: '', emailSentAt: '2026-10-04' },
+          stage: 'Under Review',
+          workflowStatus: 'agent_review',
+        },
       })
-      expect(redacted.email).toBe('')
-      const insert = (await persistAndInsert({ resource: 'application', action: 'upsert', id: 'A-t', data: redacted as never }))!
+      const insert = (await persistAndInsert(body))!
       const params = insert[1] as unknown[]
       const docs = JSON.parse(String(params[11])) as { documents: Array<Record<string, unknown>>; creditCheck: unknown; screening: unknown }
       expect(docs.documents.map((d) => (d.file as { dataUrl: string }).dataUrl)).toEqual(['data:id', 'data:p'])
-      // A real field change in the redacted row still lands.
       expect(docs.documents[1].status).toBe('rejected')
       expect(docs.documents[0].uploadedAt).toBe('2026-10-01')
       expect(docs.creditCheck).toBe('Passed')
       expect(docs.screening).toEqual({ status: 'passed' })
       const meta = JSON.parse(String(params[13])) as Record<string, unknown>
-      // Blank contact keys are left out, so metadata || EXCLUDED keeps the stored ones.
-      expect(meta).not.toHaveProperty('email')
-      expect(meta).not.toHaveProperty('applicant_email')
-      expect(meta).not.toHaveProperty('phone')
-      expect(meta.keyCollection).toEqual({ contactPhone: '0839999999', emailSentAt: '2026-10-04' })
+      // Staff cleared the contact details: written as null, not kept.
+      expect(meta).toMatchObject({ email: null, applicant_email: null, phone: null })
+      expect(meta.keyCollection).toEqual({ contactPhone: '', emailSentAt: '2026-10-04' })
     } finally {
       delete applications[UUID['A-t']].docsJson
       delete applications[UUID['A-t']].metadata
     }
+  })
+
+  it('a staff write that leaves email / phone out keeps the stored ones', async () => {
+    applications[UUID['A-t']].metadata = STORED_META
+    try {
+      const insert = (await persistAndInsert({
+        resource: 'application', action: 'upsert', id: 'A-t', data: { propertyId: 'p-1', applicantUserId: 'u-t', notes: 'n' },
+      }))!
+      const meta = JSON.parse(String((insert[1] as unknown[])[13])) as Record<string, unknown>
+      expect(meta).not.toHaveProperty('email')
+      expect(meta).not.toHaveProperty('phone')
+      expect(meta.keyCollection).toEqual(STORED_META.keyCollection)
+    } finally {
+      delete applications[UUID['A-t']].metadata
+    }
+  })
+
+  it('a landlord holding a redacted row cannot write it back (decision-only), so nothing is blanked', async () => {
+    const { redactApplicationContact } = await import('./scopeGate.js')
+    const redacted = redactApplicationContact({ id: 'A-l', propertyId: 'p-2', email: 'x@y.test', phone: '1', workflowStatus: 'landlord_review' })
+    await expect403(gate(LANDLORD, { resource: 'application', action: 'upsert', id: 'A-l', data: redacted as never }))
+    expect(query.mock.calls.some((c) => String(c[0]).includes('INSERT INTO applications'))).toBe(false)
   })
 
   it('a row with no documents at all keeps the stored list', async () => {
@@ -931,7 +999,7 @@ describe('Angela #80 (330a350): a redacted application row never blanks the stor
 })
 
 describe('Angela #80 (330a350): tenant application writes', () => {
-  it('a tenant update strips stage, status, workflowStatus, agentId and agencyId and keeps the stored listing', async () => {
+  it('a tenant update with the workflow unchanged keeps the stored workflow, listing, agent and agency', async () => {
     const body = await gate(TENANT, {
       resource: 'application',
       action: 'upsert',
@@ -942,28 +1010,41 @@ describe('Angela #80 (330a350): tenant application writes', () => {
         unitId: 'unt-p-2',
         agencyId: 'ag-b',
         agentId: 'u-agent',
-        stage: 'Approved',
-        status: 'APPROVED',
-        workflowStatus: 'conditionally_approved',
-        progress: 100,
+        stage: 'Application submitted',
+        status: 'SUBMITTED',
+        workflowStatus: 'application_submitted',
+        progress: 14,
         screening: { status: 'passed' },
         creditCheck: 'Passed',
         phone: '0820000000',
       },
     })
-    expect(body.data).toEqual({ applicantUserId: 'u-t', phone: '0820000000' })
+    expect(body.data).toEqual({ phone: '0820000000' })
     const insert = (await persistAndInsert(body))!
     const sql = String(insert[0])
     const params = insert[1] as unknown[]
     expect(params[2]).toBe(UN1) // stored unit, not p-2's
+    expect(params[3]).toBe(UUID['u-t']) // stored applicant kept, not re-resolved
     expect(sql).toContain('status = CASE WHEN $16::boolean THEN EXCLUDED.status ELSE applications.status END')
-    expect(sql).toContain('agent_id = CASE WHEN $17::boolean THEN EXCLUDED.agent_id ELSE applications.agent_id END')
     expect(params[15]).toBe(false)
     expect(params[16]).toBe(false)
     const meta = JSON.parse(String(params[13])) as Record<string, unknown>
     expect(meta).not.toHaveProperty('stage')
     expect(meta).not.toHaveProperty('workflow_status')
-    expect(meta).not.toHaveProperty('progress')
+  })
+
+  it('a tenant moving their own application to approved is a 403 with a code, not a silent 200', async () => {
+    await expect(
+      gate(TENANT, {
+        resource: 'application',
+        action: 'upsert',
+        id: 'A-t',
+        data: { applicantUserId: 'u-t', stage: 'Approved', status: 'APPROVED', workflowStatus: 'conditionally_approved' },
+      }),
+    ).rejects.toMatchObject({ status: 403, code: 'APPLICATION_TRANSITION_FORBIDDEN' })
+    await expect(
+      gate(TENANT, { resource: 'application', action: 'upsert', id: 'A-t', data: { applicantUserId: 'u-t', stage: 'Approved' } }),
+    ).rejects.toMatchObject({ status: 403, code: 'APPLICATION_TRANSITION_FORBIDDEN' })
   })
 
   it('a tenant can create an application only on a publicly listed property', async () => {
@@ -973,13 +1054,19 @@ describe('Angela #80 (330a350): tenant application writes', () => {
     await expect403(
       gate(TENANT, { resource: 'application', action: 'upsert', id: 'A-new', data: { applicantUserId: 'u-t', propertyId: 'p-nowhere' } }),
     )
+    await expect(
+      gate(TENANT, {
+        resource: 'application', action: 'upsert', id: 'A-new', data: { applicantUserId: 'u-t', propertyId: 'p-1', stage: 'Approved' },
+      }),
+    ).rejects.toMatchObject({ status: 403, code: 'APPLICATION_TRANSITION_FORBIDDEN' })
     const ok = await gate(TENANT, {
       resource: 'application',
       action: 'upsert',
       id: 'A-new',
-      data: { applicantUserId: 'u-t', propertyId: 'p-1', stage: 'Approved', agentId: 'u-agent' },
+      data: { applicantUserId: 'u-t', propertyId: 'p-1', agentId: 'u-agent' },
     })
-    expect(ok.data).toEqual({ applicantUserId: 'u-t', propertyId: 'p-1' })
+    expect(ok.data).toMatchObject({ applicantUserId: 'u-t', propertyId: 'p-1', workflowStatus: 'application_submitted' })
+    expect(ok.data).not.toHaveProperty('agentId')
   })
 })
 
@@ -988,5 +1075,280 @@ describe('Angela #80 (330a350): a landlord never decides their own application',
     // A-o: applicant u-o (our landlord), on p-1 (no landlord) — applicant shortcut must not reach the decision.
     await expect403(gate(LANDLORD, { resource: 'application', action: 'upsert', id: 'A-o', data: { workflowStatus: 'conditionally_approved' } }))
     expect(query.mock.calls.some((c) => String(c[0]).includes('UPDATE applications'))).toBe(false)
+  })
+})
+
+describe('Angela / Jim #80 (c3f25ac): applicant moves on their own application', () => {
+  const setApp = (patch: Partial<AppRow>) => Object.assign(applications[UUID['A-t']], patch)
+  afterEach(() => {
+    const a = applications[UUID['A-t']]
+    for (const k of ['wf', 'docsJson', 'metadata', 'status', 'type'] as const) delete a[k]
+    for (const k of Object.keys(leaseESign)) delete leaseESign[k]
+    for (const k of Object.keys(slotBookings)) delete slotBookings[k]
+    delete users[UUID['u-t']].email
+  })
+  const tenantWrite = (data: Record<string, unknown>, appId = 'A-t') =>
+    gate(TENANT, { resource: 'application', action: 'upsert', id: appId, data: { applicantUserId: 'u-t', ...data } })
+  const refusedWith = (p: Promise<unknown>, code = 'APPLICATION_TRANSITION_FORBIDDEN') =>
+    expect(p).rejects.toMatchObject({ status: 403, code })
+
+  it('create: a rental is forced to application_submitted, a purchase to offer_submitted, never null', async () => {
+    const { workflowStageLabel, workflowProgress } = await import('../src/lib/applicationWorkflow.js')
+    const rental = await tenantWrite({ propertyId: 'p-1', workflowStatus: null, stage: null }, 'A-new')
+    expect(rental.data).toMatchObject({
+      workflowStatus: 'application_submitted',
+      stage: workflowStageLabel('Rental', 'application_submitted'),
+      progress: workflowProgress('Rental', 'application_submitted'),
+      status: 'SUBMITTED',
+    })
+    // The client files every new application as application_submitted.
+    const purchase = await tenantWrite(
+      { propertyId: 'p-1', type: 'Purchase', workflowStatus: 'application_submitted', stage: 'application submitted' },
+      'A-new',
+    )
+    expect(purchase.data).toMatchObject({
+      workflowStatus: 'offer_submitted',
+      stage: workflowStageLabel('Purchase', 'offer_submitted'),
+      status: 'SUBMITTED',
+    })
+    const insert = (await persistAndInsert(purchase))!
+    const params = insert[1] as unknown[]
+    expect(params[7]).toBe('SUBMITTED')
+    expect(params[15]).toBe(true)
+    expect(JSON.parse(String(params[13]))).toMatchObject({ workflow_status: 'offer_submitted' })
+  })
+
+  it('documents_requested -> documents_uploaded is stored with the server-derived stage and status', async () => {
+    setApp({
+      wf: 'documents_requested',
+      docsJson: { documents: [{ key: 'id', label: 'ID', status: 'required' }] },
+    })
+    const body = await tenantWrite({
+      workflowStatus: 'documents_uploaded',
+      stage: 'Documents uploaded',
+      documents: [{ key: 'id', label: 'ID', status: 'uploaded', file: { name: 'id.pdf', dataUrl: 'data:id' } }],
+    })
+    expect(body.data).toMatchObject({ workflowStatus: 'documents_uploaded', stage: 'Documents uploaded', status: 'UNDER_REVIEW' })
+    const params = (await persistAndInsert(body))![1] as unknown[]
+    expect(params[7]).toBe('UNDER_REVIEW')
+    expect(params[15]).toBe(true)
+    expect(JSON.parse(String(params[13]))).toMatchObject({ workflow_status: 'documents_uploaded', stage: 'Documents uploaded' })
+  })
+
+  it('documents_uploaded with a document still missing is refused', async () => {
+    setApp({ wf: 'documents_requested', docsJson: { documents: [{ key: 'id', label: 'ID', status: 'required' }] } })
+    await refusedWith(tenantWrite({ workflowStatus: 'documents_uploaded', documents: [{ key: 'id', label: 'ID', status: 'uploaded' }] }))
+  })
+
+  it('offer_started -> offer_submitted on a purchase', async () => {
+    setApp({ wf: 'offer_started', type: 'PURCHASE', status: 'DRAFT' })
+    const body = await tenantWrite({ workflowStatus: 'offer_submitted' })
+    expect(body.data).toMatchObject({ workflowStatus: 'offer_submitted', status: 'SUBMITTED' })
+  })
+
+  it('withdrawn from every open state; refused once the lease stage starts', async () => {
+    const { applicantOpenStatuses } = await import('./applicantApplicationPolicy.js')
+    expect([...applicantOpenStatuses('Rental')]).toEqual([
+      'lead_created', 'enquiry_received', 'viewing_requested', 'viewing_scheduled', 'viewing_completed',
+      'application_started', 'application_submitted', 'documents_requested', 'documents_uploaded',
+      'fica_verification', 'employment_verification', 'income_verification', 'reference_checks',
+      'credit_check', 'affordability_assessment', 'agent_review', 'landlord_review', 'conditionally_approved',
+    ])
+    expect([...applicantOpenStatuses('Purchase')]).toEqual([
+      'lead_created', 'property_enquiry', 'viewing_requested', 'viewing_scheduled', 'viewing_completed',
+      'offer_started', 'offer_submitted', 'seller_review', 'offer_accepted',
+    ])
+    for (const wf of applicantOpenStatuses('Rental')) {
+      setApp({ wf })
+      const body = await tenantWrite({ workflowStatus: 'withdrawn', stage: 'Withdrawn' })
+      expect(body.data).toMatchObject({ workflowStatus: 'withdrawn', stage: 'Withdrawn', status: 'WITHDRAWN' })
+    }
+    setApp({ wf: 'lease_sent' })
+    await refusedWith(tenantWrite({ workflowStatus: 'withdrawn' }))
+  })
+
+  it('every other move is a coded 403 (checked against the stored status, not the payload)', async () => {
+    setApp({ wf: 'agent_review' })
+    await refusedWith(tenantWrite({ workflowStatus: 'credit_check' }))
+    await refusedWith(tenantWrite({ workflowStatus: 'documents_uploaded' })) // not from documents_requested
+    setApp({ wf: 'application_started' })
+    await refusedWith(tenantWrite({ workflowStatus: 'application_submitted' })) // not on Jim's list
+    setApp({ wf: 'documents_requested' })
+    // A stage that disagrees with the move.
+    await refusedWith(tenantWrite({ workflowStatus: 'withdrawn', stage: 'Approved' }))
+  })
+
+  it('a contractor who is also an applicant gets the same rules', async () => {
+    const CONTRACTOR = { userId: 'u-t', role: 'contractor', agencyId: null }
+    setApp({ wf: 'agent_review' })
+    await refusedWith(gate(CONTRACTOR, { resource: 'application', action: 'upsert', id: 'A-t', data: { workflowStatus: 'credit_check' } }))
+    const ok = await gate(CONTRACTOR, { resource: 'application', action: 'upsert', id: 'A-t', data: { workflowStatus: 'withdrawn' } })
+    expect((ok.data as Record<string, unknown>).status).toBe('WITHDRAWN')
+  })
+
+  it('eSign mirror: exactly the status the stored lease envelope shows, forward only', async () => {
+    setApp({ wf: 'lease_sent', status: 'APPROVED' })
+    // Envelope not signed yet: the tenant cannot claim tenant_signed.
+    leaseESign[UUID['A-t']] = { status: 'sent', tenant: { status: 'pending' } }
+    await refusedWith(tenantWrite({ workflowStatus: 'tenant_signed', stage: 'Tenant signed' }))
+    leaseESign[UUID['A-t']] = { status: 'partially_signed', tenant: { status: 'signed' } }
+    const { workflowStageLabel } = await import('../src/lib/applicationWorkflow.js')
+    const body = await tenantWrite({ workflowStatus: 'tenant_signed', stage: workflowStageLabel('Rental', 'tenant_signed') })
+    expect(body.data).toMatchObject({ workflowStatus: 'tenant_signed' })
+    expect(body.data).not.toHaveProperty('status')
+    const params = (await persistAndInsert(body))![1] as unknown[]
+    expect(params[15]).toBe(false) // applications.status kept
+    // Already past it (deposit invoice issued): nothing to mirror, no regression.
+    setApp({ wf: 'deposit_invoice_sent' })
+    const late = await tenantWrite({ workflowStatus: 'tenant_signed', stage: workflowStageLabel('Rental', 'tenant_signed') })
+    expect(late.data).not.toHaveProperty('workflowStatus')
+  })
+
+  it('eSign mirror: the server copy of workflowStatusFromESign matches the client', async () => {
+    const { workflowStatusFromStoredESign } = await import('./applicantApplicationPolicy.js')
+    const { workflowStatusFromESign } = await import('../src/lib/lease/pipeline.js')
+    const cases = [
+      null,
+      { status: 'generated' },
+      { status: 'sent' },
+      { status: 'partially_signed', tenant: { status: 'signed' } },
+      { status: 'partially_signed', tenant: { status: 'pending' } },
+      { status: 'completed', landlord: { status: 'signed' }, tenant: { status: 'signed' } },
+      { status: 'completed', tenant: { status: 'signed' } },
+      { status: 'not_started' },
+    ]
+    for (const c of cases) expect(workflowStatusFromStoredESign(c)).toBe(workflowStatusFromESign(c as never))
+  })
+
+  it("eSign mirror: the landlord's countersign is a narrow update, only when the envelope shows it", async () => {
+    applications[UUID['A-l']].wf = 'tenant_signed'
+    try {
+      await refusedWith(gate(LANDLORD, { resource: 'application', action: 'upsert', id: 'A-l', data: { workflowStatus: 'landlord_signed' } }))
+      leaseESign[UUID['A-l']] = { status: 'completed', landlord: { status: 'signed' }, tenant: { status: 'signed' } }
+      const { assertPersistAllowed } = await import('./scopeGate.js')
+      const out = await assertPersistAllowed(LANDLORD as never, {
+        resource: 'application', action: 'upsert', id: 'A-l', data: { workflowStatus: 'landlord_signed', stage: 'x', email: '' },
+      } as never)
+      expect(out.handled).toBeTruthy()
+      const upd = query.mock.calls.find((c) => String(c[0]).includes('UPDATE applications'))!
+      expect((upd[1] as unknown[]).slice(0, 2)).toEqual([UUID['A-l'], 'landlord_signed'])
+      expect(query.mock.calls.some((c) => String(c[0]).includes('INSERT INTO applications'))).toBe(false)
+    } finally {
+      applications[UUID['A-l']].wf = 'landlord_review'
+    }
+  })
+
+  it('applicantUserId is locked on update and the applicant is never re-resolved by email', async () => {
+    await refusedWith(tenantWrite({ applicantUserId: 'u-o' }), 'APPLICATION_FIELD_LOCKED')
+    const body = await tenantWrite({ email: 'someone.else@example.test' })
+    expect(body.data).not.toHaveProperty('applicantUserId')
+    const params = (await persistAndInsert(body))![1] as unknown[]
+    expect(params[3]).toBe(UUID['u-t'])
+    expect(query.mock.calls.some((c) => /LOWER\(TRIM\(email\)\)/.test(String(c[0])))).toBe(false)
+  })
+
+  it('keyCollection is locked for the applicant: unchanged is dropped, a change is a coded 403', async () => {
+    setApp({ metadata: { keyCollection: { location: 'Office', emailSentAt: '2026-10-03' } } })
+    const same = await tenantWrite({ keyCollection: { emailSentAt: '2026-10-03', location: 'Office' } })
+    expect(same.data).not.toHaveProperty('keyCollection')
+    await refusedWith(tenantWrite({ keyCollection: { location: 'My place' } }), 'APPLICATION_FIELD_LOCKED')
+  })
+
+  it('viewingSlotId: only a slot they hold a booking on', async () => {
+    users[UUID['u-t']].email = 'tess@example.test'
+    setApp({ metadata: { viewingSlotId: 'VS-1' } })
+    const same = await tenantWrite({ viewingSlotId: 'VS-1' })
+    expect(same.data).not.toHaveProperty('viewingSlotId')
+    await refusedWith(tenantWrite({ viewingSlotId: 'VS-2' }), 'APPLICATION_FIELD_LOCKED')
+    slotBookings[UUID['VS-2']] = ['tess@example.test']
+    const booked = await tenantWrite({ viewingSlotId: 'VS-2' })
+    expect((booked.data as Record<string, unknown>).viewingSlotId).toBe('VS-2')
+  })
+
+  it('document review fields are locked for portal roles; a new upload is set to uploaded by the server', async () => {
+    setApp({
+      docsJson: {
+        documents: [
+          { key: 'id', label: 'ID', status: 'rejected', rejectedReason: 'blurry', reviewedBy: 'u-agent', reviewedAt: '2026-10-02', lookedAt: '2026-10-02', file: { name: 'old.pdf', dataUrl: 'data:old' } },
+          { key: 'payslips', label: 'Payslips', status: 'required' },
+          { key: 'bank', label: 'Bank', status: 'uploaded', file: { name: 'b.pdf', dataUrl: 'data:b' } },
+        ],
+      },
+    })
+    const body = await tenantWrite({
+      documents: [
+        // Re-upload of the rejected ID: server sets uploaded and clears the review.
+        { key: 'id', label: 'ID', status: 'verified', reviewedBy: 'u-t', file: { name: 'new.pdf', dataUrl: 'data:new' } },
+        // No file: claiming verified changes nothing.
+        { key: 'payslips', label: 'Payslips', status: 'verified', reviewedBy: 'u-t', reviewedAt: '2026-10-09', lookedAt: '2026-10-09' },
+        // 'bank' left out: the stored document is kept.
+      ],
+    })
+    const docs = (body.data as { documents: Array<Record<string, unknown>> }).documents
+    expect(docs[0]).toMatchObject({ key: 'id', status: 'uploaded' })
+    for (const k of ['reviewedBy', 'reviewedAt', 'rejectedReason', 'lookedAt']) expect(docs[0]).not.toHaveProperty(k)
+    expect(docs[1]).toEqual({ key: 'payslips', label: 'Payslips', status: 'required' })
+    expect(docs[2]).toMatchObject({ key: 'bank', status: 'uploaded' })
+  })
+
+  it('a tenant blank email / phone keeps the stored contact details', async () => {
+    const body = await tenantWrite({ email: '', phone: ' ' })
+    expect(body.data).not.toHaveProperty('email')
+    expect(body.data).not.toHaveProperty('phone')
+  })
+})
+
+describe('Angela #80 (c3f25ac) older gaps', () => {
+  it('a landlord activity-log entry is written under their name for an agency they list with', async () => {
+    const { assertPersistAllowed } = await import('./scopeGate.js')
+    const out = await assertPersistAllowed(LANDLORD as never, {
+      resource: 'activity', action: 'upsert', id: 'act-l1', data: { agencyId: 'ag-a', text: 'Tess: Conditionally approved', user: 'The Agency' },
+    } as never)
+    expect(out.handled).toMatchObject({ ok: true, id: 'act-l1' })
+    const ins = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO event_log'))!
+    const params = ins[1] as unknown[]
+    expect(params[1]).toBe(CA)
+    expect(params[2]).toBe(UUID['u-o'])
+    expect(JSON.parse(String(params[3]))).toEqual({ text: 'Tess: Conditionally approved', user: 'Olive Owner' })
+  })
+
+  it('a landlord activity entry for an agency they do not list with, or from a tenant, is refused', async () => {
+    await expect403(gate(LANDLORD, { resource: 'activity', action: 'upsert', id: 'act-x', data: { agencyId: 'ag-b', text: 'x' } }))
+    await expect403(gate(TENANT, { resource: 'activity', action: 'upsert', id: 'act-y', data: { agencyId: 'ag-a', text: 'x' } }))
+  })
+
+  it('moving an application into an acceptance status triggers the server accepted-elsewhere notices, once', async () => {
+    applications[UUID['A-t']].wf = 'landlord_review'
+    try {
+      const accepted = () => query.mock.calls.filter((c) => String(c[0]).includes('FROM applications a LEFT JOIN units un')).length
+      await persistAndInsert({
+        resource: 'application', action: 'upsert', id: 'A-t',
+        data: { propertyId: 'p-1', workflowStatus: 'conditionally_approved', stage: 'Conditionally approved' },
+      })
+      expect(accepted()).toBe(1)
+      applications[UUID['A-t']].wf = 'conditionally_approved'
+      await persistAndInsert({
+        resource: 'application', action: 'upsert', id: 'A-t',
+        data: { propertyId: 'p-1', workflowStatus: 'conditionally_approved', stage: 'Conditionally approved' },
+      })
+      expect(accepted()).toBe(1)
+    } finally {
+      delete applications[UUID['A-t']].wf
+    }
+  })
+
+  it('a staff conditional approval stores status APPROVED', async () => {
+    const params = (await persistAndInsert({
+      resource: 'application', action: 'upsert', id: 'A-t', data: { propertyId: 'p-1', workflowStatus: 'conditionally_approved', stage: 'Conditionally approved' },
+    }))![1] as unknown[]
+    expect(params[7]).toBe('APPROVED')
+    expect(params[15]).toBe(true)
+  })
+
+  it('a stage with no DB mapping keeps the stored status instead of resetting it to SUBMITTED', async () => {
+    const params = (await persistAndInsert({
+      resource: 'application', action: 'upsert', id: 'A-t', data: { propertyId: 'p-1', workflowStatus: 'lease_sent', stage: 'Lease sent' },
+    }))![1] as unknown[]
+    expect(params[15]).toBe(false)
   })
 })

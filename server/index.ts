@@ -130,6 +130,15 @@ app.use(
 
 app.use('*', supabaseSessionMiddleware)
 
+/** Machine-readable policy code on a refused write (e.g. APPLICATION_TRANSITION_FORBIDDEN). */
+function errCode(err: unknown): { code?: string } {
+  if (err && typeof err === 'object' && 'code' in err && typeof (err as { code: unknown }).code === 'string') {
+    const code = (err as { code: string }).code
+    if (/^[A-Z][A-Z0-9_]+$/.test(code)) return { code }
+  }
+  return {}
+}
+
 function errStatus(err: unknown): ContentfulStatusCode {
   if (err && typeof err === 'object' && 'status' in err) {
     const s = Number((err as { status: unknown }).status)
@@ -786,7 +795,7 @@ app.post('/api/persist', async (c) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[api/persist]', message)
-    return c.json({ error: 'persist_failed', message }, errStatus(err))
+    return c.json({ error: 'persist_failed', message, ...errCode(err) }, errStatus(err))
   }
 })
 
@@ -812,7 +821,7 @@ app.post('/api/persist/batch', async (c) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[api/persist/batch]', message)
-    return c.json({ error: 'persist_batch_failed', message }, errStatus(err))
+    return c.json({ error: 'persist_batch_failed', message, ...errCode(err) }, errStatus(err))
   }
 })
 
@@ -882,7 +891,7 @@ for (const plural of restResources) {
       return c.json(result, 201)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      return c.json({ error: 'create_failed', message }, errStatus(err))
+      return c.json({ error: 'create_failed', message, ...errCode(err) }, errStatus(err))
     }
   })
 
@@ -900,7 +909,7 @@ for (const plural of restResources) {
       return c.json(result)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      return c.json({ error: 'update_failed', message }, errStatus(err))
+      return c.json({ error: 'update_failed', message, ...errCode(err) }, errStatus(err))
     }
   })
 
@@ -912,7 +921,7 @@ for (const plural of restResources) {
       return c.json(result)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      return c.json({ error: 'delete_failed', message }, errStatus(err))
+      return c.json({ error: 'delete_failed', message, ...errCode(err) }, errStatus(err))
     }
   })
 }
@@ -999,10 +1008,14 @@ app.post('/api/applications/:id/approve', async (c) => {
       id: applicationId,
       data: { id: applicationId, stage: 'Approved' },
     })
-    // Applicants never approve applications (their own included): the own-row
-    // rule lets a tenant edit their application, not decide it. Landlords may
-    // (review decision on their own property, checked by the gate above).
-    if (actor.role === 'tenant' || actor.role === 'contractor') {
+    // Staff only. Applicants (tenant / contractor) never approve, their own
+    // application included, and the gate above already refuses them with
+    // APPLICATION_TRANSITION_FORBIDDEN. Landlords do not approve here either:
+    // their review decision is the narrow /api/persist write (landlord_review
+    // -> conditionally_approved | rejected), and this route creates the lease
+    // and payments. The gate refuses a landlord's { stage: 'Approved' } too;
+    // the explicit check keeps that true if the gate changes.
+    if (actor.role === 'tenant' || actor.role === 'contractor' || actor.role === 'landlord') {
       return c.json(
         { error: 'forbidden', message: `Forbidden: ${actor.role} cannot approve applications` },
         403,

@@ -10,9 +10,11 @@
  * tenant
  *   user              own row (enforceUserWritePolicy)
  *   notification      own
- *   application       own (create / update, never delete); APPLICANT_LOCKED_FIELDS
- *                     stripped, stored listing kept on update, create only on
- *                     a publicly listed property
+ *   application       own (create / update, never delete); workflow moves
+ *                     limited to applicantApplicationPolicy (coded 403
+ *                     otherwise), document review fields locked,
+ *                     APPLICANT_SERVER_FIELDS stripped, stored listing kept
+ *                     on update, create only on a publicly listed property
  *   viewing           own booking: applicantEmail = their account email
  *   viewing_slot      booking recount only: booked_count = live count of
  *                     non-cancelled bookings, and only on a slot they booked
@@ -45,27 +47,28 @@
  * agencies, activity, suite alerts, deletes) is refused for portal roles.
  */
 import { query } from './db.js'
-import { resolveUuid } from './entityMap.js'
+import { ensureUuid, resolveUuid } from './entityMap.js'
 import { LEASE_IDS, TICKET_IDS } from './idMap.js'
 import { forbiddenError, type DemoActor } from './actor.js'
 import { APP_STAGE_TO_DB, type PersistBody } from './writes.js'
 import { resolveLiveListing } from './listingResolve.js'
+import { isAcceptanceStatus, notifyAcceptedElsewhereServer } from './acceptedElsewhere.js'
+import {
+  ESIGN_MIRROR_STATUSES,
+  enforceApplicantApplicationWrite,
+  stageOrder,
+  storedLeaseESignStatus,
+} from './applicantApplicationPolicy.js'
+import { workflowProgress, workflowStageLabel } from '../src/lib/applicationWorkflow.js'
 
 /**
- * Fields a tenant / contractor may never set on their own application (create
- * or update). The writer keeps the stored value when they are absent.
+ * Staff-owned application fields an applicant's write never changes
+ * (create or update); the writer keeps the stored value when absent. On a new
+ * application the agency comes from the listing and the agent is the
+ * listing's agent. Workflow fields are NOT here: see
+ * enforceApplicantApplicationWrite.
  */
-export const APPLICANT_LOCKED_FIELDS = [
-  'stage',
-  'status',
-  'workflowStatus',
-  'progress',
-  'agentId',
-  'agencyId',
-  'clientId',
-  'screening',
-  'creditCheck',
-] as const
+export const APPLICANT_SERVER_FIELDS = ['agentId', 'agencyId', 'clientId', 'screening', 'creditCheck'] as const
 
 /**
  * The only application fields a landlord write may change: the review
@@ -136,6 +139,7 @@ export async function landlordApplicationDecision(
     forbiddenError(`Forbidden: landlord ${actor.userId} cannot ${body.action} application ${body.id} (${why})`)
   const data = (body.data ?? {}) as Record<string, unknown>
   const to = str(data.workflowStatus)
+  if (to && ESIGN_MIRROR_STATUSES.has(to)) return landlordESignMirror(actor, body, to)
   const decision = to ? LANDLORD_APPLICATION_DECISIONS[to] : undefined
   if (!to || !decision) {
     throw deny('a landlord may only record the review decision (conditionally_approved or rejected)')
@@ -161,6 +165,45 @@ export async function landlordApplicationDecision(
       status: 409,
     })
   }
+  if (isAcceptanceStatus(to)) await notifyAcceptedElsewhereServer(uuid)
+  return { handled: { ok: true, id: body.id, uuid } }
+}
+
+/**
+ * The landlord's countersign mirrors the lease envelope onto the application
+ * (AppStore recordTenancyLeaseSign: { ...app, workflowStatus: derived }).
+ * Allowed only for the status the stored envelope of the linked lease shows,
+ * and only forward; stage / progress derived here, applications.status kept.
+ */
+async function landlordESignMirror(actor: DemoActor, body: PersistBody, to: string): Promise<PortalOutcome> {
+  const uuid = await resolveUuid('application', body.id)
+  if (!uuid) throw forbiddenError(`Forbidden: unknown application ${body.id}`)
+  const fromLease = await storedLeaseESignStatus(uuid)
+  if (fromLease !== to) {
+    throw Object.assign(
+      forbiddenError(`Forbidden: landlord ${actor.userId} cannot set ${to}; the stored lease envelope does not show it`),
+      { code: 'APPLICATION_TRANSITION_FORBIDDEN' },
+    )
+  }
+  const rows = await query<{ workflow_status: string | null }>(
+    `SELECT metadata->>'workflow_status' AS workflow_status FROM applications WHERE id = $1::uuid`,
+    [uuid],
+  )
+  const from = rows[0]?.workflow_status ?? null
+  const key = to as Parameters<typeof workflowStageLabel>[1]
+  if (from && stageOrder('Rental', from as typeof key) >= stageOrder('Rental', key)) {
+    // Already at or past this point: nothing to mirror.
+    return { handled: { ok: true, id: body.id, uuid } }
+  }
+  await query(
+    `UPDATE applications
+        SET metadata = COALESCE(metadata, '{}'::jsonb)
+              || jsonb_build_object('workflow_status', $2::text, 'stage', $3::text, 'progress', $4::int),
+            updated_at = NOW()
+      WHERE id = $1::uuid`,
+    [uuid, to, workflowStageLabel('Rental', key), workflowProgress('Rental', key)],
+  )
+  if (!from || !isAcceptanceStatus(from)) await notifyAcceptedElsewhereServer(uuid)
   return { handled: { ok: true, id: body.id, uuid } }
 }
 
@@ -253,18 +296,20 @@ export async function enforcePortalWritePolicy(
         // then narrowed to the decision fields (landlordApplicationDecision).
         return {}
       }
-      // Tenant / contractor (own-application rule in assertPersistAllowed).
-      // Workflow, assignment and agency are staff fields; the listing of an
-      // existing application is fixed (the stored unit is kept).
-      for (const k of APPLICANT_LOCKED_FIELDS) delete data[k]
+      // Tenant / contractor applicant (own-application rule in
+      // assertPersistAllowed). Assignment, agency and the screening pipeline
+      // are staff-owned and never sent back by the applicant UI as changes;
+      // the listing of an existing application is fixed (stored unit kept).
+      // Workflow moves are checked, never silently dropped
+      // (enforceApplicantApplicationWrite: allowed moves or a coded 403).
+      for (const k of APPLICANT_SERVER_FIELDS) delete data[k]
       if (existing) {
         delete data.propertyId
         delete data.unitId
-        return {}
-      }
-      if (!(await isPubliclyListedForApplication(data.propertyId))) {
+      } else if (!(await isPubliclyListedForApplication(data.propertyId))) {
         throw deny('applications are only taken on publicly listed properties')
       }
+      await enforceApplicantApplicationWrite(actor, body.id, data, Boolean(existing))
       return {}
     }
 
@@ -473,6 +518,35 @@ export async function enforcePortalWritePolicy(
     case 'property_event': {
       if (await resolveUuid('property_event', body.id)) throw deny('events are append-only')
       return {}
+    }
+
+    case 'activity': {
+      // Landlord actions (e.g. the review decision) log to the agency feed.
+      // Append-only, only for an agency they own a listing with, written
+      // under their own name (the client-sent `user` / `at` are not trusted).
+      if (!isLandlord) throw deny('not on the portal allow-list')
+      if (existing || (await resolveUuid('activity', body.id))) throw deny('activity entries are append-only')
+      const me = await actorUuid(actor)
+      const client = await resolveUuid('agency', str(data.agencyId) ?? '')
+      const text = (str(data.text) ?? '').slice(0, 500)
+      if (!me || !client || !text) throw deny('activity needs their agency and a text')
+      const owns = await query<{ n: number | string }>(
+        `SELECT COUNT(*)::int AS n FROM units u JOIN buildings b ON b.id = u.building_id
+          WHERE b.landlord_id = $1::uuid AND u.client_id = $2::uuid`,
+        [me, client],
+      )
+      if (!Number(owns[0]?.n ?? 0)) throw deny('no listing of theirs with that agency')
+      const who = await query<{ name: string | null }>(
+        `SELECT NULLIF(TRIM(CONCAT_WS(' ', first_name, last_name)), '') AS name FROM users WHERE id = $1::uuid`,
+        [me],
+      )
+      const uuid = await ensureUuid('activity', body.id)
+      await query(
+        `INSERT INTO event_log (id, client_id, event_type, subject_type, subject_id, actor_user_id, payload, created_at)
+         VALUES ($1::uuid, $2::uuid, 'activity', 'agency', NULL, $3::uuid, $4::jsonb, NOW())`,
+        [uuid, client, me, JSON.stringify({ text, user: who[0]?.name ?? 'Landlord' })],
+      )
+      return { handled: { ok: true, id: body.id, uuid } }
     }
 
     default:
