@@ -281,7 +281,7 @@ describe('buildSoftAuditPack', () => {
     expect(pack.indexJson).toMatch(/live remittance/)
     expect(pack.rentRoll.rows).toHaveLength(1)
     const trustFile = pack.files.find((f) => f.path.startsWith('trust-soft'))
-    expect(trustFile?.content).toMatch(/not bank-confirmed/i)
+    expect(trustFile?.content).toMatch(/not yet matched to the bank/i)
   })
 })
 

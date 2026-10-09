@@ -47,8 +47,8 @@ describe('DQ-M1 allocate / persist honesty', () => {
     expect(submitted.settledAt).toBeNull()
   })
 
-  it('honesty labels remain non-PayProp / not bank-confirmed', () => {
+  it('trust labels say not yet matched to the bank', () => {
     expect(TRUST_MODE_A_COPY).toMatch(/not yet matched to the bank/i)
-    expect(TRUST_CSV_NON_PRODUCTION_LABEL).toMatch(/not bank-confirmed/i)
+    expect(TRUST_CSV_NON_PRODUCTION_LABEL).toMatch(/not yet matched to the bank/i)
   })
 })

@@ -12,6 +12,7 @@ import { PageHeader, Card, Badge, Button, EmptyState } from '../../components/ui
 import { DashboardPage } from '../../components/dashboard'
 import { FieldHelp } from '../../components/onboarding/FieldHelp'
 import { TRUST_MODE_A_COPY } from '../../lib/trust/modeA'
+import { PAYOUT_LABELS, payoutStatusLabel } from '../../lib/trust/payoutLabels'
 
 function formatCents(cents: number): string {
   return formatZAR(cents / 100)
@@ -126,7 +127,7 @@ export default function TrustPayouts() {
     <DashboardPage>
       <PageHeader
         title="Payouts"
-        subtitle="Propose → approve → submit (submitted ≠ settled; no live bank)"
+        subtitle={PAYOUT_LABELS.subtitle}
       />
       <div className="mb-2"><FieldHelp title="Trust payouts" body={TRUST_MODE_A_COPY} /></div>
 
@@ -138,7 +139,7 @@ export default function TrustPayouts() {
           <p className="text-xs text-ink-400">{formatCents(pendingTotal)} total</p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-ink-500">Settled (this period)</p>
+          <p className="text-sm text-ink-500">{PAYOUT_LABELS.completedThisPeriod}</p>
           <p className="text-xl font-semibold text-emerald-600">{formatCents(settledTotal)}</p>
         </Card>
         <Card className="p-4">
@@ -163,7 +164,7 @@ export default function TrustPayouts() {
             size="sm"
             onClick={() => setFilter(f)}
           >
-            {f === 'all' ? 'All' : f.replace('_', ' ')}
+            {f === 'all' ? 'All' : payoutStatusLabel(f)}
           </Button>
         ))}
       </div>
@@ -187,7 +188,7 @@ export default function TrustPayouts() {
                     <div className="flex items-center gap-2">
                       <p className="font-medium text-ink">{payout.payeeType}</p>
                       <Badge tone={statusTone(payout.status)}>
-                        {payout.status.replace('_', ' ')}
+                        {payoutStatusLabel(payout.status)}
                       </Badge>
                     </div>
                     <p className="text-sm text-ink-500">
@@ -203,7 +204,7 @@ export default function TrustPayouts() {
                     )}
                     {payout.settledAt && (
                       <p className="text-sm text-emerald-600">
-                        Settled: {formatDate(payout.settledAt)}
+                        {PAYOUT_LABELS.completedOn}: {formatDate(payout.settledAt)}
                       </p>
                     )}
                     {payout.failureReason && (
@@ -245,7 +246,7 @@ export default function TrustPayouts() {
                     )}
                     {payout.status === 'submitted' && (
                       <p className="max-w-[9rem] text-[11px] leading-snug text-ink-400">
-                        Submitted (in-app) — not settled; no partnerPayoutId
+                        {PAYOUT_LABELS.submittedNote}
                       </p>
                     )}
                   </div>
