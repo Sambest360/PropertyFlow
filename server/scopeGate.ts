@@ -35,6 +35,7 @@ import type { PropertyAccessSubject } from '../src/lib/agencyScope.js'
 import type { Permission, Role } from '../src/types/domain.js'
 import { effectiveCan } from '../src/lib/permissions.js'
 import { isReservedSuperAdminEmail } from '../src/lib/supabase/idMap.js'
+import { enforcePortalWritePolicy, PORTAL_ROLES as PORTAL_WRITE_ROLES, type PortalOutcome } from './portalWritePolicy.js'
 
 type FePropertyRow = PropertyAccessSubject & { id: string }
 
@@ -798,7 +799,7 @@ export async function enforceUserWritePolicy(
 export async function assertPersistAllowed(
   actor: DemoActor,
   body: PersistBody,
-): Promise<void> {
+): Promise<PortalOutcome> {
   const scope = await buildActorPropertyScope(actor)
   const data = body.data ?? {}
   const existing = await loadExisting(body.resource, body.id)
@@ -852,14 +853,23 @@ export async function assertPersistAllowed(
   if (body.resource === 'user') {
     // Users have their own policy (may strip privileged fields from body.data).
     await enforceUserWritePolicy(actor, body, existing)
-    return
+    return {}
   }
 
   if (TRUST_RESOURCES.has(body.resource)) {
     // Trust books have their own (stricter) policy; the property path below
     // would otherwise let any role with the property in scope write them.
     await enforceTrustWritePolicy(actor, body, existing)
-    return
+    return {}
+  }
+
+  // Portal roles (tenant / landlord / contractor): explicit allow-list first.
+  // It only narrows; the scope checks below still run unless it performed a
+  // narrow server-side rewrite itself (lease signature, payment proof, slot
+  // recount), in which case the generic upsert is skipped.
+  if (PORTAL_WRITE_ROLES.has(actor.role)) {
+    const outcome = await enforcePortalWritePolicy(actor, body, existing)
+    if (outcome.handled) return outcome
   }
 
   // Tenants and contractors may only write their own application (existing
@@ -917,6 +927,7 @@ export async function assertPersistAllowed(
       `Forbidden: ${actor.role} ${actor.userId} cannot ${body.action} ${body.resource} ${body.id}`,
     )
   }
+  return {}
 }
 
 type BootstrapPayload = {

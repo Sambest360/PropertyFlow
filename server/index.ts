@@ -142,8 +142,16 @@ async function requireActorAndGate(c: Parameters<typeof parseDemoActor>[0], body
   const raw = await resolveRequestActor(c, body as unknown as Record<string, unknown>)
   if (!raw) throw actorRequiredError()
   const actor = await enrichActor(raw)
-  await assertPersistAllowed(actor, body)
-  return actor
+  const outcome = await assertPersistAllowed(actor, body)
+  return { actor, handled: outcome?.handled ?? null }
+}
+
+/** Gate, then the generic upsert unless the gate already did a narrow rewrite. */
+async function gatedPersist(c: Parameters<typeof parseDemoActor>[0], body: PersistBody) {
+  const { handled } = await requireActorAndGate(c, body)
+  if (handled) return handled
+  const { handlePersist } = await loadWritesModule()
+  return handlePersist(body)
 }
 
 app.get('/api/health', async (c) => {
@@ -773,9 +781,7 @@ app.post('/api/persist', async (c) => {
   }
   try {
     const body = (await c.req.json()) as PersistBody
-    await requireActorAndGate(c, body)
-    const { handlePersist } = await loadWritesModule()
-    const result = await handlePersist(body)
+    const result = await gatedPersist(c, body)
     return c.json(result)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -798,11 +804,9 @@ app.post('/api/persist/batch', async (c) => {
   try {
     const body = (await c.req.json()) as { ops?: PersistBody[] }
     const ops = Array.isArray(body.ops) ? body.ops : []
-    const { handlePersist } = await loadWritesModule()
     const results = []
     for (const op of ops) {
-      await requireActorAndGate(c, op)
-      results.push(await handlePersist(op))
+      results.push(await gatedPersist(c, op))
     }
     return c.json({ ok: true, results })
   } catch (err) {
@@ -874,9 +878,7 @@ for (const plural of restResources) {
       const id = String(data.id ?? '')
       if (!id) return c.json({ error: 'id_required' }, 400)
       const body: PersistBody = { resource, action: 'upsert', id, data }
-      await requireActorAndGate(c, body)
-      const { handlePersist } = await loadWritesModule()
-    const result = await handlePersist(body)
+      const result = await gatedPersist(c, body)
       return c.json(result, 201)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -894,9 +896,7 @@ for (const plural of restResources) {
         id,
         data: { ...data, id },
       }
-      await requireActorAndGate(c, body)
-      const { handlePersist } = await loadWritesModule()
-    const result = await handlePersist(body)
+      const result = await gatedPersist(c, body)
       return c.json(result)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -908,9 +908,7 @@ for (const plural of restResources) {
     try {
       const id = c.req.param('id')
       const body: PersistBody = { resource, action: 'delete', id }
-      await requireActorAndGate(c, body)
-      const { handlePersist } = await loadWritesModule()
-    const result = await handlePersist(body)
+      const result = await gatedPersist(c, body)
       return c.json(result)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -995,12 +993,21 @@ app.post('/api/applications/:id/approve', async (c) => {
       actorUserId?: string
       tenancy?: Record<string, unknown>
     }
-    await requireActorAndGate(c, {
+    const { actor } = await requireActorAndGate(c, {
       resource: 'application',
       action: 'upsert',
       id: applicationId,
       data: { id: applicationId, stage: 'Approved' },
     })
+    // Applicants never approve applications (their own included): the own-row
+    // rule lets a tenant edit their application, not decide it. Landlords may
+    // (review decision on their own property, checked by the gate above).
+    if (actor.role === 'tenant' || actor.role === 'contractor') {
+      return c.json(
+        { error: 'forbidden', message: `Forbidden: ${actor.role} cannot approve applications` },
+        403,
+      )
+    }
     const { approveApplicationTx } = await loadWritesModule()
     const result = await approveApplicationTx({
       applicationId,

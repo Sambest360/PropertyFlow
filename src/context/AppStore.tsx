@@ -5191,12 +5191,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               status: booked >= slot.capacity ? ('Full' as const) : slot.status,
             }
           : null
-        persistUpsert('viewing', created.id, created as unknown as Record<string, unknown>)
+        // Slot write after the booking lands: for a tenant the server turns the
+        // slot write into a live recount of bookings, which must include theirs.
+        const bookingSaved = persistUpsert('viewing', created.id, created as unknown as Record<string, unknown>)
         if (slotPatch) {
-          persistUpsert(
-            'viewing_slot',
-            slotPatch.id,
-            slotPatch as unknown as Record<string, unknown>,
+          void bookingSaved.then(() =>
+            persistUpsert(
+              'viewing_slot',
+              slotPatch.id,
+              slotPatch as unknown as Record<string, unknown>,
+            ),
           )
         }
         if (applicationId) {

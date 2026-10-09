@@ -160,6 +160,11 @@ vi.mock('pg', () => {
       const p = db.payouts.find((x) => x.id === params[0])
       return p ? [{ ...p }] : []
     }
+    if (sql.startsWith('SELECT "id", "unit_id", "client_id", "agent_id", "applicant_id" FROM "applications"')) {
+      if (params[0] !== 'd8000001-0001-4000-8000-000000000001') return []
+      const tenant = db.users.find((u) => u.fe === 'u-tenant')!
+      return [{ id: params[0], unit_id: null, client_id: HORIZON, agent_id: null, applicant_id: tenant.id }]
+    }
     if (sql.startsWith('SELECT "id", "client_id" FROM "payout_instructions"')) {
       const p = db.payouts.find((x) => x.id === params[0])
       return p ? [{ id: p.id, client_id: p.client_id }] : []
@@ -843,5 +848,17 @@ describe('Jim B5: trust writes and payout dual control', () => {
     production()
     const res = await app.request(`/api/trust/payouts/${PO(1)}/approve`, { method: 'POST', body: '{}' })
     expect(res.status).toBe(401)
+  })
+})
+
+describe('Jim B5: applicants cannot approve their own application', () => {
+  it('a tenant session approving their own application gets 403 and nothing is written', async () => {
+    const res = await app.request('/api/applications/d8000001-0001-4000-8000-000000000001/approve', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${tokens['u-tenant']}` },
+      body: JSON.stringify({}),
+    })
+    expect(res.status).toBe(403)
+    expect(db.writes).toEqual([])
   })
 })
