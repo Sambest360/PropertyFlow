@@ -576,7 +576,8 @@ app.get('/api/bootstrap', async (c) => {
     })
     const rawActor = await resolveRequestActor(c, null)
     if (!rawActor) {
-      return c.json({ ...data, scoped: false, actor: null })
+      // CR7: help desk tickets are never served without a signed-in actor.
+      return c.json({ ...data, supportTickets: [], scoped: false, actor: null })
     }
     const actor = await enrichActor(rawActor)
     const { buildActorPropertyScope, filterBootstrapForActor } = await loadScopeGateModule()

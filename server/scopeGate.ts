@@ -33,6 +33,11 @@ import {
 import { canWriteEntity } from '../src/lib/scopeWrite.js'
 import type { PropertyAccessSubject } from '../src/lib/agencyScope.js'
 import type { Role } from '../src/types/domain.js'
+import {
+  canResolveSupportTicket,
+  filterSupportTicketsForViewer,
+  supportTicketRoutingAgency,
+} from '../src/lib/supportTickets.js'
 
 type FePropertyRow = PropertyAccessSubject & { id: string }
 
@@ -317,6 +322,7 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
     csv_import_batch: { table: 'csv_import_batches', clientCol: 'client_id' },
     payout_instruction: { table: 'payout_instructions', clientCol: 'client_id' },
     deposit_holding: { table: 'deposit_holdings', clientCol: 'client_id' },
+    support_ticket: { table: 'event_log', clientCol: 'client_id' },
   }
 
   const spec = tableMap[resource]
@@ -504,12 +510,103 @@ async function propertySubject(propertyId: string | null): Promise<PropertyAcces
 }
 
 /**
+ * CR7 help desk gate for event_log support tickets. Runs before the generic
+ * property/agency gate. Mutates body.data with server-derived fields so the
+ * writer never trusts the client for submitter or routing.
+ *  - delete: super admin only
+ *  - submit (new id): submitter must be the actor; agencyId derived from the
+ *    actor's role + agency (staff / no agency → platform null)
+ *  - resolve (existing id): desk role with users.manage; agency desk only for
+ *    its own agency, platform tickets super admin only; resolved = read-only
+ */
+async function loadSupportTicketRow(feId: string): Promise<
+  | { kind: 'none' }
+  | { kind: 'other' }
+  | { kind: 'ticket'; agencyId: string | null; status: string; submittedByUserId: string | null }
+> {
+  const uuid = await resolveUuid('support_ticket', feId)
+  if (!uuid) return { kind: 'none' }
+  const rows = await query<{
+    event_type: string
+    client_id: string | null
+    status: string | null
+    submitted_by: string | null
+  }>(
+    `SELECT event_type, client_id::text AS client_id,
+            payload->>'status' AS status, payload->>'submittedByUserId' AS submitted_by
+     FROM event_log WHERE id = $1::uuid LIMIT 1`,
+    [uuid],
+  )
+  const r = rows[0]
+  if (!r) return { kind: 'none' }
+  if (r.event_type !== 'support_ticket') return { kind: 'other' }
+  return {
+    kind: 'ticket',
+    agencyId: await agencyFe(r.client_id),
+    status: r.status ?? 'open',
+    submittedByUserId: r.submitted_by,
+  }
+}
+
+export async function assertSupportTicketAllowed(
+  actor: DemoActor,
+  body: PersistBody,
+): Promise<void> {
+  const deny = (why: string) =>
+    forbiddenError(`Forbidden: ${actor.role} ${actor.userId} cannot ${body.action} support_ticket ${body.id} (${why})`)
+  const actorAgency = (await agencyFe(actor.agencyId)) ?? actor.agencyId ?? null
+  const viewer = { userId: actor.userId, role: actor.role, agencyId: actorAgency }
+
+  if (body.action === 'delete') {
+    if (actor.role !== 'super_admin') throw deny('delete is super admin only')
+    return
+  }
+
+  const data = body.data ?? {}
+  const row = await loadSupportTicketRow(body.id)
+  if (row.kind === 'other') throw deny('id belongs to another record')
+
+  if (row.kind === 'none') {
+    const claimed = strField(data, 'submittedByUserId')
+    if (!claimed || claimed !== actor.userId) throw deny('submitter must be the signed-in user')
+    body.data = {
+      subject: data.subject,
+      body: data.body,
+      category: data.category,
+      submitterName: data.submitterName,
+      submittedByUserId: actor.userId,
+      submitterRole: actor.role,
+      agencyId: supportTicketRoutingAgency(actor.role, actorAgency),
+      status: 'open',
+    }
+    return
+  }
+
+  if (row.status === 'resolved') throw deny('resolved tickets are read-only')
+  if (!canResolveSupportTicket(viewer, { agencyId: row.agencyId })) {
+    throw deny('not on this desk')
+  }
+  if (strField(data, 'status') !== 'resolved') throw deny('only resolve is allowed')
+  body.data = {
+    status: 'resolved',
+    resolvedByUserId: actor.userId,
+    resolvedByName: data.resolvedByName,
+    resolutionNote: data.resolutionNote,
+    resolvedAt: new Date().toISOString(),
+  }
+}
+
+/**
  * Enforce property / agency scope on a persist op. Throws 403/401-style errors.
  */
 export async function assertPersistAllowed(
   actor: DemoActor,
   body: PersistBody,
 ): Promise<void> {
+  if (body.resource === 'support_ticket') {
+    await assertSupportTicketAllowed(actor, body)
+    return
+  }
   const scope = await buildActorPropertyScope(actor)
   const data = body.data ?? {}
   const existing = await loadExisting(body.resource, body.id)
@@ -660,6 +757,7 @@ type BootstrapPayload = {
   depositHoldings?: Array<{ agencyId?: string | null }>
   arrearsSnapshots?: Array<{ agencyId?: string | null }>
   csvImportBatches?: Array<{ agencyId?: string | null }>
+  supportTickets?: Array<{ agencyId: string | null; submittedByUserId: string }>
   [key: string]: unknown
 }
 
@@ -739,6 +837,12 @@ export function filterBootstrapForActor(
       depositHoldings: (raw.depositHoldings ?? []).filter((x) => inAg(x.agencyId)),
       arrearsSnapshots: (raw.arrearsSnapshots ?? []).filter((x) => inAg(x.agencyId)),
       csvImportBatches: (raw.csvImportBatches ?? []).filter((x) => inAg(x.agencyId)),
+      // CR7: own submissions + this agency's desk; platform (null) stays super admin only.
+      supportTickets: filterSupportTicketsForViewer(raw.supportTickets ?? [], {
+        userId: actor.userId,
+        role: actor.role as Role,
+        agencyId: actor.agencyId,
+      }),
     }
   }
 
@@ -857,6 +961,11 @@ export function filterBootstrapForActor(
     ),
     csvImportBatches: (raw.csvImportBatches ?? []).filter(
       (x) => !actor.agencyId || x.agencyId === actor.agencyId,
+    ),
+    // CR7: property-locked roles never hold the desk — own submissions only.
+    // Explicit so the ...raw spread above cannot leak other people's tickets.
+    supportTickets: (raw.supportTickets ?? []).filter(
+      (t) => t.submittedByUserId === actor.userId,
     ),
   }
 }
