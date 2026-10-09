@@ -529,6 +529,9 @@ export const PRIVILEGED_USER_FIELDS = [
   'commissionSharePct',
 ] as const
 
+/** Credential fields stripped from every non-super user write. */
+export const CREDENTIAL_USER_FIELDS = ['passwordHash', 'password', 'tempPassword'] as const
+
 /** Does the actor (agency admin) hold users.manage, from their stored permissions? */
 async function actorHasUsersManage(actor: DemoActor): Promise<boolean> {
   if (actor.role !== 'client_admin' && actor.role !== 'agent_admin') return false
@@ -639,6 +642,16 @@ export async function enforceUserWritePolicy(
   if (body.action === 'delete') throw deny('only a super admin may delete users')
   const submittedVerification = data.verification
   stripFields(data, ['verification'])
+  // Credentials: never a raw hash or a plain password through a non-super write.
+  // A temp password survives only on an agency admin's create (below); password
+  // changes go through POST /api/auth/change-password (checks the current one).
+  const createTempPassword =
+    typeof data.tempPassword === 'string' && data.tempPassword
+      ? data.tempPassword
+      : typeof data.password === 'string' && data.password
+        ? data.password
+        : null
+  stripFields(data, CREDENTIAL_USER_FIELDS)
 
   const own = body.id === actor.userId
   if (actor.agencyId && (await actorHasUsersManage(actor))) {
@@ -656,6 +669,7 @@ export async function enforceUserWritePolicy(
     } else if (!existing) {
       data.agencyId = actor.agencyId
     }
+    if (!existing && createTempPassword) data.tempPassword = createTempPassword
     if (!existing && role !== undefined && VERIFIED_ROLES.has(role)) {
       data.verification = pendingVerificationForCreate(submittedVerification)
     }

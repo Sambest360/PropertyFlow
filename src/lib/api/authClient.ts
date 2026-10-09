@@ -176,6 +176,25 @@ export async function apiLogin(input: {
   return data
 }
 
+/**
+ * Change the signed-in user's password. Goes through the server route that
+ * checks the current password (the generic persist route never accepts a
+ * password or hash from a non-super user write).
+ */
+export async function apiChangePassword(input: {
+  currentPassword: string
+  newPassword: string
+}): Promise<AuthUserDto> {
+  const res = await fetchWithTimeout(`${API_BASE}/api/auth/change-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    credentials: 'include',
+    body: JSON.stringify(input),
+  })
+  const data = await parseJson<{ ok: boolean; user: AuthUserDto }>(res)
+  return data.user
+}
+
 export async function apiLogout(): Promise<void> {
   try {
     await fetch(`${API_BASE}/api/auth/logout`, {

@@ -496,3 +496,54 @@ describe('Jim B6: role is normalised and checked against an allow-list', () => {
     await expect(gate(SA, { resource: 'user', action: 'upsert', id: 'u-agent', data: { role: 'root' } })).rejects.toMatchObject({ status: 400 })
   })
 })
+
+describe('Jim B7: credentials never travel through a non-super user write', () => {
+  it('a self write cannot set passwordHash, password or tempPassword', async () => {
+    const body = await gate(TENANT, {
+      resource: 'user',
+      action: 'upsert',
+      id: 'u-t',
+      data: { name: 'T', passwordHash: '$2a$10$attacker', password: 'new-pass-1', tempPassword: 'Temp1234!' },
+    })
+    expect(body.data).toEqual({ name: 'T' })
+    const { handlePersist } = await import('./writes.js')
+    await handlePersist(body as never)
+    const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO users'))!
+    expect(String(insert[0])).not.toContain('password_hash = COALESCE(EXCLUDED.password_hash')
+    expect(insert[1] as unknown[]).not.toContain('$2a$10$attacker')
+  })
+
+  it('an agency admin editing an existing user cannot set any credential', async () => {
+    const body = await gate(ADMIN, {
+      resource: 'user',
+      action: 'upsert',
+      id: 'u-agent',
+      data: { name: 'A', passwordHash: '$2a$10$x', password: 'p', tempPassword: 'Temp1234!' },
+    })
+    expect(body.data).toEqual({ name: 'A' })
+  })
+
+  it('an agency admin create keeps tempPassword (and maps a plain password to it), never passwordHash', async () => {
+    const a = await gate(ADMIN, {
+      resource: 'user',
+      action: 'upsert',
+      id: 'u-new-1',
+      data: { name: 'N', role: 'ground_agent', tempPassword: 'Temp1234!', passwordHash: '$2a$10$x' },
+    })
+    expect(a.data).toMatchObject({ tempPassword: 'Temp1234!' })
+    expect(a.data).not.toHaveProperty('passwordHash')
+    const b = await gate(ADMIN, {
+      resource: 'user',
+      action: 'upsert',
+      id: 'u-new-2',
+      data: { name: 'N', role: 'ground_agent', password: 'Plain1234!' },
+    })
+    expect(b.data).toMatchObject({ tempPassword: 'Plain1234!' })
+    expect(b.data).not.toHaveProperty('password')
+  })
+
+  it('a non-admin "create" of their own row cannot carry a temp password', async () => {
+    const body = await gate(TENANT, { resource: 'user', action: 'upsert', id: 'u-t', data: { name: 'T', tempPassword: 'x' } })
+    expect(body.data).not.toHaveProperty('tempPassword')
+  })
+})

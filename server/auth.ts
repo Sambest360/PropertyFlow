@@ -505,6 +505,45 @@ export async function updateUserVerification(opts: {
   return rowToSession(refreshed)
 }
 
+/**
+ * Self-service password change (API mode). Checks the current password against
+ * users.password_hash, stores the new hash and clears mustChangePassword. The
+ * generic persist route never accepts passwordHash / password from non-super
+ * actors, so this is the only non-admin way to change a password.
+ */
+export async function changeUserPassword(opts: {
+  userUuid: string
+  currentPassword: string
+  newPassword: string
+}): Promise<SessionUser> {
+  const fail = (status: number, message: string) =>
+    Object.assign(new Error(message), { status }) as Error & { status: number }
+  if (!opts.newPassword || opts.newPassword.length < 8) {
+    throw fail(400, 'New password must be at least 8 characters')
+  }
+  if (opts.newPassword === opts.currentPassword) {
+    throw fail(400, 'New password must differ from the current one')
+  }
+  const row = await findUserById(opts.userUuid)
+  if (!row || !row.active) throw fail(401, 'Not signed in')
+  const ok = row.password_hash
+    ? await verifyPassword(opts.currentPassword ?? '', row.password_hash)
+    : false
+  if (!ok) throw fail(401, 'Current password is incorrect')
+  const hash = await hashPassword(opts.newPassword)
+  await query(
+    `UPDATE users
+        SET password_hash = $2,
+            metadata = COALESCE(metadata, '{}'::jsonb) || '{"mustChangePassword": false}'::jsonb,
+            updated_at = NOW()
+      WHERE id = $1::uuid`,
+    [row.id, hash],
+  )
+  const refreshed = await findUserById(row.id)
+  if (!refreshed) throw fail(500, 'User not found after update')
+  return rowToSession(refreshed)
+}
+
 export async function loginUser(email: string, password: string): Promise<SessionUser> {
   const row = await findUserByEmail(email)
   if (!row || !row.active) {

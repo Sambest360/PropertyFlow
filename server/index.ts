@@ -19,6 +19,7 @@ import {
 import { resolveRequestActor } from './requestActor.js'
 import { filterBootstrapForGuest } from './guestMarketplace.js'
 import {
+  changeUserPassword,
   clearSession,
   issueSession,
   loginUser,
@@ -532,6 +533,54 @@ app.get('/api/auth/me', async (c) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     return c.json({ error: 'me_failed', message }, errStatus(err))
+  }
+})
+
+/**
+ * Self-service password change: the signed-in user (session cookie / bearer)
+ * must send their current password. Clears mustChangePassword. The generic
+ * persist route strips passwordHash / password / tempPassword from every
+ * non-super user write, so this is the password-change path.
+ */
+app.post('/api/auth/change-password', async (c) => {
+  if (!databaseConfigured) {
+    return c.json(
+      { error: 'database_unconfigured', message: databaseConfigError || 'DATABASE_URL is not set' },
+      503,
+    )
+  }
+  const ip = authIpKey(c.req.raw.headers)
+  const ipGate = authIpRateLimit(ip)
+  if (!ipGate.ok) {
+    const rl = tooManyRequests(ipGate.retryAfterSec)
+    return c.json(rl.body, rl.status, rl.headers)
+  }
+  let email = ''
+  try {
+    const user = await resolveSessionUser(c)
+    if (!user) return c.json({ error: 'unauthorized', message: 'Not signed in' }, 401)
+    email = user.email ?? ''
+    const accountGate = authFailureBlocked(ip, email)
+    if (!accountGate.ok) {
+      const rl = tooManyRequests(accountGate.retryAfterSec)
+      return c.json(rl.body, rl.status, rl.headers)
+    }
+    const body = (await c.req.json().catch(() => ({}))) as {
+      currentPassword?: string
+      newPassword?: string
+    }
+    const updated = await changeUserPassword({
+      userUuid: user.id,
+      currentPassword: String(body.currentPassword ?? ''),
+      newPassword: String(body.newPassword ?? ''),
+    })
+    clearAuthFailures(ip, email)
+    return c.json({ ok: true, user: sessionToPublic(updated) })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    const status = errStatus(err)
+    if (email && status === 401) recordAuthFailure(ip, email)
+    return c.json({ error: 'change_password_failed', message }, status)
   }
 })
 

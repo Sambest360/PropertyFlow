@@ -515,3 +515,65 @@ describe('public marketplace errors', () => {
     expect(text).not.toContain('db.internal')
   })
 })
+
+describe('Jim B7: password change goes through a route that checks the current password', () => {
+  const xff = (n: number) => ({ 'x-forwarded-for': `10.7.0.${n}` })
+
+  it('no session gives 401 and writes nothing', async () => {
+    const res = await app.request('/api/auth/change-password', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...xff(1) },
+      body: JSON.stringify({ currentPassword: 'pw-correct', newPassword: 'brand-new-pw' }),
+    })
+    expect(res.status).toBe(401)
+    expect(db.writes.some((w) => w.includes('password_hash'))).toBe(false)
+  })
+
+  it('a wrong current password gives 401 and writes nothing', async () => {
+    const res = await app.request('/api/auth/change-password', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${tokens['u-tenant']}`, ...xff(2) },
+      body: JSON.stringify({ currentPassword: 'wrong-pw', newPassword: 'brand-new-pw' }),
+    })
+    expect(res.status).toBe(401)
+    expect(db.writes.some((w) => w.includes('password_hash'))).toBe(false)
+  })
+
+  it('the right current password stores a new hash for the session user and clears mustChangePassword', async () => {
+    const res = await app.request('/api/auth/change-password', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${tokens['u-tenant']}`, ...xff(3) },
+      body: JSON.stringify({ currentPassword: 'pw-correct', newPassword: 'brand-new-pw' }),
+    })
+    expect(res.status).toBe(200)
+    const upd = db.writes.find((w) => w.startsWith('UPDATE users SET password_hash = $2'))
+    expect(upd).toBeTruthy()
+    expect(upd).toContain('"mustChangePassword": false')
+  })
+
+  it('a short new password is a 400', async () => {
+    const res = await app.request('/api/auth/change-password', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${tokens['u-tenant']}`, ...xff(4) },
+      body: JSON.stringify({ currentPassword: 'pw-correct', newPassword: 'short' }),
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('a tenant cannot set a passwordHash through /api/persist', async () => {
+    const res = await app.request('/api/persist', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${tokens['u-tenant']}` },
+      body: JSON.stringify({
+        resource: 'user',
+        action: 'upsert',
+        id: 'u-tenant',
+        data: { id: 'u-tenant', name: 'T P', passwordHash: '$2a$10$attackerhash' },
+      }),
+    })
+    expect(res.status).toBe(200)
+    const ins = db.writes.find((w) => w.startsWith('INSERT INTO users'))
+    expect(ins).toBeTruthy()
+    expect(ins).not.toContain('password_hash = COALESCE(EXCLUDED.password_hash')
+  })
+})
