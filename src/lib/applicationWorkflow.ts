@@ -801,7 +801,7 @@ const PURCHASE_MILESTONES: LifecycleMilestone[] = [
   { key: 'bond_application', label: 'Bond', description: 'Staff track bond paperwork — outcome recorded from bank letter (not live bank).' },
   { key: 'deposit_requested', label: 'Deposit', description: 'Pay the purchase deposit.' },
   { key: 'attorney_assigned', label: 'Conveyancer', description: 'Transfer attorney recorded (staff note — not live portal).' },
-  { key: 'transfer_processing', label: 'Transfer', description: 'Transfer steps tracked in soft-demo checklist — not live Deeds filing.' },
+  { key: 'transfer_processing', label: 'Transfer', description: 'Transfer steps tracked in a staff checklist — not live Deeds filing.' },
   { key: 'registered', label: 'Registered', description: 'Registration recorded by staff from attorney notice.' },
   { key: 'occupation', label: 'Occupation', description: 'Take occupation of the property.' },
 ]

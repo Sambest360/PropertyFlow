@@ -184,7 +184,7 @@ export default function TrustCashbook() {
                 size="sm"
                 disabled={busy || !user?.agencyId}
                 onClick={() => fileRef.current?.click()}
-                title="Import template CSV"
+                title="Manual template CSV import — not a live bank feed"
               >
                 <Upload className="h-4 w-4" />
                 Import Template CSV
@@ -280,7 +280,7 @@ export default function TrustCashbook() {
         {transactions.length === 0 ? (
           <EmptyState
             title="No transactions found"
-            description="Import a template CSV or adjust filters."
+            description="Import a template CSV or adjust filters. Seed rows (if any) are sample history only."
           />
         ) : (
           <div className="divide-y divide-primary-100">
