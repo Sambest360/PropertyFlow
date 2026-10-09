@@ -188,6 +188,15 @@ export async function persistToApi(op: PersistOp): Promise<boolean> {
     }
     return persistToSupabase(op)
   }
+  // PR #69: guest Apply in Postgres-API mode (production: no VITE_SUPABASE_*).
+  // createApplication awaits this and deletes the optimistic APP on false.
+  // quickHealth() aborts /api/health after 800 ms, and live /api/health pings
+  // the database on a cold function (1.3-2.3 s measured), so the gate returned
+  // false and /api/persist was never called. Enquiry worked because it posts
+  // straight to its route. Post the application and let the route answer.
+  if (preferServerPersistForApplication(op.resource, op.action)) {
+    return persistViaServerApi(op)
+  }
   if (!(await quickHealth())) return false
   return persistViaServerApi(op)
 }
