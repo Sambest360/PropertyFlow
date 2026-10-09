@@ -78,7 +78,7 @@ function isPublicHumewood(fe: string): boolean {
 }
 
 /** Stable uuid for the materialized public row. Not a seed.sql stamp. */
-export function stablePublicListingUuid(key: string): string {
+function stableUuid(key: string): string {
   const hex = createHash('sha256').update(`propertyflow-public-listing:${key}`).digest('hex')
   const chars = hex.slice(0, 32).split('')
   chars[12] = '4'
@@ -87,9 +87,6 @@ export function stablePublicListingUuid(key: string): string {
   const h = chars.join('')
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`
 }
-
-/** units.id for unt-skyline-b14. Do not retarget the Framesby PR-1011 map row. */
-export const PUBLIC_HUMEWOOD_UNIT_ID = stablePublicListingUuid(`unit:${PUBLIC_UNIT_ID}`)
 
 function dbListingType(mode: string): string {
   const m = mode.toLowerCase()
@@ -119,8 +116,8 @@ async function materializePublicHumewoodUnit(): Promise<LiveListing | null> {
   const clientId = AGENCY_TO_CLIENT[page.agencyId]
   if (!clientId || clientId !== HORIZON_CLIENT) return null
 
-  const buildingId = stablePublicListingUuid(`building:${PUBLIC_UNIT_ID}`)
-  const unitId = PUBLIC_HUMEWOOD_UNIT_ID
+  const buildingId = stableUuid(`building:${PUBLIC_UNIT_ID}`)
+  const unitId = stableUuid(`unit:${PUBLIC_UNIT_ID}`)
   const accepted = acceptLive(unitId, clientId)
   if (!accepted) return null
 

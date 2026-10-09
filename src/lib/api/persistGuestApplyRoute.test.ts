@@ -11,8 +11,10 @@
  *
  * This test drives the client persistToApi into the real Hono app
  * (server/index.ts): the real /api/persist route, requireActorAndGate
- * (enrichActor + assertPersistAllowed), and handlePersist → upsertApplication.
- * Only Postgres is replaced, by a small table store that answers by SQL shape.
+ * (enrichActor + the real assertPersistAllowed, including the property-book
+ * load and canWriteEntity), and handlePersist → upsertApplication. Nothing in
+ * the gate is skipped or stubbed. Only Postgres is replaced, by a small table
+ * store that answers by SQL shape (including the property-book query).
  * The guest user and the listing agent u-james are real users rows here.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -42,8 +44,8 @@ const db = vi.hoisted(() => ({
   map: [] as MapRow[],
   users: new Map<string, UserRow>(),
   clients: new Set<string>(),
-  units: new Map<string, { id: string; client_id: string | null; building_id: string; title: string }>(),
-  buildings: new Map<string, { id: string; client_id: string | null }>(),
+  units: new Map<string, { id: string; client_id: string | null; building_id: string; title: string; agent_id: string | null }>(),
+  buildings: new Map<string, { id: string; client_id: string | null; landlord_id: string | null }>(),
   applications: new Map<string, AppRow>(),
   sql: [] as string[],
 }))
@@ -65,6 +67,42 @@ vi.mock('../../../server/db.js', () => {
         db.map.push({ entity_type: et, frontend_id: fe, backend_id: be })
       }
       return []
+    }
+    // --- Real scope gate (buildActorPropertyScope / loadIdMapCache) reads ---
+    if (/SELECT entity_type, frontend_id, backend_id::text FROM entity_id_map\s*$/.test(sql.trim())) {
+      return db.map.map((r) => ({ ...r }))
+    }
+    if (/^SELECT id::text AS id, email FROM users$/.test(sql.trim())) {
+      return [...db.users.values()].map((u) => ({ id: u.id, email: u.email }))
+    }
+    if (/FROM units u\s+JOIN buildings b ON b\.id = u\.building_id\s*$/.test(sql.trim())) {
+      // The property book: every unit with its agency, agent and building landlord.
+      return [...db.units.values()].map((u) => ({
+        unit_id: u.id,
+        client_id: u.client_id,
+        agent_id: u.agent_id,
+        landlord_id: db.buildings.get(u.building_id)?.landlord_id ?? null,
+      }))
+    }
+    if (sql.includes('FROM applications a') && sql.includes('LEFT JOIN users u')) {
+      return [...db.applications.values()].map((a) => ({
+        applicant_id: a.params[3] ?? null,
+        email: db.users.get(String(a.params[3]))?.email ?? null,
+        unit_id: a.params[2],
+        status: a.params[7],
+        reference_code: a.params[5],
+        metadata: null,
+      }))
+    }
+    if (/^SELECT tenant_id, unit_id FROM leases$/.test(sql.trim())) return []
+    if (sql.includes('FROM maintenance_tickets') && !sql.includes('WHERE')) return []
+    if (/SELECT status FROM clients WHERE id = \$1::uuid/.test(sql)) {
+      return db.clients.has(String(params[0])) ? [{ status: 'active' }] : []
+    }
+    if (/SELECT id::text AS id FROM applications WHERE reference_code = \$1/.test(sql)) {
+      return [...db.applications.values()]
+        .filter((a) => a.params[5] === params[0])
+        .map((a) => ({ id: a.id }))
     }
     if (sql.includes('FROM entity_id_map m') && sql.includes('JOIN units')) {
       const types = params[0] as string[]
@@ -165,9 +203,11 @@ async function guestApplication(): Promise<Application> {
 
 describe('guest full application on PR-1011 reaches /api/persist (API mode)', () => {
   const calls: string[] = []
+  const statuses: string[] = []
 
   beforeEach(async () => {
     calls.length = 0
+    statuses.length = 0
     db.sql = []
     db.map = [
       // Live public listing row for unt-skyline-b14. The static Framesby seed
@@ -181,13 +221,13 @@ describe('guest full application on PR-1011 reaches /api/persist (API mode)', ()
     ])
     db.clients = new Set([HORIZON_CLIENT, BAYVIEW_CLIENT])
     db.units = new Map([
-      [HUMEWOOD_UNIT, { id: HUMEWOOD_UNIT, client_id: HORIZON_CLIENT, building_id: HUMEWOOD_BUILDING, title: 'Humewood Beach Apartment B14' }],
-      [FRAMESBY_UNIT, { id: FRAMESBY_UNIT, client_id: BAYVIEW_CLIENT, building_id: BAYVIEW_BUILDING, title: 'Framesby cottage — Protea Lane' }],
-      [BEACHVIEW_B14, { id: BEACHVIEW_B14, client_id: HORIZON_CLIENT, building_id: 'a3000001-0001-4000-8000-000000000002', title: 'Beachview Towers B14 — 2-bed rental' }],
+      [HUMEWOOD_UNIT, { id: HUMEWOOD_UNIT, client_id: HORIZON_CLIENT, building_id: HUMEWOOD_BUILDING, title: 'Humewood Beach Apartment B14', agent_id: JAMES_UUID }],
+      [FRAMESBY_UNIT, { id: FRAMESBY_UNIT, client_id: BAYVIEW_CLIENT, building_id: BAYVIEW_BUILDING, title: 'Framesby cottage — Protea Lane', agent_id: null }],
+      [BEACHVIEW_B14, { id: BEACHVIEW_B14, client_id: HORIZON_CLIENT, building_id: 'a3000001-0001-4000-8000-000000000002', title: 'Beachview Towers B14 — 2-bed rental', agent_id: null }],
     ])
     db.buildings = new Map([
-      [HUMEWOOD_BUILDING, { id: HUMEWOOD_BUILDING, client_id: HORIZON_CLIENT }],
-      [BAYVIEW_BUILDING, { id: BAYVIEW_BUILDING, client_id: BAYVIEW_CLIENT }],
+      [HUMEWOOD_BUILDING, { id: HUMEWOOD_BUILDING, client_id: HORIZON_CLIENT, landlord_id: null }],
+      [BAYVIEW_BUILDING, { id: BAYVIEW_BUILDING, client_id: BAYVIEW_CLIENT, landlord_id: null }],
     ])
     db.applications = new Map()
 
@@ -207,7 +247,9 @@ describe('guest full application on PR-1011 reaches /api/persist (API mode)', ()
             })
           })
         }
-        return app.fetch(new Request(`http://propertyflow.test${url}`, init))
+        const res = await app.fetch(new Request(`http://propertyflow.test${url}`, init))
+        statuses.push(`${init?.method ?? 'GET'} ${url} ${res.status}`)
+        return res
       }),
     )
     const { setApiActor } = await import('./actorAuth')
@@ -232,8 +274,14 @@ describe('guest full application on PR-1011 reaches /api/persist (API mode)', ()
     expect(calls).toContain('POST /api/persist')
     expect(ok).toBe(true)
 
-    // Gate ran: enrichActor looked the guest up by their users row.
+    // The real gate ran: enrichActor looked the guest up by their users row,
+    // buildActorPropertyScope loaded the property book and the application
+    // scan, and loadExisting looked for an existing APP-guest-pr1011 row.
     expect(db.sql.some((s) => /SELECT client_id FROM users WHERE id = \$1::uuid/.test(s))).toBe(true)
+    expect(db.sql.some((s) => /FROM units u\s+JOIN buildings b ON b\.id = u\.building_id/.test(s))).toBe(true)
+    expect(db.sql.some((s) => s.includes('FROM applications a') && s.includes('LEFT JOIN users u'))).toBe(true)
+    expect(db.sql.some((s) => /FROM applications WHERE reference_code = \$1/.test(s))).toBe(true)
+    expect(statuses).toContain('POST /api/persist 200')
 
     expect(db.applications.size).toBe(1)
     const saved = [...db.applications.values()][0]!
@@ -247,13 +295,40 @@ describe('guest full application on PR-1011 reaches /api/persist (API mode)', ()
     expect(agentId).toBe(JAMES_UUID)
     expect(ref).toBe('APP-guest-pr1011')
     expect(status).toBe('SUBMITTED')
+    // Reload maps the Humewood unit uuid back to the public PR-1011 listing (idMap).
+    const { mapProperty } = await import('../../../server/idMap.js')
+    expect(mapProperty(unitId as string)).toBe('PR-1011')
     // The saved id is mapped, so the next load can find APP-guest-pr1011.
     expect(
       db.map.find((r) => r.entity_type === 'application' && r.frontend_id === 'APP-guest-pr1011')?.backend_id,
     ).toBe(saved.id)
   })
 
-  it('still answers false when the gated route refuses the write', async () => {
+  it('answers false when the real scope gate refuses the application', async () => {
+    const { persistToApi } = await import('./persist')
+    const appRow = await guestApplication()
+    // Same guest, but filing in another person's name: not their own
+    // application and not on their property book, so the gate must refuse.
+    const OTHER_FE = 'u-someone-else'
+    db.map.push({ entity_type: 'user', frontend_id: OTHER_FE, backend_id: 'b9000001-0001-4000-8000-000000000099' })
+
+    const ok = await persistToApi({
+      resource: 'application',
+      action: 'upsert',
+      id: appRow.id,
+      data: { ...(appRow as unknown as Record<string, unknown>), id: appRow.id, applicantUserId: OTHER_FE },
+    })
+
+    expect(calls).toContain('POST /api/persist')
+    expect(statuses).toContain('POST /api/persist 403')
+    expect(ok).toBe(false)
+    // The refusal came from assertPersistAllowed after the property-book load.
+    expect(db.sql.some((s) => /FROM units u\s+JOIN buildings b ON b\.id = u\.building_id/.test(s))).toBe(true)
+    expect(db.sql.some((s) => s.includes('INSERT INTO applications'))).toBe(false)
+    expect(db.applications.size).toBe(0)
+  })
+
+  it('still answers false when the route refuses an unauthenticated write', async () => {
     const { persistToApi } = await import('./persist')
     const appRow = await guestApplication()
     const { setApiActor } = await import('./actorAuth')

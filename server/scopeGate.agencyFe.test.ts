@@ -254,26 +254,4 @@ describe('scopeGate agency FE (P0 r20)', () => {
       ),
     ).resolves.toBeUndefined()
   })
-
-  it('tenant own application does not load the property book', async () => {
-    query.mockImplementation(async () => {
-      throw new Error('scope load should not run for own application')
-    })
-    const { assertPersistAllowed } = await import('./scopeGate.js')
-    await expect(
-      assertPersistAllowed(
-        { userId: 'u-zanele', role: 'tenant', agencyId: null },
-        {
-          resource: 'application',
-          action: 'upsert',
-          id: 'APP-zanele',
-          data: {
-            propertyId: 'PR-1011',
-            applicantUserId: 'u-zanele',
-            email: 'zanele.mthembu.d03@gmail.com',
-          },
-        },
-      ),
-    ).resolves.toBeUndefined()
-  })
 })

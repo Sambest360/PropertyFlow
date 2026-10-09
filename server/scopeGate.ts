@@ -510,20 +510,6 @@ export async function assertPersistAllowed(
   actor: DemoActor,
   body: PersistBody,
 ): Promise<void> {
-  // Own guest application: allow before the property-book load. That load
-  // scans every unit and application; a timeout or throw there returned
-  // persist_failed and the client deleted the optimistic APP even though
-  // this writer is already allowed to file their own application.
-  const applicant = strField(body.data, 'applicantUserId')
-  if (
-    body.resource === 'application' &&
-    body.action !== 'delete' &&
-    applicant &&
-    applicant === actor.userId
-  ) {
-    return
-  }
-
   const scope = await buildActorPropertyScope(actor)
   const data = body.data ?? {}
   const existing = await loadExisting(body.resource, body.id)

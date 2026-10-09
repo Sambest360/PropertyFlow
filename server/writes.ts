@@ -56,9 +56,6 @@ export const APP_STAGE_TO_DB: Record<string, string> = {
   'Move-In Scheduled': 'LEASED',
   'Keys Handed Over': 'LEASED',
   'Active Tenancy': 'LEASED',
-  // Guest full application normalizes to this label. It is not a DB status.
-  'Application submitted': 'SUBMITTED',
-  'Application Submitted': 'SUBMITTED',
   Rejected: 'REJECTED',
   Withdrawn: 'WITHDRAWN',
   Blocked: 'REJECTED',
@@ -216,21 +213,6 @@ async function resolveSubscriptionId(
 async function userId(fe: unknown): Promise<string | null> {
   if (!fe) return null
   return resolveUuid('user', str(fe))
-}
-
-/**
- * Static seed maps (u-james → a200…0004) are not proof the users row exists.
- * Stamping a missing uuid fails applications.agent_id and the client deletes
- * the optimistic application.
- */
-async function liveUserId(fe: unknown): Promise<string | null> {
-  const uuid = await userId(fe)
-  if (!uuid) return null
-  const live = await query<{ id: string }>(
-    `SELECT id::text AS id FROM users WHERE id = $1::uuid LIMIT 1`,
-    [uuid],
-  )
-  return live[0]?.id ?? null
 }
 
 
@@ -1093,7 +1075,7 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
     userFeId: d.applicantUserId,
     email: d.email,
   })
-  const agent = await liveUserId(d.agentId)
+  const agent = await userId(d.agentId)
   const status =
     APP_STAGE_TO_DB[str(d.stage)] ??
     str(d.status, 'SUBMITTED').toUpperCase().replace(/\s+/g, '_')
