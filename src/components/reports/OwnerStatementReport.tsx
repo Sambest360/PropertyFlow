@@ -16,6 +16,7 @@ import { formatZAR } from '../../data/seed'
 import {
   OWNER_STATEMENT_TABLE_COLUMNS,
   OWNER_STATEMENT_TABLE_FOOTER,
+  OWNER_STATEMENT_TOTALS_FOOTER,
   buildOwnerStatementBook,
   buildOwnerStatementTable,
   defaultOwnerStatementPeriod,
@@ -254,7 +255,8 @@ export function OwnerStatementReport({ agencyId, agencyName, fixedLandlord = nul
         </dl>
       ) : null}
 
-      <p className="mt-4 text-xs text-ink-500">{OWNER_STATEMENT_TABLE_FOOTER}</p>
+      <p className="mt-4 text-xs text-ink-500">{OWNER_STATEMENT_TOTALS_FOOTER}</p>
+      <p className="mt-1 text-xs text-ink-500">{OWNER_STATEMENT_TABLE_FOOTER}</p>
       {message ? <p className="mt-2 text-xs text-ink-600">{message}</p> : null}
     </ReportSectionCard>
   )

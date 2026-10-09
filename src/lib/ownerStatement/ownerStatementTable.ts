@@ -28,6 +28,10 @@ export const OWNER_STATEMENT_TABLE_COLUMNS: ReadonlyArray<{
   { key: 'netPaid', label: 'Net paid', numeric: true },
 ]
 
+/** Which lines count toward the totals (same wording on screen and in CSV). */
+export const OWNER_STATEMENT_TOTALS_FOOTER =
+  'Only paid rent and commission are totalled; other lines are shown for reference.'
+
 export const OWNER_STATEMENT_TABLE_FOOTER =
   'Figures come from the in-app book (payments, allocations, and payouts submitted or earlier).'
 
@@ -139,5 +143,11 @@ export function ownerStatementTableToCsv(
       return i === firstTextCol ? 'Total' : ''
     })
     .join(',')
-  return [header, ...body, totalsRow, csvEscape(OWNER_STATEMENT_TABLE_FOOTER)].join('\n')
+  return [
+    header,
+    ...body,
+    totalsRow,
+    csvEscape(OWNER_STATEMENT_TOTALS_FOOTER),
+    csvEscape(OWNER_STATEMENT_TABLE_FOOTER),
+  ].join('\n')
 }
