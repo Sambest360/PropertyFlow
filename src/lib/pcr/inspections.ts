@@ -4,7 +4,7 @@
  */
 
 import type { Application } from '../../types/domain'
-import { cloneTemplateRooms, defaultResidentialTemplate } from './templates'
+import { cloneTemplateRooms, defaultResidentialTemplate } from './templates.js'
 import type {
   ItemCondition,
   PcrInspectionItem,

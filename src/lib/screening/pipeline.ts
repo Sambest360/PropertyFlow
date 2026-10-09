@@ -4,8 +4,8 @@
  */
 
 import type { Application } from '../../types/domain'
-import { appendWorkflowEvent } from '../applicationWorkflowEvents'
-import { MockDevScreeningProvider } from './providers'
+import { appendWorkflowEvent } from '../applicationWorkflowEvents.js'
+import { MockDevScreeningProvider } from './providers.js'
 import type { ScreeningProvider } from './types'
 import type {
   CreditCheckLabel,

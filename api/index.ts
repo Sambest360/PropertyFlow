@@ -14,6 +14,7 @@
  */
 import { Hono } from 'hono'
 import type { Hono as HonoApp } from 'hono'
+import { runningCommitSha } from '../server/appConfig.js'
 import { createVercelNodeHandler } from '../server/vercelNodeBridge.js'
 
 let mainApp: HonoApp | null = null
@@ -40,6 +41,7 @@ gateway.get('/health', async (c) => {
         ok: configured,
         database: configured ? 'configured' : 'unconfigured',
         vercel: Boolean(process.env.VERCEL),
+        commit: runningCommitSha(),
         at,
       },
       configured ? 200 : 503,
@@ -52,6 +54,7 @@ gateway.get('/health', async (c) => {
         ok: false,
         database: 'unconfigured',
         error: 'DATABASE_URL is not set on Vercel',
+        commit: runningCommitSha(),
         at,
       },
       503,
@@ -65,6 +68,7 @@ gateway.get('/health', async (c) => {
       ok: true,
       database: 'up',
       warning: databaseConfigWarning,
+      commit: runningCommitSha(),
       at,
     })
   } catch (err) {
@@ -75,6 +79,7 @@ gateway.get('/health', async (c) => {
         database: 'down',
         error: message,
         hint: 'Use Supabase Transaction pooler port 6543 in DATABASE_URL, then redeploy.',
+        commit: runningCommitSha(),
         at,
       },
       503,

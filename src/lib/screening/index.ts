@@ -10,14 +10,14 @@ export type {
   ScreeningStartResponse,
   ScreeningSubject,
   ScreeningWebhookPayload,
-} from './types'
+} from './types.js'
 
 export {
   MockDevScreeningProvider,
   TpnScreeningProviderPlaceholder,
   screeningProviderFromEnv,
   type ScreeningProviderKind,
-} from './providers'
+} from './providers.js'
 
 export {
   captureScreeningConsent,
@@ -40,4 +40,4 @@ export {
   applicationPassesScreeningSoftGate,
   type StartScreeningResult,
   type ScreeningSoftGatedActionKey,
-} from './pipeline'
+} from './pipeline.js'

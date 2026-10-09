@@ -4,7 +4,7 @@
  * template — never invent verified statuses.
  */
 import type { Application, ApplicationDocument } from '../types/domain'
-import { buildDocumentChecklist, ensureApplicationDocuments } from './workflow'
+import { buildDocumentChecklist, ensureApplicationDocuments } from './workflow.js'
 
 export type UploadedDocsPayload = {
   documents?: unknown

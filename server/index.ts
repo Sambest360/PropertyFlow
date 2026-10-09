@@ -62,6 +62,7 @@ import {
 } from './mailtrap.js'
 import { ensureUuid, resolveUuid } from './entityMap.js'
 import { registerSupabaseUserDirect } from './supabase/registerUser.js'
+import { runningCommitSha } from './appConfig.js'
 
 function productionAuthSecretMissing(): boolean {
   return process.env.NODE_ENV === 'production' && !process.env.AUTH_SECRET?.trim()
@@ -161,6 +162,7 @@ app.get('/api/health', async (c) => {
         ok: false,
         database: 'unconfigured',
         error: databaseConfigError || 'DATABASE_URL is not set',
+        commit: runningCommitSha(),
         at: new Date().toISOString(),
       },
       503,
@@ -173,6 +175,7 @@ app.get('/api/health', async (c) => {
       database: 'configured',
       warning: databaseConfigWarning,
       pool: Boolean(pool),
+      commit: runningCommitSha(),
       at: new Date().toISOString(),
     })
   }
@@ -183,6 +186,7 @@ app.get('/api/health', async (c) => {
       database: 'up',
       warning: databaseConfigWarning,
       pool: Boolean(pool),
+      commit: runningCommitSha(),
       at: new Date().toISOString(),
     })
   } catch (err) {
@@ -194,6 +198,7 @@ app.get('/api/health', async (c) => {
         error: message,
         warning: databaseConfigWarning,
         hint: 'Use the Supabase Transaction pooler URI (port 6543) and redeploy after setting DATABASE_URL.',
+        commit: runningCommitSha(),
         at: new Date().toISOString(),
       },
       503,
