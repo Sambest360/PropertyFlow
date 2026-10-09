@@ -38,3 +38,21 @@ export async function resolveRequestActor(
   if (!demoAllowed) return null
   return parseDemoActor(c, body)
 }
+
+/**
+ * Staff roles (src/types/domain Role + src/lib/permissions isAgencyStaff):
+ * 'agent' is the legacy alias of ground_agent (both map to GROUND_AGENT in
+ * auth ROLE_TO_DB), so it counts as staff. Tenants, landlords, contractors
+ * (and applicants, who resolve to tenant) are not staff.
+ */
+export const STAFF_ROLES: ReadonlySet<string> = new Set([
+  'super_admin',
+  'client_admin',
+  'agent_admin',
+  'ground_agent',
+  'agent',
+])
+
+export function isStaffRole(role: string | null | undefined): boolean {
+  return Boolean(role) && STAFF_ROLES.has(String(role))
+}

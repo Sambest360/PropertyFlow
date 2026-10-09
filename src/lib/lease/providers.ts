@@ -6,6 +6,7 @@
  * - DocuSign: placeholder only (Mode A OUT).
  */
 
+import { authHeaders } from '../api/authClient'
 import type {
   ESignCreateEnvelopeRequest,
   ESignCreateEnvelopeResponse,
@@ -158,7 +159,8 @@ export class SigniFlowESignProvider implements ESignProvider {
     try {
       const res = await this.fetchImpl(this.createPath, {
         method: 'POST',
-        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...authHeaders() },
+        credentials: 'include',
         body: JSON.stringify(request),
       })
       const json = (await res.json()) as ESignCreateEnvelopeResponse & { error?: string }
@@ -212,8 +214,10 @@ export class SigniFlowESignProvider implements ESignProvider {
     try {
       const res = await this.fetchImpl(this.statusPath, {
         method: 'POST',
-        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ envelopeId: request.envelopeId }),
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...authHeaders() },
+        credentials: 'include',
+        // tenancyId lets the server check the lease is in scope and owns this envelope.
+        body: JSON.stringify({ envelopeId: request.envelopeId, tenancyId: request.tenancyId ?? null }),
       })
       const json = (await res.json()) as {
         ok?: boolean

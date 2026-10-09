@@ -6,6 +6,7 @@
  * page. PayFast redirects back to `/payfast/return` or `/payfast/cancel` and
  * notifies our server via ITN, which marks the ledger payment PAID.
  */
+import { authHeaders } from '../api/authClient'
 
 export type PayfastCheckoutOptions = {
   /** Override amount (integer cents). Defaults to the ledger amount. */
@@ -37,9 +38,11 @@ export async function startPayfastCheckout(
   opts: PayfastCheckoutOptions = {},
 ): Promise<PayfastCheckoutResult> {
   try {
+    // Checkout is signed-in only: send the session (Bearer + pf_session cookie).
     const res = await fetch('/api/payfast/create', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      credentials: 'include',
       body: JSON.stringify({ paymentId, ...opts }),
     })
     const data = (await res.json().catch(() => null)) as

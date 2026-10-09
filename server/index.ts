@@ -16,7 +16,7 @@ import {
   ACTOR_ROLE_HEADER,
   ACTOR_USER_HEADER,
 } from './actor.js'
-import { resolveRequestActor } from './requestActor.js'
+import { isStaffRole, resolveRequestActor } from './requestActor.js'
 import { filterBootstrapForGuest } from './guestMarketplace.js'
 import {
   clearSession,
@@ -28,12 +28,15 @@ import {
   updateUserVerification,
 } from './auth.js'
 import {
+  agencyFeForClient,
   assertPersistAllowed,
+  assertTenancyReadable,
   enrichActor,
+  normalizedActorAgency,
 } from './scopeGate.js'
 import { supabaseSessionMiddleware } from './supabase/middleware.js'
 import type { PersistBody } from './writes.js'
-import { payfastCreate, payfastItn } from './payfastRoutes.js'
+import { payfastCreate, payfastItn, type LoadedPayment } from './payfastRoutes.js'
 import { screeningProviderInfo, screeningWebhook } from './screeningRoutes.js'
 import {
   esignCreateEnvelope,
@@ -61,6 +64,7 @@ import {
   sendWelcomeEmail,
 } from './mailtrap.js'
 import { ensureUuid, resolveUuid } from './entityMap.js'
+import { docIdFromEnvelopeId } from './signiflow.js'
 import { registerSupabaseUserDirect } from './supabase/registerUser.js'
 import { runningCommitSha } from './appConfig.js'
 
@@ -135,6 +139,16 @@ function errStatus(err: unknown): ContentfulStatusCode {
     if (s >= 400 && s < 600) return s as ContentfulStatusCode
   }
   return 500
+}
+
+/** Verified actor (session first, see requestActor.ts) or a 401 error. */
+async function requireActor(
+  c: Parameters<typeof parseDemoActor>[0],
+  body?: Record<string, unknown> | null,
+) {
+  const raw = await resolveRequestActor(c, body ?? null)
+  if (!raw) throw actorRequiredError()
+  return enrichActor(raw)
 }
 
 async function requireActorAndGate(c: Parameters<typeof parseDemoActor>[0], body: PersistBody) {
@@ -654,32 +668,55 @@ app.get('/api/v1/units', async (c) => {
   }
 })
 
+/**
+ * Inventory counts. Signed-in only.
+ * - super_admin: platform-wide counts (as before).
+ * - client_admin / agent_admin: the same keys counted for their own agency
+ *   (client_id = their agency); clients is 1.
+ * - Everyone else (ground agents, tenants, landlords, contractors): 403 —
+ *   these are agency-wide totals, outside a property-locked scope.
+ */
 app.get('/api/counts', async (c) => {
   try {
-    const rows = await query<{
-      leads: string
-      payments: string
-      documents: string
-      notifications: string
-      threads: string
-      messages: string
-      clients: string
-      units: string
-    }>(`
-      SELECT
-        (SELECT COUNT(*)::text FROM leads) AS leads,
-        (SELECT COUNT(*)::text FROM payments) AS payments,
-        (SELECT COUNT(*)::text FROM documents) AS documents,
-        (SELECT COUNT(*)::text FROM notifications) AS notifications,
-        (SELECT COUNT(*)::text FROM message_threads) AS threads,
-        (SELECT COUNT(*)::text FROM messages) AS messages,
-        (SELECT COUNT(*)::text FROM clients) AS clients,
-        (SELECT COUNT(*)::text FROM units) AS units
-    `)
-    return c.json(rows[0] ?? {})
+    const actor = await requireActor(c, null)
+    const COUNT_TABLES: Array<[string, string]> = [
+      ['leads', 'leads'],
+      ['payments', 'payments'],
+      ['documents', 'documents'],
+      ['notifications', 'notifications'],
+      ['threads', 'message_threads'],
+      ['messages', 'messages'],
+      ['clients', 'clients'],
+      ['units', 'units'],
+    ]
+    if (actor.role === 'super_admin') {
+      const rows = await query<Record<string, string>>(
+        `SELECT ${COUNT_TABLES.map(([k, t]) => `(SELECT COUNT(*)::text FROM ${t}) AS ${k}`).join(', ')}`,
+      )
+      return c.json({ scope: 'platform', ...(rows[0] ?? {}) })
+    }
+    if (actor.role !== 'client_admin' && actor.role !== 'agent_admin') {
+      return c.json({ error: 'forbidden', message: 'Counts are for agency admins' }, 403)
+    }
+    const agencyFe = await normalizedActorAgency(actor)
+    const clientUuid = agencyFe ? await resolveUuid('agency', agencyFe) : null
+    if (!clientUuid) {
+      return c.json({ error: 'forbidden', message: 'No agency on this account' }, 403)
+    }
+    const rows = await query<Record<string, string>>(
+      `SELECT ${COUNT_TABLES.map(([k, t]) =>
+        t === 'clients'
+          ? `(SELECT COUNT(*)::text FROM clients WHERE id = $1::uuid) AS ${k}`
+          : `(SELECT COUNT(*)::text FROM ${t} WHERE client_id = $1::uuid) AS ${k}`,
+      ).join(', ')}`,
+      [clientUuid],
+    )
+    return c.json({ scope: 'agency', agencyId: agencyFe, ...(rows[0] ?? {}) })
   } catch (err) {
+    const status = errStatus(err)
+    if (status === 401) return c.json({ error: 'unauthorized', message: 'Sign in required' }, 401)
     const message = err instanceof Error ? err.message : String(err)
-    return c.json({ error: message }, 500)
+    return c.json({ error: message }, status)
   }
 })
 
@@ -915,10 +952,11 @@ app.post('/api/applications/:id/approve', async (c) => {
   try {
     const applicationId = c.req.param('id')
     const body = (await c.req.json().catch(() => ({}))) as {
+      /** Ignored for audit — the verified actor is logged instead. */
       actorUserId?: string
       tenancy?: Record<string, unknown>
     }
-    await requireActorAndGate(c, {
+    const actor = await requireActorAndGate(c, {
       resource: 'application',
       action: 'upsert',
       id: applicationId,
@@ -927,7 +965,8 @@ app.post('/api/applications/:id/approve', async (c) => {
     const { approveApplicationTx } = await loadWritesModule()
     const result = await approveApplicationTx({
       applicationId,
-      actorUserId: body.actorUserId,
+      // Audit the verified actor, never the body's claim (body.actorUserId ignored).
+      actorUserId: actor.userId,
       tenancy: body.tenancy,
     })
     // Approval email — additive lookup, never blocks or fails the approval.
@@ -1021,6 +1060,9 @@ app.post('/api/notify/dunning-notice', async (c) => {
     if (!actor) {
       return c.json({ error: 'actor_required', message: 'Staff actor required to send dunning email' }, 401)
     }
+    if (!isStaffRole(actor.role)) {
+      return c.json({ error: 'forbidden', message: 'Only agency staff can send dunning email' }, 403)
+    }
     const email = String(body.email ?? '').trim()
     if (!email) {
       return c.json({ ok: true, emailed: false, reason: 'no_email' }, 202)
@@ -1046,15 +1088,95 @@ app.post('/api/notify/dunning-notice', async (c) => {
   }
 })
 
-app.post('/api/payfast/create', (c) => payfastCreate(c))
+/**
+ * Checkout: signed-in only. The payer must be the session user (payment
+ * party), or a staff role in the payment's agency (super admin: any).
+ */
+app.post('/api/payfast/create', async (c) => {
+  let actor: Awaited<ReturnType<typeof requireActor>>
+  try {
+    actor = await requireActor(c, null)
+  } catch (err) {
+    return c.json({ ok: false, error: 'actor_required' }, errStatus(err))
+  }
+  return payfastCreate(c, async (payment: LoadedPayment) => {
+    if (actor.role === 'super_admin') return null
+    if (payment.partyUserId) {
+      const actorUuid = await resolveUuid('user', actor.userId)
+      if (actorUuid && actorUuid === payment.partyUserId) return null
+    }
+    if (isStaffRole(actor.role)) {
+      const actorAgency = await normalizedActorAgency(actor)
+      const paymentAgency = await agencyFeForClient(payment.clientUuid)
+      if (actorAgency && paymentAgency && actorAgency === paymentAgency) return null
+    }
+    return { status: 403, error: 'payment_not_yours' }
+  })
+})
+
+// ITN stays unauthenticated: PayFast calls it server-to-server and it is
+// verified by source, signature and ledger amount inside payfastItn.
+
 
 app.post('/api/payfast/itn', (c) => payfastItn(c))
 app.get('/api/screening/provider', (c) => screeningProviderInfo(c))
 app.post('/api/screening/webhook', (c) => screeningWebhook(c))
 
 app.get('/api/esign/provider', (c) => esignProviderInfo(c))
-app.post('/api/esign/create-envelope', (c) => esignCreateEnvelope(c))
-app.post('/api/esign/status', (c) => esignStatus(c))
+/**
+ * E-sign create / status: signed-in only, and the lease (tenancyId) must be
+ * readable by the actor (assertTenancyReadable). Status is also bound to the
+ * envelope stored on that lease, so a lease in scope cannot be used to poll
+ * someone else's document.
+ */
+app.post('/api/esign/create-envelope', async (c) => {
+  try {
+    const actor = await requireActor(c, null)
+    const body = (await c.req.json().catch(() => ({}))) as { tenancyId?: unknown }
+    const tenancyId = typeof body.tenancyId === 'string' ? body.tenancyId.trim() : ''
+    if (!tenancyId) return c.json({ ok: false, error: 'tenancyId is required' }, 400)
+    await assertTenancyReadable(actor, tenancyId)
+  } catch (err) {
+    const status = errStatus(err)
+    return c.json(
+      { ok: false, error: status === 401 ? 'actor_required' : status === 404 ? 'lease_not_found' : 'forbidden' },
+      status,
+    )
+  }
+  return esignCreateEnvelope(c)
+})
+
+app.post('/api/esign/status', async (c) => {
+  try {
+    const actor = await requireActor(c, null)
+    const body = (await c.req.json().catch(() => ({}))) as {
+      tenancyId?: unknown
+      envelopeId?: unknown
+      docId?: unknown
+    }
+    const tenancyId = typeof body.tenancyId === 'string' ? body.tenancyId.trim() : ''
+    if (!tenancyId) return c.json({ ok: false, error: 'tenancyId is required' }, 400)
+    const lease = await assertTenancyReadable(actor, tenancyId)
+    const storedEnvelope =
+      typeof lease.eSign?.envelopeId === 'string' ? (lease.eSign.envelopeId as string) : ''
+    const requestedDoc =
+      (typeof body.docId === 'string' && body.docId.trim()) ||
+      (typeof body.envelopeId === 'string' && body.envelopeId.trim()
+        ? docIdFromEnvelopeId(body.envelopeId.trim())
+        : '')
+    const storedDoc = storedEnvelope ? docIdFromEnvelopeId(storedEnvelope) : ''
+    if (!storedDoc || !requestedDoc || requestedDoc !== storedDoc) {
+      return c.json({ ok: false, error: 'envelope_not_on_lease' }, 403)
+    }
+  } catch (err) {
+    const status = errStatus(err)
+    return c.json(
+      { ok: false, error: status === 401 ? 'actor_required' : status === 404 ? 'lease_not_found' : 'forbidden' },
+      status,
+    )
+  }
+  return esignStatus(c)
+})
 app.post('/api/esign/webhook', (c) => esignWebhook(c))
 
 app.post('/api/notifications/mark-read', async (c) => {

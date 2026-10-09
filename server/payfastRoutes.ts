@@ -44,6 +44,26 @@ function absoluteOrigin(c: Context): string {
   return `${proto}://${url.host}`
 }
 
+export type LoadedPayment = {
+  id: string
+  uuid: string
+  amount: number
+  status: string
+  paymentType: string
+  partyName: string
+  partyUserId: string | null
+  clientUuid: string | null
+  propertyFeId: string | null
+}
+
+/**
+ * Route-level authorisation for checkout, run once the payment row is loaded.
+ * Returns an HTTP error to send, or null to continue.
+ */
+export type PayfastCreateAuthorize = (
+  payment: LoadedPayment,
+) => Promise<{ status: 401 | 403; error: string } | null>
+
 /** Look up the payments row for a FE payment id (accepting the raw uuid too). */
 async function loadPayment(paymentId: string): Promise<{
   id: string
@@ -93,7 +113,7 @@ async function loadPayment(paymentId: string): Promise<{
   }
 }
 
-export async function payfastCreate(c: Context) {
+export async function payfastCreate(c: Context, authorize?: PayfastCreateAuthorize) {
   try {
     const cfg = config()
     if (!cfg) {
@@ -107,6 +127,10 @@ export async function payfastCreate(c: Context) {
     const payment = await loadPayment(paymentId)
     if (!payment) {
       return c.json({ ok: false, error: 'payment_not_found' }, 404)
+    }
+    if (authorize) {
+      const denied = await authorize(payment)
+      if (denied) return c.json({ ok: false, error: denied.error }, denied.status)
     }
     if (payment.status === 'PAID') {
       return c.json({ ok: false, error: 'payment_already_paid' }, 409)
