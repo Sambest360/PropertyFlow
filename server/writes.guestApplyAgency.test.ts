@@ -127,6 +127,8 @@ describe('guest public apply inherits listing agency (PR-1011)', () => {
       }
 
       if (sql.includes('FROM users') || sql.includes('FROM clients')) return []
+      // #80: listing agent for an application created without agentId.
+      if (sql.includes('SELECT agent_id::text AS agent_id FROM units')) return []
       if (sql.includes('INSERT INTO buildings')) {
         const vals = params ?? []
         db.buildings.set(String(vals[0]), {

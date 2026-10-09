@@ -91,7 +91,7 @@ export default function PaymentDetail() {
     setMarkPaidOpen(false)
     void alert.success({
       title: 'Payment marked paid',
-      text: 'Settlement details were saved to the ledger.',
+      text: 'Payment details recorded.',
     })
   }
 

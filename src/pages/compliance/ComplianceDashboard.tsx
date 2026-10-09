@@ -143,16 +143,14 @@ export default function ComplianceDashboard() {
           },
         })
       }
-    } catch {
-      // API unavailable (demo/offline) — fall back to the local store so the
-      // reviewer keeps a working queue. Persistence retried on next action.
-      updateUser(row.userId, {
-        verification: {
-          ...(status === 'rejected' ? { rejectNote: rejectNote[row.userId]?.trim() } : {}),
-          status,
-          reviewedAt: new Date().toISOString(),
-        },
-      })
+    } catch (err) {
+      // No fallback to a plain user write: verification decisions go through the
+      // super-admin route only (a user write cannot change verification).
+      setError(
+        err instanceof Error && err.message
+          ? `Could not save the verification decision: ${err.message}`
+          : 'Could not save the verification decision.',
+      )
     } finally {
       setBusyId(null)
     }

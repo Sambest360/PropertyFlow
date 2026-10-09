@@ -19,6 +19,7 @@ import {
 import { isStaffRole, resolveRequestActor } from './requestActor.js'
 import { filterBootstrapForGuest } from './guestMarketplace.js'
 import {
+  changeUserPassword,
   clearSession,
   issueSession,
   loginUser,
@@ -133,6 +134,15 @@ app.use(
 
 app.use('*', supabaseSessionMiddleware)
 
+/** Machine-readable policy code on a refused write (e.g. APPLICATION_TRANSITION_FORBIDDEN). */
+function errCode(err: unknown): { code?: string } {
+  if (err && typeof err === 'object' && 'code' in err && typeof (err as { code: unknown }).code === 'string') {
+    const code = (err as { code: string }).code
+    if (/^[A-Z][A-Z0-9_]+$/.test(code)) return { code }
+  }
+  return {}
+}
+
 function errStatus(err: unknown): ContentfulStatusCode {
   if (err && typeof err === 'object' && 'status' in err) {
     const s = Number((err as { status: unknown }).status)
@@ -155,8 +165,16 @@ async function requireActorAndGate(c: Parameters<typeof parseDemoActor>[0], body
   const raw = await resolveRequestActor(c, body as unknown as Record<string, unknown>)
   if (!raw) throw actorRequiredError()
   const actor = await enrichActor(raw)
-  await assertPersistAllowed(actor, body)
-  return actor
+  const outcome = await assertPersistAllowed(actor, body)
+  return { actor, handled: outcome?.handled ?? null }
+}
+
+/** Gate, then the generic upsert unless the gate already did a narrow rewrite. */
+async function gatedPersist(c: Parameters<typeof parseDemoActor>[0], body: PersistBody) {
+  const { handled } = await requireActorAndGate(c, body)
+  if (handled) return handled
+  const { handlePersist } = await loadWritesModule()
+  return handlePersist(body)
 }
 
 app.get('/api/health', async (c) => {
@@ -549,6 +567,54 @@ app.get('/api/auth/me', async (c) => {
   }
 })
 
+/**
+ * Self-service password change: the signed-in user (session cookie / bearer)
+ * must send their current password. Clears mustChangePassword. The generic
+ * persist route strips passwordHash / password / tempPassword from every
+ * non-super user write, so this is the password-change path.
+ */
+app.post('/api/auth/change-password', async (c) => {
+  if (!databaseConfigured) {
+    return c.json(
+      { error: 'database_unconfigured', message: databaseConfigError || 'DATABASE_URL is not set' },
+      503,
+    )
+  }
+  const ip = authIpKey(c.req.raw.headers)
+  const ipGate = authIpRateLimit(ip)
+  if (!ipGate.ok) {
+    const rl = tooManyRequests(ipGate.retryAfterSec)
+    return c.json(rl.body, rl.status, rl.headers)
+  }
+  let email = ''
+  try {
+    const user = await resolveSessionUser(c)
+    if (!user) return c.json({ error: 'unauthorized', message: 'Not signed in' }, 401)
+    email = user.email ?? ''
+    const accountGate = authFailureBlocked(ip, email)
+    if (!accountGate.ok) {
+      const rl = tooManyRequests(accountGate.retryAfterSec)
+      return c.json(rl.body, rl.status, rl.headers)
+    }
+    const body = (await c.req.json().catch(() => ({}))) as {
+      currentPassword?: string
+      newPassword?: string
+    }
+    const updated = await changeUserPassword({
+      userUuid: user.id,
+      currentPassword: String(body.currentPassword ?? ''),
+      newPassword: String(body.newPassword ?? ''),
+    })
+    clearAuthFailures(ip, email)
+    return c.json({ ok: true, user: sessionToPublic(updated) })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    const status = errStatus(err)
+    if (email && status === 401) recordAuthFailure(ip, email)
+    return c.json({ error: 'change_password_failed', message }, status)
+  }
+})
+
 app.get('/api/bootstrap', async (c) => {
   if (!databaseConfigured) {
     return c.json(
@@ -721,6 +787,33 @@ app.get('/api/counts', async (c) => {
   }
 })
 
+/**
+ * Payout dual control (approve / submit). The only path past `proposed`;
+ * generic persist only ever creates proposals. See server/payoutRoutes.ts.
+ */
+for (const step of ['approve', 'submit'] as const) {
+  app.post(`/api/trust/payouts/:id/${step}`, async (c) => {
+    if (!databaseConfigured) {
+      return c.json(
+        { error: 'database_unconfigured', message: databaseConfigError || 'DATABASE_URL is not set' },
+        503,
+      )
+    }
+    try {
+      const raw = await resolveRequestActor(c, null)
+      if (!raw) throw actorRequiredError()
+      const actor = await enrichActor(raw)
+      const { approvePayout, submitPayout } = await import('./payoutRoutes.js')
+      const id = c.req.param('id')
+      const result = step === 'approve' ? await approvePayout(actor, id) : await submitPayout(actor, id)
+      return c.json(result)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return c.json({ error: `payout_${step}_failed`, message }, errStatus(err))
+    }
+  })
+}
+
 /** Generic domain persist (RPC). AppStore fire-and-forgets here. */
 app.post('/api/persist', async (c) => {
   if (!databaseConfigured) {
@@ -734,14 +827,12 @@ app.post('/api/persist', async (c) => {
   }
   try {
     const body = (await c.req.json()) as PersistBody
-    await requireActorAndGate(c, body)
-    const { handlePersist } = await loadWritesModule()
-    const result = await handlePersist(body)
+    const result = await gatedPersist(c, body)
     return c.json(result)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[api/persist]', message)
-    return c.json({ error: 'persist_failed', message }, errStatus(err))
+    return c.json({ error: 'persist_failed', message, ...errCode(err) }, errStatus(err))
   }
 })
 
@@ -759,17 +850,15 @@ app.post('/api/persist/batch', async (c) => {
   try {
     const body = (await c.req.json()) as { ops?: PersistBody[] }
     const ops = Array.isArray(body.ops) ? body.ops : []
-    const { handlePersist } = await loadWritesModule()
     const results = []
     for (const op of ops) {
-      await requireActorAndGate(c, op)
-      results.push(await handlePersist(op))
+      results.push(await gatedPersist(c, op))
     }
     return c.json({ ok: true, results })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[api/persist/batch]', message)
-    return c.json({ error: 'persist_batch_failed', message }, errStatus(err))
+    return c.json({ error: 'persist_batch_failed', message, ...errCode(err) }, errStatus(err))
   }
 })
 
@@ -835,13 +924,11 @@ for (const plural of restResources) {
       const id = String(data.id ?? '')
       if (!id) return c.json({ error: 'id_required' }, 400)
       const body: PersistBody = { resource, action: 'upsert', id, data }
-      await requireActorAndGate(c, body)
-      const { handlePersist } = await loadWritesModule()
-    const result = await handlePersist(body)
+      const result = await gatedPersist(c, body)
       return c.json(result, 201)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      return c.json({ error: 'create_failed', message }, errStatus(err))
+      return c.json({ error: 'create_failed', message, ...errCode(err) }, errStatus(err))
     }
   })
 
@@ -855,13 +942,11 @@ for (const plural of restResources) {
         id,
         data: { ...data, id },
       }
-      await requireActorAndGate(c, body)
-      const { handlePersist } = await loadWritesModule()
-    const result = await handlePersist(body)
+      const result = await gatedPersist(c, body)
       return c.json(result)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      return c.json({ error: 'update_failed', message }, errStatus(err))
+      return c.json({ error: 'update_failed', message, ...errCode(err) }, errStatus(err))
     }
   })
 
@@ -869,13 +954,11 @@ for (const plural of restResources) {
     try {
       const id = c.req.param('id')
       const body: PersistBody = { resource, action: 'delete', id }
-      await requireActorAndGate(c, body)
-      const { handlePersist } = await loadWritesModule()
-    const result = await handlePersist(body)
+      const result = await gatedPersist(c, body)
       return c.json(result)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      return c.json({ error: 'delete_failed', message }, errStatus(err))
+      return c.json({ error: 'delete_failed', message, ...errCode(err) }, errStatus(err))
     }
   })
 }
@@ -957,12 +1040,25 @@ app.post('/api/applications/:id/approve', async (c) => {
       actorUserId?: string
       tenancy?: Record<string, unknown>
     }
-    const actor = await requireActorAndGate(c, {
+    const { actor } = await requireActorAndGate(c, {
       resource: 'application',
       action: 'upsert',
       id: applicationId,
       data: { id: applicationId, stage: 'Approved' },
     })
+    // Staff only. Applicants (tenant / contractor) never approve, their own
+    // application included, and the gate above already refuses them with
+    // APPLICATION_TRANSITION_FORBIDDEN. Landlords do not approve here either:
+    // their review decision is the narrow /api/persist write (landlord_review
+    // -> conditionally_approved | rejected), and this route creates the lease
+    // and payments. The gate refuses a landlord's { stage: 'Approved' } too;
+    // the explicit check keeps that true if the gate changes.
+    if (actor.role === 'tenant' || actor.role === 'contractor' || actor.role === 'landlord') {
+      return c.json(
+        { error: 'forbidden', message: `Forbidden: ${actor.role} cannot approve applications` },
+        403,
+      )
+    }
     const { approveApplicationTx } = await loadWritesModule()
     const result = await approveApplicationTx({
       applicationId,

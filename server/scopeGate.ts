@@ -34,6 +34,13 @@ import { canWriteEntity } from '../src/lib/scopeWrite.js'
 import type { PropertyAccessSubject } from '../src/lib/agencyScope.js'
 import type { Permission, Role } from '../src/types/domain.js'
 import { effectiveCan } from '../src/lib/permissions.js'
+import { isReservedSuperAdminEmail, resolveFrontendRole } from '../src/lib/supabase/idMap.js'
+import {
+  enforcePortalWritePolicy,
+  landlordApplicationDecision,
+  PORTAL_ROLES as PORTAL_WRITE_ROLES,
+  type PortalOutcome,
+} from './portalWritePolicy.js'
 
 type FePropertyRow = PropertyAccessSubject & { id: string }
 
@@ -48,6 +55,11 @@ async function fePropertyFromUnit(unitUuid: string | null | undefined): Promise<
 }
 
 /** Agency FE id — parity with bootstrap.ts agencyFe (entity_id_map first). */
+export async function agencyFeId(clientOrFeId: string | null | undefined): Promise<string | null> {
+  if (!clientOrFeId) return null
+  return (await agencyFe(clientOrFeId)) ?? clientOrFeId
+}
+
 async function agencyFe(clientId: string | null | undefined): Promise<string | null> {
   if (!clientId) return null
   const cache = await loadIdMapCache()
@@ -347,7 +359,15 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
   const tableMap: Partial<
     Record<
       EntityType,
-      { table: string; unitCol?: string; clientCol?: string; agentCol?: string; extra?: string }
+      {
+        table: string
+        unitCol?: string
+        clientCol?: string
+        agentCol?: string
+        /** Column naming the row's owner (own-row write shortcut). */
+        ownerCol?: string
+        extra?: string
+      }
     >
   > = {
     lead: { table: 'leads', unitCol: 'unit_id', clientCol: 'client_id', agentCol: 'agent_id' },
@@ -356,6 +376,7 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
       unitCol: 'unit_id',
       clientCol: 'client_id',
       agentCol: 'agent_id',
+      ownerCol: 'applicant_id',
     },
     tenancy: { table: 'leases', unitCol: 'unit_id', clientCol: 'client_id', agentCol: 'agent_id' },
     viewing: { table: 'bookings', unitCol: 'unit_id', clientCol: 'client_id', agentCol: 'agent_id' },
@@ -487,9 +508,11 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
       `SELECT client_id FROM users WHERE id = $1::uuid`,
       [uuid],
     )
+    // No row: a create, not an edit (the user write policy needs to know).
+    if (!rows[0]) return null
     return {
       ...empty,
-      agencyId: toAgencyFe(rows[0]?.client_id ?? null),
+      agencyId: toAgencyFe(rows[0].client_id ?? null),
       ownerUserId: feId,
     }
   }
@@ -545,6 +568,7 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
   if (spec.unitCol) cols.push(spec.unitCol)
   if (spec.clientCol) cols.push(spec.clientCol)
   if (spec.agentCol) cols.push(spec.agentCol)
+  if (spec.ownerCol) cols.push(spec.ownerCol)
   // Use quoted identifiers for all columns and table name
   const quotedCols = cols.map(quoteIdentifier)
   const rows = await query<Record<string, string | null>>(
@@ -560,6 +584,7 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
       ? toAgencyFe(r[spec.clientCol] as string | null)
       : null,
     agentId: spec.agentCol ? await feUserId(r[spec.agentCol] as string | null) : null,
+    ownerUserId: spec.ownerCol ? await feUserId(r[spec.ownerCol] as string | null) : null,
   }
 }
 
@@ -576,18 +601,331 @@ async function propertySubject(propertyId: string | null): Promise<PropertyAcces
   return rows.find((p) => p.id === propertyId) ?? null
 }
 
+/** User fields only a super admin (or, partly, an agency users.manage admin) may set. */
+export const PRIVILEGED_USER_FIELDS = [
+  'role',
+  'agencyId',
+  'active',
+  'enabledPermissions',
+  'verification',
+  'licenseStatus',
+  'mentorId',
+  'commissionSharePct',
+] as const
+
+/** Credential fields stripped from every non-super user write. */
+export const CREDENTIAL_USER_FIELDS = ['passwordHash', 'password', 'tempPassword'] as const
+
+/**
+ * Does the actor hold any of these permissions, from their role defaults and
+ * the enabledPermissions stored on their user row (never from the request)?
+ */
+export async function actorStoredCan(actor: DemoActor, perms: readonly Permission[]): Promise<boolean> {
+  if (actor.role === 'super_admin') return true
+  let enabled: Permission[] | undefined
+  const uuid = await resolveUuid('user', actor.userId)
+  if (uuid) {
+    const rows = await query<{ metadata: Record<string, unknown> | null }>(
+      `SELECT metadata FROM users WHERE id = $1::uuid`,
+      [uuid],
+    )
+    const p = rows[0]?.metadata?.enabledPermissions
+    if (Array.isArray(p)) enabled = p as Permission[]
+  }
+  return perms.some((perm) => effectiveCan(actor.role as Role, perm, undefined, enabled))
+}
+
+/** Does the actor (agency admin) hold users.manage, from their stored permissions? */
+async function actorHasUsersManage(actor: DemoActor): Promise<boolean> {
+  if (actor.role !== 'client_admin' && actor.role !== 'agent_admin') return false
+  return actorStoredCan(actor, ['users.manage'])
+}
+
+/** Trust-account resources (persistable). Arrears snapshots are derived, not written. */
+export const TRUST_RESOURCES: ReadonlySet<string> = new Set([
+  'trust_transaction',
+  'trust_allocation',
+  'csv_import_batch',
+  'payout_instruction',
+  'deposit_holding',
+])
+
+/** Permission (any of) an agency admin needs to write each trust resource. */
+const TRUST_WRITE_PERMS: Record<string, readonly Permission[]> = {
+  trust_transaction: ['trust.allocate', 'trust.import_csv'],
+  trust_allocation: ['trust.allocate'],
+  csv_import_batch: ['trust.import_csv'],
+  // Proposing a payout (the approve / submit steps have their own routes).
+  payout_instruction: ['trust.approve_payout', 'trust.allocate'],
+  deposit_holding: ['trust.allocate'],
+}
+
+/** Agency roles that may ever write trust rows (with the permission above). */
+const TRUST_ADMIN_ROLES: ReadonlySet<string> = new Set(['client_admin', 'agent_admin'])
+
+/**
+ * Trust writes: super admin, or an agency admin (client_admin / agent_admin)
+ * holding the resource's trust permission, in their own agency only. No other
+ * role (field agents, landlords, tenants, contractors) writes trust rows.
+ *
+ * payout_instruction through generic persist is create-only and always lands
+ * as a fresh proposal by the actor: status, approvedBy, submittedAt, settledAt
+ * and partnerPayoutId are forced, and an update / delete is refused for every
+ * actor. Approve / submit go through POST /api/trust/payouts/:id/(approve|submit).
+ */
+export async function enforceTrustWritePolicy(
+  actor: DemoActor,
+  body: PersistBody,
+  existing: ExistingRow | null,
+): Promise<void> {
+  const deny = (why: string) =>
+    forbiddenError(`Forbidden: ${actor.role} ${actor.userId} cannot ${body.action} ${body.resource} ${body.id} (${why})`)
+
+  if (body.resource === 'payout_instruction') {
+    if (body.action === 'delete' && actor.role !== 'super_admin') {
+      throw deny('payout instructions are not deleted through persist')
+    }
+    if (body.action !== 'delete') {
+      if (existing) {
+        throw deny('approve / submit go through /api/trust/payouts/:id; a payout is never edited through persist')
+      }
+      const data = (body.data ?? {}) as Record<string, unknown>
+      body.data = data
+      data.status = 'proposed'
+      data.proposedBy = actor.userId
+      data.approvedBy = null
+      data.submittedAt = null
+      data.settledAt = null
+      data.partnerPayoutId = null
+    }
+  }
+
+  if (actor.role === 'super_admin') return
+  if (body.action === 'delete') throw deny('trust rows are not deleted through persist')
+  if (!TRUST_ADMIN_ROLES.has(actor.role) || !actor.agencyId) {
+    throw deny('trust writes need an agency admin')
+  }
+  const actorAgency = await agencyFeId(actor.agencyId)
+  const data = (body.data ?? {}) as Record<string, unknown>
+  const payloadAgencyRaw = strField(data, 'agencyId') ?? strField(data, 'clientId')
+  const payloadAgency = await agencyFeId(payloadAgencyRaw)
+  if (existing) {
+    const rowAgency = await agencyFeId(existing.agencyId)
+    if (!rowAgency || rowAgency !== actorAgency) throw deny('row is outside your agency')
+  }
+  if (payloadAgency && payloadAgency !== actorAgency) throw deny('agencyId is not your agency')
+  if (!payloadAgency && body.data) data.agencyId = actor.agencyId
+  if (!(await actorStoredCan(actor, TRUST_WRITE_PERMS[body.resource] ?? []))) {
+    throw deny('missing trust permission')
+  }
+}
+
+async function storedUserEmail(feId: string): Promise<string | null> {
+  const uuid = await resolveUuid('user', feId)
+  if (!uuid) return null
+  const rows = await query<{ email: string | null }>(
+    `SELECT email FROM users WHERE id = $1::uuid`,
+    [uuid],
+  )
+  const e = rows[0]?.email
+  return typeof e === 'string' ? e.trim().toLowerCase() : null
+}
+
+function stripFields(data: Record<string, unknown>, keys: readonly string[]): void {
+  for (const k of keys) delete data[k]
+}
+
+/** Roles an agency admin may assign (never super_admin). */
+export const AGENCY_ASSIGNABLE_ROLES: ReadonlySet<string> = new Set([
+  'client_admin',
+  'agent_admin',
+  'ground_agent',
+  'agent',
+  'landlord',
+  'tenant',
+  'contractor',
+])
+const ALL_ROLES: ReadonlySet<string> = new Set([...AGENCY_ASSIGNABLE_ROLES, 'super_admin'])
+
+/**
+ * Trim + lowercase data.role in place so ' super_admin' / 'Super_Admin' cannot
+ * slip past an exact-match check and get stored. Blank / non-string roles are
+ * dropped (upsertUser then keeps the stored role). Returns the normalised role.
+ */
+function normaliseRoleField(data: Record<string, unknown>): string | undefined {
+  if (!Object.prototype.hasOwnProperty.call(data, 'role')) return undefined
+  const raw = data.role
+  const role = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
+  if (!role) {
+    delete data.role
+    return undefined
+  }
+  data.role = role
+  return role
+}
+
+/** Roles whose accounts need a super-admin verification decision before going live. */
+const VERIFIED_ROLES: ReadonlySet<string> = new Set(['landlord', 'contractor'])
+
+/**
+ * Non-super create of a landlord / contractor: the server sets verification to
+ * pending itself, whatever the client sent. Only the submission keys (profile,
+ * documents: what the staff wizard uploaded) are kept; status, review fields and
+ * notes are always the server's. Pending landlords stay off the marketplace.
+ */
+function pendingVerificationForCreate(submitted: unknown): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    status: 'pending',
+    submittedAt: new Date().toISOString(),
+  }
+  if (submitted && typeof submitted === 'object') {
+    const s = submitted as Record<string, unknown>
+    if (s.profile && typeof s.profile === 'object' && !Array.isArray(s.profile)) out.profile = s.profile
+    // lookedAt is set by the reviewer when they open a document, never by the
+    // submitter: drop it so a create cannot pre-mark documents as reviewed.
+    if (Array.isArray(s.documents)) {
+      out.documents = (s.documents as unknown[]).map((doc) => {
+        if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return doc
+        const { lookedAt: _l, ...rest } = doc as Record<string, unknown>
+        void _l
+        return rest
+      })
+    }
+  }
+  return out
+}
+
+/**
+ * Non-super role change of an existing user onto landlord / contractor: back to
+ * pending with a server-set submittedAt, review fields cleared. upsertUser
+ * merges verification by key, so the stored profile and documents stay.
+ */
+function pendingVerificationForRoleChange(): Record<string, unknown> {
+  return {
+    status: 'pending',
+    submittedAt: new Date().toISOString(),
+    reviewedAt: null,
+    reviewedBy: null,
+    rejectNote: null,
+  }
+}
+
+/** Stored frontend role of a user row (null when the row is unknown). */
+async function storedUserRole(feId: string): Promise<string | null> {
+  const uuid = await resolveUuid('user', feId)
+  if (!uuid) return null
+  const rows = await query<{ role: string | null; metadata: Record<string, unknown> | null; email: string | null }>(
+    `SELECT role, metadata, email FROM users WHERE id = $1::uuid`,
+    [uuid],
+  )
+  const r = rows[0]
+  if (!r) return null
+  return resolveFrontendRole(String(r.role ?? ''), r.metadata ?? null, r.email)
+}
+
+/**
+ * User row writes (resource 'user'). The owner is body.id only.
+ *
+ * - super_admin: anything.
+ * - Non-super: never delete a user row; verification is always stripped
+ *   (verification decisions go through the super-admin route only). On a
+ *   create of a landlord / contractor the server sets it to pending instead.
+ * - Agency admin (client_admin / agent_admin with users.manage): may create and
+ *   edit users in their own agency, incl. role (never super_admin), active and
+ *   permissions. 403 for a user outside their agency, a super_admin role, or
+ *   any agencyId other than their own. A create without agencyId is pinned to
+ *   their agency.
+ * - Anyone else: only their own row, with role, agencyId, active,
+ *   enabledPermissions, verification and staff settings stripped server-side
+ *   (the client sends the whole user object on a profile edit, so a 403 on
+ *   presence would break name / phone edits; upsertUser keeps the stored value
+ *   for any field the payload lacks).
+ *
+ * Mutates body.data when stripping. Throws 403 otherwise.
+ */
+export async function enforceUserWritePolicy(
+  actor: DemoActor,
+  body: PersistBody,
+  existing: ExistingRow | null,
+): Promise<void> {
+  const deny = (why: string) =>
+    forbiddenError(`Forbidden: ${actor.role} ${actor.userId} cannot ${body.action} user ${body.id} (${why})`)
+  const data = (body.data ?? {}) as Record<string, unknown>
+  if (body.action !== 'delete') body.data = data
+  const role = normaliseRoleField(data)
+  // Designated super-admin addresses are reserved: no write (any actor) may
+  // move a row onto one unless that row already has it.
+  if (body.action !== 'delete' && isReservedSuperAdminEmail(data.email as string | undefined)) {
+    const stored = await storedUserEmail(body.id)
+    if (stored !== String(data.email).trim().toLowerCase()) {
+      throw deny('that email address is reserved')
+    }
+  }
+  if (actor.role === 'super_admin') {
+    if (role !== undefined && !ALL_ROLES.has(role)) {
+      throw Object.assign(new Error(`Unknown role: ${role}`), { status: 400 })
+    }
+    return
+  }
+  if (body.action === 'delete') throw deny('only a super admin may delete users')
+  const submittedVerification = data.verification
+  stripFields(data, ['verification'])
+  // Credentials: never a raw hash or a plain password through a non-super write.
+  // A temp password survives only on an agency admin's create (below); password
+  // changes go through POST /api/auth/change-password (checks the current one).
+  const createTempPassword =
+    typeof data.tempPassword === 'string' && data.tempPassword
+      ? data.tempPassword
+      : typeof data.password === 'string' && data.password
+        ? data.password
+        : null
+  stripFields(data, CREDENTIAL_USER_FIELDS)
+
+  const own = body.id === actor.userId
+  if (actor.agencyId && (await actorHasUsersManage(actor))) {
+    if (existing && existing.agencyId !== actor.agencyId) {
+      throw deny('user is outside your agency')
+    }
+    if (role === 'super_admin') throw deny('cannot assign super_admin')
+    if (role !== undefined && !AGENCY_ASSIGNABLE_ROLES.has(role)) {
+      throw deny(`role ${role} is not agency-assignable`)
+    }
+    if (Object.prototype.hasOwnProperty.call(data, 'agencyId') && data.agencyId !== undefined) {
+      const raw = data.agencyId == null || data.agencyId === '' ? null : String(data.agencyId)
+      const target = raw ? ((await agencyFe(raw)) ?? raw) : null
+      if (target !== actor.agencyId) throw deny('cannot move a user to another agency')
+    } else if (!existing) {
+      data.agencyId = actor.agencyId
+    }
+    if (!existing && createTempPassword) data.tempPassword = createTempPassword
+    if (!existing && role !== undefined && VERIFIED_ROLES.has(role)) {
+      data.verification = pendingVerificationForCreate(submittedVerification)
+    }
+    if (existing && role !== undefined && VERIFIED_ROLES.has(role)) {
+      const before = await storedUserRole(body.id)
+      if (before !== role) data.verification = pendingVerificationForRoleChange()
+    }
+    return
+  }
+  if (!own) throw deny('not your user row')
+  stripFields(data, PRIVILEGED_USER_FIELDS)
+}
+
 /**
  * Enforce property / agency scope on a persist op. Throws 403/401-style errors.
  */
 export async function assertPersistAllowed(
   actor: DemoActor,
   body: PersistBody,
-): Promise<void> {
+): Promise<PortalOutcome> {
   const scope = await buildActorPropertyScope(actor)
   const data = body.data ?? {}
   const existing = await loadExisting(body.resource, body.id)
 
+  // An existing application stays on its stored listing: a payload propertyId
+  // must not move the scope check onto another property.
   let propertyId =
+    (body.resource === 'application' && existing?.propertyId ? existing.propertyId : null) ??
     strField(data, 'propertyId') ??
     (body.resource === 'property' || body.resource === 'unit' ? body.id : null) ??
     existing?.propertyId ??
@@ -618,14 +956,56 @@ export async function assertPersistAllowed(
   const assignedAgentId =
     strField(data, 'assignedAgentId') ?? existing?.assignedAgentId ?? null
   const contractorId = strField(data, 'contractorId') ?? existing?.contractorId ?? null
+  // Own-row shortcut owner: a user row is owned by its id only (never a payload
+  // field). For any other resource the existing row's owner wins over the
+  // payload, so a known id cannot be taken over by claiming userId /
+  // applicantUserId in the body; payload owner fields only count on create.
   const ownerUserId =
-    strField(data, 'userId') ??
-    strField(data, 'fromUserId') ??
-    strField(data, 'applicantUserId') ??
-    strField(data, 'tenantUserId') ??
-    (body.resource === 'user' ? body.id : null) ??
-    existing?.ownerUserId ??
-    null
+    body.resource === 'user'
+      ? body.id
+      : existing
+        ? existing.ownerUserId
+        : (strField(data, 'userId') ??
+          strField(data, 'fromUserId') ??
+          strField(data, 'applicantUserId') ??
+          strField(data, 'tenantUserId') ??
+          null)
+
+  if (body.resource === 'user') {
+    // Users have their own policy (may strip privileged fields from body.data).
+    await enforceUserWritePolicy(actor, body, existing)
+    return {}
+  }
+
+  if (TRUST_RESOURCES.has(body.resource)) {
+    // Trust books have their own (stricter) policy; the property path below
+    // would otherwise let any role with the property in scope write them.
+    await enforceTrustWritePolicy(actor, body, existing)
+    return {}
+  }
+
+  // Portal roles (tenant / landlord / contractor): explicit allow-list first.
+  // It only narrows; the scope checks below still run unless it performed a
+  // narrow server-side rewrite itself (lease signature, payment proof, slot
+  // recount), in which case the generic upsert is skipped.
+  if (PORTAL_WRITE_ROLES.has(actor.role)) {
+    const outcome = await enforcePortalWritePolicy(actor, body, existing)
+    if (outcome.handled) return outcome
+  }
+
+  // Tenants and contractors may only write their own application (existing
+  // applicant, or the payload applicant on create). The property-book path
+  // below would otherwise let them rewrite anyone's application on a listing
+  // in their scope.
+  if (
+    body.resource === 'application' &&
+    (actor.role === 'tenant' || actor.role === 'contractor') &&
+    ownerUserId !== actor.userId
+  ) {
+    throw forbiddenError(
+      `Forbidden: ${actor.role} ${actor.userId} cannot ${body.action} application ${body.id} (not their application)`,
+    )
+  }
 
   let property = await propertySubject(propertyId)
   if (propertyId && !property && (landlordId || agentId || agencyId)) {
@@ -668,6 +1048,21 @@ export async function assertPersistAllowed(
       `Forbidden: ${actor.role} ${actor.userId} cannot ${body.action} ${body.resource} ${body.id}`,
     )
   }
+  if (actor.role === 'landlord' && body.resource === 'application') {
+    // The decision belongs to the property's landlord only: canWriteEntity
+    // also passes on the applicant-owner shortcut, and a landlord must never
+    // decide an application they made themselves.
+    // Re-read the stored property (never the payload-built fallback subject).
+    const owned = await propertySubject(propertyId)
+    if (!owned || owned.landlordId !== actor.userId || ownerUserId === actor.userId) {
+      throw forbiddenError(
+        `Forbidden: landlord ${actor.userId} cannot decide application ${body.id} (not the landlord of its property)`,
+      )
+    }
+    // The write is narrowed to the decision fields.
+    return landlordApplicationDecision(actor, body)
+  }
+  return {}
 }
 
 type BootstrapPayload = {
@@ -791,14 +1186,21 @@ const USER_REF_COLLECTIONS = [
 ] as const
 
 /** User ids referenced by the actor's already-scoped rows (names only are exposed for these). */
-export function referencedUserIds(filtered: BootstrapPayload): Set<string> {
+export function referencedUserIds(
+  filtered: BootstrapPayload,
+  actorRole?: string,
+): Set<string> {
   const ids = new Set<string>()
   for (const key of USER_REF_COLLECTIONS) {
     const rows = filtered[key]
     if (!Array.isArray(rows)) continue
+    // A tenant's tickets add only their reporters to the users list (not the
+    // assigned agent or contractor).
+    const fields: readonly string[] =
+      actorRole === 'tenant' && key === 'tickets' ? ['reportedByUserId'] : USER_REF_FIELDS
     for (const row of rows as Array<Record<string, unknown>>) {
       if (!row || typeof row !== 'object') continue
-      for (const f of USER_REF_FIELDS) {
+      for (const f of fields) {
         const v = row[f]
         if (typeof v === 'string' && v) ids.add(v)
       }
@@ -868,7 +1270,7 @@ export function filterBootstrapUsersForActor(
   const ag = actor.agencyId
   const isStaff = AGENCY_STAFF_ROLES.has(actor.role)
   const manager = Boolean(ag) && actorManagesAgencyUsers(actor, self)
-  const related = referencedUserIds(filtered)
+  const related = referencedUserIds(filtered, actor.role)
   const out: BootstrapUser[] = []
   for (const u of all) {
     if (!u?.id) continue
@@ -909,18 +1311,33 @@ export function redactLeadContact<T extends object>(row: T): T {
 }
 
 /**
- * Application with the applicant's contact + identity fields removed. Name,
- * stage, income and employment stay so a landlord can still do landlord review.
+ * Application with the applicant's contact + identity fields and pack files
+ * removed. Name, stage, income, employment and the document checklist
+ * (key / label / status only, no file, note or reviewer) stay so a landlord can
+ * still do landlord review. keyCollection.contactPhone is blanked.
  */
 export function redactApplicationContact<T extends object>(row: T): T {
   const {
     idNumberOrPassport: _id,
     uploadedDocs: _docs,
+    documents,
+    keyCollection,
     ...rest
   } = row as Row
   void _id
   void _docs
-  return { ...rest, email: '', phone: '' } as T
+  const out: Row = { ...rest, email: '', phone: '' }
+  if (Array.isArray(documents)) {
+    out.documents = (documents as Row[]).map((d) => ({
+      key: d?.key,
+      label: d?.label,
+      status: d?.status,
+    }))
+  }
+  if (keyCollection && typeof keyCollection === 'object') {
+    out.keyCollection = { ...(keyCollection as Row), contactPhone: '' }
+  }
+  return out as T
 }
 
 /** Viewing with the visitor's email removed (name kept). */
@@ -943,10 +1360,25 @@ export function redactTenancyContact<T extends object>(row: T): T {
   } as T
 }
 
-/** Document sourced from an applicant pack (another person's file). */
-function isApplicantDocument(d: Row): boolean {
-  if (d.tenancyId) return false
-  return Boolean(d.applicationId) || Boolean(d.applicantName)
+/**
+ * Applicant-pack document (a person's own files), classified by type and
+ * category, never by whether it is linked to a lease:
+ * - source type ID (documents.category = 'ID', mapped to 'Other' in the FE),
+ *   whoever it belongs to;
+ * - any document tied to an applicant (applicationId or applicantName) whose
+ *   category is not 'Lease' — i.e. Other (payslips, bank statements, proof of
+ *   address, ID copies), Compliance (FICA), Title, Inspection, Marketing.
+ * The signed lease (category 'Lease') is the only applicant-linked document
+ * that is not pack: both lease parties are entitled to it.
+ */
+export const APPLICANT_PACK_SOURCE_TYPES: ReadonlySet<string> = new Set(['ID'])
+
+export function isApplicantPackDocument(d: Row): boolean {
+  if (typeof d.sourceType === 'string' && APPLICANT_PACK_SOURCE_TYPES.has(d.sourceType.toUpperCase())) {
+    return true
+  }
+  const applicantLinked = Boolean(d.applicationId) || Boolean(d.applicantName)
+  return applicantLinked && d.category !== 'Lease'
 }
 
 type PortalCollections = {
@@ -969,19 +1401,22 @@ type PortalCollections = {
  * - tenancies: only their own (tenantUserId, or an unlinked lease created from
  *   their own application)
  * - propertyDocuments: documents they uploaded, documents linked to their own
- *   application or tenancy (incl. the lease PDF), and non-applicant Compliance
- *   documents on a property where they hold their own tenancy
+ *   application or tenancy (incl. the lease PDF), and non-pack Compliance
+ *   documents on a property where they hold their own Active tenancy
+ * - tickets: only tickets they reported (see filterBootstrapEntitiesForActor)
  *
  * Landlord (property scope = properties they own):
  * - leads / applications / viewings / tenancies on their own properties stay
  *   (owner portal landlord review, owner statement, rent roll, messaging a
- *   tenant on the book), with other people's email, phone, ID number and
- *   applicant-pack files removed. Names stay.
+ *   tenant on the book), with other people's email, phone, ID number,
+ *   key-collection phone and application document files removed. Names and
+ *   the document checklist status stay.
  * - propertyDocuments on their own properties, minus applicant-pack files.
  *
  * Contractor (property scope = properties with their jobs):
  * - no leads, applications, viewings or tenancies
  * - propertyDocuments: only documents they uploaded
+ * - no payments; threads only where they are a participant (+ their messages)
  */
 export function narrowPortalCollections(
   input: PortalCollections,
@@ -1009,7 +1444,7 @@ export function narrowPortalCollections(
         t.tenantUserId === actor.userId ? t : redactTenancyContact(t),
       ),
       propertyDocuments: (input.propertyDocuments as Row[]).filter(
-        (d) => d.uploadedByUserId === actor.userId || !isApplicantDocument(d),
+        (d) => d.uploadedByUserId === actor.userId || !isApplicantPackDocument(d),
       ),
     }
   }
@@ -1036,7 +1471,11 @@ export function narrowPortalCollections(
       .flatMap((t) => [t.leaseDocumentId, (t.eSign as Row | null | undefined)?.leaseDocumentId])
       .filter((id): id is string => typeof id === 'string' && Boolean(id)),
   )
-  const tenancyPropertyIds = new Set(ownTenancies.map((t) => t.propertyId as string))
+  // Unit compliance documents only while the tenancy is Active (not Pending
+  // Move-In, not Ended).
+  const activeTenancyPropertyIds = new Set(
+    ownTenancies.filter((t) => t.status === 'Active').map((t) => t.propertyId as string),
+  )
   return {
     leads: (input.leads as Row[]).filter((l) => Boolean(email) && lc(l.email) === email),
     applications: ownApps,
@@ -1053,9 +1492,9 @@ export function narrowPortalCollections(
       if (typeof d.id === 'string' && leaseDocIds.has(d.id)) return true
       return (
         d.category === 'Compliance' &&
-        !isApplicantDocument(d) &&
+        !isApplicantPackDocument(d) &&
         !d.tenancyId &&
-        tenancyPropertyIds.has(d.propertyId as string)
+        activeTenancyPropertyIds.has(d.propertyId as string)
       )
     }),
   }
@@ -1204,11 +1643,21 @@ function filterBootstrapEntitiesForActor(
     dealInScope(scope, { propertyId: x.propertyId, agentId: x.agentId, agencyId: x.agencyId }),
   )
   const tenancies = raw.tenancies.filter((x) => allowed.has(x.propertyId))
-  const tickets = raw.tickets.filter((t) => ticketInScope(scope, t))
+  const tickets = raw.tickets.filter((t) => {
+    // Tenants: only tickets they reported. Property scope alone would hand an
+    // applicant every ticket on a listing they applied to.
+    if (actor.role === 'tenant') {
+      const reporter = (t as { reportedByUserId?: string | null }).reportedByUserId
+      return Boolean(reporter) && reporter === actor.userId
+    }
+    return ticketInScope(scope, t)
+  })
   const payments = raw.payments.filter((p) => {
     if (actor.role === 'tenant') {
       return p.partyUserId === actor.userId
     }
+    // Contractors get no payment rows (their invoices are not payments).
+    if (actor.role === 'contractor') return false
     if (actor.role === 'landlord') {
       return p.landlordVisible && allowed.has(p.propertyId)
     }
@@ -1216,8 +1665,9 @@ function filterBootstrapEntitiesForActor(
   })
   const propertyDocuments = raw.propertyDocuments.filter((d) => allowed.has(d.propertyId))
   const threads = raw.threads.filter((th) => {
-    // Mode A: landlords/tenants see threads where they are participants (match client threadInScope).
-    if (actor.role === 'landlord' || actor.role === 'tenant') {
+    // Mode A: landlords/tenants/contractors see only threads where they are
+    // participants (match client threadInScope).
+    if (actor.role === 'landlord' || actor.role === 'tenant' || actor.role === 'contractor') {
       return th.participantIds.includes(actor.userId)
     }
     if (th.participantIds.includes(actor.userId)) return true

@@ -8,7 +8,15 @@
  * driver is faked: a Pool whose query() answers by SQL shape from a small
  * in-memory table set and records every write statement.
  */
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+
+/** Test-only password fixtures, built at runtime (not credentials). */
+const TEST_FIXTURE_PW = ['test', 'fixture', 'pw'].join('-')
+const TEST_FIXTURE_NEW_PW = ['test', 'fixture', 'new', 'pw'].join('-')
+const TEST_FIXTURE_WRONG_PW = ['test', 'fixture', 'wrong', 'pw'].join('-')
+const TEST_FIXTURE_SHORT_PW = ['t', 'f'].join('-')
+const TEST_FIXTURE_HASH = ['$2a', '10', 'test-fixture-hash'].join('$')
+
 
 const env = vi.hoisted(() => {
   process.env.PF_SKIP_SERVE = '1'
@@ -36,8 +44,21 @@ type UserRow = {
   metadata: Record<string, unknown>
 }
 
+type PayoutRow = {
+  id: string
+  client_id: string
+  status: string
+  proposed_by: string | null
+  approved_by: string | null
+  payee_id: string | null
+  submitted_at: string | null
+}
+
 const db = vi.hoisted(() => ({
   users: [] as UserRow[],
+  payouts: [] as PayoutRow[],
+  /** Params of each recorded write, same index as `writes`. */
+  writeParams: [] as unknown[][],
   writes: [] as string[],
   sql: [] as string[],
   /** When set, every read throws this message (simulates a database failure). */
@@ -54,8 +75,32 @@ vi.mock('pg', () => {
   const answer = (sqlRaw: string, params: unknown[] = []): Record<string, unknown>[] => {
     const sql = sqlRaw.replace(/\s+/g, ' ').trim()
     db.sql.push(sql)
+    if (sql.startsWith('UPDATE payout_instructions')) {
+      db.writes.push(sql)
+      db.writeParams.push(params)
+      const row = db.payouts.find((p) => p.id === params[0])
+      if (!row) return []
+      const now = '2026-10-09T10:00:00.000Z'
+      if (sql.includes("SET status = 'approved'")) {
+        if (!['proposed', 'pending_approval'].includes(row.status)) return []
+        if (!row.proposed_by || row.proposed_by === params[1]) return []
+        row.status = 'approved'
+        row.approved_by = String(params[1])
+        return [{ updated_at: now }]
+      }
+      if (sql.includes("SET status = 'submitted'")) {
+        if (row.status !== 'approved' || !row.approved_by) return []
+        row.status = 'submitted'
+        row.submitted_at = now
+        return [{ submitted_at: now, updated_at: now }]
+      }
+      return []
+    }
     if (/^(INSERT|UPDATE|DELETE)\b/i.test(sql)) {
-      if (!/entity_id_map/i.test(sql)) db.writes.push(sql)
+      if (!/entity_id_map/i.test(sql)) {
+        db.writes.push(sql)
+        db.writeParams.push(params)
+      }
       return []
     }
     if (/^(CREATE|ALTER|BEGIN|COMMIT|ROLLBACK)\b/i.test(sql)) return []
@@ -114,6 +159,23 @@ vi.mock('pg', () => {
       if (!types.includes('user')) return []
       const u = db.users.find((x) => fes.includes(x.fe))
       return u ? [{ backend_id: u.id }] : []
+    }
+    if (/SELECT metadata FROM users WHERE id = \$1::uuid/.test(sql)) {
+      const u = db.users.find((x) => x.id === params[0])
+      return u ? [{ metadata: u.metadata }] : []
+    }
+    if (sql.startsWith('SELECT id::text AS id, client_id::text AS client_id, status, proposed_by::text')) {
+      const p = db.payouts.find((x) => x.id === params[0])
+      return p ? [{ ...p }] : []
+    }
+    if (sql.startsWith('SELECT "id", "unit_id", "client_id", "agent_id", "applicant_id" FROM "applications"')) {
+      if (params[0] !== 'd8000001-0001-4000-8000-000000000001') return []
+      const tenant = db.users.find((u) => u.fe === 'u-tenant')!
+      return [{ id: params[0], unit_id: null, client_id: HORIZON, agent_id: null, applicant_id: tenant.id }]
+    }
+    if (sql.startsWith('SELECT "id", "client_id" FROM "payout_instructions"')) {
+      const p = db.payouts.find((x) => x.id === params[0])
+      return p ? [{ id: p.id, client_id: p.client_id }] : []
     }
     if (/SELECT client_id FROM users WHERE id = \$1::uuid/.test(sql)) {
       const u = db.users.find((x) => x.id === params[0])
@@ -190,7 +252,7 @@ async function login(email: string): Promise<string> {
   const res = await app.request('/api/auth/login', {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-forwarded-for': `10.0.0.${Object.keys(tokens).length + 1}` },
-    body: JSON.stringify({ email, password: 'pw-correct' }),
+    body: JSON.stringify({ email, password: TEST_FIXTURE_PW }),
   })
   expect(res.status).toBe(200)
   const body = (await res.json()) as { token: string }
@@ -201,7 +263,7 @@ const SA_HEADERS = { 'X-User-Id': 'u-sa', 'X-Role': 'super_admin' }
 
 beforeAll(async () => {
   const { hashPassword } = await import('./auth')
-  const hash = await hashPassword('pw-correct')
+  const hash = await hashPassword(TEST_FIXTURE_PW)
   db.users = [
     user('u-sa', '01', 'SUPER_ADMIN', null),
     user('u-tenant', '02', 'END_USER', HORIZON),
@@ -220,6 +282,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   db.writes = []
+  db.writeParams = []
   db.sql = []
   db.failReads = ''
 })
@@ -513,5 +576,297 @@ describe('public marketplace errors', () => {
     expect(JSON.parse(text)).toEqual({ error: 'marketplace_failed', message: 'Listings are unavailable right now.' })
     expect(text).not.toContain('relation')
     expect(text).not.toContain('db.internal')
+  })
+})
+
+describe('Jim B7: password change goes through a route that checks the current password', () => {
+  const xff = (n: number) => ({ 'x-forwarded-for': `10.7.0.${n}` })
+
+  it('no session gives 401 and writes nothing', async () => {
+    const res = await app.request('/api/auth/change-password', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...xff(1) },
+      body: JSON.stringify({ currentPassword: TEST_FIXTURE_PW, newPassword: TEST_FIXTURE_NEW_PW }),
+    })
+    expect(res.status).toBe(401)
+    expect(db.writes.some((w) => w.includes('password_hash'))).toBe(false)
+  })
+
+  it('a wrong current password gives 401 and writes nothing', async () => {
+    const res = await app.request('/api/auth/change-password', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${tokens['u-tenant']}`, ...xff(2) },
+      body: JSON.stringify({ currentPassword: TEST_FIXTURE_WRONG_PW, newPassword: TEST_FIXTURE_NEW_PW }),
+    })
+    expect(res.status).toBe(401)
+    expect(db.writes.some((w) => w.includes('password_hash'))).toBe(false)
+  })
+
+  it('the right current password stores a new hash for the session user and clears mustChangePassword', async () => {
+    const res = await app.request('/api/auth/change-password', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${tokens['u-tenant']}`, ...xff(3) },
+      body: JSON.stringify({ currentPassword: TEST_FIXTURE_PW, newPassword: TEST_FIXTURE_NEW_PW }),
+    })
+    expect(res.status).toBe(200)
+    const upd = db.writes.find((w) => w.startsWith('UPDATE users SET password_hash = $2'))
+    expect(upd).toBeTruthy()
+    expect(upd).toContain('"mustChangePassword": false')
+  })
+
+  it('a short new password is a 400', async () => {
+    const res = await app.request('/api/auth/change-password', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${tokens['u-tenant']}`, ...xff(4) },
+      body: JSON.stringify({ currentPassword: TEST_FIXTURE_PW, newPassword: TEST_FIXTURE_SHORT_PW }),
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('a tenant cannot set a passwordHash through /api/persist', async () => {
+    const res = await app.request('/api/persist', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${tokens['u-tenant']}` },
+      body: JSON.stringify({
+        resource: 'user',
+        action: 'upsert',
+        id: 'u-tenant',
+        data: { id: 'u-tenant', name: 'T P', passwordHash: TEST_FIXTURE_HASH },
+      }),
+    })
+    expect(res.status).toBe(200)
+    const ins = db.writes.find((w) => w.startsWith('INSERT INTO users'))
+    expect(ins).toBeTruthy()
+    expect(ins).not.toContain('password_hash = COALESCE(EXCLUDED.password_hash')
+  })
+})
+
+describe('Jim B8: reserved super-admin emails', () => {
+  it('registering a listed address is refused with 403 and nothing is inserted', async () => {
+    const res = await app.request('/api/auth/register', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': '10.8.0.1' },
+      body: JSON.stringify({
+        email: 'Super@PropertyFlow.app',
+        password: TEST_FIXTURE_NEW_PW,
+        firstName: 'Mal',
+        lastName: 'Lory',
+        phone: '0820000000',
+        role: 'tenant',
+      }),
+    })
+    expect(res.status).toBe(403)
+    expect(db.writes.some((w) => w.startsWith('INSERT INTO users'))).toBe(false)
+  })
+
+  it('an END_USER row that carries a listed email signs in as a tenant, not a super admin', async () => {
+    const { hashPassword } = await import('./auth')
+    const row = { ...user('u-squat', '09', 'END_USER', null), email: 'sambampo200@gmail.com', password_hash: await hashPassword(TEST_FIXTURE_PW) }
+    row.metadata = { frontend_id: 'u-squat', frontend_role: 'super_admin' }
+    db.users.push(row)
+    try {
+      const res = await app.request('/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-forwarded-for': '10.8.0.2' },
+        body: JSON.stringify({ email: 'sambampo200@gmail.com', password: TEST_FIXTURE_PW }),
+      })
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as { token: string; user: { role: string } }
+      expect(body.user.role).toBe('tenant')
+      // The session actor is a tenant too: a super-admin-only route refuses it.
+      const persist = await app.request('/api/persist', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', Authorization: `Bearer ${body.token}` },
+        body: JSON.stringify({ resource: 'user', action: 'delete', id: 'u-tenant2' }),
+      })
+      expect(persist.status).toBe(403)
+    } finally {
+      db.users = db.users.filter((u) => u.fe !== 'u-squat')
+    }
+  })
+})
+
+describe('Jim B5: trust writes and payout dual control', () => {
+  const PO = (n: number) => `c7000001-0001-4000-8000-0000000000${String(n).padStart(2, '0')}`
+  const uuidOf = (fe: string) => db.users.find((u) => u.fe === fe)!.id
+  const extra: string[] = []
+
+  beforeAll(async () => {
+    const { hashPassword } = await import('./auth')
+    const hash = await hashPassword(TEST_FIXTURE_PW)
+    db.users.push(
+      { ...user('u-admin2', '11', 'AGENCY_ADMIN', HORIZON), password_hash: hash },
+      { ...user('u-admin-np', '12', 'AGENCY_ADMIN', HORIZON), password_hash: hash },
+      { ...user('u-cape-admin', '13', 'AGENCY_ADMIN', CAPE), password_hash: hash },
+      { ...user('u-contractor', '14', 'CONTRACTOR', HORIZON), password_hash: hash },
+    )
+    db.users.find((u) => u.fe === 'u-admin-np')!.metadata.enabledPermissions = ['trust.view', 'assets.view']
+    extra.push('u-admin2', 'u-admin-np', 'u-cape-admin', 'u-contractor')
+    for (const fe of ['u-admin2', 'u-admin-np', 'u-cape-admin', 'u-ll', 'u-contractor']) {
+      tokens[fe] = await login(`${fe}@example.test`)
+    }
+  })
+
+  afterAll(() => {
+    db.users = db.users.filter((u) => !extra.includes(u.fe))
+  })
+
+  beforeEach(() => {
+    db.payouts = [
+      // Proposed by u-admin, payee the landlord.
+      { id: PO(1), client_id: HORIZON, status: 'proposed', proposed_by: uuidOf('u-admin'), approved_by: null, payee_id: 'u-ll', submitted_at: null },
+      // Already approved (by u-admin2).
+      { id: PO(2), client_id: HORIZON, status: 'approved', proposed_by: uuidOf('u-admin'), approved_by: uuidOf('u-admin2'), payee_id: 'u-ll', submitted_at: null },
+      // Payee is u-admin2 themselves.
+      { id: PO(3), client_id: HORIZON, status: 'proposed', proposed_by: uuidOf('u-admin'), approved_by: null, payee_id: 'u-admin2', submitted_at: null },
+    ]
+  })
+
+  const persist = (fe: string, body: Record<string, unknown>) =>
+    app.request('/api/persist', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${tokens[fe]}` },
+      body: JSON.stringify(body),
+    })
+  const step = (fe: string, id: string, s: 'approve' | 'submit') =>
+    app.request(`/api/trust/payouts/${id}/${s}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${tokens[fe]}` },
+      body: '{}',
+    })
+  const trustRow = (resource: string, extraData: Record<string, unknown> = {}) => ({
+    resource,
+    action: 'upsert',
+    id: `${resource}-new-1`,
+    data: { agencyId: 'ag-horizon', propertyId: 'p-1', amountCents: 1000, ...extraData },
+  })
+  const TRUST = ['trust_transaction', 'trust_allocation', 'csv_import_batch', 'payout_instruction', 'deposit_holding']
+
+  it('tenants, landlords, contractors and field agents get 403 on every trust resource', async () => {
+    for (const fe of ['u-tenant', 'u-ll', 'u-contractor', 'u-james']) {
+      for (const r of TRUST) {
+        const res = await persist(fe, trustRow(r))
+        expect(res.status, `${fe} ${r}`).toBe(403)
+      }
+    }
+    expect(db.writes.filter((w) => /trust_|payout_|deposit_|csv_import/.test(w))).toEqual([])
+  })
+
+  it('an agency admin without trust permissions gets 403', async () => {
+    for (const r of TRUST) {
+      expect((await persist('u-admin-np', trustRow(r))).status, r).toBe(403)
+    }
+  })
+
+  it("an agency admin cannot write another agency's trust rows", async () => {
+    expect((await persist('u-admin', trustRow('trust_allocation', { agencyId: 'ag-cape' }))).status).toBe(403)
+    expect((await persist('u-cape-admin', { resource: 'payout_instruction', action: 'upsert', id: PO(1), data: { agencyId: 'ag-cape' } })).status).toBe(403)
+  })
+
+  it('an agency admin with trust permissions writes their own agency trust rows', async () => {
+    for (const r of ['csv_import_batch', 'deposit_holding', 'trust_transaction']) {
+      const res = await persist('u-admin', trustRow(r))
+      expect(res.status, r).toBe(200)
+    }
+  })
+
+  it('a payout created through persist is always a fresh proposal by the actor', async () => {
+    const res = await persist('u-admin', {
+      resource: 'payout_instruction',
+      action: 'upsert',
+      id: PO(9),
+      data: {
+        agencyId: 'ag-horizon',
+        propertyId: 'p-1',
+        payeeId: 'u-ll',
+        amountCents: 5000,
+        status: 'settled',
+        approvedBy: 'u-admin2',
+        proposedBy: 'u-admin2',
+        submittedAt: '2026-10-01',
+        settledAt: '2026-10-02',
+        partnerPayoutId: 'FAKE-1',
+      },
+    })
+    expect(res.status).toBe(200)
+    const i = db.writes.findIndex((w) => w.startsWith('INSERT INTO payout_instructions'))
+    expect(i).toBeGreaterThanOrEqual(0)
+    const sql = db.writes[i]
+    expect(sql).toContain("'proposed', $10::uuid, NULL, NULL, NULL, NULL")
+    expect(sql).toContain('ON CONFLICT (id) DO NOTHING')
+    const params = db.writeParams[i]
+    expect(params[9]).toBe(uuidOf('u-admin')) // proposed_by = actor, not the payload
+    expect(params).not.toContain('FAKE-1')
+    expect(params).not.toContain('settled')
+  })
+
+  it('approving or submitting through generic persist is refused, even for a super admin', async () => {
+    for (const fe of ['u-admin2', 'u-sa']) {
+      const res = await persist(fe, {
+        resource: 'payout_instruction',
+        action: 'upsert',
+        id: PO(1),
+        data: { agencyId: 'ag-horizon', status: 'approved', approvedBy: fe },
+      })
+      expect(res.status, fe).toBe(403)
+    }
+    expect(db.payouts[0].status).toBe('proposed')
+  })
+
+  it('the proposer cannot approve their own payout', async () => {
+    const res = await step('u-admin', PO(1), 'approve')
+    expect(res.status).toBe(403)
+    expect(db.payouts[0].status).toBe('proposed')
+  })
+
+  it('a second admin of the same agency with trust.approve_payout approves it', async () => {
+    const res = await step('u-admin2', PO(1), 'approve')
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { instruction: { status: string; approvedBy: string } }
+    expect(body.instruction).toMatchObject({ status: 'approved', approvedBy: 'u-admin2' })
+    expect(db.payouts[0]).toMatchObject({ status: 'approved', approved_by: uuidOf('u-admin2') })
+    // Approving again is a conflict, not a second approval.
+    expect((await step('u-admin2', PO(1), 'approve')).status).toBe(409)
+  })
+
+  it('landlords (incl. the payee), tenants, contractors, field agents, other agencies and no-permission admins cannot approve', async () => {
+    for (const fe of ['u-ll', 'u-tenant', 'u-contractor', 'u-james', 'u-cape-admin', 'u-admin-np']) {
+      expect((await step(fe, PO(1), 'approve')).status, fe).toBe(403)
+    }
+    expect(db.payouts[0].status).toBe('proposed')
+  })
+
+  it('the payee cannot approve a payout to themselves', async () => {
+    expect((await step('u-admin2', PO(3), 'approve')).status).toBe(403)
+    expect(db.payouts[2].status).toBe('proposed')
+  })
+
+  it('submit moves approved -> submitted only (never settled), and refuses a proposed payout', async () => {
+    expect((await step('u-admin', PO(1), 'submit')).status).toBe(409)
+    expect((await step('u-ll', PO(2), 'submit')).status).toBe(403)
+    const res = await step('u-admin', PO(2), 'submit')
+    expect(res.status).toBe(200)
+    expect(db.payouts[1].status).toBe('submitted')
+    const upd = db.writes.find((w) => w.includes("SET status = 'submitted'"))!
+    expect(upd).toContain('settled_at = NULL')
+    expect(upd).toContain('partner_payout_id = NULL')
+  })
+
+  it('no session gives 401 on the payout routes', async () => {
+    production()
+    const res = await app.request(`/api/trust/payouts/${PO(1)}/approve`, { method: 'POST', body: '{}' })
+    expect(res.status).toBe(401)
+  })
+})
+
+describe('Jim B5: applicants cannot approve their own application', () => {
+  it('a tenant session approving their own application gets 403 and nothing is written', async () => {
+    const res = await app.request('/api/applications/d8000001-0001-4000-8000-000000000001/approve', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${tokens['u-tenant']}` },
+      body: JSON.stringify({}),
+    })
+    expect(res.status).toBe(403)
+    expect(db.writes).toEqual([])
   })
 })

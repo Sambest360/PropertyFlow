@@ -138,7 +138,7 @@ export default function TrustArrears() {
             </div>
 
             {/* Arrears Rows */}
-            {arrears.map((snapshot) => {
+            {arrears.map((snapshot, rowIndex) => {
               const total =
                 snapshot.d30 + snapshot.d60 + snapshot.d90 + snapshot.d90plus
               const hasSevere = snapshot.d90 + snapshot.d90plus > 0
@@ -190,6 +190,7 @@ export default function TrustArrears() {
                       variant="ghost"
                       size="sm"
                       disabled={msgBusyId === snapshot.id}
+                      data-tip-target={rowIndex === 0 ? 'trust-arrears-message' : undefined}
                       title={`Create in-app arrears thread (${MESSAGING_MODE_A_SHORT})`}
                       onClick={() => {
                         if (!user?.id) return
