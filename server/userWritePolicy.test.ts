@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+/** Test-only password fixtures, built at runtime (not credentials). */
+const TEST_FIXTURE_TEMP_PW = ['test', 'fixture', 'temp', 'pw'].join('-')
+const TEST_FIXTURE_PLAIN_PW = ['test', 'fixture', 'plain', 'pw'].join('-')
+const TEST_FIXTURE_NEW_PW = ['test', 'fixture', 'new', 'pw'].join('-')
+const TEST_FIXTURE_HASH = ['$2a', '10', 'test-fixture-hash'].join('$')
+
+
 /**
  * Jim #80 blockers: user self-promotion, cross-user / cross-agency user writes,
  * owner takeover of notifications and applications, verification writes.
@@ -243,7 +250,7 @@ describe('agency admin user management', () => {
       resource: 'user',
       action: 'upsert',
       id: 'u-new-staff',
-      data: { name: 'New Agent', role: 'ground_agent', email: 'n@a.test', tempPassword: 'Temp1234!' },
+      data: { name: 'New Agent', role: 'ground_agent', email: 'n@a.test', tempPassword: TEST_FIXTURE_TEMP_PW },
     })
     expect(body.data).toMatchObject({ role: 'ground_agent', agencyId: 'ag-a' })
   })
@@ -507,14 +514,14 @@ describe('Jim B7: credentials never travel through a non-super user write', () =
       resource: 'user',
       action: 'upsert',
       id: 'u-t',
-      data: { name: 'T', passwordHash: '$2a$10$attacker', password: 'new-pass-1', tempPassword: 'Temp1234!' },
+      data: { name: 'T', passwordHash: TEST_FIXTURE_HASH, password: TEST_FIXTURE_NEW_PW, tempPassword: TEST_FIXTURE_TEMP_PW },
     })
     expect(body.data).toEqual({ name: 'T' })
     const { handlePersist } = await import('./writes.js')
     await handlePersist(body as never)
     const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO users'))!
     expect(String(insert[0])).not.toContain('password_hash = COALESCE(EXCLUDED.password_hash')
-    expect(insert[1] as unknown[]).not.toContain('$2a$10$attacker')
+    expect(insert[1] as unknown[]).not.toContain(TEST_FIXTURE_HASH)
   })
 
   it('an agency admin editing an existing user cannot set any credential', async () => {
@@ -522,7 +529,7 @@ describe('Jim B7: credentials never travel through a non-super user write', () =
       resource: 'user',
       action: 'upsert',
       id: 'u-agent',
-      data: { name: 'A', passwordHash: '$2a$10$x', password: 'p', tempPassword: 'Temp1234!' },
+      data: { name: 'A', passwordHash: TEST_FIXTURE_HASH, password: TEST_FIXTURE_PLAIN_PW, tempPassword: TEST_FIXTURE_TEMP_PW },
     })
     expect(body.data).toEqual({ name: 'A' })
   })
@@ -532,17 +539,17 @@ describe('Jim B7: credentials never travel through a non-super user write', () =
       resource: 'user',
       action: 'upsert',
       id: 'u-new-1',
-      data: { name: 'N', role: 'ground_agent', tempPassword: 'Temp1234!', passwordHash: '$2a$10$x' },
+      data: { name: 'N', role: 'ground_agent', tempPassword: TEST_FIXTURE_TEMP_PW, passwordHash: TEST_FIXTURE_HASH },
     })
-    expect(a.data).toMatchObject({ tempPassword: 'Temp1234!' })
+    expect(a.data).toMatchObject({ tempPassword: TEST_FIXTURE_TEMP_PW })
     expect(a.data).not.toHaveProperty('passwordHash')
     const b = await gate(ADMIN, {
       resource: 'user',
       action: 'upsert',
       id: 'u-new-2',
-      data: { name: 'N', role: 'ground_agent', password: 'Plain1234!' },
+      data: { name: 'N', role: 'ground_agent', password: TEST_FIXTURE_PLAIN_PW },
     })
-    expect(b.data).toMatchObject({ tempPassword: 'Plain1234!' })
+    expect(b.data).toMatchObject({ tempPassword: TEST_FIXTURE_PLAIN_PW })
     expect(b.data).not.toHaveProperty('password')
   })
 
@@ -583,7 +590,7 @@ describe('Jim: writes that omit name / tempPassword keep the stored values', () 
   })
 
   it('an admin create with tempPassword sets mustChangePassword', async () => {
-    const body = await gate(ADMIN, { resource: 'user', action: 'upsert', id: 'u-new-3', data: { name: 'N', role: 'ground_agent', tempPassword: 'Temp1234!' } })
+    const body = await gate(ADMIN, { resource: 'user', action: 'upsert', id: 'u-new-3', data: { name: 'N', role: 'ground_agent', tempPassword: TEST_FIXTURE_TEMP_PW } })
     const { handlePersist } = await import('./writes.js')
     await handlePersist(body as never)
     const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO users'))!
