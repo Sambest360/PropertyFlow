@@ -30,7 +30,7 @@ function formatDate(dateStr: string): string {
 function statusTone(status: string): 'success' | 'warning' | 'danger' | 'info' | 'neutral' {
   switch (status) {
     case 'settled':
-      return 'success'
+      return 'neutral'
     case 'proposed':
     case 'pending_approval':
       return 'warning'
@@ -48,7 +48,7 @@ function statusTone(status: string): 'success' | 'warning' | 'danger' | 'info' |
 function statusIcon(status: string) {
   switch (status) {
     case 'settled':
-      return <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+      return <CheckCircle2 className="h-4 w-4 text-ink-400" />
     case 'failed':
     case 'cancelled':
       return <XCircle className="h-4 w-4 text-red-500" />
@@ -214,7 +214,7 @@ export default function TrustPayouts() {
                       </p>
                     )}
                     {payout.settledAt && (
-                      <p className="text-sm text-emerald-600">
+                      <p className="text-sm text-ink-500">
                         {PAYOUT_LABELS.markedCompleteOn}: {formatDate(payout.settledAt)}
                       </p>
                     )}

@@ -298,7 +298,10 @@ describe('owner statement table (Reports tab)', () => {
     const lines = ownerStatementTableToCsv(rows, totals, ['date', 'description', 'rent', 'netPaid']).split('\n')
     expect(lines[0]).toBe('Date,Description,Rent,Net paid')
     expect(lines[1]).toBe('2026-09-01,"Rent, September",12500.00,')
-    expect(lines[lines.length - 2]).toBe('Total,,25500.00,11200.00')
+    expect(lines[lines.length - 3]).toBe('Total,,25500.00,11200.00')
+    expect(lines[lines.length - 2]).toBe(
+      'Only paid rent and commission are totalled; other lines are shown for reference.',
+    )
     expect(lines[lines.length - 1]).toBe(`"${OWNER_STATEMENT_TABLE_FOOTER}"`)
   })
 })
