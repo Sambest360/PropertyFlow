@@ -486,7 +486,7 @@ const WALKTHROUGH_RULES: Array<{
         },
         {
           title: 'Allocation tools',
-          body: 'Select one or more receipts. Allocate them from the selection panel.',
+          body: 'Select a receipt. Allocate it from the selection panel.',
           target: '[data-tip-target="trust-unallocated-selection"]',
           placement: 'below',
         },
@@ -819,7 +819,7 @@ const WALKTHROUGH_RULES: Array<{
       steps: [
         {
           title: 'Reports & analytics',
-          body: 'Pick a report tab, including Owner statement and Rent roll. Set the dates, then export.',
+          body: 'Pick a report tab, then export.',
           placement: 'center',
         },
         {

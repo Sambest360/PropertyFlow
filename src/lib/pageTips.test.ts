@@ -206,6 +206,13 @@ describe('Spec 3 tour copy and targets', () => {
     expect(tour?.steps[1]?.body).toBe('Pick a report tab, then set the dates.')
   })
 
+  it('tour-insights-reports step 1 is neutral for every role, including super admin', () => {
+    for (const role of ['super_admin', 'client_admin', 'agent_admin'] as const) {
+      const tour = resolvePageTour('/workspace/insights/reports', role)
+      expect(tour?.steps[0]?.body).toBe('Pick a report tab, then export.')
+    }
+  })
+
   it('tour-trust-arrears step 2 targets the first-row message button', () => {
     const tour = resolvePageTour('/workspace/trust/arrears', 'agent_admin')
     expect(tour?.id).toBe('tour-trust-arrears')
@@ -216,5 +223,6 @@ describe('Spec 3 tour copy and targets', () => {
     const tour = resolvePageTour('/workspace/trust/unallocated', 'agent_admin')
     expect(tour?.id).toBe('tour-trust-unallocated')
     expect(tour?.steps[1]?.target).toBe('[data-tip-target="trust-unallocated-selection"]')
+    expect(tour?.steps[1]?.body).toBe('Select a receipt. Allocate it from the selection panel.')
   })
 })
