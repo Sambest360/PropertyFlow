@@ -2010,17 +2010,6 @@ const TRUST_TXN_STATUSES = new Set([
   'reversed',
 ])
 
-const DEPOSIT_STATUSES = new Set([
-  'expected',
-  'held',
-  'release_proposed',
-  'release_approved',
-  'refunded',
-  'applied_to_arrears',
-  'split',
-  'disputed',
-])
-
 const CSV_BATCH_STATUSES = new Set(['pending', 'completed', 'failed'])
 
 function trustTxnStatus(v: unknown): string {
@@ -2033,11 +2022,6 @@ function csvBatchStatus(v: unknown): string {
   // FE uses "processing"; 007 schema uses "pending"
   if (s === 'processing') return 'pending'
   return CSV_BATCH_STATUSES.has(s) ? s : 'pending'
-}
-
-function depositStatus(v: unknown): string {
-  const s = str(v, 'expected')
-  return DEPOSIT_STATUSES.has(s) ? s : 'expected'
 }
 
 async function resolveOccupancyUuid(occupancyId: unknown): Promise<string | null> {
@@ -2231,6 +2215,13 @@ async function upsertPayoutInstruction(feId: string, d: Record<string, unknown>)
   return uuid
 }
 
+/**
+ * Deposit register row. Status and the release dual-control fields are never
+ * taken from the payload (any actor): a new row is `held` when money is held,
+ * else `expected`; on conflict the stored status and release_*_by are kept,
+ * except `expected` -> `held` once held_cents > 0. Release moves only through
+ * POST /api/trust/deposits/:id/propose-release | approve-release.
+ */
 async function upsertDepositHolding(feId: string, d: Record<string, unknown>): Promise<string> {
   const uuid = await ensureUuid('deposit_holding', feId)
   const client = await clientId(d.agencyId)
@@ -2240,8 +2231,7 @@ async function upsertDepositHolding(feId: string, d: Record<string, unknown>): P
     : d.unitId
       ? await resolveUuid('unit', str(d.unitId))
       : null
-  const releaseProposedBy = await userId(d.releaseProposedBy)
-  const releaseApprovedBy = await userId(d.releaseApprovedBy)
+  const heldCents = Math.max(0, Math.round(num(d.heldCents) ?? 0))
 
   await query(
     `INSERT INTO deposit_holdings (
@@ -2251,9 +2241,9 @@ async function upsertDepositHolding(feId: string, d: Record<string, unknown>): P
        created_at, updated_at
      ) VALUES (
        $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6,
-       $7, $8, $9::date, $10,
-       $11::uuid, $12::uuid,
-       COALESCE($13::timestamptz, NOW()), NOW()
+       $7, CASE WHEN $6::bigint > 0 THEN 'held' ELSE 'expected' END, $8::date, $9,
+       NULL, NULL,
+       COALESCE($10::timestamptz, NOW()), NOW()
      )
      ON CONFLICT (id) DO UPDATE SET
        occupancy_id = EXCLUDED.occupancy_id,
@@ -2261,11 +2251,12 @@ async function upsertDepositHolding(feId: string, d: Record<string, unknown>): P
        expected_cents = EXCLUDED.expected_cents,
        held_cents = EXCLUDED.held_cents,
        interest_accrued_cents = EXCLUDED.interest_accrued_cents,
-       status = EXCLUDED.status,
+       status = CASE
+         WHEN deposit_holdings.status = 'expected' AND EXCLUDED.held_cents > 0 THEN 'held'
+         ELSE deposit_holdings.status
+       END,
        statutory_deadline_on = EXCLUDED.statutory_deadline_on,
        interest_rate_unknown = EXCLUDED.interest_rate_unknown,
-       release_proposed_by = EXCLUDED.release_proposed_by,
-       release_approved_by = EXCLUDED.release_approved_by,
        updated_at = NOW()`,
     [
       uuid,
@@ -2273,13 +2264,10 @@ async function upsertDepositHolding(feId: string, d: Record<string, unknown>): P
       occupancyUuid,
       unitUuid,
       Math.max(0, Math.round(num(d.expectedCents) ?? 0)),
-      Math.max(0, Math.round(num(d.heldCents) ?? 0)),
+      heldCents,
       Math.max(0, Math.round(num(d.interestAccruedCents) ?? 0)),
-      depositStatus(d.status),
       d.statutoryDeadlineOn ? str(d.statutoryDeadlineOn).slice(0, 10) : null,
       bool(d.interestRateUnknown, false),
-      releaseProposedBy,
-      releaseApprovedBy,
       d.createdAt ? str(d.createdAt) : null,
     ],
   )

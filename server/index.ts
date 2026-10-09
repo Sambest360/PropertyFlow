@@ -768,6 +768,37 @@ for (const step of ['approve', 'submit'] as const) {
   })
 }
 
+/**
+ * Deposit release dual control: held -> release_proposed -> release_approved,
+ * two different agency admins (server/depositRoutes.ts). Generic persist never
+ * moves a deposit's status.
+ */
+for (const step of ['propose-release', 'approve-release'] as const) {
+  app.post(`/api/trust/deposits/:id/${step}`, async (c) => {
+    if (!databaseConfigured) {
+      return c.json(
+        { error: 'database_unconfigured', message: databaseConfigError || 'DATABASE_URL is not set' },
+        503,
+      )
+    }
+    try {
+      const raw = await resolveRequestActor(c, null)
+      if (!raw) throw actorRequiredError()
+      const actor = await enrichActor(raw)
+      const { proposeDepositRelease, approveDepositRelease } = await import('./depositRoutes.js')
+      const id = c.req.param('id')
+      const result =
+        step === 'propose-release'
+          ? await proposeDepositRelease(actor, id)
+          : await approveDepositRelease(actor, id)
+      return c.json(result)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return c.json({ error: `deposit_${step.replace('-', '_')}_failed`, message }, errStatus(err))
+    }
+  })
+}
+
 /** Generic domain persist (RPC). AppStore fire-and-forgets here. */
 app.post('/api/persist', async (c) => {
   if (!databaseConfigured) {

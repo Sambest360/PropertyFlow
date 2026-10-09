@@ -1703,12 +1703,24 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const now = new Date().toISOString()
       const result = proposeDepositRelease(dep, actor.id, now)
       if (result.ok === false) return { ok: false, error: result.error }
-      const updated = result.value
-      patch((s) => ({
-        ...s,
-        depositHoldings: s.depositHoldings.map((d) => (d.id === updated.id ? updated : d)),
-      }))
-      await persistUpsert('deposit_holding', updated.id, updated as unknown as Record<string, unknown>)
+      let updated = result.value
+      if (isApiEnabled) {
+        // Dual control is enforced server-side; generic persist never moves status.
+        const { postDepositTransition } = await import('../lib/api/trustDepositsApi')
+        const res = await postDepositTransition(dep.id, 'propose-release')
+        if (res.ok === false) return { ok: false, error: res.error }
+        updated = { ...updated, ...res.deposit }
+        patch((s) => ({
+          ...s,
+          depositHoldings: s.depositHoldings.map((d) => (d.id === updated.id ? updated : d)),
+        }))
+      } else {
+        patch((s) => ({
+          ...s,
+          depositHoldings: s.depositHoldings.map((d) => (d.id === updated.id ? updated : d)),
+        }))
+        await persistUpsert('deposit_holding', updated.id, updated as unknown as Record<string, unknown>)
+      }
       addActivity(
         `Deposit release proposed for occupancy ${updated.occupancyId}`,
         actor.name,
@@ -1727,12 +1739,24 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const now = new Date().toISOString()
       const result = approveDepositRelease(dep, approver.id, now)
       if (result.ok === false) return { ok: false, error: result.error }
-      const updated = result.value
-      patch((s) => ({
-        ...s,
-        depositHoldings: s.depositHoldings.map((d) => (d.id === updated.id ? updated : d)),
-      }))
-      await persistUpsert('deposit_holding', updated.id, updated as unknown as Record<string, unknown>)
+      let updated = result.value
+      if (isApiEnabled) {
+        // Two-person rule is enforced server-side (approver ≠ proposer).
+        const { postDepositTransition } = await import('../lib/api/trustDepositsApi')
+        const res = await postDepositTransition(dep.id, 'approve-release')
+        if (res.ok === false) return { ok: false, error: res.error }
+        updated = { ...updated, ...res.deposit }
+        patch((s) => ({
+          ...s,
+          depositHoldings: s.depositHoldings.map((d) => (d.id === updated.id ? updated : d)),
+        }))
+      } else {
+        patch((s) => ({
+          ...s,
+          depositHoldings: s.depositHoldings.map((d) => (d.id === updated.id ? updated : d)),
+        }))
+        await persistUpsert('deposit_holding', updated.id, updated as unknown as Record<string, unknown>)
+      }
       addActivity(
         `Deposit release approved for occupancy ${updated.occupancyId} by ${approver.name}`,
         approver.name,
