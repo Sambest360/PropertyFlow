@@ -50,6 +50,8 @@ import type { Application, ApplicationDocument } from '../src/types/domain.js'
 
 export const APPLICATION_TRANSITION_FORBIDDEN = 'APPLICATION_TRANSITION_FORBIDDEN'
 export const APPLICATION_FIELD_LOCKED = 'APPLICATION_FIELD_LOCKED'
+/** eSign mirror ahead of the stored lease envelope (signature not saved yet). */
+export const LEASE_SIGNATURE_NOT_RECORDED = 'LEASE_SIGNATURE_NOT_RECORDED'
 
 type AppType = Application['type']
 type Row = Record<string, unknown>
@@ -391,7 +393,7 @@ export async function enforceApplicantApplicationWrite(
   if (ESIGN_MIRROR_STATUSES.has(asked)) {
     const fromLease = await storedLeaseESignStatus(uuid)
     if (fromLease !== asked) {
-      throw transitionError(`${asked} is not what the stored lease envelope shows`)
+      throw coded(LEASE_SIGNATURE_NOT_RECORDED, `${asked} is not what the stored lease envelope shows (${fromLease ?? 'none'})`)
     }
     assertConsistent({ stage: data.stage }, type, [asked, from], `eSign mirror ${from} -> ${asked}`)
     if (stageOrder(type, asked) <= stageOrder(type, from)) {
