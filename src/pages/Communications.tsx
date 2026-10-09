@@ -6,8 +6,6 @@ import { RequirePermission } from '../components/RequirePermission'
 import { BackButton } from '../components/BackButton'
 import { Badge, Button, Card, Input, Modal, PageHeader, Select, Textarea, cn } from '../components/ui'
 import { isAgencyStaff } from '../lib/permissions'
-import { FieldHelp } from '../components/onboarding/FieldHelp'
-import { MESSAGING_MODE_A_BANNER } from '../lib/messaging/modeA'
 import { routesToBadgeLabel } from '../lib/messaging/modeA'
 
 const ICON_STROKE = 1.6
@@ -61,9 +59,8 @@ export default function Communications() {
           subtitle="In-app triage: owner↔tenant threads and agency conversations."
           actions={
             <>
-              <FieldHelp title="Messaging" body={MESSAGING_MODE_A_BANNER} />
               {staff ? (
-                <Button className="min-h-11 cursor-pointer" onClick={() => setComposeOpen(true)} title={MESSAGING_MODE_A_BANNER}>
+                <Button className="min-h-11 cursor-pointer" onClick={() => setComposeOpen(true)}>
                   <Plus className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
                   New message
                 </Button>

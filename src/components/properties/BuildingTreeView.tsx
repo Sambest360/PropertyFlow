@@ -103,15 +103,11 @@ function BuildingGroupHeader({
 export function BuildingTreeView({
   items,
   buildings,
-  expandedPropertyId,
-  onToggleProperty,
   reducedMotion,
   initiallyExpandMultiUnit = true,
 }: {
   items: PortfolioProperty[]
   buildings: Building[]
-  expandedPropertyId?: string | null
-  onToggleProperty: (item: PortfolioProperty) => void
   reducedMotion?: boolean
   /** Expand buildings that have more than one unit by default. */
   initiallyExpandMultiUnit?: boolean
@@ -182,8 +178,7 @@ export function BuildingTreeView({
                   <div className="pl-0 sm:pl-3">
                     <PropertyListView
                       items={group.items}
-                      expandedId={expandedPropertyId}
-                      onToggle={onToggleProperty}
+                      rowLinksToDetail
                       reducedMotion={reducedMotion}
                     />
                   </div>
