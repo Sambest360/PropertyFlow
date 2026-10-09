@@ -137,7 +137,7 @@ export function TenantLeasePanel({ tenancy }: { tenancy: Tenancy }) {
 
       <DetailSection
         title="Lease PDF & e-sign"
-        subtitle="Generated on approve. Mock is non-production soft-demo; live SigniFlow needs server keys. DocuSign stays placeholder."
+        subtitle="Generated on approve. Mock e-sign is non-production; live SigniFlow needs server keys. DocuSign stays placeholder."
       >
         <FlatFieldGrid className="lg:grid-cols-2">
           <FlatField label="E-sign status" value={signLabel} />
