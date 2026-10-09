@@ -8,6 +8,7 @@ import type { Context } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { query } from './db.js'
 import { ensureUuid } from './entityMap.js'
+import { feAgencyFromCache, loadIdMapCache } from './idMapCache.js'
 import { isReservedSuperAdminEmail, resolveFrontendRole } from '../src/lib/supabase/idMap.js'
 import { applyVerificationDecision } from '../src/lib/verification.js'
 import { ACTOR_AGENCY_HEADER, ACTOR_ROLE_HEADER, ACTOR_USER_HEADER } from './actor.js'
@@ -157,10 +158,22 @@ type UserRow = {
 
 async function rowToSession(row: UserRow): Promise<SessionUser> {
   const meta = row.metadata ?? {}
+  // Session ids must live in the same id space as /api/bootstrap rows (the
+  // client scopes by user.id / user.agencyId). Bootstrap maps users and
+  // agencies through entity_id_map first, so the session does the same; a
+  // seed agency without clients.settings.frontend_id otherwise came back as
+  // its raw client UUID and matched none of its own buildings or units.
+  let idCache: Awaited<ReturnType<typeof loadIdMapCache>> | null = null
+  try {
+    idCache = await loadIdMapCache()
+  } catch {
+    idCache = null
+  }
   const frontendId =
-    typeof meta.frontend_id === 'string' && meta.frontend_id
-      ? meta.frontend_id
-      : row.id
+    idCache?.userBackendToFe.get(row.id) ??
+    (typeof meta.frontend_id === 'string' && meta.frontend_id ? meta.frontend_id : row.id)
+  const agencyId =
+    (idCache && row.client_id ? feAgencyFromCache(idCache, row.client_id) : null) ?? row.agency_fe
   // DB staff roles override stale metadata (e.g. frontend_role: tenant on GROUND_AGENT)
   const feRole = resolveFrontendRole(row.role, meta, row.email)
   const verification =
@@ -177,7 +190,7 @@ async function rowToSession(row: UserRow): Promise<SessionUser> {
     email: row.email,
     name: `${row.first_name} ${row.last_name}`.trim(),
     role: feRole,
-    agencyId: row.agency_fe,
+    agencyId,
     phone: row.phone ?? undefined,
     active: row.active,
     enabledPermissions: Array.isArray(meta.enabledPermissions)
