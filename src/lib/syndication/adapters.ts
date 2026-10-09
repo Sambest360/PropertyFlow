@@ -66,7 +66,7 @@ export class RefuseClosedPartnerAdapter implements IListingPortalAdapter {
     const vendor = config.vendorHint ?? 'approved vendor (Prop Data / PropCon class)'
     this.reason = this.configured
       ? `${portalCode} live API adapter is a placeholder. Partner credentials may be present but HTTP client is not implemented — use ManualExportAdapter / export pack. Official portal docs required (escalate to Michael). Vendor hint: ${vendor}.`
-      : `${portalCode} partner adapter is not configured. Mode A refuses live push — use manual export pack. Do not invent portal keys or scrape.`
+      : `${portalCode} partner adapter is not configured. Live push is off — use the manual export pack. Do not invent portal keys or scrape.`
   }
 
   async upsertListing(_canonical: CanonicalListing): Promise<ListingPortalUpsertResult> {

@@ -35,7 +35,7 @@ function buildIndexMarkdown(pack: {
   ownerStatementCount: number
 }): string {
   const lines = [
-    '# Soft audit pack (Mode A)',
+    '# Soft audit pack (in-app)',
     '',
     AUDIT_PACK_MODE_A_COPY,
     '',

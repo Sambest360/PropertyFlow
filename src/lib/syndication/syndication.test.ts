@@ -63,7 +63,7 @@ function baseProperty(over: Partial<PropertyAsset> = {}): PropertyAsset {
 
 describe('syndication Mode A honesty', () => {
   it('denies live P24 / portal parity claims', () => {
-    expect(SYNDICATION_MODE_A_COPY).toMatch(/Mode A soft-demo/i)
+    expect(SYNDICATION_MODE_A_COPY).toMatch(/Non-production syndication/i)
     expect(SYNDICATION_MODE_A_COPY).toMatch(/not live P24/i)
     expect(SYNDICATION_MODE_A_COPY).toMatch(/manual/i)
     expect(SYNDICATION_MODE_A_COPY.toLowerCase()).not.toMatch(/live partner feed http/)

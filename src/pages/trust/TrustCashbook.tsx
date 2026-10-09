@@ -117,11 +117,11 @@ export default function TrustCashbook() {
 
   function handleExport() {
     const csv = trustTransactionsToCsv(transactions)
-    downloadText('trust-cashbook-mode-a.csv', csv)
+    downloadText('trust-cashbook.csv', csv)
   }
 
   function handleDownloadTemplate() {
-    downloadText('trust-template-mode-a.csv', trustCsvTemplateSample())
+    downloadText('trust-template.csv', trustCsvTemplateSample())
   }
 
   async function handleImportFile(file: File) {

@@ -100,7 +100,7 @@ describe('planNextRentPayments', () => {
     })
     expect(planned.map((p) => p.dueDate)).toEqual(['2026-10-01', '2026-11-01'])
     expect(planned.every((p) => p.type === 'Rent' && p.status === 'Due')).toBe(true)
-    expect(planned[0]?.notes).toMatch(/Non-production Mode A/)
+    expect(planned[0]?.notes).toMatch(/Non-production: in-app notice/)
   })
 
   it('is idempotent per (tenancyId, dueDate, RENT) — skips manual Add payment rows', () => {
@@ -189,7 +189,7 @@ describe('dunning', () => {
     expect(draft?.stage).toBe('reminder_2')
     expect(draft?.nonProduction).toBe(true)
     expect(draft?.channel).toBe('in_app')
-    expect(draft?.body).toMatch(/Non-production Mode A/)
+    expect(draft?.body).toMatch(/Non-production: in-app notice/)
     expect(draft?.notesLine).toMatch(/\[Dunning/)
   })
 

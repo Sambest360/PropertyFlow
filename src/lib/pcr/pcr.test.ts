@@ -60,7 +60,7 @@ function rentalApp(overrides: Partial<Application> = {}): Application {
 
 describe('PCR Mode A honesty', () => {
   it('states soft-demo / not RHA / not PropertyInspect parity', () => {
-    expect(PCR_MODE_A_COPY).toMatch(/Mode A soft-demo/i)
+    expect(PCR_MODE_A_COPY).toMatch(/Non-production PCR pack/i)
     expect(PCR_MODE_A_COPY).toMatch(/not RHA legal advice/i)
     expect(PCR_MODE_A_COPY).toMatch(/not PropertyInspect/i)
     expect(PCR_MODE_A_COPY.toLowerCase()).not.toMatch(/rha certified/)
@@ -317,7 +317,7 @@ describe('maintenance handoff hook', () => {
     const req = handoffDraftToCreateTicketRequest(drafts[0], 'UN-1')
     expect(req.unit_id).toBe('UN-1')
     expect(req.title).toMatch(/PCR follow-up/)
-    expect(req.description).toMatch(/Mode A soft PCR handoff/)
+    expect(req.description).toMatch(/In-app PCR handoff/)
   })
 })
 

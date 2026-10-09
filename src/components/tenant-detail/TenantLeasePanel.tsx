@@ -80,7 +80,7 @@ export function TenantLeasePanel({ tenancy }: { tenancy: Tenancy }) {
                   offeredRent,
                   termMonths,
                 })
-                if (res.ok) notifyActor('Renewal offered', 'In-app renewal terms recorded (Mode A).')
+                if (res.ok) notifyActor('Renewal offered', 'In-app renewal terms recorded.')
                 else notifyActor('Offer failed', 'reason' in res ? res.reason : 'Unknown error')
               },
               onAccept: (tenancyId) => {
@@ -127,7 +127,7 @@ export function TenantLeasePanel({ tenancy }: { tenancy: Tenancy }) {
                 const result = applyDueLeaseEscalations()
                 notifyActor(
                   'Escalation apply',
-                  `Applied ${result.applied} due increase(s) (Mode A).`,
+                  `Applied ${result.applied} due increase(s) (in-app).`,
                 )
               },
             }}

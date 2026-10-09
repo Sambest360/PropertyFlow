@@ -6,7 +6,7 @@
 export type MessageRoutesTo = 'agency' | 'agent' | 'landlord'
 
 export const MESSAGING_MODE_A_BANNER =
-  'Mode A in-app messaging only — not live chat, WhatsApp, or SMS. Messages stay inside PropertyFlow.'
+  'In-app messaging only — not live chat, WhatsApp, or SMS. Messages stay inside PropertyFlow.'
 
 export const MESSAGING_MODE_A_SHORT =
   'stays in PropertyFlow'

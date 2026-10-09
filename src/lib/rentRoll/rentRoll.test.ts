@@ -295,7 +295,7 @@ describe('remittance adapters', () => {
     const bad = await attemptLiveRemittance(refuse)
     expect(bad.ok).toBe(false)
     if (!bad.ok) {
-      expect(bad.error.toLowerCase()).toMatch(/refuse/)
+      expect(bad.error.toLowerCase()).toMatch(/live remittance is off/)
       expect(bad.error.toLowerCase()).toMatch(/payprop|remittance/)
     }
     expect(() => assertRemittanceNotLive(refuse)).toThrow(RemittanceNotConfiguredError)

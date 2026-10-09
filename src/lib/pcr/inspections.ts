@@ -16,7 +16,7 @@ import type {
 } from './types'
 
 export const PCR_MODE_A_COPY =
-  'Mode A soft-demo / non-production PCR pack. Joint-style incoming/outgoing condition notes beside occupancy — not RHA legal advice, not PropertyInspect / RedRabbit parity, not a full offline field PCR product, and not GPS-required.'
+  'Non-production PCR pack. Joint-style incoming/outgoing condition notes beside occupancy — not RHA legal advice, not PropertyInspect / RedRabbit parity, not a full offline field PCR product, and not GPS-required.'
 
 export function listInspections(
   app: Pick<Application, 'pcrInspections'> | null | undefined,

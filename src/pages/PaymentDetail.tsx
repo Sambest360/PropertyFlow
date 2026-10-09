@@ -149,7 +149,7 @@ export default function PaymentDetail() {
     }
     void alert.success({
       title: 'Dunning notice recorded',
-      text: `In-app ${result.stage} notice recorded (Mode A). Optional Mailtrap email only if ENABLE_EMAIL_DUNNING is on — not WhatsApp/SMS.`,
+      text: `In-app ${result.stage} notice recorded. Optional Mailtrap email only if ENABLE_EMAIL_DUNNING is on — not WhatsApp/SMS.`,
     })
   }
 
@@ -208,7 +208,7 @@ export default function PaymentDetail() {
             role="status"
           >
             This payment is <strong>{daysOverdue || 0} days overdue</strong>. Follow up with the
-            party, send an in-app dunning notice, or mark paid once received. Mode A: in-app
+            party, send an in-app dunning notice, or mark paid once received. In-app notice
             always; optional Mailtrap email only when ENABLE_EMAIL_DUNNING is on (not WhatsApp/SMS/bank debit).
           </p>
         )}

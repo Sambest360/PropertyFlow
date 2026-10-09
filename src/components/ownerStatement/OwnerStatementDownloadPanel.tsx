@@ -77,7 +77,7 @@ export function OwnerStatementDownloadPanel({
             }),
           )
           setMessage(
-            `Downloaded ${pdf.fileName}. Stored under Documents (Other) — still Mode A book only.`,
+            `Downloaded ${pdf.fileName}. Stored under Documents (Other) — in-app book only.`,
           )
         } else {
           setMessage(`Downloaded ${pdf.fileName}. No linked property to store a document.`)

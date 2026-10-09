@@ -18,7 +18,7 @@ const CONTACT_IN_DESC_RE =
 const ALL_CAPS_WORDY_RE = /^[A-Z0-9\s,.!?'-]{40,}$/
 
 export const SYNDICATION_MODE_A_COPY =
-  'Mode A soft-demo / non-production syndication. Own-site marketplace publish plus manual Property24 / Private Property export packs and lead CSV into CRM — not live P24/PP push, not portal parity, and not a live partner feed.'
+  'Non-production syndication. Own-site marketplace publish plus manual Property24 / Private Property export packs and lead CSV into CRM — not live P24/PP push, not portal parity, and not a live partner feed.'
 
 export function isMandateActiveSoft(
   property: Pick<PropertyAsset, 'mandateActive'> | { mandateActive?: boolean | null },
@@ -30,7 +30,7 @@ export function mandateSoftWarnMessage(
   property: Pick<PropertyAsset, 'mandateActive'> | { mandateActive?: boolean | null },
 ): string | null {
   if (isMandateActiveSoft(property)) return null
-  return 'Mandate not marked active — soft warning only (Mode A). Export pack still allowed; live partner push is refuse-closed anyway.'
+  return 'Mandate not marked active — soft warning only. Export pack still allowed; live partner push is refuse-closed anyway.'
 }
 
 export function buildCanonicalListing(
@@ -140,7 +140,7 @@ export function assessSyndicationCompleteness(
 
   const mandateSoftWarn = listing.mandateActive
     ? null
-    : 'Mandate not marked active — soft warning only (Mode A). Export pack still allowed; live partner push is refuse-closed anyway.'
+    : 'Mandate not marked active — soft warning only. Export pack still allowed; live partner push is refuse-closed anyway.'
   if (mandateSoftWarn) {
     issues.push({ code: 'mandate', severity: 'warn', message: mandateSoftWarn })
   } else {

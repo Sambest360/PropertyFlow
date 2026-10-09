@@ -122,7 +122,7 @@ export function InspectionPcrPanel({
         { id: `ph-${Date.now()}`, url, caption: file.name, capturedAt: nowIso() },
         nowIso(),
       )
-      persist(next, 'Photo attached (Mode A soft demo — not a native field camera).')
+      persist(next, 'Photo attached (in-app — not a native field camera).')
     }
     reader.readAsDataURL(file)
   }
@@ -147,7 +147,7 @@ export function InspectionPcrPanel({
         method: 'staff_recorded',
       },
       nowIso(),
-      'Staff-recorded tenant ack (Mode A soft).',
+      'Staff-recorded tenant ack (in-app).',
     )
     if (res.ok === false) {
       setFlash(res.error)

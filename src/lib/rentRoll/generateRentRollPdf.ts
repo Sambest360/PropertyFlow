@@ -61,7 +61,7 @@ function ensureSpace(ctx: DrawCtx, need: number) {
   if (ctx.y - need >= 56) return
   ctx.page = ctx.doc.addPage([PAGE_W, PAGE_H])
   ctx.y = PAGE_H - MARGIN
-  ctx.page.drawText('Rent roll (continued) - Mode A as-at in-app book', {
+  ctx.page.drawText('Rent roll (continued) - as-at in-app book', {
     x: MARGIN,
     y: ctx.y,
     size: 8,
@@ -113,7 +113,7 @@ function rule(ctx: DrawCtx) {
 
 function renderBook(ctx: DrawCtx, book: RentRollBook) {
   drawLine(ctx, 'RENT ROLL (AS-AT)', { size: 16, bold: true })
-  drawLine(ctx, 'PropertyFlow - Mode A point-in-time in-app book', { size: 9, color: ctx.muted })
+  drawLine(ctx, 'PropertyFlow - point-in-time in-app book', { size: 9, color: ctx.muted })
   drawWrapped(ctx, book.honesty, { size: 8, color: ctx.warn, width: 95 })
   drawLine(
     ctx,
