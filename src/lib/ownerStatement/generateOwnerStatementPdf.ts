@@ -5,6 +5,7 @@
 
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib'
 import { buildOwnerStatementBook } from './buildOwnerStatementBook'
+import { OWNER_STATEMENT_TOTALS_FOOTER, ownerStatementPaymentsSubtotal } from './ownerStatementTable'
 import {
   OWNER_STATEMENT_MODE_A_COPY,
   type OwnerStatementBook,
@@ -62,7 +63,7 @@ function ensureSpace(ctx: DrawCtx, need: number) {
   if (ctx.y - need >= 56) return
   ctx.page = ctx.doc.addPage([PAGE_W, PAGE_H])
   ctx.y = PAGE_H - MARGIN
-  ctx.page.drawText('Owner statement (continued) - Mode A in-app book', {
+  ctx.page.drawText('Owner statement (continued) - in-app book', {
     x: MARGIN,
     y: ctx.y,
     size: 8,
@@ -109,7 +110,7 @@ function rule(ctx: DrawCtx) {
 
 function renderBook(ctx: DrawCtx, book: OwnerStatementBook) {
   drawLine(ctx, 'OWNER STATEMENT (IN-APP BOOK)', { size: 16, bold: true })
-  drawLine(ctx, 'PropertyFlow - Mode A printable statement', { size: 9, color: ctx.muted })
+  drawLine(ctx, 'PropertyFlow - printable statement', { size: 9, color: ctx.muted })
   drawWrapped(ctx, book.honesty, { size: 8, color: ctx.warn, width: 95 })
   drawLine(
     ctx,
@@ -141,7 +142,10 @@ function renderBook(ctx: DrawCtx, book: OwnerStatementBook) {
       )
     }
   }
-  drawLine(ctx, `Subtotal payments: ${zar(book.totals.paymentsZar)}`, { size: 9, bold: true })
+  drawLine(ctx, `Subtotal payments: ${zar(ownerStatementPaymentsSubtotal(book.payments))}`, {
+    size: 9,
+    bold: true,
+  })
   rule(ctx)
 
   drawLine(ctx, '3. Trust allocations (optional in-app book)', { size: 12, bold: true })
@@ -165,7 +169,7 @@ function renderBook(ctx: DrawCtx, book: OwnerStatementBook) {
   drawLine(ctx, '4. Landlord payout instructions (<= submitted)', { size: 12, bold: true })
   drawWrapped(
     ctx,
-    'In-app status only through submitted. Settled / partner remittance / bank confirmation are out of Mode A scope.',
+    'In-app status only through submitted. Recorded in PropertyFlow, not yet matched to the bank; partner remittance is not connected.',
     { size: 8, color: ctx.warn, width: 95 },
   )
   if (book.payouts.length === 0) {
@@ -195,6 +199,7 @@ function renderBook(ctx: DrawCtx, book: OwnerStatementBook) {
     'This PDF does not claim bank settlement, live PayProp remittance, or partner payout confirmation.',
     { size: 8, color: ctx.muted, width: 95 },
   )
+  drawWrapped(ctx, OWNER_STATEMENT_TOTALS_FOOTER, { size: 8, color: ctx.muted, width: 95 })
 }
 
 /** Generate a real PDF owner statement from the in-app book. */

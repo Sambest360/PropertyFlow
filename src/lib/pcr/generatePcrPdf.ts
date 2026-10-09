@@ -4,7 +4,7 @@
  */
 
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib'
-import { PCR_MODE_A_COPY, countCheckedItems, inspectionStatusLabel } from './inspections'
+import { PCR_MODE_A_COPY, countCheckedItems, inspectionStatusLabel } from './inspections.js'
 import type { PcrPdfInput, PcrPdfResult, PropertyConditionInspection } from './types'
 
 const PAGE_W = 595.28
@@ -52,7 +52,7 @@ function ensureSpace(ctx: DrawCtx, need: number) {
   if (ctx.y - need >= 56) return
   ctx.page = ctx.doc.addPage([PAGE_W, PAGE_H])
   ctx.y = PAGE_H - MARGIN
-  ctx.page.drawText('PCR pack (continued) — Mode A soft-demo', {
+  ctx.page.drawText('PCR pack (continued) — in-app', {
     x: MARGIN,
     y: ctx.y,
     size: 8,
@@ -127,7 +127,7 @@ export async function generatePcrPdf(input: PcrPdfInput): Promise<PcrPdfResult> 
   const kindLabel = inspection.kind === 'incoming' ? 'Incoming (ingoing)' : 'Outgoing (move-out)'
 
   drawLine(ctx, `${brand.toUpperCase()} — PROPERTY CONDITION REPORT`, { size: 14, bold: true })
-  drawLine(ctx, 'Mode A soft PCR pack (joint-style) — not RHA certified', {
+  drawLine(ctx, 'In-app PCR pack (joint-style) — not RHA certified', {
     size: 9,
     color: ctx.warn,
   })

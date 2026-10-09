@@ -75,6 +75,7 @@ export function buildOwnerStatementBook(input: OwnerStatementBookInput): OwnerSt
       description: `${pay.type} - ${pay.partyName} (${pay.status})`,
       amountZar: pay.paidAmount ?? pay.amount,
       status: pay.status,
+      paymentType: pay.type,
     }))
     .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
 

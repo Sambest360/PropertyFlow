@@ -276,7 +276,7 @@ export async function issueLeaseOnTenancyCreate(
       },
     ],
     note: envelope.nonProduction
-      ? 'Mock e-sign provider — non-production soft-demo. Live SigniFlow needs server keys (DQ-C1); DocuSign stays placeholder.'
+      ? 'Mock e-sign provider — non-production. Live SigniFlow needs server keys (DQ-C1); DocuSign stays placeholder.'
       : undefined,
   }
 

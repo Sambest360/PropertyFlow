@@ -27,7 +27,7 @@ describe('vercel.json API includeFiles', () => {
 
   it('server→src/lib runtime graph has no extensionless relative imports', () => {
     const root = process.cwd()
-    const importFrom = /import\s+(type\s+)?(?:[\w*\s{},$]+?)\s+from\s+['"]([^'"]+)['"]/g
+    const importFrom = /(?:import|export)\s+(type\s+)?(?:[\w*\s{},$]+?)\s+from\s+['"]([^'"]+)['"]/g
     const dynImport = /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g
 
     function runtimeSpecs(text: string): string[] {

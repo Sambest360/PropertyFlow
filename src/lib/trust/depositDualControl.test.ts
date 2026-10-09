@@ -148,7 +148,7 @@ describe('DQ-M2 payout dual-control + submitted ≠ settled', () => {
     expect(r.value.settledAt).toBeNull()
   })
 
-  it('honesty banner still denies live PayProp', () => {
-    expect(TRUST_MODE_A_COPY).toMatch(/not live PayProp/i)
+  it('trust ledger note makes no bank-match claim', () => {
+    expect(TRUST_MODE_A_COPY).toMatch(/not yet matched to the bank/i)
   })
 })

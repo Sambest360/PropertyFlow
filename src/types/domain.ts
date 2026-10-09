@@ -167,6 +167,7 @@ export type AppUser = {
       mimeType: string
       dataUrl: string
       uploadedAt: string
+      lookedAt?: string
     }>
   }
 }

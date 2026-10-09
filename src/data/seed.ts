@@ -1,4 +1,4 @@
-import { DEFAULT_AGENCY_PERMISSIONS } from '../lib/permissions'
+import { DEFAULT_AGENCY_PERMISSIONS } from '../lib/permissions.js'
 import type {
   Agency,
   AgencyContractor,
@@ -17,7 +17,7 @@ import type {
   AppNotification,
   Activity,
 } from '../types/domain'
-import { DEMO_SAMPLE_FILES } from '../lib/api/documents'
+import { DEMO_SAMPLE_FILES } from '../lib/api/documents.js'
 import {
   monthActivities,
   monthApplications,
@@ -30,8 +30,8 @@ import {
   monthThreads,
   monthViewingSlots,
   monthViewings,
-} from './monthSimulation'
-import { peBulkProperties } from './peBulkProperties'
+} from './monthSimulation.js'
+import { peBulkProperties } from './peBulkProperties.js'
 import {
   seedTrustTransactions,
   seedTrustAllocations,
@@ -40,7 +40,7 @@ import {
   seedDepositHoldings,
   seedArrearsSnapshots,
   seedCsvImportBatches,
-} from './seedTrust'
+} from './seedTrust.js'
 
 const img = {
   house: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800&q=80',
@@ -900,7 +900,7 @@ export const seedThreads: MessageThread[] = [
     agencyId: 'ag-horizon',
     propertyId: 'PR-1002',
     applicationId: 'APP-903',
-    subject: 'Owner↔tenant — rent timing (Mode A in-app)',
+    subject: 'Owner↔tenant — rent timing (in-app)',
     participantIds: ['u-lucas', 'u-owner1'],
     routesTo: 'landlord',
     updatedAt: '2026-07-25T10:00:00.000Z',

@@ -55,6 +55,7 @@ import {
   buildProposedPayout,
   proposeDepositRelease,
 } from '../lib/trust/depositDualControl'
+import { commitProposedPayout } from '../lib/trust/proposePayoutCommit'
 import { isPubliclyListed } from '../lib/publicListings'
 import { findByListingId, nextUniquePropertyId } from '../lib/listingIds'
 import {
@@ -1627,7 +1628,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         )
       }
       addActivity(
-        `Template CSV import: ${fresh.length} unallocated receipt(s) from ${batch.filename} (Mode A — not bank-confirmed)`,
+        `Template CSV import: ${fresh.length} unallocated receipt(s) from ${batch.filename} (recorded in PropertyFlow, not yet matched to the bank)`,
         actor.name,
         params.agencyId,
       )
@@ -1768,11 +1769,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       })
       if (built.ok === false) return { ok: false, error: built.error }
       const row = built.value
-      patch((s) => ({
-        ...s,
-        payoutInstructions: [row, ...s.payoutInstructions],
-      }))
-      await persistUpsert('payout_instruction', row.id, row as unknown as Record<string, unknown>)
+      // CR9: await the save; a failed save removes the optimistic row and returns ok false.
+      const committed = await commitProposedPayout({
+        row,
+        patch,
+        persist: (r) => persistUpsert('payout_instruction', r.id, r as unknown as Record<string, unknown>),
+      })
+      if (committed.ok === false) return { ok: false, error: committed.error }
       addActivity(
         `Payout proposed (${(row.amountCents / 100).toFixed(2)} ZAR) — awaiting dual-control approval`,
         actor.name,
@@ -5583,7 +5586,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           resource: 'payment',
           action: 'created',
           title: 'Rent scheduled',
-          body: `${payment.type} · ${payment.partyName} due ${payment.dueDate} (Mode A schedule).`,
+          body: `${payment.type} · ${payment.partyName} due ${payment.dueDate} (in-app schedule).`,
           link: `/workspace/operations/payments/${payment.id}`,
           recipientUserIds: paymentDeskStakeholderIds(state.users, payment, paymentProperty),
         })
@@ -5749,7 +5752,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           userId: next.tenantUserId,
           agencyId: next.agencyId,
           title: 'Renewal offered',
-          body: `In-app renewal terms recorded for your lease (Mode A — not CPA legal service).`,
+          body: `In-app renewal terms recorded for your lease (not CPA legal service).`,
           link: '/workspace/portals/tenant',
           resource: 'applicant',
           action: 'updated',
@@ -5798,7 +5801,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           userId: next.tenantUserId,
           agencyId: next.agencyId,
           title: 'Lease renewed on book',
-          body: `Term extended to ${newEndDate}; rent ${formatZAR(newRent)} (Mode A in-app — not auto e-sign).`,
+          body: `Term extended to ${newEndDate}; rent ${formatZAR(newRent)} (in-app — not auto e-sign).`,
           link: '/workspace/portals/tenant',
           resource: 'applicant',
           action: 'updated',

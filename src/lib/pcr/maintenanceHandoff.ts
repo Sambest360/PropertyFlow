@@ -26,7 +26,7 @@ export function collectMaintenanceHandoffDrafts(
           `From ${inspection.kind} PCR ${inspection.id} (${room.name}).`,
           `Condition: ${item.condition}.`,
           item.notes ? `Notes: ${item.notes}` : null,
-          'Mode A soft PCR handoff — not auto-dispatched; staff review before opening a ticket.',
+          'In-app PCR handoff — not auto-dispatched; staff review before opening a ticket.',
         ]
           .filter(Boolean)
           .join(' '),

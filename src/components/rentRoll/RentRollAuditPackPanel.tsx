@@ -86,7 +86,7 @@ export function RentRollAuditPackPanel({
       })
       const csv = rentRollToCsv(pdf.book)
       downloadText(`rent-roll-as-at-${asAt}.csv`, csv, 'text/csv;charset=utf-8')
-      setMessage(`Downloaded rent-roll-as-at-${asAt}.csv — Mode A in-app book only.`)
+      setMessage(`Downloaded rent-roll-as-at-${asAt}.csv — in-app book only.`)
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Rent roll CSV failed')
     } finally {
@@ -109,7 +109,7 @@ export function RentRollAuditPackPanel({
         landlordUserId,
       })
       downloadRentRollPdf(pdf.fileName, pdf.bytes)
-      setMessage(`Downloaded ${pdf.fileName} — still Mode A as-at book only.`)
+      setMessage(`Downloaded ${pdf.fileName} — as-at in-app book only.`)
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Rent roll PDF failed')
     } finally {

@@ -10,6 +10,7 @@ import {
 } from './navigation'
 import { LayoutDashboard, Heart, ClipboardList } from 'lucide-react'
 import type { Permission } from '../../types/domain'
+import { rolePermissions } from '../../lib/permissions'
 import { ACCOUNT_WISHLIST_PATH } from '../../lib/accountRoutes'
 
 function navPaths(entries: ReturnType<typeof buildWorkspaceNavForActor>): string[] {
@@ -21,7 +22,8 @@ function navLabels(entries: ReturnType<typeof buildWorkspaceNavForActor>): strin
 }
 
 function hasUniquePaths(entries: ReturnType<typeof buildWorkspaceNavForActor>): boolean {
-  const paths = navPaths(entries)
+  // Full `to` (query included): Reports tab links share a path but are distinct entries.
+  const paths = flattenNavLinks(entries).map((item) => item.to)
   return paths.length === new Set(paths).size
 }
 
@@ -279,5 +281,38 @@ describe('buildWorkspaceNavForActor portal dedupe', () => {
   it('Compliance nav item requires compliance.view', () => {
     expect(previewNavLabels(['compliance.view'])).toContain('Compliance')
     expect(previewNavLabels(['trust.view'])).not.toContain('Compliance')
+  })
+})
+
+describe('landlord nav (CR6)', () => {
+  function navForRole(role: 'landlord' | 'ground_agent') {
+    const perms = rolePermissions[role]
+    return buildWorkspaceNavForActor({
+      role,
+      has: (p) => perms.includes(p),
+      hasAny: (ps) => ps.some((p) => perms.includes(p)),
+    })
+  }
+
+  it('landlord does not see the Landlords directory but keeps Contractors and the report tabs', () => {
+    expect(rolePermissions.landlord).toContain('assets.manage')
+    const entries = navForRole('landlord')
+    const paths = navPaths(entries)
+    const labels = navLabels(entries)
+    expect(paths).not.toContain('/workspace/people/landlords')
+    expect(labels).not.toContain('Landlords')
+    expect(labels).toContain('Contractors')
+    expect(flattenNavLinks(entries).map((i) => i.to)).toEqual(
+      expect.arrayContaining([
+        '/workspace/insights/reports?tab=owner-statement',
+        '/workspace/insights/reports?tab=rent-roll',
+      ]),
+    )
+    expect(hasUniquePaths(entries)).toBe(true)
+  })
+
+  it('ground agent keeps the Landlords directory', () => {
+    const paths = navPaths(navForRole('ground_agent'))
+    expect(paths).toContain('/workspace/people/landlords')
   })
 })

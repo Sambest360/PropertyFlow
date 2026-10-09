@@ -14,8 +14,8 @@ export type {
   PcrPdfResult,
   PcrSoftSignature,
   PropertyConditionInspection,
-} from './types'
-export { PcrNotConfiguredError } from './types'
+} from './types.js'
+export { PcrNotConfiguredError } from './types.js'
 
 export {
   PCR_MODE_A_COPY,
@@ -35,7 +35,7 @@ export {
   softSignTenant,
   updateItemNotes,
   upsertInspectionOnApplication,
-} from './inspections'
+} from './inspections.js'
 
 export {
   PCR_SOFT_GATED_ACTION_KEYS,
@@ -45,13 +45,13 @@ export {
   pcrSoftGate,
   pcrSoftGateMessage,
   type PcrSoftGatedActionKey,
-} from './softGate'
+} from './softGate.js'
 
 export {
   DEPOSIT_DAMAGE_SOFT_WARN,
   depositDamageWithoutOutgoingSoftWarn,
   refundDepositOutgoingSoftWarn,
-} from './depositWarn'
+} from './depositWarn.js'
 
 export {
   ManualPcrAdapter,
@@ -60,16 +60,16 @@ export {
   attemptLivePartnerPush,
   pcrPartnerAdapterFromEnv,
   type PcrAdapterKind,
-} from './adapters'
+} from './adapters.js'
 
 export {
   cloneTemplateRooms,
   defaultResidentialTemplate,
-} from './templates'
+} from './templates.js'
 
 export {
   collectMaintenanceHandoffDrafts,
   handoffDraftToCreateTicketRequest,
-} from './maintenanceHandoff'
+} from './maintenanceHandoff.js'
 
-export { downloadPcrPdf, generatePcrPdf } from './generatePcrPdf'
+export { downloadPcrPdf, generatePcrPdf } from './generatePcrPdf.js'

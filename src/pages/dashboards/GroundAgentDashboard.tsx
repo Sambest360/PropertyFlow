@@ -90,7 +90,7 @@ function agentToListItem(
 
 export function GroundAgentDashboard() {
   const { state, updateViewing } = useStore()
-  const { user } = useAuth()
+  const { user, has } = useAuth()
   const { isSeen, markSeen } = useSeenOpsItems(user.id)
   const { allowedPropertyIds, dealVisible, ticketVisible, role } = usePropertyScope()
   const isCandidate = role === 'agent'
@@ -387,6 +387,7 @@ export function GroundAgentDashboard() {
       {heroBase && (
         <AttentionHero
           {...heroBase}
+          propertyLink={has('assets.manage') ? heroBase.propertyLink : undefined}
           eyebrow={homeEyebrow}
           secondaryBadge={isCandidate ? 'Candidate' : 'Full agent'}
           detail={

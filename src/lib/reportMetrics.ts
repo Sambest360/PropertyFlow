@@ -12,6 +12,8 @@ export type ReportTab =
   | 'payments'
   | 'operations'
   | 'maintenance'
+  | 'owner-statement'
+  | 'rent-roll'
 
 export function buildReportMetrics(
   state: AppState,

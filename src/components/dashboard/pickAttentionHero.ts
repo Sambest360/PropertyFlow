@@ -64,9 +64,10 @@ export function pickAttentionHero(
       secondaryCta: property
         ? { label: 'Property details', to: `/workspace/properties/${property.id}` }
         : undefined,
+      // CR11: pencil = Edit property; no pencil without a property.
       propertyLink: property
-        ? { to: `/workspace/properties/${property.id}` }
-        : { to: '/workspace/operations/maintenance', label: 'View maintenance' },
+        ? { to: `/workspace/properties/${property.id}/edit`, label: 'Edit property' }
+        : undefined,
       image: property?.images[0],
     }
   }
@@ -104,9 +105,10 @@ export function pickAttentionHero(
       secondaryCta: property
         ? { label: 'Property details', to: `/workspace/properties/${property.id}` }
         : undefined,
+      // CR11: pencil = Edit property; no pencil without a property.
       propertyLink: property
-        ? { to: `/workspace/properties/${property.id}` }
-        : { to: '/workspace/sales/viewings', label: 'Viewings' },
+        ? { to: `/workspace/properties/${property.id}/edit`, label: 'Edit property' }
+        : undefined,
       image: property?.images[0],
     }
   }
@@ -142,9 +144,10 @@ export function pickAttentionHero(
       secondaryCta: property
         ? { label: 'Property details', to: `/workspace/properties/${property.id}` }
         : undefined,
+      // CR11: pencil = Edit property; no pencil without a property.
       propertyLink: property
-        ? { to: `/workspace/properties/${property.id}` }
-        : { to: '/workspace/sales/applications', label: 'Applications' },
+        ? { to: `/workspace/properties/${property.id}/edit`, label: 'Edit property' }
+        : undefined,
       image: property?.images[0],
     }
   }
@@ -175,7 +178,8 @@ export function pickAttentionHero(
       to: `/workspace/properties/${featured.id}`,
     },
     secondaryCta: { label: 'All properties', to: '/workspace/properties' },
-    propertyLink: { to: `/workspace/properties/${featured.id}` },
+    // CR11: was a repeat of Open property; now Edit property.
+    propertyLink: { to: `/workspace/properties/${featured.id}/edit`, label: 'Edit property' },
     image: featured.images[0],
   }
 }

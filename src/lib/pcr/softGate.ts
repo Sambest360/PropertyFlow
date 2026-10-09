@@ -5,7 +5,7 @@
  */
 
 import type { Application } from '../../types/domain'
-import { findInspection, isIngoingPcrSigned } from './inspections'
+import { findInspection, isIngoingPcrSigned } from './inspections.js'
 
 /** Keys / key-handover / activate after incoming PCR. */
 export const PCR_SOFT_GATED_ACTION_KEYS = [
@@ -34,9 +34,9 @@ export function pcrSoftGateMessage(
   if (isIngoingPcrClearedForKeys(app)) return null
   const incoming = findInspection(app, 'incoming')
   if (!incoming) {
-    return 'Keys / move-in blocked until an incoming PCR pack is soft-signed (staff + tenant ack) or recorded via audited no-show / admin override (Mode A soft PCR — not PropertyInspect parity).'
+    return 'Keys / move-in blocked until an incoming PCR pack is soft-signed (staff + tenant ack) or recorded via audited no-show / admin override (in-app PCR — not PropertyInspect parity).'
   }
-  return `Keys / move-in blocked until incoming PCR is soft-signed or audited override (current: ${incoming.status} — Mode A soft-demo, not RHA legal advice).`
+  return `Keys / move-in blocked until incoming PCR is soft-signed or audited override (current: ${incoming.status} — in-app, not RHA legal advice).`
 }
 
 /** Guard helper — returns true or a clear block reason. */

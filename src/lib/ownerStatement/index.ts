@@ -22,6 +22,21 @@ export {
 
 export { generateOwnerStatementPdf } from './generateOwnerStatementPdf'
 
+export {
+  OWNER_STATEMENT_TABLE_COLUMNS,
+  OWNER_STATEMENT_TABLE_FOOTER,
+  OWNER_STATEMENT_TOTALS_FOOTER,
+  ownerStatementPaymentColumn,
+  ownerStatementPaymentsSubtotal,
+  buildOwnerStatementTable,
+  ownerStatementCellText,
+  ownerStatementRow,
+  ownerStatementTableToCsv,
+  type OwnerStatementColumnKey,
+  type OwnerStatementTableRow,
+  type OwnerStatementTableTotals,
+} from './ownerStatementTable'
+
 /** Trigger browser download of PDF bytes. */
 export function downloadOwnerStatementPdf(fileName: string, bytes: Uint8Array) {
   const copy = new Uint8Array(bytes.byteLength)

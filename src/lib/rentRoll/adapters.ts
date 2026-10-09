@@ -43,8 +43,8 @@ export class RefuseClosedRemittanceAdapter implements IRemittanceAdapter {
     this.configured = Boolean(config.configured)
     const label = partnerCode === 'payprop' ? 'PayProp' : 'Bank feed'
     this.reason = this.configured
-      ? `${label} live remittance adapter is a placeholder. Partner credentials may be present but HTTP client is not implemented — use ManualSoftRemittanceAdapter / soft audit pack + Mode A owner statements. ${REMITTANCE_REFUSE_COPY}`
-      : `${label} remittance adapter is not configured. Mode A refuses live remittance — use soft rent roll / audit pack / owner statement Mode A. Do not invent partner settlement paths.`
+      ? `${label} live remittance adapter is a placeholder. Partner credentials may be present but HTTP client is not implemented — use ManualSoftRemittanceAdapter / soft audit pack + in-app owner statements. ${REMITTANCE_REFUSE_COPY}`
+      : `${label} remittance adapter is not configured. Live remittance is off — use the in-app rent roll / audit pack / owner statement. Do not invent partner remittance paths.`
   }
 
   async pushLiveRemittance(): Promise<RemittancePushResult> {
@@ -87,7 +87,7 @@ export function attemptLiveRemittance(
 export function assertRemittanceNotLive(adapter: IRemittanceAdapter): void {
   if (adapter.live) {
     throw new RemittanceNotConfiguredError(
-      `${adapter.partnerCode} live remittance is refuse-closed in Mode A — use ManualSoftRemittanceAdapter.`,
+      `${adapter.partnerCode} live remittance is off — use ManualSoftRemittanceAdapter.`,
     )
   }
 }

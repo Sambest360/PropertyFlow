@@ -323,7 +323,7 @@ export default function ContractorPortal() {
           propertyLink={
             focusProp && focus?.contractorId === user.id
               ? { to: `/workspace/properties/${focusProp.id}`, label: 'Site' }
-              : { to: '/workspace/portals/contractor', label: 'My jobs' }
+              : undefined
           }
         />
 

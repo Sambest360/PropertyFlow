@@ -11,6 +11,7 @@ import { PageHeader, Card, Button, Input, EmptyState } from '../../components/ui
 import { DashboardPage } from '../../components/dashboard'
 import { FieldHelp } from '../../components/onboarding/FieldHelp'
 import { TRUST_MODE_A_COPY } from '../../lib/trust/modeA'
+import { buildTenancyArrears, todayYmd } from '../../lib/trust/tenancyArrears'
 
 function formatCents(cents: number): string {
   return formatZAR(cents / 100)
@@ -35,7 +36,12 @@ export default function TrustArrears() {
   const agencyId = user?.agencyId
 
   const arrears = useMemo(() => {
-    let result = state.arrearsSnapshots?.filter((a) => !agencyId || a.agencyId === agencyId) ?? []
+    let result = buildTenancyArrears({
+      tenancies: state.tenancies,
+      payments: state.payments,
+      asOf: todayYmd(),
+      agencyId,
+    })
 
     // Only show occupancies with arrears
     result = result.filter((a) => a.d30 + a.d60 + a.d90 + a.d90plus > 0)
@@ -49,7 +55,7 @@ export default function TrustArrears() {
       (a, b) =>
         b.d90plus + b.d90 + b.d60 + b.d30 - (a.d90plus + a.d90 + a.d60 + a.d30)
     )
-  }, [state.arrearsSnapshots, agencyId, searchQuery])
+  }, [state.tenancies, state.payments, agencyId, searchQuery])
 
   const totalArrears = useMemo(
     () => arrears.reduce((sum, a) => sum + a.d30 + a.d60 + a.d90 + a.d90plus, 0),
@@ -65,7 +71,7 @@ export default function TrustArrears() {
     <DashboardPage>
       <PageHeader
         title="Arrears"
-        subtitle="Ageing buckets from seed snapshots"
+        subtitle="Rent due from each tenancy schedule, less rent paid, as at today"
       />
       <div className="mb-2"><FieldHelp title="Trust arrears" body={TRUST_MODE_A_COPY} /></div>
       {msgNote ? (
@@ -208,7 +214,7 @@ export default function TrustArrears() {
                           })
                           const thread = createThread(input)
                           setMsgNote(
-                            `In-app thread created (${thread.id}) — Mode A only, not WhatsApp/SMS.`,
+                            `Thread created (${thread.id}) — in-app message, not WhatsApp or SMS.`,
                           )
                           navigate('/workspace/operations/communications')
                         } finally {

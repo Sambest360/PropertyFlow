@@ -4,6 +4,8 @@ import type { PropertyAsset } from '../../types/domain'
 import { ActionButtonRow } from '../ActionButtonRow'
 import { BackButton } from '../BackButton'
 import { Badge, Button } from '../ui'
+import type { BuildingGrading } from '../../data/infrastructure'
+import { gradingLabel } from '../../lib/buildingGrading'
 import { resolvePortfolioStatus } from '../../lib/propertyStatus'
 import { isPropertyDeleted } from '../../lib/propertyDeletion'
 import { canEditPropertyListing, ICON_STROKE } from './types'
@@ -13,6 +15,10 @@ export function PropertyDetailHeader({
   occupancy,
   unitLabel,
   buildingName,
+  buildingGrading,
+  buildingAddress,
+  unitCount,
+  siblingUnits = [],
   canManage,
   canPublish,
   publishBlockedReason,
@@ -29,6 +35,11 @@ export function PropertyDetailHeader({
   occupancy?: string | null
   unitLabel?: string
   buildingName?: string
+  buildingGrading?: BuildingGrading
+  buildingAddress?: string
+  /** Units in the building including this one; omit when not linked to a building. */
+  unitCount?: number
+  siblingUnits?: Array<Pick<PropertyAsset, 'id' | 'title'>>
   canManage: boolean
   canPublish?: boolean
   publishBlockedReason?: string | null
@@ -66,7 +77,27 @@ export function PropertyDetailHeader({
           <p className="mt-1 text-sm text-ink-500">
             {property.id}
             {unitLabel ? ` · Unit ${unitLabel}` : ''}
-            {buildingName ? ` · ${buildingName}` : ''} · {property.suburb}, {property.city}
+            {buildingName ? ` · ${buildingName}` : ''}
+            {buildingGrading ? ` · ${gradingLabel(buildingGrading)}` : ''} ·{' '}
+            {buildingAddress ? `${buildingAddress}, ` : ''}
+            {property.suburb}, {property.city}
+            {unitCount ? ` · ${unitCount} unit${unitCount === 1 ? '' : 's'}` : ''}
+            {siblingUnits.length > 0 ? (
+              <>
+                {' · Other units: '}
+                {siblingUnits.map((sib, i) => (
+                  <span key={sib.id}>
+                    {i > 0 ? ', ' : ''}
+                    <Link
+                      to={`/workspace/properties/${sib.id}`}
+                      className="font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                      {sib.title}
+                    </Link>
+                  </span>
+                ))}
+              </>
+            ) : null}
           </p>
         </div>
 

@@ -117,11 +117,11 @@ export default function TrustCashbook() {
 
   function handleExport() {
     const csv = trustTransactionsToCsv(transactions)
-    downloadText('trust-cashbook-mode-a.csv', csv)
+    downloadText('trust-cashbook.csv', csv)
   }
 
   function handleDownloadTemplate() {
-    downloadText('trust-template-mode-a.csv', trustCsvTemplateSample())
+    downloadText('trust-template.csv', trustCsvTemplateSample())
   }
 
   async function handleImportFile(file: File) {
@@ -165,7 +165,7 @@ export default function TrustCashbook() {
         actions={
           <div className="flex flex-col items-end gap-1">
             <div className="flex flex-wrap justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={handleDownloadTemplate} title="Download Mode A template CSV">
+              <Button variant="ghost" size="sm" onClick={handleDownloadTemplate} title="Download template CSV">
                 <FileDown className="h-4 w-4" />
       <div className="mb-2"><FieldHelp title="Trust cashbook" body={TRUST_MODE_A_COPY} /></div>
                 Template
@@ -174,7 +174,7 @@ export default function TrustCashbook() {
                 variant="secondary"
                 size="sm"
                 onClick={handleExport}
-                title="Export current cashbook CSV (Mode A — not bank-confirmed)"
+                title="Export current cashbook CSV. Balances come from the PropertyFlow ledger and are not yet matched to the bank."
               >
                 <Download className="h-4 w-4" />
                 Export CSV
@@ -184,7 +184,7 @@ export default function TrustCashbook() {
                 size="sm"
                 disabled={busy || !user?.agencyId}
                 onClick={() => fileRef.current?.click()}
-                title="Import Mode A template CSV — not a live bank feed"
+                title="Manual template CSV import — not a live bank feed"
               >
                 <Upload className="h-4 w-4" />
                 Import Template CSV
@@ -280,7 +280,7 @@ export default function TrustCashbook() {
         {transactions.length === 0 ? (
           <EmptyState
             title="No transactions found"
-            description="Import a Mode A template CSV or adjust filters. Seed rows (if any) are demo history only."
+            description="Import a template CSV or adjust filters. Seed rows (if any) are sample history only."
           />
         ) : (
           <div className="divide-y divide-primary-100">

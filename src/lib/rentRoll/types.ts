@@ -15,13 +15,13 @@ import type {
 
 /** Honesty — UI banner + PDF/CSV/index (safe claim). */
 export const RENT_ROLL_MODE_A_COPY =
-  'Mode A as-at rent roll + soft audit pack beside owner statements — not trust-audited, not a PPRA opinion, not bank-confirmed.'
+  'As-at rent roll + soft audit pack beside owner statements — recorded in PropertyFlow, not yet matched to the bank; not trust-audited, not a PPRA opinion.'
 
 export const AUDIT_PACK_MODE_A_COPY =
   'Soft audit pack (index + existing docs inventory + Trust soft CSV + rent roll) — not a statutory audit pack, not PPRA-certified, not bank-matched.'
 
 export const REMITTANCE_REFUSE_COPY =
-  'Live remittance / PayProp partner settlement is refuse-closed in Mode A — use soft exports and owner statement Mode A only.'
+  'Live PayProp remittance is not connected — use the in-app exports and owner statement only.'
 
 export type RentRollAsAtInput = {
   agencyId: string
@@ -54,6 +54,10 @@ export type RentRollRow = {
   rentDueDay: number
   /** In-app arrears from Due/Overdue rent-like payments with dueDate ≤ as-at (not bank-confirmed). */
   arrearsZar: number
+  /** Next rent increase from the occupancy billing schedule (nextEscalationOn); null when not set. */
+  increaseDate: string | null
+  /** Escalation % on the billing schedule; null when not set. */
+  escalationPct: number | null
 }
 
 export type RentRollBook = {

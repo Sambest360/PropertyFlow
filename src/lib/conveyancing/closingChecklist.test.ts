@@ -30,7 +30,7 @@ describe('purchase closing checklist (Mode A)', () => {
 
 describe('conveyancing Mode A honesty copy', () => {
   it('states Mode A and denies live attorney / Deeds / quote', () => {
-    expect(CONVEYANCING_MODE_A_COPY).toMatch(/Mode A soft-demo/i)
+    expect(CONVEYANCING_MODE_A_COPY).toMatch(/Non-production conveyancing/i)
     expect(CONVEYANCING_MODE_A_COPY).toMatch(/staff-recorded/i)
     expect(CONVEYANCING_MODE_A_COPY).toMatch(/not a live attorney portal/i)
     expect(CONVEYANCING_MODE_A_COPY).toMatch(/not a quote/i)

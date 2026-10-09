@@ -640,6 +640,7 @@ export function AgencyDashboard() {
       {hero && (
         <AttentionHero
           {...hero}
+          propertyLink={has('assets.manage') ? hero.propertyLink : undefined}
           eyebrow={homeEyebrow}
           secondaryBadge={isPrincipal ? 'Principal' : isAgencyAdmin ? 'Agency Admin' : hero.secondaryBadge}
           cta={

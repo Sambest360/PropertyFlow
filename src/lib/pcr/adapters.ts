@@ -9,7 +9,7 @@ import type {
   PcrPartnerUpsertResult,
   PropertyConditionInspection,
 } from './types'
-import { PcrNotConfiguredError } from './types'
+import { PcrNotConfiguredError } from './types.js'
 
 /** In-app / export pack only — zero partner credentials required. */
 export class ManualPcrAdapter implements IPcrPartnerAdapter {
@@ -44,7 +44,7 @@ export class RefuseClosedPcrPartnerAdapter implements IPcrPartnerAdapter {
     const label = partnerCode === 'propertyinspect' ? 'PropertyInspect' : 'RedRabbit'
     this.reason = this.configured
       ? `${label} live API adapter is a placeholder. Partner credentials may be present but HTTP client is not implemented — use ManualPcrAdapter / in-app PCR pack. Official partner docs required (escalate to Michael).`
-      : `${label} partner adapter is not configured. Mode A refuses live push — use in-app soft PCR pack. Do not invent partner keys or scrape.`
+      : `${label} partner adapter is not configured. Live push is off — use the in-app PCR pack. Do not invent partner keys or scrape.`
   }
 
   async pushInspection(_inspection: PropertyConditionInspection): Promise<PcrPartnerUpsertResult> {
@@ -88,7 +88,7 @@ export function attemptLivePartnerPush(
 export function assertPartnerNotLive(adapter: IPcrPartnerAdapter): void {
   if (adapter.live) {
     throw new PcrNotConfiguredError(
-      `${adapter.partnerCode} live push is refuse-closed in Mode A — use ManualPcrAdapter.`,
+      `${adapter.partnerCode} live push is off — use ManualPcrAdapter.`,
     )
   }
 }

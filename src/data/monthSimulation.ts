@@ -20,8 +20,8 @@ import type {
   Viewing,
   ViewingSlot,
 } from '../types/domain'
-import { midTransferDemoChecklist } from '../lib/conveyancing/closingChecklist'
-import { DEMO_SAMPLE_FILES } from '../lib/api/documents'
+import { midTransferDemoChecklist } from '../lib/conveyancing/closingChecklist.js'
+import { DEMO_SAMPLE_FILES } from '../lib/api/documents.js'
 
 /** Anchor “today” for the demo month (matches user_info / seed). */
 export const SIM_TODAY = '2026-07-26'
@@ -117,7 +117,7 @@ export const monthApplications: Application[] = [
     documents: [],
     docs: ['ID', 'Payslips', 'FICA', 'Bond letter'],
     viewingSlotId: null,
-    notes: 'Linked from CRM lead LD-2202. Mode A mid-transfer soft-demo — checklist staff-recorded only.',
+    notes: 'Linked from CRM lead LD-2202. Mid-transfer — checklist staff-recorded in-app only.',
     purchaseClosing: midTransferDemoChecklist(),
     submittedAt: '2026-07-21',
     updatedAt: '2026-07-21',
@@ -671,7 +671,7 @@ export const monthActivities: Activity[] = [
   {
     id: 'a6',
     agencyId: 'ag-horizon',
-    text: 'Purchase APP-905 mid-transfer soft-demo — closing checklist staff-recorded (Mode A)',
+    text: 'Purchase APP-905 mid-transfer — closing checklist staff-recorded (in-app)',
     at: '2026-07-22T09:30:00.000Z',
     user: 'Lerato Nkosi',
   },

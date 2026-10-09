@@ -95,7 +95,7 @@ export default function HelpPage() {
           </p>
           <p>
             <strong className="text-ink">Trust:</strong> cashbook import/export and allocate are
-            in-app book tools. Use field-help icons on Trust pages for soft-demo limits.
+            in-app book tools. Use field-help icons on Trust pages for current limits.
           </p>
           <p>
             <strong className="text-ink">Messages:</strong> owner↔tenant and agency threads stay

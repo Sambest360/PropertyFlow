@@ -16,6 +16,7 @@ import { PageHeader, Card, StatCard, Badge, Button, EmptyState } from '../../com
 import { DashboardPage } from '../../components/dashboard'
 import { FieldHelp } from '../../components/onboarding/FieldHelp'
 import { TRUST_MODE_A_COPY } from '../../lib/trust/modeA'
+import { buildTenancyArrears, todayYmd } from '../../lib/trust/tenancyArrears'
 import { Link } from 'react-router-dom'
 
 /** Format integer cents as ZAR currency */
@@ -93,9 +94,16 @@ export default function TrustDashboard() {
     [state.depositHoldings, agencyId]
   )
 
-  const arrearsSnapshots = useMemo(
-    () => state.arrearsSnapshots?.filter((a) => !agencyId || a.agencyId === agencyId) ?? [],
-    [state.arrearsSnapshots, agencyId]
+  const tenancyArrears = useMemo(
+    () =>
+      buildTenancyArrears({ tenancies: state.tenancies, payments: state.payments, asOf: todayYmd(), agencyId })
+        .filter((a) => a.arrearsCents > 0),
+    [state.tenancies, state.payments, agencyId]
+  )
+
+  const agencyTenancyCount = useMemo(
+    () => state.tenancies.filter((t) => !agencyId || t.agencyId === agencyId).length,
+    [state.tenancies, agencyId]
   )
 
   // Calculate summary stats
@@ -130,8 +138,8 @@ export default function TrustDashboard() {
   )
 
   const totalArrears = useMemo(
-    () => arrearsSnapshots.reduce((sum, a) => sum + a.d30 + a.d60 + a.d90 + a.d90plus, 0),
-    [arrearsSnapshots]
+    () => tenancyArrears.reduce((sum, a) => sum + a.arrearsCents, 0),
+    [tenancyArrears]
   )
 
   return (
@@ -167,7 +175,7 @@ export default function TrustDashboard() {
           hint={`${trustTransactions.filter((t) => t.direction === 'in').length} transactions`}
         />
         <StatCard
-          label="Total Paid Out"
+          label="Money out (ledger)"
           value={formatCents(totalPaid)}
           icon={<ArrowUpRight className="h-6 w-6" />}
           hint={`${trustTransactions.filter((t) => t.direction === 'out').length} transactions`}
@@ -211,7 +219,7 @@ export default function TrustDashboard() {
               <p className="text-sm font-medium text-ink-500">Total Arrears</p>
               <p className="mt-1.5 text-2xl font-semibold tracking-tight text-ink">{formatCents(totalArrears)}</p>
               <p className="mt-1 text-xs text-ink-400">
-                Across {arrearsSnapshots.length} occupancies
+                Across {tenancyArrears.length} occupancies
               </p>
             </div>
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-600">
@@ -238,7 +246,7 @@ export default function TrustDashboard() {
             description={
               // P1 (R4): distinguish "no activity yet" from "no tenancies to
               // bill against" — QA flagged the blanket message as unclear.
-              arrearsSnapshots.length === 0
+              agencyTenancyCount === 0
                 ? 'Trust accounting is per tenancy, and this agency has no occupancies yet. Approve an applicant (or record a first receipt) and transactions will appear here.'
                 : 'Transactions will appear here when you record payments or process payouts. Start by recording a tenant payment or allocating an unallocated receipt.'
             }

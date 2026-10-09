@@ -30,6 +30,13 @@ export {
 
 export { downloadRentRollPdf, generateRentRollPdf } from './generateRentRollPdf'
 
+export {
+  RENT_ROLL_TABLE_COLUMNS,
+  rentRollCellText,
+  rentRollTableToCsv,
+  type RentRollColumnKey,
+} from './rentRollTable'
+
 export { buildSoftAuditPack } from './auditPack'
 
 export {

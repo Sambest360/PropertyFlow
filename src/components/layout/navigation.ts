@@ -26,6 +26,8 @@ import {
   MessageCircle,
   ShieldCheck,
   Wallet,
+  ScrollText,
+  Table2,
 } from 'lucide-react'
 import type { Permission } from '../../types/domain'
 import { ACCOUNT_WISHLIST_PATH } from '../../lib/accountRoutes'
@@ -393,7 +395,8 @@ export function dedupeNavEntries(entries: WorkspaceNavEntry[]): WorkspaceNavEntr
 
   for (const entry of entries) {
     if (entry.type === 'link') {
-      const key = navItemPath(entry.item)
+      // Full `to` (query included) so Reports tab links are not folded into Reports.
+      const key = entry.item.to
       if (seen.has(key)) continue
       seen.add(key)
       result.push(entry)
@@ -640,9 +643,29 @@ function buildLandlordOwnerNav(
         icon: Wrench,
       },
     },
+    {
+      type: 'link',
+      item: {
+        to: '/workspace/insights/reports?tab=owner-statement',
+        label: 'Owner statement',
+        permission: 'reports.view',
+        icon: ScrollText,
+      },
+    },
+    {
+      type: 'link',
+      item: {
+        to: '/workspace/insights/reports?tab=rent-roll',
+        label: 'Rent roll',
+        permission: 'reports.view',
+        icon: Table2,
+      },
+    },
   ]
 
-  const rest = stripNavPaths(removePortalsGroup(filtered), foreignPortalPathsForRole('landlord')).filter(
+  // CR6: landlords keep assets.manage (own properties) but never see the agency Landlords directory.
+  const landlordHidden = new Set([...foreignPortalPathsForRole('landlord'), '/workspace/people/landlords'])
+  const rest = stripNavPaths(removePortalsGroup(filtered), landlordHidden).filter(
     (entry) => {
       if (entry.type !== 'link') return true
       const path = navItemPath(entry.item)

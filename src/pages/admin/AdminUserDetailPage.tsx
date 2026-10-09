@@ -32,7 +32,12 @@ import { usePrefersReducedMotion } from '../../hooks/useScrollMotion'
 import { formatDisplayDob } from '../../lib/saId'
 import { apiUpdateUserVerification } from '../../lib/api/authClient'
 import type { AppUser, Permission, Role } from '../../types/domain'
-import type { UserVerification } from '../../lib/verification'
+import {
+  documentOpenLabel,
+  markDocumentLookedAt,
+  verificationDecisionsEnabled,
+  type UserVerification,
+} from '../../lib/verification'
 
 const ICON_STROKE = 1.6
 
@@ -283,6 +288,15 @@ function OverviewTab({
   const [error, setError] = useState('')
   const verification = user.verification
   const docs = verification?.documents ?? []
+  const decisionsEnabled = verificationDecisionsEnabled(docs)
+
+  const openDocument = (documentKey: string) => {
+    if (!verification) return
+    onVerificationUpdated({
+      ...verification,
+      documents: markDocumentLookedAt(docs, documentKey, new Date().toISOString()),
+    })
+  }
   const profile = verification?.profile ?? {}
   // P0-landlord (R9): the review panel previously required an existing
   // verification object, so landlords CREATED by staff (no self-submitted
@@ -429,11 +443,13 @@ function OverviewTab({
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold text-ink">{doc.label}</p>
                       <p className="truncate text-xs text-ink-500">{doc.name}</p>
+                      <p className="text-xs text-ink-500">{documentOpenLabel(doc)}</p>
                     </div>
                     <a
                       href={doc.dataUrl}
                       download={doc.name}
                       className="text-xs font-semibold text-primary hover:underline"
+                      onClick={() => openDocument(doc.key)}
                     >
                       Open
                     </a>
@@ -460,7 +476,7 @@ function OverviewTab({
                   <Button
                     type="button"
                     className="min-h-11 cursor-pointer"
-                    disabled={busy}
+                    disabled={busy || !decisionsEnabled}
                     onClick={() => void applyDecision('approved')}
                   >
                     Approve
@@ -469,7 +485,7 @@ function OverviewTab({
                     type="button"
                     variant="secondary"
                     className="min-h-11 cursor-pointer"
-                    disabled={busy}
+                    disabled={busy || !decisionsEnabled}
                     onClick={() => void applyDecision('rejected')}
                   >
                     Decline

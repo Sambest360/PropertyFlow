@@ -54,8 +54,8 @@ describe('Mode A trust template CSV', () => {
       },
     ])
     expect(csv.split('\n')[0]).toContain('value_date')
-    expect(TRUST_CSV_NON_PRODUCTION_LABEL.toLowerCase()).toMatch(/not bank-confirmed/)
-    expect(TRUST_CSV_NON_PRODUCTION_LABEL.toLowerCase()).toMatch(/not payprop/)
+    expect(TRUST_CSV_NON_PRODUCTION_LABEL.toLowerCase()).toMatch(/not yet matched to the bank/)
+    expect(TRUST_CSV_NON_PRODUCTION_LABEL.toLowerCase()).not.toMatch(/bank-confirmed|payprop/)
     expect(TRUST_CSV_NON_PRODUCTION_LABEL.toLowerCase()).not.toMatch(/live bank http/)
   })
 })

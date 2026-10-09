@@ -4,9 +4,7 @@ import { MessageCircle, Send } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
 import type { TenantPortalState } from '../../hooks/useTenantPortalState'
 import { Badge, Button, Card, Input, Select, Textarea } from '../../components/ui'
-import { FieldHelp } from '../../components/onboarding/FieldHelp'
 import {
-  MESSAGING_MODE_A_BANNER,
   resolveTenantComposeTarget,
   routesToBadgeLabel,
 } from '../../lib/messaging/modeA'
@@ -98,7 +96,6 @@ export function TenantMessagesView({ portal }: { portal: TenantPortalState }) {
         <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-ink">
           <MessageCircle className="h-5 w-5 text-primary" strokeWidth={ICON_STROKE} aria-hidden />
           Messages
-          <FieldHelp title="Messaging" body={MESSAGING_MODE_A_BANNER} />
         </h2>
         <p className="mt-1 text-sm text-ink-500">
           Message your landlord directly, or the managing agency/agent.

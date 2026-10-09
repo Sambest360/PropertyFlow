@@ -30,8 +30,6 @@ import { groupPortfolioByBuilding } from '../lib/buildingHierarchy'
 import { gradingLabel } from '../lib/buildingGrading'
 import { rolePermissions } from '../lib/permissions'
 import { OwnerMessagesPanel } from '../components/messaging/OwnerMessagesPanel'
-import { OwnerStatementDownloadPanel } from '../components/ownerStatement/OwnerStatementDownloadPanel'
-import { RentRollAuditPackPanel } from '../components/rentRoll/RentRollAuditPackPanel'
 
 const ICON_STROKE = 1.6
 
@@ -158,8 +156,8 @@ export default function OwnerPortal() {
           }
           propertyLink={
             featured
-              ? { to: `/workspace/properties/${featured.id}` }
-              : { to: '/workspace', label: 'Dashboard' }
+              ? { to: `/workspace/properties/${featured.id}/edit`, label: 'Edit property' }
+              : undefined
           }
         />
 
@@ -416,26 +414,6 @@ export default function OwnerPortal() {
             )}
           </ul>
         </Card>
-
-        {user.agencyId ? (
-          <OwnerStatementDownloadPanel
-            landlordUserId={user.id}
-            landlordName={user.name}
-            agencyId={user.agencyId}
-            agencyName={state.agencies.find((a) => a.id === user.agencyId)?.name ?? 'Agency'}
-            storeDocument
-          />
-        ) : null}
-
-        {user.agencyId ? (
-          <RentRollAuditPackPanel
-            agencyId={user.agencyId}
-            agencyName={state.agencies.find((a) => a.id === user.agencyId)?.name ?? 'Agency'}
-            landlordUserId={user.id}
-            landlordName={user.name}
-            includeOwnerStatements
-          />
-        ) : null}
 
         <div className="flex flex-wrap gap-3">
           <Link

@@ -1,6 +1,6 @@
 /** Mode A honesty — checklist/status only; not attorney/Deeds. */
 export const CONVEYANCING_MODE_A_COPY =
-  'Mode A soft-demo / non-production conveyancing. Closing checklist and status labels are staff-recorded in-app only — not a live attorney portal, Deeds Office e-filing, or bank bond-approval feed. Bond/transfer calculators remain estimates (not a quote).'
+  'Non-production conveyancing. Closing checklist and status labels are staff-recorded in-app only — not a live attorney portal, Deeds Office e-filing, or bank bond-approval feed. Bond/transfer calculators remain estimates (not a quote).'
 
 /**
  * Mode A purchase closing checklist — staff-recorded ticks only.

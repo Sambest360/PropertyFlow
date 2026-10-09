@@ -81,7 +81,7 @@ export async function exportManualPackForPortal(
   }
   const mandateSoftWarn = canonical.mandateActive
     ? null
-    : 'Mandate not marked active — soft warning only (Mode A). Export pack still allowed; live partner push is refuse-closed anyway.'
+    : 'Mandate not marked active — soft warning only. Export pack still allowed; live partner push is refuse-closed anyway.'
   return { ok: true, property: next, publication, exportPack: result.exportPack, mandateSoftWarn }
 }
 

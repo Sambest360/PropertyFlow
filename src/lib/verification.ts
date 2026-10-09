@@ -12,6 +12,8 @@ export type VerificationDocument = {
   mimeType: string
   dataUrl: string
   uploadedAt: string
+  /** Set on this document when a reviewer opens it. Absent means not opened. */
+  lookedAt?: string
 }
 
 export type LandlordVerificationProfile = {
@@ -100,4 +102,57 @@ export function missingRequiredDocs(
   const required = requiredDocsForRole(role).filter((d) => d.required)
   const have = new Set(documents.map((d) => d.key))
   return required.filter((d) => !have.has(d.key)).map((d) => d.label)
+}
+
+/** Copy of the document list with lookedAt set on the opened document only. */
+export function markDocumentLookedAt<T extends { key: string; lookedAt?: string }>(
+  documents: readonly T[],
+  documentKey: string,
+  lookedAt: string,
+): T[] {
+  return documents.map((doc) => (doc.key === documentKey ? { ...doc, lookedAt } : doc))
+}
+
+export function documentOpenLabel(doc: { lookedAt?: string }): 'Not opened' | 'Looked at' {
+  return doc.lookedAt ? 'Looked at' : 'Not opened'
+}
+
+/**
+ * Approve and Decline stay available when there are no documents.
+ * With documents, both stay disabled until every document has lookedAt.
+ */
+export function verificationDecisionsEnabled(
+  documents: readonly { lookedAt?: string }[] | null | undefined,
+): boolean {
+  const docs = documents ?? []
+  if (docs.length === 0) return true
+  return docs.every((doc) => typeof doc.lookedAt === 'string' && doc.lookedAt.length > 0)
+}
+
+/**
+ * Decision write used by updateUserVerification.
+ * Spreads the stored verification so lookedAt on each document is kept.
+ */
+export function applyVerificationDecision<T extends { status: string; rejectNote?: string }>(
+  prev: T,
+  decision: {
+    status: 'approved' | 'rejected'
+    reviewedAt: string
+    reviewedBy?: string | null
+    rejectNote?: string
+  },
+): T & {
+  status: 'approved' | 'rejected'
+  reviewedAt: string
+  reviewedBy: string | null
+  rejectNote?: string
+} {
+  return {
+    ...prev,
+    status: decision.status,
+    reviewedAt: decision.reviewedAt,
+    reviewedBy: decision.reviewedBy ?? null,
+    rejectNote:
+      decision.status === 'rejected' ? decision.rejectNote?.trim() || 'Rejected' : undefined,
+  }
 }
