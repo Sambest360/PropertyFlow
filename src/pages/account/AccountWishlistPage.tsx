@@ -37,7 +37,7 @@ export default function AccountWishlistPage() {
     <DashboardPage>
       <DashboardBreadcrumb items={[homeCrumb, { label: 'Wishlist' }]} />
 
-      <div className="mb-6">
+      <div className="mb-6" data-tip-target="tenant-wishlist">
         <h1 className="flex items-center gap-2 font-display text-2xl font-bold tracking-tight text-ink">
           <Heart className="h-6 w-6 text-accent" strokeWidth={1.6} aria-hidden />
           Wishlist

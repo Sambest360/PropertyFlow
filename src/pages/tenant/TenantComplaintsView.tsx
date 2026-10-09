@@ -74,7 +74,7 @@ export function TenantComplaintsView({ portal }: { portal: TenantPortalState }) 
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" data-tip-target="tenant-complaints">
       <div>
         <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-ink">
           <AlertTriangle className="h-5 w-5 text-accent" strokeWidth={1.6} aria-hidden />
