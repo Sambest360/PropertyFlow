@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   Ban,
   CheckCircle2,
@@ -37,9 +38,8 @@ import { PcrGateStatus } from '../pcr/PcrGateStatus'
 import { FieldHelp } from '../onboarding/FieldHelp'
 import { FICA_PACK_MODE_A_COPY } from '../../lib/ficaPack'
 import { SCREENING_MODE_A_COPY } from '../../lib/screening'
-import { PCR_MODE_A_COPY } from '../../lib/pcr'
+import { PCR_MODE_A_COPY, findInspection, inspectionStatusLabel } from '../../lib/pcr'
 import { CONVEYANCING_MODE_A_COPY } from '../../lib/conveyancing/closingChecklist'
-import { InspectionPcrPanel } from '../pcr/InspectionPcrPanel'
 import { WorkflowActionModal } from './WorkflowActionModal'
 import { Badge, Card, cn, statusTone } from '../ui'
 import { useAgentDisplay } from '../../hooks/useAgentDisplay'
@@ -448,27 +448,7 @@ export function ApplicationLifecycleHub({
       ) : null}
 
       {application.type === 'Rental' && !applicantMode ? (
-        <InspectionPcrPanel
-          application={application}
-          propertyTitle={property?.title ?? 'Property'}
-          propertyAddress={
-            property
-              ? [property.address, property.suburb, property.city].filter(Boolean).join(', ')
-              : '—'
-          }
-          agencyName={
-            state.agencies.find((a) => a.id === application.agencyId)?.name ?? 'Agency'
-          }
-          canReview={canReview}
-          actor={{
-            userId: actor.userId,
-            name: state.users.find((u) => u.id === actor.userId)?.name ?? 'Staff',
-          }}
-          onSave={(patch) => {
-            updateApplication(application.id, patch)
-            onSaveDetails?.(patch)
-          }}
-        />
+        <PcrSummaryChip application={application} canReview={canReview} />
       ) : null}
 
       {isTerminalWorkflowStatus(application.type, workflowStatus) ? (
@@ -503,5 +483,38 @@ function Meta({
       <dt className="text-[11px] font-medium uppercase tracking-wide text-ink-400">{label}</dt>
       <dd className={cn('mt-0.5 text-sm font-semibold text-ink', tabular && 'tabular-nums')}>{value}</dd>
     </div>
+  )
+}
+
+/** CR8: the PCR lives on its own page; the applicant record keeps a status chip and a link. */
+function PcrSummaryChip({ application, canReview }: { application: Application; canReview: boolean }) {
+  const incoming = findInspection(application, 'incoming')
+  const outgoing = findInspection(application, 'outgoing')
+  const status = (i: ReturnType<typeof findInspection>) =>
+    i ? inspectionStatusLabel(i.status) : 'Not started'
+  return (
+    <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-ink">Property condition report</p>
+        <div className="mt-1 flex flex-wrap gap-2 text-xs text-ink-500">
+          <span className="inline-flex items-center gap-1.5">
+            Incoming <Badge tone={incoming?.status === 'signed' || incoming?.ingoingPcrSigned ? 'success' : 'neutral'}>{status(incoming)}</Badge>
+          </span>
+          {outgoing ? (
+            <span className="inline-flex items-center gap-1.5">
+              Outgoing <Badge tone={outgoing.status === 'signed' ? 'success' : 'neutral'}>{status(outgoing)}</Badge>
+            </span>
+          ) : null}
+        </div>
+      </div>
+      {canReview ? (
+        <Link
+          to={`/workspace/sales/applications/${application.id}/inspection`}
+          className="inline-flex min-h-10 items-center rounded-xl border border-primary-200 px-3 text-sm font-medium text-primary-700 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          Open PCR
+        </Link>
+      ) : null}
+    </Card>
   )
 }

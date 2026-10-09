@@ -32,6 +32,7 @@ const CRM = lazy(() => import('./pages/CRM'))
 const LeadDetail = lazy(() => import('./pages/LeadDetail'))
 const Applications = lazy(() => import('./pages/Applications'))
 const ApplicantDetail = lazy(() => import('./pages/ApplicantDetail'))
+const ApplicationInspectionPage = lazy(() => import('./pages/ApplicationInspectionPage'))
 const Viewings = lazy(() => import('./pages/Viewings'))
 const ViewingPropertyPage = lazy(() => import('./pages/ViewingPropertyPage'))
 const Maintenance = lazy(() => import('./pages/Maintenance'))
@@ -254,6 +255,7 @@ export default function App() {
                 <Route path="sales/pipeline" element={<Navigate to="/workspace/sales/crm?view=board" replace />} />
                 <Route path="sales/applications" element={<Guard permission="applications.view"><Applications /></Guard>} />
                 <Route path="sales/applications/:id" element={<Guard permission="applications.view"><ApplicantDetail /></Guard>} />
+                <Route path="sales/applications/:id/inspection" element={<Guard permission="applications.review"><ApplicationInspectionPage /></Guard>} />
                 <Route path="sales/viewings" element={<Guard permission="viewings.manage"><Viewings /></Guard>} />
                 <Route
                   path="sales/viewings/property/:propertyId"
