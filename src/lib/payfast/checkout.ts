@@ -31,6 +31,8 @@ const USER_MESSAGES: Record<string, string> = {
   payment_not_found: 'This payment could not be found on the ledger.',
   payment_already_paid: 'This payment has already been settled.',
   payment_cancelled: 'This payment was cancelled. Please contact your agency.',
+  amount_mismatch: 'The amount no longer matches the ledger. Refresh the page and try again.',
+  payment_not_yours: 'You can only pay your own payments.',
 }
 
 export async function startPayfastCheckout(

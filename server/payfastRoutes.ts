@@ -2,6 +2,7 @@
  * PayFast checkout routes (sandbox-first).
  *
  * POST /api/payfast/create
+ *   (amount = payments.amount; a sent amountCents must match it or 409)
  *   body: { paymentId, paymentDbId?, amountCents?, itemName?, itemDescription?,
  *           payer?, subscription? }
  *   → { ok, processUrl, fields } — fields include the server-computed
@@ -138,11 +139,19 @@ export async function payfastCreate(c: Context, authorize?: PayfastCreateAuthori
     if (payment.status === 'CANCELLED') {
       return c.json({ ok: false, error: 'payment_cancelled' }, 409)
     }
-    const clientAmountCents = Math.round(Number(body.amountCents) * (Number.isFinite(Number(body.amountCents)) ? 1 : 0))
-    const amountCents =
-      Number.isFinite(clientAmountCents) && clientAmountCents > 0
-        ? clientAmountCents
-        : Math.round(payment.amount * 100)
+    // The charge always comes from the ledger row. A client amount is only a
+    // cross-check: if one is sent and differs from the record, refuse.
+    const amountCents = Math.round(payment.amount * 100)
+    const sentAmount = body.amountCents
+    if (sentAmount !== undefined && sentAmount !== null && sentAmount !== '') {
+      const sent = Number(sentAmount)
+      if (!Number.isFinite(sent)) {
+        return c.json({ ok: false, error: 'invalid_amount' }, 400)
+      }
+      if (Math.round(sent) !== amountCents) {
+        return c.json({ ok: false, error: 'amount_mismatch' }, 409)
+      }
+    }
     const itemName =
       typeof body.itemName === 'string' && body.itemName.trim()
         ? body.itemName.trim()
