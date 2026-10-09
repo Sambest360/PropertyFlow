@@ -492,8 +492,9 @@ describe('actor identity: session first, demo headers only outside production', 
     expect(body.actor).toEqual({ userId: 'u-tenant', role: 'tenant', agencyId: 'ag-horizon' })
   })
 
-  it('ALLOW_DEMO_ACTOR=1 opts a Vercel deployment back into demo headers', async () => {
+  it('ALLOW_DEMO_ACTOR=1 opts a non-production host back into demo headers', async () => {
     vi.stubEnv('VERCEL', '1')
+    vi.stubEnv('VERCEL_ENV', '')
     vi.stubEnv('ALLOW_DEMO_ACTOR', '1')
     const res = await bootstrap({ 'X-User-Id': 'u-tenant', 'X-Role': 'tenant' })
     expect(res.status).toBe(200)
@@ -522,12 +523,13 @@ describe('actor identity: session first, demo headers only outside production', 
     expect(db.writes).toEqual([])
   })
 
-  it('ALLOW_DEMO_ACTOR=1 still overrides NODE_ENV=production off Vercel production', async () => {
-    vi.stubEnv('NODE_ENV', 'production')
+  it('ALLOW_DEMO_ACTOR=1 is ignored on preview and on NODE_ENV=production', async () => {
     vi.stubEnv('VERCEL_ENV', 'preview')
     vi.stubEnv('ALLOW_DEMO_ACTOR', '1')
-    const res = await bootstrap({ 'X-User-Id': 'u-tenant', 'X-Role': 'tenant' })
-    expect(res.status).toBe(200)
+    expect((await bootstrap({ 'X-User-Id': 'u-tenant', 'X-Role': 'tenant' })).status).toBe(401)
+    vi.stubEnv('VERCEL_ENV', '')
+    vi.stubEnv('NODE_ENV', 'production')
+    expect((await bootstrap({ 'X-User-Id': 'u-tenant', 'X-Role': 'tenant' })).status).toBe(401)
   })
 
   it('ALLOW_DEMO_ACTOR=1 is ignored when VERCEL_ENV=production (sign-in required)', async () => {

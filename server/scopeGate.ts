@@ -1546,10 +1546,16 @@ export function narrowPortalCollections(
 export async function actorIdAliases(actor: DemoActor): Promise<ReadonlySet<string>> {
   const ids = new Set<string>([actor.userId])
   const uuid = (await resolveUuid('user', actor.userId)) ?? (isUuidLike(actor.userId) ? actor.userId : null)
-  if (uuid) {
-    ids.add(uuid)
-    const fe = await feUserId(uuid)
-    if (fe) ids.add(fe)
+  if (!uuid) return ids
+  ids.add(uuid)
+  // Front-end ids mapped to this backend id in entity_id_map only (never an
+  // email lookup), each kept only if it round-trips back to this uuid.
+  const rows = await query<{ frontend_id: string }>(
+    `SELECT frontend_id FROM entity_id_map WHERE entity_type = 'user' AND backend_id::text = $1`,
+    [uuid],
+  )
+  for (const r of rows) {
+    if (r.frontend_id && (await resolveUuid('user', r.frontend_id)) === uuid) ids.add(r.frontend_id)
   }
   return ids
 }

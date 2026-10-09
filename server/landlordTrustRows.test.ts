@@ -135,8 +135,14 @@ describe('demo actor headers in production', () => {
   it('ALLOW_DEMO_ACTOR is ignored when VERCEL_ENV=production', () => {
     expect(demoActorHeadersAllowed({ ALLOW_DEMO_ACTOR: '1', VERCEL_ENV: 'production', VERCEL: '1' } as NodeJS.ProcessEnv)).toBe(false)
   })
-  it('ALLOW_DEMO_ACTOR still opts in on preview', () => {
-    expect(demoActorHeadersAllowed({ ALLOW_DEMO_ACTOR: '1', VERCEL_ENV: 'preview', VERCEL: '1' } as NodeJS.ProcessEnv)).toBe(true)
+  it('ALLOW_DEMO_ACTOR is ignored on preview (any VERCEL_ENV)', () => {
+    expect(demoActorHeadersAllowed({ ALLOW_DEMO_ACTOR: '1', VERCEL_ENV: 'preview', VERCEL: '1' } as NodeJS.ProcessEnv)).toBe(false)
+  })
+  it('ALLOW_DEMO_ACTOR is ignored when NODE_ENV=production', () => {
+    expect(demoActorHeadersAllowed({ ALLOW_DEMO_ACTOR: '1', NODE_ENV: 'production' } as NodeJS.ProcessEnv)).toBe(false)
+  })
+  it('ALLOW_DEMO_ACTOR still opts in on a non-production host', () => {
+    expect(demoActorHeadersAllowed({ ALLOW_DEMO_ACTOR: '1', VERCEL: '1' } as NodeJS.ProcessEnv)).toBe(true)
   })
 })
 
