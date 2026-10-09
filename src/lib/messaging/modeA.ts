@@ -9,7 +9,7 @@ export const MESSAGING_MODE_A_BANNER =
   'Mode A in-app messaging only — not live chat, WhatsApp, or SMS. Messages stay inside PropertyFlow.'
 
 export const MESSAGING_MODE_A_SHORT =
-  'In-app only — not WhatsApp/SMS'
+  'stays in PropertyFlow'
 
 /** Map frontend routesTo → Postgres CHECK value. */
 export function mapRoutesToPg(routesTo: string | null | undefined): 'AGENCY' | 'AGENT' | 'LANDLORD' {
@@ -76,7 +76,7 @@ export function buildArrearsMessageThreadInput(input: ArrearsThreadInput): {
   const routesTo: MessageRoutesTo = input.landlordId ? 'landlord' : 'agency'
   const amountHint =
     typeof input.totalCents === 'number' && input.totalCents > 0
-      ? ` Outstanding (demo ageing): R${(input.totalCents / 100).toFixed(2)}.`
+      ? ` Outstanding: R${(input.totalCents / 100).toFixed(2)}.`
       : ''
   return {
     agencyId: input.agencyId,
@@ -86,7 +86,7 @@ export function buildArrearsMessageThreadInput(input: ArrearsThreadInput): {
     participantIds: participants,
     routesTo,
     fromUserId: input.staffUserId,
-    initialMessage: `Hi — please review arrears for occupancy ${input.occupancyId}.${amountHint} This is an in-app PropertyFlow message (Mode A) — not WhatsApp or SMS.`,
+    initialMessage: `Hi — please review arrears for occupancy ${input.occupancyId}.${amountHint} Balances come from the PropertyFlow ledger and are not yet matched to the bank. Sent as an in-app PropertyFlow message.`,
   }
 }
 

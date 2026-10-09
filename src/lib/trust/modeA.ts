@@ -1,6 +1,6 @@
 /**
- * Mode A Trust honesty copy — for FieldHelp / PDF / tests.
- * Manual/template CSV + in-app allocate — not live PayProp / bank-confirmed.
+ * Trust book note shown as a FieldHelp tooltip on the trust pages (CR9).
+ * One neutral line; no bank-match or compliance claims.
  */
 export const TRUST_MODE_A_COPY =
-  'Mode A soft-demo / non-production trust book. Manual/template CSV ingest and allocate/suspense write to the app database — not live PayProp or bank-confirmed balances. Partner settlement and live bank feeds are not wired.'
+  'Balances come from the PropertyFlow ledger and are not yet matched to the bank.'

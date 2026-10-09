@@ -208,7 +208,7 @@ export default function TrustArrears() {
                           })
                           const thread = createThread(input)
                           setMsgNote(
-                            `In-app thread created (${thread.id}) — Mode A only, not WhatsApp/SMS.`,
+                            `In-app thread created (${thread.id}).`,
                           )
                           navigate('/workspace/operations/communications')
                         } finally {
