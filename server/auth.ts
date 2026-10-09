@@ -7,7 +7,7 @@ import bcrypt from 'bcryptjs'
 import type { Context } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { query } from './db.js'
-import { ensureUuid } from './entityMap.js'
+import { ensureUuid, resolveUuid } from './entityMap.js'
 import { feAgencyFromCache, loadIdMapCache } from './idMapCache.js'
 import { isReservedSuperAdminEmail, resolveFrontendRole } from '../src/lib/supabase/idMap.js'
 import { applyVerificationDecision } from '../src/lib/verification.js'
@@ -163,17 +163,53 @@ async function rowToSession(row: UserRow): Promise<SessionUser> {
   // agencies through entity_id_map first, so the session does the same; a
   // seed agency without clients.settings.frontend_id otherwise came back as
   // its raw client UUID and matched none of its own buildings or units.
-  let idCache: Awaited<ReturnType<typeof loadIdMapCache>> | null = null
-  try {
-    idCache = await loadIdMapCache()
-  } catch {
-    idCache = null
+  //
+  // A front-end id must round-trip: it is accepted only when
+  // resolveUuid(type, fe) maps back to this very row (users.id / client_id).
+  // The seed email table (EMAIL_TO_USER) is never consulted here: anyone can
+  // register a seed address, and that must not hand them a seed user's id.
+  const roundTrips = async (
+    type: 'user' | 'agency',
+    fe: string | null | undefined,
+    backendId: string,
+  ): Promise<boolean> => {
+    if (!fe) return false
+    try {
+      return (await resolveUuid(type, fe)) === backendId
+    } catch {
+      return false
+    }
   }
-  const frontendId =
-    idCache?.userBackendToFe.get(row.id) ??
-    (typeof meta.frontend_id === 'string' && meta.frontend_id ? meta.frontend_id : row.id)
-  const agencyId =
-    (idCache && row.client_id ? feAgencyFromCache(idCache, row.client_id) : null) ?? row.agency_fe
+  let mappedUserFe: string | null = null
+  try {
+    const hit = await query<{ frontend_id: string }>(
+      `SELECT frontend_id FROM entity_id_map
+       WHERE entity_type = 'user' AND backend_id = $1::uuid LIMIT 1`,
+      [row.id],
+    )
+    mappedUserFe = hit[0]?.frontend_id ?? null
+  } catch {
+    mappedUserFe = null
+  }
+  const metaFe = typeof meta.frontend_id === 'string' && meta.frontend_id ? meta.frontend_id : null
+  let frontendId = row.id
+  if (mappedUserFe && (await roundTrips('user', mappedUserFe, row.id))) frontendId = mappedUserFe
+  else if (metaFe && (await roundTrips('user', metaFe, row.id))) frontendId = metaFe
+
+  let agencyId = row.agency_fe
+  if (row.client_id) {
+    let agencyFeCandidate: string | null = null
+    try {
+      agencyFeCandidate = feAgencyFromCache(await loadIdMapCache(), row.client_id)
+    } catch {
+      agencyFeCandidate = null
+    }
+    if (agencyFeCandidate && (await roundTrips('agency', agencyFeCandidate, row.client_id))) {
+      agencyId = agencyFeCandidate
+    } else if (!(await roundTrips('agency', row.agency_fe, row.client_id))) {
+      agencyId = row.client_id
+    }
+  }
   // DB staff roles override stale metadata (e.g. frontend_role: tenant on GROUND_AGENT)
   const feRole = resolveFrontendRole(row.role, meta, row.email)
   const verification =

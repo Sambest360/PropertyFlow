@@ -148,6 +148,10 @@ vi.mock('pg', () => {
       return db.users.map((u) => ({ id: u.id, email: u.email }))
     }
     if (sql === 'SELECT entity_type, frontend_id, backend_id::text FROM entity_id_map') return db.idMap
+    if (sql.startsWith("SELECT frontend_id FROM entity_id_map WHERE entity_type = 'user'")) {
+      const hit = db.idMap.find((r) => r.entity_type === 'user' && r.backend_id === params[0])
+      return hit ? [{ frontend_id: hit.frontend_id }] : []
+    }
     if (sql.startsWith('SELECT backend_id::text FROM entity_id_map')) {
       const types = params[0] as string[]
       const fes = params[1] as string[]
@@ -188,6 +192,11 @@ let app: App
 
 const ADMIN_UUID = 'b2000001-0001-4000-8000-000000000002'
 const CAPE_AGENT_UUID = 'b2000001-0001-4000-8000-000000000003'
+/** Seed Amelia's real row (entity_id_map u-amelia) — her email is not the seed one. */
+const SEED_AMELIA_UUID = 'a2000001-0001-4000-8000-000000000002'
+/** A later registration that holds the seed email amelia@horizonrealty.co.za. */
+const SQUATTER_UUID = 'b2000001-0001-4000-8000-000000000009'
+const SQUATTER_META_UUID = 'b2000001-0001-4000-8000-000000000010'
 
 async function login(email: string): Promise<string> {
   const res = await app.request('/api/auth/login', {
@@ -224,12 +233,17 @@ beforeAll(async () => {
     // Shaped like prod: no metadata.frontend_id, no clients.settings.frontend_id.
     { id: ADMIN_UUID, email: 'admin@horizon.example.test', role: 'AGENCY_ADMIN', client: HORIZON, password_hash: hash, metadata: {} },
     { id: CAPE_AGENT_UUID, email: 'agent@cape.example.test', role: 'AGENT_ADMIN', client: CAPE, password_hash: hash, metadata: {} },
+    { id: SEED_AMELIA_UUID, email: 'amelia.real@horizon.example.test', role: 'AGENCY_ADMIN', client: HORIZON, password_hash: hash, metadata: {} },
+    { id: SQUATTER_UUID, email: 'amelia@horizonrealty.co.za', role: 'END_USER', client: null, password_hash: hash, metadata: {} },
+    // Claims the seed id in metadata too: must not round-trip either.
+    { id: SQUATTER_META_UUID, email: 'squatter2@example.test', role: 'END_USER', client: null, password_hash: hash, metadata: { frontend_id: 'u-amelia' } },
   ]
   db.idMap = [
     { entity_type: 'agency', frontend_id: 'ag-horizon', backend_id: HORIZON },
     { entity_type: 'agency', frontend_id: 'ag-cape', backend_id: CAPE },
     { entity_type: 'user', frontend_id: 'u-hz-admin', backend_id: ADMIN_UUID },
     { entity_type: 'user', frontend_id: 'u-cape-admin', backend_id: CAPE_AGENT_UUID },
+    { entity_type: 'user', frontend_id: 'u-amelia', backend_id: SEED_AMELIA_UUID },
   ]
   const mod = await import('./index')
   app = mod.default as unknown as App
@@ -270,5 +284,17 @@ describe('agency admin session + bootstrap share one id space (prod P0)', () => 
     expect(boot.buildings.map((b) => b.clientId)).toEqual(['ag-cape'])
     expect(boot.units.map((u) => u.clientId)).toEqual(['ag-cape'])
     expect(boot.properties.every((p) => p.agencyId === 'ag-cape')).toBe(true)
+  })
+
+  it('a seed email held by a different row never gets the seed front-end id', async () => {
+    const squatter = await me(await login('amelia@horizonrealty.co.za'))
+    expect(squatter.id).not.toBe('u-amelia')
+    expect(squatter.id).toBe(SQUATTER_UUID)
+    const metaClaim = await me(await login('squatter2@example.test'))
+    expect(metaClaim.id).toBe(SQUATTER_META_UUID)
+    // The real seed user (entity_id_map round-trips to her row) still does.
+    const real = await me(await login('amelia.real@horizon.example.test'))
+    expect(real.id).toBe('u-amelia')
+    expect(real.agencyId).toBe('ag-horizon')
   })
 })
