@@ -28,7 +28,7 @@ export type PayfastCheckoutResult = {
 const USER_MESSAGES: Record<string, string> = {
   payfast_not_configured: 'Online payments are not configured yet. Please pay via EFT.',
   payment_not_found: 'This payment could not be found on the ledger.',
-  payment_already_paid: 'This payment has already been settled.',
+  payment_already_paid: 'This payment is already marked paid.',
   payment_cancelled: 'This payment was cancelled. Please contact your agency.',
 }
 
