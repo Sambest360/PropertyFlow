@@ -13,6 +13,7 @@ import { DashboardPage } from '../../components/dashboard'
 import { FieldHelp } from '../../components/onboarding/FieldHelp'
 import { TRUST_MODE_A_COPY } from '../../lib/trust/modeA'
 import { PAYOUT_LABELS, payoutStatusLabel } from '../../lib/trust/payoutLabels'
+import { ProposePayoutPanel } from '../../components/trust/ProposePayoutPanel'
 
 function formatCents(cents: number): string {
   return formatZAR(cents / 100)
@@ -60,8 +61,8 @@ function statusIcon(status: string) {
 }
 
 export default function TrustPayouts() {
-  const { state, approvePayoutInstruction, submitPayoutInstruction } = useStore()
-  const { user } = useAuth()
+  const { state, approvePayoutInstruction, submitPayoutInstruction, proposePayoutInstruction } = useStore()
+  const { user, has } = useAuth()
 
   const [filter, setFilter] = useState<string>('all')
   const [actionError, setActionError] = useState<string | null>(null)
@@ -130,6 +131,16 @@ export default function TrustPayouts() {
         subtitle={PAYOUT_LABELS.subtitle}
       />
       <div className="mb-2"><FieldHelp title="Trust payouts" body={TRUST_MODE_A_COPY} /></div>
+
+      <ProposePayoutPanel
+        canPropose={has('trust.approve_payout')}
+        actorUserId={user?.id}
+        agencyId={agencyId}
+        tenancies={state.tenancies}
+        properties={state.properties}
+        users={state.users}
+        propose={proposePayoutInstruction}
+      />
 
       {/* Summary */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

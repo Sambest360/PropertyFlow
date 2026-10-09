@@ -55,6 +55,7 @@ import {
   buildProposedPayout,
   proposeDepositRelease,
 } from '../lib/trust/depositDualControl'
+import { commitProposedPayout } from '../lib/trust/proposePayoutCommit'
 import { isPubliclyListed } from '../lib/publicListings'
 import { findByListingId, nextUniquePropertyId } from '../lib/listingIds'
 import {
@@ -1768,11 +1769,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       })
       if (built.ok === false) return { ok: false, error: built.error }
       const row = built.value
-      patch((s) => ({
-        ...s,
-        payoutInstructions: [row, ...s.payoutInstructions],
-      }))
-      await persistUpsert('payout_instruction', row.id, row as unknown as Record<string, unknown>)
+      // CR9: await the save; a failed save removes the optimistic row and returns ok false.
+      const committed = await commitProposedPayout({
+        row,
+        patch,
+        persist: (r) => persistUpsert('payout_instruction', r.id, r as unknown as Record<string, unknown>),
+      })
+      if (committed.ok === false) return { ok: false, error: committed.error }
       addActivity(
         `Payout proposed (${(row.amountCents / 100).toFixed(2)} ZAR) — awaiting dual-control approval`,
         actor.name,
