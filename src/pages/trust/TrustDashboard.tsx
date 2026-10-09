@@ -175,7 +175,7 @@ export default function TrustDashboard() {
           hint={`${trustTransactions.filter((t) => t.direction === 'in').length} transactions`}
         />
         <StatCard
-          label="Total outgoing"
+          label="Money out (ledger)"
           value={formatCents(totalPaid)}
           icon={<ArrowUpRight className="h-6 w-6" />}
           hint={`${trustTransactions.filter((t) => t.direction === 'out').length} transactions`}
