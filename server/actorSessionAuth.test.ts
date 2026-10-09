@@ -577,3 +577,48 @@ describe('Jim B7: password change goes through a route that checks the current p
     expect(ins).not.toContain('password_hash = COALESCE(EXCLUDED.password_hash')
   })
 })
+
+describe('Jim B8: reserved super-admin emails', () => {
+  it('registering a listed address is refused with 403 and nothing is inserted', async () => {
+    const res = await app.request('/api/auth/register', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': '10.8.0.1' },
+      body: JSON.stringify({
+        email: 'Super@PropertyFlow.app',
+        password: 'long-enough-pw',
+        firstName: 'Mal',
+        lastName: 'Lory',
+        phone: '0820000000',
+        role: 'tenant',
+      }),
+    })
+    expect(res.status).toBe(403)
+    expect(db.writes.some((w) => w.startsWith('INSERT INTO users'))).toBe(false)
+  })
+
+  it('an END_USER row that carries a listed email signs in as a tenant, not a super admin', async () => {
+    const { hashPassword } = await import('./auth')
+    const row = { ...user('u-squat', '09', 'END_USER', null), email: 'sambampo200@gmail.com', password_hash: await hashPassword('pw-correct') }
+    row.metadata = { frontend_id: 'u-squat', frontend_role: 'super_admin' }
+    db.users.push(row)
+    try {
+      const res = await app.request('/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-forwarded-for': '10.8.0.2' },
+        body: JSON.stringify({ email: 'sambampo200@gmail.com', password: 'pw-correct' }),
+      })
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as { token: string; user: { role: string } }
+      expect(body.user.role).toBe('tenant')
+      // The session actor is a tenant too: a super-admin-only route refuses it.
+      const persist = await app.request('/api/persist', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', Authorization: `Bearer ${body.token}` },
+        body: JSON.stringify({ resource: 'user', action: 'delete', id: 'u-tenant2' }),
+      })
+      expect(persist.status).toBe(403)
+    } finally {
+      db.users = db.users.filter((u) => u.fe !== 'u-squat')
+    }
+  })
+})

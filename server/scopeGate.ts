@@ -34,6 +34,7 @@ import { canWriteEntity } from '../src/lib/scopeWrite.js'
 import type { PropertyAccessSubject } from '../src/lib/agencyScope.js'
 import type { Permission, Role } from '../src/types/domain.js'
 import { effectiveCan } from '../src/lib/permissions.js'
+import { isReservedSuperAdminEmail } from '../src/lib/supabase/idMap.js'
 
 type FePropertyRow = PropertyAccessSubject & { id: string }
 
@@ -548,6 +549,17 @@ async function actorHasUsersManage(actor: DemoActor): Promise<boolean> {
   return effectiveCan(actor.role as Role, 'users.manage', undefined, enabled)
 }
 
+async function storedUserEmail(feId: string): Promise<string | null> {
+  const uuid = await resolveUuid('user', feId)
+  if (!uuid) return null
+  const rows = await query<{ email: string | null }>(
+    `SELECT email FROM users WHERE id = $1::uuid`,
+    [uuid],
+  )
+  const e = rows[0]?.email
+  return typeof e === 'string' ? e.trim().toLowerCase() : null
+}
+
 function stripFields(data: Record<string, unknown>, keys: readonly string[]): void {
   for (const k of keys) delete data[k]
 }
@@ -633,6 +645,14 @@ export async function enforceUserWritePolicy(
   const data = (body.data ?? {}) as Record<string, unknown>
   if (body.action !== 'delete') body.data = data
   const role = normaliseRoleField(data)
+  // Designated super-admin addresses are reserved: no write (any actor) may
+  // move a row onto one unless that row already has it.
+  if (body.action !== 'delete' && isReservedSuperAdminEmail(data.email as string | undefined)) {
+    const stored = await storedUserEmail(body.id)
+    if (stored !== String(data.email).trim().toLowerCase()) {
+      throw deny('that email address is reserved')
+    }
+  }
   if (actor.role === 'super_admin') {
     if (role !== undefined && !ALL_ROLES.has(role)) {
       throw Object.assign(new Error(`Unknown role: ${role}`), { status: 400 })

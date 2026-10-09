@@ -1,4 +1,5 @@
 import { query } from './db.js'
+import { resolveFrontendRole } from '../src/lib/supabase/idMap.js'
 import { mapPool } from './mapPool.js'
 import { loadIdMapCache } from './idMapCache.js'
 import {
@@ -521,10 +522,9 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
 
   const appUsers = users.map((u) => {
     const meta = u.metadata ?? {}
-    const feRole =
-      typeof meta.frontend_role === 'string' && meta.frontend_role
-        ? meta.frontend_role
-        : ROLE_MAP[u.role as RoleDb] ?? 'tenant'
+    // Same resolution as the session (DB staff roles win; metadata / the
+    // designated email list never grant super_admin on a non-SUPER_ADMIN row).
+    const feRole = resolveFrontendRole(String(u.role), meta, u.email)
     const verification =
       meta.verification && typeof meta.verification === 'object' ? meta.verification : undefined
     const profile =

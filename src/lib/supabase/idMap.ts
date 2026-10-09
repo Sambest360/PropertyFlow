@@ -70,12 +70,21 @@ export const ROLE_FROM_DB: Record<string, string> = {
   CONTRACTOR: 'contractor',
 }
 
-/** Designated platform super-admin emails — never demote to applicant when DB row is stale. */
+/**
+ * Designated platform super-admin emails. Honoured only when the DB role is
+ * already SUPER_ADMIN (the list never grants the role by itself), and reserved:
+ * no registration or email change may claim one of these addresses.
+ */
 export const SUPER_ADMIN_EMAILS = new Set([
   'ephraimbampo317@gmail.com',
   'sambampo200@gmail.com',
   'super@propertyflow.app',
 ])
+
+export function isReservedSuperAdminEmail(email: string | null | undefined): boolean {
+  const e = typeof email === 'string' ? email.trim().toLowerCase() : ''
+  return Boolean(e) && SUPER_ADMIN_EMAILS.has(e)
+}
 
 /** Staff DB roles must not be demoted by stale metadata (e.g. after self-registration). */
 const DB_ROLE_OVERRIDES_META = new Set([
@@ -92,9 +101,9 @@ export function resolveFrontendRole(
 ): string {
   const normalizedEmail = email?.trim().toLowerCase() ?? ''
 
-  if (normalizedEmail && SUPER_ADMIN_EMAILS.has(normalizedEmail)) {
-    if (dbRole === 'SUPER_ADMIN') return 'super_admin'
-    // Self-registration can leave END_USER + applicant metadata on the super-admin email.
+  // The designated list only confirms an existing SUPER_ADMIN row; it never
+  // promotes an END_USER / staff row that happens to carry a listed email.
+  if (normalizedEmail && SUPER_ADMIN_EMAILS.has(normalizedEmail) && dbRole === 'SUPER_ADMIN') {
     return 'super_admin'
   }
 
@@ -106,7 +115,8 @@ export function resolveFrontendRole(
     typeof meta?.frontend_role === 'string' && meta.frontend_role.trim()
       ? meta.frontend_role.trim()
       : ''
-  if (metaRole) return metaRole
+  // metadata.frontend_role can never grant super_admin on a non-SUPER_ADMIN row.
+  if (metaRole && metaRole.toLowerCase() !== 'super_admin') return metaRole
   return fromDb ?? 'tenant'
 }
 

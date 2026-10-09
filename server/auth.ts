@@ -8,7 +8,7 @@ import type { Context } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { query } from './db.js'
 import { ensureUuid } from './entityMap.js'
-import { resolveFrontendRole } from '../src/lib/supabase/idMap.js'
+import { isReservedSuperAdminEmail, resolveFrontendRole } from '../src/lib/supabase/idMap.js'
 import { applyVerificationDecision } from '../src/lib/verification.js'
 import { ACTOR_AGENCY_HEADER, ACTOR_ROLE_HEADER, ACTOR_USER_HEADER } from './actor.js'
 
@@ -363,6 +363,11 @@ export async function registerUser(input: RegisterInput): Promise<{ user: Sessio
 
   const total = await countUsers()
   const bootstrap = total === 0
+  if (!bootstrap && isReservedSuperAdminEmail(email)) {
+    const err = new Error('This email address is reserved') as Error & { status: number }
+    err.status = 403
+    throw err
+  }
   let roleFe = (input.role || 'tenant').trim()
   if (bootstrap) {
     roleFe = 'super_admin'

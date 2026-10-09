@@ -20,6 +20,7 @@
  */
 import crypto from 'node:crypto'
 import { pool, databaseConfigured } from '../db.js'
+import { isReservedSuperAdminEmail } from '../../src/lib/supabase/idMap.js'
 
 const AUTH_INSTANCE_ID = '00000000-0000-0000-0000-000000000000'
 
@@ -221,6 +222,11 @@ export async function registerSupabaseUserDirect(
   }
 
   const { roleFe, bootstrap } = await resolveRole({ requestedRole: input.role, email })
+  if (!bootstrap && isReservedSuperAdminEmail(email)) {
+    const err = new Error('This email address is reserved') as Error & { status: number }
+    err.status = 403
+    throw err
+  }
   const id = crypto.randomUUID()
   const userMetadata: Record<string, unknown> = {
     first_name: first,

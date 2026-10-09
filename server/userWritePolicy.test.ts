@@ -55,7 +55,7 @@ const UUID: Record<string, string> = {
 }
 const FE_BY_UUID = new Map(Object.entries(UUID).map(([fe, u]) => [u, fe]))
 
-const users: Record<string, { client: string | null; metadata: Record<string, unknown> }> = {
+const users: Record<string, { client: string | null; metadata: Record<string, unknown>; email?: string }> = {
   [UUID['u-t']]: { client: null, metadata: {} },
   [UUID['u-o']]: { client: null, metadata: {} },
   [UUID['u-admin']]: { client: CA, metadata: {} },
@@ -93,6 +93,10 @@ function answer(sqlRaw: string, params: unknown[] = []): unknown[] {
   if (/SELECT client_id FROM users WHERE id = \$1::uuid/.test(sql)) {
     const u = users[String(params[0])]
     return u ? [{ client_id: u.client }] : []
+  }
+  if (/SELECT email FROM users WHERE id = \$1::uuid/.test(sql)) {
+    const u = users[String(params[0])]
+    return u ? [{ email: u.email ?? null }] : []
   }
   if (/SELECT metadata FROM users WHERE id = \$1::uuid/.test(sql)) {
     const u = users[String(params[0])]
@@ -584,5 +588,45 @@ describe('Jim: writes that omit name / tempPassword keep the stored values', () 
     await handlePersist(body as never)
     const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO users'))!
     expect(JSON.parse(String((insert[1] as unknown[])[8])).mustChangePassword).toBe(true)
+  })
+})
+
+describe('Jim B8: designated super-admin emails are reserved and never grant the role', () => {
+  it('a tenant changing their own email to a listed address is refused', async () => {
+    await expect403(gate(TENANT, { resource: 'user', action: 'upsert', id: 'u-t', data: { name: 'T', email: ' SamBampo200@gmail.com ' } }))
+  })
+
+  it('an agency admin creating or editing a user onto a listed address is refused', async () => {
+    await expect403(gate(ADMIN, { resource: 'user', action: 'upsert', id: 'u-new-x', data: { name: 'X', role: 'tenant', email: 'super@propertyflow.app' } }))
+    await expect403(gate(ADMIN, { resource: 'user', action: 'upsert', id: 'u-agent', data: { email: 'ephraimbampo317@gmail.com' } }))
+  })
+
+  it('a super admin cannot move another row onto a listed address either', async () => {
+    await expect403(gate(SA, { resource: 'user', action: 'upsert', id: 'u-t', data: { email: 'super@propertyflow.app' } }))
+  })
+
+  it('the row that already has the listed address can still be written', async () => {
+    users[UUID['u-sa']] = { client: null, metadata: {}, email: 'super@propertyflow.app' }
+    try {
+      await expect(
+        gate(SA, { resource: 'user', action: 'upsert', id: 'u-sa', data: { name: 'Sam', email: 'super@propertyflow.app' } }),
+      ).resolves.toBeDefined()
+    } finally {
+      users[UUID['u-sa']] = { client: null, metadata: {} }
+    }
+  })
+
+  it('resolveFrontendRole honours the list only when the DB role is already SUPER_ADMIN', async () => {
+    const { resolveFrontendRole } = await import('../src/lib/supabase/idMap.js')
+    expect(resolveFrontendRole('END_USER', { frontend_role: 'tenant' }, 'sambampo200@gmail.com')).toBe('tenant')
+    expect(resolveFrontendRole('END_USER', null, 'super@propertyflow.app')).toBe('tenant')
+    expect(resolveFrontendRole('GROUND_AGENT', null, 'super@propertyflow.app')).toBe('ground_agent')
+    expect(resolveFrontendRole('SUPER_ADMIN', { frontend_role: 'tenant' }, 'super@propertyflow.app')).toBe('super_admin')
+  })
+
+  it('metadata frontend_role super_admin never grants the role on a non-SUPER_ADMIN row', async () => {
+    const { resolveFrontendRole } = await import('../src/lib/supabase/idMap.js')
+    expect(resolveFrontendRole('END_USER', { frontend_role: 'super_admin' }, 'x@y.test')).toBe('tenant')
+    expect(resolveFrontendRole('LANDLORD', { frontend_role: ' Super_Admin ' }, 'x@y.test')).toBe('landlord')
   })
 })
