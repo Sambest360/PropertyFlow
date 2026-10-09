@@ -8,7 +8,7 @@ import type { Context } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { query } from './db.js'
 import { ensureUuid } from './entityMap.js'
-import { resolveFrontendRole } from '../src/lib/supabase/idMap.js'
+import { isReservedSuperAdminEmail, resolveFrontendRole } from '../src/lib/supabase/idMap.js'
 import { applyVerificationDecision } from '../src/lib/verification.js'
 import { ACTOR_AGENCY_HEADER, ACTOR_ROLE_HEADER, ACTOR_USER_HEADER } from './actor.js'
 
@@ -363,6 +363,11 @@ export async function registerUser(input: RegisterInput): Promise<{ user: Sessio
 
   const total = await countUsers()
   const bootstrap = total === 0
+  if (!bootstrap && isReservedSuperAdminEmail(email)) {
+    const err = new Error('This email address is reserved') as Error & { status: number }
+    err.status = 403
+    throw err
+  }
   let roleFe = (input.role || 'tenant').trim()
   if (bootstrap) {
     roleFe = 'super_admin'
@@ -502,6 +507,45 @@ export async function updateUserVerification(opts: {
     err.status = 500
     throw err
   }
+  return rowToSession(refreshed)
+}
+
+/**
+ * Self-service password change (API mode). Checks the current password against
+ * users.password_hash, stores the new hash and clears mustChangePassword. The
+ * generic persist route never accepts passwordHash / password from non-super
+ * actors, so this is the only non-admin way to change a password.
+ */
+export async function changeUserPassword(opts: {
+  userUuid: string
+  currentPassword: string
+  newPassword: string
+}): Promise<SessionUser> {
+  const fail = (status: number, message: string) =>
+    Object.assign(new Error(message), { status }) as Error & { status: number }
+  if (!opts.newPassword || opts.newPassword.length < 8) {
+    throw fail(400, 'New password must be at least 8 characters')
+  }
+  if (opts.newPassword === opts.currentPassword) {
+    throw fail(400, 'New password must differ from the current one')
+  }
+  const row = await findUserById(opts.userUuid)
+  if (!row || !row.active) throw fail(401, 'Not signed in')
+  const ok = row.password_hash
+    ? await verifyPassword(opts.currentPassword ?? '', row.password_hash)
+    : false
+  if (!ok) throw fail(401, 'Current password is incorrect')
+  const hash = await hashPassword(opts.newPassword)
+  await query(
+    `UPDATE users
+        SET password_hash = $2,
+            metadata = COALESCE(metadata, '{}'::jsonb) || '{"mustChangePassword": false}'::jsonb,
+            updated_at = NOW()
+      WHERE id = $1::uuid`,
+    [row.id, hash],
+  )
+  const refreshed = await findUserById(row.id)
+  if (!refreshed) throw fail(500, 'User not found after update')
   return rowToSession(refreshed)
 }
 

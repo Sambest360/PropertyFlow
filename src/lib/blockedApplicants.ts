@@ -13,7 +13,7 @@ export function blockedPropertyIdsForApplicant(
         (a) =>
           a.stage === 'Blocked' &&
           (a.applicantUserId === user.id ||
-            a.email.toLowerCase() === user.email.toLowerCase()),
+            (Boolean(user.email) && a.email?.toLowerCase() === user.email?.toLowerCase())),
       )
       .map((a) => a.propertyId),
   )

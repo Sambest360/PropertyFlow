@@ -18,7 +18,7 @@ export function resolveViewingAttendeeUserId(
   )
   if (app?.applicantUserId) return app.applicantUserId
   if (email) {
-    const user = users.find((u) => u.email.toLowerCase() === email)
+    const user = users.find((u) => u.email?.toLowerCase() === email)
     if (user) return user.id
   }
   return null

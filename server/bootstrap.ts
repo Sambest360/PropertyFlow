@@ -1,4 +1,5 @@
 import { query } from './db.js'
+import { resolveFrontendRole } from '../src/lib/supabase/idMap.js'
 import { mapPool } from './mapPool.js'
 import { loadIdMapCache } from './idMapCache.js'
 import {
@@ -521,10 +522,9 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
 
   const appUsers = users.map((u) => {
     const meta = u.metadata ?? {}
-    const feRole =
-      typeof meta.frontend_role === 'string' && meta.frontend_role
-        ? meta.frontend_role
-        : ROLE_MAP[u.role as RoleDb] ?? 'tenant'
+    // Same resolution as the session (DB staff roles win; metadata / the
+    // designated email list never grant super_admin on a non-SUPER_ADMIN row).
+    const feRole = resolveFrontendRole(String(u.role), meta, u.email)
     const verification =
       meta.verification && typeof meta.verification === 'object' ? meta.verification : undefined
     const profile =
@@ -1123,11 +1123,25 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     propertyId: mapProperty(d.unit_id as string | null) ?? '',
     name: d.name as string,
     category: docCategory(d.category as string),
+    // Raw documents.category (e.g. 'ID') — the FE category folds ID into Other;
+    // the scope gate classifies applicant-pack files by it.
+    sourceType: (d.category as string) ?? null,
     status: (d.status as string).toLowerCase(),
     uploadedAt: dateOnly(d.uploaded_at as Date | null) || dateOnly(d.created_at as Date),
     fileUrl: (d.storage_url as string) ?? undefined,
     note: (d.note as string) ?? undefined,
-    applicationId: null as string | null,
+    applicationId: d.application_id
+      ? (appUuidToFeId.get(d.application_id as string) ?? null)
+      : (null as string | null),
+    // Links the scope gate uses for the portal own-rows rule (tenant docs).
+    tenancyId: d.lease_id
+      ? mappedFe(
+          'tenancy',
+          d.lease_id as string,
+          LEASE_IDS[d.lease_id as string] ?? (d.lease_id as string),
+        )
+      : (null as string | null),
+    uploadedByUserId: mapUser(d.uploaded_by as string | null),
     applicantName: (d.applicant_name as string) ?? undefined,
   }))
 

@@ -44,7 +44,7 @@ export function LandlordPicker({
       .filter(
         (u) =>
           u.name.toLowerCase().includes(q) ||
-          u.email.toLowerCase().includes(q) ||
+          (u.email?.toLowerCase().includes(q) ?? false) ||
           (u.phone ?? '').replace(/\s/g, '').includes(q.replace(/\s/g, '')),
       )
       .slice(0, 8)
@@ -244,7 +244,7 @@ export function resolveLandlordAssignment(
     `${name.toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.|\.$/g, '')}@landlord.local`
 
   const existing = opts.users.find(
-    (u) => u.role === 'landlord' && u.email.toLowerCase() === email.toLowerCase(),
+    (u) => u.role === 'landlord' && u.email?.toLowerCase() === email.toLowerCase(),
   )
   if (existing) return existing.id
 

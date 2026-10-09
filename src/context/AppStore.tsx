@@ -157,6 +157,8 @@ import {
 } from '../lib/blockedApplicants'
 import type { PostgresBootstrap } from '../lib/api/postgresClient'
 import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
+import { leaseSignatureSaved } from '../lib/leaseSignatureOrdering'
+import { persistRefusalMessage } from '../lib/api/persistRefusal'
 import {
   bootstrapActorKey,
   dedupeBootstrapFetch,
@@ -171,8 +173,10 @@ import {
 import { authHeaders } from '../lib/api/authClient'
 import { buildPublicMarketplaceDemoBootstrap } from '../lib/publicMarketplaceDemo'
 import {
+  PERSIST_REFUSED_EVENT,
   persistApproveApplication,
   persistMarkNotificationsRead,
+  type PersistRefusal,
   queueDelete,
   queuePersistBatch,
   queueUpsert,
@@ -996,10 +1000,17 @@ async function fetchBootstrapFromApi(lite: boolean, actor: DemoActor | null, ful
     return buildPublicMarketplaceDemoBootstrap()
   }
 
-  const { fetchPostgresBootstrap } = await import('../lib/api/postgresClient')
+  const { fetchPostgresBootstrap, fetchPublicMarketplaceFromApi } = await import(
+    '../lib/api/postgresClient'
+  )
+  if (guest) {
+    // /api/bootstrap is 401 without a session; guests get the published-listings slice.
+    const pub = await fetchPublicMarketplaceFromApi(fullTimeoutMs, lite)
+    if (pub?.properties?.length) return pub
+    return buildPublicMarketplaceDemoBootstrap()
+  }
   const boot = await fetchPostgresBootstrap(fullTimeoutMs, effective, lite)
   if (boot) return boot
-  if (guest) return buildPublicMarketplaceDemoBootstrap()
   return null
 }
 
@@ -1388,6 +1399,30 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const dismissToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id))
   }, [])
+
+  // A write the server refused with a policy code (e.g. an applicant moving
+  // their application to a stage they may not set) is shown, and the store
+  // reloads server truth so the optimistic change does not linger.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const onRefused = (e: Event) => {
+      const detail = (e as CustomEvent<PersistRefusal>).detail
+      if (!detail) return
+      pushToast({
+        id: uid('toast'),
+        notificationId: `persist-refused-${detail.resource}-${detail.id}-${Date.now()}`,
+        userId: '',
+        title: 'Change not saved',
+        body: persistRefusalMessage(detail),
+        durationMs: 8000,
+        createdAt: Date.now(),
+        tone: 'danger',
+      })
+      scheduleBootstrapRefreshAfterMutation()
+    }
+    window.addEventListener(PERSIST_REFUSED_EVENT, onRefused)
+    return () => window.removeEventListener(PERSIST_REFUSED_EVENT, onRefused)
+  }, [pushToast, scheduleBootstrapRefreshAfterMutation])
 
   const addActivity = useCallback(
     (text: string, user: string, agencyId: string | null) => {
@@ -1794,12 +1829,26 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const now = new Date().toISOString()
       const result = applyApprovePayout(inst, approver.id, now)
       if (result.ok === false) return { ok: false, error: result.error }
-      const updated = result.value
-      patch((s) => ({
-        ...s,
-        payoutInstructions: s.payoutInstructions.map((p) => (p.id === inst.id ? updated : p)),
-      }))
-      await persistUpsert('payout_instruction', inst.id, updated as unknown as Record<string, unknown>)
+      let updated = result.value
+      if (isApiEnabled) {
+        // Dual control is enforced server-side; never via generic persist.
+        const { postPayoutTransition } = await import('../lib/api/trustPayoutsApi')
+        const res = await postPayoutTransition(inst.id, 'approve')
+        if (res.ok === false) return { ok: false, error: res.error }
+        updated = { ...updated, ...res.instruction }
+        patch((s) => ({
+          ...s,
+          payoutInstructions: s.payoutInstructions.map((p) => (p.id === inst.id ? updated : p)),
+        }))
+      } else {
+        patch((s) => ({
+          ...s,
+          payoutInstructions: s.payoutInstructions.map((p) => (p.id === inst.id ? updated : p)),
+        }))
+        if (isSupabaseMode) {
+          await persistUpsert('payout_instruction', inst.id, updated as unknown as Record<string, unknown>)
+        }
+      }
       addActivity(
         `Payout approved (${(inst.amountCents / 100).toFixed(2)} ZAR) by ${approver.name}`,
         approver.name,
@@ -1818,13 +1867,26 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const now = new Date().toISOString()
       const result = applySubmitPayout(inst, actor.id, now)
       if (result.ok === false) return { ok: false, error: result.error }
-      const updated = result.value
+      let updated = result.value
       // Honesty: submitted ≠ settled; never invent partnerPayoutId.
-      patch((s) => ({
-        ...s,
-        payoutInstructions: s.payoutInstructions.map((p) => (p.id === inst.id ? updated : p)),
-      }))
-      await persistUpsert('payout_instruction', inst.id, updated as unknown as Record<string, unknown>)
+      if (isApiEnabled) {
+        const { postPayoutTransition } = await import('../lib/api/trustPayoutsApi')
+        const res = await postPayoutTransition(inst.id, 'submit')
+        if (res.ok === false) return { ok: false, error: res.error }
+        updated = { ...updated, ...res.instruction }
+        patch((s) => ({
+          ...s,
+          payoutInstructions: s.payoutInstructions.map((p) => (p.id === inst.id ? updated : p)),
+        }))
+      } else {
+        patch((s) => ({
+          ...s,
+          payoutInstructions: s.payoutInstructions.map((p) => (p.id === inst.id ? updated : p)),
+        }))
+        if (isSupabaseMode) {
+          await persistUpsert('payout_instruction', inst.id, updated as unknown as Record<string, unknown>)
+        }
+      }
       addActivity(
         `Payout submitted (in-app only — not settled) (${(inst.amountCents / 100).toFixed(2)} ZAR)`,
         actor.name,
@@ -2125,21 +2187,28 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ...s,
         tenancies: s.tenancies.map((t) => (t.id === tenancyId ? merged : t)),
       }))
-      persistUpsert('tenancy', tenancyId, merged as unknown as Record<string, unknown>)
-      // Mirror workflow when linked application exists
+      const leaseSaved = persistUpsert('tenancy', tenancyId, merged as unknown as Record<string, unknown>)
+      // Mirror workflow when linked application exists. The server accepts the
+      // mirror only for the status the stored lease envelope shows, so the
+      // application write waits for the lease write; stage / progress are
+      // derived from the new status (normalizeApplication), not left stale.
       const derived = workflowStatusFromESign(signed.eSign)
       if (derived && fresh.applicationId) {
         const app = stateRef.current.applications.find((a) => a.id === fresh.applicationId)
         if (app) {
-          const updated = {
+          const updated = normalizeApplication({
             ...app,
             workflowStatus: derived,
-          }
+          })
           patch((s) => ({
             ...s,
             applications: s.applications.map((a) => (a.id === app.id ? updated : a)),
           }))
-          persistUpsert('application', app.id, updated as unknown as Record<string, unknown>)
+          void leaseSaved.then((ok) => {
+            if (ok !== false) {
+              persistUpsert('application', app.id, updated as unknown as Record<string, unknown>)
+            }
+          })
         }
       }
       return { ok: true }
@@ -3888,6 +3957,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     },
     uploadApplicationDocument: (applicationId, key, file, actor) => {
       let persisted: Application | null = null
+      const preUpload = stateRef.current.applications.find((a) => a.id === applicationId) ?? null
       patch((s) => ({
         ...s,
         applications: s.applications.map((a) => {
@@ -3949,7 +4019,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         }),
       }))
       if (persisted) {
-        persistUpsert('application', applicationId, persisted as unknown as Record<string, unknown>)
+        const before = preUpload
+        void persistUpsert('application', applicationId, persisted as unknown as Record<string, unknown>).then(
+          (ok) => {
+            // A refused upload must not stay on screen as if it were saved.
+            if (ok || !before) return
+            patch((s) => ({
+              ...s,
+              applications: s.applications.map((a) => (a.id === applicationId ? before : a)),
+            }))
+          },
+        )
       }
     },
     advanceApplication: (id, to) => {
@@ -4226,6 +4306,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         } as PatchApplicationStatusResult
       }
 
+      // Lease save carrying a signature made in this step (null: none).
+      let leaseSignSave: Promise<boolean> | null = null
       // Roadmap Step 5: TENANT_SIGNED / LANDLORD_SIGNED must update real e-sign
       // status (not decorative workflow alone).
       if (
@@ -4237,6 +4319,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           transition.actionKey === 'LANDLORD_SIGNED' ? ('landlord' as const) : ('tenant' as const)
         const lease = stateRef.current.tenancies.find((t) => t.applicationId === applicationId)
         if (lease?.eSign?.envelopeId) {
+          // Signing attempted: until the signed lease is saved, the
+          // application does not move.
+          leaseSignSave = Promise.resolve(false)
           const signed = await recordLeaseSignature({
             eSign: lease.eSign,
             party,
@@ -4249,7 +4334,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               ...s,
               tenancies: s.tenancies.map((t) => (t.id === lease.id ? nextLease : t)),
             }))
-            persistUpsert('tenancy', nextLease.id, nextLease as unknown as Record<string, unknown>)
+            // The application write below waits for this save (Angela #80):
+            // like recordTenancyLeaseSign's leaseSaved.then.
+            leaseSignSave = persistUpsert('tenancy', nextLease.id, nextLease as unknown as Record<string, unknown>)
             // Prefer real e-sign-derived workflow status when it advances further.
             const derived = workflowStatusFromESign(signed.eSign)
             if (derived && derived !== targetStatus) {
@@ -4258,6 +4345,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             void derived
           }
         } else if (lease && !lease.eSign?.envelopeId) {
+          // The applicant cannot be marked signed without a signature on an
+          // envelope (the server refuses it); staff marking a paper lease
+          // signed continue as before.
+          if (app.applicantUserId === actorUserId) leaseSignSave = Promise.resolve(false)
           // No envelope yet — issue package then continue workflow.
           await issueLeasePackageForTenancy(lease, {
             userId: actorUserId,
@@ -4412,7 +4503,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               code: 'PERSIST_FAILED',
             } as PatchApplicationStatusResult
           }
-          if (isApplicantAcceptanceStatus('deposit_invoice_sent')) {
+          // API mode: the server writes these notices (server/acceptedElsewhere.ts).
+          if (!isApiEnabled && isApplicantAcceptanceStatus('deposit_invoice_sent')) {
             notifyAcceptedElsewhere({
               accepted: normalized,
               property: state.properties.find((p) => p.id === normalized.propertyId),
@@ -4460,6 +4552,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       // The previous auto-chain to documents_requested overwrote the status
       // in the same tick, so Submit appeared to flicker and revert (E2E #3);
       // staff now advance the submitted application themselves.
+      // Signing step: the application moves only after the lease save with
+      // the signature succeeded (the server checks the stored envelope).
+      const notRecorded = await leaseSignatureSaved(leaseSignSave)
+      if (notRecorded) {
+        return {
+          status: 'ERROR' as const,
+          httpStatus: 409 as const,
+          error: notRecorded.error,
+          code: notRecorded.code,
+        }
+      }
       let updated = normalizeApplication(applyWorkflowTransition(app, targetStatus))
       // Real screening: entering credit_check starts the provider (consent-gated).
       // Approve paths must never invent Passed — that lives in the screening pipeline only.
@@ -4495,7 +4598,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         actorUser?.name ?? 'Agency',
         updated.agencyId,
       )
-      if (isApplicantAcceptanceStatus(targetStatus)) {
+      // API mode: the server writes these notices (server/acceptedElsewhere.ts).
+      if (!isApiEnabled && isApplicantAcceptanceStatus(targetStatus)) {
         notifyAcceptedElsewhere({
           accepted: updated,
           property: state.properties.find((p) => p.id === updated.propertyId),
@@ -4876,7 +4980,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         for (const userId of recipientIds) {
           const sample = linkedBefore.find(
             (v) =>
-              state.users.find((u) => u.id === userId)?.email.toLowerCase() ===
+              state.users.find((u) => u.id === userId)?.email?.toLowerCase() ===
                 v.applicantEmail?.toLowerCase(),
           ) ?? linkedBefore[0]
           notify({
@@ -5137,9 +5241,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
                 a.id === applicationId
                   ? {
                       ...a,
+                      // Workflow stage untouched: stage follows workflowStatus
+                      // (a tenant cannot move it by booking a viewing).
                       viewingSlotId: slotId,
-                      stage: 'Viewing Booked' as ApplicationStage,
-                      progress: STAGE_PROGRESS['Viewing Booked'],
                       updatedAt: new Date().toISOString().slice(0, 10),
                     }
                   : a,
@@ -5157,24 +5261,30 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               status: booked >= slot.capacity ? ('Full' as const) : slot.status,
             }
           : null
-        persistUpsert('viewing', created.id, created as unknown as Record<string, unknown>)
+        // Slot write after the booking lands: for a tenant the server turns the
+        // slot write into a live recount of bookings, which must include theirs.
+        const bookingSaved = persistUpsert('viewing', created.id, created as unknown as Record<string, unknown>)
         if (slotPatch) {
-          persistUpsert(
-            'viewing_slot',
-            slotPatch.id,
-            slotPatch as unknown as Record<string, unknown>,
+          void bookingSaved.then(() =>
+            persistUpsert(
+              'viewing_slot',
+              slotPatch.id,
+              slotPatch as unknown as Record<string, unknown>,
+            ),
           )
         }
         if (applicationId) {
           const app = state.applications.find((a) => a.id === applicationId)
           if (app) {
-            persistUpsert('application', applicationId, {
-              ...app,
-              viewingSlotId: slotId,
-              stage: 'Viewing Booked',
-              progress: STAGE_PROGRESS['Viewing Booked'],
-              updatedAt: new Date().toISOString().slice(0, 10),
-            } as unknown as Record<string, unknown>)
+            // After the booking lands: for a tenant the server accepts
+            // viewingSlotId only for a slot they hold a booking on.
+            void bookingSaved.then(() =>
+              persistUpsert('application', applicationId, {
+                ...app,
+                viewingSlotId: slotId,
+                updatedAt: new Date().toISOString().slice(0, 10),
+              } as unknown as Record<string, unknown>),
+            )
           }
         }
         const property = state.properties.find((p) => p.id === created.propertyId)

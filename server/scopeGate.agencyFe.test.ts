@@ -137,7 +137,7 @@ describe('scopeGate agency FE (P0 r20)', () => {
           },
         },
       ),
-    ).resolves.toBeUndefined()
+    ).resolves.toEqual({})
   })
 
   it('assertPersistAllowed: cross-agency Unassigned still deny', async () => {
@@ -252,6 +252,6 @@ describe('scopeGate agency FE (P0 r20)', () => {
           },
         },
       ),
-    ).resolves.toBeUndefined()
+    ).resolves.toEqual({})
   })
 })

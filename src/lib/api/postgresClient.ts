@@ -68,8 +68,11 @@ export async function fetchPostgresBootstrap(
   lite = true,
 ): Promise<PostgresBootstrap | null> {
   if (!isApiEnabled) return null
-  const healthy = await fetchApiHealth(Math.min(800, timeoutMs))
-  if (!healthy) return null
+  // No /api/health pre-check (same as #74 for persist): live health pings the
+  // database and answered in 1.3-2.3 s, past the old 800 ms abort, so bootstrap
+  // returned null without ever asking. The bootstrap response itself decides.
+  // The session travels as Bearer (authHeaders) plus the same-origin
+  // pf_session cookie; actor headers are only honoured outside production.
 
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), timeoutMs)
@@ -81,6 +84,30 @@ export async function fetchPostgresBootstrap(
       signal: ctrl.signal,
       headers: { ...actorHeaders(actor), ...authHeaders() },
       credentials: 'include',
+    })
+    if (!res.ok) return null
+    return (await res.json()) as PostgresBootstrap
+  } catch {
+    return null
+  } finally {
+    clearTimeout(t)
+  }
+}
+
+/**
+ * Signed-out marketplace slice (published listings only). /api/bootstrap
+ * answers 401 without a session, so guests read this instead.
+ */
+export async function fetchPublicMarketplaceFromApi(
+  timeoutMs = 10_000,
+  lite = true,
+): Promise<PostgresBootstrap | null> {
+  if (!isApiEnabled) return null
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    const res = await fetch(`${API_BASE}/api/public/marketplace${lite ? '' : '?lite=0'}`, {
+      signal: ctrl.signal,
     })
     if (!res.ok) return null
     return (await res.json()) as PostgresBootstrap
