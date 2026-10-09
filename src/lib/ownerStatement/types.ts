@@ -56,6 +56,8 @@ export type OwnerStatementPaymentLine = {
   description: string
   amountZar: number
   status: string
+  /** PaymentRecord.type — lets the table split Rent vs Commission. */
+  paymentType?: PaymentRecord['type']
 }
 
 export type OwnerStatementAllocationLine = {

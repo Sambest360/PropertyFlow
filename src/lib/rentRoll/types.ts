@@ -54,6 +54,10 @@ export type RentRollRow = {
   rentDueDay: number
   /** In-app arrears from Due/Overdue rent-like payments with dueDate ≤ as-at (not bank-confirmed). */
   arrearsZar: number
+  /** Next rent increase from the occupancy billing schedule (nextEscalationOn); null when not set. */
+  increaseDate: string | null
+  /** Escalation % on the billing schedule; null when not set. */
+  escalationPct: number | null
 }
 
 export type RentRollBook = {

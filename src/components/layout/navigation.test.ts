@@ -21,7 +21,8 @@ function navLabels(entries: ReturnType<typeof buildWorkspaceNavForActor>): strin
 }
 
 function hasUniquePaths(entries: ReturnType<typeof buildWorkspaceNavForActor>): boolean {
-  const paths = navPaths(entries)
+  // Full `to` (query included): Reports tab links share a path but are distinct entries.
+  const paths = flattenNavLinks(entries).map((item) => item.to)
   return paths.length === new Set(paths).size
 }
 
