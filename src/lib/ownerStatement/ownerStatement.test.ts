@@ -185,8 +185,8 @@ describe('buildOwnerStatementBook', () => {
   })
 
   it('honesty banner denies PayProp / bank', () => {
-    expect(OWNER_STATEMENT_MODE_A_COPY.toLowerCase()).toMatch(/not bank-confirmed/)
-    expect(OWNER_STATEMENT_MODE_A_COPY.toLowerCase()).toMatch(/not payprop settled/)
+    expect(OWNER_STATEMENT_MODE_A_COPY.toLowerCase()).toContain('recorded in propertyflow, not yet matched to the bank')
+    expect(OWNER_STATEMENT_MODE_A_COPY.toLowerCase()).not.toMatch(/payprop/)
     expect(OWNER_STATEMENT_MODE_A_COPY.toLowerCase()).not.toMatch(/live payprop remittance api/)
   })
 })
@@ -205,8 +205,7 @@ describe('generateOwnerStatementPdf', () => {
 
     // FlateDecode streams hide literals; honesty is asserted on book + constant (drawn into PDF).
     expect(pdf.book.honesty).toBe(OWNER_STATEMENT_MODE_A_COPY)
-    expect(pdf.book.honesty.toLowerCase()).toMatch(/not bank-confirmed/)
-    expect(pdf.book.honesty.toLowerCase()).toMatch(/not payprop settled/)
+    expect(pdf.book.honesty.toLowerCase()).toContain('recorded in propertyflow, not yet matched to the bank')
     expect(pdf.book.honesty.toLowerCase()).not.toMatch(/partnerpayoutid/)
     expect(JSON.stringify(pdf.book.payouts)).not.toMatch(/partnerPayoutId/)
   })

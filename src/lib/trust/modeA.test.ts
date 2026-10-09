@@ -3,6 +3,8 @@ import { TRUST_MODE_A_COPY } from './modeA'
 import { MESSAGING_MODE_A_SHORT, buildArrearsMessageThreadInput } from '../messaging/modeA'
 import { TRUST_CSV_NON_PRODUCTION_LABEL } from './csvImport'
 import { PAYOUT_LABELS, payoutStatusLabel } from './payoutLabels'
+import { OWNER_STATEMENT_MODE_A_COPY } from '../ownerStatement/types'
+import { RENT_ROLL_MODE_A_COPY } from '../rentRoll/types'
 
 const BANNED = /bank-reconciled|reconciled|ppra-compliant|compliant|settled|paid out|bank-confirmed|payprop|mode a|deposit interest/i
 
@@ -36,6 +38,12 @@ describe('Trust ledger note (CR9)', () => {
       expect(text).not.toMatch(BANNED)
     }
     expect(msg.initialMessage).toContain('Outstanding: R1250.00.')
+    // Owner statement / rent roll copy keep their existing 'Mode A' prefix; core CR9 words only.
+    const CORE_BANNED = /bank-reconciled|reconciled|ppra-compliant|compliant|settled|paid out|bank-confirmed/i
+    for (const text of [OWNER_STATEMENT_MODE_A_COPY, RENT_ROLL_MODE_A_COPY]) {
+      expect(text).not.toMatch(CORE_BANNED)
+      expect(text).toContain('recorded in PropertyFlow, not yet matched to the bank')
+    }
   })
 })
 
