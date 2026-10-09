@@ -77,6 +77,14 @@ vi.mock('pg', () => {
     db.sql.push(sql)
     if (/^(INSERT|UPDATE|DELETE)\b/i.test(sql)) {
       if (!/entity_id_map/i.test(sql)) db.writes.push({ sql, params })
+      // notifications owned by: NTF-mine → u-tenant (02), NTF-other → u-tenant2 (03)
+      if (sql.startsWith('UPDATE notifications SET read_at = NOW() WHERE id = $1::uuid AND user_id = $2::uuid')) {
+        const owner: Record<string, string> = {
+          'a8000001-0001-4000-8000-000000000001': 'b9000001-0001-4000-8000-000000000002',
+          'a8000001-0001-4000-8000-000000000002': 'b9000001-0001-4000-8000-000000000003',
+        }
+        return owner[String(params[0])] === params[1] ? [{ id: params[0] }] : []
+      }
       return []
     }
     if (/^(CREATE|ALTER|BEGIN|COMMIT|ROLLBACK)\b/i.test(sql)) return []
@@ -176,6 +184,8 @@ beforeAll(async () => {
     { entity_type: 'payment', frontend_id: 'PAY-other', backend_id: PAY_OTHER },
     { entity_type: 'payment', frontend_id: 'PAY-cape', backend_id: PAY_CAPE },
     { entity_type: 'application', frontend_id: 'APP-1', backend_id: APP_1 },
+    { entity_type: 'notification', frontend_id: 'NTF-mine', backend_id: 'a8000001-0001-4000-8000-000000000001' },
+    { entity_type: 'notification', frontend_id: 'NTF-other', backend_id: 'a8000001-0001-4000-8000-000000000002' },
   ]
   app = (await import('./index')).default as unknown as App
   let ip = 1
@@ -190,7 +200,9 @@ beforeAll(async () => {
   }
 })
 
-beforeEach(() => {
+beforeEach(async () => {
+  const { resetImpersonationLogDedupe } = await import('./requestActor')
+  resetImpersonationLogDedupe()
   db.writes = []
   db.sql = []
   vi.stubEnv('VERCEL', '1')
@@ -371,5 +383,103 @@ describe('approve audits the verified actor', () => {
     expect(decided).toBeDefined()
     expect(decided!.params[1]).toBe(uid('05'))
     expect(decided!.params[1]).not.toBe(uid('01'))
+  })
+})
+
+describe('payfast/create amount comes from the payment record', () => {
+  it('no amount sent: charges the stored amount', async () => {
+    const res = await post('/api/payfast/create', auth('u-tenant'), { paymentId: 'PAY-mine' })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { fields: Record<string, string> }
+    expect(body.fields.amount).toBe('1000.00')
+  })
+  it('matching amount sent: accepted, stored amount charged', async () => {
+    const res = await post('/api/payfast/create', auth('u-tenant'), { paymentId: 'PAY-mine', amountCents: 100000 })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { fields: Record<string, string> }
+    expect(body.fields.amount).toBe('1000.00')
+  })
+  it('tampered amount: refused with 409 amount_mismatch, no checkout fields', async () => {
+    const res = await post('/api/payfast/create', auth('u-tenant'), { paymentId: 'PAY-mine', amountCents: 100 })
+    expect(res.status).toBe(409)
+    const body = (await res.json()) as { ok: boolean; error: string; fields?: unknown }
+    expect(body.ok).toBe(false)
+    expect(body.error).toBe('amount_mismatch')
+    expect(body.fields).toBeUndefined()
+  })
+  it('non-numeric amount: 400', async () => {
+    const res = await post('/api/payfast/create', auth('u-tenant'), { paymentId: 'PAY-mine', amountCents: 'lots' })
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('notifications/mark-read: own notifications only', () => {
+  it("marking another user's notification id updates nothing", async () => {
+    const res = await post('/api/notifications/mark-read', auth('u-tenant'), { ids: ['NTF-other'] })
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { updated: number }).updated).toBe(0)
+    const w = db.writes.find((x) => x.sql.startsWith('UPDATE notifications'))!
+    expect(w.sql).toContain('AND user_id = $2::uuid')
+    expect(w.params[1]).toBe(uid('02'))
+  })
+  it('marking your own notification works', async () => {
+    const res = await post('/api/notifications/mark-read', auth('u-tenant'), { ids: ['NTF-mine'] })
+    expect(((await res.json()) as { updated: number }).updated).toBe(1)
+  })
+  it("naming another user's id gives 403, even for an agency admin", async () => {
+    for (const fe of ['u-tenant', 'u-admin']) {
+      const res = await post('/api/notifications/mark-read', auth(fe), { userId: 'u-tenant2', all: true })
+      expect(res.status).toBe(403)
+    }
+    expect(db.writes).toEqual([])
+  })
+  it('mark all only touches the actor (body userId cannot widen it)', async () => {
+    const res = await post('/api/notifications/mark-read', auth('u-tenant'), { all: true })
+    expect(res.status).toBe(200)
+    const w = db.writes.find((x) => x.sql.startsWith('UPDATE notifications'))!
+    expect(w.sql).toContain('WHERE user_id = $1::uuid')
+    expect(w.params[0]).toBe(uid('02'))
+  })
+})
+
+describe('impersonation is audited', () => {
+  const impersonate = { 'X-User-Id': 'u-tenant', 'X-Role': 'tenant', 'X-Agency-Id': 'ag-horizon' }
+  const logs = () => db.writes.filter((w) => w.sql.startsWith('INSERT INTO event_log') && w.sql.includes("'impersonation'"))
+
+  it('a super admin acting as a tenant writes who impersonated whom and the route', async () => {
+    const res = await post('/api/notifications/mark-read', { ...auth('u-sa'), ...impersonate }, { ids: ['NTF-mine'] })
+    expect(res.status).toBe(200)
+    // Acted as the tenant: the tenant's own notification was marked.
+    expect(((await res.json()) as { updated: number }).updated).toBe(1)
+    const [log] = logs()
+    expect(log).toBeDefined()
+    const [clientId, subjectId, actorUserId, payloadJson] = log.params as [string, string, string, string]
+    expect(actorUserId).toBe(uid('01'))
+    expect(subjectId).toBe(uid('02'))
+    expect(clientId).toBe(HORIZON)
+    expect(JSON.parse(payloadJson)).toEqual({
+      impersonatorUserId: 'u-sa',
+      impersonatorEmail: 'u-sa@example.test',
+      impersonatedUserId: 'u-tenant',
+      impersonatedRole: 'tenant',
+      impersonatedAgencyId: 'ag-horizon',
+      route: 'POST /api/notifications/mark-read',
+    })
+  })
+
+  it('repeated GET polls log once per minute; writes log every time', async () => {
+    await app.request('/api/counts', { headers: { ...auth('u-sa'), ...impersonate } })
+    await app.request('/api/counts', { headers: { ...auth('u-sa'), ...impersonate } })
+    expect(logs()).toHaveLength(1)
+    await post('/api/notifications/mark-read', { ...auth('u-sa'), ...impersonate }, { ids: ['NTF-mine'] })
+    await post('/api/notifications/mark-read', { ...auth('u-sa'), ...impersonate }, { ids: ['NTF-mine'] })
+    expect(logs()).toHaveLength(3)
+  })
+
+  it('no audit row when the super admin is not impersonating, or a non-admin sends headers', async () => {
+    await app.request('/api/counts', { headers: auth('u-sa') })
+    await app.request('/api/counts', { headers: { ...auth('u-sa'), 'X-User-Id': 'u-sa', 'X-Role': 'super_admin' } })
+    await app.request('/api/counts', { headers: { ...auth('u-admin'), ...impersonate } })
+    expect(logs()).toHaveLength(0)
   })
 })
