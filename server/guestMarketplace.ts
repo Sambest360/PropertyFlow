@@ -4,9 +4,15 @@
  * /api/bootstrap answers 401 without a verified actor. Signed-out visitors on
  * the Postgres-API build still need the real published listings, so they read
  * this slice instead: publicly listed properties, their units and buildings,
- * the listing agencies, public viewing slots, and a name-only directory of the
- * listing landlords / agents. No leads, applications, tenancies, payments,
- * tickets, threads, messages, notifications, trust books or contact details.
+ * the listing agencies and public viewing slots. No leads, applications,
+ * tenancies, payments, tickets, threads, messages, notifications, trust books,
+ * users or contact details.
+ *
+ * Landlord identity never leaves the server: no landlord name, landlord user
+ * id, landlordId or verification status. Agent user ids are dropped too
+ * (agentId on properties, units and slots). The listing page already shows
+ * "listed by <agent name>", so each property keeps only `agentName`, the
+ * agent's display name.
  *
  * Listing rule mirrors src/lib/publicListings.ts isPubliclyListed (kept local
  * so the server bundle does not pull extension-less client modules).
@@ -76,27 +82,17 @@ export function filterBootstrapForGuest(raw: Row): Row {
     ].filter(Boolean) as string[],
   )
   const agencyIds = new Set(properties.map((p) => str(p.agencyId)).filter(Boolean) as string[])
-  const directoryIds = new Set(
-    [
-      ...properties.flatMap((p) => [str(p.landlordId), str(p.agentId)]),
-      ...rows(raw.buildings)
-        .filter((b) => buildingIds.has(String(b.id)))
-        .map((b) => str(b.landlordId)),
-    ].filter(Boolean) as string[],
+  const agentNames = new Map(
+    users
+      .filter((u) => typeof u.id === 'string' && typeof u.name === 'string' && u.name)
+      .map((u) => [u.id as string, u.name as string]),
   )
-  const directory = users
-    .filter((u) => directoryIds.has(String(u.id)))
-    .map((u) => {
-      const status = verificationStatus(u)
-      return {
-        id: u.id,
-        name: u.name,
-        role: u.role,
-        agencyId: u.agencyId ?? null,
-        active: u.active,
-        ...(status ? { verification: { status } } : {}),
-      }
-    })
+  const publicProperties = properties.map((p): Row => {
+    const { landlordId: _l, agentId, ...rest } = p
+    void _l
+    const agentName = str(agentId) ? (agentNames.get(agentId as string) ?? null) : null
+    return { ...rest, landlordId: '', agentId: null, agentName }
+  })
   const agencies = rows(raw.agencies)
     .filter((a) => agencyIds.has(String(a.id)))
     .map((a) => ({
@@ -114,7 +110,7 @@ export function filterBootstrapForGuest(raw: Row): Row {
       id: s.id,
       agencyId: s.agencyId,
       propertyId: s.propertyId,
-      agentId: s.agentId,
+      agentId: '',
       date: s.date,
       time: s.time,
       capacity: s.capacity,
@@ -130,10 +126,12 @@ export function filterBootstrapForGuest(raw: Row): Row {
     guest: true,
     actor: null,
     agencies,
-    users: directory,
-    buildings: rows(raw.buildings).filter((b) => buildingIds.has(String(b.id))),
-    units: publicUnits,
-    properties,
+    users: [],
+    buildings: rows(raw.buildings)
+      .filter((b) => buildingIds.has(String(b.id)))
+      .map((b): Row => ({ ...b, landlordId: null })),
+    units: publicUnits.map((u): Row => ({ ...u, agentId: null })),
+    properties: publicProperties,
     leads: [],
     applications: [],
     tenancies: [],

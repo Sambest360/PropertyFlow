@@ -147,7 +147,9 @@ export default function ListingDetail() {
   }
 
   const isBlockedForUser = blockedIds.has(p.id)
-  const agent = state.users.find((u) => u.id === p.agentId)
+  const agentUser = p.agentId ? state.users.find((u) => u.id === p.agentId) : undefined
+  // Guests get no users list; the public marketplace sends the agent's display name only.
+  const agent = agentUser ?? (p.agentName ? { name: p.agentName } : undefined)
   const similar = publicProperties
     .filter(
       (x) =>

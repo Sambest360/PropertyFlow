@@ -197,6 +197,8 @@ export type PropertyAsset = {
   agencyId: string
   landlordId: string
   agentId: string | null
+  /** Public marketplace only: the listing agent's display name (no user id). */
+  agentName?: string | null
   /** Links flat listing → infrastructure unit when present */
   buildingId?: string | null
   unitId?: string | null
