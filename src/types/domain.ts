@@ -126,7 +126,8 @@ export type AppUser = {
   /** When set, persisted as separate columns — `name` remains the display label. */
   firstName?: string
   lastName?: string
-  email: string
+  /** Absent on redacted bootstrap users (other people outside your admin scope). */
+  email?: string
   role: Role
   agencyId: string | null
   phone?: string

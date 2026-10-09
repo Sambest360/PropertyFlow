@@ -54,7 +54,7 @@ export function ListingReviewsSection({
         (a) =>
           a.propertyId === propertyId &&
           (a.applicantUserId === user.id ||
-            a.email.toLowerCase() === user.email.toLowerCase()),
+            (Boolean(user.email) && a.email?.toLowerCase() === user.email?.toLowerCase())),
       ),
     [state.applications, propertyId, user.id, user.email],
   )

@@ -54,7 +54,7 @@ export function AddContractorToRosterModal({
     return available.filter(
       (u) =>
         u.name.toLowerCase().includes(q) ||
-        u.email.toLowerCase().includes(q) ||
+        (u.email?.toLowerCase().includes(q) ?? false) ||
         (u.company?.toLowerCase().includes(q) ?? false),
     )
   }, [available, query])
@@ -200,7 +200,7 @@ export function AddContractorToRosterModal({
                 {filtered.map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.name}
-                    {u.company ? ` · ${u.company}` : ''} · {u.email}
+                    {u.company ? ` · ${u.company}` : ''}{u.email ? ` · ${u.email}` : ''}
                     {u.agencyId && u.agencyId !== agencyId
                       ? ` · ${agencyName(u.agencyId)}`
                       : ''}
