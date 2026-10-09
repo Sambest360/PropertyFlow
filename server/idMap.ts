@@ -411,8 +411,9 @@ export function mapAgency(clientId: string | null | undefined): string | null {
 
 /**
  * Public Humewood Beach Apartment B14 (unt-skyline-b14), not the Framesby
- * seed row that also displays as PR-1011. Must match listingResolve
- * PUBLIC_HUMEWOOD_UNIT_ID (hash of unit:unt-skyline-b14).
+ * seed row that also displays as PR-1011. This is the units.id that
+ * listingResolve materializePublicHumewoodUnit writes:
+ * stableUuid(`unit:${PUBLIC_UNIT_ID}`), with PUBLIC_UNIT_ID = 'unt-skyline-b14'.
  */
 const PUBLIC_HUMEWOOD_UNIT_ID = '40588530-0459-4dd3-9ef4-1eb521982479'
 
