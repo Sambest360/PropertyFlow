@@ -275,7 +275,15 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
   const tableMap: Partial<
     Record<
       EntityType,
-      { table: string; unitCol?: string; clientCol?: string; agentCol?: string; extra?: string }
+      {
+        table: string
+        unitCol?: string
+        clientCol?: string
+        agentCol?: string
+        /** Column naming the row's owner (own-row write shortcut). */
+        ownerCol?: string
+        extra?: string
+      }
     >
   > = {
     lead: { table: 'leads', unitCol: 'unit_id', clientCol: 'client_id', agentCol: 'agent_id' },
@@ -284,6 +292,7 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
       unitCol: 'unit_id',
       clientCol: 'client_id',
       agentCol: 'agent_id',
+      ownerCol: 'applicant_id',
     },
     tenancy: { table: 'leases', unitCol: 'unit_id', clientCol: 'client_id', agentCol: 'agent_id' },
     viewing: { table: 'bookings', unitCol: 'unit_id', clientCol: 'client_id', agentCol: 'agent_id' },
@@ -415,9 +424,11 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
       `SELECT client_id FROM users WHERE id = $1::uuid`,
       [uuid],
     )
+    // No row: a create, not an edit (the user write policy needs to know).
+    if (!rows[0]) return null
     return {
       ...empty,
-      agencyId: toAgencyFe(rows[0]?.client_id ?? null),
+      agencyId: toAgencyFe(rows[0].client_id ?? null),
       ownerUserId: feId,
     }
   }
@@ -473,6 +484,7 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
   if (spec.unitCol) cols.push(spec.unitCol)
   if (spec.clientCol) cols.push(spec.clientCol)
   if (spec.agentCol) cols.push(spec.agentCol)
+  if (spec.ownerCol) cols.push(spec.ownerCol)
   // Use quoted identifiers for all columns and table name
   const quotedCols = cols.map(quoteIdentifier)
   const rows = await query<Record<string, string | null>>(
@@ -488,6 +500,7 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
       ? toAgencyFe(r[spec.clientCol] as string | null)
       : null,
     agentId: spec.agentCol ? await feUserId(r[spec.agentCol] as string | null) : null,
+    ownerUserId: spec.ownerCol ? await feUserId(r[spec.ownerCol] as string | null) : null,
   }
 }
 
@@ -502,6 +515,89 @@ async function propertySubject(propertyId: string | null): Promise<PropertyAcces
   const cache = await loadIdMapCache()
   const rows = await loadPropertyRows(cache)
   return rows.find((p) => p.id === propertyId) ?? null
+}
+
+/** User fields only a super admin (or, partly, an agency users.manage admin) may set. */
+export const PRIVILEGED_USER_FIELDS = [
+  'role',
+  'agencyId',
+  'active',
+  'enabledPermissions',
+  'verification',
+  'licenseStatus',
+  'mentorId',
+  'commissionSharePct',
+] as const
+
+/** Does the actor (agency admin) hold users.manage, from their stored permissions? */
+async function actorHasUsersManage(actor: DemoActor): Promise<boolean> {
+  if (actor.role !== 'client_admin' && actor.role !== 'agent_admin') return false
+  let enabled: Permission[] | undefined
+  const uuid = await resolveUuid('user', actor.userId)
+  if (uuid) {
+    const rows = await query<{ metadata: Record<string, unknown> | null }>(
+      `SELECT metadata FROM users WHERE id = $1::uuid`,
+      [uuid],
+    )
+    const p = rows[0]?.metadata?.enabledPermissions
+    if (Array.isArray(p)) enabled = p as Permission[]
+  }
+  return effectiveCan(actor.role as Role, 'users.manage', undefined, enabled)
+}
+
+function stripFields(data: Record<string, unknown>, keys: readonly string[]): void {
+  for (const k of keys) delete data[k]
+}
+
+/**
+ * User row writes (resource 'user'). The owner is body.id only.
+ *
+ * - super_admin: anything.
+ * - Non-super: never delete a user row; verification is always stripped
+ *   (verification decisions go through the super-admin route only).
+ * - Agency admin (client_admin / agent_admin with users.manage): may create and
+ *   edit users in their own agency, incl. role (never super_admin), active and
+ *   permissions. 403 for a user outside their agency, a super_admin role, or
+ *   any agencyId other than their own. A create without agencyId is pinned to
+ *   their agency.
+ * - Anyone else: only their own row, with role, agencyId, active,
+ *   enabledPermissions, verification and staff settings stripped server-side
+ *   (the client sends the whole user object on a profile edit, so a 403 on
+ *   presence would break name / phone edits; upsertUser keeps the stored value
+ *   for any field the payload lacks).
+ *
+ * Mutates body.data when stripping. Throws 403 otherwise.
+ */
+export async function enforceUserWritePolicy(
+  actor: DemoActor,
+  body: PersistBody,
+  existing: ExistingRow | null,
+): Promise<void> {
+  if (actor.role === 'super_admin') return
+  const deny = (why: string) =>
+    forbiddenError(`Forbidden: ${actor.role} ${actor.userId} cannot ${body.action} user ${body.id} (${why})`)
+  if (body.action === 'delete') throw deny('only a super admin may delete users')
+  const data = (body.data ?? {}) as Record<string, unknown>
+  body.data = data
+  stripFields(data, ['verification'])
+
+  const own = body.id === actor.userId
+  if (actor.agencyId && (await actorHasUsersManage(actor))) {
+    if (existing && existing.agencyId !== actor.agencyId) {
+      throw deny('user is outside your agency')
+    }
+    if (data.role === 'super_admin') throw deny('cannot assign super_admin')
+    if (Object.prototype.hasOwnProperty.call(data, 'agencyId') && data.agencyId !== undefined) {
+      const raw = data.agencyId == null || data.agencyId === '' ? null : String(data.agencyId)
+      const target = raw ? ((await agencyFe(raw)) ?? raw) : null
+      if (target !== actor.agencyId) throw deny('cannot move a user to another agency')
+    } else if (!existing) {
+      data.agencyId = actor.agencyId
+    }
+    return
+  }
+  if (!own) throw deny('not your user row')
+  stripFields(data, PRIVILEGED_USER_FIELDS)
 }
 
 /**
@@ -546,14 +642,40 @@ export async function assertPersistAllowed(
   const assignedAgentId =
     strField(data, 'assignedAgentId') ?? existing?.assignedAgentId ?? null
   const contractorId = strField(data, 'contractorId') ?? existing?.contractorId ?? null
+  // Own-row shortcut owner: a user row is owned by its id only (never a payload
+  // field). For any other resource the existing row's owner wins over the
+  // payload, so a known id cannot be taken over by claiming userId /
+  // applicantUserId in the body; payload owner fields only count on create.
   const ownerUserId =
-    strField(data, 'userId') ??
-    strField(data, 'fromUserId') ??
-    strField(data, 'applicantUserId') ??
-    strField(data, 'tenantUserId') ??
-    (body.resource === 'user' ? body.id : null) ??
-    existing?.ownerUserId ??
-    null
+    body.resource === 'user'
+      ? body.id
+      : existing
+        ? existing.ownerUserId
+        : (strField(data, 'userId') ??
+          strField(data, 'fromUserId') ??
+          strField(data, 'applicantUserId') ??
+          strField(data, 'tenantUserId') ??
+          null)
+
+  if (body.resource === 'user') {
+    // Users have their own policy (may strip privileged fields from body.data).
+    await enforceUserWritePolicy(actor, body, existing)
+    return
+  }
+
+  // Tenants and contractors may only write their own application (existing
+  // applicant, or the payload applicant on create). The property-book path
+  // below would otherwise let them rewrite anyone's application on a listing
+  // in their scope.
+  if (
+    body.resource === 'application' &&
+    (actor.role === 'tenant' || actor.role === 'contractor') &&
+    ownerUserId !== actor.userId
+  ) {
+    throw forbiddenError(
+      `Forbidden: ${actor.role} ${actor.userId} cannot ${body.action} application ${body.id} (not their application)`,
+    )
+  }
 
   let property = await propertySubject(propertyId)
   if (propertyId && !property && (landlordId || agentId || agencyId)) {

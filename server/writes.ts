@@ -521,83 +521,85 @@ async function upsertUser(feId: string, d: Record<string, unknown>): Promise<str
     passwordSql = `$10`
     passwordParam = await hashPassword(d.password)
   }
-  const meta = {
+  // Fields absent from the payload keep their stored value on update (a
+  // stripped / redacted write-back must not reset role, agency, active,
+  // permissions or staff settings).
+  const has = (k: string) => Object.prototype.hasOwnProperty.call(d, k) && d[k] !== undefined
+  const hasRole = typeof d.role === 'string' && d.role.trim() !== ''
+  const hasAgency = has('agencyId')
+  const hasActive = typeof d.active === 'boolean'
+  const meta: Record<string, unknown> = {
     frontend_id: feId,
-    frontend_role: feRole,
-    enabledPermissions: d.enabledPermissions ?? null,
-    licenseStatus: d.licenseStatus ?? null,
-    mentorId: d.mentorId ?? null,
-    commissionSharePct: d.commissionSharePct ?? null,
     mustChangePassword: Boolean(d.tempPassword),
-    ...(d.verification ? { verification: d.verification } : {}),
-    ...(d.company ? { company: d.company } : {}),
-    ...(d.idNumberOrPassport ? { idNumberOrPassport: d.idNumberOrPassport } : {}),
   }
+  if (hasRole) meta.frontend_role = feRole
+  for (const k of ['enabledPermissions', 'licenseStatus', 'mentorId', 'commissionSharePct']) {
+    if (has(k)) meta[k] = d[k] ?? null
+  }
+  if (d.verification && typeof d.verification === 'object') meta.verification = d.verification
+  if (d.company) meta.company = d.company
+  if (d.idNumberOrPassport) meta.idNumberOrPassport = d.idNumberOrPassport
+
+  const params: unknown[] = [
+    uuid,
+    client,
+    email,
+    first,
+    last || first,
+    d.phone ? str(d.phone) : null,
+    role,
+    bool(d.active, true),
+    JSON.stringify(meta),
+  ]
+  let passwordExpr = passwordSql
   if (passwordParam) {
-    await query(
-      `INSERT INTO users (
-         id, client_id, email, password_hash, first_name, last_name, phone, role, active, metadata, updated_at
-       ) VALUES (
-         $1::uuid, $2::uuid, $3, $10, $4, $5, $6, $7, $8, $9::jsonb, NOW()
-       )
-       ON CONFLICT (id) DO UPDATE SET
-         client_id = EXCLUDED.client_id,
-         email = CASE WHEN $11::boolean THEN EXCLUDED.email ELSE users.email END,
-         password_hash = COALESCE(EXCLUDED.password_hash, users.password_hash),
-         first_name = EXCLUDED.first_name,
-         last_name = EXCLUDED.last_name,
-         phone = CASE WHEN $12::boolean THEN EXCLUDED.phone ELSE users.phone END,
-         role = EXCLUDED.role,
-         active = EXCLUDED.active,
-         metadata = users.metadata || EXCLUDED.metadata,
-         updated_at = NOW()`,
-      [
-        uuid,
-        client,
-        email,
-        first,
-        last || first,
-        d.phone ? str(d.phone) : null,
-        role,
-        bool(d.active, true),
-        JSON.stringify(meta),
-        passwordParam,
-        hasEmail,
-        hasPhone,
-      ],
-    )
-  } else {
-    await query(
-      `INSERT INTO users (
-         id, client_id, email, password_hash, first_name, last_name, phone, role, active, metadata, updated_at
-       ) VALUES (
-         $1::uuid, $2::uuid, $3, ${passwordSql}, $4, $5, $6, $7, $8, $9::jsonb, NOW()
-       )
-       ON CONFLICT (id) DO UPDATE SET
-         client_id = EXCLUDED.client_id,
-         email = CASE WHEN $10::boolean THEN EXCLUDED.email ELSE users.email END,
-         first_name = EXCLUDED.first_name,
-         last_name = EXCLUDED.last_name,
-         phone = CASE WHEN $11::boolean THEN EXCLUDED.phone ELSE users.phone END,
-         role = EXCLUDED.role,
-         active = EXCLUDED.active,
-         metadata = users.metadata || EXCLUDED.metadata,
-         updated_at = NOW()`,
-      [
-        uuid,
-        client,
-        email,
-        first,
-        last || first,
-        d.phone ? str(d.phone) : null,
-        role,
-        bool(d.active, true),
-        JSON.stringify(meta),
-        hasEmail,
-        hasPhone,
-      ],
-    )
+    params.push(passwordParam)
+    passwordExpr = `$${params.length}`
   }
+  const flag = (b: boolean) => {
+    params.push(b)
+    return `$${params.length}::boolean`
+  }
+  const fEmail = flag(hasEmail)
+  const fPhone = flag(hasPhone)
+  const fRole = flag(hasRole)
+  const fAgency = flag(hasAgency)
+  const fActive = flag(hasActive)
+  // metadata: shallow merge, plus verification merged by key (never replaced
+  // wholesale) so a partial verification write keeps the stored ID documents.
+  const metadataSql = `(COALESCE(users.metadata, '{}'::jsonb) || EXCLUDED.metadata)
+           || CASE
+                WHEN jsonb_typeof(users.metadata->'verification') = 'object'
+                 AND jsonb_typeof(EXCLUDED.metadata->'verification') = 'object'
+                THEN jsonb_build_object(
+                  'verification',
+                  (users.metadata->'verification') || (EXCLUDED.metadata->'verification')
+                )
+                ELSE '{}'::jsonb
+              END`
+  await query(
+    `INSERT INTO users (
+       id, client_id, email, password_hash, first_name, last_name, phone, role, active, metadata, updated_at
+     ) VALUES (
+       $1::uuid, $2::uuid, $3, ${passwordExpr}, $4, $5, $6, $7, $8, $9::jsonb, NOW()
+     )
+     ON CONFLICT (id) DO UPDATE SET
+       client_id = CASE WHEN ${fAgency} THEN EXCLUDED.client_id ELSE users.client_id END,
+       email = CASE WHEN ${fEmail} THEN EXCLUDED.email ELSE users.email END,${
+         passwordParam
+           ? `
+       password_hash = COALESCE(EXCLUDED.password_hash, users.password_hash),`
+           : ''
+       }
+       first_name = EXCLUDED.first_name,
+       last_name = EXCLUDED.last_name,
+       phone = CASE WHEN ${fPhone} THEN EXCLUDED.phone ELSE users.phone END,
+       role = CASE WHEN ${fRole} THEN EXCLUDED.role ELSE users.role END,
+       active = CASE WHEN ${fActive} THEN EXCLUDED.active ELSE users.active END,
+       metadata = ${metadataSql},
+       updated_at = NOW()`,
+    params,
+  )
 
   // P0-sa-mint: when Supabase Auth is configured, public.users + password_hash
   // alone is not a sign-in. Create auth.users (+ identity), link auth_user_id

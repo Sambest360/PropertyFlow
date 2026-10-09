@@ -1,0 +1,347 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+/**
+ * Jim #80 blockers: user self-promotion, cross-user / cross-agency user writes,
+ * owner takeover of notifications and applications, verification writes.
+ * Drives the real assertPersistAllowed (+ enforceUserWritePolicy) and the real
+ * upsertUser over a small in-memory model of the tables they read.
+ */
+const query = vi.fn()
+const resolveUuid = vi.fn()
+
+vi.mock('./db.js', () => ({
+  databaseConfigured: true,
+  query: (...args: unknown[]) => query(...args),
+  withTransaction: vi.fn(),
+  clientQuery: vi.fn(),
+  pool: { query: (...args: unknown[]) => query(...args) },
+}))
+
+vi.mock('./entityMap.js', () => ({
+  ensureEntityMapTable: vi.fn(async () => undefined),
+  resolveUuid: (...args: unknown[]) => resolveUuid(...args),
+  ensureUuid: vi.fn(async (_t: string, fe: string) => UUID[fe] ?? '00000000-0000-4000-8000-00000000ffff'),
+  forgetId: vi.fn(),
+  isUuid: (v: string) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v),
+}))
+
+vi.mock('./supabase/registerUser.js', () => ({ linkStaffAuthUser: vi.fn() }))
+
+const loadIdMapCache = vi.fn()
+vi.mock('./idMapCache.js', async () => {
+  const actual = await vi.importActual<typeof import('./idMapCache.js')>('./idMapCache.js')
+  return { ...actual, loadIdMapCache: (...args: unknown[]) => loadIdMapCache(...args) }
+})
+
+const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
+const CA = id(1)
+const CB = id(2)
+const UN1 = id(10)
+const UUID: Record<string, string> = {
+  'u-t': id(20),
+  'u-o': id(21),
+  'u-admin': id(22),
+  'u-agent': id(23),
+  'u-b': id(24),
+  'u-sa': id(25),
+  'u-admin-noperm': id(26),
+  'A-t': id(30),
+  'A-o': id(31),
+  'N-o': id(40),
+  'N-t': id(41),
+  'ag-a': CA,
+  'ag-b': CB,
+}
+const FE_BY_UUID = new Map(Object.entries(UUID).map(([fe, u]) => [u, fe]))
+
+const users: Record<string, { client: string | null; metadata: Record<string, unknown> }> = {
+  [UUID['u-t']]: { client: null, metadata: {} },
+  [UUID['u-o']]: { client: null, metadata: {} },
+  [UUID['u-admin']]: { client: CA, metadata: {} },
+  [UUID['u-admin-noperm']]: { client: CA, metadata: { enabledPermissions: ['assets.view'] } },
+  [UUID['u-agent']]: { client: CA, metadata: {} },
+  [UUID['u-b']]: { client: CB, metadata: {} },
+  [UUID['u-sa']]: { client: null, metadata: {} },
+}
+const applications: Record<string, { applicant: string | null; unit: string; client: string; ref: string }> = {
+  [UUID['A-t']]: { applicant: UUID['u-t'], unit: UN1, client: CA, ref: 'A-t' },
+  [UUID['A-o']]: { applicant: UUID['u-o'], unit: UN1, client: CA, ref: 'A-o' },
+}
+const notifications: Record<string, { user: string; client: string | null }> = {
+  [UUID['N-o']]: { user: UUID['u-o'], client: CA },
+  [UUID['N-t']]: { user: UUID['u-t'], client: CA },
+}
+
+function answer(sqlRaw: string, params: unknown[] = []): unknown[] {
+  const sql = sqlRaw.replace(/\s+/g, ' ').trim()
+  if (sql.includes('FROM units u JOIN buildings b ON b.id = u.building_id') && !sql.includes('WHERE')) {
+    return [{ unit_id: UN1, client_id: CA, agent_id: UUID['u-agent'], landlord_id: null }]
+  }
+  if (sql.includes('FROM applications a LEFT JOIN users u')) {
+    return Object.values(applications).map((a) => ({
+      applicant_id: a.applicant,
+      email: null,
+      unit_id: a.unit,
+      status: 'SUBMITTED',
+      reference_code: a.ref,
+      metadata: null,
+    }))
+  }
+  if (sql.includes('FROM leases') || sql.includes('FROM maintenance_tickets')) return []
+  if (sql.includes('FROM clients WHERE id')) return [{ status: 'active' }]
+  if (/SELECT client_id FROM users WHERE id = \$1::uuid/.test(sql)) {
+    const u = users[String(params[0])]
+    return u ? [{ client_id: u.client }] : []
+  }
+  if (/SELECT metadata FROM users WHERE id = \$1::uuid/.test(sql)) {
+    const u = users[String(params[0])]
+    return u ? [{ metadata: u.metadata }] : []
+  }
+  if (sql.includes('FROM notifications WHERE id')) {
+    const n = notifications[String(params[0])]
+    return n ? [{ client_id: n.client, user_id: n.user }] : []
+  }
+  if (sql.includes('FROM "applications" WHERE id')) {
+    const a = applications[String(params[0])]
+    return a
+      ? [{ id: String(params[0]), unit_id: a.unit, client_id: a.client, agent_id: UUID['u-agent'], applicant_id: a.applicant }]
+      : []
+  }
+  return []
+}
+
+beforeEach(() => {
+  query.mockReset()
+  query.mockImplementation(async (sql: string, params?: unknown[]) => answer(sql, params))
+  resolveUuid.mockReset()
+  resolveUuid.mockImplementation(async (_t: string, fe: string) => UUID[fe] ?? null)
+  loadIdMapCache.mockReset()
+  loadIdMapCache.mockResolvedValue({
+    userBackendToFe: new Map([...FE_BY_UUID].filter(([, fe]) => fe.startsWith('u-'))),
+    unitBackendToPropertyFe: new Map([[UN1, 'p-1']]),
+    agencyBackendToFe: new Map([
+      [CA, 'ag-a'],
+      [CB, 'ag-b'],
+    ]),
+  })
+})
+
+afterEach(() => {
+  vi.resetModules()
+})
+
+type Body = {
+  resource: 'user' | 'notification' | 'application'
+  action: 'upsert' | 'delete'
+  id: string
+  data?: Record<string, unknown>
+}
+
+async function gate(actor: { userId: string; role: string; agencyId: string | null }, body: Body) {
+  const { assertPersistAllowed } = await import('./scopeGate.js')
+  await assertPersistAllowed(actor as never, body as never)
+  return body
+}
+
+async function expect403(p: Promise<unknown>) {
+  await expect(p).rejects.toMatchObject({ status: 403 })
+}
+
+const TENANT = { userId: 'u-t', role: 'tenant', agencyId: null }
+const ADMIN = { userId: 'u-admin', role: 'client_admin', agencyId: 'ag-a' }
+const SA = { userId: 'u-sa', role: 'super_admin', agencyId: null }
+
+describe('user writes: self-promotion and cross-user writes', () => {
+  it('a tenant making themselves super_admin is refused: privileged fields are stripped', async () => {
+    const body = await gate(TENANT, {
+      resource: 'user',
+      action: 'upsert',
+      id: 'u-t',
+      data: {
+        id: 'u-t',
+        name: 'Tess Tenant',
+        role: 'super_admin',
+        agencyId: 'ag-a',
+        active: true,
+        enabledPermissions: ['platform.manage'],
+        verification: { status: 'approved' },
+        licenseStatus: 'principal',
+      },
+    })
+    expect(body.data).toEqual({ id: 'u-t', name: 'Tess Tenant' })
+  })
+
+  it('the stripped self-write keeps the stored role, agency and active (upsertUser)', async () => {
+    const body = await gate(TENANT, {
+      resource: 'user',
+      action: 'upsert',
+      id: 'u-t',
+      data: { id: 'u-t', name: 'Tess Tenant', role: 'super_admin', agencyId: 'ag-a', active: true },
+    })
+    const { handlePersist } = await import('./writes.js')
+    await handlePersist(body as never)
+    const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO users'))!
+    const sql = String(insert[0])
+    const params = insert[1] as unknown[]
+    const flagFor = (col: string) => {
+      const m = sql.match(new RegExp(`${col} = CASE WHEN \\$(\\d+)::boolean THEN EXCLUDED\\.${col} ELSE users\\.${col} END`))
+      expect(m, col).toBeTruthy()
+      return params[Number(m![1]) - 1]
+    }
+    expect(flagFor('role')).toBe(false)
+    expect(flagFor('client_id')).toBe(false)
+    expect(flagFor('active')).toBe(false)
+    expect(JSON.parse(String(params[8]))).not.toHaveProperty('frontend_role')
+  })
+
+  it('a tenant rewriting another user is refused', async () => {
+    await expect403(
+      gate(TENANT, { resource: 'user', action: 'upsert', id: 'u-o', data: { id: 'u-o', name: 'x', userId: 'u-t' } }),
+    )
+  })
+
+  it('a payload userId naming the actor does not make another user row theirs', async () => {
+    await expect403(
+      gate(TENANT, { resource: 'user', action: 'upsert', id: 'u-admin', data: { userId: 'u-t', role: 'tenant' } }),
+    )
+  })
+
+  it('non-super users cannot delete user rows, not even their own', async () => {
+    await expect403(gate(TENANT, { resource: 'user', action: 'delete', id: 'u-t' }))
+    await expect403(gate(ADMIN, { resource: 'user', action: 'delete', id: 'u-agent' }))
+  })
+
+  it('legitimate self-profile edits (name, phone, company, ID number) still go through', async () => {
+    const body = await gate(TENANT, {
+      resource: 'user',
+      action: 'upsert',
+      id: 'u-t',
+      data: { id: 'u-t', name: 'Tess T', phone: '+27 82 1', company: 'Tess Co', idNumberOrPassport: '900101' },
+    })
+    expect(body.data).toEqual({ id: 'u-t', name: 'Tess T', phone: '+27 82 1', company: 'Tess Co', idNumberOrPassport: '900101' })
+  })
+})
+
+describe('agency admin user management', () => {
+  it('may change role (below super_admin) and active for a user in their agency', async () => {
+    const body = await gate(ADMIN, {
+      resource: 'user',
+      action: 'upsert',
+      id: 'u-agent',
+      data: { name: 'Agent', role: 'agent_admin', active: false, agencyId: 'ag-a', enabledPermissions: ['users.manage'] },
+    })
+    expect(body.data).toMatchObject({ role: 'agent_admin', active: false, agencyId: 'ag-a', enabledPermissions: ['users.manage'] })
+  })
+
+  it('may create staff in their agency; a create without agencyId is pinned to it', async () => {
+    const body = await gate(ADMIN, {
+      resource: 'user',
+      action: 'upsert',
+      id: 'u-new-staff',
+      data: { name: 'New Agent', role: 'ground_agent', email: 'n@a.test', tempPassword: 'Temp1234!' },
+    })
+    expect(body.data).toMatchObject({ role: 'ground_agent', agencyId: 'ag-a' })
+  })
+
+  it('assigning super_admin is refused', async () => {
+    await expect403(gate(ADMIN, { resource: 'user', action: 'upsert', id: 'u-agent', data: { role: 'super_admin' } }))
+    await expect403(gate(ADMIN, { resource: 'user', action: 'upsert', id: 'u-new', data: { role: 'super_admin', agencyId: 'ag-a' } }))
+  })
+
+  it('moving a user to another agency (or to no agency) is refused', async () => {
+    await expect403(gate(ADMIN, { resource: 'user', action: 'upsert', id: 'u-agent', data: { agencyId: 'ag-b' } }))
+    await expect403(gate(ADMIN, { resource: 'user', action: 'upsert', id: 'u-agent', data: { agencyId: CB } }))
+    await expect403(gate(ADMIN, { resource: 'user', action: 'upsert', id: 'u-agent', data: { agencyId: null } }))
+    await expect403(gate(ADMIN, { resource: 'user', action: 'upsert', id: 'u-new', data: { role: 'ground_agent', agencyId: 'ag-b' } }))
+  })
+
+  it('touching a user outside their agency is refused', async () => {
+    await expect403(gate(ADMIN, { resource: 'user', action: 'upsert', id: 'u-b', data: { name: 'x', agencyId: 'ag-a' } }))
+    await expect403(gate(ADMIN, { resource: 'user', action: 'upsert', id: 'u-t', data: { name: 'x' } }))
+  })
+
+  it('an agency admin without users.manage gets the self-only rule', async () => {
+    const noPerm = { userId: 'u-admin-noperm', role: 'client_admin', agencyId: 'ag-a' }
+    await expect403(gate(noPerm, { resource: 'user', action: 'upsert', id: 'u-agent', data: { name: 'x' } }))
+    const body = await gate(noPerm, { resource: 'user', action: 'upsert', id: 'u-admin-noperm', data: { name: 'Me', role: 'super_admin' } })
+    expect(body.data).toEqual({ name: 'Me' })
+  })
+})
+
+describe('verification: never through a non-super user write', () => {
+  it('a non-super self write cannot change verification', async () => {
+    const body = await gate(TENANT, {
+      resource: 'user',
+      action: 'upsert',
+      id: 'u-t',
+      data: { name: 'T', verification: { status: 'approved', documents: [] } },
+    })
+    expect(body.data).not.toHaveProperty('verification')
+  })
+
+  it('an agency admin write cannot change verification either', async () => {
+    const body = await gate(ADMIN, {
+      resource: 'user',
+      action: 'upsert',
+      id: 'u-agent',
+      data: { name: 'A', verification: { status: 'approved' } },
+    })
+    expect(body.data).not.toHaveProperty('verification')
+  })
+
+  it('a super admin write keeps verification and is merged by key, never replaced wholesale', async () => {
+    const body = await gate(SA, {
+      resource: 'user',
+      action: 'upsert',
+      id: 'u-t',
+      data: { name: 'T', verification: { status: 'approved', reviewedAt: '2026-10-09' } },
+    })
+    expect(body.data).toHaveProperty('verification')
+    const { handlePersist } = await import('./writes.js')
+    await handlePersist(body as never)
+    const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO users'))!
+    const sql = String(insert[0]).replace(/\s+/g, ' ')
+    expect(sql).toContain(
+      "jsonb_build_object( 'verification', (users.metadata->'verification') || (EXCLUDED.metadata->'verification') )",
+    )
+    expect(sql).not.toMatch(/metadata = users\.metadata \|\| EXCLUDED\.metadata,/)
+    const meta = JSON.parse(String((insert[1] as unknown[])[8]))
+    // Only the keys sent are written; stored documents are left to the merge.
+    expect(meta.verification).toEqual({ status: 'approved', reviewedAt: '2026-10-09' })
+  })
+})
+
+describe('own-row checks use the existing owner before the payload', () => {
+  it("taking over another person's notification by id is refused", async () => {
+    await expect403(
+      gate(TENANT, { resource: 'notification', action: 'upsert', id: 'N-o', data: { userId: 'u-t', read: true } }),
+    )
+  })
+
+  it('marking their own notification read still works', async () => {
+    await expect(
+      gate(TENANT, { resource: 'notification', action: 'upsert', id: 'N-t', data: { userId: 'u-t', read: true } }),
+    ).resolves.toBeDefined()
+  })
+
+  it("taking over another person's application by id is refused", async () => {
+    await expect403(
+      gate(TENANT, {
+        resource: 'application',
+        action: 'upsert',
+        id: 'A-o',
+        data: { applicantUserId: 'u-t', propertyId: 'p-1', agencyId: 'ag-a' },
+      }),
+    )
+  })
+
+  it('updating their own application, and creating a new one, still work', async () => {
+    await expect(
+      gate(TENANT, { resource: 'application', action: 'upsert', id: 'A-t', data: { applicantUserId: 'u-t', propertyId: 'p-1', agencyId: 'ag-a', phone: '1' } }),
+    ).resolves.toBeDefined()
+    await expect(
+      gate(TENANT, { resource: 'application', action: 'upsert', id: 'A-new', data: { applicantUserId: 'u-t', propertyId: 'p-1', agencyId: 'ag-a' } }),
+    ).resolves.toBeDefined()
+  })
+})
