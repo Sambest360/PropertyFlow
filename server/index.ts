@@ -1188,18 +1188,17 @@ app.post('/api/notifications/mark-read', async (c) => {
     }
     const actor = await resolveRequestActor(c, body as unknown as Record<string, unknown>)
     if (!actor) throw actorRequiredError()
-    // Only mark own notifications unless agency-wide / super_admin
-    if (
-      body.userId &&
-      body.userId !== actor.userId &&
-      actor.role !== 'super_admin' &&
-      actor.role !== 'client_admin' &&
-      actor.role !== 'agent_admin'
-    ) {
+    // Own notifications only, for every role (an impersonating super admin
+    // acts as the impersonated user). Ownership is also enforced in SQL.
+    if (body.userId && body.userId !== actor.userId) {
       return c.json({ error: 'forbidden', message: 'Cannot mark another user notifications' }, 403)
     }
     const { markNotificationsRead } = await loadWritesModule()
-    const result = await markNotificationsRead(body)
+    const result = await markNotificationsRead({
+      ids: Array.isArray(body.ids) ? body.ids : undefined,
+      all: Boolean(body.all),
+      ownerUserId: actor.userId,
+    })
     return c.json({ ok: true, ...result })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

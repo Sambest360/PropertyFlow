@@ -2200,16 +2200,17 @@ async function upsertDepositHolding(feId: string, d: Record<string, unknown>): P
 /** Mark notification(s) read. */
 export async function markNotificationsRead(params: {
   ids?: string[]
-  userId?: string
   all?: boolean
+  /** FE id of the verified actor. Only their own notifications are touched. */
+  ownerUserId: string
 }): Promise<{ updated: number }> {
   await ensureEntityMapTable()
-  if (params.all && params.userId) {
-    const user = await resolveUuid('user', params.userId)
-    if (!user) return { updated: 0 }
+  const owner = await resolveUuid('user', params.ownerUserId)
+  if (!owner) return { updated: 0 }
+  if (params.all) {
     const rows = await query(
       `UPDATE notifications SET read_at = NOW() WHERE user_id = $1::uuid AND read_at IS NULL RETURNING id`,
-      [user],
+      [owner],
     )
     return { updated: rows.length }
   }
@@ -2217,9 +2218,10 @@ export async function markNotificationsRead(params: {
   for (const id of params.ids ?? []) {
     const uuid = await resolveUuid('notification', id)
     if (!uuid) continue
+    // Ownership in the WHERE clause: another user's notification id updates nothing.
     const rows = await query(
-      `UPDATE notifications SET read_at = NOW() WHERE id = $1::uuid RETURNING id`,
-      [uuid],
+      `UPDATE notifications SET read_at = NOW() WHERE id = $1::uuid AND user_id = $2::uuid RETURNING id`,
+      [uuid, owner],
     )
     updated += rows.length
   }
