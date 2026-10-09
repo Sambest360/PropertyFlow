@@ -254,7 +254,7 @@ export function resolveLandlordAssignment(
     phone: draft.landlordManualPhone.trim() || undefined,
     role: 'landlord',
     agencyId: opts.agencyId,
-    verification: { status: 'not_required' },
+    verification: { status: 'pending', submittedAt: new Date().toISOString() },
   })
   return created.id
 }

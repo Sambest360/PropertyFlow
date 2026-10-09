@@ -4,7 +4,7 @@
  */
 
 import type { Application } from '../../types/domain'
-import { findInspection } from './inspections'
+import { findInspection } from './inspections.js'
 
 export const DEPOSIT_DAMAGE_SOFT_WARN =
   'Theater honesty (Mode A): damage / deduction talk without an outgoing inspection path is a soft warning only — not a hard auto-forfeit, and not RHA statutory deposit advice.'

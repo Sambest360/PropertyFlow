@@ -64,5 +64,10 @@ describe('resolveLandlordAssignment', () => {
 
     expect(id).toBe('u-new')
     expect(createUser).toHaveBeenCalledOnce()
+    const created = createUser.mock.calls[0][0]
+    expect(created.role).toBe('landlord')
+    expect(created.verification?.status).toBe('pending')
+    expect(created.verification?.status).not.toBe('not_required')
+    expect(created.verification?.submittedAt).toEqual(expect.any(String))
   })
 })

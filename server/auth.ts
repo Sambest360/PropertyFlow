@@ -9,6 +9,7 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { query } from './db.js'
 import { ensureUuid } from './entityMap.js'
 import { resolveFrontendRole } from '../src/lib/supabase/idMap.js'
+import { applyVerificationDecision } from '../src/lib/verification.js'
 import { ACTOR_AGENCY_HEADER, ACTOR_ROLE_HEADER, ACTOR_USER_HEADER } from './actor.js'
 
 const AUTH_COOKIE = 'pf_session'
@@ -39,6 +40,8 @@ export type VerificationDocMeta = {
   mimeType: string
   dataUrl: string
   uploadedAt: string
+  /** Kept when a reviewer has opened this document. updateUserVerification does not clear it. */
+  lookedAt?: string
 }
 
 export type VerificationMeta = {
@@ -483,13 +486,12 @@ export async function updateUserVerification(opts: {
     meta.verification && typeof meta.verification === 'object'
       ? (meta.verification as VerificationMeta)
       : ({ status: 'pending' } as VerificationMeta)
-  meta.verification = {
-    ...prev,
+  meta.verification = applyVerificationDecision(prev, {
     status: opts.status,
     reviewedAt: new Date().toISOString(),
     reviewedBy: opts.reviewerFrontendId ?? null,
-    rejectNote: opts.status === 'rejected' ? opts.rejectNote?.trim() || 'Rejected' : undefined,
-  }
+    rejectNote: opts.rejectNote,
+  })
   await query(`UPDATE users SET metadata = $2::jsonb, updated_at = NOW() WHERE id = $1::uuid`, [
     row.id,
     JSON.stringify(meta),

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import {
   ArrowRight,
   Bath,
@@ -269,19 +269,51 @@ export function PropertyExpansion({
   )
 }
 
+/** Row cell action: a link to the property detail, or a toggle for the inline panel. */
+function RowCellAction({
+  linkTo,
+  onClick,
+  className,
+  children,
+}: {
+  linkTo?: string
+  onClick: () => void
+  className: string
+  children: ReactNode
+}) {
+  if (linkTo) {
+    return (
+      <Link to={linkTo} className={className}>
+        {children}
+      </Link>
+    )
+  }
+  return (
+    <button type="button" onClick={onClick} className={className}>
+      {children}
+    </button>
+  )
+}
+
 export function PropertyListView({
   items,
   expandedId,
   onToggle,
   reducedMotion,
+  rowLinksToDetail = false,
 }: {
   items: PortfolioProperty[]
   expandedId?: string | null
-  onToggle: (item: PortfolioProperty) => void
+  onToggle?: (item: PortfolioProperty) => void
   reducedMotion?: boolean
+  /** Rows open /workspace/properties/:id instead of an inline expansion panel. */
+  rowLinksToDetail?: boolean
 }) {
   const hideAgentColumn = useHideAgentColumn()
-  const colSpan = hideAgentColumn ? 5 : 6
+  const colSpan = (hideAgentColumn ? 5 : 6) - (rowLinksToDetail ? 1 : 0)
+  const toggle = (item: PortfolioProperty) => onToggle?.(item)
+  const detailHref = (item: PortfolioProperty) =>
+    rowLinksToDetail ? `/workspace/properties/${item.property.id}` : undefined
   return (
     <>
       <div className="hidden overflow-hidden rounded-[1.25rem] border border-primary-100/80 bg-white shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)] md:block">
@@ -289,7 +321,7 @@ export function PropertyListView({
           <table className="w-full min-w-[52rem] border-collapse text-left text-sm">
             <thead className="sticky top-0 z-[1] bg-white/95 backdrop-blur-md">
               <tr className="border-b border-primary-100 text-[11px] font-semibold uppercase tracking-wide text-ink-400">
-                <th className="w-10 px-3 py-3" aria-hidden />
+                {!rowLinksToDetail ? <th className="w-10 px-3 py-3" aria-hidden /> : null}
                 <th className="px-4 py-3 font-semibold">Property</th>
                 <th className="px-3 py-3 font-semibold">Price</th>
                 <th className="px-3 py-3 font-semibold">Status</th>
@@ -300,7 +332,8 @@ export function PropertyListView({
             <tbody>
               {items.map((item) => {
                 const p = item.property
-                const expanded = expandedId === p.id
+                const expanded = !rowLinksToDetail && expandedId === p.id
+                const linkTo = detailHref(item)
                 return (
                   <Fragment key={p.id}>
                     <tr
@@ -309,10 +342,11 @@ export function PropertyListView({
                         expanded && 'border-b-0 bg-primary-100',
                       )}
                     >
+                      {!rowLinksToDetail ? (
                       <td className="px-3 py-3">
                         <button
                           type="button"
-                          onClick={() => onToggle(item)}
+                          onClick={() => toggle(item)}
                           aria-expanded={expanded}
                           aria-label={expanded ? 'Collapse property details' : 'Expand property details'}
                           className="inline-flex min-h-9 min-w-9 cursor-pointer items-center justify-center rounded-xl text-ink-400 transition-colors duration-200 hover:bg-white hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
@@ -328,10 +362,11 @@ export function PropertyListView({
                           />
                         </button>
                       </td>
+                      ) : null}
                       <td className="px-4 py-3">
-                        <button
-                          type="button"
-                          onClick={() => onToggle(item)}
+                        <RowCellAction
+                          linkTo={linkTo}
+                          onClick={() => toggle(item)}
                           className="group flex min-h-11 w-full cursor-pointer items-center gap-3 rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
                           <img
@@ -362,40 +397,40 @@ export function PropertyListView({
                               {p.type}
                             </span>
                           </span>
-                        </button>
+                        </RowCellAction>
                       </td>
                       <td className="px-3 py-3">
-                        <button
-                          type="button"
-                          onClick={() => onToggle(item)}
+                        <RowCellAction
+                          linkTo={linkTo}
+                          onClick={() => toggle(item)}
                           className="w-full cursor-pointer text-left font-semibold tabular text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
                           {priceLabel(p, formatZAR)}
-                        </button>
+                        </RowCellAction>
                       </td>
                       <td className="px-3 py-3">
-                        <button
-                          type="button"
-                          onClick={() => onToggle(item)}
+                        <RowCellAction
+                          linkTo={linkTo}
+                          onClick={() => toggle(item)}
                           className="cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
                           <StatusBadge item={item} />
-                        </button>
+                        </RowCellAction>
                       </td>
                       <td className="px-3 py-3">
-                        <button
-                          type="button"
-                          onClick={() => onToggle(item)}
+                        <RowCellAction
+                          linkTo={linkTo}
+                          onClick={() => toggle(item)}
                           className="cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
                           <AttentionBadges item={item} />
-                        </button>
+                        </RowCellAction>
                       </td>
                       {!hideAgentColumn ? (
                         <td className="px-4 py-3">
-                          <button
-                            type="button"
-                            onClick={() => onToggle(item)}
+                          <RowCellAction
+                            linkTo={linkTo}
+                            onClick={() => toggle(item)}
                             className="w-full cursor-pointer text-left font-medium text-ink-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                           >
                             <AgentAssigneeText
@@ -403,10 +438,11 @@ export function PropertyListView({
                               agentName={item.agentName}
                               className="font-medium text-ink-600"
                             />
-                          </button>
+                          </RowCellAction>
                         </td>
                       ) : null}
                     </tr>
+                    {!rowLinksToDetail ? (
                     <tr className={cn(!expanded && 'border-b border-primary-50')}>
                       <td colSpan={colSpan} className="p-0">
                         <div
@@ -433,6 +469,7 @@ export function PropertyListView({
                         </div>
                       </td>
                     </tr>
+                    ) : null}
                   </Fragment>
                 )
               })}
@@ -444,7 +481,8 @@ export function PropertyListView({
       <ul className="space-y-2 md:hidden">
         {items.map((item) => {
           const p = item.property
-          const expanded = expandedId === p.id
+          const expanded = !rowLinksToDetail && expandedId === p.id
+          const linkTo = detailHref(item)
           return (
             <li
               key={p.id}
@@ -455,10 +493,9 @@ export function PropertyListView({
                   : 'border-primary-100/80 bg-white',
               )}
             >
-              <button
-                type="button"
-                onClick={() => onToggle(item)}
-                aria-expanded={expanded}
+              <RowCellAction
+                linkTo={linkTo}
+                onClick={() => toggle(item)}
                 className="flex w-full cursor-pointer gap-3 p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
                 <img
@@ -473,15 +510,17 @@ export function PropertyListView({
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-start gap-2">
                     <p className="min-w-0 flex-1 truncate font-semibold text-ink">{p.title}</p>
-                    <ChevronDown
-                      className={cn(
-                        'h-4 w-4 shrink-0 text-ink-400 transition-transform duration-300',
-                        expanded && 'rotate-180',
-                        reducedMotion && 'transition-none',
-                      )}
-                      strokeWidth={ICON_STROKE}
-                      aria-hidden
-                    />
+                    {!rowLinksToDetail ? (
+                      <ChevronDown
+                        className={cn(
+                          'h-4 w-4 shrink-0 text-ink-400 transition-transform duration-300',
+                          expanded && 'rotate-180',
+                          reducedMotion && 'transition-none',
+                        )}
+                        strokeWidth={ICON_STROKE}
+                        aria-hidden
+                      />
+                    ) : null}
                   </div>
                   <p className="mt-0.5 truncate text-xs text-ink-500">
                     {item.unitNumber ? `Unit ${item.unitNumber} · ` : ''}
@@ -499,7 +538,8 @@ export function PropertyListView({
                     </p>
                   ) : null}
                 </div>
-              </button>
+              </RowCellAction>
+              {!rowLinksToDetail ? (
               <div
                 className={cn(
                   'grid transition-[grid-template-rows] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
@@ -513,6 +553,7 @@ export function PropertyListView({
                   </div>
                 </div>
               </div>
+              ) : null}
             </li>
           )
         })}

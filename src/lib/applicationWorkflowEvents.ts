@@ -1,5 +1,5 @@
 import type { Application, ApplicationWorkflowEvent } from '../types/domain'
-import { uid } from '../data/seed'
+import { uid } from '../data/seed.js'
 
 export function appendWorkflowEvent(
   app: Application,

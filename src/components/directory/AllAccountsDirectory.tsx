@@ -18,6 +18,7 @@ import { roleLabels } from '../../lib/permissions'
 import { usePrefersReducedMotion } from '../../hooks/useScrollMotion'
 import { withReturnTo } from '../../lib/returnTo'
 import type { AppUser, Role } from '../../types/domain'
+import { buildLandlordWaitingList } from '../../lib/landlordWaiting'
 
 const ICON_STROKE = 1.6
 
@@ -43,7 +44,14 @@ type PortfolioRow = {
 }
 
 /** Full account directory — landlords, tenants, contractors, and staff. */
-export function AllAccountsDirectory({ returnTo = '/workspace/people/staff?scope=all' }: { returnTo?: string }) {
+export function AllAccountsDirectory({
+  returnTo = '/workspace/people/staff?scope=all',
+  showLandlordWaitingList = false,
+}: {
+  returnTo?: string
+  /** All users screen only. Empty pending set renders nothing. */
+  showLandlordWaitingList?: boolean
+}) {
   const { state } = useStore()
   const { has, role } = useAuth()
   const { scopeAgency } = useAgencyScope()
@@ -192,8 +200,52 @@ export function AllAccountsDirectory({ returnTo = '/workspace/people/staff?scope
 
   const resultLabel = directoryResultLabel(filtered.length, portfolio.length, 'account', 'accounts')
 
+  const landlordWaiting = showLandlordWaitingList
+    ? buildLandlordWaitingList(portfolio.map((row) => row.user))
+    : null
+
   return (
     <div className="space-y-5">
+      {landlordWaiting && landlordWaiting.rows.length > 0 ? (
+        <Card className="overflow-hidden p-0">
+          <div className="border-b border-primary-50 px-4 py-3 sm:px-5">
+            <h2 className="text-sm font-semibold text-ink">Landlords waiting</h2>
+          </div>
+          <ul className="divide-y divide-primary-50" role="list">
+            {landlordWaiting.rows.map((row) => (
+              <li key={row.userId}>
+                <Link
+                  to={row.href}
+                  className={cn(
+                    'flex min-h-14 cursor-pointer items-center gap-3 px-4 py-3 hover:bg-primary-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary sm:px-5',
+                    !reducedMotion && 'transition-colors duration-200',
+                  )}
+                >
+                  <PersonAvatar name={row.name} />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-ink">{row.name}</p>
+                    <p className="truncate text-sm text-ink-500">
+                      {roleLabels[row.role]}
+                      {' · '}
+                      Pending
+                      {row.submittedAt
+                        ? ` · Submitted ${new Date(row.submittedAt).toLocaleString()}`
+                        : ''}
+                    </p>
+                  </div>
+                  <Badge tone="warning">Pending</Badge>
+                  <ChevronRight
+                    className="h-4 w-4 shrink-0 text-ink-400"
+                    strokeWidth={ICON_STROKE}
+                    aria-hidden
+                  />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
+
       <div className="flex flex-wrap justify-end gap-2">
         {has('users.manage') ? (
           <Link to={addUserHref}>

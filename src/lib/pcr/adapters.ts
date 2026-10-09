@@ -9,7 +9,7 @@ import type {
   PcrPartnerUpsertResult,
   PropertyConditionInspection,
 } from './types'
-import { PcrNotConfiguredError } from './types'
+import { PcrNotConfiguredError } from './types.js'
 
 /** In-app / export pack only — zero partner credentials required. */
 export class ManualPcrAdapter implements IPcrPartnerAdapter {

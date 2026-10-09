@@ -21,8 +21,6 @@ import { PropertyDocumentsPanel } from '../components/property-detail/PropertyDo
 import { PropertyMessagesPanel } from '../components/property-detail/PropertyMessagesPanel'
 import { PropertyHistoryTimeline } from '../components/property-detail/PropertyHistoryTimeline'
 import { PropertySyndicationPanel } from '../components/syndication/PropertySyndicationPanel'
-import { PropertyJourneyStrip } from '../components/property-detail/PropertyJourneyStrip'
-import { BuildingUnitsStrip } from '../components/property-detail/BuildingUnitsStrip'
 import { siblingUnitsInBuilding } from '../lib/buildingHierarchy'
 import {
   isPropertyDetailTab,
@@ -309,6 +307,10 @@ export default function PropertyDetail() {
         occupancy={unit?.statusKey}
         unitLabel={unit?.unitNumber}
         buildingName={building?.name}
+        buildingGrading={building?.grading}
+        buildingAddress={building?.addressLine1}
+        unitCount={building ? siblingUnits.length + 1 : undefined}
+        siblingUnits={siblingUnits}
         canManage={canManage}
         canPublish={canPublishListing}
         publishBlockedReason={publishBlockedReason}
@@ -321,14 +323,6 @@ export default function PropertyDetail() {
         deleteBusy={deleteBusy}
         onToggleFeatured={() => updateProperty(p.id, { featured: !p.featured })}
       />
-
-      {(building || siblingUnits.length > 0) ? (
-        <BuildingUnitsStrip
-          building={building}
-          siblings={siblingUnits}
-          currentPropertyId={p.id}
-        />
-      ) : null}
 
       <div className="sticky top-0 z-20 -mx-1 mb-5 bg-white/95 px-1 backdrop-blur-md">
         <DashboardTabs tabs={tabs} value={tab} onChange={setTab} />
@@ -720,17 +714,7 @@ export default function PropertyDetail() {
       )}
 
       {tab === 'history' && (
-        <div className="space-y-5">
-          <PropertyJourneyStrip
-            property={p}
-            slots={viewingSlots}
-            applications={apps}
-            tenancies={state.tenancies.filter((t) => t.propertyId === p.id)}
-            tickets={tickets}
-            payments={payments}
-          />
-          <PropertyHistoryTimeline events={events} propertyTitle={p.title} />
-        </div>
+        <PropertyHistoryTimeline events={events} propertyTitle={p.title} />
       )}
     </div>
   )

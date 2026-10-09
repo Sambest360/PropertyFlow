@@ -361,8 +361,6 @@ export default function Properties() {
         <BuildingTreeView
           items={filtered}
           buildings={state.buildings}
-          expandedPropertyId={expandedId}
-          onToggleProperty={toggleExpand}
           reducedMotion={reducedMotion}
         />
       ) : view === 'map' ? (
