@@ -15,10 +15,10 @@ import {
   ACTOR_AGENCY_HEADER,
   ACTOR_ROLE_HEADER,
   ACTOR_USER_HEADER,
-  type DemoActor,
 } from './actor.js'
+import { resolveRequestActor } from './requestActor.js'
+import { filterBootstrapForGuest } from './guestMarketplace.js'
 import {
-  actorFromSession,
   clearSession,
   issueSession,
   loginUser,
@@ -135,16 +135,6 @@ function errStatus(err: unknown): ContentfulStatusCode {
     if (s >= 400 && s < 600) return s as ContentfulStatusCode
   }
   return 500
-}
-
-async function resolveRequestActor(
-  c: Parameters<typeof parseDemoActor>[0],
-  body?: Record<string, unknown> | null,
-): Promise<DemoActor | null> {
-  const fromHeaders = parseDemoActor(c, body)
-  if (fromHeaders) return fromHeaders
-  const session = await resolveSessionUser(c)
-  return session ? actorFromSession(session) : null
 }
 
 async function requireActorAndGate(c: Parameters<typeof parseDemoActor>[0], body: PersistBody) {
@@ -556,6 +546,14 @@ app.get('/api/bootstrap', async (c) => {
     )
   }
   try {
+    // Identity first: no verified actor → 401 before any table is read.
+    const rawActor = await resolveRequestActor(c, null)
+    if (!rawActor) {
+      return c.json(
+        { error: 'unauthorized', message: 'Sign in required (use /api/public/marketplace for listings)' },
+        401,
+      )
+    }
     const lite = c.req.query('lite') === '1' || c.req.query('lite') === 'true'
     const rowLimit = lite
       ? 60
@@ -574,10 +572,6 @@ app.get('/api/bootstrap', async (c) => {
         documents: rowLimit,
       },
     })
-    const rawActor = await resolveRequestActor(c, null)
-    if (!rawActor) {
-      return c.json({ ...data, scoped: false, actor: null })
-    }
     const actor = await enrichActor(rawActor)
     const { buildActorPropertyScope, filterBootstrapForActor } = await loadScopeGateModule()
     const scope = await buildActorPropertyScope(actor)
@@ -591,6 +585,45 @@ app.get('/api/bootstrap', async (c) => {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[api/bootstrap]', message)
     return c.json({ error: 'bootstrap_failed', message }, 500)
+  }
+})
+
+/**
+ * Signed-out marketplace: published listings only (see server/guestMarketplace.ts).
+ * Replaces the old unauthenticated full /api/bootstrap payload for guests.
+ */
+app.get('/api/public/marketplace', async (c) => {
+  if (!databaseConfigured) {
+    return c.json(
+      {
+        error: 'database_unconfigured',
+        message: databaseConfigError || 'DATABASE_URL is not set',
+      },
+      503,
+    )
+  }
+  try {
+    const lite = c.req.query('lite') !== '0' && c.req.query('lite') !== 'false'
+    const rowLimit = lite ? 60 : 250
+    const { buildBootstrap } = await loadBootstrapModule()
+    const data = await buildBootstrap({
+      lite,
+      limits: {
+        units: rowLimit,
+        messages: 1,
+        notifications: 1,
+        leads: 1,
+        applications: 1,
+        tickets: 1,
+        payments: 1,
+        documents: 1,
+      },
+    })
+    return c.json(filterBootstrapForGuest(data as unknown as Record<string, unknown>))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[api/public/marketplace]', message)
+    return c.json({ error: 'marketplace_failed', message }, 500)
   }
 })
 

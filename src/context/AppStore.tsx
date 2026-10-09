@@ -996,10 +996,17 @@ async function fetchBootstrapFromApi(lite: boolean, actor: DemoActor | null, ful
     return buildPublicMarketplaceDemoBootstrap()
   }
 
-  const { fetchPostgresBootstrap } = await import('../lib/api/postgresClient')
+  const { fetchPostgresBootstrap, fetchPublicMarketplaceFromApi } = await import(
+    '../lib/api/postgresClient'
+  )
+  if (guest) {
+    // /api/bootstrap is 401 without a session; guests get the published-listings slice.
+    const pub = await fetchPublicMarketplaceFromApi(fullTimeoutMs, lite)
+    if (pub?.properties?.length) return pub
+    return buildPublicMarketplaceDemoBootstrap()
+  }
   const boot = await fetchPostgresBootstrap(fullTimeoutMs, effective, lite)
   if (boot) return boot
-  if (guest) return buildPublicMarketplaceDemoBootstrap()
   return null
 }
 

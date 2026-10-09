@@ -1,0 +1,470 @@
+/**
+ * Actor identity hardening (fix/actor-session-auth).
+ *
+ * Drives the real Hono app (server/index.ts): real /api/auth/login session
+ * issuance, real resolveSessionUser HMAC check, real resolveRequestActor,
+ * real /api/bootstrap + buildBootstrap + filterBootstrapForActor, and real
+ * /api/persist + requireActorAndGate + assertPersistAllowed. Only the `pg`
+ * driver is faked: a Pool whose query() answers by SQL shape from a small
+ * in-memory table set and records every write statement.
+ */
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const env = vi.hoisted(() => {
+  process.env.PF_SKIP_SERVE = '1'
+  process.env.DATABASE_URL = 'postgres://pf:pf@127.0.0.1:5432/pf_test'
+  process.env.AUTH_SECRET = 'test-secret-actor-session-auth'
+  delete process.env.VERCEL
+  delete process.env.ALLOW_DEMO_ACTOR
+  return {}
+})
+void env
+
+const HORIZON = 'a1000001-0001-4000-8000-000000000001'
+const CAPE = 'a1000001-0001-4000-8000-000000000002'
+
+type UserRow = {
+  id: string
+  fe: string
+  email: string
+  first: string
+  last: string
+  phone: string | null
+  role: string
+  client: string | null
+  password_hash: string
+  metadata: Record<string, unknown>
+}
+
+const db = vi.hoisted(() => ({
+  users: [] as UserRow[],
+  writes: [] as string[],
+  sql: [] as string[],
+}))
+
+function agencyFeFor(client: string | null): string | null {
+  if (client === HORIZON) return 'ag-horizon'
+  if (client === CAPE) return 'ag-cape'
+  return null
+}
+
+vi.mock('pg', () => {
+  const answer = (sqlRaw: string, params: unknown[] = []): Record<string, unknown>[] => {
+    const sql = sqlRaw.replace(/\s+/g, ' ').trim()
+    db.sql.push(sql)
+    if (/^(INSERT|UPDATE|DELETE)\b/i.test(sql)) {
+      if (!/entity_id_map/i.test(sql)) db.writes.push(sql)
+      return []
+    }
+    if (/^(CREATE|ALTER|BEGIN|COMMIT|ROLLBACK)\b/i.test(sql)) return []
+    // auth.ts findUserById / findUserByEmail
+    if (sql.includes('FROM users u LEFT JOIN clients c ON c.id = u.client_id')) {
+      const hit = sql.includes('WHERE u.id = $1::uuid')
+        ? db.users.find((u) => u.id === params[0])
+        : db.users.find((u) => u.email.toLowerCase() === String(params[0]).toLowerCase())
+      if (!hit) return []
+      return [
+        {
+          id: hit.id,
+          email: hit.email,
+          password_hash: hit.password_hash,
+          first_name: hit.first,
+          last_name: hit.last,
+          phone: hit.phone,
+          role: hit.role,
+          active: true,
+          client_id: hit.client,
+          metadata: hit.metadata,
+          agency_fe: agencyFeFor(hit.client),
+        },
+      ]
+    }
+    // bootstrap users
+    if (sql.startsWith('SELECT id, client_id, email, first_name, last_name, phone, role, active, metadata FROM users')) {
+      return db.users.map((u) => ({
+        id: u.id,
+        client_id: u.client,
+        email: u.email,
+        first_name: u.first,
+        last_name: u.last,
+        phone: u.phone,
+        role: u.role,
+        active: true,
+        metadata: u.metadata,
+      }))
+    }
+    if (sql.startsWith('SELECT id, company_name, subdomain, status, city, created_at FROM clients')) {
+      return [
+        { id: HORIZON, company_name: 'Horizon', subdomain: 'horizon', status: 'active', city: 'PE', created_at: new Date('2026-01-01') },
+        { id: CAPE, company_name: 'Cape', subdomain: 'cape', status: 'active', city: 'CT', created_at: new Date('2026-01-01') },
+      ]
+    }
+    if (sql === 'SELECT id::text AS id, email FROM users') {
+      return db.users.map((u) => ({ id: u.id, email: u.email }))
+    }
+    if (sql === 'SELECT entity_type, frontend_id, backend_id::text FROM entity_id_map') {
+      return db.users.map((u) => ({ entity_type: 'user', frontend_id: u.fe, backend_id: u.id }))
+    }
+    if (sql.startsWith('SELECT backend_id::text FROM entity_id_map')) {
+      const types = params[0] as string[]
+      const fes = params[1] as string[]
+      if (!types.includes('user')) return []
+      const u = db.users.find((x) => fes.includes(x.fe))
+      return u ? [{ backend_id: u.id }] : []
+    }
+    if (/SELECT client_id FROM users WHERE id = \$1::uuid/.test(sql)) {
+      const u = db.users.find((x) => x.id === params[0])
+      return u ? [{ client_id: u.client }] : []
+    }
+    if (/SELECT status FROM clients WHERE id = \$1::uuid/.test(sql)) return [{ status: 'active' }]
+    if (/SELECT COUNT\(\*\)/i.test(sql)) return [{ n: String(db.users.length) }]
+    if (sql === 'SELECT 1 AS ok') return [{ ok: 1 }]
+    // Every other read (units, leases, trust books, …) is an empty table here.
+    return []
+  }
+  class Pool {
+    async query(sql: string, params?: unknown[]) {
+      return { rows: answer(sql, params) }
+    }
+    async connect() {
+      return {
+        query: async (sql: string, params?: unknown[]) => ({ rows: answer(sql, params) }),
+        release: () => undefined,
+      }
+    }
+    async end() {}
+    on() {
+      return this
+    }
+  }
+  return { default: { Pool, types: { setTypeParser: () => undefined } }, Pool }
+})
+
+type App = { request: (path: string, init?: RequestInit) => Response | Promise<Response> }
+let app: App
+const tokens: Record<string, string> = {}
+
+function user(
+  fe: string,
+  uuidTail: string,
+  role: string,
+  client: string | null,
+  extra: Partial<UserRow> = {},
+): UserRow {
+  return {
+    id: `b9000001-0001-4000-8000-0000000000${uuidTail}`,
+    fe,
+    email: `${fe}@example.test`,
+    first: fe.replace(/^u-/, '').toUpperCase(),
+    last: 'Person',
+    phone: `08200000${uuidTail}`,
+    role,
+    client,
+    password_hash: '',
+    metadata: {
+      frontend_id: fe,
+      idNumberOrPassport: `ID-${fe}`,
+      verification: {
+        status: 'approved',
+        profile: { idNumberOrPassport: `ID-${fe}`, company: 'Co' },
+        documents: [
+          {
+            key: 'id',
+            label: 'ID',
+            name: `${fe}-id.pdf`,
+            mimeType: 'application/pdf',
+            dataUrl: `data:application/pdf;base64,DOC-${fe}`,
+            uploadedAt: '2026-01-01',
+          },
+        ],
+      },
+    },
+    ...extra,
+  }
+}
+
+async function login(email: string): Promise<string> {
+  const res = await app.request('/api/auth/login', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-forwarded-for': `10.0.0.${Object.keys(tokens).length + 1}` },
+    body: JSON.stringify({ email, password: 'pw-correct' }),
+  })
+  expect(res.status).toBe(200)
+  const body = (await res.json()) as { token: string }
+  return body.token
+}
+
+const SA_HEADERS = { 'X-User-Id': 'u-sa', 'X-Role': 'super_admin' }
+
+beforeAll(async () => {
+  const { hashPassword } = await import('./auth')
+  const hash = await hashPassword('pw-correct')
+  db.users = [
+    user('u-sa', '01', 'SUPER_ADMIN', null),
+    user('u-tenant', '02', 'END_USER', HORIZON),
+    user('u-tenant2', '03', 'END_USER', HORIZON),
+    user('u-james', '04', 'GROUND_AGENT', HORIZON),
+    user('u-admin', '05', 'AGENCY_ADMIN', HORIZON),
+    user('u-ll', '06', 'LANDLORD', HORIZON),
+    user('u-cape-agent', '07', 'GROUND_AGENT', CAPE),
+  ].map((u) => ({ ...u, password_hash: hash }))
+  const mod = await import('./index')
+  app = mod.default as unknown as App
+  for (const fe of ['u-sa', 'u-tenant', 'u-james', 'u-admin']) {
+    tokens[fe] = await login(`${fe}@example.test`)
+  }
+})
+
+beforeEach(() => {
+  db.writes = []
+  db.sql = []
+})
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
+
+function production() {
+  vi.stubEnv('VERCEL', '1')
+  vi.stubEnv('ALLOW_DEMO_ACTOR', '')
+}
+
+type Boot = {
+  scoped?: boolean
+  actor?: { userId: string; role: string; agencyId: string | null } | null
+  users: Array<Record<string, unknown>>
+}
+
+async function bootstrap(headers: Record<string, string>): Promise<Response> {
+  return app.request('/api/bootstrap?lite=1', { headers })
+}
+
+describe('actor identity: session first, demo headers only outside production', () => {
+  it('no session gives 401 on bootstrap (production)', async () => {
+    production()
+    const res = await bootstrap({})
+    expect(res.status).toBe(401)
+    const body = (await res.json()) as Record<string, unknown>
+    expect(body.users).toBeUndefined()
+    // 401 is decided before any table is read.
+    expect(db.sql.some((s) => s.includes('FROM users ORDER BY email'))).toBe(false)
+  })
+
+  it('no session gives 401 on bootstrap (not production, no demo headers)', async () => {
+    const res = await bootstrap({})
+    expect(res.status).toBe(401)
+  })
+
+  it('super_admin X-Role headers with no session give 401 in production mode', async () => {
+    production()
+    const res = await bootstrap(SA_HEADERS)
+    expect(res.status).toBe(401)
+    const persist = await app.request('/api/persist', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...SA_HEADERS },
+      body: JSON.stringify({ resource: 'agency', action: 'upsert', id: 'ag-evil', data: { id: 'ag-evil', name: 'Evil' } }),
+    })
+    expect(persist.status).toBe(401)
+    expect(db.writes).toEqual([])
+  })
+
+  it('body actor fields with no session give 401 in production mode', async () => {
+    production()
+    const persist = await app.request('/api/persist', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        resource: 'agency',
+        action: 'upsert',
+        id: 'ag-evil',
+        actorUserId: 'u-sa',
+        actorRole: 'super_admin',
+        data: { id: 'ag-evil', name: 'Evil' },
+      }),
+    })
+    expect(persist.status).toBe(401)
+    expect(db.writes).toEqual([])
+  })
+
+  it('a tenant session plus an X-Role super_admin header gets tenant scope', async () => {
+    production()
+    const res = await bootstrap({ Authorization: `Bearer ${tokens['u-tenant']}`, ...SA_HEADERS })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as Boot
+    expect(body.actor).toEqual({ userId: 'u-tenant', role: 'tenant', agencyId: 'ag-horizon' })
+    expect(body.scoped).toBe(true)
+  })
+
+  it('the same trick via the pf_session cookie also gets tenant scope', async () => {
+    production()
+    const res = await bootstrap({ Cookie: `pf_session=${tokens['u-tenant']}`, ...SA_HEADERS })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as Boot
+    expect(body.actor?.userId).toBe('u-tenant')
+    expect(body.actor?.role).toBe('tenant')
+  })
+
+  it('the same trick on /api/persist gives 403 and writes nothing', async () => {
+    production()
+    const res = await app.request('/api/persist', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        Authorization: `Bearer ${tokens['u-tenant']}`,
+        ...SA_HEADERS,
+        'X-Agency-Id': 'null',
+      },
+      body: JSON.stringify({ resource: 'agency', action: 'upsert', id: 'ag-evil', data: { id: 'ag-evil', name: 'Evil' } }),
+    })
+    expect([401, 403]).toContain(res.status)
+    expect(res.status).toBe(403)
+    expect(db.writes).toEqual([])
+  })
+
+  it('the same trick on /api/persist/batch gives 403 and writes nothing', async () => {
+    production()
+    const res = await app.request('/api/persist/batch', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        Authorization: `Bearer ${tokens['u-tenant']}`,
+        ...SA_HEADERS,
+      },
+      body: JSON.stringify({
+        ops: [{ resource: 'agency', action: 'upsert', id: 'ag-evil', data: { id: 'ag-evil', name: 'Evil' } }],
+      }),
+    })
+    expect(res.status).toBe(403)
+    expect(db.writes).toEqual([])
+  })
+
+  it('a forged / tampered token is not a session (production)', async () => {
+    production()
+    const [h, , s] = tokens['u-tenant'].split('.')
+    const forgedBody = Buffer.from(
+      JSON.stringify({ sub: db.users[0].id, fe: 'u-sa', role: 'super_admin', agency: null, exp: 9_999_999_999 }),
+    ).toString('base64url')
+    const res = await bootstrap({ Authorization: `Bearer ${h}.${forgedBody}.${s}`, ...SA_HEADERS })
+    expect(res.status).toBe(401)
+  })
+
+  it('super admin impersonation through headers still works (production)', async () => {
+    production()
+    const res = await bootstrap({
+      Authorization: `Bearer ${tokens['u-sa']}`,
+      'X-User-Id': 'u-tenant',
+      'X-Role': 'tenant',
+      'X-Agency-Id': 'ag-horizon',
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as Boot
+    expect(body.actor).toEqual({ userId: 'u-tenant', role: 'tenant', agencyId: 'ag-horizon' })
+    expect(body.scoped).toBe(true)
+  })
+
+  it('super admin session without headers keeps every user with full fields', async () => {
+    production()
+    const res = await bootstrap({ Authorization: `Bearer ${tokens['u-sa']}` })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as Boot
+    expect(body.actor?.role).toBe('super_admin')
+    expect(body.users.map((u) => u.id).sort()).toEqual(db.users.map((u) => u.fe).sort())
+    const t2 = body.users.find((u) => u.id === 'u-tenant2')!
+    expect(t2.email).toBe('u-tenant2@example.test')
+    expect(JSON.stringify(t2)).toContain('DOC-u-tenant2')
+  })
+
+  it('not-production mode still accepts demo headers (local dev + tests)', async () => {
+    const res = await bootstrap({ 'X-User-Id': 'u-tenant', 'X-Role': 'tenant', 'X-Agency-Id': 'ag-horizon' })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as Boot
+    expect(body.actor).toEqual({ userId: 'u-tenant', role: 'tenant', agencyId: 'ag-horizon' })
+  })
+
+  it('ALLOW_DEMO_ACTOR=1 opts a Vercel deployment back into demo headers', async () => {
+    vi.stubEnv('VERCEL', '1')
+    vi.stubEnv('ALLOW_DEMO_ACTOR', '1')
+    const res = await bootstrap({ 'X-User-Id': 'u-tenant', 'X-Role': 'tenant' })
+    expect(res.status).toBe(200)
+  })
+
+  it('notifications/mark-read and dunning-notice ignore forged headers in production', async () => {
+    production()
+    const mark = await app.request('/api/notifications/mark-read', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...SA_HEADERS },
+      body: JSON.stringify({ all: true, userId: 'u-tenant2' }),
+    })
+    expect(mark.status).toBe(401)
+    const dun = await app.request('/api/notify/dunning-notice', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...SA_HEADERS },
+      body: JSON.stringify({ email: 'victim@example.test' }),
+    })
+    expect(dun.status).toBe(401)
+    expect(db.writes).toEqual([])
+  })
+})
+
+describe('bootstrap users: narrowed and redacted for non-super-admins', () => {
+  function assertNoPrivate(u: Record<string, unknown>) {
+    expect(u.email).toBeUndefined()
+    expect(u.phone).toBeUndefined()
+    expect(u.idNumberOrPassport).toBeUndefined()
+    const v = u.verification as Record<string, unknown> | undefined
+    if (v) {
+      expect(v.documents).toBeUndefined()
+      expect(v.profile).toBeUndefined()
+    }
+  }
+
+  it('a tenant bootstrap has no other user id, email, phone, ID number or docs beyond agency staff names', async () => {
+    production()
+    const res = await bootstrap({ Authorization: `Bearer ${tokens['u-tenant']}` })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as Boot
+    const ids = body.users.map((u) => u.id).sort()
+    // Self + own agency's staff only. No other tenant, landlord, or other agency.
+    expect(ids).toEqual(['u-admin', 'u-james', 'u-tenant'])
+    const self = body.users.find((u) => u.id === 'u-tenant')!
+    expect(self.email).toBe('u-tenant@example.test')
+    for (const u of body.users.filter((x) => x.id !== 'u-tenant')) {
+      assertNoPrivate(u)
+      expect(Object.keys(u).sort()).toEqual(
+        expect.arrayContaining(['id', 'name', 'role', 'agencyId', 'active']),
+      )
+      expect(typeof u.name).toBe('string')
+    }
+    const json = JSON.stringify(body.users)
+    for (const other of db.users.filter((u) => u.fe !== 'u-tenant')) {
+      expect(json).not.toContain(other.email)
+      expect(json).not.toContain(other.phone!)
+      expect(json).not.toContain(`ID-${other.fe}`)
+      expect(json).not.toContain(`DOC-${other.fe}`)
+    }
+    expect(json).not.toContain('u-tenant2')
+    expect(json).not.toContain('u-ll')
+    expect(json).not.toContain('u-cape-agent')
+  })
+
+  it('a ground agent sees own agency users redacted, nothing from other agencies', async () => {
+    production()
+    const res = await bootstrap({ Authorization: `Bearer ${tokens['u-james']}` })
+    const body = (await res.json()) as Boot
+    const ids = body.users.map((u) => u.id).sort()
+    expect(ids).toEqual(['u-admin', 'u-james', 'u-ll', 'u-tenant', 'u-tenant2'])
+    for (const u of body.users.filter((x) => x.id !== 'u-james')) assertNoPrivate(u)
+  })
+
+  it("an agency users.manage admin sees their agency's users in full, nothing from other agencies", async () => {
+    production()
+    const res = await bootstrap({ Authorization: `Bearer ${tokens['u-admin']}` })
+    const body = (await res.json()) as Boot
+    const ids = body.users.map((u) => u.id).sort()
+    expect(ids).toEqual(['u-admin', 'u-james', 'u-ll', 'u-tenant', 'u-tenant2'])
+    const t2 = body.users.find((u) => u.id === 'u-tenant2')!
+    expect(t2.email).toBe('u-tenant2@example.test')
+    expect(JSON.stringify(t2)).toContain('DOC-u-tenant2')
+    expect(JSON.stringify(body.users)).not.toContain('u-cape-agent')
+  })
+})

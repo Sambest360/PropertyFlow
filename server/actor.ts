@@ -89,3 +89,13 @@ export function actorRequiredError(): Error & { status: number } {
 export function forbiddenError(message = 'Outside property scope'): Error & { status: number } {
   return Object.assign(new Error(message), { status: 403 })
 }
+
+/**
+ * Demo actor headers / body fields are trusted only outside production:
+ * VERCEL unset (local dev, tests) or an explicit ALLOW_DEMO_ACTOR=1 opt-in.
+ * On Vercel (production and preview) identity comes from the verified session.
+ */
+export function demoActorHeadersAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.ALLOW_DEMO_ACTOR?.trim() === '1') return true
+  return !env.VERCEL?.trim()
+}

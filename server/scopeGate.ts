@@ -32,7 +32,8 @@ import {
 } from '../src/lib/scope.js'
 import { canWriteEntity } from '../src/lib/scopeWrite.js'
 import type { PropertyAccessSubject } from '../src/lib/agencyScope.js'
-import type { Role } from '../src/types/domain.js'
+import type { Permission, Role } from '../src/types/domain.js'
+import { effectiveCan } from '../src/lib/permissions.js'
 
 type FePropertyRow = PropertyAccessSubject & { id: string }
 
@@ -663,11 +664,187 @@ type BootstrapPayload = {
   [key: string]: unknown
 }
 
+type BootstrapUser = {
+  id?: string
+  name?: string
+  email?: string
+  phone?: string
+  role?: string
+  agencyId?: string | null
+  enabledPermissions?: string[]
+  idNumberOrPassport?: string
+  verification?: Record<string, unknown> | null
+  [key: string]: unknown
+}
+
+/** Agency staff roles (not tenants / landlords / contractors). */
+const AGENCY_STAFF_ROLES: ReadonlySet<string> = new Set([
+  'client_admin',
+  'agent_admin',
+  'ground_agent',
+  'agent',
+])
+
+/** Record fields that name another user — used to keep names visible on scoped rows. */
+const USER_REF_FIELDS = [
+  'agentId',
+  'landlordId',
+  'applicantUserId',
+  'tenantUserId',
+  'tenantId',
+  'partyUserId',
+  'assignedAgentId',
+  'contractorId',
+  'ownerUserId',
+  'fromUserId',
+  'senderId',
+  'createdBy',
+  'createdByUserId',
+  'reportedByUserId',
+  'uploadedByUserId',
+  'userId',
+] as const
+
+const USER_REF_COLLECTIONS = [
+  'properties',
+  'leads',
+  'applications',
+  'tenancies',
+  'viewings',
+  'viewingSlots',
+  'payments',
+  'tickets',
+  'threads',
+  'messages',
+] as const
+
+/** User ids referenced by the actor's already-scoped rows (names only are exposed for these). */
+export function referencedUserIds(filtered: BootstrapPayload): Set<string> {
+  const ids = new Set<string>()
+  for (const key of USER_REF_COLLECTIONS) {
+    const rows = filtered[key]
+    if (!Array.isArray(rows)) continue
+    for (const row of rows as Array<Record<string, unknown>>) {
+      if (!row || typeof row !== 'object') continue
+      for (const f of USER_REF_FIELDS) {
+        const v = row[f]
+        if (typeof v === 'string' && v) ids.add(v)
+      }
+      const participants = row.participantIds
+      if (Array.isArray(participants)) {
+        for (const v of participants) if (typeof v === 'string' && v) ids.add(v)
+      }
+    }
+  }
+  return ids
+}
+
 /**
- * Filter a full bootstrap payload for a property-locked actor.
- * Agency-wide / super_admin: agency (or platform) filter only; users kept for RoleSwitcher.
+ * Directory view of another user: no email, phone, ID/passport number,
+ * verification documents or verification profile. Verification keeps status
+ * dates only (listing visibility + contractor roster read the status).
+ */
+export function redactBootstrapUser(u: BootstrapUser): BootstrapUser {
+  const { email: _e, phone: _p, idNumberOrPassport: _id, verification, ...rest } = u
+  void _e
+  void _p
+  void _id
+  const out: BootstrapUser = { ...rest }
+  if (verification && typeof verification === 'object') {
+    const v = verification as Record<string, unknown>
+    out.verification = {
+      status: v.status,
+      ...(v.submittedAt !== undefined ? { submittedAt: v.submittedAt } : {}),
+      ...(v.reviewedAt !== undefined ? { reviewedAt: v.reviewedAt } : {}),
+      ...(v.reviewedBy !== undefined ? { reviewedBy: v.reviewedBy } : {}),
+    }
+  }
+  return out
+}
+
+/** Agency admin who may see contact + verification details of their agency's users. */
+function actorManagesAgencyUsers(actor: DemoActor, self: BootstrapUser | undefined): boolean {
+  if (actor.role !== 'client_admin' && actor.role !== 'agent_admin') return false
+  return effectiveCan(
+    actor.role as Role,
+    'users.manage',
+    undefined,
+    (self?.enabledPermissions as Permission[] | undefined) ?? undefined,
+  )
+}
+
+/**
+ * Users in bootstrap for a non-super-admin actor.
+ * - Self: full record.
+ * - Own agency's users: agency staff see all of them; tenants / landlords /
+ *   contractors see only their agency's staff (not other tenants or owners).
+ * - Users named on the actor's scoped rows (agent on their lease, landlord on
+ *   their thread, null-agency tenant on an agency's application): name only.
+ * - Agency users.manage admins also see contractor names (any agency) so the
+ *   add-to-roster picker keeps working.
+ * Contact fields, ID/passport and verification documents are stripped for
+ * everyone except self and the actor's own agency when the actor is a
+ * users.manage admin. Super admin is not filtered here.
+ */
+export function filterBootstrapUsersForActor(
+  users: unknown[],
+  actor: DemoActor,
+  filtered: BootstrapPayload,
+): BootstrapUser[] {
+  const all = users as BootstrapUser[]
+  const self = all.find((u) => u.id === actor.userId)
+  const ag = actor.agencyId
+  const isStaff = AGENCY_STAFF_ROLES.has(actor.role)
+  const manager = Boolean(ag) && actorManagesAgencyUsers(actor, self)
+  const related = referencedUserIds(filtered)
+  const out: BootstrapUser[] = []
+  for (const u of all) {
+    if (!u?.id) continue
+    if (u.id === actor.userId) {
+      out.push(u)
+      continue
+    }
+    const sameAgency = Boolean(ag) && u.agencyId === ag
+    const visible =
+      (sameAgency && (isStaff || AGENCY_STAFF_ROLES.has(String(u.role)))) ||
+      related.has(u.id) ||
+      (manager && u.role === 'contractor')
+    if (!visible) continue
+    out.push(manager && sameAgency ? u : redactBootstrapUser(u))
+  }
+  return out
+}
+
+/**
+ * Filter a full bootstrap payload for an actor (super admin keeps everything).
+ * Users are always narrowed + redacted for non-super-admins (see
+ * filterBootstrapUsersForActor).
  */
 export function filterBootstrapForActor(
+  raw: BootstrapPayload,
+  actorIn: DemoActor,
+  scope: PropertyScope,
+): BootstrapPayload {
+  // Session / header agency may be a client UUID; scope.viewer carries the FE id.
+  const normalizedAgency = scope.viewer?.agencyId ?? actorIn.agencyId
+  const actor =
+    normalizedAgency !== actorIn.agencyId ? { ...actorIn, agencyId: normalizedAgency } : actorIn
+  const entities = filterBootstrapEntitiesForActor(raw, actor, scope)
+  if (actor.role === 'super_admin') return entities
+  const roster = Array.isArray(raw.agencyContractors)
+    ? (raw.agencyContractors as Array<{ agencyId?: string | null; contractorUserId?: string }>).filter(
+        (r) =>
+          r.contractorUserId === actor.userId || (Boolean(actor.agencyId) && r.agencyId === actor.agencyId),
+      )
+    : raw.agencyContractors
+  return {
+    ...entities,
+    users: filterBootstrapUsersForActor(raw.users, actor, entities),
+    ...(roster !== undefined ? { agencyContractors: roster } : {}),
+  }
+}
+
+function filterBootstrapEntitiesForActor(
   raw: BootstrapPayload,
   actor: DemoActor,
   scope: PropertyScope,
@@ -675,9 +852,8 @@ export function filterBootstrapForActor(
   const agencyWide = isAgencyWideRole(actor.role as Role) || actor.role === 'super_admin'
   const scoped = !agencyWide
 
-  // Always keep full users + agencies so RoleSwitcher can swap personas.
-  // Non-platform staff still see other agencies in the switcher list from seed merge;
-  // bootstrap agencies for super_admin stay full; others get their agency + all users.
+  // Users are narrowed + redacted by filterBootstrapForActor after this runs.
+  // Agencies for super_admin stay full; others get their own agency only.
   let agencies = raw.agencies
   if (actor.role !== 'super_admin' && actor.agencyId) {
     agencies = raw.agencies.filter((a) => a.id === actor.agencyId)
