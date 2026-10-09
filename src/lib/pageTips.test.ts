@@ -189,3 +189,19 @@ describe('resolvePageTip catalog (unused by walkthrough UI)', () => {
     expect(resolvePageTip('/workspace/sales/applications', 'agent_admin')).not.toBeNull()
   })
 })
+
+describe('Spec 3 tour copy and targets', () => {
+  it('tour-trust-payouts step 2 targets the Propose payout panel', () => {
+    const tour = resolvePageTour('/workspace/trust/payouts', 'agent_admin')
+    expect(tour?.id).toBe('tour-trust-payouts')
+    expect(tour?.steps[1]?.target).toBe('[data-tip-target="trust-propose-payout"]')
+    expect(tour?.steps[1]?.body).toBe(
+      'Propose a payout here. Approve it or submit it from its row in the list.',
+    )
+  })
+
+  it('tour-insights-reports step 2 targets the report tab bar', () => {
+    const tour = resolvePageTour('/workspace/insights/reports', 'agent_admin')
+    expect(tour?.steps[1]?.target).toBe('[data-tip-target="report-tabs"]')
+  })
+})

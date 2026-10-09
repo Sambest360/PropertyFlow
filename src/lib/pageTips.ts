@@ -351,7 +351,7 @@ const WALKTHROUGH_RULES: Array<{
       steps: [
         {
           title: 'Rent & payments',
-          body: 'Track due, overdue, and settled amounts across your portfolio. Open a payment to attach proof or mark it paid.',
+          body: 'See what is due, overdue, and paid across your properties. Open a payment to add proof or mark it paid.',
           placement: 'center',
         },
         {
@@ -403,7 +403,7 @@ const WALKTHROUGH_RULES: Array<{
       steps: [
         {
           title: 'Messages hub',
-          body: 'Send SMS or email to tenants, owners, or leads. Templates save time for rent reminders and viewing confirmations.',
+          body: 'Write to tenants and owners here. Messages stay inside PropertyFlow, not SMS or WhatsApp.',
           placement: 'center',
         },
         {
@@ -455,7 +455,7 @@ const WALKTHROUGH_RULES: Array<{
       steps: [
         {
           title: 'Trust cashbook',
-          body: 'Review receipts and payments posted to the trust account. Filter by date or property before reconciling.',
+          body: 'Every amount in and out of the trust book, newest first. Open a row to check it before you allocate or pay anything.',
           placement: 'center',
         },
         {
@@ -486,7 +486,7 @@ const WALKTHROUGH_RULES: Array<{
         },
         {
           title: 'Allocation tools',
-          body: 'Select a receipt and allocate it from the page header actions.',
+          body: 'Select one or more receipts. Allocate them from the selection panel.',
           target: '[data-tip-target="page-header"]',
           placement: 'below',
         },
@@ -507,13 +507,13 @@ const WALKTHROUGH_RULES: Array<{
       steps: [
         {
           title: 'Owner payouts',
-          body: 'Review and approve disbursements to landlords once rent is cleared in trust.',
+          body: 'Propose, approve, and submit owner payouts in PropertyFlow. This does not send a bank transfer.',
           placement: 'center',
         },
         {
           title: 'Payout tools',
-          body: 'Approve or hold payouts from the page header.',
-          target: '[data-tip-target="page-header"]',
+          body: 'Propose a payout here. Approve it or submit it from its row in the list.',
+          target: '[data-tip-target="trust-propose-payout"]',
           placement: 'below',
         },
         {
@@ -559,12 +559,12 @@ const WALKTHROUGH_RULES: Array<{
       steps: [
         {
           title: 'Arrears',
-          body: 'See overdue rent and balances that need follow-up. Open a row to review the payment history.',
+          body: 'Tenancies that are behind on rent, with the amount owed.',
           placement: 'center',
         },
         {
           title: 'Arrears tools',
-          body: 'Filter by severity or property from the page header.',
+          body: 'Use the message button on a row to write to that tenant in PropertyFlow.',
           target: '[data-tip-target="page-header"]',
           placement: 'below',
         },
@@ -819,13 +819,13 @@ const WALKTHROUGH_RULES: Array<{
       steps: [
         {
           title: 'Reports & analytics',
-          body: 'Switch report types for occupancy, collections, and pipeline trends. Adjust the date range before exporting.',
+          body: 'Pick a report tab, including Owner statement and Rent roll. Set the dates, then export.',
           placement: 'center',
         },
         {
           title: 'Report tools',
           body: 'Pick a report type and date range from the page header.',
-          target: '[data-tip-target="page-header"]',
+          target: '[data-tip-target="report-tabs"]',
           placement: 'below',
         },
         {
@@ -1289,7 +1289,7 @@ const RULES: TipRule[] = [
     content: () => ({
       id: 'ops-communications',
       title: 'Messages hub',
-      body: 'Send SMS or email to tenants, owners, or leads. Templates save time for rent reminders and viewing confirmations.',
+      body: 'Message tenants and owners in PropertyFlow. Open a thread to reply or start a new one.',
     }),
   },
   {
@@ -1297,7 +1297,7 @@ const RULES: TipRule[] = [
     content: () => ({
       id: 'ops-payments',
       title: 'Rent & payments',
-      body: 'Track due, overdue, and settled amounts across your portfolio. Open a payment to attach proof or mark it paid.',
+      body: 'Track due, overdue, and paid amounts across your portfolio. Open a payment to attach proof or mark it paid.',
     }),
   },
   {
@@ -1305,7 +1305,7 @@ const RULES: TipRule[] = [
     content: () => ({
       id: 'payment-detail',
       title: 'Payment record',
-      body: 'Confirm amount, period, and tenant before recording settlement. Attach bank proof for audit trails.',
+      body: 'Check the amount, period, and tenant before you mark it paid. Attach proof of payment for your records.',
     }),
   },
 

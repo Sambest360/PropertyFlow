@@ -43,6 +43,7 @@ export function ReportTabBar<T extends string>({
       className="flex flex-wrap gap-2 border-b border-primary-100 pb-1"
       role="tablist"
       aria-label="Report views"
+      data-tip-target="report-tabs"
     >
       {tabs.map((tab) => (
         <button
