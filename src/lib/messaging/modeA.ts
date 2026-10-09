@@ -9,7 +9,7 @@ export const MESSAGING_MODE_A_BANNER =
   'In-app messaging only — not live chat, WhatsApp, or SMS. Messages stay inside PropertyFlow.'
 
 export const MESSAGING_MODE_A_SHORT =
-  'stays in PropertyFlow'
+  'In-app only — not WhatsApp/SMS'
 
 /** Map frontend routesTo → Postgres CHECK value. */
 export function mapRoutesToPg(routesTo: string | null | undefined): 'AGENCY' | 'AGENT' | 'LANDLORD' {
