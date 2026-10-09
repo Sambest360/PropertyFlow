@@ -588,3 +588,99 @@ describe('#83 (Angela 7ee4cf9): tenant ticket priority, warranty and escalation'
     await expect(gate(TENANT, newTicket({ internalAssetId: 'IA-nope' }))).rejects.toMatchObject({ status: 400, code: 'TICKET_ASSET_NOT_ON_UNIT' })
   })
 })
+
+describe('#83 (Angela 7f151bb / Michael): tickets from the staff /new form, priority read-back', () => {
+  const ticketInsert = () => {
+    const calls = query.mock.calls.filter((c) => String(c[0]).includes('INSERT INTO maintenance_tickets'))
+    return calls[calls.length - 1]![1] as unknown[]
+  }
+  beforeEach(() => {
+    resolveUuid.mockImplementation(async (t: string, fe: string) => (fe === 'p-1' ? UN1 : (UUID[fe] ?? null)))
+  })
+
+  /** createMaintenanceFromInput -> AppStore createMaintenanceTicket (buildTicketFromCreate) -> /api/persist. */
+  async function createFromStaffForm(actorRole: string, actor: { userId: string; role: string; agencyId: string | null }, saveOk = true) {
+    const { createMaintenanceFromInput } = await import('../src/lib/maintenanceTicketFlow.js')
+    const { buildTicketFromCreate } = await import('../src/lib/maintenanceApi.js')
+    let persisted: Record<string, unknown> | null = null
+    const details: unknown[] = []
+    const result = await createMaintenanceFromInput(
+      { propertyId: 'p-1', title: 'Geyser burst', description: 'Water everywhere', priority: 'Urgent', categoryKey: 'PLUMBING', assetId: null },
+      {
+        properties: [{ id: 'p-1', unitId: 'unt-1' } as never],
+        internalAssets: [],
+        canMutate: () => true,
+        createMaintenanceTicket: ({ actorUserId, propertyId, request }) => {
+          const ticket = buildTicketFromCreate({
+            id: 'TK-new', agencyId: 'ag-a', propertyId, unitId: request.unit_id, request,
+            reportedBy: 'Tess', reportedByUserId: actorUserId, assignedAgentId: null, contractorId: null,
+            warrantyCovered: false, assetLabel: request.title,
+          })
+          persisted = { ...ticket }
+          return { status: 'TICKET_CREATED', ticket_id: ticket.id, saved: Promise.resolve(saveOk) }
+        },
+        updateMaintenanceTicketDetails: (...a: unknown[]) => void details.push(a),
+        assignContractorToTicket: () => true,
+        actorUserId: actor.userId,
+        actorRole,
+      },
+    )
+    const body: Body = { resource: 'ticket', action: 'upsert', id: 'TK-new', data: persisted! }
+    await gate(actor, body)
+    const { handlePersist } = await import('./writes.js')
+    await handlePersist(body as never)
+    return { result, details, body }
+  }
+
+  it('a tenant creating through the staff form with Urgent is stored as EMERGENCY (not a 400)', async () => {
+    const { result } = await createFromStaffForm('tenant', TENANT)
+    expect(result).toEqual({ ok: true, ticketId: 'TK-new' })
+    expect(ticketInsert()[10]).toBe('EMERGENCY')
+  })
+
+  it('staff keep Urgent as URGENT', async () => {
+    const { requestPriorityFor } = await import('../src/lib/maintenanceTicketFlow.js')
+    expect(requestPriorityFor('Urgent', 'client_admin')).toBe('URGENT')
+    expect(requestPriorityFor('Urgent', 'tenant')).toBe('EMERGENCY')
+    expect(requestPriorityFor('Urgent', 'landlord')).toBe('EMERGENCY')
+    expect(requestPriorityFor('High', 'tenant')).toBe('HIGH')
+  })
+
+  it('a refused create is reported as an error, not as logged, and no follow-up details are written', async () => {
+    const { result, details } = await createFromStaffForm('tenant', TENANT, false)
+    const { TICKET_NOT_SAVED_MESSAGE } = await import('../src/lib/maintenanceApi.js')
+    expect(result).toEqual({ ok: false, error: TICKET_NOT_SAVED_MESSAGE })
+    expect(details).toEqual([])
+  })
+
+  it('EMERGENCY round-trips: written, read back by bootstrap as Emergency / Requested, escalates, re-saved by staff as EMERGENCY', async () => {
+    const STAFF = { userId: 'u-agent', role: 'agent', agencyId: 'ag-a' }
+    const { handlePersist } = await import('./writes.js')
+    await handlePersist({ resource: 'ticket', action: 'upsert', id: 'TK-mine', data: { propertyId: 'p-1', agencyId: 'ag-a', title: 'Geyser', priority: 'Emergency', status: 'Requested' } } as never)
+    const written = ticketInsert()
+    expect(written[10]).toBe('EMERGENCY')
+    expect(written[11]).toBe('OPEN')
+
+    const { ticketPriority, ticketStatus } = await import('./bootstrap.js')
+    const priority = ticketPriority(String(written[10])) as 'Emergency'
+    const status = ticketStatus(String(written[11])) as 'Requested'
+    expect(priority).toBe('Emergency')
+    expect(status).toBe('Requested')
+    const { ticketPriority: sbPriority, ticketStatus: sbStatus } = await import('../src/lib/supabase/data.js')
+    expect(sbPriority('EMERGENCY')).toBe('Emergency')
+    expect(sbStatus('OPEN')).toBe('Requested')
+
+    // Escalation keys on priority === 'Emergency' and status === 'Requested'.
+    const { needsEmergencyEscalationPrecise } = await import('../src/lib/maintenanceApi.js')
+    const openedAtIso = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()
+    const reloaded = { id: 'TK-mine', priority, status, openedAt: openedAtIso.slice(0, 10), openedAtIso, escalatedAt: null }
+    expect(needsEmergencyEscalationPrecise(reloaded as never)).toBe(true)
+
+    // Staff save the reloaded ticket: still EMERGENCY.
+    const body: Body = { resource: 'ticket', action: 'upsert', id: 'TK-mine', data: { propertyId: 'p-1', agencyId: 'ag-a', title: 'Geyser', priority, status } }
+    await handlePersist(body as never)
+    void STAFF
+    expect(ticketInsert()[10]).toBe('EMERGENCY')
+    expect(ticketInsert()[11]).toBe('OPEN')
+  })
+})

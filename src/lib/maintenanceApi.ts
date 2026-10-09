@@ -95,8 +95,18 @@ export type CreateTicketResult =
       ticket: MaintenanceTicket
       warrantyCovered: boolean
       emergencyQueued: boolean
+      /**
+       * Resolves once the server has saved the ticket (true) or refused it
+       * (false; the optimistic ticket is already removed from the store).
+       * Callers await it before reporting success.
+       */
+      saved: Promise<boolean>
     }
   | { status: 'ERROR'; error: string; httpStatus: 401 | 403 | 404 | 400 }
+
+export const TICKET_NOT_SAVED_MESSAGE =
+  "The ticket wasn't saved, so it hasn't been logged with the agency. Check the details and try again, or refresh the page."
+
 
 export type PatchTicketResult =
   | {

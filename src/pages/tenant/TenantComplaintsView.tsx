@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
+import { TICKET_NOT_SAVED_MESSAGE } from '../../lib/maintenanceApi'
 import {
   COMPLAINT_SEVERITY_TO_PRIORITY,
   tenantPriorityToApi,
@@ -22,7 +23,7 @@ export function TenantComplaintsView({ portal }: { portal: TenantPortalState }) 
   const complaints = portal.tickets.filter((t) => t.title.startsWith(COMPLAINT_PREFIX))
   const openCount = complaints.filter((t) => t.status !== 'Completed').length
 
-  const submitComplaint = (e: FormEvent) => {
+  const submitComplaint = async (e: FormEvent) => {
     e.preventDefault()
     if (!subject.trim() || !details.trim() || !portal.agencyId) return
     const propId = portal.tenancy?.propertyId ?? portal.property?.id
@@ -50,6 +51,10 @@ export function TenantComplaintsView({ portal }: { portal: TenantPortalState }) 
     })
     if (result.status === 'ERROR') {
       setDone(result.error)
+      return
+    }
+    if (!(await result.saved)) {
+      setDone(TICKET_NOT_SAVED_MESSAGE)
       return
     }
     setDone(`Complaint logged as ${result.ticket_id}. Your agency will follow up in-app.`)

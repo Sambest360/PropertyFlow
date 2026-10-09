@@ -14,8 +14,25 @@ describe('persist refusals', () => {
     expect(persistRefusalMessage(locked!)).toContain('managed by the agency')
   })
 
+  it('#83: a coded 400 is surfaced like 403 / 409', () => {
+    const r = parsePersistRefusal({ resource: 'ticket', id: 'TK-1', action: 'upsert' }, 400, JSON.stringify({ code: 'TICKET_PRIORITY_INVALID', message: 'Bad request: x' }))
+    expect(r).toMatchObject({ status: 400, code: 'TICKET_PRIORITY_INVALID' })
+    expect(persistRefusalMessage(r!)).toContain("ticket wasn't saved")
+    const asset = parsePersistRefusal({ resource: 'ticket', id: 'TK-1', action: 'upsert' }, 400, JSON.stringify({ code: 'TICKET_ASSET_NOT_ON_UNIT' }))
+    expect(persistRefusalMessage(asset!)).toContain("isn't on your unit")
+  })
+
+  it('#83: the lease-signature refusal fits the role', () => {
+    const r = { resource: 'application', id: 'A', action: 'upsert', status: 403, code: 'LEASE_SIGNATURE_NOT_RECORDED', message: '' }
+    expect(persistRefusalMessage(r, 'tenant')).toMatch(/^Your lease signature wasn't recorded yet/)
+    for (const role of ['client_admin', 'agent', 'landlord', null]) {
+      expect(persistRefusalMessage(r, role)).toMatch(/^The lease signature isn't recorded on the envelope yet, so the application wasn't moved/)
+    }
+  })
+
   it('ignores responses without a code, other statuses and non-JSON bodies', () => {
     expect(parsePersistRefusal(op, 403, JSON.stringify({ error: 'forbidden' }))).toBeNull()
+    expect(parsePersistRefusal(op, 400, JSON.stringify({ error: 'bad' }))).toBeNull()
     expect(parsePersistRefusal(op, 500, JSON.stringify({ code: 'X' }))).toBeNull()
     expect(parsePersistRefusal(op, 403, '<html>')).toBeNull()
   })

@@ -1,6 +1,21 @@
 import type { PropertyAsset } from '../types/domain'
 import type { InternalAsset } from '../data/infrastructure'
 import type { CreateTicketInput } from '../components/maintenance/MaintenanceTicketForm'
+import { TICKET_NOT_SAVED_MESSAGE } from './maintenanceApi'
+
+/** Portal roles file tickets on the tenant priority list (no Urgent). */
+const PORTAL_ROLES = new Set(['tenant', 'landlord', 'contractor'])
+
+/** Request priority for a ticket created from the staff form. */
+export function requestPriorityFor(
+  priority: CreateTicketInput['priority'],
+  actorRole: string | undefined,
+): 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT' | 'EMERGENCY' {
+  // Urgent is a staff triage level; a portal user's Urgent is an emergency
+  // (the server only takes Low / Medium / High / Emergency from them).
+  if (priority === 'Urgent' && actorRole && PORTAL_ROLES.has(actorRole)) return 'EMERGENCY'
+  return priority.toUpperCase() as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT' | 'EMERGENCY'
+}
 
 type CreateDeps = {
   properties: PropertyAsset[]
@@ -17,7 +32,7 @@ type CreateDeps = {
       title: string
       description: string
     }
-  }) => { status: string; ticket_id?: string; error?: string }
+  }) => { status: string; ticket_id?: string; error?: string; saved?: Promise<boolean> }
   updateMaintenanceTicketDetails: (
     id: string,
     patch: Record<string, unknown>,
@@ -28,12 +43,13 @@ type CreateDeps = {
     actorUserId: string
   }) => boolean
   actorUserId: string
+  actorRole?: string
 }
 
-export function createMaintenanceFromInput(
+export async function createMaintenanceFromInput(
   input: CreateTicketInput,
   deps: CreateDeps,
-): { ok: true; ticketId: string } | { ok: false; error: string } {
+): Promise<{ ok: true; ticketId: string } | { ok: false; error: string }> {
   const prop = deps.properties.find((p) => p.id === input.propertyId)
   if (!prop?.unitId) {
     return { ok: false, error: 'Property has no linked unit — link infrastructure on the property first.' }
@@ -49,10 +65,7 @@ export function createMaintenanceFromInput(
       unit_id: prop.unitId,
       internal_asset_id: input.assetId,
       category_key: input.categoryKey,
-      priority:
-        input.priority === 'Emergency'
-          ? 'EMERGENCY'
-          : (input.priority.toUpperCase() as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'),
+      priority: requestPriorityFor(input.priority, deps.actorRole),
       title: input.title,
       description: input.description,
     },
@@ -63,6 +76,11 @@ export function createMaintenanceFromInput(
   }
 
   const ticketId = result.ticket_id
+  // Only report success once the server saved it (a refused ticket is
+  // removed from the store by createMaintenanceTicket).
+  if (result.saved && !(await result.saved)) {
+    return { ok: false, error: TICKET_NOT_SAVED_MESSAGE }
+  }
   const selectedAsset = input.assetId
     ? deps.internalAssets.find((a) => a.id === input.assetId)
     : undefined

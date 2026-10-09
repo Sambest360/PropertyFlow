@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { Wrench } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
+import { TICKET_NOT_SAVED_MESSAGE } from '../../lib/maintenanceApi'
 import {
   TENANT_TICKET_PRIORITIES,
   tenantPriorityToApi,
@@ -20,7 +21,7 @@ export function TenantMaintenanceView({ portal }: { portal: TenantPortalState })
   const maintenanceTickets = portal.tickets.filter((t) => !t.title.startsWith('Complaint:'))
   const openCount = maintenanceTickets.filter((t) => t.status !== 'Completed').length
 
-  const submitTicket = (e: FormEvent) => {
+  const submitTicket = async (e: FormEvent) => {
     e.preventDefault()
     if (!title.trim() || !portal.agencyId) return
     const propId = portal.tenancy?.propertyId ?? portal.property?.id
@@ -59,6 +60,10 @@ export function TenantMaintenanceView({ portal }: { portal: TenantPortalState })
     })
     if (result.status === 'ERROR') {
       setDone(result.error)
+      return
+    }
+    if (!(await result.saved)) {
+      setDone(TICKET_NOT_SAVED_MESSAGE)
       return
     }
     setDone(
