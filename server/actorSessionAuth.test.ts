@@ -40,6 +40,8 @@ const db = vi.hoisted(() => ({
   users: [] as UserRow[],
   writes: [] as string[],
   sql: [] as string[],
+  /** When set, every read throws this message (simulates a database failure). */
+  failReads: '' as string,
 }))
 
 function agencyFeFor(client: string | null): string | null {
@@ -57,6 +59,7 @@ vi.mock('pg', () => {
       return []
     }
     if (/^(CREATE|ALTER|BEGIN|COMMIT|ROLLBACK)\b/i.test(sql)) return []
+    if (db.failReads && /^SELECT\b/i.test(sql)) throw new Error(db.failReads)
     // auth.ts findUserById / findUserByEmail
     if (sql.includes('FROM users u LEFT JOIN clients c ON c.id = u.client_id')) {
       const hit = sql.includes('WHERE u.id = $1::uuid')
@@ -218,6 +221,7 @@ beforeAll(async () => {
 beforeEach(() => {
   db.writes = []
   db.sql = []
+  db.failReads = ''
 })
 
 afterEach(() => {
@@ -388,6 +392,37 @@ describe('actor identity: session first, demo headers only outside production', 
     expect(res.status).toBe(200)
   })
 
+  it('VERCEL_ENV alone (no VERCEL) refuses demo headers', async () => {
+    vi.stubEnv('VERCEL', '')
+    vi.stubEnv('ALLOW_DEMO_ACTOR', '')
+    vi.stubEnv('VERCEL_ENV', 'preview')
+    const res = await bootstrap(SA_HEADERS)
+    expect(res.status).toBe(401)
+  })
+
+  it('NODE_ENV=production alone refuses demo headers on bootstrap and persist', async () => {
+    vi.stubEnv('VERCEL', '')
+    vi.stubEnv('ALLOW_DEMO_ACTOR', '')
+    vi.stubEnv('NODE_ENV', 'production')
+    const res = await bootstrap(SA_HEADERS)
+    expect(res.status).toBe(401)
+    const persist = await app.request('/api/persist', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...SA_HEADERS },
+      body: JSON.stringify({ resource: 'user', action: 'upsert', id: 'u-tenant2', data: { name: 'Hacked', role: 'super_admin' } }),
+    })
+    expect([401, 403]).toContain(persist.status)
+    expect(db.writes).toEqual([])
+  })
+
+  it('ALLOW_DEMO_ACTOR=1 still overrides NODE_ENV=production and VERCEL_ENV', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    vi.stubEnv('VERCEL_ENV', 'production')
+    vi.stubEnv('ALLOW_DEMO_ACTOR', '1')
+    const res = await bootstrap({ 'X-User-Id': 'u-tenant', 'X-Role': 'tenant' })
+    expect(res.status).toBe(200)
+  })
+
   it('notifications/mark-read and dunning-notice ignore forged headers in production', async () => {
     production()
     const mark = await app.request('/api/notifications/mark-read', {
@@ -466,5 +501,17 @@ describe('bootstrap users: narrowed and redacted for non-super-admins', () => {
     expect(t2.email).toBe('u-tenant2@example.test')
     expect(JSON.stringify(t2)).toContain('DOC-u-tenant2')
     expect(JSON.stringify(body.users)).not.toContain('u-cape-agent')
+  })
+})
+
+describe('public marketplace errors', () => {
+  it('a marketplace 500 returns a generic error, never database text', async () => {
+    db.failReads = 'relation "units" does not exist (host=db.internal user=pf_owner)'
+    const res = await app.request('/api/public/marketplace')
+    expect(res.status).toBe(500)
+    const text = await res.text()
+    expect(JSON.parse(text)).toEqual({ error: 'marketplace_failed', message: 'Listings are unavailable right now.' })
+    expect(text).not.toContain('relation')
+    expect(text).not.toContain('db.internal')
   })
 })
