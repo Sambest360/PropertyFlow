@@ -375,3 +375,312 @@ describe('landlord and contractor allow-lists', () => {
     await expect403(gate(CONTRACTOR, { resource: 'ticket', action: 'upsert', id: 'TK-brand-new', data: { propertyId: 'p-1', agencyId: 'ag-a' } }))
   })
 })
+
+describe("Follow-up: a tenant's own ticket never sets assignment, cost or status", () => {
+  const LOCKED = {
+    contractorId: 'u-co',
+    assignedAgentId: 'u-agent',
+    assignedTo: 'u-agent',
+    cost: 9999,
+    status: 'Completed',
+    warrantyCovered: true,
+    warranty_covered: true,
+    escalatedAt: '2026-10-01T00:00:00Z',
+    escalated_at: '2026-10-01T00:00:00Z',
+  }
+
+  it('update and create both strip contractorId, assignedAgentId, cost and status', async () => {
+    const upd: Body = { resource: 'ticket', action: 'upsert', id: 'TK-mine', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', title: 'Leak', ...LOCKED } }
+    await expect(gate(TENANT, upd)).resolves.toEqual({})
+    // warrantyCovered is the server's value (no asset: not covered).
+    expect(upd.data).toEqual({ propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', title: 'Leak', warrantyCovered: false })
+    const created: Body = { resource: 'ticket', action: 'upsert', id: 'TK-new', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', ...LOCKED } }
+    await expect(gate(TENANT, created)).resolves.toEqual({})
+    expect(created.data).toEqual({ propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', warrantyCovered: false })
+  })
+
+  it('the stripped write keeps the stored assignment, cost and status (upsertTicket)', async () => {
+    const body: Body = { resource: 'ticket', action: 'upsert', id: 'TK-mine', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', title: 'Leak', ...LOCKED } }
+    await gate(TENANT, body)
+    resolveUuid.mockImplementation(async (_t: string, fe: string) => (fe === 'p-1' ? UN1 : (UUID[fe] ?? null)))
+    const { handlePersist } = await import('./writes.js')
+    await handlePersist(body as never)
+    const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO maintenance_tickets'))!
+    const sql = String(insert[0]).replace(/\s+/g, ' ')
+    const params = insert[1] as unknown[]
+    expect(sql).toContain('assigned_to = CASE WHEN $19::boolean THEN EXCLUDED.assigned_to ELSE maintenance_tickets.assigned_to END')
+    expect(sql).toContain('contractor_id = CASE WHEN $20::boolean THEN EXCLUDED.contractor_id ELSE maintenance_tickets.contractor_id END')
+    expect(sql).toContain('status = CASE WHEN $21::boolean THEN EXCLUDED.status ELSE maintenance_tickets.status END')
+    expect(sql).toContain('cost_actual = CASE WHEN $22::boolean THEN EXCLUDED.cost_actual ELSE maintenance_tickets.cost_actual END')
+    // A new tenant ticket goes to the unit's agent.
+    expect(sql).toContain('CASE WHEN $19::boolean THEN $6::uuid ELSE (SELECT u.agent_id FROM units u WHERE u.id = $3::uuid) END')
+    expect(params.slice(18, 22)).toEqual([false, false, false, false])
+    expect(params).not.toContain(9999)
+    expect(params[11]).toBe('OPEN')
+  })
+
+  it('#83: a tenant escalatedAt / warranty_covered is never used; the writer stores the server values', async () => {
+    const body: Body = { resource: 'ticket', action: 'upsert', id: 'TK-mine', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', title: 'Leak', ...LOCKED } }
+    await gate(TENANT, body)
+    for (const k of ['escalatedAt', 'escalated_at', 'warranty_covered']) expect(body.data).not.toHaveProperty(k)
+    expect((body.data as Record<string, unknown>).warrantyCovered).toBe(false)
+    resolveUuid.mockImplementation(async (_t: string, fe: string) => (fe === 'p-1' ? UN1 : (UUID[fe] ?? null)))
+    const { handlePersist } = await import('./writes.js')
+    await handlePersist(body as never)
+    const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO maintenance_tickets'))!
+    const sql = String(insert[0]).replace(/\s+/g, ' ')
+    const params = insert[1] as unknown[]
+    expect(sql).toContain('priority = CASE WHEN $23::boolean THEN EXCLUDED.priority ELSE maintenance_tickets.priority END')
+    expect(sql).toContain('escalated_at = COALESCE(EXCLUDED.escalated_at, maintenance_tickets.escalated_at)')
+    expect(params[13]).toBeNull() // escalated_at: stored value kept
+    expect(params[12]).toBe(false) // warranty_covered: server value
+    expect(params.slice(22, 24)).toEqual([false, true])
+  })
+
+  it('#83: a new tenant ticket is routed to the agency preferred vendor on the server (resolvePreferredVendor)', async () => {
+    const { SEED_VENDOR_ROUTES, resolvePreferredVendor } = await import('../src/lib/maintenanceApi.js')
+    const agencyFe = SEED_VENDOR_ROUTES[0].clientId
+    const expected = resolvePreferredVendor(SEED_VENDOR_ROUTES, agencyFe, 'PLUMBING')
+    expect(expected).toBeTruthy()
+    resolveUuid.mockImplementation(async (t: string, fe: string) => {
+      if (t === 'property' && fe === 'p-1') return UN1
+      if (t === 'agency' && fe === agencyFe) return CA
+      if (t === 'agency') return null
+      return UUID[fe] ?? null
+    })
+    const base = query.getMockImplementation()!
+    query.mockImplementation(async (sql: string, params?: unknown[]) =>
+      /SELECT client_id::text AS client_id FROM units WHERE id = \$1::uuid/.test(sql) && params?.[0] === UN1
+        ? [{ client_id: CA }]
+        : base(sql, params),
+    )
+    const created: Body = {
+      resource: 'ticket', action: 'upsert', id: 'TK-new',
+      data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', categoryKey: 'PLUMBING', contractorId: 'u-co' },
+    }
+    await expect(gate(TENANT, created)).resolves.toEqual({})
+    // The tenant's own pick is dropped; the server's routing wins.
+    expect((created.data as Record<string, unknown>).contractorId).toBe(expected)
+
+    // No route for the category: agency queue (no contractor).
+    const general: Body = {
+      resource: 'ticket', action: 'upsert', id: 'TK-new',
+      data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', categoryKey: 'NO_SUCH_CATEGORY' },
+    }
+    await gate(TENANT, general)
+    expect(general.data).not.toHaveProperty('contractorId')
+
+    // An update of an existing ticket is never re-routed.
+    const upd: Body = {
+      resource: 'ticket', action: 'upsert', id: 'TK-mine',
+      data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', categoryKey: 'PLUMBING' },
+    }
+    await gate(TENANT, upd)
+    expect(upd.data).not.toHaveProperty('contractorId')
+  })
+})
+
+describe('#83 (Angela 7ee4cf9): tenant ticket priority, warranty and escalation', () => {
+  const ASSET = '00000000-0000-4000-8000-0000000000a1'
+  const assets: Record<string, { warranty_expires_at: string | null; unit_id: string }> = {}
+  let storedTicket: { priority: string; created_at: string; unit_id: string; asset_id: string | null } | null
+  beforeEach(() => {
+    storedTicket = null
+    for (const k of Object.keys(assets)) delete assets[k]
+    const base = query.getMockImplementation()!
+    query.mockImplementation(async (sql: string, params?: unknown[]) => {
+      const q = sql.replace(/\s+/g, ' ')
+      if (q.startsWith('SELECT warranty_expires_at, unit_id::text AS unit_id FROM internal_assets')) {
+        const a = assets[String(params?.[0])]
+        return a ? [a] : []
+      }
+      if (q.startsWith('SELECT priority, created_at, unit_id::text AS unit_id, asset_id::text AS asset_id FROM maintenance_tickets')) {
+        return storedTicket && params?.[0] === UUID['TK-mine'] ? [storedTicket] : []
+      }
+      return base(sql, params)
+    })
+    resolveUuid.mockImplementation(async (t: string, fe: string) => {
+      if (t === 'property' && fe === 'p-1') return UN1
+      if (t === 'asset' && fe === 'IA-geyser') return ASSET
+      if (t === 'asset' && fe === 'IA-elsewhere') return '00000000-0000-4000-8000-0000000000a2'
+      return UUID[fe] ?? null
+    })
+  })
+  const newTicket = (extra: Record<string, unknown>): Body => ({
+    resource: 'ticket', action: 'upsert', id: 'TK-new', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', title: 'Geyser', ...extra },
+  })
+
+  it('priority is accepted from Low / Medium / High / Emergency (any case) and stored as such', async () => {
+    for (const [sent, kept] of [['Low', 'Low'], ['MEDIUM', 'Medium'], ['high', 'High'], ['EMERGENCY', 'Emergency']] as const) {
+      const b = newTicket({ priority: sent })
+      await gate(TENANT, b)
+      expect((b.data as Record<string, unknown>).priority).toBe(kept)
+    }
+    const b = newTicket({ priority: 'EMERGENCY' })
+    await gate(TENANT, b)
+    const { handlePersist } = await import('./writes.js')
+    await handlePersist(b as never)
+    const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO maintenance_tickets'))!
+    expect((insert[1] as unknown[])[10]).toBe('EMERGENCY')
+    expect((insert[1] as unknown[])[22]).toBe(true)
+  })
+
+  it('anything outside the list is a 400 TICKET_PRIORITY_INVALID (not a silent default)', async () => {
+    for (const p of ['Urgent', 'Critical', '', 5, null]) {
+      await expect(gate(TENANT, newTicket({ priority: p }))).rejects.toMatchObject({ status: 400, code: 'TICKET_PRIORITY_INVALID' })
+    }
+  })
+
+  it('re-sending the stored priority (an Urgent set by staff) is no change; changing it must use the list', async () => {
+    storedTicket = { priority: 'URGENT', created_at: '2026-10-01T08:00:00Z', unit_id: UN1, asset_id: null }
+    const same: Body = { resource: 'ticket', action: 'upsert', id: 'TK-mine', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', priority: 'Urgent' } }
+    await gate(TENANT, same)
+    expect(same.data).not.toHaveProperty('priority')
+    const up: Body = { resource: 'ticket', action: 'upsert', id: 'TK-mine', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', priority: 'Emergency' } }
+    await gate(TENANT, up)
+    expect((up.data as Record<string, unknown>).priority).toBe('Emergency')
+  })
+
+  it('complaint severity maps onto the list; Urgent escalates as Emergency', async () => {
+    const { COMPLAINT_SEVERITY_TO_PRIORITY, tenantPriorityToApi, TENANT_TICKET_PRIORITIES } = await import('../src/lib/tenantTicketPriority.js')
+    expect(COMPLAINT_SEVERITY_TO_PRIORITY).toEqual({ Low: 'Low', Medium: 'Medium', High: 'High', Urgent: 'Emergency' })
+    expect([...TENANT_TICKET_PRIORITIES]).toEqual(['Low', 'Medium', 'High', 'Emergency'])
+    const { toUiPriority, needsEmergencyEscalation } = await import('../src/lib/maintenanceApi.js')
+    const ui = toUiPriority(tenantPriorityToApi(COMPLAINT_SEVERITY_TO_PRIORITY.Urgent))
+    expect(ui).toBe('Emergency')
+    const openedAt = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+    expect(needsEmergencyEscalation({ priority: ui, status: 'Requested', openedAt, escalatedAt: null })).toBe(true)
+    // The API form of every complaint severity passes the server list.
+    for (const sev of Object.keys(COMPLAINT_SEVERITY_TO_PRIORITY) as Array<keyof typeof COMPLAINT_SEVERITY_TO_PRIORITY>) {
+      const b = newTicket({ priority: tenantPriorityToApi(COMPLAINT_SEVERITY_TO_PRIORITY[sev]) })
+      await expect(gate(TENANT, b)).resolves.toEqual({})
+    }
+  })
+
+  it('warranty_covered comes from the asset warranty on the ticket date, never from the tenant', async () => {
+    const future = new Date(Date.now() + 365 * 86400000).toISOString()
+    assets[ASSET] = { warranty_expires_at: future, unit_id: UN1 }
+    const covered = newTicket({ internalAssetId: 'IA-geyser', warrantyCovered: false })
+    await gate(TENANT, covered)
+    expect((covered.data as Record<string, unknown>).warrantyCovered).toBe(true)
+
+    assets[ASSET] = { warranty_expires_at: '2020-01-01T00:00:00Z', unit_id: UN1 }
+    const expired = newTicket({ internalAssetId: 'IA-geyser', warrantyCovered: true, warranty_covered: true })
+    await gate(TENANT, expired)
+    expect((expired.data as Record<string, unknown>).warrantyCovered).toBe(false)
+
+    // Existing ticket: judged on its own date (created_at), with the stored asset.
+    assets[ASSET] = { warranty_expires_at: '2026-10-05T00:00:00Z', unit_id: UN1 }
+    storedTicket = { priority: 'MEDIUM', created_at: '2026-10-01T08:00:00Z', unit_id: UN1, asset_id: ASSET }
+    const upd: Body = { resource: 'ticket', action: 'upsert', id: 'TK-mine', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', warrantyCovered: false } }
+    await gate(TENANT, upd)
+    expect((upd.data as Record<string, unknown>).warrantyCovered).toBe(true)
+
+    // No asset: not covered, whatever the tenant says.
+    const none = newTicket({ warrantyCovered: true })
+    await gate(TENANT, none)
+    expect((none.data as Record<string, unknown>).warrantyCovered).toBe(false)
+  })
+
+  it('an asset on another unit (or unknown) is a 400', async () => {
+    assets['00000000-0000-4000-8000-0000000000a2'] = { warranty_expires_at: null, unit_id: UN2 }
+    await expect(gate(TENANT, newTicket({ internalAssetId: 'IA-elsewhere' }))).rejects.toMatchObject({ status: 400, code: 'TICKET_ASSET_NOT_ON_UNIT' })
+    await expect(gate(TENANT, newTicket({ internalAssetId: 'IA-nope' }))).rejects.toMatchObject({ status: 400, code: 'TICKET_ASSET_NOT_ON_UNIT' })
+  })
+})
+
+describe('#83 (Angela 7f151bb / Michael): tickets from the staff /new form, priority read-back', () => {
+  const ticketInsert = () => {
+    const calls = query.mock.calls.filter((c) => String(c[0]).includes('INSERT INTO maintenance_tickets'))
+    return calls[calls.length - 1]![1] as unknown[]
+  }
+  beforeEach(() => {
+    resolveUuid.mockImplementation(async (t: string, fe: string) => (fe === 'p-1' ? UN1 : (UUID[fe] ?? null)))
+  })
+
+  /** createMaintenanceFromInput -> AppStore createMaintenanceTicket (buildTicketFromCreate) -> /api/persist. */
+  async function createFromStaffForm(actorRole: string, actor: { userId: string; role: string; agencyId: string | null }, saveOk = true) {
+    const { createMaintenanceFromInput } = await import('../src/lib/maintenanceTicketFlow.js')
+    const { buildTicketFromCreate } = await import('../src/lib/maintenanceApi.js')
+    let persisted: Record<string, unknown> | null = null
+    const details: unknown[] = []
+    const result = await createMaintenanceFromInput(
+      { propertyId: 'p-1', title: 'Geyser burst', description: 'Water everywhere', priority: 'Urgent', categoryKey: 'PLUMBING', assetId: null },
+      {
+        properties: [{ id: 'p-1', unitId: 'unt-1' } as never],
+        internalAssets: [],
+        canMutate: () => true,
+        createMaintenanceTicket: ({ actorUserId, propertyId, request }) => {
+          const ticket = buildTicketFromCreate({
+            id: 'TK-new', agencyId: 'ag-a', propertyId, unitId: request.unit_id, request,
+            reportedBy: 'Tess', reportedByUserId: actorUserId, assignedAgentId: null, contractorId: null,
+            warrantyCovered: false, assetLabel: request.title,
+          })
+          persisted = { ...ticket }
+          return { status: 'TICKET_CREATED', ticket_id: ticket.id, saved: Promise.resolve(saveOk) }
+        },
+        updateMaintenanceTicketDetails: (...a: unknown[]) => void details.push(a),
+        assignContractorToTicket: () => true,
+        actorUserId: actor.userId,
+        actorRole,
+      },
+    )
+    const body: Body = { resource: 'ticket', action: 'upsert', id: 'TK-new', data: persisted! }
+    await gate(actor, body)
+    const { handlePersist } = await import('./writes.js')
+    await handlePersist(body as never)
+    return { result, details, body }
+  }
+
+  it('a tenant creating through the staff form with Urgent is stored as EMERGENCY (not a 400)', async () => {
+    const { result } = await createFromStaffForm('tenant', TENANT)
+    expect(result).toEqual({ ok: true, ticketId: 'TK-new' })
+    expect(ticketInsert()[10]).toBe('EMERGENCY')
+  })
+
+  it('staff keep Urgent as URGENT', async () => {
+    const { requestPriorityFor } = await import('../src/lib/maintenanceTicketFlow.js')
+    expect(requestPriorityFor('Urgent', 'client_admin')).toBe('URGENT')
+    expect(requestPriorityFor('Urgent', 'tenant')).toBe('EMERGENCY')
+    expect(requestPriorityFor('Urgent', 'landlord')).toBe('EMERGENCY')
+    expect(requestPriorityFor('High', 'tenant')).toBe('HIGH')
+  })
+
+  it('a refused create is reported as an error, not as logged, and no follow-up details are written', async () => {
+    const { result, details } = await createFromStaffForm('tenant', TENANT, false)
+    const { TICKET_NOT_SAVED_MESSAGE } = await import('../src/lib/maintenanceApi.js')
+    expect(result).toEqual({ ok: false, error: TICKET_NOT_SAVED_MESSAGE })
+    expect(details).toEqual([])
+  })
+
+  it('EMERGENCY round-trips: written, read back by bootstrap as Emergency / Requested, escalates, re-saved by staff as EMERGENCY', async () => {
+    const STAFF = { userId: 'u-agent', role: 'agent', agencyId: 'ag-a' }
+    const { handlePersist } = await import('./writes.js')
+    await handlePersist({ resource: 'ticket', action: 'upsert', id: 'TK-mine', data: { propertyId: 'p-1', agencyId: 'ag-a', title: 'Geyser', priority: 'Emergency', status: 'Requested' } } as never)
+    const written = ticketInsert()
+    expect(written[10]).toBe('EMERGENCY')
+    expect(written[11]).toBe('OPEN')
+
+    const { ticketPriority, ticketStatus } = await import('./bootstrap.js')
+    const priority = ticketPriority(String(written[10])) as 'Emergency'
+    const status = ticketStatus(String(written[11])) as 'Requested'
+    expect(priority).toBe('Emergency')
+    expect(status).toBe('Requested')
+    const { ticketPriority: sbPriority, ticketStatus: sbStatus } = await import('../src/lib/supabase/data.js')
+    expect(sbPriority('EMERGENCY')).toBe('Emergency')
+    expect(sbStatus('OPEN')).toBe('Requested')
+
+    // Escalation keys on priority === 'Emergency' and status === 'Requested'.
+    const { needsEmergencyEscalationPrecise } = await import('../src/lib/maintenanceApi.js')
+    const openedAtIso = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()
+    const reloaded = { id: 'TK-mine', priority, status, openedAt: openedAtIso.slice(0, 10), openedAtIso, escalatedAt: null }
+    expect(needsEmergencyEscalationPrecise(reloaded as never)).toBe(true)
+
+    // Staff save the reloaded ticket: still EMERGENCY.
+    const body: Body = { resource: 'ticket', action: 'upsert', id: 'TK-mine', data: { propertyId: 'p-1', agencyId: 'ag-a', title: 'Geyser', priority, status } }
+    await handlePersist(body as never)
+    void STAFF
+    expect(ticketInsert()[10]).toBe('EMERGENCY')
+    expect(ticketInsert()[11]).toBe('OPEN')
+  })
+})

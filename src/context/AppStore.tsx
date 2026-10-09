@@ -1413,7 +1413,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         notificationId: `persist-refused-${detail.resource}-${detail.id}-${Date.now()}`,
         userId: '',
         title: 'Change not saved',
-        body: persistRefusalMessage(detail),
+        body: persistRefusalMessage(detail, getApiActor()?.role ?? null),
         durationMs: 8000,
         createdAt: Date.now(),
         tone: 'danger',
@@ -1731,12 +1731,24 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const now = new Date().toISOString()
       const result = proposeDepositRelease(dep, actor.id, now)
       if (result.ok === false) return { ok: false, error: result.error }
-      const updated = result.value
-      patch((s) => ({
-        ...s,
-        depositHoldings: s.depositHoldings.map((d) => (d.id === updated.id ? updated : d)),
-      }))
-      await persistUpsert('deposit_holding', updated.id, updated as unknown as Record<string, unknown>)
+      let updated = result.value
+      if (isApiEnabled) {
+        // Dual control is enforced server-side; generic persist never moves status.
+        const { postDepositTransition } = await import('../lib/api/trustDepositsApi')
+        const res = await postDepositTransition(dep.id, 'propose-release')
+        if (res.ok === false) return { ok: false, error: res.error }
+        updated = { ...updated, ...res.deposit }
+        patch((s) => ({
+          ...s,
+          depositHoldings: s.depositHoldings.map((d) => (d.id === updated.id ? updated : d)),
+        }))
+      } else {
+        patch((s) => ({
+          ...s,
+          depositHoldings: s.depositHoldings.map((d) => (d.id === updated.id ? updated : d)),
+        }))
+        await persistUpsert('deposit_holding', updated.id, updated as unknown as Record<string, unknown>)
+      }
       addActivity(
         `Deposit release proposed for occupancy ${updated.occupancyId}`,
         actor.name,
@@ -1755,12 +1767,24 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const now = new Date().toISOString()
       const result = approveDepositRelease(dep, approver.id, now)
       if (result.ok === false) return { ok: false, error: result.error }
-      const updated = result.value
-      patch((s) => ({
-        ...s,
-        depositHoldings: s.depositHoldings.map((d) => (d.id === updated.id ? updated : d)),
-      }))
-      await persistUpsert('deposit_holding', updated.id, updated as unknown as Record<string, unknown>)
+      let updated = result.value
+      if (isApiEnabled) {
+        // Two-person rule is enforced server-side (approver ≠ proposer).
+        const { postDepositTransition } = await import('../lib/api/trustDepositsApi')
+        const res = await postDepositTransition(dep.id, 'approve-release')
+        if (res.ok === false) return { ok: false, error: res.error }
+        updated = { ...updated, ...res.deposit }
+        patch((s) => ({
+          ...s,
+          depositHoldings: s.depositHoldings.map((d) => (d.id === updated.id ? updated : d)),
+        }))
+      } else {
+        patch((s) => ({
+          ...s,
+          depositHoldings: s.depositHoldings.map((d) => (d.id === updated.id ? updated : d)),
+        }))
+        await persistUpsert('deposit_holding', updated.id, updated as unknown as Record<string, unknown>)
+      }
       addActivity(
         `Deposit release approved for occupancy ${updated.occupancyId} by ${approver.name}`,
         approver.name,
@@ -4338,7 +4362,19 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             }))
             // The application write below waits for this save (Angela #80):
             // like recordTenancyLeaseSign's leaseSaved.then.
+            // A failed save (coded or uncoded 403, 500, network) restores the
+            // lease as it was, so the screen never shows an unsaved signature.
             leaseSignSave = persistUpsert('tenancy', nextLease.id, nextLease as unknown as Record<string, unknown>)
+              .catch(() => false)
+              .then((ok) => {
+                if (!ok) {
+                  patch((s) => ({
+                    ...s,
+                    tenancies: s.tenancies.map((t) => (t.id === lease.id && t.eSign === nextLease.eSign ? lease : t)),
+                  }))
+                }
+                return ok
+              })
             // Prefer real e-sign-derived workflow status when it advances further.
             const derived = workflowStatusFromESign(signed.eSign)
             if (derived && derived !== targetStatus) {
@@ -4556,7 +4592,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       // staff now advance the submitted application themselves.
       // Signing step: the application moves only after the lease save with
       // the signature succeeded (the server checks the stored envelope).
-      const notRecorded = await leaseSignatureSaved(leaseSignSave)
+      const notRecorded = await leaseSignatureSaved(
+        leaseSignSave,
+        app.applicantUserId === actorUserId ? 'applicant' : 'staff',
+      )
       if (notRecorded) {
         return {
           status: 'ERROR' as const,
@@ -6273,10 +6312,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         recipientUserIds: maintenanceDeskStakeholderIds(state.users, ticket, prop),
       })
 
-      persistUpsert('ticket', ticket.id, ticket as unknown as Record<string, unknown>)
+      // A refused create (e.g. a 400 on priority) must not stay on screen as
+      // logged: drop the optimistic ticket and let the caller show the error.
+      const saved = persistUpsert('ticket', ticket.id, ticket as unknown as Record<string, unknown>).then((ok) => {
+        if (!ok) {
+          patch((s) => ({ ...s, tickets: s.tickets.filter((t) => t.id !== ticket.id) }))
+        }
+        return ok
+      })
       notifyMaintenanceOpened(notify, state.users, ticket, prop, actor.id)
       const emergencyQueued = toUiPriority(String(request.priority)) === 'Emergency'
       return {
+        saved,
         status: 'TICKET_CREATED',
         ticket_id: ticket.id,
         message: 'Operational request registered in tenant maintenance pipeline.',

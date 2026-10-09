@@ -1,4 +1,4 @@
-import type { Role } from '../types/domain'
+import type { Role } from '../types/domain.js'
 
 /** Room kinds used in floor-plan templates */
 export type RoomKind =

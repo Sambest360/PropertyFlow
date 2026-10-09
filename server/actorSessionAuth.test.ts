@@ -52,11 +52,21 @@ type PayoutRow = {
   approved_by: string | null
   payee_id: string | null
   submitted_at: string | null
+  bank_account_id?: string | null
+}
+
+type DepositRow = {
+  id: string
+  client_id: string
+  status: string
+  release_proposed_by: string | null
+  release_approved_by: string | null
 }
 
 const db = vi.hoisted(() => ({
   users: [] as UserRow[],
   payouts: [] as PayoutRow[],
+  deposits: [] as DepositRow[],
   /** Params of each recorded write, same index as `writes`. */
   writeParams: [] as unknown[][],
   writes: [] as string[],
@@ -93,6 +103,28 @@ vi.mock('pg', () => {
         row.status = 'submitted'
         row.submitted_at = now
         return [{ submitted_at: now, updated_at: now }]
+      }
+      return []
+    }
+    if (sql.startsWith('UPDATE deposit_holdings')) {
+      db.writes.push(sql)
+      db.writeParams.push(params)
+      const row = db.deposits.find((d) => d.id === params[0])
+      if (!row) return []
+      const now = '2026-10-09T10:00:00.000Z'
+      if (sql.includes("SET status = 'release_proposed'")) {
+        if (row.status !== 'held') return []
+        row.status = 'release_proposed'
+        row.release_proposed_by = String(params[1])
+        row.release_approved_by = null
+        return [{ updated_at: now }]
+      }
+      if (sql.includes("SET status = 'release_approved'")) {
+        if (row.status !== 'release_proposed') return []
+        if (!row.release_proposed_by || row.release_proposed_by === params[1]) return []
+        row.status = 'release_approved'
+        row.release_approved_by = String(params[1])
+        return [{ updated_at: now }]
       }
       return []
     }
@@ -172,6 +204,18 @@ vi.mock('pg', () => {
       if (params[0] !== 'd8000001-0001-4000-8000-000000000001') return []
       const tenant = db.users.find((u) => u.fe === 'u-tenant')!
       return [{ id: params[0], unit_id: null, client_id: HORIZON, agent_id: null, applicant_id: tenant.id }]
+    }
+    if (sql.startsWith('SELECT id::text AS id, client_id::text AS client_id, status, release_proposed_by::text')) {
+      const d = db.deposits.find((x) => x.id === params[0])
+      return d ? [{ ...d }] : []
+    }
+    if (sql.startsWith('SELECT DISTINCT client_id::text AS client_id FROM payout_instructions WHERE bank_account_id')) {
+      const owners = new Set(db.payouts.filter((p) => p.bank_account_id === params[0]).map((p) => p.client_id))
+      return [...owners].map((client_id) => ({ client_id }))
+    }
+    if (sql.startsWith('SELECT "id", "client_id" FROM "deposit_holdings"')) {
+      const d = db.deposits.find((x) => x.id === params[0])
+      return d ? [{ id: d.id, client_id: d.client_id }] : []
     }
     if (sql.startsWith('SELECT "id", "client_id" FROM "payout_instructions"')) {
       const p = db.payouts.find((x) => x.id === params[0])
@@ -856,6 +900,173 @@ describe('Jim B5: trust writes and payout dual control', () => {
     production()
     const res = await app.request(`/api/trust/payouts/${PO(1)}/approve`, { method: 'POST', body: '{}' })
     expect(res.status).toBe(401)
+  })
+})
+
+describe('Follow-up: deposit release dual control and payout bank account', () => {
+  const DH = (n: number) => `c8000001-0001-4000-8000-0000000000${String(n).padStart(2, '0')}`
+  const PO = (n: number) => `c7000001-0001-4000-8000-0000000000${String(n).padStart(2, '0')}`
+  const uuidOf = (fe: string) => db.users.find((u) => u.fe === fe)!.id
+  const extra: string[] = []
+
+  beforeAll(async () => {
+    const { hashPassword } = await import('./auth')
+    const hash = await hashPassword(TEST_FIXTURE_PW)
+    db.users.push(
+      { ...user('u-dep-admin2', '21', 'AGENCY_ADMIN', HORIZON), password_hash: hash },
+      { ...user('u-dep-alloc', '22', 'AGENCY_ADMIN', HORIZON), password_hash: hash },
+      { ...user('u-dep-np', '23', 'AGENCY_ADMIN', HORIZON), password_hash: hash },
+      { ...user('u-dep-cape', '24', 'AGENCY_ADMIN', CAPE), password_hash: hash },
+    )
+    // Allocator only: may propose a release, not approve one.
+    db.users.find((u) => u.fe === 'u-dep-alloc')!.metadata.enabledPermissions = ['trust.view', 'trust.allocate']
+    db.users.find((u) => u.fe === 'u-dep-np')!.metadata.enabledPermissions = ['trust.view']
+    extra.push('u-dep-admin2', 'u-dep-alloc', 'u-dep-np', 'u-dep-cape')
+    for (const fe of extra) tokens[fe] = await login(`${fe}@example.test`)
+  })
+
+  afterAll(() => {
+    db.users = db.users.filter((u) => !extra.includes(u.fe))
+  })
+
+  beforeEach(() => {
+    db.deposits = [
+      { id: DH(1), client_id: HORIZON, status: 'held', release_proposed_by: null, release_approved_by: null },
+      // Proposed by u-admin.
+      { id: DH(2), client_id: HORIZON, status: 'release_proposed', release_proposed_by: uuidOf('u-admin'), release_approved_by: null },
+      // Legacy proposed row without a proposer.
+      { id: DH(3), client_id: HORIZON, status: 'release_proposed', release_proposed_by: null, release_approved_by: null },
+    ]
+    db.payouts = [
+      { id: PO(1), client_id: HORIZON, status: 'approved', proposed_by: null, approved_by: null, payee_id: 'u-ll', submitted_at: null, bank_account_id: 'BA-HZN-1' },
+      { id: PO(2), client_id: CAPE, status: 'approved', proposed_by: null, approved_by: null, payee_id: 'u-x', submitted_at: null, bank_account_id: 'BA-CAPE-1' },
+      { id: PO(3), client_id: HORIZON, status: 'approved', proposed_by: null, approved_by: null, payee_id: 'u-x', submitted_at: null, bank_account_id: 'BA-SHARED' },
+      { id: PO(4), client_id: CAPE, status: 'approved', proposed_by: null, approved_by: null, payee_id: 'u-x', submitted_at: null, bank_account_id: 'BA-SHARED' },
+    ]
+  })
+
+  const call = (fe: string, id: string, s: 'propose-release' | 'approve-release') =>
+    app.request(`/api/trust/deposits/${id}/${s}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${tokens[fe]}` },
+      body: '{}',
+    })
+  const persist = (fe: string, body: Record<string, unknown>) =>
+    app.request('/api/persist', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${tokens[fe]}` },
+      body: JSON.stringify(body),
+    })
+
+  it('persist never takes a deposit status or release_*_by from the payload', async () => {
+    const res = await persist('u-admin', {
+      resource: 'deposit_holding',
+      action: 'upsert',
+      id: DH(9),
+      data: {
+        agencyId: 'ag-horizon',
+        occupancyId: 'occ-1',
+        expectedCents: 1000,
+        heldCents: 1000,
+        status: 'release_approved',
+        releaseProposedBy: 'u-admin',
+        releaseApprovedBy: 'u-dep-admin2',
+      },
+    })
+    expect(res.status).toBe(200)
+    const i = db.writes.findIndex((w) => w.startsWith('INSERT INTO deposit_holdings'))
+    expect(i).toBeGreaterThanOrEqual(0)
+    const sql = db.writes[i]
+    expect(sql).toContain("CASE WHEN $6::bigint > 0 THEN 'held' ELSE 'expected' END")
+    expect(sql).toContain('NULL, NULL')
+    expect(sql).toContain("WHEN deposit_holdings.status = 'expected' AND EXCLUDED.held_cents > 0 THEN 'held'")
+    expect(sql).not.toMatch(/release_proposed_by = EXCLUDED/)
+    expect(sql).not.toMatch(/release_approved_by = EXCLUDED/)
+    const params = db.writeParams[i]
+    expect(params).not.toContain('release_approved')
+    expect(params).not.toContain(uuidOf('u-admin'))
+    expect(params).not.toContain(uuidOf('u-dep-admin2'))
+  })
+
+  it('propose: held -> release_proposed by the actor; a second propose is a 409', async () => {
+    const res = await call('u-dep-alloc', DH(1), 'propose-release')
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { deposit: Record<string, unknown> }
+    expect(body.deposit).toMatchObject({ id: DH(1), status: 'release_proposed', releaseProposedBy: 'u-dep-alloc' })
+    expect(db.deposits[0]).toMatchObject({ status: 'release_proposed', release_proposed_by: uuidOf('u-dep-alloc') })
+    expect((await call('u-admin', DH(1), 'propose-release')).status).toBe(409)
+  })
+
+  it('the proposer cannot approve their own release', async () => {
+    expect((await call('u-admin', DH(2), 'approve-release')).status).toBe(403)
+    expect(db.deposits[1].status).toBe('release_proposed')
+  })
+
+  it('a second same-agency admin with trust.approve_payout approves; again is a 409', async () => {
+    const res = await call('u-dep-admin2', DH(2), 'approve-release')
+    expect(res.status).toBe(200)
+    expect(db.deposits[1]).toMatchObject({ status: 'release_approved', release_approved_by: uuidOf('u-dep-admin2') })
+    expect((await call('u-dep-admin2', DH(2), 'approve-release')).status).toBe(409)
+  })
+
+  it('approve needs trust.approve_payout: an allocator-only admin may propose but not approve', async () => {
+    expect((await call('u-dep-alloc', DH(2), 'approve-release')).status).toBe(403)
+    expect(db.deposits[1].status).toBe('release_proposed')
+  })
+
+  it('other agencies, no-permission admins and portal / field roles get 403 on both routes', async () => {
+    for (const fe of ['u-dep-cape', 'u-dep-np', 'u-ll', 'u-tenant', 'u-james']) {
+      expect((await call(fe, DH(1), 'propose-release')).status, `${fe} propose`).toBe(403)
+      expect((await call(fe, DH(2), 'approve-release')).status, `${fe} approve`).toBe(403)
+    }
+    expect(db.deposits.map((d) => d.status)).toEqual(['held', 'release_proposed', 'release_proposed'])
+  })
+
+  it('approve without a recorded proposer, or of a held deposit, is a 409', async () => {
+    expect((await call('u-dep-admin2', DH(3), 'approve-release')).status).toBe(409)
+    expect((await call('u-dep-admin2', DH(1), 'approve-release')).status).toBe(409)
+  })
+
+  it('a race: the conditional UPDATE loses with 409 when the row moved after the read', async () => {
+    // The row is read as release_proposed, then another approver wins first.
+    const row = db.deposits[1]
+    const realFind = db.deposits.find.bind(db.deposits)
+    let reads = 0
+    db.deposits.find = ((pred: (d: DepositRow) => boolean) => {
+      const hit = realFind(pred)
+      if (hit === row && ++reads === 2) row.status = 'release_approved'
+      return hit
+    }) as typeof db.deposits.find
+    try {
+      expect((await call('u-dep-admin2', DH(2), 'approve-release')).status).toBe(409)
+    } finally {
+      db.deposits.find = realFind as typeof db.deposits.find
+    }
+  })
+
+  it('an unknown deposit is a 404 and no session is a 401', async () => {
+    expect((await call('u-admin', DH(77), 'propose-release')).status).toBe(404)
+    production()
+    expect((await app.request(`/api/trust/deposits/${DH(1)}/propose-release`, { method: 'POST', body: '{}' })).status).toBe(401)
+  })
+
+  const payout = (bankAccountId: unknown, n = 50) => ({
+    resource: 'payout_instruction',
+    action: 'upsert',
+    id: PO(n),
+    data: { agencyId: 'ag-horizon', propertyId: 'p-1', payeeId: 'u-ll', amountCents: 5000, bankAccountId },
+  })
+
+  it("a payout may name a bank account already on file for the actor's agency, or none", async () => {
+    expect((await persist('u-admin', payout('BA-HZN-1', 51))).status).toBe(200)
+    expect((await persist('u-admin', payout('', 52))).status).toBe(200)
+  })
+
+  it("a payout naming another agency's, a shared or an unknown bank account is refused", async () => {
+    for (const bank of ['BA-CAPE-1', 'BA-SHARED', 'BA-NEW-999']) {
+      expect((await persist('u-admin', payout(bank))).status, bank).toBe(403)
+    }
+    expect(db.writes.some((w) => w.startsWith('INSERT INTO payout_instructions'))).toBe(false)
   })
 })
 

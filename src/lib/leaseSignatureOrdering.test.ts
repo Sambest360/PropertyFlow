@@ -60,11 +60,30 @@ describe('Sign lease: application write after the lease save', () => {
     const end = src.indexOf('patchApplicationStatus: async', start)
     const body = src.slice(start, end)
     const leaseWrite = body.indexOf("leaseSignSave = persistUpsert('tenancy'")
-    const wait = body.indexOf('await leaseSignatureSaved(leaseSignSave)')
+    const wait = body.indexOf('await leaseSignatureSaved(')
     const appWrite = body.indexOf("persistUpsert('application', applicationId, updated as unknown")
     expect(leaseWrite).toBeGreaterThan(0)
     expect(wait).toBeGreaterThan(leaseWrite)
     expect(appWrite).toBeGreaterThan(wait)
+  })
+
+  it('#83: staff get the staff wording; the app write is refused either way', async () => {
+    const { LEASE_SIGNATURE_NOT_RECORDED_STAFF_MESSAGE } = await import('./leaseSignatureOrdering')
+    await expect(leaseSignatureSaved(Promise.resolve(false), 'staff')).resolves.toEqual({
+      code: LEASE_SIGNATURE_NOT_RECORDED,
+      error: LEASE_SIGNATURE_NOT_RECORDED_STAFF_MESSAGE,
+    })
+    expect(LEASE_SIGNATURE_NOT_RECORDED_STAFF_MESSAGE).toMatch(/isn't recorded on the envelope yet, so the application wasn't moved/)
+  })
+
+  it('#83: a failed tenant sign save (coded or not) restores the previous lease locally', () => {
+    const src = readFileSync(new URL('../context/AppStore.tsx', import.meta.url), 'utf8')
+    const start = src.indexOf('advanceApplicationWorkflow: async')
+    const body = src.slice(start, src.indexOf('patchApplicationStatus: async', start))
+    const chain = body.slice(body.indexOf("leaseSignSave = persistUpsert('tenancy'"), body.indexOf('await leaseSignatureSaved('))
+    expect(chain).toContain('.catch(() => false)')
+    expect(chain).toMatch(/if \(!ok\) \{[\s\S]*t\.id === lease\.id && t\.eSign === nextLease\.eSign \? lease : t/)
+    expect(body).toContain("app.applicantUserId === actorUserId ? 'applicant' : 'staff'")
   })
 
   it('the signing refusal says what happened and what to do next', () => {
@@ -72,7 +91,7 @@ describe('Sign lease: application write after the lease save', () => {
     expect(LEASE_SIGNATURE_NOT_RECORDED_MESSAGE).toMatch(/wasn't moved to signed/)
     expect(LEASE_SIGNATURE_NOT_RECORDED_MESSAGE).toMatch(/sign the lease again/)
     expect(
-      persistRefusalMessage({ resource: 'application', id: 'A', action: 'upsert', status: 403, code: LEASE_SIGNATURE_NOT_RECORDED, message: '' }),
+      persistRefusalMessage({ resource: 'application', id: 'A', action: 'upsert', status: 403, code: LEASE_SIGNATURE_NOT_RECORDED, message: '' }, 'tenant'),
     ).toBe(LEASE_SIGNATURE_NOT_RECORDED_MESSAGE)
   })
 })

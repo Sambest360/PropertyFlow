@@ -1540,6 +1540,10 @@ async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<s
   const unit = await unitIdFromProperty(d.propertyId ?? d.unitId)
   if (!unit) throw new Error('ticket requires propertyId')
   const reported = await userId(d.reportedByUserId)
+  // Absent assignment / cost / status / priority / warranty (a tenant's own
+  // ticket has them stripped) keep the stored values on update.
+  const has = (k: string) => d[k] !== undefined
+  const assignSent = has('assignedAgentId') || has('assignedTo')
   const assigned = await userId(d.assignedAgentId ?? d.assignedTo)
   const contractor = await userId(d.contractorId)
   const asset = d.internalAssetId ? await resolveUuid('asset', str(d.internalAssetId)) : null
@@ -1552,25 +1556,28 @@ async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<s
        category_key, title, description, priority, status, warranty_covered,
        escalated_at, cost_estimate, cost_actual, photos, completed_at, updated_at
      ) VALUES (
-       $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::uuid,
+       $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid,
+       -- A new ticket without an assignment (tenant-reported) goes to the unit's agent.
+       CASE WHEN $19::boolean THEN $6::uuid ELSE (SELECT u.agent_id FROM units u WHERE u.id = $3::uuid) END,
+       $7::uuid,
        $8, $9, $10, $11, $12, $13,
        $14::timestamptz, $15, $16, $17::jsonb, $18::timestamptz, NOW()
      )
      ON CONFLICT (id) DO UPDATE SET
        asset_id = EXCLUDED.asset_id,
-       assigned_to = EXCLUDED.assigned_to,
-       contractor_id = EXCLUDED.contractor_id,
+       assigned_to = CASE WHEN $19::boolean THEN EXCLUDED.assigned_to ELSE maintenance_tickets.assigned_to END,
+       contractor_id = CASE WHEN $20::boolean THEN EXCLUDED.contractor_id ELSE maintenance_tickets.contractor_id END,
        category_key = EXCLUDED.category_key,
        title = EXCLUDED.title,
        description = EXCLUDED.description,
-       priority = EXCLUDED.priority,
-       status = EXCLUDED.status,
-       warranty_covered = EXCLUDED.warranty_covered,
+       priority = CASE WHEN $23::boolean THEN EXCLUDED.priority ELSE maintenance_tickets.priority END,
+       status = CASE WHEN $21::boolean THEN EXCLUDED.status ELSE maintenance_tickets.status END,
+       warranty_covered = CASE WHEN $24::boolean THEN EXCLUDED.warranty_covered ELSE maintenance_tickets.warranty_covered END,
        escalated_at = COALESCE(EXCLUDED.escalated_at, maintenance_tickets.escalated_at),
-       cost_estimate = EXCLUDED.cost_estimate,
-       cost_actual = EXCLUDED.cost_actual,
+       cost_estimate = CASE WHEN $22::boolean THEN EXCLUDED.cost_estimate ELSE maintenance_tickets.cost_estimate END,
+       cost_actual = CASE WHEN $22::boolean THEN EXCLUDED.cost_actual ELSE maintenance_tickets.cost_actual END,
        photos = EXCLUDED.photos,
-       completed_at = EXCLUDED.completed_at,
+       completed_at = CASE WHEN $21::boolean THEN EXCLUDED.completed_at ELSE maintenance_tickets.completed_at END,
        updated_at = NOW()`,
     [
       uuid,
@@ -1591,6 +1598,12 @@ async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<s
       num(d.cost),
       JSON.stringify(Array.isArray(d.photos) ? d.photos : []),
       status === 'COMPLETED' || status === 'RESOLVED' ? new Date().toISOString() : null,
+      assignSent,
+      has('contractorId'),
+      has('status'),
+      has('cost'),
+      has('priority'),
+      has('warrantyCovered'),
     ],
   )
   return uuid
@@ -2022,17 +2035,6 @@ const TRUST_TXN_STATUSES = new Set([
   'reversed',
 ])
 
-const DEPOSIT_STATUSES = new Set([
-  'expected',
-  'held',
-  'release_proposed',
-  'release_approved',
-  'refunded',
-  'applied_to_arrears',
-  'split',
-  'disputed',
-])
-
 const CSV_BATCH_STATUSES = new Set(['pending', 'completed', 'failed'])
 
 function trustTxnStatus(v: unknown): string {
@@ -2045,11 +2047,6 @@ function csvBatchStatus(v: unknown): string {
   // FE uses "processing"; 007 schema uses "pending"
   if (s === 'processing') return 'pending'
   return CSV_BATCH_STATUSES.has(s) ? s : 'pending'
-}
-
-function depositStatus(v: unknown): string {
-  const s = str(v, 'expected')
-  return DEPOSIT_STATUSES.has(s) ? s : 'expected'
 }
 
 async function resolveOccupancyUuid(occupancyId: unknown): Promise<string | null> {
@@ -2243,6 +2240,13 @@ async function upsertPayoutInstruction(feId: string, d: Record<string, unknown>)
   return uuid
 }
 
+/**
+ * Deposit register row. Status and the release dual-control fields are never
+ * taken from the payload (any actor): a new row is `held` when money is held,
+ * else `expected`; on conflict the stored status and release_*_by are kept,
+ * except `expected` -> `held` once held_cents > 0. Release moves only through
+ * POST /api/trust/deposits/:id/propose-release | approve-release.
+ */
 async function upsertDepositHolding(feId: string, d: Record<string, unknown>): Promise<string> {
   const uuid = await ensureUuid('deposit_holding', feId)
   const client = await clientId(d.agencyId)
@@ -2252,8 +2256,7 @@ async function upsertDepositHolding(feId: string, d: Record<string, unknown>): P
     : d.unitId
       ? await resolveUuid('unit', str(d.unitId))
       : null
-  const releaseProposedBy = await userId(d.releaseProposedBy)
-  const releaseApprovedBy = await userId(d.releaseApprovedBy)
+  const heldCents = Math.max(0, Math.round(num(d.heldCents) ?? 0))
 
   await query(
     `INSERT INTO deposit_holdings (
@@ -2263,9 +2266,9 @@ async function upsertDepositHolding(feId: string, d: Record<string, unknown>): P
        created_at, updated_at
      ) VALUES (
        $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6,
-       $7, $8, $9::date, $10,
-       $11::uuid, $12::uuid,
-       COALESCE($13::timestamptz, NOW()), NOW()
+       $7, CASE WHEN $6::bigint > 0 THEN 'held' ELSE 'expected' END, $8::date, $9,
+       NULL, NULL,
+       COALESCE($10::timestamptz, NOW()), NOW()
      )
      ON CONFLICT (id) DO UPDATE SET
        occupancy_id = EXCLUDED.occupancy_id,
@@ -2273,11 +2276,12 @@ async function upsertDepositHolding(feId: string, d: Record<string, unknown>): P
        expected_cents = EXCLUDED.expected_cents,
        held_cents = EXCLUDED.held_cents,
        interest_accrued_cents = EXCLUDED.interest_accrued_cents,
-       status = EXCLUDED.status,
+       status = CASE
+         WHEN deposit_holdings.status = 'expected' AND EXCLUDED.held_cents > 0 THEN 'held'
+         ELSE deposit_holdings.status
+       END,
        statutory_deadline_on = EXCLUDED.statutory_deadline_on,
        interest_rate_unknown = EXCLUDED.interest_rate_unknown,
-       release_proposed_by = EXCLUDED.release_proposed_by,
-       release_approved_by = EXCLUDED.release_approved_by,
        updated_at = NOW()`,
     [
       uuid,
@@ -2285,13 +2289,10 @@ async function upsertDepositHolding(feId: string, d: Record<string, unknown>): P
       occupancyUuid,
       unitUuid,
       Math.max(0, Math.round(num(d.expectedCents) ?? 0)),
-      Math.max(0, Math.round(num(d.heldCents) ?? 0)),
+      heldCents,
       Math.max(0, Math.round(num(d.interestAccruedCents) ?? 0)),
-      depositStatus(d.status),
       d.statutoryDeadlineOn ? str(d.statutoryDeadlineOn).slice(0, 10) : null,
       bool(d.interestRateUnknown, false),
-      releaseProposedBy,
-      releaseApprovedBy,
       d.createdAt ? str(d.createdAt) : null,
     ],
   )

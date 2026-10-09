@@ -88,7 +88,8 @@ export function parsePersistRefusal(
   status: number,
   bodyText: string,
 ): PersistRefusal | null {
-  if (status !== 403 && status !== 409) return null
+  // Coded 400 / 403 / 409: a policy refusal the UI must show (toast + refresh).
+  if (status !== 400 && status !== 403 && status !== 409) return null
   try {
     const body = JSON.parse(bodyText) as { code?: unknown; message?: unknown }
     if (typeof body.code !== 'string' || !body.code) return null

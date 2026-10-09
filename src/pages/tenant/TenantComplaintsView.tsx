@@ -2,6 +2,12 @@ import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
+import { TICKET_NOT_SAVED_MESSAGE } from '../../lib/maintenanceApi'
+import {
+  COMPLAINT_SEVERITY_TO_PRIORITY,
+  tenantPriorityToApi,
+  type ComplaintSeverity,
+} from '../../lib/tenantTicketPriority'
 import type { TenantPortalState } from '../../hooks/useTenantPortalState'
 import { Badge, Button, Card, Input, Select, Textarea, statusTone } from '../../components/ui'
 
@@ -11,13 +17,13 @@ export function TenantComplaintsView({ portal }: { portal: TenantPortalState }) 
   const { state, createMaintenanceTicket } = useStore()
   const [subject, setSubject] = useState('')
   const [details, setDetails] = useState('')
-  const [severity, setSeverity] = useState<'Low' | 'Medium' | 'High' | 'Urgent'>('Medium')
+  const [severity, setSeverity] = useState<ComplaintSeverity>('Medium')
   const [done, setDone] = useState('')
 
   const complaints = portal.tickets.filter((t) => t.title.startsWith(COMPLAINT_PREFIX))
   const openCount = complaints.filter((t) => t.status !== 'Completed').length
 
-  const submitComplaint = (e: FormEvent) => {
+  const submitComplaint = async (e: FormEvent) => {
     e.preventDefault()
     if (!subject.trim() || !details.trim() || !portal.agencyId) return
     const propId = portal.tenancy?.propertyId ?? portal.property?.id
@@ -37,13 +43,18 @@ export function TenantComplaintsView({ portal }: { portal: TenantPortalState }) 
         unit_id: prop.unitId,
         internal_asset_id: null,
         category_key: 'GENERAL',
-        priority: severity.toUpperCase() as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT',
+        // Urgent severity is filed as Emergency so it escalates.
+        priority: tenantPriorityToApi(COMPLAINT_SEVERITY_TO_PRIORITY[severity]),
         title: `${COMPLAINT_PREFIX} ${subject.trim()}`,
         description: `Tenant complaint submitted via portal.\n\n${details.trim()}\n\nRouted to managing agency for review — not the landlord.`,
       },
     })
     if (result.status === 'ERROR') {
       setDone(result.error)
+      return
+    }
+    if (!(await result.saved)) {
+      setDone(TICKET_NOT_SAVED_MESSAGE)
       return
     }
     setDone(`Complaint logged as ${result.ticket_id}. Your agency will follow up in-app.`)
@@ -94,7 +105,7 @@ export function TenantComplaintsView({ portal }: { portal: TenantPortalState }) 
               onChange={(e) => setDetails(e.target.value)}
             />
             <Select value={severity} onChange={(e) => setSeverity(e.target.value as typeof severity)}>
-              {(['Low', 'Medium', 'High', 'Urgent'] as const).map((s) => (
+              {(Object.keys(COMPLAINT_SEVERITY_TO_PRIORITY) as ComplaintSeverity[]).map((s) => (
                 <option key={s} value={s}>
                   {s} severity
                 </option>
