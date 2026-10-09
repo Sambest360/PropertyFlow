@@ -528,10 +528,12 @@ async function upsertUser(feId: string, d: Record<string, unknown>): Promise<str
   const hasRole = typeof d.role === 'string' && d.role.trim() !== ''
   const hasAgency = has('agencyId')
   const hasActive = typeof d.active === 'boolean'
-  const meta: Record<string, unknown> = {
-    frontend_id: feId,
-    mustChangePassword: Boolean(d.tempPassword),
-  }
+  const hasName = typeof d.name === 'string' && d.name.trim() !== ''
+  const hasTempPassword = typeof d.tempPassword === 'string' && d.tempPassword !== ''
+  const meta: Record<string, unknown> = { frontend_id: feId }
+  // Only a temp password sets the flag; a write without one keeps the stored
+  // value (a profile edit must not clear a pending forced password change).
+  if (hasTempPassword) meta.mustChangePassword = true
   if (hasRole) meta.frontend_role = feRole
   for (const k of ['enabledPermissions', 'licenseStatus', 'mentorId', 'commissionSharePct']) {
     if (has(k)) meta[k] = d[k] ?? null
@@ -565,6 +567,7 @@ async function upsertUser(feId: string, d: Record<string, unknown>): Promise<str
   const fRole = flag(hasRole)
   const fAgency = flag(hasAgency)
   const fActive = flag(hasActive)
+  const fName = flag(hasName)
   // metadata: shallow merge, plus verification merged by key (never replaced
   // wholesale) so a partial verification write keeps the stored ID documents.
   const metadataSql = `(COALESCE(users.metadata, '{}'::jsonb) || EXCLUDED.metadata)
@@ -591,8 +594,8 @@ async function upsertUser(feId: string, d: Record<string, unknown>): Promise<str
        password_hash = COALESCE(EXCLUDED.password_hash, users.password_hash),`
            : ''
        }
-       first_name = EXCLUDED.first_name,
-       last_name = EXCLUDED.last_name,
+       first_name = CASE WHEN ${fName} THEN EXCLUDED.first_name ELSE users.first_name END,
+       last_name = CASE WHEN ${fName} THEN EXCLUDED.last_name ELSE users.last_name END,
        phone = CASE WHEN ${fPhone} THEN EXCLUDED.phone ELSE users.phone END,
        role = CASE WHEN ${fRole} THEN EXCLUDED.role ELSE users.role END,
        active = CASE WHEN ${fActive} THEN EXCLUDED.active ELSE users.active END,

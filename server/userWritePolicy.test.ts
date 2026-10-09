@@ -547,3 +547,42 @@ describe('Jim B7: credentials never travel through a non-super user write', () =
     expect(body.data).not.toHaveProperty('tempPassword')
   })
 })
+
+describe('Jim: writes that omit name / tempPassword keep the stored values', () => {
+  async function upsertSql(data: Record<string, unknown>) {
+    const { handlePersist } = await import('./writes.js')
+    await handlePersist({ resource: 'user', action: 'upsert', id: 'u-t', data } as never)
+    const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO users'))!
+    return { sql: String(insert[0]).replace(/\s+/g, ' '), params: insert[1] as unknown[] }
+  }
+
+  it('a write without name keeps first_name / last_name', async () => {
+    const { sql, params } = await upsertSql({ id: 'u-t', phone: '+27 82 1' })
+    for (const col of ['first_name', 'last_name']) {
+      const m = sql.match(new RegExp(`${col} = CASE WHEN \\$(\\d+)::boolean THEN EXCLUDED\\.${col} ELSE users\\.${col} END`))
+      expect(m, col).toBeTruthy()
+      expect(params[Number(m![1]) - 1]).toBe(false)
+    }
+  })
+
+  it('a write with a name still updates it', async () => {
+    const { sql, params } = await upsertSql({ id: 'u-t', name: 'Tess Tenant' })
+    const m = sql.match(/first_name = CASE WHEN \$(\d+)::boolean THEN EXCLUDED\.first_name ELSE users\.first_name END/)
+    expect(params[Number(m![1]) - 1]).toBe(true)
+    expect(params[3]).toBe('Tess')
+    expect(params[4]).toBe('Tenant')
+  })
+
+  it('a write without tempPassword does not send mustChangePassword (stored flag kept by the merge)', async () => {
+    const { params } = await upsertSql({ id: 'u-t', name: 'T' })
+    expect(JSON.parse(String(params[8]))).not.toHaveProperty('mustChangePassword')
+  })
+
+  it('an admin create with tempPassword sets mustChangePassword', async () => {
+    const body = await gate(ADMIN, { resource: 'user', action: 'upsert', id: 'u-new-3', data: { name: 'N', role: 'ground_agent', tempPassword: 'Temp1234!' } })
+    const { handlePersist } = await import('./writes.js')
+    await handlePersist(body as never)
+    const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO users'))!
+    expect(JSON.parse(String((insert[1] as unknown[])[8])).mustChangePassword).toBe(true)
+  })
+})
