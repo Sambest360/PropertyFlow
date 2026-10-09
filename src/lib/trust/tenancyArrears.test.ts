@@ -6,6 +6,7 @@ import { seedArrearsSnapshots } from '../../data/seedTrust'
 import {
   buildTenancyArrears,
   computeTenancyArrears,
+  rentCentsForDue,
   resolveRentSchedule,
   scheduledDueDates,
 } from './tenancyArrears'
@@ -105,9 +106,9 @@ describe('CR9 tenancy arrears (due from schedule minus paid)', () => {
       },
     })
     const row = computeTenancyArrears(t, [paid(12000, '2026-09-05', { amount: 99999, paidAmount: 12000 })], AS_OF)!
-    // Due 5 Sep and 5 Oct only (5 Aug is before start).
-    expect(row.dueCents).toBe(2 * 1_200_000)
-    expect(row.arrearsCents).toBe(1_200_000)
+    // Start month charged in full on the start date (10 Aug), then 5 Sep and 5 Oct.
+    expect(row.dueCents).toBe(3 * 1_200_000)
+    expect(row.arrearsCents).toBe(2 * 1_200_000)
   })
 
   it('a tenancy with no rent schedule gets no arrears row (no guess)', () => {
@@ -149,5 +150,86 @@ describe('CR9 no seed arrears snapshot is read', () => {
       expect(src, file).not.toMatch(/arrearsSnapshots|seedArrearsSnapshots|ArrearsSnapshot/)
       if (file.startsWith('src/pages')) expect(src, file).toMatch(/buildTenancyArrears\(/)
     }
+  })
+})
+
+function schedule(over: Partial<NonNullable<Tenancy['billingSchedule']>>): NonNullable<Tenancy['billingSchedule']> {
+  return {
+    id: 'BS-1', agencyId: 'ag-1', occupancyId: 'TN-1', chargeType: 'RENT', amountCents: 1_000_000,
+    dayOfMonth: 1, startOn: '2026-07-01', endOn: null, escalationPct: null, nextEscalationOn: null,
+    createdAt: '', updatedAt: '', ...over,
+  }
+}
+
+/** First of each month from start through end (inclusive), YYYY-MM-01. */
+function monthsFrom(startYm: string, endYm: string): string[] {
+  const out: string[] = []
+  let [y, m] = startYm.split('-').map(Number) as [number, number]
+  for (;;) {
+    const ym = `${y}-${String(m).padStart(2, '0')}`
+    out.push(`${ym}-01`)
+    if (ym === endYm) return out
+    m += 1
+    if (m > 12) { m = 1; y += 1 }
+  }
+}
+
+describe('CR9 fix: each month charged at the rent that applied then', () => {
+  // Jan 2025 lease at R10 000, +8% to R10 800 in Jan 2026; next increase Jan 2027.
+  const escalated = tenancy({
+    startDate: '2025-01-01',
+    rent: 10800,
+    billingSchedule: schedule({ amountCents: 1_080_000, startOn: '2025-01-01', escalationPct: 8, nextEscalationOn: '2027-01-01' }),
+  })
+  const months2025 = monthsFrom('2025-01', '2025-12')
+  const months2026 = monthsFrom('2026-01', '2026-10')
+
+  it('R10 000 → R10 800 lease paid in full every month at the right rent has 0 arrears as at 2026-10-09', () => {
+    const payments = [...months2025.map((d) => paid(10000, d)), ...months2026.map((d) => paid(10800, d))]
+    const row = computeTenancyArrears(escalated, payments, AS_OF)!
+    expect(row.dueCents).toBe(12 * 1_000_000 + 10 * 1_080_000)
+    expect(row.paidCents).toBe(row.dueCents)
+    expect(row.arrearsCents).toBe(0)
+    expect(row.d30 + row.d60 + row.d90 + row.d90plus).toBe(0)
+  })
+
+  it('partly paid variant: October unpaid and September short R800 gives R11 600 arrears', () => {
+    const payments = [
+      ...months2025.map((d) => paid(10000, d)),
+      ...monthsFrom('2026-01', '2026-08').map((d) => paid(10800, d)),
+      paid(10000, '2026-09-01'),
+    ]
+    const row = computeTenancyArrears(escalated, payments, AS_OF)!
+    expect(row.arrearsCents).toBe((800 + 10800) * 100)
+    expect(row.d30).toBe(10800 * 100) // 1 Oct, 8 days
+    expect(row.d60).toBe(800 * 100) // 1 Sep, 38 days
+    expect(row.d90 + row.d90plus).toBe(0)
+  })
+
+  it('walks back one 12-month step per year before the last increase; no escalation data uses current rent', () => {
+    const s = resolveRentSchedule(escalated)!
+    expect(rentCentsForDue(s, '2026-01-01')).toBe(1_080_000)
+    expect(rentCentsForDue(s, '2025-12-01')).toBe(1_000_000)
+    expect(rentCentsForDue(s, '2025-01-01')).toBe(1_000_000)
+    expect(rentCentsForDue(s, '2024-12-01')).toBe(Math.round(1_080_000 / 1.08 ** 2))
+    const flat = resolveRentSchedule(tenancy({ rent: 10800, startDate: '2025-01-01' }))!
+    expect(rentCentsForDue(flat, '2025-03-01')).toBe(1_080_000)
+    const noPct = resolveRentSchedule(tenancy({ billingSchedule: schedule({ amountCents: 1_080_000, nextEscalationOn: '2027-01-01' }) }))!
+    expect(rentCentsForDue(noPct, '2025-03-01')).toBe(1_080_000)
+  })
+})
+
+describe('CR9 fix: a mid-month start charges the start month in full', () => {
+  it('start 15 Mar with due day 1 charges March at full rent', () => {
+    const t = tenancy({ startDate: '2026-03-15', rentDueDay: 1 })
+    const s = resolveRentSchedule(t)!
+    const dues = scheduledDueDates(s, AS_OF)
+    expect(dues[0]).toBe('2026-03-15')
+    expect(dues).toEqual(['2026-03-15', '2026-04-01', '2026-05-01', '2026-06-01', '2026-07-01', '2026-08-01', '2026-09-01', '2026-10-01'])
+    const row = computeTenancyArrears(t, [], AS_OF)!
+    expect(row.dueCents).toBe(8 * 10000 * 100)
+    // Paying April–October only still leaves March owed in full.
+    const payments = monthsFrom('2026-04', '2026-10').map((d) => paid(10000, d))
+    expect(computeTenancyArrears(t, payments, AS_OF)!.arrearsCents).toBe(10000 * 100)
   })
 })

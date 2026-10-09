@@ -5,6 +5,10 @@
  *   rent due from the tenancy rent schedule up to that date
  *   minus rent payments recorded as Paid against that tenancy.
  *
+ * Each month is charged at the rent that applied then (scheduled escalation
+ * walked back from the current rent). The start month is a full month: First
+ * Month Rent has no proration, so a mid-month start is still charged.
+ *
  * Never reads seed arrears snapshots. A tenancy with no rent schedule gets no
  * arrears row (no guess). Figures come from the in-app book only.
  */
@@ -23,6 +27,10 @@ export type TenancyRentSchedule = {
   startOn: string
   /** YYYY-MM-DD or null when open-ended. */
   endOn: string | null
+  /** Scheduled yearly increase in percent (8 = 8%), or null when none is set. */
+  escalationPct?: number | null
+  /** YYYY-MM-DD of the next scheduled increase, or null. */
+  nextEscalationOn?: string | null
 }
 
 /** One computed arrears row. Bucket field names match the old snapshot shape. */
@@ -94,6 +102,8 @@ export function resolveRentSchedule(t: Tenancy): TenancyRentSchedule | null {
       dayOfMonth: clampDay(bs.dayOfMonth),
       startOn: ymd(bs.startOn),
       endOn: isYmd(bs.endOn) ? ymd(bs.endOn) : isYmd(t.endDate) ? ymd(t.endDate) : null,
+      escalationPct: Number.isFinite(bs.escalationPct) ? Number(bs.escalationPct) : null,
+      nextEscalationOn: isYmd(bs.nextEscalationOn) ? ymd(bs.nextEscalationOn) : null,
     }
   }
   if (!(Number.isFinite(t.rent) && t.rent > 0) || !isYmd(t.startDate)) return null
@@ -105,7 +115,11 @@ export function resolveRentSchedule(t: Tenancy): TenancyRentSchedule | null {
   }
 }
 
-/** Due dates from the schedule that fall on or before asOf (and within the lease). */
+/**
+ * Due dates from the schedule that fall on or before asOf (and within the lease).
+ * The start month is always charged: when the rent day falls before the start
+ * date (e.g. start 15 Mar, due day 1), March falls due on the start date itself.
+ */
 export function scheduledDueDates(schedule: TenancyRentSchedule, asOf: string): string[] {
   const limit = schedule.endOn && schedule.endOn < ymd(asOf) ? schedule.endOn : ymd(asOf)
   const start = parseDay(schedule.startOn)
@@ -113,13 +127,45 @@ export function scheduledDueDates(schedule: TenancyRentSchedule, asOf: string): 
   let month = start.getMonth()
   // Date normalises month overflow into later years.
   const dueFor = (m: number) => formatDay(new Date(year, m, schedule.dayOfMonth, 12))
-  if (dueFor(month) < schedule.startOn) month += 1
   const out: string[] = []
+  if (dueFor(month) < schedule.startOn) {
+    // First Month Rent is a full month with no proration: charge it on the start date.
+    if (schedule.startOn <= limit) out.push(schedule.startOn)
+    month += 1
+  }
   while (dueFor(month) <= limit && out.length < 1200) {
     out.push(dueFor(month))
     month += 1
   }
   return out
+}
+
+/** Same month and day, `years` earlier (string form, so 29 Feb compares safely). */
+function yearsBefore(isoDate: string, years: number): string {
+  const y = Number(isoDate.slice(0, 4)) - years
+  return `${String(y).padStart(4, '0')}${isoDate.slice(4, 10)}`
+}
+
+/**
+ * Rent (cents) that applied on a due date.
+ * The schedule amount is today's rent. With a scheduled increase, the last
+ * increase was nextEscalationOn minus 12 months; due dates on or after it use
+ * today's rent, and each 12-month step further back divides by (1 + pct/100).
+ * Without escalation data every month uses today's rent.
+ */
+export function rentCentsForDue(schedule: TenancyRentSchedule, due: string): number {
+  const pct = schedule.escalationPct
+  const next = schedule.nextEscalationOn
+  if (pct == null || !Number.isFinite(pct) || pct <= 0 || !next || !isYmd(next)) return schedule.amountCents
+  const d = ymd(due)
+  let threshold = yearsBefore(ymd(next), 1)
+  let steps = 0
+  while (d < threshold && steps < 200) {
+    steps += 1
+    threshold = yearsBefore(threshold, 1)
+  }
+  if (steps === 0) return schedule.amountCents
+  return Math.round(schedule.amountCents / Math.pow(1 + pct / 100, steps))
 }
 
 function paymentCents(p: PaymentRecord): number {
@@ -154,17 +200,17 @@ export function computeTenancyArrears(
   const schedule = resolveRentSchedule(t)
   if (!schedule) return null
   const day = ymd(asOf)
-  const dues = scheduledDueDates(schedule, day)
-  const dueCents = dues.length * schedule.amountCents
+  const dues = scheduledDueDates(schedule, day).map((due) => ({ due, cents: rentCentsForDue(schedule, due) }))
+  const dueCents = dues.reduce((sum, d) => sum + d.cents, 0)
   const paidCents = rentPaidCents(t.id, payments, day)
 
   const buckets = { d30: 0, d60: 0, d90: 0, d90plus: 0 }
   let credit = paidCents
   const today = parseDay(day).getTime()
-  for (const due of dues) {
-    const applied = Math.min(credit, schedule.amountCents)
+  for (const { due, cents } of dues) {
+    const applied = Math.min(credit, cents)
     credit -= applied
-    const unpaid = schedule.amountCents - applied
+    const unpaid = cents - applied
     if (unpaid <= 0) continue
     const days = Math.max(0, Math.round((today - parseDay(due).getTime()) / DAY_MS))
     if (days <= 30) buckets.d30 += unpaid

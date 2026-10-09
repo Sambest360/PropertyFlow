@@ -61,6 +61,14 @@ export async function proposePayoutFromForm(
   return propose(built.params)
 }
 
+export const PROPOSE_PAYOUT_OK_TEXT = 'Payout proposed. A second user must approve it.'
+
+/** Note shown after a propose attempt. Success text only when the save succeeded (ok true). */
+export function proposeResultNote(result: { ok: boolean; error?: string }): { tone: 'ok' | 'error'; text: string } {
+  if (result.ok === true) return { tone: 'ok', text: PROPOSE_PAYOUT_OK_TEXT }
+  return { tone: 'error', text: result.error || 'Could not propose payout' }
+}
+
 export function ProposePayoutPanel(props: {
   canPropose: boolean
   actorUserId: string | null | undefined
@@ -95,14 +103,14 @@ export function ProposePayoutPanel(props: {
     setBusy(true)
     try {
       const result = await proposePayoutFromForm(propose, { tenancy: selected, amountZar: amount, actorUserId })
-      if (result.ok) {
-        setNote({ tone: 'ok', text: 'Payout proposed. A second user must approve it.' })
+      setNote(proposeResultNote(result))
+      if (result.ok === true) {
         setAmount('')
         setTenancyId('')
         setOpen(false)
-      } else {
-        setNote({ tone: 'error', text: result.error ?? 'Could not propose payout' })
       }
+    } catch {
+      setNote(proposeResultNote({ ok: false }))
     } finally {
       setBusy(false)
     }
