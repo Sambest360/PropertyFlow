@@ -259,6 +259,10 @@ describe('owner statement table (Reports tab)', () => {
       { kind: 'allocation', id: 'A1', date: '2026-09-03', propertyTitle: 'Humewood B12', description: 'Levies', amountZar: 300, bucketCode: 'levies' },
       { kind: 'payout', id: 'O1', date: '2026-09-05', propertyTitle: 'Humewood B12', description: 'Owner payout', amountZar: 11200, status: 'submitted' },
       { kind: 'payment', id: 'P3', date: '2026-09-01', propertyTitle: 'Summerstrand 4', description: 'Rent', amountZar: 9000, status: 'Paid', paymentType: 'Rent' },
+      { kind: 'payment', id: 'P4', date: '2026-09-01', propertyTitle: 'Summerstrand 4', description: 'First month', amountZar: 4000, status: 'Paid', paymentType: 'First Month Rent' },
+      { kind: 'payment', id: 'P5', date: '2026-09-10', propertyTitle: 'Summerstrand 4', description: 'Rent due', amountZar: 9000, status: 'Due', paymentType: 'Rent' },
+      { kind: 'payment', id: 'P6', date: '2026-09-11', propertyTitle: 'Summerstrand 4', description: 'Deposit', amountZar: 18000, status: 'Paid', paymentType: 'Deposit' },
+      { kind: 'payment', id: 'P7', date: '2026-09-12', propertyTitle: 'Summerstrand 4', description: 'Overdue rent', amountZar: 9000, status: 'Overdue', paymentType: 'Rent' },
     ],
     totals: { paymentsZar: 0, allocationsZar: 0, payoutsSubmittedZar: 0 },
     honesty: OWNER_STATEMENT_MODE_A_COPY,
@@ -278,12 +282,23 @@ describe('owner statement table (Reports tab)', () => {
     expect(totals).toEqual({ rent: 12500, commission: 1000, otherAllocations: 300, netPaid: 11200 })
   })
 
+  it('Rent counts only Paid Rent / First Month Rent; other payments stay out of the totals', () => {
+    const { rows, totals } = buildOwnerStatementTable(book, { propertyTitle: 'Summerstrand 4' })
+    expect(rows).toHaveLength(5)
+    expect(totals).toEqual({ rent: 13000, commission: 0, otherAllocations: 0, netPaid: 0 })
+    const byId = Object.fromEntries(rows.map((r) => [r.id, r]))
+    expect(byId['payment-P4'].rent).toBe(4000)
+    for (const id of ['payment-P5', 'payment-P6', 'payment-P7']) {
+      expect(byId[id]).toMatchObject({ rent: null, commission: null, otherAllocations: null, netPaid: null })
+    }
+  })
+
   it('exports CSV with on-screen headers, a total row and the in-app-book footer', () => {
     const { rows, totals } = buildOwnerStatementTable(book)
     const lines = ownerStatementTableToCsv(rows, totals, ['date', 'description', 'rent', 'netPaid']).split('\n')
     expect(lines[0]).toBe('Date,Description,Rent,Net paid')
     expect(lines[1]).toBe('2026-09-01,"Rent, September",12500.00,')
-    expect(lines[lines.length - 2]).toBe('Total,,21500.00,11200.00')
+    expect(lines[lines.length - 2]).toBe('Total,,25500.00,11200.00')
     expect(lines[lines.length - 1]).toBe(`"${OWNER_STATEMENT_TABLE_FOOTER}"`)
   })
 })

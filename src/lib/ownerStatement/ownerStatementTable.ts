@@ -53,7 +53,13 @@ function isCommissionBucket(bucketCode: string): boolean {
   return /commission/i.test(bucketCode)
 }
 
-/** Place each in-app book line in exactly one money column. */
+const RENT_PAYMENT_TYPES = new Set(['Rent', 'First Month Rent'])
+
+function isRentPaymentType(type: string | undefined): boolean {
+  return type != null && RENT_PAYMENT_TYPES.has(type)
+}
+
+/** Place each in-app book line in at most one money column. */
 export function ownerStatementRow(line: OwnerStatementLine): OwnerStatementTableRow {
   const base = {
     id: `${line.kind}-${line.id}`,
@@ -66,9 +72,14 @@ export function ownerStatementRow(line: OwnerStatementLine): OwnerStatementTable
     netPaid: null,
   }
   if (line.kind === 'payment') {
-    return line.paymentType === 'Commission'
-      ? { ...base, commission: line.amountZar }
-      : { ...base, rent: line.amountZar }
+    // Only money actually received counts. Rent = Rent / First Month Rent with status Paid;
+    // Commission = Commission with status Paid. Every other payment (deposits, refunds, Other,
+    // or anything not Paid) is listed but stays out of the money columns and totals — Other
+    // allocations is for trust allocations only, not payments.
+    if (line.status !== 'Paid') return base
+    if (isRentPaymentType(line.paymentType)) return { ...base, rent: line.amountZar }
+    if (line.paymentType === 'Commission') return { ...base, commission: line.amountZar }
+    return base
   }
   if (line.kind === 'allocation') {
     return isCommissionBucket(line.bucketCode)
