@@ -1895,16 +1895,6 @@ const TRUST_TXN_STATUSES = new Set([
   'reversed',
 ])
 
-const PAYOUT_STATUSES = new Set([
-  'proposed',
-  'pending_approval',
-  'approved',
-  'submitted',
-  'settled',
-  'failed',
-  'cancelled',
-])
-
 const DEPOSIT_STATUSES = new Set([
   'expected',
   'held',
@@ -1928,11 +1918,6 @@ function csvBatchStatus(v: unknown): string {
   // FE uses "processing"; 007 schema uses "pending"
   if (s === 'processing') return 'pending'
   return CSV_BATCH_STATUSES.has(s) ? s : 'pending'
-}
-
-function payoutStatus(v: unknown): string {
-  const s = str(v, 'proposed')
-  return PAYOUT_STATUSES.has(s) ? s : 'proposed'
 }
 
 function depositStatus(v: unknown): string {
@@ -2096,15 +2081,12 @@ async function upsertPayoutInstruction(feId: string, d: Record<string, unknown>)
       ? await resolveUuid('unit', str(d.unitId))
       : null
   const proposedBy = await userId(d.proposedBy)
-  const approvedBy = await userId(d.approvedBy)
   const amountCents = Math.max(1, Math.round(num(d.amountCents) ?? 0))
-  const status = payoutStatus(d.status)
 
-  // Honesty: do not mint partner ids; only persist what the FE already has.
-  const partnerPayoutId = d.partnerPayoutId ? str(d.partnerPayoutId) : null
-  const settledAt =
-    status === 'settled' && d.settledAt ? str(d.settledAt) : d.settledAt ? str(d.settledAt) : null
-
+  // Dual control: a payout written through generic persist is always a new
+  // proposal. status / approvedBy / submittedAt / settledAt / partnerPayoutId
+  // from the payload are ignored, and an existing row is never changed here
+  // (approve / submit go through /api/trust/payouts/:id/(approve|submit)).
   await query(
     `INSERT INTO payout_instructions (
        id, client_id, occupancy_id, unit_id, payee_type, payee_id, bank_account_id,
@@ -2112,26 +2094,10 @@ async function upsertPayoutInstruction(feId: string, d: Record<string, unknown>)
        settled_at, partner_payout_id, failure_reason, idempotency_key, created_at, updated_at
      ) VALUES (
        $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7,
-       $8, $9, $10, $11::uuid, $12::uuid, $13::timestamptz,
-       $14::timestamptz, $15, $16, $17, COALESCE($18::timestamptz, NOW()), NOW()
+       $8, $9, 'proposed', $10::uuid, NULL, NULL,
+       NULL, NULL, NULL, $11, COALESCE($12::timestamptz, NOW()), NOW()
      )
-     ON CONFLICT (id) DO UPDATE SET
-       occupancy_id = EXCLUDED.occupancy_id,
-       unit_id = EXCLUDED.unit_id,
-       payee_type = EXCLUDED.payee_type,
-       payee_id = EXCLUDED.payee_id,
-       bank_account_id = EXCLUDED.bank_account_id,
-       amount_cents = EXCLUDED.amount_cents,
-       bucket_code = EXCLUDED.bucket_code,
-       status = EXCLUDED.status,
-       proposed_by = EXCLUDED.proposed_by,
-       approved_by = EXCLUDED.approved_by,
-       submitted_at = EXCLUDED.submitted_at,
-       settled_at = EXCLUDED.settled_at,
-       partner_payout_id = EXCLUDED.partner_payout_id,
-       failure_reason = EXCLUDED.failure_reason,
-       idempotency_key = EXCLUDED.idempotency_key,
-       updated_at = NOW()`,
+     ON CONFLICT (id) DO NOTHING`,
     [
       uuid,
       client,
@@ -2142,13 +2108,7 @@ async function upsertPayoutInstruction(feId: string, d: Record<string, unknown>)
       d.bankAccountId ? str(d.bankAccountId) : null,
       amountCents,
       str(d.bucketCode, 'owner_payable'),
-      status,
       proposedBy,
-      approvedBy,
-      d.submittedAt ? str(d.submittedAt) : null,
-      settledAt,
-      partnerPayoutId,
-      d.failureReason ? str(d.failureReason) : null,
       d.idempotencyKey ? str(d.idempotencyKey) : null,
       d.createdAt ? str(d.createdAt) : null,
     ],

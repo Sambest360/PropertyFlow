@@ -49,6 +49,11 @@ async function fePropertyFromUnit(unitUuid: string | null | undefined): Promise<
 }
 
 /** Agency FE id — parity with bootstrap.ts agencyFe (entity_id_map first). */
+export async function agencyFeId(clientOrFeId: string | null | undefined): Promise<string | null> {
+  if (!clientOrFeId) return null
+  return (await agencyFe(clientOrFeId)) ?? clientOrFeId
+}
+
 async function agencyFe(clientId: string | null | undefined): Promise<string | null> {
   if (!clientId) return null
   const cache = await loadIdMapCache()
@@ -533,9 +538,12 @@ export const PRIVILEGED_USER_FIELDS = [
 /** Credential fields stripped from every non-super user write. */
 export const CREDENTIAL_USER_FIELDS = ['passwordHash', 'password', 'tempPassword'] as const
 
-/** Does the actor (agency admin) hold users.manage, from their stored permissions? */
-async function actorHasUsersManage(actor: DemoActor): Promise<boolean> {
-  if (actor.role !== 'client_admin' && actor.role !== 'agent_admin') return false
+/**
+ * Does the actor hold any of these permissions, from their role defaults and
+ * the enabledPermissions stored on their user row (never from the request)?
+ */
+export async function actorStoredCan(actor: DemoActor, perms: readonly Permission[]): Promise<boolean> {
+  if (actor.role === 'super_admin') return true
   let enabled: Permission[] | undefined
   const uuid = await resolveUuid('user', actor.userId)
   if (uuid) {
@@ -546,7 +554,92 @@ async function actorHasUsersManage(actor: DemoActor): Promise<boolean> {
     const p = rows[0]?.metadata?.enabledPermissions
     if (Array.isArray(p)) enabled = p as Permission[]
   }
-  return effectiveCan(actor.role as Role, 'users.manage', undefined, enabled)
+  return perms.some((perm) => effectiveCan(actor.role as Role, perm, undefined, enabled))
+}
+
+/** Does the actor (agency admin) hold users.manage, from their stored permissions? */
+async function actorHasUsersManage(actor: DemoActor): Promise<boolean> {
+  if (actor.role !== 'client_admin' && actor.role !== 'agent_admin') return false
+  return actorStoredCan(actor, ['users.manage'])
+}
+
+/** Trust-account resources (persistable). Arrears snapshots are derived, not written. */
+export const TRUST_RESOURCES: ReadonlySet<string> = new Set([
+  'trust_transaction',
+  'trust_allocation',
+  'csv_import_batch',
+  'payout_instruction',
+  'deposit_holding',
+])
+
+/** Permission (any of) an agency admin needs to write each trust resource. */
+const TRUST_WRITE_PERMS: Record<string, readonly Permission[]> = {
+  trust_transaction: ['trust.allocate', 'trust.import_csv'],
+  trust_allocation: ['trust.allocate'],
+  csv_import_batch: ['trust.import_csv'],
+  // Proposing a payout (the approve / submit steps have their own routes).
+  payout_instruction: ['trust.approve_payout', 'trust.allocate'],
+  deposit_holding: ['trust.allocate'],
+}
+
+/** Agency roles that may ever write trust rows (with the permission above). */
+const TRUST_ADMIN_ROLES: ReadonlySet<string> = new Set(['client_admin', 'agent_admin'])
+
+/**
+ * Trust writes: super admin, or an agency admin (client_admin / agent_admin)
+ * holding the resource's trust permission, in their own agency only. No other
+ * role (field agents, landlords, tenants, contractors) writes trust rows.
+ *
+ * payout_instruction through generic persist is create-only and always lands
+ * as a fresh proposal by the actor: status, approvedBy, submittedAt, settledAt
+ * and partnerPayoutId are forced, and an update / delete is refused for every
+ * actor. Approve / submit go through POST /api/trust/payouts/:id/(approve|submit).
+ */
+export async function enforceTrustWritePolicy(
+  actor: DemoActor,
+  body: PersistBody,
+  existing: ExistingRow | null,
+): Promise<void> {
+  const deny = (why: string) =>
+    forbiddenError(`Forbidden: ${actor.role} ${actor.userId} cannot ${body.action} ${body.resource} ${body.id} (${why})`)
+
+  if (body.resource === 'payout_instruction') {
+    if (body.action === 'delete' && actor.role !== 'super_admin') {
+      throw deny('payout instructions are not deleted through persist')
+    }
+    if (body.action !== 'delete') {
+      if (existing) {
+        throw deny('approve / submit go through /api/trust/payouts/:id; a payout is never edited through persist')
+      }
+      const data = (body.data ?? {}) as Record<string, unknown>
+      body.data = data
+      data.status = 'proposed'
+      data.proposedBy = actor.userId
+      data.approvedBy = null
+      data.submittedAt = null
+      data.settledAt = null
+      data.partnerPayoutId = null
+    }
+  }
+
+  if (actor.role === 'super_admin') return
+  if (body.action === 'delete') throw deny('trust rows are not deleted through persist')
+  if (!TRUST_ADMIN_ROLES.has(actor.role) || !actor.agencyId) {
+    throw deny('trust writes need an agency admin')
+  }
+  const actorAgency = await agencyFeId(actor.agencyId)
+  const data = (body.data ?? {}) as Record<string, unknown>
+  const payloadAgencyRaw = strField(data, 'agencyId') ?? strField(data, 'clientId')
+  const payloadAgency = await agencyFeId(payloadAgencyRaw)
+  if (existing) {
+    const rowAgency = await agencyFeId(existing.agencyId)
+    if (!rowAgency || rowAgency !== actorAgency) throw deny('row is outside your agency')
+  }
+  if (payloadAgency && payloadAgency !== actorAgency) throw deny('agencyId is not your agency')
+  if (!payloadAgency && body.data) data.agencyId = actor.agencyId
+  if (!(await actorStoredCan(actor, TRUST_WRITE_PERMS[body.resource] ?? []))) {
+    throw deny('missing trust permission')
+  }
 }
 
 async function storedUserEmail(feId: string): Promise<string | null> {
@@ -759,6 +852,13 @@ export async function assertPersistAllowed(
   if (body.resource === 'user') {
     // Users have their own policy (may strip privileged fields from body.data).
     await enforceUserWritePolicy(actor, body, existing)
+    return
+  }
+
+  if (TRUST_RESOURCES.has(body.resource)) {
+    // Trust books have their own (stricter) policy; the property path below
+    // would otherwise let any role with the property in scope write them.
+    await enforceTrustWritePolicy(actor, body, existing)
     return
   }
 

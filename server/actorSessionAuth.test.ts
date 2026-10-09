@@ -8,7 +8,7 @@
  * driver is faked: a Pool whose query() answers by SQL shape from a small
  * in-memory table set and records every write statement.
  */
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const env = vi.hoisted(() => {
   process.env.PF_SKIP_SERVE = '1'
@@ -36,8 +36,21 @@ type UserRow = {
   metadata: Record<string, unknown>
 }
 
+type PayoutRow = {
+  id: string
+  client_id: string
+  status: string
+  proposed_by: string | null
+  approved_by: string | null
+  payee_id: string | null
+  submitted_at: string | null
+}
+
 const db = vi.hoisted(() => ({
   users: [] as UserRow[],
+  payouts: [] as PayoutRow[],
+  /** Params of each recorded write, same index as `writes`. */
+  writeParams: [] as unknown[][],
   writes: [] as string[],
   sql: [] as string[],
   /** When set, every read throws this message (simulates a database failure). */
@@ -54,8 +67,32 @@ vi.mock('pg', () => {
   const answer = (sqlRaw: string, params: unknown[] = []): Record<string, unknown>[] => {
     const sql = sqlRaw.replace(/\s+/g, ' ').trim()
     db.sql.push(sql)
+    if (sql.startsWith('UPDATE payout_instructions')) {
+      db.writes.push(sql)
+      db.writeParams.push(params)
+      const row = db.payouts.find((p) => p.id === params[0])
+      if (!row) return []
+      const now = '2026-10-09T10:00:00.000Z'
+      if (sql.includes("SET status = 'approved'")) {
+        if (!['proposed', 'pending_approval'].includes(row.status)) return []
+        if (!row.proposed_by || row.proposed_by === params[1]) return []
+        row.status = 'approved'
+        row.approved_by = String(params[1])
+        return [{ updated_at: now }]
+      }
+      if (sql.includes("SET status = 'submitted'")) {
+        if (row.status !== 'approved' || !row.approved_by) return []
+        row.status = 'submitted'
+        row.submitted_at = now
+        return [{ submitted_at: now, updated_at: now }]
+      }
+      return []
+    }
     if (/^(INSERT|UPDATE|DELETE)\b/i.test(sql)) {
-      if (!/entity_id_map/i.test(sql)) db.writes.push(sql)
+      if (!/entity_id_map/i.test(sql)) {
+        db.writes.push(sql)
+        db.writeParams.push(params)
+      }
       return []
     }
     if (/^(CREATE|ALTER|BEGIN|COMMIT|ROLLBACK)\b/i.test(sql)) return []
@@ -114,6 +151,18 @@ vi.mock('pg', () => {
       if (!types.includes('user')) return []
       const u = db.users.find((x) => fes.includes(x.fe))
       return u ? [{ backend_id: u.id }] : []
+    }
+    if (/SELECT metadata FROM users WHERE id = \$1::uuid/.test(sql)) {
+      const u = db.users.find((x) => x.id === params[0])
+      return u ? [{ metadata: u.metadata }] : []
+    }
+    if (sql.startsWith('SELECT id::text AS id, client_id::text AS client_id, status, proposed_by::text')) {
+      const p = db.payouts.find((x) => x.id === params[0])
+      return p ? [{ ...p }] : []
+    }
+    if (sql.startsWith('SELECT "id", "client_id" FROM "payout_instructions"')) {
+      const p = db.payouts.find((x) => x.id === params[0])
+      return p ? [{ id: p.id, client_id: p.client_id }] : []
     }
     if (/SELECT client_id FROM users WHERE id = \$1::uuid/.test(sql)) {
       const u = db.users.find((x) => x.id === params[0])
@@ -220,6 +269,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   db.writes = []
+  db.writeParams = []
   db.sql = []
   db.failReads = ''
 })
@@ -620,5 +670,178 @@ describe('Jim B8: reserved super-admin emails', () => {
     } finally {
       db.users = db.users.filter((u) => u.fe !== 'u-squat')
     }
+  })
+})
+
+describe('Jim B5: trust writes and payout dual control', () => {
+  const PO = (n: number) => `c7000001-0001-4000-8000-0000000000${String(n).padStart(2, '0')}`
+  const uuidOf = (fe: string) => db.users.find((u) => u.fe === fe)!.id
+  const extra: string[] = []
+
+  beforeAll(async () => {
+    const { hashPassword } = await import('./auth')
+    const hash = await hashPassword('pw-correct')
+    db.users.push(
+      { ...user('u-admin2', '11', 'AGENCY_ADMIN', HORIZON), password_hash: hash },
+      { ...user('u-admin-np', '12', 'AGENCY_ADMIN', HORIZON), password_hash: hash },
+      { ...user('u-cape-admin', '13', 'AGENCY_ADMIN', CAPE), password_hash: hash },
+      { ...user('u-contractor', '14', 'CONTRACTOR', HORIZON), password_hash: hash },
+    )
+    db.users.find((u) => u.fe === 'u-admin-np')!.metadata.enabledPermissions = ['trust.view', 'assets.view']
+    extra.push('u-admin2', 'u-admin-np', 'u-cape-admin', 'u-contractor')
+    for (const fe of ['u-admin2', 'u-admin-np', 'u-cape-admin', 'u-ll', 'u-contractor']) {
+      tokens[fe] = await login(`${fe}@example.test`)
+    }
+  })
+
+  afterAll(() => {
+    db.users = db.users.filter((u) => !extra.includes(u.fe))
+  })
+
+  beforeEach(() => {
+    db.payouts = [
+      // Proposed by u-admin, payee the landlord.
+      { id: PO(1), client_id: HORIZON, status: 'proposed', proposed_by: uuidOf('u-admin'), approved_by: null, payee_id: 'u-ll', submitted_at: null },
+      // Already approved (by u-admin2).
+      { id: PO(2), client_id: HORIZON, status: 'approved', proposed_by: uuidOf('u-admin'), approved_by: uuidOf('u-admin2'), payee_id: 'u-ll', submitted_at: null },
+      // Payee is u-admin2 themselves.
+      { id: PO(3), client_id: HORIZON, status: 'proposed', proposed_by: uuidOf('u-admin'), approved_by: null, payee_id: 'u-admin2', submitted_at: null },
+    ]
+  })
+
+  const persist = (fe: string, body: Record<string, unknown>) =>
+    app.request('/api/persist', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${tokens[fe]}` },
+      body: JSON.stringify(body),
+    })
+  const step = (fe: string, id: string, s: 'approve' | 'submit') =>
+    app.request(`/api/trust/payouts/${id}/${s}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${tokens[fe]}` },
+      body: '{}',
+    })
+  const trustRow = (resource: string, extraData: Record<string, unknown> = {}) => ({
+    resource,
+    action: 'upsert',
+    id: `${resource}-new-1`,
+    data: { agencyId: 'ag-horizon', propertyId: 'p-1', amountCents: 1000, ...extraData },
+  })
+  const TRUST = ['trust_transaction', 'trust_allocation', 'csv_import_batch', 'payout_instruction', 'deposit_holding']
+
+  it('tenants, landlords, contractors and field agents get 403 on every trust resource', async () => {
+    for (const fe of ['u-tenant', 'u-ll', 'u-contractor', 'u-james']) {
+      for (const r of TRUST) {
+        const res = await persist(fe, trustRow(r))
+        expect(res.status, `${fe} ${r}`).toBe(403)
+      }
+    }
+    expect(db.writes.filter((w) => /trust_|payout_|deposit_|csv_import/.test(w))).toEqual([])
+  })
+
+  it('an agency admin without trust permissions gets 403', async () => {
+    for (const r of TRUST) {
+      expect((await persist('u-admin-np', trustRow(r))).status, r).toBe(403)
+    }
+  })
+
+  it("an agency admin cannot write another agency's trust rows", async () => {
+    expect((await persist('u-admin', trustRow('trust_allocation', { agencyId: 'ag-cape' }))).status).toBe(403)
+    expect((await persist('u-cape-admin', { resource: 'payout_instruction', action: 'upsert', id: PO(1), data: { agencyId: 'ag-cape' } })).status).toBe(403)
+  })
+
+  it('an agency admin with trust permissions writes their own agency trust rows', async () => {
+    for (const r of ['csv_import_batch', 'deposit_holding', 'trust_transaction']) {
+      const res = await persist('u-admin', trustRow(r))
+      expect(res.status, r).toBe(200)
+    }
+  })
+
+  it('a payout created through persist is always a fresh proposal by the actor', async () => {
+    const res = await persist('u-admin', {
+      resource: 'payout_instruction',
+      action: 'upsert',
+      id: PO(9),
+      data: {
+        agencyId: 'ag-horizon',
+        propertyId: 'p-1',
+        payeeId: 'u-ll',
+        amountCents: 5000,
+        status: 'settled',
+        approvedBy: 'u-admin2',
+        proposedBy: 'u-admin2',
+        submittedAt: '2026-10-01',
+        settledAt: '2026-10-02',
+        partnerPayoutId: 'FAKE-1',
+      },
+    })
+    expect(res.status).toBe(200)
+    const i = db.writes.findIndex((w) => w.startsWith('INSERT INTO payout_instructions'))
+    expect(i).toBeGreaterThanOrEqual(0)
+    const sql = db.writes[i]
+    expect(sql).toContain("'proposed', $10::uuid, NULL, NULL, NULL, NULL")
+    expect(sql).toContain('ON CONFLICT (id) DO NOTHING')
+    const params = db.writeParams[i]
+    expect(params[9]).toBe(uuidOf('u-admin')) // proposed_by = actor, not the payload
+    expect(params).not.toContain('FAKE-1')
+    expect(params).not.toContain('settled')
+  })
+
+  it('approving or submitting through generic persist is refused, even for a super admin', async () => {
+    for (const fe of ['u-admin2', 'u-sa']) {
+      const res = await persist(fe, {
+        resource: 'payout_instruction',
+        action: 'upsert',
+        id: PO(1),
+        data: { agencyId: 'ag-horizon', status: 'approved', approvedBy: fe },
+      })
+      expect(res.status, fe).toBe(403)
+    }
+    expect(db.payouts[0].status).toBe('proposed')
+  })
+
+  it('the proposer cannot approve their own payout', async () => {
+    const res = await step('u-admin', PO(1), 'approve')
+    expect(res.status).toBe(403)
+    expect(db.payouts[0].status).toBe('proposed')
+  })
+
+  it('a second admin of the same agency with trust.approve_payout approves it', async () => {
+    const res = await step('u-admin2', PO(1), 'approve')
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { instruction: { status: string; approvedBy: string } }
+    expect(body.instruction).toMatchObject({ status: 'approved', approvedBy: 'u-admin2' })
+    expect(db.payouts[0]).toMatchObject({ status: 'approved', approved_by: uuidOf('u-admin2') })
+    // Approving again is a conflict, not a second approval.
+    expect((await step('u-admin2', PO(1), 'approve')).status).toBe(409)
+  })
+
+  it('landlords (incl. the payee), tenants, contractors, field agents, other agencies and no-permission admins cannot approve', async () => {
+    for (const fe of ['u-ll', 'u-tenant', 'u-contractor', 'u-james', 'u-cape-admin', 'u-admin-np']) {
+      expect((await step(fe, PO(1), 'approve')).status, fe).toBe(403)
+    }
+    expect(db.payouts[0].status).toBe('proposed')
+  })
+
+  it('the payee cannot approve a payout to themselves', async () => {
+    expect((await step('u-admin2', PO(3), 'approve')).status).toBe(403)
+    expect(db.payouts[2].status).toBe('proposed')
+  })
+
+  it('submit moves approved -> submitted only (never settled), and refuses a proposed payout', async () => {
+    expect((await step('u-admin', PO(1), 'submit')).status).toBe(409)
+    expect((await step('u-ll', PO(2), 'submit')).status).toBe(403)
+    const res = await step('u-admin', PO(2), 'submit')
+    expect(res.status).toBe(200)
+    expect(db.payouts[1].status).toBe('submitted')
+    const upd = db.writes.find((w) => w.includes("SET status = 'submitted'"))!
+    expect(upd).toContain('settled_at = NULL')
+    expect(upd).toContain('partner_payout_id = NULL')
+  })
+
+  it('no session gives 401 on the payout routes', async () => {
+    production()
+    const res = await app.request(`/api/trust/payouts/${PO(1)}/approve`, { method: 'POST', body: '{}' })
+    expect(res.status).toBe(401)
   })
 })

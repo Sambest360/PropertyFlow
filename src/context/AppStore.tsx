@@ -1801,12 +1801,26 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const now = new Date().toISOString()
       const result = applyApprovePayout(inst, approver.id, now)
       if (result.ok === false) return { ok: false, error: result.error }
-      const updated = result.value
-      patch((s) => ({
-        ...s,
-        payoutInstructions: s.payoutInstructions.map((p) => (p.id === inst.id ? updated : p)),
-      }))
-      await persistUpsert('payout_instruction', inst.id, updated as unknown as Record<string, unknown>)
+      let updated = result.value
+      if (isApiEnabled) {
+        // Dual control is enforced server-side; never via generic persist.
+        const { postPayoutTransition } = await import('../lib/api/trustPayoutsApi')
+        const res = await postPayoutTransition(inst.id, 'approve')
+        if (res.ok === false) return { ok: false, error: res.error }
+        updated = { ...updated, ...res.instruction }
+        patch((s) => ({
+          ...s,
+          payoutInstructions: s.payoutInstructions.map((p) => (p.id === inst.id ? updated : p)),
+        }))
+      } else {
+        patch((s) => ({
+          ...s,
+          payoutInstructions: s.payoutInstructions.map((p) => (p.id === inst.id ? updated : p)),
+        }))
+        if (isSupabaseMode) {
+          await persistUpsert('payout_instruction', inst.id, updated as unknown as Record<string, unknown>)
+        }
+      }
       addActivity(
         `Payout approved (${(inst.amountCents / 100).toFixed(2)} ZAR) by ${approver.name}`,
         approver.name,
@@ -1825,13 +1839,26 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const now = new Date().toISOString()
       const result = applySubmitPayout(inst, actor.id, now)
       if (result.ok === false) return { ok: false, error: result.error }
-      const updated = result.value
+      let updated = result.value
       // Honesty: submitted ≠ settled; never invent partnerPayoutId.
-      patch((s) => ({
-        ...s,
-        payoutInstructions: s.payoutInstructions.map((p) => (p.id === inst.id ? updated : p)),
-      }))
-      await persistUpsert('payout_instruction', inst.id, updated as unknown as Record<string, unknown>)
+      if (isApiEnabled) {
+        const { postPayoutTransition } = await import('../lib/api/trustPayoutsApi')
+        const res = await postPayoutTransition(inst.id, 'submit')
+        if (res.ok === false) return { ok: false, error: res.error }
+        updated = { ...updated, ...res.instruction }
+        patch((s) => ({
+          ...s,
+          payoutInstructions: s.payoutInstructions.map((p) => (p.id === inst.id ? updated : p)),
+        }))
+      } else {
+        patch((s) => ({
+          ...s,
+          payoutInstructions: s.payoutInstructions.map((p) => (p.id === inst.id ? updated : p)),
+        }))
+        if (isSupabaseMode) {
+          await persistUpsert('payout_instruction', inst.id, updated as unknown as Record<string, unknown>)
+        }
+      }
       addActivity(
         `Payout submitted (in-app only — not settled) (${(inst.amountCents / 100).toFixed(2)} ZAR)`,
         actor.name,

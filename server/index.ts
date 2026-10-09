@@ -733,6 +733,33 @@ app.get('/api/counts', async (c) => {
   }
 })
 
+/**
+ * Payout dual control (approve / submit). The only path past `proposed`;
+ * generic persist only ever creates proposals. See server/payoutRoutes.ts.
+ */
+for (const step of ['approve', 'submit'] as const) {
+  app.post(`/api/trust/payouts/:id/${step}`, async (c) => {
+    if (!databaseConfigured) {
+      return c.json(
+        { error: 'database_unconfigured', message: databaseConfigError || 'DATABASE_URL is not set' },
+        503,
+      )
+    }
+    try {
+      const raw = await resolveRequestActor(c, null)
+      if (!raw) throw actorRequiredError()
+      const actor = await enrichActor(raw)
+      const { approvePayout, submitPayout } = await import('./payoutRoutes.js')
+      const id = c.req.param('id')
+      const result = step === 'approve' ? await approvePayout(actor, id) : await submitPayout(actor, id)
+      return c.json(result)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return c.json({ error: `payout_${step}_failed`, message }, errStatus(err))
+    }
+  })
+}
+
 /** Generic domain persist (RPC). AppStore fire-and-forgets here. */
 app.post('/api/persist', async (c) => {
   if (!databaseConfigured) {
