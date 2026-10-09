@@ -26,6 +26,7 @@ const users = [
   u('u-ll', 'landlord', 'ag-a'),
   u('u-ll2', 'landlord', 'ag-a'),
   u('u-con', 'contractor', null),
+  u('u-con2', 'contractor', null),
   u('u-james', 'ground_agent', 'ag-a'),
   u('u-admin', 'client_admin', 'ag-a'),
   u('u-admin-b', 'client_admin', 'ag-b'),
@@ -47,7 +48,25 @@ const app = (id: string, propertyId: string, who: string) => ({
   email: `${who}@x.test`,
   phone: `phone-${who}`,
   idNumberOrPassport: `ID-${who}`,
-  uploadedDocs: { id: { fileUrl: `https://files.test/${who}-id.pdf` } },
+  // Real bootstrap shape (server/bootstrap.ts hydrateDocumentsFromUploadedJson).
+  documents: [
+    {
+      key: 'id',
+      label: 'ID document',
+      status: 'uploaded',
+      note: `call ${who} on phone-${who}`,
+      file: {
+        name: `${who}-id.pdf`,
+        mimeType: 'application/pdf',
+        dataUrl: `data:application/pdf;base64,PACK-${who}`,
+        uploadedAt: '2026-10-01',
+        uploadedBy: who,
+      },
+    },
+    { key: 'payslip', label: 'Payslips', status: 'required' },
+  ],
+  docs: ['ID document'],
+  keyCollection: { location: 'Office', instructions: 'Bring ID', contactName: `${who} name`, contactPhone: `kc-phone-${who}` },
   stage: 'Submitted',
   income: 20000,
 })
@@ -107,7 +126,6 @@ const raw = {
     { id: 'V-namesake', agencyId: 'ag-a', propertyId: 'p-1', agentId: 'u-james', applicantName: 'u-t name', applicantEmail: 'namesake@x.test' },
   ],
   viewingSlots: [],
-  payments: [],
   propertyDocuments: [
     doc('D-pack-o', 'p-1', { applicationId: 'A-o', applicantName: 'u-o name', category: 'Other' }),
     doc('D-pack-t', 'p-1', { applicationId: 'A-t', applicantName: 'u-t name' }),
@@ -119,10 +137,29 @@ const raw = {
     doc('D-comp-p2', 'p-2', { category: 'Compliance' }),
     doc('D-up-t', 'p-1', { uploadedByUserId: 'u-t' }),
     doc('D-up-con', 'p-1', { uploadedByUserId: 'u-con', category: 'Inspection' }),
+    // Applicant pack linked to a lease: still pack (classified by type, not tenancyId).
+    doc('D-pack-lease-o', 'p-1', { tenancyId: 'TN-o', applicantName: 'u-o name', category: 'Other' }),
+    // Raw ID-type document with no applicant link: pack by source type.
+    doc('D-id-raw', 'p-1', { sourceType: 'ID', category: 'Other' }),
+    // Signed lease carrying the applicant's name: both lease parties keep it.
+    doc('D-signed-lease-o', 'p-1', { tenancyId: 'TN-o', applicantName: 'u-o name', category: 'Lease', sourceType: 'LEASE' }),
   ],
-  tickets: [{ id: 'TK-1', agencyId: 'ag-a', propertyId: 'p-1', assignedAgentId: null, contractorId: 'u-con', status: 'Assigned' }],
-  threads: [],
-  messages: [],
+  tickets: [
+    { id: 'TK-1', agencyId: 'ag-a', propertyId: 'p-1', assignedAgentId: null, contractorId: 'u-con', reportedByUserId: 'u-o', status: 'Assigned' },
+    { id: 'TK-t', agencyId: 'ag-a', propertyId: 'p-2', assignedAgentId: 'u-james', contractorId: 'u-con2', reportedByUserId: 'u-t', status: 'Assigned' },
+  ],
+  payments: [
+    { id: 'PAY-o', agencyId: 'ag-a', propertyId: 'p-1', partyUserId: 'u-o', partyName: 'u-o name', landlordVisible: true },
+    { id: 'PAY-t', agencyId: 'ag-a', propertyId: 'p-2', partyUserId: 'u-t', partyName: 'u-t name', landlordVisible: true },
+  ],
+  threads: [
+    { id: 'TH-con', agencyId: 'ag-a', propertyId: 'p-1', participantIds: ['u-con', 'u-james'] },
+    { id: 'TH-p1', agencyId: 'ag-a', propertyId: 'p-1', participantIds: ['u-o', 'u-james'] },
+  ],
+  messages: [
+    { id: 'M-con', threadId: 'TH-con', agencyId: 'ag-a' },
+    { id: 'M-p1', threadId: 'TH-p1', agencyId: 'ag-a' },
+  ],
   notifications: [],
   suiteAlerts: [{ id: 'SA-null', agencyId: null }, { id: 'SA-a', agencyId: 'ag-a' }],
   activities: [{ id: 'AC-null', agencyId: null }, { id: 'AC-a', agencyId: 'ag-a' }, { id: 'AC-b', agencyId: 'ag-b' }],
@@ -192,7 +229,7 @@ describe('portal own-rows rule: tenant who applied to a public listing', () => {
 
   it("no other person's email, phone, ID number or file link in those collections", () => {
     const json = collectionsJson(out)
-    for (const needle of ['u-o@', 'u-p@', 'namesake@', 'phone-u-o', 'phone-u-p', 'ID-u-o', 'u-o-id.pdf', 'D-pack-o', 'D-lease-o', 'x@x.test']) {
+    for (const needle of ['u-o@', 'u-p@', 'namesake@', 'phone-u-o', 'phone-u-p', 'ID-u-o', 'u-o-id.pdf', 'PACK-u-o', 'D-pack-o', 'D-lease-o', 'D-pack-lease-o', 'D-id-raw', 'D-signed-lease-o', 'x@x.test']) {
       expect(json).not.toContain(needle)
     }
   })
@@ -225,7 +262,6 @@ describe('portal own-rows rule: landlord', () => {
     expect(a.email).toBe('')
     expect(a.phone).toBe('')
     expect(a).not.toHaveProperty('idNumberOrPassport')
-    expect(a).not.toHaveProperty('uploadedDocs')
     const t = out.tenancies.find((x) => x.id === 'TN-o')!
     expect(t.tenantName).toBe('u-o name')
     expect(t.tenantUserId).toBe('u-o')
@@ -241,6 +277,7 @@ describe('portal own-rows rule: landlord', () => {
       'D-comp-p2',
       'D-lease-o',
       'D-lease-t',
+      'D-signed-lease-o',
       'D-title-p1',
       'D-tn-t',
       'D-up-con',
@@ -248,9 +285,35 @@ describe('portal own-rows rule: landlord', () => {
     ])
   })
 
+  it('application documents keep only the checklist: no file payload, dataUrl or note', () => {
+    for (const a of out.applications) {
+      expect(a.documents).toEqual([
+        { key: 'id', label: 'ID document', status: 'uploaded' },
+        { key: 'payslip', label: 'Payslips', status: 'required' },
+      ])
+    }
+    const json = JSON.stringify(out.applications)
+    expect(json).not.toContain('dataUrl')
+    expect(json).not.toContain('PACK-')
+    expect(json).not.toContain('-id.pdf')
+  })
+
+  it('application keyCollection.contactPhone is blanked', () => {
+    for (const a of out.applications) {
+      expect((a.keyCollection as Record<string, unknown>).contactPhone).toBe('')
+    }
+    expect(JSON.stringify(out.applications)).not.toContain('kc-phone-')
+  })
+
+  it('a pack document linked to a lease, and a raw ID-type document, are not sent', () => {
+    const got = ids(out.propertyDocuments)
+    expect(got).not.toContain('D-pack-lease-o')
+    expect(got).not.toContain('D-id-raw')
+  })
+
   it("no other person's email, phone, ID number or applicant file link in those collections", () => {
     const json = collectionsJson(out)
-    for (const needle of ['@x.test', 'phone-', 'ID-u-', '-id.pdf', 'D-pack-']) {
+    for (const needle of ['@x.test', 'phone-', 'ID-u-', '-id.pdf', 'PACK-', 'D-pack-', 'D-id-raw']) {
       expect(json).not.toContain(needle)
     }
   })
@@ -273,6 +336,55 @@ describe('portal own-rows rule: contractor', () => {
 
   it('propertyDocuments: only documents they uploaded', () => {
     expect(ids(out.propertyDocuments)).toEqual(['D-up-con'])
+  })
+
+  it('gets no payments, even on the job property', () => {
+    expect(out.payments).toEqual([])
+  })
+
+  it('threads only where they are a participant, and messages in those threads only', () => {
+    expect(ids(out.threads)).toEqual(['TH-con'])
+    expect(ids(out.messages)).toEqual(['M-con'])
+  })
+})
+
+describe('tenant tickets: own only', () => {
+  // An agency tenant (ticketInScope passes the agency check for them).
+  const out = run({ userId: 'u-t', role: 'tenant', agencyId: 'ag-a' })
+
+  it('a tenant gets only tickets they reported, not others on the applied-to listing', () => {
+    expect(ids(out.tickets)).toEqual(['TK-t'])
+  })
+
+  it("the users list adds only those tickets' reporters (not the assigned contractor)", () => {
+    const userIds = out.users.map((x) => x.id)
+    expect(userIds).toContain('u-t')
+    expect(userIds).not.toContain('u-con2')
+    expect(userIds).not.toContain('u-con')
+    expect(userIds).not.toContain('u-o')
+  })
+})
+
+describe('tenant compliance documents need an Active tenancy', () => {
+  const withStatus = (status: string) =>
+    run(
+      { userId: 'u-t', role: 'tenant', agencyId: null },
+      {
+        ...raw,
+        tenancies: raw.tenancies.map((t) => (t.id === 'TN-t' ? { ...t, status } : t)),
+      },
+    )
+
+  it('Active tenancy: unit compliance documents are included', () => {
+    expect(ids(withStatus('Active').propertyDocuments)).toContain('D-comp-p2')
+  })
+
+  it('Pending Move-In tenancy: no unit compliance documents', () => {
+    expect(ids(withStatus('Pending Move-In').propertyDocuments)).not.toContain('D-comp-p2')
+  })
+
+  it('Ended tenancy: no unit compliance documents', () => {
+    expect(ids(withStatus('Ended').propertyDocuments)).not.toContain('D-comp-p2')
   })
 })
 

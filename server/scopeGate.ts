@@ -719,14 +719,21 @@ const USER_REF_COLLECTIONS = [
 ] as const
 
 /** User ids referenced by the actor's already-scoped rows (names only are exposed for these). */
-export function referencedUserIds(filtered: BootstrapPayload): Set<string> {
+export function referencedUserIds(
+  filtered: BootstrapPayload,
+  actorRole?: string,
+): Set<string> {
   const ids = new Set<string>()
   for (const key of USER_REF_COLLECTIONS) {
     const rows = filtered[key]
     if (!Array.isArray(rows)) continue
+    // A tenant's tickets add only their reporters to the users list (not the
+    // assigned agent or contractor).
+    const fields: readonly string[] =
+      actorRole === 'tenant' && key === 'tickets' ? ['reportedByUserId'] : USER_REF_FIELDS
     for (const row of rows as Array<Record<string, unknown>>) {
       if (!row || typeof row !== 'object') continue
-      for (const f of USER_REF_FIELDS) {
+      for (const f of fields) {
         const v = row[f]
         if (typeof v === 'string' && v) ids.add(v)
       }
@@ -796,7 +803,7 @@ export function filterBootstrapUsersForActor(
   const ag = actor.agencyId
   const isStaff = AGENCY_STAFF_ROLES.has(actor.role)
   const manager = Boolean(ag) && actorManagesAgencyUsers(actor, self)
-  const related = referencedUserIds(filtered)
+  const related = referencedUserIds(filtered, actor.role)
   const out: BootstrapUser[] = []
   for (const u of all) {
     if (!u?.id) continue
@@ -837,18 +844,33 @@ export function redactLeadContact<T extends object>(row: T): T {
 }
 
 /**
- * Application with the applicant's contact + identity fields removed. Name,
- * stage, income and employment stay so a landlord can still do landlord review.
+ * Application with the applicant's contact + identity fields and pack files
+ * removed. Name, stage, income, employment and the document checklist
+ * (key / label / status only, no file, note or reviewer) stay so a landlord can
+ * still do landlord review. keyCollection.contactPhone is blanked.
  */
 export function redactApplicationContact<T extends object>(row: T): T {
   const {
     idNumberOrPassport: _id,
     uploadedDocs: _docs,
+    documents,
+    keyCollection,
     ...rest
   } = row as Row
   void _id
   void _docs
-  return { ...rest, email: '', phone: '' } as T
+  const out: Row = { ...rest, email: '', phone: '' }
+  if (Array.isArray(documents)) {
+    out.documents = (documents as Row[]).map((d) => ({
+      key: d?.key,
+      label: d?.label,
+      status: d?.status,
+    }))
+  }
+  if (keyCollection && typeof keyCollection === 'object') {
+    out.keyCollection = { ...(keyCollection as Row), contactPhone: '' }
+  }
+  return out as T
 }
 
 /** Viewing with the visitor's email removed (name kept). */
@@ -871,10 +893,25 @@ export function redactTenancyContact<T extends object>(row: T): T {
   } as T
 }
 
-/** Document sourced from an applicant pack (another person's file). */
-function isApplicantDocument(d: Row): boolean {
-  if (d.tenancyId) return false
-  return Boolean(d.applicationId) || Boolean(d.applicantName)
+/**
+ * Applicant-pack document (a person's own files), classified by type and
+ * category, never by whether it is linked to a lease:
+ * - source type ID (documents.category = 'ID', mapped to 'Other' in the FE),
+ *   whoever it belongs to;
+ * - any document tied to an applicant (applicationId or applicantName) whose
+ *   category is not 'Lease' — i.e. Other (payslips, bank statements, proof of
+ *   address, ID copies), Compliance (FICA), Title, Inspection, Marketing.
+ * The signed lease (category 'Lease') is the only applicant-linked document
+ * that is not pack: both lease parties are entitled to it.
+ */
+export const APPLICANT_PACK_SOURCE_TYPES: ReadonlySet<string> = new Set(['ID'])
+
+export function isApplicantPackDocument(d: Row): boolean {
+  if (typeof d.sourceType === 'string' && APPLICANT_PACK_SOURCE_TYPES.has(d.sourceType.toUpperCase())) {
+    return true
+  }
+  const applicantLinked = Boolean(d.applicationId) || Boolean(d.applicantName)
+  return applicantLinked && d.category !== 'Lease'
 }
 
 type PortalCollections = {
@@ -897,19 +934,22 @@ type PortalCollections = {
  * - tenancies: only their own (tenantUserId, or an unlinked lease created from
  *   their own application)
  * - propertyDocuments: documents they uploaded, documents linked to their own
- *   application or tenancy (incl. the lease PDF), and non-applicant Compliance
- *   documents on a property where they hold their own tenancy
+ *   application or tenancy (incl. the lease PDF), and non-pack Compliance
+ *   documents on a property where they hold their own Active tenancy
+ * - tickets: only tickets they reported (see filterBootstrapEntitiesForActor)
  *
  * Landlord (property scope = properties they own):
  * - leads / applications / viewings / tenancies on their own properties stay
  *   (owner portal landlord review, owner statement, rent roll, messaging a
- *   tenant on the book), with other people's email, phone, ID number and
- *   applicant-pack files removed. Names stay.
+ *   tenant on the book), with other people's email, phone, ID number,
+ *   key-collection phone and application document files removed. Names and
+ *   the document checklist status stay.
  * - propertyDocuments on their own properties, minus applicant-pack files.
  *
  * Contractor (property scope = properties with their jobs):
  * - no leads, applications, viewings or tenancies
  * - propertyDocuments: only documents they uploaded
+ * - no payments; threads only where they are a participant (+ their messages)
  */
 export function narrowPortalCollections(
   input: PortalCollections,
@@ -937,7 +977,7 @@ export function narrowPortalCollections(
         t.tenantUserId === actor.userId ? t : redactTenancyContact(t),
       ),
       propertyDocuments: (input.propertyDocuments as Row[]).filter(
-        (d) => d.uploadedByUserId === actor.userId || !isApplicantDocument(d),
+        (d) => d.uploadedByUserId === actor.userId || !isApplicantPackDocument(d),
       ),
     }
   }
@@ -964,7 +1004,11 @@ export function narrowPortalCollections(
       .flatMap((t) => [t.leaseDocumentId, (t.eSign as Row | null | undefined)?.leaseDocumentId])
       .filter((id): id is string => typeof id === 'string' && Boolean(id)),
   )
-  const tenancyPropertyIds = new Set(ownTenancies.map((t) => t.propertyId as string))
+  // Unit compliance documents only while the tenancy is Active (not Pending
+  // Move-In, not Ended).
+  const activeTenancyPropertyIds = new Set(
+    ownTenancies.filter((t) => t.status === 'Active').map((t) => t.propertyId as string),
+  )
   return {
     leads: (input.leads as Row[]).filter((l) => Boolean(email) && lc(l.email) === email),
     applications: ownApps,
@@ -981,9 +1025,9 @@ export function narrowPortalCollections(
       if (typeof d.id === 'string' && leaseDocIds.has(d.id)) return true
       return (
         d.category === 'Compliance' &&
-        !isApplicantDocument(d) &&
+        !isApplicantPackDocument(d) &&
         !d.tenancyId &&
-        tenancyPropertyIds.has(d.propertyId as string)
+        activeTenancyPropertyIds.has(d.propertyId as string)
       )
     }),
   }
@@ -1132,11 +1176,21 @@ function filterBootstrapEntitiesForActor(
     dealInScope(scope, { propertyId: x.propertyId, agentId: x.agentId, agencyId: x.agencyId }),
   )
   const tenancies = raw.tenancies.filter((x) => allowed.has(x.propertyId))
-  const tickets = raw.tickets.filter((t) => ticketInScope(scope, t))
+  const tickets = raw.tickets.filter((t) => {
+    // Tenants: only tickets they reported. Property scope alone would hand an
+    // applicant every ticket on a listing they applied to.
+    if (actor.role === 'tenant') {
+      const reporter = (t as { reportedByUserId?: string | null }).reportedByUserId
+      return Boolean(reporter) && reporter === actor.userId
+    }
+    return ticketInScope(scope, t)
+  })
   const payments = raw.payments.filter((p) => {
     if (actor.role === 'tenant') {
       return p.partyUserId === actor.userId
     }
+    // Contractors get no payment rows (their invoices are not payments).
+    if (actor.role === 'contractor') return false
     if (actor.role === 'landlord') {
       return p.landlordVisible && allowed.has(p.propertyId)
     }
@@ -1144,8 +1198,9 @@ function filterBootstrapEntitiesForActor(
   })
   const propertyDocuments = raw.propertyDocuments.filter((d) => allowed.has(d.propertyId))
   const threads = raw.threads.filter((th) => {
-    // Mode A: landlords/tenants see threads where they are participants (match client threadInScope).
-    if (actor.role === 'landlord' || actor.role === 'tenant') {
+    // Mode A: landlords/tenants/contractors see only threads where they are
+    // participants (match client threadInScope).
+    if (actor.role === 'landlord' || actor.role === 'tenant' || actor.role === 'contractor') {
       return th.participantIds.includes(actor.userId)
     }
     if (th.participantIds.includes(actor.userId)) return true

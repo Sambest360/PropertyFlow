@@ -804,6 +804,8 @@ export type PropertyDocument = {
   tenancyId?: string | null
   /** FE user id of the uploader, when known. */
   uploadedByUserId?: string | null
+  /** Raw backend document type (TITLE, ID, INVOICE, …) when loaded from Postgres. */
+  sourceType?: string | null
 }
 
 export type PropertyEventChange = {

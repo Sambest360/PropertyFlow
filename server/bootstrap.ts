@@ -1123,6 +1123,9 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     propertyId: mapProperty(d.unit_id as string | null) ?? '',
     name: d.name as string,
     category: docCategory(d.category as string),
+    // Raw documents.category (e.g. 'ID') — the FE category folds ID into Other;
+    // the scope gate classifies applicant-pack files by it.
+    sourceType: (d.category as string) ?? null,
     status: (d.status as string).toLowerCase(),
     uploadedAt: dateOnly(d.uploaded_at as Date | null) || dateOnly(d.created_at as Date),
     fileUrl: (d.storage_url as string) ?? undefined,
