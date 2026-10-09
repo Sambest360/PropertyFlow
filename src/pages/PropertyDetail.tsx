@@ -21,7 +21,6 @@ import { PropertyDocumentsPanel } from '../components/property-detail/PropertyDo
 import { PropertyMessagesPanel } from '../components/property-detail/PropertyMessagesPanel'
 import { PropertyHistoryTimeline } from '../components/property-detail/PropertyHistoryTimeline'
 import { PropertySyndicationPanel } from '../components/syndication/PropertySyndicationPanel'
-import { PropertyJourneyStrip } from '../components/property-detail/PropertyJourneyStrip'
 import { BuildingUnitsStrip } from '../components/property-detail/BuildingUnitsStrip'
 import { siblingUnitsInBuilding } from '../lib/buildingHierarchy'
 import {
@@ -720,17 +719,7 @@ export default function PropertyDetail() {
       )}
 
       {tab === 'history' && (
-        <div className="space-y-5">
-          <PropertyJourneyStrip
-            property={p}
-            slots={viewingSlots}
-            applications={apps}
-            tenancies={state.tenancies.filter((t) => t.propertyId === p.id)}
-            tickets={tickets}
-            payments={payments}
-          />
-          <PropertyHistoryTimeline events={events} propertyTitle={p.title} />
-        </div>
+        <PropertyHistoryTimeline events={events} propertyTitle={p.title} />
       )}
     </div>
   )
