@@ -4,13 +4,12 @@ import { createPortal } from 'react-dom'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { signOutAndRedirect } from '../../lib/auth/signOut'
-import { ACCOUNT_PASSWORD_PATH } from '../../lib/accountRoutes'
+import { ACCOUNT_PASSWORD_PATH, ACCOUNT_SIGNATURE_PATH } from '../../lib/accountRoutes'
 import { isApiEnabled } from '../../lib/api/config'
 import { resetPageTipsForUser } from '../../lib/pageTips'
 import { roleLabels } from '../../lib/permissions'
 import type { Permission, Role } from '../../types/domain'
 import { cn } from '../ui'
-import { ACCOUNT_SIGNATURE_PATH } from '../../lib/accountRoutes'
 
 const ICON_STROKE = 1.6
 const MENU_WIDTH_PX = 320
