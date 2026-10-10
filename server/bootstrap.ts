@@ -222,6 +222,12 @@ export function stripESignImages(eSign: unknown): Record<string, unknown> | null
   return out
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+/** P3a follow-up: uuid[] for `id = ANY($1::uuid[])` (index on units.id); non-uuids can never match. */
+export function unitIdsAsUuids(ids: string[]): string[] {
+  return ids.filter((id) => UUID_RE.test(id))
+}
+
 export async function buildBootstrap(opts?: {
   limits?: BootstrapLimits
   lite?: boolean
@@ -347,7 +353,7 @@ export async function buildBootstrap(opts?: {
       updated_at: Date
         }>(
           ...((unitIds
-            ? ['SELECT * FROM units WHERE id::text = ANY($1::text[])', [unitIds]]
+            ? ['SELECT * FROM units WHERE id = ANY($1::uuid[])', [unitIdsAsUuids(unitIds)]]
             : ['SELECT * FROM units ORDER BY created_at DESC LIMIT $1', [limits.units]]) as [string, unknown[]]),
         ),
       () =>

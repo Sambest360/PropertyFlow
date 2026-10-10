@@ -1,7 +1,9 @@
-/** P3a: listing photo limits (one place to raise them). */
-export const MAX_LISTING_PHOTOS = 8
+import { MAX_LISTING_PHOTOS, MAX_PHOTO_BYTES } from './photoLimits'
+
+/** P3a: listing photo limits come from photoLimits.ts (one place to raise them). */
+export { MAX_LISTING_PHOTOS }
 /** Refuse a photo still over this size after downscaling (data URL length). */
-export const MAX_LISTING_PHOTO_BYTES = 600 * 1024
+export const MAX_LISTING_PHOTO_BYTES = MAX_PHOTO_BYTES
 export const LISTING_PHOTO_TOO_LARGE =
   'This photo is still larger than 600 KB after resizing. Choose a smaller photo or crop it first.'
 export const NO_PHOTOS_YET = 'No photos yet'
