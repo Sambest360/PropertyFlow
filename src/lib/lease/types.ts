@@ -117,6 +117,8 @@ export type ESignRecordSignRequest = {
   signatureDataUrl?: string
   actorUserId?: string | null
   at?: string
+  /** CR10: the lease's stored eSign, so the mock can re-seed after a reload. */
+  stored?: Pick<LeaseESignState, 'envelopeId' | 'tenant' | 'landlord'> | null
 }
 
 export type ESignRecordSignResponse = {

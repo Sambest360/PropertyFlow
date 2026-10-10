@@ -332,6 +332,7 @@ export async function recordLeaseSignature(
     signatureDataUrl: input.signatureDataUrl,
     actorUserId: input.actorUserId,
     at: now,
+    stored: { envelopeId: prev.envelopeId, tenant: prev.tenant, landlord: prev.landlord },
   })
 
   if (!res.ok) {

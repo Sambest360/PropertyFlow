@@ -387,3 +387,25 @@ describe('CR10 part 4: exactly one lease_signed row per signing, same transactio
     ).rejects.toMatchObject({ status: 403, code: 'LEASE_SIGNED_SERVER_ONLY' })
   })
 })
+
+describe('CR10 part 6: sign after reload (mock) writes exactly one lease_signed row', () => {
+  it('a reloaded client sends the stored envelope plus its new landlord block: one row', async () => {
+    leaseESign = { ...baseESign(), status: 'partially_signed', tenant: { status: 'signed', signerUserId: 'u-t', method: 'drawn' } }
+    const { enforceStaffTenancyESign } = await import('./leaseSign.js')
+    const body = {
+      id: 'L-1',
+      action: 'upsert',
+      data: {
+        eSign: {
+          ...leaseESign,
+          status: 'completed',
+          landlord: { status: 'signed', method: 'drawn', signatureDataUrl: PNG, signerName: 'Owner', onBehalfConfirmation: "I am signing for Owner under the agency's mandate." },
+          events: [{ at: 'x', type: 'party_signed', party: 'landlord', summary: 'Signature recorded for Owner (test provider).' }],
+        },
+      },
+    }
+    await enforceStaffTenancyESign(STAFF as never, body)
+    expect(clientCalls.filter((c) => c.sql.includes("'lease_signed'"))).toHaveLength(1)
+    expect((body.data.eSign as Record<string, unknown>).status).toBe('completed')
+  })
+})

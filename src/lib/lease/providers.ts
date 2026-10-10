@@ -1,6 +1,6 @@
 /**
  * E-sign provider adapters (SigniFlow / DocuSign-shaped).
- * - MockDevESignProvider: records sign events locally — labeled non-production (FE soft-demo).
+ * - MockDevESignProvider: records sign events locally — labeled non-production (test provider).
  * - SigniFlow: browser calls /api/esign/* ; server holds ESIGN_SIGNIFLOW_* keys and does WorkFlow HTTP.
  *   Never VITE_ESIGN_SIGNIFLOW_*. Never invents signed-live.
  * - DocuSign: placeholder only (Mode A OUT).
@@ -16,7 +16,7 @@ import type {
   LeaseESignStatus,
 } from './types'
 
-/** In-memory mock envelope book (dev / tests). Cleared on reload. */
+/** In-memory mock envelope book (dev / tests). Cleared on reload; re-seeded from the stored eSign. */
 const mockEnvelopes = new Map<
   string,
   {
@@ -25,6 +25,19 @@ const mockEnvelopes = new Map<
     landlordSigned: boolean
   }
 >()
+
+/** Rebuild a mock envelope from the lease's stored eSign (no new storage). */
+export function mockEnvelopeFromStored(stored: NonNullable<ESignRecordSignRequest['stored']>): {
+  landlordRequired: boolean
+  tenantSigned: boolean
+  landlordSigned: boolean
+} {
+  return {
+    landlordRequired: Boolean(stored.landlord),
+    tenantSigned: stored.tenant?.status === 'signed',
+    landlordSigned: stored.landlord?.status === 'signed',
+  }
+}
 
 function deriveStatus(env: {
   landlordRequired: boolean
@@ -58,19 +71,26 @@ export class MockDevESignProvider implements ESignProvider {
       externalReference: envelopeId,
       status: 'sent',
       summary:
-        'Mock e-sign envelope created (dev provider — non-production, no partner API call).',
+        'Test signing envelope created (not a live provider).',
     }
   }
 
   async recordSign(request: ESignRecordSignRequest): Promise<ESignRecordSignResponse> {
-    const env = mockEnvelopes.get(request.envelopeId)
+    let env = mockEnvelopes.get(request.envelopeId)
+    // CR10 part 6: the map is browser memory, so after a reload (or for a lease
+    // issued in another session) re-seed it from the lease's stored eSign. The
+    // stored (server) envelope is the only authority; nothing new is stored.
+    if (!env && request.stored?.envelopeId === request.envelopeId) {
+      env = mockEnvelopeFromStored(request.stored)
+      mockEnvelopes.set(request.envelopeId, env)
+    }
     if (!env) {
       return {
         ok: false,
         provider: this.id,
         party: request.party,
         status: 'failed',
-        error: `Unknown mock envelope ${request.envelopeId}`,
+        error: 'This lease has no signing envelope yet. Issue the lease first.',
       }
     }
     if (request.party === 'tenant') env.tenantSigned = true
@@ -94,7 +114,7 @@ export class MockDevESignProvider implements ESignProvider {
       party: request.party,
       status,
       signedAt: at,
-      summary: `Mock recorded ${request.party} signature by ${request.signerName} (non-production).`,
+      summary: `Signature recorded for ${request.signerName} (test provider).`,
     }
   }
 }
@@ -194,7 +214,7 @@ export class SigniFlowESignProvider implements ESignProvider {
         nonProduction: false,
         status: 'failed',
         error:
-          'SigniFlow is not configured. Set ESIGN_PROVIDER=signiflow with ESIGN_SIGNIFLOW_API_KEY and ESIGN_SIGNIFLOW_API_URL on the server (partner keys required). Soft-demo uses mock.',
+          'SigniFlow is not configured. Set ESIGN_PROVIDER=signiflow with ESIGN_SIGNIFLOW_API_KEY and ESIGN_SIGNIFLOW_API_URL on the server (partner keys required). Signing in this environment uses the test provider; no signed copy is produced.',
       }
     }
   }
