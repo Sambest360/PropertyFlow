@@ -239,9 +239,9 @@ async function resolveUserUuidByEmail(email: unknown): Promise<string | null> {
  * Create an entity_id_map user entry fe → uuid, never moving or deleting an
  * existing one. Skips (console.warn, no throw — guest apply / staff create run
  * through here) when the fe is already mapped to a different uuid, when the
- * uuid already has another fe, or when the user is not in the write's agency.
+ * uuid already has another fe.
  */
-async function linkUserFeToUuid(feStr: string, uuid: string, clientUuid: string | null): Promise<void> {
+async function linkUserFeToUuid(feStr: string, uuid: string): Promise<void> {
   await ensureEntityMapTable()
   const existing = await query<{ backend_id: string }>(
     `SELECT backend_id::text FROM entity_id_map
@@ -252,18 +252,6 @@ async function linkUserFeToUuid(feStr: string, uuid: string, clientUuid: string 
   if (current === uuid) return
   if (current) {
     console.warn(`[entity_id_map] skip: user ${feStr} already mapped to ${current}, not moving to ${uuid}`)
-    return
-  }
-  if (!clientUuid) {
-    console.warn(`[entity_id_map] skip: no agency for new user mapping ${feStr}`)
-    return
-  }
-  const inAgency = await query<{ id: string }>(
-    `SELECT id::text AS id FROM users WHERE id = $1::uuid AND client_id = $2::uuid LIMIT 1`,
-    [uuid, clientUuid],
-  )
-  if (!inAgency[0]?.id) {
-    console.warn(`[entity_id_map] skip: user ${uuid} not in agency ${clientUuid}`)
     return
   }
   const ins = await query<{ frontend_id: string }>(
@@ -280,7 +268,6 @@ async function linkUserFeToUuid(feStr: string, uuid: string, clientUuid: string 
 async function resolveApplicantOrTenantUuid(opts: {
   userFeId?: unknown
   email?: unknown
-  clientUuid?: string | null
 }): Promise<string | null> {
   const feRaw = opts.userFeId
   if (feRaw != null && feRaw !== '') {
@@ -304,7 +291,7 @@ async function resolveApplicantOrTenantUuid(opts: {
   const fromEmail = await resolveUserUuidByEmail(opts.email)
   if (fromEmail && feRaw != null && feRaw !== '') {
     const feStr = str(feRaw)
-    if (!isUuid(feStr)) await linkUserFeToUuid(feStr, fromEmail, opts.clientUuid ?? null)
+    if (!isUuid(feStr)) await linkUserFeToUuid(feStr, fromEmail)
   }
   return fromEmail
 }
@@ -335,7 +322,15 @@ async function requireAgentId(fe: unknown, clientUuid: string | null): Promise<s
   const hit = rows[0]?.id
   if (hit) {
     // Never move/delete an existing entry; only create a new one in-agency.
-    await linkUserFeToUuid(feStr, hit, clientUuid)
+    // Agents carry client_id: only map an agent in this write's agency.
+    const inAgency = clientUuid
+      ? await query<{ id: string }>(
+          `SELECT id::text AS id FROM users WHERE id = $1::uuid AND client_id = $2::uuid LIMIT 1`,
+          [hit, clientUuid],
+        )
+      : []
+    if (inAgency[0]?.id) await linkUserFeToUuid(feStr, hit)
+    else console.warn(`[entity_id_map] skip: agent ${hit} not in agency ${clientUuid}`)
     return hit
   }
   throw Object.assign(new Error(`agent not resolved: ${feStr}`), { status: 400 })
@@ -1205,7 +1200,6 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
       : await resolveApplicantOrTenantUuid({
           userFeId: d.applicantUserId,
           email: d.email,
-          clientUuid: client,
         })
   let agent = await userId(d.agentId)
   if (!agent && !has('agentId') && !stored) {
@@ -1315,7 +1309,6 @@ async function upsertTenancy(feId: string, d: Record<string, unknown>): Promise<
   let tenant = await resolveApplicantOrTenantUuid({
     userFeId: d.tenantUserId,
     email: d.tenantEmail ?? d.email,
-    clientUuid: client,
   })
   const app = d.applicationId ? await resolveUuid('application', str(d.applicationId)) : null
   if (!tenant && app) {
@@ -1965,7 +1958,6 @@ export async function approveApplicationTx(params: {
       applicantId = await resolveApplicantOrTenantUuid({
         userFeId: t?.tenantUserId,
         email: metaEmail,
-        clientUuid: app.client_id,
       })
       if (applicantId) {
         await clientQuery(

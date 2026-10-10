@@ -112,12 +112,12 @@ describe('regression: guest apply and staff create still succeed', () => {
     expect(unitInsert![1][12]).toBe(AGENT)
   })
 
-  it('guest apply: email-resolved applicant outside the agency still resolves, no throw, no mapping', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+  it('guest apply / tenancy: unmapped tenant with no client_id gets a mapping again', async () => {
     resolveUuid.mockImplementation(async (et: string) =>
       et === 'agency' ? AGENCY : et === 'property' || et === 'unit' ? UNIT : null)
     query.mockImplementation(async (sql: string) => {
       if (sql.includes('LOWER(TRIM(email))')) return [{ id: AGENT }]
+      if (sql.includes('INSERT INTO entity_id_map')) return [{ frontend_id: 'u-guest-fe' }]
       return []
     })
     const { handlePersist } = await import('./writes.js')
@@ -126,7 +126,9 @@ describe('regression: guest apply and staff create still succeed', () => {
       data: { agencyId: 'ag-x', propertyId: 'p-x', tenantUserId: 'u-guest-fe', tenantEmail: 'g@x.test' },
     })
     expect(r.ok).toBe(true)
-    expect(mapWrites()).toEqual([])
-    warn.mockRestore()
+    const ins = mapWrites().find((c) => /INSERT INTO entity_id_map/.test(String(c[0])))
+    expect(ins![1]).toEqual(['u-guest-fe', AGENT])
+    expect(String(ins![0])).not.toMatch(/DO UPDATE/)
+    expect(mapWrites().filter((c) => /DELETE/.test(String(c[0])))).toEqual([])
   })
 })
