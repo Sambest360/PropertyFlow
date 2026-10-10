@@ -504,3 +504,27 @@ describe('CR10 fix 3: envelopeStatus as #80 (completed needs both parties)', () 
     expect(envelopeStatus('sent', { status: 'pending' }, { status: 'pending' })).toBe('sent')
   })
 })
+
+describe('CR10 fix 6 / B3: staff modal sign with no envelope = issue, then server stamp', () => {
+  it('issuing writes no lease_signed row; the following stamp writes exactly one', async () => {
+    leaseESign = undefined as never
+    const { enforceStaffTenancyESign } = await import('./leaseSign.js')
+    const issue = { id: 'L-1', action: 'upsert', data: { id: 'L-1', eSign: baseESign() } as Record<string, unknown> }
+    await enforceStaffTenancyESign(STAFF as never, issue)
+    expect(clientCalls.filter((c) => c.sql.includes("'lease_signed'"))).toHaveLength(0)
+    leaseESign = issue.data.eSign as Record<string, unknown>
+    const sign = {
+      id: 'L-1',
+      action: 'upsert',
+      data: {
+        id: 'L-1',
+        eSign: {
+          ...leaseESign,
+          landlord: { status: 'signed', method: 'drawn', signatureDataUrl: PNG, signerName: 'Owner', onBehalfConfirmation: "I am signing for Owner under the agency's mandate." },
+        },
+      } as Record<string, unknown>,
+    }
+    await enforceStaffTenancyESign(STAFF as never, sign)
+    expect(clientCalls.filter((c) => c.sql.includes("'lease_signed'"))).toHaveLength(1)
+  })
+})

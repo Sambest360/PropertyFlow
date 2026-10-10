@@ -46,3 +46,20 @@ export async function leaseSignatureSaved(
   const saved = await leaseSave.catch(() => false)
   return saved ? null : { code: LEASE_SIGNATURE_NOT_RECORDED, error: leaseSignatureNotRecordedMessage(audience) }
 }
+
+/**
+ * CR10 fix 6: a workflow-modal sign on a lease with no envelope first issues
+ * one through the existing issue path and waits for that save, so the sign
+ * that follows is stamped by the server sign function. Resolves to the lease
+ * with its envelope, or null (the sign is refused, the stage does not move).
+ */
+export async function ensureLeaseEnvelopeForSign<L extends { id: string; eSign?: { envelopeId?: string | null } | null }>(
+  lease: L,
+  deps: { issue: (lease: L) => Promise<L>; envelopeSave: (leaseId: string) => Promise<boolean> | undefined },
+): Promise<L | null> {
+  if (lease.eSign?.envelopeId) return lease
+  const issued = await deps.issue(lease)
+  if (!issued.eSign?.envelopeId) return null
+  const saved = await Promise.resolve(deps.envelopeSave(issued.id) ?? true).catch(() => false)
+  return saved ? issued : null
+}

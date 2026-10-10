@@ -161,7 +161,7 @@ import {
 } from '../lib/blockedApplicants'
 import type { PostgresBootstrap } from '../lib/api/postgresClient'
 import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
-import { leaseSignatureSaved } from '../lib/leaseSignatureOrdering'
+import { ensureLeaseEnvelopeForSign, leaseSignatureSaved } from '../lib/leaseSignatureOrdering'
 import { persistRefusalMessage } from '../lib/api/persistRefusal'
 import {
   bootstrapActorKey,
@@ -4418,7 +4418,25 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       ) {
         const party =
           transition.actionKey === 'LANDLORD_SIGNED' ? ('landlord' as const) : ('tenant' as const)
-        const lease = stateRef.current.tenancies.find((t) => t.applicationId === applicationId)
+        let lease = stateRef.current.tenancies.find((t) => t.applicationId === applicationId)
+        // CR10 fix 6: a staff modal sign on a lease with no envelope issues one
+        // through the existing issue path first, waits for that save, then
+        // stamps through the server sign function below. Never stage-only.
+        if (lease && !lease.eSign?.envelopeId && app.applicantUserId !== actorUserId) {
+          const withEnvelope = await ensureLeaseEnvelopeForSign(lease, {
+            issue: (l) => issueLeasePackageForTenancy(l, { userId: actorUserId, name: actorUser?.name }),
+            envelopeSave: (id) => leaseESignSaves.current.get(id),
+          })
+          if (withEnvelope) lease = withEnvelope
+          else {
+            return {
+              status: 'ERROR',
+              httpStatus: 422,
+              error: 'The lease signing envelope could not be issued. The signature was not recorded.',
+              code: 'LEASE_SIGNATURE_NOT_RECORDED',
+            } as PatchApplicationStatusResult
+          }
+        }
         // CR10: no stage-only signing. TENANT_SIGNED / LANDLORD_SIGNED carry
         // the sign dialog capture (drawn or own saved image, on-behalf
         // confirmation); MARK_LEASE_SIGNED is paper_mark. The server sign
@@ -4474,16 +4492,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             }
             void derived
           }
-        } else if (lease && !lease.eSign?.envelopeId) {
-          // The applicant cannot be marked signed without a signature on an
-          // envelope (the server refuses it); staff marking a paper lease
-          // signed continue as before.
-          if (app.applicantUserId === actorUserId) leaseSignSave = Promise.resolve(false)
-          // No envelope yet — issue package then continue workflow.
-          await issueLeasePackageForTenancy(lease, {
-            userId: actorUserId,
-            name: actorUser?.name,
-          })
+        } else if (lease) {
+          // No envelope (applicant cannot issue one): never stage-only.
+          leaseSignSave = Promise.resolve(false)
         }
       }
 
