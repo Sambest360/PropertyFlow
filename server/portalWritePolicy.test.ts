@@ -118,6 +118,10 @@ function answer(sqlRaw: string, params: unknown[] = []): unknown[] {
     return e ? [{ email: e }] : [{ email: null }]
   }
   if (/SELECT client_id FROM users WHERE id/.test(sql)) return [{ client_id: CA }]
+  if (sql.startsWith('SELECT metadata FROM leases WHERE id = $1::uuid FOR UPDATE')) {
+    const l = leases[String(params[0])]
+    return l ? [{ metadata: l.metadata }] : []
+  }
   if (sql.startsWith('SELECT client_id::text AS client_id, tenant_id::text AS tenant_id, landlord_id::text AS landlord_id, metadata FROM leases')) {
     const l = leases[String(params[0])]
     return l ? [{ client_id: CA, tenant_id: l.tenant, landlord_id: l.landlord, metadata: l.metadata }] : []
