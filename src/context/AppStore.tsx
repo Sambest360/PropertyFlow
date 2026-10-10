@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { applicationUploadPayload } from '../lib/applicationDocUpload'
 import { summarizeRooms } from '../lib/roomSummary'
 import type {
   Agency,
@@ -4067,7 +4068,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }))
       if (persisted) {
         const before = preUpload
-        void persistUpsert('application', applicationId, persisted as unknown as Record<string, unknown>).then(
+        const app = persisted as Application
+        void persistUpsert('application', applicationId, applicationUploadPayload(app, key, actor?.userId)).then(
           (ok) => {
             // A refused upload must not stay on screen as if it were saved.
             if (ok || !before) return
