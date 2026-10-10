@@ -6,14 +6,23 @@
  */
 import { actorHeaders } from './actorAuth'
 import { authHeaders } from './authClient'
+import type { DepositRefundRecord } from '../../types/domain'
+
+export type DepositTransitionStep =
+  | 'propose-release'
+  | 'approve-release'
+  | 'reject-release'
+  | 'cancel-release'
+  | 'refund'
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''
 
 export type DepositTransitionPatch = {
   id: string
-  status: 'release_proposed' | 'release_approved'
-  releaseProposedBy?: string
+  status: 'held' | 'release_proposed' | 'release_approved' | 'refunded'
+  releaseProposedBy?: string | null
   releaseApprovedBy?: string | null
+  refund?: DepositRefundRecord | null
   updatedAt: string
 }
 
@@ -23,7 +32,8 @@ export type DepositTransitionResult =
 
 export async function postDepositTransition(
   depositId: string,
-  step: 'propose-release' | 'approve-release',
+  step: DepositTransitionStep,
+  payload: Record<string, unknown> = {},
 ): Promise<DepositTransitionResult> {
   try {
     const res = await fetch(
@@ -32,7 +42,7 @@ export async function postDepositTransition(
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...actorHeaders(), ...authHeaders() },
         credentials: 'include',
-        body: '{}',
+        body: JSON.stringify(payload),
       },
     )
     const body = (await res.json().catch(() => ({}))) as {

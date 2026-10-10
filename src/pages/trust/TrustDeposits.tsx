@@ -13,6 +13,37 @@ import { PageHeader, Card, Badge, Button, EmptyState } from '../../components/ui
 import { DashboardPage } from '../../components/dashboard'
 import { FieldHelp } from '../../components/onboarding/FieldHelp'
 import { TRUST_MODE_A_COPY } from '../../lib/trust/modeA'
+import { DEPOSIT_REFUND_RECORDED_LABEL } from '../../lib/trust/depositDualControl'
+import type { DepositHolding } from '../../types/domain'
+
+const toCents = (zar: string) => Math.round(Number(zar || '0') * 100)
+
+/** Spec: only the proposer or a super admin may cancel a release (server enforces too). */
+export function canCancelDepositRelease(
+  deposit: Pick<DepositHolding, 'status' | 'releaseProposedBy'>,
+  user: { id: string; role?: string } | null | undefined,
+): boolean {
+  if (!user) return false
+  if (deposit.status !== 'release_proposed' && deposit.status !== 'release_approved') return false
+  return user.role === 'super_admin' || deposit.releaseProposedBy === user.id
+}
+
+/** Recorded refund split for one deposit (D2). Recorded only, never bank-confirmed. */
+export function RefundBreakdown({ refund }: { refund: NonNullable<DepositHolding['refund']> }) {
+  return (
+    <div className="text-[11px] leading-snug text-ink-500" data-testid="deposit-refund-breakdown">
+      <p className="font-medium text-ink">{DEPOSIT_REFUND_RECORDED_LABEL}</p>
+      <p>Held {formatCents(refund.heldCents)}</p>
+      <p>Interest (entered by staff) {formatCents(refund.interestCents)}</p>
+      <p>Deposit returned {formatCents(refund.refundedCents)}</p>
+      {refund.deductions.map((d, i) => (
+        <p key={i}>
+          Deduction: {d.reason} {formatCents(d.amountCents)}
+        </p>
+      ))}
+    </div>
+  )
+}
 
 function formatCents(cents: number): string {
   return formatZAR(cents / 100)
@@ -36,7 +67,7 @@ function statusTone(status: string): 'success' | 'warning' | 'danger' | 'info' |
     case 'release_approved':
       return 'warning'
     case 'refunded':
-      return 'success'
+      return 'neutral'
     case 'disputed':
       return 'danger'
     default:
@@ -57,6 +88,9 @@ export default function TrustDeposits() {
     upsertHeldDeposit,
     proposeDepositRelease,
     approveDepositRelease,
+    rejectDepositRelease,
+    cancelDepositRelease,
+    recordDepositRefund,
   } = useStore()
   const { user } = useAuth()
 
@@ -66,6 +100,11 @@ export default function TrustDeposits() {
   const [expectedZar, setExpectedZar] = useState('')
   const [heldZar, setHeldZar] = useState('')
   const [deadline, setDeadline] = useState('')
+  const [panel, setPanel] = useState<{ id: string; kind: 'reject' | 'refund' } | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
+  const [refundZar, setRefundZar] = useState('')
+  const [interestZar, setInterestZar] = useState('')
+  const [deductions, setDeductions] = useState<{ reason: string; zar: string }[]>([])
 
   const agencyId = user?.agencyId
 
@@ -136,6 +175,41 @@ export default function TrustDeposits() {
     setBusyId(null)
     setActionError(result.ok ? null : (result.error ?? 'Approve failed'))
   }
+
+  function openPanel(id: string, kind: 'reject' | 'refund') {
+    setPanel({ id, kind })
+    setRejectReason('')
+    setRefundZar('')
+    setInterestZar('')
+    setDeductions([])
+  }
+
+  async function finish(id: string, run: () => Promise<{ ok: boolean; error?: string }>, fallback: string) {
+    if (!user) return
+    setBusyId(id)
+    const result = await run()
+    setBusyId(null)
+    setActionError(result.ok ? null : (result.error ?? fallback))
+    if (result.ok) setPanel(null)
+  }
+
+  const handleReject = (id: string) =>
+    finish(id, () => rejectDepositRelease({ depositId: id, actorUserId: user!.id, reason: rejectReason }), 'Reject failed')
+  const handleCancel = (id: string) =>
+    finish(id, () => cancelDepositRelease({ depositId: id, actorUserId: user!.id }), 'Cancel failed')
+  const handleRefund = (id: string) =>
+    finish(
+      id,
+      () =>
+        recordDepositRefund({
+          depositId: id,
+          actorUserId: user!.id,
+          refundedCents: toCents(refundZar),
+          interestCents: toCents(interestZar),
+          deductions: deductions.map((d) => ({ reason: d.reason, amountCents: toCents(d.zar) })),
+        }),
+      'Recording the refund failed',
+    )
 
   return (
     <DashboardPage>
@@ -342,7 +416,7 @@ export default function TrustDeposits() {
                   </div>
                   <div className="col-span-2">
                     <Badge tone={statusTone(deposit.status)}>
-                      {deposit.status.replace(/_/g, ' ')}
+                      {deposit.status === 'refunded' ? 'Refund recorded' : deposit.status.replace(/_/g, ' ')}
                     </Badge>
                   </div>
                   <div className="col-span-1 text-sm">
@@ -383,10 +457,106 @@ export default function TrustDeposits() {
                         Awaiting a second user to approve (dual control)
                       </p>
                     )}
+                    {deposit.status === 'release_proposed' && !isProposer && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={busyId === deposit.id}
+                        onClick={() => openPanel(deposit.id, 'reject')}
+                        data-testid={`deposit-reject-${deposit.id}`}
+                      >
+                        Reject release
+                      </Button>
+                    )}
+                    {canCancelDepositRelease(deposit, user) && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={busyId === deposit.id}
+                        onClick={() => void handleCancel(deposit.id)}
+                        data-testid={`deposit-cancel-${deposit.id}`}
+                      >
+                        Cancel release
+                      </Button>
+                    )}
                     {deposit.status === 'release_approved' && (
-                      <p className="text-[11px] leading-snug text-ink-400">
-                        Release approved in-app — not a bank refund
-                      </p>
+                      <>
+                        <p className="text-[11px] leading-snug text-ink-400">
+                          Release approved in-app — not a bank refund
+                        </p>
+                        {deposit.releaseApprovedBy !== user?.id && (
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            disabled={busyId === deposit.id}
+                            onClick={() => openPanel(deposit.id, 'refund')}
+                            data-testid={`deposit-refund-${deposit.id}`}
+                          >
+                            Record refund
+                          </Button>
+                        )}
+                      </>
+                    )}
+                    {deposit.status === 'refunded' && deposit.refund && (
+                      <RefundBreakdown refund={deposit.refund} />
+                    )}
+                    {panel?.id === deposit.id && panel.kind === 'reject' && (
+                      <div className="flex flex-col gap-1">
+                        <textarea
+                          className="rounded border border-primary-200 p-1 text-xs"
+                          maxLength={500}
+                          placeholder="Reason (required)"
+                          value={rejectReason}
+                          onChange={(e) => setRejectReason(e.target.value)}
+                          data-testid={`deposit-reject-reason-${deposit.id}`}
+                        />
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          disabled={busyId === deposit.id || !rejectReason.trim()}
+                          onClick={() => void handleReject(deposit.id)}
+                        >
+                          Confirm reject
+                        </Button>
+                      </div>
+                    )}
+                    {panel?.id === deposit.id && panel.kind === 'refund' && (
+                      <div className="flex flex-col gap-1 text-xs" data-testid={`deposit-refund-form-${deposit.id}`}>
+                        <p className="text-ink-400">
+                          Held {formatCents(deposit.heldCents)}. Returned + deductions must equal held + interest.
+                        </p>
+                        <label>
+                          Deposit returned (R)
+                          <input className="w-full rounded border border-primary-200 p-1" inputMode="decimal" value={refundZar} onChange={(e) => setRefundZar(e.target.value)} />
+                        </label>
+                        <label>
+                          Interest (entered by staff) (R)
+                          <input className="w-full rounded border border-primary-200 p-1" inputMode="decimal" value={interestZar} onChange={(e) => setInterestZar(e.target.value)} />
+                        </label>
+                        {deductions.map((d, i) => (
+                          <div key={i} className="flex gap-1">
+                            <input
+                              className="flex-1 rounded border border-primary-200 p-1"
+                              placeholder="Deduction reason"
+                              value={d.reason}
+                              onChange={(e) => setDeductions((xs) => xs.map((x, j) => (j === i ? { ...x, reason: e.target.value } : x)))}
+                            />
+                            <input
+                              className="w-20 rounded border border-primary-200 p-1"
+                              inputMode="decimal"
+                              placeholder="R"
+                              value={d.zar}
+                              onChange={(e) => setDeductions((xs) => xs.map((x, j) => (j === i ? { ...x, zar: e.target.value } : x)))}
+                            />
+                          </div>
+                        ))}
+                        <Button variant="secondary" size="sm" onClick={() => setDeductions((xs) => [...xs, { reason: '', zar: '' }])}>
+                          Add deduction
+                        </Button>
+                        <Button variant="primary" size="sm" disabled={busyId === deposit.id} onClick={() => void handleRefund(deposit.id)}>
+                          Record refund (not bank-confirmed)
+                        </Button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -405,7 +575,8 @@ export default function TrustDeposits() {
       <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
         <strong>Dual control + statutory guidance:</strong> Propose and approve release must be
         different user ids. RHA s5(3) deadlines are compliance reminders — not a live interest feed
-        or bank settlement. release_approved ≠ refunded.
+        or bank settlement. release_approved ≠ refunded. A recorded refund is a record only — not
+        bank-confirmed.
       </div>
     </DashboardPage>
   )
