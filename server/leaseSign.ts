@@ -217,6 +217,22 @@ export async function stampLeaseSignature(input: StampInput): Promise<StampResul
 
   const accepted = status === 'signed'
   await withTransaction(async (client) => {
+    // CR10 N1: lock the lease row for this signing and re-check the stored
+    // envelope / party block under the lock (two signings can't both land).
+    const lockedRows = await clientQuery<{ metadata: Record<string, unknown> | null }>(
+      client,
+      `SELECT metadata FROM leases WHERE id = $1::uuid FOR UPDATE`,
+      [lease.id],
+    )
+    const lockedESign = asRow(lockedRows[0]?.metadata?.eSign)
+    const lockedParty = asRow(lockedESign?.[party])
+    if (
+      !lockedESign ||
+      String(lockedESign.envelopeId ?? '') !== String(stored.envelopeId ?? '') ||
+      (lockedParty && (lockedParty.status === 'signed' || lockedParty.status === 'declined'))
+    ) {
+      throw signError(409, 'SIGNATURE_CONFLICT', 'The lease changed while signing. Refresh and try again.')
+    }
     await clientQuery(
       client,
       `UPDATE leases

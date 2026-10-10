@@ -8,6 +8,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const query = vi.fn()
 const clientCalls: Array<{ sql: string; params: unknown[] }> = []
 let failOnUpdate = false
+let failOnInsert = false
+const lockCalls: string[] = []
+let lockedOverride: Record<string, unknown> | null = null
 
 vi.mock('./db.js', () => ({
   databaseConfigured: true,
@@ -20,7 +23,12 @@ vi.mock('./db.js', () => ({
     return out
   },
   clientQuery: async (client: { staged: typeof clientCalls }, sql: string, params: unknown[] = []) => {
+    if (sql.includes('FOR UPDATE')) {
+      lockCalls.push(sql)
+      return [{ metadata: { eSign: lockedOverride ?? leaseESign } }]
+    }
     if (failOnUpdate && sql.includes('UPDATE leases')) throw new Error('update failed')
+    if (failOnInsert && sql.includes('INSERT INTO event_log')) throw new Error('insert failed')
     client.staged.push({ sql, params })
     return []
   },
@@ -70,6 +78,9 @@ beforeEach(() => {
   sendLeaseSignedEmail.mockResolvedValue({ sent: true })
   clientCalls.length = 0
   failOnUpdate = false
+  failOnInsert = false
+  lockCalls.length = 0
+  lockedOverride = null
   leaseESign = baseESign()
   for (const k of Object.keys(storedSig)) delete storedSig[k]
   query.mockReset()
@@ -575,5 +586,19 @@ describe('CR10 B2b: a party match needs the party role too', () => {
     await expect(
       stamp({ userId: 'u-ll', role: 'agent', agencyId: 'ag-a' }, 'landlord', { status: 'signed', method: 'drawn', signatureDataUrl: PNG }),
     ).rejects.toMatchObject({ status: 403 })
+  })
+})
+
+describe('CR10 N1: the sign transaction locks the lease row', () => {
+  it('runs SELECT ... FOR UPDATE and refuses if the block was signed meanwhile (409, nothing committed)', async () => {
+    await stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', signatureDataUrl: PNG })
+    expect(lockCalls.some((q) => /FROM leases WHERE id = \$1::uuid FOR UPDATE/.test(q))).toBe(true)
+    clientCalls.length = 0
+    lockedOverride = { ...baseESign(), tenant: { status: 'signed', signerUserId: 'u-t' } }
+    await expect(stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', signatureDataUrl: PNG })).rejects.toMatchObject({
+      status: 409,
+      code: 'SIGNATURE_CONFLICT',
+    })
+    expect(clientCalls).toHaveLength(0)
   })
 })
