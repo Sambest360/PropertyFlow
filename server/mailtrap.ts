@@ -518,7 +518,7 @@ export async function sendLeaseEndReminder(input: {
     text: input.body,
     html: shell(
       input.title,
-      (input.name ? p(`Hi <strong>${input.name}</strong>,`) : '') +
+      (input.name ? p(`Hi <strong>${escapeLeaseHtml(input.name)}</strong>,`) : '') +
         input.body
           .split('\n')
           .filter(Boolean)

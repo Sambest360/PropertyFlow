@@ -31,6 +31,16 @@ const EASTER_HOLIDAYS: Record<number, [string, string]> = {
   2028: ['2028-04-14', '2028-04-17'],
 }
 
+/**
+ * One-off days declared under s2A of the Public Holidays Act (e.g. election days).
+ * s2A days are not known in advance: add each one here when it is proclaimed.
+ */
+const EXTRA_DATES: readonly string[] = [
+  // Local government elections. Proclamation Notice 346 of 2026, GG 55352 (8 Sep 2026),
+  // s2A Public Holidays Act; confirmed by gov.za Presidency statement 15 Sep 2026.
+  '2026-11-04',
+]
+
 export const SA_HOLIDAY_YEARS = [2026, 2027, 2028] as const
 
 function isoAddDays(iso: string, days: number): string {
@@ -49,10 +59,14 @@ function buildHolidaySet(): Set<string> {
     }
     for (const iso of EASTER_HOLIDAYS[year] ?? []) out.add(iso)
   }
+  for (const iso of EXTRA_DATES) out.add(iso)
   return out
 }
 
 export const SA_PUBLIC_HOLIDAYS: ReadonlySet<string> = buildHolidaySet()
+
+/** Last calendar date covered by the static list. */
+export const SA_HOLIDAY_LIST_END = `${SA_HOLIDAY_YEARS[SA_HOLIDAY_YEARS.length - 1]}-12-31`
 
 export function isSaPublicHoliday(iso: string): boolean {
   return SA_PUBLIC_HOLIDAYS.has(iso)

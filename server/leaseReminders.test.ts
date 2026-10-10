@@ -122,6 +122,7 @@ function fakeDb(opts: { leases: Lease[]; users?: User[]; failInsertFor?: string;
     batchQueries: 0,
     sql: [] as string[],
     deadUserMap: new Set<string>(),
+    agencyEnabled: {} as Record<string, string[]>,
   }
   const query = vi.fn(async (text: string, params: unknown[] = []) => {
     if (text === LEASE_BATCH_SQL) {
@@ -141,6 +142,10 @@ function fakeDb(opts: { leases: Lease[]; users?: User[]; failInsertFor?: string;
         .sort((a, b) => (a.id < b.id ? -1 : 1))
         .slice(0, 200)
         .map(({ status: _s, metadata: _m, ...rest }) => rest)
+    }
+    if (/FROM clients/.test(text)) {
+      const enabled = state.agencyEnabled[params[0] as string]
+      return enabled ? [{ enabled }] : []
     }
     if (/FROM users/.test(text)) {
       const [clientId, ids] = params as [string, string[]]
@@ -221,6 +226,44 @@ describe('saPublicHolidays', () => {
     const { readFileSync } = await import('node:fs')
     const src = readFileSync(new URL('./saPublicHolidays.ts', import.meta.url), 'utf8')
     expect(src).toMatch(/MUST BE EXTENDED BY 2028/)
+  })
+})
+
+describe('s2A extra dates', () => {
+  it('Election Day 2026-11-04 is a holiday and skipped in business-day counts', () => {
+    expect(isSaPublicHoliday('2026-11-04')).toBe(true)
+    expect(isSaBusinessDay('2026-11-04')).toBe(false)
+    // Mon 2 Nov -> Fri 6 Nov: Tue3, Thu5, Fri6 (Wed4 skipped) = 3
+    expect(saBusinessDaysBetween('2026-11-02', '2026-11-06')).toBe(3)
+  })
+})
+
+describe('sendLeaseEndReminder', () => {
+  it('escapes HTML in the recipient name', async () => {
+    vi.resetModules()
+    vi.doMock('nodemailer', () => ({
+      default: { createTransport: () => ({ sendMail: sendMailSpy }) },
+      createTransport: () => ({ sendMail: sendMailSpy }),
+    }))
+    const sendMailSpy = vi.fn(async () => ({ messageId: 'm1' }))
+    const env = { ...process.env }
+    process.env.ENABLE_EMAIL_LEASE_REMINDER = '1'
+    process.env.MAILTRAP_TRANSPORT = 'smtp'
+    process.env.MAILTRAP_SMTP_USER = 'u'
+    process.env.MAILTRAP_SMTP_PASS = 'p'
+    try {
+      const m = await import('./mailtrap.js')
+      await m.sendLeaseEndReminder({ email: 'a@example.com', name: '<b>Bob</b>', title: 'T', body: 'x <i>y</i>' })
+      expect(sendMailSpy).toHaveBeenCalledTimes(1)
+      const html = (sendMailSpy.mock.calls[0] as unknown as [{ html: string }])[0].html
+      expect(html).toContain('&lt;b&gt;Bob&lt;/b&gt;')
+      expect(html).not.toContain('<b>Bob</b>')
+      expect(html).toContain('x &lt;i&gt;y&lt;/i&gt;')
+    } finally {
+      process.env = env
+      vi.doUnmock('nodemailer')
+      vi.resetModules()
+    }
   })
 })
 
@@ -305,6 +348,24 @@ describe('runLeaseReminders', () => {
     expect(recipientsOf(state.notifications)).not.toContain(OTHER_LANDLORD)
     const l2 = state.notifications.filter((n) => n.link_path.endsWith('0002'))
     expect(recipientsOf(l2)).not.toContain(LANDLORD)
+  })
+
+  it('agency enabledPermissions without users.manage removes admin recipients', async () => {
+    const { state, deps } = fakeDb({ leases: [mkLease(1, 80)] })
+    state.agencyEnabled[AG] = ['leases.view']
+    await runLeaseReminders(deps)
+    expect(recipientsOf(state.notifications)).toEqual([AGENT, LANDLORD].sort())
+  })
+
+  it('warns when the run horizon passes the end of the holiday list', async () => {
+    const warn = vi.fn()
+    const { deps } = fakeDb({ leases: [] })
+    deps.warn = warn
+    await runLeaseReminders(deps)
+    expect(warn).not.toHaveBeenCalled()
+    deps.todayIso = () => '2028-10-01'
+    await runLeaseReminders(deps)
+    expect(warn).toHaveBeenCalledTimes(1)
   })
 
   it('agent must be in the same agency and round-trip resolve', async () => {

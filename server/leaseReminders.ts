@@ -17,6 +17,7 @@ import type pg from 'pg'
 import { effectiveCan } from '../src/lib/permissions.js'
 import type { Permission, Role } from '../src/types/domain.js'
 import {
+  SA_HOLIDAY_LIST_END,
   isoAddDays,
   saBusinessDaysBetween,
   subtractSaBusinessDays,
@@ -47,6 +48,7 @@ export type LeaseReminderDeps = {
   emailEnabled?: () => boolean
   todayIso?: () => string
   log?: (msg: string, err?: unknown) => void
+  warn?: (msg: string) => void
 }
 
 export type LeaseReminderResult = { ok: true; checked: number; created: number; skipped: number }
@@ -200,6 +202,11 @@ export async function runLeaseReminders(deps: LeaseReminderDeps): Promise<LeaseR
   const today = (deps.todayIso ?? (() => sastTodayIso()))()
   const horizon = isoAddDays(today, PREFILTER_CALENDAR_DAYS)
   const log = deps.log ?? defaultLog
+  if (horizon > SA_HOLIDAY_LIST_END) {
+    ;(deps.warn ?? ((m: string) => console.warn(m)))(
+      `[lease-reminders] SA public holiday list ends ${SA_HOLIDAY_LIST_END}; extend server/saPublicHolidays.ts (business days past it skip weekends only)`,
+    )
+  }
   let checked = 0
   let created = 0
   let cursor: string | null = null
@@ -229,6 +236,14 @@ async function resolveRecipients(lease: LeaseRow, deps: LeaseReminderDeps): Prom
         AND ((client_id = $1::uuid AND role IN ('AGENCY_ADMIN', 'AGENT_ADMIN')) OR id = ANY($2::uuid[]))`,
     [lease.client_id, ids],
   )
+  // Agency module pack (clients.settings.enabledPermissions) intersects admin permissions.
+  // Not persisted today (bootstrap sends null -> AppStore defaults), so absent = no restriction.
+  const clientRows = await deps.query<{ enabled: unknown }>(
+    `SELECT settings->'enabledPermissions' AS enabled FROM clients WHERE id = $1::uuid`,
+    [lease.client_id],
+  )
+  const agencyEnabledRaw = clientRows[0]?.enabled
+  const agencyEnabled = Array.isArray(agencyEnabledRaw) ? (agencyEnabledRaw as Permission[]) : undefined
   const out = new Map<string, UserRow>()
   const propertyInAgency =
     lease.unit_client_id === lease.client_id && lease.building_client_id === lease.client_id
@@ -245,7 +260,7 @@ async function resolveRecipients(lease: LeaseRow, deps: LeaseReminderDeps): Prom
       const can = effectiveCan(
         DB_TO_FE_ROLE[u.role],
         'users.manage',
-        undefined,
+        agencyEnabled,
         Array.isArray(enabled) ? (enabled as Permission[]) : undefined,
       )
       if (can) out.set(u.id, u)
