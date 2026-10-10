@@ -21,4 +21,8 @@ describe('shouldShowAddressLine (P2)', () => {
   it('a different address: shown', () => {
     expect(shouldShowAddressLine('Sea View Flat', '12 Main Rd')).toBe(true)
   })
+  it('matches whole words only: "12 Main Rd" is not hidden under "112 Main Rd"', () => {
+    expect(shouldShowAddressLine('112 Main Rd', '12 Main Rd')).toBe(true)
+    expect(shouldShowAddressLine('Sea View 12 Main Rd', '12 Main Rd')).toBe(false)
+  })
 })

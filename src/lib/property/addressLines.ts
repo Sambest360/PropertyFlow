@@ -12,5 +12,7 @@ export function shouldShowAddressLine(title: string | null | undefined, address:
   const a = normaliseAddressText(address)
   if (!a) return false
   const t = normaliseAddressText(title)
-  return !(a === t || t.includes(a))
+  if (a === t) return false
+  // Whole words only: "12 main rd" is not inside "112 main rd".
+  return !` ${t} `.includes(` ${a} `)
 }
