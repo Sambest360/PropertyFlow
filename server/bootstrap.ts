@@ -1,4 +1,5 @@
 import { query } from './db.js'
+import { readTicketAccessNotes, ticketAccessNotesColumnExists } from './ticketAccessNotes.js'
 import { isSafePhotoUrl } from '../src/lib/photoLimits.js'
 import { resolveFrontendRole } from '../src/lib/supabase/idMap.js'
 import { mapPool } from './mapPool.js'
@@ -1247,6 +1248,7 @@ export async function buildBootstrap(opts?: {
     openedAt: dateOnly(t.created_at as Date),
     openedAtIso: iso(t.created_at as Date),
     description: t.description as string,
+    accessNotes: readTicketAccessNotes(t),
     resolutionNotes: undefined as string | undefined,
     resolvedAt: iso(t.completed_at as Date | null),
     warrantyCovered: Boolean(t.warranty_covered),
@@ -1331,9 +1333,13 @@ export async function buildBootstrap(opts?: {
     }
   })
 
+  const ticketAccessNotesSupported = await ticketAccessNotesColumnExists()
+
   return {
     source: 'postgres',
     fetchedAt: new Date().toISOString(),
+    /** False until migration 013 adds maintenance_tickets.access_notes. */
+    ticketAccessNotesSupported,
     agencies,
     users: appUsers,
     buildings: mappedBuildings,

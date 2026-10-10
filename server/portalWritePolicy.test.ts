@@ -53,6 +53,7 @@ const UUID: Record<string, string> = {
   'TK-job': id(52),
   'TK-linked': id(53),
   'TK-staff': id(54),
+  'TK-pool': id(55),
   'L-pend': id(31),
   'L-ended': id(32),
   'L-cancel': id(33),
@@ -100,6 +101,11 @@ function resetModel() {
 
 function answer(sqlRaw: string, params: unknown[] = []): unknown[] {
   const sql = sqlRaw.replace(/\s+/g, ' ').trim()
+  if (sql.startsWith('SELECT contractor_id::text AS contractor_id FROM maintenance_tickets WHERE id')) {
+    if (params[0] === UUID['TK-job']) return [{ contractor_id: UUID['u-co'] }]
+    if (params[0] === UUID['TK-pool']) return [{ contractor_id: null }]
+    return []
+  }
   if (/^(UPDATE|INSERT|DELETE)\b/.test(sql)) {
     writes.push({ sql, params })
     return []
@@ -865,6 +871,23 @@ describe('tenant maintenance tickets: tenancy link and no-agency tenants', () =>
     const body: Body = { resource: 'ticket', action: 'upsert', id: 'TK-new', data: { propertyId: 'p-1', agencyId: 'ag-b', title: 'x' } }
     await expect403(gate(OTHER_AGENCY_STAFF, body))
     await expect(gate(STAFF, { resource: 'ticket', action: 'upsert', id: 'TK-new', data: { propertyId: 'p-1', agencyId: 'ag-zzz', title: 'x' } })).resolves.toEqual({})
+  })
+})
+
+describe('Jim #98: contractor access-notes writes', () => {
+  it('the assigned contractor keeps accessNotes on save', async () => {
+    const body = { resource: 'ticket', action: 'upsert' as const, id: 'TK-job', data: { status: 'In Progress', accessNotes: 'Gate 4411' } }
+    await gate(CONTRACTOR, body)
+    expect(body.data.accessNotes).toBe('Gate 4411')
+  })
+
+  it("an unassigned contractor's save drops accessNotes (stored value unchanged)", async () => {
+    const other = { resource: 'ticket', action: 'upsert' as const, id: 'TK-job', data: { status: 'In Progress', accessNotes: 'hijack' } }
+    await gate({ userId: 'u-co2', role: 'contractor', agencyId: 'ag-a' }, other).catch(() => undefined)
+    expect(other.data).not.toHaveProperty('accessNotes')
+    const pool = { resource: 'ticket', action: 'upsert' as const, id: 'TK-pool', data: { status: 'In Progress', accessNotes: 'hijack' } }
+    await gate(CONTRACTOR, pool).catch(() => undefined)
+    expect(pool.data).not.toHaveProperty('accessNotes')
   })
 })
 

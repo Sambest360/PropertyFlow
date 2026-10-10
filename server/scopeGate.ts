@@ -33,6 +33,7 @@ import {
 } from '../src/lib/scope.js'
 import { canWriteEntity } from '../src/lib/scopeWrite.js'
 import { tenantSeesTicket, tenantTicketTenancyIds, tenantTicketView } from '../src/lib/ticketTenantView.js'
+import { isStaffRole } from './requestActor.js'
 import type { PropertyAccessSubject } from '../src/lib/agencyScope.js'
 import type { Permission, Role } from '../src/types/domain.js'
 import { effectiveCan } from '../src/lib/permissions.js'
@@ -1905,7 +1906,9 @@ function filterBootstrapEntitiesForActor(
       ? raw.tickets
           .filter((t) => tenantSeesTicket(t as { reportedByUserId?: string | null; tenancyId?: string | null }, actorIds, ownTenancyIds))
           .map((t) => tenantTicketView(t as unknown as Record<string, unknown>, actorIds) as unknown as typeof t)
-      : raw.tickets.filter((t) => ticketInScope(scope, t))
+      : raw.tickets
+          .filter((t) => ticketInScope(scope, t))
+          .map((t) => staffTicketAccessNotes(t as unknown as Record<string, unknown>, actor.role, actorIds) as unknown as typeof t)
   const payments = raw.payments.filter((p) => {
     if (actor.role === 'tenant') {
       return p.partyUserId === actor.userId
@@ -2038,4 +2041,22 @@ function filterBootstrapEntitiesForActor(
     // matched through the round-trip actorIds (never email).
     supportTickets: (raw.supportTickets ?? []).filter((t) => actorIds.has(t.submittedByUserId)),
   }
+}
+
+/**
+ * Access notes (gate codes, pets) go to staff, the ticket's assigned
+ * contractor and the tenant who reported it (tenantTicketView). Everyone else
+ * in scope (landlords, other contractors) gets them stripped.
+ */
+export function staffTicketAccessNotes<T extends Record<string, unknown>>(
+  t: T,
+  role: string,
+  actorIds: ReadonlySet<string>,
+): T {
+  if (!('accessNotes' in t)) return t
+  if (isStaffRole(role)) return t
+  const contractor = t.contractorId
+  if (role === 'contractor' && typeof contractor === 'string' && contractor !== '' && actorIds.has(contractor)) return t
+  const { accessNotes: _drop, ...rest } = t
+  return rest as unknown as T
 }

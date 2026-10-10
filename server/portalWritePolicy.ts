@@ -544,6 +544,21 @@ export async function enforcePortalWritePolicy(
           const c = str(data.contractorId)
           if (c && c !== actor.userId) throw deny('cannot assign a job to someone else')
         }
+        // Access notes: only the ticket's assigned contractor may write them
+        // (not open-pool or anyone else's job); otherwise the stored value stays.
+        if (Object.prototype.hasOwnProperty.call(data, 'accessNotes')) {
+          const tUuid = await ticketUuid(body.id)
+          const row = tUuid
+            ? (
+                await query<{ contractor_id: string | null }>(
+                  `SELECT contractor_id::text AS contractor_id FROM maintenance_tickets WHERE id = $1::uuid`,
+                  [tUuid],
+                )
+              )[0]
+            : undefined
+          const me = await actorUuid(actor)
+          if (!me || !row?.contractor_id || row.contractor_id !== me) delete data.accessNotes
+        }
         return {} // assignment / claimable pool checked by ticketInScope
       }
       throw deny('not on the portal allow-list')

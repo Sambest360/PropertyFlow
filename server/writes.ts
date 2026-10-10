@@ -3,6 +3,7 @@
  * Accepts frontend demo IDs; resolves/registers UUIDs via entity_id_map.
  */
 import { query, withTransaction, clientQuery } from './db.js'
+import { assertTicketAccessNotes, ensureTicketAccessNotesColumn, writeTicketAccessNotes } from './ticketAccessNotes.js'
 import { isAcceptanceStatus, notifyAcceptedElsewhereServer } from './acceptedElsewhere.js'
 import {
   ensureEntityMapTable,
@@ -1595,6 +1596,7 @@ async function upsertTicket(
   d: Record<string, unknown>,
   actorUserId: string | null = null,
 ): Promise<string> {
+  assertTicketAccessNotes(d)
   const uuid = await ensureUuid('ticket', feId)
   const has = (k: string) => d[k] !== undefined
   // An existing ticket stays on its stored unit; client_id always comes from
@@ -1723,6 +1725,10 @@ async function upsertTicket(
       has('internalAssetId'),
     ],
   )
+    // Access notes (migration 013): same run / transaction as the ticket and
+    // the photo audit. Absent keeps the stored value; skipped while the column
+    // is missing. Uses only the column check cached below (no second connection).
+    await writeTicketAccessNotes(uuid, d, run)
     // Photos removed (count down, or any stored photo gone — a swap): audit
     // row in the same transaction (counts only, never image data).
     const kept = new Set(photoUrls)
@@ -1747,7 +1753,13 @@ async function upsertTicket(
     }
   }
 
-  if (photosSent) {
+  // Warm the access_notes column check BEFORE the transaction (pool max 1 on
+  // Vercel: a lookup inside it would wait on a second connection). Fails fast
+  // (503) if the check errors, never a silent drop. Safe after #89 too: no
+  // transaction is active yet for query() to join.
+  if (d.accessNotes !== undefined) await ensureTicketAccessNotesColumn()
+  // Photos or access notes: one transaction with the ticket row and the audit.
+  if (photosSent || d.accessNotes !== undefined) {
     await withTransaction((c) => write((sql, params) => clientQuery(c, sql, params)))
   } else {
     await write((sql, params) => query(sql, params))

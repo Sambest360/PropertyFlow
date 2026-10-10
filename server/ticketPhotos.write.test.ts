@@ -173,3 +173,48 @@ describe('upsertTicket photos', () => {
     expect(query.mock.calls.some((c) => String(c[0]).includes('INSERT INTO maintenance_tickets'))).toBe(false)
   })
 })
+
+describe('#98 access notes share the photo transaction', () => {
+  beforeEach(async () => {
+    const { resetTicketAccessNotesCache } = await import('./ticketAccessNotes.js')
+    resetTicketAccessNotesCache()
+    const base = query.getMockImplementation()!
+    query.mockImplementation(async (sql: string, p?: unknown[]) =>
+      String(sql).includes('information_schema') ? [{ ok: 1 }] : base(sql, p),
+    )
+  })
+
+  it('the notes UPDATE runs on the same transaction client as the ticket and the audit', async () => {
+    await persist({ photoUrls: ['https://cdn.example/1.jpg'], accessNotes: 'Gate 4411' })
+    expect(withTransaction).toHaveBeenCalledTimes(1)
+    const note = clientQuery.mock.calls.find((c) => String(c[1]).includes('SET access_notes'))
+    expect(note?.[0]).toBe(TX_CLIENT)
+    expect(note?.[2]).toEqual([TK, 'Gate 4411'])
+    expect(auditCall()?.[0]).toBe(TX_CLIENT)
+    expect(query.mock.calls.some((c) => String(c[0]).includes('SET access_notes'))).toBe(false)
+  })
+
+  it('a failing photo audit rolls back the notes write too', async () => {
+    const committed: string[] = []
+    withTransaction.mockImplementation(async (fn: (c: unknown) => Promise<unknown>) => {
+      const pending: string[] = []
+      clientQuery.mockImplementation(async (_c: unknown, sql: string, p?: unknown[]) => {
+        if (String(sql).includes("'ticket_photos_removed'")) throw new Error('audit failed')
+        pending.push(String(sql))
+        return answer(sql, p)
+      })
+      const out = await fn(TX_CLIENT) // throws before commit: pending discarded
+      committed.push(...pending)
+      return out
+    })
+    await expect(persist({ photoUrls: ['https://cdn.example/1.jpg'], accessNotes: 'Gate 4411' })).rejects.toThrow('audit failed')
+    expect(committed.some((s) => s.includes('SET access_notes'))).toBe(false)
+    expect(query.mock.calls.some((c) => String(c[0]).includes('SET access_notes'))).toBe(false)
+  })
+
+  it('notes without photos still use one transaction', async () => {
+    await persist({ accessNotes: 'Dog in yard' })
+    expect(withTransaction).toHaveBeenCalledTimes(1)
+    expect(clientQuery.mock.calls.some((c) => String(c[1]).includes('SET access_notes'))).toBe(true)
+  })
+})
