@@ -85,7 +85,7 @@ function drawLine(
 ) {
   const size = opts?.size ?? 10
   ensureSpace(ctx, size + 4)
-  ctx.page.drawText(text.slice(0, 110), {
+  ctx.page.drawText(text.length > 110 ? `${text.slice(0, 109)}…` : text, {
     x: MARGIN,
     y: ctx.y,
     size,
@@ -129,7 +129,10 @@ function drawTable(ctx: DrawCtx, labels: string[], rows: string[][], numeric: bo
     return s
   }
   const drawRow = (cells: string[], bold: boolean) => {
+    const before = ctx.page
     ensureSpace(ctx, size + 6)
+    // Repeat the header at the top of each new page.
+    if (!bold && ctx.page !== before) drawRow(labels, true)
     const font = bold ? ctx.bold : ctx.font
     cells.forEach((cell, i) => {
       const text = fit(font, cell)

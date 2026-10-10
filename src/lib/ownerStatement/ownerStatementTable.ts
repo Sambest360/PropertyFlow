@@ -3,6 +3,7 @@
  * on-screen column names and order. Read-only over OwnerStatementBook.
  */
 
+import { csvEscape } from '../csvEscape'
 import type { OwnerStatementBook, OwnerStatementLine, OwnerStatementPaymentLine } from './types'
 
 export type OwnerStatementColumnKey =
@@ -157,10 +158,6 @@ export function ownerStatementCellText(
   return typeof v === 'number' ? v.toFixed(2) : v
 }
 
-function csvEscape(v: string): string {
-  if (/[",\n\r]/.test(v)) return `"${v.replace(/"/g, '""')}"`
-  return v
-}
 
 /** CSV of the visible columns (same names and order as on screen) plus totals and footer. */
 export function ownerStatementTableToCsv(

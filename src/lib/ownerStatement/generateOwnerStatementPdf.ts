@@ -133,7 +133,10 @@ function drawTable(ctx: DrawCtx, labels: string[], rows: string[][], numeric: bo
     return s
   }
   const drawRow = (cells: string[], bold: boolean) => {
+    const before = ctx.page
     ensureSpace(ctx, size + 6)
+    // Repeat the header at the top of each new page.
+    if (!bold && ctx.page !== before) drawRow(labels, true)
     const font = bold ? ctx.bold : ctx.font
     cells.forEach((cell, i) => {
       const text = fit(font, cell)

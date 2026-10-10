@@ -20,6 +20,7 @@ import {
   isTenancyOnRentRollAsAt,
   remittanceAdapterFromEnv,
   rentRollToCsv,
+  RENT_ROLL_CSV_HEADER,
   RENT_ROLL_TABLE_COLUMNS,
   rentRollCellText,
   rentRollTableToCsv,
@@ -186,8 +187,19 @@ describe('rentRollToCsv', () => {
       payments: [],
     })
     const csv = rentRollToCsv(book)
-    expect(csv).toMatch(/As at 2026-10-01/)
-    expect(csv.split('\n')[0]).toMatch(/^Unit,Tenant,Owner,Status/)
+    const lines = csv.split('\n')
+    const header = lines[0].split(',')
+    // Shared columns first, in screen/PDF order, then the audit-only extras.
+    expect(header.slice(0, RENT_ROLL_TABLE_COLUMNS.length)).toEqual(RENT_ROLL_TABLE_COLUMNS.map((c) => c.label))
+    expect(header.slice(RENT_ROLL_TABLE_COLUMNS.length)).toEqual([
+      'Tenancy ID', 'Property ID', 'Owner ID', 'Tenant email', 'Address', 'Deposit', 'Rent due day', 'As at', 'Note',
+    ])
+    expect(lines[0]).toBe(RENT_ROLL_CSV_HEADER)
+    const totals = lines[lines.length - 1].split(',')
+    expect(totals[0]).toBe('Total')
+    expect(totals[header.indexOf('Deposit')]).toBe(book.totals.depositZar.toFixed(2))
+    expect(lines[1]).toContain(book.rows[0].tenantEmail)
+    expect(lines[1]).toContain('2026-10-01')
     expect(csv).toMatch(/not trust-audited/)
     expect(csv).toMatch(/Humewood B12/)
   })
@@ -343,7 +355,7 @@ describe('rent roll table (Reports tab)', () => {
     const screen = RENT_ROLL_TABLE_COLUMNS.map((c) => c.label)
     const book = buildRentRollAsAt({ ...base, tenancies: [tenancy()] })
     expect(rentRollTableToCsv(book.rows).split('\n')[0]).toBe(screen.join(','))
-    expect(rentRollToCsv(book).split('\n')[0]).toBe(screen.join(','))
+    expect(rentRollToCsv(book).split('\n')[0].startsWith(screen.join(',') + ',')).toBe(true)
     expect(rentRollPdfHeader()).toEqual(screen)
   })
 

@@ -3,6 +3,8 @@
  * CSV exports and the PDF table (CR2). Read-only over RentRollRow.
  */
 
+import { csvEscape } from '../csvEscape'
+export { csvEscape }
 import type { RentRollRow } from './types'
 
 export type RentRollColumnKey =
@@ -69,10 +71,6 @@ export function rentRollHeaderLabels(
   return RENT_ROLL_TABLE_COLUMNS.filter((c) => visible.includes(c.key)).map((c) => c.label)
 }
 
-export function csvEscape(v: string): string {
-  if (/[",\n\r]/.test(v)) return `"${v.replace(/"/g, '""')}"`
-  return v
-}
 
 /** CSV of the visible columns, same names and order as on screen. */
 export function rentRollTableToCsv(
