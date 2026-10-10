@@ -13,6 +13,7 @@ import {
   type EntityType,
 } from './entityMap.js'
 import { SUB_FE_TO_UUID } from './idMap.js'
+import { resolveTicketLease } from './ticketLease.js'
 import { resolveLiveListing } from './listingResolve.js'
 import { supabaseAuthConfigured } from './supabase/env.js'
 
@@ -1536,13 +1537,36 @@ async function upsertPayment(feId: string, d: Record<string, unknown>): Promise<
 
 async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<string> {
   const uuid = await ensureUuid('ticket', feId)
-  const client = await clientId(d.agencyId)
-  const unit = await unitIdFromProperty(d.propertyId ?? d.unitId)
+  const has = (k: string) => d[k] !== undefined
+  // An existing ticket stays on its stored unit; client_id always comes from
+  // the unit, never from the payload agencyId.
+  const stored = (
+    await query<{ unit_id: string; lease_id: string | null }>(
+      `SELECT unit_id::text AS unit_id, lease_id::text AS lease_id FROM maintenance_tickets WHERE id = $1::uuid`,
+      [uuid],
+    )
+  )[0]
+  const unit = stored?.unit_id ?? (await unitIdFromProperty(d.propertyId ?? d.unitId))
   if (!unit) throw new Error('ticket requires propertyId')
+  const unitRow = (
+    await query<{ client_id: string | null }>(
+      `SELECT client_id::text AS client_id FROM units WHERE id = $1::uuid`,
+      [unit],
+    )
+  )[0]
+  if (!unitRow?.client_id) {
+    throw Object.assign(new Error('ticket unit not found'), { status: 400, code: 'TICKET_UNIT_UNKNOWN' })
+  }
+  const client = unitRow.client_id
+  // Tenancy link (lease_id): absent keeps the stored link; null / '' unlinks.
+  const tenancySent = has('tenancyId')
+  const lease =
+    tenancySent && d.tenancyId
+      ? await resolveTicketLease(str(d.tenancyId), unit, client, stored?.lease_id ?? null)
+      : null
   const reported = await userId(d.reportedByUserId)
   // Absent assignment / cost / status / priority / warranty (a tenant's own
   // ticket has them stripped) keep the stored values on update.
-  const has = (k: string) => d[k] !== undefined
   const assignSent = has('assignedAgentId') || has('assignedTo')
   const assigned = await userId(d.assignedAgentId ?? d.assignedTo)
   const contractor = await userId(d.contractorId)
@@ -1554,17 +1578,18 @@ async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<s
     `INSERT INTO maintenance_tickets (
        id, client_id, unit_id, asset_id, reported_by, assigned_to, contractor_id,
        category_key, title, description, priority, status, warranty_covered,
-       escalated_at, cost_estimate, cost_actual, photos, completed_at, updated_at
+       escalated_at, cost_estimate, cost_actual, photos, completed_at, lease_id, updated_at
      ) VALUES (
        $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid,
        -- A new ticket without an assignment (tenant-reported) goes to the unit's agent.
        CASE WHEN $19::boolean THEN $6::uuid ELSE (SELECT u.agent_id FROM units u WHERE u.id = $3::uuid) END,
        $7::uuid,
        $8, $9, $10, $11, $12, $13,
-       $14::timestamptz, $15, $16, $17::jsonb, $18::timestamptz, NOW()
+       $14::timestamptz, $15, $16, $17::jsonb, $18::timestamptz, $25::uuid, NOW()
      )
      ON CONFLICT (id) DO UPDATE SET
        asset_id = EXCLUDED.asset_id,
+       lease_id = CASE WHEN $26::boolean THEN EXCLUDED.lease_id ELSE maintenance_tickets.lease_id END,
        assigned_to = CASE WHEN $19::boolean THEN EXCLUDED.assigned_to ELSE maintenance_tickets.assigned_to END,
        contractor_id = CASE WHEN $20::boolean THEN EXCLUDED.contractor_id ELSE maintenance_tickets.contractor_id END,
        category_key = EXCLUDED.category_key,
@@ -1604,6 +1629,8 @@ async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<s
       has('cost'),
       has('priority'),
       has('warrantyCovered'),
+      lease,
+      tenancySent,
     ],
   )
   return uuid

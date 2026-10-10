@@ -730,6 +730,11 @@ export type MaintenanceTicket = {
   assetLabel: string
   reportedBy: string
   reportedByUserId: string | null
+  /**
+   * Tenancy (lease) this ticket is for, when staff raise it for a tenant or a
+   * tenant files it on their own lease. Stored as maintenance_tickets.lease_id.
+   */
+  tenancyId?: string | null
   title: string
   priority: 'Low' | 'Medium' | 'High' | 'Urgent' | 'Emergency'
   status: 'Requested' | 'In Progress' | 'Awaiting Parts' | 'Completed' | 'Cancelled'

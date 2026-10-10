@@ -748,6 +748,8 @@ type StoreContextValue = {
     actorUserId: string
     request: CreateTicketRequest
     propertyId?: string
+    /** Staff: the tenancy this ticket is for (server validates the link). */
+    tenancyId?: string | null
   }) => CreateTicketResult
   updateTicket: (id: string, patch: Partial<MaintenanceTicket>) => void
   assignContractorToTicket: (params: {
@@ -6271,7 +6273,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       notifyMaintenanceOpened(notify, state.users, ticket, prop, ticket.reportedByUserId)
       return ticket
     },
-    createMaintenanceTicket: ({ actorUserId, request, propertyId }) => {
+    createMaintenanceTicket: ({ actorUserId, request, propertyId, tenancyId }) => {
       const actor = state.users.find((u) => u.id === actorUserId)
       if (!actor) return { status: 'ERROR', error: 'User context unauthorized', httpStatus: 401 }
 
@@ -6305,6 +6307,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         warrantyCovered,
         assetLabel: asset?.itemName ?? request.title,
       })
+      if (tenancyId) ticket.tenancyId = tenancyId
 
       patch((s) => ({ ...s, tickets: [ticket, ...s.tickets] }))
       addActivity(

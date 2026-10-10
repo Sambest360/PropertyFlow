@@ -200,6 +200,12 @@ export function ticketInScope(
   ticket: Pick<MaintenanceTicket, 'propertyId' | 'assignedAgentId' | 'contractorId' | 'agencyId'>,
 ): boolean {
   const { viewer } = scope
+  // Tenants (incl. no-agency public tenants): property book only, no
+  // canSeeAgency — mirrors dealInScope. Their book comes from their own
+  // applications / tenancies; own-ticket rules live in portalWritePolicy.
+  if (viewer.role === 'tenant') {
+    return scope.allowedPropertyIds.has(ticket.propertyId)
+  }
   if (!canSeeAgency(viewer.role, viewer.agencyId, viewer.agencySuspended, ticket.agencyId)) {
     return false
   }
@@ -215,7 +221,7 @@ export function ticketInScope(
       ticket.assignedAgentId === viewer.userId
     )
   }
-  if (viewer.role === 'landlord' || viewer.role === 'tenant') {
+  if (viewer.role === 'landlord') {
     return scope.allowedPropertyIds.has(ticket.propertyId)
   }
   return scope.agencyWide || scope.allowedPropertyIds.has(ticket.propertyId)

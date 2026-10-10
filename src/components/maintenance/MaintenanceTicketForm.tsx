@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import type { PropertyAsset } from '../../types/domain'
+import type { PropertyAsset, Tenancy } from '../../types/domain'
 import type { InternalAsset, LookupConfig } from '../../data/infrastructure'
 import type { MaintenanceTicket } from '../../types/domain'
 import { PropertySearchPicker } from '../PropertySearchPicker'
@@ -11,6 +11,13 @@ export const ISSUE_TAGS = ['leak', 'no hot water', 'electrical', 'access', 'safe
 
 type Priority = MaintenanceTicket['priority']
 
+/** Tenancies staff may link a new ticket to: Active or Pending Move-In on the property. */
+export function linkableTenancies(tenancies: Tenancy[], propertyId: string): Tenancy[] {
+  return tenancies.filter(
+    (t) => t.propertyId === propertyId && (t.status === 'Active' || t.status === 'Pending Move-In'),
+  )
+}
+
 export type CreateTicketInput = {
   propertyId: string
   title: string
@@ -19,6 +26,8 @@ export type CreateTicketInput = {
   categoryKey: string
   assetId: string | null
   contractorId?: string | null
+  /** Staff: tenancy (Active / Pending Move-In on this property) the ticket is for. */
+  tenancyId?: string | null
   locationDetail?: string
   accessNotes?: string
   preferredSchedule?: string
@@ -55,6 +64,7 @@ export function MaintenanceTicketForm({
   onSubmitCreate,
   onSubmitEdit,
   error,
+  tenancies,
 }: {
   mode: 'create' | 'edit'
   properties: PropertyAsset[]
@@ -68,6 +78,8 @@ export function MaintenanceTicketForm({
   onSubmitCreate?: (input: CreateTicketInput) => void
   onSubmitEdit?: (input: EditTicketInput) => void
   error?: string | null
+  /** Staff create: tenancies to offer in the optional "For tenant" select. */
+  tenancies?: Tenancy[]
 }) {
   const [propertyId, setPropertyId] = useState(initialPropertyId ?? ticket?.propertyId ?? '')
   const [title, setTitle] = useState(ticket?.title ?? '')
@@ -84,6 +96,7 @@ export function MaintenanceTicketForm({
   )
   const [issueTags, setIssueTags] = useState<string[]>(ticket?.issueTags ?? [])
   const [photoUrls, setPhotoUrls] = useState<string[]>(ticket?.photoUrls ?? [])
+  const [tenancyId, setTenancyId] = useState('')
 
   useEffect(() => {
     if (mode === 'create' && initialPropertyId) setPropertyId(initialPropertyId)
@@ -95,6 +108,12 @@ export function MaintenanceTicketForm({
     () => assets.filter((a) => a.unitId && a.unitId === unitId),
     [assets, unitId],
   )
+
+  const tenancyOptions = useMemo(
+    () => (mode === 'create' && tenancies ? linkableTenancies(tenancies, propertyId) : []),
+    [mode, tenancies, propertyId],
+  )
+  const linkedTenancyId = tenancyOptions.some((t) => t.id === tenancyId) ? tenancyId : ''
 
   const toggleTag = (tag: string) => {
     setIssueTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]))
@@ -112,6 +131,7 @@ export function MaintenanceTicketForm({
         categoryKey: category,
         assetId: assetId || null,
         contractorId: contractorId || null,
+        ...(linkedTenancyId ? { tenancyId: linkedTenancyId } : {}),
         locationDetail: locationDetail.trim() || undefined,
         accessNotes: accessNotes.trim() || undefined,
         preferredSchedule: preferredSchedule.trim() || undefined,
@@ -164,6 +184,28 @@ export function MaintenanceTicketForm({
             />
           )}
         </div>
+      ) : null}
+
+      {mode === 'create' && tenancyOptions.length > 0 ? (
+        <label className="block text-sm font-medium text-ink sm:col-span-2">
+          For tenant (optional)
+          <Select
+            className="mt-1.5 min-h-11"
+            value={linkedTenancyId}
+            onChange={(e) => setTenancyId(e.target.value)}
+            aria-label="For tenant"
+          >
+            <option value="">No tenant — agency only</option>
+            {tenancyOptions.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.tenantName} · {t.status}
+              </option>
+            ))}
+          </Select>
+          <span className="mt-1 block text-xs font-normal text-ink-500">
+            The tenant sees this ticket and its status in their portal (not costs, quotes or staff notes).
+          </span>
+        </label>
       ) : null}
 
       <label className="block text-sm font-medium text-ink sm:col-span-2">

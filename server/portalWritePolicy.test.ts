@@ -51,6 +51,13 @@ const UUID: Record<string, string> = {
   'TK-mine': id(50),
   'TK-other': id(51),
   'TK-job': id(52),
+  'TK-linked': id(53),
+  'TK-staff': id(54),
+  'L-pend': id(31),
+  'L-ended': id(32),
+  'L-cancel': id(33),
+  'L-unit2': id(34),
+  'L-otherag': id(35),
   'VW-mine': id(60),
   'VW-other': id(61),
   'VS-1': id(70),
@@ -156,7 +163,45 @@ function answer(sqlRaw: string, params: unknown[] = []): unknown[] {
     return [{ id: String(params[0]), unit_id: UN1, client_id: CA, agent_id: UUID['u-agent'] }]
   }
   if (sql.includes('FROM payments WHERE id')) return [{ unit_id: UN1, client_id: CA, party_user_id: UUID['u-t'] }]
+  // Tenant maintenance tickets: unit agency, stored ticket link, leases.
+  if (sql.startsWith('SELECT client_id::text AS client_id FROM units WHERE id')) {
+    return params[0] === UN1 || params[0] === UN2 ? [{ client_id: CA }] : []
+  }
+  if (sql.startsWith('SELECT unit_id::text AS unit_id, lease_id::text AS lease_id FROM maintenance_tickets')) {
+    const t = TICKET_LEASE[String(params[0])]
+    return t ? [t] : []
+  }
+  if (sql.startsWith('SELECT lease_id::text AS lease_id FROM maintenance_tickets')) {
+    const t = TICKET_LEASE[String(params[0])]
+    return t ? [{ lease_id: t.lease_id }] : []
+  }
+  if (sql.startsWith('SELECT unit_id::text AS unit_id, client_id::text AS client_id, status FROM leases')) {
+    const l = LEASE_ROWS[String(params[0])]
+    return l ? [l] : []
+  }
+  if (sql.includes("FROM entity_id_map WHERE entity_type = 'tenancy'")) {
+    const fe = FE_BY_UUID.get(String(params[0]))
+    return fe ? [{ frontend_id: fe }] : []
+  }
+  if (sql.startsWith('SELECT id::text AS id FROM leases WHERE unit_id = $1::uuid AND tenant_id = $2::uuid')) {
+    return params[0] === UN1 && params[1] === UUID['u-t'] ? [{ id: UUID['L-1'] }] : []
+  }
   return []
+}
+
+/** Stored ticket → unit / lease link (maintenance_tickets.lease_id). */
+const TICKET_LEASE: Record<string, { unit_id: string; lease_id: string | null }> = {
+  [UUID['TK-mine']]: { unit_id: UN1, lease_id: null },
+  [UUID['TK-linked']]: { unit_id: UN1, lease_id: UUID['L-1'] },
+}
+/** leases rows by uuid: unit, agency, status. */
+const LEASE_ROWS: Record<string, { unit_id: string; client_id: string; status: string }> = {
+  [UUID['L-1']]: { unit_id: UN1, client_id: CA, status: 'ACTIVE' },
+  [UUID['L-pend']]: { unit_id: UN1, client_id: CA, status: 'PENDING' },
+  [UUID['L-ended']]: { unit_id: UN1, client_id: CA, status: 'ENDED' },
+  [UUID['L-cancel']]: { unit_id: UN1, client_id: CA, status: 'CANCELLED' },
+  [UUID['L-unit2']]: { unit_id: UN2, client_id: CA, status: 'ACTIVE' },
+  [UUID['L-otherag']]: { unit_id: UN1, client_id: id(2), status: 'ACTIVE' },
 }
 
 beforeEach(() => {
@@ -682,5 +727,102 @@ describe('#83 (Angela 7f151bb / Michael): tickets from the staff /new form, prio
     void STAFF
     expect(ticketInsert()[10]).toBe('EMERGENCY')
     expect(ticketInsert()[11]).toBe('OPEN')
+  })
+})
+
+describe('tenant maintenance tickets: tenancy link and no-agency tenants', () => {
+  const NO_AGENCY_TENANT = { userId: 'u-t', role: 'tenant', agencyId: null }
+  const STAFF = { userId: 'u-agent', role: 'client_admin', agencyId: 'ag-a' }
+
+  function noAgencyUsers() {
+    const base = query.getMockImplementation()!
+    query.mockImplementation(async (sql: string, params?: unknown[]) =>
+      /SELECT client_id FROM users WHERE id/.test(sql) ? [{ client_id: null }] : base(sql, params),
+    )
+  }
+
+  it('a tenant with no agency can file a ticket on their own property', async () => {
+    noAgencyUsers()
+    // The client sends the unit's agency (AppStore createMaintenanceTicket).
+    const body: Body = { resource: 'ticket', action: 'upsert', id: 'TK-new', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', title: 'Leak' } }
+    await expect(gate(NO_AGENCY_TENANT, body)).resolves.toEqual({})
+  })
+
+  it('a tenant with no agency still cannot file outside their book', async () => {
+    noAgencyUsers()
+    const body: Body = { resource: 'ticket', action: 'upsert', id: 'TK-new', data: { propertyId: 'p-2', reportedByUserId: 'u-t', title: 'Leak' } }
+    await expect403(gate(NO_AGENCY_TENANT, body))
+  })
+
+  it("a new tenant ticket is stamped with the tenant's own lease on the unit", async () => {
+    resolveUuid.mockImplementation(async (_t: string, fe: string) => (fe === 'p-1' ? UN1 : (UUID[fe] ?? null)))
+    const body: Body = { resource: 'ticket', action: 'upsert', id: 'TK-new', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', title: 'Leak' } }
+    await gate(TENANT, body)
+    expect((body.data as Record<string, unknown>).tenancyId).toBe('L-1')
+  })
+
+  it("a tenant cannot file a ticket on someone else's tenancy", async () => {
+    resolveUuid.mockImplementation(async (_t: string, fe: string) => (fe === 'p-1' ? UN1 : (UUID[fe] ?? null)))
+    const body: Body = { resource: 'ticket', action: 'upsert', id: 'TK-new', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', tenancyId: 'L-pend' } }
+    await expect403(gate(TENANT, body))
+  })
+
+  it('point 5: a tenant cannot change tenancyId after create', async () => {
+    const move: Body = { resource: 'ticket', action: 'upsert', id: 'TK-mine', data: { propertyId: 'p-1', reportedByUserId: 'u-t', tenancyId: 'L-1' } }
+    await expect403(gate(TENANT, move))
+    // Re-sending the stored link (none) is no change and is dropped.
+    const same: Body = { resource: 'ticket', action: 'upsert', id: 'TK-mine', data: { propertyId: 'p-1', reportedByUserId: 'u-t', tenancyId: null, title: 'Leak' } }
+    await expect(gate(TENANT, same)).resolves.toEqual({})
+    expect(same.data).not.toHaveProperty('tenancyId')
+  })
+
+  async function staffPersist(data: Record<string, unknown>, id = 'TK-staff') {
+    resolveUuid.mockImplementation(async (_t: string, fe: string) => (fe === 'p-1' ? UN1 : fe === 'p-2' ? UN2 : (UUID[fe] ?? null)))
+    const { handlePersist } = await import('./writes.js')
+    return handlePersist({ resource: 'ticket', action: 'upsert', id, data } as never)
+  }
+  const insertParams = () =>
+    query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO maintenance_tickets'))![1] as unknown[]
+
+  it('staff link to an Active or Pending tenancy on the unit is stored as lease_id', async () => {
+    await staffPersist({ propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-agent', title: 'Geyser', tenancyId: 'L-1' })
+    expect(insertParams()[24]).toBe(UUID['L-1'])
+    expect(insertParams()[25]).toBe(true)
+    query.mockClear()
+    await staffPersist({ propertyId: 'p-1', agencyId: 'ag-a', title: 'Geyser', tenancyId: 'L-pend' })
+    expect(insertParams()[24]).toBe(UUID['L-pend'])
+  })
+
+  it('point 3: a staff link to an Ended or Cancelled tenancy is refused (400)', async () => {
+    for (const tenancyId of ['L-ended', 'L-cancel']) {
+      await expect(staffPersist({ propertyId: 'p-1', agencyId: 'ag-a', title: 'Geyser', tenancyId })).rejects.toMatchObject({ status: 400 })
+    }
+  })
+
+  it('an unchanged link to a lease that has since ended stays valid', async () => {
+    LEASE_ROWS[UUID['L-1']].status = 'ENDED'
+    try {
+      await expect(staffPersist({ propertyId: 'p-1', title: 'Geyser', tenancyId: 'L-1' }, 'TK-linked')).resolves.toBeTruthy()
+    } finally {
+      LEASE_ROWS[UUID['L-1']].status = 'ACTIVE'
+    }
+  })
+
+  it('a tenancy on another unit, in another agency, or unknown is a 400', async () => {
+    for (const tenancyId of ['L-unit2', 'L-otherag', 'L-nope', id(99)]) {
+      await expect(staffPersist({ propertyId: 'p-1', agencyId: 'ag-a', title: 'Geyser', tenancyId })).rejects.toMatchObject({ status: 400 })
+    }
+  })
+
+  it('point 2: client_id comes from the unit, never the payload agencyId', async () => {
+    await staffPersist({ propertyId: 'p-1', agencyId: 'ag-zzz', clientId: id(2), title: 'Geyser' })
+    expect(insertParams()[1]).toBe(CA)
+  })
+
+  it('point 2: the write gate takes a ticket agency from the property, not the payload', async () => {
+    const OTHER_AGENCY_STAFF = { userId: 'u-x', role: 'client_admin', agencyId: 'ag-b' }
+    const body: Body = { resource: 'ticket', action: 'upsert', id: 'TK-new', data: { propertyId: 'p-1', agencyId: 'ag-b', title: 'x' } }
+    await expect403(gate(OTHER_AGENCY_STAFF, body))
+    await expect(gate(STAFF, { resource: 'ticket', action: 'upsert', id: 'TK-new', data: { propertyId: 'p-1', agencyId: 'ag-zzz', title: 'x' } })).resolves.toEqual({})
   })
 })
