@@ -4,6 +4,7 @@
  */
 
 import type { Role } from '../../types/domain'
+import { AUTH_USER_STORAGE_KEY } from '../clientCache'
 
 export const ACTOR_USER_HEADER = 'X-User-Id'
 export const ACTOR_ROLE_HEADER = 'X-Role'
@@ -15,7 +16,7 @@ export type DemoActor = {
   agencyId: string | null
 }
 
-const AUTH_KEY = 'propertyflow-auth-user'
+const AUTH_KEY = AUTH_USER_STORAGE_KEY
 
 let currentActor: DemoActor | null = null
 

@@ -11,9 +11,16 @@ import {
   type RentRollBook,
   type RentRollPdfResult,
 } from './types'
+import { RENT_ROLL_TABLE_COLUMNS, rentRollCellText, rentRollHeaderLabels } from './rentRollTable'
 
-const PAGE_W = 595.28
-const PAGE_H = 841.89
+/** PDF table header: the same labels, in the same order, as the screen and CSV. */
+export function rentRollPdfHeader(): string[] {
+  return rentRollHeaderLabels()
+}
+
+// Landscape so all rent roll columns fit (CR2).
+const PAGE_W = 841.89
+const PAGE_H = 595.28
 const MARGIN = 48
 
 function zar(amount: number): string {
@@ -78,7 +85,7 @@ function drawLine(
 ) {
   const size = opts?.size ?? 10
   ensureSpace(ctx, size + 4)
-  ctx.page.drawText(text.slice(0, 110), {
+  ctx.page.drawText(text.length > 110 ? `${text.slice(0, 109)}…` : text, {
     x: MARGIN,
     y: ctx.y,
     size,
@@ -111,6 +118,34 @@ function rule(ctx: DrawCtx) {
   ctx.y -= 12
 }
 
+
+/** CR2: draw a real table; labels come from the same column list as screen and CSV. */
+function drawTable(ctx: DrawCtx, labels: string[], rows: string[][], numeric: boolean[] = []) {
+  const size = 7
+  const colW = (PAGE_W - 2 * MARGIN) / Math.max(1, labels.length)
+  const fit = (font: PDFFont, t: string) => {
+    let s = t
+    while (s.length > 1 && font.widthOfTextAtSize(s, size) > colW - 4) s = s.slice(0, -2) + '…'
+    return s
+  }
+  const drawRow = (cells: string[], bold: boolean) => {
+    const before = ctx.page
+    ensureSpace(ctx, size + 6)
+    // Repeat the header at the top of each new page.
+    if (!bold && ctx.page !== before) drawRow(labels, true)
+    const font = bold ? ctx.bold : ctx.font
+    cells.forEach((cell, i) => {
+      const text = fit(font, cell)
+      const w = font.widthOfTextAtSize(text, size)
+      const x = MARGIN + i * colW + (numeric[i] && !bold ? colW - 4 - w : 0)
+      ctx.page.drawText(text, { x, y: ctx.y, size, font, color: ctx.black })
+    })
+    ctx.y -= size + 5
+  }
+  drawRow(labels, true)
+  for (const r of rows) drawRow(r, false)
+}
+
 function renderBook(ctx: DrawCtx, book: RentRollBook) {
   drawLine(ctx, 'RENT ROLL (AS-AT)', { size: 16, bold: true })
   drawLine(ctx, 'PropertyFlow - point-in-time in-app book', { size: 9, color: ctx.muted })
@@ -139,13 +174,12 @@ function renderBook(ctx: DrawCtx, book: RentRollBook) {
   if (book.rows.length === 0) {
     drawLine(ctx, 'No tenancies on roll for this as-at date.', { size: 9, color: ctx.muted })
   } else {
-    for (const r of book.rows) {
-      drawWrapped(
-        ctx,
-        `${r.propertyTitle} | ${r.tenantName} | ${r.status} | rent ${zar(r.rentZar)} | arrears ${zar(r.arrearsZar)} | ${r.startDate}${r.endDate ? ` -> ${r.endDate}` : ''}`,
-        { size: 8, width: 98 },
-      )
-    }
+    drawTable(
+      ctx,
+      rentRollPdfHeader(),
+      book.rows.map((r) => RENT_ROLL_TABLE_COLUMNS.map((c) => rentRollCellText(r, c.key))),
+      RENT_ROLL_TABLE_COLUMNS.map((c) => Boolean(c.numeric)),
+    )
   }
   rule(ctx)
 

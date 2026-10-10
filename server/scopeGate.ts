@@ -90,7 +90,9 @@ async function loadPropertyRows(cache: Awaited<ReturnType<typeof loadIdMapCache>
       fePropertyFromUnitCache(cache, r.unit_id) ?? UNIT_TO_PROPERTY[r.unit_id] ?? r.unit_id
     const agencyId = feAgencyFromCache(cache, r.client_id) ?? CLIENT_TO_AGENCY[r.client_id] ?? r.client_id
     const agentId = feUserFromCache(cache, r.agent_id)
-    const landlordId = feUserFromCache(cache, r.landlord_id) ?? 'u-owner1'
+    // A building with a NULL or unmapped landlord_id has no landlord — never
+    // hand it to a demo owner (was 'u-owner1'). Staff scope still lists it.
+    const landlordId = feUserFromCache(cache, r.landlord_id) ?? null
     return { id, agencyId, agentId, landlordId }
   })
 }

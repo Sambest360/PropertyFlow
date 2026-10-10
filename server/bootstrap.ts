@@ -220,7 +220,13 @@ export function stripESignImages(eSign: unknown): Record<string, unknown> | null
   return out
 }
 
-export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: boolean }) {
+export async function buildBootstrap(opts?: {
+  limits?: BootstrapLimits
+  lite?: boolean
+  /** P3a: read only these units by id (no row window). */
+  unitIds?: string[]
+}) {
+  const unitIds = opts?.unitIds
   const lite = Boolean(opts?.lite)
   const baseLimits = lite ? LITE_BOOTSTRAP_LIMITS : DEFAULT_BOOTSTRAP_LIMITS
   const limits = { ...baseLimits, ...opts?.limits }
@@ -331,7 +337,11 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
       geocoded_at: Date | null
       created_at: Date
       updated_at: Date
-        }>('SELECT * FROM units ORDER BY created_at DESC LIMIT $1', [limits.units]),
+        }>(
+          ...((unitIds
+            ? ['SELECT * FROM units WHERE id::text = ANY($1::text[])', [unitIds]]
+            : ['SELECT * FROM units ORDER BY created_at DESC LIMIT $1', [limits.units]]) as [string, unknown[]]),
+        ),
       () =>
         skipHeavy
           ? Promise.resolve([] as Array<{

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { MAX_LISTING_PHOTOS, MAX_LISTING_PHOTO_BYTES, listingPhotosLabel } from '../../lib/listingPhotos'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Building2,
@@ -1007,10 +1008,11 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
               </div>
             </div>
             <ImageDropzone
-              label="Listing photos"
+              label={listingPhotosLabel(draft.buildingImages.length)}
               value={draft.buildingImages}
               onChange={(buildingImages) => setDraft((d) => ({ ...d, buildingImages }))}
-              max={12}
+              max={MAX_LISTING_PHOTOS}
+              maxBytes={MAX_LISTING_PHOTO_BYTES}
               reorderable
             />
           </WizardSectionCard>
