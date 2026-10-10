@@ -466,6 +466,12 @@ export async function enforcePortalWritePolicy(
           if ((str(data.tenancyId) ?? null) !== storedFe) throw deny('tenancyId cannot change after create')
           delete data.tenancyId
         }
+        // Photos on an existing ticket are staff-owned (staff may add or remove
+        // them); a tenant save keeps the stored photos (absent = keep).
+        if (rows[0]) {
+          delete data.photoUrls
+          delete data.photos
+        }
         const stored = rows[0]
           ? (
               await query<{ priority: string | null; created_at: Date | string | null; unit_id: string | null; asset_id: string | null }>(

@@ -15,6 +15,7 @@ import {
 } from './entityMap.js'
 import { SUB_FE_TO_UUID } from './idMap.js'
 import { resolveTicketLease } from './ticketLease.js'
+import { checkTicketPhotos } from '../src/lib/photoLimits.js'
 import { resolveLiveListing } from './listingResolve.js'
 import { supabaseAuthConfigured } from './supabase/env.js'
 import {
@@ -345,6 +346,8 @@ async function unitIdFromProperty(propertyId: unknown): Promise<string | null> {
 
 export async function handlePersist(
   body: PersistBody,
+  /** Acting user (front-end id or uuid) for audit rows written by the upsert. */
+  actorUserId?: string | null,
 ): Promise<{ ok: true; id: string; uuid: string; tempPassword?: string }> {
   await ensureEntityMapTable()
   const { resource, action, id, data = {} } = body
@@ -365,7 +368,7 @@ export async function handlePersist(
       ? { ok: true, id, uuid: res.uuid, tempPassword: res.generatedTempPassword }
       : { ok: true, id, uuid: res.uuid }
   }
-  const uuid = await upsertEntity(resource, id, data)
+  const uuid = await upsertEntity(resource, id, data, actorUserId ?? null)
   return { ok: true, id, uuid }
 }
 
@@ -435,6 +438,7 @@ async function upsertEntity(
   resource: EntityType,
   frontendId: string,
   data: Record<string, unknown>,
+  actorUserId: string | null = null,
 ): Promise<string> {
   switch (resource) {
     case 'agency':
@@ -463,7 +467,7 @@ async function upsertEntity(
     case 'payment':
       return upsertPayment(frontendId, data)
     case 'ticket':
-      return upsertTicket(frontendId, data)
+      return upsertTicket(frontendId, data, actorUserId)
     case 'document':
       return upsertDocument(frontendId, data)
     case 'notification':
@@ -1587,7 +1591,11 @@ async function upsertPayment(feId: string, d: Record<string, unknown>): Promise<
   return uuid
 }
 
-async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<string> {
+async function upsertTicket(
+  feId: string,
+  d: Record<string, unknown>,
+  actorUserId: string | null = null,
+): Promise<string> {
   assertTicketAccessNotes(d)
   const uuid = await ensureUuid('ticket', feId)
   const has = (k: string) => d[k] !== undefined
@@ -1627,7 +1635,36 @@ async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<s
   const status = TICKET_STATUS_TO_DB[str(d.status, 'Open')] ?? 'OPEN'
   const priority = TICKET_PRI_TO_DB[str(d.priority, 'Medium')] ?? 'MEDIUM'
 
-  await query(
+  // Photos: photoUrls, or photos when it is an array of strings (a numeric
+  // photos is only the client's count). Absent keeps the stored photos; an
+  // explicit [] clears them. Invalid images are a 400, never dropped.
+  const photoSource = Array.isArray(d.photoUrls) ? d.photoUrls : Array.isArray(d.photos) ? d.photos : null
+  const photosSent = photoSource !== null
+  let photoUrls: string[] = []
+  if (photoSource) {
+    const checked = checkTicketPhotos(photoSource)
+    if (checked.ok === false) {
+      throw Object.assign(new Error(`Invalid ticket photo: ${checked.reason}`), {
+        status: 400,
+        code: 'TICKET_PHOTO_INVALID',
+      })
+    }
+    photoUrls = checked.urls
+  }
+  const actorUuid = photosSent ? await userId(actorUserId) : null
+
+  const write = async (run: (sql: string, params: unknown[]) => Promise<unknown[]>) => {
+    let storedPhotos: string[] = []
+    if (photosSent) {
+      const rows = (await run(
+        `SELECT photos FROM maintenance_tickets WHERE id = $1::uuid FOR UPDATE`,
+        [uuid],
+      )) as Array<{ photos: unknown }>
+      const p = rows[0]?.photos
+      storedPhotos = Array.isArray(p) ? p.filter((u): u is string => typeof u === 'string') : []
+    }
+    const before = storedPhotos.length
+    await run(
     `INSERT INTO maintenance_tickets (
        id, client_id, unit_id, asset_id, reported_by, assigned_to, contractor_id,
        category_key, title, description, priority, status, warranty_covered,
@@ -1674,7 +1711,7 @@ async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<s
       d.escalatedAt ? str(d.escalatedAt) : null,
       num(d.cost),
       num(d.cost),
-      JSON.stringify(Array.isArray(d.photos) ? d.photos : []),
+      JSON.stringify(photoUrls),
       status === 'COMPLETED' || status === 'RESOLVED' ? new Date().toISOString() : null,
       assignSent,
       has('contractorId'),
@@ -1684,12 +1721,44 @@ async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<s
       has('warrantyCovered'),
       lease,
       tenancySent,
-      has('photos') || has('photoUrls'),
+      photosSent,
       has('internalAssetId'),
     ],
   )
-  // Access notes (migration 013): absent keeps the stored value; skipped while the column is missing.
-  await writeTicketAccessNotes(uuid, d)
+    // Access notes (migration 013): same run / transaction as the ticket and
+    // the photo audit. Absent keeps the stored value; skipped while the column
+    // is missing (checked outside the transaction).
+    await writeTicketAccessNotes(uuid, d, run, (sql, params) => query(sql, params))
+    // Photos removed (count down, or any stored photo gone — a swap): audit
+    // row in the same transaction (counts only, never image data).
+    const kept = new Set(photoUrls)
+    const removed = storedPhotos.filter((u) => !kept.has(u)).length
+    if (photosSent && removed > 0) {
+      await run(
+        `INSERT INTO event_log (client_id, event_type, subject_type, subject_id, actor_user_id, payload, created_at)
+         VALUES ($1::uuid, 'ticket_photos_removed', 'maintenance_ticket', $2::uuid, $3::uuid, $4::jsonb, NOW())`,
+        [
+          client,
+          uuid,
+          actorUuid,
+          JSON.stringify({
+            ticketId: feId,
+            countBefore: before,
+            countAfter: photoUrls.length,
+            removedCount: removed,
+            at: new Date().toISOString(),
+          }),
+        ],
+      )
+    }
+  }
+
+  // Photos or access notes: one transaction with the ticket row and the audit.
+  if (photosSent || d.accessNotes !== undefined) {
+    await withTransaction((c) => write((sql, params) => clientQuery(c, sql, params)))
+  } else {
+    await write((sql, params) => query(sql, params))
+  }
   return uuid
 }
 

@@ -1,5 +1,6 @@
 import { query } from './db.js'
 import { readTicketAccessNotes, ticketAccessNotesColumnExists } from './ticketAccessNotes.js'
+import { isSafePhotoUrl } from '../src/lib/photoLimits.js'
 import { resolveFrontendRole } from '../src/lib/supabase/idMap.js'
 import { mapPool } from './mapPool.js'
 import { loadIdMapCache } from './idMapCache.js'
@@ -1240,6 +1241,10 @@ export async function buildBootstrap(opts?: {
     assignedAgentId: mapUser(t.assigned_to as string | null),
     cost: t.cost_actual != null ? Number(t.cost_actual) : t.cost_estimate != null ? Number(t.cost_estimate) : 0,
     photos: Array.isArray(t.photos) ? (t.photos as unknown[]).length : 0,
+    // Stored photo URLs (data:image or http(s)); the tenant view keeps them on
+    // the tenant's own reports only, so the rule holds after a reload.
+    // Same URL rule as the writer: old rows can't put javascript: etc. into an href.
+    photoUrls: Array.isArray(t.photos) ? (t.photos as unknown[]).filter(isSafePhotoUrl) : ([] as string[]),
     openedAt: dateOnly(t.created_at as Date),
     openedAtIso: iso(t.created_at as Date),
     description: t.description as string,

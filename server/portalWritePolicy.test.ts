@@ -890,3 +890,18 @@ describe('Jim #98: contractor access-notes writes', () => {
     expect(pool.data).not.toHaveProperty('accessNotes')
   })
 })
+
+describe('staff ticket photos: a tenant save cannot change them', () => {
+  it("a tenant saving their own ticket keeps the stored (staff) photos", async () => {
+    for (const data of [
+      { propertyId: 'p-1', reportedByUserId: 'u-t', title: 'Leak', photoUrls: [] },
+      { propertyId: 'p-1', reportedByUserId: 'u-t', title: 'Leak', photos: [] },
+      { propertyId: 'p-1', reportedByUserId: 'u-t', title: 'Leak', photoUrls: ['https://evil.example/x.jpg'], photos: 1 },
+    ]) {
+      const body: Body = { resource: 'ticket', action: 'upsert', id: 'TK-mine', data }
+      await expect(gate(TENANT, body)).resolves.toEqual({})
+      expect(body.data).not.toHaveProperty('photoUrls')
+      expect(body.data).not.toHaveProperty('photos')
+    }
+  })
+})
