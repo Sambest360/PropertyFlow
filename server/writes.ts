@@ -13,8 +13,14 @@ import {
   type EntityType,
 } from './entityMap.js'
 import { SUB_FE_TO_UUID } from './idMap.js'
+import { resolveTicketLease } from './ticketLease.js'
 import { resolveLiveListing } from './listingResolve.js'
 import { supabaseAuthConfigured } from './supabase/env.js'
+import {
+  SUPPORT_BODY_MAX,
+  SUPPORT_NOTE_MAX,
+  SUPPORT_SUBJECT_MAX,
+} from '../src/lib/supportTickets.js'
 
 export type PersistAction = 'upsert' | 'delete' | 'patch'
 export type PersistBody = {
@@ -235,19 +241,33 @@ async function resolveUserUuidByEmail(email: unknown): Promise<string | null> {
   return rows[0]?.id ?? null
 }
 
+/**
+ * Create an entity_id_map user entry fe → uuid, never moving or deleting an
+ * existing one. Skips (console.warn, no throw — guest apply / staff create run
+ * through here) when the fe is already mapped to a different uuid, when the
+ * uuid already has another fe.
+ */
 async function linkUserFeToUuid(feStr: string, uuid: string): Promise<void> {
   await ensureEntityMapTable()
-  await query(
-    `DELETE FROM entity_id_map
-     WHERE entity_type = 'user' AND backend_id = $1::uuid AND frontend_id <> $2`,
-    [uuid, feStr],
+  const existing = await query<{ backend_id: string }>(
+    `SELECT backend_id::text FROM entity_id_map
+     WHERE entity_type = 'user' AND frontend_id = $1 LIMIT 1`,
+    [feStr],
   )
-  await query(
+  const current = existing[0]?.backend_id
+  if (current === uuid) return
+  if (current) {
+    console.warn(`[entity_id_map] skip: user ${feStr} already mapped to ${current}, not moving to ${uuid}`)
+    return
+  }
+  const ins = await query<{ frontend_id: string }>(
     `INSERT INTO entity_id_map (entity_type, frontend_id, backend_id)
      VALUES ('user', $1, $2::uuid)
-     ON CONFLICT (entity_type, frontend_id) DO UPDATE SET backend_id = EXCLUDED.backend_id`,
+     ON CONFLICT DO NOTHING
+     RETURNING frontend_id`,
     [feStr, uuid],
   )
+  if (!ins?.[0]) console.warn(`[entity_id_map] skip: ${uuid} already has a user mapping`)
 }
 
 /** Resolve applicant/tenant uuid — FE user id first, else email → users. */
@@ -307,19 +327,8 @@ async function requireAgentId(fe: unknown): Promise<string | null> {
   )
   const hit = rows[0]?.id
   if (hit) {
-    await ensureEntityMapTable()
-    // Free unique (entity_type, backend_id) if another FE already owns the live UUID.
-    await query(
-      `DELETE FROM entity_id_map
-       WHERE entity_type = 'user' AND backend_id = $1::uuid AND frontend_id <> $2`,
-      [hit, feStr],
-    )
-    await query(
-      `INSERT INTO entity_id_map (entity_type, frontend_id, backend_id)
-       VALUES ('user', $1, $2::uuid)
-       ON CONFLICT (entity_type, frontend_id) DO UPDATE SET backend_id = EXCLUDED.backend_id`,
-      [feStr, hit],
-    )
+    // Never move/delete an existing entry.
+    await linkUserFeToUuid(feStr, hit)
     return hit
   }
   throw Object.assign(new Error(`agent not resolved: ${feStr}`), { status: 400 })
@@ -395,6 +404,7 @@ async function deleteEntity(resource: EntityType, frontendId: string): Promise<v
     csv_import_batch: 'csv_import_batches',
     payout_instruction: 'payout_instructions',
     deposit_holding: 'deposit_holdings',
+    support_ticket: 'event_log',
   }
   const table = tableByType[resource]
   if (!table) {
@@ -410,7 +420,12 @@ async function deleteEntity(resource: EntityType, frontendId: string): Promise<v
   }
   
   // Use quoted identifier to prevent SQL injection (even though table name is from whitelist)
-  await query(`DELETE FROM "${table}" WHERE id = $1::uuid`, [uuid])
+  if (resource === 'support_ticket') {
+    // CR7: only ever a ticket row — never another event_log audit row.
+    await query(`DELETE FROM "event_log" WHERE id = $1::uuid AND event_type = 'support_ticket'`, [uuid])
+  } else {
+    await query(`DELETE FROM "${table}" WHERE id = $1::uuid`, [uuid])
+  }
   await forgetId(resource, frontendId)
   if (resource === 'property') await forgetId('unit', `unt-${frontendId}`)
 }
@@ -476,6 +491,8 @@ async function upsertEntity(
       return upsertPayoutInstruction(frontendId, data)
     case 'deposit_holding':
       return upsertDepositHolding(frontendId, data)
+    case 'support_ticket':
+      return upsertSupportTicket(frontendId, data)
     default:
       throw Object.assign(new Error(`Unsupported resource: ${resource}`), { status: 400 })
   }
@@ -1571,13 +1588,36 @@ async function upsertPayment(feId: string, d: Record<string, unknown>): Promise<
 
 async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<string> {
   const uuid = await ensureUuid('ticket', feId)
-  const client = await clientId(d.agencyId)
-  const unit = await unitIdFromProperty(d.propertyId ?? d.unitId)
+  const has = (k: string) => d[k] !== undefined
+  // An existing ticket stays on its stored unit; client_id always comes from
+  // the unit, never from the payload agencyId.
+  const stored = (
+    await query<{ unit_id: string; lease_id: string | null }>(
+      `SELECT unit_id::text AS unit_id, lease_id::text AS lease_id FROM maintenance_tickets WHERE id = $1::uuid`,
+      [uuid],
+    )
+  )[0]
+  const unit = stored?.unit_id ?? (await unitIdFromProperty(d.propertyId ?? d.unitId))
   if (!unit) throw new Error('ticket requires propertyId')
+  const unitRow = (
+    await query<{ client_id: string | null }>(
+      `SELECT client_id::text AS client_id FROM units WHERE id = $1::uuid`,
+      [unit],
+    )
+  )[0]
+  if (!unitRow?.client_id) {
+    throw Object.assign(new Error('ticket unit not found'), { status: 400, code: 'TICKET_UNIT_UNKNOWN' })
+  }
+  const client = unitRow.client_id
+  // Tenancy link (lease_id): absent keeps the stored link; null / '' unlinks.
+  const tenancySent = has('tenancyId')
+  const lease =
+    tenancySent && d.tenancyId
+      ? await resolveTicketLease(str(d.tenancyId), unit, client, stored?.lease_id ?? null)
+      : null
   const reported = await userId(d.reportedByUserId)
   // Absent assignment / cost / status / priority / warranty (a tenant's own
   // ticket has them stripped) keep the stored values on update.
-  const has = (k: string) => d[k] !== undefined
   const assignSent = has('assignedAgentId') || has('assignedTo')
   const assigned = await userId(d.assignedAgentId ?? d.assignedTo)
   const contractor = await userId(d.contractorId)
@@ -1589,17 +1629,18 @@ async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<s
     `INSERT INTO maintenance_tickets (
        id, client_id, unit_id, asset_id, reported_by, assigned_to, contractor_id,
        category_key, title, description, priority, status, warranty_covered,
-       escalated_at, cost_estimate, cost_actual, photos, completed_at, updated_at
+       escalated_at, cost_estimate, cost_actual, photos, completed_at, lease_id, updated_at
      ) VALUES (
        $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid,
        -- A new ticket without an assignment (tenant-reported) goes to the unit's agent.
        CASE WHEN $19::boolean THEN $6::uuid ELSE (SELECT u.agent_id FROM units u WHERE u.id = $3::uuid) END,
        $7::uuid,
        $8, $9, $10, $11, $12, $13,
-       $14::timestamptz, $15, $16, $17::jsonb, $18::timestamptz, NOW()
+       $14::timestamptz, $15, $16, $17::jsonb, $18::timestamptz, $25::uuid, NOW()
      )
      ON CONFLICT (id) DO UPDATE SET
-       asset_id = EXCLUDED.asset_id,
+       asset_id = CASE WHEN $28::boolean THEN EXCLUDED.asset_id ELSE maintenance_tickets.asset_id END,
+       lease_id = CASE WHEN $26::boolean THEN EXCLUDED.lease_id ELSE maintenance_tickets.lease_id END,
        assigned_to = CASE WHEN $19::boolean THEN EXCLUDED.assigned_to ELSE maintenance_tickets.assigned_to END,
        contractor_id = CASE WHEN $20::boolean THEN EXCLUDED.contractor_id ELSE maintenance_tickets.contractor_id END,
        category_key = EXCLUDED.category_key,
@@ -1611,7 +1652,7 @@ async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<s
        escalated_at = COALESCE(EXCLUDED.escalated_at, maintenance_tickets.escalated_at),
        cost_estimate = CASE WHEN $22::boolean THEN EXCLUDED.cost_estimate ELSE maintenance_tickets.cost_estimate END,
        cost_actual = CASE WHEN $22::boolean THEN EXCLUDED.cost_actual ELSE maintenance_tickets.cost_actual END,
-       photos = EXCLUDED.photos,
+       photos = CASE WHEN $27::boolean THEN EXCLUDED.photos ELSE maintenance_tickets.photos END,
        completed_at = CASE WHEN $21::boolean THEN EXCLUDED.completed_at ELSE maintenance_tickets.completed_at END,
        updated_at = NOW()`,
     [
@@ -1639,6 +1680,10 @@ async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<s
       has('cost'),
       has('priority'),
       has('warrantyCovered'),
+      lease,
+      tenancySent,
+      has('photos') || has('photoUrls'),
+      has('internalAssetId'),
     ],
   )
   return uuid
@@ -1898,6 +1943,56 @@ async function upsertPropertyEvent(feId: string, d: Record<string, unknown>): Pr
        actor_user_id = EXCLUDED.actor_user_id,
        subject_id = EXCLUDED.subject_id`,
     [uuid, client, unit, actor, JSON.stringify(payload), d.at ? str(d.at) : null],
+  )
+  return uuid
+}
+
+/**
+ * CR7 help desk ticket → event_log (event_type 'support_ticket'), no migration.
+ *
+ * The scope gate (assertPersistAllowed) has already checked the actor and, on
+ * submit, stamped submittedByUserId / submitterRole / agencyId from the server
+ * actor. This writer:
+ *  - on insert always stores status 'open', whatever the payload says;
+ *  - on conflict merges ONLY the status / resolution keys into payload — never
+ *    subject, body, submitter or client_id — and only while the row
+ *    is still open (a resolved ticket is read-only).
+ */
+async function upsertSupportTicket(feId: string, d: Record<string, unknown>): Promise<string> {
+  const uuid = await ensureUuid('support_ticket', feId)
+  const client = await clientIdOptional(d.agencyId)
+  const submitter = await userId(d.submittedByUserId)
+  const insertPayload = {
+    frontendId: feId,
+    subject: str(d.subject, '').slice(0, SUPPORT_SUBJECT_MAX),
+    body: str(d.body, '').slice(0, SUPPORT_BODY_MAX),
+    submittedByUserId: str(d.submittedByUserId, ''),
+    submitterName: str(d.submitterName, ''),
+    submitterRole: str(d.submitterRole, ''),
+    status: 'open',
+  }
+  const resolutionPatch: Record<string, unknown> =
+    str(d.status) === 'resolved'
+      ? {
+          status: 'resolved',
+          resolvedByUserId: str(d.resolvedByUserId, ''),
+          resolvedByName: str(d.resolvedByName, ''),
+          resolvedAt: str(d.resolvedAt) || new Date().toISOString(),
+          resolutionNote: str(d.resolutionNote, '').slice(0, SUPPORT_NOTE_MAX),
+        }
+      : {}
+
+  await query(
+    `INSERT INTO event_log (
+       id, client_id, event_type, subject_type, subject_id, actor_user_id, payload, created_at
+     ) VALUES (
+       $1::uuid, $2::uuid, 'support_ticket', 'support_ticket', NULL, $3::uuid, $4::jsonb, NOW()
+     )
+     ON CONFLICT (id) DO UPDATE SET
+       payload = event_log.payload || $5::jsonb
+     WHERE event_log.event_type = 'support_ticket'
+       AND COALESCE(event_log.payload->>'status', 'open') <> 'resolved'`,
+    [uuid, client, submitter, JSON.stringify(insertPayload), JSON.stringify(resolutionPatch)],
   )
   return uuid
 }
