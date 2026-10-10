@@ -140,6 +140,7 @@ vi.mock('pg', () => {
         const rejecting = sql.includes('IS DISTINCT FROM')
         const from = rejecting ? 'release_proposed' : String(params[1])
         if (row.status !== from) return []
+        if (!rejecting && params[3] !== true && row.release_proposed_by !== params[2]) return []
         if (rejecting && row.release_proposed_by === params[1]) return []
         row.status = 'held'
         row.release_proposed_by = null
@@ -1279,6 +1280,34 @@ describe('D2: deposit reject, cancel, refund record and held_cents lock', () => 
     expect((await post('u-d2-alloc', DH(1), 'cancel-release')).status).toBe(409)
     db.deposits[2].status = 'refunded'
     expect((await post('u-sa', DH(3), 'cancel-release')).status).toBe(409)
+  })
+
+  it('cancel race: the proposer changes between check and update -> 409, nothing written', async () => {
+    const row = db.deposits[1] // proposed by u-d2-alloc
+    const realFind = db.deposits.find.bind(db.deposits)
+    let reads = 0
+    db.deposits.find = ((pred: (d: DepositRow) => boolean) => {
+      const hit = realFind(pred)
+      // After the route's read, someone else re-proposes before the UPDATE.
+      if (hit === row && ++reads === 2) row.release_proposed_by = uuidOf('u-d2-admin2')
+      return hit
+    }) as typeof db.deposits.find
+    try {
+      expect((await post('u-d2-alloc', DH(2), 'cancel-release')).status).toBe(409)
+    } finally {
+      db.deposits.find = realFind as typeof db.deposits.find
+    }
+    expect(row.status).toBe('release_proposed')
+    expect(events()).toEqual([])
+    const upd = db.writes.findIndex((w) => w.startsWith('UPDATE deposit_holdings'))
+    expect(db.writes[upd]).toContain('AND ($4::boolean OR release_proposed_by = $3::uuid)')
+    expect(db.writeParams[upd].slice(2)).toEqual([uuidOf('u-d2-alloc'), false])
+  })
+
+  it('a super admin cancel passes the is-super flag and is not tied to the proposer', async () => {
+    expect((await post('u-sa', DH(2), 'cancel-release')).status).toBe(200)
+    const upd = db.writes.findIndex((w) => w.startsWith('UPDATE deposit_holdings'))
+    expect(db.writeParams[upd][3]).toBe(true)
   })
 
   it('an over-long cancel reason is a 400, not truncated', async () => {

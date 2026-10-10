@@ -316,8 +316,9 @@ export async function cancelDepositRelease(
     `UPDATE deposit_holdings
         SET status = 'held', release_proposed_by = NULL, release_approved_by = NULL, updated_at = NOW()
       WHERE id = $1::uuid AND status = $2
+        AND ($4::boolean OR release_proposed_by = $3::uuid)
       RETURNING updated_at`,
-    [row.id, from],
+    [row.id, from, officer, actor.role === 'super_admin'],
     'Deposit changed while cancelling; reload and try again',
     'deposit_release_cancelled',
     { from, to: 'held', reason, cancelledBy: actor.userId },

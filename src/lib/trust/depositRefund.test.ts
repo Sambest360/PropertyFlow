@@ -50,3 +50,17 @@ describe('latestRefundBySubject (Supabase loader read-back from event_log)', () 
     expect(latestRefundBySubject([...rows].reverse()).get('d1')).toEqual(b)
   })
 })
+
+describe('canCancelDepositRelease (Cancel release button visibility)', () => {
+  it('shows only for the proposer or a super admin, on proposed or approved releases', async () => {
+    const { canCancelDepositRelease } = await import('../../pages/trust/TrustDeposits')
+    const dep = { status: 'release_proposed' as const, releaseProposedBy: 'u-a' }
+    expect(canCancelDepositRelease(dep, { id: 'u-a', role: 'client_admin' })).toBe(true)
+    expect(canCancelDepositRelease(dep, { id: 'u-sa', role: 'super_admin' })).toBe(true)
+    expect(canCancelDepositRelease(dep, { id: 'u-b', role: 'client_admin' })).toBe(false)
+    expect(canCancelDepositRelease(dep, null)).toBe(false)
+    expect(canCancelDepositRelease({ ...dep, status: 'release_approved' }, { id: 'u-a' })).toBe(true)
+    expect(canCancelDepositRelease({ ...dep, status: 'held' }, { id: 'u-sa', role: 'super_admin' })).toBe(false)
+    expect(canCancelDepositRelease({ ...dep, status: 'refunded' }, { id: 'u-a' })).toBe(false)
+  })
+})

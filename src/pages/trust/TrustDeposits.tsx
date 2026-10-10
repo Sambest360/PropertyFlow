@@ -18,6 +18,16 @@ import type { DepositHolding } from '../../types/domain'
 
 const toCents = (zar: string) => Math.round(Number(zar || '0') * 100)
 
+/** Spec: only the proposer or a super admin may cancel a release (server enforces too). */
+export function canCancelDepositRelease(
+  deposit: Pick<DepositHolding, 'status' | 'releaseProposedBy'>,
+  user: { id: string; role?: string } | null | undefined,
+): boolean {
+  if (!user) return false
+  if (deposit.status !== 'release_proposed' && deposit.status !== 'release_approved') return false
+  return user.role === 'super_admin' || deposit.releaseProposedBy === user.id
+}
+
 /** Recorded refund split for one deposit (D2). Recorded only, never bank-confirmed. */
 export function RefundBreakdown({ refund }: { refund: NonNullable<DepositHolding['refund']> }) {
   return (
@@ -458,7 +468,7 @@ export default function TrustDeposits() {
                         Reject release
                       </Button>
                     )}
-                    {(deposit.status === 'release_proposed' || deposit.status === 'release_approved') && (
+                    {canCancelDepositRelease(deposit, user) && (
                       <Button
                         variant="secondary"
                         size="sm"
