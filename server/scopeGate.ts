@@ -2,7 +2,10 @@
  * Server-side property scope: load links from Postgres, gate writes, filter bootstrap.
  * Reuses client rules from src/lib/scope.ts + scopeWrite.ts.
  */
+import { isValidSignatureDataUrl, signatureInvalidError } from '../src/lib/signature/signatureImage.js'
 import { query } from './db.js'
+import { enforceStaffSignedStageMove } from './applicantApplicationPolicy.js'
+import { enforceStaffTenancyESign, isClientLeaseSignedWrite, leaseSignedRefusedError } from './leaseSign.js'
 import { MIN_PASSWORD_LENGTH } from './passwordPolicy.js'
 import {
   APP_REF_TO_ID,
@@ -903,6 +906,15 @@ export async function enforceUserWritePolicy(
     forbiddenError(`Forbidden: ${actor.role} ${actor.userId} cannot ${body.action} user ${body.id} (${why})`)
   const data = (body.data ?? {}) as Record<string, unknown>
   if (body.action !== 'delete') body.data = data
+  // CR10 A: a user writes only their own signature. Every other actor
+  // (agency admins and super admin included) has it stripped; on your own row
+  // it must be a PNG data URL within the cap (or null to clear).
+  if (Object.prototype.hasOwnProperty.call(data, 'signature')) {
+    if (body.id !== actor.userId) delete data.signature
+    else if (data.signature !== null && data.signature !== undefined && !isValidSignatureDataUrl(data.signature)) {
+      throw signatureInvalidError()
+    }
+  }
   const role = normaliseRoleField(data)
   // Designated super-admin addresses are reserved: no write (any actor) may
   // move a row onto one unless that row already has it.
@@ -1105,6 +1117,8 @@ export async function assertPersistAllowed(
   actor: DemoActor,
   body: PersistBody,
 ): Promise<PortalOutcome> {
+  // CR10: lease_signed audit rows are server-written only (generic policy).
+  if (isClientLeaseSignedWrite(body)) throw leaseSignedRefusedError()
   if (body.resource === 'support_ticket') {
     // Portal users (tenant / landlord / contractor) pass the portal allow-list
     // first: submit only, never resolve.
@@ -1266,6 +1280,16 @@ export async function assertPersistAllowed(
     // The write is narrowed to the decision fields.
     return landlordApplicationDecision(actor, body)
   }
+  // CR10: staff lease saves never write eSign party blocks wholesale; any
+  // signing on them goes through the one server sign function (after the
+  // scope checks above passed).
+  if (body.resource === 'tenancy' && !PORTAL_WRITE_ROLES.has(actor.role)) {
+    await enforceStaffTenancyESign(actor, body)
+  }
+  // CR10 gate: staff stage moves to a signed status need the stored envelope.
+  if (body.resource === 'application' && !PORTAL_WRITE_ROLES.has(actor.role)) {
+    await enforceStaffSignedStageMove(body as never)
+  }
   return {}
 }
 
@@ -1424,7 +1448,8 @@ export function referencedUserIds(
  * dates only (listing visibility + contractor roster read the status).
  */
 export function redactBootstrapUser(u: BootstrapUser): BootstrapUser {
-  const { email: _e, phone: _p, idNumberOrPassport: _id, verification, ...rest } = u
+  const { email: _e, phone: _p, idNumberOrPassport: _id, signature: _sig, verification, ...rest } = u
+  void _sig
   void _e
   void _p
   void _id
@@ -1736,6 +1761,60 @@ function isUuidLike(v: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
 }
 
+/**
+ * CR10 A: bootstrap returns `signature` for the session user only. Every other
+ * user record loses it, for every role (super admin and agency admins too).
+ */
+export function stripOtherUsersSignatures(users: BootstrapUser[], selfId: string): BootstrapUser[] {
+  return users.map((u) => {
+    if (!u || u.id === selfId || !Object.prototype.hasOwnProperty.call(u, 'signature')) return u
+    const { signature: _sig, ...rest } = u
+    void _sig
+    return rest as BootstrapUser
+  })
+}
+
+/** Roles that never see the signer IP address or user agent (CR10: staff only). */
+const NO_SIGN_DEVICE_ROLES: ReadonlySet<string> = new Set(['tenant', 'landlord', 'contractor'])
+
+function stripSignDevice<T extends Record<string, unknown>>(row: T): T {
+  const { ip: _ip, userAgent: _ua, ...rest } = row
+  void _ip
+  void _ua
+  return rest as T
+}
+
+/**
+ * CR10 B: lease_signed rows only for leases the actor already receives
+ * (tenancy tenant / landlord, that agency's staff, super admin: the #80/#85
+ * tenancy scope). IP and user agent go to staff only, on the audit rows and
+ * on the eSign stamps of the leases.
+ */
+export function scopeLeaseSignReads(entities: BootstrapPayload, raw: BootstrapPayload, actor: DemoActor): BootstrapPayload {
+  const tenancies = Array.isArray(entities.tenancies) ? (entities.tenancies as Row[]) : []
+  const visible = new Set(tenancies.map((t) => String(t.id)))
+  const portal = NO_SIGN_DEVICE_ROLES.has(actor.role)
+  const events = (Array.isArray(raw.leaseSignEvents) ? (raw.leaseSignEvents as Row[]) : [])
+    .filter((e) => {
+      if (actor.role === 'super_admin') return true
+      if (!visible.has(String(e.tenancyId))) return false
+      // Agency staff: only their own agency's rows (no global cap; scope, not LIMIT).
+      if (!portal) return Boolean(actor.agencyId) && (e.agencyId == null || e.agencyId === actor.agencyId)
+      return true // tenancy parties: their own leases (visible set)
+    })
+    .map((e) => (portal ? stripSignDevice(e) : e))
+  const out: BootstrapPayload = { ...entities, leaseSignEvents: events }
+  if (portal && tenancies.length) {
+    out.tenancies = tenancies.map((t) => {
+      const e = t.eSign as Row | null | undefined
+      if (!e || typeof e !== 'object') return t
+      const fix = (b: unknown) => (b && typeof b === 'object' ? stripSignDevice(b as Row) : b)
+      return { ...t, eSign: { ...e, tenant: fix(e.tenant), landlord: fix(e.landlord) } }
+    }) as BootstrapPayload['tenancies']
+  }
+  return out
+}
+
 export function filterBootstrapForActor(
   raw: BootstrapPayload,
   actorIn: DemoActor,
@@ -1748,8 +1827,16 @@ export function filterBootstrapForActor(
   const normalizedAgency = scope.viewer?.agencyId ?? actorIn.agencyId
   const actor =
     normalizedAgency !== actorIn.agencyId ? { ...actorIn, agencyId: normalizedAgency } : actorIn
-  const entities = filterBootstrapEntitiesForActor(raw, actor, scope, actorIds ?? new Set([actor.userId]), opts)
-  if (actor.role === 'super_admin') return entities
+  const entities = scopeLeaseSignReads(
+    filterBootstrapEntitiesForActor(raw, actor, scope, actorIds ?? new Set([actor.userId]), opts),
+    raw,
+    actor,
+  )
+  if (actor.role === 'super_admin') {
+    return Array.isArray(entities.users)
+      ? { ...entities, users: stripOtherUsersSignatures(entities.users as BootstrapUser[], actor.userId) }
+      : entities
+  }
   const roster = Array.isArray(raw.agencyContractors)
     ? (raw.agencyContractors as Array<{ agencyId?: string | null; contractorUserId?: string }>).filter(
         (r) =>
@@ -1758,7 +1845,7 @@ export function filterBootstrapForActor(
     : raw.agencyContractors
   return {
     ...entities,
-    users: filterBootstrapUsersForActor(raw.users, actor, entities),
+    users: stripOtherUsersSignatures(filterBootstrapUsersForActor(raw.users, actor, entities), actor.userId),
     ...(roster !== undefined ? { agencyContractors: roster } : {}),
   }
 }

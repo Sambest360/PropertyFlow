@@ -18,6 +18,7 @@ import { resolveTicketLease } from './ticketLease.js'
 import { checkTicketPhotos } from '../src/lib/photoLimits.js'
 import { resolveLiveListing } from './listingResolve.js'
 import { supabaseAuthConfigured } from './supabase/env.js'
+import { isValidSignatureDataUrl, signatureInvalidError } from '../src/lib/signature/signatureImage.js'
 import {
   SUPPORT_BODY_MAX,
   SUPPORT_NOTE_MAX,
@@ -30,6 +31,8 @@ export type PersistBody = {
   action: PersistAction
   id: string
   data?: Record<string, unknown>
+  /** Server-set request facts (IP, user agent) for the sign stamp; never read from the client. */
+  requestMeta?: { ip?: string | null; userAgent?: string | null }
 }
 
 const ROLE_TO_DB: Record<string, string> = {
@@ -355,6 +358,11 @@ export async function handlePersist(
     throw Object.assign(new Error('resource, action, and id are required'), { status: 400 })
   }
 
+  // CR10 B1: only upsert and delete exist. Anything else (e.g. 'patch') is a
+  // 400 — it must never fall through to the upsert and skip the eSign gate.
+  if (action !== 'upsert' && action !== 'delete') {
+    throw Object.assign(new Error(`Unsupported persist action: ${String(action)}`), { status: 400, code: 'PERSIST_ACTION_INVALID' })
+  }
   if (action === 'delete') {
     await deleteEntity(resource, id)
     return { ok: true, id, uuid: (await resolveUuid(resource, id)) ?? id }
@@ -602,6 +610,14 @@ async function upsertUser(feId: string, uuid: string, d: Record<string, unknown>
   if (d.verification && typeof d.verification === 'object') meta.verification = d.verification
   if (d.company) meta.company = d.company
   if (d.idNumberOrPassport) meta.idNumberOrPassport = d.idNumberOrPassport
+  // CR10: the user's own signature (the user write policy strips it from every
+  // non-self write). Absent keeps the stored value; null clears it; anything
+  // other than a PNG data URL within the cap is 400 SIGNATURE_INVALID.
+  if (Object.prototype.hasOwnProperty.call(d, 'signature') && d.signature !== undefined) {
+    if (d.signature === null) meta.signature = null
+    else if (isValidSignatureDataUrl(d.signature)) meta.signature = d.signature
+    else throw signatureInvalidError()
+  }
 
   const params: unknown[] = [
     uuid,
@@ -1345,6 +1361,43 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
   return uuid
 }
 
+/**
+ * CR10 nit 4: a staff lease save merges the STORED eSign in SQL. For the same
+ * envelope, the party blocks, status, envelope id, email flag and signed copy
+ * fields are always the row's current values (what the stamp wrote in this
+ * transaction), never the gate-time snapshot in the payload.
+ */
+export const STORED_ESIGN_SQL_MERGE = `CASE
+         WHEN jsonb_typeof(leases.metadata->'eSign') = 'object'
+          AND jsonb_typeof(EXCLUDED.metadata->'eSign') = 'object'
+          AND leases.metadata->'eSign'->>'envelopeId' = EXCLUDED.metadata->'eSign'->>'envelopeId'
+         THEN jsonb_build_object('eSign',
+           (EXCLUDED.metadata->'eSign') || jsonb_strip_nulls(jsonb_build_object(
+             'tenant', leases.metadata->'eSign'->'tenant',
+             'landlord', leases.metadata->'eSign'->'landlord',
+             'status', leases.metadata->'eSign'->'status',
+             'envelopeId', leases.metadata->'eSign'->'envelopeId',
+             'completedEmailSentAt', leases.metadata->'eSign'->'completedEmailSentAt',
+             'signedPdfUrl', leases.metadata->'eSign'->'signedPdfUrl',
+             'signedPdfDocumentId', leases.metadata->'eSign'->'signedPdfDocumentId')))
+         ELSE '{}'::jsonb
+       END`
+
+/** CR10 B2b: a lease with an envelope keeps its tenant_id / landlord_id. */
+export function assertLeasePartiesUnchanged(
+  locked: { tenant_id: string | null; landlord_id: string | null; envelope_id: string | null } | undefined,
+  tenant: string | null,
+  landlord: string | null,
+): void {
+  if (!locked?.envelope_id) return
+  if ((locked.tenant_id ?? null) !== (tenant ?? null) || (locked.landlord_id ?? null) !== (landlord ?? null)) {
+    throw Object.assign(new Error('The tenant or landlord of a lease with a signing envelope cannot be changed.'), {
+      status: 403,
+      code: 'LEASE_PARTY_LOCKED',
+    })
+  }
+}
+
 async function upsertTenancy(feId: string, d: Record<string, unknown>): Promise<string> {
   const uuid = await ensureUuid('tenancy', feId)
   const client = await clientId(d.agencyId)
@@ -1392,6 +1445,16 @@ async function upsertTenancy(feId: string, d: Record<string, unknown>): Promise<
   const landlord = await userId(d.landlordId)
   const agent = await userId(d.agentId)
   const status = TENANCY_STATUS_TO_DB[str(d.status, 'Active')] ?? 'ACTIVE'
+  // CR10 B2b: once a lease has a signing envelope its parties are fixed — a
+  // save (or batch) can't swap tenant_id / landlord_id to someone else and
+  // then sign as that party.
+  const lockedRows = await query<{ tenant_id: string | null; landlord_id: string | null; envelope_id: string | null }>(
+    `SELECT tenant_id::text AS tenant_id, landlord_id::text AS landlord_id,
+            metadata->'eSign'->>'envelopeId' AS envelope_id
+       FROM leases WHERE id = $1::uuid FOR UPDATE`,
+    [uuid],
+  )
+  assertLeasePartiesUnchanged(lockedRows[0], tenant, landlord)
 
   await query(
     `INSERT INTO leases (
@@ -1411,7 +1474,7 @@ async function upsertTenancy(feId: string, d: Record<string, unknown>): Promise<
        tenant_id = EXCLUDED.tenant_id,
        landlord_id = EXCLUDED.landlord_id,
        agent_id = EXCLUDED.agent_id,
-       metadata = leases.metadata || EXCLUDED.metadata,
+       metadata = leases.metadata || EXCLUDED.metadata || ${STORED_ESIGN_SQL_MERGE},
        updated_at = NOW()`,
     [
       uuid,
@@ -2195,6 +2258,19 @@ export async function approveApplicationTx(params: {
       }
       leaseUuid = await ensureUuid('tenancy', str(t.id))
       const landlord = t.landlordId ? await resolveUuid('user', str(t.landlordId)) : null
+      // CR10 gate blocker 2: the client names the lease id; an existing lease
+      // that already has a signing envelope can't be re-pointed by approval.
+      const existing = await clientQuery<{ envelope_id: string | null }>(
+        client,
+        `SELECT metadata->'eSign'->>'envelopeId' AS envelope_id FROM leases WHERE id = $1::uuid FOR UPDATE`,
+        [leaseUuid],
+      )
+      if (existing[0]?.envelope_id) {
+        throw Object.assign(new Error('This lease already has a signing envelope; approval cannot change it.'), {
+          status: 403,
+          code: 'LEASE_PARTY_LOCKED',
+        })
+      }
       await clientQuery(
         client,
         `INSERT INTO leases (

@@ -17,6 +17,10 @@ import { formatZAR } from '../data/seed'
 import { resolveDocumentUrl } from '../lib/api'
 import { eSignStatusLabel as leaseESignLabel } from '../lib/lease'
 import type { Tenancy } from '../types/domain'
+import { LeaseSignDialog } from '../components/lease/LeaseSignDialog'
+import { LeaseSigningRecord } from '../components/lease/LeaseSigningRecord'
+import { SignedCopyNote } from '../components/lease/SignedCopyNote'
+import type { LeaseSignCapture } from '../lib/lease/signaturePrefill'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
 import { FieldHelp } from '../components/onboarding/FieldHelp'
 import { RENEWALS_MODE_A_COPY } from '../lib/renewals'
@@ -168,34 +172,42 @@ export default function LeasesDirectory() {
     }
   }
 
-  const onSign = async (tenancyId: string, party: 'tenant' | 'landlord') => {
+  // CR10: every signing opens the sign dialog and goes through the one server
+  // sign function (signer check, on-behalf confirmation, lease_signed row).
+  const [signTarget, setSignTarget] = useState<{ tenancyId: string; party: 'tenant' | 'landlord'; paper: boolean } | null>(null)
+  const onSign = (tenancyId: string, party: 'tenant' | 'landlord', paper = false) => {
+    setSignTarget({ tenancyId, party, paper })
+  }
+  const submitSign = async (capture: LeaseSignCapture & { signerName: string }) => {
+    if (!signTarget) return
+    const { tenancyId, party } = signTarget
     setBusyId(`${tenancyId}-${party}`)
     try {
-      const tenancy = state.tenancies.find((t) => t.id === tenancyId)
-      const signerName =
-        party === 'tenant'
-          ? tenancy?.tenantName ?? 'Tenant'
-          : state.users.find((u) => u.id === tenancy?.landlordId)?.name ?? 'Landlord'
       const res = await recordTenancyLeaseSign({
         tenancyId,
         party,
-        signerName,
+        signerName: capture.signerName,
+        signatureDataUrl: capture.signatureDataUrl,
+        method: capture.method,
+        onBehalfConfirmation: capture.onBehalfConfirmation,
         actorUserId: user?.id,
       })
       if (!res.ok)
         notify({
           userId: user?.id ?? 'system',
           agencyId: user?.agencyId ?? null,
-          title: 'Sign failed',
-          body: res.error ?? 'Unknown error',
+          title: 'Signature not saved',
+          body: res.error ?? 'The signature was not saved. Refresh and try again.',
         })
-      else
+      else {
         notify({
           userId: user?.id ?? 'system',
           agencyId: user?.agencyId ?? null,
-          title: `${party === 'tenant' ? 'Tenant' : 'Landlord'} signed`,
-          body: 'E-sign status updated — workflow mirrors real countersign progress.',
+          title: 'Signature saved.',
+          body: 'Signature saved.',
         })
+        setSignTarget(null)
+      }
     } finally {
       setBusyId(null)
     }
@@ -502,6 +514,15 @@ export default function LeasesDirectory() {
           </div>
         )}
       </div>
+      <LeaseSignDialog
+        open={Boolean(signTarget)}
+        tenancy={state.tenancies.find((t) => t.id === signTarget?.tenancyId) ?? null}
+        party={signTarget?.party ?? 'tenant'}
+        paper={signTarget?.paper}
+        busy={Boolean(signTarget) && busyId === `${signTarget?.tenancyId}-${signTarget?.party}`}
+        onClose={() => setSignTarget(null)}
+        onSign={(c) => void submitSign(c)}
+      />
     </RequirePermission>
   )
 }
@@ -516,7 +537,7 @@ function LeaseCard({
   row: LeaseRow
   busyId: string | null
   onIssue: (id: string) => void
-  onSign: (id: string, party: 'tenant' | 'landlord') => void
+  onSign: (id: string, party: 'tenant' | 'landlord', paper?: boolean) => void
   renewalHandlers: LeaseRenewalsHandlers
 }) {
   return (
@@ -556,6 +577,15 @@ function LeaseCard({
           </a>
         ) : null}
         <LeaseActions row={row} busyId={busyId} onIssue={onIssue} onSign={onSign} />
+        {row.tenancy.eSign?.envelopeId ? (
+          <details className="mt-2 text-sm">
+            <summary className="cursor-pointer text-primary">Signing record</summary>
+            <div className="mt-2 space-y-2">
+              <SignedCopyNote eSign={row.tenancy.eSign} />
+              <LeaseSigningRecord tenancy={row.tenancy} />
+            </div>
+          </details>
+        ) : null}
         <Link
           to={`/workspace/people/tenants/${encodeURIComponent(row.tenancy.id)}`}
           className="inline-flex min-h-10 items-center rounded-xl px-3 text-sm font-semibold text-ink-500 hover:text-primary"
@@ -584,7 +614,7 @@ function LeaseActions({
   row: LeaseRow
   busyId: string | null
   onIssue: (id: string) => void
-  onSign: (id: string, party: 'tenant' | 'landlord') => void
+  onSign: (id: string, party: 'tenant' | 'landlord', paper?: boolean) => void
   compact?: boolean
 }) {
   const e = row.tenancy.eSign
@@ -592,6 +622,8 @@ function LeaseActions({
   const tenantPending = e && e.tenant.status !== 'signed' && e.status !== 'completed'
   const landlordPending =
     e?.landlord && e.landlord.status !== 'signed' && e.status !== 'completed'
+  const { user } = useAuth()
+  const isTenant = Boolean(user?.id) && user?.id === row.tenancy.tenantUserId
 
   return (
     <div className={cn('flex flex-wrap gap-2', compact && 'flex-col sm:flex-row')}>
@@ -606,7 +638,7 @@ function LeaseActions({
           Issue lease
         </Button>
       ) : null}
-      {tenantPending ? (
+      {tenantPending && isTenant ? (
         <Button
           type="button"
           size="sm"
@@ -615,7 +647,7 @@ function LeaseActions({
           onClick={() => onSign(row.tenancy.id, 'tenant')}
         >
           <PenLine className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} />
-          Record tenant sign
+          Sign as tenant
         </Button>
       ) : null}
       {landlordPending ? (
@@ -627,7 +659,7 @@ function LeaseActions({
           onClick={() => onSign(row.tenancy.id, 'landlord')}
         >
           <PenLine className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} />
-          Record landlord sign
+          Sign for landlord
         </Button>
       ) : null}
     </div>

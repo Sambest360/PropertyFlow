@@ -34,6 +34,8 @@ const db = vi.hoisted(() => ({
   map: [] as Array<{ entity_type: string; frontend_id: string; backend_id: string }>,
   writes: [] as Array<{ sql: string; params: unknown[] }>,
   sql: [] as string[],
+  appLeaseESign: null as unknown,
+  appWorkflow: {} as Record<string, string>,
 }))
 
 vi.mock('pg', () => {
@@ -114,6 +116,13 @@ vi.mock('pg', () => {
       return u ? [{ client_id: u.client }] : []
     }
     if (/SELECT status FROM clients WHERE id = \$1::uuid/.test(sql)) return [{ status: 'active' }]
+    if (sql.startsWith("SELECT metadata->>'workflow_status' AS workflow_status FROM applications WHERE id")) {
+      const w = db.appWorkflow[String(params[0])]
+      return w ? [{ workflow_status: w }] : []
+    }
+    if (sql.startsWith("SELECT metadata->'eSign' AS esign FROM leases WHERE application_id")) {
+      return db.appLeaseESign ? [{ esign: db.appLeaseESign }] : []
+    }
     if (sql.includes('FROM leases WHERE id = $1::uuid')) {
       const l = leases[String(params[0])]
       return l ? [l] : []
@@ -481,5 +490,134 @@ describe('impersonation is audited', () => {
     await app.request('/api/counts', { headers: { ...auth('u-sa'), 'X-User-Id': 'u-sa', 'X-Role': 'super_admin' } })
     await app.request('/api/counts', { headers: { ...auth('u-admin'), ...impersonate } })
     expect(logs()).toHaveLength(0)
+  })
+})
+
+describe('CR10 B1: action patch never skips the eSign gate', () => {
+  const forged = { id: 'TN-mine', eSign: { envelopeId: 'SF-111', status: 'completed', tenant: { status: 'signed', signatureDataUrl: 'data:image/png;base64,AAAA' } } }
+  it('a staff patch alone is 400 and writes nothing', async () => {
+    const res = await post('/api/persist', auth('u-james'), { resource: 'tenancy', action: 'patch', id: 'TN-mine', data: forged })
+    expect(res.status).toBe(400)
+    expect(db.writes.filter((w) => /leases/i.test(w.sql))).toHaveLength(0)
+  })
+  it('a patch inside a batch is 400 and writes nothing', async () => {
+    const res = await post('/api/persist/batch', auth('u-admin'), {
+      ops: [{ resource: 'tenancy', action: 'patch', id: 'TN-mine', data: forged }],
+    })
+    expect(res.status).toBe(400)
+    expect(db.writes.filter((w) => /leases/i.test(w.sql))).toHaveLength(0)
+  })
+})
+
+describe('CR10 gate: staff application stage move to a signed status needs the stored envelope', () => {
+  const move = (to: string) =>
+    post('/api/persist', auth('u-admin'), {
+      resource: 'application',
+      action: 'upsert',
+      id: 'APP-1',
+      data: { id: 'APP-1', agencyId: 'ag-horizon', propertyId: 'p-1', workflowStatus: to, stage: to },
+    })
+  // A passing move gets past the signature check; this harness has no unit
+  // for the property, so the generic writer may still fail later (not 409).
+  const passesSignatureCheck = async (res: Response) =>
+    res.status !== 409 && ((await res.json()) as { code?: string }).code !== 'LEASE_SIGNATURE_NOT_RECORDED'
+  const appWrites = () => db.writes.filter((w) => /applications/i.test(w.sql))
+  it('no recorded signature: tenant_signed / landlord_signed refused (LEASE_SIGNATURE_NOT_RECORDED), nothing written', async () => {
+    db.appLeaseESign = { envelopeId: 'SF-1', status: 'sent', tenant: { status: 'pending' }, landlord: { status: 'pending' } }
+    for (const to of ['tenant_signed', 'landlord_signed']) {
+      const res = await move(to)
+      expect(res.status).toBe(409)
+      expect(((await res.json()) as { code?: string }).code).toBe('LEASE_SIGNATURE_NOT_RECORDED')
+    }
+    db.appLeaseESign = null
+    expect((await move('tenant_signed')).status).toBe(409)
+    expect(appWrites()).toHaveLength(0)
+  })
+  it('after a paper mark of the tenant block the move to tenant_signed passes', async () => {
+    db.appLeaseESign = { envelopeId: 'SF-1', status: 'partially_signed', tenant: { status: 'signed', method: 'paper_mark' }, landlord: { status: 'pending' } }
+    expect(await passesSignatureCheck(await move('tenant_signed'))).toBe(true)
+    expect((await move('landlord_signed')).status).toBe(409)
+  })
+  it('after a completed e-sign the move to landlord_signed passes', async () => {
+    db.appLeaseESign = { envelopeId: 'SF-1', status: 'completed', tenant: { status: 'signed', method: 'drawn' }, landlord: { status: 'signed', method: 'drawn' } }
+    expect(await passesSignatureCheck(await move('landlord_signed'))).toBe(true)
+    db.appLeaseESign = null
+  })
+})
+
+describe('CR10 gate (Angela): no skip-ahead past the signing stages without the stored signatures', () => {
+  const APP1 = 'f7000001-0001-4000-8000-000000000001'
+  const save = (to: string, id = 'APP-1') => ({
+    resource: 'application',
+    action: 'upsert',
+    id,
+    data: { id, agencyId: 'ag-horizon', propertyId: 'p-1', workflowStatus: to },
+  })
+  const notRecorded = async (res: Response) =>
+    res.status === 409 && ((await res.json()) as { code?: string }).code === 'LEASE_SIGNATURE_NOT_RECORDED'
+  const passes = async (res: Response) =>
+    res.status !== 409 && ((await res.json()) as { code?: string }).code !== 'LEASE_SIGNATURE_NOT_RECORDED'
+  const appWrites = () => db.writes.filter((w) => /applications/i.test(w.sql))
+  beforeEach(() => {
+    db.appWorkflow = {}
+    db.appLeaseESign = null
+  })
+  it('lease_sent -> deposit_invoice_sent (and later stages) with nothing signed is refused, nothing written', async () => {
+    db.appWorkflow[APP1] = 'lease_sent'
+    db.appLeaseESign = { envelopeId: 'SF-1', status: 'sent', tenant: { status: 'pending' }, landlord: { status: 'pending' } }
+    for (const to of ['tenant_signed', 'landlord_signed', 'deposit_invoice_sent', 'deposit_paid', 'keys_handed_over', 'active_tenancy']) {
+      const res = await post('/api/persist', auth('u-admin'), save(to))
+      expect(await notRecorded(res), to).toBe(true)
+    }
+    expect(appWrites()).toHaveLength(0)
+  })
+  it('tenant signed only: deposit_invoice_sent still refused (needs both / completed)', async () => {
+    db.appWorkflow[APP1] = 'tenant_signed'
+    db.appLeaseESign = { envelopeId: 'SF-1', status: 'partially_signed', tenant: { status: 'signed' }, landlord: { status: 'pending' } }
+    expect(await notRecorded(await post('/api/persist', auth('u-admin'), save('deposit_invoice_sent')))).toBe(true)
+  })
+  it('a batch where one application skips ahead is refused for that row (nothing written for it)', async () => {
+    db.appWorkflow[APP1] = 'lease_sent'
+    db.appLeaseESign = { envelopeId: 'SF-1', status: 'sent', tenant: { status: 'pending' }, landlord: { status: 'pending' } }
+    // Several application ops; the skip-ahead one (APP-1) is refused. The other
+    // op is a new application with no stored lease (not a signing move).
+    const res = await post('/api/persist/batch', auth('u-admin'), {
+      ops: [save('deposit_invoice_sent'), { ...save('documents_requested', 'APP-NEW') }],
+    })
+    expect(await notRecorded(res)).toBe(true)
+    expect(appWrites().filter((w) => JSON.stringify(w.params).includes('deposit_invoice_sent'))).toHaveLength(0)
+    const res2 = await post('/api/persist/batch', auth('u-admin'), {
+      ops: [{ ...save('documents_requested', 'APP-NEW') }, save('deposit_invoice_sent')],
+    })
+    // (this harness can't write APP-NEW, so the batch stops on op 1; either way it fails closed)
+    expect(res2.ok).toBe(false)
+    expect(appWrites().filter((w) => JSON.stringify(w.params).includes('deposit_invoice_sent'))).toHaveLength(0)
+  })
+  it('passes after the right signatures: both signed / completed -> deposit_invoice_sent', async () => {
+    db.appWorkflow[APP1] = 'landlord_signed'
+    db.appLeaseESign = { envelopeId: 'SF-1', status: 'completed', tenant: { status: 'signed' }, landlord: { status: 'signed' } }
+    expect(await passes(await post('/api/persist', auth('u-admin'), save('deposit_invoice_sent')))).toBe(true)
+  })
+  it('an already-advanced application can still move (stored past landlord_signed, no envelope)', async () => {
+    db.appWorkflow[APP1] = 'deposit_paid'
+    db.appLeaseESign = null // e.g. a lease that predates e-sign
+    expect(await passes(await post('/api/persist', auth('u-admin'), save('keys_handed_over')))).toBe(true)
+  })
+  it('a terminal stored stage does not unlock skip-ahead: rejected -> active_tenancy, withdrawn -> deposit_paid', async () => {
+    for (const [from, to] of [['rejected', 'active_tenancy'], ['withdrawn', 'deposit_paid'], ['cancelled', 'keys_handed_over'], ['closed', 'deposit_paid'], ['deposit_refunded', 'active_tenancy']]) {
+      db.appWorkflow[APP1] = from
+      db.appLeaseESign = null
+      expect(await notRecorded(await post('/api/persist', auth('u-admin'), save(to))), `${from} -> ${to}`).toBe(true)
+    }
+    expect(appWrites()).toHaveLength(0)
+  })
+  it('terminal stages are not gated', async () => {
+    db.appWorkflow[APP1] = 'lease_sent'
+    expect(await passes(await post('/api/persist', auth('u-admin'), save('withdrawn')))).toBe(true)
+  })
+  it('an application already past the signing stages can still save (no move: not gated)', async () => {
+    db.appWorkflow[APP1] = 'deposit_paid'
+    db.appLeaseESign = null // e.g. a lease that predates e-sign
+    expect(await passes(await post('/api/persist', auth('u-admin'), save('deposit_paid')))).toBe(true)
   })
 })

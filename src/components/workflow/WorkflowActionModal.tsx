@@ -2,12 +2,16 @@ import { useEffect, useState } from 'react'
 import type { Application, ApplicationDocument } from '../../types/domain'
 import type { HateoasAction } from '../../lib/api/contracts'
 import {
+  LEASE_SIGN_ACTIONS,
   getActionFormSpec,
   validateActionCapture,
   type WorkflowActionCapture,
 } from '../../lib/workflowActionForms'
 import { ApplicationDocumentRow } from '../applicant-detail/ApplicationDocumentRow'
 import { SignaturePad } from './SignaturePad'
+import { useStore } from '../../context/AppStore'
+import { LeaseSignPanel, useLeaseSignContext } from '../lease/LeaseSignPanel'
+import { leaseSignCaptureError } from '../../lib/lease/signaturePrefill'
 import { Button, Input, Modal, Textarea } from '../ui'
 
 export function WorkflowActionModal({
@@ -34,6 +38,14 @@ export function WorkflowActionModal({
 }) {
   const [capture, setCapture] = useState<WorkflowActionCapture>({})
   const [error, setError] = useState<string | null>(null)
+  // CR10: lease signing in the workflow uses the same sign panel as the
+  // Leases screen (prefill rule, on-behalf confirmation, paper mark).
+  const { state } = useStore()
+  const leaseSign = Boolean(action && LEASE_SIGN_ACTIONS.has(action.key))
+  const signParty = action?.key === 'LANDLORD_SIGNED' ? 'landlord' : 'tenant'
+  const paper = action?.key === 'MARK_LEASE_SIGNED'
+  const tenancy = state.tenancies.find((t) => t.applicationId === application.id) ?? null
+  const signContext = useLeaseSignContext(tenancy, signParty, paper)
 
   useEffect(() => {
     if (!open || !action) return
@@ -47,7 +59,13 @@ export function WorkflowActionModal({
   const destructive = action.key.includes('REJECT') || action.key.includes('DECLINE') || action.key.includes('CANCEL') || action.key === 'WITHDRAW'
 
   const submit = () => {
-    const validationError = validateActionCapture(spec, capture)
+    const validationError =
+      (leaseSign
+        ? leaseSignCaptureError(
+            { signatureDataUrl: capture.signatureDataUrl, onBehalfConfirmation: capture.onBehalfConfirmation },
+            signContext,
+          )
+        : null) ?? validateActionCapture(spec, capture)
     if (validationError) {
       setError(validationError)
       return
@@ -139,7 +157,25 @@ export function WorkflowActionModal({
           )
         })}
 
-        {spec.kind === 'signature' ? (
+        {spec.kind === 'signature' && leaseSign ? (
+          <LeaseSignPanel
+            context={signContext}
+            value={{
+              signatureDataUrl: capture.signatureDataUrl,
+              method: capture.signatureMethod,
+              onBehalfConfirmation: capture.onBehalfConfirmation,
+            }}
+            onChange={(next) =>
+              setCapture((prev) => ({
+                ...prev,
+                signatureDataUrl: next.signatureDataUrl,
+                signatureMethod: next.method,
+                onBehalfConfirmation: next.onBehalfConfirmation,
+              }))
+            }
+          />
+        ) : null}
+        {spec.kind === 'signature' && !leaseSign ? (
           <SignaturePad
             value={capture.signatureDataUrl}
             onChange={(dataUrl) => setCapture((prev) => ({ ...prev, signatureDataUrl: dataUrl ?? undefined }))}

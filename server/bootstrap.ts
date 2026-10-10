@@ -204,6 +204,24 @@ const LITE_BOOTSTRAP_LIMITS: Required<BootstrapLimits> = {
   documents: 80,
 }
 
+/**
+ * CR10 fix 4: the lite bootstrap never carries signature images. Each party
+ * block keeps its status / method / hash but drops signatureDataUrl.
+ */
+export function stripESignImages(eSign: unknown): Record<string, unknown> | null {
+  if (!eSign || typeof eSign !== 'object' || Array.isArray(eSign)) return null
+  const out: Record<string, unknown> = { ...(eSign as Record<string, unknown>) }
+  for (const party of ['tenant', 'landlord']) {
+    const b = out[party]
+    if (b && typeof b === 'object' && !Array.isArray(b)) {
+      const { signatureDataUrl: _drop, ...rest } = b as Record<string, unknown>
+      out[party] = rest
+    }
+  }
+  delete out.signatureDataUrl
+  return out
+}
+
 export async function buildBootstrap(opts?: {
   limits?: BootstrapLimits
   lite?: boolean
@@ -250,6 +268,7 @@ export async function buildBootstrap(opts?: {
     arrears,
     csvBatches,
     lookupRows,
+    leaseSignedRows,
     supportTicketRows,
   ] = await mapPool(
     [
@@ -454,6 +473,13 @@ export async function buildBootstrap(opts?: {
         }>(
           'SELECT id::text AS id, client_id::text, config_type, key_value, display_label, is_active, sort_order, meta FROM client_lookup_configs ORDER BY config_type, sort_order',
         ),
+      // CR10: server-written signing audit rows (scoped per actor in scopeGate).
+      () =>
+        query<Record<string, unknown>>(
+          `SELECT id::text AS id, client_id::text AS client_id, subject_id::text AS subject_id,
+                  actor_user_id::text AS actor_user_id, payload, created_at
+             FROM event_log WHERE event_type = 'lease_signed' ORDER BY created_at DESC`,
+        ),
       // CR7 help desk — outside skipHeavy so lite bootstrap carries tickets too.
       // filterBootstrapForActor narrows to own submissions + the viewer's desk.
       () =>
@@ -581,6 +607,8 @@ export async function buildBootstrap(opts?: {
             ? meta.idNumberOrPassport
             : undefined,
       verification,
+      // CR10: own signature only; scopeGate strips it from every other user.
+      signature: typeof meta.signature === 'string' ? meta.signature : undefined,
     }
   })
 
@@ -883,7 +911,7 @@ export async function buildBootstrap(opts?: {
       keyCollection,
       leaseDocumentId: (meta.leaseDocumentId as string | null | undefined) ?? null,
       leasePdfUrl: (meta.leasePdfUrl as string | null | undefined) ?? null,
-      eSign: (meta.eSign as Record<string, unknown> | null | undefined) ?? null,
+      eSign: lite ? stripESignImages(meta.eSign) : ((meta.eSign as Record<string, unknown> | null | undefined) ?? null),
       renewalOps: (meta.renewalOps as Record<string, unknown> | null | undefined) ?? null,
       billingSchedule: (meta.billingSchedule as Record<string, unknown> | null | undefined) ?? null,
     }
@@ -981,6 +1009,29 @@ export async function buildBootstrap(opts?: {
       action: String(payload.action ?? 'updated'),
       at: iso(e.created_at as Date)!,
       changes: Array.isArray(payload.changes) ? payload.changes : undefined,
+    }
+  })
+
+  // CR10: lease_signed rows -> LeaseSignEvent (never an image; hash only).
+  const mappedLeaseSignEvents = (leaseSignedRows as Array<Record<string, unknown>>).map((e) => {
+    const p = (e.payload as Record<string, unknown>) ?? {}
+    const leaseUuid = (e.subject_id as string | null) ?? (p.leaseId as string | null) ?? null
+    return {
+      id: String(e.id),
+      tenancyId: leaseUuid ? mappedFe('tenancy', leaseUuid, LEASE_IDS[leaseUuid] ?? String(p.tenancyId ?? leaseUuid)) : String(p.tenancyId ?? ''),
+      agencyId: agencyFe(e.client_id as string),
+      envelopeId: typeof p.envelopeId === 'string' ? p.envelopeId : null,
+      party: p.party === 'landlord' ? 'landlord' : 'tenant',
+      signerUserId: mapUser(e.actor_user_id as string | null),
+      role: typeof p.role === 'string' ? p.role : null,
+      method: typeof p.method === 'string' ? p.method : null,
+      onBehalf: p.on_behalf === true,
+      outcome: p.outcome === 'declined' ? ('declined' as const) : ('signed' as const),
+      onBehalfConfirmation: typeof p.on_behalf_confirmation === 'string' ? p.on_behalf_confirmation : null,
+      imageSha256: typeof p.image_sha256 === 'string' ? p.image_sha256 : null,
+      signedAt: typeof p.signed_at === 'string' ? p.signed_at : iso(e.created_at as Date),
+      ip: typeof p.ip === 'string' ? p.ip : null,
+      userAgent: typeof p.user_agent === 'string' ? p.user_agent : null,
     }
   })
 
@@ -1359,6 +1410,7 @@ export async function buildBootstrap(opts?: {
     suiteAlerts: mappedSuiteAlerts,
     activities: mappedActivities,
     propertyEvents: mappedPropertyEvents,
+    leaseSignEvents: mappedLeaseSignEvents,
     invoices: mappedInvoices,
     agencyContractors: deriveAgencyContractors(appUsers as never),
     trustTransactions: mappedTrustTxns,

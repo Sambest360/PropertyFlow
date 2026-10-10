@@ -6,13 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  * real assertPersistAllowed over a small in-memory model of the tables.
  */
 const query = vi.fn()
+const PNG_SIG = 'data:image/png;base64,' + 'iVBORw0KGgo'.repeat(4)
 const resolveUuid = vi.fn()
 
 vi.mock('./db.js', () => ({
   databaseConfigured: true,
   query: (...args: unknown[]) => query(...args),
-  withTransaction: vi.fn(),
-  clientQuery: vi.fn(),
+  withTransaction: async (fn: (c: unknown) => Promise<unknown>) => fn({}),
+  clientQuery: async (_c: unknown, sql: string, params?: unknown[]) => query(sql, params),
   pool: { query: (...args: unknown[]) => query(...args) },
 }))
 
@@ -133,9 +134,13 @@ function answer(sqlRaw: string, params: unknown[] = []): unknown[] {
     return e ? [{ email: e }] : [{ email: null }]
   }
   if (/SELECT client_id FROM users WHERE id/.test(sql)) return [{ client_id: CA }]
-  if (sql.startsWith('SELECT tenant_id::text AS tenant_id, landlord_id::text AS landlord_id, metadata FROM leases')) {
+  if (sql.startsWith('SELECT metadata FROM leases WHERE id = $1::uuid FOR UPDATE')) {
     const l = leases[String(params[0])]
-    return l ? [{ tenant_id: l.tenant, landlord_id: l.landlord, metadata: l.metadata }] : []
+    return l ? [{ metadata: l.metadata }] : []
+  }
+  if (sql.startsWith('SELECT client_id::text AS client_id, tenant_id::text AS tenant_id, landlord_id::text AS landlord_id, metadata FROM leases')) {
+    const l = leases[String(params[0])]
+    return l ? [{ client_id: CA, tenant_id: l.tenant, landlord_id: l.landlord, metadata: l.metadata }] : []
   }
   if (sql.startsWith('SELECT party_user_id::text AS party_user_id FROM payments')) {
     if (params[0] === UUID['PAY-1']) return [{ party_user_id: UUID['u-t'] }]
@@ -297,7 +302,7 @@ describe('tenant allow-list: the real tenant flows still work, narrowly', () => 
         eSign: {
           status: 'completed',
           envelopeId: 'ENV-1',
-          tenant: { status: 'signed', signedAt: '2026-10-09T10:00:00Z', signerName: 'Tess', signatureDataUrl: 'data:sig' },
+          tenant: { status: 'signed', signedAt: '2026-10-09T10:00:00Z', signerName: 'Tess', signatureDataUrl: PNG_SIG, method: 'drawn' },
           landlord: { status: 'signed', signedAt: '2026-10-09T10:00:00Z', signerName: 'Forged' },
         },
       },
@@ -307,7 +312,9 @@ describe('tenant allow-list: the real tenant flows still work, narrowly', () => 
     expect(upd.sql).toContain("jsonb_build_object('eSign', $2::jsonb)")
     expect(upd.sql).not.toMatch(/rent_amount|end_date/)
     const eSign = JSON.parse(String(upd.params[1]))
-    expect(eSign.tenant).toEqual({ status: 'signed', signedAt: '2026-10-09T10:00:00Z', signerName: 'Tess', signatureDataUrl: 'data:sig' })
+    // CR10: stamped by the server sign function (server time, never the client's).
+    expect(eSign.tenant).toMatchObject({ status: 'signed', signerName: 'Tess', signatureDataUrl: PNG_SIG, method: 'drawn', signerUserId: 'u-t' })
+    expect(eSign.tenant.signedAt).not.toBe('2026-10-09T10:00:00Z')
     expect(eSign.landlord).toEqual({ status: 'pending' }) // never from the tenant
     expect(eSign.status).toBe('partially_signed') // server-computed, not 'completed'
   })
@@ -333,10 +340,10 @@ describe('tenant allow-list: the real tenant flows still work, narrowly', () => 
       resource: 'tenancy',
       action: 'upsert',
       id: 'L-1',
-      data: { eSign: { envelopeId: 'ENV-1', tenant: { status: 'signed' }, landlord: { status: 'signed', signerName: 'Lan' } } },
+      data: { eSign: { envelopeId: 'ENV-1', tenant: { status: 'signed' }, landlord: { status: 'signed', signerName: 'Lan', method: 'drawn', signatureDataUrl: PNG_SIG } } },
     })
     const eSign = JSON.parse(String(writes.find((w) => w.sql.startsWith('UPDATE leases'))!.params[1]))
-    expect(eSign.landlord).toEqual({ status: 'signed', signerName: 'Lan' })
+    expect(eSign.landlord).toMatchObject({ status: 'signed', signerName: 'Lan', onBehalf: false, signerUserId: 'u-ll' })
     expect(eSign.tenant).toEqual({ status: 'pending' })
   })
 

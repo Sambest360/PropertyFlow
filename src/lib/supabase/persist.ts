@@ -255,6 +255,13 @@ async function upsertUser(id: string, data: Record<string, unknown>): Promise<vo
       'Staff mint with password must use /api/persist (Auth + link). Browser user upsert refused.',
     )
   }
+  // CR10 fix 4: the browser path cannot enforce own-row or the PNG / 150 KB
+  // check, so a signature write never goes through it (persistToApi routes it
+  // to /api/persist). Refuse here too so no caller can bypass the server rule.
+  if (Object.prototype.hasOwnProperty.call(data, 'signature')) {
+    console.warn('[supabase/persist] path=supabase signature=refused', { id })
+    throw new Error('Signature writes must use /api/persist. Browser user upsert refused.')
+  }
   const supabase = createClient()
   const uuid = await ensureUuid('user', id)
   const clientId = await clientUuid(data.agencyId)
@@ -274,6 +281,11 @@ async function upsertUser(id: string, data: Record<string, unknown>): Promise<vo
   const parts = name.trim().split(/\s+/)
   const firstName = str(data.firstName) || parts[0] || 'User'
   const lastName = str(data.lastName) || parts.slice(1).join(' ') || firstName
+  // CR10 fix 4: keep the stored signature (server-written) — a profile save
+  // must never wipe it by replacing metadata wholesale.
+  const { data: existingUser } = await supabase.from('users').select('metadata').eq('id', uuid).maybeSingle()
+  const existingSig = (existingUser?.metadata as Record<string, unknown> | null | undefined)?.signature
+  if (typeof existingSig === 'string') meta.signature = existingSig
   await supabase.from('users').upsert({
     id: uuid,
     client_id: clientId,

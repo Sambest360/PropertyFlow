@@ -58,7 +58,7 @@ const APPLICANT_TRANSITIONS: WorkflowTransition[] = [
     to: 'tenant_signed',
     actionKey: 'TENANT_SIGNED',
     label: 'Sign lease',
-    hint: 'Capture your digital signature on the lease agreement',
+    hint: 'Sign the lease with your electronic signature',
     tone: 'primary',
     requires: ['portal.tenant'],
   },

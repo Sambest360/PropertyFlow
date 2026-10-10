@@ -35,9 +35,9 @@ export function esignProviderInfo(c: Context) {
     signiflowLiveConfigured: live,
     docusignLive: false,
     note: live
-      ? 'SigniFlow HTTP enabled (server keys present). Mock soft-demo remains default when ESIGN_PROVIDER=mock. DocuSign stays placeholder.'
+      ? 'SigniFlow HTTP enabled (server keys present). This environment uses the test signing provider when ESIGN_PROVIDER=mock. DocuSign stays placeholder.'
       : selected === 'signiflow'
-        ? 'ESIGN_PROVIDER=signiflow but partner keys missing — create-envelope will refuse honestly. Use mock for soft-demo.'
+        ? 'ESIGN_PROVIDER=signiflow but partner keys missing — create-envelope will refuse honestly. This environment uses the test signing provider.'
         : 'Default mock e-sign (non-production). Live SigniFlow needs ESIGN_PROVIDER=signiflow + ESIGN_SIGNIFLOW_API_KEY + ESIGN_SIGNIFLOW_API_URL on the server.',
     paths: {
       createEnvelope: '/api/esign/create-envelope',
@@ -70,7 +70,7 @@ export async function esignCreateEnvelope(c: Context) {
         nonProduction: true,
         status: 'failed',
         error:
-          'SigniFlow create-envelope requires ESIGN_PROVIDER=signiflow on the server. Soft-demo uses the mock provider in-app — never invent signed-live.',
+          'SigniFlow create-envelope requires ESIGN_PROVIDER=signiflow on the server. This environment uses the test signing provider.',
       },
       501,
     )
@@ -183,7 +183,7 @@ export async function esignStatus(c: Context) {
       {
         ok: false,
         error:
-          'Status poll requires ESIGN_PROVIDER=signiflow. Mock soft-demo records signatures in-app only (non-production).',
+          'Status poll requires ESIGN_PROVIDER=signiflow. This environment uses the test signing provider.',
       },
       501,
     )
@@ -226,6 +226,9 @@ export async function esignStatus(c: Context) {
     docStatus: result.docStatus,
     status: result.mappedStatus,
     resultField: result.resultField,
+    // CR10 part 7: GetDocStatus returns no document URL and the signed-document
+    // endpoint is not confirmed in the partner docs, so no signed copy is offered.
+    signedPdfAvailable: false,
     note: 'Status from SigniFlow GetDocStatus only — not invented staff-click signed-live.',
   })
 }

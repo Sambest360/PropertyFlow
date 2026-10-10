@@ -275,3 +275,49 @@ describe('issue + countersign pipeline', () => {
     expect(eSignStatusLabel('completed')).toMatch(/signed/i)
   })
 })
+
+describe('CR10 part 6: mock signing survives a reload (re-seeded from the stored eSign)', () => {
+  beforeEach(() => resetMockESignEnvelopes())
+  const PNG = 'data:image/png;base64,iVBORw0KGgo'
+
+  it('signing after a reload works and carries the method for the server stamp', async () => {
+    const mock = new MockDevESignProvider()
+    const issued = await issueLeaseOnTenancyCreate({
+      tenancy: tenancy(),
+      documentId: 'PD-lease-r1',
+      landlordUser: { id: 'u-owner1', name: 'Owner', email: 'o@e.com' } as never,
+      provider: mock,
+    })
+    const tenant = await recordLeaseSignature({ eSign: issued.eSign!, party: 'tenant', signerName: 'Lucas', provider: mock, signatureDataUrl: PNG, method: 'drawn' })
+    expect(tenant.ok).toBe(true)
+    // Reload: the in-memory envelope book is gone; the eSign is what the lease stored.
+    resetMockESignEnvelopes()
+    const stored = JSON.parse(JSON.stringify(tenant.eSign))
+    const landlord = await recordLeaseSignature({
+      eSign: stored,
+      party: 'landlord',
+      signerName: 'Owner One',
+      provider: new MockDevESignProvider(),
+      signatureDataUrl: PNG,
+      method: 'drawn',
+      onBehalfConfirmation: "I am signing for Owner One under the agency's mandate.",
+    })
+    expect(landlord.ok).toBe(true)
+    expect(landlord.eSign.status).toBe('completed') // re-seeded tenantSigned
+    expect(landlord.eSign.landlord).toMatchObject({ status: 'signed', method: 'drawn', onBehalfConfirmation: expect.stringContaining('mandate') })
+  })
+
+  it('without a stored envelope it says so plainly', async () => {
+    const mock = new MockDevESignProvider()
+    const res = await mock.recordSign({ envelopeId: 'MOCK-ENV-x', party: 'tenant', signerName: 'T' })
+    expect(res.ok).toBe(false)
+    expect(res.error).toBe('This lease has no signing envelope yet. Issue the lease first.')
+  })
+
+  it('the deferred soft-demo string is gone from providers.ts', async () => {
+    const { readFileSync } = await import('node:fs')
+    const src = readFileSync('src/lib/lease/providers.ts', 'utf8')
+    expect(src).not.toMatch(/Soft-demo/)
+    expect(src).toContain('Signing in this environment uses the test provider; no signed copy is produced.')
+  })
+})

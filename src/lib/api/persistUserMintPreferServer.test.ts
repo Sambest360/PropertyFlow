@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { preferServerPersistForUserMint } from './persist'
+import { preferServerPersistForSignature, preferServerPersistForUserMint } from './persist'
 
 const persistToSupabase = vi.fn(async () => true)
 
@@ -138,5 +138,28 @@ describe('persistToApi user mint fail-closed (supabase mode)', () => {
     })
     expect(ok).toBe(false)
     expect(persistToSupabase).not.toHaveBeenCalled()
+  })
+})
+
+describe('CR10 fix 4: signature writes go to /api/persist in supabase mode', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    persistToSupabase.mockClear()
+  })
+  it('flags user upserts that carry signature', () => {
+    expect(preferServerPersistForSignature('user', 'upsert', { signature: 'x' })).toBe(true)
+    expect(preferServerPersistForSignature('user', 'upsert', { name: 'x' })).toBe(false)
+    expect(preferServerPersistForSignature('tenancy', 'upsert', { signature: 'x' })).toBe(false)
+  })
+  it('single and batch signature writes hit /api/persist, never the browser upsert', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    const { persistToApi, persistBatchToApi } = await import('./persist')
+    const op = { resource: 'user' as const, action: 'upsert' as const, id: 'u-t', data: { id: 'u-t', signature: 'data:image/png;base64,AAAA' } }
+    expect(await persistToApi(op)).toBe(true)
+    expect(await persistBatchToApi([op])).toBe(true)
+    expect(persistToSupabase).not.toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(String((fetchMock.mock.calls[1] as unknown[])[0])).toContain('/api/persist')
   })
 })

@@ -133,6 +133,11 @@ export type AppUser = {
   phone?: string
   /** SA ID or passport — used for compliance identity. */
   idNumberOrPassport?: string
+  /**
+   * CR10: the user's own saved signature (PNG data URL, users.metadata.signature).
+   * Bootstrap returns it for the session user only.
+   */
+  signature?: string | null
   /** ISO date YYYY-MM-DD — derived from SA ID when applicable, or entered manually. */
   dateOfBirth?: string
   /** Employer / brokerage / trading name when relevant. */
@@ -1070,4 +1075,23 @@ export type TrustLinkedPayment = PaymentRecord & {
   trustTransactionId: string | null
   chargeId: string | null
   clearedInTrust: boolean
+}
+
+/** CR10: server-written lease_signed audit row (bootstrap, scoped per actor). Never the image. */
+export type LeaseSignEvent = {
+  id: string
+  tenancyId: string
+  agencyId?: string | null
+  envelopeId: string | null
+  party: 'tenant' | 'landlord'
+  signerUserId: string | null
+  role: string | null
+  method: 'drawn' | 'saved_image' | 'paper_mark' | string | null
+  onBehalf: boolean
+  onBehalfConfirmation?: string | null
+  imageSha256: string | null
+  signedAt: string | null
+  /** Staff only (stripped server-side for tenant / landlord / contractor). */
+  ip?: string | null
+  userAgent?: string | null
 }

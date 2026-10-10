@@ -180,6 +180,15 @@ export function preferServerPersistForApplication(
  * path (upsertUser → linkStaffAuthUser). Browser Supabase persist only writes
  * public.users and leaves auth_user_id NULL — toast-only agents that cannot sign in.
  */
+/** CR10 fix 4: user writes carrying `signature` go to /api/persist (own-row, PNG, 150 KB). */
+export function preferServerPersistForSignature(
+  resource: PersistOp['resource'],
+  action: PersistOp['action'],
+  data?: Record<string, unknown>,
+): boolean {
+  return resource === 'user' && action === 'upsert' && !!data && Object.prototype.hasOwnProperty.call(data, 'signature')
+}
+
 export function preferServerPersistForUserMint(
   resource: PersistOp['resource'],
   action: PersistOp['action'],
@@ -243,6 +252,12 @@ export async function persistToApi(op: PersistOp): Promise<boolean> {
       console.info('[persist] path=server user-mint', { id: op.id })
       return persistViaServerApi(op)
     }
+    // CR10: a user write carrying `signature` goes through /api/persist so the
+    // server's own-row rule and PNG / 150 KB check apply (browser upsert never
+    // sends the signature).
+    if (preferServerPersistForSignature(op.resource, op.action, op.data)) {
+      return persistViaServerApi(op)
+    }
     // P0-5 residual: building/unit/property — same soft-true miss as applications.
     if (preferServerPersistForListingHierarchy(op.resource, op.action)) {
       console.info('[persist] path=server listing-hierarchy', {
@@ -264,7 +279,17 @@ export async function persistToApi(op: PersistOp): Promise<boolean> {
 
 export async function persistBatchToApi(ops: PersistOp[]): Promise<boolean> {
   if (!ops.length) return true
-  if (isSupabaseMode) return persistBatchToSupabase(ops)
+  if (isSupabaseMode) {
+    // CR10 fix 4: signature writes in a batch also go through /api/persist.
+    const sig = ops.filter((o) => preferServerPersistForSignature(o.resource, o.action, o.data))
+    if (!sig.length) return persistBatchToSupabase(ops)
+    const rest = ops.filter((o) => !sig.includes(o))
+    const results = await Promise.all([
+      ...sig.map((o) => persistViaServerApi(o)),
+      rest.length ? persistBatchToSupabase(rest) : Promise.resolve(true),
+    ])
+    return results.every(Boolean)
+  }
   if (!apiConfigured()) return false
   try {
     const res = await fetch(`${API_BASE}/api/persist/batch`, {

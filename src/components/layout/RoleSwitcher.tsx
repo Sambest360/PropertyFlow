@@ -1,10 +1,10 @@
-import { ChevronDown, HelpCircle, Home, KeyRound, LayoutDashboard, LogOut, UserRound } from 'lucide-react'
+import { ChevronDown, HelpCircle, Home, KeyRound, LayoutDashboard, LogOut, PenLine, UserRound } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { signOutAndRedirect } from '../../lib/auth/signOut'
-import { ACCOUNT_PASSWORD_PATH } from '../../lib/accountRoutes'
+import { ACCOUNT_PASSWORD_PATH, ACCOUNT_SIGNATURE_PATH } from '../../lib/accountRoutes'
 import { isApiEnabled } from '../../lib/api/config'
 import { resetPageTipsForUser } from '../../lib/pageTips'
 import { roleLabels } from '../../lib/permissions'
@@ -107,6 +107,8 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
         icon: UserRound,
       })
     }
+
+    items.push({ kind: 'link', label: 'My signature', to: ACCOUNT_SIGNATURE_PATH, icon: PenLine })
 
     if (
       hasAny([

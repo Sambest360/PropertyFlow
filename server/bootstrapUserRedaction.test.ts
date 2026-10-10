@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { filterBootstrapForActor, filterBootstrapUsersForActor, redactBootstrapUser } from './scopeGate'
+import { filterBootstrapForActor, filterBootstrapUsersForActor, redactBootstrapUser, scopeLeaseSignReads } from './scopeGate'
 import { filterBootstrapForGuest } from './guestMarketplace'
 import { buildPropertyScope } from '../src/lib/scope'
 import type { DemoActor } from './actor'
@@ -161,6 +161,70 @@ describe('guest marketplace slice', () => {
     expect(json).not.toContain('"u-james"')
     expect(json).not.toContain('approved')
     expect(json).not.toContain('verification')
+  })
+})
+
+describe('CR10 A: bootstrap returns signature for the session user only', () => {
+  const SIG = 'data:image/png;base64,AAAA'
+  const withSig = users.map((x) => ({ ...x, signature: SIG }))
+  const sigRaw = { ...raw, users: [...withSig, { ...u('u-adm', 'client_admin', 'ag-a'), signature: SIG }, { ...u('u-sa', 'super_admin', null), signature: SIG }] }
+  const scopeFor = (role: string, userId: string, agencyId: string | null) =>
+    buildPropertyScope({ role, userId, agencyId } as never, {
+      properties: raw.properties,
+      applications: raw.applications,
+      tenancies: [],
+      tickets: [],
+    } as never)
+  const check = (actor: DemoActor) => {
+    const out = filterBootstrapForActor(sigRaw as never, actor, scopeFor(actor.role, actor.userId, actor.agencyId))
+    const list = out.users as Array<Record<string, unknown>>
+    expect(list.length).toBeGreaterThan(1)
+    for (const x of list) {
+      if (x.id === actor.userId) expect(x.signature).toBe(SIG)
+      else expect(x).not.toHaveProperty('signature')
+    }
+  }
+  it('tenant', () => check({ userId: 'u-tenant', role: 'tenant', agencyId: null }))
+  it('same-agency users.manage admin', () => check({ userId: 'u-adm', role: 'client_admin', agencyId: 'ag-a' }))
+  it('super admin', () => check({ userId: 'u-sa', role: 'super_admin', agencyId: null }))
+  it('redactBootstrapUser drops it', () => {
+    expect(redactBootstrapUser(withSig[0])).not.toHaveProperty('signature')
+  })
+})
+
+describe('CR10 B: lease_signed reads are scoped to the lease parties, its agency staff and super admin', () => {
+  const ev = (tenancyId: string) => ({ id: `e-${tenancyId}`, tenancyId, party: 'tenant', ip: '1.1.1.1', userAgent: 'ua' })
+  const raw2 = { ...raw, leaseSignEvents: [ev('L-mine'), ev('L-other')] }
+  const withTenancies = (ids: string[]) =>
+    ({ ...raw, tenancies: ids.map((id) => ({ id, eSign: { tenant: { status: 'signed', ip: '1.1.1.1', userAgent: 'ua' }, landlord: null } })) }) as never
+
+  it('a tenant gets only rows for leases they receive, without IP / user agent (rows and stamps)', () => {
+    const out = scopeLeaseSignReads(withTenancies(['L-mine']), raw2 as never, { userId: 'u-tenant', role: 'tenant', agencyId: null })
+    const rows = out.leaseSignEvents as Array<Record<string, unknown>>
+    expect(rows.map((r) => r.tenancyId)).toEqual(['L-mine'])
+    expect(rows[0]).not.toHaveProperty('ip')
+    expect(rows[0]).not.toHaveProperty('userAgent')
+    const t = (out.tenancies as Array<{ eSign: { tenant: Record<string, unknown> } }>)[0]
+    expect(t.eSign.tenant).not.toHaveProperty('ip')
+  })
+  it('an unrelated tenant or another agency (no visible tenancies) gets none', () => {
+    const out = scopeLeaseSignReads(withTenancies([]), raw2 as never, { userId: 'u-x', role: 'agent', agencyId: 'ag-b' })
+    expect(out.leaseSignEvents).toEqual([])
+  })
+  it('agency staff keep IP / user agent; super admin sees all rows', () => {
+    const staff = scopeLeaseSignReads(withTenancies(['L-mine']), raw2 as never, { userId: 'u-james', role: 'agent', agencyId: 'ag-a' })
+    expect((staff.leaseSignEvents as Array<Record<string, unknown>>)[0].ip).toBe('1.1.1.1')
+    const sa = scopeLeaseSignReads(withTenancies([]), raw2 as never, { userId: 'u-sa', role: 'super_admin', agencyId: null })
+    expect((sa.leaseSignEvents as unknown[]).length).toBe(2)
+  })
+  it('CR10 fix 5: a user from another agency gets no lease_signed rows, even for a tenancy id they can see', () => {
+    const rows = { ...raw, leaseSignEvents: [{ ...ev('L-mine'), agencyId: 'ag-a' }] }
+    const other = scopeLeaseSignReads(withTenancies(['L-mine']), rows as never, { userId: 'u-x', role: 'agent', agencyId: 'ag-b' })
+    expect(other.leaseSignEvents).toEqual([])
+    const own = scopeLeaseSignReads(withTenancies(['L-mine']), rows as never, { userId: 'u-james', role: 'agent', agencyId: 'ag-a' })
+    expect((own.leaseSignEvents as unknown[]).length).toBe(1)
+    const otherAdmin = scopeLeaseSignReads(withTenancies([]), rows as never, { userId: 'u-adm', role: 'client_admin', agencyId: 'ag-b' })
+    expect(otherAdmin.leaseSignEvents).toEqual([])
   })
 })
 

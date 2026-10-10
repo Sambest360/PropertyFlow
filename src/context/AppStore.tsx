@@ -9,6 +9,9 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { downscaleSignature } from '../lib/signature/downscale'
+import { isValidSignatureDataUrl } from '../lib/signature/signatureImage'
+import type { LeaseSignCapture } from '../lib/lease/signaturePrefill'
 import { applicationUploadPayload, applyDocumentUpload } from '../lib/applicationDocUpload'
 import { summarizeRooms } from '../lib/roomSummary'
 import type {
@@ -29,6 +32,7 @@ import type {
   PropertyAsset,
   PropertyDocument,
   PropertyEvent,
+  LeaseSignEvent,
   Review,
   ReviewTargetType,
   Role,
@@ -161,7 +165,7 @@ import {
 } from '../lib/blockedApplicants'
 import type { PostgresBootstrap } from '../lib/api/postgresClient'
 import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
-import { leaseSignatureSaved } from '../lib/leaseSignatureOrdering'
+import { ensureLeaseEnvelopeForSign, leaseSignatureSaved } from '../lib/leaseSignatureOrdering'
 import { persistRefusalMessage } from '../lib/api/persistRefusal'
 import {
   bootstrapActorKey,
@@ -401,6 +405,9 @@ function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppSta
       'propertyEvents',
     ),
     invoices: pick(base.invoices, boot.invoices as PlatformInvoice[] | undefined, 'invoices'),
+    leaseSignEvents: Array.isArray(boot.leaseSignEvents)
+      ? (boot.leaseSignEvents as LeaseSignEvent[])
+      : base.leaseSignEvents,
     lookups: boot.lookups?.length
       ? (boot.lookups as LookupConfig[])
       : base.lookups,
@@ -430,6 +437,14 @@ function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppSta
   }
 }
 
+
+/** CR10: PNG within the 150 KB cap (downscaled on the client when over). */
+async function sendableSignature(img: string | undefined): Promise<string | undefined> {
+  if (!img) return undefined
+  if (isValidSignatureDataUrl(img)) return img
+  return (await downscaleSignature(img)) ?? img
+}
+
 export type AppState = {
   agencies: Agency[]
   users: AppUser[]
@@ -454,6 +469,8 @@ export type AppState = {
   activities: Activity[]
   propertyDocuments: PropertyDocument[]
   propertyEvents: PropertyEvent[]
+  /** CR10: lease_signed audit rows from the server bootstrap (absent offline / Supabase browser mode). */
+  leaseSignEvents?: LeaseSignEvent[]
   reviews: Review[]
   billingPlans: BillingPlan[]
   clientSubscriptions: ClientSubscription[]
@@ -509,6 +526,12 @@ type StoreContextValue = {
     | { ok: false; error: string; user?: AppUser }
   >
   updateUser: (id: string, patch: Partial<AppUser>) => void
+  /**
+   * CR10: save (or clear with null) the session user's own signature
+   * (users.metadata.signature via the user upsert). Resolves false when the
+   * server refuses it (e.g. 400 SIGNATURE_INVALID); local state is reverted.
+   */
+  saveMySignature: (userId: string, signature: string | null) => Promise<boolean>
   updateTenancy: (id: string, patch: Partial<Tenancy>) => void
   /** Issue lease PDF + e-sign envelope for an existing tenancy (approve path / manual). */
   issueLeasePackage: (tenancyId: string, actor?: { userId?: string; name?: string }) => Promise<{
@@ -521,6 +544,9 @@ type StoreContextValue = {
     party: 'tenant' | 'landlord'
     signerName: string
     signatureDataUrl?: string
+    /** CR10: drawn | saved_image | paper_mark (re-checked by the server). */
+    method?: 'drawn' | 'saved_image' | 'paper_mark'
+    onBehalfConfirmation?: string
     actorUserId?: string | null
   }) => Promise<{ ok: boolean; error?: string }>
   assignRole: (userId: string, role: Role, agencyId?: string | null) => void
@@ -724,6 +750,8 @@ type StoreContextValue = {
     applicationId: string
     actorUserId: string
     targetStatus: WorkflowStatusKey
+    /** CR10: TENANT_SIGNED / LANDLORD_SIGNED / MARK_LEASE_SIGNED carry the sign dialog capture. */
+    signature?: LeaseSignCapture & { signerName?: string }
   }) => Promise<PatchApplicationStatusResult | { status: 'SUCCESS'; application: Application }>
   patchApplicationStatus: (params: {
     applicationId: string
@@ -2439,6 +2467,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const next = { ...state.users.find((u) => u.id === id), ...p, id }
       persistUpsert('user', id, next as Record<string, unknown>)
     },
+    saveMySignature: async (userId, signature) => {
+      const before = stateRef.current.users.find((u) => u.id === userId)
+      if (!before) return false
+      const prev = before.signature ?? null
+      patch((s) => ({ ...s, users: s.users.map((u) => (u.id === userId ? { ...u, signature } : u)) }))
+      const ok = await persistUpsert('user', userId, { ...before, signature, id: userId } as Record<string, unknown>)
+      if (ok === false) {
+        patch((s) => ({ ...s, users: s.users.map((u) => (u.id === userId ? { ...u, signature: prev } : u)) }))
+        return false
+      }
+      return true
+    },
     updateTenancy: (id, p) => {
       patch((s) => ({
         ...s,
@@ -2464,6 +2504,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       party,
       signerName,
       signatureDataUrl,
+      method,
+      onBehalfConfirmation,
       actorUserId,
     }) => {
       const lease = stateRef.current.tenancies.find((t) => t.id === tenancyId)
@@ -2495,7 +2537,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         tenancyId,
         party,
         signerName,
-        signatureDataUrl,
+        signatureDataUrl: await sendableSignature(signatureDataUrl),
+        method,
+        onBehalfConfirmation,
         actorUserId,
       })
       if (!signed.ok) return { ok: false, error: signed.error }
@@ -2507,6 +2551,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         tenancies: s.tenancies.map((t) => (t.id === tenancyId ? merged : t)),
       }))
       const leaseSaved = persistUpsert('tenancy', tenancyId, merged as unknown as Record<string, unknown>)
+      // CR10: the server sign function decides; a refused signing (403
+      // SIGNATURE_NOT_SIGNER / NOT_OWN / unconfirmed, 400 SIGNATURE_INVALID)
+      // restores the lease as it was and reports the failure.
+      if ((await leaseSaved) === false) {
+        patch((s) => ({
+          ...s,
+          tenancies: s.tenancies.map((t) => (t.id === tenancyId && t.eSign === signed.eSign ? fresh : t)),
+        }))
+        return { ok: false, error: 'The signature was not saved. Refresh and try again.' }
+      }
       // Mirror workflow when linked application exists. The server accepts the
       // mirror only for the status the stored lease envelope shows, so the
       // application write waits for the lease write; stage / progress are
@@ -4521,7 +4575,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
       return result
     },
-    advanceApplicationWorkflow: async ({ applicationId, actorUserId, targetStatus }) => {
+    advanceApplicationWorkflow: async ({ applicationId, actorUserId, targetStatus, signature }) => {
       const app = state.applications.find((a) => a.id === applicationId)
       if (!app) {
         return {
@@ -4586,7 +4640,38 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       ) {
         const party =
           transition.actionKey === 'LANDLORD_SIGNED' ? ('landlord' as const) : ('tenant' as const)
-        const lease = stateRef.current.tenancies.find((t) => t.applicationId === applicationId)
+        let lease = stateRef.current.tenancies.find((t) => t.applicationId === applicationId)
+        // CR10 fix 6: a staff modal sign on a lease with no envelope issues one
+        // through the existing issue path first, waits for that save, then
+        // stamps through the server sign function below. Never stage-only.
+        if (lease && !lease.eSign?.envelopeId && app.applicantUserId !== actorUserId) {
+          const withEnvelope = await ensureLeaseEnvelopeForSign(lease, {
+            issue: (l) => issueLeasePackageForTenancy(l, { userId: actorUserId, name: actorUser?.name }),
+            envelopeSave: (id) => leaseESignSaves.current.get(id),
+          })
+          if (withEnvelope) lease = withEnvelope
+          else {
+            return {
+              status: 'ERROR',
+              httpStatus: 422,
+              error: 'The lease signing envelope could not be issued. The signature was not recorded.',
+              code: 'LEASE_SIGNATURE_NOT_RECORDED',
+            } as PatchApplicationStatusResult
+          }
+        }
+        // CR10: no stage-only signing. TENANT_SIGNED / LANDLORD_SIGNED carry
+        // the sign dialog capture (drawn or own saved image, on-behalf
+        // confirmation); MARK_LEASE_SIGNED is paper_mark. The server sign
+        // function checks the signer and writes the lease_signed row.
+        const paper = transition.actionKey === 'MARK_LEASE_SIGNED'
+        if (lease?.eSign?.envelopeId && !paper && !signature?.signatureDataUrl) {
+          return {
+            status: 'ERROR',
+            httpStatus: 422,
+            error: 'Open the sign dialog and draw a signature to sign the lease.',
+            code: 'LEASE_SIGNATURE_NOT_RECORDED',
+          } as PatchApplicationStatusResult
+        }
         if (lease?.eSign?.envelopeId) {
           // Signing attempted: until the signed lease is saved, the
           // application does not move.
@@ -4595,7 +4680,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             eSign: lease.eSign,
             tenancyId: lease.id,
             party,
-            signerName: actorUser?.name ?? app.applicantName,
+            signerName: signature?.signerName || actorUser?.name || app.applicantName,
+            signatureDataUrl: paper ? undefined : await sendableSignature(signature?.signatureDataUrl),
+            method: paper ? 'paper_mark' : signature?.method ?? 'drawn',
+            onBehalfConfirmation: signature?.onBehalfConfirmation,
             actorUserId,
           })
           if (signed.ok) {
@@ -4626,16 +4714,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             }
             void derived
           }
-        } else if (lease && !lease.eSign?.envelopeId) {
-          // The applicant cannot be marked signed without a signature on an
-          // envelope (the server refuses it); staff marking a paper lease
-          // signed continue as before.
-          if (app.applicantUserId === actorUserId) leaseSignSave = Promise.resolve(false)
-          // No envelope yet — issue package then continue workflow.
-          await issueLeasePackageForTenancy(lease, {
-            userId: actorUserId,
-            name: actorUser?.name,
-          })
+        } else if (lease) {
+          // No envelope (applicant cannot issue one): never stage-only.
+          leaseSignSave = Promise.resolve(false)
         }
       }
 

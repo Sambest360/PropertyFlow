@@ -35,6 +35,7 @@ export type PostgresBootstrap = {
   suiteAlerts?: unknown[]
   activities?: unknown[]
   propertyEvents?: unknown[]
+  leaseSignEvents?: unknown[]
   invoices?: unknown[]
   lookups?: unknown[]
   /** Trust & Banking books (P0-7) — agency-scoped, present when authed. */
