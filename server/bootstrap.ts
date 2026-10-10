@@ -2,12 +2,12 @@ import { query } from './db.js'
 import { resolveFrontendRole } from '../src/lib/supabase/idMap.js'
 import { mapPool } from './mapPool.js'
 import { loadIdMapCache } from './idMapCache.js'
+import { USER_TO_UUID } from './entityMap.js'
 import {
   ACTIVITY_IDS,
   APP_REF_TO_ID,
   BUILDING_TO_FRONTEND,
   DOC_IDS,
-  EMAIL_TO_USER,
   INVOICE_IDS,
   LEAD_IDS,
   LEASE_IDS,
@@ -447,19 +447,9 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     (load) => load(),
   )
 
-  const userByUuid = new Map<string, string>()
-  for (const u of users) {
-    const meta = u.metadata ?? {}
-    const fromMeta = typeof meta.frontend_id === 'string' ? meta.frontend_id : null
-    const fe = fromMeta ?? EMAIL_TO_USER[u.email.toLowerCase()] ?? u.id
-    userByUuid.set(u.id, fe)
-  }
-
   // Runtime + seed aliases from entity_id_map (shared cache — no N+1)
   const idCache = await loadIdMapCache()
-  for (const [backendId, fe] of idCache.userBackendToFe) {
-    userByUuid.set(backendId, fe)
-  }
+  const userByUuid = labelBootstrapUsers(users as Array<{ id: string; email: string; metadata: Record<string, unknown> | null }>, idCache.userBackendToFe)
 
   const mapCache = new Map<string, string>()
   for (const [backendId, fe] of idCache.userBackendToFe) {
@@ -1314,4 +1304,24 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     lookups: mappedLookups,
     supportTickets: mappedSupportTickets,
   }
+}
+
+/**
+ * Front-end label per users.id. No email fallback: anyone can register a seed
+ * address. Round-tripped idMapCache wins; otherwise metadata.frontend_id, then
+ * a static seed id only when USER_TO_UUID[fe] equals this exact uuid.
+ */
+export function labelBootstrapUsers(
+  users: Array<{ id: string; email: string; metadata: Record<string, unknown> | null }>,
+  userBackendToFe: Map<string, string>,
+): Map<string, string> {
+  const staticByUuid = new Map(Object.entries(USER_TO_UUID).map(([fe, uuid]) => [uuid, fe]))
+  const out = new Map<string, string>()
+  for (const u of users) {
+    const meta = u.metadata ?? {}
+    const fromMeta = typeof meta.frontend_id === 'string' && meta.frontend_id ? meta.frontend_id : null
+    out.set(u.id, fromMeta ?? staticByUuid.get(u.id) ?? u.id)
+  }
+  for (const [backendId, fe] of userBackendToFe) out.set(backendId, fe)
+  return out
 }

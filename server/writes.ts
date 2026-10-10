@@ -240,19 +240,33 @@ async function resolveUserUuidByEmail(email: unknown): Promise<string | null> {
   return rows[0]?.id ?? null
 }
 
+/**
+ * Create an entity_id_map user entry fe → uuid, never moving or deleting an
+ * existing one. Skips (console.warn, no throw — guest apply / staff create run
+ * through here) when the fe is already mapped to a different uuid, when the
+ * uuid already has another fe.
+ */
 async function linkUserFeToUuid(feStr: string, uuid: string): Promise<void> {
   await ensureEntityMapTable()
-  await query(
-    `DELETE FROM entity_id_map
-     WHERE entity_type = 'user' AND backend_id = $1::uuid AND frontend_id <> $2`,
-    [uuid, feStr],
+  const existing = await query<{ backend_id: string }>(
+    `SELECT backend_id::text FROM entity_id_map
+     WHERE entity_type = 'user' AND frontend_id = $1 LIMIT 1`,
+    [feStr],
   )
-  await query(
+  const current = existing[0]?.backend_id
+  if (current === uuid) return
+  if (current) {
+    console.warn(`[entity_id_map] skip: user ${feStr} already mapped to ${current}, not moving to ${uuid}`)
+    return
+  }
+  const ins = await query<{ frontend_id: string }>(
     `INSERT INTO entity_id_map (entity_type, frontend_id, backend_id)
      VALUES ('user', $1, $2::uuid)
-     ON CONFLICT (entity_type, frontend_id) DO UPDATE SET backend_id = EXCLUDED.backend_id`,
+     ON CONFLICT DO NOTHING
+     RETURNING frontend_id`,
     [feStr, uuid],
   )
+  if (!ins?.[0]) console.warn(`[entity_id_map] skip: ${uuid} already has a user mapping`)
 }
 
 /** Resolve applicant/tenant uuid — FE user id first, else email → users. */
@@ -312,19 +326,8 @@ async function requireAgentId(fe: unknown): Promise<string | null> {
   )
   const hit = rows[0]?.id
   if (hit) {
-    await ensureEntityMapTable()
-    // Free unique (entity_type, backend_id) if another FE already owns the live UUID.
-    await query(
-      `DELETE FROM entity_id_map
-       WHERE entity_type = 'user' AND backend_id = $1::uuid AND frontend_id <> $2`,
-      [hit, feStr],
-    )
-    await query(
-      `INSERT INTO entity_id_map (entity_type, frontend_id, backend_id)
-       VALUES ('user', $1, $2::uuid)
-       ON CONFLICT (entity_type, frontend_id) DO UPDATE SET backend_id = EXCLUDED.backend_id`,
-      [feStr, hit],
-    )
+    // Never move/delete an existing entry.
+    await linkUserFeToUuid(feStr, hit)
     return hit
   }
   throw Object.assign(new Error(`agent not resolved: ${feStr}`), { status: 400 })
