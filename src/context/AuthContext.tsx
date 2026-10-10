@@ -16,7 +16,6 @@ import {
   type AuthUserDto,
 } from '../lib/api/authClient'
 import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
-import { replayOwnPersistQueue } from '../lib/api/persist'
 import { sessionUserSwitched } from '../lib/clientCache'
 import { shouldSkipAuthBootstrapRefresh } from '../lib/bootstrapCoord'
 import { blockedPropertyIdsForApplicant } from '../lib/blockedApplicants'
@@ -380,18 +379,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // same session user and is not a switch.
   const lastSessionUserIdRef = useRef<string | null>(sessionUser?.id ?? null)
   useEffect(() => {
+    if (!isApiEnabled && !isSupabaseMode) return // demo mode: as on main
     const next = sessionUser?.id ?? null
     const prev = lastSessionUserIdRef.current
     if (sessionUserSwitched(prev, next)) resetForUserSwitch()
     if (next) lastSessionUserIdRef.current = next
   }, [sessionUser?.id, resetForUserSwitch])
-
-  // Owner-keyed save queue: replay only this session user's own items.
-  useEffect(() => {
-    if (!isApiEnabled && !isSupabaseMode) return
-    if (!sessionUser?.id) return
-    void replayOwnPersistQueue(sessionUser.id)
-  }, [sessionUser?.id])
 
   useEffect(() => {
     if (!isApiEnabled && !isSupabaseMode) return

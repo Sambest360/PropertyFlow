@@ -170,6 +170,7 @@ import {
   readOwnedClientCache,
   serializeClientCache,
   shouldDeferMountBootstrap,
+  createClientCacheWriter,
 } from '../lib/clientCache'
 import { readStoredAuthUserId, getApiActor, actorHeaders, type DemoActor } from '../lib/api/actorAuth'
 import {
@@ -921,7 +922,13 @@ export function loadState(): AppState {
   const base = defaultState()
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    const parsed = readOwnedClientCache<AppState>(raw, readStoredAuthUserId())
+    let parsed: Partial<AppState> | null
+    if (LIVE_DATA_MODE) {
+      parsed = readOwnedClientCache<AppState>(raw, readStoredAuthUserId())
+    } else {
+      // Demo / no-API mode: unkeyed cache, exactly as on main.
+      parsed = raw ? (JSON.parse(raw) as Partial<AppState>) : null
+    }
     if (!parsed) return base
     return {
       ...base,
@@ -1231,19 +1238,37 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  // Owner captured at schedule time; pending write cancelled on user switch.
+  const cacheWriterRef = useRef<ReturnType<typeof createClientCacheWriter<AppState>> | null>(null)
+  if (!cacheWriterRef.current) {
+    cacheWriterRef.current = createClientCacheWriter<AppState>({
+      delayMs: 900,
+      getOwner: readStoredAuthUserId,
+      write: (st, owner) => {
+        try {
+          localStorage.setItem(
+            STORAGE_KEY,
+            LIVE_DATA_MODE ? serializeClientCache(st, owner, isApiEnabled) : JSON.stringify(st),
+          )
+        } catch {
+          /* ignore quota errors */
+        }
+      },
+    })
+  }
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      try {
-        localStorage.setItem(
-          STORAGE_KEY,
-          serializeClientCache(state, readStoredAuthUserId(), isApiEnabled),
-        )
-      } catch {
-        /* ignore quota errors */
-      }
-    }, 900)
-    return () => window.clearTimeout(timer)
+    const writer = cacheWriterRef.current!
+    writer.schedule(state)
+    return () => writer.cancel()
   }, [state])
+  useEffect(() => {
+    // Sign-out from another tab/flow: drop any pending write for the old user.
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'propertyflow-auth-user') cacheWriterRef.current?.cancel()
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
 
   const patch = useCallback((fn: (s: AppState) => AppState) => {
     // P0-publish (R8): keep stateRef in sync synchronously. Same-tick flows
@@ -2082,6 +2107,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     state,
     hydratedForUserId,
     resetForUserSwitch: () => {
+      if (!LIVE_DATA_MODE) return // demo mode: as on main
+      cacheWriterRef.current?.cancel()
       const fresh = defaultState()
       stateRef.current = fresh
       setState(fresh)

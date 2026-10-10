@@ -10,7 +10,6 @@
  */
 import { clearPendingRegistrationDocs } from './registrationDocs'
 import { APP_STATE_STORAGE_KEY, PG_SOURCE_STORAGE_KEY } from '../clientCache'
-import { dropUnownedPersistQueues } from '../api/persistQueue'
 
 /** Session-scoped keys that must not leak across users. */
 export const STALE_KEYS = [
@@ -27,8 +26,6 @@ export const STALE_KEYS = [
 function clearStaleSessionKeys() {
   try {
     for (const k of STALE_KEYS) localStorage.removeItem(k)
-    // Owned save-queue buckets stay (replayed only when their owner returns).
-    dropUnownedPersistQueues()
     sessionStorage.removeItem('pf-register-email')
     const storages = [localStorage, sessionStorage]
     for (const store of storages) {

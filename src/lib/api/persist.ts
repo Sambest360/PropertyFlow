@@ -11,13 +11,6 @@ import {
   supabaseMarkNotificationsRead,
 } from '../supabase/persist'
 import { markLocalPersistWrite } from '../bootstrapMerge'
-import { readStoredAuthUserId } from './actorAuth'
-import {
-  enqueuePersistItem,
-  removePersistItem,
-  replayPersistQueue,
-  type SendOutcome,
-} from './persistQueue'
 
 export type { EntityType } from './persistTypes'
 
@@ -122,11 +115,6 @@ function reportPersistRefusal(refusal: PersistRefusal | null): void {
 
 /** POST /api/persist using DATABASE_URL (bypasses browser RLS). */
 export async function persistViaServerApi(op: PersistOp): Promise<boolean> {
-  return (await persistViaServerApiOutcome(op)) === 'ok'
-}
-
-/** Same as persistViaServerApi, but tells a server refusal apart from a network failure. */
-export async function persistViaServerApiOutcome(op: PersistOp): Promise<SendOutcome> {
   try {
     const res = await fetch(`${API_BASE}/api/persist`, {
       method: 'POST',
@@ -138,13 +126,12 @@ export async function persistViaServerApiOutcome(op: PersistOp): Promise<SendOut
     if (!isPersistApiSuccessResponse(res.status, contentType, text)) {
       console.warn('[persist]', op.resource, op.action, op.id, res.status, text.slice(0, 200))
       reportPersistRefusal(parsePersistRefusal(op, res.status, text))
-      // 5xx / gateway errors are retryable like the network; 4xx is a refusal.
-      return res.status >= 500 ? 'network' : 'rejected'
+      return false
     }
-    return 'ok'
+    return true
   } catch (err) {
     console.warn('[persist] offline / failed', op.resource, op.id, err)
-    return 'network'
+    return false
   }
 }
 
@@ -204,10 +191,6 @@ export function preferServerPersistForTenancy(
 }
 
 export async function persistToApi(op: PersistOp): Promise<boolean> {
-  return (await persistToApiOutcome(op)) === 'ok'
-}
-
-export async function persistToApiOutcome(op: PersistOp): Promise<SendOutcome> {
   if (isSupabaseMode) {
     // P0-sync (R12/R13): application upserts are fail-closed on /api/persist.
     // Browser RLS cannot stamp listing agency client_id for END_USER; a "soft"
@@ -215,13 +198,13 @@ export async function persistToApiOutcome(op: PersistOp): Promise<SendOutcome> {
     // staff bootstrap never loads the row is worse than a hard apply error.
     // createApplication awaits this and rolls back the optimistic APP on false.
     if (preferServerPersistForApplication(op.resource, op.action)) {
-      return persistViaServerApiOutcome(op)
+      return persistViaServerApi(op)
     }
     // P0-sa-mint: staff/agent create with temp password — Auth + link + verify
     // only exists on the server upsertUser path (not browser RLS upsert).
     if (preferServerPersistForUserMint(op.resource, op.action, op.data)) {
       console.info('[persist] path=server user-mint', { id: op.id })
-      return persistViaServerApiOutcome(op)
+      return persistViaServerApi(op)
     }
     // P0-5 residual: building/unit/property — same soft-true miss as applications.
     if (preferServerPersistForListingHierarchy(op.resource, op.action)) {
@@ -229,17 +212,17 @@ export async function persistToApiOutcome(op: PersistOp): Promise<SendOutcome> {
         resource: op.resource,
         id: op.id,
       })
-      return persistViaServerApiOutcome(op)
+      return persistViaServerApi(op)
     }
     // P0-r21: tenancy/lease mint — unitIdFromProperty on server.
     if (preferServerPersistForTenancy(op.resource, op.action)) {
       console.info('[persist] path=server tenancy', { id: op.id })
-      return persistViaServerApiOutcome(op)
+      return persistViaServerApi(op)
     }
-    return (await persistToSupabase(op)) ? 'ok' : 'rejected'
+    return persistToSupabase(op)
   }
-  if (!apiConfigured()) return 'rejected'
-  return persistViaServerApiOutcome(op)
+  if (!apiConfigured()) return false
+  return persistViaServerApi(op)
 }
 
 export async function persistBatchToApi(ops: PersistOp[]): Promise<boolean> {
@@ -318,18 +301,7 @@ export async function persistMarkNotificationsRead(params: {
 
 /** Queue a mutation without blocking the UI. */
 export function queuePersist(op: PersistOp): void {
-  // Owner-keyed durable queue: the item is stored under the current auth user
-  // and only removed once it lands (or is refused). See persistQueue.ts.
-  const owner = readStoredAuthUserId()
-  const qid = enqueuePersistItem(owner, op)
-  void persistToApiOutcome(op).then((outcome) => {
-    if (outcome !== 'network') removePersistItem(owner, qid)
-  })
-}
-
-/** Replay the signed-in user's own durable queue (never another user's). */
-export function replayOwnPersistQueue(sessionUserId: string | null): Promise<number> {
-  return replayPersistQueue(sessionUserId, persistToApiOutcome)
+  void persistToApi(op)
 }
 
 export function queuePersistBatch(ops: PersistOp[]): void {

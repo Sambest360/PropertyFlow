@@ -15,6 +15,12 @@ function fakeStorage() {
   }
 }
 
+vi.mock('./api/config', async (orig) => ({
+  ...(await orig<typeof import('./api/config')>()),
+  isApiEnabled: true,
+  isSupabaseMode: false,
+}))
+
 let ls: ReturnType<typeof fakeStorage>
 beforeEach(() => {
   ls = fakeStorage()
@@ -27,6 +33,7 @@ import {
   PG_SOURCE_STORAGE_KEY,
   readOwnedClientCache,
   serializeClientCache,
+  createClientCacheWriter,
   sessionUserSwitched,
   shouldDeferMountBootstrap,
 } from './clientCache'
@@ -120,5 +127,39 @@ describe('API mode defaults', () => {
   it('mount with pg-source=postgres + cache + live session → bootstrap is not deferred', () => {
     expect(shouldDeferMountBootstrap({ storedAuthUserId: 'u-a', pgSource: 'postgres', cachedPropertyCount: 5 })).toBe(false)
     expect(shouldDeferMountBootstrap({ storedAuthUserId: null, pgSource: 'postgres', cachedPropertyCount: 5 })).toBe(true)
+  })
+})
+
+describe('debounced cache write', () => {
+  it('a write scheduled as A is never saved under B after a switch', () => {
+    vi.useFakeTimers()
+    try {
+      ls.setItem(AUTH_KEY, 'u-a')
+      const writes: Array<{ owner: string | null; state: unknown }> = []
+      const writer = createClientCacheWriter<{ properties: string[] }>({
+        delayMs: 900,
+        getOwner: () => ls.getItem(AUTH_KEY),
+        write: (state, owner) => {
+          writes.push({ owner, state })
+          ls.setItem(APP_STATE_STORAGE_KEY, serializeClientCache(state, owner, true))
+        },
+      })
+      writer.schedule({ properties: ['p-agency-a'] })
+      ls.setItem(AUTH_KEY, 'u-b') // user switch before the timer fires
+      vi.advanceTimersByTime(1000)
+      expect(writes).toEqual([])
+      expect(readOwnedClientCache(ls.getItem(APP_STATE_STORAGE_KEY), 'u-b')).toBeNull()
+
+      writer.schedule({ properties: ['p-agency-a'] })
+      writer.cancel() // sign-out / resetForUserSwitch
+      vi.advanceTimersByTime(1000)
+      expect(writes).toEqual([])
+
+      writer.schedule({ properties: ['p-b'] })
+      vi.advanceTimersByTime(1000)
+      expect(writes).toEqual([{ owner: 'u-b', state: { properties: ['p-b'] } }])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

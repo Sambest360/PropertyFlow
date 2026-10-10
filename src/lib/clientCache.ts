@@ -98,3 +98,31 @@ export function shouldDeferMountBootstrap(params: {
   if (params.storedAuthUserId) return false
   return params.pgSource === 'postgres' && params.cachedPropertyCount > 0
 }
+
+/**
+ * Debounced cache writer. The owner is captured when a write is SCHEDULED, and
+ * the write is dropped if the stored auth user changed before it fires, so A's
+ * state can never be saved under B's owner tag. cancel() is called on user
+ * switch / sign-out.
+ */
+export function createClientCacheWriter<S extends object>(opts: {
+  delayMs: number
+  getOwner: () => string | null
+  write: (state: S, ownerUserId: string | null) => void
+}) {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const cancel = () => {
+    if (timer != null) clearTimeout(timer)
+    timer = null
+  }
+  const schedule = (state: S) => {
+    cancel()
+    const owner = opts.getOwner()
+    timer = setTimeout(() => {
+      timer = null
+      if ((opts.getOwner() || null) !== (owner || null)) return
+      opts.write(state, owner)
+    }, opts.delayMs)
+  }
+  return { schedule, cancel }
+}
