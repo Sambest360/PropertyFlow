@@ -84,8 +84,8 @@ export function useTenantPortalState(): TenantPortalState {
       ? (state.properties.find((p) => p.id === tenancy.propertyId) ?? null)
       : null
 
-  // Own reported tickets, or tickets linked to one of the tenant's own
-  // tenancies (current or past). No name match, no unit match. All in the
+  // Own reported tickets (any tenancy status), or tickets linked to one of
+  // the tenant's own Active / Notice tenancies. No name match, no unit match. All in the
   // tenant view only (no costs, quotes, vendor, warranty or staff notes).
   const tickets = useMemo(
     () => tenantPortalTickets(state.tickets, state.tenancies, user.id),

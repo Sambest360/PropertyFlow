@@ -66,6 +66,8 @@ const UUID: Record<string, string> = {
   'TH-2': id(81),
   'LD-1': id(90),
   'ag-a': CA,
+  'p-1': UN1,
+  'p-2': UN2,
 }
 const FE_BY_UUID = new Map(Object.entries(UUID).map(([fe, u]) => [u, fe]))
 const EMAIL: Record<string, string> = {
@@ -443,7 +445,8 @@ describe("Follow-up: a tenant's own ticket never sets assignment, cost or status
     expect(upd.data).toEqual({ propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', title: 'Leak', warrantyCovered: false })
     const created: Body = { resource: 'ticket', action: 'upsert', id: 'TK-new', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', ...LOCKED } }
     await expect(gate(TENANT, created)).resolves.toEqual({})
-    expect(created.data).toEqual({ propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', warrantyCovered: false })
+    // Server-stamped with the tenant's own lease on the unit (#92).
+    expect(created.data).toEqual({ propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', tenancyId: 'L-1', warrantyCovered: false })
   })
 
   it('the stripped write keeps the stored assignment, cost and status (upsertTicket)', async () => {
@@ -748,6 +751,30 @@ describe('tenant maintenance tickets: tenancy link and no-agency tenants', () =>
     // The client sends the unit's agency (AppStore createMaintenanceTicket).
     const body: Body = { resource: 'ticket', action: 'upsert', id: 'TK-new', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', title: 'Leak' } }
     await expect(gate(NO_AGENCY_TENANT, body)).resolves.toEqual({})
+  })
+
+  it('Jim #92 nit: a tenant cannot file on a listing they only applied to (no lease on the unit)', async () => {
+    const base = query.getMockImplementation()!
+    query.mockImplementation(async (sql: string, params?: unknown[]) =>
+      sql.replace(/\s+/g, ' ').includes('FROM applications a LEFT JOIN users u')
+        ? [{ applicant_id: UUID['u-t'], email: 'tess@x.test', unit_id: UN2, status: 'SUBMITTED', reference_code: 'APP-9', metadata: null }]
+        : base(sql, params),
+    )
+    const { buildActorPropertyScope } = await import('./scopeGate.js')
+    const scope = await buildActorPropertyScope(TENANT as never)
+    expect(scope.allowedPropertyIds.has('p-2')).toBe(true) // applied: in their book
+    const body: Body = { resource: 'ticket', action: 'upsert', id: 'TK-new', data: { propertyId: 'p-2', agencyId: 'ag-a', reportedByUserId: 'u-t', title: 'Leak' } }
+    await expect(gate(TENANT, body)).rejects.toMatchObject({ status: 403, message: expect.stringContaining('no lease on this unit') })
+  })
+
+  it('Jim #92 nit: upsertTicket keeps the stored asset when internalAssetId is absent', async () => {
+    await staffPersist({ propertyId: 'p-1', title: 'Geyser' }, 'TK-mine')
+    const sql = String(query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO maintenance_tickets'))![0]).replace(/\s+/g, ' ')
+    expect(sql).toContain('asset_id = CASE WHEN $28::boolean THEN EXCLUDED.asset_id ELSE maintenance_tickets.asset_id END')
+    expect(insertParams()[27]).toBe(false)
+    query.mockClear()
+    await staffPersist({ propertyId: 'p-1', title: 'Geyser', internalAssetId: null }, 'TK-mine')
+    expect(insertParams()[27]).toBe(true)
   })
 
   it('a tenant with no agency still cannot file outside their book', async () => {

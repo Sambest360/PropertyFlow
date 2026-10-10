@@ -501,14 +501,16 @@ export async function enforcePortalWritePolicy(
             : []
           const vendor = await preferredVendorForTicket(u[0]?.client_id ?? null, str(data.categoryKey) ?? 'GENERAL')
           if (vendor) data.contractorId = vendor
-          // New ticket: linked to the tenant's own Active / Pending lease on
-          // that unit (server-stamped). Any other tenancy is refused.
+          // New ticket: only on a unit where the tenant holds a lease (Active,
+          // Notice or Pending) — never on a listing they have only applied
+          // to. Linked to that lease (server-stamped); any other tenancy is
+          // refused.
           const me = await actorUuid(actor)
           const own = me && unit ? await tenantOwnLeaseFeOnUnit(me, unit) : null
+          if (!own) throw deny('no lease on this unit')
           const sentTenancy = str(data.tenancyId)
           if (sentTenancy && sentTenancy !== own) throw deny('not their tenancy')
-          if (own) data.tenancyId = own
-          else delete data.tenancyId
+          data.tenancyId = own
         }
         // Warranty cover: from the asset's warranty on the ticket date, never
         // from the tenant.

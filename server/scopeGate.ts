@@ -31,7 +31,7 @@ import {
   type ScopeLinksInput,
 } from '../src/lib/scope.js'
 import { canWriteEntity } from '../src/lib/scopeWrite.js'
-import { tenantSeesTicket, tenantTicketView } from '../src/lib/ticketTenantView.js'
+import { tenantSeesTicket, tenantTicketTenancyIds, tenantTicketView } from '../src/lib/ticketTenantView.js'
 import type { PropertyAccessSubject } from '../src/lib/agencyScope.js'
 import type { Permission, Role } from '../src/types/domain.js'
 import { effectiveCan } from '../src/lib/permissions.js'
@@ -1715,18 +1715,17 @@ function filterBootstrapEntitiesForActor(
     dealInScope(scope, { propertyId: x.propertyId, agentId: x.agentId, agencyId: x.agencyId }),
   )
   const tenancies = raw.tenancies.filter((x) => allowed.has(x.propertyId))
-  // Tenants: tickets they reported (any id form they carry) or tickets linked
-  // to one of their own tenancies (current or past). Never by property or unit
-  // alone — applying to a listing puts it in a tenant's book. Every ticket
-  // is reduced to the tenant view (no staff notes, contractor, quote, cost
-  // or warranty fields), their own reports included.
+  // Tenants: tickets they reported (any id form they carry, any tenancy
+  // status) or tickets linked to one of their own Active / Notice tenancies.
+  // Never by property or unit alone — applying to a listing puts it in a
+  // tenant's book. Every ticket is reduced to the tenant view (no staff
+  // notes, contractor, quote, cost or warranty fields); their own reports
+  // also keep their access notes and photos.
   const ownTenancyIds =
     actor.role === 'tenant'
-      ? new Set(
-          (raw.tenancies as Array<{ id?: string; tenantUserId?: string | null }>)
-            .filter((t) => typeof t.tenantUserId === 'string' && t.tenantUserId !== '' && actorIds.has(t.tenantUserId))
-            .map((t) => t.id)
-            .filter((id): id is string => typeof id === 'string' && id !== ''),
+      ? tenantTicketTenancyIds(
+          raw.tenancies as Array<{ id?: string; tenantUserId?: string | null; status?: string; leaseStatus?: string }>,
+          (id) => actorIds.has(id),
         )
       : new Set<string>()
   const tickets =

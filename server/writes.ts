@@ -1588,7 +1588,7 @@ async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<s
        $14::timestamptz, $15, $16, $17::jsonb, $18::timestamptz, $25::uuid, NOW()
      )
      ON CONFLICT (id) DO UPDATE SET
-       asset_id = EXCLUDED.asset_id,
+       asset_id = CASE WHEN $28::boolean THEN EXCLUDED.asset_id ELSE maintenance_tickets.asset_id END,
        lease_id = CASE WHEN $26::boolean THEN EXCLUDED.lease_id ELSE maintenance_tickets.lease_id END,
        assigned_to = CASE WHEN $19::boolean THEN EXCLUDED.assigned_to ELSE maintenance_tickets.assigned_to END,
        contractor_id = CASE WHEN $20::boolean THEN EXCLUDED.contractor_id ELSE maintenance_tickets.contractor_id END,
@@ -1632,6 +1632,7 @@ async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<s
       lease,
       tenancySent,
       has('photos') || has('photoUrls'),
+      has('internalAssetId'),
     ],
   )
   return uuid

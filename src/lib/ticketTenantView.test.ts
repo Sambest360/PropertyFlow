@@ -25,9 +25,11 @@ const ticket = (over: Partial<MaintenanceTicket>): MaintenanceTicket => ({
   ...over,
 })
 const tenancies = [
-  { id: 'L-t', tenantUserId: 'u-t' },
-  { id: 'L-t2', tenantUserId: 'u-t2' },
-] as Array<Pick<Tenancy, 'id' | 'tenantUserId'>>
+  { id: 'L-t', tenantUserId: 'u-t', status: 'Active', leaseStatus: 'active' },
+  { id: 'L-t2', tenantUserId: 'u-t2', status: 'Active', leaseStatus: 'active' },
+  { id: 'L-n', tenantUserId: 'u-t', status: 'Pending Move-In', leaseStatus: 'notice' },
+  { id: 'L-e', tenantUserId: 'u-t', status: 'Pending Move-In', leaseStatus: 'ended' },
+] as Array<Pick<Tenancy, 'id' | 'tenantUserId' | 'status' | 'leaseStatus'>>
 
 describe('tenant portal tickets', () => {
   it('lists a staff ticket linked to my tenancy, in the tenant view', () => {
@@ -38,6 +40,30 @@ describe('tenant portal tickets', () => {
       expect(t).not.toHaveProperty(k)
     }
     expect(t.status).toBe('In Progress')
+  })
+
+  it('Michael #92: Notice-linked visible, Ended-linked hidden, own report on an ended tenancy visible', () => {
+    const out = tenantPortalTickets(
+      [
+        ticket({ id: 'MT-n', tenancyId: 'L-n' }),
+        ticket({ id: 'MT-e', tenancyId: 'L-e' }),
+        ticket({ id: 'MT-own-e', tenancyId: 'L-e', reportedByUserId: 'u-t' }),
+      ],
+      tenancies,
+      'u-t',
+    )
+    expect(out.map((t) => t.id)).toEqual(['MT-n', 'MT-own-e'])
+  })
+
+  it('Michael #92: own report keeps access notes and photos; a linked ticket does not', () => {
+    const extra = { accessNotes: 'Gate 4411', photos: 1, photoUrls: ['/p.jpg'] }
+    const [own, linked] = tenantPortalTickets(
+      [ticket({ id: 'MT-own', reportedByUserId: 'u-t', ...extra }), ticket({ id: 'MT-l', tenancyId: 'L-t', ...extra })],
+      tenancies,
+      'u-t',
+    ) as Array<Record<string, unknown>>
+    expect(own).toMatchObject(extra)
+    for (const k of ['accessNotes', 'photos', 'photoUrls']) expect(linked).not.toHaveProperty(k)
   })
 
   it("does not list another tenant's linked ticket", () => {

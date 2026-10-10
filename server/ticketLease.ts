@@ -68,13 +68,13 @@ export async function resolveTicketLease(
 }
 
 /**
- * The tenant's own Active (else Pending) lease on a unit, as a front-end id,
+ * The tenant's own Active (else Notice / Pending) lease on a unit, as a front-end id,
  * for stamping a tenant-filed ticket. Null when they have none there.
  */
 export async function tenantOwnLeaseFeOnUnit(tenantUuid: string, unitUuid: string): Promise<string | null> {
   const rows = await query<{ id: string }>(
     `SELECT id::text AS id FROM leases
-      WHERE unit_id = $1::uuid AND tenant_id = $2::uuid AND status IN ('ACTIVE', 'PENDING')
+      WHERE unit_id = $1::uuid AND tenant_id = $2::uuid AND status IN ('ACTIVE', 'PENDING', 'NOTICE')
       ORDER BY (status = 'ACTIVE') DESC, start_date DESC LIMIT 1`,
     [unitUuid, tenantUuid],
   )

@@ -52,10 +52,12 @@ function raw() {
     leads: [],
     applications: [],
     tenancies: [
-      { id: 'L-t', agencyId: 'ag-a', propertyId: 'p-1', tenantUserId: 'u-t', status: 'Active' },
-      { id: 'L-t2', agencyId: 'ag-a', propertyId: 'p-1', tenantUserId: 'u-t2', status: 'Active' },
-      { id: 'L-t-old', agencyId: 'ag-a', propertyId: 'p-2', tenantUserId: 'u-t', status: 'Ended' },
-      { id: 'L-t3', agencyId: 'ag-a', propertyId: 'p-2', tenantUserId: 'u-t3', status: 'Active' },
+      { id: 'L-t', agencyId: 'ag-a', propertyId: 'p-1', tenantUserId: 'u-t', status: 'Active', leaseStatus: 'active' },
+      { id: 'L-t2', agencyId: 'ag-a', propertyId: 'p-1', tenantUserId: 'u-t2', status: 'Active', leaseStatus: 'active' },
+      // Bootstrap labels ended / notice leases "Pending Move-In"; leaseStatus is the raw status.
+      { id: 'L-t-old', agencyId: 'ag-a', propertyId: 'p-2', tenantUserId: 'u-t', status: 'Pending Move-In', leaseStatus: 'ended' },
+      { id: 'L-t-notice', agencyId: 'ag-a', propertyId: 'p-1', tenantUserId: 'u-t', status: 'Pending Move-In', leaseStatus: 'notice' },
+      { id: 'L-t3', agencyId: 'ag-a', propertyId: 'p-2', tenantUserId: 'u-t3', status: 'Active', leaseStatus: 'active' },
     ],
     viewings: [],
     viewingSlots: [],
@@ -66,6 +68,8 @@ function raw() {
       staffTicket('MT-for-t2', 'L-t2'),
       staffTicket('MT-unlinked', null),
       staffTicket('MT-old-tenancy', 'L-t-old', 'p-2'),
+      staffTicket('MT-notice', 'L-t-notice'),
+      { ...staffTicket('MT-own-old', 'L-t-old', 'p-2'), reportedBy: 'Tess', reportedByUserId: 'u-t' },
       { ...staffTicket('MT-own', null), reportedBy: 'Tess', reportedByUserId: 'u-t' },
     ],
     threads: [],
@@ -102,8 +106,25 @@ describe('tenant bootstrap: staff tickets linked to a tenancy', () => {
     expect(tenantView('u-t3').tickets.map((t) => t.id)).toEqual([])
   })
 
-  it("a past tenant keeps their own old tenancy's tickets", () => {
-    expect(tenantView('u-t').tickets.map((t) => t.id)).toContain('MT-old-tenancy')
+  it('Michael #92: Active-linked and Notice-linked tickets are visible', () => {
+    const ids = tenantView('u-t').tickets.map((t) => t.id)
+    expect(ids).toContain('MT-for-t')
+    expect(ids).toContain('MT-notice')
+  })
+
+  it("Michael #92: an Ended tenancy's linked ticket is hidden from the past tenant", () => {
+    expect(tenantView('u-t').tickets.map((t) => t.id)).not.toContain('MT-old-tenancy')
+  })
+
+  it('Michael #92: a ticket I reported on an ended tenancy stays visible', () => {
+    expect(tenantView('u-t').tickets.map((t) => t.id)).toContain('MT-own-old')
+  })
+
+  it('Michael #92: my own report keeps my access notes and photos', () => {
+    const t = tenantView('u-t').tickets.find((x) => x.id === 'MT-own') as Record<string, unknown>
+    expect(t.accessNotes).toBe('Lockbox 1234')
+    expect(t.photoUrls).toEqual(['/staff/photo.jpg'])
+    expect(t.photos).toBe(2)
   })
 
   it('Oscar: a linked ticket has no notes, quote, cost, vendor or warranty fields', () => {
@@ -136,10 +157,10 @@ describe('tenant bootstrap: staff tickets linked to a tenancy', () => {
       status: 'In Progress',
       openedAt: '2026-10-01',
     })
-    for (const k of ['resolutionNotes', 'cost', 'estimatedCost', 'contractorId', 'assignedAgentId', 'warrantyCovered', 'contractorAssignedAt', 'accessNotes']) {
+    for (const k of ['resolutionNotes', 'cost', 'estimatedCost', 'contractorId', 'assignedAgentId', 'warrantyCovered', 'contractorAssignedAt']) {
       expect(t).not.toHaveProperty(k)
     }
-    expect(JSON.stringify(t)).not.toMatch(/landlord to be billed|4200|3900|Lockbox/)
+    expect(JSON.stringify(t)).not.toMatch(/landlord to be billed|4200|3900/)
   })
 
   it('reporter match uses every id form the tenant carries (actorIds)', () => {
