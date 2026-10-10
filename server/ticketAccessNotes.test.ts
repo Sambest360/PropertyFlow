@@ -3,8 +3,15 @@ import {
   readTicketAccessNotes,
   resetTicketAccessNotesCache,
   ticketAccessNotesColumnExists,
-  writeTicketAccessNotes,
+  writeTicketAccessNotes as writeRaw,
+  ensureTicketAccessNotesColumn,
 } from './ticketAccessNotes'
+
+type FakeQ = (sql: string, params?: unknown[]) => Promise<unknown[]>
+async function writeTicketAccessNotes(id: string, d: Record<string, unknown>, q: FakeQ) {
+  await ensureTicketAccessNotesColumn(q as never)
+  return writeRaw(id, d, q as never)
+}
 import { staffTicketAccessNotes, filterBootstrapForActor } from './scopeGate'
 import { tenantTicketView } from '../src/lib/ticketTenantView'
 import { buildPropertyScope } from '../src/lib/scope'
@@ -48,6 +55,22 @@ describe('upsertTicket access_notes write', () => {
       [UUID, null],
       [UUID, null],
     ])
+  })
+})
+
+describe('fail fast (Jim #98)', () => {
+  it('a failing column check is a 503 TICKET_ACCESS_NOTES_CHECK_FAILED, not cached', async () => {
+    const q = vi.fn(async () => {
+      throw new Error('connect timeout')
+    })
+    await expect(ensureTicketAccessNotesColumn(q)).rejects.toMatchObject({ status: 503, code: 'TICKET_ACCESS_NOTES_CHECK_FAILED' })
+    const db = fakeDb(true)
+    await expect(ensureTicketAccessNotesColumn(db.q)).resolves.toBe(true)
+  })
+  it('the in-transaction write never queries the column itself; unwarmed it throws instead of dropping', async () => {
+    const db = fakeDb(true)
+    await expect(writeRaw(UUID, { accessNotes: 'Gate' }, db.q)).rejects.toMatchObject({ code: 'TICKET_ACCESS_NOTES_CHECK_FAILED' })
+    expect(db.calls).toHaveLength(0)
   })
 })
 

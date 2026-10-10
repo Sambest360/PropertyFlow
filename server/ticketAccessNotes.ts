@@ -9,43 +9,88 @@ import { query as dbQuery } from './db.js'
  */
 type Q = (sql: string, params: unknown[]) => Promise<unknown[]>
 
-let cached: Promise<boolean> | null = null
+/** Settled result of the information_schema check (undefined until it succeeds). */
+let known: boolean | undefined
+let inflight: Promise<boolean> | null = null
 
-export function ticketAccessNotesColumnExists(q: Q = dbQuery as unknown as Q): Promise<boolean> {
-  if (!cached) {
-    cached = q(
-      `SELECT 1 FROM information_schema.columns
+const COLUMN_SQL = `SELECT 1 FROM information_schema.columns
         WHERE table_schema = current_schema() AND table_name = 'maintenance_tickets' AND column_name = 'access_notes'
-        LIMIT 1`,
-      [],
-    )
-      .then((rows) => rows.length > 0)
-      .catch(() => {
-        cached = null
-        return false
+        LIMIT 1`
+
+/**
+ * Runs the column check once per process and caches it. Throws (503
+ * TICKET_ACCESS_NOTES_CHECK_FAILED) when the lookup itself fails, so a save
+ * never reports success with the notes silently dropped; nothing is cached on
+ * failure, the next save retries.
+ *
+ * upsertTicket calls this BEFORE opening its transaction (Jim #98): on Vercel
+ * the pool max is 1, so a lookup from inside withTransaction would wait for a
+ * second connection until the connect timeout. Running it first is also safe
+ * after #89, where db.query() joins the active transaction through
+ * AsyncLocalStorage: there is no active transaction yet at this point.
+ */
+export function ensureTicketAccessNotesColumn(q: Q = dbQuery as unknown as Q): Promise<boolean> {
+  if (known !== undefined) return Promise.resolve(known)
+  if (!inflight) {
+    inflight = q(COLUMN_SQL, [])
+      .then((rows) => {
+        known = rows.length > 0
+        return known
+      })
+      .catch((e: unknown) => {
+        throw Object.assign(new Error('could not check the access notes column; try again'), {
+          status: 503,
+          code: 'TICKET_ACCESS_NOTES_CHECK_FAILED',
+          cause: e,
+        })
+      })
+      .finally(() => {
+        inflight = null
       })
   }
-  return cached
+  return inflight
+}
+
+/**
+ * Bootstrap flag: fail-closed. A failed check reports false, so the UI shows
+ * "Not saved yet" and disables the field.
+ */
+export function ticketAccessNotesColumnExists(q: Q = dbQuery as unknown as Q): Promise<boolean> {
+  return ensureTicketAccessNotesColumn(q).catch(() => false)
+}
+
+/** Cached result only (no query). */
+export function cachedTicketAccessNotesColumn(): boolean | undefined {
+  return known
 }
 
 /** Tests only. */
 export function resetTicketAccessNotesCache(): void {
-  cached = null
+  known = undefined
+  inflight = null
 }
 
 /**
- * Writes access_notes from the payload accessNotes. Absent (undefined) keeps
- * the stored value; null / '' clears it. No-op while the column is missing.
+ * Writes access_notes from the payload accessNotes on `q` (the caller's
+ * transaction). Absent (undefined) keeps the stored value; null / '' clears
+ * it. Uses ONLY the cached column check, never a second connection: the caller
+ * must await ensureTicketAccessNotesColumn() first, else this throws rather
+ * than dropping the notes. No-op while the column is missing.
  */
 export async function writeTicketAccessNotes(
   ticketUuid: string,
   d: Record<string, unknown>,
   q: Q = dbQuery as unknown as Q,
-  check: Q = q,
 ): Promise<void> {
   if (d.accessNotes === undefined) return
   assertTicketAccessNotes(d)
-  if (!(await ticketAccessNotesColumnExists(check))) return
+  if (known === undefined) {
+    throw Object.assign(new Error('access notes column check not run before the write'), {
+      status: 500,
+      code: 'TICKET_ACCESS_NOTES_CHECK_FAILED',
+    })
+  }
+  if (!known) return
   const v = typeof d.accessNotes === 'string' && d.accessNotes.trim() !== '' ? d.accessNotes.trim() : null
   await q(`UPDATE maintenance_tickets SET access_notes = $2 WHERE id = $1::uuid`, [ticketUuid, v])
 }
