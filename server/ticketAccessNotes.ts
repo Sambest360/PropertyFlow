@@ -42,9 +42,23 @@ export async function writeTicketAccessNotes(
   q: Q = dbQuery as unknown as Q,
 ): Promise<void> {
   if (d.accessNotes === undefined) return
+  assertTicketAccessNotes(d)
   if (!(await ticketAccessNotesColumnExists(q))) return
-  const v = typeof d.accessNotes === 'string' && d.accessNotes.trim() !== '' ? d.accessNotes.trim().slice(0, 2000) : null
+  const v = typeof d.accessNotes === 'string' && d.accessNotes.trim() !== '' ? d.accessNotes.trim() : null
   await q(`UPDATE maintenance_tickets SET access_notes = $2 WHERE id = $1::uuid`, [ticketUuid, v])
+}
+
+export const TICKET_ACCESS_NOTES_MAX = 1000
+
+/** 400 TICKET_ACCESS_NOTES_TOO_LONG when accessNotes is over 1000 characters (no silent cut). */
+export function assertTicketAccessNotes(d: Record<string, unknown>): void {
+  const v = d.accessNotes
+  if (typeof v === 'string' && v.trim().length > TICKET_ACCESS_NOTES_MAX) {
+    throw Object.assign(new Error(`access notes are limited to ${TICKET_ACCESS_NOTES_MAX} characters`), {
+      status: 400,
+      code: 'TICKET_ACCESS_NOTES_TOO_LONG',
+    })
+  }
 }
 
 /** Bootstrap read: the row's access_notes as accessNotes (undefined when absent / empty). */

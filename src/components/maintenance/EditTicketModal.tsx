@@ -171,6 +171,7 @@ export function EditTicketModal({
             className="mt-1 min-h-[4rem]"
             value={accessNotes}
             disabled={accessNotesField.disabled}
+            maxLength={1000}
             onChange={(e) => setAccessNotes(e.target.value)}
             placeholder="Gate code, pets, concierge, best time…"
           />

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   accessNotesFieldState,
   getTicketAccessNotesSupported,
+  initialTicketAccessNotesSupported,
   setTicketAccessNotesSupported,
   ticketAccessNotesSupportedFromBootstrap,
 } from './ticketAccessNotes'
@@ -23,5 +24,17 @@ describe('access-notes UI helper', () => {
     expect(getTicketAccessNotesSupported()).toBe(false)
     setTicketAccessNotesSupported(true)
     expect(getTicketAccessNotesSupported()).toBe(true)
+  })
+})
+
+describe('initial flag by mode', () => {
+  it('API mode starts false until bootstrap lands', () => {
+    expect(initialTicketAccessNotesSupported({ apiEnabled: true, supabaseMode: false })).toBe(false)
+  })
+  it('Supabase mode is always false', () => {
+    expect(initialTicketAccessNotesSupported({ apiEnabled: false, supabaseMode: true })).toBe(false)
+  })
+  it('local / demo mode is true', () => {
+    expect(initialTicketAccessNotesSupported({ apiEnabled: false, supabaseMode: false })).toBe(true)
   })
 })

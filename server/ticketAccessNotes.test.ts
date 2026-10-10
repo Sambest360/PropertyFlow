@@ -51,6 +51,22 @@ describe('upsertTicket access_notes write', () => {
   })
 })
 
+describe('length cap', () => {
+  it('over 1000 characters is a 400 TICKET_ACCESS_NOTES_TOO_LONG, with no write', async () => {
+    const db = fakeDb(true)
+    await expect(writeTicketAccessNotes(UUID, { accessNotes: 'x'.repeat(1001) }, db.q)).rejects.toMatchObject({
+      status: 400,
+      code: 'TICKET_ACCESS_NOTES_TOO_LONG',
+    })
+    expect(db.updates()).toHaveLength(0)
+  })
+  it('exactly 1000 is stored whole (no silent cut)', async () => {
+    const db = fakeDb(true)
+    await writeTicketAccessNotes(UUID, { accessNotes: 'y'.repeat(1000) }, db.q)
+    expect((db.updates()[0].params as unknown[])[1]).toHaveLength(1000)
+  })
+})
+
 describe('column absent (migration 013 not applied)', () => {
   it('skips the write with no error and checks information_schema once per process', async () => {
     const db = fakeDb(false)

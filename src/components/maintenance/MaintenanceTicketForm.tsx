@@ -284,6 +284,7 @@ export function MaintenanceTicketForm({
           className="mt-1.5 min-h-[4.5rem]"
           value={accessNotes}
           disabled={accessNotesField.disabled}
+          maxLength={1000}
           onChange={(e) => setAccessNotes(e.target.value)}
           placeholder="Gate code, pets, concierge, best time to access…"
         />

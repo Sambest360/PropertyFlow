@@ -1,14 +1,26 @@
 import { useSyncExternalStore } from 'react'
+import { isApiEnabled, isSupabaseMode } from './api/config'
 
 /**
  * Whether ticket access notes are persisted (bootstrap
  * ticketAccessNotesSupported). Local / demo mode stores tickets in the
  * browser, so it defaults to true; a Postgres bootstrap sets the real value.
  */
-let supported = true
+let supported = initialTicketAccessNotesSupported({ apiEnabled: isApiEnabled, supabaseMode: isSupabaseMode })
+
+/**
+ * Starting value: local/demo mode stores in the browser (true). API mode is
+ * false until the bootstrap says otherwise; Supabase mode has no access_notes
+ * column on its writer, so always false.
+ */
+export function initialTicketAccessNotesSupported(m: { apiEnabled: boolean; supabaseMode: boolean }): boolean {
+  if (m.supabaseMode) return false
+  return !m.apiEnabled
+}
 const listeners = new Set<() => void>()
 
 export function setTicketAccessNotesSupported(v: boolean): void {
+  if (isSupabaseMode) v = false
   if (v === supported) return
   supported = v
   for (const l of listeners) l()

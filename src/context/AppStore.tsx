@@ -1147,12 +1147,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
     const boot = await dedupeBootstrapFetch(lite, fetchBoot, { force: opts?.force, actorKey })
     if (!boot) {
+      setTicketAccessNotesSupported(false)
       if (resolved?.userId) setHydrationFailed(true)
       setState((prev) => ensureGuestMarketplace(prev))
       return
     }
     // Drop a bootstrap whose user is no longer the session user (switch mid-flight).
     if (!bootstrapMatchesSession(resolved?.userId, readStoredAuthUserId())) return
+    setTicketAccessNotesSupported(ticketAccessNotesSupportedFromBootstrap(boot))
     setState((prev) => ensureGuestMarketplace(applyPostgresBootstrap(prev, boot)))
     setHydratedForUserId(resolved?.userId ?? null)
     setHydrationFailed(false)
@@ -1244,6 +1246,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       )
       if (cancelled) return
       if (!boot) {
+        setTicketAccessNotesSupported(false)
         if (actor?.userId) setHydrationFailed(true)
         setState((prev) => ensureGuestMarketplace(prev))
         return
@@ -2193,7 +2196,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const actor = resolveBootstrapActor(defaultState().users)
       if (!isApiEnabled && !isSupabaseMode) return
       void fetchBootstrapFromApi(false, actor).then((boot) => {
-        if (!boot) return
+        if (!boot) {
+          setTicketAccessNotesSupported(false)
+          return
+        }
+        setTicketAccessNotesSupported(ticketAccessNotesSupportedFromBootstrap(boot))
         setState((prev) => applyPostgresBootstrap(prev, boot))
         localStorage.setItem(PG_HYDRATED_FLAG, 'postgres')
       })

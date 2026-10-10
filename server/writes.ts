@@ -3,7 +3,7 @@
  * Accepts frontend demo IDs; resolves/registers UUIDs via entity_id_map.
  */
 import { query, withTransaction, clientQuery } from './db.js'
-import { writeTicketAccessNotes } from './ticketAccessNotes.js'
+import { assertTicketAccessNotes, writeTicketAccessNotes } from './ticketAccessNotes.js'
 import { isAcceptanceStatus, notifyAcceptedElsewhereServer } from './acceptedElsewhere.js'
 import {
   ensureEntityMapTable,
@@ -1553,6 +1553,7 @@ async function upsertPayment(feId: string, d: Record<string, unknown>): Promise<
 }
 
 async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<string> {
+  assertTicketAccessNotes(d)
   const uuid = await ensureUuid('ticket', feId)
   const has = (k: string) => d[k] !== undefined
   // An existing ticket stays on its stored unit; client_id always comes from
