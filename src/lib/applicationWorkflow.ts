@@ -390,7 +390,8 @@ export const RENTAL_WORKFLOW: WorkflowTemplate = {
     { from: 'agent_review', to: 'conditionally_approved', actionKey: 'AGENT_APPROVE', label: 'Approve (agent authority)', hint: 'Skip landlord when mandated — requires verified FICA pack + screening passed or audited override', tone: 'primary', requires: ['applications.review'], guard: (app) => approveLeaseSoftGate(app) },
     { from: 'conditionally_approved', to: 'lease_generated', actionKey: 'GENERATE_LEASE', label: 'Generate lease', hint: 'Create lease from agency template', tone: 'primary', requires: ['applications.review'], guard: (app) => approveLeaseSoftGate(app) },
     { from: 'lease_generated', to: 'lease_sent', actionKey: 'SEND_LEASE', label: 'Send lease for signing', hint: 'Email lease to tenant and landlord', tone: 'secondary', requires: ['applications.review'], guard: (app) => approveLeaseSoftGate(app) },
-    { from: 'lease_sent', to: 'tenant_signed', actionKey: 'TENANT_SIGNED', label: 'Tenant signed', hint: 'Record tenant digital signature', tone: 'secondary', requires: ['applications.review'] },
+    // CR10 nit 5: staff never sign the tenant block; the staff step is the paper mark (the tenant signs in their portal).
+    { from: 'lease_sent', to: 'tenant_signed', actionKey: 'MARK_LEASE_SIGNED', label: 'Mark signed (paper)', hint: 'The tenant signs in their portal. For a paper lease, mark the tenant part signed.', tone: 'secondary', requires: ['applications.review'] },
     { from: 'tenant_signed', to: 'landlord_signed', actionKey: 'LANDLORD_SIGNED', label: 'Landlord signed', hint: 'Record landlord signature', tone: 'secondary', requires: ['applications.review'] },
     {
       from: 'landlord_signed',
