@@ -1389,7 +1389,7 @@ async function upsertTenancy(feId: string, d: Record<string, unknown>): Promise<
   const lockedRows = await query<{ tenant_id: string | null; landlord_id: string | null; envelope_id: string | null }>(
     `SELECT tenant_id::text AS tenant_id, landlord_id::text AS landlord_id,
             metadata->'eSign'->>'envelopeId' AS envelope_id
-       FROM leases WHERE id = $1::uuid LIMIT 1`,
+       FROM leases WHERE id = $1::uuid FOR UPDATE`,
     [uuid],
   )
   assertLeasePartiesUnchanged(lockedRows[0], tenant, landlord)

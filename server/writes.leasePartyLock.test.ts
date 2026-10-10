@@ -13,3 +13,12 @@ describe('CR10 B2b: staff cannot swap lease parties once an envelope exists', ()
     expect(() => assertLeasePartiesUnchanged(undefined, 'uuid-x', null)).not.toThrow()
   })
 })
+
+describe('CR10 nit 3: the party-lock read in upsertTenancy is FOR UPDATE', () => {
+  it('locks the lease row (inside the gatedPersist tenancy transaction)', async () => {
+    const src = (await import('node:fs')).readFileSync('server/writes.ts', 'utf8')
+    expect(src).toMatch(/AS envelope_id\s+FROM leases WHERE id = \$1::uuid FOR UPDATE/)
+    const idx = (await import('node:fs')).readFileSync('server/index.ts', 'utf8')
+    expect(idx).toMatch(/body\.resource === 'tenancy' && body\.action === 'upsert'[\s\S]{0,200}withTransaction/)
+  })
+})
