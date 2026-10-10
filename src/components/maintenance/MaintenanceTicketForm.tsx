@@ -4,7 +4,7 @@ import type { InternalAsset, LookupConfig } from '../../data/infrastructure'
 import type { MaintenanceTicket } from '../../types/domain'
 import { PropertySearchPicker } from '../PropertySearchPicker'
 import { ImageDropzone } from '../ImageDropzone'
-import { checkTicketPhotos } from '../../lib/photoLimits'
+import { MAX_TICKET_PHOTOS, checkTicketPhotos } from '../../lib/photoLimits'
 import { ContractorPicker } from '../contractors/ContractorPicker'
 import { Input, Select, Textarea, cn } from '../ui'
 
@@ -375,7 +375,7 @@ export function MaintenanceTicketForm({
         <ImageDropzone
           value={photoUrls}
           onChange={setPhotoUrls}
-          max={8}
+          max={MAX_TICKET_PHOTOS}
           label="Issue photos"
           hint="Upload clear photos of the fault, damage, or meter readings (JPEG, PNG or WebP, up to 600 KB each)"
         />

@@ -35,20 +35,20 @@ vi.mock('./entityMap.js', () => ({
 }))
 vi.mock('./supabase/registerUser.js', () => ({ linkStaffAuthUser: vi.fn() }))
 
-let storedCount = 3
+let storedPhotos: string[] = []
 function answer(sqlRaw: string, params: unknown[] = []): unknown[] {
   const sql = sqlRaw.replace(/\s+/g, ' ').trim()
   if (sql.startsWith('SELECT unit_id::text AS unit_id, lease_id::text AS lease_id FROM maintenance_tickets')) {
     return [{ unit_id: UN1, lease_id: null }]
   }
   if (sql.startsWith('SELECT client_id::text AS client_id FROM units WHERE id')) return [{ client_id: CA }]
-  if (sql.includes('jsonb_array_length') && sql.includes('FOR UPDATE')) return [{ n: storedCount }]
+  if (sql.startsWith('SELECT photos FROM maintenance_tickets WHERE id') && sql.includes('FOR UPDATE')) return [{ photos: storedPhotos }]
   void params
   return []
 }
 
 beforeEach(() => {
-  storedCount = 3
+  storedPhotos = ['https://cdn.example/1.jpg', 'https://cdn.example/2.jpg', 'https://cdn.example/3.jpg']
   query.mockReset()
   query.mockImplementation(async (sql: string, p?: unknown[]) => answer(sql, p))
   clientQuery.mockReset()
@@ -126,7 +126,6 @@ describe('upsertTicket photos', () => {
   })
 
   it('a drop in count writes ticket_photos_removed in the same transaction (counts, no image data)', async () => {
-    storedCount = 3
     await persist({ photoUrls: [jpeg()] })
     expect(withTransaction).toHaveBeenCalledTimes(1)
     // Row write and audit both on the transaction client.
@@ -142,9 +141,27 @@ describe('upsertTicket photos', () => {
   })
 
   it('no audit row when the count stays the same or goes up', async () => {
-    storedCount = 1
-    await persist({ photoUrls: [jpeg(), jpeg()] })
+    storedPhotos = ['https://cdn.example/1.jpg']
+    await persist({ photoUrls: ['https://cdn.example/1.jpg', jpeg()] })
     expect(auditCall()).toBeUndefined()
+    clientQuery.mockClear()
+    await persist({ photoUrls: ['https://cdn.example/1.jpg'] })
+    expect(auditCall()).toBeUndefined()
+  })
+
+  it('Jim #97 nit 1: a swap (same count, a stored photo gone) also writes ticket_photos_removed', async () => {
+    await persist({ photoUrls: ['https://cdn.example/1.jpg', 'https://cdn.example/2.jpg', 'https://cdn.example/NEW.jpg'] })
+    const audit = auditCall()!
+    const payload = JSON.parse(String((audit[2] as unknown[])[3]))
+    expect(payload).toMatchObject({ countBefore: 3, countAfter: 3, removedCount: 1 })
+  })
+
+  it('Jim #97 blocker: more than 10 photos is 400 TICKET_PHOTO_INVALID', async () => {
+    const eleven = Array.from({ length: 11 }, (_, i) => `https://cdn.example/${i}.jpg`)
+    await expect(persist({ photoUrls: eleven })).rejects.toMatchObject({ status: 400, code: 'TICKET_PHOTO_INVALID' })
+    expect(allCalls().some(([sql]) => String(sql).includes('INSERT INTO maintenance_tickets'))).toBe(false)
+    await persist({ photoUrls: eleven.slice(0, 10) })
+    expect(photosParam()).toHaveLength(10)
   })
 
   it('a failed audit insert rolls the photo change back (it is inside withTransaction)', async () => {

@@ -1619,15 +1619,16 @@ async function upsertTicket(
   const actorUuid = photosSent ? await userId(actorUserId) : null
 
   const write = async (run: (sql: string, params: unknown[]) => Promise<unknown[]>) => {
-    let before = 0
+    let storedPhotos: string[] = []
     if (photosSent) {
       const rows = (await run(
-        `SELECT COALESCE(jsonb_array_length(CASE WHEN jsonb_typeof(photos) = 'array' THEN photos ELSE '[]'::jsonb END), 0)::int AS n
-           FROM maintenance_tickets WHERE id = $1::uuid FOR UPDATE`,
+        `SELECT photos FROM maintenance_tickets WHERE id = $1::uuid FOR UPDATE`,
         [uuid],
-      )) as Array<{ n: number | string }>
-      before = Number(rows[0]?.n ?? 0)
+      )) as Array<{ photos: unknown }>
+      const p = rows[0]?.photos
+      storedPhotos = Array.isArray(p) ? p.filter((u): u is string => typeof u === 'string') : []
     }
+    const before = storedPhotos.length
     await run(
     `INSERT INTO maintenance_tickets (
        id, client_id, unit_id, asset_id, reported_by, assigned_to, contractor_id,
@@ -1689,9 +1690,11 @@ async function upsertTicket(
       has('internalAssetId'),
     ],
   )
-    // Photos removed: audit row in the same transaction (counts only, never
-    // image data).
-    if (photosSent && photoUrls.length < before) {
+    // Photos removed (count down, or any stored photo gone — a swap): audit
+    // row in the same transaction (counts only, never image data).
+    const kept = new Set(photoUrls)
+    const removed = storedPhotos.filter((u) => !kept.has(u)).length
+    if (photosSent && removed > 0) {
       await run(
         `INSERT INTO event_log (client_id, event_type, subject_type, subject_id, actor_user_id, payload, created_at)
          VALUES ($1::uuid, 'ticket_photos_removed', 'maintenance_ticket', $2::uuid, $3::uuid, $4::jsonb, NOW())`,
@@ -1699,7 +1702,13 @@ async function upsertTicket(
           client,
           uuid,
           actorUuid,
-          JSON.stringify({ ticketId: feId, countBefore: before, countAfter: photoUrls.length, at: new Date().toISOString() }),
+          JSON.stringify({
+            ticketId: feId,
+            countBefore: before,
+            countAfter: photoUrls.length,
+            removedCount: removed,
+            at: new Date().toISOString(),
+          }),
         ],
       )
     }
