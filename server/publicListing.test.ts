@@ -56,4 +56,11 @@ describe('GET /api/public/marketplace?id= handler (P3a)', () => {
     expect((await publicListingById('p-1', failing)).status).toBe(404)
     expect((await publicListingById('  ', deps())).status).toBe(404)
   })
+  it('refuses ids outside ^[\\w-]{1,64}$ before any lookup', async () => {
+    const d = deps()
+    for (const bad of ['p 1', "p-1'--", 'x'.repeat(65), '../p-1', '']) {
+      expect((await publicListingById(bad, d)).status).toBe(404)
+    }
+    expect(d.built).toEqual([])
+  })
 })

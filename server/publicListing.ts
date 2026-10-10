@@ -21,9 +21,12 @@ const NOT_FOUND: PublicListingResult = {
   body: { error: 'listing_not_found', message: 'This listing is not available.' },
 }
 
+/** Listing ids are short slugs / uuids; anything else is refused before any lookup. */
+export const PUBLIC_LISTING_ID_RE = /^[\w-]{1,64}$/
+
 export async function publicListingById(listingId: string, deps: PublicListingDeps): Promise<PublicListingResult> {
   const id = listingId.trim()
-  if (!id) return NOT_FOUND
+  if (!PUBLIC_LISTING_ID_RE.test(id)) return NOT_FOUND
   const unitId = await deps.resolveUnitId(id).catch(() => null)
   if (!unitId) return NOT_FOUND
   const data = await deps.build([unitId])

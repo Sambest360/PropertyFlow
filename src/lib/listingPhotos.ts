@@ -7,7 +7,9 @@ export const LISTING_PHOTO_TOO_LARGE =
 export const NO_PHOTOS_YET = 'No photos yet'
 
 export function listingPhotosLabel(count: number): string {
-  return `Photos (${Math.min(count, MAX_LISTING_PHOTOS)}/${MAX_LISTING_PHOTOS})`
+  const label = `Photos (${count}/${MAX_LISTING_PHOTOS})`
+  const extra = count - MAX_LISTING_PHOTOS
+  return extra > 0 ? `${label}: remove ${extra} photo${extra === 1 ? '' : 's'} to keep ${MAX_LISTING_PHOTOS}` : label
 }
 
 /** Split compressed photos into accepted and refused (over the size cap). */

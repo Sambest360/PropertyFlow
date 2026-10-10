@@ -6,6 +6,7 @@ describe('listing photo limits (P3a)', () => {
   it('8 photos, one named constant, "Photos (n/8)" counter', () => {
     expect(MAX_LISTING_PHOTOS).toBe(8)
     expect(listingPhotosLabel(3)).toBe('Photos (3/8)')
+    expect(listingPhotosLabel(11)).toBe('Photos (11/8): remove 3 photos to keep 8')
     const create = readFileSync('src/pages/property/PropertyCreatePage.tsx', 'utf8')
     expect(create).toContain('max={MAX_LISTING_PHOTOS}')
   })
