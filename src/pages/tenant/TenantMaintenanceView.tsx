@@ -23,7 +23,7 @@ export function TenantMaintenanceView({ portal }: { portal: TenantPortalState })
 
   const submitTicket = async (e: FormEvent) => {
     e.preventDefault()
-    if (!title.trim() || !portal.agencyId) return
+    if (!title.trim()) return
     const propId = portal.tenancy?.propertyId ?? portal.property?.id
     if (!propId) {
       setDone('No property linked to your tenancy yet.')

@@ -1,3 +1,4 @@
+import { tenantPortalTickets } from '../lib/ticketTenantView'
 import { useMemo } from 'react'
 import { useStore } from '../context/AppStore'
 import { useAuth } from '../context/AuthContext'
@@ -83,8 +84,12 @@ export function useTenantPortalState(): TenantPortalState {
       ? (state.properties.find((p) => p.id === tenancy.propertyId) ?? null)
       : null
 
-  const tickets = state.tickets.filter(
-    (t) => t.reportedByUserId === user.id || t.reportedBy === user.name,
+  // Own reported tickets (any tenancy status), or tickets linked to one of
+  // the tenant's own Active / Notice tenancies. No name match, no unit match. All in the
+  // tenant view only (no costs, quotes, vendor, warranty or staff notes).
+  const tickets = useMemo(
+    () => tenantPortalTickets(state.tickets, state.tenancies, user.id),
+    [state.tickets, state.tenancies, user.id],
   )
   const payments = state.payments.filter(
     (p) => p.partyUserId === user.id || p.partyName === user.name,

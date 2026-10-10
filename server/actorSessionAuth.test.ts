@@ -379,6 +379,26 @@ describe('actor identity: session first, demo headers only outside production', 
     expect(db.writes).toEqual([])
   })
 
+  it('CR7: X-Role agency-admin headers with no session cannot reach the help desk', async () => {
+    production()
+    const res = await bootstrap({ 'X-User-Id': 'u-admin', 'X-Role': 'agent_admin', 'X-Agency-Id': 'ag-horizon' })
+    expect(res.status).toBe(401)
+    const body = (await res.json()) as Record<string, unknown>
+    expect(body.supportTickets).toBeUndefined()
+    const persist = await app.request('/api/persist', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...SA_HEADERS },
+      body: JSON.stringify({
+        resource: 'support_ticket',
+        action: 'upsert',
+        id: 'HD-x',
+        data: { status: 'resolved', resolutionNote: 'x' },
+      }),
+    })
+    expect(persist.status).toBe(401)
+    expect(db.writes).toEqual([])
+  })
+
   it('body actor fields with no session give 401 in production mode', async () => {
     production()
     const persist = await app.request('/api/persist', {

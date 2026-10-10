@@ -42,6 +42,8 @@ export type PostgresBootstrap = {
   depositHoldings?: unknown[]
   arrearsSnapshots?: unknown[]
   csvImportBatches?: unknown[]
+  /** CR7 help desk — own submissions + the viewer's desk (server-filtered). */
+  supportTickets?: unknown[]
 }
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''

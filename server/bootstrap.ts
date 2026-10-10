@@ -2,12 +2,12 @@ import { query } from './db.js'
 import { resolveFrontendRole } from '../src/lib/supabase/idMap.js'
 import { mapPool } from './mapPool.js'
 import { loadIdMapCache } from './idMapCache.js'
+import { USER_TO_UUID } from './entityMap.js'
 import {
   ACTIVITY_IDS,
   APP_REF_TO_ID,
   BUILDING_TO_FRONTEND,
   DOC_IDS,
-  EMAIL_TO_USER,
   INVOICE_IDS,
   LEAD_IDS,
   LEASE_IDS,
@@ -242,6 +242,7 @@ export async function buildBootstrap(opts?: {
     arrears,
     csvBatches,
     lookupRows,
+    supportTicketRows,
   ] = await mapPool(
     [
       () =>
@@ -445,24 +446,20 @@ export async function buildBootstrap(opts?: {
         }>(
           'SELECT id::text AS id, client_id::text, config_type, key_value, display_label, is_active, sort_order, meta FROM client_lookup_configs ORDER BY config_type, sort_order',
         ),
+      // CR7 help desk — outside skipHeavy so lite bootstrap carries tickets too.
+      // filterBootstrapForActor narrows to own submissions + the viewer's desk.
+      () =>
+        query(
+          `SELECT * FROM event_log WHERE event_type = 'support_ticket' ORDER BY created_at DESC LIMIT 300`,
+        ),
     ] as const,
     process.env.VERCEL ? 3 : 8,
     (load) => load(),
   )
 
-  const userByUuid = new Map<string, string>()
-  for (const u of users) {
-    const meta = u.metadata ?? {}
-    const fromMeta = typeof meta.frontend_id === 'string' ? meta.frontend_id : null
-    const fe = fromMeta ?? EMAIL_TO_USER[u.email.toLowerCase()] ?? u.id
-    userByUuid.set(u.id, fe)
-  }
-
   // Runtime + seed aliases from entity_id_map (shared cache — no N+1)
   const idCache = await loadIdMapCache()
-  for (const [backendId, fe] of idCache.userBackendToFe) {
-    userByUuid.set(backendId, fe)
-  }
+  const userByUuid = labelBootstrapUsers(users as Array<{ id: string; email: string; metadata: Record<string, unknown> | null }>, idCache.userBackendToFe)
 
   const mapCache = new Map<string, string>()
   for (const [backendId, fe] of idCache.userBackendToFe) {
@@ -869,6 +866,12 @@ export async function buildBootstrap(opts?: {
       deposit: Number(l.deposit_amount),
       rentDueDay: Math.min(28, Math.max(1, Number(l.rent_due_day) || 1)),
       status: (l.status as string) === 'ACTIVE' ? ('Active' as const) : ('Pending Move-In' as const),
+      leaseStatus: String(l.status ?? '').toLowerCase() as
+        | 'pending'
+        | 'active'
+        | 'notice'
+        | 'ended'
+        | 'cancelled',
       keyCollection,
       leaseDocumentId: (meta.leaseDocumentId as string | null | undefined) ?? null,
       leasePdfUrl: (meta.leasePdfUrl as string | null | undefined) ?? null,
@@ -970,6 +973,28 @@ export async function buildBootstrap(opts?: {
       action: String(payload.action ?? 'updated'),
       at: iso(e.created_at as Date)!,
       changes: Array.isArray(payload.changes) ? payload.changes : undefined,
+    }
+  })
+
+  const mappedSupportTickets = (supportTicketRows as Array<Record<string, unknown>>).map((e) => {
+    const payload = (e.payload as Record<string, unknown>) ?? {}
+    const uuid = e.id as string
+    const text = (v: unknown) => (typeof v === 'string' ? v : '')
+    return {
+      id: text(payload.frontendId) || mappedFe('support_ticket', uuid, uuid),
+      agencyId: agencyFe(e.client_id as string | null),
+      submittedByUserId:
+        text(payload.submittedByUserId) || mapUser(e.actor_user_id as string | null) || '',
+      submitterName: text(payload.submitterName),
+      submitterRole: text(payload.submitterRole),
+      subject: text(payload.subject),
+      body: text(payload.body),
+      status: payload.status === 'resolved' ? 'resolved' : 'open',
+      createdAt: iso(e.created_at as Date)!,
+      resolvedByUserId: text(payload.resolvedByUserId) || null,
+      resolvedByName: text(payload.resolvedByName) || null,
+      resolvedAt: text(payload.resolvedAt) || null,
+      resolutionNote: text(payload.resolutionNote) || null,
     }
   })
 
@@ -1168,6 +1193,10 @@ export async function buildBootstrap(opts?: {
     assetLabel: undefined as string | undefined,
     reportedBy: 'Reporter',
     reportedByUserId: mapUser(t.reported_by as string | null),
+    // Tenancy link (lease_id), same FE id form as the tenancies list.
+    tenancyId: t.lease_id
+      ? mappedFe('tenancy', t.lease_id as string, LEASE_IDS[t.lease_id as string] ?? (t.lease_id as string))
+      : (null as string | null),
     title: t.title as string,
     priority: ticketPriority(t.priority as string),
     status: ticketStatus(t.status as string),
@@ -1293,5 +1322,26 @@ export async function buildBootstrap(opts?: {
     arrearsSnapshots: mappedArrears,
     csvImportBatches: mappedCsvBatches,
     lookups: mappedLookups,
+    supportTickets: mappedSupportTickets,
   }
+}
+
+/**
+ * Front-end label per users.id. No email fallback: anyone can register a seed
+ * address. Round-tripped idMapCache wins; otherwise metadata.frontend_id, then
+ * a static seed id only when USER_TO_UUID[fe] equals this exact uuid.
+ */
+export function labelBootstrapUsers(
+  users: Array<{ id: string; email: string; metadata: Record<string, unknown> | null }>,
+  userBackendToFe: Map<string, string>,
+): Map<string, string> {
+  const staticByUuid = new Map(Object.entries(USER_TO_UUID).map(([fe, uuid]) => [uuid, fe]))
+  const out = new Map<string, string>()
+  for (const u of users) {
+    const meta = u.metadata ?? {}
+    const fromMeta = typeof meta.frontend_id === 'string' && meta.frontend_id ? meta.frontend_id : null
+    out.set(u.id, fromMeta ?? staticByUuid.get(u.id) ?? u.id)
+  }
+  for (const [backendId, fe] of userBackendToFe) out.set(backendId, fe)
+  return out
 }
