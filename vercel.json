@@ -10,6 +10,9 @@
       "includeFiles": "{server/**,src/lib/**,src/types/**}"
     }
   },
+  "crons": [
+    { "path": "/api/cron/lease-reminders", "schedule": "0 5 * * *" }
+  ],
   "headers": [
     {
       "source": "/assets/(.*)",
