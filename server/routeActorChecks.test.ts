@@ -34,6 +34,7 @@ const db = vi.hoisted(() => ({
   map: [] as Array<{ entity_type: string; frontend_id: string; backend_id: string }>,
   writes: [] as Array<{ sql: string; params: unknown[] }>,
   sql: [] as string[],
+  appLeaseESign: null as unknown,
 }))
 
 vi.mock('pg', () => {
@@ -114,6 +115,9 @@ vi.mock('pg', () => {
       return u ? [{ client_id: u.client }] : []
     }
     if (/SELECT status FROM clients WHERE id = \$1::uuid/.test(sql)) return [{ status: 'active' }]
+    if (sql.startsWith("SELECT metadata->'eSign' AS esign FROM leases WHERE application_id")) {
+      return db.appLeaseESign ? [{ esign: db.appLeaseESign }] : []
+    }
     if (sql.includes('FROM leases WHERE id = $1::uuid')) {
       const l = leases[String(params[0])]
       return l ? [l] : []
@@ -497,5 +501,41 @@ describe('CR10 B1: action patch never skips the eSign gate', () => {
     })
     expect(res.status).toBe(400)
     expect(db.writes.filter((w) => /leases/i.test(w.sql))).toHaveLength(0)
+  })
+})
+
+describe('CR10 gate: staff application stage move to a signed status needs the stored envelope', () => {
+  const move = (to: string) =>
+    post('/api/persist', auth('u-admin'), {
+      resource: 'application',
+      action: 'upsert',
+      id: 'APP-1',
+      data: { id: 'APP-1', agencyId: 'ag-horizon', propertyId: 'p-1', workflowStatus: to, stage: to },
+    })
+  // A passing move gets past the signature check; this harness has no unit
+  // for the property, so the generic writer may still fail later (not 409).
+  const passesSignatureCheck = async (res: Response) =>
+    res.status !== 409 && ((await res.json()) as { code?: string }).code !== 'LEASE_SIGNATURE_NOT_RECORDED'
+  const appWrites = () => db.writes.filter((w) => /applications/i.test(w.sql))
+  it('no recorded signature: tenant_signed / landlord_signed refused (LEASE_SIGNATURE_NOT_RECORDED), nothing written', async () => {
+    db.appLeaseESign = { envelopeId: 'SF-1', status: 'sent', tenant: { status: 'pending' }, landlord: { status: 'pending' } }
+    for (const to of ['tenant_signed', 'landlord_signed']) {
+      const res = await move(to)
+      expect(res.status).toBe(409)
+      expect(((await res.json()) as { code?: string }).code).toBe('LEASE_SIGNATURE_NOT_RECORDED')
+    }
+    db.appLeaseESign = null
+    expect((await move('tenant_signed')).status).toBe(409)
+    expect(appWrites()).toHaveLength(0)
+  })
+  it('after a paper mark of the tenant block the move to tenant_signed passes', async () => {
+    db.appLeaseESign = { envelopeId: 'SF-1', status: 'partially_signed', tenant: { status: 'signed', method: 'paper_mark' }, landlord: { status: 'pending' } }
+    expect(await passesSignatureCheck(await move('tenant_signed'))).toBe(true)
+    expect((await move('landlord_signed')).status).toBe(409)
+  })
+  it('after a completed e-sign the move to landlord_signed passes', async () => {
+    db.appLeaseESign = { envelopeId: 'SF-1', status: 'completed', tenant: { status: 'signed', method: 'drawn' }, landlord: { status: 'signed', method: 'drawn' } }
+    expect(await passesSignatureCheck(await move('landlord_signed'))).toBe(true)
+    db.appLeaseESign = null
   })
 })

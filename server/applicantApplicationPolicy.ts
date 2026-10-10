@@ -417,3 +417,35 @@ export async function enforceApplicantApplicationWrite(
   assertConsistent(data, type, [asked], `${from} -> ${asked}`)
   setDerived(data, type, asked)
 }
+
+/** Statuses a staff save may set only when the stored lease envelope already shows them. */
+const STAFF_SIGNED_STATUSES: ReadonlySet<string> = new Set(['tenant_signed', 'landlord_signed'])
+
+/**
+ * CR10 gate: the staff application save runs the same stored-envelope check
+ * applicants and landlords get. Moving the stage to tenant_signed /
+ * landlord_signed needs the linked lease's stored eSign to show that status
+ * (or a later one: paper mark or e-sign, both stamped by the server). Else
+ * 409 LEASE_SIGNATURE_NOT_RECORDED, before anything is written.
+ */
+export async function enforceStaffSignedStageMove(body: { resource: string; action: string; id: string; data?: Row }): Promise<void> {
+  if (body.resource !== 'application' || body.action === 'delete') return
+  const data = (body.data ?? {}) as Row
+  const type: AppType = String(data.type ?? '').toLowerCase() === 'purchase' ? 'Purchase' : 'Rental'
+  const asked = requestedStatus(type, data)
+  if (!asked || !STAFF_SIGNED_STATUSES.has(asked)) return
+  const uuid = await resolveUuid('application', body.id)
+  if (uuid) {
+    const rows = await query<{ workflow_status: string | null }>(
+      `SELECT metadata->>'workflow_status' AS workflow_status FROM applications WHERE id = $1::uuid`,
+      [uuid],
+    )
+    if (rows[0]?.workflow_status === asked) return // unchanged
+  }
+  const fromLease = uuid ? await storedLeaseESignStatus(uuid) : null
+  if (fromLease && stageOrder(type, fromLease) >= stageOrder(type, asked)) return
+  throw Object.assign(
+    coded(LEASE_SIGNATURE_NOT_RECORDED, `${asked} is not what the stored lease envelope shows (${fromLease ?? 'none'})`),
+    { status: 409 },
+  )
+}
