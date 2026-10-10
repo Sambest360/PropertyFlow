@@ -5,73 +5,27 @@
 import { RENT_ROLL_MODE_A_COPY, type RentRollBook } from './types'
 import type { PropertyDocument } from '../../types/domain'
 
-function csvEscape(v: string): string {
-  if (/[",\n\r]/.test(v)) return `"${v.replace(/"/g, '""')}"`
-  return v
-}
+import { RENT_ROLL_TABLE_COLUMNS, csvEscape, rentRollCellText } from './rentRollTable'
 
-export const RENT_ROLL_CSV_HEADER = [
-  'as_at',
-  'tenancy_id',
-  'property_id',
-  'property_title',
-  'property_address',
-  'landlord_id',
-  'landlord_name',
-  'tenant_name',
-  'tenant_email',
-  'status',
-  'start_date',
-  'end_date',
-  'rent_zar',
-  'deposit_zar',
-  'rent_due_day',
-  'arrears_zar_in_app',
-  'honesty',
-].join(',')
+/** Audit-pack rent roll CSV: same columns and order as the screen and the PDF (CR2). */
+export const RENT_ROLL_CSV_HEADER = RENT_ROLL_TABLE_COLUMNS.map((c) => csvEscape(c.label)).join(',')
 
 export function rentRollToCsv(book: RentRollBook): string {
-  const body = book.rows.map((r) =>
-    [
-      book.asAt,
-      r.tenancyId,
-      r.propertyId,
-      csvEscape(r.propertyTitle),
-      csvEscape(r.propertyAddress),
-      r.landlordId,
-      csvEscape(r.landlordName),
-      csvEscape(r.tenantName),
-      csvEscape(r.tenantEmail),
-      r.status,
-      r.startDate,
-      r.endDate ?? '',
-      r.rentZar.toFixed(2),
-      r.depositZar.toFixed(2),
-      String(r.rentDueDay),
-      r.arrearsZar.toFixed(2),
-      csvEscape(RENT_ROLL_MODE_A_COPY),
-    ].join(','),
-  )
-  const totals = [
-    book.asAt,
-    '',
-    '',
-    'TOTALS',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    book.totals.rentPcmZar.toFixed(2),
-    book.totals.depositZar.toFixed(2),
-    '',
-    book.totals.arrearsZar.toFixed(2),
-    csvEscape(RENT_ROLL_MODE_A_COPY),
-  ].join(',')
-  return [RENT_ROLL_CSV_HEADER, ...body, totals].join('\n')
+  const cols = RENT_ROLL_TABLE_COLUMNS
+  const body = book.rows.map((r) => cols.map((c) => csvEscape(rentRollCellText(r, c.key))).join(','))
+  const totals = cols
+    .map((c, i) => {
+      if (c.key === 'charged') return book.totals.rentPcmZar.toFixed(2)
+      if (c.key === 'outstanding') return book.totals.arrearsZar.toFixed(2)
+      return i === 0 ? 'Total' : ''
+    })
+    .join(',')
+  return [
+    RENT_ROLL_CSV_HEADER,
+    ...body,
+    totals,
+    csvEscape(`As at ${book.asAt}. ${RENT_ROLL_MODE_A_COPY}`),
+  ].join('\n')
 }
 
 export const DOCUMENTS_INDEX_CSV_HEADER = [

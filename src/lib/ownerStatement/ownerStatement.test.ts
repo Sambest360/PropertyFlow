@@ -19,6 +19,7 @@ import {
   ownerStatementPaymentsSubtotal,
 } from './index'
 import type { OwnerStatementBook } from './types'
+import { ownerStatementPdfHeader } from './generateOwnerStatementPdf'
 
 function property(overrides: Partial<PropertyAsset> = {}): PropertyAsset {
   return {
@@ -270,9 +271,13 @@ describe('owner statement table (Reports tab)', () => {
     generatedAt: '2026-10-02T08:00:00.000Z',
   } as unknown as OwnerStatementBook
 
-  it('uses Rent, Commission, Other allocations, Net paid and no Recoveries/Expenses columns', () => {
+  it('uses Section, Rent, Commission, Other allocations, Net to owner and no Recoveries/Expenses columns', () => {
     const labels = OWNER_STATEMENT_TABLE_COLUMNS.map((c) => c.label)
-    expect(labels).toEqual(['Date', 'Property', 'Description', 'Rent', 'Commission', 'Other allocations', 'Net paid'])
+    expect(labels).toEqual(['Section', 'Date', 'Property', 'Description', 'Rent', 'Commission', 'Other allocations', 'Net to owner'])
+    expect(ownerStatementPdfHeader()).toEqual(labels)
+    const { rows, totals } = buildOwnerStatementTable(book)
+    expect(ownerStatementTableToCsv(rows, totals).split('\n')[0]).toBe(labels.join(','))
+    expect(rows.map((r) => r.section)).toContain('Payments')
     expect(labels).not.toContain('Recoveries')
     expect(labels).not.toContain('Expenses')
   })
@@ -297,7 +302,7 @@ describe('owner statement table (Reports tab)', () => {
   it('exports CSV with on-screen headers, a total row and the in-app-book footer', () => {
     const { rows, totals } = buildOwnerStatementTable(book)
     const lines = ownerStatementTableToCsv(rows, totals, ['date', 'description', 'rent', 'netPaid']).split('\n')
-    expect(lines[0]).toBe('Date,Description,Rent,Net paid')
+    expect(lines[0]).toBe('Date,Description,Rent,Net to owner')
     expect(lines[1]).toBe('2026-09-01,"Rent, September",12500.00,')
     expect(lines[lines.length - 3]).toBe('Total,,25500.00,11200.00')
     expect(lines[lines.length - 2]).toBe(

@@ -6,6 +6,7 @@
 import type { OwnerStatementBook, OwnerStatementLine, OwnerStatementPaymentLine } from './types'
 
 export type OwnerStatementColumnKey =
+  | 'section'
   | 'date'
   | 'property'
   | 'description'
@@ -19,14 +20,29 @@ export const OWNER_STATEMENT_TABLE_COLUMNS: ReadonlyArray<{
   label: string
   numeric?: boolean
 }> = [
+  { key: 'section', label: 'Section' },
   { key: 'date', label: 'Date' },
   { key: 'property', label: 'Property' },
   { key: 'description', label: 'Description' },
   { key: 'rent', label: 'Rent', numeric: true },
   { key: 'commission', label: 'Commission', numeric: true },
   { key: 'otherAllocations', label: 'Other allocations', numeric: true },
-  { key: 'netPaid', label: 'Net paid', numeric: true },
+  { key: 'netPaid', label: 'Net to owner', numeric: true },
 ]
+
+/** Section names shared by the PDF headings and the CSV Section column. */
+export const OWNER_STATEMENT_SECTION_LABELS: Record<OwnerStatementLine['kind'], string> = {
+  payment: 'Payments',
+  allocation: 'Trust allocations',
+  payout: 'Payouts',
+}
+
+/** Header labels for the given (default: all) columns, in the fixed order. */
+export function ownerStatementHeaderLabels(
+  visible: ReadonlyArray<OwnerStatementColumnKey> = OWNER_STATEMENT_TABLE_COLUMNS.map((c) => c.key),
+): string[] {
+  return OWNER_STATEMENT_TABLE_COLUMNS.filter((c) => visible.includes(c.key)).map((c) => c.label)
+}
 
 /** Which lines count toward the totals (same wording on screen and in CSV). */
 export const OWNER_STATEMENT_TOTALS_FOOTER =
@@ -37,6 +53,8 @@ export const OWNER_STATEMENT_TABLE_FOOTER =
 
 export type OwnerStatementTableRow = {
   id: string
+  /** PDF section the line sits in (Payments, Trust allocations, Payouts). */
+  section: string
   date: string
   property: string
   description: string
@@ -88,6 +106,7 @@ export function ownerStatementPaymentsSubtotal(
 export function ownerStatementRow(line: OwnerStatementLine): OwnerStatementTableRow {
   const base = {
     id: `${line.kind}-${line.id}`,
+    section: OWNER_STATEMENT_SECTION_LABELS[line.kind],
     date: line.date,
     property: line.propertyTitle,
     description: line.description,
