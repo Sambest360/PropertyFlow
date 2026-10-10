@@ -13,11 +13,12 @@
  *   the proposer (two-person rule, checked by user uuid).
  *
  * Each transition is one conditional UPDATE (status, and for approve the
- * proposer, in the WHERE), so a race loses with 409. release_approved is not
+ * proposer, in the WHERE), so a race loses with 409. Each runs with its
+ * event_log audit row in one transaction (D2). release_approved is not
  * refunded: paying the money out stays a separate, manual step.
  */
 import { randomUUID } from 'node:crypto'
-import { query } from './db.js'
+import { query, withTransaction, clientQuery } from './db.js'
 import { resolveUuid } from './entityMap.js'
 import { forbiddenError, type DemoActor } from './actor.js'
 import { actorStoredCan, agencyFeId } from './scopeGate.js'
@@ -98,15 +99,19 @@ export async function proposeDepositRelease(actor: DemoActor, feId: string): Pro
   if (row.status !== 'held') {
     throw httpError(409, `Deposit is ${row.status}; only held deposits can propose release`)
   }
-  const updated = await query<{ updated_at: Date | string }>(
+  const updatedAt = await transitionWithAudit(
+    row,
+    proposer,
     `UPDATE deposit_holdings
         SET status = 'release_proposed', release_proposed_by = $2::uuid,
             release_approved_by = NULL, updated_at = NOW()
       WHERE id = $1::uuid AND status = 'held'
       RETURNING updated_at`,
     [row.id, proposer],
+    'Deposit changed while proposing; reload and try again',
+    'deposit_release_proposed',
+    { from: 'held', to: 'release_proposed', reason: null },
   )
-  if (!updated[0]) throw httpError(409, 'Deposit changed while proposing; reload and try again')
   return {
     ok: true,
     deposit: {
@@ -114,7 +119,7 @@ export async function proposeDepositRelease(actor: DemoActor, feId: string): Pro
       status: 'release_proposed',
       releaseProposedBy: actor.userId,
       releaseApprovedBy: null,
-      updatedAt: new Date(updated[0].updated_at).toISOString(),
+      updatedAt: iso(updatedAt),
     },
   }
 }
@@ -131,7 +136,9 @@ export async function approveDepositRelease(actor: DemoActor, feId: string): Pro
   if (row.release_proposed_by === approver) {
     throw forbiddenError('Dual control: the proposer cannot approve their own deposit release')
   }
-  const updated = await query<{ updated_at: Date | string }>(
+  const updatedAt = await transitionWithAudit(
+    row,
+    approver,
     `UPDATE deposit_holdings
         SET status = 'release_approved', release_approved_by = $2::uuid, updated_at = NOW()
       WHERE id = $1::uuid
@@ -140,15 +147,17 @@ export async function approveDepositRelease(actor: DemoActor, feId: string): Pro
         AND release_proposed_by <> $2::uuid
       RETURNING updated_at`,
     [row.id, approver],
+    'Deposit changed while approving; reload and try again',
+    'deposit_release_approved',
+    { from: 'release_proposed', to: 'release_approved', reason: null },
   )
-  if (!updated[0]) throw httpError(409, 'Deposit changed while approving; reload and try again')
   return {
     ok: true,
     deposit: {
       id: feId,
       status: 'release_approved',
       releaseApprovedBy: actor.userId,
-      updatedAt: new Date(updated[0].updated_at).toISOString(),
+      updatedAt: iso(updatedAt),
     },
   }
 }
@@ -166,6 +175,8 @@ export type DepositRefundRecord = {
   refundedCents: number
   deductions: DepositRefundDeduction[]
   interestCents: number
+  /** Interest is entered by staff, not checked against accrued interest. */
+  interestEnteredBy: string
   heldCents: number
   recordedBy: string
   recordedAt: string
@@ -185,17 +196,55 @@ function isCentsInt(v: unknown): v is number {
   return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 1e12
 }
 
-async function logDepositEvent(
+/**
+ * Run the conditional status UPDATE and its event_log audit row in ONE
+ * transaction. No row updated -> 409; an audit insert failure rolls the status
+ * back. Who / when / reason / refund split live in event_log only.
+ */
+async function transitionWithAudit(
   row: DepositRow,
   actorUuid: string,
+  updateSql: string,
+  params: unknown[],
+  conflictMessage: string,
   eventType: string,
   payload: Record<string, unknown>,
-): Promise<void> {
-  await query(
-    `INSERT INTO event_log (id, client_id, event_type, subject_type, subject_id, actor_user_id, payload, created_at)
-     VALUES ($1::uuid, $2::uuid, $3, 'deposit_holding', $4::uuid, $5::uuid, $6::jsonb, NOW())`,
-    [randomUUID(), row.client_id, eventType, row.id, actorUuid, JSON.stringify({ ...payload, actorUserId: actorUuid })],
-  )
+): Promise<Date | string> {
+  return withTransaction(async (client) => {
+    const updated = await clientQuery<{ updated_at: Date | string }>(client, updateSql, params)
+    if (!updated[0]) throw httpError(409, conflictMessage)
+    await clientQuery(
+      client,
+      `INSERT INTO event_log (id, client_id, event_type, subject_type, subject_id, actor_user_id, payload, created_at)
+       VALUES ($1::uuid, $2::uuid, $3, 'deposit_holding', $4::uuid, $5::uuid, $6::jsonb, NOW())`,
+      [
+        randomUUID(),
+        row.client_id,
+        eventType,
+        row.id,
+        actorUuid,
+        JSON.stringify({ ...payload, actorUserId: actorUuid, at: new Date().toISOString() }),
+      ],
+    )
+    return updated[0].updated_at
+  })
+}
+
+/** Latest recorded refund per deposit uuid, from event_log rows (bootstrap read-back). */
+export function latestRefundBySubject(
+  rows: Array<{ subject_id?: unknown; payload?: unknown; created_at?: unknown }>,
+): Map<string, Record<string, unknown>> {
+  const out = new Map<string, { at: number; refund: Record<string, unknown> }>()
+  for (const r of rows) {
+    const payload = (typeof r.payload === 'string' ? JSON.parse(r.payload) : r.payload) as
+      | { refund?: Record<string, unknown> }
+      | null
+    if (!r.subject_id || !payload?.refund) continue
+    const at = new Date(String(r.created_at ?? 0)).getTime() || 0
+    const prev = out.get(String(r.subject_id))
+    if (!prev || at >= prev.at) out.set(String(r.subject_id), { at, refund: payload.refund })
+  }
+  return new Map([...out].map(([k, v]) => [k, v.refund]))
 }
 
 function iso(v: Date | string): string {
@@ -220,27 +269,22 @@ export async function rejectDepositRelease(
   if (row.release_proposed_by === approver) {
     throw forbiddenError('Dual control: the proposer cannot reject their own deposit release; cancel it instead')
   }
-  const at = new Date().toISOString()
-  const updated = await query<{ updated_at: Date | string }>(
+  const updatedAt = await transitionWithAudit(
+    row,
+    approver,
     `UPDATE deposit_holdings
-        SET status = 'held', release_proposed_by = NULL, release_approved_by = NULL,
-            metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
-              'rejectedBy', ($2::uuid)::text, 'rejectedAt', $3::text, 'rejectReason', $4::text),
-            updated_at = NOW()
+        SET status = 'held', release_proposed_by = NULL, release_approved_by = NULL, updated_at = NOW()
       WHERE id = $1::uuid AND status = 'release_proposed'
         AND release_proposed_by IS DISTINCT FROM $2::uuid
       RETURNING updated_at`,
-    [row.id, approver, at, reason],
+    [row.id, approver],
+    'Deposit changed while rejecting; reload and try again',
+    'deposit_release_rejected',
+    { from: 'release_proposed', to: 'held', reason, rejectedBy: actor.userId },
   )
-  if (!updated[0]) throw httpError(409, 'Deposit changed while rejecting; reload and try again')
-  await logDepositEvent(row, approver, 'deposit_release_rejected', {
-    from: 'release_proposed',
-    to: 'held',
-    reason,
-  })
   return {
     ok: true,
-    deposit: { id: feId, status: 'held', releaseProposedBy: null, releaseApprovedBy: null, updatedAt: iso(updated[0].updated_at) },
+    deposit: { id: feId, status: 'held', releaseProposedBy: null, releaseApprovedBy: null, updatedAt: iso(updatedAt) },
   }
 }
 
@@ -263,22 +307,21 @@ export async function cancelDepositRelease(
     }
   }
   const from = row.status
-  const at = new Date().toISOString()
-  const updated = await query<{ updated_at: Date | string }>(
+  const updatedAt = await transitionWithAudit(
+    row,
+    officer,
     `UPDATE deposit_holdings
-        SET status = 'held', release_proposed_by = NULL, release_approved_by = NULL,
-            metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
-              'cancelledBy', ($2::uuid)::text, 'cancelledAt', $3::text, 'cancelReason', $4::text),
-            updated_at = NOW()
-      WHERE id = $1::uuid AND status = $5
+        SET status = 'held', release_proposed_by = NULL, release_approved_by = NULL, updated_at = NOW()
+      WHERE id = $1::uuid AND status = $2
       RETURNING updated_at`,
-    [row.id, officer, at, reason, from],
+    [row.id, from],
+    'Deposit changed while cancelling; reload and try again',
+    'deposit_release_cancelled',
+    { from, to: 'held', reason, cancelledBy: actor.userId },
   )
-  if (!updated[0]) throw httpError(409, 'Deposit changed while cancelling; reload and try again')
-  await logDepositEvent(row, officer, 'deposit_release_cancelled', { from, to: 'held', reason })
   return {
     ok: true,
-    deposit: { id: feId, status: 'held', releaseProposedBy: null, releaseApprovedBy: null, updatedAt: iso(updated[0].updated_at) },
+    deposit: { id: feId, status: 'held', releaseProposedBy: null, releaseApprovedBy: null, updatedAt: iso(updatedAt) },
   }
 }
 
@@ -338,28 +381,24 @@ export async function recordDepositRefund(
   const refund: DepositRefundRecord = {
     ...split,
     heldCents,
+    interestEnteredBy: actor.userId,
     recordedBy: actor.userId,
     recordedAt: new Date().toISOString(),
     bankConfirmed: false,
     label: DEPOSIT_REFUND_RECORDED_LABEL,
   }
-  const updated = await query<{ updated_at: Date | string }>(
+  const updatedAt = await transitionWithAudit(
+    row,
+    recorder,
     `UPDATE deposit_holdings
-        SET status = 'refunded',
-            metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
-              'refund', $3::jsonb, 'refundedBy', ($2::uuid)::text, 'refundedAt', $4::text),
-            updated_at = NOW()
+        SET status = 'refunded', updated_at = NOW()
       WHERE id = $1::uuid AND status = 'release_approved'
         AND release_approved_by IS DISTINCT FROM $2::uuid
       RETURNING updated_at`,
-    [row.id, recorder, JSON.stringify(refund), refund.recordedAt],
+    [row.id, recorder],
+    'Deposit changed while recording the refund; reload and try again',
+    'deposit_refund_recorded',
+    { from: 'release_approved', to: 'refunded', reason: DEPOSIT_REFUND_RECORDED_LABEL, refund },
   )
-  if (!updated[0]) throw httpError(409, 'Deposit changed while recording the refund; reload and try again')
-  await logDepositEvent(row, recorder, 'deposit_refund_recorded', {
-    from: 'release_approved',
-    to: 'refunded',
-    reason: DEPOSIT_REFUND_RECORDED_LABEL,
-    refund,
-  })
-  return { ok: true, deposit: { id: feId, status: 'refunded', refund, updatedAt: iso(updated[0].updated_at) } }
+  return { ok: true, deposit: { id: feId, status: 'refunded', refund, updatedAt: iso(updatedAt) } }
 }

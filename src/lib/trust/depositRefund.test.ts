@@ -22,3 +22,18 @@ describe('D2 refund copy and split', () => {
     expect(checkRefundSplit(100000, { refundedCents: 80000, interestCents: 0, deductions: [{ reason: ' ', amountCents: 20000 }] })).toMatch(/needs a reason/)
   })
 })
+
+describe('latestRefundBySubject (Supabase loader read-back from event_log)', () => {
+  it('keeps the newest refund per deposit and ignores rows without a refund', async () => {
+    const { latestRefundBySubject } = await import('./depositDualControl')
+    const old = { refundedCents: 1, interestCents: 0, deductions: [], heldCents: 1 }
+    const neu = { refundedCents: 2, interestCents: 0, deductions: [], heldCents: 2 }
+    const m = latestRefundBySubject([
+      { subject_id: 'd1', payload: { refund: old }, created_at: '2026-10-10T06:00:00Z' },
+      { subject_id: 'd1', payload: JSON.stringify({ refund: neu }), created_at: '2026-10-10T07:00:00Z' },
+      { subject_id: 'd2', payload: { from: 'held' }, created_at: '2026-10-10T07:00:00Z' },
+    ])
+    expect(m.get('d1')).toEqual(neu)
+    expect(m.has('d2')).toBe(false)
+  })
+})

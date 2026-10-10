@@ -23,7 +23,8 @@ export function RefundBreakdown({ refund }: { refund: NonNullable<DepositHolding
   return (
     <div className="text-[11px] leading-snug text-ink-500" data-testid="deposit-refund-breakdown">
       <p className="font-medium text-ink">{DEPOSIT_REFUND_RECORDED_LABEL}</p>
-      <p>Held {formatCents(refund.heldCents)} + interest {formatCents(refund.interestCents)}</p>
+      <p>Held {formatCents(refund.heldCents)}</p>
+      <p>Interest (entered by staff) {formatCents(refund.interestCents)}</p>
       <p>Deposit returned {formatCents(refund.refundedCents)}</p>
       {refund.deductions.map((d, i) => (
         <p key={i}>
@@ -519,7 +520,7 @@ export default function TrustDeposits() {
                           <input className="w-full rounded border border-primary-200 p-1" inputMode="decimal" value={refundZar} onChange={(e) => setRefundZar(e.target.value)} />
                         </label>
                         <label>
-                          Interest (R)
+                          Interest (entered by staff) (R)
                           <input className="w-full rounded border border-primary-200 p-1" inputMode="decimal" value={interestZar} onChange={(e) => setInterestZar(e.target.value)} />
                         </label>
                         {deductions.map((d, i) => (

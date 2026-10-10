@@ -76,6 +76,10 @@ const db = vi.hoisted(() => ({
   sql: [] as string[],
   /** When set, every read throws this message (simulates a database failure). */
   failReads: '' as string,
+  /** When set, INSERT INTO event_log throws (simulates an audit failure). */
+  failEventLog: false as boolean,
+  /** Deposit rows snapshot taken at BEGIN, restored on ROLLBACK. */
+  txSnapshot: null as null | string,
 }))
 
 function agencyFeFor(client: string | null): string | null {
@@ -130,28 +134,57 @@ vi.mock('pg', () => {
         return [{ updated_at: now }]
       }
       if (sql.includes("SET status = 'held'")) {
-        const rejecting = sql.includes("'rejectedBy'")
-        const from = rejecting ? 'release_proposed' : String(params[4])
+        const rejecting = sql.includes('IS DISTINCT FROM')
+        const from = rejecting ? 'release_proposed' : String(params[1])
         if (row.status !== from) return []
         if (rejecting && row.release_proposed_by === params[1]) return []
         row.status = 'held'
         row.release_proposed_by = null
         row.release_approved_by = null
-        row.metadata = {
-          ...(row.metadata ?? {}),
-          ...(rejecting
-            ? { rejectedBy: params[1], rejectedAt: params[2], rejectReason: params[3] }
-            : { cancelledBy: params[1], cancelledAt: params[2], cancelReason: params[3] }),
-        }
         return [{ updated_at: now }]
       }
       if (sql.includes("SET status = 'refunded'")) {
         if (row.status !== 'release_approved' || row.release_approved_by === params[1]) return []
         row.status = 'refunded'
-        row.metadata = { ...(row.metadata ?? {}), refund: JSON.parse(String(params[2])), refundedBy: params[1], refundedAt: params[3] }
         return [{ updated_at: now }]
       }
       return []
+    }
+    if (sql === 'BEGIN') {
+      db.txSnapshot = JSON.stringify(db.deposits)
+      return []
+    }
+    if (sql === 'COMMIT') {
+      db.txSnapshot = null
+      return []
+    }
+    if (sql === 'ROLLBACK') {
+      if (db.txSnapshot) {
+        const saved = JSON.parse(db.txSnapshot) as DepositRow[]
+        for (const r of db.deposits) Object.assign(r, saved.find((x) => x.id === r.id))
+      }
+      db.txSnapshot = null
+      return []
+    }
+    if (sql.startsWith('INSERT INTO event_log') && db.failEventLog) {
+      throw new Error('event_log insert failed (test)')
+    }
+    if (sql.startsWith('SELECT * FROM deposit_holdings')) {
+      return db.deposits.map((d) => ({
+        ...d,
+        occupancy_id: 'occ-1',
+        expected_cents: d.held_cents ?? 0,
+        statutory_deadline_on: null,
+        interest_rate_unknown: false,
+        created_at: new Date('2026-10-01'),
+        updated_at: new Date('2026-10-01'),
+      }))
+    }
+    if (sql.startsWith('SELECT subject_id::text AS subject_id, payload, created_at FROM event_log')) {
+      return db.writes
+        .map((w, k) => ({ w, p: db.writeParams[k] }))
+        .filter((x) => x.w.startsWith('INSERT INTO event_log') && x.p[2] === 'deposit_refund_recorded')
+        .map((x) => ({ subject_id: x.p[3], payload: JSON.parse(String(x.p[5])), created_at: new Date() }))
     }
     if (sql.startsWith('SELECT status, held_cents FROM deposit_holdings')) {
       const d = db.deposits.find((x) => x.id === params[0])
@@ -1169,7 +1202,6 @@ describe('D2: deposit reject, cancel, refund record and held_cents lock', () => 
     const res = await post('u-d2-admin2', DH(2), 'reject-release', { reason: 'Inspection not done' })
     expect(res.status).toBe(200)
     expect(db.deposits[1]).toMatchObject({ status: 'held', release_proposed_by: null })
-    expect(db.deposits[1].metadata).toMatchObject({ rejectedBy: uuidOf('u-d2-admin2'), rejectReason: 'Inspection not done' })
     expect(events()).toEqual([
       expect.objectContaining({
         type: 'deposit_release_rejected',
@@ -1202,7 +1234,7 @@ describe('D2: deposit reject, cancel, refund record and held_cents lock', () => 
     const res = await post('u-d2-alloc', DH(2), 'cancel-release')
     expect(res.status).toBe(200)
     expect(db.deposits[1]).toMatchObject({ status: 'held', release_proposed_by: null })
-    expect(db.deposits[1].metadata).toMatchObject({ cancelledBy: uuidOf('u-d2-alloc') })
+    expect(events()[0]).toMatchObject({ actor: uuidOf('u-d2-alloc'), payload: { cancelledBy: 'u-d2-alloc' } })
     expect(events()[0]).toMatchObject({ type: 'deposit_release_cancelled', payload: { from: 'release_proposed', to: 'held' } })
   })
 
@@ -1226,9 +1258,16 @@ describe('D2: deposit reject, cancel, refund record and held_cents lock', () => 
     expect(res.status).toBe(200)
     const body = (await res.json()) as { deposit: { status: string; refund: Record<string, unknown> } }
     expect(body.deposit.status).toBe('refunded')
-    expect(body.deposit.refund).toMatchObject({ ...goodSplit, heldCents: 100000, bankConfirmed: false, label: 'Refund recorded (not bank-confirmed)' })
-    expect(db.deposits[2].metadata?.refund).toMatchObject(goodSplit)
-    expect(db.deposits[2].metadata?.refundedBy).toBe(uuidOf('u-d2-admin3'))
+    expect(body.deposit.refund).toMatchObject({
+      ...goodSplit,
+      heldCents: 100000,
+      interestEnteredBy: 'u-d2-admin3',
+      recordedBy: 'u-d2-admin3',
+      bankConfirmed: false,
+      label: 'Refund recorded (not bank-confirmed)',
+    })
+    expect(db.deposits[2]).not.toHaveProperty('metadata')
+    expect(db.writes.some((w) => /metadata/.test(w) && w.includes('deposit_holdings'))).toBe(false)
     const ev = events()
     expect(ev).toHaveLength(1)
     expect(ev[0]).toMatchObject({ type: 'deposit_refund_recorded', actor: uuidOf('u-d2-admin3'), payload: { from: 'release_approved', to: 'refunded', refund: goodSplit } })
@@ -1257,6 +1296,9 @@ describe('D2: deposit reject, cancel, refund record and held_cents lock', () => 
       { refundedCents: 100000, interestCents: 1500, deductions: [] },
       { ...goodSplit, refundedCents: -1, deductions: [{ reason: 'x', amountCents: 102501 }] },
       { ...goodSplit, refundedCents: 815.5 },
+      { ...goodSplit, refundedCents: 83000, interestCents: -1500 },
+      { ...goodSplit, interestCents: 1500.5, refundedCents: 81500.5 },
+      { ...goodSplit, interestCents: '1500' },
       { refundedCents: 101500, deductions: [] },
     ]) {
       expect((await post('u-d2-admin3', DH(3), 'refund', split)).status, JSON.stringify(split)).toBe(400)
@@ -1277,6 +1319,80 @@ describe('D2: deposit reject, cancel, refund record and held_cents lock', () => 
       expect((await post('u-d2-admin3', DH(3), 'refund', split)).status, String(reason)).toBe(400)
     }
     expect(db.deposits[2].status).toBe('release_approved')
+  })
+
+  it('negative interest is a 400', async () => {
+    const res = await post('u-d2-admin3', DH(3), 'refund', { refundedCents: 80000, interestCents: -500, deductions: [{ reason: 'x', amountCents: 19500 }] })
+    expect(res.status).toBe(400)
+    expect(db.deposits[2].status).toBe('release_approved')
+  })
+
+  it('interest is not checked against the stored accrued interest', async () => {
+    // Row accrued 1500; staff enter 4000 and the split balances against held + 4000.
+    const res = await post('u-d2-admin3', DH(3), 'refund', { refundedCents: 104000, interestCents: 4000, deductions: [] })
+    expect(res.status).toBe(200)
+  })
+
+  it('each transition writes exactly one audit row, inside the transaction', async () => {
+    const steps: [string, string, string, unknown][] = [
+      ['u-d2-alloc', DH(1), 'propose-release', {}],
+      ['u-d2-admin2', DH(1), 'reject-release', { reason: 'r' }],
+      ['u-d2-alloc', DH(1), 'propose-release', {}],
+      ['u-d2-alloc', DH(1), 'cancel-release', {}],
+      ['u-d2-alloc', DH(1), 'propose-release', {}],
+      ['u-d2-admin2', DH(1), 'approve-release', {}],
+      ['u-d2-admin3', DH(1), 'refund', { refundedCents: 100000, interestCents: 0, deductions: [] }],
+    ]
+    const types = ['deposit_release_proposed', 'deposit_release_rejected', 'deposit_release_proposed', 'deposit_release_cancelled', 'deposit_release_proposed', 'deposit_release_approved', 'deposit_refund_recorded']
+    for (const [k, [fe, id, step, body]] of steps.entries()) {
+      const before = events().length
+      const sqlBefore = db.sql.length
+      expect((await post(fe, id, step, body)).status, step).toBe(200)
+      const ev = events()
+      expect(ev.length - before, step).toBe(1)
+      expect(ev[ev.length - 1].type).toBe(types[k])
+      const tx = db.sql.slice(sqlBefore)
+      const b = tx.indexOf('BEGIN')
+      const u = tx.findIndex((q) => q.startsWith('UPDATE deposit_holdings'))
+      const e = tx.findIndex((q) => q.startsWith('INSERT INTO event_log'))
+      const c = tx.indexOf('COMMIT')
+      expect(b >= 0 && b < u && u < e && e < c, step).toBe(true)
+    }
+    expect(db.deposits[0].status).toBe('refunded')
+  })
+
+  it('a refused or conflicting transition writes no audit row', async () => {
+    await post('u-d2-admin2', DH(1), 'approve-release')
+    await post('u-d2-admin3', DH(3), 'refund', { ...goodSplit, refundedCents: 1 })
+    expect(events()).toEqual([])
+  })
+
+  it('a failed audit insert rolls back the status change', async () => {
+    db.failEventLog = true
+    try {
+      expect((await post('u-d2-admin2', DH(2), 'reject-release', { reason: 'r' })).status).toBe(500)
+      expect((await post('u-d2-admin3', DH(3), 'refund', goodSplit)).status).toBe(500)
+      expect((await post('u-d2-alloc', DH(1), 'propose-release')).status).toBe(500)
+    } finally {
+      db.failEventLog = false
+    }
+    expect(db.deposits.map((d) => [d.status, d.release_proposed_by])).toEqual([
+      ['held', null],
+      ['release_proposed', uuidOf('u-d2-alloc')],
+      ['release_approved', uuidOf('u-admin')],
+    ])
+    expect(db.sql.filter((q) => q === 'ROLLBACK').length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('the refund breakdown survives a reload: bootstrap reads it back from event_log', async () => {
+    expect((await post('u-d2-admin3', DH(3), 'refund', goodSplit)).status).toBe(200)
+    const res = await app.request('/api/bootstrap', { headers: { Authorization: `Bearer ${tokens['u-admin']}` } })
+    expect(res.status).toBe(200)
+    const boot = (await res.json()) as { depositHoldings?: Array<{ id: string; status: string; refund: Record<string, unknown> | null }> }
+    const dep = boot.depositHoldings?.find((d) => d.status === 'refunded')
+    expect(dep?.refund).toMatchObject({ ...goodSplit, heldCents: 100000, interestEnteredBy: 'u-d2-admin3', bankConfirmed: false })
+    const held = boot.depositHoldings?.find((d) => d.status === 'held')
+    expect(held?.refund ?? null).toBeNull()
   })
 
   it('portal and field roles get 403 on reject, cancel and refund', async () => {

@@ -3,7 +3,7 @@
  * No PayProp / bank HTTP; submit/release_approved ≠ settled / refunded.
  */
 
-import type { DepositHolding, PayoutInstruction } from '../../types/domain'
+import type { DepositHolding, DepositRefundRecord, PayoutInstruction } from '../../types/domain'
 
 export const DEPOSIT_PERSIST_RESOURCE = 'deposit_holding' as const
 export const PAYOUT_PERSIST_RESOURCE = 'payout_instruction' as const
@@ -225,4 +225,21 @@ export function checkRefundSplit(heldCents: number, split: RefundSplitInput): st
     return 'Refunded plus deductions must equal held plus interest'
   }
   return null
+}
+
+/** Latest recorded refund per deposit uuid, read back from event_log (D2). */
+export function latestRefundBySubject(
+  rows: Array<{ subject_id?: unknown; payload?: unknown; created_at?: unknown }>,
+): Map<string, DepositRefundRecord> {
+  const out = new Map<string, { at: number; refund: DepositRefundRecord }>()
+  for (const r of rows) {
+    const payload = (typeof r.payload === 'string' ? JSON.parse(r.payload) : r.payload) as
+      | { refund?: DepositRefundRecord }
+      | null
+    if (!r.subject_id || !payload?.refund) continue
+    const at = new Date(String(r.created_at ?? 0)).getTime() || 0
+    const prev = out.get(String(r.subject_id))
+    if (!prev || at >= prev.at) out.set(String(r.subject_id), { at, refund: payload.refund })
+  }
+  return new Map([...out].map(([k, v]) => [k, v.refund]))
 }

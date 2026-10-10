@@ -1050,6 +1050,23 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     updatedAt: iso(p.updated_at as Date) ?? new Date().toISOString(),
   }))
 
+  // D2: recorded refund splits live in event_log only (no deposit_holdings column).
+  let refundByDeposit = new Map<string, Record<string, unknown>>()
+  if ((deposits as unknown[]).length) {
+    try {
+      const { latestRefundBySubject } = await import('./depositRoutes.js')
+      refundByDeposit = latestRefundBySubject(
+        await query(
+          `SELECT subject_id::text AS subject_id, payload, created_at FROM event_log
+            WHERE event_type = 'deposit_refund_recorded' AND subject_type = 'deposit_holding'
+            ORDER BY created_at DESC LIMIT 400`,
+        ),
+      )
+    } catch (err) {
+      console.warn('[bootstrap] deposit refund read-back failed', err instanceof Error ? err.message : err)
+    }
+  }
+
   const mappedDeposits = (deposits as Array<Record<string, unknown>>).map((d) => ({
     id: mappedFe('deposit_holding', d.id as string, d.id as string),
     agencyId: agencyFe(d.client_id as string)!,
@@ -1064,7 +1081,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     interestRateUnknown: Boolean(d.interest_rate_unknown),
     releaseProposedBy: mapUser(d.release_proposed_by as string | null),
     releaseApprovedBy: mapUser(d.release_approved_by as string | null),
-    refund: ((d.metadata as { refund?: Record<string, unknown> } | null)?.refund ?? null),
+    refund: (refundByDeposit.get(String(d.id)) ?? null) as never,
     createdAt: iso(d.created_at as Date) ?? new Date().toISOString(),
     updatedAt: iso(d.updated_at as Date) ?? new Date().toISOString(),
   }))
