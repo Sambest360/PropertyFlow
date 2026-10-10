@@ -3,6 +3,7 @@ import { AgencyDashboard } from './dashboards/AgencyDashboard'
 import { GroundAgentDashboard } from './dashboards/GroundAgentDashboard'
 import { useAuth } from '../context/AuthContext'
 import { defaultWorkspacePath } from '../lib/workspaceRoutes'
+import { PortalHydrationGate } from '../components/PortalHydrationGate'
 
 /**
  * Workspace home — one purposeful surface per role.
@@ -10,6 +11,14 @@ import { defaultWorkspacePath } from '../lib/workspaceRoutes'
  * with role-specific copy; field agents get GroundAgentDashboard; Super Admin gets platform.
  */
 export default function Dashboard() {
+  return (
+    <PortalHydrationGate>
+      <DashboardContent />
+    </PortalHydrationGate>
+  )
+}
+
+function DashboardContent() {
   const { user, has } = useAuth()
   const role = user?.role
 
