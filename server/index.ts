@@ -680,7 +680,14 @@ app.post('/api/auth/reset-password', async (c) => {
       const rl = tooManyRequests(gate.retryAfterSec)
       return c.json(rl.body, rl.status, { ...rl.headers, 'Cache-Control': 'no-store' })
     }
-    const result = await resetUserPassword(actor, userId)
+    // A super admin impersonating someone still acts as themselves; the
+    // audit row records the real actor plus impersonating: true.
+    let impersonatedUserId: string | null = null
+    if (actor.role === 'super_admin') {
+      const imp = parseDemoActor(c, null)
+      if (imp && imp.userId !== actor.frontendId) impersonatedUserId = imp.userId
+    }
+    const result = await resetUserPassword(actor, userId, { impersonatedUserId })
     return c.json({ ok: true, userId: result.target.id, tempPassword: result.tempPassword })
   } catch (err) {
     const status = errStatus(err)

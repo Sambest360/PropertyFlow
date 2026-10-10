@@ -7,7 +7,7 @@
  * - A super admin can reset anyone else.
  * - An agency admin (client_admin / agent_admin) with users.manage can reset:
  *   - non-admin staff (GROUND_AGENT) whose users.client_id is their agency;
- *   - their own tenants: the tenant_id on an ACTIVE or PENDING lease whose
+ *   - their own tenants: the tenant_id on an ACTIVE, PENDING or NOTICE lease whose
  *     unit is in their agency;
  *   - their own landlords: the landlord_id on a building in their agency, or
  *     on the building of a unit in their agency.
@@ -58,7 +58,7 @@ async function isOwnTenant(targetUuid: string, clientUuid: string): Promise<bool
     `SELECT 1 AS ok FROM leases l
        JOIN units u ON u.id = l.unit_id
       WHERE l.tenant_id = $1::uuid
-        AND l.status IN ('ACTIVE', 'PENDING')
+        AND l.status IN ('ACTIVE', 'PENDING', 'NOTICE')
         AND u.client_id = $2::uuid
       LIMIT 1`,
     [targetUuid, clientUuid],
@@ -83,7 +83,11 @@ export type ResetResult = {
   target: { id: string; uuid: string; clientId: string | null }
 }
 
-export async function resetUserPassword(actor: SessionUser, requestedId: string): Promise<ResetResult> {
+export async function resetUserPassword(
+  actor: SessionUser,
+  requestedId: string,
+  opts: { impersonatedUserId?: string | null } = {},
+): Promise<ResetResult> {
   const wanted = String(requestedId ?? '').trim()
   if (!wanted) throw fail(400, 'userId is required')
   let targetUuid: string | null = null
@@ -140,7 +144,14 @@ export async function resetUserPassword(actor: SessionUser, requestedId: string)
       row.client_id,
       row.id,
       actor.id,
-      JSON.stringify({ actorUserId: actor.frontendId, targetUserId: target.frontendId }),
+      JSON.stringify({
+        actorUserId: actor.frontendId,
+        targetUserId: target.frontendId,
+        // The session user always acts; impersonation is recorded, never the actor.
+        ...(opts.impersonatedUserId
+          ? { impersonating: true, impersonatedUserId: opts.impersonatedUserId }
+          : {}),
+      }),
     ],
   )
   return { tempPassword, target: { id: target.frontendId, uuid: row.id, clientId: row.client_id } }

@@ -102,7 +102,7 @@ vi.mock('pg', () => {
       const ok = db.leases.some(
         (l) =>
           l.tenant_id === params[0] &&
-          ['ACTIVE', 'PENDING'].includes(l.status) &&
+          ['ACTIVE', 'PENDING', 'NOTICE'].includes(l.status) &&
           db.units.find((u) => u.id === l.unit_id)?.client_id === params[1],
       )
       return ok ? [{ ok: 1 }] : []
@@ -220,6 +220,7 @@ function seed() {
     u('u-cape-ll', '13', 'LANDLORD', null),
     u('u-loose', '14', 'END_USER', null),
     u('u-contractor', '15', 'CONTRACTOR', HORIZON),
+    u('u-notice-tenant', '16', 'END_USER', HORIZON),
   ].map((x) => ({ ...x, password_hash: hash }))
   db.units = [
     { id: UNIT_H, client_id: HORIZON, building_id: BLD_H },
@@ -234,6 +235,8 @@ function seed() {
     { tenant_id: byFe('u-pending-tenant').id, unit_id: UNIT_H, status: 'PENDING' },
     { tenant_id: byFe('u-cape-tenant').id, unit_id: UNIT_C, status: 'ACTIVE' },
     { tenant_id: byFe('u-past-tenant').id, unit_id: UNIT_H, status: 'ENDED' },
+    { tenant_id: byFe('u-past-tenant').id, unit_id: UNIT_H, status: 'CANCELLED' },
+    { tenant_id: byFe('u-notice-tenant').id, unit_id: UNIT_H, status: 'NOTICE' },
   ]
 }
 
@@ -273,6 +276,16 @@ describe('D3 reset: who can reset whom', () => {
 
   it('a tenant on a Pending tenancy in the agency can be reset (200)', async () => {
     expect((await reset(await login('u-admin'), 'u-pending-tenant')).status).toBe(200)
+  })
+
+  it('a tenant on a NOTICE lease in the agency can be reset (200), like Active and Pending', async () => {
+    expect((await reset(await login('u-admin'), 'u-notice-tenant')).status).toBe(200)
+    expect(byFe('u-notice-tenant').metadata.mustChangePassword).toBe(true)
+  })
+
+  it('a tenant with only ended or cancelled leases is super-admin-only', async () => {
+    expect((await reset(await login('u-admin'), 'u-past-tenant')).status).toBe(403)
+    expect((await reset(await login('u-sa'), 'u-past-tenant')).status).toBe(200)
   })
 
   it("another agency's tenant is 403", async () => {
@@ -369,6 +382,32 @@ describe('D3 reset: response, audit, revocation and the must-change gate', () =>
     expect(everything).not.toContain(tempPassword)
     expect(everything).not.toContain(byFe('u-tenant').password_hash)
     spies.forEach((s) => s.mockRestore())
+  })
+
+  it('a super admin resetting while impersonating: the event records the real actor with impersonating: true', async () => {
+    const res = await app.request('/api/auth/reset-password', {
+      method: 'POST',
+      headers: json(await login('u-sa'), { 'X-User-Id': 'u-admin', 'X-Role': 'client_admin', 'X-Agency-Id': 'ag-horizon' }),
+      body: JSON.stringify({ userId: 'u-loose' }),
+    })
+    // Acts as the real super admin (u-loose has no agency link, so only a super admin may).
+    expect(res.status).toBe(200)
+    const events = resetEvents()
+    expect(events).toHaveLength(1)
+    const [, , subject, actorUuid, payload] = events[0].params as string[]
+    expect(subject).toBe(byFe('u-loose').id)
+    expect(actorUuid).toBe(byFe('u-sa').id)
+    expect(JSON.parse(payload)).toEqual({
+      actorUserId: 'u-sa',
+      targetUserId: 'u-loose',
+      impersonating: true,
+      impersonatedUserId: 'u-admin',
+    })
+  })
+
+  it('a super admin reset without impersonation has no impersonating flag', async () => {
+    expect((await reset(await login('u-sa'), 'u-loose')).status).toBe(200)
+    expect(JSON.parse(resetEvents()[0].params[4] as string)).toEqual({ actorUserId: 'u-sa', targetUserId: 'u-loose' })
   })
 
   it("after a reset the target's old token gets 401", async () => {
