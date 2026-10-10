@@ -418,34 +418,50 @@ export async function enforceApplicantApplicationWrite(
   setDerived(data, type, asked)
 }
 
-/** Statuses a staff save may set only when the stored lease envelope already shows them. */
-const STAFF_SIGNED_STATUSES: ReadonlySet<string> = new Set(['tenant_signed', 'landlord_signed'])
+/** Terminal stages a staff save may always set (never gated on signatures). */
+const STAFF_UNGATED_TERMINAL: ReadonlySet<string> = new Set(['rejected', 'cancelled', 'withdrawn', 'closed', 'refunded', 'deposit_refunded'])
 
 /**
- * CR10 gate: the staff application save runs the same stored-envelope check
- * applicants and landlords get. Moving the stage to tenant_signed /
- * landlord_signed needs the linked lease's stored eSign to show that status
- * (or a later one: paper mark or e-sign, both stamped by the server). Else
- * 409 LEASE_SIGNATURE_NOT_RECORDED, before anything is written.
+ * CR10 gate (Jim's spec): the staff application save runs the same
+ * stored-envelope check applicants and landlords get, for EVERY stage at or
+ * after tenant_signed (order from the workflow's stage list):
+ *  - order above landlord_signed, or landlord_signed itself: needs landlord_signed;
+ *  - tenant_signed: needs tenant_signed;
+ *  - earlier stages and terminal stages: nothing.
+ * Skipped when the STORED workflow_status is already at or past the required
+ * stage (an already-advanced application, e.g. a lease that predates e-sign,
+ * keeps saving). Otherwise the stored lease envelope must show at least the
+ * required stage, else 409 LEASE_SIGNATURE_NOT_RECORDED before any write.
  */
 export async function enforceStaffSignedStageMove(body: { resource: string; action: string; id: string; data?: Row }): Promise<void> {
   if (body.resource !== 'application' || body.action === 'delete') return
   const data = (body.data ?? {}) as Row
   const type: AppType = String(data.type ?? '').toLowerCase() === 'purchase' ? 'Purchase' : 'Rental'
   const asked = requestedStatus(type, data)
-  if (!asked || !STAFF_SIGNED_STATUSES.has(asked)) return
+  if (!asked) return
+  if (STAFF_UNGATED_TERMINAL.has(asked)) return
+  const tenantOrder = stageOrder(type, 'tenant_signed')
+  const landlordOrder = stageOrder(type, 'landlord_signed')
+  if (tenantOrder < 0 || landlordOrder < 0) return // template without lease signing
+  const askedOrder = stageOrder(type, asked)
+  let required: WorkflowStatusKey | null = null
+  if (askedOrder >= landlordOrder) required = 'landlord_signed'
+  else if (askedOrder >= tenantOrder) required = 'tenant_signed'
+  if (!required) return
+  const requiredOrder = stageOrder(type, required)
   const uuid = await resolveUuid('application', body.id)
   if (uuid) {
     const rows = await query<{ workflow_status: string | null }>(
       `SELECT metadata->>'workflow_status' AS workflow_status FROM applications WHERE id = $1::uuid`,
       [uuid],
     )
-    if (rows[0]?.workflow_status === asked) return // unchanged
+    const stored = rows[0]?.workflow_status
+    if (stored && stageOrder(type, stored as WorkflowStatusKey) >= requiredOrder) return
   }
   const fromLease = uuid ? await storedLeaseESignStatus(uuid) : null
-  if (fromLease && stageOrder(type, fromLease) >= stageOrder(type, asked)) return
+  if (fromLease && stageOrder(type, fromLease) >= requiredOrder) return
   throw Object.assign(
-    coded(LEASE_SIGNATURE_NOT_RECORDED, `${asked} is not what the stored lease envelope shows (${fromLease ?? 'none'})`),
+    coded(LEASE_SIGNATURE_NOT_RECORDED, `${asked} needs ${required} on the stored lease envelope (it shows ${fromLease ?? 'none'})`),
     { status: 409 },
   )
 }
