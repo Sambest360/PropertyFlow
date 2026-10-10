@@ -23,6 +23,8 @@ export type AuthUserDto = {
   company?: string
   idNumberOrPassport?: string
   verification?: UserVerification
+  /** D3: set after a staff reset; the server allows only me / change-password / logout. */
+  mustChangePassword?: boolean
 }
 
 export type AuthResponse = {
@@ -191,8 +193,26 @@ export async function apiChangePassword(input: {
     credentials: 'include',
     body: JSON.stringify(input),
   })
-  const data = await parseJson<{ ok: boolean; user: AuthUserDto }>(res)
+  const data = await parseJson<{ ok: boolean; token?: string; user: AuthUserDto }>(res)
+  // The change revokes every older token; the server reissues this session.
+  if (data.token) writeAuthToken(data.token)
   return data.user
+}
+
+/**
+ * D3 staff password reset. Returns the temp password once; callers must show
+ * it and never store it (no state beyond the open modal, no localStorage).
+ */
+export async function apiResetPassword(userId: string): Promise<{ tempPassword: string }> {
+  const res = await fetchWithTimeout(`${API_BASE}/api/auth/reset-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    credentials: 'include',
+    cache: 'no-store',
+    body: JSON.stringify({ userId }),
+  })
+  const data = await parseJson<{ ok: boolean; tempPassword: string }>(res)
+  return { tempPassword: data.tempPassword }
 }
 
 export async function apiLogout(): Promise<void> {
