@@ -1086,39 +1086,85 @@ async function upsertPayoutInstruction(id: string, data: Record<string, unknown>
   throwIfUpsertFailed(res, 'payout_instruction')
 }
 
+/**
+ * Supabase mode deposit register row (D2). Matches the server: status and
+ * release_*_by are never written from the browser (a new row is held when money
+ * is held, else expected; an existing row keeps its status), and held_cents is
+ * locked once a release is proposed. Release transitions go through
+ * /api/trust/deposits/:id/* only.
+ */
+export const DEPOSIT_HELD_LOCKED_STATUSES = ['release_proposed', 'release_approved', 'refunded'] as const
+
+export function buildSupabaseDepositRow(
+  base: {
+    id: string
+    clientId: string
+    occupancyId: string | null
+    unitId: string | null
+  },
+  data: Record<string, unknown>,
+  existing: {
+    status: string
+    held_cents: number | string
+    expected_cents?: number | string
+    interest_accrued_cents?: number | string
+  } | null,
+): Record<string, unknown> {
+  const heldCents = Math.max(0, Math.round(num(data.heldCents) ?? 0))
+  const expectedCents = Math.max(0, Math.round(num(data.expectedCents) ?? 0))
+  const interestCents = Math.max(0, Math.round(num(data.interestAccruedCents) ?? 0))
+  if (
+    existing &&
+    (DEPOSIT_HELD_LOCKED_STATUSES as readonly string[]).includes(existing.status) &&
+    (Number(existing.held_cents) !== heldCents ||
+      Number(existing.expected_cents ?? 0) !== expectedCents ||
+      Number(existing.interest_accrued_cents ?? 0) !== interestCents)
+  ) {
+    throw Object.assign(
+      new Error(`Deposit is ${existing.status}; the deposit amounts are locked once a release is proposed`),
+      { status: 409 },
+    )
+  }
+  const row: Record<string, unknown> = {
+    id: base.id,
+    client_id: base.clientId,
+    occupancy_id: base.occupancyId,
+    unit_id: base.unitId,
+    expected_cents: expectedCents,
+    held_cents: heldCents,
+    interest_accrued_cents: interestCents,
+    statutory_deadline_on: data.statutoryDeadlineOn
+      ? str(data.statutoryDeadlineOn).slice(0, 10)
+      : null,
+    interest_rate_unknown: data.interestRateUnknown === true,
+    updated_at: new Date().toISOString(),
+  }
+  if (!existing) row.status = heldCents > 0 ? 'held' : 'expected'
+  else if (existing.status === 'expected' && heldCents > 0) row.status = 'held'
+  return row
+}
+
 async function upsertDepositHolding(id: string, data: Record<string, unknown>): Promise<void> {
   const supabase = createClient()
   const uuid = await ensureUuid('deposit_holding', id)
   const clientId = await clientUuid(data.agencyId)
   if (!clientId) throw new Error('deposit_holding requires agencyId')
-  const statusRaw = str(data.status, 'expected')
-  const allowed = new Set([
-    'expected',
-    'held',
-    'release_proposed',
-    'release_approved',
-    'refunded',
-    'applied_to_arrears',
-    'split',
-    'disputed',
-  ])
-  const res = await supabase.from('deposit_holdings').upsert({
-    id: uuid,
-    client_id: clientId,
-    occupancy_id: await occupancyUuid(data.occupancyId),
-    unit_id: data.propertyId ? await resolveUuid('property', str(data.propertyId)) : null,
-    expected_cents: Math.max(0, Math.round(num(data.expectedCents) ?? 0)),
-    held_cents: Math.max(0, Math.round(num(data.heldCents) ?? 0)),
-    interest_accrued_cents: Math.max(0, Math.round(num(data.interestAccruedCents) ?? 0)),
-    status: allowed.has(statusRaw) ? statusRaw : 'expected',
-    statutory_deadline_on: data.statutoryDeadlineOn
-      ? str(data.statutoryDeadlineOn).slice(0, 10)
-      : null,
-    interest_rate_unknown: data.interestRateUnknown === true,
-    release_proposed_by: await userUuid(data.releaseProposedBy),
-    release_approved_by: await userUuid(data.releaseApprovedBy),
-    updated_at: new Date().toISOString(),
-  })
+  const cur = await supabase
+    .from('deposit_holdings')
+    .select('status, held_cents, expected_cents, interest_accrued_cents')
+    .eq('id', uuid)
+    .maybeSingle()
+  const row = buildSupabaseDepositRow(
+    {
+      id: uuid,
+      clientId,
+      occupancyId: await occupancyUuid(data.occupancyId),
+      unitId: data.propertyId ? await resolveUuid('property', str(data.propertyId)) : null,
+    },
+    data,
+    (cur.data as Parameters<typeof buildSupabaseDepositRow>[2]) ?? null,
+  )
+  const res = await supabase.from('deposit_holdings').upsert(row)
   throwIfUpsertFailed(res, 'deposit_holding')
 }
 

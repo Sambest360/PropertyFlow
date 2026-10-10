@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { checkTicketPhotos } from '../lib/photoLimits'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, Plus } from 'lucide-react'
 import { useStore } from '../context/AppStore'
@@ -260,6 +261,11 @@ export default function Maintenance() {
   const submitCompletion = (fields: TicketCompletionFields): string | null => {
     if (!completeId) return 'No maintenance selected.'
     const prev = state.tickets.find((t) => t.id === completeId)
+    // Same rule as the server (TICKET_PHOTO_INVALID) before anything is saved.
+    if (prev && fields.completionPhotoUrls?.length) {
+      const check = checkTicketPhotos([...(prev.photoUrls ?? []), ...fields.completionPhotoUrls])
+      if (check.ok === false) return `Photos not saved: ${check.reason}.`
+    }
     const photoCount = fields.completionPhotoUrls?.length ?? fields.photos
     const result = patchMaintenanceTicket({
       actorUserId: user.id,

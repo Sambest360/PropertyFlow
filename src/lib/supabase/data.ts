@@ -6,6 +6,7 @@ import type { LookupConfig } from '../../data/infrastructure'
 import type { Lead } from '../../types/domain'
 import type { PostgresBootstrap } from '../api/postgresClient'
 import { createClient } from '../../utils/supabase/client'
+import { latestRefundBySubject } from '../trust/depositDualControl'
 import {
   buildIdMapCache,
   EMAIL_TO_USER,
@@ -1045,6 +1046,23 @@ export async function fetchSupabaseBootstrap(
     updatedAt: iso(p.updated_at as string) ?? new Date().toISOString(),
   }))
 
+  // D2: recorded refund splits live in event_log only.
+  // Only the deposits already loaded (RLS-scoped) that are refunded; no global limit.
+  const depositUuids = (depositsRes.data ?? []).filter((d) => d.status === 'refunded').map((d) => String(d.id))
+  const refundEvents = depositUuids.length
+    ? await supabase
+        .from('event_log')
+        .select('id, subject_id, payload, created_at')
+        .eq('event_type', 'deposit_refund_recorded')
+        .in('subject_id', depositUuids)
+        .order('created_at', { ascending: false })
+    : { data: [] as Record<string, unknown>[], error: null }
+  if (refundEvents.error) {
+    console.warn('[supabase/data] deposit refund read-back failed', refundEvents.error.message)
+  }
+  const refundByDeposit = latestRefundBySubject(
+    (refundEvents.data ?? []) as Array<{ id?: unknown; subject_id?: unknown; payload?: unknown; created_at?: unknown }>,
+  )
   const depositHoldings = (depositsRes.data ?? []).map((d) => ({
     id: mappedFe(cache, 'deposit', d.id as string, d.id as string),
     agencyId: mapAgencyFe(d.client_id as string)!,
@@ -1057,6 +1075,7 @@ export async function fetchSupabaseBootstrap(
     interestRateUnknown: Boolean(d.interest_rate_unknown),
     releaseProposedBy: mapUserFe(d.release_proposed_by as string | null),
     releaseApprovedBy: mapUserFe(d.release_approved_by as string | null),
+    refund: refundByDeposit.get(String(d.id)) ?? null,
     createdAt: iso(d.created_at as string) ?? new Date().toISOString(),
     updatedAt: iso(d.updated_at as string) ?? new Date().toISOString(),
   }))
