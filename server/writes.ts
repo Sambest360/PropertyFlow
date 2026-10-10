@@ -2123,6 +2123,19 @@ export async function approveApplicationTx(params: {
       }
       leaseUuid = await ensureUuid('tenancy', str(t.id))
       const landlord = t.landlordId ? await resolveUuid('user', str(t.landlordId)) : null
+      // CR10 gate blocker 2: the client names the lease id; an existing lease
+      // that already has a signing envelope can't be re-pointed by approval.
+      const existing = await clientQuery<{ envelope_id: string | null }>(
+        client,
+        `SELECT metadata->'eSign'->>'envelopeId' AS envelope_id FROM leases WHERE id = $1::uuid FOR UPDATE`,
+        [leaseUuid],
+      )
+      if (existing[0]?.envelope_id) {
+        throw Object.assign(new Error('This lease already has a signing envelope; approval cannot change it.'), {
+          status: 403,
+          code: 'LEASE_PARTY_LOCKED',
+        })
+      }
       await clientQuery(
         client,
         `INSERT INTO leases (
