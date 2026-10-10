@@ -1055,3 +1055,22 @@ export type TrustLinkedPayment = PaymentRecord & {
   chargeId: string | null
   clearedInTrust: boolean
 }
+
+/** CR10: server-written lease_signed audit row (bootstrap, scoped per actor). Never the image. */
+export type LeaseSignEvent = {
+  id: string
+  tenancyId: string
+  agencyId?: string | null
+  envelopeId: string | null
+  party: 'tenant' | 'landlord'
+  signerUserId: string | null
+  role: string | null
+  method: 'drawn' | 'saved_image' | 'paper_mark' | string | null
+  onBehalf: boolean
+  onBehalfConfirmation?: string | null
+  imageSha256: string | null
+  signedAt: string | null
+  /** Staff only (stripped server-side for tenant / landlord / contractor). */
+  ip?: string | null
+  userAgent?: string | null
+}

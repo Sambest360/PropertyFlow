@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { filterBootstrapForActor, filterBootstrapUsersForActor, redactBootstrapUser } from './scopeGate'
+import { filterBootstrapForActor, filterBootstrapUsersForActor, redactBootstrapUser, scopeLeaseSignReads } from './scopeGate'
 import { filterBootstrapForGuest } from './guestMarketplace'
 import { buildPropertyScope } from '../src/lib/scope'
 import type { DemoActor } from './actor'
@@ -189,5 +189,32 @@ describe('CR10 A: bootstrap returns signature for the session user only', () => 
   it('super admin', () => check({ userId: 'u-sa', role: 'super_admin', agencyId: null }))
   it('redactBootstrapUser drops it', () => {
     expect(redactBootstrapUser(withSig[0])).not.toHaveProperty('signature')
+  })
+})
+
+describe('CR10 B: lease_signed reads are scoped to the lease parties, its agency staff and super admin', () => {
+  const ev = (tenancyId: string) => ({ id: `e-${tenancyId}`, tenancyId, party: 'tenant', ip: '1.1.1.1', userAgent: 'ua' })
+  const raw2 = { ...raw, leaseSignEvents: [ev('L-mine'), ev('L-other')] }
+  const withTenancies = (ids: string[]) =>
+    ({ ...raw, tenancies: ids.map((id) => ({ id, eSign: { tenant: { status: 'signed', ip: '1.1.1.1', userAgent: 'ua' }, landlord: null } })) }) as never
+
+  it('a tenant gets only rows for leases they receive, without IP / user agent (rows and stamps)', () => {
+    const out = scopeLeaseSignReads(withTenancies(['L-mine']), raw2 as never, { userId: 'u-tenant', role: 'tenant', agencyId: null })
+    const rows = out.leaseSignEvents as Array<Record<string, unknown>>
+    expect(rows.map((r) => r.tenancyId)).toEqual(['L-mine'])
+    expect(rows[0]).not.toHaveProperty('ip')
+    expect(rows[0]).not.toHaveProperty('userAgent')
+    const t = (out.tenancies as Array<{ eSign: { tenant: Record<string, unknown> } }>)[0]
+    expect(t.eSign.tenant).not.toHaveProperty('ip')
+  })
+  it('an unrelated tenant or another agency (no visible tenancies) gets none', () => {
+    const out = scopeLeaseSignReads(withTenancies([]), raw2 as never, { userId: 'u-x', role: 'agent', agencyId: 'ag-b' })
+    expect(out.leaseSignEvents).toEqual([])
+  })
+  it('agency staff keep IP / user agent; super admin sees all rows', () => {
+    const staff = scopeLeaseSignReads(withTenancies(['L-mine']), raw2 as never, { userId: 'u-james', role: 'agent', agencyId: 'ag-a' })
+    expect((staff.leaseSignEvents as Array<Record<string, unknown>>)[0].ip).toBe('1.1.1.1')
+    const sa = scopeLeaseSignReads(withTenancies([]), raw2 as never, { userId: 'u-sa', role: 'super_admin', agencyId: null })
+    expect((sa.leaseSignEvents as unknown[]).length).toBe(2)
   })
 })

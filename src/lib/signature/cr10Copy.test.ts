@@ -15,6 +15,8 @@ export const CR10_FILES = [
   'src/components/lease/LeaseSignPanel.tsx',
   'src/components/lease/LeaseSignDialog.tsx',
   'server/leaseSign.ts',
+  'src/lib/lease/signingRecord.ts',
+  'src/components/lease/LeaseSigningRecord.tsx',
 ]
 
 const BANNED: Array<[string, RegExp]> = [

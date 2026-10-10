@@ -30,6 +30,7 @@ import type {
   PropertyAsset,
   PropertyDocument,
   PropertyEvent,
+  LeaseSignEvent,
   Review,
   ReviewTargetType,
   Role,
@@ -380,6 +381,9 @@ function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppSta
       'propertyEvents',
     ),
     invoices: pick(base.invoices, boot.invoices as PlatformInvoice[] | undefined, 'invoices'),
+    leaseSignEvents: Array.isArray(boot.leaseSignEvents)
+      ? (boot.leaseSignEvents as LeaseSignEvent[])
+      : base.leaseSignEvents,
     lookups: boot.lookups?.length
       ? (boot.lookups as LookupConfig[])
       : base.lookups,
@@ -437,6 +441,8 @@ export type AppState = {
   activities: Activity[]
   propertyDocuments: PropertyDocument[]
   propertyEvents: PropertyEvent[]
+  /** CR10: lease_signed audit rows from the server bootstrap (absent offline / Supabase browser mode). */
+  leaseSignEvents?: LeaseSignEvent[]
   reviews: Review[]
   billingPlans: BillingPlan[]
   clientSubscriptions: ClientSubscription[]

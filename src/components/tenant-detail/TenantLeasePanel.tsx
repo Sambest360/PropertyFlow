@@ -11,6 +11,7 @@ import { useAuth } from '../../context/AuthContext'
 import { FieldHelp } from '../onboarding/FieldHelp'
 import { RENEWALS_MODE_A_COPY } from '../../lib/renewals'
 import { LeaseRenewalsPanel } from '../renewals/LeaseRenewalsPanel'
+import { LeaseSigningRecord } from '../lease/LeaseSigningRecord'
 
 export function TenantLeasePanel({ tenancy }: { tenancy: Tenancy }) {
   const {
@@ -197,6 +198,9 @@ export function TenantLeasePanel({ tenancy }: { tenancy: Tenancy }) {
             <PenLine className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
             Manage leases & e-sign
           </Link>
+        </div>
+        <div className="mt-6">
+          <LeaseSigningRecord tenancy={live} />
         </div>
         {eSign?.note ? <p className="mt-3 text-xs text-ink-500">{eSign.note}</p> : null}
       </DetailSection>

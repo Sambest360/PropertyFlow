@@ -1597,6 +1597,41 @@ export function stripOtherUsersSignatures(users: BootstrapUser[], selfId: string
   })
 }
 
+/** Roles that never see the signer IP address or user agent (CR10: staff only). */
+const NO_SIGN_DEVICE_ROLES: ReadonlySet<string> = new Set(['tenant', 'landlord', 'contractor'])
+
+function stripSignDevice<T extends Record<string, unknown>>(row: T): T {
+  const { ip: _ip, userAgent: _ua, ...rest } = row
+  void _ip
+  void _ua
+  return rest as T
+}
+
+/**
+ * CR10 B: lease_signed rows only for leases the actor already receives
+ * (tenancy tenant / landlord, that agency's staff, super admin: the #80/#85
+ * tenancy scope). IP and user agent go to staff only, on the audit rows and
+ * on the eSign stamps of the leases.
+ */
+export function scopeLeaseSignReads(entities: BootstrapPayload, raw: BootstrapPayload, actor: DemoActor): BootstrapPayload {
+  const tenancies = Array.isArray(entities.tenancies) ? (entities.tenancies as Row[]) : []
+  const visible = new Set(tenancies.map((t) => String(t.id)))
+  const portal = NO_SIGN_DEVICE_ROLES.has(actor.role)
+  const events = (Array.isArray(raw.leaseSignEvents) ? (raw.leaseSignEvents as Row[]) : [])
+    .filter((e) => actor.role === 'super_admin' || visible.has(String(e.tenancyId)))
+    .map((e) => (portal ? stripSignDevice(e) : e))
+  const out: BootstrapPayload = { ...entities, leaseSignEvents: events }
+  if (portal && tenancies.length) {
+    out.tenancies = tenancies.map((t) => {
+      const e = t.eSign as Row | null | undefined
+      if (!e || typeof e !== 'object') return t
+      const fix = (b: unknown) => (b && typeof b === 'object' ? stripSignDevice(b as Row) : b)
+      return { ...t, eSign: { ...e, tenant: fix(e.tenant), landlord: fix(e.landlord) } }
+    }) as BootstrapPayload['tenancies']
+  }
+  return out
+}
+
 export function filterBootstrapForActor(
   raw: BootstrapPayload,
   actorIn: DemoActor,
@@ -1607,7 +1642,11 @@ export function filterBootstrapForActor(
   const normalizedAgency = scope.viewer?.agencyId ?? actorIn.agencyId
   const actor =
     normalizedAgency !== actorIn.agencyId ? { ...actorIn, agencyId: normalizedAgency } : actorIn
-  const entities = filterBootstrapEntitiesForActor(raw, actor, scope, actorIds ?? new Set([actor.userId]))
+  const entities = scopeLeaseSignReads(
+    filterBootstrapEntitiesForActor(raw, actor, scope, actorIds ?? new Set([actor.userId])),
+    raw,
+    actor,
+  )
   if (actor.role === 'super_admin') {
     return Array.isArray(entities.users)
       ? { ...entities, users: stripOtherUsersSignatures(entities.users as BootstrapUser[], actor.userId) }

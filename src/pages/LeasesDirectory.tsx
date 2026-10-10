@@ -18,6 +18,7 @@ import { resolveDocumentUrl } from '../lib/api'
 import { eSignStatusLabel as leaseESignLabel } from '../lib/lease'
 import type { Tenancy } from '../types/domain'
 import { LeaseSignDialog } from '../components/lease/LeaseSignDialog'
+import { LeaseSigningRecord } from '../components/lease/LeaseSigningRecord'
 import type { LeaseSignCapture } from '../lib/lease/signaturePrefill'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
 import { FieldHelp } from '../components/onboarding/FieldHelp'
@@ -575,6 +576,14 @@ function LeaseCard({
           </a>
         ) : null}
         <LeaseActions row={row} busyId={busyId} onIssue={onIssue} onSign={onSign} />
+        {row.tenancy.eSign?.envelopeId ? (
+          <details className="mt-2 text-sm">
+            <summary className="cursor-pointer text-primary">Signing record</summary>
+            <div className="mt-2">
+              <LeaseSigningRecord tenancy={row.tenancy} />
+            </div>
+          </details>
+        ) : null}
         <Link
           to={`/workspace/people/tenants/${encodeURIComponent(row.tenancy.id)}`}
           className="inline-flex min-h-10 items-center rounded-xl px-3 text-sm font-semibold text-ink-500 hover:text-primary"
