@@ -494,3 +494,13 @@ describe('CR10 part 8: lease-signed email', () => {
     expect(sendLeaseSignedEmail).not.toHaveBeenCalled()
   })
 })
+
+describe('CR10 fix 3: envelopeStatus as #80 (completed needs both parties)', () => {
+  it('tenant signed with no landlord block is partially_signed, not completed', async () => {
+    const { envelopeStatus } = await import('./leaseSign.js')
+    expect(envelopeStatus('sent', { status: 'signed' }, undefined)).toBe('partially_signed')
+    expect(envelopeStatus('sent', { status: 'signed' }, null)).toBe('partially_signed')
+    expect(envelopeStatus('sent', { status: 'signed' }, { status: 'signed' })).toBe('completed')
+    expect(envelopeStatus('sent', { status: 'pending' }, { status: 'pending' })).toBe('sent')
+  })
+})

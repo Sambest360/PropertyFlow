@@ -58,7 +58,7 @@ export function envelopeStatus(prev: string, tenant: Row | null | undefined, lan
   const l = String(landlord?.status ?? 'pending')
   if (t === 'declined' || l === 'declined') return 'declined'
   const done = (s: string) => s === 'signed' || s === 'waived'
-  if (done(t) && (landlord == null || done(l))) return 'completed'
+  if (done(t) && done(l)) return 'completed' // #80: both parties, as on main
   if (done(t) || done(l)) return 'partially_signed'
   return prev
 }
