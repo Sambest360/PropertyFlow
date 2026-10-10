@@ -8,7 +8,9 @@ import {
   pingDatabase,
   pool,
   query,
+  withTransaction,
 } from './db.js'
+import { handleLeaseRemindersCron } from './leaseReminders.js'
 import {
   actorRequiredError,
   parseDemoActor,
@@ -61,10 +63,12 @@ import {
   sendApplicationApproved,
   sendApplicationReceived,
   sendDunningNoticeEmail,
+  sendLeaseEndReminder,
+  isEmailLeaseReminderEnabled,
   sendVerificationDecision,
   sendWelcomeEmail,
 } from './mailtrap.js'
-import { ensureUuid, resolveUuid } from './entityMap.js'
+import { ensureUuid, resolveFrontendId, resolveUuid } from './entityMap.js'
 import { docIdFromEnvelopeId } from './signiflow.js'
 import { registerSupabaseUserDirect } from './supabase/registerUser.js'
 import { runningCommitSha } from './appConfig.js'
@@ -176,6 +180,23 @@ async function gatedPersist(c: Parameters<typeof parseDemoActor>[0], body: Persi
   const { handlePersist } = await loadWritesModule()
   return handlePersist(body)
 }
+
+/**
+ * Daily lease end-date reminders (vercel.json cron "0 5 * * *" = 07:00 SAST).
+ * Authorization: Bearer CRON_SECRET only (Vercel adds it). No session/demo actor.
+ * CRON_SECRET unset -> 503 and does nothing.
+ */
+app.get('/api/cron/lease-reminders', async (c) => {
+  const r = await handleLeaseRemindersCron(c.req.header('authorization'), process.env.CRON_SECRET, {
+    query,
+    withTransaction,
+    resolveFrontendId: (type, id) => resolveFrontendId(type, id),
+    resolveUuid: (type, fe) => resolveUuid(type, fe),
+    sendEmail: sendLeaseEndReminder,
+    emailEnabled: isEmailLeaseReminderEnabled,
+  })
+  return c.json(r.body, r.status)
+})
 
 app.get('/api/health', async (c) => {
   if (!databaseConfigured) {
@@ -656,13 +677,21 @@ app.get('/api/bootstrap', async (c) => {
         documents: rowLimit,
       },
     })
-    const { buildActorPropertyScope, filterBootstrapForActor, actorIdAliases } = await loadScopeGateModule()
+    // actor already enriched above (D2 refundAgencyFe); main's CR7 adds resolveActorUsersManage.
+    const { buildActorPropertyScope, filterBootstrapForActor, actorIdAliases, resolveActorUsersManage } =
+      await loadScopeGateModule()
     const scope = await buildActorPropertyScope(actor)
+    // CR7: agency desk tickets only when users.manage is effective (agency pack applied).
+    const usersManage =
+      actor.role === 'client_admin' || actor.role === 'agent_admin'
+        ? await resolveActorUsersManage(actor)
+        : undefined
     const filtered = filterBootstrapForActor(
       data as Parameters<typeof filterBootstrapForActor>[0],
       actor,
       scope,
       await actorIdAliases(actor),
+      { usersManage },
     )
     return c.json(filtered)
   } catch (err) {

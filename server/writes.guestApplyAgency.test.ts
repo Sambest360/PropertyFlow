@@ -396,4 +396,34 @@ describe('guest public apply inherits listing agency (PR-1011)', () => {
     expect(second?.client_id).toBe(HORIZON_CLIENT)
     expect(db.units.get(FRAMESBY_UNIT)?.client_id).toBe(BAYVIEW_CLIENT)
   })
+
+  it('guest apply (application path) maps an unmapped applicant with no client_id (#86)', async () => {
+    const APPLICANT = 'f0000000-0000-4000-8000-0000000000a1'
+    const base = query.getMockImplementation()!
+    query.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('LOWER(TRIM(email))')) return [{ id: APPLICANT }]
+      if (sql.includes("entity_type = 'user' AND frontend_id = $1")) {
+        const hit = db.mapRows.find((r) => r.entity_type === 'user' && r.frontend_id === params?.[0])
+        return hit ? [{ backend_id: hit.backend_id }] : []
+      }
+      if (sql.includes('INSERT INTO entity_id_map') && sql.includes("VALUES ('user'")) {
+        const before = db.mapRows.length
+        rememberMapRow('user', String(params?.[0]), String(params?.[1]), /DO UPDATE/i.test(sql))
+        return db.mapRows.length > before ? [{ frontend_id: params?.[0] }] : []
+      }
+      return base(sql, params)
+    })
+    const { handlePersist } = await import('./writes.js')
+    const result = await handlePersist({
+      resource: 'application', action: 'upsert', id: 'APP-guest-map',
+      data: {
+        propertyId: 'PR-1011', applicantUserId: 'u-guest-unmapped', applicantName: 'Guest',
+        email: 'guest.unmapped@x.test', type: 'Rental', stage: 'Application submitted', income: 1,
+      },
+    })
+    expect(result.ok).toBe(true)
+    expect(db.mapRows).toContainEqual({ entity_type: 'user', frontend_id: 'u-guest-unmapped', backend_id: APPLICANT })
+    const moves = query.mock.calls.filter((c) => /DELETE FROM entity_id_map/.test(String(c[0])))
+    expect(moves).toEqual([])
+  })
 })

@@ -1,6 +1,7 @@
 /**
  * Lightweight workspace Help — no admin Guard.
  * Short guide + Show page tips (reuses resetPageTipsForUser).
+ * CR7: Raise a ticket, My tickets, and the help desk for desk roles.
  */
 import { CircleHelp, Lightbulb, LifeBuoy } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -8,6 +9,7 @@ import { useAuth } from '../context/AuthContext'
 import { resetPageTipsForUser } from '../lib/pageTips'
 import { Button, Card, PageHeader } from '../components/ui'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
+import { HelpDesk } from '../components/help/HelpDesk'
 
 const ICON_STROKE = 1.6
 
@@ -29,8 +31,10 @@ export default function HelpPage() {
     <div className="animate-fade-in space-y-5" data-testid="workspace-help-page">
       <PageHeader
         title="Help & support"
-        subtitle="Quick guidance for PropertyFlow — tips, navigation, and how to get unstuck."
+        subtitle="Quick guidance for PropertyFlow — tips, navigation, and support tickets."
       />
+
+      <HelpDesk />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="space-y-3 p-5">
