@@ -382,7 +382,7 @@ function pendingBlock(b: unknown): Row | null {
  *    stampLeaseSignature (or is refused); unchanged / already signed blocks
  *    are the stored ones; the status is the server's;
  *  - no eSign in the payload: the stored eSign is kept.
- * A completed envelope cannot be replaced by a new one.
+ * An envelope with any signed block cannot be replaced by a new one.
  */
 export async function enforceStaffTenancyESign(
   actor: DemoActor,
@@ -404,8 +404,9 @@ export async function enforceStaffTenancyESign(
     return
   }
   if (!lease || !stored || !stored.envelopeId || sent.envelopeId !== stored.envelopeId) {
-    if (stored?.envelopeId && stored.status === 'completed') {
-      throw signError(403, 'SIGNATURE_ENVELOPE_LOCKED', 'A fully signed envelope cannot be replaced.')
+    const anySigned = PARTY_KEYS.some((k) => String(asRow(stored?.[k])?.status ?? '') === 'signed')
+    if (stored?.envelopeId && (stored.status === 'completed' || anySigned)) {
+      throw signError(403, 'SIGNATURE_ENVELOPE_LOCKED', 'A signed envelope cannot be replaced.')
     }
     const fresh: Row = { ...sent, tenant: pendingBlock(sent.tenant ?? {}), landlord: pendingBlock(sent.landlord) }
     const st = String(sent.status ?? 'sent')

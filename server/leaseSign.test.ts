@@ -266,6 +266,19 @@ describe('hole 2: staff lease saves no longer store eSign whole', () => {
     expect(fresh.eSign).toMatchObject({ envelopeId: 'ENV-2', status: 'sent', tenant: { status: 'pending' } })
   })
 
+  it('CR10 fix 1: a new envelope is refused while any block is signed; the signed tenant block stays signed', async () => {
+    const signedTenant = { status: 'signed', signatureDataUrl: PNG, signerUserId: 'u-t', method: 'drawn' }
+    leaseESign = { ...baseESign(), status: 'partially_signed', tenant: signedTenant }
+    await expect(staffSave(STAFF, { ...baseESign(), envelopeId: 'ENV-2' })).rejects.toMatchObject({
+      status: 403,
+      code: 'SIGNATURE_ENVELOPE_LOCKED',
+    })
+    expect(updates()).toHaveLength(0)
+    expect((leaseESign.tenant as Record<string, unknown>).status).toBe('signed')
+    const kept = await staffSave(STAFF, undefined)
+    expect((kept.eSign as Record<string, unknown>).tenant).toEqual(signedTenant)
+  })
+
   it('a staff on-behalf landlord signing through a lease save goes through the stamp', async () => {
     const data = await staffSave(STAFF, {
       ...baseESign(),
