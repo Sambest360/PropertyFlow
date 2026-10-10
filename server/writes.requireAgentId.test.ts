@@ -57,7 +57,7 @@ describe('requireAgentId orphan-map verify + metadata repair (P0-5 r17)', () => 
     vi.resetModules()
   })
 
-  it('stale map + live metadata → unit OK and repairs map to live users.id', async () => {
+  it('stale map + live metadata → unit OK, existing map entry is not moved (Jim #84 nit)', async () => {
     resolveUuid.mockImplementation(async (et: string, _fe: string) => {
       if (et === 'agency') return AGENCY_UUID
       if (et === 'building') return BUILDING_UUID
@@ -65,6 +65,7 @@ describe('requireAgentId orphan-map verify + metadata repair (P0-5 r17)', () => 
       return null
     })
     query.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('SELECT backend_id::text FROM entity_id_map')) return [{ backend_id: ORPHAN_UUID }]
       if (sql.includes('FROM users WHERE id =')) {
         expect(params?.[0]).toBe(ORPHAN_UUID)
         return []
@@ -72,16 +73,6 @@ describe('requireAgentId orphan-map verify + metadata repair (P0-5 r17)', () => 
       if (sql.includes("metadata->>'frontend_id'")) {
         expect(params?.[0]).toBe('u-95838e33')
         return [{ id: AGENT_UUID }]
-      }
-      if (sql.includes('DELETE FROM entity_id_map')) {
-        expect(params?.[0]).toBe(AGENT_UUID)
-        expect(params?.[1]).toBe('u-95838e33')
-        return []
-      }
-      if (sql.includes('INSERT INTO entity_id_map')) {
-        expect(params?.[0]).toBe('u-95838e33')
-        expect(params?.[1]).toBe(AGENT_UUID)
-        return []
       }
       if (sql.includes('INSERT INTO units') || sql.includes('INSERT INTO buildings')) return []
       if (sql.includes('UPDATE buildings')) return []
@@ -114,9 +105,10 @@ describe('requireAgentId orphan-map verify + metadata repair (P0-5 r17)', () => 
     )
     expect(metaLookup).toBeTruthy()
 
-    const mapUpsert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO entity_id_map'))
-    expect(mapUpsert).toBeTruthy()
-    expect(mapUpsert![1]).toEqual(['u-95838e33', AGENT_UUID])
+    const mapWrites = query.mock.calls.filter((c) =>
+      /DELETE FROM entity_id_map|INSERT INTO entity_id_map/.test(String(c[0])),
+    )
+    expect(mapWrites).toEqual([])
 
     const unitInsert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO units'))
     expect(unitInsert).toBeTruthy()
@@ -129,7 +121,7 @@ describe('requireAgentId orphan-map verify + metadata repair (P0-5 r17)', () => 
         expect(params?.[0]).toBe('u-fa-r16')
         return [{ id: AGENT_UUID }]
       }
-      if (sql.includes('DELETE FROM entity_id_map')) return []
+      if (sql.includes('FROM users WHERE id =') && sql.includes('client_id')) return [{ id: AGENT_UUID }]
       if (sql.includes('INSERT INTO entity_id_map')) {
         expect(params?.[0]).toBe('u-fa-r16')
         expect(params?.[1]).toBe(AGENT_UUID)

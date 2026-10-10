@@ -235,25 +235,52 @@ async function resolveUserUuidByEmail(email: unknown): Promise<string | null> {
   return rows[0]?.id ?? null
 }
 
-async function linkUserFeToUuid(feStr: string, uuid: string): Promise<void> {
+/**
+ * Create an entity_id_map user entry fe → uuid, never moving or deleting an
+ * existing one. Skips (console.warn, no throw — guest apply / staff create run
+ * through here) when the fe is already mapped to a different uuid, when the
+ * uuid already has another fe, or when the user is not in the write's agency.
+ */
+async function linkUserFeToUuid(feStr: string, uuid: string, clientUuid: string | null): Promise<void> {
   await ensureEntityMapTable()
-  await query(
-    `DELETE FROM entity_id_map
-     WHERE entity_type = 'user' AND backend_id = $1::uuid AND frontend_id <> $2`,
-    [uuid, feStr],
+  const existing = await query<{ backend_id: string }>(
+    `SELECT backend_id::text FROM entity_id_map
+     WHERE entity_type = 'user' AND frontend_id = $1 LIMIT 1`,
+    [feStr],
   )
-  await query(
+  const current = existing[0]?.backend_id
+  if (current === uuid) return
+  if (current) {
+    console.warn(`[entity_id_map] skip: user ${feStr} already mapped to ${current}, not moving to ${uuid}`)
+    return
+  }
+  if (!clientUuid) {
+    console.warn(`[entity_id_map] skip: no agency for new user mapping ${feStr}`)
+    return
+  }
+  const inAgency = await query<{ id: string }>(
+    `SELECT id::text AS id FROM users WHERE id = $1::uuid AND client_id = $2::uuid LIMIT 1`,
+    [uuid, clientUuid],
+  )
+  if (!inAgency[0]?.id) {
+    console.warn(`[entity_id_map] skip: user ${uuid} not in agency ${clientUuid}`)
+    return
+  }
+  const ins = await query<{ frontend_id: string }>(
     `INSERT INTO entity_id_map (entity_type, frontend_id, backend_id)
      VALUES ('user', $1, $2::uuid)
-     ON CONFLICT (entity_type, frontend_id) DO UPDATE SET backend_id = EXCLUDED.backend_id`,
+     ON CONFLICT DO NOTHING
+     RETURNING frontend_id`,
     [feStr, uuid],
   )
+  if (!ins?.[0]) console.warn(`[entity_id_map] skip: ${uuid} already has a user mapping`)
 }
 
 /** Resolve applicant/tenant uuid — FE user id first, else email → users. */
 async function resolveApplicantOrTenantUuid(opts: {
   userFeId?: unknown
   email?: unknown
+  clientUuid?: string | null
 }): Promise<string | null> {
   const feRaw = opts.userFeId
   if (feRaw != null && feRaw !== '') {
@@ -277,7 +304,7 @@ async function resolveApplicantOrTenantUuid(opts: {
   const fromEmail = await resolveUserUuidByEmail(opts.email)
   if (fromEmail && feRaw != null && feRaw !== '') {
     const feStr = str(feRaw)
-    if (!isUuid(feStr)) await linkUserFeToUuid(feStr, fromEmail)
+    if (!isUuid(feStr)) await linkUserFeToUuid(feStr, fromEmail, opts.clientUuid ?? null)
   }
   return fromEmail
 }
@@ -289,7 +316,7 @@ async function resolveApplicantOrTenantUuid(opts: {
  * fall through to users.metadata->>frontend_id and repair entity_id_map FE→live id
  * (respect unique entity_type+backend_id). Still fail-closed when neither resolves.
  */
-async function requireAgentId(fe: unknown): Promise<string | null> {
+async function requireAgentId(fe: unknown, clientUuid: string | null): Promise<string | null> {
   if (fe == null || fe === '') return null
   const feStr = str(fe)
   let uuid = await userId(feStr)
@@ -307,19 +334,8 @@ async function requireAgentId(fe: unknown): Promise<string | null> {
   )
   const hit = rows[0]?.id
   if (hit) {
-    await ensureEntityMapTable()
-    // Free unique (entity_type, backend_id) if another FE already owns the live UUID.
-    await query(
-      `DELETE FROM entity_id_map
-       WHERE entity_type = 'user' AND backend_id = $1::uuid AND frontend_id <> $2`,
-      [hit, feStr],
-    )
-    await query(
-      `INSERT INTO entity_id_map (entity_type, frontend_id, backend_id)
-       VALUES ('user', $1, $2::uuid)
-       ON CONFLICT (entity_type, frontend_id) DO UPDATE SET backend_id = EXCLUDED.backend_id`,
-      [feStr, hit],
-    )
+    // Never move/delete an existing entry; only create a new one in-agency.
+    await linkUserFeToUuid(feStr, hit, clientUuid)
     return hit
   }
   throw Object.assign(new Error(`agent not resolved: ${feStr}`), { status: 400 })
@@ -809,7 +825,7 @@ async function upsertProperty(feId: string, d: Record<string, unknown>): Promise
     )
   }
 
-  const agent = await requireAgentId(d.agentId)
+  const agent = await requireAgentId(d.agentId, client)
   const unitNumber = str(d.unitNumber ?? d.title, propFe).slice(0, 40)
 
   await query(
@@ -1189,6 +1205,7 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
       : await resolveApplicantOrTenantUuid({
           userFeId: d.applicantUserId,
           email: d.email,
+          clientUuid: client,
         })
   let agent = await userId(d.agentId)
   if (!agent && !has('agentId') && !stored) {
@@ -1298,6 +1315,7 @@ async function upsertTenancy(feId: string, d: Record<string, unknown>): Promise<
   let tenant = await resolveApplicantOrTenantUuid({
     userFeId: d.tenantUserId,
     email: d.tenantEmail ?? d.email,
+    clientUuid: client,
   })
   const app = d.applicationId ? await resolveUuid('application', str(d.applicationId)) : null
   if (!tenant && app) {
@@ -1947,6 +1965,7 @@ export async function approveApplicationTx(params: {
       applicantId = await resolveApplicantOrTenantUuid({
         userFeId: t?.tenantUserId,
         email: metaEmail,
+        clientUuid: app.client_id,
       })
       if (applicantId) {
         await clientQuery(
