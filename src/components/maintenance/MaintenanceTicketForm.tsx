@@ -1,3 +1,4 @@
+import { accessNotesFieldState, useTicketAccessNotesSupported } from '../../lib/ticketAccessNotes'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import type { PropertyAsset, Tenancy } from '../../types/domain'
 import type { InternalAsset, LookupConfig } from '../../data/infrastructure'
@@ -99,6 +100,7 @@ export function MaintenanceTicketForm({
   const [contractorId, setContractorId] = useState(ticket?.contractorId ?? '')
   const [locationDetail, setLocationDetail] = useState(ticket?.locationDetail ?? '')
   const [accessNotes, setAccessNotes] = useState(ticket?.accessNotes ?? '')
+  const accessNotesField = accessNotesFieldState(useTicketAccessNotesSupported())
   const [preferredSchedule, setPreferredSchedule] = useState(ticket?.preferredSchedule ?? '')
   const [estimatedCost, setEstimatedCost] = useState(
     ticket?.estimatedCost ? String(ticket.estimatedCost) : '',
@@ -281,9 +283,11 @@ export function MaintenanceTicketForm({
         <Textarea
           className="mt-1.5 min-h-[4.5rem]"
           value={accessNotes}
+          disabled={accessNotesField.disabled}
           onChange={(e) => setAccessNotes(e.target.value)}
           placeholder="Gate code, pets, concierge, best time to access…"
         />
+        {accessNotesField.hint ? <span className="mt-1 block text-xs text-ink-500">{accessNotesField.hint}</span> : null}
       </label>
 
       <label className="block text-sm font-medium text-ink sm:col-span-2">

@@ -10,6 +10,8 @@ import { isApiEnabled } from './config'
 export type PostgresBootstrap = {
   source: 'postgres'
   fetchedAt: string
+  /** False until maintenance_tickets.access_notes exists (migration 013). */
+  ticketAccessNotesSupported?: boolean
   /** True when payload was filtered for a property-locked actor. */
   scoped?: boolean
   actor?: { userId: string; role: string; agencyId: string | null } | null

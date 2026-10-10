@@ -1,3 +1,4 @@
+import { setTicketAccessNotesSupported, ticketAccessNotesSupportedFromBootstrap } from '../lib/ticketAccessNotes'
 import {
   createContext,
   useCallback,
@@ -1248,6 +1249,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         return
       }
       if (!bootstrapMatchesSession(actor?.userId, readStoredAuthUserId())) return
+      setTicketAccessNotesSupported(ticketAccessNotesSupportedFromBootstrap(boot))
       setState((prev) => ensureGuestMarketplace(applyPostgresBootstrap(prev, boot)))
       setHydratedForUserId(actor?.userId ?? null)
       setHydrationFailed(false)

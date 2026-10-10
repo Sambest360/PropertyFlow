@@ -3,6 +3,7 @@
  * Accepts frontend demo IDs; resolves/registers UUIDs via entity_id_map.
  */
 import { query, withTransaction, clientQuery } from './db.js'
+import { writeTicketAccessNotes } from './ticketAccessNotes.js'
 import { isAcceptanceStatus, notifyAcceptedElsewhereServer } from './acceptedElsewhere.js'
 import {
   ensureEntityMapTable,
@@ -1651,6 +1652,8 @@ async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<s
       has('internalAssetId'),
     ],
   )
+  // Access notes (migration 013): absent keeps the stored value; skipped while the column is missing.
+  await writeTicketAccessNotes(uuid, d)
   return uuid
 }
 

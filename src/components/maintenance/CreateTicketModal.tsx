@@ -1,3 +1,4 @@
+import { accessNotesFieldState, useTicketAccessNotesSupported } from '../../lib/ticketAccessNotes'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Plus } from 'lucide-react'
 import type { PropertyAsset } from '../../types/domain'
@@ -54,6 +55,7 @@ export function CreateTicketModal({
   const [contractorId, setContractorId] = useState('')
   const [locationDetail, setLocationDetail] = useState('')
   const [accessNotes, setAccessNotes] = useState('')
+  const accessNotesField = accessNotesFieldState(useTicketAccessNotesSupported())
   const [preferredSchedule, setPreferredSchedule] = useState('')
   const [estimatedCost, setEstimatedCost] = useState('')
   const [issueTags, setIssueTags] = useState<string[]>([])
@@ -229,9 +231,11 @@ export function CreateTicketModal({
           <Textarea
             className="mt-1 min-h-[4rem]"
             value={accessNotes}
+            disabled={accessNotesField.disabled}
             onChange={(e) => setAccessNotes(e.target.value)}
             placeholder="Gate code, pets, concierge, best time to access…"
           />
+          {accessNotesField.hint ? <span className="mt-1 block text-xs text-ink-500">{accessNotesField.hint}</span> : null}
         </label>
         <label className="block text-xs font-medium text-ink-500 sm:col-span-2">
           Preferred attendance
