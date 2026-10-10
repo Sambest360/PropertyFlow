@@ -85,9 +85,8 @@ export function useTenantPortalState(): TenantPortalState {
       : null
 
   // Own reported tickets, or tickets linked to one of the tenant's own
-  // tenancies (current or past). No name match, no unit match. Linked tickets
-  // they did not report show the tenant view only (no costs, quotes, vendor,
-  // warranty or staff notes).
+  // tenancies (current or past). No name match, no unit match. All in the
+  // tenant view only (no costs, quotes, vendor, warranty or staff notes).
   const tickets = useMemo(
     () => tenantPortalTickets(state.tickets, state.tenancies, user.id),
     [state.tickets, state.tenancies, user.id],

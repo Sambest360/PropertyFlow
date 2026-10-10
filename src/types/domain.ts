@@ -601,6 +601,8 @@ export type Tenancy = {
   /** Postgres leases.rent_due_day (1–28). Default 1 — monthly Rent dueDate day. */
   rentDueDay?: number
   status: 'Pending Move-In' | 'Active' | 'Ended'
+  /** Raw leases.status from the API (bootstrap); absent in local demo data. */
+  leaseStatus?: 'pending' | 'active' | 'notice' | 'ended' | 'cancelled'
   keyCollection: {
     location: string
     instructions: string

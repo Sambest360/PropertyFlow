@@ -859,6 +859,12 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
       deposit: Number(l.deposit_amount),
       rentDueDay: Math.min(28, Math.max(1, Number(l.rent_due_day) || 1)),
       status: (l.status as string) === 'ACTIVE' ? ('Active' as const) : ('Pending Move-In' as const),
+      leaseStatus: String(l.status ?? '').toLowerCase() as
+        | 'pending'
+        | 'active'
+        | 'notice'
+        | 'ended'
+        | 'cancelled',
       keyCollection,
       leaseDocumentId: (meta.leaseDocumentId as string | null | undefined) ?? null,
       leasePdfUrl: (meta.leasePdfUrl as string | null | undefined) ?? null,

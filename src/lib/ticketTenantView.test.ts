@@ -49,9 +49,26 @@ describe('tenant portal tickets', () => {
     expect(tenantPortalTickets([t], tenancies, 'u-t')).toEqual([])
   })
 
-  it('my own reported ticket is listed unchanged', () => {
-    const t = ticket({ reportedBy: 'Tess', reportedByUserId: 'u-t' })
-    expect(tenantPortalTickets([t], tenancies, 'u-t')).toEqual([t])
+  it('Jim #92 (2): my own report, later quoted on and annotated by staff, is stripped too', () => {
+    const t = ticket({
+      reportedBy: 'Tess',
+      reportedByUserId: 'u-t',
+      description: 'Tap dripping in kitchen',
+      status: 'Awaiting Parts',
+      openedAt: '2026-09-20',
+      resolvedAt: null,
+      estimatedCost: 1850,
+      cost: 1850,
+      contractorId: 'u-co',
+      resolutionNotes: 'Staff: landlord approved quote, bill owner',
+      warrantyCovered: false,
+    })
+    const [out] = tenantPortalTickets([t], tenancies, 'u-t') as Array<Record<string, unknown>>
+    expect(out).toMatchObject({ reportedByUserId: 'u-t', description: 'Tap dripping in kitchen', status: 'Awaiting Parts', openedAt: '2026-09-20' })
+    for (const k of ['cost', 'estimatedCost', 'contractorId', 'resolutionNotes', 'warrantyCovered', 'assignedAgentId']) {
+      expect(out).not.toHaveProperty(k)
+    }
+    expect(JSON.stringify(out)).not.toMatch(/1850|bill owner/)
   })
 })
 

@@ -126,9 +126,20 @@ describe('tenant bootstrap: staff tickets linked to a tenancy', () => {
     expect(JSON.stringify(t)).not.toMatch(/landlord to be billed|4200|3900|Lockbox/)
   })
 
-  it('my own reported ticket is unchanged', () => {
+  it('Jim #92 (2): my own report that staff later quoted on and annotated shows only my description, status and dates', () => {
     const t = tenantView('u-t').tickets.find((x) => x.id === 'MT-own') as Record<string, unknown>
-    expect(t.reportedByUserId).toBe('u-t')
+    expect(t).toMatchObject({
+      id: 'MT-own',
+      reportedByUserId: 'u-t',
+      reportedBy: 'Tess',
+      description: 'Agent logged on inspection',
+      status: 'In Progress',
+      openedAt: '2026-10-01',
+    })
+    for (const k of ['resolutionNotes', 'cost', 'estimatedCost', 'contractorId', 'assignedAgentId', 'warrantyCovered', 'contractorAssignedAt', 'accessNotes']) {
+      expect(t).not.toHaveProperty(k)
+    }
+    expect(JSON.stringify(t)).not.toMatch(/landlord to be billed|4200|3900|Lockbox/)
   })
 
   it('reporter match uses every id form the tenant carries (actorIds)', () => {

@@ -1601,7 +1601,7 @@ async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<s
        escalated_at = COALESCE(EXCLUDED.escalated_at, maintenance_tickets.escalated_at),
        cost_estimate = CASE WHEN $22::boolean THEN EXCLUDED.cost_estimate ELSE maintenance_tickets.cost_estimate END,
        cost_actual = CASE WHEN $22::boolean THEN EXCLUDED.cost_actual ELSE maintenance_tickets.cost_actual END,
-       photos = EXCLUDED.photos,
+       photos = CASE WHEN $27::boolean THEN EXCLUDED.photos ELSE maintenance_tickets.photos END,
        completed_at = CASE WHEN $21::boolean THEN EXCLUDED.completed_at ELSE maintenance_tickets.completed_at END,
        updated_at = NOW()`,
     [
@@ -1631,6 +1631,7 @@ async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<s
       has('warrantyCovered'),
       lease,
       tenancySent,
+      has('photos') || has('photoUrls'),
     ],
   )
   return uuid

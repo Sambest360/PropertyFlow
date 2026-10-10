@@ -1717,9 +1717,9 @@ function filterBootstrapEntitiesForActor(
   const tenancies = raw.tenancies.filter((x) => allowed.has(x.propertyId))
   // Tenants: tickets they reported (any id form they carry) or tickets linked
   // to one of their own tenancies (current or past). Never by property or unit
-  // alone — applying to a listing puts it in a tenant's book. Linked tickets
-  // they did not report are reduced to the tenant view (no staff notes,
-  // contractor, quote, cost or warranty fields).
+  // alone — applying to a listing puts it in a tenant's book. Every ticket
+  // is reduced to the tenant view (no staff notes, contractor, quote, cost
+  // or warranty fields), their own reports included.
   const ownTenancyIds =
     actor.role === 'tenant'
       ? new Set(

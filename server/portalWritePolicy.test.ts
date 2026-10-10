@@ -56,6 +56,7 @@ const UUID: Record<string, string> = {
   'L-pend': id(31),
   'L-ended': id(32),
   'L-cancel': id(33),
+  'L-notice': id(36),
   'L-unit2': id(34),
   'L-otherag': id(35),
   'VW-mine': id(60),
@@ -200,6 +201,7 @@ const LEASE_ROWS: Record<string, { unit_id: string; client_id: string; status: s
   [UUID['L-pend']]: { unit_id: UN1, client_id: CA, status: 'PENDING' },
   [UUID['L-ended']]: { unit_id: UN1, client_id: CA, status: 'ENDED' },
   [UUID['L-cancel']]: { unit_id: UN1, client_id: CA, status: 'CANCELLED' },
+  [UUID['L-notice']]: { unit_id: UN1, client_id: CA, status: 'NOTICE' },
   [UUID['L-unit2']]: { unit_id: UN2, client_id: CA, status: 'ACTIVE' },
   [UUID['L-otherag']]: { unit_id: UN1, client_id: id(2), status: 'ACTIVE' },
 }
@@ -791,6 +793,18 @@ describe('tenant maintenance tickets: tenancy link and no-agency tenants', () =>
     query.mockClear()
     await staffPersist({ propertyId: 'p-1', agencyId: 'ag-a', title: 'Geyser', tenancyId: 'L-pend' })
     expect(insertParams()[24]).toBe(UUID['L-pend'])
+  })
+
+  it('Jim #92 (1): a staff link to a Notice tenancy is allowed', async () => {
+    await staffPersist({ propertyId: 'p-1', title: 'Geyser', tenancyId: 'L-notice' })
+    expect(insertParams()[24]).toBe(UUID['L-notice'])
+  })
+
+  it('a tenant-view write without photos keeps the stored photos', async () => {
+    await staffPersist({ propertyId: 'p-1', title: 'Geyser' }, 'TK-mine')
+    const sql = String(query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO maintenance_tickets'))![0]).replace(/\s+/g, ' ')
+    expect(sql).toContain('photos = CASE WHEN $27::boolean THEN EXCLUDED.photos ELSE maintenance_tickets.photos END')
+    expect(insertParams()[26]).toBe(false)
   })
 
   it('point 3: a staff link to an Ended or Cancelled tenancy is refused (400)', async () => {

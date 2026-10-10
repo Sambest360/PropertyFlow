@@ -4,14 +4,14 @@
  * The front-end tenancyId is resolved to a lease uuid and must round-trip
  * back to the same front-end id (entity_id_map / static LEASE_IDS). The lease
  * must be on the ticket's unit and in the unit's agency; a NEW link must be
- * to a Pending or Active lease (Ended / Cancelled / Notice refused). A client
+ * to a Pending, Active or Notice lease (Ended / Cancelled refused). A client
  * uuid is never trusted on its own: every check reads the stored lease.
  */
 import { query } from './db.js'
 import { resolveUuid } from './entityMap.js'
 import { LEASE_IDS } from './idMap.js'
 
-const LINKABLE_LEASE_STATUSES = new Set(['PENDING', 'ACTIVE'])
+const LINKABLE_LEASE_STATUSES = new Set(['PENDING', 'ACTIVE', 'NOTICE'])
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function badRequest(code: string, message: string): Error {
@@ -62,7 +62,7 @@ export async function resolveTicketLease(
   if (r.unit_id !== unitUuid) throw badRequest('TICKET_TENANCY_NOT_ON_UNIT', 'tenancy is not on this unit')
   if (r.client_id !== clientUuid) throw badRequest('TICKET_TENANCY_OTHER_AGENCY', 'tenancy is in another agency')
   if (lease !== storedLeaseId && !LINKABLE_LEASE_STATUSES.has(String(r.status).toUpperCase())) {
-    throw badRequest('TICKET_TENANCY_NOT_ACTIVE', 'only an Active or Pending tenancy can be linked')
+    throw badRequest('TICKET_TENANCY_NOT_ACTIVE', 'only an Active, Pending or Notice tenancy can be linked')
   }
   return lease
 }

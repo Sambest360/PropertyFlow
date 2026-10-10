@@ -41,4 +41,15 @@ describe('staff tenancy select: Active and Pending Move-In only', () => {
     ] as Tenancy[]
     expect(linkableTenancies(rows, 'p-1').map((r) => r.id)).toEqual(['L-a', 'L-p'])
   })
+
+  it('Jim #92 (3): uses the raw lease status, so an ended lease labelled Pending Move-In is not offered', () => {
+    const rows = [
+      { id: 'L-a', propertyId: 'p-1', status: 'Active', leaseStatus: 'active' },
+      { id: 'L-p', propertyId: 'p-1', status: 'Pending Move-In', leaseStatus: 'pending' },
+      { id: 'L-n', propertyId: 'p-1', status: 'Pending Move-In', leaseStatus: 'notice' },
+      { id: 'L-e', propertyId: 'p-1', status: 'Pending Move-In', leaseStatus: 'ended' },
+      { id: 'L-c', propertyId: 'p-1', status: 'Pending Move-In', leaseStatus: 'cancelled' },
+    ] as Tenancy[]
+    expect(linkableTenancies(rows, 'p-1').map((r) => r.id)).toEqual(['L-a', 'L-p', 'L-n'])
+  })
 })

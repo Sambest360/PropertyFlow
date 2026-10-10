@@ -11,11 +11,20 @@ export const ISSUE_TAGS = ['leak', 'no hot water', 'electrical', 'access', 'safe
 
 type Priority = MaintenanceTicket['priority']
 
-/** Tenancies staff may link a new ticket to: Active or Pending Move-In on the property. */
+const LINKABLE_LEASE_STATUSES = new Set(['active', 'pending', 'notice'])
+
+/**
+ * Tenancies staff may link a new ticket to on the property: raw lease status
+ * active / pending / notice (the server refuses the rest). The display label
+ * folds ended leases into "Pending Move-In", so it is only used when the raw
+ * status is absent (local demo data).
+ */
 export function linkableTenancies(tenancies: Tenancy[], propertyId: string): Tenancy[] {
-  return tenancies.filter(
-    (t) => t.propertyId === propertyId && (t.status === 'Active' || t.status === 'Pending Move-In'),
-  )
+  return tenancies.filter((t) => {
+    if (t.propertyId !== propertyId) return false
+    if (t.leaseStatus) return LINKABLE_LEASE_STATUSES.has(t.leaseStatus)
+    return t.status === 'Active' || t.status === 'Pending Move-In'
+  })
 }
 
 export type CreateTicketInput = {
@@ -198,7 +207,7 @@ export function MaintenanceTicketForm({
             <option value="">No tenant — agency only</option>
             {tenancyOptions.map((t) => (
               <option key={t.id} value={t.id}>
-                {t.tenantName} · {t.status}
+                {t.tenantName} · {t.leaseStatus ?? t.status}
               </option>
             ))}
           </Select>
