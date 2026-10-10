@@ -55,7 +55,7 @@ import { LEASE_IDS, TICKET_IDS } from './idMap.js'
 import { forbiddenError, type DemoActor } from './actor.js'
 import { APP_STAGE_TO_DB, type PersistBody } from './writes.js'
 import { resolveLiveListing } from './listingResolve.js'
-import { SIGN_PARTY_STATUSES, stampLeaseSignature } from './leaseSign.js'
+import { SIGN_PARTY_STATUSES, isClientLeaseSignedWrite, leaseSignedRefusedError, stampLeaseSignature } from './leaseSign.js'
 import { isAcceptanceStatus, notifyAcceptedElsewhereServer } from './acceptedElsewhere.js'
 import {
   ESIGN_MIRROR_STATUSES,
@@ -325,6 +325,8 @@ export async function enforcePortalWritePolicy(
   const isTenant = role === 'tenant'
   const isLandlord = role === 'landlord'
   const isContractor = role === 'contractor'
+  // CR10: lease_signed audit rows are server-written only (portal policy).
+  if (isClientLeaseSignedWrite(body)) throw leaseSignedRefusedError()
 
   if (body.action === 'delete') {
     // Only an own notification may be removed by a portal user.

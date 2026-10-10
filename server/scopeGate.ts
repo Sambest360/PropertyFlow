@@ -4,7 +4,7 @@
  */
 import { isValidSignatureDataUrl, signatureInvalidError } from '../src/lib/signature/signatureImage.js'
 import { query } from './db.js'
-import { enforceStaffTenancyESign } from './leaseSign.js'
+import { enforceStaffTenancyESign, isClientLeaseSignedWrite, leaseSignedRefusedError } from './leaseSign.js'
 import {
   APP_REF_TO_ID,
   CLIENT_TO_AGENCY,
@@ -962,6 +962,8 @@ export async function assertPersistAllowed(
   actor: DemoActor,
   body: PersistBody,
 ): Promise<PortalOutcome> {
+  // CR10: lease_signed audit rows are server-written only (generic policy).
+  if (isClientLeaseSignedWrite(body)) throw leaseSignedRefusedError()
   const scope = await buildActorPropertyScope(actor)
   const data = body.data ?? {}
   const existing = await loadExisting(body.resource, body.id)

@@ -295,3 +295,95 @@ describe('hole 1: portal signing goes through the same stamp', () => {
     expect(storedAfter().tenant).toEqual({ status: 'pending' })
   })
 })
+
+describe('CR10 part 4: exactly one lease_signed row per signing, same transaction', () => {
+  const events = () => clientCalls.filter((c) => c.sql.includes("'lease_signed'"))
+  const payloadOf = (i = 0) => JSON.parse(String(events()[i].params[4])) as Record<string, unknown>
+
+  it('directory (staff for the landlord, through a lease save): one row, on behalf, confirmation, hash, no image', async () => {
+    const { enforceStaffTenancyESign } = await import('./leaseSign.js')
+    const body = {
+      id: 'L-1',
+      action: 'upsert',
+      data: { eSign: { ...baseESign(), landlord: { status: 'signed', method: 'drawn', signatureDataUrl: PNG, onBehalfConfirmation: "I am signing for L under the agency's mandate." } } },
+      requestMeta: { ip: '9.9.9.9', userAgent: 'ua' },
+    }
+    await enforceStaffTenancyESign(STAFF as never, body)
+    expect(events()).toHaveLength(1)
+    const p = payloadOf()
+    const { sha256Hex } = await import('./leaseSign.js')
+    expect(p).toMatchObject({
+      tenancyId: 'L-1',
+      leaseId: 'lease-1',
+      envelopeId: 'ENV-1',
+      party: 'landlord',
+      actorUserId: 'uuid-staff',
+      role: 'agent',
+      method: 'drawn',
+      on_behalf: true,
+      image_sha256: sha256Hex(PNG),
+      on_behalf_confirmation: "I am signing for L under the agency's mandate.",
+      ip: '9.9.9.9',
+      user_agent: 'ua',
+    })
+    expect(typeof p.signed_at).toBe('string')
+    expect(JSON.stringify(p)).not.toContain('data:')
+    // UPDATE and INSERT in the same transaction, UPDATE first.
+    expect(clientCalls.map((c) => (c.sql.includes('UPDATE leases') ? 'update' : 'insert'))).toEqual(['update', 'insert'])
+  })
+
+  it('tenant modal / portal (tenant signs own block): one row', async () => {
+    const { enforcePortalWritePolicy } = await import('./portalWritePolicy.js')
+    await enforcePortalWritePolicy(
+      TENANT as never,
+      { resource: 'tenancy', action: 'upsert', id: 'L-1', data: { eSign: { ...baseESign(), tenant: { status: 'signed', method: 'drawn', signatureDataUrl: PNG } } } } as never,
+      null as never,
+    )
+    expect(events()).toHaveLength(1)
+    expect(payloadOf()).toMatchObject({ party: 'tenant', role: 'tenant', on_behalf: false, method: 'drawn' })
+  })
+
+  it('landlord modal / portal (landlord signs own block): one row', async () => {
+    const { enforcePortalWritePolicy } = await import('./portalWritePolicy.js')
+    await enforcePortalWritePolicy(
+      LANDLORD as never,
+      { resource: 'tenancy', action: 'upsert', id: 'L-1', data: { eSign: { ...baseESign(), landlord: { status: 'signed', method: 'drawn', signatureDataUrl: PNG } } } } as never,
+      null as never,
+    )
+    expect(events()).toHaveLength(1)
+    expect(payloadOf()).toMatchObject({ party: 'landlord', role: 'landlord', on_behalf: false })
+  })
+
+  it('paper mark-signed: one row, method paper_mark, no hash', async () => {
+    await stamp(STAFF, 'tenant', { status: 'signed', method: 'paper_mark' })
+    expect(events()).toHaveLength(1)
+    expect(payloadOf()).toMatchObject({ method: 'paper_mark', image_sha256: null, on_behalf: true })
+  })
+
+  it('a refused signing writes nothing; a failed lease UPDATE rolls back (no row)', async () => {
+    await expect(stamp(STAFF, 'tenant', { status: 'signed', method: 'drawn', signatureDataUrl: PNG })).rejects.toBeTruthy()
+    expect(events()).toHaveLength(0)
+    failOnUpdate = true
+    await expect(stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', signatureDataUrl: PNG })).rejects.toThrow('update failed')
+    expect(clientCalls).toHaveLength(0)
+  })
+
+  it('re-sending an already signed block writes no second row', async () => {
+    await stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', signatureDataUrl: PNG })
+    leaseESign = storedAfter() as Record<string, unknown>
+    await stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', signatureDataUrl: PNG })
+    expect(events()).toHaveLength(1)
+  })
+
+  it('a client persist of lease_signed is refused (generic and portal policies)', async () => {
+    const { isClientLeaseSignedWrite } = await import('./leaseSign.js')
+    expect(isClientLeaseSignedWrite({ resource: 'lease_signed' })).toBe(true)
+    expect(isClientLeaseSignedWrite({ resource: 'property_event', data: { event_type: 'lease_signed' } })).toBe(true)
+    expect(isClientLeaseSignedWrite({ resource: 'activity', data: { type: 'lease_signed' } })).toBe(true)
+    expect(isClientLeaseSignedWrite({ resource: 'property_event', data: { action: 'Note' } })).toBe(false)
+    const { enforcePortalWritePolicy } = await import('./portalWritePolicy.js')
+    await expect(
+      enforcePortalWritePolicy(TENANT as never, { resource: 'property_event', action: 'upsert', id: 'E-1', data: { event_type: 'lease_signed' } } as never, null as never),
+    ).rejects.toMatchObject({ status: 403, code: 'LEASE_SIGNED_SERVER_ONLY' })
+  })
+})

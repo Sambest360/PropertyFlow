@@ -1416,3 +1416,16 @@ describe('CR10 A: users write only their own signature', () => {
     expect(await metaOf(body)).not.toHaveProperty('signature')
   })
 })
+
+describe('CR10 B: lease_signed is server-written only (generic persist policy)', () => {
+  it('a staff or super admin persist of lease_signed is refused', async () => {
+    for (const actor of [ADMIN, SA]) {
+      await expect(
+        gate(actor, { resource: 'lease_signed' as never, action: 'upsert', id: 'E-1', data: { party: 'tenant' } }),
+      ).rejects.toMatchObject({ status: 403, code: 'LEASE_SIGNED_SERVER_ONLY' })
+      await expect(
+        gate(actor, { resource: 'property_event' as never, action: 'upsert', id: 'E-2', data: { event_type: 'lease_signed' } }),
+      ).rejects.toMatchObject({ status: 403, code: 'LEASE_SIGNED_SERVER_ONLY' })
+    }
+  })
+})

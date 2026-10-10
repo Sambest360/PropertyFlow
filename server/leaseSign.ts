@@ -253,10 +253,24 @@ export type LeaseSignedPayload = {
   user_agent: string | null
 }
 
-/** Part 4: hook point for the lease_signed audit row (same transaction). */
+/** Event type of the server-written signing audit row. Clients can never persist it. */
+export const LEASE_SIGNED_EVENT = 'lease_signed'
+
+/** True when a persist body tries to write a lease_signed row (refused in both policies). */
+export function isClientLeaseSignedWrite(body: { resource?: unknown; data?: Record<string, unknown> | undefined }): boolean {
+  if (String(body.resource ?? '') === LEASE_SIGNED_EVENT) return true
+  const d = body.data ?? {}
+  return [d.event_type, d.eventType, d.type, d.action, d.kind].some((v) => v === LEASE_SIGNED_EVENT)
+}
+
+export function leaseSignedRefusedError(): Error & { status: number; code: string } {
+  return signError(403, 'LEASE_SIGNED_SERVER_ONLY', 'lease_signed audit rows are written by the server only')
+}
+
+/** The lease_signed audit row, in the caller's transaction. Never the image. */
 async function insertLeaseSignedEvent(
-  _client: Parameters<Parameters<typeof withTransaction>[0]>[0],
-  _e: {
+  client: Parameters<Parameters<typeof withTransaction>[0]>[0],
+  e: {
     lease: LeaseSignRow
     tenancyFeId: string
     envelopeId: string
@@ -272,7 +286,27 @@ async function insertLeaseSignedEvent(
     userAgent: string | null
   },
 ): Promise<void> {
-  void randomUUID
+  const payload: LeaseSignedPayload = {
+    tenancyId: e.tenancyFeId,
+    leaseId: e.lease.id,
+    envelopeId: e.envelopeId,
+    party: e.party,
+    actorUserId: e.actorUuid,
+    role: e.role,
+    method: e.method,
+    on_behalf: e.onBehalf,
+    image_sha256: e.imageSha256,
+    on_behalf_confirmation: e.confirmation,
+    signed_at: e.at,
+    ip: e.ip,
+    user_agent: e.userAgent,
+  }
+  await clientQuery(
+    client,
+    `INSERT INTO event_log (id, client_id, event_type, subject_type, subject_id, actor_user_id, payload, created_at)
+     VALUES ($1::uuid, $2::uuid, 'lease_signed', 'lease', $3::uuid, $4::uuid, $5::jsonb, NOW())`,
+    [randomUUID(), e.lease.client_id, e.lease.id, e.actorUuid, JSON.stringify(payload)],
+  )
 }
 
 const PARTY_KEYS: SignPartyKey[] = ['tenant', 'landlord']
