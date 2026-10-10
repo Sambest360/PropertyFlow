@@ -25,7 +25,7 @@ export function TenantComplaintsView({ portal }: { portal: TenantPortalState }) 
 
   const submitComplaint = async (e: FormEvent) => {
     e.preventDefault()
-    if (!subject.trim() || !details.trim() || !portal.agencyId) return
+    if (!subject.trim() || !details.trim()) return
     const propId = portal.tenancy?.propertyId ?? portal.property?.id
     if (!propId) {
       setDone('No property linked to your tenancy yet.')

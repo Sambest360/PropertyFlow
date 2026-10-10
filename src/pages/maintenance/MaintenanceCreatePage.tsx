@@ -111,6 +111,11 @@ export default function MaintenanceCreatePage() {
               lockProperty={lockProperty}
               onSubmitCreate={handleSubmit}
               error={error}
+              tenancies={
+                user.role === 'tenant' || user.role === 'landlord' || user.role === 'contractor'
+                  ? undefined
+                  : state.tenancies
+              }
             />
           </div>
           <ActionButtonRow className="border-t border-primary-100 bg-primary-50/30 px-5 py-4">
