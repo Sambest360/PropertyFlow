@@ -16,6 +16,7 @@ import {
   type AuthUserDto,
 } from '../lib/api/authClient'
 import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
+import { sessionUserSwitched } from '../lib/clientCache'
 import { shouldSkipAuthBootstrapRefresh } from '../lib/bootstrapCoord'
 import { blockedPropertyIdsForApplicant } from '../lib/blockedApplicants'
 import { effectiveCan, roleLabels, roleBlurbs } from '../lib/permissions'
@@ -60,8 +61,9 @@ import {
   setRegisterInFlight,
   shieldGuestPurgeForLogin,
 } from '../lib/auth/sessionArtifacts'
+import { AUTH_USER_STORAGE_KEY } from '../lib/clientCache'
 
-const AUTH_KEY = 'propertyflow-auth-user'
+const AUTH_KEY = AUTH_USER_STORAGE_KEY
 const REAL_AUTH_KEY = 'propertyflow-auth-real-user'
 const DEMO_SWITCHER = import.meta.env.VITE_DEMO_SWITCHER === '1'
 
@@ -177,12 +179,16 @@ type AuthContextValue = {
   roleLabel: string
   roleBlurb: string
   usersForSwitcher: AppUser[]
+  /** D3: the session must change its password (after a staff reset) before anything else. */
+  mustChangePassword: boolean
+  /** D3: call after a successful change-password; loads the workspace. */
+  completePasswordChange: () => void
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const { state, addActivity, refreshBootstrap } = useStore()
+  const { state, addActivity, refreshBootstrap, resetForUserSwitch } = useStore()
   const [authReady, setAuthReady] = useState(false)
   const [sessionUser, setSessionUser] = useState<AppUser | null>(null)
   // remint58 grace2: React mirror of the module loginInFlight flag so
@@ -192,6 +198,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const releaseRequestedGen = useRef<number | null>(null)
   const [userId, setUserId] = useState(() => localStorage.getItem(AUTH_KEY) || '')
   const [realUserId, setRealUserId] = useState<string | null>(() => localStorage.getItem(REAL_AUTH_KEY))
+  const [mustChangePassword, setMustChangePassword] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -245,6 +252,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       const me = await apiMe()
       if (cancelled) return
+      setMustChangePassword(me?.mustChangePassword === true)
       if (me) {
         const appUser = dtoToAppUser(me)
         applySessionUser(appUser, setSessionUser, setUserId, setRealUserId)
@@ -373,6 +381,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
   }, [isAuthenticated, user.id, user.role, user.agencyId])
 
+  // spec-portal-first-load: when the signed-in session user changes (A → B),
+  // drop A's in-memory store before B's bootstrap lands. Impersonation keeps the
+  // same session user and is not a switch.
+  const lastSessionUserIdRef = useRef<string | null>(sessionUser?.id ?? null)
+  useEffect(() => {
+    if (!isApiEnabled && !isSupabaseMode) return // demo mode: as on main
+    const next = sessionUser?.id ?? null
+    const prev = lastSessionUserIdRef.current
+    if (sessionUserSwitched(prev, next)) resetForUserSwitch()
+    if (next) lastSessionUserIdRef.current = next
+  }, [sessionUser?.id, resetForUserSwitch])
+
   useEffect(() => {
     if (!isApiEnabled && !isSupabaseMode) return
     if (!isAuthenticated || !user || user.id === 'guest') return
@@ -487,15 +507,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
           const res = await apiLogin({ email, password })
           const appUser = dtoToAppUser(res.user)
+          const mustChange = res.user.mustChangePassword === true
+          setMustChangePassword(mustChange)
           setSessionUser(appUser)
           setUserId(appUser.id)
           setRealUserId(null)
           syncActorFromUser(res.user)
-          void refreshBootstrap({
-            userId: appUser.id,
-            role: appUser.role,
-            agencyId: appUser.agencyId,
-          })
+          // D3: the server refuses bootstrap until the password is changed.
+          if (!mustChange) {
+            void refreshBootstrap({
+              userId: appUser.id,
+              role: appUser.role,
+              agencyId: appUser.agencyId,
+            })
+          }
           if (loginHoldGen.current === holdGen) {
             releaseRequestedGen.current = holdGen
             releaseLoginHold()
@@ -568,6 +593,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         clearSessionArtifacts({ setSessionUser, setUserId, setRealUserId })
         setApiActor(null)
+        setMustChangePassword(false)
       },
       purgeLocalIdentity: async () => {
         // P0-session (R8): the full anonymous wipe shared by logout and the
@@ -639,6 +665,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       hasAny,
       roleLabel: isAuthenticated ? roleLabels[user.role] : 'Guest',
       roleBlurb: isAuthenticated ? roleBlurbs[user.role] : 'Sign in to manage properties',
+      mustChangePassword,
+      completePasswordChange: () => {
+        setMustChangePassword(false)
+        if (isAuthenticated && user.id !== 'guest') {
+          void refreshBootstrap({ userId: user.id, role: user.role, agencyId: user.agencyId })
+        }
+      },
       usersForSwitcher: DEMO_SWITCHER
         ? state.users.filter((u) => {
             if (!u.active) return false
@@ -667,6 +700,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loginInFlight,
     refreshBootstrap,
     releaseLoginHold,
+    mustChangePassword,
   ])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

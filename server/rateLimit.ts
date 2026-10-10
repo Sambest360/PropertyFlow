@@ -132,3 +132,22 @@ export function tooManyRequests(retryAfterSec: number): {
     headers: { 'Retry-After': String(retryAfterSec) },
   }
 }
+
+const resetActorWindows = new Map<string, Window>()
+const resetTargetWindows = new Map<string, Window>()
+
+/**
+ * D3 staff password reset: per actor (default 10 / window) and per target
+ * (default 3 / window). Knobs: RESET_RATE_LIMIT_ACTOR_MAX, RESET_RATE_LIMIT_TARGET_MAX.
+ */
+export function passwordResetRateLimit(actorKey: string, targetKey: string): { ok: boolean; retryAfterSec: number } {
+  const byActor = slidingWindowHit(resetActorWindows, actorKey, numEnv('RESET_RATE_LIMIT_ACTOR_MAX', 10), windowMs())
+  if (!byActor.ok) return byActor
+  return slidingWindowHit(resetTargetWindows, targetKey, numEnv('RESET_RATE_LIMIT_TARGET_MAX', 3), windowMs())
+}
+
+/** Test hook: clear the reset buckets. */
+export function resetPasswordResetRateLimitsForTests(): void {
+  resetActorWindows.clear()
+  resetTargetWindows.clear()
+}

@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { NO_PHOTOS_YET } from '../lib/listingPhotos'
 import { Bath, BedDouble, Car, Droplets, Heart, MapPin, Star, Sun, Zap } from 'lucide-react'
 import { formatZAR } from '../data/seed'
 import type { PropertyAsset } from '../types/domain'
@@ -118,15 +119,21 @@ export function PropertyCard({
     <Link to={href} className={cn('group block animate-slide-up', className)}>
       <article className="overflow-hidden rounded-2xl bg-white transition duration-300 hover:-translate-y-1 hover:shadow-[0_20px_40px_-24px_rgba(26,74,86,0.25)]">
         <div className="relative aspect-[4/3] overflow-hidden">
-          <img
-            src={image}
-            alt=""
-            width={400}
-            height={300}
-            loading="lazy"
-            decoding="async"
-            className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
-          />
+          {image ? (
+            <img
+              src={image}
+              alt=""
+              width={400}
+              height={300}
+              loading="lazy"
+              decoding="async"
+              className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center bg-primary-50 text-sm font-medium text-ink-500">
+              {NO_PHOTOS_YET}
+            </div>
+          )}
           <div className="absolute left-3 top-3 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-ink shadow-sm">
             {badge}
           </div>

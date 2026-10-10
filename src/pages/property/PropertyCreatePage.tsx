@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { MAX_LISTING_PHOTOS, MAX_LISTING_PHOTO_BYTES, listingPhotosLabel } from '../../lib/listingPhotos'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Building2,
@@ -66,6 +67,7 @@ import {
 } from '../../lib/propertyWizardDraft'
 import type { AssetCondition } from '../../data/infrastructure'
 import type { PropertyAsset } from '../../types/domain'
+import { showTempPasswordOnce } from '../../lib/auth/tempPasswordBus'
 
 const DRAFT_KEY = 'propertyflow:property-create'
 
@@ -484,6 +486,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       agencyId: resolvedAgencyId,
       users: state.users,
       createUser,
+      onTempPassword: (pw) => showTempPasswordOnce(pw, 'Landlord created: temporary password'),
     })
     const title = draft.title.trim() || `${draft.propertyType} in ${draft.suburb || draft.city || 'draft'}`
     const unitNumber = defaultUnitNumber(draft.propertyType)
@@ -1007,10 +1010,11 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
               </div>
             </div>
             <ImageDropzone
-              label="Listing photos"
+              label={listingPhotosLabel(draft.buildingImages.length)}
               value={draft.buildingImages}
               onChange={(buildingImages) => setDraft((d) => ({ ...d, buildingImages }))}
-              max={12}
+              max={MAX_LISTING_PHOTOS}
+              maxBytes={MAX_LISTING_PHOTO_BYTES}
               reorderable
             />
           </WizardSectionCard>

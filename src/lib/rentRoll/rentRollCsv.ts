@@ -5,71 +5,62 @@
 import { RENT_ROLL_MODE_A_COPY, type RentRollBook } from './types'
 import type { PropertyDocument } from '../../types/domain'
 
-function csvEscape(v: string): string {
-  if (/[",\n\r]/.test(v)) return `"${v.replace(/"/g, '""')}"`
-  return v
-}
+import { RENT_ROLL_TABLE_COLUMNS, rentRollCellText } from './rentRollTable'
+import { csvEscape } from '../csvEscape'
 
-export const RENT_ROLL_CSV_HEADER = [
-  'as_at',
-  'tenancy_id',
-  'property_id',
-  'property_title',
-  'property_address',
-  'landlord_id',
-  'landlord_name',
-  'tenant_name',
-  'tenant_email',
-  'status',
-  'start_date',
-  'end_date',
-  'rent_zar',
-  'deposit_zar',
-  'rent_due_day',
-  'arrears_zar_in_app',
-  'honesty',
-].join(',')
+/**
+ * Audit-pack rent roll CSV: the shared columns first (same names and order as
+ * the screen and the PDF), then the audit-only extras. Every row keeps the
+ * as-at date and the note, as before.
+ */
+export const RENT_ROLL_AUDIT_EXTRA_COLUMNS = [
+  'Tenancy ID',
+  'Property ID',
+  'Owner ID',
+  'Tenant email',
+  'Address',
+  'Deposit',
+  'Rent due day',
+  'As at',
+  'Note',
+] as const
+
+export const RENT_ROLL_CSV_HEADER = [...RENT_ROLL_TABLE_COLUMNS.map((c) => c.label), ...RENT_ROLL_AUDIT_EXTRA_COLUMNS]
+  .map(csvEscape)
+  .join(',')
 
 export function rentRollToCsv(book: RentRollBook): string {
+  const cols = RENT_ROLL_TABLE_COLUMNS
+  const note = csvEscape(RENT_ROLL_MODE_A_COPY)
   const body = book.rows.map((r) =>
     [
-      book.asAt,
-      r.tenancyId,
-      r.propertyId,
-      csvEscape(r.propertyTitle),
-      csvEscape(r.propertyAddress),
-      r.landlordId,
-      csvEscape(r.landlordName),
-      csvEscape(r.tenantName),
+      ...cols.map((c) => csvEscape(rentRollCellText(r, c.key))),
+      csvEscape(r.tenancyId),
+      csvEscape(r.propertyId),
+      csvEscape(r.landlordId),
       csvEscape(r.tenantEmail),
-      r.status,
-      r.startDate,
-      r.endDate ?? '',
-      r.rentZar.toFixed(2),
+      csvEscape(r.propertyAddress),
       r.depositZar.toFixed(2),
       String(r.rentDueDay),
-      r.arrearsZar.toFixed(2),
-      csvEscape(RENT_ROLL_MODE_A_COPY),
+      book.asAt,
+      note,
     ].join(','),
   )
   const totals = [
-    book.asAt,
-    '',
-    '',
-    'TOTALS',
-    '',
-    '',
-    '',
+    ...cols.map((c, i) => {
+      if (c.key === 'charged') return book.totals.rentPcmZar.toFixed(2)
+      if (c.key === 'outstanding') return book.totals.arrearsZar.toFixed(2)
+      return i === 0 ? 'Total' : ''
+    }),
     '',
     '',
     '',
     '',
     '',
-    book.totals.rentPcmZar.toFixed(2),
     book.totals.depositZar.toFixed(2),
     '',
-    book.totals.arrearsZar.toFixed(2),
-    csvEscape(RENT_ROLL_MODE_A_COPY),
+    book.asAt,
+    note,
   ].join(',')
   return [RENT_ROLL_CSV_HEADER, ...body, totals].join('\n')
 }

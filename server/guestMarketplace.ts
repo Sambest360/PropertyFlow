@@ -63,11 +63,33 @@ export function isGuestVisibleProperty(property: Row, units: Row[], users: Row[]
   return true
 }
 
-export function filterBootstrapForGuest(raw: Row): Row {
+/** List cards get one image per listing; the single-listing (?id=) read gets them all. */
+function firstImageOnly<T extends Row>(r: T): T {
+  return Array.isArray(r.images) ? { ...r, images: (r.images as unknown[]).slice(0, 1) } : r
+}
+
+/**
+ * P3a: guest slice. With `listingId`, only that listing (same visibility
+ * filter and id hiding), full images; `properties` is empty when it is not
+ * publicly listed or unknown (the route answers 404).
+ */
+export function filterBootstrapForGuest(raw: Row, opts: { listingId?: string } = {}): Row {
+  const out = filterBootstrapForGuestAll(raw, opts.listingId)
+  if (opts.listingId) return out
+  return {
+    ...out,
+    properties: rows(out.properties).map(firstImageOnly),
+    units: rows(out.units).map(firstImageOnly),
+    buildings: rows(out.buildings).map(firstImageOnly),
+  }
+}
+
+function filterBootstrapForGuestAll(raw: Row, listingId?: string): Row {
   const users = rows(raw.users)
   const units = rows(raw.units)
   const properties = rows(raw.properties)
     .filter((p) => isGuestVisibleProperty(p, units, users))
+    .filter((p) => !listingId || String(p.id) === listingId)
     // Serial numbers / inventory are staff data, not listing data.
     .map((p): Row => ({ ...p, internalAssets: [] }))
   const propIds = new Set(properties.map((p) => String(p.id)))

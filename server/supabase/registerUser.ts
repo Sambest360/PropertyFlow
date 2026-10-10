@@ -21,6 +21,7 @@
 import crypto from 'node:crypto'
 import { pool, databaseConfigured } from '../db.js'
 import { isReservedSuperAdminEmail } from '../../src/lib/supabase/idMap.js'
+import { MIN_PASSWORD_LENGTH } from '../passwordPolicy.js'
 
 const AUTH_INSTANCE_ID = '00000000-0000-0000-0000-000000000000'
 
@@ -194,8 +195,8 @@ export async function registerSupabaseUserDirect(
     err.status = 400
     throw err
   }
-  if (!input.password || input.password.length < 8) {
-    const err = new Error('Password must be at least 8 characters') as Error & { status: number }
+  if (!input.password || input.password.length < MIN_PASSWORD_LENGTH) {
+    const err = new Error(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`) as Error & { status: number }
     err.status = 400
     throw err
   }
@@ -341,8 +342,8 @@ export async function linkStaffAuthUser(input: LinkStaffAuthInput): Promise<Link
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     throw statusError('Valid email is required', 400)
   }
-  if (!input.password || input.password.length < 8) {
-    throw statusError('Password must be at least 8 characters', 400)
+  if (!input.password || input.password.length < MIN_PASSWORD_LENGTH) {
+    throw statusError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`, 400)
   }
   const roleFe = (input.roleFe || 'tenant').trim()
   if (!STAFF_MINT_ROLES.has(roleFe)) {

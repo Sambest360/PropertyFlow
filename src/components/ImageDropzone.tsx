@@ -1,6 +1,7 @@
 import { useCallback, useId, useRef, useState, type DragEvent } from 'react'
 import { GripVertical, ImagePlus, Upload, X } from 'lucide-react'
 import { cn } from './ui'
+import { LISTING_PHOTO_TOO_LARGE, partitionPhotosBySize } from '../lib/listingPhotos'
 
 const ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,image/heic,image/*'
 
@@ -79,6 +80,8 @@ export type ImageDropzoneProps = {
   disabled?: boolean
   /** Drag thumbnails to set gallery order (first image = cover) */
   reorderable?: boolean
+  /** Refuse any photo still larger than this after downscaling (data URL length). */
+  maxBytes?: number
 }
 
 /**
@@ -95,6 +98,7 @@ export function ImageDropzone({
   variant = 'gallery',
   disabled,
   reorderable = false,
+  maxBytes,
 }: ImageDropzoneProps) {
   const inputId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -111,11 +115,14 @@ export function ImageDropzone({
       if (!files || !canAdd) return
       setError(null)
       try {
-        const urls = await readFilesAsDataUrls(files)
-        if (urls.length === 0) {
+        const all = await readFilesAsDataUrls(files)
+        if (all.length === 0) {
           setError('Choose an image file (JPEG, PNG, WebP, or GIF).')
           return
         }
+        const { ok: urls, refused } = maxBytes ? partitionPhotosBySize(all, maxBytes) : { ok: all, refused: 0 }
+        if (refused > 0) setError(LISTING_PHOTO_TOO_LARGE)
+        if (urls.length === 0) return
         const next = multiple
           ? [...value, ...urls].slice(0, max ?? undefined)
           : [urls[0]]
@@ -124,7 +131,7 @@ export function ImageDropzone({
         setError('Could not read that file. Try another image.')
       }
     },
-    [canAdd, max, multiple, onChange, value],
+    [canAdd, max, maxBytes, multiple, onChange, value],
   )
 
   const onDrop = (e: DragEvent) => {

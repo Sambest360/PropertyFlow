@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { applicationUploadPayload, applyDocumentUpload } from '../lib/applicationDocUpload'
 import { summarizeRooms } from '../lib/roomSummary'
 import type {
   Agency,
@@ -164,6 +165,17 @@ import {
   dedupeBootstrapFetch,
   scheduleDeferredFullBootstrap,
 } from '../lib/bootstrapCoord'
+import {
+  APP_STATE_STORAGE_KEY,
+  AUTH_USER_STORAGE_KEY,
+  PG_SOURCE_STORAGE_KEY,
+  readOwnedClientCache,
+  serializeClientCache,
+  shouldDeferMountBootstrap,
+  createClientCacheWriter,
+  handleAuthKeyStorageEvent,
+  bootstrapMatchesSession,
+} from '../lib/clientCache'
 import { readStoredAuthUserId, getApiActor, actorHeaders, type DemoActor } from '../lib/api/actorAuth'
 import {
   shouldAcceptSupabaseBootstrap,
@@ -250,8 +262,9 @@ import {
  * When the local Postgres API is up, AppStore hydrates core entities from `/api/bootstrap`
  * and still mirrors into localStorage for offline edits.
  */
-const STORAGE_KEY = 'propertyflow-v18'
-const PG_HYDRATED_FLAG = 'propertyflow-pg-source'
+const STORAGE_KEY = APP_STATE_STORAGE_KEY
+const PG_HYDRATED_FLAG = PG_SOURCE_STORAGE_KEY
+export { APP_STATE_STORAGE_KEY, PG_SOURCE_STORAGE_KEY }
 
 function actorFromUsers(
   users: AppUser[],
@@ -458,6 +471,12 @@ export type AppState = {
 
 type StoreContextValue = {
   state: AppState
+  /** Session user whose bootstrap has landed in the store (null until then). */
+  hydratedForUserId: string | null
+  /** Session user changed: drop the previous user's in-memory state before their bootstrap. */
+  resetForUserSwitch: () => void
+  /** Signed-in bootstrap failed (portals show retry instead of a skeleton). */
+  hydrationFailed: boolean
   resetDemo: () => void
   /** Re-fetch bootstrap for the given (or current) actor. */
   refreshBootstrap: (
@@ -471,6 +490,8 @@ type StoreContextValue = {
     /** Plain password for invite / staff create (hashed server-side). */
     password?: string
     tempPassword?: string
+    /** Michael #96: called once with the server-generated temp password (no password given). */
+    onTempPassword?: (tempPassword: string) => void
   }) => AppUser
   /**
    * P0-sa-mint: await durable Auth+profile persist before success UI.
@@ -480,7 +501,10 @@ type StoreContextValue = {
     active?: boolean
     password?: string
     tempPassword?: string
-  }) => Promise<{ ok: true; user: AppUser } | { ok: false; error: string; user?: AppUser }>
+  }) => Promise<
+    | { ok: true; user: AppUser; generatedTempPassword?: string }
+    | { ok: false; error: string; user?: AppUser }
+  >
   updateUser: (id: string, patch: Partial<AppUser>) => void
   updateTenancy: (id: string, patch: Partial<Tenancy>) => void
   /** Issue lease PDF + e-sign envelope for an existing tenancy (approve path / manual). */
@@ -885,7 +909,10 @@ type StoreContextValue = {
   toasts: NotificationToast[]
 }
 
-const defaultState = (): AppState => ({
+/** API/Supabase mode never starts from seed trust/charge books (spec-portal-first-load). */
+const LIVE_DATA_MODE = isApiEnabled || isSupabaseMode
+
+export const defaultStateFor = (liveDataMode: boolean): AppState => ({
   agencies: [],
   users: [],
   properties: [],
@@ -916,22 +943,34 @@ const defaultState = (): AppState => ({
   vendorRoutes: SEED_VENDOR_ROUTES,
   agencyContractors: seedAgencyContractors,
   // Trust / Banking module state
-  trustTransactions: seedTrustTransactions,
-  trustAllocations: seedTrustAllocations,
-  payoutInstructions: seedPayoutInstructions,
-  depositHoldings: seedDepositHoldings,
-  arrearsSnapshots: seedArrearsSnapshots,
-  charges: seedCharges,
-  csvImportBatches: seedCsvImportBatches,
+  trustTransactions: liveDataMode ? [] : seedTrustTransactions,
+  trustAllocations: liveDataMode ? [] : seedTrustAllocations,
+  payoutInstructions: liveDataMode ? [] : seedPayoutInstructions,
+  depositHoldings: liveDataMode ? [] : seedDepositHoldings,
+  arrearsSnapshots: liveDataMode ? [] : seedArrearsSnapshots,
+  charges: liveDataMode ? [] : seedCharges,
+  csvImportBatches: liveDataMode ? [] : seedCsvImportBatches,
   supportTickets: [],
 })
 
-function loadState(): AppState {
+const defaultState = (): AppState => defaultStateFor(LIVE_DATA_MODE)
+
+/**
+ * Load the owner-keyed cache. Returns defaultState() when the cache belongs to
+ * someone other than the stored auth user (or is a legacy untagged blob).
+ */
+export function loadState(): AppState {
   const base = defaultState()
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return base
-    const parsed = JSON.parse(raw) as Partial<AppState>
+    let parsed: Partial<AppState> | null
+    if (LIVE_DATA_MODE) {
+      parsed = readOwnedClientCache<AppState>(raw, readStoredAuthUserId())
+    } else {
+      // Demo / no-API mode: unkeyed cache, exactly as on main.
+      parsed = raw ? (JSON.parse(raw) as Partial<AppState>) : null
+    }
+    if (!parsed) return base
     return {
       ...base,
       ...parsed,
@@ -1020,7 +1059,7 @@ async function fetchBootstrapFromApi(lite: boolean, actor: DemoActor | null, ful
       return boot
     }
     try {
-      localStorage.removeItem('propertyflow-auth-user')
+      localStorage.removeItem(AUTH_USER_STORAGE_KEY)
     } catch {
       /* ignore */
     }
@@ -1059,6 +1098,16 @@ function ensureGuestMarketplace(state: AppState): AppState {
 export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>(() => defaultState())
   const [toasts, setToasts] = useState<NotificationToast[]>([])
+  /** Session user whose /api/bootstrap has been applied (null until then). */
+  const [hydratedForUserId, setHydratedForUserIdState] = useState<string | null>(null)
+  /** Same value, readable synchronously by the cache writer (owner of in-memory data). */
+  const hydratedForUserIdRef = useRef<string | null>(null)
+  const setHydratedForUserId = useCallback((id: string | null) => {
+    hydratedForUserIdRef.current = id
+    setHydratedForUserIdState(id)
+  }, [])
+  /** Signed-in bootstrap failed: portals show a retry state, not an endless skeleton. */
+  const [hydrationFailed, setHydrationFailed] = useState(false)
   const stateRef = useRef(state)
   /** Pending tenancy saves carrying a freshly issued e-sign envelope, by tenancy id. */
   const leaseESignSaves = useRef(new Map<string, Promise<boolean>>())
@@ -1103,10 +1152,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
     const boot = await dedupeBootstrapFetch(lite, fetchBoot, { force: opts?.force, actorKey })
     if (!boot) {
+      if (resolved?.userId) setHydrationFailed(true)
       setState((prev) => ensureGuestMarketplace(prev))
       return
     }
+    // Drop a bootstrap whose user is no longer the session user (switch mid-flight).
+    if (!bootstrapMatchesSession(resolved?.userId, readStoredAuthUserId())) return
     setState((prev) => ensureGuestMarketplace(applyPostgresBootstrap(prev, boot)))
+    setHydratedForUserId(resolved?.userId ?? null)
+    setHydrationFailed(false)
     if (ingestUserId) {
       const nextNotes = (boot.notifications as AppNotification[]) ?? []
       const fresh = diffNewNotifications(prevNotifications, nextNotes, ingestUserId)
@@ -1136,6 +1190,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           { actorKey: deferredKey },
         ).then((full) => {
           if (!full) return
+          if (!bootstrapMatchesSession(deferredActor?.userId, readStoredAuthUserId())) return
           setState((prev) => applyPostgresBootstrap(prev, full))
         })
       })
@@ -1149,6 +1204,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           { actorKey: deferredKey },
         ).then((full) => {
           if (!full) return
+          if (!bootstrapMatchesSession(deferredActor?.userId, readStoredAuthUserId())) return
           setState((prev) => applyPostgresBootstrap(prev, full))
         })
       })
@@ -1175,9 +1231,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       return
     }
     let cancelled = false
-    const hasCachedHydration =
-      localStorage.getItem(PG_HYDRATED_FLAG) === 'postgres' &&
-      stateRef.current.properties.length > 0
+    // A live session never waits on the idle deferral: cached rows must not be
+    // the only data on screen for a signed-in user (spec-portal-first-load).
+    const hasCachedHydration = shouldDeferMountBootstrap({
+      storedAuthUserId: readStoredAuthUserId(),
+      pgSource: localStorage.getItem(PG_HYDRATED_FLAG),
+      cachedPropertyCount: stateRef.current.properties.length,
+    })
 
     const run = async () => {
       const actor = resolveBootstrapActor(stateRef.current.users)
@@ -1189,10 +1249,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       )
       if (cancelled) return
       if (!boot) {
+        if (actor?.userId) setHydrationFailed(true)
         setState((prev) => ensureGuestMarketplace(prev))
         return
       }
+      if (!bootstrapMatchesSession(actor?.userId, readStoredAuthUserId())) return
       setState((prev) => ensureGuestMarketplace(applyPostgresBootstrap(prev, boot)))
+      setHydratedForUserId(actor?.userId ?? null)
+      setHydrationFailed(false)
       try {
         localStorage.setItem(PG_HYDRATED_FLAG, 'postgres')
       } catch {
@@ -1214,6 +1278,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           { actorKey: deferredKey },
         ).then((full) => {
           if (cancelled || !full) return
+          if (!bootstrapMatchesSession(deferredActor?.userId, readStoredAuthUserId())) return
           setState((prev) => applyPostgresBootstrap(prev, full))
         })
       })
@@ -1232,16 +1297,54 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const resetToDefault = useCallback(() => {
+    cacheWriterRef.current?.cancel()
+    const fresh = defaultState()
+    stateRef.current = fresh
+    setState(fresh)
+    setHydratedForUserId(null)
+    setHydrationFailed(false)
+    setToasts([])
+  }, [setHydratedForUserId])
+
+  // Cache owner = user whose data is in memory (hydratedForUserIdRef), captured at
+  // schedule time; written only while that user is still the stored auth user.
+  const cacheWriterRef = useRef<ReturnType<typeof createClientCacheWriter<AppState>> | null>(null)
+  if (!cacheWriterRef.current) {
+    cacheWriterRef.current = createClientCacheWriter<AppState>({
+      delayMs: 900,
+      liveMode: LIVE_DATA_MODE,
+      getMemoryOwner: () => hydratedForUserIdRef.current,
+      getStoredAuthUser: readStoredAuthUserId,
+      write: (st, owner) => {
+        try {
+          localStorage.setItem(
+            STORAGE_KEY,
+            LIVE_DATA_MODE ? serializeClientCache(st, owner, LIVE_DATA_MODE) : JSON.stringify(st),
+          )
+        } catch {
+          /* ignore quota errors */
+        }
+      },
+    })
+  }
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
-      } catch {
-        /* ignore quota errors */
-      }
-    }, 900)
-    return () => window.clearTimeout(timer)
+    const writer = cacheWriterRef.current!
+    writer.schedule(state)
+    return () => writer.cancel()
   }, [state])
+  useEffect(() => {
+    if (!LIVE_DATA_MODE) return // demo mode: as on main
+    // Another tab signed out (auth key removed): cancel pending write + reset store.
+    const onStorage = (e: StorageEvent) => {
+      handleAuthKeyStorageEvent(e, {
+        cancel: () => cacheWriterRef.current?.cancel(),
+        reset: resetToDefault,
+      })
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [resetToDefault])
 
   const patch = useCallback((fn: (s: AppState) => AppState) => {
     // P0-publish (R8): keep stateRef in sync synchronously. Same-tick flows
@@ -2078,6 +2181,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<StoreContextValue>(() => ({
     state,
+    hydratedForUserId,
+    hydrationFailed,
+    resetForUserSwitch: () => {
+      if (!LIVE_DATA_MODE) return // demo mode: as on main
+      resetToDefault()
+    },
     toasts,
     refreshBootstrap,
     resetDemo: () => {
@@ -2130,7 +2239,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       persistUpsert('agency', id, next as Record<string, unknown>)
     },
     createUser: (input) => {
-      const { password, tempPassword, ...rest } = input as typeof input & {
+      const { password, tempPassword, onTempPassword, ...rest } = input as typeof input & {
         password?: string
         tempPassword?: string
       }
@@ -2148,11 +2257,28 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       patch((s) => ({ ...s, users: [...s.users, user] }))
       // Fire-and-forget for legacy callers (e.g. landlord picker). Prefer
       // createUserDurable for SA staff mint so success UI cannot race Auth.
+      if (!password && !tempPassword) {
+        // No constant default (Jim B2): the server generates a random temp
+        // password on this create and returns it once; hand it to the caller's
+        // one-time modal (never stored).
+        void (async () => {
+          const { markLocalPersistWrite } = await import('../lib/bootstrapMerge')
+          markLocalPersistWrite('user', user.id)
+          const { persistUserCreateViaServer } = await import('../lib/api/persist')
+          const res = await persistUserCreateViaServer({
+            resource: 'user',
+            action: 'upsert',
+            id: user.id,
+            data: { ...(user as unknown as Record<string, unknown>), id: user.id },
+          })
+          if (res.ok && res.tempPassword) onTempPassword?.(res.tempPassword)
+        })()
+        return user
+      }
       persistUpsert('user', user.id, {
         ...(user as unknown as Record<string, unknown>),
         ...(password ? { password } : {}),
         ...(tempPassword ? { tempPassword } : {}),
-        ...(!password && !tempPassword ? { tempPassword: 'ChangeMe123!' } : {}),
       })
       return user
     },
@@ -2164,7 +2290,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const plain =
         (typeof tempPassword === 'string' && tempPassword.trim()) ||
         (typeof password === 'string' && password.trim()) ||
-        'ChangeMe123!'
+        ''
       const user: AppUser = {
         ...rest,
         id: uid('u'),
@@ -2177,10 +2303,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               : undefined,
       }
       patch((s) => ({ ...s, users: [...s.users, user] }))
-      const ok = await persistUpsert('user', user.id, {
-        ...(user as unknown as Record<string, unknown>),
-        tempPassword: plain,
+      // Always the server path: it generates the temp password when none was
+      // typed and links Supabase Auth with it.
+      const { markLocalPersistWrite } = await import('../lib/bootstrapMerge')
+      markLocalPersistWrite('user', user.id)
+      const { persistUserCreateViaServer } = await import('../lib/api/persist')
+      const res = await persistUserCreateViaServer({
+        resource: 'user',
+        action: 'upsert',
+        id: user.id,
+        data: { ...(user as unknown as Record<string, unknown>), id: user.id, ...(plain ? { tempPassword: plain } : {}) },
       })
+      const ok = res.ok
       if (!ok) {
         patch((s) => ({ ...s, users: s.users.filter((u) => u.id !== user.id) }))
         return {
@@ -2190,7 +2324,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           user,
         }
       }
-      return { ok: true as const, user }
+      return res.ok && res.tempPassword
+        ? { ok: true as const, user, generatedTempPassword: res.tempPassword }
+        : { ok: true as const, user }
     },
     updateUser: (id, p) => {
       patch((s) => ({ ...s, users: s.users.map((u) => (u.id === id ? { ...u, ...p } : u)) }))
@@ -4039,65 +4175,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ...s,
         applications: s.applications.map((a) => {
           if (a.id !== applicationId) return a
-          const documents = a.documents.map((d) =>
-            d.key === key
-              ? {
-                  ...d,
-                  status: 'uploaded' as const,
-                  file: {
-                    name: file.name,
-                    mimeType: file.mimeType,
-                    dataUrl: file.dataUrl,
-                    uploadedAt: new Date().toISOString(),
-                    uploadedBy: actor?.name ?? a.applicantName,
-                  },
-                  rejectedReason: undefined,
-                }
-              : d,
-          )
-          const uploaded = allDocsUploaded(documents)
-          let next = appendWorkflowEvent(
-            { ...a, documents },
-            {
-              stage: resolveWorkflowStatus(a),
-              actionKey: 'DOC_UPLOADED',
-              actorUserId: actor?.userId ?? a.applicantUserId,
-              actorName: actor?.name ?? a.applicantName,
-              summary: `Uploaded ${documents.find((d) => d.key === key)?.label ?? key}`,
-              payload: { documentKey: key, fileName: file.name },
-            },
-          )
-          if (uploaded && resolveWorkflowStatus(a) === 'documents_requested') {
-            next = applyWorkflowTransition({ ...next, documents }, 'documents_uploaded')
-            next = appendWorkflowEvent(next, {
-              stage: 'documents_uploaded',
-              actionKey: 'UPLOAD_DOCS',
-              actorUserId: actor?.userId ?? a.applicantUserId,
-              actorName: actor?.name ?? a.applicantName,
-              summary: 'All required documents uploaded',
-            })
-          } else {
-            next = normalizeApplication({ ...next, documents })
-          }
-          let result: Application = {
-            ...next,
-            docs: documents.filter((d) => d.status !== 'required').map((d) => d.label),
-            updatedAt: new Date().toISOString().slice(0, 10),
-          }
-          if (key === 'credit_consent') {
-            result = captureScreeningConsent(result, {
-              method: 'document',
-              grantedBy: actor?.userId ?? a.applicantUserId ?? a.applicantName,
-              note: `Consent document uploaded: ${file.name}`,
-            })
-          }
+          const result = applyDocumentUpload(a, key, file, actor)
           persisted = result
           return result
         }),
       }))
       if (persisted) {
         const before = preUpload
-        void persistUpsert('application', applicationId, persisted as unknown as Record<string, unknown>).then(
+        const app = persisted as Application
+        void persistUpsert('application', applicationId, applicationUploadPayload(app, key, actor?.userId)).then(
           (ok) => {
             // A refused upload must not stay on screen as if it were saved.
             if (ok || !before) return
@@ -6853,7 +6939,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     proposePayoutInstruction,
     approvePayoutInstruction,
     submitPayoutInstruction,
-  }), [state, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, importTrustTemplateCsv, upsertHeldDeposit, proposeDepositReleaseAction, approveDepositReleaseAction, proposePayoutInstruction, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistDelete, refreshBootstrap, scheduleBootstrapRefreshAfterMutation, issueLeasePackageForTenancy])
+  }), [state, hydratedForUserId, hydrationFailed, resetToDefault, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, importTrustTemplateCsv, upsertHeldDeposit, proposeDepositReleaseAction, approveDepositReleaseAction, proposePayoutInstruction, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistDelete, refreshBootstrap, scheduleBootstrapRefreshAfterMutation, issueLeasePackageForTenancy])
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }
