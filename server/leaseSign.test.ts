@@ -12,17 +12,33 @@ let failOnInsert = false
 const lockCalls: string[] = []
 let lockedOverride: Record<string, unknown> | null = null
 
+// Mirrors server/db.ts (CR10 N3, option a): a nested withTransaction joins
+// the outer one; staged SQL and afterCommit hooks land only on the OUTER commit.
+const issuedSql: string[] = []
+let txOuter: { staged: typeof clientCalls; hooks: Array<() => unknown> } | null = null
 vi.mock('./db.js', () => ({
   databaseConfigured: true,
   query: (...args: unknown[]) => query(...args),
+  afterCommit: (fn: () => unknown) => {
+    if (txOuter) txOuter.hooks.push(fn)
+    else void Promise.resolve().then(fn)
+  },
   withTransaction: async (fn: (c: unknown) => Promise<unknown>) => {
-    const staged: typeof clientCalls = []
-    const client = { staged }
-    const out = await fn(client)
-    clientCalls.push(...staged) // committed
-    return out
+    if (txOuter) return fn(txOuter)
+    const ctx = { staged: [] as typeof clientCalls, hooks: [] as Array<() => unknown> }
+    txOuter = ctx
+    try {
+      const out = await fn(ctx)
+      txOuter = null
+      clientCalls.push(...ctx.staged) // committed
+      for (const h of ctx.hooks) void Promise.resolve().then(h)
+      return out
+    } finally {
+      txOuter = null // rollback: staged + hooks dropped
+    }
   },
   clientQuery: async (client: { staged: typeof clientCalls }, sql: string, params: unknown[] = []) => {
+    issuedSql.push(sql)
     if (sql.includes('FOR UPDATE')) {
       lockCalls.push(sql)
       return [{ metadata: { eSign: lockedOverride ?? leaseESign } }]
@@ -80,6 +96,7 @@ beforeEach(() => {
   failOnUpdate = false
   failOnInsert = false
   lockCalls.length = 0
+  issuedSql.length = 0
   lockedOverride = null
   leaseESign = baseESign()
   for (const k of Object.keys(storedSig)) delete storedSig[k]
@@ -628,33 +645,60 @@ describe('CR10 N2: audit INSERT failure rolls the signing back', () => {
   })
 })
 
-describe('CR10 N3: a staff stamp is undone if the main upsert fails', () => {
-  it('records an undo (previous eSign + event id) and undoStaffStamp restores it and deletes the row', async () => {
-    const { enforceStaffTenancyESign, undoStaffStamp } = await import('./leaseSign.js')
-    const before = { ...baseESign() }
-    leaseESign = before
-    const body: Record<string, unknown> & { id: string; action: string; data: Record<string, unknown> } = {
-      id: 'L-1',
-      action: 'upsert',
-      data: {
-        eSign: { ...before, landlord: { status: 'signed', method: 'drawn', signatureDataUrl: PNG, signerName: 'Owner', onBehalfConfirmation: "I am signing for Owner under the agency's mandate." } },
+describe('CR10 N3 (option a): stamp and main upsert in one transaction', () => {
+  const flushAll = () => new Promise((r) => setTimeout(r, 0))
+  const signBody = () => ({
+    id: 'L-1',
+    action: 'upsert',
+    data: {
+      eSign: {
+        ...leaseESign,
+        landlord: { status: 'signed', method: 'drawn', signatureDataUrl: PNG, signerName: 'Owner', onBehalfConfirmation: "I am signing for Owner under the agency's mandate." },
       },
-    }
-    await enforceStaffTenancyESign(STAFF as never, body as never)
-    const undo = body.signUndo as { leaseUuid: string; prevESign: unknown; eventIds: string[] }
-    expect(undo).toMatchObject({ leaseUuid: 'lease-1', prevESign: before })
-    expect(undo.eventIds).toHaveLength(1)
-    clientCalls.length = 0
-    await undoStaffStamp(undo as never)
-    expect(JSON.parse(String(updates()[0].params[1]))).toEqual(before)
-    const del = clientCalls.find((c) => c.sql.includes('DELETE FROM event_log'))
-    expect(del?.params[0]).toEqual(undo.eventIds)
+    } as Record<string, unknown>,
   })
-  it('a save with no stamp records no undo', async () => {
+  it('a failed upsert after the stamp: lease_signed count unchanged, no email, no DELETE', async () => {
+    emailFlag = true
+    vi.stubEnv('PUBLIC_APP_URL', 'https://app.example.test')
+    leaseESign = { ...baseESign(), status: 'partially_signed', tenant: { status: 'signed', signerUserId: 'u-t', method: 'drawn' } }
+    const db = await import('./db.js')
     const { enforceStaffTenancyESign } = await import('./leaseSign.js')
-    const body: Record<string, unknown> & { id: string; action: string } = { id: 'L-1', action: 'upsert', data: { eSign: baseESign() } }
-    await enforceStaffTenancyESign(STAFF as never, body as never)
-    expect(body.signUndo).toBeUndefined()
+    const before = clientCalls.filter((c) => c.sql.includes("'lease_signed'")).length
+    await expect(
+      db.withTransaction(async () => {
+        await enforceStaffTenancyESign(STAFF as never, signBody())
+        throw new Error('main upsert failed')
+      }),
+    ).rejects.toThrow('main upsert failed')
+    await flushAll()
+    expect(clientCalls.filter((c) => c.sql.includes("'lease_signed'")).length).toBe(before)
+    expect(updates()).toHaveLength(0)
+    expect(sendLeaseSignedEmail).not.toHaveBeenCalled()
+    expect(issuedSql.some((q) => /DELETE\s+FROM\s+event_log/i.test(q))).toBe(false)
+    vi.unstubAllEnvs()
+  })
+  it('a successful upsert: one lease_signed row, and the email goes only after the outer commit', async () => {
+    emailFlag = true
+    vi.stubEnv('PUBLIC_APP_URL', 'https://app.example.test')
+    leaseESign = { ...baseESign(), status: 'partially_signed', tenant: { status: 'signed', signerUserId: 'u-t', method: 'drawn' } }
+    const db = await import('./db.js')
+    const { enforceStaffTenancyESign } = await import('./leaseSign.js')
+    await db.withTransaction(async () => {
+      await enforceStaffTenancyESign(STAFF as never, signBody())
+      await flushAll()
+      expect(sendLeaseSignedEmail).not.toHaveBeenCalled() // not before COMMIT
+      expect(clientCalls.filter((c) => c.sql.includes("'lease_signed'"))).toHaveLength(0)
+    })
+    await flushAll()
+    await flushAll()
+    expect(clientCalls.filter((c) => c.sql.includes("'lease_signed'"))).toHaveLength(1)
+    expect(sendLeaseSignedEmail).toHaveBeenCalled()
+    expect(issuedSql.some((q) => /DELETE\s+FROM\s+event_log/i.test(q))).toBe(false)
+    vi.unstubAllEnvs()
+  })
+  it('no DELETE on event_log anywhere in the sign code', async () => {
+    const src = (await import('node:fs')).readFileSync('server/leaseSign.ts', 'utf8')
+    expect(/DELETE\s+FROM\s+event_log/i.test(src)).toBe(false)
   })
 })
 

@@ -173,8 +173,7 @@ async function requireActorAndGate(c: Parameters<typeof parseDemoActor>[0], body
     throw Object.assign(new Error(`Unsupported persist action: ${String(body.action)}`), { status: 400, code: 'PERSIST_ACTION_INVALID' })
   }
   // CR10: request facts for the sign stamp are always set here, never taken
-  // from the client body (signUndo too: only the gate sets it).
-  delete body.signUndo
+  // from the client body.
   body.requestMeta = {
     ip: (c.req.header('x-forwarded-for') ?? '').split(',')[0]?.trim() || c.req.header('x-real-ip') || null,
     userAgent: c.req.header('user-agent') ?? null,
@@ -186,19 +185,22 @@ async function requireActorAndGate(c: Parameters<typeof parseDemoActor>[0], body
 
 /** Gate, then the generic upsert unless the gate already did a narrow rewrite. */
 async function gatedPersist(c: Parameters<typeof parseDemoActor>[0], body: PersistBody) {
+  // CR10 N3 (option a): a tenancy upsert can carry a sign stamp. The gate
+  // (stamp + lease_signed row) and the main upsert run in ONE transaction:
+  // if the upsert fails nothing commits; the completion email (afterCommit)
+  // goes only after this outer COMMIT, i.e. after handlePersist succeeded.
+  if (body.resource === 'tenancy' && body.action === 'upsert') {
+    const { withTransaction } = await import('./db.js')
+    return withTransaction(() => gatedPersistInner(c, body))
+  }
+  return gatedPersistInner(c, body)
+}
+
+async function gatedPersistInner(c: Parameters<typeof parseDemoActor>[0], body: PersistBody) {
   const { handled } = await requireActorAndGate(c, body)
   if (handled) return handled
   const { handlePersist } = await loadWritesModule()
-  try {
-    return await handlePersist(body)
-  } catch (err) {
-    // CR10 N3: a staff sign stamp is undone when the lease upsert fails.
-    if (body.signUndo) {
-      const { undoStaffStamp } = await import('./leaseSign.js')
-      await undoStaffStamp(body.signUndo).catch((e) => console.error('[api/persist] sign undo failed', e))
-    }
-    throw err
-  }
+  return handlePersist(body)
 }
 
 /**
