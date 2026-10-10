@@ -603,6 +603,14 @@ describe('CR10 gate (Angela): no skip-ahead past the signing stages without the 
     db.appLeaseESign = null // e.g. a lease that predates e-sign
     expect(await passes(await post('/api/persist', auth('u-admin'), save('keys_handed_over')))).toBe(true)
   })
+  it('a terminal stored stage does not unlock skip-ahead: rejected -> active_tenancy, withdrawn -> deposit_paid', async () => {
+    for (const [from, to] of [['rejected', 'active_tenancy'], ['withdrawn', 'deposit_paid'], ['cancelled', 'keys_handed_over'], ['closed', 'deposit_paid'], ['deposit_refunded', 'active_tenancy']]) {
+      db.appWorkflow[APP1] = from
+      db.appLeaseESign = null
+      expect(await notRecorded(await post('/api/persist', auth('u-admin'), save(to))), `${from} -> ${to}`).toBe(true)
+    }
+    expect(appWrites()).toHaveLength(0)
+  })
   it('terminal stages are not gated', async () => {
     db.appWorkflow[APP1] = 'lease_sent'
     expect(await passes(await post('/api/persist', auth('u-admin'), save('withdrawn')))).toBe(true)

@@ -418,7 +418,7 @@ export async function enforceApplicantApplicationWrite(
   setDerived(data, type, asked)
 }
 
-/** Terminal stages a staff save may always set (never gated on signatures). */
+/** Terminal stages: a staff save may always set them, and a stored terminal stage never unlocks a later stage. */
 const STAFF_UNGATED_TERMINAL: ReadonlySet<string> = new Set(['rejected', 'cancelled', 'withdrawn', 'closed', 'refunded', 'deposit_refunded'])
 
 /**
@@ -456,7 +456,9 @@ export async function enforceStaffSignedStageMove(body: { resource: string; acti
       [uuid],
     )
     const stored = rows[0]?.workflow_status
-    if (stored && stageOrder(type, stored as WorkflowStatusKey) >= requiredOrder) return
+    // Terminal stages sort above every active stage, so a stored terminal
+    // stage (rejected, withdrawn, ...) never counts as "already past".
+    if (stored && !STAFF_UNGATED_TERMINAL.has(stored) && stageOrder(type, stored as WorkflowStatusKey) >= requiredOrder) return
   }
   const fromLease = uuid ? await storedLeaseESignStatus(uuid) : null
   if (fromLease && stageOrder(type, fromLease) >= requiredOrder) return
