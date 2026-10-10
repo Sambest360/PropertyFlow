@@ -206,6 +206,12 @@ export async function persistToApi(op: PersistOp): Promise<boolean> {
       console.info('[persist] path=server user-mint', { id: op.id })
       return persistViaServerApi(op)
     }
+    // CR10: a user write carrying `signature` goes through /api/persist so the
+    // server's own-row rule and PNG / 150 KB check apply (browser upsert never
+    // sends the signature).
+    if (op.resource === 'user' && op.action === 'upsert' && op.data && 'signature' in op.data) {
+      return persistViaServerApi(op)
+    }
     // P0-5 residual: building/unit/property — same soft-true miss as applications.
     if (preferServerPersistForListingHierarchy(op.resource, op.action)) {
       console.info('[persist] path=server listing-hierarchy', {

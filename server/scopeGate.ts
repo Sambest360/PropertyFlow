@@ -2,6 +2,7 @@
  * Server-side property scope: load links from Postgres, gate writes, filter bootstrap.
  * Reuses client rules from src/lib/scope.ts + scopeWrite.ts.
  */
+import { isValidSignatureDataUrl, signatureInvalidError } from '../src/lib/signature/signatureImage.js'
 import { query } from './db.js'
 import {
   APP_REF_TO_ID,
@@ -885,6 +886,15 @@ export async function enforceUserWritePolicy(
     forbiddenError(`Forbidden: ${actor.role} ${actor.userId} cannot ${body.action} user ${body.id} (${why})`)
   const data = (body.data ?? {}) as Record<string, unknown>
   if (body.action !== 'delete') body.data = data
+  // CR10 A: a user writes only their own signature. Every other actor
+  // (agency admins and super admin included) has it stripped; on your own row
+  // it must be a PNG data URL within the cap (or null to clear).
+  if (Object.prototype.hasOwnProperty.call(data, 'signature')) {
+    if (body.id !== actor.userId) delete data.signature
+    else if (data.signature !== null && data.signature !== undefined && !isValidSignatureDataUrl(data.signature)) {
+      throw signatureInvalidError()
+    }
+  }
   const role = normaliseRoleField(data)
   // Designated super-admin addresses are reserved: no write (any actor) may
   // move a row onto one unless that row already has it.
@@ -1252,7 +1262,8 @@ export function referencedUserIds(
  * dates only (listing visibility + contractor roster read the status).
  */
 export function redactBootstrapUser(u: BootstrapUser): BootstrapUser {
-  const { email: _e, phone: _p, idNumberOrPassport: _id, verification, ...rest } = u
+  const { email: _e, phone: _p, idNumberOrPassport: _id, signature: _sig, verification, ...rest } = u
+  void _sig
   void _e
   void _p
   void _id
@@ -1564,6 +1575,19 @@ function isUuidLike(v: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
 }
 
+/**
+ * CR10 A: bootstrap returns `signature` for the session user only. Every other
+ * user record loses it, for every role (super admin and agency admins too).
+ */
+export function stripOtherUsersSignatures(users: BootstrapUser[], selfId: string): BootstrapUser[] {
+  return users.map((u) => {
+    if (!u || u.id === selfId || !Object.prototype.hasOwnProperty.call(u, 'signature')) return u
+    const { signature: _sig, ...rest } = u
+    void _sig
+    return rest as BootstrapUser
+  })
+}
+
 export function filterBootstrapForActor(
   raw: BootstrapPayload,
   actorIn: DemoActor,
@@ -1575,7 +1599,11 @@ export function filterBootstrapForActor(
   const actor =
     normalizedAgency !== actorIn.agencyId ? { ...actorIn, agencyId: normalizedAgency } : actorIn
   const entities = filterBootstrapEntitiesForActor(raw, actor, scope, actorIds ?? new Set([actor.userId]))
-  if (actor.role === 'super_admin') return entities
+  if (actor.role === 'super_admin') {
+    return Array.isArray(entities.users)
+      ? { ...entities, users: stripOtherUsersSignatures(entities.users as BootstrapUser[], actor.userId) }
+      : entities
+  }
   const roster = Array.isArray(raw.agencyContractors)
     ? (raw.agencyContractors as Array<{ agencyId?: string | null; contractorUserId?: string }>).filter(
         (r) =>
@@ -1584,7 +1612,7 @@ export function filterBootstrapForActor(
     : raw.agencyContractors
   return {
     ...entities,
-    users: filterBootstrapUsersForActor(raw.users, actor, entities),
+    users: stripOtherUsersSignatures(filterBootstrapUsersForActor(raw.users, actor, entities), actor.userId),
     ...(roster !== undefined ? { agencyContractors: roster } : {}),
   }
 }

@@ -566,6 +566,8 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
             ? meta.idNumberOrPassport
             : undefined,
       verification,
+      // CR10: own signature only; scopeGate strips it from every other user.
+      signature: typeof meta.signature === 'string' ? meta.signature : undefined,
     }
   })
 

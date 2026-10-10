@@ -163,3 +163,31 @@ describe('guest marketplace slice', () => {
     expect(json).not.toContain('verification')
   })
 })
+
+describe('CR10 A: bootstrap returns signature for the session user only', () => {
+  const SIG = 'data:image/png;base64,AAAA'
+  const withSig = users.map((x) => ({ ...x, signature: SIG }))
+  const sigRaw = { ...raw, users: [...withSig, { ...u('u-adm', 'client_admin', 'ag-a'), signature: SIG }, { ...u('u-sa', 'super_admin', null), signature: SIG }] }
+  const scopeFor = (role: string, userId: string, agencyId: string | null) =>
+    buildPropertyScope({ role, userId, agencyId } as never, {
+      properties: raw.properties,
+      applications: raw.applications,
+      tenancies: [],
+      tickets: [],
+    } as never)
+  const check = (actor: DemoActor) => {
+    const out = filterBootstrapForActor(sigRaw as never, actor, scopeFor(actor.role, actor.userId, actor.agencyId))
+    const list = out.users as Array<Record<string, unknown>>
+    expect(list.length).toBeGreaterThan(1)
+    for (const x of list) {
+      if (x.id === actor.userId) expect(x.signature).toBe(SIG)
+      else expect(x).not.toHaveProperty('signature')
+    }
+  }
+  it('tenant', () => check({ userId: 'u-tenant', role: 'tenant', agencyId: null }))
+  it('same-agency users.manage admin', () => check({ userId: 'u-adm', role: 'client_admin', agencyId: 'ag-a' }))
+  it('super admin', () => check({ userId: 'u-sa', role: 'super_admin', agencyId: null }))
+  it('redactBootstrapUser drops it', () => {
+    expect(redactBootstrapUser(withSig[0])).not.toHaveProperty('signature')
+  })
+})

@@ -1352,3 +1352,67 @@ describe('Angela #80 (c3f25ac) older gaps', () => {
     expect(params[15]).toBe(false)
   })
 })
+
+describe('CR10 A: users write only their own signature', () => {
+  const SIG = 'data:image/png;base64,' + 'iVBORw0KGgo'.repeat(10)
+  const metaOf = async (body: Body) => {
+    const { handlePersist } = await import('./writes.js')
+    await handlePersist(body as never)
+    const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO users'))!
+    return JSON.parse(String((insert[1] as unknown[])[8])) as Record<string, unknown>
+  }
+
+  it('a user saves their own PNG signature', async () => {
+    const body = await gate(TENANT, { resource: 'user', action: 'upsert', id: 'u-t', data: { name: 'T', signature: SIG } })
+    expect(body.data?.signature).toBe(SIG)
+    expect((await metaOf(body)).signature).toBe(SIG)
+  })
+
+  it('null clears their own signature', async () => {
+    const body = await gate(TENANT, { resource: 'user', action: 'upsert', id: 'u-t', data: { name: 'T', signature: null } })
+    const meta = await metaOf(body)
+    expect(meta).toHaveProperty('signature', null)
+  })
+
+  it('a non-PNG or oversize own signature is 400 SIGNATURE_INVALID', async () => {
+    await expect(
+      gate(TENANT, { resource: 'user', action: 'upsert', id: 'u-t', data: { signature: 'data:image/jpeg;base64,AAAA' } }),
+    ).rejects.toMatchObject({ status: 400, code: 'SIGNATURE_INVALID' })
+    await expect(
+      gate(TENANT, {
+        resource: 'user',
+        action: 'upsert',
+        id: 'u-t',
+        data: { signature: 'data:image/png;base64,' + 'A'.repeat(150 * 1024) },
+      }),
+    ).rejects.toMatchObject({ status: 400, code: 'SIGNATURE_INVALID' })
+    const { handlePersist } = await import('./writes.js')
+    await expect(
+      handlePersist({ resource: 'user', action: 'upsert', id: 'u-t', data: { signature: 'nope' } } as never),
+    ).rejects.toMatchObject({ status: 400, code: 'SIGNATURE_INVALID' })
+  })
+
+  it("an agency admin can't overwrite another user's signature (stripped, stored kept)", async () => {
+    const body = await gate(ADMIN, {
+      resource: 'user',
+      action: 'upsert',
+      id: 'u-agent',
+      data: { name: 'Agent', signature: SIG },
+    })
+    expect(body.data).not.toHaveProperty('signature')
+    expect(await metaOf(body)).not.toHaveProperty('signature')
+  })
+
+  it("a super admin can't overwrite another user's signature either", async () => {
+    const body = await gate(SA, { resource: 'user', action: 'upsert', id: 'u-t', data: { name: 'T', signature: SIG } })
+    expect(body.data).not.toHaveProperty('signature')
+    expect(await metaOf(body)).not.toHaveProperty('signature')
+    const clear = await gate(SA, { resource: 'user', action: 'upsert', id: 'u-t', data: { name: 'T', signature: null } })
+    expect(clear.data).not.toHaveProperty('signature')
+  })
+
+  it('a write that does not send signature keeps the stored one (no key written)', async () => {
+    const body = await gate(TENANT, { resource: 'user', action: 'upsert', id: 'u-t', data: { name: 'T', phone: '082' } })
+    expect(await metaOf(body)).not.toHaveProperty('signature')
+  })
+})

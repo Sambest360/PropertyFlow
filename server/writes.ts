@@ -15,6 +15,7 @@ import {
 import { SUB_FE_TO_UUID } from './idMap.js'
 import { resolveLiveListing } from './listingResolve.js'
 import { supabaseAuthConfigured } from './supabase/env.js'
+import { isValidSignatureDataUrl, signatureInvalidError } from '../src/lib/signature/signatureImage.js'
 
 export type PersistAction = 'upsert' | 'delete' | 'patch'
 export type PersistBody = {
@@ -545,6 +546,14 @@ async function upsertUser(feId: string, d: Record<string, unknown>): Promise<str
   if (d.verification && typeof d.verification === 'object') meta.verification = d.verification
   if (d.company) meta.company = d.company
   if (d.idNumberOrPassport) meta.idNumberOrPassport = d.idNumberOrPassport
+  // CR10: the user's own signature (the user write policy strips it from every
+  // non-self write). Absent keeps the stored value; null clears it; anything
+  // other than a PNG data URL within the cap is 400 SIGNATURE_INVALID.
+  if (Object.prototype.hasOwnProperty.call(d, 'signature') && d.signature !== undefined) {
+    if (d.signature === null) meta.signature = null
+    else if (isValidSignatureDataUrl(d.signature)) meta.signature = d.signature
+    else throw signatureInvalidError()
+  }
 
   const params: unknown[] = [
     uuid,
