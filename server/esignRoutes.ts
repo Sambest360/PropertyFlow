@@ -226,6 +226,9 @@ export async function esignStatus(c: Context) {
     docStatus: result.docStatus,
     status: result.mappedStatus,
     resultField: result.resultField,
+    // CR10 part 7: GetDocStatus returns no document URL and the signed-document
+    // endpoint is not confirmed in the partner docs, so no signed copy is offered.
+    signedPdfAvailable: false,
     note: 'Status from SigniFlow GetDocStatus only — not invented staff-click signed-live.',
   })
 }

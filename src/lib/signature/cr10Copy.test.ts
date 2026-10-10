@@ -18,6 +18,8 @@ export const CR10_FILES = [
   'src/lib/lease/signingRecord.ts',
   'src/lib/lease/providers.ts',
   'server/esignRoutes.ts',
+  'src/lib/lease/signedCopy.ts',
+  'src/components/lease/SignedCopyNote.tsx',
   'src/components/lease/LeaseSigningRecord.tsx',
 ]
 
