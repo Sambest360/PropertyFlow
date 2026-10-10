@@ -194,8 +194,8 @@ export async function registerSupabaseUserDirect(
     err.status = 400
     throw err
   }
-  if (!input.password || input.password.length < 8) {
-    const err = new Error('Password must be at least 8 characters') as Error & { status: number }
+  if (!input.password || input.password.length < 10) {
+    const err = new Error('Password must be at least 10 characters') as Error & { status: number }
     err.status = 400
     throw err
   }
@@ -341,8 +341,8 @@ export async function linkStaffAuthUser(input: LinkStaffAuthInput): Promise<Link
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     throw statusError('Valid email is required', 400)
   }
-  if (!input.password || input.password.length < 8) {
-    throw statusError('Password must be at least 8 characters', 400)
+  if (!input.password || input.password.length < 10) {
+    throw statusError('Password must be at least 10 characters', 400)
   }
   const roleFe = (input.roleFe || 'tenant').trim()
   if (!STAFF_MINT_ROLES.has(roleFe)) {

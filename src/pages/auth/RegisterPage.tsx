@@ -188,7 +188,7 @@ export default function RegisterPage() {
     if (!firstName.trim() || !lastName.trim()) return 'First name and surname are required'
     if (!email.trim() || !email.includes('@')) return 'Valid email is required'
     if (!bootstrapNeeded && !phone.trim()) return 'Phone number is required'
-    if (password.length < 8) return 'Password must be at least 8 characters'
+    if (password.length < 10) return 'Password must be at least 10 characters'
     if (password !== confirmPassword) return 'Passwords do not match'
     return null
   }

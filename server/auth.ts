@@ -16,6 +16,26 @@ import { ACTOR_AGENCY_HEADER, ACTOR_ROLE_HEADER, ACTOR_USER_HEADER } from './act
 const AUTH_COOKIE = 'pf_session'
 const TOKEN_TTL_SEC = 60 * 60 * 24 * 14 // 14 days
 
+/** Minimum length for every new password (register, change, temp passwords). */
+export const MIN_PASSWORD_LENGTH = 10
+
+/**
+ * D3 session revocation: a token issued before users.metadata.passwordChangedAt
+ * is no longer a session. A legacy token without iat is refused only once
+ * passwordChangedAt is set.
+ */
+export function tokenRevokedByPasswordChange(
+  iat: number | undefined,
+  metadata: Record<string, unknown> | null | undefined,
+): boolean {
+  const raw = metadata?.passwordChangedAt
+  if (typeof raw !== 'string' || !raw) return false
+  const changedMs = Date.parse(raw)
+  if (!Number.isFinite(changedMs)) return false
+  if (typeof iat !== 'number' || !Number.isFinite(iat)) return true
+  return iat * 1000 < changedMs
+}
+
 export type SessionUser = {
   id: string
   frontendId: string
@@ -32,6 +52,8 @@ export type SessionUser = {
   company?: string
   idNumberOrPassport?: string
   verification?: VerificationMeta | null
+  /** Set after a staff reset (temp password); cleared by change-password. */
+  mustChangePassword?: boolean
 }
 
 export type VerificationDocMeta = {
@@ -61,6 +83,8 @@ type JwtPayload = {
   role: string
   agency: string | null
   exp: number
+  /** Issued-at, NumericDate seconds (fractional, so ms precision). Older tokens have none. */
+  iat?: number
 }
 
 const ROLE_TO_DB: Record<string, string> = {
@@ -142,7 +166,7 @@ function splitName(full: string): { first: string; last: string } {
   return { first: parts[0], last: parts.slice(1).join(' ') }
 }
 
-type UserRow = {
+export type UserRow = {
   id: string
   email: string
   password_hash: string
@@ -156,7 +180,7 @@ type UserRow = {
   agency_fe: string | null
 }
 
-async function rowToSession(row: UserRow): Promise<SessionUser> {
+export async function rowToSession(row: UserRow): Promise<SessionUser> {
   const meta = row.metadata ?? {}
   // Session ids must live in the same id space as /api/bootstrap rows (the
   // client scopes by user.id / user.agencyId). Bootstrap maps users and
@@ -249,6 +273,7 @@ async function rowToSession(row: UserRow): Promise<SessionUser> {
           ? meta.idNumberOrPassport
           : undefined,
     verification,
+    mustChangePassword: meta.mustChangePassword === true,
   }
 }
 
@@ -266,7 +291,7 @@ async function findUserByEmail(email: string): Promise<UserRow | null> {
   return rows[0] ?? null
 }
 
-async function findUserById(id: string): Promise<UserRow | null> {
+export async function findUserById(id: string): Promise<UserRow | null> {
   const rows = await query<UserRow>(
     `SELECT u.id, u.email, u.password_hash, u.first_name, u.last_name, u.phone, u.role,
             u.active, u.client_id, u.metadata,
@@ -291,6 +316,7 @@ export function issueSession(c: Context, user: SessionUser): string {
     fe: user.frontendId,
     role: user.role,
     agency: user.agencyId,
+    iat: Date.now() / 1000,
     exp: Math.floor(Date.now() / 1000) + TOKEN_TTL_SEC,
   })
   setCookie(c, AUTH_COOKIE, token, {
@@ -312,13 +338,28 @@ export function readBearerOrCookie(c: Context): string | null {
   return getCookie(c, AUTH_COOKIE) ?? null
 }
 
-export async function resolveSessionUser(c: Context): Promise<SessionUser | null> {
+/** One session lookup per request (the D3 must-change gate and the route share it). */
+const sessionMemo = new WeakMap<Request, Promise<SessionUser | null>>()
+
+export function resolveSessionUser(c: Context): Promise<SessionUser | null> {
+  const raw = c.req.raw
+  const hit = sessionMemo.get(raw)
+  if (hit) return hit
+  const p = resolveSessionUserUncached(c)
+  sessionMemo.set(raw, p)
+  // A failed lookup is not cached, so a retry in the same request can succeed.
+  p.catch(() => sessionMemo.delete(raw))
+  return p
+}
+
+async function resolveSessionUserUncached(c: Context): Promise<SessionUser | null> {
   const token = readBearerOrCookie(c)
   if (!token) return null
   const payload = verifyToken(token)
   if (!payload) return null
   const row = await findUserById(payload.sub)
   if (!row || !row.active) return null
+  if (tokenRevokedByPasswordChange(payload.iat, row.metadata)) return null
   return rowToSession(row)
 }
 
@@ -398,8 +439,8 @@ export async function registerUser(input: RegisterInput): Promise<{ user: Sessio
     err.status = 400
     throw err
   }
-  if (!input.password || input.password.length < 8) {
-    const err = new Error('Password must be at least 8 characters') as Error & { status: number }
+  if (!input.password || input.password.length < MIN_PASSWORD_LENGTH) {
+    const err = new Error(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`) as Error & { status: number }
     err.status = 400
     throw err
   }
@@ -572,8 +613,8 @@ export async function changeUserPassword(opts: {
 }): Promise<SessionUser> {
   const fail = (status: number, message: string) =>
     Object.assign(new Error(message), { status }) as Error & { status: number }
-  if (!opts.newPassword || opts.newPassword.length < 8) {
-    throw fail(400, 'New password must be at least 8 characters')
+  if (!opts.newPassword || opts.newPassword.length < MIN_PASSWORD_LENGTH) {
+    throw fail(400, `New password must be at least ${MIN_PASSWORD_LENGTH} characters`)
   }
   if (opts.newPassword === opts.currentPassword) {
     throw fail(400, 'New password must differ from the current one')
@@ -588,10 +629,11 @@ export async function changeUserPassword(opts: {
   await query(
     `UPDATE users
         SET password_hash = $2,
-            metadata = COALESCE(metadata, '{}'::jsonb) || '{"mustChangePassword": false}'::jsonb,
+            metadata = COALESCE(metadata, '{}'::jsonb)
+              || jsonb_build_object('mustChangePassword', false, 'passwordChangedAt', $3::text),
             updated_at = NOW()
       WHERE id = $1::uuid`,
-    [row.id, hash],
+    [row.id, hash, new Date().toISOString()],
   )
   const refreshed = await findUserById(row.id)
   if (!refreshed) throw fail(500, 'User not found after update')
@@ -630,6 +672,7 @@ export function sessionToPublic(user: SessionUser) {
     company: user.company,
     idNumberOrPassport: user.idNumberOrPassport,
     verification: user.verification ?? undefined,
+    mustChangePassword: user.mustChangePassword === true,
   }
 }
 

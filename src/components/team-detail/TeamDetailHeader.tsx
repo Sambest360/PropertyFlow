@@ -4,9 +4,20 @@ import { ActionButtonRow } from '../ActionButtonRow'
 import { BackButton } from '../BackButton'
 import { Button } from '../ui'
 import { ImpersonateUserButton } from '../admin/ImpersonateUserButton'
+import { ResetPasswordButton } from '../admin/ResetPasswordButton'
+import { useAuth } from '../../context/AuthContext'
+import { isApiEnabled } from '../../lib/api/config'
+import { showPasswordResetEntry } from '../../lib/auth/passwordResetUi'
 import { ICON_STROKE } from './types'
 
 export function TeamDetailHeader({ user }: { user: AppUser }) {
+  const { has, realUser } = useAuth()
+  const canReset = showPasswordResetEntry({
+    hasUsersManage: has('users.manage'),
+    apiMode: isApiEnabled,
+    viewerId: realUser.id,
+    target: user,
+  })
   return (
     <div className="mb-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -30,6 +41,7 @@ export function TeamDetailHeader({ user }: { user: AppUser }) {
 
         <ActionButtonRow className="sm:w-auto">
           <ImpersonateUserButton target={user} />
+          {canReset ? <ResetPasswordButton userId={user.id} userName={user.name} /> : null}
           <Button
             variant="secondary"
             className="min-h-11"

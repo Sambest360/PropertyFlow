@@ -1,6 +1,8 @@
 import { Navigate, useLocation } from 'react-router-dom'
-import { useEffect, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import { useAuth } from '../context/AuthContext'
+
+const ForcedChangePasswordPage = lazy(() => import('../pages/account/ChangePasswordPage'))
 
 const AUTH_KEY = 'propertyflow-auth-user'
 /** Brief hold before /login when local identity remains after authReady. */
@@ -16,7 +18,7 @@ function readStoredAuthUserId(): string | null {
 
 /** Gates /workspace/* behind a real session. */
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const { isAuthenticated, authReady, loginInFlight } = useAuth()
+  const { isAuthenticated, authReady, loginInFlight, mustChangePassword } = useAuth()
   const location = useLocation()
   const [storedGraceDone, setStoredGraceDone] = useState(false)
 
@@ -59,6 +61,16 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     }
     const next = `${location.pathname}${location.search}`
     return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace state={{ from: next }} />
+  }
+
+  // D3: a session on a temporary password sees only the change screen; the
+  // server refuses everything else with 403 PASSWORD_CHANGE_REQUIRED.
+  if (mustChangePassword) {
+    return (
+      <Suspense fallback={null}>
+        <ForcedChangePasswordPage forced />
+      </Suspense>
+    )
   }
 
   return <>{children}</>

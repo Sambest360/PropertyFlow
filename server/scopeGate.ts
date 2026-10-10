@@ -636,7 +636,7 @@ export async function actorStoredCan(actor: DemoActor, perms: readonly Permissio
 }
 
 /** Does the actor (agency admin) hold users.manage, from their stored permissions? */
-async function actorHasUsersManage(actor: DemoActor): Promise<boolean> {
+export async function actorHasUsersManage(actor: DemoActor): Promise<boolean> {
   if (actor.role !== 'client_admin' && actor.role !== 'agent_admin') return false
   return actorStoredCan(actor, ['users.manage'])
 }
@@ -762,6 +762,13 @@ async function storedUserEmail(feId: string): Promise<string | null> {
   )
   const e = rows[0]?.email
   return typeof e === 'string' ? e.trim().toLowerCase() : null
+}
+
+/** Every new password (incl. a temp password on create) has at least 10 characters. */
+function assertTempPasswordLength(value: unknown): void {
+  if (typeof value === 'string' && value !== '' && value.length < 10) {
+    throw Object.assign(new Error('Temporary password must be at least 10 characters'), { status: 400 })
+  }
 }
 
 function stripFields(data: Record<string, unknown>, keys: readonly string[]): void {
@@ -898,6 +905,11 @@ export async function enforceUserWritePolicy(
     if (role !== undefined && !ALL_ROLES.has(role)) {
       throw Object.assign(new Error(`Unknown role: ${role}`), { status: 400 })
     }
+    // D3: no hash ever passes through persist, and an existing user's password
+    // changes only through change-password / reset-password.
+    stripFields(data, ['passwordHash'])
+    if (existing) stripFields(data, ['password', 'tempPassword'])
+    else assertTempPasswordLength(data.tempPassword ?? data.password)
     return
   }
   if (body.action === 'delete') throw deny('only a super admin may delete users')
@@ -930,7 +942,10 @@ export async function enforceUserWritePolicy(
     } else if (!existing) {
       data.agencyId = actor.agencyId
     }
-    if (!existing && createTempPassword) data.tempPassword = createTempPassword
+    if (!existing && createTempPassword) {
+      assertTempPasswordLength(createTempPassword)
+      data.tempPassword = createTempPassword
+    }
     if (!existing && role !== undefined && VERIFIED_ROLES.has(role)) {
       data.verification = pendingVerificationForCreate(submittedVerification)
     }

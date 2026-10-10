@@ -177,6 +177,10 @@ type AuthContextValue = {
   roleLabel: string
   roleBlurb: string
   usersForSwitcher: AppUser[]
+  /** D3: the session must change its password (after a staff reset) before anything else. */
+  mustChangePassword: boolean
+  /** D3: call after a successful change-password; loads the workspace. */
+  completePasswordChange: () => void
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -192,6 +196,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const releaseRequestedGen = useRef<number | null>(null)
   const [userId, setUserId] = useState(() => localStorage.getItem(AUTH_KEY) || '')
   const [realUserId, setRealUserId] = useState<string | null>(() => localStorage.getItem(REAL_AUTH_KEY))
+  const [mustChangePassword, setMustChangePassword] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -245,6 +250,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       const me = await apiMe()
       if (cancelled) return
+      setMustChangePassword(me?.mustChangePassword === true)
       if (me) {
         const appUser = dtoToAppUser(me)
         applySessionUser(appUser, setSessionUser, setUserId, setRealUserId)
@@ -487,15 +493,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
           const res = await apiLogin({ email, password })
           const appUser = dtoToAppUser(res.user)
+          const mustChange = res.user.mustChangePassword === true
+          setMustChangePassword(mustChange)
           setSessionUser(appUser)
           setUserId(appUser.id)
           setRealUserId(null)
           syncActorFromUser(res.user)
-          void refreshBootstrap({
-            userId: appUser.id,
-            role: appUser.role,
-            agencyId: appUser.agencyId,
-          })
+          // D3: the server refuses bootstrap until the password is changed.
+          if (!mustChange) {
+            void refreshBootstrap({
+              userId: appUser.id,
+              role: appUser.role,
+              agencyId: appUser.agencyId,
+            })
+          }
           if (loginHoldGen.current === holdGen) {
             releaseRequestedGen.current = holdGen
             releaseLoginHold()
@@ -568,6 +579,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         clearSessionArtifacts({ setSessionUser, setUserId, setRealUserId })
         setApiActor(null)
+        setMustChangePassword(false)
       },
       purgeLocalIdentity: async () => {
         // P0-session (R8): the full anonymous wipe shared by logout and the
@@ -639,6 +651,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       hasAny,
       roleLabel: isAuthenticated ? roleLabels[user.role] : 'Guest',
       roleBlurb: isAuthenticated ? roleBlurbs[user.role] : 'Sign in to manage properties',
+      mustChangePassword,
+      completePasswordChange: () => {
+        setMustChangePassword(false)
+        if (isAuthenticated && user.id !== 'guest') {
+          void refreshBootstrap({ userId: user.id, role: user.role, agencyId: user.agencyId })
+        }
+      },
       usersForSwitcher: DEMO_SWITCHER
         ? state.users.filter((u) => {
             if (!u.active) return false
@@ -667,6 +686,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loginInFlight,
     refreshBootstrap,
     releaseLoginHold,
+    mustChangePassword,
   ])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

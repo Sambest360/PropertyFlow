@@ -675,7 +675,7 @@ describe('Jim B7: password change goes through a route that checks the current p
     expect(res.status).toBe(200)
     const upd = db.writes.find((w) => w.startsWith('UPDATE users SET password_hash = $2'))
     expect(upd).toBeTruthy()
-    expect(upd).toContain('"mustChangePassword": false')
+    expect(upd).toContain("'mustChangePassword', false")
   })
 
   it('a short new password is a 400', async () => {
