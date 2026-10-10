@@ -642,3 +642,19 @@ describe('CR10 N3: a staff stamp is undone if the main upsert fails', () => {
     expect(body.signUndo).toBeUndefined()
   })
 })
+
+describe('CR10 N5: client eSign never carries signedPdfUrl / signedPdfDocumentId', () => {
+  it('same envelope: client values are dropped, stored ones kept; new envelope: dropped', async () => {
+    const { enforceStaffTenancyESign } = await import('./leaseSign.js')
+    leaseESign = { ...baseESign(), signedPdfUrl: 'https://real.example/signed.pdf' }
+    const same = { id: 'L-1', action: 'upsert', data: { eSign: { ...baseESign(), signedPdfUrl: 'https://evil.example/x.pdf', signedPdfDocumentId: 'D-forged' } } as Record<string, unknown> }
+    await enforceStaffTenancyESign(STAFF as never, same)
+    expect(same.data.eSign).toMatchObject({ signedPdfUrl: 'https://real.example/signed.pdf' })
+    expect(same.data.eSign).not.toHaveProperty('signedPdfDocumentId')
+    leaseESign = baseESign()
+    const fresh = { id: 'L-1', action: 'upsert', data: { eSign: { ...baseESign(), envelopeId: 'ENV-7', signedPdfUrl: 'https://evil.example/x.pdf', signedPdfDocumentId: 'D' } } as Record<string, unknown> }
+    await enforceStaffTenancyESign(STAFF as never, fresh)
+    expect(fresh.data.eSign).not.toHaveProperty('signedPdfUrl')
+    expect(fresh.data.eSign).not.toHaveProperty('signedPdfDocumentId')
+  })
+})

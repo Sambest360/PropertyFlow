@@ -393,6 +393,14 @@ async function insertLeaseSignedEvent(
 
 const PARTY_KEYS: SignPartyKey[] = ['tenant', 'landlord']
 
+/** CR10 N5: drop the server-owned signed copy fields from client eSign data. */
+export function stripClientSignedCopy(eSign: Row): Row {
+  const { signedPdfUrl: _u, signedPdfDocumentId: _d, ...rest } = eSign
+  void _u
+  void _d
+  return rest
+}
+
 /** CR10 N3: what a staff stamp wrote, so it can be undone if the main upsert fails. */
 export type StaffStampUndo = { leaseUuid: string; prevESign: Row; eventIds: string[] }
 
@@ -447,7 +455,9 @@ export async function enforceStaffTenancyESign(
     if (stored) data.eSign = stored
     return
   }
-  const sent = asRow(data.eSign)
+  const sentRaw = asRow(data.eSign)
+  // CR10 N5: the signed copy fields are server-owned; a client never sets them.
+  const sent = sentRaw ? stripClientSignedCopy(sentRaw) : null
   if (!sent) {
     if (stored) data.eSign = stored // never wiped by a staff save
     return
@@ -494,5 +504,7 @@ export async function enforceStaffTenancyESign(
     landlord: current.landlord ?? null,
     status: current.status,
     ...(current.completedEmailSentAt ? { completedEmailSentAt: current.completedEmailSentAt } : {}),
+    ...(typeof current.signedPdfUrl === 'string' ? { signedPdfUrl: current.signedPdfUrl } : {}),
+    ...(typeof current.signedPdfDocumentId === 'string' ? { signedPdfDocumentId: current.signedPdfDocumentId } : {}),
   }
 }
