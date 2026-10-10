@@ -1,10 +1,11 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { AUTH_USER_STORAGE_KEY } from '../lib/clientCache'
 
 const ForcedChangePasswordPage = lazy(() => import('../pages/account/ChangePasswordPage'))
 
-const AUTH_KEY = 'propertyflow-auth-user'
+const AUTH_KEY = AUTH_USER_STORAGE_KEY
 /** Brief hold before /login when local identity remains after authReady. */
 const STORED_IDENTITY_GRACE_MS = 6_000
 

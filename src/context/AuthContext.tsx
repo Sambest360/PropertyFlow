@@ -16,6 +16,7 @@ import {
   type AuthUserDto,
 } from '../lib/api/authClient'
 import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
+import { sessionUserSwitched } from '../lib/clientCache'
 import { shouldSkipAuthBootstrapRefresh } from '../lib/bootstrapCoord'
 import { blockedPropertyIdsForApplicant } from '../lib/blockedApplicants'
 import { effectiveCan, roleLabels, roleBlurbs } from '../lib/permissions'
@@ -60,8 +61,9 @@ import {
   setRegisterInFlight,
   shieldGuestPurgeForLogin,
 } from '../lib/auth/sessionArtifacts'
+import { AUTH_USER_STORAGE_KEY } from '../lib/clientCache'
 
-const AUTH_KEY = 'propertyflow-auth-user'
+const AUTH_KEY = AUTH_USER_STORAGE_KEY
 const REAL_AUTH_KEY = 'propertyflow-auth-real-user'
 const DEMO_SWITCHER = import.meta.env.VITE_DEMO_SWITCHER === '1'
 
@@ -186,7 +188,7 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const { state, addActivity, refreshBootstrap } = useStore()
+  const { state, addActivity, refreshBootstrap, resetForUserSwitch } = useStore()
   const [authReady, setAuthReady] = useState(false)
   const [sessionUser, setSessionUser] = useState<AppUser | null>(null)
   // remint58 grace2: React mirror of the module loginInFlight flag so
@@ -378,6 +380,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       agencyId: user.agencyId,
     })
   }, [isAuthenticated, user.id, user.role, user.agencyId])
+
+  // spec-portal-first-load: when the signed-in session user changes (A → B),
+  // drop A's in-memory store before B's bootstrap lands. Impersonation keeps the
+  // same session user and is not a switch.
+  const lastSessionUserIdRef = useRef<string | null>(sessionUser?.id ?? null)
+  useEffect(() => {
+    if (!isApiEnabled && !isSupabaseMode) return // demo mode: as on main
+    const next = sessionUser?.id ?? null
+    const prev = lastSessionUserIdRef.current
+    if (sessionUserSwitched(prev, next)) resetForUserSwitch()
+    if (next) lastSessionUserIdRef.current = next
+  }, [sessionUser?.id, resetForUserSwitch])
 
   useEffect(() => {
     if (!isApiEnabled && !isSupabaseMode) return
