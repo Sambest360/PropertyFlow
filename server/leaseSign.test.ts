@@ -528,3 +528,17 @@ describe('CR10 fix 6 / B3: staff modal sign with no envelope = issue, then serve
     expect(clientCalls.filter((c) => c.sql.includes("'lease_signed'"))).toHaveLength(1)
   })
 })
+
+describe('CR10 B1: enforceStaffTenancyESign gates every non-delete action', () => {
+  it('a staff patch with a forged signed tenant block is refused', async () => {
+    const { enforceStaffTenancyESign } = await import('./leaseSign.js')
+    await expect(
+      enforceStaffTenancyESign(STAFF as never, {
+        id: 'L-1',
+        action: 'patch',
+        data: { eSign: { ...baseESign(), tenant: { status: 'signed', method: 'drawn', signatureDataUrl: PNG } } },
+      }),
+    ).rejects.toMatchObject({ status: 403, code: 'SIGNATURE_NOT_SIGNER' })
+    expect(updates()).toHaveLength(0)
+  })
+})

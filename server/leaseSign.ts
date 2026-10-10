@@ -388,7 +388,8 @@ export async function enforceStaffTenancyESign(
   actor: DemoActor,
   body: { id: string; action: string; data?: Record<string, unknown>; requestMeta?: RequestMeta },
 ): Promise<void> {
-  if (body.action !== 'upsert') return
+  // CR10 B1: early return on delete only; any other action is gated as an upsert.
+  if (body.action === 'delete') return
   const data = (body.data ?? {}) as Row
   const leaseUuid = await resolveUuid('tenancy', body.id)
   const lease = leaseUuid ? await loadLeaseForSign(leaseUuid) : null

@@ -483,3 +483,19 @@ describe('impersonation is audited', () => {
     expect(logs()).toHaveLength(0)
   })
 })
+
+describe('CR10 B1: action patch never skips the eSign gate', () => {
+  const forged = { id: 'TN-mine', eSign: { envelopeId: 'SF-111', status: 'completed', tenant: { status: 'signed', signatureDataUrl: 'data:image/png;base64,AAAA' } } }
+  it('a staff patch alone is 400 and writes nothing', async () => {
+    const res = await post('/api/persist', auth('u-james'), { resource: 'tenancy', action: 'patch', id: 'TN-mine', data: forged })
+    expect(res.status).toBe(400)
+    expect(db.writes.filter((w) => /leases/i.test(w.sql))).toHaveLength(0)
+  })
+  it('a patch inside a batch is 400 and writes nothing', async () => {
+    const res = await post('/api/persist/batch', auth('u-admin'), {
+      ops: [{ resource: 'tenancy', action: 'patch', id: 'TN-mine', data: forged }],
+    })
+    expect(res.status).toBe(400)
+    expect(db.writes.filter((w) => /leases/i.test(w.sql))).toHaveLength(0)
+  })
+})

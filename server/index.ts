@@ -164,6 +164,10 @@ async function requireActor(
 async function requireActorAndGate(c: Parameters<typeof parseDemoActor>[0], body: PersistBody) {
   const raw = await resolveRequestActor(c, body as unknown as Record<string, unknown>)
   if (!raw) throw actorRequiredError()
+  // CR10 B1: refuse unknown actions before the gate (single and batch).
+  if (body.action !== 'upsert' && body.action !== 'delete') {
+    throw Object.assign(new Error(`Unsupported persist action: ${String(body.action)}`), { status: 400, code: 'PERSIST_ACTION_INVALID' })
+  }
   // CR10: request facts for the sign stamp are always set here, never taken
   // from the client body.
   body.requestMeta = {

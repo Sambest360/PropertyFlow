@@ -343,6 +343,11 @@ export async function handlePersist(body: PersistBody): Promise<{ ok: true; id: 
     throw Object.assign(new Error('resource, action, and id are required'), { status: 400 })
   }
 
+  // CR10 B1: only upsert and delete exist. Anything else (e.g. 'patch') is a
+  // 400 — it must never fall through to the upsert and skip the eSign gate.
+  if (action !== 'upsert' && action !== 'delete') {
+    throw Object.assign(new Error(`Unsupported persist action: ${String(action)}`), { status: 400, code: 'PERSIST_ACTION_INVALID' })
+  }
   if (action === 'delete') {
     await deleteEntity(resource, id)
     return { ok: true, id, uuid: (await resolveUuid(resource, id)) ?? id }
