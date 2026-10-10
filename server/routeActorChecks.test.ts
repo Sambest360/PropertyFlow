@@ -611,6 +611,16 @@ describe('CR10 gate (Angela): no skip-ahead past the signing stages without the 
     }
     expect(appWrites()).toHaveLength(0)
   })
+  it('a completed envelope with no landlord part meets landlord_signed: deposit_invoice_sent passes', async () => {
+    db.appWorkflow[APP1] = 'tenant_signed'
+    db.appLeaseESign = { envelopeId: 'SF-1', status: 'completed', tenant: { status: 'signed' }, landlord: null }
+    expect(await passes(await post('/api/persist', auth('u-admin'), save('deposit_invoice_sent')))).toBe(true)
+  })
+  it('tenant-only (partially_signed) with no landlord part still gets 409', async () => {
+    db.appWorkflow[APP1] = 'tenant_signed'
+    db.appLeaseESign = { envelopeId: 'SF-1', status: 'partially_signed', tenant: { status: 'signed' }, landlord: null }
+    expect(await notRecorded(await post('/api/persist', auth('u-admin'), save('deposit_invoice_sent')))).toBe(true)
+  })
   it('terminal stages are not gated', async () => {
     db.appWorkflow[APP1] = 'lease_sent'
     expect(await passes(await post('/api/persist', auth('u-admin'), save('withdrawn')))).toBe(true)
