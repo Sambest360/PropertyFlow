@@ -36,6 +36,13 @@ const UUID: Record<string, string> = {
   'ag-b': 'client-b',
   'L-1': 'lease-1',
 }
+const sendLeaseSignedEmail = vi.fn()
+let emailFlag = false
+vi.mock('./mailtrap.js', () => ({
+  isEmailLeaseSignedEnabled: () => emailFlag,
+  sendLeaseSignedEmail: (...a: unknown[]) => sendLeaseSignedEmail(...a),
+}))
+
 vi.mock('./entityMap.js', () => ({
   resolveUuid: async (_t: string, fe: string) => UUID[fe] ?? null,
 }))
@@ -58,6 +65,9 @@ function baseESign(): Record<string, unknown> {
 }
 
 beforeEach(() => {
+  emailFlag = false
+  sendLeaseSignedEmail.mockReset()
+  sendLeaseSignedEmail.mockResolvedValue({ sent: true })
   clientCalls.length = 0
   failOnUpdate = false
   leaseESign = baseESign()
@@ -72,6 +82,19 @@ beforeEach(() => {
           tenant_id: 'uuid-t',
           landlord_id: 'uuid-ll',
           metadata: { eSign: leaseESign },
+        },
+      ]
+    }
+    if (sql.includes('AS tenant_email')) {
+      return [
+        {
+          tenant_email: 't@x.test',
+          tenant_name: 'Tess',
+          landlord_email: 'l@x.test',
+          landlord_name: 'Lerato',
+          agent_email: 'a@x.test',
+          agent_name: 'Agent',
+          property_title: '12 Oak St',
         },
       ]
     }
@@ -407,5 +430,54 @@ describe('CR10 part 6: sign after reload (mock) writes exactly one lease_signed 
     await enforceStaffTenancyESign(STAFF as never, body)
     expect(clientCalls.filter((c) => c.sql.includes("'lease_signed'"))).toHaveLength(1)
     expect((body.data.eSign as Record<string, unknown>).status).toBe('completed')
+  })
+})
+
+describe('CR10 part 8: lease-signed email', () => {
+  const flush = () => new Promise((r) => setTimeout(r, 0))
+  const signLandlordToComplete = async () => {
+    leaseESign = { ...baseESign(), status: 'partially_signed', tenant: { status: 'signed', signerUserId: 'u-t' } }
+    return stamp(LANDLORD, 'landlord', { status: 'signed', method: 'drawn', signatureDataUrl: PNG })
+  }
+
+  it('goes once on completed, to the tenant and the landlord, with plain copy inputs', async () => {
+    emailFlag = true
+    const res = await signLandlordToComplete()
+    await flush()
+    expect(res.completedNow).toBe(true)
+    expect(sendLeaseSignedEmail).toHaveBeenCalledTimes(2)
+    expect(sendLeaseSignedEmail.mock.calls.map((c) => (c[0] as { to: string }).to)).toEqual(['t@x.test', 'l@x.test'])
+    expect(sendLeaseSignedEmail.mock.calls[0][0]).toMatchObject({ propertyTitle: '12 Oak St' })
+    expect(storedAfter()).toHaveProperty('completedEmailSentAt')
+  })
+
+  it('never on a partial signing', async () => {
+    emailFlag = true
+    await stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', signatureDataUrl: PNG })
+    await flush()
+    expect(sendLeaseSignedEmail).not.toHaveBeenCalled()
+  })
+
+  it('not again once the sent flag is set', async () => {
+    emailFlag = true
+    leaseESign = { ...baseESign(), status: 'partially_signed', completedEmailSentAt: '2026-10-10T00:00:00Z', tenant: { status: 'signed' } }
+    await stamp(LANDLORD, 'landlord', { status: 'signed', method: 'drawn', signatureDataUrl: PNG })
+    await flush()
+    expect(sendLeaseSignedEmail).not.toHaveBeenCalled()
+  })
+
+  it('a send failure does not fail the signing', async () => {
+    emailFlag = true
+    sendLeaseSignedEmail.mockRejectedValue(new Error('smtp down'))
+    const res = await signLandlordToComplete()
+    await flush()
+    expect(res.signed).toBe(true)
+    expect(clientCalls.filter((c) => c.sql.includes("'lease_signed'"))).toHaveLength(1)
+  })
+
+  it('flag off (default): no email', async () => {
+    await signLandlordToComplete()
+    await flush()
+    expect(sendLeaseSignedEmail).not.toHaveBeenCalled()
   })
 })

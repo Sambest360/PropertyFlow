@@ -493,3 +493,31 @@ export async function sendDunningNoticeEmail(input: {
     ),
   })
 }
+
+/** CR10 part 8: lease-signed email, off by default (ENABLE_EMAIL_LEASE_SIGNED). */
+export function isEmailLeaseSignedEnabled(): boolean {
+  const raw = (process.env.ENABLE_EMAIL_LEASE_SIGNED ?? '').trim().toLowerCase()
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
+}
+
+/** Plain copy, no legal claims: "Your lease for <property> has been signed by all parties." */
+export async function sendLeaseSignedEmail(input: {
+  to: string
+  name?: string | null
+  propertyTitle: string
+  leaseLink: string
+}): Promise<MailtrapSendResult> {
+  if (!isEmailLeaseSignedEnabled()) {
+    return { sent: false, reason: 'ENABLE_EMAIL_LEASE_SIGNED off (default)' }
+  }
+  const subject = 'Your lease has been signed'
+  const body = `Your lease for ${input.propertyTitle} has been signed by all parties. You can view it in PropertyFlow: ${input.leaseLink}.`
+  return sendMailtrapEmail({
+    to: input.to,
+    toName: input.name ?? undefined,
+    subject,
+    category: 'lease-signed',
+    text: body,
+    html: shell(subject, (input.name ? p(`Hi <strong>${input.name}</strong>,`) : '') + p(body)),
+  })
+}

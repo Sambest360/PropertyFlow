@@ -205,6 +205,10 @@ export async function stampLeaseSignature(input: StampInput): Promise<StampResul
   const merged: Row = { ...stored, [party]: nextParty, [other]: stored[other] ?? null }
   merged.status = envelopeStatus(String(stored.status ?? 'sent'), asRow(merged.tenant), asRow(merged.landlord))
   const completedNow = merged.status === 'completed' && stored.status !== 'completed'
+  // Part 8: once per envelope. The sent flag is set in the same UPDATE that
+  // reaches completed; a later write never sends again.
+  const sendCompletedEmail = completedNow && !stored.completedEmailSentAt
+  if (sendCompletedEmail) merged.completedEmailSentAt = at
 
   const accepted = status === 'signed'
   await withTransaction(async (client) => {
@@ -234,7 +238,61 @@ export async function stampLeaseSignature(input: StampInput): Promise<StampResul
       })
     }
   })
+  if (sendCompletedEmail) {
+    // Best effort, after COMMIT: never blocks or rolls back the signing.
+    void notifyLeaseCompleted(lease, input.tenancyFeId).catch(() => undefined)
+  }
   return { eSign: merged, signed: accepted, completedNow }
+}
+
+/** Part 8: "signed by all parties" email to the tenant and the landlord (or the lease's agent). */
+export async function notifyLeaseCompleted(lease: LeaseSignRow, tenancyFeId: string): Promise<number> {
+  const { isEmailLeaseSignedEnabled, sendLeaseSignedEmail } = await import('./mailtrap.js')
+  if (!isEmailLeaseSignedEnabled()) return 0
+  try {
+    const rows = await query<{
+      tenant_email: string | null
+      tenant_name: string | null
+      landlord_email: string | null
+      landlord_name: string | null
+      agent_email: string | null
+      agent_name: string | null
+      property_title: string | null
+    }>(
+      `SELECT t.email AS tenant_email, NULLIF(TRIM(CONCAT_WS(' ', t.first_name, t.last_name)), '') AS tenant_name,
+              ll.email AS landlord_email, NULLIF(TRIM(CONCAT_WS(' ', ll.first_name, ll.last_name)), '') AS landlord_name,
+              ag.email AS agent_email, NULLIF(TRIM(CONCAT_WS(' ', ag.first_name, ag.last_name)), '') AS agent_name,
+              COALESCE(un.title, un.unit_number::text) AS property_title
+         FROM leases l
+         LEFT JOIN users t ON t.id = l.tenant_id
+         LEFT JOIN users ll ON ll.id = l.landlord_id
+         LEFT JOIN users ag ON ag.id = l.agent_id
+         LEFT JOIN units un ON un.id = l.unit_id
+        WHERE l.id = $1::uuid`,
+      [lease.id],
+    )
+    const r = rows[0]
+    if (!r) return 0
+    const base = (process.env.PUBLIC_APP_URL || process.env.PAYFAST_PUBLIC_URL || '').replace(/\/+$/, '')
+    const leaseLink = `${base}/workspace/people/leases?lease=${encodeURIComponent(tenancyFeId)}`
+    const propertyTitle = r.property_title || 'your property'
+    const to: Array<{ email: string; name: string | null }> = []
+    if (r.tenant_email) to.push({ email: r.tenant_email, name: r.tenant_name })
+    if (r.landlord_email) to.push({ email: r.landlord_email, name: r.landlord_name })
+    else if (r.agent_email) to.push({ email: r.agent_email, name: r.agent_name })
+    let sent = 0
+    for (const x of to) {
+      try {
+        const res = await sendLeaseSignedEmail({ to: x.email, name: x.name, propertyTitle, leaseLink })
+        if (res.sent) sent++
+      } catch {
+        /* best effort */
+      }
+    }
+    return sent
+  } catch {
+    return 0
+  }
 }
 
 export type LeaseSignedPayload = {
