@@ -867,3 +867,18 @@ describe('tenant maintenance tickets: tenancy link and no-agency tenants', () =>
     await expect(gate(STAFF, { resource: 'ticket', action: 'upsert', id: 'TK-new', data: { propertyId: 'p-1', agencyId: 'ag-zzz', title: 'x' } })).resolves.toEqual({})
   })
 })
+
+describe('staff ticket photos: a tenant save cannot change them', () => {
+  it("a tenant saving their own ticket keeps the stored (staff) photos", async () => {
+    for (const data of [
+      { propertyId: 'p-1', reportedByUserId: 'u-t', title: 'Leak', photoUrls: [] },
+      { propertyId: 'p-1', reportedByUserId: 'u-t', title: 'Leak', photos: [] },
+      { propertyId: 'p-1', reportedByUserId: 'u-t', title: 'Leak', photoUrls: ['https://evil.example/x.jpg'], photos: 1 },
+    ]) {
+      const body: Body = { resource: 'ticket', action: 'upsert', id: 'TK-mine', data }
+      await expect(gate(TENANT, body)).resolves.toEqual({})
+      expect(body.data).not.toHaveProperty('photoUrls')
+      expect(body.data).not.toHaveProperty('photos')
+    }
+  })
+})

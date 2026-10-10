@@ -1194,6 +1194,11 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     assignedAgentId: mapUser(t.assigned_to as string | null),
     cost: t.cost_actual != null ? Number(t.cost_actual) : t.cost_estimate != null ? Number(t.cost_estimate) : 0,
     photos: Array.isArray(t.photos) ? (t.photos as unknown[]).length : 0,
+    // Stored photo URLs (data:image or http(s)); the tenant view keeps them on
+    // the tenant's own reports only, so the rule holds after a reload.
+    photoUrls: Array.isArray(t.photos)
+      ? (t.photos as unknown[]).filter((u): u is string => typeof u === 'string' && u !== '')
+      : ([] as string[]),
     openedAt: dateOnly(t.created_at as Date),
     openedAtIso: iso(t.created_at as Date),
     description: t.description as string,

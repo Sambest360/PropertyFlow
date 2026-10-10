@@ -175,10 +175,10 @@ async function requireActorAndGate(c: Parameters<typeof parseDemoActor>[0], body
 
 /** Gate, then the generic upsert unless the gate already did a narrow rewrite. */
 async function gatedPersist(c: Parameters<typeof parseDemoActor>[0], body: PersistBody) {
-  const { handled } = await requireActorAndGate(c, body)
+  const { actor, handled } = await requireActorAndGate(c, body)
   if (handled) return handled
   const { handlePersist } = await loadWritesModule()
-  return handlePersist(body)
+  return handlePersist(body, actor.userId)
 }
 
 /**

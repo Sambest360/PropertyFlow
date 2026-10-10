@@ -4,6 +4,7 @@ import type { InternalAsset, LookupConfig } from '../../data/infrastructure'
 import type { MaintenanceTicket } from '../../types/domain'
 import { PropertySearchPicker } from '../PropertySearchPicker'
 import { ImageDropzone } from '../ImageDropzone'
+import { checkTicketPhotos } from '../../lib/photoLimits'
 import { ContractorPicker } from '../contractors/ContractorPicker'
 import { Input, Select, Textarea, cn } from '../ui'
 
@@ -124,12 +125,22 @@ export function MaintenanceTicketForm({
   )
   const linkedTenancyId = tenancyOptions.some((t) => t.id === tenancyId) ? tenancyId : ''
 
+  const [photoError, setPhotoError] = useState<string | null>(null)
+
   const toggleTag = (tag: string) => {
     setIssueTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]))
   }
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
+    // Same rule as the server (TICKET_PHOTO_INVALID): JPEG / PNG / WebP,
+    // 600 KB each, 3 MB total. Refuse here rather than lose the save.
+    const photoCheck = checkTicketPhotos(photoUrls)
+    if (photoCheck.ok === false) {
+      setPhotoError(`Photos not saved: ${photoCheck.reason}. Remove that photo and try again.`)
+      return
+    }
+    setPhotoError(null)
     if (mode === 'create') {
       if (!title.trim() || !propertyId) return
       onSubmitCreate?.({
@@ -366,8 +377,13 @@ export function MaintenanceTicketForm({
           onChange={setPhotoUrls}
           max={8}
           label="Issue photos"
-          hint="Upload clear photos of the fault, damage, or meter readings"
+          hint="Upload clear photos of the fault, damage, or meter readings (JPEG, PNG or WebP, up to 600 KB each)"
         />
+        {photoError ? (
+          <p role="alert" className="mt-2 text-sm text-accent-800">
+            {photoError}
+          </p>
+        ) : null}
       </div>
 
       {error ? (
