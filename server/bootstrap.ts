@@ -1005,6 +1005,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
       role: typeof p.role === 'string' ? p.role : null,
       method: typeof p.method === 'string' ? p.method : null,
       onBehalf: p.on_behalf === true,
+      outcome: p.outcome === 'declined' ? ('declined' as const) : ('signed' as const),
       onBehalfConfirmation: typeof p.on_behalf_confirmation === 'string' ? p.on_behalf_confirmation : null,
       imageSha256: typeof p.image_sha256 === 'string' ? p.image_sha256 : null,
       signedAt: typeof p.signed_at === 'string' ? p.signed_at : iso(e.created_at as Date),

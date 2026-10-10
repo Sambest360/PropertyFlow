@@ -673,3 +673,12 @@ describe('CR10 N5: client eSign never carries signedPdfUrl / signedPdfDocumentId
     expect(fresh.data.eSign).not.toHaveProperty('signedPdfDocumentId')
   })
 })
+
+describe('CR10 N7: a paper_mark decline writes its audit row', () => {
+  it('staff marking the paper lease declined writes exactly one lease_signed row with outcome declined', async () => {
+    await stamp(STAFF, 'tenant', { status: 'declined', method: 'paper_mark' })
+    const rows = clientCalls.filter((c) => c.sql.includes("'lease_signed'"))
+    expect(rows).toHaveLength(1)
+    expect(JSON.parse(String(rows[0].params[4]))).toMatchObject({ outcome: 'declined', method: 'paper_mark', party: 'tenant' })
+  })
+})

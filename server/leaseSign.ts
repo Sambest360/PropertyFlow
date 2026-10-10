@@ -216,6 +216,8 @@ export async function stampLeaseSignature(input: StampInput): Promise<StampResul
   if (sendCompletedEmail) merged.completedEmailSentAt = at
 
   const accepted = status === 'signed'
+  // CR10 N7: a paper decline is a recorded outcome too — it writes its audit row.
+  const auditDecline = status === 'declined' && method === 'paper_mark'
   let eventId: string | null = null
   await withTransaction(async (client) => {
     // CR10 N1: lock the lease row for this signing and re-check the stored
@@ -242,8 +244,9 @@ export async function stampLeaseSignature(input: StampInput): Promise<StampResul
         WHERE id = $1::uuid`,
       [lease.id, JSON.stringify(merged)],
     )
-    if (accepted) {
+    if (accepted || auditDecline) {
       eventId = await insertLeaseSignedEvent(client, {
+        outcome: accepted ? 'signed' : 'declined',
         lease,
         tenancyFeId: input.tenancyFeId,
         envelopeId: String(stored.envelopeId),
@@ -336,6 +339,8 @@ export type LeaseSignedPayload = {
   signed_at: string
   ip: string | null
   user_agent: string | null
+  /** CR10 N7: 'signed' (default) or 'declined' (paper decline, still audited). */
+  outcome?: 'signed' | 'declined'
 }
 
 /** Event type of the server-written signing audit row. Clients can never persist it. */
@@ -369,6 +374,7 @@ async function insertLeaseSignedEvent(
     at: string
     ip: string | null
     userAgent: string | null
+    outcome?: 'signed' | 'declined'
   },
 ): Promise<string> {
   const payload: LeaseSignedPayload = {
@@ -385,6 +391,7 @@ async function insertLeaseSignedEvent(
     signed_at: e.at,
     ip: e.ip,
     user_agent: e.userAgent,
+    outcome: e.outcome ?? 'signed',
   }
   const eventId = randomUUID()
   await clientQuery(
