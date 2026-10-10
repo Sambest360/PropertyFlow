@@ -856,6 +856,12 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
       deposit: Number(l.deposit_amount),
       rentDueDay: Math.min(28, Math.max(1, Number(l.rent_due_day) || 1)),
       status: (l.status as string) === 'ACTIVE' ? ('Active' as const) : ('Pending Move-In' as const),
+      leaseStatus: String(l.status ?? '').toLowerCase() as
+        | 'pending'
+        | 'active'
+        | 'notice'
+        | 'ended'
+        | 'cancelled',
       keyCollection,
       leaseDocumentId: (meta.leaseDocumentId as string | null | undefined) ?? null,
       leasePdfUrl: (meta.leasePdfUrl as string | null | undefined) ?? null,
@@ -1177,6 +1183,10 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     assetLabel: undefined as string | undefined,
     reportedBy: 'Reporter',
     reportedByUserId: mapUser(t.reported_by as string | null),
+    // Tenancy link (lease_id), same FE id form as the tenancies list.
+    tenancyId: t.lease_id
+      ? mappedFe('tenancy', t.lease_id as string, LEASE_IDS[t.lease_id as string] ?? (t.lease_id as string))
+      : (null as string | null),
     title: t.title as string,
     priority: ticketPriority(t.priority as string),
     status: ticketStatus(t.status as string),

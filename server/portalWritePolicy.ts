@@ -49,6 +49,7 @@
  */
 import { query } from './db.js'
 import { ensureUuid, resolveUuid } from './entityMap.js'
+import { leaseFeId, tenantOwnLeaseFeOnUnit } from './ticketLease.js'
 import { SEED_VENDOR_ROUTES, resolvePreferredVendor } from '../src/lib/maintenanceApi.js'
 import { TENANT_TICKET_PRIORITIES, normalizeTenantTicketPriority } from '../src/lib/tenantTicketPriority.js'
 import { LEASE_IDS, TICKET_IDS } from './idMap.js'
@@ -452,6 +453,19 @@ export async function enforcePortalWritePolicy(
         // contractor / server fields; the writer keeps the stored values when
         // they are absent (defaults on create).
         for (const k of TENANT_TICKET_LOCKED_FIELDS) delete data[k]
+        // The tenancy link is fixed after create: a tenant can never move a
+        // ticket onto (or off) a tenancy. Re-sending the stored link is no change.
+        if (rows[0] && Object.prototype.hasOwnProperty.call(data, 'tenancyId')) {
+          const leaseRow = (
+            await query<{ lease_id: string | null }>(
+              `SELECT lease_id::text AS lease_id FROM maintenance_tickets WHERE id = $1::uuid`,
+              [uuid],
+            )
+          )[0]
+          const storedFe = leaseRow?.lease_id ? await leaseFeId(leaseRow.lease_id) : null
+          if ((str(data.tenancyId) ?? null) !== storedFe) throw deny('tenancyId cannot change after create')
+          delete data.tenancyId
+        }
         const stored = rows[0]
           ? (
               await query<{ priority: string | null; created_at: Date | string | null; unit_id: string | null; asset_id: string | null }>(
@@ -493,6 +507,16 @@ export async function enforcePortalWritePolicy(
             : []
           const vendor = await preferredVendorForTicket(u[0]?.client_id ?? null, str(data.categoryKey) ?? 'GENERAL')
           if (vendor) data.contractorId = vendor
+          // New ticket: only on a unit where the tenant holds a lease (Active,
+          // Notice or Pending) — never on a listing they have only applied
+          // to. Linked to that lease (server-stamped); any other tenancy is
+          // refused.
+          const me = await actorUuid(actor)
+          const own = me && unit ? await tenantOwnLeaseFeOnUnit(me, unit) : null
+          if (!own) throw deny('no lease on this unit')
+          const sentTenancy = str(data.tenancyId)
+          if (sentTenancy && sentTenancy !== own) throw deny('not their tenancy')
+          data.tenancyId = own
         }
         // Warranty cover: from the asset's warranty on the ticket date, never
         // from the tenant.

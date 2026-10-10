@@ -31,6 +31,7 @@ import {
   type ScopeLinksInput,
 } from '../src/lib/scope.js'
 import { canWriteEntity } from '../src/lib/scopeWrite.js'
+import { tenantSeesTicket, tenantTicketTenancyIds, tenantTicketView } from '../src/lib/ticketTenantView.js'
 import type { PropertyAccessSubject } from '../src/lib/agencyScope.js'
 import type { Permission, Role } from '../src/types/domain.js'
 import { effectiveCan } from '../src/lib/permissions.js'
@@ -1099,7 +1100,9 @@ export async function assertPersistAllowed(
   // An existing application stays on its stored listing: a payload propertyId
   // must not move the scope check onto another property.
   let propertyId =
-    (body.resource === 'application' && existing?.propertyId ? existing.propertyId : null) ??
+    ((body.resource === 'application' || body.resource === 'ticket') && existing?.propertyId
+      ? existing.propertyId
+      : null) ??
     strField(data, 'propertyId') ??
     (body.resource === 'property' || body.resource === 'unit' ? body.id : null) ??
     existing?.propertyId ??
@@ -1118,11 +1121,19 @@ export async function assertPersistAllowed(
 
   // Normalize agency to FE id space (entity_id_map first) so FE actor agency
   // never compares against a raw client UUID from loadExisting / payload.
+  // Tickets: the agency is the stored ticket's, else the property's — never
+  // the payload (the writer also takes client_id from the unit).
+  const ticketAgency =
+    body.resource === 'ticket'
+      ? (existing?.agencyId ?? (await propertySubject(propertyId))?.agencyId ?? null)
+      : undefined
   const rawAgencyId =
-    strField(data, 'agencyId') ??
-    strField(data, 'clientId') ??
-    existing?.agencyId ??
-    actor.agencyId
+    ticketAgency !== undefined
+      ? ticketAgency
+      : (strField(data, 'agencyId') ??
+        strField(data, 'clientId') ??
+        existing?.agencyId ??
+        actor.agencyId)
   const agencyId = (await agencyFe(rawAgencyId)) ?? rawAgencyId
 
   const agentId = strField(data, 'agentId') ?? existing?.agentId ?? null
@@ -1858,15 +1869,25 @@ function filterBootstrapEntitiesForActor(
     dealInScope(scope, { propertyId: x.propertyId, agentId: x.agentId, agencyId: x.agencyId }),
   )
   const tenancies = raw.tenancies.filter((x) => allowed.has(x.propertyId))
-  const tickets = raw.tickets.filter((t) => {
-    // Tenants: only tickets they reported. Property scope alone would hand an
-    // applicant every ticket on a listing they applied to.
-    if (actor.role === 'tenant') {
-      const reporter = (t as { reportedByUserId?: string | null }).reportedByUserId
-      return Boolean(reporter) && reporter === actor.userId
-    }
-    return ticketInScope(scope, t)
-  })
+  // Tenants: tickets they reported (any id form they carry, any tenancy
+  // status) or tickets linked to one of their own Active / Notice tenancies.
+  // Never by property or unit alone — applying to a listing puts it in a
+  // tenant's book. Every ticket is reduced to the tenant view (no staff
+  // notes, contractor, quote, cost or warranty fields); their own reports
+  // also keep their access notes and photos.
+  const ownTenancyIds =
+    actor.role === 'tenant'
+      ? tenantTicketTenancyIds(
+          raw.tenancies as Array<{ id?: string; tenantUserId?: string | null; status?: string; leaseStatus?: string }>,
+          (id) => actorIds.has(id),
+        )
+      : new Set<string>()
+  const tickets =
+    actor.role === 'tenant'
+      ? raw.tickets
+          .filter((t) => tenantSeesTicket(t as { reportedByUserId?: string | null; tenancyId?: string | null }, actorIds, ownTenancyIds))
+          .map((t) => tenantTicketView(t as unknown as Record<string, unknown>, actorIds) as unknown as typeof t)
+      : raw.tickets.filter((t) => ticketInScope(scope, t))
   const payments = raw.payments.filter((p) => {
     if (actor.role === 'tenant') {
       return p.partyUserId === actor.userId
