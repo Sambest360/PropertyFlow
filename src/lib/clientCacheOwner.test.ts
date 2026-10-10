@@ -253,3 +253,20 @@ describe('cache write ownership (live modes)', () => {
     expect(write).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('support tickets in the cache', () => {
+  it('live-mode cache has no supportTickets or maintenance tickets; demo mode keeps them unchanged', () => {
+    const state = {
+      properties: [{ id: 'p1' }],
+      supportTickets: [{ id: 'st-1', submitterName: 'Sipho' }],
+      tickets: [{ id: 'mt-1', title: 'Geyser leak', tenantName: 'Sipho' }],
+    }
+    const live = JSON.parse(serializeClientCache(state, 'u-a', true))
+    expect(live.state).not.toHaveProperty('supportTickets')
+    expect(live.state).not.toHaveProperty('tickets')
+    expect(live.state.properties).toEqual([{ id: 'p1' }])
+    const demo = JSON.parse(serializeClientCache(state, null, false))
+    expect(demo.state.supportTickets).toEqual(state.supportTickets)
+    expect(demo.state.tickets).toEqual(state.tickets)
+  })
+})

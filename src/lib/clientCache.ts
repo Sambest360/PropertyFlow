@@ -31,6 +31,10 @@ export const LIVE_MODE_UNPERSISTED_KEYS = [
   'trustAllocations',
   'payoutInstructions',
   'depositHoldings',
+  // Help desk tickets carry submitter names/contact details.
+  'supportTickets',
+  // Maintenance tickets (AppState.tickets): tenant names, unit access notes.
+  'tickets',
 ] as const
 
 export type CacheEnvelope<S> = { ownerUserId: string | null; state: Partial<S> }
