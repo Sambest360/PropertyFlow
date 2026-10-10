@@ -169,7 +169,8 @@ async function requireActorAndGate(c: Parameters<typeof parseDemoActor>[0], body
     throw Object.assign(new Error(`Unsupported persist action: ${String(body.action)}`), { status: 400, code: 'PERSIST_ACTION_INVALID' })
   }
   // CR10: request facts for the sign stamp are always set here, never taken
-  // from the client body.
+  // from the client body (signUndo too: only the gate sets it).
+  delete body.signUndo
   body.requestMeta = {
     ip: (c.req.header('x-forwarded-for') ?? '').split(',')[0]?.trim() || c.req.header('x-real-ip') || null,
     userAgent: c.req.header('user-agent') ?? null,
@@ -184,7 +185,16 @@ async function gatedPersist(c: Parameters<typeof parseDemoActor>[0], body: Persi
   const { handled } = await requireActorAndGate(c, body)
   if (handled) return handled
   const { handlePersist } = await loadWritesModule()
-  return handlePersist(body)
+  try {
+    return await handlePersist(body)
+  } catch (err) {
+    // CR10 N3: a staff sign stamp is undone when the lease upsert fails.
+    if (body.signUndo) {
+      const { undoStaffStamp } = await import('./leaseSign.js')
+      await undoStaffStamp(body.signUndo).catch((e) => console.error('[api/persist] sign undo failed', e))
+    }
+    throw err
+  }
 }
 
 app.get('/api/health', async (c) => {

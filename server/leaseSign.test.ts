@@ -612,3 +612,33 @@ describe('CR10 N2: audit INSERT failure rolls the signing back', () => {
     expect(clientCalls).toHaveLength(0)
   })
 })
+
+describe('CR10 N3: a staff stamp is undone if the main upsert fails', () => {
+  it('records an undo (previous eSign + event id) and undoStaffStamp restores it and deletes the row', async () => {
+    const { enforceStaffTenancyESign, undoStaffStamp } = await import('./leaseSign.js')
+    const before = { ...baseESign() }
+    leaseESign = before
+    const body: Record<string, unknown> & { id: string; action: string; data: Record<string, unknown> } = {
+      id: 'L-1',
+      action: 'upsert',
+      data: {
+        eSign: { ...before, landlord: { status: 'signed', method: 'drawn', signatureDataUrl: PNG, signerName: 'Owner', onBehalfConfirmation: "I am signing for Owner under the agency's mandate." } },
+      },
+    }
+    await enforceStaffTenancyESign(STAFF as never, body as never)
+    const undo = body.signUndo as { leaseUuid: string; prevESign: unknown; eventIds: string[] }
+    expect(undo).toMatchObject({ leaseUuid: 'lease-1', prevESign: before })
+    expect(undo.eventIds).toHaveLength(1)
+    clientCalls.length = 0
+    await undoStaffStamp(undo as never)
+    expect(JSON.parse(String(updates()[0].params[1]))).toEqual(before)
+    const del = clientCalls.find((c) => c.sql.includes('DELETE FROM event_log'))
+    expect(del?.params[0]).toEqual(undo.eventIds)
+  })
+  it('a save with no stamp records no undo', async () => {
+    const { enforceStaffTenancyESign } = await import('./leaseSign.js')
+    const body: Record<string, unknown> & { id: string; action: string } = { id: 'L-1', action: 'upsert', data: { eSign: baseESign() } }
+    await enforceStaffTenancyESign(STAFF as never, body as never)
+    expect(body.signUndo).toBeUndefined()
+  })
+})

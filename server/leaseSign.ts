@@ -216,6 +216,7 @@ export async function stampLeaseSignature(input: StampInput): Promise<StampResul
   if (sendCompletedEmail) merged.completedEmailSentAt = at
 
   const accepted = status === 'signed'
+  let eventId: string | null = null
   await withTransaction(async (client) => {
     // CR10 N1: lock the lease row for this signing and re-check the stored
     // envelope / party block under the lock (two signings can't both land).
@@ -242,7 +243,7 @@ export async function stampLeaseSignature(input: StampInput): Promise<StampResul
       [lease.id, JSON.stringify(merged)],
     )
     if (accepted) {
-      await insertLeaseSignedEvent(client, {
+      eventId = await insertLeaseSignedEvent(client, {
         lease,
         tenancyFeId: input.tenancyFeId,
         envelopeId: String(stored.envelopeId),
@@ -263,7 +264,7 @@ export async function stampLeaseSignature(input: StampInput): Promise<StampResul
     // Best effort, after COMMIT: never blocks or rolls back the signing.
     void notifyLeaseCompleted(lease, input.tenancyFeId).catch(() => undefined)
   }
-  return { eSign: merged, signed: accepted, completedNow }
+  return { eSign: merged, signed: accepted, completedNow, eventId }
 }
 
 /** Part 8: "signed by all parties" email to the tenant and the landlord (or the lease's agent). */
@@ -364,7 +365,7 @@ async function insertLeaseSignedEvent(
     ip: string | null
     userAgent: string | null
   },
-): Promise<void> {
+): Promise<string> {
   const payload: LeaseSignedPayload = {
     tenancyId: e.tenancyFeId,
     leaseId: e.lease.id,
@@ -380,15 +381,41 @@ async function insertLeaseSignedEvent(
     ip: e.ip,
     user_agent: e.userAgent,
   }
+  const eventId = randomUUID()
   await clientQuery(
     client,
     `INSERT INTO event_log (id, client_id, event_type, subject_type, subject_id, actor_user_id, payload, created_at)
      VALUES ($1::uuid, $2::uuid, 'lease_signed', 'lease', $3::uuid, $4::uuid, $5::jsonb, NOW())`,
-    [randomUUID(), e.lease.client_id, e.lease.id, e.actorUuid, JSON.stringify(payload)],
+    [eventId, e.lease.client_id, e.lease.id, e.actorUuid, JSON.stringify(payload)],
   )
+  return eventId
 }
 
 const PARTY_KEYS: SignPartyKey[] = ['tenant', 'landlord']
+
+/** CR10 N3: what a staff stamp wrote, so it can be undone if the main upsert fails. */
+export type StaffStampUndo = { leaseUuid: string; prevESign: Row; eventIds: string[] }
+
+/** CR10 N3: restore the pre-stamp eSign and remove the stamp's lease_signed rows, in one transaction. */
+export async function undoStaffStamp(undo: StaffStampUndo): Promise<void> {
+  await withTransaction(async (client) => {
+    await clientQuery(
+      client,
+      `UPDATE leases
+          SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('eSign', $2::jsonb),
+              updated_at = NOW()
+        WHERE id = $1::uuid`,
+      [undo.leaseUuid, JSON.stringify(undo.prevESign)],
+    )
+    if (undo.eventIds.length) {
+      await clientQuery(
+        client,
+        `DELETE FROM event_log WHERE event_type = 'lease_signed' AND id = ANY($1::uuid[])`,
+        [undo.eventIds],
+      )
+    }
+  })
+}
 
 function pendingBlock(b: unknown): Row | null {
   return b == null ? null : { status: 'pending' }
@@ -407,7 +434,7 @@ function pendingBlock(b: unknown): Row | null {
  */
 export async function enforceStaffTenancyESign(
   actor: DemoActor,
-  body: { id: string; action: string; data?: Record<string, unknown>; requestMeta?: RequestMeta },
+  body: { id: string; action: string; data?: Record<string, unknown>; requestMeta?: RequestMeta; signUndo?: StaffStampUndo },
 ): Promise<void> {
   // CR10 B1: early return on delete only; any other action is gated as an upsert.
   if (body.action === 'delete') return
@@ -439,6 +466,7 @@ export async function enforceStaffTenancyESign(
   }
   let current: Row = stored
   let row: LeaseSignRow = lease
+  const undo: StaffStampUndo = { leaseUuid: lease.id, prevESign: stored, eventIds: [] }
   for (const party of PARTY_KEYS) {
     const sentParty = asRow(sent[party])
     if (!partyChanged(asRow(current[party]), sentParty) || !sentParty) continue
@@ -452,6 +480,9 @@ export async function enforceStaffTenancyESign(
     })
     current = res.eSign
     row = { ...row, metadata: { ...(row.metadata ?? {}), eSign: current } }
+    if (res.eventId) undo.eventIds.push(res.eventId)
+    // CR10 N3: if the generic upsert that follows fails, the stamp is undone.
+    body.signUndo = undo
   }
   // Non-party fields (events, note, pdfUrl) as sent; party blocks, status,
   // envelope and server flags always the stored / stamped ones.

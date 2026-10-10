@@ -25,6 +25,8 @@ export type PersistBody = {
   data?: Record<string, unknown>
   /** Server-set request facts (IP, user agent) for the sign stamp; never read from the client. */
   requestMeta?: { ip?: string | null; userAgent?: string | null }
+  /** Server-set (CR10 N3): undo record of a staff sign stamp; never read from the client. */
+  signUndo?: { leaseUuid: string; prevESign: Record<string, unknown>; eventIds: string[] }
 }
 
 const ROLE_TO_DB: Record<string, string> = {
