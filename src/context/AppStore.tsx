@@ -1030,6 +1030,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>(() => defaultState())
   const [toasts, setToasts] = useState<NotificationToast[]>([])
   const stateRef = useRef(state)
+  /** Pending tenancy saves carrying a freshly issued e-sign envelope, by tenancy id. */
+  const leaseESignSaves = useRef(new Map<string, Promise<boolean>>())
   stateRef.current = state
 
   useEffect(() => {
@@ -1359,7 +1361,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         tenancies: prev.tenancies.map((t) => (t.id === lease.id ? nextLease : t)),
       }))
       persistUpsert('document', issued.document.id, issued.document as unknown as Record<string, unknown>)
-      persistUpsert('tenancy', nextLease.id, nextLease as unknown as Record<string, unknown>)
+      // The SigniFlow status poll checks the stored lease owns the envelope,
+      // so a sign right after issue waits for this save (recordTenancyLeaseSign).
+      leaseESignSaves.current.set(
+        nextLease.id,
+        Promise.resolve(
+          persistUpsert('tenancy', nextLease.id, nextLease as unknown as Record<string, unknown>),
+        ).then((ok) => ok !== false),
+      )
       const pe: PropertyEvent = {
         id: uid('pe'),
         agencyId: nextLease.agencyId,
@@ -2196,6 +2205,19 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         eSign = issued.eSign ?? null
       }
       if (!eSign) return { ok: false, error: 'No e-sign envelope on this lease' }
+      // Ask SigniFlow for status only once the envelope is saved on the lease:
+      // the server's status route refuses an envelope the stored lease lacks.
+      const eSignSave = leaseESignSaves.current.get(tenancyId)
+      if (eSignSave) {
+        const ok = await eSignSave
+        leaseESignSaves.current.delete(tenancyId)
+        if (!ok) {
+          return {
+            ok: false,
+            error: "The e-sign envelope wasn't saved on this lease, so the signature can't be checked yet. Refresh and try again.",
+          }
+        }
+      }
       const signed = await recordLeaseSignature({
         eSign,
         tenancyId,

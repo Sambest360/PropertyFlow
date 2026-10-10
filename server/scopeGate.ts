@@ -1538,16 +1538,43 @@ export function narrowPortalCollections(
  * Users are always narrowed + redacted for non-super-admins (see
  * filterBootstrapUsersForActor).
  */
+/**
+ * Every id form the actor may appear under on bootstrap rows: the session id
+ * as given, its uuid and its front-end id (rows carry front-end ids, falling
+ * back to the raw uuid when unmapped; session ids may be either form).
+ */
+export async function actorIdAliases(actor: DemoActor): Promise<ReadonlySet<string>> {
+  const ids = new Set<string>([actor.userId])
+  const uuid = (await resolveUuid('user', actor.userId)) ?? (isUuidLike(actor.userId) ? actor.userId : null)
+  if (!uuid) return ids
+  ids.add(uuid)
+  // Front-end ids mapped to this backend id in entity_id_map only (never an
+  // email lookup), each kept only if it round-trips back to this uuid.
+  const rows = await query<{ frontend_id: string }>(
+    `SELECT frontend_id FROM entity_id_map WHERE entity_type = 'user' AND backend_id::text = $1`,
+    [uuid],
+  )
+  for (const r of rows) {
+    if (r.frontend_id && (await resolveUuid('user', r.frontend_id)) === uuid) ids.add(r.frontend_id)
+  }
+  return ids
+}
+
+function isUuidLike(v: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
+}
+
 export function filterBootstrapForActor(
   raw: BootstrapPayload,
   actorIn: DemoActor,
   scope: PropertyScope,
+  actorIds?: ReadonlySet<string>,
 ): BootstrapPayload {
   // Session / header agency may be a client UUID; scope.viewer carries the FE id.
   const normalizedAgency = scope.viewer?.agencyId ?? actorIn.agencyId
   const actor =
     normalizedAgency !== actorIn.agencyId ? { ...actorIn, agencyId: normalizedAgency } : actorIn
-  const entities = filterBootstrapEntitiesForActor(raw, actor, scope)
+  const entities = filterBootstrapEntitiesForActor(raw, actor, scope, actorIds ?? new Set([actor.userId]))
   if (actor.role === 'super_admin') return entities
   const roster = Array.isArray(raw.agencyContractors)
     ? (raw.agencyContractors as Array<{ agencyId?: string | null; contractorUserId?: string }>).filter(
@@ -1566,6 +1593,7 @@ function filterBootstrapEntitiesForActor(
   raw: BootstrapPayload,
   actor: DemoActor,
   scope: PropertyScope,
+  actorIds: ReadonlySet<string>,
 ): BootstrapPayload {
   const agencyWide = isAgencyWideRole(actor.role as Role) || actor.role === 'super_admin'
   const scoped = !agencyWide
@@ -1617,9 +1645,9 @@ function filterBootstrapEntitiesForActor(
       notifications: raw.notifications.filter(
         (n) => n.userId === actor.userId || inAg(n.agencyId),
       ),
-      suiteAlerts: (raw.suiteAlerts ?? []).filter(
-        (s) => s.agencyId == null || inAg(s.agencyId),
-      ),
+      // No null-agency pass-through: a platform alert with no agency is not
+      // one agency's to read.
+      suiteAlerts: (raw.suiteAlerts ?? []).filter((s) => s.agencyId != null && inAg(s.agencyId)),
       activities: (raw.activities ?? []).filter((a) => inAg(a.agencyId)),
       propertyEvents: (raw.propertyEvents ?? []).filter(
         (e) => inAg(e.agencyId) && (!e.propertyId || propIds.has(e.propertyId)),
@@ -1728,6 +1756,45 @@ function filterBootstrapEntitiesForActor(
   const trustRows = <T extends { agencyId?: string | null }>(rows: T[] | undefined): T[] =>
     noTrust || !ownAgency ? [] : (rows ?? []).filter((x) => x.agencyId === ownAgency)
 
+  // Landlords (owner statement): trust allocations on their own tenancies and
+  // payout instructions paying them on their own properties. Nothing else
+  // from the trust books. Ids matched in every form the actor may carry.
+  const isLandlord = actor.role === 'landlord'
+  const mine = (id: unknown) => typeof id === 'string' && id !== '' && actorIds.has(id)
+  // Agency comes from the property, never the session: a row passes only
+  // with a non-null agencyId equal to its property's non-null agencyId.
+  const ownPropertyAgency = new Map<string, string>(
+    isLandlord
+      ? (raw.properties as Array<{ id: string; landlordId?: string | null; agencyId?: string | null }>)
+          .filter((p) => mine(p.landlordId) && Boolean(p.agencyId))
+          .map((p) => [p.id, p.agencyId as string])
+      : [],
+  )
+  const tenancyProperty = new Map<string, string>(
+    isLandlord
+      ? (raw.tenancies as Array<{ id: string; landlordId?: string | null; propertyId?: string }>)
+          .filter((t) => mine(t.landlordId) && Boolean(t.propertyId) && ownPropertyAgency.has(t.propertyId!))
+          .map((t) => [t.id, t.propertyId as string])
+      : [],
+  )
+  const sameAgency = (rowAgency: unknown, propertyId: string | undefined) =>
+    typeof rowAgency === 'string' &&
+    rowAgency !== '' &&
+    Boolean(propertyId) &&
+    ownPropertyAgency.get(propertyId!) === rowAgency
+  const landlordAllocations = isLandlord
+    ? (raw.trustAllocations ?? []).filter((a) => {
+        const r = a as { occupancyId?: string | null; agencyId?: string | null }
+        return Boolean(r.occupancyId) && sameAgency(r.agencyId, tenancyProperty.get(r.occupancyId!))
+      })
+    : null
+  const landlordPayouts = isLandlord
+    ? (raw.payoutInstructions ?? []).filter((p) => {
+        const r = p as { payeeType?: string; payeeId?: string; propertyId?: string; agencyId?: string | null }
+        return r.payeeType === 'landlord' && mine(r.payeeId) && sameAgency(r.agencyId, r.propertyId)
+      })
+    : null
+
   return {
     ...raw,
     scoped: true,
@@ -1764,12 +1831,13 @@ function filterBootstrapEntitiesForActor(
       (e) => e.propertyId && propIds.has(e.propertyId),
     ),
     invoices: [],
-    // Trust books (B1): tenants, landlords, contractors and field agents get
-    // none; everyone else only their own agency's rows, never a null-agency
-    // pass-through.
+    // Trust books (B1): tenants, contractors and field agents get none;
+    // landlords only the allocation / payout rows above (never transactions,
+    // deposits, arrears or CSV batches); everyone else only their own
+    // agency's rows, never a null-agency pass-through.
     trustTransactions: trustRows(raw.trustTransactions),
-    trustAllocations: trustRows(raw.trustAllocations),
-    payoutInstructions: trustRows(raw.payoutInstructions),
+    trustAllocations: landlordAllocations ?? trustRows(raw.trustAllocations),
+    payoutInstructions: landlordPayouts ?? trustRows(raw.payoutInstructions),
     depositHoldings: trustRows(raw.depositHoldings),
     arrearsSnapshots: trustRows(raw.arrearsSnapshots),
     csvImportBatches: trustRows(raw.csvImportBatches),

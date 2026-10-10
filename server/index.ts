@@ -653,12 +653,13 @@ app.get('/api/bootstrap', async (c) => {
       },
     })
     const actor = await enrichActor(rawActor)
-    const { buildActorPropertyScope, filterBootstrapForActor } = await loadScopeGateModule()
+    const { buildActorPropertyScope, filterBootstrapForActor, actorIdAliases } = await loadScopeGateModule()
     const scope = await buildActorPropertyScope(actor)
     const filtered = filterBootstrapForActor(
       data as Parameters<typeof filterBootstrapForActor>[0],
       actor,
       scope,
+      await actorIdAliases(actor),
     )
     return c.json(filtered)
   } catch (err) {

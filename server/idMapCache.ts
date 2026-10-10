@@ -4,7 +4,7 @@
  */
 import { query } from './db.js'
 import { EMAIL_TO_USER, UNIT_TO_PROPERTY, mapAgency, mapProperty } from './idMap.js'
-import { ensureEntityMapTable } from './entityMap.js'
+import { ensureEntityMapTable, resolveUuid } from './entityMap.js'
 
 export type IdMapCache = {
   userBackendToFe: Map<string, string>
@@ -53,9 +53,14 @@ export async function loadIdMapCache(force = false): Promise<IdMapCache> {
     }
   }
 
+  // Email-derived seed ids pass the round-trip rule only: the front-end id
+  // must resolve back to this very row. A user who registers with a seed
+  // email gets a new uuid, fails the check, and never inherits the seed id
+  // (or its trust rows, payouts and bank account).
   for (const u of userRows) {
-    const fe = EMAIL_TO_USER[u.email.toLowerCase()]
-    if (fe) userBackendToFe.set(u.id, fe)
+    const fe = u.email ? EMAIL_TO_USER[u.email.toLowerCase()] : undefined
+    if (!fe) continue
+    if ((await resolveUuid('user', fe)) === u.id) userBackendToFe.set(u.id, fe)
   }
 
   cached = { userBackendToFe, unitBackendToPropertyFe, agencyBackendToFe }
