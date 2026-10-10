@@ -54,6 +54,8 @@ import {
   buildHeldDeposit,
   buildProposedPayout,
   proposeDepositRelease,
+  DEPOSIT_NEEDS_SERVER_COPY,
+  checkRefundSplit,
 } from '../lib/trust/depositDualControl'
 import { commitProposedPayout } from '../lib/trust/proposePayoutCommit'
 import { isPubliclyListed } from '../lib/publicListings'
@@ -827,6 +829,26 @@ type StoreContextValue = {
   approveDepositRelease: (params: {
     depositId: string
     approverUserId: string
+  }) => Promise<{ ok: boolean; error?: string }>
+  /** D2: reject a proposed release (approver ≠ proposer, reason required) → held. */
+  rejectDepositRelease: (params: {
+    depositId: string
+    actorUserId: string
+    reason: string
+  }) => Promise<{ ok: boolean; error?: string }>
+  /** D2: cancel a proposed or approved release (proposer or trust approver) → held. */
+  cancelDepositRelease: (params: {
+    depositId: string
+    actorUserId: string
+    reason?: string
+  }) => Promise<{ ok: boolean; error?: string }>
+  /** D2: record a refund split (release_approved → refunded). Records only; no money moves. */
+  recordDepositRefund: (params: {
+    depositId: string
+    actorUserId: string
+    refundedCents: number
+    interestCents: number
+    deductions: { reason: string; amountCents: number }[]
   }) => Promise<{ ok: boolean; error?: string }>
   /** DQ-M2 optional: durable propose payout instruction. */
   proposePayoutInstruction: (params: {
@@ -1740,6 +1762,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const now = new Date().toISOString()
       const result = proposeDepositRelease(dep, actor.id, now)
       if (result.ok === false) return { ok: false, error: result.error }
+      if (!isApiEnabled && isSupabaseMode) return { ok: false, error: DEPOSIT_NEEDS_SERVER_COPY }
       let updated = result.value
       if (isApiEnabled) {
         // Dual control is enforced server-side; generic persist never moves status.
@@ -1776,6 +1799,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const now = new Date().toISOString()
       const result = approveDepositRelease(dep, approver.id, now)
       if (result.ok === false) return { ok: false, error: result.error }
+      if (!isApiEnabled && isSupabaseMode) return { ok: false, error: DEPOSIT_NEEDS_SERVER_COPY }
       let updated = result.value
       if (isApiEnabled) {
         // Two-person rule is enforced server-side (approver ≠ proposer).
@@ -1802,6 +1826,79 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       return { ok: true }
     },
     [patch, addActivity, persistUpsert],
+  )
+
+  /** D2: reject / cancel / refund run only through the server routes. */
+  const runDepositServerStep = useCallback(
+    async (
+      depositId: string,
+      actorUserId: string,
+      step: 'reject-release' | 'cancel-release' | 'refund',
+      payload: Record<string, unknown>,
+      activity: string,
+    ) => {
+      const dep = stateRef.current.depositHoldings.find((d) => d.id === depositId)
+      const actor = stateRef.current.users.find((u) => u.id === actorUserId)
+      if (!dep || !actor) return { ok: false, error: 'Deposit or actor not found' }
+      if (!isApiEnabled) return { ok: false, error: DEPOSIT_NEEDS_SERVER_COPY }
+      const { postDepositTransition } = await import('../lib/api/trustDepositsApi')
+      const res = await postDepositTransition(dep.id, step, payload)
+      if (res.ok === false) return { ok: false, error: res.error }
+      patch((s) => ({
+        ...s,
+        depositHoldings: s.depositHoldings.map((d) =>
+          d.id === dep.id ? ({ ...d, ...res.deposit } as DepositHolding) : d,
+        ),
+      }))
+      addActivity(`${activity} for occupancy ${dep.occupancyId}`, actor.name, dep.agencyId)
+      return { ok: true }
+    },
+    [patch, addActivity],
+  )
+
+  const rejectDepositReleaseAction = useCallback(
+    async (p: { depositId: string; actorUserId: string; reason: string }) => {
+      const reason = p.reason.trim()
+      if (!reason || reason.length > 500) {
+        return { ok: false, error: 'A reason of 1 to 500 characters is required' }
+      }
+      return runDepositServerStep(p.depositId, p.actorUserId, 'reject-release', { reason }, 'Deposit release rejected')
+    },
+    [runDepositServerStep],
+  )
+
+  const cancelDepositReleaseAction = useCallback(
+    async (p: { depositId: string; actorUserId: string; reason?: string }) =>
+      runDepositServerStep(
+        p.depositId,
+        p.actorUserId,
+        'cancel-release',
+        { reason: p.reason?.trim() ?? '' },
+        'Deposit release cancelled',
+      ),
+    [runDepositServerStep],
+  )
+
+  const recordDepositRefundAction = useCallback(
+    async (p: {
+      depositId: string
+      actorUserId: string
+      refundedCents: number
+      interestCents: number
+      deductions: { reason: string; amountCents: number }[]
+    }) => {
+      const dep = stateRef.current.depositHoldings.find((d) => d.id === p.depositId)
+      if (!dep) return { ok: false, error: 'Deposit not found' }
+      const split = {
+        refundedCents: p.refundedCents,
+        interestCents: p.interestCents,
+        deductions: p.deductions.map((d) => ({ reason: d.reason.trim(), amountCents: d.amountCents })),
+      }
+      const bad = checkRefundSplit(dep.heldCents, split)
+      if (bad) return { ok: false, error: bad }
+      return runDepositServerStep(p.depositId, p.actorUserId, 'refund', split, 'Refund recorded (not bank-confirmed)')
+    },
+    [runDepositServerStep],
   )
 
   const proposePayoutInstruction = useCallback(
@@ -6716,10 +6813,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     upsertHeldDeposit,
     proposeDepositRelease: proposeDepositReleaseAction,
     approveDepositRelease: approveDepositReleaseAction,
+    rejectDepositRelease: rejectDepositReleaseAction,
+    cancelDepositRelease: cancelDepositReleaseAction,
+    recordDepositRefund: recordDepositRefundAction,
     proposePayoutInstruction,
     approvePayoutInstruction,
     submitPayoutInstruction,
-  }), [state, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, importTrustTemplateCsv, upsertHeldDeposit, proposeDepositReleaseAction, approveDepositReleaseAction, proposePayoutInstruction, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistDelete, refreshBootstrap, scheduleBootstrapRefreshAfterMutation, issueLeasePackageForTenancy])
+  }), [state, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, importTrustTemplateCsv, upsertHeldDeposit, proposeDepositReleaseAction, approveDepositReleaseAction, rejectDepositReleaseAction, cancelDepositReleaseAction, recordDepositRefundAction, proposePayoutInstruction, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistDelete, refreshBootstrap, scheduleBootstrapRefreshAfterMutation, issueLeasePackageForTenancy])
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }

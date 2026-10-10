@@ -199,3 +199,30 @@ export function applySubmitPayout(
     },
   }
 }
+
+/** D2 copy for a recorded refund. Never "Refunded", "paid" or "settled". */
+export const DEPOSIT_REFUND_RECORDED_LABEL = 'Refund recorded (not bank-confirmed)'
+
+/** Shown when deposit releases are attempted without the server API. */
+export const DEPOSIT_NEEDS_SERVER_COPY = 'Deposit releases need the server. Ask your administrator.'
+
+export type RefundSplitInput = {
+  refundedCents: number
+  interestCents: number
+  deductions: { reason: string; amountCents: number }[]
+}
+
+/** Client-side mirror of the server check: refunded + deductions = held + interest. */
+export function checkRefundSplit(heldCents: number, split: RefundSplitInput): string | null {
+  const ints = [split.refundedCents, split.interestCents, ...split.deductions.map((d) => d.amountCents)]
+  if (ints.some((n) => !Number.isInteger(n) || n < 0)) return 'Amounts must be whole cents, 0 or more'
+  for (const [i, d] of split.deductions.entries()) {
+    if (!d.reason.trim()) return `Deduction ${i + 1} needs a reason`
+    if (d.amountCents <= 0) return `Deduction ${i + 1} must be more than 0`
+  }
+  const deducted = split.deductions.reduce((s, d) => s + d.amountCents, 0)
+  if (split.refundedCents + deducted !== heldCents + split.interestCents) {
+    return 'Refunded plus deductions must equal held plus interest'
+  }
+  return null
+}

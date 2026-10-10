@@ -1016,6 +1016,7 @@ export async function fetchSupabaseBootstrap(
     interestRateUnknown: Boolean(d.interest_rate_unknown),
     releaseProposedBy: mapUserFe(d.release_proposed_by as string | null),
     releaseApprovedBy: mapUserFe(d.release_approved_by as string | null),
+    refund: ((d.metadata as { refund?: Record<string, unknown> } | null)?.refund ?? null),
     createdAt: iso(d.created_at as string) ?? new Date().toISOString(),
     updatedAt: iso(d.updated_at as string) ?? new Date().toISOString(),
   }))

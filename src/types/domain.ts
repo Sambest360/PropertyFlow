@@ -1015,8 +1015,20 @@ export type DepositHolding = {
   releaseProposedBy: string | null
   /** Dual-control: who approved release (null until approve; must ≠ proposer). */
   releaseApprovedBy: string | null
+  /** D2: recorded refund split (metadata.refund). Recorded only, never bank-confirmed. */
+  refund?: DepositRefundRecord | null
   createdAt: string
   updatedAt: string
+}
+
+export type DepositRefundRecord = {
+  refundedCents: number
+  deductions: { reason: string; amountCents: number }[]
+  interestCents: number
+  heldCents: number
+  recordedBy: string
+  recordedAt: string
+  bankConfirmed: false
 }
 
 /** Daily arrears snapshot. */

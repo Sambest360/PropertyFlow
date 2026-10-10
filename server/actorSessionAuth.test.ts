@@ -61,6 +61,9 @@ type DepositRow = {
   status: string
   release_proposed_by: string | null
   release_approved_by: string | null
+  held_cents?: number
+  interest_accrued_cents?: number
+  metadata?: Record<string, unknown>
 }
 
 const db = vi.hoisted(() => ({
@@ -126,7 +129,33 @@ vi.mock('pg', () => {
         row.release_approved_by = String(params[1])
         return [{ updated_at: now }]
       }
+      if (sql.includes("SET status = 'held'")) {
+        const rejecting = sql.includes("'rejectedBy'")
+        const from = rejecting ? 'release_proposed' : String(params[4])
+        if (row.status !== from) return []
+        if (rejecting && row.release_proposed_by === params[1]) return []
+        row.status = 'held'
+        row.release_proposed_by = null
+        row.release_approved_by = null
+        row.metadata = {
+          ...(row.metadata ?? {}),
+          ...(rejecting
+            ? { rejectedBy: params[1], rejectedAt: params[2], rejectReason: params[3] }
+            : { cancelledBy: params[1], cancelledAt: params[2], cancelReason: params[3] }),
+        }
+        return [{ updated_at: now }]
+      }
+      if (sql.includes("SET status = 'refunded'")) {
+        if (row.status !== 'release_approved' || row.release_approved_by === params[1]) return []
+        row.status = 'refunded'
+        row.metadata = { ...(row.metadata ?? {}), refund: JSON.parse(String(params[2])), refundedBy: params[1], refundedAt: params[3] }
+        return [{ updated_at: now }]
+      }
       return []
+    }
+    if (sql.startsWith('SELECT status, held_cents FROM deposit_holdings')) {
+      const d = db.deposits.find((x) => x.id === params[0])
+      return d ? [{ status: d.status, held_cents: d.held_cents ?? 0 }] : []
     }
     if (/^(INSERT|UPDATE|DELETE)\b/i.test(sql)) {
       if (!/entity_id_map/i.test(sql)) {
@@ -1087,6 +1116,209 @@ describe('Follow-up: deposit release dual control and payout bank account', () =
       expect((await persist('u-admin', payout(bank))).status, bank).toBe(403)
     }
     expect(db.writes.some((w) => w.startsWith('INSERT INTO payout_instructions'))).toBe(false)
+  })
+})
+
+describe('D2: deposit reject, cancel, refund record and held_cents lock', () => {
+  const DH = (n: number) => `c8000002-0001-4000-8000-0000000000${String(n).padStart(2, '0')}`
+  const uuidOf = (fe: string) => db.users.find((u) => u.fe === fe)!.id
+  const extra = ['u-d2-admin2', 'u-d2-admin3', 'u-d2-alloc', 'u-d2-cape']
+
+  beforeAll(async () => {
+    const { hashPassword } = await import('./auth')
+    const hash = await hashPassword(TEST_FIXTURE_PW)
+    db.users.push(
+      { ...user('u-d2-admin2', '31', 'AGENCY_ADMIN', HORIZON), password_hash: hash },
+      { ...user('u-d2-admin3', '32', 'AGENCY_ADMIN', HORIZON), password_hash: hash },
+      { ...user('u-d2-alloc', '33', 'AGENCY_ADMIN', HORIZON), password_hash: hash },
+      { ...user('u-d2-cape', '34', 'AGENCY_ADMIN', CAPE), password_hash: hash },
+    )
+    db.users.find((u) => u.fe === 'u-d2-alloc')!.metadata.enabledPermissions = ['trust.view', 'trust.allocate']
+    for (const fe of extra) tokens[fe] = await login(`${fe}@example.test`)
+  })
+  afterAll(() => {
+    db.users = db.users.filter((u) => !extra.includes(u.fe))
+  })
+
+  beforeEach(() => {
+    db.writes = []
+    db.writeParams = []
+    db.deposits = [
+      { id: DH(1), client_id: HORIZON, status: 'held', release_proposed_by: null, release_approved_by: null, held_cents: 100000, interest_accrued_cents: 0 },
+      // Proposed by the allocator-only admin.
+      { id: DH(2), client_id: HORIZON, status: 'release_proposed', release_proposed_by: uuidOf('u-d2-alloc'), release_approved_by: null, held_cents: 100000, interest_accrued_cents: 0 },
+      // Proposed by u-admin, approved by u-d2-admin2.
+      { id: DH(3), client_id: HORIZON, status: 'release_approved', release_proposed_by: uuidOf('u-admin'), release_approved_by: uuidOf('u-d2-admin2'), held_cents: 100000, interest_accrued_cents: 1500 },
+    ]
+  })
+
+  const post = (fe: string, id: string, step: string, body: unknown = {}) =>
+    app.request(`/api/trust/deposits/${id}/${step}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${tokens[fe]}` },
+      body: JSON.stringify(body),
+    })
+  const events = () =>
+    db.writes
+      .map((w, i) => ({ w, p: db.writeParams[i] }))
+      .filter((x) => x.w.startsWith('INSERT INTO event_log'))
+      .map((x) => ({ type: x.p[2], actor: x.p[4], payload: JSON.parse(String(x.p[5])) }))
+  const goodSplit = { refundedCents: 81500, interestCents: 1500, deductions: [{ reason: 'Broken window', amountCents: 20000 }] }
+
+  it('reject: an approver who is not the proposer sends it back to held with the reason, metadata and an event', async () => {
+    const res = await post('u-d2-admin2', DH(2), 'reject-release', { reason: 'Inspection not done' })
+    expect(res.status).toBe(200)
+    expect(db.deposits[1]).toMatchObject({ status: 'held', release_proposed_by: null })
+    expect(db.deposits[1].metadata).toMatchObject({ rejectedBy: uuidOf('u-d2-admin2'), rejectReason: 'Inspection not done' })
+    expect(events()).toEqual([
+      expect.objectContaining({
+        type: 'deposit_release_rejected',
+        actor: uuidOf('u-d2-admin2'),
+        payload: expect.objectContaining({ from: 'release_proposed', to: 'held', reason: 'Inspection not done' }),
+      }),
+    ])
+    // A second reject (now held) is a 409.
+    expect((await post('u-d2-admin2', DH(2), 'reject-release', { reason: 'x' })).status).toBe(409)
+  })
+
+  it('reject without a reason, or over 500 characters, is a 400 and nothing changes', async () => {
+    expect((await post('u-d2-admin2', DH(2), 'reject-release', {})).status).toBe(400)
+    expect((await post('u-d2-admin2', DH(2), 'reject-release', { reason: '   ' })).status).toBe(400)
+    expect((await post('u-d2-admin2', DH(2), 'reject-release', { reason: 'x'.repeat(501) })).status).toBe(400)
+    expect(db.deposits[1].status).toBe('release_proposed')
+    expect(events()).toEqual([])
+  })
+
+  it('reject is refused for the proposer, an allocator-only admin, and from a non-proposed state', async () => {
+    db.deposits[1].release_proposed_by = uuidOf('u-d2-admin2')
+    expect((await post('u-d2-admin2', DH(2), 'reject-release', { reason: 'mine' })).status).toBe(403)
+    expect((await post('u-d2-alloc', DH(2), 'reject-release', { reason: 'no perm' })).status).toBe(403)
+    expect((await post('u-d2-admin3', DH(1), 'reject-release', { reason: 'held' })).status).toBe(409)
+    expect((await post('u-d2-admin3', DH(3), 'reject-release', { reason: 'approved' })).status).toBe(409)
+    expect(db.deposits.map((d) => d.status)).toEqual(['held', 'release_proposed', 'release_approved'])
+  })
+
+  it('cancel: the proposer (even allocator-only) cancels a proposed release back to held', async () => {
+    const res = await post('u-d2-alloc', DH(2), 'cancel-release')
+    expect(res.status).toBe(200)
+    expect(db.deposits[1]).toMatchObject({ status: 'held', release_proposed_by: null })
+    expect(db.deposits[1].metadata).toMatchObject({ cancelledBy: uuidOf('u-d2-alloc') })
+    expect(events()[0]).toMatchObject({ type: 'deposit_release_cancelled', payload: { from: 'release_proposed', to: 'held' } })
+  })
+
+  it('cancel: a same-agency trust approver cancels an approved release back to held', async () => {
+    expect((await post('u-d2-admin3', DH(3), 'cancel-release')).status).toBe(200)
+    expect(db.deposits[2]).toMatchObject({ status: 'held', release_approved_by: null })
+    expect(events()[0]).toMatchObject({ payload: { from: 'release_approved', to: 'held' } })
+  })
+
+  it('cancel is refused for a non-proposer without approve permission, another agency, and from held or refunded', async () => {
+    // u-d2-alloc did not propose DH(3) and lacks trust.approve_payout.
+    expect((await post('u-d2-alloc', DH(3), 'cancel-release')).status).toBe(403)
+    expect((await post('u-d2-cape', DH(2), 'cancel-release')).status).toBe(403)
+    expect((await post('u-d2-admin2', DH(1), 'cancel-release')).status).toBe(409)
+    db.deposits[2].status = 'refunded'
+    expect((await post('u-d2-admin3', DH(3), 'cancel-release')).status).toBe(409)
+  })
+
+  it('refund: a second person (not the approver) records a balanced split; copy says recorded, not bank-confirmed', async () => {
+    const res = await post('u-d2-admin3', DH(3), 'refund', goodSplit)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { deposit: { status: string; refund: Record<string, unknown> } }
+    expect(body.deposit.status).toBe('refunded')
+    expect(body.deposit.refund).toMatchObject({ ...goodSplit, heldCents: 100000, bankConfirmed: false, label: 'Refund recorded (not bank-confirmed)' })
+    expect(db.deposits[2].metadata?.refund).toMatchObject(goodSplit)
+    expect(db.deposits[2].metadata?.refundedBy).toBe(uuidOf('u-d2-admin3'))
+    const ev = events()
+    expect(ev).toHaveLength(1)
+    expect(ev[0]).toMatchObject({ type: 'deposit_refund_recorded', actor: uuidOf('u-d2-admin3'), payload: { from: 'release_approved', to: 'refunded', refund: goodSplit } })
+    expect(JSON.stringify(body)).not.toMatch(/settled|Refunded|paid/)
+    expect(String(body.deposit.refund.label)).not.toMatch(/^Refunded|settled|paid/i)
+    // Recording again is a 409.
+    expect((await post('u-d2-admin3', DH(3), 'refund', goodSplit)).status).toBe(409)
+  })
+
+  it('refund without a second person (the approver records it) is refused', async () => {
+    expect((await post('u-d2-admin2', DH(3), 'refund', goodSplit)).status).toBe(403)
+    expect(db.deposits[2].status).toBe('release_approved')
+    expect(events()).toEqual([])
+  })
+
+  it('refund only from release_approved, and needs approve permission', async () => {
+    expect((await post('u-d2-admin3', DH(2), 'refund', goodSplit)).status).toBe(409)
+    expect((await post('u-d2-admin3', DH(1), 'refund', goodSplit)).status).toBe(409)
+    expect((await post('u-d2-alloc', DH(3), 'refund', goodSplit)).status).toBe(403)
+  })
+
+  it('an unbalanced refund split is a 400 (refunded + deductions must equal held + interest)', async () => {
+    for (const split of [
+      { ...goodSplit, refundedCents: 81499 },
+      { ...goodSplit, interestCents: 0 },
+      { refundedCents: 100000, interestCents: 1500, deductions: [] },
+      { ...goodSplit, refundedCents: -1, deductions: [{ reason: 'x', amountCents: 102501 }] },
+      { ...goodSplit, refundedCents: 815.5 },
+      { refundedCents: 101500, deductions: [] },
+    ]) {
+      expect((await post('u-d2-admin3', DH(3), 'refund', split)).status, JSON.stringify(split)).toBe(400)
+    }
+    expect(db.deposits[2].status).toBe('release_approved')
+  })
+
+  it('a balanced split with no deductions, or several, is accepted', async () => {
+    expect((await post('u-d2-admin3', DH(3), 'refund', { refundedCents: 101500, interestCents: 1500, deductions: [] })).status).toBe(200)
+    db.deposits[2].status = 'release_approved'
+    const many = { refundedCents: 1500, interestCents: 1500, deductions: [{ reason: 'Paint', amountCents: 60000 }, { reason: 'Cleaning', amountCents: 40000 }] }
+    expect((await post('u-d2-admin3', DH(3), 'refund', many)).status).toBe(200)
+  })
+
+  it('every deduction needs a non-empty reason (400 otherwise)', async () => {
+    for (const reason of ['', '   ', undefined]) {
+      const split = { ...goodSplit, deductions: [{ reason, amountCents: 20000 }] }
+      expect((await post('u-d2-admin3', DH(3), 'refund', split)).status, String(reason)).toBe(400)
+    }
+    expect(db.deposits[2].status).toBe('release_approved')
+  })
+
+  it('portal and field roles get 403 on reject, cancel and refund', async () => {
+    for (const fe of ['u-ll', 'u-tenant', 'u-james']) {
+      expect((await post(fe, DH(2), 'reject-release', { reason: 'r' })).status, `${fe} reject`).toBe(403)
+      expect((await post(fe, DH(2), 'cancel-release')).status, `${fe} cancel`).toBe(403)
+      expect((await post(fe, DH(3), 'refund', goodSplit)).status, `${fe} refund`).toBe(403)
+    }
+    expect(db.deposits.map((d) => d.status)).toEqual(['held', 'release_proposed', 'release_approved'])
+  })
+
+  it('the same user cannot propose and then approve', async () => {
+    expect((await post('u-d2-admin2', DH(1), 'propose-release')).status).toBe(200)
+    expect((await post('u-d2-admin2', DH(1), 'approve-release')).status).toBe(403)
+    expect(db.deposits[0].status).toBe('release_proposed')
+  })
+
+  const persistDeposit = (id: string, heldCents: number) =>
+    app.request('/api/persist', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${tokens['u-admin']}` },
+      body: JSON.stringify({
+        resource: 'deposit_holding',
+        action: 'upsert',
+        id,
+        data: { agencyId: 'ag-horizon', occupancyId: 'occ-1', expectedCents: 100000, heldCents },
+      }),
+    })
+
+  it('held_cents is locked once a release is proposed: persist with a new amount is a 409', async () => {
+    for (const id of [DH(2), DH(3)]) {
+      const res = await persistDeposit(id, 90000)
+      expect(res.status, id).toBe(409)
+    }
+    expect(db.writes.some((w) => w.startsWith('INSERT INTO deposit_holdings'))).toBe(false)
+  })
+
+  it('a held deposit can still change amount, and a locked one may persist the same amount', async () => {
+    expect((await persistDeposit(DH(1), 90000)).status).toBe(200)
+    expect((await persistDeposit(DH(2), 100000)).status).toBe(200)
+    const sql = db.writes.find((w) => w.startsWith('INSERT INTO deposit_holdings'))!
+    expect(sql).toContain("WHEN deposit_holdings.status IN ('release_proposed','release_approved','refunded') THEN deposit_holdings.held_cents")
   })
 })
 

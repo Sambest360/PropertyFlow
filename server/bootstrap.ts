@@ -1064,6 +1064,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     interestRateUnknown: Boolean(d.interest_rate_unknown),
     releaseProposedBy: mapUser(d.release_proposed_by as string | null),
     releaseApprovedBy: mapUser(d.release_approved_by as string | null),
+    refund: ((d.metadata as { refund?: Record<string, unknown> } | null)?.refund ?? null),
     createdAt: iso(d.created_at as Date) ?? new Date().toISOString(),
     updatedAt: iso(d.updated_at as Date) ?? new Date().toISOString(),
   }))

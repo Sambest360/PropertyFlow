@@ -820,7 +820,7 @@ for (const step of ['approve', 'submit'] as const) {
  * two different agency admins (server/depositRoutes.ts). Generic persist never
  * moves a deposit's status.
  */
-for (const step of ['propose-release', 'approve-release'] as const) {
+for (const step of ['propose-release', 'approve-release', 'reject-release', 'cancel-release', 'refund'] as const) {
   app.post(`/api/trust/deposits/:id/${step}`, async (c) => {
     if (!databaseConfigured) {
       return c.json(
@@ -832,16 +832,23 @@ for (const step of ['propose-release', 'approve-release'] as const) {
       const raw = await resolveRequestActor(c, null)
       if (!raw) throw actorRequiredError()
       const actor = await enrichActor(raw)
-      const { proposeDepositRelease, approveDepositRelease } = await import('./depositRoutes.js')
+      const routes = await import('./depositRoutes.js')
       const id = c.req.param('id')
+      const body = ((await c.req.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
       const result =
         step === 'propose-release'
-          ? await proposeDepositRelease(actor, id)
-          : await approveDepositRelease(actor, id)
+          ? await routes.proposeDepositRelease(actor, id)
+          : step === 'approve-release'
+            ? await routes.approveDepositRelease(actor, id)
+            : step === 'reject-release'
+              ? await routes.rejectDepositRelease(actor, id, body)
+              : step === 'cancel-release'
+                ? await routes.cancelDepositRelease(actor, id, body)
+                : await routes.recordDepositRefund(actor, id, body)
       return c.json(result)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      return c.json({ error: `deposit_${step.replace('-', '_')}_failed`, message }, errStatus(err))
+      return c.json({ error: `deposit_${step.replace(/-/g, '_')}_failed`, message }, errStatus(err))
     }
   })
 }

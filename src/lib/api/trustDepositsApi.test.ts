@@ -42,3 +42,24 @@ describe('postDepositTransition', () => {
     expect(await postDepositTransition('dh-1', 'approve-release')).toEqual({ ok: false, error: 'offline' })
   })
 })
+
+describe('postDepositTransition: D2 steps', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('sends the reject reason and the refund split in the body', async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({ ok: true, deposit: { id: 'dh-1', status: 'held', updatedAt: '2026-10-10T06:00:00.000Z' } }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    await postDepositTransition('dh-1', 'reject-release', { reason: 'No inspection' })
+    const split = { refundedCents: 1, interestCents: 0, deductions: [{ reason: 'x', amountCents: 2 }] }
+    await postDepositTransition('dh-1', 'refund', split)
+    const calls = fetchMock.mock.calls as unknown as [string, RequestInit][]
+    expect(calls[0][0]).toBe('/api/trust/deposits/dh-1/reject-release')
+    expect(JSON.parse(String(calls[0][1].body))).toEqual({ reason: 'No inspection' })
+    expect(calls[1][0]).toBe('/api/trust/deposits/dh-1/refund')
+    expect(JSON.parse(String(calls[1][1].body))).toEqual(split)
+  })
+})
