@@ -493,3 +493,45 @@ export async function sendDunningNoticeEmail(input: {
     ),
   })
 }
+
+/** ENABLE_EMAIL_LEASE_REMINDER (default OFF) gates the optional lease-end reminder email. */
+export function isEmailLeaseReminderEnabled(): boolean {
+  const raw = (process.env.ENABLE_EMAIL_LEASE_REMINDER ?? '').trim().toLowerCase()
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
+}
+
+/** Optional lease-end reminder email (category `lease-end-reminder`), same copy as in-app. */
+export async function sendLeaseEndReminder(input: {
+  email: string
+  name?: string
+  title: string
+  body: string
+}): Promise<MailtrapSendResult> {
+  if (!isEmailLeaseReminderEnabled()) {
+    return { sent: false, reason: 'ENABLE_EMAIL_LEASE_REMINDER off (default)' }
+  }
+  return sendMailtrapEmail({
+    to: input.email,
+    toName: input.name,
+    subject: input.title,
+    category: 'lease-end-reminder',
+    text: input.body,
+    html: shell(
+      input.title,
+      (input.name ? p(`Hi <strong>${escapeLeaseHtml(input.name)}</strong>,`) : '') +
+        input.body
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => p(escapeLeaseHtml(line)))
+          .join(''),
+    ),
+  })
+}
+
+function escapeLeaseHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}

@@ -192,6 +192,11 @@ export function preferServerPersistForTenancy(
 
 export async function persistToApi(op: PersistOp): Promise<boolean> {
   if (isSupabaseMode) {
+    // CR7: help desk tickets are server-only (scope gate derives routing and
+    // submitter). There is deliberately no browser Supabase path for them.
+    if (op.resource === 'support_ticket') {
+      return persistViaServerApi(op)
+    }
     // P0-sync (R12/R13): application upserts are fail-closed on /api/persist.
     // Browser RLS cannot stamp listing agency client_id for END_USER; a "soft"
     // supabase fallback that returns true (or leaves optimistic My Apps) while
