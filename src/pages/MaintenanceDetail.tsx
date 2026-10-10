@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { checkTicketPhotos } from '../lib/photoLimits'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
@@ -190,6 +191,11 @@ export default function MaintenanceDetail() {
     const mergedPhotos = fields.completionPhotoUrls?.length
       ? [...(prev.photoUrls ?? []), ...fields.completionPhotoUrls]
       : prev.photoUrls
+    // Same rule as the server (TICKET_PHOTO_INVALID) before anything is saved.
+    if (fields.completionPhotoUrls?.length && mergedPhotos) {
+      const check = checkTicketPhotos(mergedPhotos)
+      if (check.ok === false) return `Photos not saved: ${check.reason}.`
+    }
     const photoCount = fields.completionPhotoUrls?.length ?? fields.photos
 
     const result = patchMaintenanceTicket({
