@@ -117,3 +117,21 @@ export async function fetchPublicMarketplaceFromApi(
     clearTimeout(t)
   }
 }
+
+/** P3a: all photos of one public listing (guest list cards carry one). Null if unavailable. */
+export async function fetchPublicListingImages(id: string, timeoutMs = 10_000): Promise<string[] | null> {
+  if (!isApiEnabled || !id) return null
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    const res = await fetch(`${API_BASE}/api/public/marketplace?id=${encodeURIComponent(id)}`, { signal: ctrl.signal })
+    if (!res.ok) return null
+    const json = (await res.json()) as { properties?: Array<{ id?: string; images?: unknown }> }
+    const p = json.properties?.find((x) => x.id === id)
+    return Array.isArray(p?.images) ? (p!.images as unknown[]).filter((x): x is string => typeof x === 'string') : null
+  } catch {
+    return null
+  } finally {
+    clearTimeout(t)
+  }
+}

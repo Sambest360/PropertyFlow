@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { filterBootstrapForActor, filterBootstrapUsersForActor, redactBootstrapUser } from './scopeGate'
 import { filterBootstrapForGuest } from './guestMarketplace'
 import { buildPropertyScope } from '../src/lib/scope'
@@ -161,5 +162,41 @@ describe('guest marketplace slice', () => {
     expect(json).not.toContain('"u-james"')
     expect(json).not.toContain('approved')
     expect(json).not.toContain('verification')
+  })
+})
+
+describe('P3a: guest listing photos', () => {
+  const imgs = ['img-1', 'img-2', 'img-3']
+  const pubRaw = {
+    source: 'postgres',
+    fetchedAt: 'now',
+    agencies: [{ id: 'ag-a', name: 'A' }],
+    users: [{ id: 'u-ll', role: 'landlord', verification: { status: 'approved' } }, { id: 'u-james', name: 'James' }],
+    buildings: [{ id: 'b-1', landlordId: 'u-ll', images: imgs }],
+    units: [{ id: 'unt-p-pub', buildingId: 'b-1', listingType: 'rent', statusKey: 'PUBLISHED', images: imgs }],
+    properties: [
+      { id: 'p-pub', unitId: 'unt-p-pub', status: 'Published', agencyId: 'ag-a', agentId: 'u-james', landlordId: 'u-ll', images: imgs },
+      { id: 'p-draft', status: 'Draft', agencyId: 'ag-a', agentId: null, landlordId: 'u-ll', images: imgs },
+    ],
+  }
+  it('list cards get one image per listing', () => {
+    const out = filterBootstrapForGuest(pubRaw as never)
+    for (const k of ['properties', 'units', 'buildings']) {
+      for (const r of out[k] as Array<{ images: unknown[] }>) expect(r.images.length).toBeLessThanOrEqual(1)
+    }
+  })
+  it('?id= returns that listing with all images, landlord / agent ids still hidden', () => {
+    const out = filterBootstrapForGuest(pubRaw as never, { listingId: 'p-pub' })
+    const props = out.properties as Array<Record<string, unknown>>
+    expect(props).toHaveLength(1)
+    expect(props[0].images).toEqual(imgs)
+    expect(props[0].landlordId).toBe('')
+    expect(props[0].agentId).toBeNull()
+  })
+  it('?id= for an unlisted or unknown id has no listing (route answers 404)', () => {
+    expect((filterBootstrapForGuest(pubRaw as never, { listingId: 'p-draft' }).properties as unknown[]).length).toBe(0)
+    expect((filterBootstrapForGuest(pubRaw as never, { listingId: 'nope' }).properties as unknown[]).length).toBe(0)
+    const src = readFileSync('server/index.ts', 'utf8')
+    expect(src).toContain("'listing_not_found'")
   })
 })

@@ -685,7 +685,9 @@ app.get('/api/public/marketplace', async (c) => {
   }
   try {
     const lite = c.req.query('lite') !== '0' && c.req.query('lite') !== 'false'
-    const rowLimit = lite ? 60 : 250
+    // P3a: ?id=<propertyId> returns that one listing with all its photos.
+    const listingId = (c.req.query('id') ?? '').trim().slice(0, 120)
+    const rowLimit = listingId ? 500 : lite ? 60 : 250
     const { buildBootstrap } = await loadBootstrapModule()
     const data = await buildBootstrap({
       lite,
@@ -700,7 +702,11 @@ app.get('/api/public/marketplace', async (c) => {
         documents: 1,
       },
     })
-    return c.json(filterBootstrapForGuest(data as unknown as Record<string, unknown>))
+    const guest = filterBootstrapForGuest(data as unknown as Record<string, unknown>, listingId ? { listingId } : {})
+    if (listingId && !(Array.isArray(guest.properties) && guest.properties.length)) {
+      return c.json({ error: 'listing_not_found', message: 'This listing is not available.' }, 404)
+    }
+    return c.json(guest)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[api/public/marketplace]', message)
