@@ -21,6 +21,8 @@ import {
 } from '../../lib/blockedApplicants'
 import { useWishlist } from '../../hooks/useWishlist'
 import { hasMappedCoordinates } from '../../lib/mapCoords'
+import { fetchPublicListingImages } from '../../lib/api/postgresClient'
+import { NO_PHOTOS_YET } from '../../lib/listingPhotos'
 import { isPubliclyListed } from '../../lib/publicListings'
 import { findByListingId } from '../../lib/listingIds'
 import { submitListingEnquiry } from '../../lib/api/listingEnquiryApi'
@@ -92,6 +94,21 @@ export default function ListingDetail() {
     path: id ? `/listing/${id}` : undefined,
     preloadImage: p?.images[0],
   })
+
+  // P3a: guest list payloads carry one photo per listing; load the rest here.
+  const [fullImages, setFullImages] = useState<string[] | null>(null)
+  const listingKey = p?.id
+  const shownCount = p?.images.length ?? 0
+  useEffect(() => {
+    if (!listingKey || shownCount > 1) return
+    let live = true
+    void fetchPublicListingImages(listingKey).then((imgs) => {
+      if (live && imgs && imgs.length > shownCount) setFullImages(imgs)
+    })
+    return () => {
+      live = false
+    }
+  }, [listingKey, shownCount])
 
   if (!p) {
     const storeSettled = state.properties.length > 0 || state.units.length > 0
@@ -557,7 +574,13 @@ export default function ListingDetail() {
         </div>
 
         <div className="mt-6">
-          <ListingPhotoGallery images={p.images} title={p.title} />
+          {(fullImages ?? p.images).length ? (
+            <ListingPhotoGallery images={fullImages ?? p.images} title={p.title} />
+          ) : (
+            <div className="flex aspect-[16/7] items-center justify-center rounded-2xl bg-primary-50 text-sm font-medium text-ink-500">
+              {NO_PHOTOS_YET}
+            </div>
+          )}
         </div>
 
         <div className="mt-8 grid gap-10 lg:grid-cols-[1fr_380px]">
