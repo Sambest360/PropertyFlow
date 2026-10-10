@@ -561,3 +561,19 @@ describe('CR10 fix B2a: envelope replacement locked once signing has started', (
     expect(body.data.eSign).toMatchObject({ envelopeId: 'ENV-9', status: 'sent' })
   })
 })
+
+describe('CR10 B2b: a party match needs the party role too', () => {
+  it('staff or super admin whose uuid sits in tenant_id cannot sign the tenant block', async () => {
+    for (const role of ['agent', 'super_admin']) {
+      await expect(
+        stamp({ userId: 'u-t', role, agencyId: 'ag-a' }, 'tenant', { status: 'signed', method: 'drawn', signatureDataUrl: PNG }),
+      ).rejects.toMatchObject({ status: 403, code: 'SIGNATURE_NOT_SIGNER' })
+    }
+    expect(updates()).toHaveLength(0)
+  })
+  it('a staff uuid in landlord_id still signs only on behalf (needs the confirmation)', async () => {
+    await expect(
+      stamp({ userId: 'u-ll', role: 'agent', agencyId: 'ag-a' }, 'landlord', { status: 'signed', method: 'drawn', signatureDataUrl: PNG }),
+    ).rejects.toMatchObject({ status: 403 })
+  })
+})

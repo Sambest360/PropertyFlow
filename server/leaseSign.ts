@@ -136,7 +136,12 @@ export async function stampLeaseSignature(input: StampInput): Promise<StampResul
   const actorClient = actor.agencyId ? await resolveUuid('agency', actor.agencyId) : null
   const isLeaseStaff =
     SIGN_STAFF_ROLES.has(actor.role) && Boolean(actorClient) && actorClient === lease.client_id
-  const isParty = party === 'tenant' ? lease.tenant_id === actorUuid : lease.landlord_id === actorUuid
+  // CR10 B2b: the uuid match alone is not enough — the actor's role must be
+  // that party's role (staff or super admin set as tenant_id never qualify).
+  const isParty =
+    party === 'tenant'
+      ? actor.role === 'tenant' && lease.tenant_id === actorUuid
+      : actor.role === 'landlord' && lease.landlord_id === actorUuid
 
   const method = String(sent.method ?? '')
   if (!SIGN_METHODS.has(method)) throw signatureInvalidError('signature method must be drawn, saved_image or paper_mark')

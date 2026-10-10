@@ -1304,6 +1304,21 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
   return uuid
 }
 
+/** CR10 B2b: a lease with an envelope keeps its tenant_id / landlord_id. */
+export function assertLeasePartiesUnchanged(
+  locked: { tenant_id: string | null; landlord_id: string | null; envelope_id: string | null } | undefined,
+  tenant: string | null,
+  landlord: string | null,
+): void {
+  if (!locked?.envelope_id) return
+  if ((locked.tenant_id ?? null) !== (tenant ?? null) || (locked.landlord_id ?? null) !== (landlord ?? null)) {
+    throw Object.assign(new Error('The tenant or landlord of a lease with a signing envelope cannot be changed.'), {
+      status: 403,
+      code: 'LEASE_PARTY_LOCKED',
+    })
+  }
+}
+
 async function upsertTenancy(feId: string, d: Record<string, unknown>): Promise<string> {
   const uuid = await ensureUuid('tenancy', feId)
   const client = await clientId(d.agencyId)
@@ -1351,6 +1366,16 @@ async function upsertTenancy(feId: string, d: Record<string, unknown>): Promise<
   const landlord = await userId(d.landlordId)
   const agent = await userId(d.agentId)
   const status = TENANCY_STATUS_TO_DB[str(d.status, 'Active')] ?? 'ACTIVE'
+  // CR10 B2b: once a lease has a signing envelope its parties are fixed — a
+  // save (or batch) can't swap tenant_id / landlord_id to someone else and
+  // then sign as that party.
+  const lockedRows = await query<{ tenant_id: string | null; landlord_id: string | null; envelope_id: string | null }>(
+    `SELECT tenant_id::text AS tenant_id, landlord_id::text AS landlord_id,
+            metadata->'eSign'->>'envelopeId' AS envelope_id
+       FROM leases WHERE id = $1::uuid LIMIT 1`,
+    [uuid],
+  )
+  assertLeasePartiesUnchanged(lockedRows[0], tenant, landlord)
 
   await query(
     `INSERT INTO leases (
