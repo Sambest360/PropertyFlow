@@ -717,8 +717,24 @@ app.get('/api/public/marketplace', async (c) => {
   }
   try {
     const lite = c.req.query('lite') !== '0' && c.req.query('lite') !== 'false'
+    // P3a: ?id=<propertyId> returns that one listing with all its photos.
+    const listingId = c.req.query('id')
     const rowLimit = lite ? 60 : 250
     const { buildBootstrap } = await loadBootstrapModule()
+    if (listingId !== undefined) {
+      const { publicListingById } = await import('./publicListing.js')
+      const { resolveLiveListing } = await import('./listingResolve.js')
+      const out = await publicListingById(listingId, {
+        resolveUnitId: async (id) => (await resolveLiveListing(id)).unitId || null,
+        build: async (unitIds) =>
+          (await buildBootstrap({
+            lite: true,
+            unitIds,
+            limits: { messages: 1, notifications: 1, leads: 1, applications: 1, tickets: 1, payments: 1, documents: 1 },
+          })) as unknown as Record<string, unknown>,
+      })
+      return c.json(out.body, out.status)
+    }
     const data = await buildBootstrap({
       lite,
       limits: {

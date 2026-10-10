@@ -20,11 +20,13 @@ import {
   isTenancyOnRentRollAsAt,
   remittanceAdapterFromEnv,
   rentRollToCsv,
+  RENT_ROLL_CSV_HEADER,
   RENT_ROLL_TABLE_COLUMNS,
   rentRollCellText,
   rentRollTableToCsv,
 } from './index'
 import { RemittanceNotConfiguredError } from './types'
+import { rentRollPdfHeader } from './generateRentRollPdf'
 
 function property(overrides: Partial<PropertyAsset> = {}): PropertyAsset {
   return {
@@ -185,7 +187,19 @@ describe('rentRollToCsv', () => {
       payments: [],
     })
     const csv = rentRollToCsv(book)
-    expect(csv.split('\n')[0]).toMatch(/as_at/)
+    const lines = csv.split('\n')
+    const header = lines[0].split(',')
+    // Shared columns first, in screen/PDF order, then the audit-only extras.
+    expect(header.slice(0, RENT_ROLL_TABLE_COLUMNS.length)).toEqual(RENT_ROLL_TABLE_COLUMNS.map((c) => c.label))
+    expect(header.slice(RENT_ROLL_TABLE_COLUMNS.length)).toEqual([
+      'Tenancy ID', 'Property ID', 'Owner ID', 'Tenant email', 'Address', 'Deposit', 'Rent due day', 'As at', 'Note',
+    ])
+    expect(lines[0]).toBe(RENT_ROLL_CSV_HEADER)
+    const totals = lines[lines.length - 1].split(',')
+    expect(totals[0]).toBe('Total')
+    expect(totals[header.indexOf('Deposit')]).toBe(book.totals.depositZar.toFixed(2))
+    expect(lines[1]).toContain(book.rows[0].tenantEmail)
+    expect(lines[1]).toContain('2026-10-01')
     expect(csv).toMatch(/not trust-audited/)
     expect(csv).toMatch(/Humewood B12/)
   })
@@ -323,16 +337,31 @@ describe('rent roll table (Reports tab)', () => {
     generatedAt: '2026-10-02T08:00:00.000Z',
   }
 
-  it('keeps the column order tenant, unit, owner, charged, outstanding, lease expiry, increase date', () => {
+  it('keeps the PDF column order: unit, tenant, owner, status, charged, outstanding, start, lease expiry, increase date', () => {
     expect(RENT_ROLL_TABLE_COLUMNS.map((c) => c.label)).toEqual([
-      'Tenant',
       'Unit',
+      'Tenant',
       'Owner',
+      'Status',
       'Charged',
       'Outstanding',
+      'Start',
       'Lease expiry',
       'Increase date',
     ])
+  })
+
+  it('CR2: screen, table CSV, audit-pack CSV and PDF headers are identical', () => {
+    const screen = RENT_ROLL_TABLE_COLUMNS.map((c) => c.label)
+    const book = buildRentRollAsAt({ ...base, tenancies: [tenancy()] })
+    expect(rentRollTableToCsv(book.rows).split('\n')[0]).toBe(screen.join(','))
+    expect(rentRollToCsv(book).split('\n')[0].startsWith(screen.join(',') + ',')).toBe(true)
+    expect(rentRollPdfHeader()).toEqual(screen)
+  })
+
+  it('CR2: hidden columns - CSV follows the visible set in PDF order', () => {
+    const book = buildRentRollAsAt({ ...base, tenancies: [tenancy()] })
+    expect(rentRollTableToCsv(book.rows, ['increaseDate', 'owner', 'unit']).split('\n')[0]).toBe('Unit,Owner,Increase date')
   })
 
   it('reads the increase date from the billing schedule and leaves lease expiry blank when null', () => {
@@ -376,7 +405,7 @@ describe('rent roll table (Reports tab)', () => {
     const book = buildRentRollAsAt({ ...base, tenancies: [tenancy()] })
     const csv = rentRollTableToCsv(book.rows, ['tenant', 'outstanding', 'unit'])
     const [header, first] = csv.split('\n')
-    expect(header).toBe('Tenant,Unit,Outstanding')
-    expect(first).toBe('Lucas Pretorius,Humewood B12,12500.00')
+    expect(header).toBe('Unit,Tenant,Outstanding')
+    expect(first).toBe('Humewood B12,Lucas Pretorius,12500.00')
   })
 })

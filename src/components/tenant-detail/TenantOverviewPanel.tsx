@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { shouldShowAddressLine } from '../../lib/property/addressLines'
 import { MapPin } from 'lucide-react'
 import type { PropertyAsset, Tenancy } from '../../types/domain'
 import { formatZAR } from '../../data/seed'
@@ -49,7 +50,9 @@ export function TenantOverviewPanel({
               <span className="mt-0.5 block text-sm text-ink-500">
                 {property.suburb}, {property.city}
               </span>
-              <span className="mt-0.5 block text-xs text-ink-400">{property.address}</span>
+              {shouldShowAddressLine(property.title, property.address) ? (
+                <span className="mt-0.5 block text-xs text-ink-400">{property.address}</span>
+              ) : null}
             </span>
           </Link>
         ) : (

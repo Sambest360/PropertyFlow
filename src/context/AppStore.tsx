@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { applicationUploadPayload, applyDocumentUpload } from '../lib/applicationDocUpload'
 import { summarizeRooms } from '../lib/roomSummary'
 import type {
   Agency,
@@ -4239,65 +4240,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ...s,
         applications: s.applications.map((a) => {
           if (a.id !== applicationId) return a
-          const documents = a.documents.map((d) =>
-            d.key === key
-              ? {
-                  ...d,
-                  status: 'uploaded' as const,
-                  file: {
-                    name: file.name,
-                    mimeType: file.mimeType,
-                    dataUrl: file.dataUrl,
-                    uploadedAt: new Date().toISOString(),
-                    uploadedBy: actor?.name ?? a.applicantName,
-                  },
-                  rejectedReason: undefined,
-                }
-              : d,
-          )
-          const uploaded = allDocsUploaded(documents)
-          let next = appendWorkflowEvent(
-            { ...a, documents },
-            {
-              stage: resolveWorkflowStatus(a),
-              actionKey: 'DOC_UPLOADED',
-              actorUserId: actor?.userId ?? a.applicantUserId,
-              actorName: actor?.name ?? a.applicantName,
-              summary: `Uploaded ${documents.find((d) => d.key === key)?.label ?? key}`,
-              payload: { documentKey: key, fileName: file.name },
-            },
-          )
-          if (uploaded && resolveWorkflowStatus(a) === 'documents_requested') {
-            next = applyWorkflowTransition({ ...next, documents }, 'documents_uploaded')
-            next = appendWorkflowEvent(next, {
-              stage: 'documents_uploaded',
-              actionKey: 'UPLOAD_DOCS',
-              actorUserId: actor?.userId ?? a.applicantUserId,
-              actorName: actor?.name ?? a.applicantName,
-              summary: 'All required documents uploaded',
-            })
-          } else {
-            next = normalizeApplication({ ...next, documents })
-          }
-          let result: Application = {
-            ...next,
-            docs: documents.filter((d) => d.status !== 'required').map((d) => d.label),
-            updatedAt: new Date().toISOString().slice(0, 10),
-          }
-          if (key === 'credit_consent') {
-            result = captureScreeningConsent(result, {
-              method: 'document',
-              grantedBy: actor?.userId ?? a.applicantUserId ?? a.applicantName,
-              note: `Consent document uploaded: ${file.name}`,
-            })
-          }
+          const result = applyDocumentUpload(a, key, file, actor)
           persisted = result
           return result
         }),
       }))
       if (persisted) {
         const before = preUpload
-        void persistUpsert('application', applicationId, persisted as unknown as Record<string, unknown>).then(
+        const app = persisted as Application
+        void persistUpsert('application', applicationId, applicationUploadPayload(app, key, actor?.userId)).then(
           (ok) => {
             // A refused upload must not stay on screen as if it were saved.
             if (ok || !before) return
