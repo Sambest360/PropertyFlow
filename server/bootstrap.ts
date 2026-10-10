@@ -202,6 +202,24 @@ const LITE_BOOTSTRAP_LIMITS: Required<BootstrapLimits> = {
   documents: 80,
 }
 
+/**
+ * CR10 fix 4: the lite bootstrap never carries signature images. Each party
+ * block keeps its status / method / hash but drops signatureDataUrl.
+ */
+export function stripESignImages(eSign: unknown): Record<string, unknown> | null {
+  if (!eSign || typeof eSign !== 'object' || Array.isArray(eSign)) return null
+  const out: Record<string, unknown> = { ...(eSign as Record<string, unknown>) }
+  for (const party of ['tenant', 'landlord']) {
+    const b = out[party]
+    if (b && typeof b === 'object' && !Array.isArray(b)) {
+      const { signatureDataUrl: _drop, ...rest } = b as Record<string, unknown>
+      out[party] = rest
+    }
+  }
+  delete out.signatureDataUrl
+  return out
+}
+
 export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: boolean }) {
   const lite = Boolean(opts?.lite)
   const baseLimits = lite ? LITE_BOOTSTRAP_LIMITS : DEFAULT_BOOTSTRAP_LIMITS
@@ -872,7 +890,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
       keyCollection,
       leaseDocumentId: (meta.leaseDocumentId as string | null | undefined) ?? null,
       leasePdfUrl: (meta.leasePdfUrl as string | null | undefined) ?? null,
-      eSign: (meta.eSign as Record<string, unknown> | null | undefined) ?? null,
+      eSign: lite ? stripESignImages(meta.eSign) : ((meta.eSign as Record<string, unknown> | null | undefined) ?? null),
       renewalOps: (meta.renewalOps as Record<string, unknown> | null | undefined) ?? null,
       billingSchedule: (meta.billingSchedule as Record<string, unknown> | null | undefined) ?? null,
     }
