@@ -1321,6 +1321,28 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
   return uuid
 }
 
+/**
+ * CR10 nit 4: a staff lease save merges the STORED eSign in SQL. For the same
+ * envelope, the party blocks, status, envelope id, email flag and signed copy
+ * fields are always the row's current values (what the stamp wrote in this
+ * transaction), never the gate-time snapshot in the payload.
+ */
+export const STORED_ESIGN_SQL_MERGE = `CASE
+         WHEN jsonb_typeof(leases.metadata->'eSign') = 'object'
+          AND jsonb_typeof(EXCLUDED.metadata->'eSign') = 'object'
+          AND leases.metadata->'eSign'->>'envelopeId' = EXCLUDED.metadata->'eSign'->>'envelopeId'
+         THEN jsonb_build_object('eSign',
+           (EXCLUDED.metadata->'eSign') || jsonb_strip_nulls(jsonb_build_object(
+             'tenant', leases.metadata->'eSign'->'tenant',
+             'landlord', leases.metadata->'eSign'->'landlord',
+             'status', leases.metadata->'eSign'->'status',
+             'envelopeId', leases.metadata->'eSign'->'envelopeId',
+             'completedEmailSentAt', leases.metadata->'eSign'->'completedEmailSentAt',
+             'signedPdfUrl', leases.metadata->'eSign'->'signedPdfUrl',
+             'signedPdfDocumentId', leases.metadata->'eSign'->'signedPdfDocumentId')))
+         ELSE '{}'::jsonb
+       END`
+
 /** CR10 B2b: a lease with an envelope keeps its tenant_id / landlord_id. */
 export function assertLeasePartiesUnchanged(
   locked: { tenant_id: string | null; landlord_id: string | null; envelope_id: string | null } | undefined,
@@ -1412,7 +1434,7 @@ async function upsertTenancy(feId: string, d: Record<string, unknown>): Promise<
        tenant_id = EXCLUDED.tenant_id,
        landlord_id = EXCLUDED.landlord_id,
        agent_id = EXCLUDED.agent_id,
-       metadata = leases.metadata || EXCLUDED.metadata,
+       metadata = leases.metadata || EXCLUDED.metadata || ${STORED_ESIGN_SQL_MERGE},
        updated_at = NOW()`,
     [
       uuid,

@@ -22,3 +22,14 @@ describe('CR10 nit 3: the party-lock read in upsertTenancy is FOR UPDATE', () =>
     expect(idx).toMatch(/body\.resource === 'tenancy' && body\.action === 'upsert'[\s\S]{0,200}withTransaction/)
   })
 })
+
+describe('CR10 nit 4: staff lease save merges the stored eSign in SQL', () => {
+  it('the upsert keeps the row party blocks / status for the same envelope', async () => {
+    const { STORED_ESIGN_SQL_MERGE } = await import('./writes.js')
+    for (const k of ['tenant', 'landlord', 'status', 'envelopeId', 'completedEmailSentAt'])
+      expect(STORED_ESIGN_SQL_MERGE).toContain(`'${k}', leases.metadata->'eSign'->'${k}'`)
+    expect(STORED_ESIGN_SQL_MERGE).toContain("leases.metadata->'eSign'->>'envelopeId' = EXCLUDED.metadata->'eSign'->>'envelopeId'")
+    const src = (await import('node:fs')).readFileSync('server/writes.ts', 'utf8')
+    expect(src).toContain('metadata = leases.metadata || EXCLUDED.metadata || ${STORED_ESIGN_SQL_MERGE}')
+  })
+})
