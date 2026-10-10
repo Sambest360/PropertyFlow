@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 
 const auth = { isAuthenticated: true, user: { id: 'u-johan' } }
-const store = { hydratedForUserId: null as string | null }
+const store = { hydratedForUserId: null as string | null, hydrationFailed: false, refreshBootstrap: vi.fn() }
 vi.mock('../context/AuthContext', () => ({ useAuth: () => auth }))
 vi.mock('../context/AppStore', () => ({ useStore: () => store }))
 vi.mock('../lib/api/config', () => ({ isApiEnabled: true, isSupabaseMode: false }))
@@ -35,5 +35,14 @@ describe('OwnerPortal first load (API mode)', () => {
   it('no skeleton for guests or demo mode', () => {
     expect(isPortalHydrating({ isAuthenticated: false, apiMode: true, userId: 'guest', hydratedForUserId: null })).toBe(false)
     expect(isPortalHydrating({ isAuthenticated: true, apiMode: false, userId: 'u-a', hydratedForUserId: null })).toBe(false)
+  })
+  it('a failed bootstrap shows an error with retry, not an endless skeleton', () => {
+    store.hydratedForUserId = null
+    store.hydrationFailed = true
+    const html = renderToStaticMarkup(<PortalHydrationGate><i>own</i></PortalHydrationGate>)
+    expect(html).toContain('portal-load-error')
+    expect(html).toContain('Try again')
+    expect(html).not.toContain('portal-skeleton')
+    store.hydrationFailed = false
   })
 })

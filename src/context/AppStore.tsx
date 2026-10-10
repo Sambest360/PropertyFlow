@@ -166,11 +166,14 @@ import {
 } from '../lib/bootstrapCoord'
 import {
   APP_STATE_STORAGE_KEY,
+  AUTH_USER_STORAGE_KEY,
   PG_SOURCE_STORAGE_KEY,
   readOwnedClientCache,
   serializeClientCache,
   shouldDeferMountBootstrap,
   createClientCacheWriter,
+  handleAuthKeyStorageEvent,
+  bootstrapMatchesSession,
 } from '../lib/clientCache'
 import { readStoredAuthUserId, getApiActor, actorHeaders, type DemoActor } from '../lib/api/actorAuth'
 import {
@@ -457,6 +460,8 @@ type StoreContextValue = {
   hydratedForUserId: string | null
   /** Session user changed: drop the previous user's in-memory state before their bootstrap. */
   resetForUserSwitch: () => void
+  /** Signed-in bootstrap failed (portals show retry instead of a skeleton). */
+  hydrationFailed: boolean
   resetDemo: () => void
   /** Re-fetch bootstrap for the given (or current) actor. */
   refreshBootstrap: (
@@ -1018,7 +1023,7 @@ async function fetchBootstrapFromApi(lite: boolean, actor: DemoActor | null, ful
       return boot
     }
     try {
-      localStorage.removeItem('propertyflow-auth-user')
+      localStorage.removeItem(AUTH_USER_STORAGE_KEY)
     } catch {
       /* ignore */
     }
@@ -1058,7 +1063,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>(() => defaultState())
   const [toasts, setToasts] = useState<NotificationToast[]>([])
   /** Session user whose /api/bootstrap has been applied (null until then). */
-  const [hydratedForUserId, setHydratedForUserId] = useState<string | null>(null)
+  const [hydratedForUserId, setHydratedForUserIdState] = useState<string | null>(null)
+  /** Same value, readable synchronously by the cache writer (owner of in-memory data). */
+  const hydratedForUserIdRef = useRef<string | null>(null)
+  const setHydratedForUserId = useCallback((id: string | null) => {
+    hydratedForUserIdRef.current = id
+    setHydratedForUserIdState(id)
+  }, [])
+  /** Signed-in bootstrap failed: portals show a retry state, not an endless skeleton. */
+  const [hydrationFailed, setHydrationFailed] = useState(false)
   const stateRef = useRef(state)
   /** Pending tenancy saves carrying a freshly issued e-sign envelope, by tenancy id. */
   const leaseESignSaves = useRef(new Map<string, Promise<boolean>>())
@@ -1103,11 +1116,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
     const boot = await dedupeBootstrapFetch(lite, fetchBoot, { force: opts?.force, actorKey })
     if (!boot) {
+      if (resolved?.userId) setHydrationFailed(true)
       setState((prev) => ensureGuestMarketplace(prev))
       return
     }
+    // Drop a bootstrap whose user is no longer the session user (switch mid-flight).
+    if (!bootstrapMatchesSession(resolved?.userId, readStoredAuthUserId())) return
     setState((prev) => ensureGuestMarketplace(applyPostgresBootstrap(prev, boot)))
     setHydratedForUserId(resolved?.userId ?? null)
+    setHydrationFailed(false)
     if (ingestUserId) {
       const nextNotes = (boot.notifications as AppNotification[]) ?? []
       const fresh = diffNewNotifications(prevNotifications, nextNotes, ingestUserId)
@@ -1137,6 +1154,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           { actorKey: deferredKey },
         ).then((full) => {
           if (!full) return
+          if (!bootstrapMatchesSession(deferredActor?.userId, readStoredAuthUserId())) return
           setState((prev) => applyPostgresBootstrap(prev, full))
         })
       })
@@ -1150,6 +1168,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           { actorKey: deferredKey },
         ).then((full) => {
           if (!full) return
+          if (!bootstrapMatchesSession(deferredActor?.userId, readStoredAuthUserId())) return
           setState((prev) => applyPostgresBootstrap(prev, full))
         })
       })
@@ -1194,11 +1213,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       )
       if (cancelled) return
       if (!boot) {
+        if (actor?.userId) setHydrationFailed(true)
         setState((prev) => ensureGuestMarketplace(prev))
         return
       }
+      if (!bootstrapMatchesSession(actor?.userId, readStoredAuthUserId())) return
       setState((prev) => ensureGuestMarketplace(applyPostgresBootstrap(prev, boot)))
       setHydratedForUserId(actor?.userId ?? null)
+      setHydrationFailed(false)
       try {
         localStorage.setItem(PG_HYDRATED_FLAG, 'postgres')
       } catch {
@@ -1220,6 +1242,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           { actorKey: deferredKey },
         ).then((full) => {
           if (cancelled || !full) return
+          if (!bootstrapMatchesSession(deferredActor?.userId, readStoredAuthUserId())) return
           setState((prev) => applyPostgresBootstrap(prev, full))
         })
       })
@@ -1238,17 +1261,30 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // Owner captured at schedule time; pending write cancelled on user switch.
+  const resetToDefault = useCallback(() => {
+    cacheWriterRef.current?.cancel()
+    const fresh = defaultState()
+    stateRef.current = fresh
+    setState(fresh)
+    setHydratedForUserId(null)
+    setHydrationFailed(false)
+    setToasts([])
+  }, [setHydratedForUserId])
+
+  // Cache owner = user whose data is in memory (hydratedForUserIdRef), captured at
+  // schedule time; written only while that user is still the stored auth user.
   const cacheWriterRef = useRef<ReturnType<typeof createClientCacheWriter<AppState>> | null>(null)
   if (!cacheWriterRef.current) {
     cacheWriterRef.current = createClientCacheWriter<AppState>({
       delayMs: 900,
-      getOwner: readStoredAuthUserId,
+      liveMode: LIVE_DATA_MODE,
+      getMemoryOwner: () => hydratedForUserIdRef.current,
+      getStoredAuthUser: readStoredAuthUserId,
       write: (st, owner) => {
         try {
           localStorage.setItem(
             STORAGE_KEY,
-            LIVE_DATA_MODE ? serializeClientCache(st, owner, isApiEnabled) : JSON.stringify(st),
+            LIVE_DATA_MODE ? serializeClientCache(st, owner, LIVE_DATA_MODE) : JSON.stringify(st),
           )
         } catch {
           /* ignore quota errors */
@@ -1262,13 +1298,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     return () => writer.cancel()
   }, [state])
   useEffect(() => {
-    // Sign-out from another tab/flow: drop any pending write for the old user.
+    if (!LIVE_DATA_MODE) return // demo mode: as on main
+    // Another tab signed out (auth key removed): cancel pending write + reset store.
     const onStorage = (e: StorageEvent) => {
-      if (e.key === 'propertyflow-auth-user') cacheWriterRef.current?.cancel()
+      handleAuthKeyStorageEvent(e, {
+        cancel: () => cacheWriterRef.current?.cancel(),
+        reset: resetToDefault,
+      })
     }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
-  }, [])
+  }, [resetToDefault])
 
   const patch = useCallback((fn: (s: AppState) => AppState) => {
     // P0-publish (R8): keep stateRef in sync synchronously. Same-tick flows
@@ -2106,14 +2146,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const value = useMemo<StoreContextValue>(() => ({
     state,
     hydratedForUserId,
+    hydrationFailed,
     resetForUserSwitch: () => {
       if (!LIVE_DATA_MODE) return // demo mode: as on main
-      cacheWriterRef.current?.cancel()
-      const fresh = defaultState()
-      stateRef.current = fresh
-      setState(fresh)
-      setHydratedForUserId(null)
-      setToasts([])
+      resetToDefault()
     },
     toasts,
     refreshBootstrap,
@@ -6786,7 +6822,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     proposePayoutInstruction,
     approvePayoutInstruction,
     submitPayoutInstruction,
-  }), [state, hydratedForUserId, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, importTrustTemplateCsv, upsertHeldDeposit, proposeDepositReleaseAction, approveDepositReleaseAction, proposePayoutInstruction, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistDelete, refreshBootstrap, scheduleBootstrapRefreshAfterMutation, issueLeasePackageForTenancy])
+  }), [state, hydratedForUserId, hydrationFailed, resetToDefault, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, importTrustTemplateCsv, upsertHeldDeposit, proposeDepositReleaseAction, approveDepositReleaseAction, proposePayoutInstruction, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistDelete, refreshBootstrap, scheduleBootstrapRefreshAfterMutation, issueLeasePackageForTenancy])
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }

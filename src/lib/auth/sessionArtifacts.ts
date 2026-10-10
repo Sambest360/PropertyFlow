@@ -6,7 +6,7 @@
  * These helpers are the single source of truth for "clear everything".
  */
 
-import { APP_STATE_STORAGE_KEY, PG_SOURCE_STORAGE_KEY } from '../clientCache'
+import { APP_STATE_STORAGE_KEY, AUTH_USER_STORAGE_KEY, PG_SOURCE_STORAGE_KEY } from '../clientCache'
 
 export type SessionArtifactSetters = {
   setSessionUser: (u: unknown) => void
@@ -15,7 +15,7 @@ export type SessionArtifactSetters = {
 }
 
 export const AUTH_STORAGE_KEYS = [
-  'propertyflow-auth-user',
+  AUTH_USER_STORAGE_KEY,
   'propertyflow-auth-real-user',
   // P0-session (R11): AuthContext.logout alone used to miss this API-mode
   // token; leftover token + sb-*auth* keys resurrected Super Admin on /workspace.

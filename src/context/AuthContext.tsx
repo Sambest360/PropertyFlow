@@ -61,8 +61,9 @@ import {
   setRegisterInFlight,
   shieldGuestPurgeForLogin,
 } from '../lib/auth/sessionArtifacts'
+import { AUTH_USER_STORAGE_KEY } from '../lib/clientCache'
 
-const AUTH_KEY = 'propertyflow-auth-user'
+const AUTH_KEY = AUTH_USER_STORAGE_KEY
 const REAL_AUTH_KEY = 'propertyflow-auth-real-user'
 const DEMO_SWITCHER = import.meta.env.VITE_DEMO_SWITCHER === '1'
 

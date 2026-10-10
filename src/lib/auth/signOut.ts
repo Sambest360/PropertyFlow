@@ -9,13 +9,13 @@
  * mechanism the register flow already uses (`redirectToLogin`).
  */
 import { clearPendingRegistrationDocs } from './registrationDocs'
-import { APP_STATE_STORAGE_KEY, PG_SOURCE_STORAGE_KEY } from '../clientCache'
+import { APP_STATE_STORAGE_KEY, AUTH_USER_STORAGE_KEY, PG_SOURCE_STORAGE_KEY } from '../clientCache'
 
 /** Session-scoped keys that must not leak across users. */
 export const STALE_KEYS = [
   'pf-register-email',
   'propertyflow-auth-token',
-  'propertyflow-auth-user',
+  AUTH_USER_STORAGE_KEY,
   'propertyflow-auth-real-user',
   // spec-portal-first-load: the previous user's AppState mirror must not
   // survive sign-out on a shared browser.

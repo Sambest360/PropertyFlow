@@ -7,6 +7,9 @@
  * back for the same stored auth user. Sign-out wipes both keys.
  */
 
+/** Stored signed-in user id (shared by AuthContext, actorAuth, RequireAuth, AppStore). */
+export const AUTH_USER_STORAGE_KEY = 'propertyflow-auth-user'
+
 /** AppState mirror key. Re-exported by AppStore. */
 export const APP_STATE_STORAGE_KEY = 'propertyflow-v18'
 /** "Last hydrated from Postgres" marker. Re-exported by AppStore. */
@@ -32,14 +35,14 @@ export const API_MODE_UNPERSISTED_KEYS = [
 
 export type CacheEnvelope<S> = { ownerUserId: string | null; state: Partial<S> }
 
-/** Build the persisted envelope. In API mode, PII/trust collections are dropped. */
+/** Build the persisted envelope. In live modes (API or Supabase), PII/trust collections are dropped. */
 export function serializeClientCache<S extends object>(
   state: S,
   ownerUserId: string | null,
-  apiMode: boolean,
+  liveMode: boolean,
 ): string {
   let toStore: Partial<S> = state
-  if (apiMode) {
+  if (liveMode) {
     const copy = { ...state } as Record<string, unknown>
     for (const k of API_MODE_UNPERSISTED_KEYS) delete copy[k]
     toStore = copy as Partial<S>
@@ -100,14 +103,17 @@ export function shouldDeferMountBootstrap(params: {
 }
 
 /**
- * Debounced cache writer. The owner is captured when a write is SCHEDULED, and
- * the write is dropped if the stored auth user changed before it fires, so A's
- * state can never be saved under B's owner tag. cancel() is called on user
- * switch / sign-out.
+ * Debounced cache writer. The owner is the user whose data is IN MEMORY
+ * (hydratedForUserId), captured when the write is scheduled — never the shared
+ * auth key, which another tab can change. In live modes (API/Supabase) a write
+ * happens only when that owner is set AND still equals the stored auth user
+ * when the timer fires. Demo mode writes as on main. cancel() on switch/sign-out.
  */
 export function createClientCacheWriter<S extends object>(opts: {
   delayMs: number
-  getOwner: () => string | null
+  liveMode: boolean
+  getMemoryOwner: () => string | null
+  getStoredAuthUser: () => string | null
   write: (state: S, ownerUserId: string | null) => void
 }) {
   let timer: ReturnType<typeof setTimeout> | null = null
@@ -117,12 +123,38 @@ export function createClientCacheWriter<S extends object>(opts: {
   }
   const schedule = (state: S) => {
     cancel()
-    const owner = opts.getOwner()
+    const owner = opts.liveMode ? opts.getMemoryOwner() || null : null
+    if (opts.liveMode && !owner) return
     timer = setTimeout(() => {
       timer = null
-      if ((opts.getOwner() || null) !== (owner || null)) return
+      if (opts.liveMode && opts.getStoredAuthUser() !== owner) return
       opts.write(state, owner)
     }, opts.delayMs)
   }
   return { schedule, cancel }
+}
+
+/**
+ * Cross-tab sign-out: when another tab REMOVES the auth key, cancel any pending
+ * cache write and reset the store. Returns true when it acted.
+ */
+export function handleAuthKeyStorageEvent(
+  e: { key: string | null; newValue: string | null },
+  actions: { cancel: () => void; reset: () => void },
+): boolean {
+  if (e.key !== AUTH_USER_STORAGE_KEY || e.newValue != null) return false
+  actions.cancel()
+  actions.reset()
+  return true
+}
+
+/**
+ * A bootstrap fetched for `bootUserId` is applied only if that is still the
+ * stored session user (a guest fetch only while still a guest).
+ */
+export function bootstrapMatchesSession(
+  bootUserId: string | null | undefined,
+  storedAuthUserId: string | null,
+): boolean {
+  return (bootUserId || null) === (storedAuthUserId || null)
 }

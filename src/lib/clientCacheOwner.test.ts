@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 function fakeStorage() {
   const map = new Map<string, string>()
@@ -33,7 +33,9 @@ import {
   PG_SOURCE_STORAGE_KEY,
   readOwnedClientCache,
   serializeClientCache,
+  bootstrapMatchesSession,
   createClientCacheWriter,
+  handleAuthKeyStorageEvent,
   sessionUserSwitched,
   shouldDeferMountBootstrap,
 } from './clientCache'
@@ -130,36 +132,104 @@ describe('API mode defaults', () => {
   })
 })
 
-describe('debounced cache write', () => {
+function liveWriter(memoryOwner: { current: string | null }) {
+  const writes: Array<{ owner: string | null; state: unknown }> = []
+  const writer = createClientCacheWriter<{ properties: string[] }>({
+    delayMs: 900,
+    liveMode: true,
+    getMemoryOwner: () => memoryOwner.current,
+    getStoredAuthUser: () => ls.getItem(AUTH_KEY),
+    write: (state, owner) => {
+      writes.push({ owner, state })
+      ls.setItem(APP_STATE_STORAGE_KEY, serializeClientCache(state, owner, true))
+    },
+  })
+  return { writer, writes }
+}
+
+describe('cache write ownership (live modes)', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
   it('a write scheduled as A is never saved under B after a switch', () => {
-    vi.useFakeTimers()
-    try {
-      ls.setItem(AUTH_KEY, 'u-a')
-      const writes: Array<{ owner: string | null; state: unknown }> = []
-      const writer = createClientCacheWriter<{ properties: string[] }>({
-        delayMs: 900,
-        getOwner: () => ls.getItem(AUTH_KEY),
-        write: (state, owner) => {
-          writes.push({ owner, state })
-          ls.setItem(APP_STATE_STORAGE_KEY, serializeClientCache(state, owner, true))
-        },
-      })
-      writer.schedule({ properties: ['p-agency-a'] })
-      ls.setItem(AUTH_KEY, 'u-b') // user switch before the timer fires
-      vi.advanceTimersByTime(1000)
-      expect(writes).toEqual([])
-      expect(readOwnedClientCache(ls.getItem(APP_STATE_STORAGE_KEY), 'u-b')).toBeNull()
+    ls.setItem(AUTH_KEY, 'u-a')
+    const mem = { current: 'u-a' as string | null }
+    const { writer, writes } = liveWriter(mem)
+    writer.schedule({ properties: ['p-agency-a'] })
+    ls.setItem(AUTH_KEY, 'u-b')
+    vi.advanceTimersByTime(1000)
+    expect(writes).toEqual([])
+    writer.schedule({ properties: ['p-agency-a'] })
+    writer.cancel()
+    vi.advanceTimersByTime(1000)
+    expect(writes).toEqual([])
+  })
 
-      writer.schedule({ properties: ['p-agency-a'] })
-      writer.cancel() // sign-out / resetForUserSwitch
-      vi.advanceTimersByTime(1000)
-      expect(writes).toEqual([])
+  it("two tabs: tab 2 switches A→B, tab 1's next change does not write A's data tagged B", () => {
+    ls.setItem(AUTH_KEY, 'u-a')
+    const tab1Memory = { current: 'u-a' as string | null } // tab 1 still holds A's data
+    const { writer, writes } = liveWriter(tab1Memory)
+    ls.setItem(AUTH_KEY, 'u-b') // tab 2 signs in as B (shared key)
+    writer.schedule({ properties: ['p-agency-a'] }) // tab 1 state change
+    vi.advanceTimersByTime(1000)
+    expect(writes).toEqual([])
+    expect(readOwnedClientCache(ls.getItem(APP_STATE_STORAGE_KEY), 'u-b')).toBeNull()
+  })
 
-      writer.schedule({ properties: ['p-b'] })
-      vi.advanceTimersByTime(1000)
-      expect(writes).toEqual([{ owner: 'u-b', state: { properties: ['p-b'] } }])
-    } finally {
-      vi.useRealTimers()
-    }
+  it('no write with no owner in API mode', () => {
+    ls.setItem(AUTH_KEY, 'u-a')
+    const { writer, writes } = liveWriter({ current: null }) // not hydrated / guest
+    writer.schedule({ properties: ['p'] })
+    vi.advanceTimersByTime(1000)
+    expect(writes).toEqual([])
+    expect(ls.getItem(APP_STATE_STORAGE_KEY)).toBeNull()
+  })
+
+  it('a state change after signOutAndRedirect writes nothing, and a guest never reads A\'s cache', async () => {
+    ls.setItem(AUTH_KEY, 'u-a')
+    ls.setItem(APP_STATE_STORAGE_KEY, serializeClientCache({ properties: [{ id: 'p-agency-a' }] }, 'u-a', true))
+    const { writer, writes } = liveWriter({ current: 'u-a' })
+    vi.stubGlobal('window', { location: { assign: vi.fn() } })
+    await signOutAndRedirect(async () => {})
+    writer.schedule({ properties: ['p-agency-a'] })
+    vi.advanceTimersByTime(1000)
+    expect(writes).toEqual([])
+    expect(ls.getItem(APP_STATE_STORAGE_KEY)).toBeNull()
+    // Even if A's cache were still there, a guest loads the empty default.
+    ls.setItem(APP_STATE_STORAGE_KEY, serializeClientCache({ properties: [{ id: 'p-agency-a' }] }, 'u-a', true))
+    expect(appStore.loadState().properties).toEqual([])
+  })
+
+  it('cross-tab auth-key removal cancels the pending write and resets the store', () => {
+    ls.setItem(AUTH_KEY, 'u-a')
+    const { writer, writes } = liveWriter({ current: 'u-a' })
+    let store = { properties: ['p-agency-a'] }
+    writer.schedule(store)
+    const acted = handleAuthKeyStorageEvent({ key: AUTH_KEY, newValue: null }, {
+      cancel: writer.cancel,
+      reset: () => {
+        store = { properties: [] }
+      },
+    })
+    vi.advanceTimersByTime(1000)
+    expect(acted).toBe(true)
+    expect(store.properties).toEqual([])
+    expect(writes).toEqual([])
+    expect(handleAuthKeyStorageEvent({ key: AUTH_KEY, newValue: 'u-b' }, { cancel: vi.fn(), reset: vi.fn() })).toBe(false)
+  })
+
+  it('a bootstrap for a user who is no longer the session user is ignored', () => {
+    expect(bootstrapMatchesSession('u-a', 'u-b')).toBe(false)
+    expect(bootstrapMatchesSession('u-b', 'u-b')).toBe(true)
+    expect(bootstrapMatchesSession(null, null)).toBe(true)
+    expect(bootstrapMatchesSession(null, 'u-b')).toBe(false)
+  })
+
+  it('demo mode writes unkeyed as on main', () => {
+    const write = vi.fn()
+    const w = createClientCacheWriter({ delayMs: 900, liveMode: false, getMemoryOwner: () => null, getStoredAuthUser: () => null, write })
+    w.schedule({ properties: [] })
+    vi.advanceTimersByTime(1000)
+    expect(write).toHaveBeenCalledTimes(1)
   })
 })

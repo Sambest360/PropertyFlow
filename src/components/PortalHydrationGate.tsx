@@ -7,7 +7,7 @@
 import type { ReactNode } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useStore } from '../context/AppStore'
-import { isApiEnabled } from '../lib/api/config'
+import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
 
 export function isPortalHydrating(params: {
   isAuthenticated: boolean
@@ -25,7 +25,7 @@ export function usePortalHydrating(): boolean {
   const { hydratedForUserId } = useStore()
   return isPortalHydrating({
     isAuthenticated,
-    apiMode: isApiEnabled,
+    apiMode: isApiEnabled || isSupabaseMode,
     userId: user?.id,
     hydratedForUserId,
   })
@@ -45,8 +45,23 @@ export function PortalSkeleton() {
   )
 }
 
+export function PortalLoadError({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div data-testid="portal-load-error" role="alert" className="space-y-3 p-4">
+      <p className="text-sm text-ink">We couldn't load your workspace. Check your connection and try again.</p>
+      <button type="button" onClick={onRetry} className="rounded-md border px-3 py-1.5 text-sm">
+        Try again
+      </button>
+    </div>
+  )
+}
+
 export function PortalHydrationGate({ children }: { children: ReactNode }) {
   const hydrating = usePortalHydrating()
+  const { hydrationFailed, refreshBootstrap } = useStore()
+  if (hydrating && hydrationFailed) {
+    return <PortalLoadError onRetry={() => void refreshBootstrap(undefined, { force: true })} />
+  }
   if (hydrating) return <PortalSkeleton />
   return <>{children}</>
 }
