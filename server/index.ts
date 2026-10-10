@@ -687,8 +687,22 @@ app.get('/api/public/marketplace', async (c) => {
     const lite = c.req.query('lite') !== '0' && c.req.query('lite') !== 'false'
     // P3a: ?id=<propertyId> returns that one listing with all its photos.
     const listingId = (c.req.query('id') ?? '').trim().slice(0, 120)
-    const rowLimit = listingId ? 500 : lite ? 60 : 250
+    const rowLimit = lite ? 60 : 250
     const { buildBootstrap } = await loadBootstrapModule()
+    if (listingId) {
+      const { publicListingById } = await import('./publicListing.js')
+      const { resolveLiveListing } = await import('./listingResolve.js')
+      const out = await publicListingById(listingId, {
+        resolveUnitId: async (id) => (await resolveLiveListing(id)).unitId || null,
+        build: async (unitIds) =>
+          (await buildBootstrap({
+            lite: true,
+            unitIds,
+            limits: { messages: 1, notifications: 1, leads: 1, applications: 1, tickets: 1, payments: 1, documents: 1 },
+          })) as unknown as Record<string, unknown>,
+      })
+      return c.json(out.body, out.status)
+    }
     const data = await buildBootstrap({
       lite,
       limits: {
@@ -702,11 +716,7 @@ app.get('/api/public/marketplace', async (c) => {
         documents: 1,
       },
     })
-    const guest = filterBootstrapForGuest(data as unknown as Record<string, unknown>, listingId ? { listingId } : {})
-    if (listingId && !(Array.isArray(guest.properties) && guest.properties.length)) {
-      return c.json({ error: 'listing_not_found', message: 'This listing is not available.' }, 404)
-    }
-    return c.json(guest)
+    return c.json(filterBootstrapForGuest(data as unknown as Record<string, unknown>))
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[api/public/marketplace]', message)

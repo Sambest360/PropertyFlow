@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
 import { filterBootstrapForActor, filterBootstrapUsersForActor, redactBootstrapUser } from './scopeGate'
 import { filterBootstrapForGuest } from './guestMarketplace'
 import { buildPropertyScope } from '../src/lib/scope'
@@ -193,10 +192,8 @@ describe('P3a: guest listing photos', () => {
     expect(props[0].landlordId).toBe('')
     expect(props[0].agentId).toBeNull()
   })
-  it('?id= for an unlisted or unknown id has no listing (route answers 404)', () => {
+  it('?id= for an unlisted or unknown id has no listing (handler answers 404, see publicListing.test.ts)', () => {
     expect((filterBootstrapForGuest(pubRaw as never, { listingId: 'p-draft' }).properties as unknown[]).length).toBe(0)
     expect((filterBootstrapForGuest(pubRaw as never, { listingId: 'nope' }).properties as unknown[]).length).toBe(0)
-    const src = readFileSync('server/index.ts', 'utf8')
-    expect(src).toContain("'listing_not_found'")
   })
 })
