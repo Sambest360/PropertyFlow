@@ -25,4 +25,9 @@ describe('shouldShowAddressLine (P2)', () => {
     expect(shouldShowAddressLine('112 Main Rd', '12 Main Rd')).toBe(true)
     expect(shouldShowAddressLine('Sea View 12 Main Rd', '12 Main Rd')).toBe(false)
   })
+  it('whole-word cases still show both lines', () => {
+    expect(shouldShowAddressLine('112 Main Rd', '12 Main Rd')).toBe(true)
+    expect(shouldShowAddressLine('Unit 14', '4')).toBe(true)
+    expect(shouldShowAddressLine('12', '12 Main Rd')).toBe(true)
+  })
 })
