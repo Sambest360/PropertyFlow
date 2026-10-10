@@ -17,17 +17,17 @@ const app = {
 } as unknown as Application
 
 describe('application document upload (P3b)', () => {
-  it('refuses files over 3 MB with the agreed copy', () => {
-    expect(APPLICATION_DOC_MAX_BYTES).toBe(3 * MB)
-    expect(applicationDocFileError({ size: 3 * MB + 1, type: 'application/pdf' })).toBe(APPLICATION_DOC_TOO_LARGE)
+  it('refuses files over 2 MB with the agreed copy', () => {
+    expect(APPLICATION_DOC_MAX_BYTES).toBe(2 * 1024 * 1024)
+    expect(applicationDocFileError({ size: 2 * MB + 1, type: 'application/pdf' })).toBe(APPLICATION_DOC_TOO_LARGE)
     expect(APPLICATION_DOC_TOO_LARGE).toBe(
-      'This file is larger than 3 MB. Upload a smaller copy or split it into separate months.',
+      'This file is larger than 2 MB. Upload a smaller copy.',
     )
   })
   it('accepts PDF, JPEG, PNG up to the cap; refuses other types', () => {
     expect(applicationDocFileError({ size: 1.5 * MB, type: 'application/pdf' })).toBeNull()
     expect(applicationDocFileError({ size: 1.5 * MB, type: 'image/jpeg' })).toBeNull()
-    expect(applicationDocFileError({ size: 3 * MB, type: 'image/png' })).toBeNull()
+    expect(applicationDocFileError({ size: 2 * MB, type: 'image/png' })).toBeNull()
     expect(applicationDocFileError({ size: 10, type: 'image/webp' })).toBe(APPLICATION_DOC_WRONG_TYPE)
     expect(applicationDocFileError({ size: 10, type: '', name: 'scan.PDF' })).toBeNull()
   })
