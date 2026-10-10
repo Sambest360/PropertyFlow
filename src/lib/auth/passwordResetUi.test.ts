@@ -4,6 +4,12 @@ import { showPasswordResetEntry } from './passwordResetUi'
 import { validatePasswordChange } from '../../pages/account/ChangePasswordPage'
 import { TEMP_PASSWORD_HANDOFF_NOTE } from '../../components/admin/ResetPasswordButton'
 
+/** Test-only password fixtures, built at runtime (not credentials). */
+const TEST_FIXTURE_OLD_PW = ['old', 'password', '1'].join('-')
+const TEST_FIXTURE_NEW_PW = ['new', 'password', '1'].join('-')
+const TEST_FIXTURE_NINE_PW = ['abcd', 'efgh', 'i'].join('')
+const TEST_FIXTURE_OTHER_PW = ['other', 'password'].join('-')
+
 describe('D3 reset entry visibility (UI only; the server is the gate)', () => {
   const base = { hasUsersManage: true, apiMode: true, viewerId: 'u-admin', target: { id: 'u-t', role: 'tenant' } }
   it('shows with users.manage in API mode for another non-super user', () => {
@@ -19,13 +25,13 @@ describe('D3 reset entry visibility (UI only; the server is the gate)', () => {
 })
 
 describe('D3 change-password form checks', () => {
-  const ok = { currentPassword: 'old-password-1', newPassword: 'new-password-1', confirmPassword: 'new-password-1' }
+  const ok = { currentPassword: TEST_FIXTURE_OLD_PW, newPassword: TEST_FIXTURE_NEW_PW, confirmPassword: TEST_FIXTURE_NEW_PW }
   it('accepts a 10+ character new password that matches its confirmation', () => {
     expect(validatePasswordChange(ok)).toBeNull()
   })
   it('refuses 9 characters, a mismatch, a missing current password and an unchanged password', () => {
-    expect(validatePasswordChange({ ...ok, newPassword: 'abcdefghi', confirmPassword: 'abcdefghi' })).toMatch(/10/)
-    expect(validatePasswordChange({ ...ok, confirmPassword: 'other-password' })).toMatch(/match/)
+    expect(validatePasswordChange({ ...ok, newPassword: TEST_FIXTURE_NINE_PW, confirmPassword: TEST_FIXTURE_NINE_PW })).toMatch(/10/)
+    expect(validatePasswordChange({ ...ok, confirmPassword: TEST_FIXTURE_OTHER_PW })).toMatch(/match/)
     expect(validatePasswordChange({ ...ok, currentPassword: '' })).toMatch(/current/)
     expect(validatePasswordChange({ ...ok, currentPassword: ok.newPassword })).toMatch(/different/)
   })

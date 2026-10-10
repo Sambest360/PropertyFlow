@@ -1071,6 +1071,8 @@ for (const plural of restResources) {
       if (!id) return c.json({ error: 'id_required' }, 400)
       const body: PersistBody = { resource, action: 'upsert', id, data }
       const result = await gatedPersist(c, body)
+      // A generated temp password is in this response only: never cache it.
+      if (result && typeof result === 'object' && 'tempPassword' in result) c.header('Cache-Control', 'no-store')
       return c.json(result, 201)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -1089,6 +1091,7 @@ for (const plural of restResources) {
         data: { ...data, id },
       }
       const result = await gatedPersist(c, body)
+      if (result && typeof result === 'object' && 'tempPassword' in result) c.header('Cache-Control', 'no-store')
       return c.json(result)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)

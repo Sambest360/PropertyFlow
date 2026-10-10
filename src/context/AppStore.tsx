@@ -489,6 +489,8 @@ type StoreContextValue = {
     /** Plain password for invite / staff create (hashed server-side). */
     password?: string
     tempPassword?: string
+    /** Michael #96: called once with the server-generated temp password (no password given). */
+    onTempPassword?: (tempPassword: string) => void
   }) => AppUser
   /**
    * P0-sa-mint: await durable Auth+profile persist before success UI.
@@ -2236,7 +2238,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       persistUpsert('agency', id, next as Record<string, unknown>)
     },
     createUser: (input) => {
-      const { password, tempPassword, ...rest } = input as typeof input & {
+      const { password, tempPassword, onTempPassword, ...rest } = input as typeof input & {
         password?: string
         tempPassword?: string
       }
@@ -2254,12 +2256,28 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       patch((s) => ({ ...s, users: [...s.users, user] }))
       // Fire-and-forget for legacy callers (e.g. landlord picker). Prefer
       // createUserDurable for SA staff mint so success UI cannot race Auth.
+      if (!password && !tempPassword) {
+        // No constant default (Jim B2): the server generates a random temp
+        // password on this create and returns it once; hand it to the caller's
+        // one-time modal (never stored).
+        void (async () => {
+          const { markLocalPersistWrite } = await import('../lib/bootstrapMerge')
+          markLocalPersistWrite('user', user.id)
+          const { persistUserCreateViaServer } = await import('../lib/api/persist')
+          const res = await persistUserCreateViaServer({
+            resource: 'user',
+            action: 'upsert',
+            id: user.id,
+            data: { ...(user as unknown as Record<string, unknown>), id: user.id },
+          })
+          if (res.ok && res.tempPassword) onTempPassword?.(res.tempPassword)
+        })()
+        return user
+      }
       persistUpsert('user', user.id, {
         ...(user as unknown as Record<string, unknown>),
         ...(password ? { password } : {}),
         ...(tempPassword ? { tempPassword } : {}),
-        // No constant default (Jim B2): with no password the server generates a
-        // random temp one (an admin can reset it from the user page).
       })
       return user
     },

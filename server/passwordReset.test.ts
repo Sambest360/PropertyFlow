@@ -629,6 +629,26 @@ describe('Jim B2: no constant default password on staff-created users', () => {
     await login('u-created', body.tempPassword!)
   })
 
+  it('Michael #96: a landlord created by an agency admin (property wizard path) gets the temp password once, no-store, and can sign in', async () => {
+    const spies = (['log', 'info', 'warn', 'error', 'debug'] as const).map((m) => vi.spyOn(console, m))
+    for (const [path, id] of [['/api/persist', 'u-new-ll'], ['/api/users', 'u-new-ll2']] as const) {
+      const data = { id, name: 'New Owner', email: `${id}@example.test`, role: 'landlord', agencyId: 'ag-horizon', verification: { status: 'pending' } }
+      const res = await app.request(path, {
+        method: 'POST',
+        headers: json(await login('u-admin')),
+        body: JSON.stringify(path === '/api/persist' ? { resource: 'user', action: 'upsert', id, data } : data),
+      })
+      expect(res.status).toBeLessThan(300)
+      expect(res.headers.get('cache-control')).toBe('no-store')
+      const { tempPassword } = (await res.json()) as { tempPassword?: string }
+      expect(tempPassword).toMatch(/^[A-Za-z0-9]{12}$/)
+      expect(byFe(id).metadata.mustChangePassword).toBe(true)
+      await login(id, tempPassword!)
+      expect(JSON.stringify(spies.map((sp) => sp.mock.calls))).not.toContain(tempPassword!)
+    }
+    spies.forEach((sp) => sp.mockRestore())
+  })
+
   it('a create with a typed temp password returns no password, and ChangeMe123! still fails', async () => {
     const res = await app.request('/api/persist', {
       method: 'POST',

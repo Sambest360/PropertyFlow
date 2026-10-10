@@ -11,6 +11,7 @@ import { ScrollToTop } from './components/ScrollToTop'
 import { RequirePermission } from './components/RequirePermission'
 
 import { RequireAuth } from './components/RequireAuth'
+import { TempPasswordHost } from './components/admin/TempPasswordHost'
 import { useAuth } from './context/AuthContext'
 
 const MarketHome = lazy(() => import('./pages/market/MarketHome'))
@@ -363,6 +364,7 @@ export default function App() {
 
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
+            <TempPasswordHost />
           </BrowserRouter>
           </SuiteAlertProvider>
         </AuthProvider>

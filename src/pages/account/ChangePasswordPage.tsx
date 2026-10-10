@@ -4,8 +4,9 @@ import { Button, Card } from '../../components/ui'
 import { PasswordField } from '../../components/auth/PasswordField'
 import { useAuth } from '../../context/AuthContext'
 import { apiChangePassword } from '../../lib/api/authClient'
+import { MIN_PASSWORD_LENGTH } from '../../lib/auth/passwordPolicy'
 
-export const MIN_NEW_PASSWORD_LENGTH = 10
+export const MIN_NEW_PASSWORD_LENGTH = MIN_PASSWORD_LENGTH
 
 /** Client-side checks; the server re-checks length and the current password. */
 export function validatePasswordChange(input: {

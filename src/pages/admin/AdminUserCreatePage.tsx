@@ -27,6 +27,7 @@ import { formatDisplayDob, parseIdentityDocument } from '../../lib/saId'
 import { formatZAR } from '../../data/seed'
 import { Badge, Button, Input, Select, cn } from '../../components/ui'
 import { TempPasswordModal } from '../../components/admin/ResetPasswordButton'
+import { MIN_PASSWORD_LENGTH } from '../../lib/auth/passwordPolicy'
 import type { Agency, Permission, Role } from '../../types/domain'
 
 const ALL_ROLES: Role[] = [
@@ -426,8 +427,8 @@ export default function AdminUserCreatePage() {
         : undefined
 
     const plainTemp = tempPassword.trim()
-    if (plainTemp && plainTemp.length < 10) {
-      setError('A temporary password needs at least 10 characters, or leave it blank to generate one.')
+    if (plainTemp && plainTemp.length < MIN_PASSWORD_LENGTH) {
+      setError(`A temporary password needs at least ${MIN_PASSWORD_LENGTH} characters, or leave it blank to generate one.`)
       return
     }
     setSubmitting(true)
@@ -1176,7 +1177,7 @@ export default function AdminUserCreatePage() {
                     autoComplete="off"
                   />
                   <p className="mt-1 text-xs text-ink-500">
-                    Leave blank to generate a random one, shown to you once after the user is created. A typed password needs at least 10 characters. The user must change it at first sign-in.
+                    Leave blank to generate a random one, shown to you once after the user is created. A typed password needs at least {MIN_PASSWORD_LENGTH} characters. The user must change it at first sign-in.
                   </p>
                 </Field>
 
@@ -1189,10 +1190,10 @@ export default function AdminUserCreatePage() {
                   />
                   <span className="min-w-0">
                     <span className="block text-sm font-semibold text-ink">
-                      Copy credentials to my notifications
+                      Send the user an in-app invite
                     </span>
                     <span className="mt-0.5 block text-xs text-ink-500">
-                      Records the temp password in your notifications so you can share it. Email delivery is deferred.
+                      Sends the new user an in-app invite to sign in. The temporary password is never put in a notification: a generated one is shown to you once, in a pop-up, after the user is created. Email delivery is deferred.
                     </span>
                   </span>
                 </label>

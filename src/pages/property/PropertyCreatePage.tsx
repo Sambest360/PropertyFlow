@@ -66,6 +66,7 @@ import {
 } from '../../lib/propertyWizardDraft'
 import type { AssetCondition } from '../../data/infrastructure'
 import type { PropertyAsset } from '../../types/domain'
+import { showTempPasswordOnce } from '../../lib/auth/tempPasswordBus'
 
 const DRAFT_KEY = 'propertyflow:property-create'
 
@@ -484,6 +485,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       agencyId: resolvedAgencyId,
       users: state.users,
       createUser,
+      onTempPassword: (pw) => showTempPasswordOnce(pw, 'Landlord created: temporary password'),
     })
     const title = draft.title.trim() || `${draft.propertyType} in ${draft.suburb || draft.city || 'draft'}`
     const unitNumber = defaultUnitNumber(draft.propertyType)
