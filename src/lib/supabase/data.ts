@@ -281,6 +281,36 @@ async function fetchApplicationsWithTenantRetry(
   return { data, error }
 }
 
+/** CR10 N4: the user metadata keys the bootstrap reads (signature is never one of them). */
+export const USER_META_KEYS = [
+  'frontend_id',
+  'frontend_role',
+  'verification',
+  'enabledPermissions',
+  'licenseStatus',
+  'mentorId',
+  'commissionSharePct',
+  'company',
+  'idNumberOrPassport',
+] as const
+
+export const USERS_SELECT =
+  'id, client_id, email, first_name, last_name, phone, role, active, ' +
+  USER_META_KEYS.map((k) => `meta_${k}:metadata->${k}`).join(', ')
+
+/** Rebuild `metadata` from the per-key JSON path columns. */
+export function rebuildUserMetadata(row: Record<string, unknown>): Record<string, unknown> {
+  const metadata: Record<string, unknown> = {}
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(row)) {
+    if (k.startsWith('meta_')) {
+      if (v !== null && v !== undefined) metadata[k.slice(5)] = v
+    } else out[k] = v
+  }
+  out.metadata = metadata
+  return out
+}
+
 export async function fetchSupabaseBootstrap(
   lite = true,
   opts?: FetchSupabaseBootstrapOpts,
@@ -333,7 +363,8 @@ export async function fetchSupabaseBootstrap(
 
     supabase.from('entity_id_map').select('entity_type, backend_id, frontend_id'),
     supabase.from('clients').select('id, company_name, subdomain, status, city, created_at, settings'),
-    supabase.from('users').select('id, client_id, email, first_name, last_name, phone, role, active, metadata'),
+    // CR10 N4: never read users.metadata whole (it holds other users' signature).
+    supabase.from('users').select(USERS_SELECT),
     supabase.from('buildings').select('*').order('name').limit(lite ? LITE_LIMITS.buildings : 10_000),
     supabase.from('units').select('*').order('created_at', { ascending: false }).limit(limits.units),
     skipHeavy
@@ -412,7 +443,17 @@ export async function fetchSupabaseBootstrap(
   ])
 
   const clients = clientsRes.data ?? []
-  const users = usersRes.data ?? []
+  const users = ((usersRes.data ?? []) as unknown as Record<string, unknown>[]).map(rebuildUserMetadata) as unknown as Array<{
+    id: string
+    client_id: string | null
+    email: string
+    first_name: string
+    last_name: string
+    phone: string | null
+    role: string
+    active: boolean
+    metadata: Record<string, unknown> | null
+  }>
   const cache = buildIdMapCache(idMapRes.data ?? [], clients)
 
   const userByUuid = new Map<string, string>()
