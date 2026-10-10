@@ -164,6 +164,12 @@ async function requireActor(
 async function requireActorAndGate(c: Parameters<typeof parseDemoActor>[0], body: PersistBody) {
   const raw = await resolveRequestActor(c, body as unknown as Record<string, unknown>)
   if (!raw) throw actorRequiredError()
+  // CR10: request facts for the sign stamp are always set here, never taken
+  // from the client body.
+  body.requestMeta = {
+    ip: (c.req.header('x-forwarded-for') ?? '').split(',')[0]?.trim() || c.req.header('x-real-ip') || null,
+    userAgent: c.req.header('user-agent') ?? null,
+  }
   const actor = await enrichActor(raw)
   const outcome = await assertPersistAllowed(actor, body)
   return { actor, handled: outcome?.handled ?? null }

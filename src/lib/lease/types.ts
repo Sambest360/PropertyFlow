@@ -20,6 +20,17 @@ export type LeaseESignParty = {
   signerName?: string
   /** Optional captured signature data URL (mock / in-app pad). */
   signatureDataUrl?: string
+  /** CR10: sent by the client; the server re-checks it (drawn | saved_image | paper_mark). */
+  method?: 'drawn' | 'saved_image' | 'paper_mark'
+  /** CR10: the mandate line staff ticked when signing for the landlord. */
+  onBehalfConfirmation?: string
+  /** CR10 server-set stamp fields (never trusted from the client). */
+  signerUserId?: string
+  signerRole?: string
+  onBehalf?: boolean
+  imageSha256?: string | null
+  ip?: string
+  userAgent?: string
 }
 
 export type LeaseESignEvent = {

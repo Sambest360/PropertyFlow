@@ -10,7 +10,13 @@ export type WorkflowActionCapture = {
   keyLocation?: string
   signerName?: string
   signatureDataUrl?: string
+  /** CR10: lease sign dialog capture (TENANT_SIGNED / LANDLORD_SIGNED / MARK_LEASE_SIGNED). */
+  signatureMethod?: 'drawn' | 'saved_image' | 'paper_mark'
+  onBehalfConfirmation?: string
 }
+
+/** CR10: workflow actions that sign the lease through the lease sign dialog. */
+export const LEASE_SIGN_ACTIONS: ReadonlySet<string> = new Set(['TENANT_SIGNED', 'LANDLORD_SIGNED', 'MARK_LEASE_SIGNED'])
 
 export type WorkflowActionFormSpec = {
   kind: 'confirm' | 'signature' | 'upload' | 'fields' | 'schedule' | 'reject'
@@ -83,7 +89,7 @@ export function getActionFormSpec(actionKey: string, application: Application): 
     return {
       kind: 'signature',
       title: `${party} signature`,
-      description: 'Capture a digital signature to record agreement on the lease or sale document.',
+      description: 'Draw your electronic signature to sign the lease or sale document.',
       confirmLabel: 'Record signature',
       fields: [
         {
@@ -188,7 +194,7 @@ export function validateActionCapture(
       return `${field.label} is required.`
     }
   }
-  if (spec.kind === 'signature' && !capture.signatureDataUrl) {
+  if (spec.kind === 'signature' && capture.signatureMethod !== 'paper_mark' && !capture.signatureDataUrl) {
     return 'Draw a signature before continuing.'
   }
   return null

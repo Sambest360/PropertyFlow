@@ -43,6 +43,9 @@ export type RecordLeaseSignInput = {
   party: LeaseSignParty
   signerName: string
   signatureDataUrl?: string
+  /** CR10: signing method and on-behalf confirmation, re-checked by the server. */
+  method?: 'drawn' | 'saved_image' | 'paper_mark'
+  onBehalfConfirmation?: string
   actorUserId?: string | null
   provider?: ESignProvider
   env?: Record<string, string | undefined>
@@ -362,6 +365,8 @@ export async function recordLeaseSignature(
             signedAt: res.signedAt ?? now,
             signerName: input.signerName,
             signatureDataUrl: input.signatureDataUrl,
+            ...(input.method ? { method: input.method } : {}),
+            ...(input.onBehalfConfirmation ? { onBehalfConfirmation: input.onBehalfConfirmation } : {}),
           }
         : prev.tenant,
     landlord:
@@ -371,6 +376,8 @@ export async function recordLeaseSignature(
             signedAt: res.signedAt ?? now,
             signerName: input.signerName,
             signatureDataUrl: input.signatureDataUrl,
+            ...(input.method ? { method: input.method } : {}),
+            ...(input.onBehalfConfirmation ? { onBehalfConfirmation: input.onBehalfConfirmation } : {}),
           }
         : prev.landlord,
     events: [

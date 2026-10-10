@@ -23,6 +23,8 @@ export type PersistBody = {
   action: PersistAction
   id: string
   data?: Record<string, unknown>
+  /** Server-set request facts (IP, user agent) for the sign stamp; never read from the client. */
+  requestMeta?: { ip?: string | null; userAgent?: string | null }
 }
 
 const ROLE_TO_DB: Record<string, string> = {

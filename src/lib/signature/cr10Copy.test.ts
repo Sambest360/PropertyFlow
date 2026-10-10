@@ -11,6 +11,10 @@ export const CR10_FILES = [
   'src/lib/signature/signatureImage.ts',
   'src/lib/signature/downscale.ts',
   'src/pages/account/AccountSignaturePage.tsx',
+  'src/lib/lease/signaturePrefill.ts',
+  'src/components/lease/LeaseSignPanel.tsx',
+  'src/components/lease/LeaseSignDialog.tsx',
+  'server/leaseSign.ts',
 ]
 
 const BANNED: Array<[string, RegExp]> = [

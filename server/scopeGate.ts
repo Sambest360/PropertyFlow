@@ -4,6 +4,7 @@
  */
 import { isValidSignatureDataUrl, signatureInvalidError } from '../src/lib/signature/signatureImage.js'
 import { query } from './db.js'
+import { enforceStaffTenancyESign } from './leaseSign.js'
 import {
   APP_REF_TO_ID,
   CLIENT_TO_AGENCY,
@@ -1104,6 +1105,12 @@ export async function assertPersistAllowed(
     }
     // The write is narrowed to the decision fields.
     return landlordApplicationDecision(actor, body)
+  }
+  // CR10: staff lease saves never write eSign party blocks wholesale; any
+  // signing on them goes through the one server sign function (after the
+  // scope checks above passed).
+  if (body.resource === 'tenancy' && !PORTAL_WRITE_ROLES.has(actor.role)) {
+    await enforceStaffTenancyESign(actor, body)
   }
   return {}
 }

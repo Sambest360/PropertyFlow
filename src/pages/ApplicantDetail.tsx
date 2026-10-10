@@ -280,6 +280,14 @@ export default function ApplicantDetail() {
         applicationId: application.id,
         actorUserId: user.id,
         targetStatus: workflowTarget as import('../lib/applicationWorkflow').WorkflowStatusKey,
+        signature: capture
+          ? {
+              signatureDataUrl: capture.signatureDataUrl,
+              method: capture.signatureMethod,
+              onBehalfConfirmation: capture.onBehalfConfirmation,
+              signerName: capture.signerName,
+            }
+          : undefined,
       })
       if ('application' in result && result.status === 'SUCCESS') {
         logStageChange(prevStage, result.application.stage)

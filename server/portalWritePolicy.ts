@@ -55,6 +55,7 @@ import { LEASE_IDS, TICKET_IDS } from './idMap.js'
 import { forbiddenError, type DemoActor } from './actor.js'
 import { APP_STAGE_TO_DB, type PersistBody } from './writes.js'
 import { resolveLiveListing } from './listingResolve.js'
+import { SIGN_PARTY_STATUSES, stampLeaseSignature } from './leaseSign.js'
 import { isAcceptanceStatus, notifyAcceptedElsewhereServer } from './acceptedElsewhere.js'
 import {
   ESIGN_MIRROR_STATUSES,
@@ -312,23 +313,6 @@ async function ticketUuid(feId: string): Promise<string | null> {
   return reverse ?? (await resolveUuid('ticket', feId))
 }
 
-const SIGN_PARTY_STATUSES = new Set(['pending', 'signed', 'declined'])
-
-/** Overall envelope status from the two parties (never taken from the client). */
-function envelopeStatus(
-  prev: string,
-  tenant: Record<string, unknown> | undefined,
-  landlord: Record<string, unknown> | undefined,
-): string {
-  const t = String(tenant?.status ?? 'pending')
-  const l = String(landlord?.status ?? 'pending')
-  if (t === 'declined' || l === 'declined') return 'declined'
-  const done = (s: string) => s === 'signed' || s === 'waived'
-  if (done(t) && done(l)) return 'completed'
-  if (done(t) || done(l)) return 'partially_signed'
-  return prev
-}
-
 export async function enforcePortalWritePolicy(
   actor: DemoActor,
   body: PersistBody,
@@ -557,11 +541,10 @@ export async function enforcePortalWritePolicy(
     case 'tenancy': {
       if (!isTenant && !isLandlord) throw deny('not on the portal allow-list')
       const party = isTenant ? 'tenant' : 'landlord'
-      const other = isTenant ? 'landlord' : 'tenant'
       const uuid = await leaseUuid(body.id)
       if (!uuid) throw deny('portal users cannot create leases')
-      const rows = await query<{ tenant_id: string | null; landlord_id: string | null; metadata: Record<string, unknown> | null }>(
-        `SELECT tenant_id::text AS tenant_id, landlord_id::text AS landlord_id, metadata FROM leases WHERE id = $1::uuid`,
+      const rows = await query<{ client_id: string | null; tenant_id: string | null; landlord_id: string | null; metadata: Record<string, unknown> | null }>(
+        `SELECT client_id::text AS client_id, tenant_id::text AS tenant_id, landlord_id::text AS landlord_id, metadata FROM leases WHERE id = $1::uuid`,
         [uuid],
       )
       const lease = rows[0]
@@ -577,25 +560,17 @@ export async function enforcePortalWritePolicy(
       if (!sentParty || !SIGN_PARTY_STATUSES.has(String(sentParty.status))) {
         throw deny('missing or invalid signature')
       }
-      const nextParty: Record<string, unknown> = { status: sentParty.status }
-      for (const k of ['signedAt', 'signerName', 'signatureDataUrl']) {
-        if (typeof sentParty[k] === 'string') nextParty[k] = sentParty[k]
-      }
-      const merged: Record<string, unknown> = { ...stored, [party]: nextParty }
-      merged.status = envelopeStatus(
-        String(stored.status ?? 'sent'),
-        merged.tenant as Record<string, unknown> | undefined,
-        merged.landlord as Record<string, unknown> | undefined,
-      )
-      // The other party's block is always the stored one.
-      merged[other] = stored[other]
-      await query(
-        `UPDATE leases
-            SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('eSign', $2::jsonb),
-                updated_at = NOW()
-          WHERE id = $1::uuid`,
-        [uuid, JSON.stringify(merged)],
-      )
+      // CR10: the one server sign function (signer check, image check, server
+      // time, lease_signed row in the same transaction). The other party's
+      // block is always the stored one.
+      await stampLeaseSignature({
+        actor,
+        tenancyFeId: body.id,
+        lease: { id: uuid, client_id: lease.client_id, tenant_id: lease.tenant_id, landlord_id: lease.landlord_id, metadata: lease.metadata },
+        party,
+        sent: sentParty,
+        meta: body.requestMeta,
+      })
       return { handled: { ok: true, id: body.id, uuid } }
     }
 

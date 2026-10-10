@@ -129,7 +129,7 @@ export default function TenantApplicationDetailPage() {
   const workflowStatus = resolveWorkflowStatus(application)
   const progress = workflowProgress(application.type, workflowStatus)
 
-  const runAction = async (action: HateoasAction, _capture?: WorkflowActionCapture) => {
+  const runAction = async (action: HateoasAction, capture?: WorkflowActionCapture) => {
     const workflowTarget = action.payload_hint?.workflowStatus as string | undefined
     const effect = action.payload_hint?.effect as string | undefined
 
@@ -138,6 +138,14 @@ export default function TenantApplicationDetailPage() {
         applicationId: application.id,
         actorUserId: user.id,
         targetStatus: workflowTarget as import('../../lib/applicationWorkflow').WorkflowStatusKey,
+        signature: capture
+          ? {
+              signatureDataUrl: capture.signatureDataUrl,
+              method: capture.signatureMethod,
+              onBehalfConfirmation: capture.onBehalfConfirmation,
+              signerName: capture.signerName,
+            }
+          : undefined,
       })
       if ('application' in result && result.status === 'SUCCESS') {
         setFlash(null)
