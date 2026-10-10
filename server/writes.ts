@@ -15,6 +15,11 @@ import {
 import { SUB_FE_TO_UUID } from './idMap.js'
 import { resolveLiveListing } from './listingResolve.js'
 import { supabaseAuthConfigured } from './supabase/env.js'
+import {
+  SUPPORT_BODY_MAX,
+  SUPPORT_NOTE_MAX,
+  SUPPORT_SUBJECT_MAX,
+} from '../src/lib/supportTickets.js'
 
 export type PersistAction = 'upsert' | 'delete' | 'patch'
 export type PersistBody = {
@@ -385,6 +390,7 @@ async function deleteEntity(resource: EntityType, frontendId: string): Promise<v
     csv_import_batch: 'csv_import_batches',
     payout_instruction: 'payout_instructions',
     deposit_holding: 'deposit_holdings',
+    support_ticket: 'event_log',
   }
   const table = tableByType[resource]
   if (!table) {
@@ -400,7 +406,12 @@ async function deleteEntity(resource: EntityType, frontendId: string): Promise<v
   }
   
   // Use quoted identifier to prevent SQL injection (even though table name is from whitelist)
-  await query(`DELETE FROM "${table}" WHERE id = $1::uuid`, [uuid])
+  if (resource === 'support_ticket') {
+    // CR7: only ever a ticket row — never another event_log audit row.
+    await query(`DELETE FROM "event_log" WHERE id = $1::uuid AND event_type = 'support_ticket'`, [uuid])
+  } else {
+    await query(`DELETE FROM "${table}" WHERE id = $1::uuid`, [uuid])
+  }
   await forgetId(resource, frontendId)
   if (resource === 'property') await forgetId('unit', `unt-${frontendId}`)
 }
@@ -466,6 +477,8 @@ async function upsertEntity(
       return upsertPayoutInstruction(frontendId, data)
     case 'deposit_holding':
       return upsertDepositHolding(frontendId, data)
+    case 'support_ticket':
+      return upsertSupportTicket(frontendId, data)
     default:
       throw Object.assign(new Error(`Unsupported resource: ${resource}`), { status: 400 })
   }
@@ -1863,6 +1876,56 @@ async function upsertPropertyEvent(feId: string, d: Record<string, unknown>): Pr
        actor_user_id = EXCLUDED.actor_user_id,
        subject_id = EXCLUDED.subject_id`,
     [uuid, client, unit, actor, JSON.stringify(payload), d.at ? str(d.at) : null],
+  )
+  return uuid
+}
+
+/**
+ * CR7 help desk ticket → event_log (event_type 'support_ticket'), no migration.
+ *
+ * The scope gate (assertPersistAllowed) has already checked the actor and, on
+ * submit, stamped submittedByUserId / submitterRole / agencyId from the server
+ * actor. This writer:
+ *  - on insert always stores status 'open', whatever the payload says;
+ *  - on conflict merges ONLY the status / resolution keys into payload — never
+ *    subject, body, submitter or client_id — and only while the row
+ *    is still open (a resolved ticket is read-only).
+ */
+async function upsertSupportTicket(feId: string, d: Record<string, unknown>): Promise<string> {
+  const uuid = await ensureUuid('support_ticket', feId)
+  const client = await clientIdOptional(d.agencyId)
+  const submitter = await userId(d.submittedByUserId)
+  const insertPayload = {
+    frontendId: feId,
+    subject: str(d.subject, '').slice(0, SUPPORT_SUBJECT_MAX),
+    body: str(d.body, '').slice(0, SUPPORT_BODY_MAX),
+    submittedByUserId: str(d.submittedByUserId, ''),
+    submitterName: str(d.submitterName, ''),
+    submitterRole: str(d.submitterRole, ''),
+    status: 'open',
+  }
+  const resolutionPatch: Record<string, unknown> =
+    str(d.status) === 'resolved'
+      ? {
+          status: 'resolved',
+          resolvedByUserId: str(d.resolvedByUserId, ''),
+          resolvedByName: str(d.resolvedByName, ''),
+          resolvedAt: str(d.resolvedAt) || new Date().toISOString(),
+          resolutionNote: str(d.resolutionNote, '').slice(0, SUPPORT_NOTE_MAX),
+        }
+      : {}
+
+  await query(
+    `INSERT INTO event_log (
+       id, client_id, event_type, subject_type, subject_id, actor_user_id, payload, created_at
+     ) VALUES (
+       $1::uuid, $2::uuid, 'support_ticket', 'support_ticket', NULL, $3::uuid, $4::jsonb, NOW()
+     )
+     ON CONFLICT (id) DO UPDATE SET
+       payload = event_log.payload || $5::jsonb
+     WHERE event_log.event_type = 'support_ticket'
+       AND COALESCE(event_log.payload->>'status', 'open') <> 'resolved'`,
+    [uuid, client, submitter, JSON.stringify(insertPayload), JSON.stringify(resolutionPatch)],
   )
   return uuid
 }

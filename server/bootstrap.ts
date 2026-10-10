@@ -236,6 +236,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     arrears,
     csvBatches,
     lookupRows,
+    supportTicketRows,
   ] = await mapPool(
     [
       () =>
@@ -434,6 +435,12 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
           meta: Record<string, unknown> | null
         }>(
           'SELECT id::text AS id, client_id::text, config_type, key_value, display_label, is_active, sort_order, meta FROM client_lookup_configs ORDER BY config_type, sort_order',
+        ),
+      // CR7 help desk — outside skipHeavy so lite bootstrap carries tickets too.
+      // filterBootstrapForActor narrows to own submissions + the viewer's desk.
+      () =>
+        query(
+          `SELECT * FROM event_log WHERE event_type = 'support_ticket' ORDER BY created_at DESC LIMIT 300`,
         ),
     ] as const,
     process.env.VERCEL ? 3 : 8,
@@ -963,6 +970,28 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     }
   })
 
+  const mappedSupportTickets = (supportTicketRows as Array<Record<string, unknown>>).map((e) => {
+    const payload = (e.payload as Record<string, unknown>) ?? {}
+    const uuid = e.id as string
+    const text = (v: unknown) => (typeof v === 'string' ? v : '')
+    return {
+      id: text(payload.frontendId) || mappedFe('support_ticket', uuid, uuid),
+      agencyId: agencyFe(e.client_id as string | null),
+      submittedByUserId:
+        text(payload.submittedByUserId) || mapUser(e.actor_user_id as string | null) || '',
+      submitterName: text(payload.submitterName),
+      submitterRole: text(payload.submitterRole),
+      subject: text(payload.subject),
+      body: text(payload.body),
+      status: payload.status === 'resolved' ? 'resolved' : 'open',
+      createdAt: iso(e.created_at as Date)!,
+      resolvedByUserId: text(payload.resolvedByUserId) || null,
+      resolvedByName: text(payload.resolvedByName) || null,
+      resolvedAt: text(payload.resolvedAt) || null,
+      resolutionNote: text(payload.resolutionNote) || null,
+    }
+  })
+
   const mappedInvoices = (invoices as Array<Record<string, unknown>>).map((inv) => ({
     id: mappedFe(
       'invoice',
@@ -1283,5 +1312,6 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
     arrearsSnapshots: mappedArrears,
     csvImportBatches: mappedCsvBatches,
     lookups: mappedLookups,
+    supportTickets: mappedSupportTickets,
   }
 }
