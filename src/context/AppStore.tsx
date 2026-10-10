@@ -468,6 +468,12 @@ type StoreContextValue = {
     tempPassword?: string
   }) => Promise<{ ok: true; user: AppUser } | { ok: false; error: string; user?: AppUser }>
   updateUser: (id: string, patch: Partial<AppUser>) => void
+  /**
+   * CR10: save (or clear with null) the session user's own signature
+   * (users.metadata.signature via the user upsert). Resolves false when the
+   * server refuses it (e.g. 400 SIGNATURE_INVALID); local state is reverted.
+   */
+  saveMySignature: (userId: string, signature: string | null) => Promise<boolean>
   updateTenancy: (id: string, patch: Partial<Tenancy>) => void
   /** Issue lease PDF + e-sign envelope for an existing tenancy (approve path / manual). */
   issueLeasePackage: (tenancyId: string, actor?: { userId?: string; name?: string }) => Promise<{
@@ -2166,6 +2172,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       patch((s) => ({ ...s, users: s.users.map((u) => (u.id === id ? { ...u, ...p } : u)) }))
       const next = { ...state.users.find((u) => u.id === id), ...p, id }
       persistUpsert('user', id, next as Record<string, unknown>)
+    },
+    saveMySignature: async (userId, signature) => {
+      const before = stateRef.current.users.find((u) => u.id === userId)
+      if (!before) return false
+      const prev = before.signature ?? null
+      patch((s) => ({ ...s, users: s.users.map((u) => (u.id === userId ? { ...u, signature } : u)) }))
+      const ok = await persistUpsert('user', userId, { ...before, signature, id: userId } as Record<string, unknown>)
+      if (ok === false) {
+        patch((s) => ({ ...s, users: s.users.map((u) => (u.id === userId ? { ...u, signature: prev } : u)) }))
+        return false
+      }
+      return true
     },
     updateTenancy: (id, p) => {
       patch((s) => ({

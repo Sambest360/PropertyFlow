@@ -1,4 +1,4 @@
-import { ChevronDown, HelpCircle, Home, LayoutDashboard, LogOut, UserRound } from 'lucide-react'
+import { ChevronDown, HelpCircle, Home, LayoutDashboard, LogOut, PenLine, UserRound } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useNavigate } from 'react-router-dom'
@@ -8,6 +8,7 @@ import { resetPageTipsForUser } from '../../lib/pageTips'
 import { roleLabels } from '../../lib/permissions'
 import type { Permission, Role } from '../../types/domain'
 import { cn } from '../ui'
+import { ACCOUNT_SIGNATURE_PATH } from '../../lib/accountRoutes'
 
 const ICON_STROKE = 1.6
 const MENU_WIDTH_PX = 320
@@ -105,6 +106,8 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
         icon: UserRound,
       })
     }
+
+    items.push({ kind: 'link', label: 'My signature', to: ACCOUNT_SIGNATURE_PATH, icon: PenLine })
 
     if (
       hasAny([

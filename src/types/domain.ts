@@ -133,6 +133,11 @@ export type AppUser = {
   phone?: string
   /** SA ID or passport — used for compliance identity. */
   idNumberOrPassport?: string
+  /**
+   * CR10: the user's own saved signature (PNG data URL, users.metadata.signature).
+   * Bootstrap returns it for the session user only.
+   */
+  signature?: string | null
   /** ISO date YYYY-MM-DD — derived from SA ID when applicable, or entered manually. */
   dateOfBirth?: string
   /** Employer / brokerage / trading name when relevant. */
