@@ -602,3 +602,13 @@ describe('CR10 N1: the sign transaction locks the lease row', () => {
     expect(clientCalls).toHaveLength(0)
   })
 })
+
+describe('CR10 N2: audit INSERT failure rolls the signing back', () => {
+  it('no UPDATE is committed and no lease_signed row exists when the INSERT fails', async () => {
+    failOnInsert = true
+    await expect(stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', signatureDataUrl: PNG })).rejects.toThrow('insert failed')
+    expect(updates()).toHaveLength(0)
+    expect(clientCalls.filter((c) => c.sql.includes("'lease_signed'"))).toHaveLength(0)
+    expect(clientCalls).toHaveLength(0)
+  })
+})
