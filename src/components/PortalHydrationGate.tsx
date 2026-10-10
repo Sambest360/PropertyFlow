@@ -11,11 +11,11 @@ import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
 
 export function isPortalHydrating(params: {
   isAuthenticated: boolean
-  apiMode: boolean
+  liveMode: boolean
   userId: string | null | undefined
   hydratedForUserId: string | null
 }): boolean {
-  if (!params.isAuthenticated || !params.apiMode) return false
+  if (!params.isAuthenticated || !params.liveMode) return false
   if (!params.userId || params.userId === 'guest') return false
   return params.hydratedForUserId !== params.userId
 }
@@ -25,7 +25,7 @@ export function usePortalHydrating(): boolean {
   const { hydratedForUserId } = useStore()
   return isPortalHydrating({
     isAuthenticated,
-    apiMode: isApiEnabled || isSupabaseMode,
+    liveMode: isApiEnabled || isSupabaseMode,
     userId: user?.id,
     hydratedForUserId,
   })

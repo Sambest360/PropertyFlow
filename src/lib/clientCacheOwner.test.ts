@@ -97,7 +97,7 @@ describe('owner-keyed cache', () => {
     expect(readOwnedClientCache(JSON.stringify(cachedA), 'u-a')).toBeNull()
   })
 
-  it('writer stores { ownerUserId, state } and drops PII/trust books in API mode', () => {
+  it('writer stores { ownerUserId, state } and drops PII/trust books in live modes (LIVE_MODE_UNPERSISTED_KEYS)', () => {
     const state = { properties: [{ id: 'p1' }], users: [{ id: 'u' }], tenancies: [1], payments: [1], applications: [1], trustTransactions: [1], trustAllocations: [1], payoutInstructions: [1], depositHoldings: [1] }
     const api = JSON.parse(serializeClientCache(state, 'u-a', true))
     expect(api.ownerUserId).toBe('u-a')
@@ -116,7 +116,7 @@ describe('owner-keyed cache', () => {
   })
 })
 
-describe('API mode defaults', () => {
+describe('live mode defaults', () => {
   it('API/Supabase mode defaultState has no seed trust/charge arrays', () => {
     const s = appStore.defaultStateFor(true)
     for (const k of ['trustTransactions', 'trustAllocations', 'payoutInstructions', 'depositHoldings', 'arrearsSnapshots', 'charges', 'csvImportBatches'] as const) {
@@ -176,7 +176,7 @@ describe('cache write ownership (live modes)', () => {
     expect(readOwnedClientCache(ls.getItem(APP_STATE_STORAGE_KEY), 'u-b')).toBeNull()
   })
 
-  it('no write with no owner in API mode', () => {
+  it('no write with no owner in live mode', () => {
     ls.setItem(AUTH_KEY, 'u-a')
     const { writer, writes } = liveWriter({ current: null }) // not hydrated / guest
     writer.schedule({ properties: ['p'] })
@@ -215,7 +215,27 @@ describe('cache write ownership (live modes)', () => {
     expect(acted).toBe(true)
     expect(store.properties).toEqual([])
     expect(writes).toEqual([])
-    expect(handleAuthKeyStorageEvent({ key: AUTH_KEY, newValue: 'u-b' }, { cancel: vi.fn(), reset: vi.fn() })).toBe(false)
+    expect(handleAuthKeyStorageEvent({ key: AUTH_KEY, oldValue: 'u-b', newValue: 'u-b' }, { cancel: vi.fn(), reset: vi.fn() })).toBe(false)
+    expect(handleAuthKeyStorageEvent({ key: 'other', newValue: null }, { cancel: vi.fn(), reset: vi.fn() })).toBe(false)
+  })
+
+  it('another tab sets the auth key A→B: store resets and nothing is written', () => {
+    ls.setItem(AUTH_KEY, 'u-a')
+    const { writer, writes } = liveWriter({ current: 'u-a' })
+    let store = { properties: ['p-agency-a'] }
+    writer.schedule(store)
+    ls.setItem(AUTH_KEY, 'u-b') // tab 2
+    const acted = handleAuthKeyStorageEvent({ key: AUTH_KEY, oldValue: 'u-a', newValue: 'u-b' }, {
+      cancel: writer.cancel,
+      reset: () => {
+        store = { properties: [] }
+      },
+    })
+    vi.advanceTimersByTime(1000)
+    expect(acted).toBe(true)
+    expect(store.properties).toEqual([])
+    expect(writes).toEqual([])
+    expect(ls.getItem(APP_STATE_STORAGE_KEY)).toBeNull()
   })
 
   it('a bootstrap for a user who is no longer the session user is ignored', () => {

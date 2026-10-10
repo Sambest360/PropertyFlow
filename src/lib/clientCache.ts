@@ -19,10 +19,10 @@ export const PG_SOURCE_STORAGE_KEY = 'propertyflow-pg-source'
 export const CLIENT_CACHE_KEYS = [APP_STATE_STORAGE_KEY, PG_SOURCE_STORAGE_KEY] as const
 
 /**
- * Collections never written to localStorage in API mode (PII / money books).
+ * Collections never written to localStorage in live modes — API or Supabase (PII / money books).
  * They are always refetched from /api/bootstrap for the signed-in user.
  */
-export const API_MODE_UNPERSISTED_KEYS = [
+export const LIVE_MODE_UNPERSISTED_KEYS = [
   'users',
   'tenancies',
   'payments',
@@ -44,7 +44,7 @@ export function serializeClientCache<S extends object>(
   let toStore: Partial<S> = state
   if (liveMode) {
     const copy = { ...state } as Record<string, unknown>
-    for (const k of API_MODE_UNPERSISTED_KEYS) delete copy[k]
+    for (const k of LIVE_MODE_UNPERSISTED_KEYS) delete copy[k]
     toStore = copy as Partial<S>
   }
   const env: CacheEnvelope<S> = { ownerUserId: ownerUserId || null, state: toStore }
@@ -135,14 +135,18 @@ export function createClientCacheWriter<S extends object>(opts: {
 }
 
 /**
- * Cross-tab sign-out: when another tab REMOVES the auth key, cancel any pending
- * cache write and reset the store. Returns true when it acted.
+ * Cross-tab sign-out / user switch: when another tab REMOVES the auth key or
+ * CHANGES it to a different user id, cancel any pending cache write and reset
+ * the store. Returns true when it acted.
  */
 export function handleAuthKeyStorageEvent(
-  e: { key: string | null; newValue: string | null },
+  e: { key: string | null; newValue: string | null; oldValue?: string | null },
   actions: { cancel: () => void; reset: () => void },
 ): boolean {
-  if (e.key !== AUTH_USER_STORAGE_KEY || e.newValue != null) return false
+  if (e.key !== AUTH_USER_STORAGE_KEY) return false
+  const removed = e.newValue == null
+  const switched = !removed && (e.oldValue ?? null) !== e.newValue
+  if (!removed && !switched) return false
   actions.cancel()
   actions.reset()
   return true
