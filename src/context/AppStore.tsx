@@ -187,6 +187,14 @@ import {
 } from '../lib/api/persist'
 import { diffNewNotifications, toastsForNewNotifications } from '../lib/notificationSync'
 import {
+  SUPPORT_BODY_MAX,
+  SUPPORT_NOTE_MAX,
+  SUPPORT_SUBJECT_MAX,
+  canResolveSupportTicket,
+  supportTicketRoutingAgency,
+  type SupportTicket,
+} from '../lib/supportTickets'
+import {
   collectViewingAttendeeUserIds,
   describeViewingBookingChanges,
   describeViewingSlotChanges,
@@ -406,6 +414,10 @@ function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppSta
     csvImportBatches: (boot.csvImportBatches as CsvImportBatch[] | undefined)?.length
       ? (boot.csvImportBatches as CsvImportBatch[])
       : base.csvImportBatches,
+    // CR7: server-filtered and authoritative — replace, never merge with local rows.
+    supportTickets: Array.isArray(boot.supportTickets)
+      ? (boot.supportTickets as SupportTicket[])
+      : base.supportTickets,
   }
 }
 
@@ -457,6 +469,8 @@ export type AppState = {
   arrearsSnapshots: ArrearsSnapshot[]
   charges: Charge[]
   csvImportBatches: CsvImportBatch[]
+  /** CR7 help desk tickets (event_log, server-only). */
+  supportTickets: SupportTicket[]
 }
 
 type StoreContextValue = {
@@ -776,8 +790,23 @@ type StoreContextValue = {
     actorUserId: string
     request: CreateTicketRequest
     propertyId?: string
+    /** Staff: the tenancy this ticket is for (server validates the link). */
+    tenancyId?: string | null
   }) => CreateTicketResult
   updateTicket: (id: string, patch: Partial<MaintenanceTicket>) => void
+  /** CR7: raise a help desk ticket. Awaits the server; nothing is kept on failure. */
+  submitSupportTicket: (input: {
+    actor: { id: string; name: string; role: Role; agencyId: string | null }
+    subject: string
+    body: string
+  }) => Promise<{ ok: true; ticket: SupportTicket } | { ok: false; error: string }>
+  /** CR7: resolve an open ticket once, with a note. Resolved tickets are read-only. */
+  resolveSupportTicket: (input: {
+    actor: { id: string; name: string; role: Role; agencyId: string | null }
+    actorHasUsersManage: boolean
+    ticketId: string
+    note: string
+  }) => Promise<{ ok: true; ticket: SupportTicket } | { ok: false; error: string }>
   assignContractorToTicket: (params: {
     ticketId: string
     contractorUserId: string | null
@@ -922,6 +951,7 @@ const defaultState = (): AppState => ({
   arrearsSnapshots: seedArrearsSnapshots,
   charges: seedCharges,
   csvImportBatches: seedCsvImportBatches,
+  supportTickets: [],
 })
 
 function loadState(): AppState {
@@ -6352,7 +6382,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       notifyMaintenanceOpened(notify, state.users, ticket, prop, ticket.reportedByUserId)
       return ticket
     },
-    createMaintenanceTicket: ({ actorUserId, request, propertyId }) => {
+    createMaintenanceTicket: ({ actorUserId, request, propertyId, tenancyId }) => {
       const actor = state.users.find((u) => u.id === actorUserId)
       if (!actor) return { status: 'ERROR', error: 'User context unauthorized', httpStatus: 401 }
 
@@ -6386,6 +6416,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         warrantyCovered,
         assetLabel: asset?.itemName ?? request.title,
       })
+      if (tenancyId) ticket.tenancyId = tenancyId
 
       patch((s) => ({ ...s, tickets: [ticket, ...s.tickets] }))
       addActivity(
@@ -6435,6 +6466,109 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         warrantyCovered,
         emergencyQueued,
       }
+    },
+    submitSupportTicket: async ({ actor, subject, body }) => {
+      const cleanSubject = subject.trim().slice(0, SUPPORT_SUBJECT_MAX)
+      const cleanBody = body.trim().slice(0, SUPPORT_BODY_MAX)
+      if (!actor.id || actor.id === 'guest') {
+        return { ok: false as const, error: 'Sign in to raise a ticket.' }
+      }
+      if (!cleanSubject || !cleanBody) {
+        return { ok: false as const, error: 'Add a subject and a description.' }
+      }
+      const ticket: SupportTicket = {
+        id: uid('HD'),
+        // The server derives routing again from the signed-in user; this is display only.
+        agencyId: supportTicketRoutingAgency(actor.role, actor.agencyId),
+        submittedByUserId: actor.id,
+        submitterName: actor.name,
+        submitterRole: actor.role,
+        subject: cleanSubject,
+        body: cleanBody,
+        status: 'open',
+        createdAt: new Date().toISOString(),
+      }
+      let ok = false
+      try {
+        const { persistToApi } = await import('../lib/api/persist')
+        ok = await persistToApi({
+          resource: 'support_ticket',
+          action: 'upsert',
+          id: ticket.id,
+          data: {
+            id: ticket.id,
+            subject: ticket.subject,
+            body: ticket.body,
+            submittedByUserId: ticket.submittedByUserId,
+            submitterName: ticket.submitterName,
+          },
+        })
+      } catch {
+        ok = false
+      }
+      if (!ok) {
+        return {
+          ok: false as const,
+          error: 'Your ticket could not be sent. Check your connection and try again.',
+        }
+      }
+      patch((s) => ({ ...s, supportTickets: [ticket, ...s.supportTickets] }))
+      return { ok: true as const, ticket }
+    },
+    resolveSupportTicket: async ({ actor, actorHasUsersManage, ticketId, note }) => {
+      const ticket = state.supportTickets.find((t) => t.id === ticketId)
+      if (!ticket) return { ok: false as const, error: 'Ticket not found.' }
+      if (ticket.status === 'resolved') {
+        return { ok: false as const, error: 'This ticket is already resolved.' }
+      }
+      const viewer = {
+        userId: actor.id,
+        role: actor.role,
+        agencyId: actor.agencyId,
+        hasUsersManage: actorHasUsersManage,
+      }
+      if (!canResolveSupportTicket(viewer, ticket)) {
+        return { ok: false as const, error: 'You cannot resolve this ticket.' }
+      }
+      const cleanNote = note.trim().slice(0, SUPPORT_NOTE_MAX)
+      if (!cleanNote) return { ok: false as const, error: 'Add a resolution note.' }
+      const resolvedAt = new Date().toISOString()
+      let ok = false
+      try {
+        const { persistToApi } = await import('../lib/api/persist')
+        ok = await persistToApi({
+          resource: 'support_ticket',
+          action: 'upsert',
+          id: ticket.id,
+          data: {
+            id: ticket.id,
+            status: 'resolved',
+            resolvedByName: actor.name,
+            resolutionNote: cleanNote,
+          },
+        })
+      } catch {
+        ok = false
+      }
+      if (!ok) {
+        return {
+          ok: false as const,
+          error: 'The ticket could not be resolved. Try again.',
+        }
+      }
+      const resolved: SupportTicket = {
+        ...ticket,
+        status: 'resolved',
+        resolvedByUserId: actor.id,
+        resolvedByName: actor.name,
+        resolvedAt,
+        resolutionNote: cleanNote,
+      }
+      patch((s) => ({
+        ...s,
+        supportTickets: s.supportTickets.map((t) => (t.id === ticket.id ? resolved : t)),
+      }))
+      return { ok: true as const, ticket: resolved }
     },
     updateTicket: (id, p) => {
       const before = state.tickets.find((t) => t.id === id)

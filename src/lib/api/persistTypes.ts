@@ -28,3 +28,4 @@ export type EntityType =
   | 'payout_instruction'
   | 'deposit_holding'
   | 'csv_import_batch'
+  | 'support_ticket'

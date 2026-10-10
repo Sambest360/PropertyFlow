@@ -33,9 +33,15 @@ import {
   type ScopeLinksInput,
 } from '../src/lib/scope.js'
 import { canWriteEntity } from '../src/lib/scopeWrite.js'
+import { tenantSeesTicket, tenantTicketTenancyIds, tenantTicketView } from '../src/lib/ticketTenantView.js'
 import type { PropertyAccessSubject } from '../src/lib/agencyScope.js'
 import type { Permission, Role } from '../src/types/domain.js'
 import { effectiveCan } from '../src/lib/permissions.js'
+import {
+  canResolveSupportTicket,
+  filterSupportTicketsForViewer,
+  supportTicketRoutingAgency,
+} from '../src/lib/supportTickets.js'
 import { isReservedSuperAdminEmail, resolveFrontendRole } from '../src/lib/supabase/idMap.js'
 import {
   enforcePortalWritePolicy,
@@ -413,6 +419,7 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
     csv_import_batch: { table: 'csv_import_batches', clientCol: 'client_id' },
     payout_instruction: { table: 'payout_instructions', clientCol: 'client_id' },
     deposit_holding: { table: 'deposit_holdings', clientCol: 'client_id' },
+    support_ticket: { table: 'event_log', clientCol: 'client_id' },
   }
 
   const spec = tableMap[resource]
@@ -956,6 +963,134 @@ export async function enforceUserWritePolicy(
 }
 
 /**
+ * CR7 help desk gate for event_log support tickets. Runs before the generic
+ * property/agency gate. Mutates body.data with server-derived fields so the
+ * writer never trusts the client for submitter or routing.
+ *  - delete: super admin only
+ *  - submit (new id): submitter must be the actor; agencyId derived from the
+ *    actor's role + agency (staff / no agency → platform null)
+ *  - resolve (existing id): desk role with users.manage; agency desk only for
+ *    its own agency, platform tickets super admin only; resolved = read-only
+ */
+async function loadSupportTicketRow(feId: string): Promise<
+  | { kind: 'none' }
+  | { kind: 'other' }
+  | { kind: 'ticket'; agencyId: string | null; status: string; submittedByUserId: string | null; submitterRole: string | null }
+> {
+  const uuid = await resolveUuid('support_ticket', feId)
+  if (!uuid) return { kind: 'none' }
+  const rows = await query<{
+    event_type: string
+    client_id: string | null
+    status: string | null
+    submitted_by: string | null
+    submitter_role: string | null
+  }>(
+    `SELECT event_type, client_id::text AS client_id,
+            payload->>'status' AS status, payload->>'submittedByUserId' AS submitted_by,
+            payload->>'submitterRole' AS submitter_role
+     FROM event_log WHERE id = $1::uuid LIMIT 1`,
+    [uuid],
+  )
+  const r = rows[0]
+  if (!r) return { kind: 'none' }
+  if (r.event_type !== 'support_ticket') return { kind: 'other' }
+  return {
+    kind: 'ticket',
+    agencyId: await agencyFe(r.client_id),
+    status: r.status ?? 'open',
+    submittedByUserId: r.submitted_by,
+    submitterRole: r.submitter_role,
+  }
+}
+
+function permissionList(v: unknown): Permission[] | null {
+  // Empty / missing = not configured → role defaults (parity with AppStore
+  // applyPostgresBootstrap and userBasePermissions).
+  return Array.isArray(v) && v.length ? (v.filter((p) => typeof p === 'string') as Permission[]) : null
+}
+
+/**
+ * users.manage as the actor effectively holds it: user pack ∩ agency
+ * enabledPermissions (clients.settings), via effectiveCan. Loads the agency
+ * row the same way resolveAgencySuspended does.
+ */
+export async function resolveActorUsersManage(actor: DemoActor): Promise<boolean> {
+  if (actor.role === 'super_admin') return true
+  const agency = (await agencyFe(actor.agencyId)) ?? actor.agencyId
+  let agencyEnabled: Permission[] | null = null
+  if (agency) {
+    const clientUuid = await resolveUuid('agency', agency)
+    if (clientUuid) {
+      const rows = await query<{ enabled: unknown }>(
+        `SELECT settings->'enabledPermissions' AS enabled FROM clients WHERE id = $1::uuid LIMIT 1`,
+        [clientUuid],
+      )
+      agencyEnabled = permissionList(rows[0]?.enabled)
+    }
+  }
+  let userEnabled: Permission[] | null = null
+  const userUuid = await resolveUuid('user', actor.userId)
+  if (userUuid) {
+    const rows = await query<{ enabled: unknown }>(
+      `SELECT metadata->'enabledPermissions' AS enabled FROM users WHERE id = $1::uuid LIMIT 1`,
+      [userUuid],
+    )
+    userEnabled = permissionList(rows[0]?.enabled)
+  }
+  return effectiveCan(actor.role, 'users.manage', agencyEnabled, userEnabled)
+}
+
+export async function assertSupportTicketAllowed(
+  actor: DemoActor,
+  body: PersistBody,
+): Promise<void> {
+  const deny = (why: string) =>
+    forbiddenError(`Forbidden: ${actor.role} ${actor.userId} cannot ${body.action} support_ticket ${body.id} (${why})`)
+  const actorAgency = (await agencyFe(actor.agencyId)) ?? actor.agencyId ?? null
+  const viewer = { userId: actor.userId, role: actor.role, agencyId: actorAgency }
+
+  const row = await loadSupportTicketRow(body.id)
+  if (row.kind === 'other') throw deny('id belongs to another record')
+
+  if (body.action === 'delete') {
+    if (actor.role !== 'super_admin') throw deny('delete is super admin only')
+    return
+  }
+
+  const data = body.data ?? {}
+
+  if (row.kind === 'none') {
+    const claimed = strField(data, 'submittedByUserId')
+    if (!claimed || !(await actorIdAliases(actor)).has(claimed)) throw deny('submitter must be the signed-in user')
+    body.data = {
+      subject: data.subject,
+      body: data.body,
+      submitterName: data.submitterName,
+      submittedByUserId: actor.userId,
+      submitterRole: actor.role,
+      agencyId: supportTicketRoutingAgency(actor.role, actorAgency),
+      status: 'open',
+    }
+    return
+  }
+
+  if (row.status === 'resolved') throw deny('resolved tickets are read-only')
+  const hasUsersManage = await resolveActorUsersManage(actor)
+  if (!canResolveSupportTicket({ ...viewer, hasUsersManage }, { agencyId: row.agencyId, submitterRole: row.submitterRole })) {
+    throw deny('not on this desk')
+  }
+  if (strField(data, 'status') !== 'resolved') throw deny('only resolve is allowed')
+  body.data = {
+    status: 'resolved',
+    resolvedByUserId: actor.userId,
+    resolvedByName: data.resolvedByName,
+    resolutionNote: data.resolutionNote,
+    resolvedAt: new Date().toISOString(),
+  }
+}
+
+/**
  * Enforce property / agency scope on a persist op. Throws 403/401-style errors.
  */
 export async function assertPersistAllowed(
@@ -964,6 +1099,13 @@ export async function assertPersistAllowed(
 ): Promise<PortalOutcome> {
   // CR10: lease_signed audit rows are server-written only (generic policy).
   if (isClientLeaseSignedWrite(body)) throw leaseSignedRefusedError()
+  if (body.resource === 'support_ticket') {
+    // Portal users (tenant / landlord / contractor) pass the portal allow-list
+    // first: submit only, never resolve.
+    if (PORTAL_WRITE_ROLES.has(actor.role)) await enforcePortalWritePolicy(actor, body, null)
+    await assertSupportTicketAllowed(actor, body)
+    return {}
+  }
   const scope = await buildActorPropertyScope(actor)
   const data = body.data ?? {}
   const existing = await loadExisting(body.resource, body.id)
@@ -971,7 +1113,9 @@ export async function assertPersistAllowed(
   // An existing application stays on its stored listing: a payload propertyId
   // must not move the scope check onto another property.
   let propertyId =
-    (body.resource === 'application' && existing?.propertyId ? existing.propertyId : null) ??
+    ((body.resource === 'application' || body.resource === 'ticket') && existing?.propertyId
+      ? existing.propertyId
+      : null) ??
     strField(data, 'propertyId') ??
     (body.resource === 'property' || body.resource === 'unit' ? body.id : null) ??
     existing?.propertyId ??
@@ -990,11 +1134,19 @@ export async function assertPersistAllowed(
 
   // Normalize agency to FE id space (entity_id_map first) so FE actor agency
   // never compares against a raw client UUID from loadExisting / payload.
+  // Tickets: the agency is the stored ticket's, else the property's — never
+  // the payload (the writer also takes client_id from the unit).
+  const ticketAgency =
+    body.resource === 'ticket'
+      ? (existing?.agencyId ?? (await propertySubject(propertyId))?.agencyId ?? null)
+      : undefined
   const rawAgencyId =
-    strField(data, 'agencyId') ??
-    strField(data, 'clientId') ??
-    existing?.agencyId ??
-    actor.agencyId
+    ticketAgency !== undefined
+      ? ticketAgency
+      : (strField(data, 'agencyId') ??
+        strField(data, 'clientId') ??
+        existing?.agencyId ??
+        actor.agencyId)
   const agencyId = (await agencyFe(rawAgencyId)) ?? rawAgencyId
 
   const agentId = strField(data, 'agentId') ?? existing?.agentId ?? null
@@ -1180,6 +1332,7 @@ type BootstrapPayload = {
   depositHoldings?: Array<{ agencyId?: string | null }>
   arrearsSnapshots?: Array<{ agencyId?: string | null }>
   csvImportBatches?: Array<{ agencyId?: string | null }>
+  supportTickets?: Array<{ agencyId: string | null; submittedByUserId: string; submitterRole?: string | null }>
   [key: string]: unknown
 }
 
@@ -1643,13 +1796,15 @@ export function filterBootstrapForActor(
   actorIn: DemoActor,
   scope: PropertyScope,
   actorIds?: ReadonlySet<string>,
+  /** CR7: effective users.manage (resolveActorUsersManage); role default when omitted. */
+  opts?: { usersManage?: boolean },
 ): BootstrapPayload {
   // Session / header agency may be a client UUID; scope.viewer carries the FE id.
   const normalizedAgency = scope.viewer?.agencyId ?? actorIn.agencyId
   const actor =
     normalizedAgency !== actorIn.agencyId ? { ...actorIn, agencyId: normalizedAgency } : actorIn
   const entities = scopeLeaseSignReads(
-    filterBootstrapEntitiesForActor(raw, actor, scope, actorIds ?? new Set([actor.userId])),
+    filterBootstrapEntitiesForActor(raw, actor, scope, actorIds ?? new Set([actor.userId]), opts),
     raw,
     actor,
   )
@@ -1676,6 +1831,8 @@ function filterBootstrapEntitiesForActor(
   actor: DemoActor,
   scope: PropertyScope,
   actorIds: ReadonlySet<string>,
+  /** CR7: effective users.manage (resolveActorUsersManage); role default when omitted. */
+  opts?: { usersManage?: boolean },
 ): BootstrapPayload {
   const agencyWide = isAgencyWideRole(actor.role as Role) || actor.role === 'super_admin'
   const scoped = !agencyWide
@@ -1744,6 +1901,14 @@ function filterBootstrapEntitiesForActor(
       depositHoldings: (raw.depositHoldings ?? []).filter((x) => inAg(x.agencyId)),
       arrearsSnapshots: (raw.arrearsSnapshots ?? []).filter((x) => inAg(x.agencyId)),
       csvImportBatches: (raw.csvImportBatches ?? []).filter((x) => inAg(x.agencyId)),
+      // CR7: own submissions + this agency's desk; platform (null) stays super admin only.
+      supportTickets: filterSupportTicketsForViewer(raw.supportTickets ?? [], {
+        userId: actor.userId,
+        role: actor.role as Role,
+        agencyId: actor.agencyId,
+        hasUsersManage: opts?.usersManage,
+        aliasIds: actorIds,
+      }),
     }
   }
 
@@ -1786,15 +1951,25 @@ function filterBootstrapEntitiesForActor(
     dealInScope(scope, { propertyId: x.propertyId, agentId: x.agentId, agencyId: x.agencyId }),
   )
   const tenancies = raw.tenancies.filter((x) => allowed.has(x.propertyId))
-  const tickets = raw.tickets.filter((t) => {
-    // Tenants: only tickets they reported. Property scope alone would hand an
-    // applicant every ticket on a listing they applied to.
-    if (actor.role === 'tenant') {
-      const reporter = (t as { reportedByUserId?: string | null }).reportedByUserId
-      return Boolean(reporter) && reporter === actor.userId
-    }
-    return ticketInScope(scope, t)
-  })
+  // Tenants: tickets they reported (any id form they carry, any tenancy
+  // status) or tickets linked to one of their own Active / Notice tenancies.
+  // Never by property or unit alone — applying to a listing puts it in a
+  // tenant's book. Every ticket is reduced to the tenant view (no staff
+  // notes, contractor, quote, cost or warranty fields); their own reports
+  // also keep their access notes and photos.
+  const ownTenancyIds =
+    actor.role === 'tenant'
+      ? tenantTicketTenancyIds(
+          raw.tenancies as Array<{ id?: string; tenantUserId?: string | null; status?: string; leaseStatus?: string }>,
+          (id) => actorIds.has(id),
+        )
+      : new Set<string>()
+  const tickets =
+    actor.role === 'tenant'
+      ? raw.tickets
+          .filter((t) => tenantSeesTicket(t as { reportedByUserId?: string | null; tenancyId?: string | null }, actorIds, ownTenancyIds))
+          .map((t) => tenantTicketView(t as unknown as Record<string, unknown>, actorIds) as unknown as typeof t)
+      : raw.tickets.filter((t) => ticketInScope(scope, t))
   const payments = raw.payments.filter((p) => {
     if (actor.role === 'tenant') {
       return p.partyUserId === actor.userId
@@ -1923,5 +2098,8 @@ function filterBootstrapEntitiesForActor(
     depositHoldings: trustRows(raw.depositHoldings),
     arrearsSnapshots: trustRows(raw.arrearsSnapshots),
     csvImportBatches: trustRows(raw.csvImportBatches),
+    // CR7: property-locked roles never hold the desk — own submissions only,
+    // matched through the round-trip actorIds (never email).
+    supportTickets: (raw.supportTickets ?? []).filter((t) => actorIds.has(t.submittedByUserId)),
   }
 }

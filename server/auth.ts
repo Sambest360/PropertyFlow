@@ -7,7 +7,7 @@ import bcrypt from 'bcryptjs'
 import type { Context } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { query } from './db.js'
-import { ensureUuid, resolveUuid } from './entityMap.js'
+import { USER_TO_UUID, ensureUuid, resolveUuid } from './entityMap.js'
 import { feAgencyFromCache, loadIdMapCache } from './idMapCache.js'
 import { isReservedSuperAdminEmail, resolveFrontendRole } from '../src/lib/supabase/idMap.js'
 import { applyVerificationDecision } from '../src/lib/verification.js'
@@ -156,7 +156,7 @@ type UserRow = {
   agency_fe: string | null
 }
 
-async function rowToSession(row: UserRow): Promise<SessionUser> {
+export async function rowToSession(row: UserRow): Promise<SessionUser> {
   const meta = row.metadata ?? {}
   // Session ids must live in the same id space as /api/bootstrap rows (the
   // client scopes by user.id / user.agencyId). Bootstrap maps users and
@@ -195,6 +195,14 @@ async function rowToSession(row: UserRow): Promise<SessionUser> {
   let frontendId = row.id
   if (mappedUserFe && (await roundTrips('user', mappedUserFe, row.id))) frontendId = mappedUserFe
   else if (metaFe && (await roundTrips('user', metaFe, row.id))) frontendId = metaFe
+  else {
+    // Seed row with no entity_id_map entry: its static front-end id, but only
+    // when USER_TO_UUID[fe] is this very row id and resolveUuid round-trips.
+    // Matched by uuid, never by email. (Agencies already get the same rule via
+    // feAgencyFromCache's static CLIENT_TO_AGENCY fallback + roundTrips below.)
+    const staticFe = Object.keys(USER_TO_UUID).find((fe) => USER_TO_UUID[fe] === row.id)
+    if (staticFe && (await roundTrips('user', staticFe, row.id))) frontendId = staticFe
+  }
 
   let agencyId = row.agency_fe
   if (row.client_id) {
