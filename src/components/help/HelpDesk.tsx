@@ -239,6 +239,7 @@ export function HelpDesk() {
                     <StatusBadge status={t.status} />
                   </div>
                   <p className="text-xs text-ink-400">
+                    <span data-testid={`help-my-ticket-number-${t.id}`}>Ticket {t.id}</span> ·{' '}
                     {fmt(t.createdAt)} · {agencyName(t.agencyId)}
                   </p>
                   <TicketBody ticket={t} />
@@ -278,7 +279,7 @@ export function HelpDesk() {
                     <StatusBadge status={t.status} />
                   </div>
                   <p className="text-xs text-ink-400">
-                    {t.submitterName || 'Unknown user'} ·{' '}
+                    Ticket {t.id} · {t.submitterName || 'Unknown user'} ·{' '}
                     {fmt(t.createdAt)}
                     {user.role === 'super_admin' ? ` · ${agencyName(t.agencyId)}` : ''}
                   </p>

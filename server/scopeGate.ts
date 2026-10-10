@@ -963,7 +963,7 @@ export async function enforceUserWritePolicy(
 async function loadSupportTicketRow(feId: string): Promise<
   | { kind: 'none' }
   | { kind: 'other' }
-  | { kind: 'ticket'; agencyId: string | null; status: string; submittedByUserId: string | null }
+  | { kind: 'ticket'; agencyId: string | null; status: string; submittedByUserId: string | null; submitterRole: string | null }
 > {
   const uuid = await resolveUuid('support_ticket', feId)
   if (!uuid) return { kind: 'none' }
@@ -972,9 +972,11 @@ async function loadSupportTicketRow(feId: string): Promise<
     client_id: string | null
     status: string | null
     submitted_by: string | null
+    submitter_role: string | null
   }>(
     `SELECT event_type, client_id::text AS client_id,
-            payload->>'status' AS status, payload->>'submittedByUserId' AS submitted_by
+            payload->>'status' AS status, payload->>'submittedByUserId' AS submitted_by,
+            payload->>'submitterRole' AS submitter_role
      FROM event_log WHERE id = $1::uuid LIMIT 1`,
     [uuid],
   )
@@ -986,6 +988,7 @@ async function loadSupportTicketRow(feId: string): Promise<
     agencyId: await agencyFe(r.client_id),
     status: r.status ?? 'open',
     submittedByUserId: r.submitted_by,
+    submitterRole: r.submitter_role,
   }
 }
 
@@ -1061,7 +1064,7 @@ export async function assertSupportTicketAllowed(
 
   if (row.status === 'resolved') throw deny('resolved tickets are read-only')
   const hasUsersManage = await resolveActorUsersManage(actor)
-  if (!canResolveSupportTicket({ ...viewer, hasUsersManage }, { agencyId: row.agencyId })) {
+  if (!canResolveSupportTicket({ ...viewer, hasUsersManage }, { agencyId: row.agencyId, submitterRole: row.submitterRole })) {
     throw deny('not on this desk')
   }
   if (strField(data, 'status') !== 'resolved') throw deny('only resolve is allowed')
@@ -1082,6 +1085,9 @@ export async function assertPersistAllowed(
   body: PersistBody,
 ): Promise<PortalOutcome> {
   if (body.resource === 'support_ticket') {
+    // Portal users (tenant / landlord / contractor) pass the portal allow-list
+    // first: submit only, never resolve.
+    if (PORTAL_WRITE_ROLES.has(actor.role)) await enforcePortalWritePolicy(actor, body, null)
     await assertSupportTicketAllowed(actor, body)
     return {}
   }
@@ -1295,7 +1301,7 @@ type BootstrapPayload = {
   depositHoldings?: Array<{ agencyId?: string | null }>
   arrearsSnapshots?: Array<{ agencyId?: string | null }>
   csvImportBatches?: Array<{ agencyId?: string | null }>
-  supportTickets?: Array<{ agencyId: string | null; submittedByUserId: string }>
+  supportTickets?: Array<{ agencyId: string | null; submittedByUserId: string; submitterRole?: string | null }>
   [key: string]: unknown
 }
 
@@ -1807,6 +1813,7 @@ function filterBootstrapEntitiesForActor(
         role: actor.role as Role,
         agencyId: actor.agencyId,
         hasUsersManage: opts?.usersManage,
+        aliasIds: actorIds,
       }),
     }
   }

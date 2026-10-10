@@ -78,6 +78,7 @@ function fakeQuery(sql: string, params: unknown[] = []): unknown[] {
         client_id: r.client_id,
         status: (r.payload.status as string) ?? null,
         submitted_by: (r.payload.submittedByUserId as string) ?? null,
+        submitter_role: (r.payload.submitterRole as string) ?? null,
       },
     ]
   }
@@ -358,6 +359,59 @@ describe('CR7 support tickets — scope gate + writer', () => {
       assertPersistAllowed(superAdmin, { resource: 'support_ticket', action: 'delete', id: 'HD-delete' }),
     ).resolves.toEqual({})
   })
+
+  it('gives 403 when a tenant tries to resolve, even their own ticket (portal allow-list)', async () => {
+    await gateAndPersist(tenant, {
+      action: 'upsert',
+      id: 'HD-tenant-resolve',
+      data: { subject: 's', body: 'b', submittedByUserId: 'u-tenant-h' },
+    })
+    await expect(
+      gateAndPersist(tenant, {
+        action: 'upsert',
+        id: 'HD-tenant-resolve',
+        data: { status: 'resolved', resolutionNote: 'done', submittedByUserId: 'u-tenant-h' },
+      }),
+    ).rejects.toThrow(/never resolve/)
+    expect((await rowFor('HD-tenant-resolve'))?.payload.status).toBe('open')
+  })
+
+  it('lets a landlord and a contractor raise a ticket to their agency', async () => {
+    for (const actor of [
+      { userId: 'u-ll-h', role: 'landlord', agencyId: 'ag-horizon' },
+      { userId: 'u-co-h', role: 'contractor', agencyId: 'ag-horizon' },
+    ] as DemoActor[]) {
+      const id = `HD-portal-${actor.role}`
+      await gateAndPersist(actor, { action: 'upsert', id, data: { subject: 's', body: 'b', submittedByUserId: actor.userId } })
+      expect((await rowFor(id))?.client_id).toBe(HORIZON)
+    }
+  })
+
+  it('gives 403 when an agency admin resolves a staff ticket, even one stored with their agency', async () => {
+    // A staff row that carries an agency (legacy / hand-written) is still PropertyFlow support's.
+    db.map.push({ entity_type: 'support_ticket', frontend_id: 'HD-staff-legacy', backend_id: 'e1000001-0001-4000-8000-0000000000aa' })
+    db.events.set('e1000001-0001-4000-8000-0000000000aa', {
+      id: 'e1000001-0001-4000-8000-0000000000aa',
+      client_id: HORIZON,
+      event_type: 'support_ticket',
+      subject_type: 'support_ticket',
+      actor_user_id: null,
+      payload: { subject: 's', body: 'b', status: 'open', submittedByUserId: 'u-agent-h', submitterRole: 'ground_agent' },
+    })
+    await expect(
+      gateAndPersist(horizonAdmin, {
+        action: 'upsert',
+        id: 'HD-staff-legacy',
+        data: { status: 'resolved', resolutionNote: 'mine now' },
+      }),
+    ).rejects.toMatchObject({ status: 403 })
+    await gateAndPersist(superAdmin, {
+      action: 'upsert',
+      id: 'HD-staff-legacy',
+      data: { status: 'resolved', resolutionNote: 'support' },
+    })
+    expect(db.events.get('e1000001-0001-4000-8000-0000000000aa')?.payload.status).toBe('resolved')
+  })
 })
 
 describe('CR7 support tickets — bootstrap filter', () => {
@@ -367,6 +421,8 @@ describe('CR7 support tickets — bootstrap filter', () => {
     { id: 'HD-c1', agencyId: 'ag-cape', submittedByUserId: 'u-tenant-c' },
     { id: 'HD-p1', agencyId: null, submittedByUserId: 'u-admin-h' },
     { id: 'HD-p2', agencyId: null, submittedByUserId: 'u-agent-h' },
+    // Staff ticket stored with an agency: still PropertyFlow support's.
+    { id: 'HD-s1', agencyId: 'ag-horizon', submittedByUserId: 'u-agent-h', submitterRole: 'ground_agent' },
   ]
   const raw = {
     source: 'test',
@@ -388,13 +444,13 @@ describe('CR7 support tickets — bootstrap filter', () => {
     notifications: [],
     supportTickets: tickets,
   }
-  const run = async (actor: DemoActor, usersManage?: boolean) => {
+  const run = async (actor: DemoActor, usersManage?: boolean, actorIds?: ReadonlySet<string>) => {
     const { filterBootstrapForActor } = await import('./scopeGate.js')
     const scope = buildPropertyScope(
       { role: actor.role, userId: actor.userId, agencyId: actor.agencyId, agencySuspended: false },
       { properties: [] },
     )
-    return (filterBootstrapForActor(raw, actor, scope, undefined, { usersManage }).supportTickets ?? []).map(
+    return (filterBootstrapForActor(raw, actor, scope, actorIds, { usersManage }).supportTickets ?? []).map(
       (t) => (t as { id: string }).id,
     )
   }
@@ -406,6 +462,7 @@ describe('CR7 support tickets — bootstrap filter', () => {
   it('shows a ground agent only their own tickets (no desk)', async () => {
     expect(await run({ userId: 'u-agent-h', role: 'ground_agent', agencyId: 'ag-horizon' })).toEqual([
       'HD-p2',
+      'HD-s1',
     ])
   })
 
@@ -419,6 +476,33 @@ describe('CR7 support tickets — bootstrap filter', () => {
   })
 
   it('shows super admin all tickets', async () => {
-    expect((await run(superAdmin)).sort()).toEqual(['HD-c1', 'HD-p1', 'HD-p2', 'HD-t1', 'HD-t2'])
+    expect((await run(superAdmin)).sort()).toEqual(['HD-c1', 'HD-p1', 'HD-p2', 'HD-s1', 'HD-t1', 'HD-t2'])
+  })
+
+  it('gives an agency admin only own-agency portal tickets: no null-agency, other-agency or staff tickets', async () => {
+    const other = { userId: 'u-admin-h2', role: 'client_admin', agencyId: 'ag-horizon' } as DemoActor
+    expect((await run(other, true)).sort()).toEqual(['HD-t1', 'HD-t2'])
+  })
+
+  it('matches a reporter through actorIdAliases, and a seed-email squatter gets none of the seed user’s tickets', async () => {
+    const uuid = 'b1000001-0001-4000-8000-0000000000aa'
+    const withUuid = [...tickets, { id: 'HD-u1', agencyId: 'ag-horizon', submittedByUserId: uuid }]
+    const { filterBootstrapForActor } = await import('./scopeGate.js')
+    const ids = (actor: DemoActor, aliases: string[], usersManage?: boolean) => {
+      const scope = buildPropertyScope(
+        { role: actor.role, userId: actor.userId, agencyId: actor.agencyId, agencySuspended: false },
+        { properties: [] },
+      )
+      return (filterBootstrapForActor({ ...raw, supportTickets: withUuid }, actor, scope, new Set(aliases), { usersManage })
+        .supportTickets ?? []).map((t) => (t as { id: string }).id).sort()
+    }
+    // Agency-wide reporter (desk off) sees a ticket filed under their round-trip uuid.
+    expect(ids({ userId: 'u-admin-h', role: 'agent_admin', agencyId: 'ag-horizon' }, ['u-admin-h', uuid], false)).toEqual([
+      'HD-p1',
+      'HD-u1',
+    ])
+    // Squatter: registered with the seed tenant's email, own id only.
+    expect(ids({ userId: 'u-squat', role: 'tenant', agencyId: 'ag-horizon' }, ['u-squat'])).toEqual([])
+    expect(ids({ userId: 'u-squat', role: 'agent_admin', agencyId: 'ag-cape' }, ['u-squat'], false)).toEqual([])
   })
 })

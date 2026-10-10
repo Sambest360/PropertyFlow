@@ -379,6 +379,12 @@ export async function enforcePortalWritePolicy(
       return {}
     }
 
+    case 'support_ticket': {
+      // CR7: portal users may raise a ticket, never resolve or edit one.
+      if (await resolveUuid('support_ticket', body.id)) throw deny('portal users submit tickets, they never resolve')
+      return {}
+    }
+
     case 'viewing': {
       if (!isTenant) throw deny('not on the portal allow-list')
       const mine = await actorEmail(actor)
