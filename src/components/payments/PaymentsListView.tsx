@@ -16,7 +16,7 @@ const ICON_STROKE = 1.6
 
 function AttentionBadges({ item }: { item: PortfolioPayment }) {
   const p = item.payment
-  if (p.status === 'Paid') return <Badge tone="neutral">Settled</Badge>
+  if (p.status === 'Paid') return <Badge tone="neutral">Paid</Badge>
   if (p.status === 'Cancelled') return <Badge tone="neutral">Cancelled</Badge>
   if (p.status === 'Overdue' || item.daysOverdue > 0) {
     return (

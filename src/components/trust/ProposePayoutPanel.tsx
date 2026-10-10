@@ -117,6 +117,7 @@ export function ProposePayoutPanel(props: {
   }
 
   return (
+    <div data-tip-target="trust-propose-payout">
     <Card className="p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-ink-500">Propose a payout to a landlord for a tenancy.</p>
@@ -171,5 +172,6 @@ export function ProposePayoutPanel(props: {
         </p>
       )}
     </Card>
+    </div>
   )
 }

@@ -5,6 +5,7 @@
 
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib'
 import { buildOwnerStatementBook } from './buildOwnerStatementBook'
+import { OWNER_STATEMENT_TOTALS_FOOTER, ownerStatementPaymentsSubtotal } from './ownerStatementTable'
 import {
   OWNER_STATEMENT_MODE_A_COPY,
   type OwnerStatementBook,
@@ -141,7 +142,10 @@ function renderBook(ctx: DrawCtx, book: OwnerStatementBook) {
       )
     }
   }
-  drawLine(ctx, `Subtotal payments: ${zar(book.totals.paymentsZar)}`, { size: 9, bold: true })
+  drawLine(ctx, `Subtotal payments: ${zar(ownerStatementPaymentsSubtotal(book.payments))}`, {
+    size: 9,
+    bold: true,
+  })
   rule(ctx)
 
   drawLine(ctx, '3. Trust allocations (optional in-app book)', { size: 12, bold: true })
@@ -195,6 +199,7 @@ function renderBook(ctx: DrawCtx, book: OwnerStatementBook) {
     'This PDF does not claim bank settlement, live PayProp remittance, or partner payout confirmation.',
     { size: 8, color: ctx.muted, width: 95 },
   )
+  drawWrapped(ctx, OWNER_STATEMENT_TOTALS_FOOTER, { size: 8, color: ctx.muted, width: 95 })
 }
 
 /** Generate a real PDF owner statement from the in-app book. */

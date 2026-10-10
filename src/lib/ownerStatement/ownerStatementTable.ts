@@ -3,7 +3,7 @@
  * on-screen column names and order. Read-only over OwnerStatementBook.
  */
 
-import type { OwnerStatementBook, OwnerStatementLine } from './types'
+import type { OwnerStatementBook, OwnerStatementLine, OwnerStatementPaymentLine } from './types'
 
 export type OwnerStatementColumnKey =
   | 'date'
@@ -63,6 +63,27 @@ function isRentPaymentType(type: string | undefined): boolean {
   return type != null && RENT_PAYMENT_TYPES.has(type)
 }
 
+/**
+ * Shared totals rule for payment lines (table and PDF). Only money actually received counts:
+ * Rent / First Month Rent with status Paid -> 'rent'; Commission with status Paid -> 'commission'.
+ * Every other payment (deposits, refunds, Other, or anything not Paid) -> null: listed, not totalled.
+ */
+export function ownerStatementPaymentColumn(
+  line: Pick<OwnerStatementPaymentLine, 'status' | 'paymentType'>,
+): 'rent' | 'commission' | null {
+  if (line.status !== 'Paid') return null
+  if (isRentPaymentType(line.paymentType)) return 'rent'
+  if (line.paymentType === 'Commission') return 'commission'
+  return null
+}
+
+/** Sum of payment lines that count toward the totals (same rule as the table). */
+export function ownerStatementPaymentsSubtotal(
+  payments: ReadonlyArray<Pick<OwnerStatementPaymentLine, 'status' | 'paymentType' | 'amountZar'>>,
+): number {
+  return payments.reduce((n, p) => (ownerStatementPaymentColumn(p) ? n + p.amountZar : n), 0)
+}
+
 /** Place each in-app book line in at most one money column. */
 export function ownerStatementRow(line: OwnerStatementLine): OwnerStatementTableRow {
   const base = {
@@ -76,14 +97,9 @@ export function ownerStatementRow(line: OwnerStatementLine): OwnerStatementTable
     netPaid: null,
   }
   if (line.kind === 'payment') {
-    // Only money actually received counts. Rent = Rent / First Month Rent with status Paid;
-    // Commission = Commission with status Paid. Every other payment (deposits, refunds, Other,
-    // or anything not Paid) is listed but stays out of the money columns and totals — Other
-    // allocations is for trust allocations only, not payments.
-    if (line.status !== 'Paid') return base
-    if (isRentPaymentType(line.paymentType)) return { ...base, rent: line.amountZar }
-    if (line.paymentType === 'Commission') return { ...base, commission: line.amountZar }
-    return base
+    // Other allocations is for trust allocations only, never payments.
+    const column = ownerStatementPaymentColumn(line)
+    return column ? { ...base, [column]: line.amountZar } : base
   }
   if (line.kind === 'allocation') {
     return isCommissionBucket(line.bucketCode)

@@ -356,7 +356,7 @@ describe('CR7 support tickets — scope gate + writer', () => {
     }
     await expect(
       assertPersistAllowed(superAdmin, { resource: 'support_ticket', action: 'delete', id: 'HD-delete' }),
-    ).resolves.toBeUndefined()
+    ).resolves.toEqual({})
   })
 })
 
@@ -394,7 +394,7 @@ describe('CR7 support tickets — bootstrap filter', () => {
       { role: actor.role, userId: actor.userId, agencyId: actor.agencyId, agencySuspended: false },
       { properties: [] },
     )
-    return (filterBootstrapForActor(raw, actor, scope, { usersManage }).supportTickets ?? []).map(
+    return (filterBootstrapForActor(raw, actor, scope, undefined, { usersManage }).supportTickets ?? []).map(
       (t) => (t as { id: string }).id,
     )
   }

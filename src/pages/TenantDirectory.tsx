@@ -452,7 +452,8 @@ function TenantExpansion({
     state.users.find(
       (u) =>
         u.role === 'tenant' &&
-        u.email.toLowerCase() === t.tenantEmail.toLowerCase(),
+        Boolean(u.email && t.tenantEmail) &&
+        u.email?.toLowerCase() === t.tenantEmail?.toLowerCase(),
     )
   const detailTo = `/workspace/people/tenants/${encodeURIComponent(t.id)}`
   const { viewerId } = useAgentDisplay()

@@ -349,7 +349,7 @@ export function CalculatorsIndex() {
         </p>
       </div>
 
-      <div className="mt-10 grid gap-4 sm:grid-cols-2">
+      <div className="mt-10 grid gap-4 sm:grid-cols-2" data-tip-target="calc-tools">
         {calculatorTools.map((tool) => (
           <Link
             key={tool.id}

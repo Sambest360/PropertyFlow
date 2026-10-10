@@ -56,7 +56,7 @@ export function PaymentOverviewPanel({
     <DetailStack columns={hasSide ? 2 : 1}>
       <DetailSection
         title="Overview"
-        subtitle="Settlement and billing details for this payment."
+        subtitle="Payment and billing details for this payment."
       >
         <FlatFieldGrid className="lg:grid-cols-2">
           <FlatField label="Payment ID" value={payment.id} />

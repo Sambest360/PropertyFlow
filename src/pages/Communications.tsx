@@ -270,7 +270,7 @@ function ComposeMessageModal({
   open: boolean
   onClose: () => void
   agencyId: string
-  users: { id: string; name: string; email: string; role?: string }[]
+  users: { id: string; name: string; email?: string; role?: string }[]
   properties: { id: string; title: string }[]
   fromUserId: string
   onCreate: (input: {
@@ -353,7 +353,7 @@ function ComposeMessageModal({
             .filter((u) => u.id !== fromUserId)
             .map((u) => (
               <option key={u.id} value={u.id}>
-                {u.name} · {u.role ?? 'user'} · {u.email}
+                {u.name} · {u.role ?? 'user'}{u.email ? ` · ${u.email}` : ''}
               </option>
             ))}
         </Select>

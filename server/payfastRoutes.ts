@@ -2,6 +2,7 @@
  * PayFast checkout routes (sandbox-first).
  *
  * POST /api/payfast/create
+ *   (amount = payments.amount; a sent amountCents must match it or 409)
  *   body: { paymentId, paymentDbId?, amountCents?, itemName?, itemDescription?,
  *           payer?, subscription? }
  *   → { ok, processUrl, fields } — fields include the server-computed
@@ -43,6 +44,26 @@ function absoluteOrigin(c: Context): string {
   const proto = c.req.header('x-forwarded-proto') ?? url.protocol.replace(':', '')
   return `${proto}://${url.host}`
 }
+
+export type LoadedPayment = {
+  id: string
+  uuid: string
+  amount: number
+  status: string
+  paymentType: string
+  partyName: string
+  partyUserId: string | null
+  clientUuid: string | null
+  propertyFeId: string | null
+}
+
+/**
+ * Route-level authorisation for checkout, run once the payment row is loaded.
+ * Returns an HTTP error to send, or null to continue.
+ */
+export type PayfastCreateAuthorize = (
+  payment: LoadedPayment,
+) => Promise<{ status: 401 | 403; error: string } | null>
 
 /** Look up the payments row for a FE payment id (accepting the raw uuid too). */
 async function loadPayment(paymentId: string): Promise<{
@@ -93,7 +114,7 @@ async function loadPayment(paymentId: string): Promise<{
   }
 }
 
-export async function payfastCreate(c: Context) {
+export async function payfastCreate(c: Context, authorize?: PayfastCreateAuthorize) {
   try {
     const cfg = config()
     if (!cfg) {
@@ -108,17 +129,29 @@ export async function payfastCreate(c: Context) {
     if (!payment) {
       return c.json({ ok: false, error: 'payment_not_found' }, 404)
     }
+    if (authorize) {
+      const denied = await authorize(payment)
+      if (denied) return c.json({ ok: false, error: denied.error }, denied.status)
+    }
     if (payment.status === 'PAID') {
       return c.json({ ok: false, error: 'payment_already_paid' }, 409)
     }
     if (payment.status === 'CANCELLED') {
       return c.json({ ok: false, error: 'payment_cancelled' }, 409)
     }
-    const clientAmountCents = Math.round(Number(body.amountCents) * (Number.isFinite(Number(body.amountCents)) ? 1 : 0))
-    const amountCents =
-      Number.isFinite(clientAmountCents) && clientAmountCents > 0
-        ? clientAmountCents
-        : Math.round(payment.amount * 100)
+    // The charge always comes from the ledger row. A client amount is only a
+    // cross-check: if one is sent and differs from the record, refuse.
+    const amountCents = Math.round(payment.amount * 100)
+    const sentAmount = body.amountCents
+    if (sentAmount !== undefined && sentAmount !== null && sentAmount !== '') {
+      const sent = Number(sentAmount)
+      if (!Number.isFinite(sent)) {
+        return c.json({ ok: false, error: 'invalid_amount' }, 400)
+      }
+      if (Math.round(sent) !== amountCents) {
+        return c.json({ ok: false, error: 'amount_mismatch' }, 409)
+      }
+    }
     const itemName =
       typeof body.itemName === 'string' && body.itemName.trim()
         ? body.itemName.trim()
@@ -224,7 +257,7 @@ export async function payfastItn(c: Context) {
           expected.clientUuid,
           expected.partyUserId,
           paid ? 'Payment received via PayFast' : 'PayFast payment cancelled',
-          `${expected.paymentType} of R${(expected.amount).toFixed(2)} for ${expected.partyName} — ${paid ? 'settled' : 'cancelled'} via PayFast.`,
+          `${expected.paymentType} of R${(expected.amount).toFixed(2)} for ${expected.partyName} — ${paid ? 'paid' : 'cancelled'} via PayFast.`,
         ],
       )
     })
@@ -236,11 +269,11 @@ export async function payfastItn(c: Context) {
             `SELECT email, first_name FROM users WHERE id = $1::uuid LIMIT 1`,
             [expected.partyUserId],
           )
-          const email = payer.rows[0]?.email
+          const email = payer[0]?.email
           if (email) {
             await sendPaymentReceipt({
               email,
-              payerName: payer.rows[0]?.first_name,
+              payerName: payer[0]?.first_name,
               paymentId: expected.id,
               amountDisplay: `R${expected.amount.toFixed(2)}`,
               status: verdict.status,

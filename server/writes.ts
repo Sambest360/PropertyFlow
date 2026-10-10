@@ -3,6 +3,7 @@
  * Accepts frontend demo IDs; resolves/registers UUIDs via entity_id_map.
  */
 import { query, withTransaction, clientQuery } from './db.js'
+import { isAcceptanceStatus, notifyAcceptedElsewhereServer } from './acceptedElsewhere.js'
 import {
   ensureEntityMapTable,
   ensureUuid,
@@ -53,6 +54,9 @@ export const APP_STAGE_TO_DB: Record<string, string> = {
   'Under Review': 'UNDER_REVIEW',
   'Credit Check': 'CREDIT_CHECK',
   Approved: 'APPROVED',
+  // Workflow label for conditionally_approved (landlord / staff decision);
+  // without it the decision wrote status NULL / kept SUBMITTED.
+  'Conditionally approved': 'APPROVED',
   'Awaiting Payment': 'APPROVED',
   'Deposit Paid': 'APPROVED',
   // Mode A canonical label (applicationWorkflow) — lowercase p
@@ -506,10 +510,15 @@ async function upsertAgency(feId: string, d: Record<string, unknown>): Promise<s
 async function upsertUser(feId: string, d: Record<string, unknown>): Promise<string> {
   const uuid = await ensureUuid('user', feId)
   const { first, last } = splitName(str(d.name, 'User'))
-  const feRole = str(d.role, 'tenant')
+  const feRole = str(d.role, 'tenant').trim().toLowerCase() || 'tenant'
   const role = ROLE_TO_DB[feRole] ?? 'END_USER'
   const client = d.agencyId ? await clientId(d.agencyId) : null
   const email = str(d.email, `${feId}@propertyflow.local`).trim().toLowerCase()
+  // A redacted bootstrap user (no email / phone) written back must not wipe the
+  // stored contact details: on update, keep the existing value when the field is
+  // missing (absent, null or blank) from the payload.
+  const hasEmail = typeof d.email === 'string' && d.email.trim() !== ''
+  const hasPhone = typeof d.phone === 'string' && d.phone.trim() !== ''
   let passwordSql = `crypt('ChangeMe123!', gen_salt('bf'))`
   let passwordParam: string | null = null
   if (typeof d.passwordHash === 'string' && d.passwordHash) {
@@ -524,79 +533,88 @@ async function upsertUser(feId: string, d: Record<string, unknown>): Promise<str
     passwordSql = `$10`
     passwordParam = await hashPassword(d.password)
   }
-  const meta = {
-    frontend_id: feId,
-    frontend_role: feRole,
-    enabledPermissions: d.enabledPermissions ?? null,
-    licenseStatus: d.licenseStatus ?? null,
-    mentorId: d.mentorId ?? null,
-    commissionSharePct: d.commissionSharePct ?? null,
-    mustChangePassword: Boolean(d.tempPassword),
-    ...(d.verification ? { verification: d.verification } : {}),
-    ...(d.company ? { company: d.company } : {}),
-    ...(d.idNumberOrPassport ? { idNumberOrPassport: d.idNumberOrPassport } : {}),
+  // Fields absent from the payload keep their stored value on update (a
+  // stripped / redacted write-back must not reset role, agency, active,
+  // permissions or staff settings).
+  const has = (k: string) => Object.prototype.hasOwnProperty.call(d, k) && d[k] !== undefined
+  const hasRole = typeof d.role === 'string' && d.role.trim() !== ''
+  const hasAgency = has('agencyId')
+  const hasActive = typeof d.active === 'boolean'
+  const hasName = typeof d.name === 'string' && d.name.trim() !== ''
+  const hasTempPassword = typeof d.tempPassword === 'string' && d.tempPassword !== ''
+  const meta: Record<string, unknown> = { frontend_id: feId }
+  // Only a temp password sets the flag; a write without one keeps the stored
+  // value (a profile edit must not clear a pending forced password change).
+  if (hasTempPassword) meta.mustChangePassword = true
+  if (hasRole) meta.frontend_role = feRole
+  for (const k of ['enabledPermissions', 'licenseStatus', 'mentorId', 'commissionSharePct']) {
+    if (has(k)) meta[k] = d[k] ?? null
   }
+  if (d.verification && typeof d.verification === 'object') meta.verification = d.verification
+  if (d.company) meta.company = d.company
+  if (d.idNumberOrPassport) meta.idNumberOrPassport = d.idNumberOrPassport
+
+  const params: unknown[] = [
+    uuid,
+    client,
+    email,
+    first,
+    last || first,
+    d.phone ? str(d.phone) : null,
+    role,
+    bool(d.active, true),
+    JSON.stringify(meta),
+  ]
+  let passwordExpr = passwordSql
   if (passwordParam) {
-    await query(
-      `INSERT INTO users (
-         id, client_id, email, password_hash, first_name, last_name, phone, role, active, metadata, updated_at
-       ) VALUES (
-         $1::uuid, $2::uuid, $3, $10, $4, $5, $6, $7, $8, $9::jsonb, NOW()
-       )
-       ON CONFLICT (id) DO UPDATE SET
-         client_id = EXCLUDED.client_id,
-         email = EXCLUDED.email,
-         password_hash = COALESCE(EXCLUDED.password_hash, users.password_hash),
-         first_name = EXCLUDED.first_name,
-         last_name = EXCLUDED.last_name,
-         phone = EXCLUDED.phone,
-         role = EXCLUDED.role,
-         active = EXCLUDED.active,
-         metadata = users.metadata || EXCLUDED.metadata,
-         updated_at = NOW()`,
-      [
-        uuid,
-        client,
-        email,
-        first,
-        last || first,
-        d.phone ? str(d.phone) : null,
-        role,
-        bool(d.active, true),
-        JSON.stringify(meta),
-        passwordParam,
-      ],
-    )
-  } else {
-    await query(
-      `INSERT INTO users (
-         id, client_id, email, password_hash, first_name, last_name, phone, role, active, metadata, updated_at
-       ) VALUES (
-         $1::uuid, $2::uuid, $3, ${passwordSql}, $4, $5, $6, $7, $8, $9::jsonb, NOW()
-       )
-       ON CONFLICT (id) DO UPDATE SET
-         client_id = EXCLUDED.client_id,
-         email = EXCLUDED.email,
-         first_name = EXCLUDED.first_name,
-         last_name = EXCLUDED.last_name,
-         phone = EXCLUDED.phone,
-         role = EXCLUDED.role,
-         active = EXCLUDED.active,
-         metadata = users.metadata || EXCLUDED.metadata,
-         updated_at = NOW()`,
-      [
-        uuid,
-        client,
-        email,
-        first,
-        last || first,
-        d.phone ? str(d.phone) : null,
-        role,
-        bool(d.active, true),
-        JSON.stringify(meta),
-      ],
-    )
+    params.push(passwordParam)
+    passwordExpr = `$${params.length}`
   }
+  const flag = (b: boolean) => {
+    params.push(b)
+    return `$${params.length}::boolean`
+  }
+  const fEmail = flag(hasEmail)
+  const fPhone = flag(hasPhone)
+  const fRole = flag(hasRole)
+  const fAgency = flag(hasAgency)
+  const fActive = flag(hasActive)
+  const fName = flag(hasName)
+  // metadata: shallow merge, plus verification merged by key (never replaced
+  // wholesale) so a partial verification write keeps the stored ID documents.
+  const metadataSql = `(COALESCE(users.metadata, '{}'::jsonb) || EXCLUDED.metadata)
+           || CASE
+                WHEN jsonb_typeof(users.metadata->'verification') = 'object'
+                 AND jsonb_typeof(EXCLUDED.metadata->'verification') = 'object'
+                THEN jsonb_build_object(
+                  'verification',
+                  (users.metadata->'verification') || (EXCLUDED.metadata->'verification')
+                )
+                ELSE '{}'::jsonb
+              END`
+  await query(
+    `INSERT INTO users (
+       id, client_id, email, password_hash, first_name, last_name, phone, role, active, metadata, updated_at
+     ) VALUES (
+       $1::uuid, $2::uuid, $3, ${passwordExpr}, $4, $5, $6, $7, $8, $9::jsonb, NOW()
+     )
+     ON CONFLICT (id) DO UPDATE SET
+       client_id = CASE WHEN ${fAgency} THEN EXCLUDED.client_id ELSE users.client_id END,
+       email = CASE WHEN ${fEmail} THEN EXCLUDED.email ELSE users.email END,${
+         passwordParam
+           ? `
+       password_hash = COALESCE(EXCLUDED.password_hash, users.password_hash),`
+           : ''
+       }
+       first_name = CASE WHEN ${fName} THEN EXCLUDED.first_name ELSE users.first_name END,
+       last_name = CASE WHEN ${fName} THEN EXCLUDED.last_name ELSE users.last_name END,
+       phone = CASE WHEN ${fPhone} THEN EXCLUDED.phone ELSE users.phone END,
+       role = CASE WHEN ${fRole} THEN EXCLUDED.role ELSE users.role END,
+       active = CASE WHEN ${fActive} THEN EXCLUDED.active ELSE users.active END,
+       metadata = ${metadataSql},
+       updated_at = NOW()`,
+    params,
+  )
 
   // P0-sa-mint: when Supabase Auth is configured, public.users + password_hash
   // alone is not a sign-in. Create auth.users (+ identity), link auth_user_id
@@ -1071,24 +1089,158 @@ async function agencyClientForApplication(
   return listingClientId
 }
 
+function blank(v: unknown): boolean {
+  return v == null || (typeof v === 'string' && v.trim() === '')
+}
+
+type JsonRow = Record<string, unknown>
+function asRow(v: unknown): JsonRow | null {
+  if (typeof v === 'string') {
+    try {
+      return asRow(JSON.parse(v))
+    } catch {
+      return null
+    }
+  }
+  return v && typeof v === 'object' && !Array.isArray(v) ? (v as JsonRow) : null
+}
+
+/**
+ * Application fields on update. email / phone / keyCollection: written as
+ * sent (staff may clear a phone to blank), kept when absent. Redacted rows
+ * only reach landlords, whose writes are the narrow decision UPDATE, and a
+ * portal applicant's blank email / phone is dropped by the portal policy
+ * before it gets here, so the keep-stored rule is not needed for blanks.
+ * Documents: merged by key over the stored document, a document sent without
+ * a file keeps the stored file, and the stored list is kept when the payload
+ * has none.
+ */
+export function mergeRedactedApplicationFields(
+  d: Record<string, unknown>,
+  stored: { uploaded_docs_json: unknown; metadata: unknown } | null,
+): { contact: JsonRow; documents: unknown[]; keyCollection: unknown; storedDocsJson: JsonRow } {
+  const meta = asRow(stored?.metadata) ?? {}
+  const docsJson = asRow(stored?.uploaded_docs_json) ?? {}
+  const storedDocs = Array.isArray(docsJson.documents) ? (docsJson.documents as JsonRow[]) : []
+
+  const contact: JsonRow = {}
+  if (d.email !== undefined || !stored) {
+    const email = blank(d.email) ? null : d.email
+    contact.email = email
+    contact.applicant_email = email
+  }
+  if (d.phone !== undefined || !stored) contact.phone = blank(d.phone) ? null : d.phone
+
+  const sentDocs = (d.documents ?? d.docs) as unknown
+  let documents: unknown[]
+  if (!Array.isArray(sentDocs)) {
+    documents = storedDocs
+  } else {
+    documents = sentDocs.map((raw) => {
+      const doc = asRow(raw)
+      if (!doc) return raw
+      const prev = storedDocs.find((x) => x && x.key === doc.key)
+      if (!prev) return doc
+      const merged: JsonRow = { ...prev, ...doc }
+      // A redacted document has no file: keep the stored one.
+      if (doc.file == null && prev.file != null) merged.file = prev.file
+      return merged
+    })
+  }
+
+  const keyCollection: unknown =
+    d.keyCollection !== undefined ? d.keyCollection : (asRow(meta.keyCollection) ?? null)
+  return { contact, documents, keyCollection, storedDocsJson: docsJson }
+}
+
 async function upsertApplication(feId: string, d: Record<string, unknown>): Promise<string> {
   const uuid = await ensureUuid('application', feId)
+  // Stored row (if any). Narrowed writes (portal applicant: unchanged workflow
+  // fields, agent / agency / listing dropped) must never blank the stored
+  // values: absent fields keep the stored value (mergeRedactedApplicationFields).
+  const storedRows = await query<{
+    uploaded_docs_json: unknown
+    metadata: unknown
+    unit_id?: string | null
+    client_id?: string | null
+    applicant_id?: string | null
+  }>(
+    `SELECT uploaded_docs_json, metadata, unit_id::text AS unit_id, client_id::text AS client_id,
+            applicant_id::text AS applicant_id
+       FROM applications WHERE id = $1::uuid`,
+    [uuid],
+  )
+  const stored = storedRows[0] ?? null
+  const kept = mergeRedactedApplicationFields(d, stored)
+  const has = (k: string) => d[k] !== undefined
+
   // Public payload may omit agencyId. Pick the live mapped unit, not the
-  // static Framesby seed resolveUuid returns first.
-  const listing = await resolveListingForApplication(d.propertyId)
-  const unit = listing.unitId
-  const client = await agencyClientForApplication(d.agencyId, listing.clientId)
-  // Mode A Sipho: if applicantUserId missing, resolve from email → users and persist.
-  let applicant = await resolveApplicantOrTenantUuid({
-    userFeId: d.applicantUserId,
-    email: d.email,
-  })
-  const agent = await userId(d.agentId)
+  // static Framesby seed resolveUuid returns first. An update without a
+  // propertyId keeps the stored unit.
+  let unit: string
+  let listingClient: string | null
+  if (!has('propertyId') && stored?.unit_id) {
+    unit = stored.unit_id
+    listingClient = stored.client_id ?? null
+  } else {
+    const listing = await resolveListingForApplication(d.propertyId)
+    unit = listing.unitId
+    listingClient = listing.clientId
+  }
+  const client = await agencyClientForApplication(d.agencyId, listingClient ?? '')
+  // Mode A Sipho: if applicantUserId missing, resolve from email → users and
+  // persist. Only while no applicant is stored: an update without
+  // applicantUserId keeps the stored applicant (never re-resolved by email).
+  const applicant =
+    stored?.applicant_id && !has('applicantUserId')
+      ? stored.applicant_id
+      : await resolveApplicantOrTenantUuid({
+          userFeId: d.applicantUserId,
+          email: d.email,
+        })
+  let agent = await userId(d.agentId)
+  if (!agent && !has('agentId') && !stored) {
+    // New application without an agent (portal applicants cannot pick one):
+    // the listing's agent.
+    const u = await query<{ agent_id: string | null }>(
+      `SELECT agent_id::text AS agent_id FROM units WHERE id = $1::uuid`,
+      [unit],
+    )
+    agent = u[0]?.agent_id ?? null
+  }
+  // Status from the stage label, else an explicit status; a stage with no DB
+  // mapping (e.g. lease_sent) keeps the stored status instead of resetting it
+  // to SUBMITTED.
+  const statusFromStage = APP_STAGE_TO_DB[str(d.stage)]
+  const statusSent = Boolean(statusFromStage) || !blank(d.status)
   const status =
-    APP_STAGE_TO_DB[str(d.stage)] ??
-    str(d.status, 'SUBMITTED').toUpperCase().replace(/\s+/g, '_')
+    statusFromStage ?? str(d.status, 'SUBMITTED').toUpperCase().replace(/\s+/g, '_')
   const appType = str(d.type, 'Rental').toLowerCase().startsWith('p') ? 'PURCHASE' : 'RENTAL'
   const ref = str(d.referenceCode ?? feId)
+
+  const docsJson: Record<string, unknown> = { documents: kept.documents }
+  for (const k of ['creditCheck', 'creditConsent', 'screening']) {
+    docsJson[k] = has(k) ? d[k] : (kept.storedDocsJson[k] ?? null)
+  }
+  // Metadata merges over the stored object: on update an absent field is left
+  // out so the stored key survives.
+  const meta: Record<string, unknown> = {
+    frontend_id: feId,
+    ...kept.contact,
+    keyCollection: kept.keyCollection,
+  }
+  const metaFields: Array<[string, string]> = [
+    ['applicantName', 'applicantName'],
+    ['applicant_name', 'applicantName'],
+    ['viewingSlotId', 'viewingSlotId'],
+    ['progress', 'progress'],
+    ['stage', 'stage'],
+    ['workflow_status', 'workflowStatus'],
+    ['screening', 'screening'],
+  ]
+  for (const [key, field] of metaFields) {
+    if (has(field) || !stored) meta[key] = d[field] ?? null
+  }
 
   await query(
     `INSERT INTO applications (
@@ -1104,10 +1256,10 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
        -- P0-sync (R12): never leave a null/stale agency client_id on re-upsert.
        client_id = COALESCE(EXCLUDED.client_id, applications.client_id),
        unit_id = EXCLUDED.unit_id,
-       applicant_id = EXCLUDED.applicant_id,
-       agent_id = EXCLUDED.agent_id,
+       applicant_id = COALESCE(EXCLUDED.applicant_id, applications.applicant_id),
+       agent_id = CASE WHEN $17::boolean THEN EXCLUDED.agent_id ELSE applications.agent_id END,
        reference_code = COALESCE(EXCLUDED.reference_code, applications.reference_code),
-       status = EXCLUDED.status,
+       status = CASE WHEN $16::boolean THEN EXCLUDED.status ELSE applications.status END,
        monthly_income = EXCLUDED.monthly_income,
        employment_summary = EXCLUDED.employment_summary,
        message = EXCLUDED.message,
@@ -1127,31 +1279,20 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
       num(d.income),
       d.employment ? str(d.employment) : null,
       d.notes ? str(d.notes) : null,
-      JSON.stringify({
-        documents: d.documents ?? d.docs ?? [],
-        creditCheck: d.creditCheck ?? null,
-        creditConsent: d.creditConsent ?? null,
-        screening: d.screening ?? null,
-      }),
+      JSON.stringify(docsJson),
       d.moveInDate ? str(d.moveInDate) : null,
-      JSON.stringify({
-        frontend_id: feId,
-        applicantName: d.applicantName ?? null,
-        email: d.email ?? null,
-        phone: d.phone ?? null,
-        // Match supabase persist keys so staff bootstrap can denormalise name/email.
-        applicant_name: d.applicantName ?? null,
-        applicant_email: d.email ?? null,
-        viewingSlotId: d.viewingSlotId ?? null,
-        progress: d.progress ?? null,
-        keyCollection: d.keyCollection ?? null,
-        stage: d.stage ?? null,
-        workflow_status: d.workflowStatus ?? null,
-        screening: d.screening ?? null,
-      }),
+      JSON.stringify(meta),
       d.submittedAt ? str(d.submittedAt) : null,
+      statusSent,
+      has('agentId'),
     ],
   )
+  // "Accepted elsewhere" notices are written here, not by the client (the
+  // gate refuses a client notification for another agency's staff).
+  const prevWorkflow = str(asRow(stored?.metadata)?.workflow_status)
+  if (has('workflowStatus') && isAcceptanceStatus(d.workflowStatus) && !isAcceptanceStatus(prevWorkflow)) {
+    await notifyAcceptedElsewhereServer(uuid)
+  }
   return uuid
 }
 
@@ -1407,6 +1548,10 @@ async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<s
   const unit = await unitIdFromProperty(d.propertyId ?? d.unitId)
   if (!unit) throw new Error('ticket requires propertyId')
   const reported = await userId(d.reportedByUserId)
+  // Absent assignment / cost / status / priority / warranty (a tenant's own
+  // ticket has them stripped) keep the stored values on update.
+  const has = (k: string) => d[k] !== undefined
+  const assignSent = has('assignedAgentId') || has('assignedTo')
   const assigned = await userId(d.assignedAgentId ?? d.assignedTo)
   const contractor = await userId(d.contractorId)
   const asset = d.internalAssetId ? await resolveUuid('asset', str(d.internalAssetId)) : null
@@ -1419,25 +1564,28 @@ async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<s
        category_key, title, description, priority, status, warranty_covered,
        escalated_at, cost_estimate, cost_actual, photos, completed_at, updated_at
      ) VALUES (
-       $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::uuid,
+       $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid,
+       -- A new ticket without an assignment (tenant-reported) goes to the unit's agent.
+       CASE WHEN $19::boolean THEN $6::uuid ELSE (SELECT u.agent_id FROM units u WHERE u.id = $3::uuid) END,
+       $7::uuid,
        $8, $9, $10, $11, $12, $13,
        $14::timestamptz, $15, $16, $17::jsonb, $18::timestamptz, NOW()
      )
      ON CONFLICT (id) DO UPDATE SET
        asset_id = EXCLUDED.asset_id,
-       assigned_to = EXCLUDED.assigned_to,
-       contractor_id = EXCLUDED.contractor_id,
+       assigned_to = CASE WHEN $19::boolean THEN EXCLUDED.assigned_to ELSE maintenance_tickets.assigned_to END,
+       contractor_id = CASE WHEN $20::boolean THEN EXCLUDED.contractor_id ELSE maintenance_tickets.contractor_id END,
        category_key = EXCLUDED.category_key,
        title = EXCLUDED.title,
        description = EXCLUDED.description,
-       priority = EXCLUDED.priority,
-       status = EXCLUDED.status,
-       warranty_covered = EXCLUDED.warranty_covered,
+       priority = CASE WHEN $23::boolean THEN EXCLUDED.priority ELSE maintenance_tickets.priority END,
+       status = CASE WHEN $21::boolean THEN EXCLUDED.status ELSE maintenance_tickets.status END,
+       warranty_covered = CASE WHEN $24::boolean THEN EXCLUDED.warranty_covered ELSE maintenance_tickets.warranty_covered END,
        escalated_at = COALESCE(EXCLUDED.escalated_at, maintenance_tickets.escalated_at),
-       cost_estimate = EXCLUDED.cost_estimate,
-       cost_actual = EXCLUDED.cost_actual,
+       cost_estimate = CASE WHEN $22::boolean THEN EXCLUDED.cost_estimate ELSE maintenance_tickets.cost_estimate END,
+       cost_actual = CASE WHEN $22::boolean THEN EXCLUDED.cost_actual ELSE maintenance_tickets.cost_actual END,
        photos = EXCLUDED.photos,
-       completed_at = EXCLUDED.completed_at,
+       completed_at = CASE WHEN $21::boolean THEN EXCLUDED.completed_at ELSE maintenance_tickets.completed_at END,
        updated_at = NOW()`,
     [
       uuid,
@@ -1458,6 +1606,12 @@ async function upsertTicket(feId: string, d: Record<string, unknown>): Promise<s
       num(d.cost),
       JSON.stringify(Array.isArray(d.photos) ? d.photos : []),
       status === 'COMPLETED' || status === 'RESOLVED' ? new Date().toISOString() : null,
+      assignSent,
+      has('contractorId'),
+      has('status'),
+      has('cost'),
+      has('priority'),
+      has('warrantyCovered'),
     ],
   )
   return uuid
@@ -1939,27 +2093,6 @@ const TRUST_TXN_STATUSES = new Set([
   'reversed',
 ])
 
-const PAYOUT_STATUSES = new Set([
-  'proposed',
-  'pending_approval',
-  'approved',
-  'submitted',
-  'settled',
-  'failed',
-  'cancelled',
-])
-
-const DEPOSIT_STATUSES = new Set([
-  'expected',
-  'held',
-  'release_proposed',
-  'release_approved',
-  'refunded',
-  'applied_to_arrears',
-  'split',
-  'disputed',
-])
-
 const CSV_BATCH_STATUSES = new Set(['pending', 'completed', 'failed'])
 
 function trustTxnStatus(v: unknown): string {
@@ -1972,16 +2105,6 @@ function csvBatchStatus(v: unknown): string {
   // FE uses "processing"; 007 schema uses "pending"
   if (s === 'processing') return 'pending'
   return CSV_BATCH_STATUSES.has(s) ? s : 'pending'
-}
-
-function payoutStatus(v: unknown): string {
-  const s = str(v, 'proposed')
-  return PAYOUT_STATUSES.has(s) ? s : 'proposed'
-}
-
-function depositStatus(v: unknown): string {
-  const s = str(v, 'expected')
-  return DEPOSIT_STATUSES.has(s) ? s : 'expected'
 }
 
 async function resolveOccupancyUuid(occupancyId: unknown): Promise<string | null> {
@@ -2140,15 +2263,12 @@ async function upsertPayoutInstruction(feId: string, d: Record<string, unknown>)
       ? await resolveUuid('unit', str(d.unitId))
       : null
   const proposedBy = await userId(d.proposedBy)
-  const approvedBy = await userId(d.approvedBy)
   const amountCents = Math.max(1, Math.round(num(d.amountCents) ?? 0))
-  const status = payoutStatus(d.status)
 
-  // Honesty: do not mint partner ids; only persist what the FE already has.
-  const partnerPayoutId = d.partnerPayoutId ? str(d.partnerPayoutId) : null
-  const settledAt =
-    status === 'settled' && d.settledAt ? str(d.settledAt) : d.settledAt ? str(d.settledAt) : null
-
+  // Dual control: a payout written through generic persist is always a new
+  // proposal. status / approvedBy / submittedAt / settledAt / partnerPayoutId
+  // from the payload are ignored, and an existing row is never changed here
+  // (approve / submit go through /api/trust/payouts/:id/(approve|submit)).
   await query(
     `INSERT INTO payout_instructions (
        id, client_id, occupancy_id, unit_id, payee_type, payee_id, bank_account_id,
@@ -2156,26 +2276,10 @@ async function upsertPayoutInstruction(feId: string, d: Record<string, unknown>)
        settled_at, partner_payout_id, failure_reason, idempotency_key, created_at, updated_at
      ) VALUES (
        $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7,
-       $8, $9, $10, $11::uuid, $12::uuid, $13::timestamptz,
-       $14::timestamptz, $15, $16, $17, COALESCE($18::timestamptz, NOW()), NOW()
+       $8, $9, 'proposed', $10::uuid, NULL, NULL,
+       NULL, NULL, NULL, $11, COALESCE($12::timestamptz, NOW()), NOW()
      )
-     ON CONFLICT (id) DO UPDATE SET
-       occupancy_id = EXCLUDED.occupancy_id,
-       unit_id = EXCLUDED.unit_id,
-       payee_type = EXCLUDED.payee_type,
-       payee_id = EXCLUDED.payee_id,
-       bank_account_id = EXCLUDED.bank_account_id,
-       amount_cents = EXCLUDED.amount_cents,
-       bucket_code = EXCLUDED.bucket_code,
-       status = EXCLUDED.status,
-       proposed_by = EXCLUDED.proposed_by,
-       approved_by = EXCLUDED.approved_by,
-       submitted_at = EXCLUDED.submitted_at,
-       settled_at = EXCLUDED.settled_at,
-       partner_payout_id = EXCLUDED.partner_payout_id,
-       failure_reason = EXCLUDED.failure_reason,
-       idempotency_key = EXCLUDED.idempotency_key,
-       updated_at = NOW()`,
+     ON CONFLICT (id) DO NOTHING`,
     [
       uuid,
       client,
@@ -2186,13 +2290,7 @@ async function upsertPayoutInstruction(feId: string, d: Record<string, unknown>)
       d.bankAccountId ? str(d.bankAccountId) : null,
       amountCents,
       str(d.bucketCode, 'owner_payable'),
-      status,
       proposedBy,
-      approvedBy,
-      d.submittedAt ? str(d.submittedAt) : null,
-      settledAt,
-      partnerPayoutId,
-      d.failureReason ? str(d.failureReason) : null,
       d.idempotencyKey ? str(d.idempotencyKey) : null,
       d.createdAt ? str(d.createdAt) : null,
     ],
@@ -2200,6 +2298,13 @@ async function upsertPayoutInstruction(feId: string, d: Record<string, unknown>)
   return uuid
 }
 
+/**
+ * Deposit register row. Status and the release dual-control fields are never
+ * taken from the payload (any actor): a new row is `held` when money is held,
+ * else `expected`; on conflict the stored status and release_*_by are kept,
+ * except `expected` -> `held` once held_cents > 0. Release moves only through
+ * POST /api/trust/deposits/:id/propose-release | approve-release.
+ */
 async function upsertDepositHolding(feId: string, d: Record<string, unknown>): Promise<string> {
   const uuid = await ensureUuid('deposit_holding', feId)
   const client = await clientId(d.agencyId)
@@ -2209,8 +2314,7 @@ async function upsertDepositHolding(feId: string, d: Record<string, unknown>): P
     : d.unitId
       ? await resolveUuid('unit', str(d.unitId))
       : null
-  const releaseProposedBy = await userId(d.releaseProposedBy)
-  const releaseApprovedBy = await userId(d.releaseApprovedBy)
+  const heldCents = Math.max(0, Math.round(num(d.heldCents) ?? 0))
 
   await query(
     `INSERT INTO deposit_holdings (
@@ -2220,9 +2324,9 @@ async function upsertDepositHolding(feId: string, d: Record<string, unknown>): P
        created_at, updated_at
      ) VALUES (
        $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6,
-       $7, $8, $9::date, $10,
-       $11::uuid, $12::uuid,
-       COALESCE($13::timestamptz, NOW()), NOW()
+       $7, CASE WHEN $6::bigint > 0 THEN 'held' ELSE 'expected' END, $8::date, $9,
+       NULL, NULL,
+       COALESCE($10::timestamptz, NOW()), NOW()
      )
      ON CONFLICT (id) DO UPDATE SET
        occupancy_id = EXCLUDED.occupancy_id,
@@ -2230,11 +2334,12 @@ async function upsertDepositHolding(feId: string, d: Record<string, unknown>): P
        expected_cents = EXCLUDED.expected_cents,
        held_cents = EXCLUDED.held_cents,
        interest_accrued_cents = EXCLUDED.interest_accrued_cents,
-       status = EXCLUDED.status,
+       status = CASE
+         WHEN deposit_holdings.status = 'expected' AND EXCLUDED.held_cents > 0 THEN 'held'
+         ELSE deposit_holdings.status
+       END,
        statutory_deadline_on = EXCLUDED.statutory_deadline_on,
        interest_rate_unknown = EXCLUDED.interest_rate_unknown,
-       release_proposed_by = EXCLUDED.release_proposed_by,
-       release_approved_by = EXCLUDED.release_approved_by,
        updated_at = NOW()`,
     [
       uuid,
@@ -2242,13 +2347,10 @@ async function upsertDepositHolding(feId: string, d: Record<string, unknown>): P
       occupancyUuid,
       unitUuid,
       Math.max(0, Math.round(num(d.expectedCents) ?? 0)),
-      Math.max(0, Math.round(num(d.heldCents) ?? 0)),
+      heldCents,
       Math.max(0, Math.round(num(d.interestAccruedCents) ?? 0)),
-      depositStatus(d.status),
       d.statutoryDeadlineOn ? str(d.statutoryDeadlineOn).slice(0, 10) : null,
       bool(d.interestRateUnknown, false),
-      releaseProposedBy,
-      releaseApprovedBy,
       d.createdAt ? str(d.createdAt) : null,
     ],
   )
@@ -2258,16 +2360,17 @@ async function upsertDepositHolding(feId: string, d: Record<string, unknown>): P
 /** Mark notification(s) read. */
 export async function markNotificationsRead(params: {
   ids?: string[]
-  userId?: string
   all?: boolean
+  /** FE id of the verified actor. Only their own notifications are touched. */
+  ownerUserId: string
 }): Promise<{ updated: number }> {
   await ensureEntityMapTable()
-  if (params.all && params.userId) {
-    const user = await resolveUuid('user', params.userId)
-    if (!user) return { updated: 0 }
+  const owner = await resolveUuid('user', params.ownerUserId)
+  if (!owner) return { updated: 0 }
+  if (params.all) {
     const rows = await query(
       `UPDATE notifications SET read_at = NOW() WHERE user_id = $1::uuid AND read_at IS NULL RETURNING id`,
-      [user],
+      [owner],
     )
     return { updated: rows.length }
   }
@@ -2275,9 +2378,10 @@ export async function markNotificationsRead(params: {
   for (const id of params.ids ?? []) {
     const uuid = await resolveUuid('notification', id)
     if (!uuid) continue
+    // Ownership in the WHERE clause: another user's notification id updates nothing.
     const rows = await query(
-      `UPDATE notifications SET read_at = NOW() WHERE id = $1::uuid RETURNING id`,
-      [uuid],
+      `UPDATE notifications SET read_at = NOW() WHERE id = $1::uuid AND user_id = $2::uuid RETURNING id`,
+      [uuid, owner],
     )
     updated += rows.length
   }

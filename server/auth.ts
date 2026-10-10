@@ -7,8 +7,9 @@ import bcrypt from 'bcryptjs'
 import type { Context } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { query } from './db.js'
-import { ensureUuid } from './entityMap.js'
-import { resolveFrontendRole } from '../src/lib/supabase/idMap.js'
+import { ensureUuid, resolveUuid } from './entityMap.js'
+import { feAgencyFromCache, loadIdMapCache } from './idMapCache.js'
+import { isReservedSuperAdminEmail, resolveFrontendRole } from '../src/lib/supabase/idMap.js'
 import { applyVerificationDecision } from '../src/lib/verification.js'
 import { ACTOR_AGENCY_HEADER, ACTOR_ROLE_HEADER, ACTOR_USER_HEADER } from './actor.js'
 
@@ -157,10 +158,58 @@ type UserRow = {
 
 async function rowToSession(row: UserRow): Promise<SessionUser> {
   const meta = row.metadata ?? {}
-  const frontendId =
-    typeof meta.frontend_id === 'string' && meta.frontend_id
-      ? meta.frontend_id
-      : row.id
+  // Session ids must live in the same id space as /api/bootstrap rows (the
+  // client scopes by user.id / user.agencyId). Bootstrap maps users and
+  // agencies through entity_id_map first, so the session does the same; a
+  // seed agency without clients.settings.frontend_id otherwise came back as
+  // its raw client UUID and matched none of its own buildings or units.
+  //
+  // A front-end id must round-trip: it is accepted only when
+  // resolveUuid(type, fe) maps back to this very row (users.id / client_id).
+  // The seed email table (EMAIL_TO_USER) is never consulted here: anyone can
+  // register a seed address, and that must not hand them a seed user's id.
+  const roundTrips = async (
+    type: 'user' | 'agency',
+    fe: string | null | undefined,
+    backendId: string,
+  ): Promise<boolean> => {
+    if (!fe) return false
+    try {
+      return (await resolveUuid(type, fe)) === backendId
+    } catch {
+      return false
+    }
+  }
+  let mappedUserFe: string | null = null
+  try {
+    const hit = await query<{ frontend_id: string }>(
+      `SELECT frontend_id FROM entity_id_map
+       WHERE entity_type = 'user' AND backend_id = $1::uuid LIMIT 1`,
+      [row.id],
+    )
+    mappedUserFe = hit[0]?.frontend_id ?? null
+  } catch {
+    mappedUserFe = null
+  }
+  const metaFe = typeof meta.frontend_id === 'string' && meta.frontend_id ? meta.frontend_id : null
+  let frontendId = row.id
+  if (mappedUserFe && (await roundTrips('user', mappedUserFe, row.id))) frontendId = mappedUserFe
+  else if (metaFe && (await roundTrips('user', metaFe, row.id))) frontendId = metaFe
+
+  let agencyId = row.agency_fe
+  if (row.client_id) {
+    let agencyFeCandidate: string | null = null
+    try {
+      agencyFeCandidate = feAgencyFromCache(await loadIdMapCache(), row.client_id)
+    } catch {
+      agencyFeCandidate = null
+    }
+    if (agencyFeCandidate && (await roundTrips('agency', agencyFeCandidate, row.client_id))) {
+      agencyId = agencyFeCandidate
+    } else if (!(await roundTrips('agency', row.agency_fe, row.client_id))) {
+      agencyId = row.client_id
+    }
+  }
   // DB staff roles override stale metadata (e.g. frontend_role: tenant on GROUND_AGENT)
   const feRole = resolveFrontendRole(row.role, meta, row.email)
   const verification =
@@ -177,7 +226,7 @@ async function rowToSession(row: UserRow): Promise<SessionUser> {
     email: row.email,
     name: `${row.first_name} ${row.last_name}`.trim(),
     role: feRole,
-    agencyId: row.agency_fe,
+    agencyId,
     phone: row.phone ?? undefined,
     active: row.active,
     enabledPermissions: Array.isArray(meta.enabledPermissions)
@@ -363,6 +412,11 @@ export async function registerUser(input: RegisterInput): Promise<{ user: Sessio
 
   const total = await countUsers()
   const bootstrap = total === 0
+  if (!bootstrap && isReservedSuperAdminEmail(email)) {
+    const err = new Error('This email address is reserved') as Error & { status: number }
+    err.status = 403
+    throw err
+  }
   let roleFe = (input.role || 'tenant').trim()
   if (bootstrap) {
     roleFe = 'super_admin'
@@ -502,6 +556,45 @@ export async function updateUserVerification(opts: {
     err.status = 500
     throw err
   }
+  return rowToSession(refreshed)
+}
+
+/**
+ * Self-service password change (API mode). Checks the current password against
+ * users.password_hash, stores the new hash and clears mustChangePassword. The
+ * generic persist route never accepts passwordHash / password from non-super
+ * actors, so this is the only non-admin way to change a password.
+ */
+export async function changeUserPassword(opts: {
+  userUuid: string
+  currentPassword: string
+  newPassword: string
+}): Promise<SessionUser> {
+  const fail = (status: number, message: string) =>
+    Object.assign(new Error(message), { status }) as Error & { status: number }
+  if (!opts.newPassword || opts.newPassword.length < 8) {
+    throw fail(400, 'New password must be at least 8 characters')
+  }
+  if (opts.newPassword === opts.currentPassword) {
+    throw fail(400, 'New password must differ from the current one')
+  }
+  const row = await findUserById(opts.userUuid)
+  if (!row || !row.active) throw fail(401, 'Not signed in')
+  const ok = row.password_hash
+    ? await verifyPassword(opts.currentPassword ?? '', row.password_hash)
+    : false
+  if (!ok) throw fail(401, 'Current password is incorrect')
+  const hash = await hashPassword(opts.newPassword)
+  await query(
+    `UPDATE users
+        SET password_hash = $2,
+            metadata = COALESCE(metadata, '{}'::jsonb) || '{"mustChangePassword": false}'::jsonb,
+            updated_at = NOW()
+      WHERE id = $1::uuid`,
+    [row.id, hash],
+  )
+  const refreshed = await findUserById(row.id)
+  if (!refreshed) throw fail(500, 'User not found after update')
   return rowToSession(refreshed)
 }
 

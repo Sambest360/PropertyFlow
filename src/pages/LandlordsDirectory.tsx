@@ -89,7 +89,7 @@ export default function LandlordsDirectory() {
 
     rows = [...rows].sort((a, b) => {
       if (sort === 'properties') return b.propertyCount - a.propertyCount
-      if (sort === 'email') return a.user.email.localeCompare(b.user.email)
+      if (sort === 'email') return (a.user.email ?? '').localeCompare(b.user.email ?? '')
       return a.user.name.localeCompare(b.user.name)
     })
     return rows

@@ -119,6 +119,7 @@ export type PatchApplicationStatusError = {
     | 'PERSIST_FAILED'
     | 'FICA_PACK_INCOMPLETE'
     | 'SCREENING_INCOMPLETE'
+    | 'LEASE_SIGNATURE_NOT_RECORDED'
 }
 
 export type PatchApplicationStatusResult = PatchApplicationStatusSuccess | PatchApplicationStatusError

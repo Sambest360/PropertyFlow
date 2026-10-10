@@ -100,28 +100,32 @@ function paymentStatus(s: string): string {
   return map[s] ?? s
 }
 
-function ticketPriority(p: string): string {
+export function ticketPriority(p: string): string {
   const map: Record<string, string> = {
     LOW: 'Low',
     MEDIUM: 'Medium',
     HIGH: 'High',
     URGENT: 'Urgent',
-    EMERGENCY: 'Urgent',
+    // Was 'Urgent': escalation never fired after a reload and a staff save
+    // wrote URGENT back.
+    EMERGENCY: 'Emergency',
   }
   return map[p] ?? 'Medium'
 }
 
-function ticketStatus(s: string): string {
+export function ticketStatus(s: string): string {
+  // MaintenanceTicket['status'] has no 'Open': an open ticket is 'Requested'
+  // (the emergency escalation keys on it).
   const map: Record<string, string> = {
-    OPEN: 'Open',
-    TRIAGED: 'Open',
+    OPEN: 'Requested',
+    TRIAGED: 'Requested',
     IN_PROGRESS: 'In Progress',
     AWAITING_PARTS: 'Awaiting Parts',
     RESOLVED: 'Completed',
     COMPLETED: 'Completed',
     CANCELLED: 'Cancelled',
   }
-  return map[s] ?? 'Open'
+  return map[s] ?? 'Requested'
 }
 
 function viewingStatus(s: string): string {

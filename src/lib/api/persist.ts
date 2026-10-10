@@ -69,6 +69,50 @@ export function isPersistApiSuccessResponse(
   }
 }
 
+/** A write the server refused with a policy code (e.g. APPLICATION_TRANSITION_FORBIDDEN). */
+export type PersistRefusal = {
+  resource: string
+  id: string
+  action: string
+  status: number
+  code: string
+  message: string
+}
+
+/** Window event the store listens to so a coded refusal is never silent. */
+export const PERSIST_REFUSED_EVENT = 'pf:persist-refused'
+
+/** Parse a coded refusal out of a failed /api/persist response (null if none). */
+export function parsePersistRefusal(
+  op: Pick<PersistOp, 'resource' | 'id' | 'action'>,
+  status: number,
+  bodyText: string,
+): PersistRefusal | null {
+  // Coded 400 / 403 / 409: a policy refusal the UI must show (toast + refresh).
+  if (status !== 400 && status !== 403 && status !== 409) return null
+  try {
+    const body = JSON.parse(bodyText) as { code?: unknown; message?: unknown }
+    if (typeof body.code !== 'string' || !body.code) return null
+    return {
+      resource: String(op.resource),
+      id: String(op.id),
+      action: String(op.action),
+      status,
+      code: body.code,
+      message: typeof body.message === 'string' ? body.message : body.code,
+    }
+  } catch {
+    return null
+  }
+}
+
+function reportPersistRefusal(refusal: PersistRefusal | null): void {
+  if (!refusal) return
+  const target = (globalThis as { dispatchEvent?: (e: Event) => boolean }).dispatchEvent
+  if (typeof target !== 'function' || typeof CustomEvent === 'undefined') return
+  globalThis.dispatchEvent(new CustomEvent<PersistRefusal>(PERSIST_REFUSED_EVENT, { detail: refusal }))
+}
+
 /** POST /api/persist using DATABASE_URL (bypasses browser RLS). */
 export async function persistViaServerApi(op: PersistOp): Promise<boolean> {
   try {
@@ -81,6 +125,7 @@ export async function persistViaServerApi(op: PersistOp): Promise<boolean> {
     const contentType = res.headers.get('content-type')
     if (!isPersistApiSuccessResponse(res.status, contentType, text)) {
       console.warn('[persist]', op.resource, op.action, op.id, res.status, text.slice(0, 200))
+      reportPersistRefusal(parsePersistRefusal(op, res.status, text))
       return false
     }
     return true

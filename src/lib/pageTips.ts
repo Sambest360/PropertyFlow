@@ -24,6 +24,8 @@ export type PageTour = {
 const WALKTHROUGH_RULES: Array<{
   match: (pathname: string) => boolean
   roles?: Role[]
+  /** Same gate as the tenant sidebar: only after approved occupancy. */
+  requireTenantOccupancy?: boolean
   tour: (role: Role | null) => PageTour
 }> = [
   {
@@ -95,6 +97,56 @@ const WALKTHROUGH_RULES: Array<{
     }),
   },
   {
+    match: exact('/saved'),
+    tour: () => ({
+      id: 'tour-market-saved',
+      steps: [
+        {
+          title: 'Your saved homes',
+          body: 'Listings you heart while browsing collect here. Sign in to keep them across devices and apply from your tenant portal.',
+          placement: 'center',
+        },
+        {
+          title: 'Saved shortcut',
+          body: 'Use the heart icon in the header anytime — signed-in users land on their wishlist instead.',
+          target: '[data-tip-target="market-saved"]',
+          placement: 'below',
+        },
+        {
+          title: 'Keep browsing',
+          body: 'Jump back to Buy, Rent, or Commercial from the top navigation to find more homes.',
+          target: '[data-tip-target="market-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/calculators'),
+    tour: () => ({
+      id: 'tour-market-calculators',
+      steps: [
+        {
+          title: 'Plan your purchase',
+          body: 'Run affordability, bond, and transfer-cost estimates before you apply. Results are indicative — share them with your agent or bank.',
+          placement: 'center',
+        },
+        {
+          title: 'Pick a calculator',
+          body: 'Open any tool for repayments, affordability, extra payments, or bond and transfer costs.',
+          target: '[data-tip-target="calc-tools"]',
+          placement: 'below',
+        },
+        {
+          title: 'Marketplace navigation',
+          body: 'Return to listings or switch modes from the top navigation whenever you are ready to browse again.',
+          target: '[data-tip-target="market-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
     match: exact('/workspace'),
     roles: ['client_admin', 'agent_admin', 'ground_agent', 'agent'],
     tour: (role) => ({
@@ -160,14 +212,888 @@ const WALKTHROUGH_RULES: Array<{
       ],
     }),
   },
+  // —— Staff list pages ——
+  {
+    match: exact('/workspace/properties'),
+    roles: ['client_admin', 'agent_admin', 'ground_agent', 'agent'],
+    tour: () => ({
+      id: 'tour-properties-list',
+      steps: [
+        {
+          title: 'Property portfolio',
+          body: 'Browse buildings and units, filter by status or listing mode, then open a property to manage photos, tenants, and documents.',
+          placement: 'center',
+        },
+        {
+          title: 'Page tools',
+          body: 'Use the header actions to add a property or open the archive when your role allows it.',
+          target: '[data-tip-target="page-header"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Jump to sales, operations, or people from the workspace navigation — only modules you can access appear here.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/sales/viewings'),
+    roles: ['client_admin', 'agent_admin', 'ground_agent', 'agent'],
+    tour: () => ({
+      id: 'tour-sales-viewings',
+      steps: [
+        {
+          title: 'Viewing schedule',
+          body: 'Day strip and calendar views show upcoming appointments. Create a viewing to invite guests and link it to the listing.',
+          placement: 'center',
+        },
+        {
+          title: 'Schedule tools',
+          body: 'Create a viewing from the header, then pick a day to scan the agenda by time.',
+          target: '[data-tip-target="page-header"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Leads and applicants sit under Sales in the sidebar when you need to follow up after a viewing.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/sales/crm'),
+    roles: ['client_admin', 'agent_admin', 'ground_agent', 'agent'],
+    tour: () => ({
+      id: 'tour-sales-crm',
+      steps: [
+        {
+          title: 'Lead pipeline',
+          body: 'Track enquiries in board or list view. Open a lead to log calls, schedule follow-ups, and link them to a property.',
+          placement: 'center',
+        },
+        {
+          title: 'Pipeline tools',
+          body: 'Filter, sort, or create a walk-in lead from the page header.',
+          target: '[data-tip-target="page-header"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Move between leads, applicants, and viewings from Sales in the sidebar.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/sales/applications'),
+    roles: ['client_admin', 'agent_admin', 'ground_agent', 'agent'],
+    tour: () => ({
+      id: 'tour-sales-applications',
+      steps: [
+        {
+          title: 'Rental applications',
+          body: 'Review incoming applicants, run checks, and move promising ones forward. Open an applicant for full detail.',
+          placement: 'center',
+        },
+        {
+          title: 'Applicant list',
+          body: 'Use filters in the header area to narrow by stage or property before opening a record.',
+          target: '[data-tip-target="page-header"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Leads and viewings are one click away in the Sales group.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/operations/maintenance'),
+    roles: ['client_admin', 'agent_admin', 'ground_agent', 'agent'],
+    tour: () => ({
+      id: 'tour-ops-maintenance',
+      steps: [
+        {
+          title: 'Maintenance queue',
+          body: 'Filter by priority or status to triage open tickets. Assign a contractor and track photos until the job is complete.',
+          placement: 'center',
+        },
+        {
+          title: 'Ticket tools',
+          body: 'Create a ticket or switch views from the page header.',
+          target: '[data-tip-target="page-header"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Payments, documents, and messages live under Operations when your role includes them.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/operations/payments'),
+    roles: ['client_admin', 'agent_admin', 'ground_agent'],
+    tour: () => ({
+      id: 'tour-ops-payments',
+      steps: [
+        {
+          title: 'Rent & payments',
+          body: 'See what is due, overdue, and paid across your properties. Open a payment to add proof or mark it paid.',
+          placement: 'center',
+        },
+        {
+          title: 'Payment tools',
+          body: 'Filter the ledger and jump to overdue items from the page header.',
+          target: '[data-tip-target="page-header"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Trust accounting and arrears sit nearby when your agency has those modules enabled.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/operations/documents'),
+    roles: ['client_admin', 'agent_admin', 'ground_agent', 'agent'],
+    tour: () => ({
+      id: 'tour-ops-documents',
+      steps: [
+        {
+          title: 'Document library',
+          body: 'Leases, FICA, and compliance files live here. Filter by property or type, and approve pending uploads.',
+          placement: 'center',
+        },
+        {
+          title: 'Library tools',
+          body: 'Upload or filter documents from the page header.',
+          target: '[data-tip-target="page-header"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Related people and property pages are linked from the workspace navigation.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/operations/communications'),
+    roles: ['client_admin', 'agent_admin', 'ground_agent', 'agent'],
+    tour: () => ({
+      id: 'tour-ops-communications',
+      steps: [
+        {
+          title: 'Messages hub',
+          body: 'Write to tenants and owners here. Messages stay inside PropertyFlow, not SMS or WhatsApp.',
+          placement: 'center',
+        },
+        {
+          title: 'Compose tools',
+          body: 'Start a message or pick a template from the page header.',
+          target: '[data-tip-target="page-header"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Operations modules stay grouped in the sidebar for quick switching.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/trust'),
+    roles: ['client_admin', 'agent_admin', 'ground_agent'],
+    tour: () => ({
+      id: 'tour-trust-dashboard',
+      steps: [
+        {
+          title: 'Trust dashboard',
+          body: 'See trust balances, recent movements, and alerts that need attention across your agency.',
+          placement: 'center',
+        },
+        {
+          title: 'Trust overview',
+          body: 'Use the header and cards to drill into cashbook, deposits, or arrears.',
+          target: '[data-tip-target="page-header"]',
+          placement: 'below',
+        },
+        {
+          title: 'Trust navigation',
+          body: 'Cashbook, deposits, and arrears are listed under Trust & Banking in the sidebar.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/trust/cashbook'),
+    roles: ['client_admin', 'agent_admin', 'ground_agent'],
+    tour: () => ({
+      id: 'tour-trust-cashbook',
+      steps: [
+        {
+          title: 'Trust cashbook',
+          body: 'Every amount in and out of the trust book, newest first. Open a row to check it before you allocate or pay anything.',
+          placement: 'center',
+        },
+        {
+          title: 'Cashbook tools',
+          body: 'Filter or export entries from the page header.',
+          target: '[data-tip-target="page-header"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Unallocated funds and payouts appear here when your role can allocate or approve them.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/trust/unallocated'),
+    roles: ['client_admin', 'agent_admin'],
+    tour: () => ({
+      id: 'tour-trust-unallocated',
+      steps: [
+        {
+          title: 'Unallocated funds',
+          body: 'Match unidentified receipts to the right tenant or property so the cashbook stays clean.',
+          placement: 'center',
+        },
+        {
+          title: 'Allocation tools',
+          body: 'Select a receipt. Allocate it from the selection panel.',
+          target: '[data-tip-target="trust-unallocated-selection"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Payouts and deposits sit alongside unallocated under Trust & Banking.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/trust/payouts'),
+    roles: ['client_admin', 'agent_admin'],
+    tour: () => ({
+      id: 'tour-trust-payouts',
+      steps: [
+        {
+          title: 'Owner payouts',
+          body: 'Propose, approve, and submit owner payouts in PropertyFlow. This does not send a bank transfer.',
+          placement: 'center',
+        },
+        {
+          title: 'Payout tools',
+          body: 'Propose a payout here. Approve it or submit it from its row in the list.',
+          target: '[data-tip-target="trust-propose-payout"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Return to the trust dashboard or cashbook from Trust & Banking.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/trust/deposits'),
+    roles: ['client_admin', 'agent_admin', 'ground_agent'],
+    tour: () => ({
+      id: 'tour-trust-deposits',
+      steps: [
+        {
+          title: 'Deposits',
+          body: 'Track deposits held in trust per tenancy, including amounts due for refund or transfer.',
+          placement: 'center',
+        },
+        {
+          title: 'Deposit tools',
+          body: 'Filter deposits and open a row for full detail from this page.',
+          target: '[data-tip-target="page-header"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Arrears and cashbook are one click away under Trust & Banking.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/trust/arrears'),
+    roles: ['client_admin', 'agent_admin', 'ground_agent'],
+    tour: () => ({
+      id: 'tour-trust-arrears',
+      steps: [
+        {
+          title: 'Arrears',
+          body: 'Tenancies that are behind on rent, with the amount owed.',
+          placement: 'center',
+        },
+        {
+          title: 'Arrears tools',
+          body: 'Use the message button on a row to write to that tenant in PropertyFlow.',
+          target: '[data-tip-target="trust-arrears-message"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Jump to payments or trust cashbook when you need to post a receipt.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/compliance'),
+    roles: ['client_admin', 'agent_admin'],
+    tour: () => ({
+      id: 'tour-compliance',
+      steps: [
+        {
+          title: 'Compliance',
+          body: 'Monitor FICA, lease, and inspection obligations across the portfolio.',
+          placement: 'center',
+        },
+        {
+          title: 'Compliance tools',
+          body: 'Filter open items and drill into a property from the page header.',
+          target: '[data-tip-target="page-header"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Documents and people directories support the compliance workflow.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/people/staff'),
+    roles: ['client_admin', 'agent_admin'],
+    tour: () => ({
+      id: 'tour-people-staff',
+      steps: [
+        {
+          title: 'Team directory',
+          body: 'Browse agents and admins in your agency. Open a profile to adjust permissions or contact details.',
+          placement: 'center',
+        },
+        {
+          title: 'Team tools',
+          body: 'Invite or filter staff from the page header.',
+          target: '[data-tip-target="page-header"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Tenants, leases, landlords, and contractors sit under People.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/people/tenants'),
+    roles: ['client_admin', 'agent_admin', 'ground_agent', 'agent'],
+    tour: () => ({
+      id: 'tour-people-tenants',
+      steps: [
+        {
+          title: 'Tenant directory',
+          body: 'Search occupants by name, property, or lease status. Open a record for payment history and portal access.',
+          placement: 'center',
+        },
+        {
+          title: 'Directory tools',
+          body: 'Search and filter tenants from the page header.',
+          target: '[data-tip-target="page-header"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Leases and landlords are grouped with tenants under People.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/people/leases'),
+    roles: ['client_admin', 'agent_admin', 'ground_agent', 'agent'],
+    tour: () => ({
+      id: 'tour-people-leases',
+      steps: [
+        {
+          title: 'Leases',
+          body: 'Review active and upcoming leases, renewal dates, and linked occupants.',
+          placement: 'center',
+        },
+        {
+          title: 'Lease tools',
+          body: 'Filter by status or property from the page header.',
+          target: '[data-tip-target="page-header"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Open the matching tenant or landlord from People when you need more context.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/people/landlords'),
+    roles: ['client_admin', 'agent_admin', 'ground_agent'],
+    tour: () => ({
+      id: 'tour-people-landlords',
+      steps: [
+        {
+          title: 'Landlords',
+          body: 'Directory of property owners linked to your agency. Open a record for contact details and portfolio links.',
+          placement: 'center',
+        },
+        {
+          title: 'Landlord tools',
+          body: 'Search or invite landlords from the page header.',
+          target: '[data-tip-target="page-header"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Properties and trust payouts connect owners to the rest of the workspace.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/operations/contractors'),
+    roles: ['client_admin', 'agent_admin', 'ground_agent'],
+    tour: () => ({
+      id: 'tour-ops-contractors',
+      steps: [
+        {
+          title: 'Contractors',
+          body: 'Manage vendors who handle maintenance jobs. Check trades, verification, and open assignments.',
+          placement: 'center',
+        },
+        {
+          title: 'Contractor tools',
+          body: 'Add or filter contractors from the page header.',
+          target: '[data-tip-target="page-header"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Maintenance tickets that need vendors live under Operations.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/admin/config'),
+    roles: ['super_admin', 'client_admin', 'agent_admin'],
+    tour: () => ({
+      id: 'tour-admin-config',
+      steps: [
+        {
+          title: 'Configuration',
+          body: 'Manage lookup values, property features, and agency-wide defaults that flow through to forms.',
+          placement: 'center',
+        },
+        {
+          title: 'Config tools',
+          body: 'Switch sections and save changes from the page header.',
+          target: '[data-tip-target="page-header"]',
+          placement: 'below',
+        },
+        {
+          title: 'Admin navigation',
+          body: 'Lead pipeline and notifications sit under Admin in the sidebar.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/admin/pipeline'),
+    roles: ['super_admin', 'client_admin', 'agent_admin'],
+    tour: () => ({
+      id: 'tour-admin-pipeline',
+      steps: [
+        {
+          title: 'Lead pipeline settings',
+          body: 'Configure stages and board columns used on the sales CRM.',
+          placement: 'center',
+        },
+        {
+          title: 'Pipeline tools',
+          body: 'Add or reorder stages from the page header.',
+          target: '[data-tip-target="page-header"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Open Leads under Sales to see these stages on the live board.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/admin/notifications'),
+    roles: ['super_admin', 'client_admin', 'agent_admin'],
+    tour: () => ({
+      id: 'tour-admin-notifications',
+      steps: [
+        {
+          title: 'Broadcast notifications',
+          body: 'Send announcements to roles or entire agencies. Preview message text before sending.',
+          placement: 'center',
+        },
+        {
+          title: 'Broadcast tools',
+          body: 'Compose and schedule broadcasts from the page header.',
+          target: '[data-tip-target="page-header"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Other admin settings stay grouped under Admin.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/insights/reports'),
+    roles: ['super_admin', 'client_admin', 'agent_admin'],
+    tour: () => ({
+      id: 'tour-insights-reports',
+      steps: [
+        {
+          title: 'Reports & analytics',
+          body: 'Pick a report tab, then export.',
+          placement: 'center',
+        },
+        {
+          title: 'Report tools',
+          body: 'Pick a report tab, then set the dates.',
+          target: '[data-tip-target="report-tabs"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Reports stays at the bottom of the workspace navigation when your role can view them.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  // —— Super admin ——
+  {
+    match: exact('/workspace/admin/agencies'),
+    roles: ['super_admin'],
+    tour: () => ({
+      id: 'tour-admin-agencies',
+      steps: [
+        {
+          title: 'Agency management',
+          body: 'Each agency has its own data boundary. Open an agency to configure modules, billing, and principal contacts.',
+          placement: 'center',
+        },
+        {
+          title: 'Agency tools',
+          body: 'Onboard a new agency or search existing ones from the page header.',
+          target: '[data-tip-target="page-header"]',
+          placement: 'below',
+        },
+        {
+          title: 'Platform navigation',
+          body: 'All users, configuration, and reports are available from the sidebar.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/admin/all-users'),
+    roles: ['super_admin'],
+    tour: () => ({
+      id: 'tour-admin-all-users',
+      steps: [
+        {
+          title: 'All users',
+          body: 'Every account on the platform — open a row to troubleshoot or impersonate when needed.',
+          placement: 'center',
+        },
+        {
+          title: 'User directory',
+          body: 'Search and filter accounts from the page header. Directory details stay on this page.',
+          target: '[data-tip-target="page-header"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Agencies and platform configuration sit under Admin.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  // —— Tenant portal ——
+  {
+    match: exact('/workspace/portals/tenant'),
+    roles: ['tenant'],
+    tour: () => ({
+      id: 'tour-portal-tenant-home',
+      steps: [
+        {
+          title: 'Your tenancy hub',
+          body: 'Check applications, wishlist, and — once approved — rent due, maintenance, and messages with your agency.',
+          placement: 'center',
+        },
+        {
+          title: 'Portal overview',
+          body: 'The hero summarises your status and links to applications or browsing.',
+          target: '[data-tip-target="tenant-hero"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Applications, viewings, and wishlist are always available. Maintenance, messages, and complaints appear after you have a tenancy.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/portals/tenant/applications'),
+    roles: ['tenant'],
+    tour: () => ({
+      id: 'tour-portal-tenant-applications',
+      steps: [
+        {
+          title: 'Your applications',
+          body: 'Track each rental application from submission to decision. Upload missing documents when an agent requests them.',
+          placement: 'center',
+        },
+        {
+          title: 'Application list',
+          body: 'Open any application card for status, documents, and next steps.',
+          target: '[data-tip-target="tenant-applications"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Viewings and wishlist stay in My portal while you wait on a decision.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/portals/tenant/viewings'),
+    roles: ['tenant'],
+    tour: () => ({
+      id: 'tour-portal-tenant-viewings',
+      steps: [
+        {
+          title: 'Your viewings',
+          body: 'Every viewing booked under your name — past and upcoming — with a link back to each listing.',
+          placement: 'center',
+        },
+        {
+          title: 'Viewing list',
+          body: 'Filter upcoming or past appointments and open the listing from each row.',
+          target: '[data-tip-target="tenant-viewings"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Return to applications or wishlist from the portal navigation.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/account/wishlist'),
+    roles: ['tenant'],
+    tour: () => ({
+      id: 'tour-account-wishlist',
+      steps: [
+        {
+          title: 'Saved listings',
+          body: 'Properties you hearted while browsing appear here. Apply directly or remove listings you no longer want.',
+          placement: 'center',
+        },
+        {
+          title: 'Wishlist',
+          body: 'Browse saved homes or jump back to the marketplace to heart more.',
+          target: '[data-tip-target="tenant-wishlist"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Applications and viewings stay under My portal.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/portals/tenant/maintenance'),
+    roles: ['tenant'],
+    requireTenantOccupancy: true,
+    tour: () => ({
+      id: 'tour-portal-tenant-maintenance',
+      steps: [
+        {
+          title: 'Report an issue',
+          body: 'Log maintenance requests with photos and urgency. Status updates appear here as your agency progresses the job.',
+          placement: 'center',
+        },
+        {
+          title: 'Maintenance form',
+          body: 'Describe what is broken and submit — requests go to your agency, not the landlord.',
+          target: '[data-tip-target="tenant-maintenance"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Messages and complaints appear alongside maintenance once your tenancy is active.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/portals/tenant/messages'),
+    roles: ['tenant'],
+    requireTenantOccupancy: true,
+    tour: () => ({
+      id: 'tour-portal-tenant-messages',
+      steps: [
+        {
+          title: 'Messages',
+          body: 'Conversation history with your agency stays in one place. Reply here instead of chasing email threads.',
+          placement: 'center',
+        },
+        {
+          title: 'Inbox',
+          body: 'Open a thread or start a new message from this page.',
+          target: '[data-tip-target="tenant-messages"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Maintenance and complaints are next to messages in the portal nav.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/portals/tenant/complaints'),
+    roles: ['tenant'],
+    requireTenantOccupancy: true,
+    tour: () => ({
+      id: 'tour-portal-tenant-complaints',
+      steps: [
+        {
+          title: 'Complaints',
+          body: 'Escalate serious issues formally so they are tracked and resolved. Include dates and details for a faster response.',
+          placement: 'center',
+        },
+        {
+          title: 'Complaint form',
+          body: 'Lodge a formal complaint that your agency must acknowledge and track.',
+          target: '[data-tip-target="tenant-complaints"]',
+          placement: 'below',
+        },
+        {
+          title: 'Sidebar',
+          body: 'Maintenance and messages remain available from the portal navigation.',
+          target: '[data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
 ]
 
-export function resolvePageTour(pathname: string, role: Role | null): PageTour | null {
+export type ResolvePageTourOptions = {
+  /** Same occupancy gate the tenant sidebar uses for maintenance / messages / complaints. */
+  tenantOccupancyReady?: boolean
+}
+
+export function resolvePageTour(
+  pathname: string,
+  role: Role | null,
+  options?: ResolvePageTourOptions,
+): PageTour | null {
   const normalized = pathname.replace(/\/+$/, '') || '/'
 
   for (const rule of WALKTHROUGH_RULES) {
     if (!rule.match(normalized)) continue
     if (rule.roles && (!role || !rule.roles.includes(role))) continue
+    if (rule.requireTenantOccupancy && !options?.tenantOccupancyReady) continue
     return rule.tour(role)
   }
 
@@ -363,7 +1289,7 @@ const RULES: TipRule[] = [
     content: () => ({
       id: 'ops-communications',
       title: 'Messages hub',
-      body: 'Send SMS or email to tenants, owners, or leads. Templates save time for rent reminders and viewing confirmations.',
+      body: 'Message tenants and owners in PropertyFlow. Open a thread to reply or start a new one.',
     }),
   },
   {
@@ -371,7 +1297,7 @@ const RULES: TipRule[] = [
     content: () => ({
       id: 'ops-payments',
       title: 'Rent & payments',
-      body: 'Track due, overdue, and settled amounts across your portfolio. Open a payment to attach proof or mark it paid.',
+      body: 'Track due, overdue, and paid amounts across your portfolio. Open a payment to attach proof or mark it paid.',
     }),
   },
   {
@@ -379,7 +1305,7 @@ const RULES: TipRule[] = [
     content: () => ({
       id: 'payment-detail',
       title: 'Payment record',
-      body: 'Confirm amount, period, and tenant before recording settlement. Attach bank proof for audit trails.',
+      body: 'Check the amount, period, and tenant before you mark it paid. Attach proof of payment for your records.',
     }),
   },
 

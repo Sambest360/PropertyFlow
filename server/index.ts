@@ -15,10 +15,11 @@ import {
   ACTOR_AGENCY_HEADER,
   ACTOR_ROLE_HEADER,
   ACTOR_USER_HEADER,
-  type DemoActor,
 } from './actor.js'
+import { isStaffRole, resolveRequestActor } from './requestActor.js'
+import { filterBootstrapForGuest } from './guestMarketplace.js'
 import {
-  actorFromSession,
+  changeUserPassword,
   clearSession,
   issueSession,
   loginUser,
@@ -28,12 +29,15 @@ import {
   updateUserVerification,
 } from './auth.js'
 import {
+  agencyFeForClient,
   assertPersistAllowed,
+  assertTenancyReadable,
   enrichActor,
+  normalizedActorAgency,
 } from './scopeGate.js'
 import { supabaseSessionMiddleware } from './supabase/middleware.js'
 import type { PersistBody } from './writes.js'
-import { payfastCreate, payfastItn } from './payfastRoutes.js'
+import { payfastCreate, payfastItn, type LoadedPayment } from './payfastRoutes.js'
 import { screeningProviderInfo, screeningWebhook } from './screeningRoutes.js'
 import {
   esignCreateEnvelope,
@@ -61,6 +65,7 @@ import {
   sendWelcomeEmail,
 } from './mailtrap.js'
 import { ensureUuid, resolveUuid } from './entityMap.js'
+import { docIdFromEnvelopeId } from './signiflow.js'
 import { registerSupabaseUserDirect } from './supabase/registerUser.js'
 import { runningCommitSha } from './appConfig.js'
 
@@ -129,6 +134,15 @@ app.use(
 
 app.use('*', supabaseSessionMiddleware)
 
+/** Machine-readable policy code on a refused write (e.g. APPLICATION_TRANSITION_FORBIDDEN). */
+function errCode(err: unknown): { code?: string } {
+  if (err && typeof err === 'object' && 'code' in err && typeof (err as { code: unknown }).code === 'string') {
+    const code = (err as { code: string }).code
+    if (/^[A-Z][A-Z0-9_]+$/.test(code)) return { code }
+  }
+  return {}
+}
+
 function errStatus(err: unknown): ContentfulStatusCode {
   if (err && typeof err === 'object' && 'status' in err) {
     const s = Number((err as { status: unknown }).status)
@@ -137,22 +151,30 @@ function errStatus(err: unknown): ContentfulStatusCode {
   return 500
 }
 
-async function resolveRequestActor(
+/** Verified actor (session first, see requestActor.ts) or a 401 error. */
+async function requireActor(
   c: Parameters<typeof parseDemoActor>[0],
   body?: Record<string, unknown> | null,
-): Promise<DemoActor | null> {
-  const fromHeaders = parseDemoActor(c, body)
-  if (fromHeaders) return fromHeaders
-  const session = await resolveSessionUser(c)
-  return session ? actorFromSession(session) : null
+) {
+  const raw = await resolveRequestActor(c, body ?? null)
+  if (!raw) throw actorRequiredError()
+  return enrichActor(raw)
 }
 
 async function requireActorAndGate(c: Parameters<typeof parseDemoActor>[0], body: PersistBody) {
   const raw = await resolveRequestActor(c, body as unknown as Record<string, unknown>)
   if (!raw) throw actorRequiredError()
   const actor = await enrichActor(raw)
-  await assertPersistAllowed(actor, body)
-  return actor
+  const outcome = await assertPersistAllowed(actor, body)
+  return { actor, handled: outcome?.handled ?? null }
+}
+
+/** Gate, then the generic upsert unless the gate already did a narrow rewrite. */
+async function gatedPersist(c: Parameters<typeof parseDemoActor>[0], body: PersistBody) {
+  const { handled } = await requireActorAndGate(c, body)
+  if (handled) return handled
+  const { handlePersist } = await loadWritesModule()
+  return handlePersist(body)
 }
 
 app.get('/api/health', async (c) => {
@@ -545,6 +567,54 @@ app.get('/api/auth/me', async (c) => {
   }
 })
 
+/**
+ * Self-service password change: the signed-in user (session cookie / bearer)
+ * must send their current password. Clears mustChangePassword. The generic
+ * persist route strips passwordHash / password / tempPassword from every
+ * non-super user write, so this is the password-change path.
+ */
+app.post('/api/auth/change-password', async (c) => {
+  if (!databaseConfigured) {
+    return c.json(
+      { error: 'database_unconfigured', message: databaseConfigError || 'DATABASE_URL is not set' },
+      503,
+    )
+  }
+  const ip = authIpKey(c.req.raw.headers)
+  const ipGate = authIpRateLimit(ip)
+  if (!ipGate.ok) {
+    const rl = tooManyRequests(ipGate.retryAfterSec)
+    return c.json(rl.body, rl.status, rl.headers)
+  }
+  let email = ''
+  try {
+    const user = await resolveSessionUser(c)
+    if (!user) return c.json({ error: 'unauthorized', message: 'Not signed in' }, 401)
+    email = user.email ?? ''
+    const accountGate = authFailureBlocked(ip, email)
+    if (!accountGate.ok) {
+      const rl = tooManyRequests(accountGate.retryAfterSec)
+      return c.json(rl.body, rl.status, rl.headers)
+    }
+    const body = (await c.req.json().catch(() => ({}))) as {
+      currentPassword?: string
+      newPassword?: string
+    }
+    const updated = await changeUserPassword({
+      userUuid: user.id,
+      currentPassword: String(body.currentPassword ?? ''),
+      newPassword: String(body.newPassword ?? ''),
+    })
+    clearAuthFailures(ip, email)
+    return c.json({ ok: true, user: sessionToPublic(updated) })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    const status = errStatus(err)
+    if (email && status === 401) recordAuthFailure(ip, email)
+    return c.json({ error: 'change_password_failed', message }, status)
+  }
+})
+
 app.get('/api/bootstrap', async (c) => {
   if (!databaseConfigured) {
     return c.json(
@@ -556,6 +626,14 @@ app.get('/api/bootstrap', async (c) => {
     )
   }
   try {
+    // Identity first: no verified actor → 401 before any table is read.
+    const rawActor = await resolveRequestActor(c, null)
+    if (!rawActor) {
+      return c.json(
+        { error: 'unauthorized', message: 'Sign in required (use /api/public/marketplace for listings)' },
+        401,
+      )
+    }
     const lite = c.req.query('lite') === '1' || c.req.query('lite') === 'true'
     const rowLimit = lite
       ? 60
@@ -574,13 +652,8 @@ app.get('/api/bootstrap', async (c) => {
         documents: rowLimit,
       },
     })
-    const rawActor = await resolveRequestActor(c, null)
-    if (!rawActor) {
-      // CR7: help desk tickets are never served without a signed-in actor.
-      return c.json({ ...data, supportTickets: [], scoped: false, actor: null })
-    }
     const actor = await enrichActor(rawActor)
-    const { buildActorPropertyScope, filterBootstrapForActor, resolveActorUsersManage } =
+    const { buildActorPropertyScope, filterBootstrapForActor, actorIdAliases, resolveActorUsersManage } =
       await loadScopeGateModule()
     const scope = await buildActorPropertyScope(actor)
     // CR7: agency desk tickets only when users.manage is effective (agency pack applied).
@@ -592,6 +665,7 @@ app.get('/api/bootstrap', async (c) => {
       data as Parameters<typeof filterBootstrapForActor>[0],
       actor,
       scope,
+      await actorIdAliases(actor),
       { usersManage },
     )
     return c.json(filtered)
@@ -599,6 +673,46 @@ app.get('/api/bootstrap', async (c) => {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[api/bootstrap]', message)
     return c.json({ error: 'bootstrap_failed', message }, 500)
+  }
+})
+
+/**
+ * Signed-out marketplace: published listings only (see server/guestMarketplace.ts).
+ * Replaces the old unauthenticated full /api/bootstrap payload for guests.
+ */
+app.get('/api/public/marketplace', async (c) => {
+  if (!databaseConfigured) {
+    return c.json(
+      {
+        error: 'database_unconfigured',
+        message: databaseConfigError || 'DATABASE_URL is not set',
+      },
+      503,
+    )
+  }
+  try {
+    const lite = c.req.query('lite') !== '0' && c.req.query('lite') !== 'false'
+    const rowLimit = lite ? 60 : 250
+    const { buildBootstrap } = await loadBootstrapModule()
+    const data = await buildBootstrap({
+      lite,
+      limits: {
+        units: rowLimit,
+        messages: 1,
+        notifications: 1,
+        leads: 1,
+        applications: 1,
+        tickets: 1,
+        payments: 1,
+        documents: 1,
+      },
+    })
+    return c.json(filterBootstrapForGuest(data as unknown as Record<string, unknown>))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[api/public/marketplace]', message)
+    // Generic body only: never echo database / driver text to signed-out visitors.
+    return c.json({ error: 'marketplace_failed', message: 'Listings are unavailable right now.' }, 500)
   }
 })
 
@@ -629,34 +743,115 @@ app.get('/api/v1/units', async (c) => {
   }
 })
 
+/**
+ * Inventory counts. Signed-in only.
+ * - super_admin: platform-wide counts (as before).
+ * - client_admin / agent_admin: the same keys counted for their own agency
+ *   (client_id = their agency); clients is 1.
+ * - Everyone else (ground agents, tenants, landlords, contractors): 403 —
+ *   these are agency-wide totals, outside a property-locked scope.
+ */
 app.get('/api/counts', async (c) => {
   try {
-    const rows = await query<{
-      leads: string
-      payments: string
-      documents: string
-      notifications: string
-      threads: string
-      messages: string
-      clients: string
-      units: string
-    }>(`
-      SELECT
-        (SELECT COUNT(*)::text FROM leads) AS leads,
-        (SELECT COUNT(*)::text FROM payments) AS payments,
-        (SELECT COUNT(*)::text FROM documents) AS documents,
-        (SELECT COUNT(*)::text FROM notifications) AS notifications,
-        (SELECT COUNT(*)::text FROM message_threads) AS threads,
-        (SELECT COUNT(*)::text FROM messages) AS messages,
-        (SELECT COUNT(*)::text FROM clients) AS clients,
-        (SELECT COUNT(*)::text FROM units) AS units
-    `)
-    return c.json(rows[0] ?? {})
+    const actor = await requireActor(c, null)
+    const COUNT_TABLES: Array<[string, string]> = [
+      ['leads', 'leads'],
+      ['payments', 'payments'],
+      ['documents', 'documents'],
+      ['notifications', 'notifications'],
+      ['threads', 'message_threads'],
+      ['messages', 'messages'],
+      ['clients', 'clients'],
+      ['units', 'units'],
+    ]
+    if (actor.role === 'super_admin') {
+      const rows = await query<Record<string, string>>(
+        `SELECT ${COUNT_TABLES.map(([k, t]) => `(SELECT COUNT(*)::text FROM ${t}) AS ${k}`).join(', ')}`,
+      )
+      return c.json({ scope: 'platform', ...(rows[0] ?? {}) })
+    }
+    if (actor.role !== 'client_admin' && actor.role !== 'agent_admin') {
+      return c.json({ error: 'forbidden', message: 'Counts are for agency admins' }, 403)
+    }
+    const agencyFe = await normalizedActorAgency(actor)
+    const clientUuid = agencyFe ? await resolveUuid('agency', agencyFe) : null
+    if (!clientUuid) {
+      return c.json({ error: 'forbidden', message: 'No agency on this account' }, 403)
+    }
+    const rows = await query<Record<string, string>>(
+      `SELECT ${COUNT_TABLES.map(([k, t]) =>
+        t === 'clients'
+          ? `(SELECT COUNT(*)::text FROM clients WHERE id = $1::uuid) AS ${k}`
+          : `(SELECT COUNT(*)::text FROM ${t} WHERE client_id = $1::uuid) AS ${k}`,
+      ).join(', ')}`,
+      [clientUuid],
+    )
+    return c.json({ scope: 'agency', agencyId: agencyFe, ...(rows[0] ?? {}) })
   } catch (err) {
+    const status = errStatus(err)
+    if (status === 401) return c.json({ error: 'unauthorized', message: 'Sign in required' }, 401)
     const message = err instanceof Error ? err.message : String(err)
-    return c.json({ error: message }, 500)
+    return c.json({ error: message }, status)
   }
 })
+
+/**
+ * Payout dual control (approve / submit). The only path past `proposed`;
+ * generic persist only ever creates proposals. See server/payoutRoutes.ts.
+ */
+for (const step of ['approve', 'submit'] as const) {
+  app.post(`/api/trust/payouts/:id/${step}`, async (c) => {
+    if (!databaseConfigured) {
+      return c.json(
+        { error: 'database_unconfigured', message: databaseConfigError || 'DATABASE_URL is not set' },
+        503,
+      )
+    }
+    try {
+      const raw = await resolveRequestActor(c, null)
+      if (!raw) throw actorRequiredError()
+      const actor = await enrichActor(raw)
+      const { approvePayout, submitPayout } = await import('./payoutRoutes.js')
+      const id = c.req.param('id')
+      const result = step === 'approve' ? await approvePayout(actor, id) : await submitPayout(actor, id)
+      return c.json(result)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return c.json({ error: `payout_${step}_failed`, message }, errStatus(err))
+    }
+  })
+}
+
+/**
+ * Deposit release dual control: held -> release_proposed -> release_approved,
+ * two different agency admins (server/depositRoutes.ts). Generic persist never
+ * moves a deposit's status.
+ */
+for (const step of ['propose-release', 'approve-release'] as const) {
+  app.post(`/api/trust/deposits/:id/${step}`, async (c) => {
+    if (!databaseConfigured) {
+      return c.json(
+        { error: 'database_unconfigured', message: databaseConfigError || 'DATABASE_URL is not set' },
+        503,
+      )
+    }
+    try {
+      const raw = await resolveRequestActor(c, null)
+      if (!raw) throw actorRequiredError()
+      const actor = await enrichActor(raw)
+      const { proposeDepositRelease, approveDepositRelease } = await import('./depositRoutes.js')
+      const id = c.req.param('id')
+      const result =
+        step === 'propose-release'
+          ? await proposeDepositRelease(actor, id)
+          : await approveDepositRelease(actor, id)
+      return c.json(result)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return c.json({ error: `deposit_${step.replace('-', '_')}_failed`, message }, errStatus(err))
+    }
+  })
+}
 
 /** Generic domain persist (RPC). AppStore fire-and-forgets here. */
 app.post('/api/persist', async (c) => {
@@ -671,14 +866,12 @@ app.post('/api/persist', async (c) => {
   }
   try {
     const body = (await c.req.json()) as PersistBody
-    await requireActorAndGate(c, body)
-    const { handlePersist } = await loadWritesModule()
-    const result = await handlePersist(body)
+    const result = await gatedPersist(c, body)
     return c.json(result)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[api/persist]', message)
-    return c.json({ error: 'persist_failed', message }, errStatus(err))
+    return c.json({ error: 'persist_failed', message, ...errCode(err) }, errStatus(err))
   }
 })
 
@@ -696,17 +889,15 @@ app.post('/api/persist/batch', async (c) => {
   try {
     const body = (await c.req.json()) as { ops?: PersistBody[] }
     const ops = Array.isArray(body.ops) ? body.ops : []
-    const { handlePersist } = await loadWritesModule()
     const results = []
     for (const op of ops) {
-      await requireActorAndGate(c, op)
-      results.push(await handlePersist(op))
+      results.push(await gatedPersist(c, op))
     }
     return c.json({ ok: true, results })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[api/persist/batch]', message)
-    return c.json({ error: 'persist_batch_failed', message }, errStatus(err))
+    return c.json({ error: 'persist_batch_failed', message, ...errCode(err) }, errStatus(err))
   }
 })
 
@@ -772,13 +963,11 @@ for (const plural of restResources) {
       const id = String(data.id ?? '')
       if (!id) return c.json({ error: 'id_required' }, 400)
       const body: PersistBody = { resource, action: 'upsert', id, data }
-      await requireActorAndGate(c, body)
-      const { handlePersist } = await loadWritesModule()
-    const result = await handlePersist(body)
+      const result = await gatedPersist(c, body)
       return c.json(result, 201)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      return c.json({ error: 'create_failed', message }, errStatus(err))
+      return c.json({ error: 'create_failed', message, ...errCode(err) }, errStatus(err))
     }
   })
 
@@ -792,13 +981,11 @@ for (const plural of restResources) {
         id,
         data: { ...data, id },
       }
-      await requireActorAndGate(c, body)
-      const { handlePersist } = await loadWritesModule()
-    const result = await handlePersist(body)
+      const result = await gatedPersist(c, body)
       return c.json(result)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      return c.json({ error: 'update_failed', message }, errStatus(err))
+      return c.json({ error: 'update_failed', message, ...errCode(err) }, errStatus(err))
     }
   })
 
@@ -806,13 +993,11 @@ for (const plural of restResources) {
     try {
       const id = c.req.param('id')
       const body: PersistBody = { resource, action: 'delete', id }
-      await requireActorAndGate(c, body)
-      const { handlePersist } = await loadWritesModule()
-    const result = await handlePersist(body)
+      const result = await gatedPersist(c, body)
       return c.json(result)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      return c.json({ error: 'delete_failed', message }, errStatus(err))
+      return c.json({ error: 'delete_failed', message, ...errCode(err) }, errStatus(err))
     }
   })
 }
@@ -890,19 +1075,34 @@ app.post('/api/applications/:id/approve', async (c) => {
   try {
     const applicationId = c.req.param('id')
     const body = (await c.req.json().catch(() => ({}))) as {
+      /** Ignored for audit — the verified actor is logged instead. */
       actorUserId?: string
       tenancy?: Record<string, unknown>
     }
-    await requireActorAndGate(c, {
+    const { actor } = await requireActorAndGate(c, {
       resource: 'application',
       action: 'upsert',
       id: applicationId,
       data: { id: applicationId, stage: 'Approved' },
     })
+    // Staff only. Applicants (tenant / contractor) never approve, their own
+    // application included, and the gate above already refuses them with
+    // APPLICATION_TRANSITION_FORBIDDEN. Landlords do not approve here either:
+    // their review decision is the narrow /api/persist write (landlord_review
+    // -> conditionally_approved | rejected), and this route creates the lease
+    // and payments. The gate refuses a landlord's { stage: 'Approved' } too;
+    // the explicit check keeps that true if the gate changes.
+    if (actor.role === 'tenant' || actor.role === 'contractor' || actor.role === 'landlord') {
+      return c.json(
+        { error: 'forbidden', message: `Forbidden: ${actor.role} cannot approve applications` },
+        403,
+      )
+    }
     const { approveApplicationTx } = await loadWritesModule()
     const result = await approveApplicationTx({
       applicationId,
-      actorUserId: body.actorUserId,
+      // Audit the verified actor, never the body's claim (body.actorUserId ignored).
+      actorUserId: actor.userId,
       tenancy: body.tenancy,
     })
     // Approval email — additive lookup, never blocks or fails the approval.
@@ -996,6 +1196,9 @@ app.post('/api/notify/dunning-notice', async (c) => {
     if (!actor) {
       return c.json({ error: 'actor_required', message: 'Staff actor required to send dunning email' }, 401)
     }
+    if (!isStaffRole(actor.role)) {
+      return c.json({ error: 'forbidden', message: 'Only agency staff can send dunning email' }, 403)
+    }
     const email = String(body.email ?? '').trim()
     if (!email) {
       return c.json({ ok: true, emailed: false, reason: 'no_email' }, 202)
@@ -1021,15 +1224,95 @@ app.post('/api/notify/dunning-notice', async (c) => {
   }
 })
 
-app.post('/api/payfast/create', (c) => payfastCreate(c))
+/**
+ * Checkout: signed-in only. The payer must be the session user (payment
+ * party), or a staff role in the payment's agency (super admin: any).
+ */
+app.post('/api/payfast/create', async (c) => {
+  let actor: Awaited<ReturnType<typeof requireActor>>
+  try {
+    actor = await requireActor(c, null)
+  } catch (err) {
+    return c.json({ ok: false, error: 'actor_required' }, errStatus(err))
+  }
+  return payfastCreate(c, async (payment: LoadedPayment) => {
+    if (actor.role === 'super_admin') return null
+    if (payment.partyUserId) {
+      const actorUuid = await resolveUuid('user', actor.userId)
+      if (actorUuid && actorUuid === payment.partyUserId) return null
+    }
+    if (isStaffRole(actor.role)) {
+      const actorAgency = await normalizedActorAgency(actor)
+      const paymentAgency = await agencyFeForClient(payment.clientUuid)
+      if (actorAgency && paymentAgency && actorAgency === paymentAgency) return null
+    }
+    return { status: 403, error: 'payment_not_yours' }
+  })
+})
+
+// ITN stays unauthenticated: PayFast calls it server-to-server and it is
+// verified by source, signature and ledger amount inside payfastItn.
+
 
 app.post('/api/payfast/itn', (c) => payfastItn(c))
 app.get('/api/screening/provider', (c) => screeningProviderInfo(c))
 app.post('/api/screening/webhook', (c) => screeningWebhook(c))
 
 app.get('/api/esign/provider', (c) => esignProviderInfo(c))
-app.post('/api/esign/create-envelope', (c) => esignCreateEnvelope(c))
-app.post('/api/esign/status', (c) => esignStatus(c))
+/**
+ * E-sign create / status: signed-in only, and the lease (tenancyId) must be
+ * readable by the actor (assertTenancyReadable). Status is also bound to the
+ * envelope stored on that lease, so a lease in scope cannot be used to poll
+ * someone else's document.
+ */
+app.post('/api/esign/create-envelope', async (c) => {
+  try {
+    const actor = await requireActor(c, null)
+    const body = (await c.req.json().catch(() => ({}))) as { tenancyId?: unknown }
+    const tenancyId = typeof body.tenancyId === 'string' ? body.tenancyId.trim() : ''
+    if (!tenancyId) return c.json({ ok: false, error: 'tenancyId is required' }, 400)
+    await assertTenancyReadable(actor, tenancyId)
+  } catch (err) {
+    const status = errStatus(err)
+    return c.json(
+      { ok: false, error: status === 401 ? 'actor_required' : status === 404 ? 'lease_not_found' : 'forbidden' },
+      status,
+    )
+  }
+  return esignCreateEnvelope(c)
+})
+
+app.post('/api/esign/status', async (c) => {
+  try {
+    const actor = await requireActor(c, null)
+    const body = (await c.req.json().catch(() => ({}))) as {
+      tenancyId?: unknown
+      envelopeId?: unknown
+      docId?: unknown
+    }
+    const tenancyId = typeof body.tenancyId === 'string' ? body.tenancyId.trim() : ''
+    if (!tenancyId) return c.json({ ok: false, error: 'tenancyId is required' }, 400)
+    const lease = await assertTenancyReadable(actor, tenancyId)
+    const storedEnvelope =
+      typeof lease.eSign?.envelopeId === 'string' ? (lease.eSign.envelopeId as string) : ''
+    const requestedDoc =
+      (typeof body.docId === 'string' && body.docId.trim()) ||
+      (typeof body.envelopeId === 'string' && body.envelopeId.trim()
+        ? docIdFromEnvelopeId(body.envelopeId.trim())
+        : '')
+    const storedDoc = storedEnvelope ? docIdFromEnvelopeId(storedEnvelope) : ''
+    if (!storedDoc || !requestedDoc || requestedDoc !== storedDoc) {
+      return c.json({ ok: false, error: 'envelope_not_on_lease' }, 403)
+    }
+  } catch (err) {
+    const status = errStatus(err)
+    return c.json(
+      { ok: false, error: status === 401 ? 'actor_required' : status === 404 ? 'lease_not_found' : 'forbidden' },
+      status,
+    )
+  }
+  return esignStatus(c)
+})
 app.post('/api/esign/webhook', (c) => esignWebhook(c))
 
 app.post('/api/notifications/mark-read', async (c) => {
@@ -1041,18 +1324,17 @@ app.post('/api/notifications/mark-read', async (c) => {
     }
     const actor = await resolveRequestActor(c, body as unknown as Record<string, unknown>)
     if (!actor) throw actorRequiredError()
-    // Only mark own notifications unless agency-wide / super_admin
-    if (
-      body.userId &&
-      body.userId !== actor.userId &&
-      actor.role !== 'super_admin' &&
-      actor.role !== 'client_admin' &&
-      actor.role !== 'agent_admin'
-    ) {
+    // Own notifications only, for every role (an impersonating super admin
+    // acts as the impersonated user). Ownership is also enforced in SQL.
+    if (body.userId && body.userId !== actor.userId) {
       return c.json({ error: 'forbidden', message: 'Cannot mark another user notifications' }, 403)
     }
     const { markNotificationsRead } = await loadWritesModule()
-    const result = await markNotificationsRead(body)
+    const result = await markNotificationsRead({
+      ids: Array.isArray(body.ids) ? body.ids : undefined,
+      all: Boolean(body.all),
+      ownerUserId: actor.userId,
+    })
     return c.json({ ok: true, ...result })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

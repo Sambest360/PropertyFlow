@@ -16,6 +16,7 @@ import {
   OWNER_STATEMENT_TABLE_FOOTER,
   buildOwnerStatementTable,
   ownerStatementTableToCsv,
+  ownerStatementPaymentsSubtotal,
 } from './index'
 import type { OwnerStatementBook } from './types'
 
@@ -303,5 +304,40 @@ describe('owner statement table (Reports tab)', () => {
       'Only paid rent and commission are totalled; other lines are shown for reference.',
     )
     expect(lines[lines.length - 1]).toBe(`"${OWNER_STATEMENT_TABLE_FOOTER}"`)
+  })
+})
+
+describe('owner statement PDF payments subtotal (shared table rule)', () => {
+  const pay = (id: string, paymentType: PaymentRecord['type'], status: PaymentRecord['status'], amountZar: number) => ({
+    kind: 'payment' as const,
+    id,
+    date: '2026-09-01',
+    propertyTitle: 'Humewood B12',
+    description: `${paymentType} (${status})`,
+    amountZar,
+    status,
+    paymentType,
+  })
+  const payments = [
+    pay('R1', 'Rent', 'Paid', 12500),
+    pay('R2', 'First Month Rent', 'Paid', 4000),
+    pay('R3', 'Rent', 'Due', 12500),
+    pay('R4', 'Rent', 'Overdue', 12500),
+    pay('D1', 'Deposit', 'Paid', 25000),
+    pay('C1', 'Commission', 'Paid', 1000),
+    pay('C2', 'Commission', 'Due', 900),
+  ]
+
+  it('totals Paid rent and Paid commission only', () => {
+    expect(ownerStatementPaymentsSubtotal(payments)).toBe(12500 + 4000 + 1000)
+    expect(ownerStatementPaymentsSubtotal([pay('R3', 'Rent', 'Due', 12500), pay('R4', 'Rent', 'Overdue', 1)])).toBe(0)
+    expect(ownerStatementPaymentsSubtotal([pay('D1', 'Deposit', 'Paid', 25000)])).toBe(0)
+    expect(ownerStatementPaymentsSubtotal([pay('C2', 'Commission', 'Due', 900)])).toBe(0)
+  })
+
+  it('matches the table rent + payment-commission totals', () => {
+    const book = { lines: payments } as unknown as OwnerStatementBook
+    const { totals } = buildOwnerStatementTable(book)
+    expect(ownerStatementPaymentsSubtotal(payments)).toBe(totals.rent + totals.commission)
   })
 })

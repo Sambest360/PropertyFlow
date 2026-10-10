@@ -45,9 +45,9 @@ export default function MaintenanceCreatePage() {
     return <Navigate to={returnTo} replace />
   }
 
-  const handleSubmit = (input: CreateTicketInput) => {
+  const handleSubmit = async (input: CreateTicketInput) => {
     setBusy(true)
-    const result = createMaintenanceFromInput(input, {
+    const result = await createMaintenanceFromInput(input, {
       properties,
       internalAssets: state.internalAssets,
       canMutate,
@@ -55,6 +55,7 @@ export default function MaintenanceCreatePage() {
       updateMaintenanceTicketDetails,
       assignContractorToTicket,
       actorUserId: user.id,
+      actorRole: user.role,
     })
     setBusy(false)
 

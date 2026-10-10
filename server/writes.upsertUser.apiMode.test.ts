@@ -31,7 +31,10 @@ vi.mock('./db.js', () => ({
 vi.mock('./entityMap.js', () => ({
   ensureEntityMapTable: vi.fn(async () => undefined),
   ensureUuid: (...args: unknown[]) => ensureUuid(...args),
-  resolveUuid: vi.fn(async (type: string) => (type === 'agency' ? AGENCY_ID : null)),
+  // ensureUuid registered u-thandi -> PROFILE_ID, so the session's FE id round-trips.
+  resolveUuid: vi.fn(async (type: string, fe?: string) =>
+    type === 'agency' ? AGENCY_ID : type === 'user' && fe === 'u-thandi' ? PROFILE_ID : null,
+  ),
   forgetId: (...args: unknown[]) => forgetId(...args),
   isUuid: (v: string) =>
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v),
