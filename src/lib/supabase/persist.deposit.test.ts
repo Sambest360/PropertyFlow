@@ -29,12 +29,20 @@ describe('buildSupabaseDepositRow (Supabase strip)', () => {
     expect(buildSupabaseDepositRow(base, forged, { status: 'expected', held_cents: 0 }).status).toBe('held')
   })
 
+  it('expected_cents and interest_accrued_cents are locked once a release is proposed (409)', () => {
+    const cur = { status: 'release_proposed', held_cents: 100000, expected_cents: 100000, interest_accrued_cents: 0 }
+    expect(() => buildSupabaseDepositRow(base, { ...forged, expectedCents: 120000 }, cur)).toThrow(/locked/)
+    expect(() => buildSupabaseDepositRow(base, { ...forged, interestAccruedCents: 10 }, cur)).toThrow(/locked/)
+    expect(buildSupabaseDepositRow(base, forged, cur)).not.toHaveProperty('status')
+    expect(() => buildSupabaseDepositRow(base, { ...forged, expectedCents: 120000, interestAccruedCents: 10 }, { ...cur, status: 'held' })).not.toThrow()
+  })
+
   it('held_cents is locked once a release is proposed (409)', () => {
     for (const status of ['release_proposed', 'release_approved', 'refunded']) {
-      expect(() => buildSupabaseDepositRow(base, { ...forged, heldCents: 90000 }, { status, held_cents: 100000 })).toThrow(
+      expect(() => buildSupabaseDepositRow(base, { ...forged, heldCents: 90000 }, { status, held_cents: 100000, expected_cents: 100000, interest_accrued_cents: 0 })).toThrow(
         /locked/,
       )
-      const row = buildSupabaseDepositRow(base, forged, { status, held_cents: '100000' })
+      const row = buildSupabaseDepositRow(base, forged, { status, held_cents: '100000', expected_cents: '100000', interest_accrued_cents: 0 })
       expect(row).not.toHaveProperty('status')
     }
   })

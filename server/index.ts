@@ -638,9 +638,13 @@ app.get('/api/bootstrap', async (c) => {
     const rowLimit = lite
       ? 60
       : Math.min(Math.max(Number(c.req.query('limit') || 250), 1), 500)
+    const actor = await enrichActor(rawActor)
+    const { agencyFeId } = await loadScopeGateModule()
     const { buildBootstrap } = await loadBootstrapModule()
     const data = await buildBootstrap({
       lite,
+      refundAgencyFe:
+        actor.role === 'super_admin' ? undefined : actor.agencyId ? await agencyFeId(actor.agencyId) : null,
       limits: {
         units: rowLimit,
         messages: rowLimit,
@@ -652,7 +656,6 @@ app.get('/api/bootstrap', async (c) => {
         documents: rowLimit,
       },
     })
-    const actor = await enrichActor(rawActor)
     const { buildActorPropertyScope, filterBootstrapForActor, actorIdAliases } = await loadScopeGateModule()
     const scope = await buildActorPropertyScope(actor)
     const filtered = filterBootstrapForActor(

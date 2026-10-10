@@ -232,17 +232,21 @@ async function transitionWithAudit(
 
 /** Latest recorded refund per deposit uuid, from event_log rows (bootstrap read-back). */
 export function latestRefundBySubject(
-  rows: Array<{ subject_id?: unknown; payload?: unknown; created_at?: unknown }>,
+  rows: Array<{ id?: unknown; subject_id?: unknown; payload?: unknown; created_at?: unknown }>,
 ): Map<string, Record<string, unknown>> {
-  const out = new Map<string, { at: number; refund: Record<string, unknown> }>()
+  const out = new Map<string, { at: number; id: string; refund: Record<string, unknown> }>()
   for (const r of rows) {
     const payload = (typeof r.payload === 'string' ? JSON.parse(r.payload) : r.payload) as
       | { refund?: Record<string, unknown> }
       | null
     if (!r.subject_id || !payload?.refund) continue
     const at = new Date(String(r.created_at ?? 0)).getTime() || 0
+    const id = String(r.id ?? '')
     const prev = out.get(String(r.subject_id))
-    if (!prev || at >= prev.at) out.set(String(r.subject_id), { at, refund: payload.refund })
+    // Newest wins; equal timestamps break on the event id (deterministic).
+    if (!prev || at > prev.at || (at === prev.at && id > prev.id)) {
+      out.set(String(r.subject_id), { at, id, refund: payload.refund })
+    }
   }
   return new Map([...out].map(([k, v]) => [k, v.refund]))
 }
@@ -258,8 +262,8 @@ export async function rejectDepositRelease(
   body: Record<string, unknown>,
 ): Promise<DepositTransitionResult> {
   const reason = typeof body.reason === 'string' ? body.reason.trim() : ''
-  if (reason.length < 1 || reason.length > 500) {
-    throw httpError(400, 'A reason of 1 to 500 characters is required to reject a release')
+  if (reason.length < 3 || reason.length > 500) {
+    throw httpError(400, 'A reason of 3 to 500 characters is required to reject a release')
   }
   const row = await loadDeposit(feId)
   const approver = await assertDepositOfficer(actor, row, 'reject', DEPOSIT_APPROVE_PERMS)
@@ -288,23 +292,22 @@ export async function rejectDepositRelease(
   }
 }
 
-/** POST /:id/cancel-release: release_proposed | release_approved -> held. */
+/** POST /:id/cancel-release: release_proposed | release_approved -> held. Proposer or super admin only. */
 export async function cancelDepositRelease(
   actor: DemoActor,
   feId: string,
   body: Record<string, unknown>,
 ): Promise<DepositTransitionResult> {
-  const reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, 500) : ''
+  const reason = typeof body.reason === 'string' ? body.reason.trim() : ''
+  if (reason.length > 500) throw httpError(400, 'A cancel reason can be at most 500 characters')
   const row = await loadDeposit(feId)
   const officer = await assertDepositOfficer(actor, row, 'cancel', DEPOSIT_PROPOSE_PERMS)
   if (row.status !== 'release_proposed' && row.status !== 'release_approved') {
     throw httpError(409, `Deposit is ${row.status}; only a proposed or approved release can be cancelled`)
   }
-  if (officer !== row.release_proposed_by && actor.role !== 'super_admin') {
-    // Not the proposer: must be a same-agency trust approver.
-    if (!(await actorStoredCan(actor, DEPOSIT_APPROVE_PERMS))) {
-      throw forbiddenError('Only the proposer or a trust approver in the same agency can cancel this release')
-    }
+  // Spec: only the proposer or a super admin may cancel.
+  if (actor.role !== 'super_admin' && officer !== row.release_proposed_by) {
+    throw forbiddenError('Only the proposer or a super admin can cancel this release')
   }
   const from = row.status
   const updatedAt = await transitionWithAudit(

@@ -57,7 +57,7 @@ function statusTone(status: string): 'success' | 'warning' | 'danger' | 'info' |
     case 'release_approved':
       return 'warning'
     case 'refunded':
-      return 'success'
+      return 'neutral'
     case 'disputed':
       return 'danger'
     default:
@@ -406,7 +406,7 @@ export default function TrustDeposits() {
                   </div>
                   <div className="col-span-2">
                     <Badge tone={statusTone(deposit.status)}>
-                      {deposit.status.replace(/_/g, ' ')}
+                      {deposit.status === 'refunded' ? 'Refund recorded' : deposit.status.replace(/_/g, ' ')}
                     </Badge>
                   </div>
                   <div className="col-span-1 text-sm">

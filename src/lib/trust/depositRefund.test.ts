@@ -36,4 +36,17 @@ describe('latestRefundBySubject (Supabase loader read-back from event_log)', () 
     expect(m.get('d1')).toEqual(neu)
     expect(m.has('d2')).toBe(false)
   })
+
+  it('equal timestamps break on the event id, whatever the row order', async () => {
+    const { latestRefundBySubject } = await import('./depositDualControl')
+    const a = { refundedCents: 1, interestCents: 0, deductions: [], heldCents: 1 }
+    const b = { refundedCents: 2, interestCents: 0, deductions: [], heldCents: 2 }
+    const t = '2026-10-10T07:00:00Z'
+    const rows = [
+      { id: 'evt-b', subject_id: 'd1', payload: { refund: b }, created_at: t },
+      { id: 'evt-a', subject_id: 'd1', payload: { refund: a }, created_at: t },
+    ]
+    expect(latestRefundBySubject(rows).get('d1')).toEqual(b)
+    expect(latestRefundBySubject([...rows].reverse()).get('d1')).toEqual(b)
+  })
 })

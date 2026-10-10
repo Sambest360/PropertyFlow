@@ -1091,16 +1091,25 @@ export function buildSupabaseDepositRow(
     unitId: string | null
   },
   data: Record<string, unknown>,
-  existing: { status: string; held_cents: number | string } | null,
+  existing: {
+    status: string
+    held_cents: number | string
+    expected_cents?: number | string
+    interest_accrued_cents?: number | string
+  } | null,
 ): Record<string, unknown> {
   const heldCents = Math.max(0, Math.round(num(data.heldCents) ?? 0))
+  const expectedCents = Math.max(0, Math.round(num(data.expectedCents) ?? 0))
+  const interestCents = Math.max(0, Math.round(num(data.interestAccruedCents) ?? 0))
   if (
     existing &&
     (DEPOSIT_HELD_LOCKED_STATUSES as readonly string[]).includes(existing.status) &&
-    Number(existing.held_cents) !== heldCents
+    (Number(existing.held_cents) !== heldCents ||
+      Number(existing.expected_cents ?? 0) !== expectedCents ||
+      Number(existing.interest_accrued_cents ?? 0) !== interestCents)
   ) {
     throw Object.assign(
-      new Error(`Deposit is ${existing.status}; the held amount is locked once a release is proposed`),
+      new Error(`Deposit is ${existing.status}; the deposit amounts are locked once a release is proposed`),
       { status: 409 },
     )
   }
@@ -1109,9 +1118,9 @@ export function buildSupabaseDepositRow(
     client_id: base.clientId,
     occupancy_id: base.occupancyId,
     unit_id: base.unitId,
-    expected_cents: Math.max(0, Math.round(num(data.expectedCents) ?? 0)),
+    expected_cents: expectedCents,
     held_cents: heldCents,
-    interest_accrued_cents: Math.max(0, Math.round(num(data.interestAccruedCents) ?? 0)),
+    interest_accrued_cents: interestCents,
     statutory_deadline_on: data.statutoryDeadlineOn
       ? str(data.statutoryDeadlineOn).slice(0, 10)
       : null,
@@ -1130,7 +1139,7 @@ async function upsertDepositHolding(id: string, data: Record<string, unknown>): 
   if (!clientId) throw new Error('deposit_holding requires agencyId')
   const cur = await supabase
     .from('deposit_holdings')
-    .select('status, held_cents')
+    .select('status, held_cents, expected_cents, interest_accrued_cents')
     .eq('id', uuid)
     .maybeSingle()
   const row = buildSupabaseDepositRow(
@@ -1141,7 +1150,7 @@ async function upsertDepositHolding(id: string, data: Record<string, unknown>): 
       unitId: data.propertyId ? await resolveUuid('property', str(data.propertyId)) : null,
     },
     data,
-    (cur.data as { status: string; held_cents: number | string } | null) ?? null,
+    (cur.data as Parameters<typeof buildSupabaseDepositRow>[2]) ?? null,
   )
   const res = await supabase.from('deposit_holdings').upsert(row)
   throwIfUpsertFailed(res, 'deposit_holding')

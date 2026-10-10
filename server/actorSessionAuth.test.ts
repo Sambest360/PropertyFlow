@@ -62,6 +62,7 @@ type DepositRow = {
   release_proposed_by: string | null
   release_approved_by: string | null
   held_cents?: number
+  expected_cents?: number
   interest_accrued_cents?: number
   metadata?: Record<string, unknown>
 }
@@ -80,6 +81,8 @@ const db = vi.hoisted(() => ({
   failEventLog: false as boolean,
   /** Deposit rows snapshot taken at BEGIN, restored on ROLLBACK. */
   txSnapshot: null as null | string,
+  /** Params of each bootstrap refund read-back query. */
+  refundEventQueries: [] as unknown[][],
 }))
 
 function agencyFeFor(client: string | null): string | null {
@@ -173,22 +176,33 @@ vi.mock('pg', () => {
       return db.deposits.map((d) => ({
         ...d,
         occupancy_id: 'occ-1',
-        expected_cents: d.held_cents ?? 0,
+        expected_cents: d.expected_cents ?? d.held_cents ?? 0,
         statutory_deadline_on: null,
         interest_rate_unknown: false,
         created_at: new Date('2026-10-01'),
         updated_at: new Date('2026-10-01'),
       }))
     }
-    if (sql.startsWith('SELECT subject_id::text AS subject_id, payload, created_at FROM event_log')) {
+    if (sql.startsWith('SELECT id::text AS id, subject_id::text AS subject_id, payload, created_at FROM event_log')) {
+      db.refundEventQueries.push(params)
+      const subjects = params[0] as string[]
+      const clients = params[1] as string[]
       return db.writes
-        .map((w, k) => ({ w, p: db.writeParams[k] }))
-        .filter((x) => x.w.startsWith('INSERT INTO event_log') && x.p[2] === 'deposit_refund_recorded')
-        .map((x) => ({ subject_id: x.p[3], payload: JSON.parse(String(x.p[5])), created_at: new Date() }))
+        .map((w, k) => ({ w, p: db.writeParams[k], k }))
+        .filter(
+          (x) =>
+            x.w.startsWith('INSERT INTO event_log') &&
+            x.p[2] === 'deposit_refund_recorded' &&
+            subjects.includes(String(x.p[3])) &&
+            clients.includes(String(x.p[1])),
+        )
+        .map((x) => ({ id: x.p[0], subject_id: x.p[3], payload: JSON.parse(String(x.p[5])), created_at: new Date(Date.UTC(2026, 0, 1) + x.k * 1000) }))
     }
-    if (sql.startsWith('SELECT status, held_cents FROM deposit_holdings')) {
+    if (sql.startsWith('SELECT status, held_cents, expected_cents, interest_accrued_cents FROM deposit_holdings')) {
       const d = db.deposits.find((x) => x.id === params[0])
-      return d ? [{ status: d.status, held_cents: d.held_cents ?? 0 }] : []
+      return d
+        ? [{ status: d.status, held_cents: d.held_cents ?? 0, expected_cents: d.expected_cents ?? d.held_cents ?? 0, interest_accrued_cents: d.interest_accrued_cents ?? 0 }]
+        : []
     }
     if (/^(INSERT|UPDATE|DELETE)\b/i.test(sql)) {
       if (!/entity_id_map/i.test(sql)) {
@@ -1210,15 +1224,19 @@ describe('D2: deposit reject, cancel, refund record and held_cents lock', () => 
       }),
     ])
     // A second reject (now held) is a 409.
-    expect((await post('u-d2-admin2', DH(2), 'reject-release', { reason: 'x' })).status).toBe(409)
+    expect((await post('u-d2-admin2', DH(2), 'reject-release', { reason: 'Too late' })).status).toBe(409)
   })
 
-  it('reject without a reason, or over 500 characters, is a 400 and nothing changes', async () => {
+  it('reject without a reason, under 3 or over 500 characters, is a 400 (3 is accepted)', async () => {
     expect((await post('u-d2-admin2', DH(2), 'reject-release', {})).status).toBe(400)
     expect((await post('u-d2-admin2', DH(2), 'reject-release', { reason: '   ' })).status).toBe(400)
     expect((await post('u-d2-admin2', DH(2), 'reject-release', { reason: 'x'.repeat(501) })).status).toBe(400)
-    expect(db.deposits[1].status).toBe('release_proposed')
-    expect(events()).toEqual([])
+    // Spec: 3 to 500 characters (trimmed).
+    expect((await post('u-d2-admin2', DH(2), 'reject-release', { reason: 'no' })).status).toBe(400)
+    expect((await post('u-d2-admin2', DH(2), 'reject-release', { reason: ' ab ' })).status).toBe(400)
+    expect((await post('u-d2-admin2', DH(2), 'reject-release', { reason: 'abc' })).status).toBe(200)
+    expect(db.deposits[1].status).toBe('held')
+    expect(events()).toHaveLength(1)
   })
 
   it('reject is refused for the proposer, an allocator-only admin, and from a non-proposed state', async () => {
@@ -1238,19 +1256,45 @@ describe('D2: deposit reject, cancel, refund record and held_cents lock', () => 
     expect(events()[0]).toMatchObject({ type: 'deposit_release_cancelled', payload: { from: 'release_proposed', to: 'held' } })
   })
 
-  it('cancel: a same-agency trust approver cancels an approved release back to held', async () => {
-    expect((await post('u-d2-admin3', DH(3), 'cancel-release')).status).toBe(200)
+  it('cancel: a super admin cancels an approved release back to held', async () => {
+    expect((await post('u-sa', DH(3), 'cancel-release')).status).toBe(200)
     expect(db.deposits[2]).toMatchObject({ status: 'held', release_approved_by: null })
     expect(events()[0]).toMatchObject({ payload: { from: 'release_approved', to: 'held' } })
   })
 
-  it('cancel is refused for a non-proposer without approve permission, another agency, and from held or refunded', async () => {
-    // u-d2-alloc did not propose DH(3) and lacks trust.approve_payout.
+  it('cancel: the proposer cancels their approved release back to held', async () => {
+    expect((await post('u-admin', DH(3), 'cancel-release')).status).toBe(200)
+    expect(db.deposits[2].status).toBe('held')
+  })
+
+  it('cancel is refused for a same-agency trust approver who is not the proposer (proposer or super admin only)', async () => {
+    expect((await post('u-d2-admin3', DH(3), 'cancel-release')).status).toBe(403)
+    expect((await post('u-d2-admin2', DH(2), 'cancel-release')).status).toBe(403)
+    expect(db.deposits.map((d) => d.status)).toEqual(['held', 'release_proposed', 'release_approved'])
+    expect(events()).toEqual([])
+  })
+
+  it('cancel is refused for a non-proposer allocator and from held or refunded', async () => {
     expect((await post('u-d2-alloc', DH(3), 'cancel-release')).status).toBe(403)
-    expect((await post('u-d2-cape', DH(2), 'cancel-release')).status).toBe(403)
-    expect((await post('u-d2-admin2', DH(1), 'cancel-release')).status).toBe(409)
+    expect((await post('u-d2-alloc', DH(1), 'cancel-release')).status).toBe(409)
     db.deposits[2].status = 'refunded'
-    expect((await post('u-d2-admin3', DH(3), 'cancel-release')).status).toBe(409)
+    expect((await post('u-sa', DH(3), 'cancel-release')).status).toBe(409)
+  })
+
+  it('an over-long cancel reason is a 400, not truncated', async () => {
+    expect((await post('u-d2-alloc', DH(2), 'cancel-release', { reason: 'x'.repeat(501) })).status).toBe(400)
+    expect(db.deposits[1].status).toBe('release_proposed')
+    expect((await post('u-d2-alloc', DH(2), 'cancel-release', { reason: 'x'.repeat(500) })).status).toBe(200)
+    expect(events()[0].payload.reason).toHaveLength(500)
+  })
+
+  it('another agency admin (with trust permissions) gets 403 on reject, cancel and refund', async () => {
+    db.users.find((u) => u.fe === 'u-d2-cape')!.metadata.enabledPermissions = ['trust.view', 'trust.allocate', 'trust.approve_payout']
+    expect((await post('u-d2-cape', DH(2), 'reject-release', { reason: 'Not ours' })).status).toBe(403)
+    expect((await post('u-d2-cape', DH(2), 'cancel-release')).status).toBe(403)
+    expect((await post('u-d2-cape', DH(3), 'refund', goodSplit)).status).toBe(403)
+    expect(db.deposits.map((d) => d.status)).toEqual(['held', 'release_proposed', 'release_approved'])
+    expect(events()).toEqual([])
   })
 
   it('refund: a second person (not the approver) records a balanced split; copy says recorded, not bank-confirmed', async () => {
@@ -1336,7 +1380,7 @@ describe('D2: deposit reject, cancel, refund record and held_cents lock', () => 
   it('each transition writes exactly one audit row, inside the transaction', async () => {
     const steps: [string, string, string, unknown][] = [
       ['u-d2-alloc', DH(1), 'propose-release', {}],
-      ['u-d2-admin2', DH(1), 'reject-release', { reason: 'r' }],
+      ['u-d2-admin2', DH(1), 'reject-release', { reason: 'Not yet' }],
       ['u-d2-alloc', DH(1), 'propose-release', {}],
       ['u-d2-alloc', DH(1), 'cancel-release', {}],
       ['u-d2-alloc', DH(1), 'propose-release', {}],
@@ -1370,7 +1414,7 @@ describe('D2: deposit reject, cancel, refund record and held_cents lock', () => 
   it('a failed audit insert rolls back the status change', async () => {
     db.failEventLog = true
     try {
-      expect((await post('u-d2-admin2', DH(2), 'reject-release', { reason: 'r' })).status).toBe(500)
+      expect((await post('u-d2-admin2', DH(2), 'reject-release', { reason: 'Not yet' })).status).toBe(500)
       expect((await post('u-d2-admin3', DH(3), 'refund', goodSplit)).status).toBe(500)
       expect((await post('u-d2-alloc', DH(1), 'propose-release')).status).toBe(500)
     } finally {
@@ -1395,9 +1439,34 @@ describe('D2: deposit reject, cancel, refund record and held_cents lock', () => 
     expect(held?.refund ?? null).toBeNull()
   })
 
+  it("bootstrap reads refund rows only for the loaded deposits in the actor's agency; an old own refund still shows", async () => {
+    db.users.find((u) => u.fe === 'u-d2-cape')!.metadata.enabledPermissions = ['trust.view', 'trust.allocate', 'trust.approve_payout']
+    db.deposits.push({ id: DH(9), client_id: CAPE, status: 'release_approved', release_proposed_by: uuidOf('u-cape-agent'), release_approved_by: uuidOf('u-cape-agent'), held_cents: 50000, interest_accrued_cents: 0 })
+    // Own (Horizon) refund first, so it is the OLDEST row.
+    expect((await post('u-d2-admin3', DH(3), 'refund', goodSplit)).status).toBe(200)
+    expect((await post('u-d2-cape', DH(9), 'refund', { refundedCents: 50000, interestCents: 0, deductions: [] })).status).toBe(200)
+    // 450 newer refund rows for other deposits: a global LIMIT 400 would drop ours.
+    for (let n = 0; n < 450; n++) {
+      db.writes.push('INSERT INTO event_log (noise)')
+      db.writeParams.push([`e-${n}`, CAPE, 'deposit_refund_recorded', `c8000009-0000-4000-8000-${String(n).padStart(12, '0')}`, null, JSON.stringify({ refund: { refundedCents: 1 } })])
+    }
+    db.refundEventQueries = []
+    const res = await app.request('/api/bootstrap', { headers: { Authorization: `Bearer ${tokens['u-admin']}` } })
+    expect(res.status).toBe(200)
+    expect(db.refundEventQueries).toHaveLength(1)
+    expect(db.refundEventQueries[0][0]).toEqual([DH(3)])
+    expect(db.refundEventQueries[0][1]).toEqual([HORIZON])
+    expect(db.sql.find((q) => q.includes("event_type = 'deposit_refund_recorded'"))).not.toMatch(/LIMIT/)
+    const text = await res.text()
+    expect(text).not.toContain(DH(9))
+    expect(text).not.toContain('"refundedCents":50000')
+    const boot = JSON.parse(text) as { depositHoldings: Array<{ status: string; refund: Record<string, unknown> | null }> }
+    expect(boot.depositHoldings.find((d) => d.status === 'refunded')?.refund).toMatchObject(goodSplit)
+  })
+
   it('portal and field roles get 403 on reject, cancel and refund', async () => {
     for (const fe of ['u-ll', 'u-tenant', 'u-james']) {
-      expect((await post(fe, DH(2), 'reject-release', { reason: 'r' })).status, `${fe} reject`).toBe(403)
+      expect((await post(fe, DH(2), 'reject-release', { reason: 'Not yet' })).status, `${fe} reject`).toBe(403)
       expect((await post(fe, DH(2), 'cancel-release')).status, `${fe} cancel`).toBe(403)
       expect((await post(fe, DH(3), 'refund', goodSplit)).status, `${fe} refund`).toBe(403)
     }
@@ -1410,7 +1479,7 @@ describe('D2: deposit reject, cancel, refund record and held_cents lock', () => 
     expect(db.deposits[0].status).toBe('release_proposed')
   })
 
-  const persistDeposit = (id: string, heldCents: number) =>
+  const persistDeposit = (id: string, heldCents: number, extra: Record<string, unknown> = {}) =>
     app.request('/api/persist', {
       method: 'POST',
       headers: { 'content-type': 'application/json', Authorization: `Bearer ${tokens['u-admin']}` },
@@ -1418,7 +1487,7 @@ describe('D2: deposit reject, cancel, refund record and held_cents lock', () => 
         resource: 'deposit_holding',
         action: 'upsert',
         id,
-        data: { agencyId: 'ag-horizon', occupancyId: 'occ-1', expectedCents: 100000, heldCents },
+        data: { agencyId: 'ag-horizon', occupancyId: 'occ-1', expectedCents: 100000, heldCents, ...extra },
       }),
     })
 
@@ -1428,6 +1497,18 @@ describe('D2: deposit reject, cancel, refund record and held_cents lock', () => 
       expect(res.status, id).toBe(409)
     }
     expect(db.writes.some((w) => w.startsWith('INSERT INTO deposit_holdings'))).toBe(false)
+  })
+
+  it('expected_cents and interest_accrued_cents are locked after propose too (409)', async () => {
+    expect((await persistDeposit(DH(2), 100000, { expectedCents: 120000 })).status).toBe(409)
+    expect((await persistDeposit(DH(2), 100000, { interestAccruedCents: 99 })).status).toBe(409)
+    expect((await persistDeposit(DH(3), 100000, { interestAccruedCents: 0 })).status).toBe(409)
+    expect(db.writes.some((w) => w.startsWith('INSERT INTO deposit_holdings'))).toBe(false)
+    expect((await persistDeposit(DH(3), 100000, { interestAccruedCents: 1500 })).status).toBe(200)
+    expect((await persistDeposit(DH(1), 100000, { expectedCents: 120000, interestAccruedCents: 50 })).status).toBe(200)
+    const sql = db.writes.find((w) => w.startsWith('INSERT INTO deposit_holdings'))!
+    expect(sql).toContain("WHEN deposit_holdings.status IN ('release_proposed','release_approved','refunded') THEN deposit_holdings.expected_cents")
+    expect(sql).toContain("WHEN deposit_holdings.status IN ('release_proposed','release_approved','refunded') THEN deposit_holdings.interest_accrued_cents")
   })
 
   it('a held deposit can still change amount, and a locked one may persist the same amount', async () => {

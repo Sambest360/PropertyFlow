@@ -202,7 +202,16 @@ const LITE_BOOTSTRAP_LIMITS: Required<BootstrapLimits> = {
   documents: 80,
 }
 
-export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: boolean }) {
+export async function buildBootstrap(opts?: {
+  limits?: BootstrapLimits
+  lite?: boolean
+  /**
+   * D2: refund read-back scope. A front-end agency id loads refund events only
+   * for that agency's deposits; null loads none; undefined (super admin) loads
+   * them for every deposit returned.
+   */
+  refundAgencyFe?: string | null
+}) {
   const lite = Boolean(opts?.lite)
   const baseLimits = lite ? LITE_BOOTSTRAP_LIMITS : DEFAULT_BOOTSTRAP_LIMITS
   const limits = { ...baseLimits, ...opts?.limits }
@@ -1052,14 +1061,25 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
 
   // D2: recorded refund splits live in event_log only (no deposit_holdings column).
   let refundByDeposit = new Map<string, Record<string, unknown>>()
-  if ((deposits as unknown[]).length) {
+  const refundScope = opts?.refundAgencyFe
+  const refundDeposits = (deposits as Array<Record<string, unknown>>).filter(
+    (d) =>
+      d.status === 'refunded' &&
+      (refundScope === undefined || (refundScope !== null && agencyFe(d.client_id as string) === refundScope)),
+  )
+  if (refundDeposits.length) {
     try {
       const { latestRefundBySubject } = await import('./depositRoutes.js')
       refundByDeposit = latestRefundBySubject(
         await query(
-          `SELECT subject_id::text AS subject_id, payload, created_at FROM event_log
+          `SELECT id::text AS id, subject_id::text AS subject_id, payload, created_at FROM event_log
             WHERE event_type = 'deposit_refund_recorded' AND subject_type = 'deposit_holding'
-            ORDER BY created_at DESC LIMIT 400`,
+              AND subject_id = ANY($1::uuid[]) AND client_id = ANY($2::uuid[])
+            ORDER BY created_at DESC`,
+          [
+            refundDeposits.map((d) => String(d.id)),
+            [...new Set(refundDeposits.map((d) => String(d.client_id)))],
+          ],
         ),
       )
     } catch (err) {

@@ -2259,18 +2259,28 @@ async function upsertDepositHolding(feId: string, d: Record<string, unknown>): P
   const heldCents = Math.max(0, Math.round(num(d.heldCents) ?? 0))
 
   // D2: held_cents is locked once a release is proposed (409 on any change).
-  const current = await query<{ status: string; held_cents: number | string }>(
-    'SELECT status, held_cents FROM deposit_holdings WHERE id = $1::uuid LIMIT 1',
+  const expectedCents = Math.max(0, Math.round(num(d.expectedCents) ?? 0))
+  const interestCents = Math.max(0, Math.round(num(d.interestAccruedCents) ?? 0))
+  // D2: held, expected and interest amounts are locked once a release is proposed (409).
+  const current = await query<{
+    status: string
+    held_cents: number | string
+    expected_cents: number | string
+    interest_accrued_cents: number | string
+  }>(
+    'SELECT status, held_cents, expected_cents, interest_accrued_cents FROM deposit_holdings WHERE id = $1::uuid LIMIT 1',
     [uuid],
   )
   const cur = current[0]
   if (
     cur &&
     ['release_proposed', 'release_approved', 'refunded'].includes(cur.status) &&
-    Number(cur.held_cents) !== heldCents
+    (Number(cur.held_cents) !== heldCents ||
+      Number(cur.expected_cents) !== expectedCents ||
+      Number(cur.interest_accrued_cents) !== interestCents)
   ) {
     throw Object.assign(
-      new Error(`Deposit is ${cur.status}; the held amount is locked once a release is proposed`),
+      new Error(`Deposit is ${cur.status}; the deposit amounts are locked once a release is proposed`),
       { status: 409 },
     )
   }
@@ -2290,13 +2300,21 @@ async function upsertDepositHolding(feId: string, d: Record<string, unknown>): P
      ON CONFLICT (id) DO UPDATE SET
        occupancy_id = EXCLUDED.occupancy_id,
        unit_id = EXCLUDED.unit_id,
-       expected_cents = EXCLUDED.expected_cents,
+       expected_cents = CASE
+         WHEN deposit_holdings.status IN ('release_proposed','release_approved','refunded')
+           THEN deposit_holdings.expected_cents
+         ELSE EXCLUDED.expected_cents
+       END,
        held_cents = CASE
          WHEN deposit_holdings.status IN ('release_proposed','release_approved','refunded')
            THEN deposit_holdings.held_cents
          ELSE EXCLUDED.held_cents
        END,
-       interest_accrued_cents = EXCLUDED.interest_accrued_cents,
+       interest_accrued_cents = CASE
+         WHEN deposit_holdings.status IN ('release_proposed','release_approved','refunded')
+           THEN deposit_holdings.interest_accrued_cents
+         ELSE EXCLUDED.interest_accrued_cents
+       END,
        status = CASE
          WHEN deposit_holdings.status = 'expected' AND EXCLUDED.held_cents > 0 THEN 'held'
          ELSE deposit_holdings.status
@@ -2309,9 +2327,9 @@ async function upsertDepositHolding(feId: string, d: Record<string, unknown>): P
       client,
       occupancyUuid,
       unitUuid,
-      Math.max(0, Math.round(num(d.expectedCents) ?? 0)),
+      expectedCents,
       heldCents,
-      Math.max(0, Math.round(num(d.interestAccruedCents) ?? 0)),
+      interestCents,
       d.statutoryDeadlineOn ? str(d.statutoryDeadlineOn).slice(0, 10) : null,
       bool(d.interestRateUnknown, false),
       d.createdAt ? str(d.createdAt) : null,

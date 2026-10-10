@@ -1006,18 +1006,21 @@ export async function fetchSupabaseBootstrap(
   }))
 
   // D2: recorded refund splits live in event_log only.
-  const depositUuids = (depositsRes.data ?? []).map((d) => String(d.id))
+  // Only the deposits already loaded (RLS-scoped) that are refunded; no global limit.
+  const depositUuids = (depositsRes.data ?? []).filter((d) => d.status === 'refunded').map((d) => String(d.id))
   const refundEvents = depositUuids.length
     ? await supabase
         .from('event_log')
-        .select('subject_id, payload, created_at')
+        .select('id, subject_id, payload, created_at')
         .eq('event_type', 'deposit_refund_recorded')
         .in('subject_id', depositUuids)
         .order('created_at', { ascending: false })
-        .limit(400)
-    : { data: [] as Record<string, unknown>[] }
+    : { data: [] as Record<string, unknown>[], error: null }
+  if (refundEvents.error) {
+    console.warn('[supabase/data] deposit refund read-back failed', refundEvents.error.message)
+  }
   const refundByDeposit = latestRefundBySubject(
-    (refundEvents.data ?? []) as Array<{ subject_id?: unknown; payload?: unknown; created_at?: unknown }>,
+    (refundEvents.data ?? []) as Array<{ id?: unknown; subject_id?: unknown; payload?: unknown; created_at?: unknown }>,
   )
   const depositHoldings = (depositsRes.data ?? []).map((d) => ({
     id: mappedFe(cache, 'deposit', d.id as string, d.id as string),
