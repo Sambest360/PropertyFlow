@@ -196,6 +196,9 @@ function answer(sqlRaw: string, params: unknown[] = []): unknown[] {
   }
   if (sql.includes('FROM leases') || sql.includes('FROM maintenance_tickets')) return []
   if (sql.includes('FROM clients WHERE id')) return [{ status: 'active' }]
+  if (sql.startsWith('SELECT 1 AS ok FROM users WHERE id = $1::uuid')) {
+    return users[String(params[0])] ? [{ ok: 1 }] : []
+  }
   if (/SELECT client_id FROM users WHERE id = \$1::uuid/.test(sql)) {
     const u = users[String(params[0])]
     return u ? [{ client_id: u.client }] : []

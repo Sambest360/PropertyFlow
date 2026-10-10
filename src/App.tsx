@@ -11,6 +11,7 @@ import { ScrollToTop } from './components/ScrollToTop'
 import { RequirePermission } from './components/RequirePermission'
 
 import { RequireAuth } from './components/RequireAuth'
+import { TempPasswordHost } from './components/admin/TempPasswordHost'
 import { useAuth } from './context/AuthContext'
 
 const MarketHome = lazy(() => import('./pages/market/MarketHome'))
@@ -49,6 +50,7 @@ const OwnerPortal = lazy(() => import('./pages/OwnerPortal'))
 const TenantPortal = lazy(() => import('./pages/TenantPortal'))
 const AccountWishlistPage = lazy(() => import('./pages/account/AccountWishlistPage'))
 const AccountSignaturePage = lazy(() => import('./pages/account/AccountSignaturePage'))
+const ChangePasswordPage = lazy(() => import('./pages/account/ChangePasswordPage'))
 const ContractorPortal = lazy(() => import('./pages/ContractorPortal'))
 const StaffDirectory = lazy(() => import('./pages/StaffDirectory'))
 const StaffDetail = lazy(() => import('./pages/StaffDetail'))
@@ -314,6 +316,7 @@ export default function App() {
                 <Route path="portals/tenant/viewings" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
                 <Route path="account/wishlist" element={<AccountWishlistPage />} />
                 <Route path="account/signature" element={<AccountSignaturePage />} />
+                <Route path="account/password" element={<ChangePasswordPage />} />
                 <Route path="portals/contractor" element={<Guard permission="portal.contractor"><ContractorPortal /></Guard>} />
 
                 {/* People */}
@@ -363,6 +366,7 @@ export default function App() {
 
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
+            <TempPasswordHost />
           </BrowserRouter>
           </SuiteAlertProvider>
         </AuthProvider>

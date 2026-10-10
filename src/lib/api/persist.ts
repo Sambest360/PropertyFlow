@@ -135,6 +135,38 @@ export async function persistViaServerApi(op: PersistOp): Promise<boolean> {
   }
 }
 
+/**
+ * Jim B2: staff user create through /api/persist. When no password was typed
+ * the server generates a temp password and returns it once; the caller shows
+ * it in the one-time modal and never stores it.
+ */
+export async function persistUserCreateViaServer(
+  op: PersistOp,
+): Promise<{ ok: true; tempPassword?: string } | { ok: false }> {
+  try {
+    const res = await fetch(`${API_BASE}/api/persist`, {
+      method: 'POST',
+      headers: jsonHeaders(),
+      cache: 'no-store',
+      body: JSON.stringify(op),
+    })
+    const text = await res.text().catch(() => '')
+    if (!isPersistApiSuccessResponse(res.status, res.headers.get('content-type'), text)) {
+      // Status only: a refusal body never holds a password, but keep logs minimal.
+      console.warn('[persist] user create refused', op.id, res.status)
+      reportPersistRefusal(parsePersistRefusal(op, res.status, text))
+      return { ok: false }
+    }
+    const parsed = JSON.parse(text) as { tempPassword?: unknown }
+    return typeof parsed.tempPassword === 'string' && parsed.tempPassword
+      ? { ok: true, tempPassword: parsed.tempPassword }
+      : { ok: true }
+  } catch {
+    console.warn('[persist] user create failed', op.id)
+    return { ok: false }
+  }
+}
+
 /** Guest Apply must land via DATABASE_URL — browser RLS cannot stamp listing client_id. */
 export function preferServerPersistForApplication(
   resource: PersistOp['resource'],

@@ -228,7 +228,14 @@ export function resolveLandlordAssignment(
     currentUserId: string
     agencyId: string
     users: AppUser[]
-    createUser: (input: Omit<AppUser, 'id' | 'active'> & { active?: boolean }) => AppUser
+    createUser: (
+      input: Omit<AppUser, 'id' | 'active'> & {
+        active?: boolean
+        onTempPassword?: (tempPassword: string) => void
+      },
+    ) => AppUser
+    /** Michael #96: receives the server-generated temp password for a new landlord (one-time modal). */
+    onTempPassword?: (tempPassword: string) => void
   },
 ): string {
   if (opts.isLandlordUser) return opts.currentUserId
@@ -255,6 +262,7 @@ export function resolveLandlordAssignment(
     role: 'landlord',
     agencyId: opts.agencyId,
     verification: { status: 'pending', submittedAt: new Date().toISOString() },
+    ...(opts.onTempPassword ? { onTempPassword: opts.onTempPassword } : {}),
   })
   return created.id
 }
