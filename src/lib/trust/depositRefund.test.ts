@@ -1,0 +1,66 @@
+import { describe, expect, it } from 'vitest'
+import { checkRefundSplit, DEPOSIT_REFUND_RECORDED_LABEL, DEPOSIT_NEEDS_SERVER_COPY } from './depositDualControl'
+import { DEPOSIT_REFUND_RECORDED_LABEL as SERVER_LABEL } from '../../../server/depositRoutes'
+
+describe('D2 refund copy and split', () => {
+  it('copy says recorded, not bank-confirmed; never Refunded, paid or settled', () => {
+    expect(DEPOSIT_REFUND_RECORDED_LABEL).toBe('Refund recorded (not bank-confirmed)')
+    expect(SERVER_LABEL).toBe(DEPOSIT_REFUND_RECORDED_LABEL)
+    expect(DEPOSIT_REFUND_RECORDED_LABEL).not.toMatch(/refunded|paid|settled/i)
+    expect(DEPOSIT_NEEDS_SERVER_COPY).toMatch(/need the server/)
+  })
+
+  it('accepts a balanced split', () => {
+    expect(checkRefundSplit(100000, { refundedCents: 81500, interestCents: 1500, deductions: [{ reason: 'Window', amountCents: 20000 }] })).toBeNull()
+    expect(checkRefundSplit(100000, { refundedCents: 100000, interestCents: 0, deductions: [] })).toBeNull()
+  })
+
+  it('refuses an unbalanced split, negative or fractional cents, and a deduction without a reason', () => {
+    expect(checkRefundSplit(100000, { refundedCents: 90000, interestCents: 0, deductions: [] })).toMatch(/must equal/)
+    expect(checkRefundSplit(100000, { refundedCents: -1, interestCents: 0, deductions: [] })).toMatch(/whole cents/)
+    expect(checkRefundSplit(100000, { refundedCents: 0.5, interestCents: 0, deductions: [] })).toMatch(/whole cents/)
+    expect(checkRefundSplit(100000, { refundedCents: 80000, interestCents: 0, deductions: [{ reason: ' ', amountCents: 20000 }] })).toMatch(/needs a reason/)
+  })
+})
+
+describe('latestRefundBySubject (Supabase loader read-back from event_log)', () => {
+  it('keeps the newest refund per deposit and ignores rows without a refund', async () => {
+    const { latestRefundBySubject } = await import('./depositDualControl')
+    const old = { refundedCents: 1, interestCents: 0, deductions: [], heldCents: 1 }
+    const neu = { refundedCents: 2, interestCents: 0, deductions: [], heldCents: 2 }
+    const m = latestRefundBySubject([
+      { subject_id: 'd1', payload: { refund: old }, created_at: '2026-10-10T06:00:00Z' },
+      { subject_id: 'd1', payload: JSON.stringify({ refund: neu }), created_at: '2026-10-10T07:00:00Z' },
+      { subject_id: 'd2', payload: { from: 'held' }, created_at: '2026-10-10T07:00:00Z' },
+    ])
+    expect(m.get('d1')).toEqual(neu)
+    expect(m.has('d2')).toBe(false)
+  })
+
+  it('equal timestamps break on the event id, whatever the row order', async () => {
+    const { latestRefundBySubject } = await import('./depositDualControl')
+    const a = { refundedCents: 1, interestCents: 0, deductions: [], heldCents: 1 }
+    const b = { refundedCents: 2, interestCents: 0, deductions: [], heldCents: 2 }
+    const t = '2026-10-10T07:00:00Z'
+    const rows = [
+      { id: 'evt-b', subject_id: 'd1', payload: { refund: b }, created_at: t },
+      { id: 'evt-a', subject_id: 'd1', payload: { refund: a }, created_at: t },
+    ]
+    expect(latestRefundBySubject(rows).get('d1')).toEqual(b)
+    expect(latestRefundBySubject([...rows].reverse()).get('d1')).toEqual(b)
+  })
+})
+
+describe('canCancelDepositRelease (Cancel release button visibility)', () => {
+  it('shows only for the proposer or a super admin, on proposed or approved releases', async () => {
+    const { canCancelDepositRelease } = await import('../../pages/trust/TrustDeposits')
+    const dep = { status: 'release_proposed' as const, releaseProposedBy: 'u-a' }
+    expect(canCancelDepositRelease(dep, { id: 'u-a', role: 'client_admin' })).toBe(true)
+    expect(canCancelDepositRelease(dep, { id: 'u-sa', role: 'super_admin' })).toBe(true)
+    expect(canCancelDepositRelease(dep, { id: 'u-b', role: 'client_admin' })).toBe(false)
+    expect(canCancelDepositRelease(dep, null)).toBe(false)
+    expect(canCancelDepositRelease({ ...dep, status: 'release_approved' }, { id: 'u-a' })).toBe(true)
+    expect(canCancelDepositRelease({ ...dep, status: 'held' }, { id: 'u-sa', role: 'super_admin' })).toBe(false)
+    expect(canCancelDepositRelease({ ...dep, status: 'refunded' }, { id: 'u-a' })).toBe(false)
+  })
+})

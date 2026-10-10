@@ -9,6 +9,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { applicationUploadPayload, applyDocumentUpload } from '../lib/applicationDocUpload'
 import { summarizeRooms } from '../lib/roomSummary'
 import type {
   Agency,
@@ -55,6 +56,8 @@ import {
   buildHeldDeposit,
   buildProposedPayout,
   proposeDepositRelease,
+  DEPOSIT_NEEDS_SERVER_COPY,
+  checkRefundSplit,
 } from '../lib/trust/depositDualControl'
 import { commitProposedPayout } from '../lib/trust/proposePayoutCommit'
 import { isPubliclyListed } from '../lib/publicListings'
@@ -490,6 +493,8 @@ type StoreContextValue = {
     /** Plain password for invite / staff create (hashed server-side). */
     password?: string
     tempPassword?: string
+    /** Michael #96: called once with the server-generated temp password (no password given). */
+    onTempPassword?: (tempPassword: string) => void
   }) => AppUser
   /**
    * P0-sa-mint: await durable Auth+profile persist before success UI.
@@ -499,7 +504,10 @@ type StoreContextValue = {
     active?: boolean
     password?: string
     tempPassword?: string
-  }) => Promise<{ ok: true; user: AppUser } | { ok: false; error: string; user?: AppUser }>
+  }) => Promise<
+    | { ok: true; user: AppUser; generatedTempPassword?: string }
+    | { ok: false; error: string; user?: AppUser }
+  >
   updateUser: (id: string, patch: Partial<AppUser>) => void
   updateTenancy: (id: string, patch: Partial<Tenancy>) => void
   /** Issue lease PDF + e-sign envelope for an existing tenancy (approve path / manual). */
@@ -875,6 +883,26 @@ type StoreContextValue = {
   approveDepositRelease: (params: {
     depositId: string
     approverUserId: string
+  }) => Promise<{ ok: boolean; error?: string }>
+  /** D2: reject a proposed release (approver ≠ proposer, reason required) → held. */
+  rejectDepositRelease: (params: {
+    depositId: string
+    actorUserId: string
+    reason: string
+  }) => Promise<{ ok: boolean; error?: string }>
+  /** D2: cancel a proposed or approved release (proposer or trust approver) → held. */
+  cancelDepositRelease: (params: {
+    depositId: string
+    actorUserId: string
+    reason?: string
+  }) => Promise<{ ok: boolean; error?: string }>
+  /** D2: record a refund split (release_approved → refunded). Records only; no money moves. */
+  recordDepositRefund: (params: {
+    depositId: string
+    actorUserId: string
+    refundedCents: number
+    interestCents: number
+    deductions: { reason: string; amountCents: number }[]
   }) => Promise<{ ok: boolean; error?: string }>
   /** DQ-M2 optional: durable propose payout instruction. */
   proposePayoutInstruction: (params: {
@@ -1872,6 +1900,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const now = new Date().toISOString()
       const result = proposeDepositRelease(dep, actor.id, now)
       if (result.ok === false) return { ok: false, error: result.error }
+      if (!isApiEnabled && isSupabaseMode) return { ok: false, error: DEPOSIT_NEEDS_SERVER_COPY }
       let updated = result.value
       if (isApiEnabled) {
         // Dual control is enforced server-side; generic persist never moves status.
@@ -1908,6 +1937,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const now = new Date().toISOString()
       const result = approveDepositRelease(dep, approver.id, now)
       if (result.ok === false) return { ok: false, error: result.error }
+      if (!isApiEnabled && isSupabaseMode) return { ok: false, error: DEPOSIT_NEEDS_SERVER_COPY }
       let updated = result.value
       if (isApiEnabled) {
         // Two-person rule is enforced server-side (approver ≠ proposer).
@@ -1934,6 +1964,79 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       return { ok: true }
     },
     [patch, addActivity, persistUpsert],
+  )
+
+  /** D2: reject / cancel / refund run only through the server routes. */
+  const runDepositServerStep = useCallback(
+    async (
+      depositId: string,
+      actorUserId: string,
+      step: 'reject-release' | 'cancel-release' | 'refund',
+      payload: Record<string, unknown>,
+      activity: string,
+    ) => {
+      const dep = stateRef.current.depositHoldings.find((d) => d.id === depositId)
+      const actor = stateRef.current.users.find((u) => u.id === actorUserId)
+      if (!dep || !actor) return { ok: false, error: 'Deposit or actor not found' }
+      if (!isApiEnabled) return { ok: false, error: DEPOSIT_NEEDS_SERVER_COPY }
+      const { postDepositTransition } = await import('../lib/api/trustDepositsApi')
+      const res = await postDepositTransition(dep.id, step, payload)
+      if (res.ok === false) return { ok: false, error: res.error }
+      patch((s) => ({
+        ...s,
+        depositHoldings: s.depositHoldings.map((d) =>
+          d.id === dep.id ? ({ ...d, ...res.deposit } as DepositHolding) : d,
+        ),
+      }))
+      addActivity(`${activity} for occupancy ${dep.occupancyId}`, actor.name, dep.agencyId)
+      return { ok: true }
+    },
+    [patch, addActivity],
+  )
+
+  const rejectDepositReleaseAction = useCallback(
+    async (p: { depositId: string; actorUserId: string; reason: string }) => {
+      const reason = p.reason.trim()
+      if (!reason || reason.length > 500) {
+        return { ok: false, error: 'A reason of 1 to 500 characters is required' }
+      }
+      return runDepositServerStep(p.depositId, p.actorUserId, 'reject-release', { reason }, 'Deposit release rejected')
+    },
+    [runDepositServerStep],
+  )
+
+  const cancelDepositReleaseAction = useCallback(
+    async (p: { depositId: string; actorUserId: string; reason?: string }) =>
+      runDepositServerStep(
+        p.depositId,
+        p.actorUserId,
+        'cancel-release',
+        { reason: p.reason?.trim() ?? '' },
+        'Deposit release cancelled',
+      ),
+    [runDepositServerStep],
+  )
+
+  const recordDepositRefundAction = useCallback(
+    async (p: {
+      depositId: string
+      actorUserId: string
+      refundedCents: number
+      interestCents: number
+      deductions: { reason: string; amountCents: number }[]
+    }) => {
+      const dep = stateRef.current.depositHoldings.find((d) => d.id === p.depositId)
+      if (!dep) return { ok: false, error: 'Deposit not found' }
+      const split = {
+        refundedCents: p.refundedCents,
+        interestCents: p.interestCents,
+        deductions: p.deductions.map((d) => ({ reason: d.reason.trim(), amountCents: d.amountCents })),
+      }
+      const bad = checkRefundSplit(dep.heldCents, split)
+      if (bad) return { ok: false, error: bad }
+      return runDepositServerStep(p.depositId, p.actorUserId, 'refund', split, 'Refund recorded (not bank-confirmed)')
+    },
+    [runDepositServerStep],
   )
 
   const proposePayoutInstruction = useCallback(
@@ -2242,7 +2345,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       persistUpsert('agency', id, next as Record<string, unknown>)
     },
     createUser: (input) => {
-      const { password, tempPassword, ...rest } = input as typeof input & {
+      const { password, tempPassword, onTempPassword, ...rest } = input as typeof input & {
         password?: string
         tempPassword?: string
       }
@@ -2260,11 +2363,28 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       patch((s) => ({ ...s, users: [...s.users, user] }))
       // Fire-and-forget for legacy callers (e.g. landlord picker). Prefer
       // createUserDurable for SA staff mint so success UI cannot race Auth.
+      if (!password && !tempPassword) {
+        // No constant default (Jim B2): the server generates a random temp
+        // password on this create and returns it once; hand it to the caller's
+        // one-time modal (never stored).
+        void (async () => {
+          const { markLocalPersistWrite } = await import('../lib/bootstrapMerge')
+          markLocalPersistWrite('user', user.id)
+          const { persistUserCreateViaServer } = await import('../lib/api/persist')
+          const res = await persistUserCreateViaServer({
+            resource: 'user',
+            action: 'upsert',
+            id: user.id,
+            data: { ...(user as unknown as Record<string, unknown>), id: user.id },
+          })
+          if (res.ok && res.tempPassword) onTempPassword?.(res.tempPassword)
+        })()
+        return user
+      }
       persistUpsert('user', user.id, {
         ...(user as unknown as Record<string, unknown>),
         ...(password ? { password } : {}),
         ...(tempPassword ? { tempPassword } : {}),
-        ...(!password && !tempPassword ? { tempPassword: 'ChangeMe123!' } : {}),
       })
       return user
     },
@@ -2276,7 +2396,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const plain =
         (typeof tempPassword === 'string' && tempPassword.trim()) ||
         (typeof password === 'string' && password.trim()) ||
-        'ChangeMe123!'
+        ''
       const user: AppUser = {
         ...rest,
         id: uid('u'),
@@ -2289,10 +2409,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               : undefined,
       }
       patch((s) => ({ ...s, users: [...s.users, user] }))
-      const ok = await persistUpsert('user', user.id, {
-        ...(user as unknown as Record<string, unknown>),
-        tempPassword: plain,
+      // Always the server path: it generates the temp password when none was
+      // typed and links Supabase Auth with it.
+      const { markLocalPersistWrite } = await import('../lib/bootstrapMerge')
+      markLocalPersistWrite('user', user.id)
+      const { persistUserCreateViaServer } = await import('../lib/api/persist')
+      const res = await persistUserCreateViaServer({
+        resource: 'user',
+        action: 'upsert',
+        id: user.id,
+        data: { ...(user as unknown as Record<string, unknown>), id: user.id, ...(plain ? { tempPassword: plain } : {}) },
       })
+      const ok = res.ok
       if (!ok) {
         patch((s) => ({ ...s, users: s.users.filter((u) => u.id !== user.id) }))
         return {
@@ -2302,7 +2430,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           user,
         }
       }
-      return { ok: true as const, user }
+      return res.ok && res.tempPassword
+        ? { ok: true as const, user, generatedTempPassword: res.tempPassword }
+        : { ok: true as const, user }
     },
     updateUser: (id, p) => {
       patch((s) => ({ ...s, users: s.users.map((u) => (u.id === id ? { ...u, ...p } : u)) }))
@@ -4151,65 +4281,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ...s,
         applications: s.applications.map((a) => {
           if (a.id !== applicationId) return a
-          const documents = a.documents.map((d) =>
-            d.key === key
-              ? {
-                  ...d,
-                  status: 'uploaded' as const,
-                  file: {
-                    name: file.name,
-                    mimeType: file.mimeType,
-                    dataUrl: file.dataUrl,
-                    uploadedAt: new Date().toISOString(),
-                    uploadedBy: actor?.name ?? a.applicantName,
-                  },
-                  rejectedReason: undefined,
-                }
-              : d,
-          )
-          const uploaded = allDocsUploaded(documents)
-          let next = appendWorkflowEvent(
-            { ...a, documents },
-            {
-              stage: resolveWorkflowStatus(a),
-              actionKey: 'DOC_UPLOADED',
-              actorUserId: actor?.userId ?? a.applicantUserId,
-              actorName: actor?.name ?? a.applicantName,
-              summary: `Uploaded ${documents.find((d) => d.key === key)?.label ?? key}`,
-              payload: { documentKey: key, fileName: file.name },
-            },
-          )
-          if (uploaded && resolveWorkflowStatus(a) === 'documents_requested') {
-            next = applyWorkflowTransition({ ...next, documents }, 'documents_uploaded')
-            next = appendWorkflowEvent(next, {
-              stage: 'documents_uploaded',
-              actionKey: 'UPLOAD_DOCS',
-              actorUserId: actor?.userId ?? a.applicantUserId,
-              actorName: actor?.name ?? a.applicantName,
-              summary: 'All required documents uploaded',
-            })
-          } else {
-            next = normalizeApplication({ ...next, documents })
-          }
-          let result: Application = {
-            ...next,
-            docs: documents.filter((d) => d.status !== 'required').map((d) => d.label),
-            updatedAt: new Date().toISOString().slice(0, 10),
-          }
-          if (key === 'credit_consent') {
-            result = captureScreeningConsent(result, {
-              method: 'document',
-              grantedBy: actor?.userId ?? a.applicantUserId ?? a.applicantName,
-              note: `Consent document uploaded: ${file.name}`,
-            })
-          }
+          const result = applyDocumentUpload(a, key, file, actor)
           persisted = result
           return result
         }),
       }))
       if (persisted) {
         const before = preUpload
-        void persistUpsert('application', applicationId, persisted as unknown as Record<string, unknown>).then(
+        const app = persisted as Application
+        void persistUpsert('application', applicationId, applicationUploadPayload(app, key, actor?.userId)).then(
           (ok) => {
             // A refused upload must not stay on screen as if it were saved.
             if (ok || !before) return
@@ -6962,10 +7042,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     upsertHeldDeposit,
     proposeDepositRelease: proposeDepositReleaseAction,
     approveDepositRelease: approveDepositReleaseAction,
+    rejectDepositRelease: rejectDepositReleaseAction,
+    cancelDepositRelease: cancelDepositReleaseAction,
+    recordDepositRefund: recordDepositRefundAction,
     proposePayoutInstruction,
     approvePayoutInstruction,
     submitPayoutInstruction,
-  }), [state, hydratedForUserId, hydrationFailed, resetToDefault, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, importTrustTemplateCsv, upsertHeldDeposit, proposeDepositReleaseAction, approveDepositReleaseAction, proposePayoutInstruction, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistDelete, refreshBootstrap, scheduleBootstrapRefreshAfterMutation, issueLeasePackageForTenancy])
+  }), [state, hydratedForUserId, hydrationFailed, resetToDefault, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, importTrustTemplateCsv, upsertHeldDeposit, proposeDepositReleaseAction, approveDepositReleaseAction, rejectDepositReleaseAction, cancelDepositReleaseAction, recordDepositRefundAction, proposePayoutInstruction, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistDelete, refreshBootstrap, scheduleBootstrapRefreshAfterMutation, issueLeasePackageForTenancy])
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }

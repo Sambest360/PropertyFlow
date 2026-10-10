@@ -1,3 +1,4 @@
+import { MIN_PASSWORD_LENGTH } from '../../lib/auth/passwordPolicy'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Building2, Check, HardHat, Home } from 'lucide-react'
@@ -188,7 +189,7 @@ export default function RegisterPage() {
     if (!firstName.trim() || !lastName.trim()) return 'First name and surname are required'
     if (!email.trim() || !email.includes('@')) return 'Valid email is required'
     if (!bootstrapNeeded && !phone.trim()) return 'Phone number is required'
-    if (password.length < 8) return 'Password must be at least 8 characters'
+    if (password.length < MIN_PASSWORD_LENGTH) return `Password must be at least ${MIN_PASSWORD_LENGTH} characters`
     if (password !== confirmPassword) return 'Passwords do not match'
     return null
   }

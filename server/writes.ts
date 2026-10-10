@@ -343,7 +343,9 @@ async function unitIdFromProperty(propertyId: unknown): Promise<string | null> {
   )
 }
 
-export async function handlePersist(body: PersistBody): Promise<{ ok: true; id: string; uuid: string }> {
+export async function handlePersist(
+  body: PersistBody,
+): Promise<{ ok: true; id: string; uuid: string; tempPassword?: string }> {
   await ensureEntityMapTable()
   const { resource, action, id, data = {} } = body
   if (!resource || !action || !id) {
@@ -355,6 +357,14 @@ export async function handlePersist(body: PersistBody): Promise<{ ok: true; id: 
     return { ok: true, id, uuid: (await resolveUuid(resource, id)) ?? id }
   }
 
+  if (resource === 'user') {
+    // Jim B2: a created user with no password gets a crypto-random temp one,
+    // returned once to the creator (route sends Cache-Control: no-store).
+    const res = await upsertUserWithResult(id, data)
+    return res.generatedTempPassword
+      ? { ok: true, id, uuid: res.uuid, tempPassword: res.generatedTempPassword }
+      : { ok: true, id, uuid: res.uuid }
+  }
   const uuid = await upsertEntity(resource, id, data)
   return { ok: true, id, uuid }
 }
@@ -430,7 +440,7 @@ async function upsertEntity(
     case 'agency':
       return upsertAgency(frontendId, data)
     case 'user':
-      return upsertUser(frontendId, data)
+      return (await upsertUserWithResult(frontendId, data)).uuid
     case 'building':
       return upsertBuilding(frontendId, data)
     case 'property':
@@ -517,8 +527,29 @@ async function upsertAgency(feId: string, d: Record<string, unknown>): Promise<s
   return uuid
 }
 
-async function upsertUser(feId: string, d: Record<string, unknown>): Promise<string> {
+async function upsertUserWithResult(
+  feId: string,
+  input: Record<string, unknown>,
+): Promise<{ uuid: string; generatedTempPassword?: string }> {
   const uuid = await ensureUuid('user', feId)
+  let d = input
+  let generatedTempPassword: string | undefined
+  const hasCredential = ['passwordHash', 'tempPassword', 'password'].some(
+    (k) => typeof input[k] === 'string' && input[k] !== '',
+  )
+  if (!hasCredential) {
+    const existingRow = await query<{ ok: number }>(`SELECT 1 AS ok FROM users WHERE id = $1::uuid`, [uuid])
+    if (existingRow.length === 0) {
+      const { generateTempPassword } = await import('./tempPassword.js')
+      generatedTempPassword = generateTempPassword()
+      d = { ...input, tempPassword: generatedTempPassword }
+    }
+  }
+  const resultUuid = await upsertUser(feId, uuid, d)
+  return generatedTempPassword ? { uuid: resultUuid, generatedTempPassword } : { uuid: resultUuid }
+}
+
+async function upsertUser(feId: string, uuid: string, d: Record<string, unknown>): Promise<string> {
   const { first, last } = splitName(str(d.name, 'User'))
   const feRole = str(d.role, 'tenant').trim().toLowerCase() || 'tenant'
   const role = ROLE_TO_DB[feRole] ?? 'END_USER'
@@ -529,7 +560,11 @@ async function upsertUser(feId: string, d: Record<string, unknown>): Promise<str
   // missing (absent, null or blank) from the payload.
   const hasEmail = typeof d.email === 'string' && d.email.trim() !== ''
   const hasPhone = typeof d.phone === 'string' && d.phone.trim() !== ''
-  let passwordSql = `crypt('ChangeMe123!', gen_salt('bf'))`
+  // No constant default (Jim B2). A create always carries a hash param (a
+  // generated temp password when none was given); on update the placeholder
+  // never lands (ON CONFLICT keeps the stored hash) and is no bcrypt hash, so
+  // it can never sign in.
+  let passwordSql = `'!'`
   let passwordParam: string | null = null
   if (typeof d.passwordHash === 'string' && d.passwordHash) {
     passwordSql = `$10`
@@ -2357,6 +2392,33 @@ async function upsertDepositHolding(feId: string, d: Record<string, unknown>): P
       : null
   const heldCents = Math.max(0, Math.round(num(d.heldCents) ?? 0))
 
+  // D2: held_cents is locked once a release is proposed (409 on any change).
+  const expectedCents = Math.max(0, Math.round(num(d.expectedCents) ?? 0))
+  const interestCents = Math.max(0, Math.round(num(d.interestAccruedCents) ?? 0))
+  // D2: held, expected and interest amounts are locked once a release is proposed (409).
+  const current = await query<{
+    status: string
+    held_cents: number | string
+    expected_cents: number | string
+    interest_accrued_cents: number | string
+  }>(
+    'SELECT status, held_cents, expected_cents, interest_accrued_cents FROM deposit_holdings WHERE id = $1::uuid LIMIT 1',
+    [uuid],
+  )
+  const cur = current[0]
+  if (
+    cur &&
+    ['release_proposed', 'release_approved', 'refunded'].includes(cur.status) &&
+    (Number(cur.held_cents) !== heldCents ||
+      Number(cur.expected_cents) !== expectedCents ||
+      Number(cur.interest_accrued_cents) !== interestCents)
+  ) {
+    throw Object.assign(
+      new Error(`Deposit is ${cur.status}; the deposit amounts are locked once a release is proposed`),
+      { status: 409 },
+    )
+  }
+
   await query(
     `INSERT INTO deposit_holdings (
        id, client_id, occupancy_id, unit_id, expected_cents, held_cents,
@@ -2372,9 +2434,21 @@ async function upsertDepositHolding(feId: string, d: Record<string, unknown>): P
      ON CONFLICT (id) DO UPDATE SET
        occupancy_id = EXCLUDED.occupancy_id,
        unit_id = EXCLUDED.unit_id,
-       expected_cents = EXCLUDED.expected_cents,
-       held_cents = EXCLUDED.held_cents,
-       interest_accrued_cents = EXCLUDED.interest_accrued_cents,
+       expected_cents = CASE
+         WHEN deposit_holdings.status IN ('release_proposed','release_approved','refunded')
+           THEN deposit_holdings.expected_cents
+         ELSE EXCLUDED.expected_cents
+       END,
+       held_cents = CASE
+         WHEN deposit_holdings.status IN ('release_proposed','release_approved','refunded')
+           THEN deposit_holdings.held_cents
+         ELSE EXCLUDED.held_cents
+       END,
+       interest_accrued_cents = CASE
+         WHEN deposit_holdings.status IN ('release_proposed','release_approved','refunded')
+           THEN deposit_holdings.interest_accrued_cents
+         ELSE EXCLUDED.interest_accrued_cents
+       END,
        status = CASE
          WHEN deposit_holdings.status = 'expected' AND EXCLUDED.held_cents > 0 THEN 'held'
          ELSE deposit_holdings.status
@@ -2387,9 +2461,9 @@ async function upsertDepositHolding(feId: string, d: Record<string, unknown>): P
       client,
       occupancyUuid,
       unitUuid,
-      Math.max(0, Math.round(num(d.expectedCents) ?? 0)),
+      expectedCents,
       heldCents,
-      Math.max(0, Math.round(num(d.interestAccruedCents) ?? 0)),
+      interestCents,
       d.statutoryDeadlineOn ? str(d.statutoryDeadlineOn).slice(0, 10) : null,
       bool(d.interestRateUnknown, false),
       d.createdAt ? str(d.createdAt) : null,

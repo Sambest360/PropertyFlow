@@ -1,27 +1,18 @@
 import { useRef, useState } from 'react'
 import { Check, Eye, FileText, Upload, XCircle } from 'lucide-react'
 import type { ApplicationDocument } from '../../types/domain'
-import { REGISTRATION_DOC_MAX_BYTES, formatDocSizeLabel } from '../../lib/auth/registrationDocs'
+import {
+  APPLICATION_DOC_ACCEPT,
+  APPLICATION_DOC_MAX_BYTES,
+  applicationDocFileError,
+  applicationDocTypeError,
+} from '../../lib/applicationDocUpload'
+import { readDocumentFile } from '../../lib/applicationDocDownscale'
 import { showAuthWarning } from '../../lib/sweetAlert'
 import { Badge, Button, cn, statusTone, Textarea } from '../ui'
 import { ICON_STROKE } from './types'
 
-const ACCEPT = 'image/jpeg,image/png,image/webp,application/pdf,.pdf,.jpg,.jpeg,.png,.webp'
-const MAX_LABEL = formatDocSizeLabel()
-
-function readFile(file: File): Promise<{ name: string; mimeType: string; dataUrl: string }> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () =>
-      resolve({
-        name: file.name,
-        mimeType: file.type || 'application/octet-stream',
-        dataUrl: String(reader.result),
-      })
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(file)
-  })
-}
+const ACCEPT = APPLICATION_DOC_ACCEPT
 
 export function ApplicationDocumentRow({
   doc,
@@ -42,13 +33,20 @@ export function ApplicationDocumentRow({
 
   const pickFile = async (file: File | null) => {
     if (!file) return
-    if (file.size > REGISTRATION_DOC_MAX_BYTES) {
-      await showAuthWarning(`File must be under ${MAX_LABEL}. Try a smaller PDF or image.`)
+    const typeError = applicationDocTypeError(file)
+    if (typeError) {
+      await showAuthWarning(typeError)
       return
     }
     try {
-      const read = await readFile(file)
-      onUpload(read)
+      // Images are downscaled first; the cap applies to the result.
+      const read = await readDocumentFile(file, APPLICATION_DOC_MAX_BYTES)
+      const refusal = applicationDocFileError({ size: read.bytes, type: file.type, name: file.name })
+      if (refusal) {
+        await showAuthWarning(refusal)
+        return
+      }
+      onUpload({ name: read.name, mimeType: read.mimeType, dataUrl: read.dataUrl })
     } catch {
       await showAuthWarning('Could not read that file — try a different PDF or image.')
     }

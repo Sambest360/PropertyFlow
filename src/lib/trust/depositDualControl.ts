@@ -3,7 +3,7 @@
  * No PayProp / bank HTTP; submit/release_approved ≠ settled / refunded.
  */
 
-import type { DepositHolding, PayoutInstruction } from '../../types/domain'
+import type { DepositHolding, DepositRefundRecord, PayoutInstruction } from '../../types/domain'
 
 export const DEPOSIT_PERSIST_RESOURCE = 'deposit_holding' as const
 export const PAYOUT_PERSIST_RESOURCE = 'payout_instruction' as const
@@ -198,4 +198,51 @@ export function applySubmitPayout(
       updatedAt: now,
     },
   }
+}
+
+/** D2 copy for a recorded refund. Never "Refunded", "paid" or "settled". */
+export const DEPOSIT_REFUND_RECORDED_LABEL = 'Refund recorded (not bank-confirmed)'
+
+/** Shown when deposit releases are attempted without the server API. */
+export const DEPOSIT_NEEDS_SERVER_COPY = 'Deposit releases need the server. Ask your administrator.'
+
+export type RefundSplitInput = {
+  refundedCents: number
+  interestCents: number
+  deductions: { reason: string; amountCents: number }[]
+}
+
+/** Client-side mirror of the server check: refunded + deductions = held + interest. */
+export function checkRefundSplit(heldCents: number, split: RefundSplitInput): string | null {
+  const ints = [split.refundedCents, split.interestCents, ...split.deductions.map((d) => d.amountCents)]
+  if (ints.some((n) => !Number.isInteger(n) || n < 0)) return 'Amounts must be whole cents, 0 or more'
+  for (const [i, d] of split.deductions.entries()) {
+    if (!d.reason.trim()) return `Deduction ${i + 1} needs a reason`
+    if (d.amountCents <= 0) return `Deduction ${i + 1} must be more than 0`
+  }
+  const deducted = split.deductions.reduce((s, d) => s + d.amountCents, 0)
+  if (split.refundedCents + deducted !== heldCents + split.interestCents) {
+    return 'Refunded plus deductions must equal held plus interest'
+  }
+  return null
+}
+
+/** Latest recorded refund per deposit uuid, read back from event_log (D2). */
+export function latestRefundBySubject(
+  rows: Array<{ id?: unknown; subject_id?: unknown; payload?: unknown; created_at?: unknown }>,
+): Map<string, DepositRefundRecord> {
+  const out = new Map<string, { at: number; id: string; refund: DepositRefundRecord }>()
+  for (const r of rows) {
+    const payload = (typeof r.payload === 'string' ? JSON.parse(r.payload) : r.payload) as
+      | { refund?: DepositRefundRecord }
+      | null
+    if (!r.subject_id || !payload?.refund) continue
+    const at = new Date(String(r.created_at ?? 0)).getTime() || 0
+    const id = String(r.id ?? '')
+    const prev = out.get(String(r.subject_id))
+    if (!prev || at > prev.at || (at === prev.at && id > prev.id)) {
+      out.set(String(r.subject_id), { at, id, refund: payload.refund })
+    }
+  }
+  return new Map([...out].map(([k, v]) => [k, v.refund]))
 }

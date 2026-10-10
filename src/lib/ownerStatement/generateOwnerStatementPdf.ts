@@ -5,7 +5,20 @@
 
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib'
 import { buildOwnerStatementBook } from './buildOwnerStatementBook'
-import { OWNER_STATEMENT_TOTALS_FOOTER, ownerStatementPaymentsSubtotal } from './ownerStatementTable'
+import {
+  OWNER_STATEMENT_TABLE_COLUMNS,
+  OWNER_STATEMENT_TOTALS_FOOTER,
+  ownerStatementCellText,
+  ownerStatementHeaderLabels,
+  ownerStatementPaymentsSubtotal,
+  ownerStatementRow,
+} from './ownerStatementTable'
+import type { OwnerStatementLine } from './types'
+
+/** PDF table header: the same labels, in the same order, as the screen and CSV. */
+export function ownerStatementPdfHeader(): string[] {
+  return ownerStatementHeaderLabels()
+}
 import {
   OWNER_STATEMENT_MODE_A_COPY,
   type OwnerStatementBook,
@@ -13,8 +26,9 @@ import {
   type OwnerStatementPdfResult,
 } from './types'
 
-const PAGE_W = 595.28
-const PAGE_H = 841.89
+// Landscape so all statement columns fit (CR2).
+const PAGE_W = 841.89
+const PAGE_H = 595.28
 const MARGIN = 48
 
 function zar(amount: number): string {
@@ -108,6 +122,46 @@ function rule(ctx: DrawCtx) {
   ctx.y -= 12
 }
 
+
+/** CR2: draw a real table; labels come from the same column list as screen and CSV. */
+function drawTable(ctx: DrawCtx, labels: string[], rows: string[][], numeric: boolean[] = []) {
+  const size = 7
+  const colW = (PAGE_W - 2 * MARGIN) / Math.max(1, labels.length)
+  const fit = (font: PDFFont, t: string) => {
+    let s = t
+    while (s.length > 1 && font.widthOfTextAtSize(s, size) > colW - 4) s = s.slice(0, -2) + '…'
+    return s
+  }
+  const drawRow = (cells: string[], bold: boolean) => {
+    const before = ctx.page
+    ensureSpace(ctx, size + 6)
+    // Repeat the header at the top of each new page.
+    if (!bold && ctx.page !== before) drawRow(labels, true)
+    const font = bold ? ctx.bold : ctx.font
+    cells.forEach((cell, i) => {
+      const text = fit(font, cell)
+      const w = font.widthOfTextAtSize(text, size)
+      const x = MARGIN + i * colW + (numeric[i] && !bold ? colW - 4 - w : 0)
+      ctx.page.drawText(text, { x, y: ctx.y, size, font, color: ctx.black })
+    })
+    ctx.y -= size + 5
+  }
+  drawRow(labels, true)
+  for (const r of rows) drawRow(r, false)
+}
+
+function drawSectionTable(ctx: DrawCtx, lines: OwnerStatementLine[]) {
+  drawTable(
+    ctx,
+    ownerStatementPdfHeader(),
+    lines.map((l) => {
+      const row = ownerStatementRow(l)
+      return OWNER_STATEMENT_TABLE_COLUMNS.map((c) => ownerStatementCellText(row, c.key))
+    }),
+    OWNER_STATEMENT_TABLE_COLUMNS.map((c) => Boolean(c.numeric)),
+  )
+}
+
 function renderBook(ctx: DrawCtx, book: OwnerStatementBook) {
   drawLine(ctx, 'OWNER STATEMENT (IN-APP BOOK)', { size: 16, bold: true })
   drawLine(ctx, 'PropertyFlow - printable statement', { size: 9, color: ctx.muted })
@@ -134,13 +188,7 @@ function renderBook(ctx: DrawCtx, book: OwnerStatementBook) {
   if (book.payments.length === 0) {
     drawLine(ctx, 'No landlord-visible payments in this period.', { size: 9, color: ctx.muted })
   } else {
-    for (const p of book.payments) {
-      drawWrapped(
-        ctx,
-        `${p.date}  ${p.propertyTitle}  ${p.description}  ${zar(p.amountZar)}`,
-        { size: 8, width: 98 },
-      )
-    }
+    drawSectionTable(ctx, book.payments)
   }
   drawLine(ctx, `Subtotal payments: ${zar(ownerStatementPaymentsSubtotal(book.payments))}`, {
     size: 9,
@@ -152,13 +200,7 @@ function renderBook(ctx: DrawCtx, book: OwnerStatementBook) {
   if (book.allocations.length === 0) {
     drawLine(ctx, 'No trust allocations in this period.', { size: 9, color: ctx.muted })
   } else {
-    for (const a of book.allocations) {
-      drawWrapped(
-        ctx,
-        `${a.date}  ${a.propertyTitle}  ${a.description}  ${zar(a.amountZar)}`,
-        { size: 8, width: 98 },
-      )
-    }
+    drawSectionTable(ctx, book.allocations)
   }
   drawLine(ctx, `Subtotal allocations: ${zar(book.totals.allocationsZar)}`, {
     size: 9,
@@ -178,13 +220,7 @@ function renderBook(ctx: DrawCtx, book: OwnerStatementBook) {
       color: ctx.muted,
     })
   } else {
-    for (const p of book.payouts) {
-      drawWrapped(
-        ctx,
-        `${p.date}  ${p.propertyTitle}  ${p.description}  ${zar(p.amountZar)}`,
-        { size: 8, width: 98 },
-      )
-    }
+    drawSectionTable(ctx, book.payouts)
   }
   drawLine(ctx, `Subtotal payouts (<= submitted): ${zar(book.totals.payoutsSubmittedZar)}`, {
     size: 9,
