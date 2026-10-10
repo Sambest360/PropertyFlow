@@ -107,6 +107,8 @@ export type StampInput = {
 export type StampResult = {
   /** The eSign now stored on the lease. */
   eSign: Row
+  /** CR10 N3: id of the lease_signed row this stamp wrote (null: none). */
+  eventId?: string | null
   /** True when a signing was accepted and recorded (one lease_signed row). */
   signed: boolean
   /** True when this signing completed the envelope (first time). */
