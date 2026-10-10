@@ -1038,18 +1038,19 @@ export async function assertSupportTicketAllowed(
   const actorAgency = (await agencyFe(actor.agencyId)) ?? actor.agencyId ?? null
   const viewer = { userId: actor.userId, role: actor.role, agencyId: actorAgency }
 
+  const row = await loadSupportTicketRow(body.id)
+  if (row.kind === 'other') throw deny('id belongs to another record')
+
   if (body.action === 'delete') {
     if (actor.role !== 'super_admin') throw deny('delete is super admin only')
     return
   }
 
   const data = body.data ?? {}
-  const row = await loadSupportTicketRow(body.id)
-  if (row.kind === 'other') throw deny('id belongs to another record')
 
   if (row.kind === 'none') {
     const claimed = strField(data, 'submittedByUserId')
-    if (!claimed || claimed !== actor.userId) throw deny('submitter must be the signed-in user')
+    if (!claimed || !(await actorIdAliases(actor)).has(claimed)) throw deny('submitter must be the signed-in user')
     body.data = {
       subject: data.subject,
       body: data.body,

@@ -406,7 +406,12 @@ async function deleteEntity(resource: EntityType, frontendId: string): Promise<v
   }
   
   // Use quoted identifier to prevent SQL injection (even though table name is from whitelist)
-  await query(`DELETE FROM "${table}" WHERE id = $1::uuid`, [uuid])
+  if (resource === 'support_ticket') {
+    // CR7: only ever a ticket row — never another event_log audit row.
+    await query(`DELETE FROM "event_log" WHERE id = $1::uuid AND event_type = 'support_ticket'`, [uuid])
+  } else {
+    await query(`DELETE FROM "${table}" WHERE id = $1::uuid`, [uuid])
+  }
   await forgetId(resource, frontendId)
   if (resource === 'property') await forgetId('unit', `unt-${frontendId}`)
 }

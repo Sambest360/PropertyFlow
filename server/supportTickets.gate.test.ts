@@ -109,6 +109,13 @@ function fakeQuery(sql: string, params: unknown[] = []): unknown[] {
     }
     return []
   }
+  if (sql.includes('DELETE FROM "event_log"')) {
+    const r = db.events.get(String(params[0]))
+    if (r && (!sql.includes("event_type = 'support_ticket'") || r.event_type === 'support_ticket')) {
+      db.events.delete(String(params[0]))
+    }
+    return []
+  }
   throw new Error(`unexpected sql: ${sql.slice(0, 160)}`)
 }
 
@@ -411,6 +418,46 @@ describe('CR7 support tickets — scope gate + writer', () => {
       data: { status: 'resolved', resolutionNote: 'support' },
     })
     expect(db.events.get('e1000001-0001-4000-8000-0000000000aa')?.payload.status).toBe('resolved')
+  })
+
+  it('refuses a super admin deleting a lease_signed or activity row through support_ticket; the row survives', async () => {
+    for (const [i, type] of (['lease_signed', 'activity'] as const).entries()) {
+      const uuid = `e1000001-0001-4000-8000-0000000000b${i}`
+      const fe = `HD-audit-${type}`
+      db.map.push({ entity_type: 'support_ticket', frontend_id: fe, backend_id: uuid })
+      db.events.set(uuid, {
+        id: uuid,
+        client_id: HORIZON,
+        event_type: type,
+        subject_type: type,
+        actor_user_id: null,
+        payload: { note: 'audit' },
+      })
+      await expect(gateAndPersist(superAdmin, { action: 'delete', id: fe })).rejects.toMatchObject({ status: 403 })
+      // Writer alone (gate bypassed) also leaves a non-ticket row in place.
+      const { handlePersist } = await import('./writes.js')
+      await handlePersist({ resource: 'support_ticket', action: 'delete', id: fe })
+      expect(db.events.get(uuid)?.event_type).toBe(type)
+    }
+  })
+
+  it('accepts a submitter id from the actor’s round-trip alias set, refuses any other', async () => {
+    const uuid = 'b1000001-0001-4000-8000-0000000000cc'
+    db.map.push({ entity_type: 'user', frontend_id: 'u-tenant-h', backend_id: uuid })
+    await gateAndPersist(tenant, {
+      action: 'upsert',
+      id: 'HD-alias-submit',
+      data: { subject: 's', body: 'b', submittedByUserId: uuid },
+    })
+    const row = await rowFor('HD-alias-submit')
+    expect(row?.payload.submittedByUserId).toBe('u-tenant-h')
+    await expect(
+      gateAndPersist(tenant, {
+        action: 'upsert',
+        id: 'HD-alias-other',
+        data: { subject: 's', body: 'b', submittedByUserId: 'b1000001-0001-4000-8000-0000000000dd' },
+      }),
+    ).rejects.toMatchObject({ status: 403 })
   })
 })
 
