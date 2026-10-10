@@ -726,3 +726,23 @@ describe('CR10 N7: a paper_mark decline writes its audit row', () => {
     expect(JSON.parse(String(rows[0].params[4]))).toMatchObject({ outcome: 'declined', method: 'paper_mark', party: 'tenant' })
   })
 })
+
+describe('CR10 gate blocker 1: merge rebuilt from the locked eSign', () => {
+  it('tenant signs at the same time as staff: the locked signed tenant block survives the staff landlord sign', async () => {
+    // Pre-lock read: tenant pending. Under the lock: the tenant just signed.
+    leaseESign = { ...baseESign() }
+    const signedTenant = { status: 'signed', signerUserId: 'u-t', method: 'drawn', imageSha256: 'h' }
+    lockedOverride = { ...baseESign(), status: 'partially_signed', tenant: signedTenant }
+    const res = await stamp(STAFF, 'landlord', {
+      status: 'signed',
+      method: 'drawn',
+      signatureDataUrl: PNG,
+      onBehalfConfirmation: "I am signing for Owner under the agency's mandate.",
+    })
+    const written = storedAfter()
+    expect(written.tenant).toEqual(signedTenant)
+    expect(written.landlord).toMatchObject({ status: 'signed', onBehalf: true })
+    expect(String(written.status)).toBe('completed')
+    expect(res.completedNow).toBe(true)
+  })
+})

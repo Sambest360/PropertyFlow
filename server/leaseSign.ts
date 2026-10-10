@@ -208,6 +208,8 @@ export async function stampLeaseSignature(input: StampInput): Promise<StampResul
     ...(ip ? { ip } : {}),
     ...(userAgent ? { userAgent } : {}),
   }
+  // CR10 gate blocker 1: the merge is built from the eSign read under the
+  // FOR UPDATE lock (inside the transaction), never from the pre-lock copy.
   const buildMerge = (base: Row) => {
     const other: SignPartyKey = party === 'tenant' ? 'landlord' : 'tenant'
     const m: Row = { ...base, [party]: nextParty, [other]: base[other] ?? null }
@@ -219,7 +221,7 @@ export async function stampLeaseSignature(input: StampInput): Promise<StampResul
     if (send) m.completedEmailSentAt = at
     return { m, done, send }
   }
-  const { m: merged, done: completedNow, send: sendCompletedEmail } = buildMerge(stored)
+  let { m: merged, done: completedNow, send: sendCompletedEmail } = buildMerge(stored)
 
   const accepted = status === 'signed'
   // CR10 N7: a paper decline is a recorded outcome too — it writes its audit row.
@@ -242,6 +244,7 @@ export async function stampLeaseSignature(input: StampInput): Promise<StampResul
     ) {
       throw signError(409, 'SIGNATURE_CONFLICT', 'The lease changed while signing. Refresh and try again.')
     }
+    ;({ m: merged, done: completedNow, send: sendCompletedEmail } = buildMerge(lockedESign))
     await clientQuery(
       client,
       `UPDATE leases
