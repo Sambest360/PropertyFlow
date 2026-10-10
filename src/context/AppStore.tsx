@@ -164,6 +164,13 @@ import {
   dedupeBootstrapFetch,
   scheduleDeferredFullBootstrap,
 } from '../lib/bootstrapCoord'
+import {
+  APP_STATE_STORAGE_KEY,
+  PG_SOURCE_STORAGE_KEY,
+  readOwnedClientCache,
+  serializeClientCache,
+  shouldDeferMountBootstrap,
+} from '../lib/clientCache'
 import { readStoredAuthUserId, getApiActor, actorHeaders, type DemoActor } from '../lib/api/actorAuth'
 import {
   shouldAcceptSupabaseBootstrap,
@@ -242,8 +249,9 @@ import {
  * When the local Postgres API is up, AppStore hydrates core entities from `/api/bootstrap`
  * and still mirrors into localStorage for offline edits.
  */
-const STORAGE_KEY = 'propertyflow-v18'
-const PG_HYDRATED_FLAG = 'propertyflow-pg-source'
+const STORAGE_KEY = APP_STATE_STORAGE_KEY
+const PG_HYDRATED_FLAG = PG_SOURCE_STORAGE_KEY
+export { APP_STATE_STORAGE_KEY, PG_SOURCE_STORAGE_KEY }
 
 function actorFromUsers(
   users: AppUser[],
@@ -444,6 +452,10 @@ export type AppState = {
 
 type StoreContextValue = {
   state: AppState
+  /** Session user whose bootstrap has landed in the store (null until then). */
+  hydratedForUserId: string | null
+  /** Session user changed: drop the previous user's in-memory state before their bootstrap. */
+  resetForUserSwitch: () => void
   resetDemo: () => void
   /** Re-fetch bootstrap for the given (or current) actor. */
   refreshBootstrap: (
@@ -856,7 +868,10 @@ type StoreContextValue = {
   toasts: NotificationToast[]
 }
 
-const defaultState = (): AppState => ({
+/** API/Supabase mode never starts from seed trust/charge books (spec-portal-first-load). */
+const LIVE_DATA_MODE = isApiEnabled || isSupabaseMode
+
+export const defaultStateFor = (liveDataMode: boolean): AppState => ({
   agencies: [],
   users: [],
   properties: [],
@@ -887,21 +902,27 @@ const defaultState = (): AppState => ({
   vendorRoutes: SEED_VENDOR_ROUTES,
   agencyContractors: seedAgencyContractors,
   // Trust / Banking module state
-  trustTransactions: seedTrustTransactions,
-  trustAllocations: seedTrustAllocations,
-  payoutInstructions: seedPayoutInstructions,
-  depositHoldings: seedDepositHoldings,
-  arrearsSnapshots: seedArrearsSnapshots,
-  charges: seedCharges,
-  csvImportBatches: seedCsvImportBatches,
+  trustTransactions: liveDataMode ? [] : seedTrustTransactions,
+  trustAllocations: liveDataMode ? [] : seedTrustAllocations,
+  payoutInstructions: liveDataMode ? [] : seedPayoutInstructions,
+  depositHoldings: liveDataMode ? [] : seedDepositHoldings,
+  arrearsSnapshots: liveDataMode ? [] : seedArrearsSnapshots,
+  charges: liveDataMode ? [] : seedCharges,
+  csvImportBatches: liveDataMode ? [] : seedCsvImportBatches,
 })
 
-function loadState(): AppState {
+const defaultState = (): AppState => defaultStateFor(LIVE_DATA_MODE)
+
+/**
+ * Load the owner-keyed cache. Returns defaultState() when the cache belongs to
+ * someone other than the stored auth user (or is a legacy untagged blob).
+ */
+export function loadState(): AppState {
   const base = defaultState()
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return base
-    const parsed = JSON.parse(raw) as Partial<AppState>
+    const parsed = readOwnedClientCache<AppState>(raw, readStoredAuthUserId())
+    if (!parsed) return base
     return {
       ...base,
       ...parsed,
@@ -1029,6 +1050,8 @@ function ensureGuestMarketplace(state: AppState): AppState {
 export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>(() => defaultState())
   const [toasts, setToasts] = useState<NotificationToast[]>([])
+  /** Session user whose /api/bootstrap has been applied (null until then). */
+  const [hydratedForUserId, setHydratedForUserId] = useState<string | null>(null)
   const stateRef = useRef(state)
   /** Pending tenancy saves carrying a freshly issued e-sign envelope, by tenancy id. */
   const leaseESignSaves = useRef(new Map<string, Promise<boolean>>())
@@ -1077,6 +1100,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       return
     }
     setState((prev) => ensureGuestMarketplace(applyPostgresBootstrap(prev, boot)))
+    setHydratedForUserId(resolved?.userId ?? null)
     if (ingestUserId) {
       const nextNotes = (boot.notifications as AppNotification[]) ?? []
       const fresh = diffNewNotifications(prevNotifications, nextNotes, ingestUserId)
@@ -1145,9 +1169,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       return
     }
     let cancelled = false
-    const hasCachedHydration =
-      localStorage.getItem(PG_HYDRATED_FLAG) === 'postgres' &&
-      stateRef.current.properties.length > 0
+    // A live session never waits on the idle deferral: cached rows must not be
+    // the only data on screen for a signed-in user (spec-portal-first-load).
+    const hasCachedHydration = shouldDeferMountBootstrap({
+      storedAuthUserId: readStoredAuthUserId(),
+      pgSource: localStorage.getItem(PG_HYDRATED_FLAG),
+      cachedPropertyCount: stateRef.current.properties.length,
+    })
 
     const run = async () => {
       const actor = resolveBootstrapActor(stateRef.current.users)
@@ -1163,6 +1191,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         return
       }
       setState((prev) => ensureGuestMarketplace(applyPostgresBootstrap(prev, boot)))
+      setHydratedForUserId(actor?.userId ?? null)
       try {
         localStorage.setItem(PG_HYDRATED_FLAG, 'postgres')
       } catch {
@@ -1205,7 +1234,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+        localStorage.setItem(
+          STORAGE_KEY,
+          serializeClientCache(state, readStoredAuthUserId(), isApiEnabled),
+        )
       } catch {
         /* ignore quota errors */
       }
@@ -2048,6 +2080,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<StoreContextValue>(() => ({
     state,
+    hydratedForUserId,
+    resetForUserSwitch: () => {
+      const fresh = defaultState()
+      stateRef.current = fresh
+      setState(fresh)
+      setHydratedForUserId(null)
+      setToasts([])
+    },
     toasts,
     refreshBootstrap,
     resetDemo: () => {
@@ -6719,7 +6759,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     proposePayoutInstruction,
     approvePayoutInstruction,
     submitPayoutInstruction,
-  }), [state, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, importTrustTemplateCsv, upsertHeldDeposit, proposeDepositReleaseAction, approveDepositReleaseAction, proposePayoutInstruction, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistDelete, refreshBootstrap, scheduleBootstrapRefreshAfterMutation, issueLeasePackageForTenancy])
+  }), [state, hydratedForUserId, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, importTrustTemplateCsv, upsertHeldDeposit, proposeDepositReleaseAction, approveDepositReleaseAction, proposePayoutInstruction, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistDelete, refreshBootstrap, scheduleBootstrapRefreshAfterMutation, issueLeasePackageForTenancy])
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }

@@ -9,18 +9,26 @@
  * mechanism the register flow already uses (`redirectToLogin`).
  */
 import { clearPendingRegistrationDocs } from './registrationDocs'
+import { APP_STATE_STORAGE_KEY, PG_SOURCE_STORAGE_KEY } from '../clientCache'
+import { dropUnownedPersistQueues } from '../api/persistQueue'
 
 /** Session-scoped keys that must not leak across users. */
-const STALE_KEYS = [
+export const STALE_KEYS = [
   'pf-register-email',
   'propertyflow-auth-token',
   'propertyflow-auth-user',
   'propertyflow-auth-real-user',
+  // spec-portal-first-load: the previous user's AppState mirror must not
+  // survive sign-out on a shared browser.
+  APP_STATE_STORAGE_KEY,
+  PG_SOURCE_STORAGE_KEY,
 ]
 
 function clearStaleSessionKeys() {
   try {
     for (const k of STALE_KEYS) localStorage.removeItem(k)
+    // Owned save-queue buckets stay (replayed only when their owner returns).
+    dropUnownedPersistQueues()
     sessionStorage.removeItem('pf-register-email')
     const storages = [localStorage, sessionStorage]
     for (const store of storages) {

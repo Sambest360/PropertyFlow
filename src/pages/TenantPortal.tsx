@@ -33,6 +33,7 @@ import { TenantComplaintsView } from './tenant/TenantComplaintsView'
 import { TenantViewingsView } from './tenant/TenantViewingsView'
 import { TenantMaintenanceView } from './tenant/TenantMaintenanceView'
 import { TenantMessagesView } from './tenant/TenantMessagesView'
+import { PortalHydrationGate } from '../components/PortalHydrationGate'
 
 type TenantView = 'home' | 'applications' | 'maintenance' | 'messages' | 'complaints' | 'viewings'
 
@@ -46,6 +47,14 @@ function resolveTenantView(pathname: string): TenantView {
 }
 
 export default function TenantPortal() {
+  return (
+    <PortalHydrationGate>
+      <TenantPortalContent />
+    </PortalHydrationGate>
+  )
+}
+
+function TenantPortalContent() {
   const { state, setDocumentStatus } = useStore()
   const publicProperties = usePublicProperties()
   const { user, has } = useAuth()

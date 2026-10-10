@@ -13,7 +13,7 @@ vi.mock('../supabase/persist', () => ({
   persistBatchToSupabase: vi.fn(async () => true),
   supabaseMarkNotificationsRead: vi.fn(async () => true),
 }))
-vi.mock('./actorAuth', () => ({ actorHeaders: () => ({}) }))
+vi.mock('./actorAuth', () => ({ actorHeaders: () => ({}), readStoredAuthUserId: () => null }))
 vi.mock('./authClient', () => ({ authHeaders: () => ({}) }))
 vi.mock('../bootstrapMerge', () => ({ markLocalPersistWrite: vi.fn() }))
 

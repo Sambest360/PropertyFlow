@@ -336,7 +336,9 @@ export function canMutateProperty(
 }
 
 export function toPropertyLinks(
-  properties: readonly Pick<PropertyAsset, 'id' | 'agencyId' | 'agentId' | 'landlordId'>[],
+  properties: readonly (Pick<PropertyAsset, 'id' | 'agencyId' | 'agentId'> & {
+    landlordId: string | null
+  })[],
 ): PropertyLink[] {
   return properties.map((p) => ({
     id: p.id,
