@@ -33,10 +33,19 @@ import { TicketPhotoGallery } from '../components/maintenance/TicketPhotoGallery
 import { formatAge, ticketAgeHours } from '../components/maintenance/types'
 import type { TicketCompletionFields } from '../lib/maintenanceApi'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
+import { PortalHydrationGate } from '../components/PortalHydrationGate'
 
 const ICON_STROKE = 1.6
 
 export default function ContractorPortal() {
+  return (
+    <PortalHydrationGate>
+      <ContractorPortalContent />
+    </PortalHydrationGate>
+  )
+}
+
+function ContractorPortalContent() {
   const { state, updateTicket, assignContractorToTicket, addPropertyEvent } = useStore()
   const { user } = useAuth()
   const { ticketVisible, canMutate } = usePropertyScope()

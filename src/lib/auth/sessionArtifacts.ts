@@ -6,6 +6,8 @@
  * These helpers are the single source of truth for "clear everything".
  */
 
+import { APP_STATE_STORAGE_KEY, AUTH_USER_STORAGE_KEY, PG_SOURCE_STORAGE_KEY } from '../clientCache'
+
 export type SessionArtifactSetters = {
   setSessionUser: (u: unknown) => void
   setUserId: (id: string) => void
@@ -13,11 +15,14 @@ export type SessionArtifactSetters = {
 }
 
 export const AUTH_STORAGE_KEYS = [
-  'propertyflow-auth-user',
+  AUTH_USER_STORAGE_KEY,
   'propertyflow-auth-real-user',
   // P0-session (R11): AuthContext.logout alone used to miss this API-mode
   // token; leftover token + sb-*auth* keys resurrected Super Admin on /workspace.
   'propertyflow-auth-token',
+  // spec-portal-first-load: previous user's AppState mirror + pg-source flag.
+  APP_STATE_STORAGE_KEY,
+  PG_SOURCE_STORAGE_KEY,
 ] as const
 
 /** Wipe in-memory identity + persisted artifacts. Storage failures are non-fatal. */

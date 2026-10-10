@@ -31,7 +31,7 @@ export function canSeeAgentRecord(
 export function canSeeLandlordAsset(
   role: Role,
   viewerUserId: string,
-  landlordId: string,
+  landlordId: string | null,
 ): boolean {
   if (role === 'landlord') return landlordId === viewerUserId
   return true
@@ -40,7 +40,8 @@ export function canSeeLandlordAsset(
 export type PropertyAccessSubject = {
   agencyId: string
   agentId: string | null
-  landlordId: string
+  /** null = landlord-less building: visible to staff, never to a landlord. */
+  landlordId: string | null
 }
 
 export type PropertyAccessViewer = {

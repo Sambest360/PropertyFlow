@@ -30,10 +30,19 @@ import { groupPortfolioByBuilding } from '../lib/buildingHierarchy'
 import { gradingLabel } from '../lib/buildingGrading'
 import { rolePermissions } from '../lib/permissions'
 import { OwnerMessagesPanel } from '../components/messaging/OwnerMessagesPanel'
+import { PortalHydrationGate } from '../components/PortalHydrationGate'
 
 const ICON_STROKE = 1.6
 
 export default function OwnerPortal() {
+  return (
+    <PortalHydrationGate>
+      <OwnerPortalContent />
+    </PortalHydrationGate>
+  )
+}
+
+function OwnerPortalContent() {
   const { state, advanceApplicationWorkflow } = useStore()
   const { user, has } = useAuth()
   const { listedBy } = useAgentDisplay()
