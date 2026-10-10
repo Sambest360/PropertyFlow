@@ -406,7 +406,7 @@ export async function enforceStaffTenancyESign(
   }
   if (!lease || !stored || !stored.envelopeId || sent.envelopeId !== stored.envelopeId) {
     const anySigned = PARTY_KEYS.some((k) => String(asRow(stored?.[k])?.status ?? '') === 'signed')
-    if (stored?.envelopeId && (stored.status === 'completed' || anySigned)) {
+    if (stored?.envelopeId && (stored.status === 'completed' || stored.status === 'partially_signed' || anySigned)) {
       throw signError(403, 'SIGNATURE_ENVELOPE_LOCKED', 'A signed envelope cannot be replaced.')
     }
     const fresh: Row = { ...sent, tenant: pendingBlock(sent.tenant ?? {}), landlord: pendingBlock(sent.landlord) }

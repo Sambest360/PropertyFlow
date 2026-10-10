@@ -542,3 +542,22 @@ describe('CR10 B1: enforceStaffTenancyESign gates every non-delete action', () =
     expect(updates()).toHaveLength(0)
   })
 })
+
+describe('CR10 fix B2a: envelope replacement locked once signing has started', () => {
+  it('partially_signed (even with no signed block stored) or completed: 403 SIGNATURE_ENVELOPE_LOCKED', async () => {
+    const { enforceStaffTenancyESign } = await import('./leaseSign.js')
+    for (const status of ['partially_signed', 'completed']) {
+      leaseESign = { ...baseESign(), status }
+      await expect(
+        enforceStaffTenancyESign(STAFF as never, { id: 'L-1', action: 'upsert', data: { eSign: { ...baseESign(), envelopeId: 'ENV-9' } } }),
+      ).rejects.toMatchObject({ status: 403, code: 'SIGNATURE_ENVELOPE_LOCKED' })
+    }
+    expect(updates()).toHaveLength(0)
+  })
+  it('a sent envelope with nothing signed can still be replaced', async () => {
+    const { enforceStaffTenancyESign } = await import('./leaseSign.js')
+    const body = { id: 'L-1', action: 'upsert', data: { eSign: { ...baseESign(), envelopeId: 'ENV-9' } } as Record<string, unknown> }
+    await enforceStaffTenancyESign(STAFF as never, body)
+    expect(body.data.eSign).toMatchObject({ envelopeId: 'ENV-9', status: 'sent' })
+  })
+})
