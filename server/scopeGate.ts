@@ -3,6 +3,7 @@
  * Reuses client rules from src/lib/scope.ts + scopeWrite.ts.
  */
 import { query } from './db.js'
+import { MIN_PASSWORD_LENGTH } from './passwordPolicy.js'
 import {
   APP_REF_TO_ID,
   CLIENT_TO_AGENCY,
@@ -766,8 +767,8 @@ async function storedUserEmail(feId: string): Promise<string | null> {
 
 /** Every new password (incl. a temp password on create) has at least 10 characters. */
 function assertTempPasswordLength(value: unknown): void {
-  if (typeof value === 'string' && value !== '' && value.length < 10) {
-    throw Object.assign(new Error('Temporary password must be at least 10 characters'), { status: 400 })
+  if (typeof value === 'string' && value !== '' && value.length < MIN_PASSWORD_LENGTH) {
+    throw Object.assign(new Error(`Temporary password must be at least ${MIN_PASSWORD_LENGTH} characters`), { status: 400 })
   }
 }
 

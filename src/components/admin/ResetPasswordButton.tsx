@@ -6,6 +6,70 @@ export const TEMP_PASSWORD_HANDOFF_NOTE =
   'Send this password to the user privately (a direct call or message). Don\u2019t post it in a group chat.'
 
 /**
+ * One-time temp password view (reset and staff create). The password lives only
+ * in the caller's state while open; onClose must drop it.
+ */
+export function TempPasswordModal({
+  tempPassword,
+  onClose,
+  title = 'Temporary password',
+}: {
+  tempPassword: string | null
+  onClose: () => void
+  title?: string
+}) {
+  const [copied, setCopied] = useState(false)
+  const close = () => {
+    setCopied(false)
+    onClose()
+  }
+  const copy = async () => {
+    if (!tempPassword) return
+    try {
+      await navigator.clipboard.writeText(tempPassword)
+      setCopied(true)
+    } catch {
+      setCopied(false)
+    }
+  }
+  return (
+    <Modal
+      open={Boolean(tempPassword)}
+      onClose={close}
+      title={title}
+      footer={
+        <Button type="button" onClick={close}>
+          Done
+        </Button>
+      }
+    >
+      <TempPasswordBody tempPassword={tempPassword ?? ''} copied={copied} onCopy={() => void copy()} />
+    </Modal>
+  )
+}
+
+function TempPasswordBody({ tempPassword, copied, onCopy }: { tempPassword: string; copied: boolean; onCopy: () => void }) {
+  return (
+    <div className="space-y-3 text-sm text-ink-700">
+      <p>Give this temporary password to the user. They must change it at next sign-in.</p>
+      <div className="flex items-center gap-2">
+        <code
+          data-testid="temp-password"
+          className="flex-1 select-all rounded-lg bg-ink-50 px-3 py-2 font-mono text-base tracking-wider text-ink-900"
+        >
+          {tempPassword}
+        </code>
+        <Button type="button" variant="secondary" size="sm" onClick={onCopy}>
+          {copied ? 'Copied' : 'Copy'}
+        </Button>
+      </div>
+      <p className="font-medium">{TEMP_PASSWORD_HANDOFF_NOTE}</p>
+      <p className="text-ink-500">It won&rsquo;t be shown again.</p>
+    </div>
+  )
+}
+
+/**
  * D3 staff reset. The temp password lives only in this component's state while
  * the modal is open and is dropped on close; it is never written to storage.
  * Callers show this only with users.manage; the server is the real gate.
@@ -82,21 +146,9 @@ export function ResetPasswordButton({
         }
       >
         {tempPassword ? (
-          <div className="space-y-3 text-sm text-ink-700">
-            <p>Give this temporary password to the user. They must change it at next sign-in.</p>
-            <div className="flex items-center gap-2">
-              <code
-                data-testid="temp-password"
-                className="flex-1 select-all rounded-lg bg-ink-50 px-3 py-2 font-mono text-base tracking-wider text-ink-900"
-              >
-                {tempPassword}
-              </code>
-              <Button type="button" variant="secondary" size="sm" onClick={() => void copy()}>
-                {copied ? 'Copied' : 'Copy'}
-              </Button>
-            </div>
-            <p className="font-medium">{TEMP_PASSWORD_HANDOFF_NOTE}</p>
-            <p className="text-ink-500">It won&rsquo;t be shown again. Their other sign-ins have been ended.</p>
+          <div className="space-y-2">
+            <TempPasswordBody tempPassword={tempPassword} copied={copied} onCopy={() => void copy()} />
+            <p className="text-sm text-ink-500">Their other sign-ins have been ended.</p>
           </div>
         ) : (
           <div className="space-y-3 text-sm text-ink-700">

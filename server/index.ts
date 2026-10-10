@@ -943,6 +943,8 @@ app.post('/api/persist', async (c) => {
   try {
     const body = (await c.req.json()) as PersistBody
     const result = await gatedPersist(c, body)
+    // A generated temp password is in this response only: never cache it.
+    if (result && typeof result === 'object' && 'tempPassword' in result) c.header('Cache-Control', 'no-store')
     return c.json(result)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -969,6 +971,7 @@ app.post('/api/persist/batch', async (c) => {
     for (const op of ops) {
       results.push(await gatedPersist(c, op))
     }
+    if (results.some((r) => r && typeof r === 'object' && 'tempPassword' in r)) c.header('Cache-Control', 'no-store')
     return c.json({ ok: true, results })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

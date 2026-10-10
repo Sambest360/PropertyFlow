@@ -22,7 +22,8 @@
  * returned once and never logged. event_log gets a password_reset row with the
  * actor and target only.
  */
-import { randomInt, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
+import { generateTempPassword } from './tempPassword.js'
 import { query } from './db.js'
 import { resolveUuid } from './entityMap.js'
 import {
@@ -40,15 +41,32 @@ const fail = (status: number, message: string, code?: string) =>
     code?: string
   }
 
-/** No 0/O, 1/l/I, so it can be read out over the phone. */
-const TEMP_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
-export const TEMP_PASSWORD_LENGTH = 12
+export { generateTempPassword } from './tempPassword.js'
 
-export function generateTempPassword(): string {
-  let out = ''
-  for (let i = 0; i < TEMP_PASSWORD_LENGTH; i++) out += TEMP_ALPHABET[randomInt(TEMP_ALPHABET.length)]
-  return out
+/**
+ * Jim B1: any link to another agency makes the target super-admin-only for an
+ * agency admin: another users.client_id, a building / unit (or a unit of their
+ * building) with another client_id, or a lease (any status, as tenant or
+ * landlord) on another agency's unit.
+ */
+async function hasForeignAgencyLink(targetUuid: string, clientUuid: string): Promise<boolean> {
+  const rows = await query<{ ok: number }>(
+    `SELECT 1 AS ok WHERE
+       EXISTS (SELECT 1 FROM users x
+                WHERE x.id = $1::uuid AND x.client_id IS NOT NULL AND x.client_id <> $2::uuid)
+    OR EXISTS (SELECT 1 FROM buildings b LEFT JOIN units u ON u.building_id = b.id
+                WHERE b.landlord_id = $1::uuid
+                  AND (b.client_id <> $2::uuid OR (u.id IS NOT NULL AND u.client_id <> $2::uuid)))
+    OR EXISTS (SELECT 1 FROM leases l JOIN units u ON u.id = l.unit_id
+                WHERE (l.tenant_id = $1::uuid OR l.landlord_id = $1::uuid)
+                  AND (u.client_id <> $2::uuid OR l.client_id <> $2::uuid))`,
+    [targetUuid, clientUuid],
+  )
+  return rows.length > 0
 }
+
+/** Jim nit 1: only a plain front-end id is stored for impersonation. */
+const IMPERSONATED_ID_RE = /^[\w-]{1,64}$/
 
 const ADMIN_DB_ROLES = new Set(['SUPER_ADMIN', 'AGENCY_ADMIN', 'AGENT_ADMIN'])
 const NON_ADMIN_STAFF_DB_ROLES = new Set(['GROUND_AGENT'])
@@ -120,6 +138,7 @@ export async function resetUserPassword(
         allowed =
           (await isOwnTenant(row.id, clientUuid)) || (await isOwnLandlord(row.id, clientUuid))
       }
+      if (allowed && (await hasForeignAgencyLink(row.id, clientUuid))) allowed = false
     }
   }
   if (!allowed) throw fail(403, 'You cannot reset this user\u2019s password')
@@ -148,7 +167,7 @@ export async function resetUserPassword(
         actorUserId: actor.frontendId,
         targetUserId: target.frontendId,
         // The session user always acts; impersonation is recorded, never the actor.
-        ...(opts.impersonatedUserId
+        ...(opts.impersonatedUserId && IMPERSONATED_ID_RE.test(opts.impersonatedUserId)
           ? { impersonating: true, impersonatedUserId: opts.impersonatedUserId }
           : {}),
       }),

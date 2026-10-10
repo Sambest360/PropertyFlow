@@ -16,8 +16,8 @@ import { ACTOR_AGENCY_HEADER, ACTOR_ROLE_HEADER, ACTOR_USER_HEADER } from './act
 const AUTH_COOKIE = 'pf_session'
 const TOKEN_TTL_SEC = 60 * 60 * 24 * 14 // 14 days
 
-/** Minimum length for every new password (register, change, temp passwords). */
-export const MIN_PASSWORD_LENGTH = 10
+import { MIN_PASSWORD_LENGTH } from './passwordPolicy.js'
+export { MIN_PASSWORD_LENGTH }
 
 /**
  * D3 session revocation: a token issued before users.metadata.passwordChangedAt

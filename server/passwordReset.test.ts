@@ -72,6 +72,22 @@ vi.mock('pg', () => {
       }
       return []
     }
+    if (sql.startsWith('INSERT INTO users')) {
+      db.writes.push({ sql, params })
+      if (!db.users.some((x) => x.id === params[0])) {
+        const meta = JSON.parse(String(params[8])) as Record<string, unknown>
+        db.users.push({
+          id: String(params[0]),
+          fe: String(meta.frontend_id),
+          email: String(params[2]),
+          role: String(params[6]),
+          client: (params[1] as string | null) ?? null,
+          password_hash: /VALUES \( \$1::uuid, \$2::uuid, \$3, \$10,/.test(sql) ? String(params[9]) : '!',
+          metadata: meta,
+        })
+      }
+      return []
+    }
     if (/^(INSERT|UPDATE|DELETE)\b/i.test(sql)) {
       if (!/entity_id_map/i.test(sql)) db.writes.push({ sql, params })
       return []
@@ -97,6 +113,23 @@ vi.mock('pg', () => {
           agency_fe: agencyFeFor(hit.client),
         },
       ]
+    }
+    if (sql.startsWith('SELECT 1 AS ok WHERE EXISTS (SELECT 1 FROM users x')) {
+      const [t, c] = params as string[]
+      const target = db.users.find((x) => x.id === t)
+      const foreignClient = Boolean(target?.client && target.client !== c)
+      const foreignBuilding = db.buildings.some(
+        (b) =>
+          b.landlord_id === t &&
+          (b.client_id !== c || db.units.some((u) => u.building_id === b.id && u.client_id !== c)),
+      )
+      const foreignLease = db.leases.some(
+        (l) => l.tenant_id === t && db.units.find((u) => u.id === l.unit_id)?.client_id !== c,
+      )
+      return foreignClient || foreignBuilding || foreignLease ? [{ ok: 1 }] : []
+    }
+    if (sql.startsWith('SELECT 1 AS ok FROM users WHERE id = $1::uuid')) {
+      return db.users.some((x) => x.id === params[0]) ? [{ ok: 1 }] : []
     }
     if (sql.startsWith('SELECT 1 AS ok FROM leases l JOIN units u')) {
       const ok = db.leases.some(
@@ -221,6 +254,8 @@ function seed() {
     u('u-loose', '14', 'END_USER', null),
     u('u-contractor', '15', 'CONTRACTOR', HORIZON),
     u('u-notice-tenant', '16', 'END_USER', HORIZON),
+    u('u-two-ll', '17', 'LANDLORD', null),
+    u('u-two-tenant', '18', 'END_USER', null),
   ].map((x) => ({ ...x, password_hash: hash }))
   db.units = [
     { id: UNIT_H, client_id: HORIZON, building_id: BLD_H },
@@ -229,6 +264,8 @@ function seed() {
   db.buildings = [
     { id: BLD_H, client_id: HORIZON, landlord_id: byFe('u-ll').id },
     { id: BLD_C, client_id: CAPE, landlord_id: byFe('u-cape-ll').id },
+    { id: 'd1000001-0001-4000-8000-000000000003', client_id: HORIZON, landlord_id: byFe('u-two-ll').id },
+    { id: 'd1000001-0001-4000-8000-000000000004', client_id: CAPE, landlord_id: byFe('u-two-ll').id },
   ]
   db.leases = [
     { tenant_id: byFe('u-tenant').id, unit_id: UNIT_H, status: 'ACTIVE' },
@@ -237,6 +274,8 @@ function seed() {
     { tenant_id: byFe('u-past-tenant').id, unit_id: UNIT_H, status: 'ENDED' },
     { tenant_id: byFe('u-past-tenant').id, unit_id: UNIT_H, status: 'CANCELLED' },
     { tenant_id: byFe('u-notice-tenant').id, unit_id: UNIT_H, status: 'NOTICE' },
+    { tenant_id: byFe('u-two-tenant').id, unit_id: UNIT_H, status: 'ACTIVE' },
+    { tenant_id: byFe('u-two-tenant').id, unit_id: UNIT_C, status: 'ENDED' },
   ]
 }
 
@@ -286,6 +325,23 @@ describe('D3 reset: who can reset whom', () => {
   it('a tenant with only ended or cancelled leases is super-admin-only', async () => {
     expect((await reset(await login('u-admin'), 'u-past-tenant')).status).toBe(403)
     expect((await reset(await login('u-sa'), 'u-past-tenant')).status).toBe(200)
+  })
+
+  it('Jim B1: a landlord with buildings in two agencies is 403 for the agency admin, 200 for super admin', async () => {
+    expect((await reset(await login('u-admin'), 'u-two-ll')).status).toBe(403)
+    expect(resetUpdates()).toHaveLength(0)
+    expect((await reset(await login('u-sa'), 'u-two-ll')).status).toBe(200)
+  })
+
+  it('Jim B1: a tenant with leases in two agencies is 403 for the agency admin, 200 for super admin', async () => {
+    expect((await reset(await login('u-admin'), 'u-two-tenant')).status).toBe(403)
+    expect(resetUpdates()).toHaveLength(0)
+    expect((await reset(await login('u-sa'), 'u-two-tenant')).status).toBe(200)
+  })
+
+  it('Jim B1: a tenant whose users.client_id is another agency is 403 even with an own-agency lease', async () => {
+    byFe('u-notice-tenant').client = CAPE
+    expect((await reset(await login('u-admin'), 'u-notice-tenant')).status).toBe(403)
   })
 
   it("another agency's tenant is 403", async () => {
@@ -403,6 +459,16 @@ describe('D3 reset: response, audit, revocation and the must-change gate', () =>
       impersonating: true,
       impersonatedUserId: 'u-admin',
     })
+  })
+
+  it('an impersonated id that is not a plain id (^[\\w-]{1,64}$) is not stored', async () => {
+    const res = await app.request('/api/auth/reset-password', {
+      method: 'POST',
+      headers: json(await login('u-sa'), { 'X-User-Id': 'x'.repeat(65), 'X-Role': 'client_admin' }),
+      body: JSON.stringify({ userId: 'u-loose' }),
+    })
+    expect(res.status).toBe(200)
+    expect(JSON.parse(resetEvents()[0].params[4] as string)).toEqual({ actorUserId: 'u-sa', targetUserId: 'u-loose' })
   })
 
   it('a super admin reset without impersonation has no impersonating flag', async () => {
@@ -532,6 +598,68 @@ describe('D3 change-password: revocation, reissue and the 10-character minimum',
     })
     expect(res.status).toBe(400)
     expect(((await res.json()) as { message: string }).message).toMatch(/at least 10 characters/)
+  })
+})
+
+describe('Jim B2: no constant default password on staff-created users', () => {
+  const DEFAULT_PW = ['Change', 'Me', '123!'].join('')
+  it('a user created with no password gets a random temp password, once, with no-store; ChangeMe123! never signs in', async () => {
+    const res = await app.request('/api/persist', {
+      method: 'POST',
+      headers: json(await login('u-sa')),
+      body: JSON.stringify({
+        resource: 'user',
+        action: 'upsert',
+        id: 'u-created',
+        data: { id: 'u-created', name: 'New Agent', email: 'u-created@example.test', role: 'agent', agencyId: 'ag-horizon' },
+      }),
+    })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('cache-control')).toBe('no-store')
+    const body = (await res.json()) as { tempPassword?: string }
+    expect(body.tempPassword).toMatch(/^[A-Za-z0-9]{12}$/)
+    const created = byFe('u-created')
+    expect(created.metadata.mustChangePassword).toBe(true)
+    const bad = await app.request('/api/auth/login', {
+      method: 'POST',
+      headers: json(null),
+      body: JSON.stringify({ email: 'u-created@example.test', password: DEFAULT_PW }),
+    })
+    expect(bad.status).toBe(401)
+    await login('u-created', body.tempPassword!)
+  })
+
+  it('a create with a typed temp password returns no password, and ChangeMe123! still fails', async () => {
+    const res = await app.request('/api/persist', {
+      method: 'POST',
+      headers: json(await login('u-admin')),
+      body: JSON.stringify({
+        resource: 'user',
+        action: 'upsert',
+        id: 'u-created2',
+        data: { id: 'u-created2', name: 'Typed', email: 'u-created2@example.test', role: 'agent', tempPassword: NEW_PW },
+      }),
+    })
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { tempPassword?: string }).tempPassword).toBeUndefined()
+    const bad = await app.request('/api/auth/login', {
+      method: 'POST',
+      headers: json(null),
+      body: JSON.stringify({ email: 'u-created2@example.test', password: DEFAULT_PW }),
+    })
+    expect(bad.status).toBe(401)
+  })
+
+  it('an update of an existing user with no password generates nothing and keeps the hash', async () => {
+    const before = byFe('u-agent').password_hash
+    const res = await app.request('/api/persist', {
+      method: 'POST',
+      headers: json(await login('u-sa')),
+      body: JSON.stringify({ resource: 'user', action: 'upsert', id: 'u-agent', data: { id: 'u-agent', name: 'Renamed' } }),
+    })
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { tempPassword?: string }).tempPassword).toBeUndefined()
+    expect(byFe('u-agent').password_hash).toBe(before)
   })
 })
 

@@ -221,6 +221,9 @@ vi.mock('pg', () => {
       const p = db.payouts.find((x) => x.id === params[0])
       return p ? [{ id: p.id, client_id: p.client_id }] : []
     }
+    if (sql.startsWith('SELECT 1 AS ok FROM users WHERE id = $1::uuid')) {
+      return db.users.some((x) => x.id === params[0]) ? [{ ok: 1 }] : []
+    }
     if (/SELECT client_id FROM users WHERE id = \$1::uuid/.test(sql)) {
       const u = db.users.find((x) => x.id === params[0])
       return u ? [{ client_id: u.client }] : []

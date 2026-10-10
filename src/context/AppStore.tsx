@@ -466,7 +466,10 @@ type StoreContextValue = {
     active?: boolean
     password?: string
     tempPassword?: string
-  }) => Promise<{ ok: true; user: AppUser } | { ok: false; error: string; user?: AppUser }>
+  }) => Promise<
+    | { ok: true; user: AppUser; generatedTempPassword?: string }
+    | { ok: false; error: string; user?: AppUser }
+  >
   updateUser: (id: string, patch: Partial<AppUser>) => void
   updateTenancy: (id: string, patch: Partial<Tenancy>) => void
   /** Issue lease PDF + e-sign envelope for an existing tenancy (approve path / manual). */
@@ -2122,7 +2125,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ...(user as unknown as Record<string, unknown>),
         ...(password ? { password } : {}),
         ...(tempPassword ? { tempPassword } : {}),
-        ...(!password && !tempPassword ? { tempPassword: 'ChangeMe123!' } : {}),
+        // No constant default (Jim B2): with no password the server generates a
+        // random temp one (an admin can reset it from the user page).
       })
       return user
     },
@@ -2134,7 +2138,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const plain =
         (typeof tempPassword === 'string' && tempPassword.trim()) ||
         (typeof password === 'string' && password.trim()) ||
-        'ChangeMe123!'
+        ''
       const user: AppUser = {
         ...rest,
         id: uid('u'),
@@ -2147,10 +2151,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               : undefined,
       }
       patch((s) => ({ ...s, users: [...s.users, user] }))
-      const ok = await persistUpsert('user', user.id, {
-        ...(user as unknown as Record<string, unknown>),
-        tempPassword: plain,
+      // Always the server path: it generates the temp password when none was
+      // typed and links Supabase Auth with it.
+      const { markLocalPersistWrite } = await import('../lib/bootstrapMerge')
+      markLocalPersistWrite('user', user.id)
+      const { persistUserCreateViaServer } = await import('../lib/api/persist')
+      const res = await persistUserCreateViaServer({
+        resource: 'user',
+        action: 'upsert',
+        id: user.id,
+        data: { ...(user as unknown as Record<string, unknown>), id: user.id, ...(plain ? { tempPassword: plain } : {}) },
       })
+      const ok = res.ok
       if (!ok) {
         patch((s) => ({ ...s, users: s.users.filter((u) => u.id !== user.id) }))
         return {
@@ -2160,7 +2172,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           user,
         }
       }
-      return { ok: true as const, user }
+      return res.ok && res.tempPassword
+        ? { ok: true as const, user, generatedTempPassword: res.tempPassword }
+        : { ok: true as const, user }
     },
     updateUser: (id, p) => {
       patch((s) => ({ ...s, users: s.users.map((u) => (u.id === id ? { ...u, ...p } : u)) }))

@@ -26,6 +26,7 @@ import { readReturnTo } from '../../lib/returnTo'
 import { formatDisplayDob, parseIdentityDocument } from '../../lib/saId'
 import { formatZAR } from '../../data/seed'
 import { Badge, Button, Input, Select, cn } from '../../components/ui'
+import { TempPasswordModal } from '../../components/admin/ResetPasswordButton'
 import type { Agency, Permission, Role } from '../../types/domain'
 
 const ALL_ROLES: Role[] = [
@@ -170,7 +171,10 @@ export default function AdminUserCreatePage() {
   const [propertyIds, setPropertyIds] = useState<string[]>([])
   const [perms, setPerms] = useState<Permission[]>([])
   const [sendInvite, setSendInvite] = useState(true)
-  const [tempPassword, setTempPassword] = useState('ChangeMe123!')
+  const [tempPassword, setTempPassword] = useState('')
+  /** Jim B2: generated temp password, held only while the one-time modal is open. */
+  const [shownTempPassword, setShownTempPassword] = useState<string | null>(null)
+  const [afterTempPath, setAfterTempPath] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -421,7 +425,11 @@ export default function AdminUserCreatePage() {
         ? Math.min(100, Math.max(0, Number(commissionSharePct) || 0))
         : undefined
 
-    const plainTemp = tempPassword.trim() || 'ChangeMe123!'
+    const plainTemp = tempPassword.trim()
+    if (plainTemp && plainTemp.length < 10) {
+      setError('A temporary password needs at least 10 characters, or leave it blank to generate one.')
+      return
+    }
     setSubmitting(true)
     setError('')
     const result = await createUserDurable({
@@ -443,7 +451,7 @@ export default function AdminUserCreatePage() {
       licenseStatus: defaultLicenseStatus(role),
       commissionSharePct: commission,
       active: true,
-      tempPassword: plainTemp,
+      ...(plainTemp ? { tempPassword: plainTemp } : {}),
       verification: needsComplianceStep(role)
         ? {
             status: 'pending',
@@ -494,13 +502,6 @@ export default function AdminUserCreatePage() {
         link: '/login',
         silent: true,
       })
-      notify({
-        userId: authUser.id,
-        agencyId: authUser.agencyId,
-        title: 'User created — copy temp password',
-        body: `Account ${created.email} / temp password: ${plainTemp}. Share securely; they should change it after first login.`,
-        link: `/workspace/admin/users/${created.id}`,
-      })
     }
 
     try {
@@ -509,7 +510,15 @@ export default function AdminUserCreatePage() {
     } catch {
       /* ignore */
     }
-    navigate(`/workspace/admin/users/${created.id}?tab=access`)
+    const nextPath = `/workspace/admin/users/${created.id}?tab=access`
+    if (result.generatedTempPassword) {
+      // Shown once; navigation waits until the modal is closed.
+      setSubmitting(false)
+      setAfterTempPath(nextPath)
+      setShownTempPassword(result.generatedTempPassword)
+      return
+    }
+    navigate(nextPath)
   }
 
   const submit = (e: FormEvent) => {
@@ -1167,7 +1176,7 @@ export default function AdminUserCreatePage() {
                     autoComplete="off"
                   />
                   <p className="mt-1 text-xs text-ink-500">
-                    Share this with the user so they can sign in at /login. Default: ChangeMe123!
+                    Leave blank to generate a random one, shown to you once after the user is created. A typed password needs at least 10 characters. The user must change it at first sign-in.
                   </p>
                 </Field>
 
@@ -1191,6 +1200,14 @@ export default function AdminUserCreatePage() {
             ) : null}
           </form>
         </CreateWizardShell>
+        <TempPasswordModal
+          title="User created: temporary password"
+          tempPassword={shownTempPassword}
+          onClose={() => {
+            setShownTempPassword(null)
+            if (afterTempPath) navigate(afterTempPath)
+          }}
+        />
       </div>
     </RequirePermission>
   )
