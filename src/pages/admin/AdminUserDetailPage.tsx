@@ -15,6 +15,9 @@ import { RequirePermission } from '../../components/RequirePermission'
 import { BackButton } from '../../components/BackButton'
 import { ActionButtonRow } from '../../components/ActionButtonRow'
 import { ImpersonateUserButton } from '../../components/admin/ImpersonateUserButton'
+import { ResetPasswordButton } from '../../components/admin/ResetPasswordButton'
+import { showPasswordResetEntry } from '../../lib/auth/passwordResetUi'
+import { isApiEnabled } from '../../lib/api/config'
 import { AgencyCapabilityChecklist } from '../../components/admin/AgencyCapabilityChecklist'
 import { VerificationStatusBadge } from '../../components/auth/VerificationBanner'
 import { DashboardTabs } from '../../components/dashboard/DashboardTabs'
@@ -71,7 +74,7 @@ export default function AdminUserDetailPage() {
   const { id } = useParams()
   const [params, setParams] = useSearchParams()
   const { state, assignRole, updateUser } = useStore()
-  const { has } = useAuth()
+  const { has, realUser } = useAuth()
   const { scopeAgency } = useAgencyScope()
   const reducedMotion = usePrefersReducedMotion()
 
@@ -200,6 +203,14 @@ export default function AdminUserDetailPage() {
                 </Button>
               ) : null}
               <ImpersonateUserButton target={user} />
+              {showPasswordResetEntry({
+                hasUsersManage: has('users.manage'),
+                apiMode: isApiEnabled,
+                viewerId: realUser.id,
+                target: user,
+              }) ? (
+                <ResetPasswordButton userId={user.id} userName={user.name} />
+              ) : null}
               {mutable && user.active ? (
                 <Button
                   type="button"

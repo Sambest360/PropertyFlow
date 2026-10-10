@@ -25,6 +25,7 @@ import {
   clearSession,
   issueSession,
   loginUser,
+  readBearerOrCookie,
   registerUser,
   resolveSessionUser,
   sessionToPublic,
@@ -56,7 +57,9 @@ import {
   recordAuthFailure,
   clearAuthFailures,
   tooManyRequests,
+  passwordResetRateLimit,
 } from './rateLimit.js'
+import { resetUserPassword } from './passwordReset.js'
 import {
   sendListingEnquiryConfirmation,
   sendListingLeadAlert,
@@ -137,6 +140,40 @@ app.use(
 )
 
 app.use('*', supabaseSessionMiddleware)
+
+/**
+ * D3: while a session user has mustChangePassword (after a staff reset), only
+ * /api/auth/me, change-password and logout work (login stays open so a
+ * different account can sign in). Everything else: 403 PASSWORD_CHANGE_REQUIRED.
+ */
+const PASSWORD_CHANGE_ALLOWED_PATHS = new Set([
+  '/api/auth/me',
+  '/api/auth/change-password',
+  '/api/auth/logout',
+  '/api/auth/login',
+])
+app.use('/api/*', async (c, next) => {
+  if (c.req.method === 'OPTIONS' || PASSWORD_CHANGE_ALLOWED_PATHS.has(c.req.path)) return next()
+  if (!readBearerOrCookie(c)) return next()
+  let mustChange = false
+  try {
+    const user = await resolveSessionUser(c)
+    mustChange = user?.mustChangePassword === true
+  } catch {
+    mustChange = false
+  }
+  if (mustChange) {
+    return c.json(
+      {
+        error: 'PASSWORD_CHANGE_REQUIRED',
+        code: 'PASSWORD_CHANGE_REQUIRED',
+        message: 'Change your password to continue.',
+      },
+      403,
+    )
+  }
+  return next()
+})
 
 /** Machine-readable policy code on a refused write (e.g. APPLICATION_TRANSITION_FORBIDDEN). */
 function errCode(err: unknown): { code?: string } {
@@ -627,12 +664,58 @@ app.post('/api/auth/change-password', async (c) => {
       newPassword: String(body.newPassword ?? ''),
     })
     clearAuthFailures(ip, email)
-    return c.json({ ok: true, user: sessionToPublic(updated) })
+    // passwordChangedAt now revokes every older token, this one included:
+    // reissue the caller's own session.
+    const token = issueSession(c, updated)
+    return c.json({ ok: true, token, user: sessionToPublic(updated) })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     const status = errStatus(err)
     if (email && status === 401) recordAuthFailure(ip, email)
     return c.json({ error: 'change_password_failed', message }, status)
+  }
+})
+
+/**
+ * D3 staff password reset. Who may reset whom: server/passwordReset.ts.
+ * The temp password is in this response only (Cache-Control: no-store) and is
+ * never logged.
+ */
+app.post('/api/auth/reset-password', async (c) => {
+  c.header('Cache-Control', 'no-store')
+  c.header('Pragma', 'no-cache')
+  if (!databaseConfigured) {
+    return c.json(
+      { error: 'database_unconfigured', message: databaseConfigError || 'DATABASE_URL is not set' },
+      503,
+    )
+  }
+  try {
+    const actor = await resolveSessionUser(c)
+    if (!actor) return c.json({ error: 'unauthorized', message: 'Not signed in' }, 401)
+    const body = (await c.req.json().catch(() => ({}))) as { userId?: unknown }
+    const userId = typeof body.userId === 'string' ? body.userId.trim() : ''
+    if (!userId) return c.json({ error: 'bad_request', message: 'userId is required' }, 400)
+    const gate = passwordResetRateLimit(actor.id, userId)
+    if (!gate.ok) {
+      const rl = tooManyRequests(gate.retryAfterSec)
+      return c.json(rl.body, rl.status, { ...rl.headers, 'Cache-Control': 'no-store' })
+    }
+    // A super admin impersonating someone still acts as themselves; the
+    // audit row records the real actor plus impersonating: true.
+    let impersonatedUserId: string | null = null
+    if (actor.role === 'super_admin') {
+      const imp = parseDemoActor(c, null)
+      if (imp && imp.userId !== actor.frontendId) impersonatedUserId = imp.userId
+    }
+    const result = await resetUserPassword(actor, userId, { impersonatedUserId })
+    return c.json({ ok: true, userId: result.target.id, tempPassword: result.tempPassword })
+  } catch (err) {
+    const status = errStatus(err)
+    // Message only (never the request body, which cannot hold a password here anyway).
+    const message = status >= 500 ? 'Password reset failed' : err instanceof Error ? err.message : String(err)
+    if (status >= 500) console.error('[reset-password] failed:', err instanceof Error ? err.message : 'unknown')
+    return c.json({ error: 'reset_password_failed', message }, status)
   }
 })
 
@@ -904,6 +987,8 @@ app.post('/api/persist', async (c) => {
   try {
     const body = (await c.req.json()) as PersistBody
     const result = await gatedPersist(c, body)
+    // A generated temp password is in this response only: never cache it.
+    if (result && typeof result === 'object' && 'tempPassword' in result) c.header('Cache-Control', 'no-store')
     return c.json(result)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -930,6 +1015,7 @@ app.post('/api/persist/batch', async (c) => {
     for (const op of ops) {
       results.push(await gatedPersist(c, op))
     }
+    if (results.some((r) => r && typeof r === 'object' && 'tempPassword' in r)) c.header('Cache-Control', 'no-store')
     return c.json({ ok: true, results })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -1001,6 +1087,8 @@ for (const plural of restResources) {
       if (!id) return c.json({ error: 'id_required' }, 400)
       const body: PersistBody = { resource, action: 'upsert', id, data }
       const result = await gatedPersist(c, body)
+      // A generated temp password is in this response only: never cache it.
+      if (result && typeof result === 'object' && 'tempPassword' in result) c.header('Cache-Control', 'no-store')
       return c.json(result, 201)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -1019,6 +1107,7 @@ for (const plural of restResources) {
         data: { ...data, id },
       }
       const result = await gatedPersist(c, body)
+      if (result && typeof result === 'object' && 'tempPassword' in result) c.header('Cache-Control', 'no-store')
       return c.json(result)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
