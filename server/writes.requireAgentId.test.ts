@@ -66,7 +66,6 @@ describe('requireAgentId orphan-map verify + metadata repair (P0-5 r17)', () => 
     })
     query.mockImplementation(async (sql: string, params?: unknown[]) => {
       if (sql.includes('SELECT backend_id::text FROM entity_id_map')) return [{ backend_id: ORPHAN_UUID }]
-      if (sql.includes('FROM users WHERE id =') && sql.includes('client_id')) return [{ id: AGENT_UUID }]
       if (sql.includes('FROM users WHERE id =')) {
         expect(params?.[0]).toBe(ORPHAN_UUID)
         return []
@@ -122,7 +121,6 @@ describe('requireAgentId orphan-map verify + metadata repair (P0-5 r17)', () => 
         expect(params?.[0]).toBe('u-fa-r16')
         return [{ id: AGENT_UUID }]
       }
-      if (sql.includes('FROM users WHERE id =') && sql.includes('client_id')) return [{ id: AGENT_UUID }]
       if (sql.includes('INSERT INTO entity_id_map')) {
         expect(params?.[0]).toBe('u-fa-r16')
         expect(params?.[1]).toBe(AGENT_UUID)

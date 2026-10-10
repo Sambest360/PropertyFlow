@@ -56,20 +56,6 @@ describe('requireAgentId never moves an existing map entry', () => {
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()
   })
-
-  it('agent in another agency: no new mapping is created', async () => {
-    resolveUuid.mockImplementation(async (et: string) =>
-      et === 'agency' ? AGENCY : et === 'building' ? BUILDING : null)
-    query.mockImplementation(async (sql: string) => {
-      if (sql.includes("metadata->>'frontend_id'")) return [{ id: AGENT, client_id: OTHER_AGENCY }]
-      if (sql.includes('FROM users WHERE id =') && sql.includes('client_id')) return []
-      return []
-    })
-    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const { handlePersist } = await import('./writes.js')
-    await handlePersist(unitBody('u-agent-y')).catch(() => undefined)
-    expect(mapWrites()).toEqual([])
-  })
 })
 
 describe('linkUserFeToUuid never moves an existing map entry', () => {
@@ -98,7 +84,6 @@ describe('regression: guest apply and staff create still succeed', () => {
       et === 'agency' ? AGENCY : et === 'building' ? BUILDING : null)
     query.mockImplementation(async (sql: string) => {
       if (sql.includes("metadata->>'frontend_id'")) return [{ id: AGENT }]
-      if (sql.includes('FROM users WHERE id =') && sql.includes('client_id')) return [{ id: AGENT }]
       if (sql.includes('INSERT INTO entity_id_map')) return [{ frontend_id: 'u-new-staff' }]
       return []
     })

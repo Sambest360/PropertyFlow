@@ -303,7 +303,7 @@ async function resolveApplicantOrTenantUuid(opts: {
  * fall through to users.metadata->>frontend_id and repair entity_id_map FE→live id
  * (respect unique entity_type+backend_id). Still fail-closed when neither resolves.
  */
-async function requireAgentId(fe: unknown, clientUuid: string | null): Promise<string | null> {
+async function requireAgentId(fe: unknown): Promise<string | null> {
   if (fe == null || fe === '') return null
   const feStr = str(fe)
   let uuid = await userId(feStr)
@@ -321,16 +321,8 @@ async function requireAgentId(fe: unknown, clientUuid: string | null): Promise<s
   )
   const hit = rows[0]?.id
   if (hit) {
-    // Never move/delete an existing entry; only create a new one in-agency.
-    // Agents carry client_id: only map an agent in this write's agency.
-    const inAgency = clientUuid
-      ? await query<{ id: string }>(
-          `SELECT id::text AS id FROM users WHERE id = $1::uuid AND client_id = $2::uuid LIMIT 1`,
-          [hit, clientUuid],
-        )
-      : []
-    if (inAgency[0]?.id) await linkUserFeToUuid(feStr, hit)
-    else console.warn(`[entity_id_map] skip: agent ${hit} not in agency ${clientUuid}`)
+    // Never move/delete an existing entry.
+    await linkUserFeToUuid(feStr, hit)
     return hit
   }
   throw Object.assign(new Error(`agent not resolved: ${feStr}`), { status: 400 })
@@ -820,7 +812,7 @@ async function upsertProperty(feId: string, d: Record<string, unknown>): Promise
     )
   }
 
-  const agent = await requireAgentId(d.agentId, client)
+  const agent = await requireAgentId(d.agentId)
   const unitNumber = str(d.unitNumber ?? d.title, propFe).slice(0, 40)
 
   await query(
