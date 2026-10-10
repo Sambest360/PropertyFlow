@@ -7,7 +7,7 @@ import { captureScreeningConsent } from './screening/pipeline'
 /** P3b: per-file cap for application documents (images: measured after downscaling). */
 export const APPLICATION_DOC_MAX_BYTES = 2 * 1024 * 1024
 export const APPLICATION_DOC_TOO_LARGE =
-  'This file is larger than 2 MB. Upload a smaller copy.'
+  'This file is larger than 2 MB. Upload a smaller copy, or split it into separate months.'
 export const APPLICATION_DOC_WRONG_TYPE = 'Upload a PDF, JPEG or PNG file.'
 export const APPLICATION_DOC_ACCEPT = 'application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png'
 

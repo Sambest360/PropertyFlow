@@ -21,7 +21,7 @@ describe('application document upload (P3b)', () => {
     expect(APPLICATION_DOC_MAX_BYTES).toBe(2 * 1024 * 1024)
     expect(applicationDocFileError({ size: 2 * MB + 1, type: 'application/pdf' })).toBe(APPLICATION_DOC_TOO_LARGE)
     expect(APPLICATION_DOC_TOO_LARGE).toBe(
-      'This file is larger than 2 MB. Upload a smaller copy.',
+      'This file is larger than 2 MB. Upload a smaller copy, or split it into separate months.',
     )
   })
   it('accepts PDF, JPEG, PNG up to the cap; refuses other types', () => {
