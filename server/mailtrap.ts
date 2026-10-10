@@ -501,6 +501,11 @@ export function isEmailLeaseSignedEnabled(): boolean {
 }
 
 /** Plain copy, no legal claims: "Your lease for <property> has been signed by all parties." */
+/** CR10 N8: HTML-escape user-supplied text for email bodies. */
+export function escapeHtml(v: string): string {
+  return v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+}
+
 export async function sendLeaseSignedEmail(input: {
   to: string
   name?: string | null
@@ -512,12 +517,14 @@ export async function sendLeaseSignedEmail(input: {
   }
   const subject = 'Your lease has been signed'
   const body = `Your lease for ${input.propertyTitle} has been signed by all parties. You can view it in PropertyFlow: ${input.leaseLink}.`
+  // CR10 N8: name, property title and link are escaped in the HTML.
+  const htmlBody = `Your lease for ${escapeHtml(input.propertyTitle)} has been signed by all parties. You can view it in PropertyFlow: ${escapeHtml(input.leaseLink)}.`
   return sendMailtrapEmail({
     to: input.to,
     toName: input.name ?? undefined,
     subject,
     category: 'lease-signed',
     text: body,
-    html: shell(subject, (input.name ? p(`Hi <strong>${input.name}</strong>,`) : '') + p(body)),
+    html: shell(subject, (input.name ? p(`Hi <strong>${escapeHtml(input.name)}</strong>,`) : '') + p(htmlBody)),
   })
 }

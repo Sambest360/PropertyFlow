@@ -296,6 +296,11 @@ export async function notifyLeaseCompleted(lease: LeaseSignRow, tenancyFeId: str
     const r = rows[0]
     if (!r) return 0
     const base = (process.env.PUBLIC_APP_URL || process.env.PAYFAST_PUBLIC_URL || '').replace(/\/+$/, '')
+    // CR10 N8: no absolute base URL, no email (never a relative link).
+    if (!/^https?:\/\/[^/]/.test(base)) {
+      console.warn('[lease-signed email] skipped: no absolute PUBLIC_APP_URL / PAYFAST_PUBLIC_URL', { tenancyFeId })
+      return 0
+    }
     const leaseLink = `${base}/workspace/people/leases?lease=${encodeURIComponent(tenancyFeId)}`
     const propertyTitle = r.property_title || 'your property'
     const to: Array<{ email: string; name: string | null }> = []

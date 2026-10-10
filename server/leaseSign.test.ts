@@ -466,6 +466,7 @@ describe('CR10 part 8: lease-signed email', () => {
 
   it('goes once on completed, to the tenant and the landlord, with plain copy inputs', async () => {
     emailFlag = true
+    vi.stubEnv('PUBLIC_APP_URL', 'https://app.example.test')
     const res = await signLandlordToComplete()
     await flush()
     expect(res.completedNow).toBe(true)
@@ -473,6 +474,20 @@ describe('CR10 part 8: lease-signed email', () => {
     expect(sendLeaseSignedEmail.mock.calls.map((c) => (c[0] as { to: string }).to)).toEqual(['t@x.test', 'l@x.test'])
     expect(sendLeaseSignedEmail.mock.calls[0][0]).toMatchObject({ propertyTitle: '12 Oak St' })
     expect(storedAfter()).toHaveProperty('completedEmailSentAt')
+  })
+
+  it('CR10 N8: no absolute base URL -> no email, logged, signing still succeeds', async () => {
+    emailFlag = true
+    vi.stubEnv('PUBLIC_APP_URL', '')
+    vi.stubEnv('PAYFAST_PUBLIC_URL', '')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const res = await signLandlordToComplete()
+    await flush()
+    expect(res.completedNow).toBe(true)
+    expect(sendLeaseSignedEmail).not.toHaveBeenCalled()
+    expect(warn.mock.calls.some((c) => String(c[0]).includes('lease-signed email'))).toBe(true)
+    warn.mockRestore()
+    vi.unstubAllEnvs()
   })
 
   it('never on a partial signing', async () => {
