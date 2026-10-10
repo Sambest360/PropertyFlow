@@ -217,4 +217,13 @@ describe('CR10 B: lease_signed reads are scoped to the lease parties, its agency
     const sa = scopeLeaseSignReads(withTenancies([]), raw2 as never, { userId: 'u-sa', role: 'super_admin', agencyId: null })
     expect((sa.leaseSignEvents as unknown[]).length).toBe(2)
   })
+  it('CR10 fix 5: a user from another agency gets no lease_signed rows, even for a tenancy id they can see', () => {
+    const rows = { ...raw, leaseSignEvents: [{ ...ev('L-mine'), agencyId: 'ag-a' }] }
+    const other = scopeLeaseSignReads(withTenancies(['L-mine']), rows as never, { userId: 'u-x', role: 'agent', agencyId: 'ag-b' })
+    expect(other.leaseSignEvents).toEqual([])
+    const own = scopeLeaseSignReads(withTenancies(['L-mine']), rows as never, { userId: 'u-james', role: 'agent', agencyId: 'ag-a' })
+    expect((own.leaseSignEvents as unknown[]).length).toBe(1)
+    const otherAdmin = scopeLeaseSignReads(withTenancies([]), rows as never, { userId: 'u-adm', role: 'client_admin', agencyId: 'ag-b' })
+    expect(otherAdmin.leaseSignEvents).toEqual([])
+  })
 })

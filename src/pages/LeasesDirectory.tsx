@@ -650,18 +650,6 @@ function LeaseActions({
           Sign as tenant
         </Button>
       ) : null}
-      {tenantPending && !isTenant ? (
-        <Button
-          type="button"
-          size="sm"
-          variant="secondary"
-          disabled={busyId === `${row.tenancy.id}-tenant`}
-          onClick={() => onSign(row.tenancy.id, 'tenant', true)}
-        >
-          <PenLine className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} />
-          Mark tenant signed (paper)
-        </Button>
-      ) : null}
       {landlordPending ? (
         <Button
           type="button"

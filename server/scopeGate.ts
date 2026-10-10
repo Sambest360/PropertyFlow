@@ -1618,7 +1618,13 @@ export function scopeLeaseSignReads(entities: BootstrapPayload, raw: BootstrapPa
   const visible = new Set(tenancies.map((t) => String(t.id)))
   const portal = NO_SIGN_DEVICE_ROLES.has(actor.role)
   const events = (Array.isArray(raw.leaseSignEvents) ? (raw.leaseSignEvents as Row[]) : [])
-    .filter((e) => actor.role === 'super_admin' || visible.has(String(e.tenancyId)))
+    .filter((e) => {
+      if (actor.role === 'super_admin') return true
+      if (!visible.has(String(e.tenancyId))) return false
+      // Agency staff: only their own agency's rows (no global cap; scope, not LIMIT).
+      if (!portal) return Boolean(actor.agencyId) && (e.agencyId == null || e.agencyId === actor.agencyId)
+      return true // tenancy parties: their own leases (visible set)
+    })
     .map((e) => (portal ? stripSignDevice(e) : e))
   const out: BootstrapPayload = { ...entities, leaseSignEvents: events }
   if (portal && tenancies.length) {

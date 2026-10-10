@@ -459,7 +459,7 @@ export async function buildBootstrap(opts?: { limits?: BootstrapLimits; lite?: b
         query<Record<string, unknown>>(
           `SELECT id::text AS id, client_id::text AS client_id, subject_id::text AS subject_id,
                   actor_user_id::text AS actor_user_id, payload, created_at
-             FROM event_log WHERE event_type = 'lease_signed' ORDER BY created_at DESC LIMIT 1000`,
+             FROM event_log WHERE event_type = 'lease_signed' ORDER BY created_at DESC`,
         ),
     ] as const,
     process.env.VERCEL ? 3 : 8,
