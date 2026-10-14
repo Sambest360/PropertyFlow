@@ -1448,7 +1448,6 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           ok &&
           (resource === 'user' ||
             resource === 'agency' ||
-            resource === 'client' ||
             resource === 'building' ||
             resource === 'unit' ||
             resource === 'property')
