@@ -228,7 +228,7 @@ export async function apiLogout(): Promise<void> {
   }
 }
 
-export async function apiMe(timeoutMs = 3000): Promise<AuthUserDto | null> {
+export async function apiMe(timeoutMs = 12_000): Promise<AuthUserDto | null> {
   const token = readAuthToken()
   if (!token) return null
   const ctrl = new AbortController()

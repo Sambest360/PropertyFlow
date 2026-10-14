@@ -11,6 +11,7 @@ import {
   apiLogin,
   apiLogout,
   apiMe,
+  readAuthToken,
   apiRegister,
   syncActorFromUser,
   type AuthUserDto,
@@ -250,8 +251,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAuthReady(true)
         return
       }
-      const me = await apiMe()
+      let me = await apiMe()
       if (cancelled) return
+      // Cold typed /workspace loads can exceed a short /me probe; retry once
+      // before treating the session as absent (E2E L02 / P04).
+      if (!me && readAuthToken()) {
+        me = await apiMe(15_000)
+        if (cancelled) return
+      }
       setMustChangePassword(me?.mustChangePassword === true)
       if (me) {
         const appUser = dtoToAppUser(me)
@@ -262,7 +269,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch {
           /* ignore */
         }
-      } else {
+      } else if (!readAuthToken()) {
+        // Only wipe when there is no JWT — timeouts must not POST /logout (L02).
         clearSessionArtifacts({ setSessionUser, setUserId, setRealUserId })
         setApiActor(null)
       }

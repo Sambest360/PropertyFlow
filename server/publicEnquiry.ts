@@ -169,6 +169,13 @@ export async function submitPublicListingEnquiry(
       err.status = 409
       throw err
     }
+    const timeNorm = String(slot.slot_time).length === 5 ? `${slot.slot_time}:00` : slot.slot_time
+    const slotStart = new Date(`${slot.slot_date}T${timeNorm}`)
+    if (!Number.isNaN(slotStart.getTime()) && slotStart.getTime() <= Date.now()) {
+      const err = new Error('slot_not_found') as Error & { status?: number }
+      err.status = 404
+      throw err
+    }
 
     const viewingFeId = `VW-guest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     bookingFeId = viewingFeId

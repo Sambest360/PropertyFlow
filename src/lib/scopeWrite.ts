@@ -47,6 +47,25 @@ const DEAL_WRITE_RESOURCES = new Set([
   'viewing_slot',
 ])
 
+const LANDLORD_LISTING_RESOURCES = new Set([
+  'building',
+  'unit',
+  'property',
+  'room',
+  'asset',
+])
+
+function landlordOwnListingWrite(scope: PropertyScope, input: WriteGateInput): boolean {
+  const { viewer } = scope
+  if (viewer.role !== 'landlord' || !input.agencyId || !LANDLORD_LISTING_RESOURCES.has(input.resource)) {
+    return false
+  }
+  if (!canSeeAgency(viewer.role, viewer.agencyId, viewer.agencySuspended, input.agencyId)) {
+    return false
+  }
+  return input.property?.landlordId === viewer.userId
+}
+
 function dealWriteAllowed(scope: PropertyScope, input: WriteGateInput): boolean {
   if (!input.propertyId || !input.agencyId) return false
   if (!DEAL_WRITE_RESOURCES.has(input.resource)) return false
@@ -118,6 +137,7 @@ export function canWriteEntity(scope: PropertyScope, input: WriteGateInput): boo
 
   // Agency-level resources (agency, lookup, suite_alert, invoice, activity, …)
   if (input.agencyId) {
+    if (landlordOwnListingWrite(scope, input)) return true
     if (!canSeeAgency(role, viewer.agencyId, viewer.agencySuspended, input.agencyId)) {
       return false
     }

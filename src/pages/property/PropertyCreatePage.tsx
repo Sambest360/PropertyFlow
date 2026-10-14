@@ -450,9 +450,6 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
 
   function saveDraftOnly() {
     setError('')
-    // submitProperty is async; errors are surfaced in-wizard, but a re-entry
-    // guard here keeps double-clicks from submitting two drafts.
-    if (busy) return
     void submitProperty('Draft', false)
   }
 
@@ -697,20 +694,22 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   }
 
   async function submitProperty(status: 'Draft' | 'Published', fromReview: boolean) {
+    if (busy) return
+    setBusy(true)
     const err = validateStep(6)
     if (err) {
       setError(err)
       if (fromReview) goTo(6)
+      setBusy(false)
       return
     }
     const listingImages = listingImagesForSubmit()
     if (listingImages.length === 0) {
       setError('Add at least one listing photo.')
       goTo(2)
+      setBusy(false)
       return
     }
-
-    setBusy(true)
     try {
     const patch = buildPropertyPatch(listingImages)
     // P0-collision (R10): only a draftPropertyId recorded during THIS wizard
@@ -1638,9 +1637,9 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
               onSaveAndContinueLater={handleSaveAndContinueLater}
               showContinue={!isLast}
               onContinue={handleContinue}
-              showSaveDraft={isLast && !isEdit}
+              showSaveDraft={isLast && !isEdit && !(draft.publishAfterSave && canPublish)}
               onSaveDraft={saveDraftOnly}
-              showSubmit={isLast}
+              showSubmit={isLast && (isEdit || (draft.publishAfterSave && canPublish))}
               submitLabel={
                 isEdit
                   ? draft.publishAfterSave && canPublish
@@ -1650,7 +1649,12 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                     ? 'Publish listing'
                     : 'Save as draft'
               }
-              onSubmit={() => void submitProperty('Draft', true)}
+              onSubmit={() =>
+                void submitProperty(
+                  !isEdit && draft.publishAfterSave && canPublish ? 'Published' : 'Draft',
+                  true,
+                )
+              }
               busy={busy}
             />
           }

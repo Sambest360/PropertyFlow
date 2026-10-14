@@ -141,7 +141,7 @@ export async function sendMailtrapEmail(input: MailtrapSendInput): Promise<Mailt
   const config = mailtrapConfigFromEnv()
   if (!config) return { sent: false, reason: 'MAILTRAP_SMTP_USER/PASS or MAILTRAP_API_KEY not set' }
   const to = input.to.trim()
-  if (!EMAIL_RE.test(to)) return { sent: false, reason: `invalid recipient: ${to}` }
+  if (!EMAIL_RE.test(to)) return { sent: false, reason: 'invalid recipient' }
   if (config.transport === 'api' && config.api?.sandbox && config.api.testInboxId == null) {
     return { sent: false, reason: 'API sandbox mode requires MAILTRAP_INBOX_ID' }
   }
@@ -171,12 +171,12 @@ export async function sendMailtrapEmail(input: MailtrapSendInput): Promise<Mailt
       messageId = (response as { message_ids?: string[] }).message_ids?.[0]
     }
     console.log(
-      `[mailtrap] sent (${config.transport}${config.transport === 'api' && config.api?.sandbox ? '/sandbox' : ''}) to ${to}${messageId ? ` msg=${messageId}` : ''}`,
+      `[mailtrap] sent (${config.transport}${config.transport === 'api' && config.api?.sandbox ? '/sandbox' : ''}) to ${redactEmailForLog(to)}${messageId ? ` msg=${messageId}` : ''}`,
     )
     return { sent: true, messageId }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    console.error('[mailtrap] send failed:', message)
+    console.error('[mailtrap] send failed:', message.replace(/[^\s@]+@[^\s@]+\.[^\s@]+/g, '***@redacted'))
     return { sent: false, reason: message }
   }
 }
@@ -195,7 +195,7 @@ function shell(title: string, bodyHtml: string): string {
           <span style="color:#ffffff;font-size:18px;font-weight:bold;">Let<span style="color:#f8b500">kaya</span></span>
         </td></tr>
         <tr><td style="padding:28px;">
-          <h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;">${title}</h1>
+          <h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;">${escapeHtml(title)}</h1>
           ${bodyHtml}
         </td></tr>
         <tr><td style="padding:16px 28px;background:#f8fafc;color:#64748b;font-size:12px;">
@@ -211,6 +211,22 @@ function p(text: string): string {
   return `<p style="margin:0 0 12px;color:#334155;font-size:14px;line-height:1.6;">${text}</p>`
 }
 
+/** CR10 N8: HTML-escape user-supplied text for email bodies. */
+export function escapeHtml(v: string): string {
+  return v
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function redactEmailForLog(email: string): string {
+  const at = email.indexOf('@')
+  if (at <= 0) return '***'
+  return `***@${email.slice(at + 1)}`
+}
+
 export async function sendListingEnquiryConfirmation(input: {
   email: string
   firstName: string
@@ -221,7 +237,9 @@ export async function sendListingEnquiryConfirmation(input: {
     input.action === 'viewing'
       ? 'Your viewing request has been received'
       : 'Your property enquiry has been received'
-  const propertyLine = input.propertyTitle ? ` for <strong>${input.propertyTitle}</strong>` : ''
+  const propertyLine = input.propertyTitle
+    ? ` for <strong>${escapeHtml(input.propertyTitle)}</strong>`
+    : ''
   return sendMailtrapEmail({
     to: input.email,
     toName: input.firstName,
@@ -230,8 +248,10 @@ export async function sendListingEnquiryConfirmation(input: {
     text: `Hi ${input.firstName}, we received your ${input.action === 'viewing' ? 'viewing request' : 'enquiry'}${input.propertyTitle ? ` for ${input.propertyTitle}` : ''}. The listing agent will contact you shortly.`,
     html: shell(
       subject,
-      p(`Hi <strong>${input.firstName}</strong>,`) +
-        p(`Thanks for your ${input.action === 'viewing' ? 'viewing request' : 'enquiry'}${propertyLine}. The listing agent will be in touch shortly.`) +
+      p(`Hi <strong>${escapeHtml(input.firstName)}</strong>,`) +
+        p(
+          `Thanks for your ${input.action === 'viewing' ? 'viewing request' : 'enquiry'}${propertyLine}. The listing agent will be in touch shortly.`,
+        ) +
         p('Keep this email for your records — no reply is needed.'),
     ),
   })
@@ -253,13 +273,15 @@ export async function sendListingLeadAlert(input: {
 }): Promise<MailtrapSendResult> {
   const kind = input.action === 'viewing' ? 'viewing request' : 'new enquiry'
   const subject = `${input.action === 'viewing' ? 'Viewing request' : 'New enquiry'}: ${input.leadName}`
-  const propertyLine = input.propertyTitle ? ` for <strong>${input.propertyTitle}</strong>` : ''
+  const propertyLine = input.propertyTitle
+    ? ` for <strong>${escapeHtml(input.propertyTitle)}</strong>`
+    : ''
   const contactRows =
-    (input.leadEmail ? p(`Email: <strong>${input.leadEmail}</strong>`) : '') +
-    (input.leadPhone ? p(`Phone: <strong>${input.leadPhone}</strong>`) : '')
+    (input.leadEmail ? p(`Email: <strong>${escapeHtml(input.leadEmail)}</strong>`) : '') +
+    (input.leadPhone ? p(`Phone: <strong>${escapeHtml(input.leadPhone)}</strong>`) : '')
   const bodyHtml =
-    p(`Hi${input.agentName ? ` <strong>${input.agentName}</strong>` : ''},`) +
-    p(`<strong>${input.leadName}</strong> sent a ${kind}${propertyLine} from the marketplace.`) +
+    p(`Hi${input.agentName ? ` <strong>${escapeHtml(input.agentName)}</strong>` : ''},`) +
+    p(`<strong>${escapeHtml(input.leadName)}</strong> sent a ${kind}${propertyLine} from the marketplace.`) +
     contactRows +
     p('Open your Letkaya workspace leads board to follow up.')
   const text =
@@ -303,9 +325,11 @@ export async function sendPaymentReceipt(input: {
     text: `We received your payment of ${input.amountDisplay} (ref ${input.paymentId}). Status: ${input.status}.`,
     html: shell(
       subject,
-      (input.payerName ? p(`Hi <strong>${input.payerName}</strong>,`) : '') +
-        p(`Your payment of <strong>${input.amountDisplay}</strong> was marked <strong>${input.status}</strong> by the payment provider.`) +
-        p(`Reference: ${input.paymentId}`),
+      (input.payerName ? p(`Hi <strong>${escapeHtml(input.payerName)}</strong>,`) : '') +
+        p(
+          `Your payment of <strong>${escapeHtml(input.amountDisplay)}</strong> was marked <strong>${escapeHtml(input.status)}</strong> by the payment provider.`,
+        ) +
+        p(`Reference: ${escapeHtml(input.paymentId)}`),
     ),
   })
 }
@@ -330,9 +354,9 @@ export async function sendWelcomeEmail(input: {
     text: `Hi ${input.firstName}, welcome to Letkaya! ${roleLine}`,
     html: shell(
       subject,
-      p(`Hi <strong>${input.firstName}</strong>,`) +
+      p(`Hi <strong>${escapeHtml(input.firstName)}</strong>,`) +
         p('Welcome to <strong>Letkaya</strong> — your account has been created.') +
-        p(roleLine) +
+        p(escapeHtml(roleLine)) +
         p('Keep this email for your records — no reply is needed.'),
     ),
   })
@@ -350,8 +374,12 @@ export async function sendApplicationReceived(input: {
   referenceCode?: string
 }): Promise<MailtrapSendResult> {
   const subject = 'Your application has been received'
-  const propertyLine = input.propertyTitle ? ` for <strong>${input.propertyTitle}</strong>` : ''
-  const refLine = input.referenceCode ? p(`Reference: <strong>${input.referenceCode}</strong>`) : ''
+  const propertyLine = input.propertyTitle
+    ? ` for <strong>${escapeHtml(input.propertyTitle)}</strong>`
+    : ''
+  const refLine = input.referenceCode
+    ? p(`Reference: <strong>${escapeHtml(input.referenceCode)}</strong>`)
+    : ''
   return sendMailtrapEmail({
     to: input.email,
     toName: input.applicantName,
@@ -360,7 +388,7 @@ export async function sendApplicationReceived(input: {
     text: `Hi${input.applicantName ? ` ${input.applicantName}` : ''}, we received your application${input.propertyTitle ? ` for ${input.propertyTitle}` : ''}. The agency will review it and be in touch.${input.referenceCode ? ` Reference: ${input.referenceCode}.` : ''}`,
     html: shell(
       subject,
-      p(`Hi${input.applicantName ? ` <strong>${input.applicantName}</strong>` : ''},`) +
+      p(`Hi${input.applicantName ? ` <strong>${escapeHtml(input.applicantName)}</strong>` : ''},`) +
         p(`We received your application${propertyLine}. The agency will review it and be in touch.`) +
         refLine +
         p('Track its progress anytime from your dashboard.'),
@@ -397,13 +425,13 @@ export async function sendVerificationDecision(input: {
     text: `Hi${input.firstName ? ` ${input.firstName}` : ''}, ${input.approved ? 'your Letkaya account has been approved.' : 'your Letkaya verification was not approved.'} ${nextStep}`,
     html: shell(
       subject,
-      p(`Hi${input.firstName ? ` <strong>${input.firstName}</strong>` : ' there'},`) +
+      p(`Hi${input.firstName ? ` <strong>${escapeHtml(input.firstName)}</strong>` : ' there'},`) +
         (input.approved
           ? p('Good news — your account has been <strong style="color:#16a34a;">approved</strong>.') +
-            p(nextStep) +
+            p(escapeHtml(nextStep)) +
             p('Sign in with the email and password you registered.')
           : p('Unfortunately your verification was <strong>not approved</strong>.') +
-            p(nextStep)),
+            p(escapeHtml(nextStep))),
     ),
   })
 }
@@ -414,7 +442,9 @@ export async function sendApplicationApproved(input: {
   propertyTitle?: string
 }): Promise<MailtrapSendResult> {
   const subject = 'Your rental application was approved 🎉'
-  const propertyLine = input.propertyTitle ? ` for <strong>${input.propertyTitle}</strong>` : ''
+  const propertyLine = input.propertyTitle
+    ? ` for <strong>${escapeHtml(input.propertyTitle)}</strong>`
+    : ''
   return sendMailtrapEmail({
     to: input.email,
     toName: input.applicantName,
@@ -423,7 +453,7 @@ export async function sendApplicationApproved(input: {
     text: `Good news — your application${input.propertyTitle ? ` for ${input.propertyTitle}` : ''} has been approved. Your tenant portal tools are now unlocked.`,
     html: shell(
       subject,
-      p(`Good news${input.applicantName ? `, <strong>${input.applicantName}</strong>` : ''}!`) +
+      p(`Good news${input.applicantName ? `, <strong>${escapeHtml(input.applicantName)}</strong>` : ''}!`) +
         p(`Your application${propertyLine} has been <strong style="color:#16a34a;">approved</strong>.`) +
         p('Sign in to your tenant portal to see your lease details, raise maintenance requests, and message the agency.'),
     ),
@@ -466,13 +496,13 @@ export async function sendDunningNoticeEmail(input: {
   }
   const subject = input.title.trim() || `Rent notice · ${input.stage}`
   const propertyLine = input.propertyTitle
-    ? p(`Property: <strong>${input.propertyTitle}</strong>`)
+    ? p(`Property: <strong>${escapeHtml(input.propertyTitle)}</strong>`)
     : ''
   const amountLine = input.amountDisplay
-    ? p(`Amount: <strong>${input.amountDisplay}</strong>`)
+    ? p(`Amount: <strong>${escapeHtml(input.amountDisplay)}</strong>`)
     : ''
-  const dueLine = input.dueDate ? p(`Due date: <strong>${input.dueDate}</strong>`) : ''
-  const stageLine = p(`Stage: <strong>${input.stage}</strong>`)
+  const dueLine = input.dueDate ? p(`Due date: <strong>${escapeHtml(input.dueDate)}</strong>`) : ''
+  const stageLine = p(`Stage: <strong>${escapeHtml(input.stage)}</strong>`)
   return sendMailtrapEmail({
     to: input.email,
     toName: input.tenantName,
@@ -481,8 +511,8 @@ export async function sendDunningNoticeEmail(input: {
     text: input.body,
     html: shell(
       subject,
-      (input.tenantName ? p(`Hi <strong>${input.tenantName}</strong>,`) : '') +
-        p(input.body) +
+      (input.tenantName ? p(`Hi <strong>${escapeHtml(input.tenantName)}</strong>,`) : '') +
+        p(escapeHtml(input.body)) +
         propertyLine +
         amountLine +
         dueLine +
@@ -501,11 +531,6 @@ export function isEmailLeaseSignedEnabled(): boolean {
 }
 
 /** Plain copy, no legal claims: "Your lease for <property> has been signed by all parties." */
-/** CR10 N8: HTML-escape user-supplied text for email bodies. */
-export function escapeHtml(v: string): string {
-  return v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
-}
-
 export async function sendLeaseSignedEmail(input: {
   to: string
   name?: string | null

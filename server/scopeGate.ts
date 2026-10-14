@@ -1242,6 +1242,18 @@ export async function assertPersistAllowed(
     }
     propertyId = body.id
   }
+  if (
+    (body.resource === 'building' ||
+      body.resource === 'room' ||
+      body.resource === 'asset') &&
+    landlordId
+  ) {
+    property = {
+      agencyId: agencyId ?? '',
+      agentId: agentId ?? null,
+      landlordId,
+    }
+  }
 
   const allowed = canWriteEntity(scope, {
     resource: body.resource,

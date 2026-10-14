@@ -31,6 +31,7 @@ import { usePageMeta } from '../../hooks/usePageMeta'
 import { useAgentDisplay } from '../../hooks/useAgentDisplay'
 import { StickyMobileActionBar } from '../../components/layout/mobile/StickyMobileActionBar'
 import { FullScreenSheet } from '../../components/layout/mobile/FullScreenSheet'
+import { isFutureViewingSlot } from '../../lib/viewingSlotTime'
 
 type EnquiryIntent = 'lead' | 'viewing'
 
@@ -163,6 +164,18 @@ export default function ListingDetail() {
     )
   }
 
+  const existingApplication = useMemo(() => {
+    if (!isAuthenticated || user.id === 'guest') return null
+    const email = user.email?.trim().toLowerCase()
+    return (
+      state.applications.find(
+        (a) =>
+          a.propertyId === p.id &&
+          (a.applicantUserId === user.id || (email && a.email?.trim().toLowerCase() === email)),
+      ) ?? null
+    )
+  }, [isAuthenticated, p.id, state.applications, user.email, user.id])
+
   const isBlockedForUser = blockedIds.has(p.id)
   const agentUser = p.agentId ? state.users.find((u) => u.id === p.agentId) : undefined
   // Guests get no users list; the public marketplace sends the agent's display name only.
@@ -175,7 +188,9 @@ export default function ListingDetail() {
         !blockedIds.has(x.id),
     )
     .slice(0, 3)
-  const openSlots = state.viewingSlots.filter((s) => s.propertyId === p.id && s.status === 'Open')
+  const openSlots = state.viewingSlots.filter(
+    (s) => s.propertyId === p.id && s.status === 'Open' && isFutureViewingSlot(s),
+  )
   const isRent = p.listingMode !== 'sale'
   const fullName = `${firstName.trim()} ${lastName.trim()}`.trim()
 
@@ -512,6 +527,15 @@ export default function ListingDetail() {
               Already have an account? Sign in
             </Link>
           </div>
+        ) : existingApplication ? (
+          <Link
+            to={`/workspace/portals/tenant/applications/${encodeURIComponent(existingApplication.id)}`}
+            className="block"
+          >
+            <Button type="button" variant="secondary" className="w-full min-h-11">
+              Application submitted — view status
+            </Button>
+          </Link>
         ) : (
           <Button type="button" variant="secondary" className="w-full min-h-11" onClick={submitApplication}>
             Submit full application

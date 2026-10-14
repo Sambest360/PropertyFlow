@@ -31,6 +31,14 @@ export function getApiActor(): DemoActor | null {
 
 /** Headers for fetch() — empty when no actor is set. */
 export function actorHeaders(actor?: DemoActor | null): Record<string, string> {
+  // Production: JWT/cookie session is authoritative — do not send spoofable X-* headers.
+  if (import.meta.env.PROD) {
+    try {
+      if (localStorage.getItem('propertyflow-auth-token')) return {}
+    } catch {
+      /* ignore */
+    }
+  }
   const a = actor === undefined ? currentActor : actor
   if (!a?.userId || !a.role) return {}
   const headers: Record<string, string> = {

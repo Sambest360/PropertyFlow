@@ -17,7 +17,23 @@ const amelia = buildPropertyScope(
   { properties },
 )
 
+const johan = buildPropertyScope(
+  { role: 'landlord', userId: 'u-johan', agencyId: 'ag-ll-johan', agencySuspended: false },
+  { properties: [] },
+)
+
 describe('canWriteEntity', () => {
+  it('allows landlord to create a building in their agency (L03 draft wizard)', () => {
+    expect(
+      canWriteEntity(johan, {
+        resource: 'building',
+        propertyId: null,
+        property: { agencyId: 'ag-ll-johan', agentId: null, landlordId: 'u-johan' },
+        agencyId: 'ag-ll-johan',
+      }),
+    ).toBe(true)
+  })
+
   it('allows ground agent upserts on assigned property', () => {
     expect(
       canWriteEntity(james, {

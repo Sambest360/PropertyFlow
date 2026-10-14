@@ -33,6 +33,7 @@ import {
 } from '../components/viewings/GuestListEditor'
 import { VIEWING_BOOKING_STATUSES } from '../components/viewings/types'
 import type { Viewing, ViewingSlot } from '../types/domain'
+import { isFutureViewingSlot } from '../lib/viewingSlotTime'
 
 const ICON_STROKE = 1.6
 
@@ -96,7 +97,7 @@ export default function ViewingPropertyPage() {
   const slots = useMemo(() => {
     if (!property) return []
     return state.viewingSlots
-      .filter((s) => s.propertyId === property.id)
+      .filter((s) => s.propertyId === property.id && isFutureViewingSlot(s))
       .sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`))
   }, [state.viewingSlots, property])
 

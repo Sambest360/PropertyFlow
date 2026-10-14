@@ -3,6 +3,7 @@
  * Accepts frontend demo IDs; resolves/registers UUIDs via entity_id_map.
  */
 import { query, withTransaction, clientQuery } from './db.js'
+import { invalidateIdMapCache } from './idMapCache.js'
 import { assertTicketAccessNotes, ensureTicketAccessNotesColumn, writeTicketAccessNotes } from './ticketAccessNotes.js'
 import { isAcceptanceStatus, notifyAcceptedElsewhereServer } from './acceptedElsewhere.js'
 import {
@@ -365,6 +366,15 @@ export async function handlePersist(
   }
   if (action === 'delete') {
     await deleteEntity(resource, id)
+    if (
+      resource === 'user' ||
+      resource === 'agency' ||
+      resource === 'building' ||
+      resource === 'unit' ||
+      resource === 'property'
+    ) {
+      invalidateIdMapCache()
+    }
     return { ok: true, id, uuid: (await resolveUuid(resource, id)) ?? id }
   }
 
@@ -372,11 +382,21 @@ export async function handlePersist(
     // Jim B2: a created user with no password gets a crypto-random temp one,
     // returned once to the creator (route sends Cache-Control: no-store).
     const res = await upsertUserWithResult(id, data)
+    invalidateIdMapCache()
     return res.generatedTempPassword
       ? { ok: true, id, uuid: res.uuid, tempPassword: res.generatedTempPassword }
       : { ok: true, id, uuid: res.uuid }
   }
   const uuid = await upsertEntity(resource, id, data, actorUserId ?? null)
+  if (
+    resource === 'user' ||
+    resource === 'agency' ||
+    resource === 'building' ||
+    resource === 'unit' ||
+    resource === 'property'
+  ) {
+    invalidateIdMapCache()
+  }
   return { ok: true, id, uuid }
 }
 

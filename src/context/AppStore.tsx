@@ -1168,7 +1168,19 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     let cancelled = false
     const id = window.requestAnimationFrame(() => {
       try {
-        const cached = ensurePublicMarketplace(loadState())
+        // G01–G03: do not paint stale marketplace rows from localStorage in live
+        // mode — wait for public/bootstrap fetch to avoid count/title flips.
+        const loaded = loadState()
+        const seeded = LIVE_DATA_MODE
+          ? {
+              ...loaded,
+              properties: [],
+              units: [],
+              buildings: [],
+              viewingSlots: [],
+            }
+          : loaded
+        const cached = ensurePublicMarketplace(seeded)
         if (!cancelled) setState(cached)
       } catch {
         /* keep defaultState */
@@ -1191,7 +1203,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         : resolveBootstrapActor(stateRef.current.users, actor)
     const lite = !opts?.full
     const actorKey = bootstrapActorKey(resolved)
-    const fetchBoot = () => fetchBootstrapFromApi(lite, resolved, opts?.full ? 20_000 : 10_000)
+    const fetchBoot = () => fetchBootstrapFromApi(lite, resolved, opts?.full ? 25_000 : 20_000)
     const prevNotifications = stateRef.current.notifications
     const prevSuiteAlerts = stateRef.current.suiteAlerts
     const ingestUserId = opts?.ingestNotifications ? resolved?.userId : undefined
@@ -1297,7 +1309,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const actorKey = bootstrapActorKey(actor)
       const boot = await dedupeBootstrapFetch(
         true,
-        () => fetchBootstrapFromApi(true, actor, 10_000),
+        () => fetchBootstrapFromApi(true, actor, 20_000),
         { actorKey },
       )
       if (cancelled) return
@@ -1431,12 +1443,24 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         // upserts when browser RLS rejects the guest write — staff and guest
         // must share the same reference_code row (no invent search RPC).
         const { persistToApi } = await import('../lib/api/persist')
-        return await persistToApi({ resource, action: 'upsert', id, data: { ...data, id } })
+        const ok = await persistToApi({ resource, action: 'upsert', id, data: { ...data, id } })
+        if (
+          ok &&
+          (resource === 'user' ||
+            resource === 'agency' ||
+            resource === 'client' ||
+            resource === 'building' ||
+            resource === 'unit' ||
+            resource === 'property')
+        ) {
+          scheduleBootstrapRefreshAfterMutation()
+        }
+        return ok
       } catch {
         return false
       }
     },
-    [],
+    [scheduleBootstrapRefreshAfterMutation],
   )
 
   /**

@@ -2,6 +2,7 @@ import { useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ArrowDown, ArrowRight } from 'lucide-react'
 import { usePublicProperties } from '../../context/AppStore'
+import { orderFeaturedListings } from '../../lib/marketplaceListings'
 import { PropertyCard } from '../../components/PropertyCard'
 import { AreaSearch } from '../../components/AreaSearch'
 import { cn } from '../../components/ui'
@@ -148,7 +149,7 @@ export default function MarketHome() {
   const progress = useScrollProgress(heroRef, reduced)
 
   const liveListings = properties.filter((p) => !['Draft', 'Archived', 'Maintenance'].includes(p.status))
-  const featured = liveListings.filter((p) => p.featured).concat(liveListings.filter((p) => !p.featured))
+  const featured = orderFeaturedListings(properties)
 
   const goBrowse = (nextAreas: Place[], keyword = '') => {
     navigate(buildBrowseSearchUrl({ mode, areas: nextAreas, q: keyword || undefined }))
@@ -202,7 +203,7 @@ export default function MarketHome() {
         className="relative isolate flex min-h-[calc(100dvh-4rem)] flex-col overflow-hidden"
       >
         <div
-          className="absolute inset-0 -z-20 scale-110 bg-cover bg-center will-change-transform"
+          className="absolute inset-0 -z-20 max-w-[100vw] bg-cover bg-center will-change-transform sm:scale-110"
           style={{
             backgroundImage: `url(${HERO_LCP})`,
             transform: `translate3d(0, ${parallaxY}px, 0)`,
