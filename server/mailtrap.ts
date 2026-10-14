@@ -192,7 +192,7 @@ function shell(title: string, bodyHtml: string): string {
     <tr><td align="center">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;">
         <tr><td style="background:#1d4ed8;padding:18px 28px;">
-          <span style="color:#ffffff;font-size:18px;font-weight:bold;">Property<span style="color:#f8b500">Flow</span></span>
+          <span style="color:#ffffff;font-size:18px;font-weight:bold;">Let<span style="color:#f8b500">kaya</span></span>
         </td></tr>
         <tr><td style="padding:28px;">
           <h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;">${title}</h1>
