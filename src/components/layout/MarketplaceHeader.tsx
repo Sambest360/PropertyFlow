@@ -5,6 +5,7 @@ import { BrandLogo } from './BrandLogo'
 import { MobileDrawer } from './MobileDrawer'
 import { marketplaceCategories } from './navigation'
 import { useAuth } from '../../context/AuthContext'
+import { readAuthToken } from '../../lib/api/authClient'
 import { signOutAndRedirect } from '../../lib/auth/signOut'
 import { ACCOUNT_WISHLIST_PATH, PUBLIC_SAVED_PATH } from '../../lib/accountRoutes'
 import { initials } from '../dashboard/formatShortDate'
@@ -24,7 +25,9 @@ export function MarketplaceHeader() {
   const [q, setQ] = useState('')
   const navigate = useNavigate()
   const location = useLocation()
-  const { user, isAuthenticated, logout } = useAuth()
+  const { user, isAuthenticated, logout, authReady } = useAuth()
+  const sessionPending = !authReady && Boolean(readAuthToken())
+  const showSignedInChrome = isAuthenticated || sessionPending
 
   const submitSearch = (e: FormEvent) => {
     e.preventDefault()
@@ -36,7 +39,7 @@ export function MarketplaceHeader() {
   }
 
   const avatarInitials = initials(user?.name ?? '')
-  const savedPath = isAuthenticated ? ACCOUNT_WISHLIST_PATH : PUBLIC_SAVED_PATH
+  const savedPath = showSignedInChrome ? ACCOUNT_WISHLIST_PATH : PUBLIC_SAVED_PATH
 
   return (
     <>
@@ -73,7 +76,7 @@ export function MarketplaceHeader() {
 
           <form
             onSubmit={submitSearch}
-            className="relative ml-auto hidden min-w-0 max-w-sm flex-1 lg:block"
+            className="relative ml-auto hidden min-w-0 max-w-sm flex-1 sm:block"
             data-tip-target="market-search"
           >
             <Search
@@ -101,7 +104,7 @@ export function MarketplaceHeader() {
               <Heart className="h-4 w-4" />
             </Link>
 
-            {!isAuthenticated ? (
+            {!showSignedInChrome ? (
               <>
                 <Link
                   to="/login"
@@ -125,7 +128,7 @@ export function MarketplaceHeader() {
               Find a home
             </Link>
 
-            {isAuthenticated ? (
+            {showSignedInChrome ? (
               <>
                 <button
                   type="button"
@@ -190,7 +193,7 @@ export function MarketplaceHeader() {
             )
           })}
 
-          {isAuthenticated ? (
+          {showSignedInChrome ? (
             <>
               <Link
                 to="/browse"

@@ -24,6 +24,7 @@ import { canonicalListingId } from '../../lib/listingIds'
 import { useWishlist } from '../../hooks/useWishlist'
 import { usePageMeta } from '../../hooks/usePageMeta'
 import { FullScreenSheet } from '../../components/layout/mobile/FullScreenSheet'
+import { parseAreasParam, propertyMatchesAreas } from '../../lib/placeCatalog'
 
 function listingAmount(p: PropertyAsset, mode: string): number | null {
   if (mode === 'rent') return p.rent
@@ -36,6 +37,7 @@ function matchesFilters(
   q: string,
   mode: string,
   f: BrowseFilterState,
+  areaPlaces: ReturnType<typeof parseAreasParam>,
 ): boolean {
   if (['Draft', 'Archived', 'Maintenance'].includes(p.status)) return false
 
@@ -80,6 +82,8 @@ function matchesFilters(
   const premium =
     p.grading === 'P' || Boolean(p.solarCapacityKw && p.solarCapacityKw >= 20 && p.hasBorehole)
   if (f.premiumTier && !premium) return false
+
+  if (areaPlaces.length && !propertyMatchesAreas(p, areaPlaces)) return false
 
   return true
 }
@@ -149,6 +153,7 @@ export default function BrowsePage() {
   const [params] = useSearchParams()
   const q = params.get('q') ?? ''
   const mode = params.get('mode') ?? 'all'
+  const areaPlaces = useMemo(() => parseAreasParam(params.get('areas')), [params])
   const [filters, setFilters] = useState<BrowseFilterState>(defaultBrowseFilters)
   const [panelOpen, setPanelOpen] = useState(false)
   const [showMap, setShowMap] = useState(!savedOnly)
@@ -185,9 +190,9 @@ export default function BrowsePage() {
   )
 
   const filtered = useMemo(() => {
-    const list = properties.filter((p) => matchesFilters(p, q, mode, filters))
+    const list = properties.filter((p) => matchesFilters(p, q, mode, filters, areaPlaces))
     return sortProperties(list, filters.sort, mode)
-  }, [properties, q, mode, filters])
+  }, [properties, q, mode, filters, areaPlaces])
 
   /** Prefer infra units feed when units exist — cursor-paginated, card-ready. */
   const unitsFeed = useMemo(() => {
@@ -201,6 +206,7 @@ export default function BrowsePage() {
       users: state.users,
       filters: {
         q: q || undefined,
+        area_places: areaPlaces.length ? areaPlaces : undefined,
         listing_type: mode === 'rent' ? 'rent' : mode === 'buy' ? 'sale' : 'all',
         marketplace_public: true,
         types: filters.types.length ? [...filters.types] : undefined,
@@ -222,7 +228,7 @@ export default function BrowsePage() {
         limit: 24,
       },
     })
-  }, [state.units, state.buildings, state.users, visibleStoreProperties, q, mode, filters, cursor, savedOnly])
+  }, [state.units, state.buildings, state.users, visibleStoreProperties, q, mode, filters, cursor, savedOnly, areaPlaces])
 
   const cards: UnitCardPayload[] = useMemo(() => {
     const raw =
@@ -251,8 +257,8 @@ export default function BrowsePage() {
 
   const getCount = useCallback(
     (draft: BrowseFilterState) =>
-      properties.filter((p) => matchesFilters(p, q, mode, draft)).length,
-    [properties, q, mode],
+      properties.filter((p) => matchesFilters(p, q, mode, draft, areaPlaces)).length,
+    [properties, q, mode, areaPlaces],
   )
 
   const priceHint =

@@ -1559,6 +1559,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       data: Record<string, unknown>,
     ): Promise<boolean> => {
       try {
+        const { canPersistWrites } = await import('../lib/auth/writeGate')
+        const { readStoredAuthUserId, getApiActor } = await import('../lib/api/actorAuth')
+        const sessionUserId = getApiActor()?.userId ?? readStoredAuthUserId()
+        if (!canPersistWrites(hydratedForUserIdRef.current, sessionUserId)) {
+          return false
+        }
         const { markLocalPersistWrite } = await import('../lib/bootstrapMerge')
         markLocalPersistWrite(resource, id)
         // P0-sync (R11): persistToApi falls back to /api/persist for application

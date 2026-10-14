@@ -104,7 +104,7 @@ describe('owner-keyed cache', () => {
     const state = { properties: [{ id: 'p1' }], users: [{ id: 'u' }], tenancies: [1], payments: [1], applications: [1], trustTransactions: [1], trustAllocations: [1], payoutInstructions: [1], depositHoldings: [1] }
     const api = JSON.parse(serializeClientCache(state, 'u-a', true))
     expect(api.ownerUserId).toBe('u-a')
-    expect(Object.keys(api.state)).toEqual(['properties'])
+    expect(Object.keys(api.state)).toEqual([])
     const demo = JSON.parse(serializeClientCache(state, 'u-a', false))
     expect(demo.state.users).toEqual([{ id: 'u' }])
   })
@@ -319,7 +319,7 @@ describe('support tickets in the cache', () => {
     const live = JSON.parse(serializeClientCache(state, 'u-a', true))
     expect(live.state).not.toHaveProperty('supportTickets')
     expect(live.state).not.toHaveProperty('tickets')
-    expect(live.state.properties).toEqual([{ id: 'p1' }])
+    expect(live.state).not.toHaveProperty('properties')
     const demo = JSON.parse(serializeClientCache(state, null, false))
     expect(demo.state.supportTickets).toEqual(state.supportTickets)
     expect(demo.state.tickets).toEqual(state.tickets)

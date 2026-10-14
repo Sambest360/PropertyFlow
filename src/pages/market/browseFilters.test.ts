@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { PropertyAsset } from '../types/domain'
+import type { PropertyAsset } from '../../types/domain'
+import { parseAreasParam, propertyMatchesAreas } from '../../lib/placeCatalog'
 
 /**
  * P1-3 regression: the rent/buy mode + property-type filters must not return
@@ -115,5 +116,21 @@ describe('browse type/mode filters (P1-3)', () => {
     const apt = listing()
     expect(typeAndModeMatch(office, '', 'commercial', [])).toBe(true)
     expect(typeAndModeMatch(apt, '', 'commercial', [])).toBe(false)
+  })
+})
+
+describe('browse areas= filter (G04)', () => {
+  it('parses areas param into place chips', () => {
+    const places = parseAreasParam('Walmer')
+    expect(places.length).toBeGreaterThan(0)
+    expect(places[0]?.label).toBe('Walmer')
+  })
+
+  it('matches suburb by equality, not substring (Walmer vs Walmer Heights)', () => {
+    const places = parseAreasParam('Walmer')
+    const walmer = listing({ suburb: 'Walmer', city: 'Gqeberha' })
+    const heights = listing({ suburb: 'Walmer Heights', city: 'Gqeberha' })
+    expect(propertyMatchesAreas(walmer, places)).toBe(true)
+    expect(propertyMatchesAreas(heights, places)).toBe(false)
   })
 })

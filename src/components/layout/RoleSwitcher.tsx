@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext'
 import { signOutAndRedirect } from '../../lib/auth/signOut'
 import { ACCOUNT_PASSWORD_PATH, ACCOUNT_SIGNATURE_PATH } from '../../lib/accountRoutes'
 import { isApiEnabled } from '../../lib/api/config'
-import { resetPageTipsForUser } from '../../lib/pageTips'
+import { arePageTipsDisabled, resetPageTipsForUser, setPageTipsPreference } from '../../lib/pageTips'
 import { roleLabels } from '../../lib/permissions'
 import type { Permission, Role } from '../../types/domain'
 import { cn } from '../ui'
@@ -43,6 +43,7 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
   } = useAuth()
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
+  const [pageTipsOff, setPageTipsOff] = useState(() => arePageTipsDisabled(user.id))
   const [menuPos, setMenuPos] = useState({ top: 0, right: 0, maxHeight: 384 })
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -63,6 +64,10 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
       : Math.max(VIEWPORT_PAD_PX, box.top - MENU_GAP_PX - maxHeight)
     setMenuPos({ top, right, maxHeight })
   }
+
+  useEffect(() => {
+    setPageTipsOff(arePageTipsDisabled(user.id))
+  }, [user.id])
 
   useEffect(() => {
     if (!open) return
@@ -125,10 +130,16 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
     if (!isImpersonating) {
       items.push({
         kind: 'action',
-        label: 'Show page tips',
+        label: pageTipsOff ? 'Show page tips' : 'Turn off page tips',
         icon: HelpCircle,
         onClick: () => {
-          resetPageTipsForUser(user.id)
+          if (pageTipsOff) {
+            resetPageTipsForUser(user.id)
+            setPageTipsOff(false)
+          } else {
+            setPageTipsPreference(user.id, true)
+            setPageTipsOff(true)
+          }
           setOpen(false)
         },
       })
@@ -168,7 +179,7 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
     })
 
     return items
-  }, [user.id, user.role, has, hasAny, isImpersonating, stopImpersonation, logout, navigate])
+  }, [user.id, user.role, has, hasAny, isImpersonating, stopImpersonation, logout, navigate, pageTipsOff])
 
   const initials =
     user.name

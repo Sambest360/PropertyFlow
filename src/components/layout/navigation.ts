@@ -514,68 +514,63 @@ function buildTenantApplicantNav(
     '/workspace/portals/tenant/maintenance',
     '/workspace/portals/tenant/messages',
     '/workspace/portals/tenant/complaints',
+    '/workspace/portals/tenant/leases',
+    '/workspace/portals/tenant/payments',
     '/workspace',
     ...CONTRACTOR_PORTAL_PATHS,
     ...OWNER_PORTAL_PATHS,
     ...(occupancyReady
-      ? [
-          '/workspace/operations/maintenance',
-          '/workspace/operations/communications',
-          '/workspace/portals/tenant/leases',
-          '/workspace/portals/tenant/payments',
-        ]
+      ? ['/workspace/operations/maintenance', '/workspace/operations/communications']
       : []),
   ])
 
-  const occupancyLinks: WorkspaceNavEntry[] = occupancyReady
-    ? [
-        {
-          type: 'link',
-          item: {
-            to: '/workspace/portals/tenant/leases',
-            label: 'My lease',
-            permission: 'portal.tenant',
-            icon: FileSignature,
-          },
-        },
-        {
-          type: 'link',
-          item: {
-            to: '/workspace/portals/tenant/payments',
-            label: 'Payments',
-            anyOf: ['payments.manage', 'payments.view'],
-            icon: CreditCard,
-          },
-        },
-        {
-          type: 'link',
-          item: {
-            to: '/workspace/portals/tenant/maintenance',
-            label: 'Maintenance',
-            permission: 'maintenance.view',
-            icon: Wrench,
-          },
-        },
-        {
-          type: 'link',
-          item: {
-            to: '/workspace/portals/tenant/messages',
-            label: 'Messages',
-            permission: 'messages.manage',
-            icon: MessageCircle,
-          },
-        },
-        {
-          type: 'link',
-          item: {
-            to: '/workspace/portals/tenant/complaints',
-            label: 'Complaints',
-            permission: 'maintenance.view',
-            icon: AlertTriangle,
-          },
-        },
-      ]
-    : []
+  const tenantPortalLinks: WorkspaceNavEntry[] = [
+    {
+      type: 'link',
+      item: {
+        to: '/workspace/portals/tenant/leases',
+        label: 'My lease',
+        permission: 'portal.tenant',
+        icon: FileSignature,
+      },
+    },
+    {
+      type: 'link',
+      item: {
+        to: '/workspace/portals/tenant/payments',
+        label: 'Payments',
+        permission: 'portal.tenant',
+        icon: CreditCard,
+      },
+    },
+    {
+      type: 'link',
+      item: {
+        to: '/workspace/portals/tenant/maintenance',
+        label: 'Maintenance',
+        permission: 'portal.tenant',
+        icon: Wrench,
+      },
+    },
+    {
+      type: 'link',
+      item: {
+        to: '/workspace/portals/tenant/messages',
+        label: 'Messages',
+        permission: 'portal.tenant',
+        icon: MessageCircle,
+      },
+    },
+    {
+      type: 'link',
+      item: {
+        to: '/workspace/portals/tenant/complaints',
+        label: 'Complaints',
+        permission: 'portal.tenant',
+        icon: AlertTriangle,
+      },
+    },
+  ]
 
   const prepend: WorkspaceNavEntry[] = [
     portalDashboardLink(portalHome),
@@ -606,7 +601,7 @@ function buildTenantApplicantNav(
         icon: Heart,
       },
     },
-    ...occupancyLinks,
+    ...tenantPortalLinks,
   ]
 
   const rest = stripNavPaths(removePortalsGroup(filtered), foreignPortalPathsForRole('tenant')).filter(

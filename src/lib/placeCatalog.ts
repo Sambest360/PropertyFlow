@@ -170,7 +170,6 @@ export function propertyMatchesAreas(
       continue
     }
     if (suburb === place.label.toLowerCase()) return true
-    if (suburb.includes(place.label.toLowerCase())) return true
   }
   return false
 }
