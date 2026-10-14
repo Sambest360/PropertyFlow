@@ -10,7 +10,7 @@ export function BrandLogo({
 }: {
   to?: string
   size?: 'sm' | 'md' | 'lg' | 'xs'
-  /** default = dark ink; inverse = white; bridge = Pro white / perty ink over rail seam */
+  /** default = dark ink; inverse = white; bridge = Le white / t ink over rail seam */
   tone?: 'default' | 'inverse' | 'bridge'
   /** stack = two-line lockup for narrow collapsed sidebar */
   layout?: 'inline' | 'stack'
@@ -41,9 +41,9 @@ export function BrandLogo({
           className,
         )}
       >
-        <span className={cn('font-display font-semibold', sizes.xs, propertyClass)}>Property</span>
+        <span className={cn('font-display font-semibold', sizes.xs, propertyClass)}>Let</span>
         <span className={cn('relative font-display font-semibold', sizes.xs, flowClass)}>
-          Flow
+          kaya
           <span
             aria-hidden
             className="absolute -bottom-[0.18em] left-0 right-0 h-[0.12em] rounded-full bg-accent"
@@ -62,14 +62,14 @@ export function BrandLogo({
       <span className={cn('font-display font-semibold', sizes[size])}>
         {tone === 'bridge' ? (
           <>
-            <span className="text-white">Pro</span>
-            <span className="text-ink">perty</span>
+            <span className="text-white">Le</span>
+            <span className="text-ink">t</span>
           </>
         ) : (
-          <span className={propertyClass}>Property</span>
+          <span className={propertyClass}>Let</span>
         )}
         <span className={cn('relative inline-block', flowClass)}>
-          Flow
+          kaya
           <span
             aria-hidden
             className="absolute -bottom-[0.18em] left-0 right-0 h-[0.12em] rounded-full bg-accent"
@@ -84,7 +84,7 @@ export function BrandLogo({
 export function BrandWordmark({ className }: { className?: string }) {
   return (
     <p className={cn('font-display text-lg font-semibold tracking-[-0.04em] text-ink', className)}>
-      Property<span className="text-primary">Flow</span>
+      Let<span className="text-primary">kaya</span>
       <span className="ml-0.5 inline-block h-1.5 w-1.5 translate-y-[-0.15em] rounded-full bg-accent align-middle" />
     </p>
   )
