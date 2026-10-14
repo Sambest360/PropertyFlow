@@ -1,15 +1,21 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
+import { useStore } from '../../context/AppStore'
 import {
   hasPageTipsPreference,
+  resolvePageTour,
   setPageTipsPreference,
   subscribeToPageTipsChanges,
 } from '../../lib/pageTips'
+import { tenantHasApprovedOccupancy } from '../../lib/tenantOccupancy'
 import { cn } from '../ui'
 
 export function PageTipsPreferenceDialog() {
   const { user, isAuthenticated, authReady, isImpersonating } = useAuth()
+  const { state } = useStore()
+  const { pathname } = useLocation()
   const [dismissed, setDismissed] = useState(false)
   // Stay in sync when tips preferences change elsewhere (e.g. walkthrough toggle).
   const [, setStorageTick] = useState(0)
@@ -17,11 +23,22 @@ export function PageTipsPreferenceDialog() {
 
   const uid = user?.id
 
+  const tenantOccupancyReady = useMemo(() => {
+    if (!user || user.role !== 'tenant') return true
+    return tenantHasApprovedOccupancy(state.applications, state.tenancies, user)
+  }, [user, state.applications, state.tenancies])
+
+  const tourOnPage = useMemo(
+    () => resolvePageTour(pathname, user?.role ?? null, { tenantOccupancyReady }),
+    [pathname, user?.role, tenantOccupancyReady],
+  )
+
   if (!authReady || !isAuthenticated || isImpersonating || !uid || uid === 'guest') {
     return null
   }
 
-  if (dismissed || hasPageTipsPreference(uid)) return null
+  // Ask once before the first walkthrough — not on /workspace redirects with no tour.
+  if (dismissed || hasPageTipsPreference(uid) || !tourOnPage) return null
 
   if (typeof document === 'undefined') return null
 

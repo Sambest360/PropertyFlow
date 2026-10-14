@@ -192,6 +192,10 @@ import {
 import { authHeaders } from '../lib/api/authClient'
 import { buildPublicMarketplaceDemoBootstrap } from '../lib/publicMarketplaceDemo'
 import {
+  appStateHasPublicBrowseListings,
+  enrichBootstrapWithPublicMarketplace,
+} from '../lib/publicMarketplaceMerge'
+import {
   PERSIST_REFUSED_EVENT,
   persistApproveApplication,
   persistMarkNotificationsRead,
@@ -1095,7 +1099,9 @@ async function fetchBootstrapFromApi(lite: boolean, actor: DemoActor | null, ful
       // Mode A Sipho: END_USER/tenant + applications:[] under live session is
       // NOT remint success — data.ts already awaited session + retried apps.
       // remint56: null actorRole + AUTH_KEY + empty apps also fail-closed.
-      if (shouldAcceptSupabaseBootstrap({ boot, ...sessionProof })) return boot
+      if (boot && shouldAcceptSupabaseBootstrap({ boot, ...sessionProof })) {
+        return enrichBootstrapWithPublicMarketplace(boot, lite, fullTimeoutMs)
+      }
     } catch {
       // Hard failure (network/expired token).
       boot = null
@@ -1107,7 +1113,8 @@ async function fetchBootstrapFromApi(lite: boolean, actor: DemoActor | null, ful
       if (shouldSoftMissEmptyApplicationsBootstrap({ boot, ...sessionProof })) {
         return null
       }
-      return boot
+      if (!boot) return null
+      return enrichBootstrapWithPublicMarketplace(boot, lite, fullTimeoutMs)
     }
     try {
       localStorage.removeItem(AUTH_USER_STORAGE_KEY)
@@ -1130,19 +1137,12 @@ async function fetchBootstrapFromApi(lite: boolean, actor: DemoActor | null, ful
     return buildPublicMarketplaceDemoBootstrap()
   }
   const boot = await fetchPostgresBootstrap(fullTimeoutMs, effective, lite)
-  if (boot) return boot
-  return null
+  if (!boot) return null
+  return enrichBootstrapWithPublicMarketplace(boot, lite, fullTimeoutMs)
 }
 
-function guestHasBrowseListings(state: AppState): boolean {
-  return state.properties.some((p) =>
-    isPubliclyListed(p, { units: state.units, users: state.users }),
-  )
-}
-
-function ensureGuestMarketplace(state: AppState): AppState {
-  const guest = !readStoredAuthUserId() && !getApiActor()?.userId
-  if (!guest || guestHasBrowseListings(state)) return state
+function ensurePublicMarketplace(state: AppState): AppState {
+  if (appStateHasPublicBrowseListings(state)) return state
   return applyPostgresBootstrap(state, buildPublicMarketplaceDemoBootstrap())
 }
 
@@ -1168,7 +1168,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     let cancelled = false
     const id = window.requestAnimationFrame(() => {
       try {
-        const cached = ensureGuestMarketplace(loadState())
+        const cached = ensurePublicMarketplace(loadState())
         if (!cancelled) setState(cached)
       } catch {
         /* keep defaultState */
@@ -1197,7 +1197,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     const ingestUserId = opts?.ingestNotifications ? resolved?.userId : undefined
 
     if (!isApiEnabled && !isSupabaseMode) {
-      setState((prev) => ensureGuestMarketplace(prev))
+      setState((prev) => ensurePublicMarketplace(prev))
       return
     }
 
@@ -1205,13 +1205,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     if (!boot) {
       setTicketAccessNotesSupported(false)
       if (resolved?.userId) setHydrationFailed(true)
-      setState((prev) => ensureGuestMarketplace(prev))
+      setState((prev) => ensurePublicMarketplace(prev))
       return
     }
     // Drop a bootstrap whose user is no longer the session user (switch mid-flight).
     if (!bootstrapMatchesSession(resolved?.userId, readStoredAuthUserId())) return
     setTicketAccessNotesSupported(ticketAccessNotesSupportedFromBootstrap(boot))
-    setState((prev) => ensureGuestMarketplace(applyPostgresBootstrap(prev, boot)))
+    setState((prev) => ensurePublicMarketplace(applyPostgresBootstrap(prev, boot)))
     setHydratedForUserId(resolved?.userId ?? null)
     setHydrationFailed(false)
     if (ingestUserId) {
@@ -1244,7 +1244,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ).then((full) => {
           if (!full) return
           if (!bootstrapMatchesSession(deferredActor?.userId, readStoredAuthUserId())) return
-          setState((prev) => applyPostgresBootstrap(prev, full))
+          setState((prev) => ensurePublicMarketplace(applyPostgresBootstrap(prev, full)))
         })
       })
     } else if (!opts?.full && isApiEnabled) {
@@ -1258,7 +1258,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ).then((full) => {
           if (!full) return
           if (!bootstrapMatchesSession(deferredActor?.userId, readStoredAuthUserId())) return
-          setState((prev) => applyPostgresBootstrap(prev, full))
+          setState((prev) => ensurePublicMarketplace(applyPostgresBootstrap(prev, full)))
         })
       })
     }
@@ -1280,7 +1280,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!isApiEnabled && !isSupabaseMode) {
-      setState((prev) => ensureGuestMarketplace(prev))
+      setState((prev) => ensurePublicMarketplace(prev))
       return
     }
     let cancelled = false
@@ -1304,12 +1304,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       if (!boot) {
         setTicketAccessNotesSupported(false)
         if (actor?.userId) setHydrationFailed(true)
-        setState((prev) => ensureGuestMarketplace(prev))
+        setState((prev) => ensurePublicMarketplace(prev))
         return
       }
       if (!bootstrapMatchesSession(actor?.userId, readStoredAuthUserId())) return
       setTicketAccessNotesSupported(ticketAccessNotesSupportedFromBootstrap(boot))
-      setState((prev) => ensureGuestMarketplace(applyPostgresBootstrap(prev, boot)))
+      setState((prev) => ensurePublicMarketplace(applyPostgresBootstrap(prev, boot)))
       setHydratedForUserId(actor?.userId ?? null)
       setHydrationFailed(false)
       try {
@@ -1334,7 +1334,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ).then((full) => {
           if (cancelled || !full) return
           if (!bootstrapMatchesSession(deferredActor?.userId, readStoredAuthUserId())) return
-          setState((prev) => applyPostgresBootstrap(prev, full))
+          setState((prev) => ensurePublicMarketplace(applyPostgresBootstrap(prev, full)))
         })
       })
     }

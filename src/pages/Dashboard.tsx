@@ -4,6 +4,9 @@ import { GroundAgentDashboard } from './dashboards/GroundAgentDashboard'
 import { useAuth } from '../context/AuthContext'
 import { defaultWorkspacePath } from '../lib/workspaceRoutes'
 import { PortalHydrationGate } from '../components/PortalHydrationGate'
+import TenantPortal from './TenantPortal'
+import OwnerPortal from './OwnerPortal'
+import ContractorPortal from './ContractorPortal'
 
 /**
  * Workspace home — one purposeful surface per role.
@@ -23,13 +26,13 @@ function DashboardContent() {
   const role = user?.role
 
   if (role === 'contractor' && has('portal.contractor')) {
-    return <Navigate to="/workspace/portals/contractor" replace />
+    return <ContractorPortal />
   }
   if (role === 'landlord' && has('portal.owner')) {
-    return <Navigate to="/workspace/portals/owner" replace />
+    return <OwnerPortal />
   }
   if (role === 'tenant' && has('portal.tenant')) {
-    return <Navigate to="/workspace/portals/tenant" replace />
+    return <TenantPortal />
   }
 
   if (role === 'super_admin') {

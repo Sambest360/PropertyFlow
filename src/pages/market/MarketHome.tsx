@@ -196,7 +196,7 @@ export default function MarketHome() {
   ] as const
 
   return (
-    <div className="bg-white">
+    <div className="overflow-x-hidden bg-white">
       <section
         ref={heroRef}
         className="relative isolate flex min-h-[calc(100dvh-4rem)] flex-col overflow-hidden"

@@ -15,9 +15,20 @@ export function getSupabaseUrl(): string {
     return key
   }
   
+function isPlaceholderSupabaseValue(value: string | undefined): boolean {
+  if (!value?.trim()) return true
+  const v = value.trim()
+  return (
+    v.includes('YOUR_PROJECT_REF') ||
+    v.includes('YOUR_KEY') ||
+    v.includes('sb_publishable_YOUR_KEY') ||
+    v.includes('your-project-ref')
+  )
+}
+
   export function isSupabaseConfigured(): boolean {
-    return Boolean(
-      import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-    )
+    const url = import.meta.env.VITE_SUPABASE_URL
+    const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
+    return !isPlaceholderSupabaseValue(url) && !isPlaceholderSupabaseValue(key)
   }
   

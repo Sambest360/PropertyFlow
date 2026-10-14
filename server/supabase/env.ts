@@ -29,6 +29,17 @@ export function getSupabaseUrl(): string {
     )
   }
 
+function isPlaceholderSupabaseValue(value: string | undefined): boolean {
+  if (!value?.trim()) return true
+  const v = value.trim()
+  return (
+    v.includes('YOUR_PROJECT_REF') ||
+    v.includes('YOUR_KEY') ||
+    v.includes('sb_publishable_YOUR_KEY') ||
+    v.includes('your-project-ref')
+  )
+}
+
 /**
  * GoTrue is usable only when both a project URL and a publishable/anon key
  * are set. API-mode Neon has neither; staff mint must not require auth.users.
@@ -48,5 +59,8 @@ export function supabaseAuthConfigured(): boolean {
     process.env.SUPABASE_ANON_KEY ||
     ''
   ).trim()
-  return Boolean(url && key)
+  return (
+    !isPlaceholderSupabaseValue(url) &&
+    !isPlaceholderSupabaseValue(key)
+  )
 }
