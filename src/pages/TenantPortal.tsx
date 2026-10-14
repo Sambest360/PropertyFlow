@@ -35,7 +35,15 @@ import { TenantMaintenanceView } from './tenant/TenantMaintenanceView'
 import { TenantMessagesView } from './tenant/TenantMessagesView'
 import { PortalHydrationGate } from '../components/PortalHydrationGate'
 
-type TenantView = 'home' | 'applications' | 'maintenance' | 'messages' | 'complaints' | 'viewings'
+type TenantView =
+  | 'home'
+  | 'applications'
+  | 'maintenance'
+  | 'messages'
+  | 'complaints'
+  | 'viewings'
+  | 'leases'
+  | 'payments'
 
 function resolveTenantView(pathname: string): TenantView {
   if (pathname.includes('/applications')) return 'applications'
@@ -43,6 +51,8 @@ function resolveTenantView(pathname: string): TenantView {
   if (pathname.includes('/messages')) return 'messages'
   if (pathname.includes('/complaints')) return 'complaints'
   if (pathname.includes('/viewings')) return 'viewings'
+  if (pathname.includes('/leases')) return 'leases'
+  if (pathname.includes('/payments')) return 'payments'
   return 'home'
 }
 
@@ -105,9 +115,13 @@ function TenantPortalContent() {
             ? 'Complaints'
             : view === 'viewings'
               ? 'Viewings'
-              : portal.occupancyReady
-              ? 'Tenant portal'
-              : 'Applicant home'
+              : view === 'leases'
+                ? 'My lease'
+                : view === 'payments'
+                  ? 'Payments'
+                  : portal.occupancyReady
+                    ? 'Tenant portal'
+                    : 'Applicant home'
 
   if (user.role === 'super_admin') {
     return <Navigate to={defaultWorkspacePath('super_admin')} replace />
@@ -131,6 +145,52 @@ function TenantPortalContent() {
           <TenantComplaintsView portal={portal} />
         ) : view === 'viewings' ? (
           <TenantViewingsView portal={portal} />
+        ) : view === 'leases' ? (
+          <div data-tip-target="tenant-leases" className="space-y-5">
+            {portal.tenancy ? (
+              <LinkedTenancyCard tenancy={portal.tenancy} />
+            ) : (
+              <Card className="p-5">
+                <h2 className="font-display text-lg font-semibold text-ink">My lease</h2>
+                <p className="mt-2 text-sm text-ink-500">
+                  Lease details appear here once your application is approved and you have an active tenancy.
+                </p>
+                {portal.apps.length > 0 ? (
+                  <Link
+                    to="/workspace/portals/tenant/applications"
+                    className="mt-4 inline-flex min-h-11 cursor-pointer items-center rounded-xl border border-primary-200 bg-white px-4 py-2 text-sm font-semibold text-ink hover:bg-primary-50"
+                  >
+                    View applications
+                  </Link>
+                ) : (
+                  <Link
+                    to="/browse"
+                    className="mt-4 inline-flex min-h-11 cursor-pointer items-center rounded-xl border border-primary-200 bg-white px-4 py-2 text-sm font-semibold text-ink hover:bg-primary-50"
+                  >
+                    Browse homes
+                  </Link>
+                )}
+              </Card>
+            )}
+          </div>
+        ) : view === 'payments' ? (
+          <div data-tip-target="tenant-payments" className="space-y-5">
+            {payError && (
+              <p
+                className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+                role="alert"
+              >
+                {payError}
+              </p>
+            )}
+            <PaymentsPanel
+              payments={portal.payments}
+              onPay={handlePortalPay}
+              canPay={has('payments.manage')}
+              payBusyId={payBusyId}
+              expanded
+            />
+          </div>
         ) : (
           <>
             {payError && (
@@ -397,17 +457,20 @@ function PaymentsPanel({
   onPay,
   canPay,
   payBusyId,
+  expanded,
 }: {
   payments: ReturnType<typeof useTenantPortalState>['payments']
   onPay: (id: string) => void
   canPay: boolean
   payBusyId: string | null
+  expanded?: boolean
 }) {
+  const list = expanded ? payments : payments.slice(0, 5)
   return (
     <Card className="p-5">
-      <h2 className="font-display text-lg font-semibold">Payments due</h2>
+      <h2 className="font-display text-lg font-semibold">{expanded ? 'Payments' : 'Payments due'}</h2>
       <ul className="mt-3 space-y-2">
-        {payments.slice(0, 5).map((p) => (
+        {list.map((p) => (
           <li
             key={p.id}
             className="flex items-center justify-between rounded-xl bg-primary-50 px-3 py-2 text-sm"

@@ -13,6 +13,10 @@ import { RequirePermission } from './components/RequirePermission'
 import { RequireAuth } from './components/RequireAuth'
 import { TempPasswordHost } from './components/admin/TempPasswordHost'
 import { useAuth } from './context/AuthContext'
+import {
+  WorkspaceApplicationsRedirect,
+  WorkspaceLeasesRedirect,
+} from './lib/workspaceRedirects'
 
 const MarketHome = lazy(() => import('./pages/market/MarketHome'))
 const BrowsePage = lazy(() => import('./pages/market/BrowsePage'))
@@ -314,6 +318,8 @@ export default function App() {
                 <Route path="portals/tenant/messages" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
                 <Route path="portals/tenant/complaints" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
                 <Route path="portals/tenant/viewings" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
+                <Route path="portals/tenant/leases" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
+                <Route path="portals/tenant/payments" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
                 <Route path="account/wishlist" element={<AccountWishlistPage />} />
                 <Route path="account/signature" element={<AccountSignaturePage />} />
                 <Route path="account/password" element={<ChangePasswordPage />} />
@@ -355,13 +361,15 @@ export default function App() {
                 <Route path="operations" element={<Navigate to="/workspace/operations/maintenance" replace />} />
                 <Route path="crm" element={<Navigate to="/workspace/sales/crm" replace />} />
                 <Route path="pipeline" element={<Navigate to="/workspace/sales/crm?view=board" replace />} />
-                <Route path="applications" element={<Navigate to="/workspace/sales/applications" replace />} />
+                <Route path="applications" element={<WorkspaceApplicationsRedirect />} />
+                <Route path="leases" element={<WorkspaceLeasesRedirect />} />
                 <Route path="viewings" element={<Navigate to="/workspace/sales/viewings" replace />} />
                 <Route path="maintenance" element={<Navigate to="/workspace/operations/maintenance" replace />} />
                 <Route path="payments" element={<Navigate to="/workspace/operations/payments" replace />} />
                 <Route path="reports" element={<Navigate to="/workspace/insights/reports" replace />} />
                 <Route path="modules" element={<Navigate to="/workspace/insights/reports" replace />} />
                 <Route path="insights/modules" element={<Navigate to="/workspace/insights/reports" replace />} />
+                <Route path="*" element={<Navigate to="/workspace" replace />} />
               </Route>
 
               <Route path="*" element={<Navigate to="/" replace />} />

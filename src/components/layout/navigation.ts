@@ -510,12 +510,35 @@ function buildTenantApplicantNav(
     ...CONTRACTOR_PORTAL_PATHS,
     ...OWNER_PORTAL_PATHS,
     ...(occupancyReady
-      ? ['/workspace/operations/maintenance', '/workspace/operations/communications']
+      ? [
+          '/workspace/operations/maintenance',
+          '/workspace/operations/communications',
+          '/workspace/portals/tenant/leases',
+          '/workspace/portals/tenant/payments',
+        ]
       : []),
   ])
 
   const occupancyLinks: WorkspaceNavEntry[] = occupancyReady
     ? [
+        {
+          type: 'link',
+          item: {
+            to: '/workspace/portals/tenant/leases',
+            label: 'My lease',
+            permission: 'portal.tenant',
+            icon: FileSignature,
+          },
+        },
+        {
+          type: 'link',
+          item: {
+            to: '/workspace/portals/tenant/payments',
+            label: 'Payments',
+            permission: 'payments.view',
+            icon: CreditCard,
+          },
+        },
         {
           type: 'link',
           item: {
@@ -601,12 +624,22 @@ function buildLandlordOwnerNav(
     '/workspace/operations/payments',
     '/workspace/operations/maintenance',
     '/workspace/properties',
+    '/workspace/portals/owner',
     ...TENANT_PORTAL_PATHS,
     ...CONTRACTOR_PORTAL_PATHS,
   ])
 
   const prepend: WorkspaceNavEntry[] = [
     portalDashboardLink(portalHome),
+    {
+      type: 'link',
+      item: {
+        to: '/workspace/portals/owner',
+        label: 'Applications',
+        permission: 'portal.owner',
+        icon: ClipboardList,
+      },
+    },
     {
       type: 'link',
       item: {
