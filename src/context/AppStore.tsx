@@ -1860,7 +1860,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         )
       }
       addActivity(
-        `Template CSV import: ${fresh.length} unallocated receipt(s) from ${batch.filename} (recorded in PropertyFlow, not yet matched to the bank)`,
+        `Template CSV import: ${fresh.length} unallocated receipt(s) from ${batch.filename} (recorded in Letkaya, not yet matched to the bank)`,
         actor.name,
         params.agencyId,
       )

@@ -6,7 +6,7 @@
 export type MessageRoutesTo = 'agency' | 'agent' | 'landlord'
 
 export const MESSAGING_MODE_A_BANNER =
-  'In-app messaging only — not live chat, WhatsApp, or SMS. Messages stay inside PropertyFlow.'
+  'In-app messaging only — not live chat, WhatsApp, or SMS. Messages stay inside Letkaya.'
 
 export const MESSAGING_MODE_A_SHORT =
   'In-app only — not WhatsApp/SMS'
@@ -86,7 +86,7 @@ export function buildArrearsMessageThreadInput(input: ArrearsThreadInput): {
     participantIds: participants,
     routesTo,
     fromUserId: input.staffUserId,
-    initialMessage: `Hi — please review arrears for occupancy ${input.occupancyId}.${amountHint} Balances come from the PropertyFlow ledger and are not yet matched to the bank. Sent as an in-app PropertyFlow message.`,
+    initialMessage: `Hi — please review arrears for occupancy ${input.occupancyId}.${amountHint} Balances come from the Letkaya ledger and are not yet matched to the bank. Sent as an in-app Letkaya message.`,
   }
 }
 

@@ -48,7 +48,7 @@ export function PageTipsPreferenceDialog() {
           Show page tips?
         </h2>
         <p id="pf-tips-pref-body" className="mt-2 text-sm leading-relaxed text-ink-600">
-          PropertyFlow can walk you through key areas with short spotlight tips when you visit them
+          Letkaya can walk you through key areas with short spotlight tips when you visit them
           for the first time. You can turn this off anytime from any tip.
         </p>
         <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

@@ -39,7 +39,7 @@ function printSummary(input: {
   userCount: number
   credentials: Array<{ email: string; role: string; note?: string }>
 }) {
-  console.log('\n========== PropertyFlow demo seed complete ==========\n')
+  console.log('\n========== Letkaya demo seed complete ==========\n')
   console.log(`Agency: ${input.agencyName}`)
   console.log(`Properties: ${input.propertyCount}`)
   console.log(`Applicants: ${input.applicantCount}`)

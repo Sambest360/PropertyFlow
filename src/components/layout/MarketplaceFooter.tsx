@@ -28,7 +28,7 @@ export function MarketplaceFooter() {
           </div>
         ))}
       </div>
-      <div className="border-t border-primary-100 py-4 text-center text-xs text-ink-400">© 2026 PropertyFlow</div>
+      <div className="border-t border-primary-100 py-4 text-center text-xs text-ink-400">© 2026 Letkaya</div>
     </footer>
   )
 }

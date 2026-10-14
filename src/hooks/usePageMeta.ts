@@ -11,10 +11,10 @@ export type PageMetaInput = {
   preloadImage?: string
 }
 
-const SITE_NAME = 'PropertyFlow'
+const SITE_NAME = 'Letkaya'
 const DEFAULT_TITLE = `${SITE_NAME} — Property Management & Sales`
 const DEFAULT_DESCRIPTION =
-  'Browse, buy, and rent properties across South Africa. Search listings, book viewings, and apply online with PropertyFlow.'
+  'Browse, buy, and rent properties across South Africa. Search listings, book viewings, and apply online with Letkaya.'
 
 function upsertMeta(attr: 'name' | 'property', key: string, content: string) {
   let el = document.querySelector(`meta[${attr}="${key}"]`) as HTMLMetaElement | null

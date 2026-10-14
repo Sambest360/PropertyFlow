@@ -3,4 +3,4 @@
  * One neutral line; no bank-match or compliance claims.
  */
 export const TRUST_MODE_A_COPY =
-  'Balances come from the PropertyFlow ledger and are not yet matched to the bank.'
+  'Balances come from the Letkaya ledger and are not yet matched to the bank.'

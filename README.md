@@ -1,4 +1,4 @@
-# PropertyFlow
+# Letkaya
 
 Multi-tenant **Property Management & Sales** platform (Vite SPA + local Hono API + Postgres).
 

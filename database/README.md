@@ -1,4 +1,4 @@
-# PropertyFlow database
+# Letkaya database
 
 Two schemas ship side-by-side:
 

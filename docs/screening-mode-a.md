@@ -1,6 +1,6 @@
 # Screening / TPN — Mode A (DQ-C3)
 
-PropertyFlow’s tenant screening path is **staff-managed in-app**: POPIA consent,
+Letkaya’s tenant screening path is **staff-managed in-app**: POPIA consent,
 mock provider ingest, and audited manual bureau override. That path must
 **never** be claimed as live TPN or a live bureau hard-gate.
 

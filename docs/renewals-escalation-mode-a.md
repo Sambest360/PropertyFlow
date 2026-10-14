@@ -1,6 +1,6 @@
 # Renewals + rent escalation — Mode A (Michael GO + Jim stamp / Oscar aligned)
 
-PropertyFlow’s year-ops renewal path ships a **soft CPA-style notice clock**,
+Letkaya’s year-ops renewal path ships a **soft CPA-style notice clock**,
 **offer / accept / decline** beside leases (#15), and **scheduled book escalation**
 (`escalationPct` / `nextEscalationOn`). That path must **never** be claimed as a
 statutory CPA legal product, live notice delivery (WhatsApp/SMS/email CPA), live CPI

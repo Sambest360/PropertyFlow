@@ -1,5 +1,5 @@
 -- =============================================================================
--- PropertyFlow — PostgreSQL seed (Port Elizabeth / Eastern Cape demo story)
+-- Letkaya — PostgreSQL seed (Port Elizabeth / Eastern Cape demo story)
 -- Requires: database/postgres/schema.sql already applied
 -- Password: most demo users still use the shared bcrypt placeholder (see README).
 -- Super admin sambampo200@gmail.com uses a real bcrypt hash of plaintext `secret`.

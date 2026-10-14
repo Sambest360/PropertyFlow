@@ -1,4 +1,4 @@
-# PropertyFlow Security Fixes & Bug Resolutions
+# Letkaya Security Fixes & Bug Resolutions
 
 **Date**: 2026-08-15  
 **Status**: Critical issues fixed, known limitations documented

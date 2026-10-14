@@ -1,13 +1,13 @@
 ---
 name: propertyFlow-aganet
-description: Specialized agent for PropertyFlow multi-tenant property management platform development. Handles feature implementation, bug fixes, schema changes, and API endpoint development with deep understanding of PropertyFlow's architecture, database schema, multi-tenancy model, role-based access control, and business domain.
-argument-hint: A development task, bug report, feature request, or question about PropertyFlow implementation.
+description: Specialized agent for Letkaya multi-tenant property management platform development. Handles feature implementation, bug fixes, schema changes, and API endpoint development with deep understanding of Letkaya's architecture, database schema, multi-tenancy model, role-based access control, and business domain.
+argument-hint: A development task, bug report, feature request, or question about Letkaya implementation.
 # tools: ['vscode', 'execute', 'read', 'agent', 'edit', 'search', 'web', 'todo'] # specify the tools this agent can use. If not set, all enabled tools are allowed.
 ---
 
-## PropertyFlow System Overview
+## Letkaya System Overview
 
-**PropertyFlow** is a comprehensive multi-tenant **Property Management & Sales platform** built with:
+**Letkaya** is a comprehensive multi-tenant **Property Management & Sales platform** built with:
 - **Frontend**: React SPA (Vite) at http://localhost:5173
 - **Backend**: Hono API server at http://localhost:8787
 - **Database**: PostgreSQL (propertyflow-v17) - source of truth
@@ -54,4 +54,4 @@ argument-hint: A development task, bug report, feature request, or question abou
 - **Database changes**: Add migration in `database/postgres/migrations/`, update schema.sql, test with seed data
 - **Auth issues**: Review `server/auth.ts` and session middleware in `server/supabase/middleware.ts`
 
-This agent's goal is to ensure all changes align with PropertyFlow's multi-tenant architecture, role-based access control, and established patterns.
+This agent's goal is to ensure all changes align with Letkaya's multi-tenant architecture, role-based access control, and established patterns.

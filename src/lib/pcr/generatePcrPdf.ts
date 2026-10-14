@@ -107,7 +107,7 @@ function summarizeInspection(inspection: PropertyConditionInspection): string[] 
 /** Generate a downloadable Mode A PCR pack PDF. */
 export async function generatePcrPdf(input: PcrPdfInput): Promise<PcrPdfResult> {
   const { inspection } = input
-  const brand = input.brandName ?? 'PropertyFlow'
+  const brand = input.brandName ?? 'Letkaya'
   const doc = await PDFDocument.create()
   const page = doc.addPage([PAGE_W, PAGE_H])
   const font = await doc.embedFont(StandardFonts.Helvetica)

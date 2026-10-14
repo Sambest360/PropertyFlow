@@ -321,7 +321,7 @@ export default function RegisterPage() {
   const subtitle = bootstrapNeeded
     ? 'This is the first account on an empty platform — it becomes the Super Admin.'
     : step === 1
-      ? 'We’ll use these details for your PropertyFlow account.'
+      ? 'We’ll use these details for your Letkaya account.'
       : step === 2
         ? 'Choose how you’ll use the marketplace. Agency staff are invited separately.'
         : role === 'tenant'
@@ -337,7 +337,7 @@ export default function RegisterPage() {
         to: `/login${params.get('next') ? `?next=${encodeURIComponent(params.get('next')!)}` : ''}`,
         label: 'Sign in',
       }}
-      asideTitle={bootstrapNeeded ? 'Bootstrap your platform' : 'Join PropertyFlow'}
+      asideTitle={bootstrapNeeded ? 'Bootstrap your platform' : 'Join Letkaya'}
       asideBody={
         bootstrapNeeded
           ? 'Set up the first Super Admin, then create agencies and invite your team.'
@@ -672,7 +672,7 @@ export default function RegisterPage() {
 
         {!bootstrapNeeded && (
           <p className="text-center text-xs text-ink-400">
-            By creating an account you agree to use PropertyFlow for legitimate property activity.{' '}
+            By creating an account you agree to use Letkaya for legitimate property activity.{' '}
             <Link to="/login" className="font-semibold text-primary hover:underline">
               Already registered?
             </Link>

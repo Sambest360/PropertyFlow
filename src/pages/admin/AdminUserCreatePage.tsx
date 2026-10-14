@@ -494,11 +494,11 @@ export default function AdminUserCreatePage() {
     // Success notify ONLY after durable Auth+profile write verified.
     if (sendInvite) {
       const agencyLabel =
-        role === 'super_admin' ? 'PropertyFlow' : selectedAgency?.name ?? 'your agency'
+        role === 'super_admin' ? 'Letkaya' : selectedAgency?.name ?? 'your agency'
       notify({
         userId: created.id,
         agencyId: created.agencyId,
-        title: 'You’re invited to PropertyFlow',
+        title: 'You’re invited to Letkaya',
         body: `Hi ${created.name}, ${authUser.name} invited you to join ${agencyLabel} as ${roleLabels[created.role]}. Sign in at /login with your email and the temporary password you were given.`,
         link: '/login',
         silent: true,

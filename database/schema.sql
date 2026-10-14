@@ -1,5 +1,5 @@
 -- =============================================================================
--- PropertyFlow — Infrastructure & Asset Management Schema (MySQL 8+)
+-- Letkaya — Infrastructure & Asset Management Schema (MySQL 8+)
 -- Designed for TablePlus / ServBay local development
 -- =============================================================================
 -- Hierarchy: Client (SaaS tenant) → Agency → Properties ↔ Landlords / Agents
@@ -978,4 +978,4 @@ JOIN clients c ON c.id = ap.client_id
 JOIN properties p ON p.id = ap.property_id
 LEFT JOIN users u ON u.id = ap.applicant_user_id;
 
-SELECT 'PropertyFlow schema installed' AS message;
+SELECT 'Letkaya schema installed' AS message;

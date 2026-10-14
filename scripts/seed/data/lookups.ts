@@ -55,7 +55,7 @@ import {
   
   export const GLOBAL_CLIENT_ROW = {
     id: GLOBAL_CLIENT_UUID,
-    company_name: 'PropertyFlow Platform',
+    company_name: 'Letkaya Platform',
     subdomain: 'platform-global',
     status: 'active',
     trading_as: 'Global configuration defaults',

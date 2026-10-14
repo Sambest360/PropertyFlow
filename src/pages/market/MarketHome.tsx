@@ -294,7 +294,7 @@ export default function MarketHome() {
       <section id="home-story" className="relative z-10 -mt-1 bg-white">
         <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 sm:py-20 lg:px-8 lg:py-24">
           <Reveal>
-            <p className="text-sm font-semibold uppercase tracking-wide text-primary">Why PropertyFlow</p>
+            <p className="text-sm font-semibold uppercase tracking-wide text-primary">Why Letkaya</p>
             <h2 className="mt-2 max-w-xl font-display text-2xl font-semibold text-ink sm:text-3xl">
               Search like a marketplace. Close like an agency.
             </h2>

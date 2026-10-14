@@ -1,5 +1,5 @@
 /**
- * Firebase web client for PropertyFlow.
+ * Firebase web client for Letkaya.
  *
  * Primary product data remains in PostgreSQL via the Hono API.
  * This module connects the Vite app to the Firebase project (Firestore)

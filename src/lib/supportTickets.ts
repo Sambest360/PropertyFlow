@@ -16,7 +16,7 @@ export type SupportTicketStatus = 'open' | 'resolved'
 
 export type SupportTicket = {
   id: string
-  /** Routed agency (FE id). null = platform / PropertyFlow support. */
+  /** Routed agency (FE id). null = platform / Letkaya support. */
   agencyId: string | null
   submittedByUserId: string
   submitterName: string
@@ -96,7 +96,7 @@ export function canResolveSupportTicket(
   if (viewer.role === 'super_admin') return true
   // Agency desk: own agency only. Platform (null) tickets are super admin only.
   if (!ticket.agencyId || !viewer.agencyId) return false
-  // Staff tickets always belong to PropertyFlow support, even if a stored row
+  // Staff tickets always belong to Letkaya support, even if a stored row
   // carries an agency.
   const sr = ticket.submitterRole as Role | null | undefined
   if (sr && (sr === 'super_admin' || isAgencyStaff(sr))) return false

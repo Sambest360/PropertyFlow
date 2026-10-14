@@ -1,4 +1,4 @@
-# PropertyFlow — Preview Run Doc
+# Letkaya — Preview Run Doc
 
 Full-stack demo: **vite** dev server (SPA, port **5173**) proxying `/api` to a **Hono + Postgres** API server (port **8787**). Node v22 (nvm path used by launchers).
 
@@ -74,7 +74,7 @@ above). Never trust HMR to have applied an edit; trust the curl check.
 
 ## 3. Verify the app renders
 
-- `/` and `/browse` render the SPA (title "Buy & rent property in South Africa | PropertyFlow").
+- `/` and `/browse` render the SPA (title "Buy & rent property in South Africa | Letkaya").
 - `/workspace/trust/arrears` (staff) — Trust pages must NOT show the Dashboard/Cashbook/Unallocated/Payouts/Deposits/Arrears subnav strip (removed by design; sidebar provides navigation).
 - `/payfast/return?ref=<paymentId>` renders the payment-confirmation page.
 - Register the preview with the **vite** pid after the URL answers HTTP 200.
