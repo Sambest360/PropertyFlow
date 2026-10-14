@@ -442,7 +442,7 @@ export function WorkspaceSidebar({
   items: WorkspaceNavEntry[]
   /** Auto-hide while scrolling down the page */
   chromeHidden?: boolean
-  /** Soften the PropertyFlow wordmark while scrolled */
+  /** Soften the Letkaya wordmark while scrolled */
   brandMuted?: boolean
 }) {
   const { pathname } = useLocation()

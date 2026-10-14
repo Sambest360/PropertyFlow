@@ -101,7 +101,7 @@ export async function showRegistrationCompleteAlert(input: {
     icon: 'success',
     title: 'Account created!',
     html: emailConfirmation
-      ? `<p class="pf-swal-lead">We sent a confirmation link to <strong>${escapeHtml(input.email)}</strong>.</p><p>Open your inbox, confirm your email, then sign in to start using PropertyFlow.</p>`
+      ? `<p class="pf-swal-lead">We sent a confirmation link to <strong>${escapeHtml(input.email)}</strong>.</p><p>Open your inbox, confirm your email, then sign in to start using Letkaya.</p>`
       : `<p class="pf-swal-lead">Your account for <strong>${escapeHtml(input.email)}</strong> is ready.</p><p>A welcome email is on its way — sign in below with the email and password you just created.</p>`,
     confirmButtonText: 'Go to sign in',
     allowOutsideClick: false,

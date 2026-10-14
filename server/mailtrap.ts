@@ -76,7 +76,7 @@ export function mailtrapConfigFromEnv(): MailtrapConfig | null {
     smtp,
     api,
     fromEmail: process.env.MAILTRAP_FROM_EMAIL?.trim() || 'hello@demomailtrap.co',
-    fromName: process.env.MAILTRAP_FROM_NAME?.trim() || 'PropertyFlow',
+    fromName: process.env.MAILTRAP_FROM_NAME?.trim() || 'Letkaya',
   }
 }
 
@@ -199,7 +199,7 @@ function shell(title: string, bodyHtml: string): string {
           ${bodyHtml}
         </td></tr>
         <tr><td style="padding:16px 28px;background:#f8fafc;color:#64748b;font-size:12px;">
-          Sent by PropertyFlow · This is an automated message.
+          Sent by Letkaya · This is an automated message.
         </td></tr>
       </table>
     </td></tr>
@@ -261,7 +261,7 @@ export async function sendListingLeadAlert(input: {
     p(`Hi${input.agentName ? ` <strong>${input.agentName}</strong>` : ''},`) +
     p(`<strong>${input.leadName}</strong> sent a ${kind}${propertyLine} from the marketplace.`) +
     contactRows +
-    p('Open your PropertyFlow workspace leads board to follow up.')
+    p('Open your Letkaya workspace leads board to follow up.')
   const text =
     `${input.leadName} sent a ${kind}${input.propertyTitle ? ` for ${input.propertyTitle}` : ''}.` +
     (input.leadEmail ? ` Email: ${input.leadEmail}.` : '') +
@@ -315,7 +315,7 @@ export async function sendWelcomeEmail(input: {
   firstName: string
   role?: string
 }): Promise<MailtrapSendResult> {
-  const subject = 'Welcome to PropertyFlow 🏡'
+  const subject = 'Welcome to Letkaya 🏡'
   const roleLine =
     input.role === 'landlord'
       ? 'Your documents are with our verification team — you will be notified once your account is approved and you can publish listings.'
@@ -327,11 +327,11 @@ export async function sendWelcomeEmail(input: {
     toName: input.firstName,
     subject,
     category: 'welcome',
-    text: `Hi ${input.firstName}, welcome to PropertyFlow! ${roleLine}`,
+    text: `Hi ${input.firstName}, welcome to Letkaya! ${roleLine}`,
     html: shell(
       subject,
       p(`Hi <strong>${input.firstName}</strong>,`) +
-        p('Welcome to <strong>PropertyFlow</strong> — your account has been created.') +
+        p('Welcome to <strong>Letkaya</strong> — your account has been created.') +
         p(roleLine) +
         p('Keep this email for your records — no reply is needed.'),
     ),
@@ -382,8 +382,8 @@ export async function sendVerificationDecision(input: {
 }): Promise<MailtrapSendResult> {
   const isLandlord = input.role !== 'contractor'
   const subject = input.approved
-    ? 'Your PropertyFlow account has been approved 🎉'
-    : 'Update on your PropertyFlow account'
+    ? 'Your Letkaya account has been approved 🎉'
+    : 'Update on your Letkaya account'
   const nextStep = input.approved
     ? isLandlord
       ? 'You can sign in now and start publishing your listings — applicants can find and apply to them right away.'
@@ -394,7 +394,7 @@ export async function sendVerificationDecision(input: {
     toName: input.firstName,
     subject,
     category: input.approved ? 'verification-approved' : 'verification-rejected',
-    text: `Hi${input.firstName ? ` ${input.firstName}` : ''}, ${input.approved ? 'your PropertyFlow account has been approved.' : 'your PropertyFlow verification was not approved.'} ${nextStep}`,
+    text: `Hi${input.firstName ? ` ${input.firstName}` : ''}, ${input.approved ? 'your Letkaya account has been approved.' : 'your Letkaya verification was not approved.'} ${nextStep}`,
     html: shell(
       subject,
       p(`Hi${input.firstName ? ` <strong>${input.firstName}</strong>` : ' there'},`) +
@@ -516,9 +516,9 @@ export async function sendLeaseSignedEmail(input: {
     return { sent: false, reason: 'ENABLE_EMAIL_LEASE_SIGNED off (default)' }
   }
   const subject = 'Your lease has been signed'
-  const body = `Your lease for ${input.propertyTitle} has been signed by all parties. You can view it in PropertyFlow: ${input.leaseLink}.`
+  const body = `Your lease for ${input.propertyTitle} has been signed by all parties. You can view it in Letkaya: ${input.leaseLink}.`
   // CR10 N8: name, property title and link are escaped in the HTML.
-  const htmlBody = `Your lease for ${escapeHtml(input.propertyTitle)} has been signed by all parties. You can view it in PropertyFlow: ${escapeHtml(input.leaseLink)}.`
+  const htmlBody = `Your lease for ${escapeHtml(input.propertyTitle)} has been signed by all parties. You can view it in Letkaya: ${escapeHtml(input.leaseLink)}.`
   return sendMailtrapEmail({
     to: input.to,
     toName: input.name ?? undefined,

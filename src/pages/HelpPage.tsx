@@ -31,7 +31,7 @@ export default function HelpPage() {
     <div className="animate-fade-in space-y-5" data-testid="workspace-help-page">
       <PageHeader
         title="Help & support"
-        subtitle="Quick guidance for PropertyFlow — tips, navigation, and support tickets."
+        subtitle="Quick guidance for Letkaya — tips, navigation, and support tickets."
       />
 
       <HelpDesk />
@@ -103,7 +103,7 @@ export default function HelpPage() {
           </p>
           <p>
             <strong className="text-ink">Messages:</strong> owner↔tenant and agency threads stay
-            inside PropertyFlow (not WhatsApp/SMS).
+            inside Letkaya (not WhatsApp/SMS).
           </p>
           <p>
             <strong className="text-ink">Leases:</strong> renewals and scheduled escalation live on

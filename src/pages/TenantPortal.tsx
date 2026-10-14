@@ -71,7 +71,7 @@ function TenantPortalContent() {
     setPayBusyId(id)
     setPayError(null)
     const result = await startPayfastCheckout(id, {
-      itemName: `PropertyFlow · ${state.payments.find((p) => p.id === id)?.type ?? 'Payment'}`,
+      itemName: `Letkaya · ${state.payments.find((p) => p.id === id)?.type ?? 'Payment'}`,
     })
     if (!result.ok) {
       setPayBusyId(null)

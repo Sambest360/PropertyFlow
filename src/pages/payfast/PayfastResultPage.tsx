@@ -79,7 +79,7 @@ export default function PayfastResultPage({ cancelled = false }: { cancelled?: b
             to="/"
             className="text-sm text-ink-400 underline-offset-2 hover:underline"
           >
-            Back to PropertyFlow
+            Back to Letkaya
           </Link>
         </div>
       </Card>

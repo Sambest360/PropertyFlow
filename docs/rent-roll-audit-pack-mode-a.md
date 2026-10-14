@@ -1,6 +1,6 @@
 # Rent roll as-at + soft audit pack — Mode A (Michael GO + Jim stamp / Oscar §5)
 
-PropertyFlow’s year-ops financial path ships an **as-at rent roll (CSV + PDF)** and a
+Letkaya’s year-ops financial path ships an **as-at rent roll (CSV + PDF)** and a
 **soft audit pack** beside Mode A owner statements (DQ-M3) and Trust soft CSV (DQ-M1).
 That path must **never** be claimed as trust-audited, a PPRA opinion, bank-confirmed,
 or live PayProp remittance.

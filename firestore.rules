@@ -1,7 +1,7 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Deny all by default — PropertyFlow ops data stays behind the Hono/Postgres API.
+    // Deny all by default — Letkaya ops data stays behind the Hono/Postgres API.
     // Client SDK may only touch explicit public/demo paths once Auth is wired.
     match /{document=**} {
       allow read, write: if false;

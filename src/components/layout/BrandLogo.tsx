@@ -35,7 +35,7 @@ export function BrandLogo({
     return (
       <Link
         to={to}
-        aria-label="PropertyFlow"
+        aria-label="Letkaya"
         className={cn(
           'group inline-flex shrink-0 select-none flex-col items-center justify-center gap-0.5 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80',
           className,
@@ -56,7 +56,7 @@ export function BrandLogo({
   return (
     <Link
       to={to}
-      aria-label="PropertyFlow"
+      aria-label="Letkaya"
       className={cn('group inline-flex shrink-0 items-baseline gap-0 select-none', className)}
     >
       <span className={cn('font-display font-semibold', sizes[size])}>

@@ -11,7 +11,7 @@ import { authHeaders } from '../api/authClient'
 export type PayfastCheckoutOptions = {
   /** Override amount (integer cents). Defaults to the ledger amount. */
   amountCents?: number
-  /** Override item name. Defaults to "PropertyFlow · {type} · {party}". */
+  /** Override item name. Defaults to "Letkaya · {type} · {party}". */
   itemName?: string
   payer?: { firstName?: string; lastName?: string; email?: string }
   /** Recurring billing (subscription_type=1). */

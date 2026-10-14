@@ -60,7 +60,7 @@ export function AuthShell({
         </div>
 
         <div className="relative z-10 flex flex-1 flex-col justify-end px-10 pb-14 pt-8">
-          <p className="text-sm font-semibold uppercase tracking-wider text-white/70">PropertyFlow</p>
+          <p className="text-sm font-semibold uppercase tracking-wider text-white/70">Letkaya</p>
           <h2 className="mt-3 font-display text-3xl font-semibold leading-tight text-white xl:text-4xl">
             {asideTitle}
           </h2>

@@ -11,7 +11,7 @@ const BANNED = /bank-reconciled|reconciled|ppra-compliant|compliant|settled|paid
 describe('Trust ledger note (CR9)', () => {
   it('is the single neutral ledger line', () => {
     expect(TRUST_MODE_A_COPY).toBe(
-      'Balances come from the PropertyFlow ledger and are not yet matched to the bank.',
+      'Balances come from the Letkaya ledger and are not yet matched to the bank.',
     )
   })
 
@@ -45,7 +45,7 @@ describe('Trust ledger note (CR9)', () => {
     const CORE_BANNED = /bank-reconciled|reconciled|ppra-compliant|compliant|settled|paid out|bank-confirmed/i
     for (const text of [OWNER_STATEMENT_MODE_A_COPY, RENT_ROLL_MODE_A_COPY]) {
       expect(text).not.toMatch(CORE_BANNED)
-      expect(text).toContain('recorded in PropertyFlow, not yet matched to the bank')
+      expect(text).toContain('recorded in Letkaya, not yet matched to the bank')
     }
   })
 })

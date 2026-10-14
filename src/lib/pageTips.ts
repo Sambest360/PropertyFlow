@@ -34,7 +34,7 @@ const WALKTHROUGH_RULES: Array<{
       id: 'tour-market-home',
       steps: [
         {
-          title: 'Welcome to PropertyFlow',
+          title: 'Welcome to Letkaya',
           body: 'Browse buy, rent, and commercial listings across South Africa. This quick tour shows where to search, save favourites, and sign in when you are ready to apply.',
           placement: 'center',
         },
@@ -403,7 +403,7 @@ const WALKTHROUGH_RULES: Array<{
       steps: [
         {
           title: 'Messages hub',
-          body: 'Write to tenants and owners here. Messages stay inside PropertyFlow, not SMS or WhatsApp.',
+          body: 'Write to tenants and owners here. Messages stay inside Letkaya, not SMS or WhatsApp.',
           placement: 'center',
         },
         {
@@ -507,7 +507,7 @@ const WALKTHROUGH_RULES: Array<{
       steps: [
         {
           title: 'Owner payouts',
-          body: 'Propose, approve, and submit owner payouts in PropertyFlow. This does not send a bank transfer.',
+          body: 'Propose, approve, and submit owner payouts in Letkaya. This does not send a bank transfer.',
           placement: 'center',
         },
         {
@@ -564,7 +564,7 @@ const WALKTHROUGH_RULES: Array<{
         },
         {
           title: 'Arrears tools',
-          body: 'Use the message button on a row to write to that tenant in PropertyFlow.',
+          body: 'Use the message button on a row to write to that tenant in Letkaya.',
           target: '[data-tip-target="trust-arrears-message"]',
           placement: 'below',
         },
@@ -1126,7 +1126,7 @@ const RULES: TipRule[] = [
     match: exact('/'),
     content: () => ({
       id: 'market-home',
-      title: 'Welcome to PropertyFlow',
+      title: 'Welcome to Letkaya',
       body: 'Search by area to browse buy, rent, and commercial listings. Save favourites when signed in, or open Calculators to estimate bond costs.',
     }),
   },
@@ -1289,7 +1289,7 @@ const RULES: TipRule[] = [
     content: () => ({
       id: 'ops-communications',
       title: 'Messages hub',
-      body: 'Message tenants and owners in PropertyFlow. Open a thread to reply or start a new one.',
+      body: 'Message tenants and owners in Letkaya. Open a thread to reply or start a new one.',
     }),
   },
   {

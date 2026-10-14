@@ -44,7 +44,7 @@ export function portalLabel(code: PortalCode): string {
     case 'private_property':
       return 'Private Property'
     case 'propertyflow_marketplace':
-      return 'PropertyFlow marketplace'
+      return 'Letkaya marketplace'
     default:
       return 'Other portal'
   }

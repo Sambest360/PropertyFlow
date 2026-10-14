@@ -15,7 +15,7 @@ import type {
 
 /** Honesty — UI banner + PDF/CSV/index (safe claim). */
 export const RENT_ROLL_MODE_A_COPY =
-  'As-at rent roll + soft audit pack beside owner statements — recorded in PropertyFlow, not yet matched to the bank; not trust-audited, not a PPRA opinion.'
+  'As-at rent roll + soft audit pack beside owner statements — recorded in Letkaya, not yet matched to the bank; not trust-audited, not a PPRA opinion.'
 
 export const AUDIT_PACK_MODE_A_COPY =
   'Soft audit pack (index + existing docs inventory + Trust soft CSV + rent roll) — not a statutory audit pack, not PPRA-certified, not bank-matched.'

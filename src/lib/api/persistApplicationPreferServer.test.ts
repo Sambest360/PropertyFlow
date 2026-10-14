@@ -33,7 +33,7 @@ describe('isPersistApiSuccessResponse', () => {
       isPersistApiSuccessResponse(
         200,
         'text/html; charset=utf-8',
-        '<!doctype html><html><body>PropertyFlow</body></html>',
+        '<!doctype html><html><body>Letkaya</body></html>',
       ),
     ).toBe(false)
   })

@@ -1,5 +1,5 @@
 /**
- * Local test personas & workflows for PropertyFlow.
+ * Local test personas & workflows for Letkaya.
  *
  * Persistence: the Vite app stores state in localStorage (`propertyflow-v*` in
  * AppStore). Postgres under `database/postgres/` is a schema sketch — not wired

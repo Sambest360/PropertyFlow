@@ -162,7 +162,7 @@ export default function BrowsePage() {
   usePageMeta({
     title: browseTitle,
     description: savedOnly
-      ? 'Your saved property wishlist on PropertyFlow.'
+      ? 'Your saved property wishlist on Letkaya.'
       : 'Filter buy, rent, and commercial listings by area, price, beds, and amenities across South Africa.',
     path: savedOnly ? '/saved' : '/browse',
   })

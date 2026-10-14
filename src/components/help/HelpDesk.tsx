@@ -120,7 +120,7 @@ export function HelpDesk() {
       tone: 'ok',
       text: routesToAgency
         ? 'Ticket sent to your agency. You can follow it under My tickets.'
-        : 'Ticket sent to PropertyFlow support. You can follow it under My tickets.',
+        : 'Ticket sent to Letkaya support. You can follow it under My tickets.',
     })
   }
 
@@ -159,7 +159,7 @@ export function HelpDesk() {
   }
 
   const agencyName = (id: string | null) =>
-    id ? (state.agencies.find((a) => a.id === id)?.name ?? id) : 'PropertyFlow support'
+    id ? (state.agencies.find((a) => a.id === id)?.name ?? id) : 'Letkaya support'
 
   return (
     <div className="space-y-4" data-testid="help-desk">
@@ -173,7 +173,7 @@ export function HelpDesk() {
           <p className="text-sm leading-relaxed text-ink-500">
             {routesToAgency
               ? 'Your ticket goes to your agency’s administrators.'
-              : 'Your ticket goes to PropertyFlow support.'}
+              : 'Your ticket goes to Letkaya support.'}
           </p>
           <form className="space-y-3" onSubmit={submit}>
             <label className="block text-sm font-medium text-ink">
@@ -260,7 +260,7 @@ export function HelpDesk() {
           </div>
           <p className="text-sm text-ink-500">
             {user.role === 'super_admin'
-              ? 'All tickets, including PropertyFlow support tickets from agency staff.'
+              ? 'All tickets, including Letkaya support tickets from agency staff.'
               : 'Tickets from tenants, landlords, applicants and contractors at your agency.'}{' '}
             Resolving a ticket is final, and it becomes read-only.
           </p>

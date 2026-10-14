@@ -1,6 +1,6 @@
 # PCR / inspections — Mode A (Jim + Oscar soft stamp)
 
-PropertyFlow’s PCR path is a **joint-style soft condition pack beside occupancy**:
+Letkaya’s PCR path is a **joint-style soft condition pack beside occupancy**:
 incoming/outgoing inspection object, lite room/item template, photos/notes, staff+tenant
 soft ack (or documented no-show + admin override), and a downloadable PDF pack. That path
 must **never** be claimed as RHA-certified statutory PCR, PropertyInspect / RedRabbit
