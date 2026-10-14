@@ -18,6 +18,12 @@ describe('sendLeaseSignedEmail (CR10 part 8)', () => {
     expect(src).toContain('has been signed by all parties. You can view it in Letkaya:')
     expect(src).toContain("'Your lease has been signed'")
   })
+  it('redacts recipient emails in logs', async () => {
+    const { redactEmailForLog } = await import('./mailtrap.js')
+    expect(redactEmailForLog('johan.smith@example.com')).toBe('j***@example.com')
+    expect(redactEmailForLog('bad')).toBe('***')
+  })
+
   it('CR10 N8: name, property title and link are HTML-escaped', async () => {
     const { escapeHtml } = await import('./mailtrap.js')
     expect(escapeHtml('<b>"Tom" & \'Co\'</b>')).toBe('&lt;b&gt;&quot;Tom&quot; &amp; &#39;Co&#39;&lt;/b&gt;')

@@ -767,6 +767,7 @@ app.get('/api/bootstrap', async (c) => {
     const actor = await enrichActor(rawActor)
     const { agencyFeId } = await loadScopeGateModule()
     const { buildBootstrap } = await loadBootstrapModule()
+    const bootstrapStarted = Date.now()
     const data = await buildBootstrap({
       lite,
       refundAgencyFe:
@@ -798,6 +799,11 @@ app.get('/api/bootstrap', async (c) => {
       await actorIdAliases(actor),
       { usersManage },
     )
+    const bootstrapMs = Date.now() - bootstrapStarted
+    c.header('Server-Timing', `bootstrap;dur=${bootstrapMs}`)
+    if (lite && bootstrapMs > 2000) {
+      console.info(`[api/bootstrap] lite bootstrap ${bootstrapMs}ms actor=${actor.role}`)
+    }
     return c.json(filtered)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

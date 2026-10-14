@@ -381,15 +381,17 @@ function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppSta
     'agencies',
   )
   let users = pick(base.users, (boot.users as AppUser[]) ?? [], 'users')
-  const reconciled = reconcileAgencyIdSpace(agencies, users)
+  let properties = pick(base.properties, boot.properties as PropertyAsset[], 'properties')
+  const reconciled = reconcileAgencyIdSpace(agencies, users, properties)
   agencies = reconciled.agencies
   users = reconciled.users
+  properties = (reconciled.properties as PropertyAsset[]) ?? properties
 
   return {
     ...base,
     agencies,
     users,
-    properties: pick(base.properties, boot.properties as PropertyAsset[], 'properties'),
+    properties,
     buildings: pick(base.buildings, boot.buildings as Building[], 'buildings'),
     units: pick(base.units, boot.units as Unit[], 'units'),
     leads: pick(base.leads, boot.leads as Lead[], 'leads'),
@@ -1196,6 +1198,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const setHydratedForUserId = useCallback((id: string | null) => {
     hydratedForUserIdRef.current = id
     setHydratedForUserIdState(id)
+    void import('../lib/auth/writeGate').then(({ setWriteGateHydration }) => setWriteGateHydration(id))
   }, [])
   /** Signed-in bootstrap failed: portals show a retry state, not an endless skeleton. */
   const [hydrationFailed, setHydrationFailed] = useState(false)

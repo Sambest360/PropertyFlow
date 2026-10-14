@@ -405,3 +405,47 @@ describe('filterScopedPropertyDocuments', () => {
     expect(horizonOnly.some((r) => r.id === 'd5')).toBe(false)
   })
 })
+
+describe('agency admin property access (issue 15 / A02)', () => {
+  const clientUuid = '7515d803-1111-4111-8111-111111111111'
+
+  it('allows access when listing agencyId is server UUID and viewer uses ag-* FE id', () => {
+    const property = {
+      agencyId: clientUuid,
+      agentId: 'u-agent',
+      landlordId: 'u-ll',
+    }
+    const { properties } = reconcileAgencyIdSpace(
+      [
+        {
+          id: 'ag-vision',
+          name: 'Vision',
+          slug: 'vision',
+          city: '',
+          status: 'Active',
+          createdAt: '2026-01-01',
+          enabledPermissions: [],
+        },
+        {
+          id: clientUuid,
+          name: 'Vision',
+          slug: 'vision',
+          city: '',
+          status: 'Active',
+          createdAt: '2026-01-01',
+          enabledPermissions: [],
+        },
+      ],
+      [],
+      [property],
+    )
+    const viewer = {
+      role: 'agent_admin' as const,
+      userId: 'u-admin',
+      agencyId: 'ag-vision',
+      agencySuspended: false,
+    }
+    expect(canAccessProperty(viewer, properties![0]!, 'PR-csirjj')).toBe(true)
+    expect(properties![0]!.agencyId).toBe('ag-vision')
+  })
+})

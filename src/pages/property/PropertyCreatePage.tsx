@@ -242,9 +242,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     ? `${DRAFT_KEY}:edit:${editPropertyId}`
     : `${DRAFT_KEY}:${wizardScopeKey}`
 
-  const { draft, setDraft, clearDraft } = useWizardDraft<PropertyDraft>(wizardStorageKey, seedDraft, {
-    omitFromPersist: ['buildingImages'],
-  })
+  const { draft, setDraft, clearDraft } = useWizardDraft<PropertyDraft>(wizardStorageKey, seedDraft)
 
   // P0-collision (R10): a leftover wizard draft (sessionStorage) carries a
   // draftPropertyId from a PREVIOUS listing. Submit treated it as "existing
