@@ -68,6 +68,8 @@ import {
 import type { AssetCondition } from '../../data/infrastructure'
 import type { PropertyAsset } from '../../types/domain'
 import { showTempPasswordOnce } from '../../lib/auth/tempPasswordBus'
+import { acquireSubmitLock, releaseSubmitLock } from '../../lib/wizardSubmitGuard'
+import { sweetToast } from '../../lib/sweetAlert'
 
 const DRAFT_KEY = 'propertyflow:property-create'
 
@@ -249,6 +251,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   // mints a NEW listing. The in-session ref below still lets "Save & continue
   // later" → re-entry within the same mount reuse the id it just created.
   const sessionDraftPropertyIdRef = useRef('')
+  const submitLockRef = useRef(false)
   useEffect(() => {
     if (isEdit) return
     // P0-5 residual: FA Draft default must not imply live — a leftover
@@ -651,6 +654,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   }
 
   async function handleSaveAndContinueLater() {
+    if (!acquireSubmitLock(submitLockRef)) return
     setError('')
     setBusy(true)
     try {
@@ -664,6 +668,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       setError('Could not save your progress. Try again.')
     } finally {
       setBusy(false)
+      releaseSubmitLock(submitLockRef)
     }
   }
 
@@ -675,6 +680,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       goTo(1)
       return
     }
+    if (!acquireSubmitLock(submitLockRef)) return
     setBusy(true)
     try {
       const id = await syncServerDraft()
@@ -686,31 +692,32 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       } catch {
         /* ignore */
       }
+      void sweetToast('Draft saved')
       navigate(`/workspace/properties/${id}?tab=inventory`)
     } catch {
       setError('Could not save the listing. Try again.')
+    } finally {
       setBusy(false)
+      releaseSubmitLock(submitLockRef)
     }
   }
 
   async function submitProperty(status: 'Draft' | 'Published', fromReview: boolean) {
-    if (busy) return
+    if (!acquireSubmitLock(submitLockRef)) return
     setBusy(true)
+    try {
     const err = validateStep(6)
     if (err) {
       setError(err)
       if (fromReview) goTo(6)
-      setBusy(false)
       return
     }
     const listingImages = listingImagesForSubmit()
     if (listingImages.length === 0) {
       setError('Add at least one listing photo.')
       goTo(2)
-      setBusy(false)
       return
     }
-    try {
     const patch = buildPropertyPatch(listingImages)
     // P0-collision (R10): only a draftPropertyId recorded during THIS wizard
     // session is a legitimate "existing draft" to update. A value restored
@@ -821,7 +828,6 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       const published = await publishProperty(propertyId, 'Published', createdProperty)
       if (!published) {
         setError('Could not publish the listing. It was saved as a draft — retry from the listing page.')
-        setBusy(false)
         return
       }
     }
@@ -832,16 +838,14 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     } catch {
       /* ignore */
     }
-    setBusy(false)
     // P0-collision (R10): a detail URL the current store can't resolve yet
     // (the async bootstrap refresh may not have landed the new row) renders a
     // "not found" dead end — fall back to the list, which is always valid.
-    // P0-5 residual: Draft create must not imply live — only navigate to
-    // detail when we actually published (shouldPublish) or editing/landlord.
     const targetInStore =
       state.properties.some((p) => p.id === propertyId) || Boolean(createdProperty)
-    const detailTarget =
-      (isEdit || isLandlord) && targetInStore ? `/workspace/properties/${propertyId}` : returnTo
+    const detailPath = `/workspace/properties/${propertyId}`
+    const detailTarget = targetInStore ? detailPath : returnTo
+    void sweetToast(shouldPublish ? 'Listing published' : 'Draft saved')
     navigate(detailTarget)
     } catch (err) {
       const message =
@@ -849,7 +853,9 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
           ? err.message
           : 'Could not save the listing. Try again.'
       setError(message)
+    } finally {
       setBusy(false)
+      releaseSubmitLock(submitLockRef)
     }
   }
 

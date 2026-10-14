@@ -1,13 +1,35 @@
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const auth = { isAuthenticated: true, user: { id: 'u-johan' } }
+function fakeStorage() {
+  const map = new Map<string, string>()
+  return {
+    getItem: (k: string) => map.get(k) ?? null,
+    setItem: (k: string, v: string) => void map.set(k, v),
+    removeItem: (k: string) => void map.delete(k),
+  }
+}
+
+beforeEach(() => {
+  vi.stubGlobal('localStorage', fakeStorage())
+})
+
+const auth = {
+  isAuthenticated: true,
+  user: { id: 'u-johan', role: 'tenant' as const, agencyId: null },
+}
 const store = { hydratedForUserId: null as string | null, hydrationFailed: false, refreshBootstrap: vi.fn() }
 vi.mock('../context/AuthContext', () => ({ useAuth: () => auth }))
 vi.mock('../context/AppStore', () => ({ useStore: () => store }))
 vi.mock('../lib/api/config', () => ({ isApiEnabled: true, isSupabaseMode: false }))
 
-import { PortalHydrationGate, PortalLoadError, isPortalHydrating } from './PortalHydrationGate'
+import { AUTH_USER_STORAGE_KEY } from '../lib/clientCache'
+import {
+  PortalHydrationGate,
+  PortalLoadError,
+  isPortalHydrating,
+  portalHydrationUserId,
+} from './PortalHydrationGate'
 
 describe('OwnerPortal first load (live mode: API)', () => {
   it('before hydration shows the skeleton, not "No properties yet" or cached rows', () => {
@@ -36,6 +58,20 @@ describe('OwnerPortal first load (live mode: API)', () => {
     expect(isPortalHydrating({ isAuthenticated: false, liveMode: true, userId: 'guest', hydratedForUserId: null })).toBe(false)
     expect(isPortalHydrating({ isAuthenticated: true, liveMode: false, userId: 'u-a', hydratedForUserId: null })).toBe(false)
   })
+
+  it('cold typed /workspace: stored auth counts as the session user for hydration', () => {
+    localStorage.setItem(AUTH_USER_STORAGE_KEY, 'u-johan')
+    expect(portalHydrationUserId(true, undefined)).toBe('u-johan')
+    expect(
+      isPortalHydrating({
+        isAuthenticated: true,
+        liveMode: true,
+        userId: undefined,
+        hydratedForUserId: null,
+      }),
+    ).toBe(true)
+    localStorage.removeItem(AUTH_USER_STORAGE_KEY)
+  })
   it('a failed bootstrap shows an error with retry, not an endless skeleton', () => {
     store.hydratedForUserId = null
     store.hydrationFailed = true
@@ -45,7 +81,7 @@ describe('OwnerPortal first load (live mode: API)', () => {
     expect(html).not.toContain('portal-skeleton')
     store.hydrationFailed = false
   })
-  it('Try again after a failure calls refreshBootstrap(undefined, { force: true })', () => {
+  it('Try again after a failure calls refreshBootstrap with force + full', () => {
     store.hydratedForUserId = null
     store.hydrationFailed = true
     store.refreshBootstrap.mockClear()
@@ -57,7 +93,10 @@ describe('OwnerPortal first load (live mode: API)', () => {
     }
     const button = panel.props.children.find((c) => c?.type === 'button')!
     button.props.onClick!()
-    expect(store.refreshBootstrap).toHaveBeenCalledWith(undefined, { force: true })
+    expect(store.refreshBootstrap).toHaveBeenCalledWith(
+      { userId: 'u-johan', role: 'tenant', agencyId: null },
+      { force: true, full: true },
+    )
     store.hydrationFailed = false
   })
 })

@@ -203,6 +203,8 @@ CREATE TABLE units (
   building_id       UUID NOT NULL REFERENCES buildings(id) ON DELETE CASCADE,
   client_id         UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
   unit_number       VARCHAR(40) NOT NULL,
+  /** Wizard / portfolio type slug (house, apartment, …); NULL → bedroom heuristic on read */
+  property_type     VARCHAR(40) NULL,
   square_meters     NUMERIC(10,2),
   bedrooms          SMALLINT NOT NULL DEFAULT 0,
   bathrooms         NUMERIC(3,1) NOT NULL DEFAULT 0,

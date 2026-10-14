@@ -166,3 +166,60 @@ export function bootstrapMatchesSession(
 ): boolean {
   return (bootUserId || null) === (storedAuthUserId || null)
 }
+
+export function readStoredAuthUserIdFromCache(): string | null {
+  try {
+    return localStorage.getItem(AUTH_USER_STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
+/** Session user portals wait on — Auth user id, or stored auth during cold hydrate. */
+export function portalHydrationUserId(
+  isAuthenticated: boolean,
+  userId: string | null | undefined,
+): string | null {
+  if (userId && userId !== 'guest') return userId
+  if (!isAuthenticated) return null
+  return readStoredAuthUserIdFromCache()
+}
+
+/**
+ * Whether a bootstrap payload may be applied for `sessionUserId`.
+ * AUTH_KEY can lag JWT /api/bootstrap on cold typed portal URLs.
+ */
+export function canApplyBootstrapHydration(input: {
+  sessionUserId: string | null
+  storedAuthUserId: string | null
+  bootActorUserId?: string | null
+}): boolean {
+  const sessionUserId = input.sessionUserId?.trim() || null
+  const stored = input.storedAuthUserId?.trim() || null
+  const bootId = input.bootActorUserId?.trim() || null
+  if (!sessionUserId) return !stored && !bootId
+  if (bootstrapMatchesSession(sessionUserId, stored)) return true
+  if (!stored && bootId && sessionUserId === bootId) return true
+  return false
+}
+
+/**
+ * Cold typed /workspace: mount bootstrap can run before AuthContext sets the API
+ * actor, so the FE actor is null while propertyflow-auth-user (and JWT) are set.
+ * Use boot.actor + stored auth to attribute hydration to the session user.
+ */
+export function bootstrapSessionUserId(
+  actorUserId?: string | null,
+  bootActorUserId?: string | null,
+): string | null {
+  let stored: string | null = null
+  try {
+    stored = localStorage.getItem(AUTH_USER_STORAGE_KEY)
+  } catch {
+    /* ignore */
+  }
+  const fromActor = actorUserId?.trim() || bootActorUserId?.trim() || null
+  if (fromActor && bootstrapMatchesSession(fromActor, stored)) return fromActor
+  if (stored) return stored
+  return fromActor
+}

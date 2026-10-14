@@ -60,10 +60,14 @@ function landlordOwnListingWrite(scope: PropertyScope, input: WriteGateInput): b
   if (viewer.role !== 'landlord' || !input.agencyId || !LANDLORD_LISTING_RESOURCES.has(input.resource)) {
     return false
   }
-  if (!canSeeAgency(viewer.role, viewer.agencyId, viewer.agencySuspended, input.agencyId)) {
-    return false
+  const landlordId = input.property?.landlordId
+  if (!landlordId || landlordId !== viewer.userId) return false
+  if (!viewer.agencyId) {
+    // Server enrichActor normally sets agency from users.client_id; when the
+    // viewer is unset (tests / stale session), still allow own-listing writes.
+    return true
   }
-  return input.property?.landlordId === viewer.userId
+  return canSeeAgency(viewer.role, viewer.agencyId, viewer.agencySuspended, input.agencyId)
 }
 
 function dealWriteAllowed(scope: PropertyScope, input: WriteGateInput): boolean {
@@ -116,6 +120,8 @@ export function canWriteEntity(scope: PropertyScope, input: WriteGateInput): boo
     if (input.property) {
       // Primary gate: landlord / agent linkage on the property row.
       if (canMutateProperty(scope, input.property, input.propertyId)) return true
+      // L03: unit/property upserts may omit landlordId; scopeGate fills it from the building.
+      if (landlordOwnListingWrite(scope, input)) return true
       // Field agents may also mutate ops rows on properties in their allowed set
       // (includes ticket-assignee extras) even when not the listing’s primary agent.
       if (

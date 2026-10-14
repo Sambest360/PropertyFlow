@@ -8,6 +8,9 @@ import type { ReactNode } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useStore } from '../context/AppStore'
 import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
+import { portalHydrationUserId } from '../lib/clientCache'
+
+export { portalHydrationUserId }
 
 export function isPortalHydrating(params: {
   isAuthenticated: boolean
@@ -16,8 +19,9 @@ export function isPortalHydrating(params: {
   hydratedForUserId: string | null
 }): boolean {
   if (!params.isAuthenticated || !params.liveMode) return false
-  if (!params.userId || params.userId === 'guest') return false
-  return params.hydratedForUserId !== params.userId
+  const sessionUserId = portalHydrationUserId(params.isAuthenticated, params.userId)
+  if (!sessionUserId) return false
+  return params.hydratedForUserId !== sessionUserId
 }
 
 export function usePortalHydrating(): boolean {
@@ -58,9 +62,20 @@ export function PortalLoadError({ onRetry }: { onRetry: () => void }) {
 
 export function PortalHydrationGate({ children }: { children: ReactNode }) {
   const hydrating = usePortalHydrating()
+  const { user } = useAuth()
   const { hydrationFailed, refreshBootstrap } = useStore()
   if (hydrating && hydrationFailed) {
-    return <PortalLoadError onRetry={() => void refreshBootstrap(undefined, { force: true })} />
+    return (
+      <PortalLoadError
+        onRetry={() => {
+          const actor =
+            user?.id && user.id !== 'guest'
+              ? { userId: user.id, role: user.role, agencyId: user.agencyId }
+              : undefined
+          void refreshBootstrap(actor, { force: true, full: true })
+        }}
+      />
+    )
   }
   if (hydrating) return <PortalSkeleton />
   return <>{children}</>

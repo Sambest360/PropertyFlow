@@ -15,7 +15,9 @@ import { TempPasswordHost } from './components/admin/TempPasswordHost'
 import { useAuth } from './context/AuthContext'
 import {
   WorkspaceApplicationsRedirect,
+  WorkspaceAwareNotFound,
   WorkspaceLeasesRedirect,
+  WorkspacePaymentsRedirect,
 } from './lib/workspaceRedirects'
 
 const MarketHome = lazy(() => import('./pages/market/MarketHome'))
@@ -365,14 +367,14 @@ export default function App() {
                 <Route path="leases" element={<WorkspaceLeasesRedirect />} />
                 <Route path="viewings" element={<Navigate to="/workspace/sales/viewings" replace />} />
                 <Route path="maintenance" element={<Navigate to="/workspace/operations/maintenance" replace />} />
-                <Route path="payments" element={<Navigate to="/workspace/operations/payments" replace />} />
+                <Route path="payments" element={<WorkspacePaymentsRedirect />} />
                 <Route path="reports" element={<Navigate to="/workspace/insights/reports" replace />} />
                 <Route path="modules" element={<Navigate to="/workspace/insights/reports" replace />} />
                 <Route path="insights/modules" element={<Navigate to="/workspace/insights/reports" replace />} />
                 <Route path="*" element={<Navigate to="/workspace" replace />} />
               </Route>
 
-              <Route path="*" element={<Navigate to="/" replace />} />
+              <Route path="*" element={<WorkspaceAwareNotFound />} />
             </Routes>
             <TempPasswordHost />
           </BrowserRouter>

@@ -170,6 +170,40 @@ describe('Agency bootstrap filtering', () => {
   })
 
 
+  it('ag-ll landlord bootstrap keeps owned draft property, building, and unit (FW-23 L04)', () => {
+    const actor: DemoActor = {
+      userId: 'u-johan',
+      role: 'landlord',
+      agencyId: 'ag-ll-johan',
+    }
+    const llPortfolio = {
+      ...raw,
+      agencies: [{ id: 'ag-ll-johan', status: 'Active' }],
+      buildings: [{ id: 'b-ll', clientId: 'ag-ll-johan', landlordId: 'u-johan' }],
+      units: [{ id: 'unt-draft1', clientId: 'ag-ll-johan', buildingId: 'b-ll' }],
+      properties: [
+        {
+          id: 'draft1',
+          agencyId: 'ag-ll-johan',
+          agentId: null,
+          landlordId: 'u-johan',
+          buildingId: 'b-ll',
+          unitId: 'unt-draft1',
+          status: 'Draft',
+        },
+      ],
+    }
+    const scope = buildPropertyScope(
+      { role: actor.role, userId: actor.userId, agencyId: actor.agencyId, agencySuspended: false },
+      { properties: llPortfolio.properties },
+    )
+    const out = filterBootstrapForActor(llPortfolio, actor, scope)
+    expect(out.scoped).toBe(true)
+    expect(out.properties.map((p) => p.id)).toEqual(['draft1'])
+    expect(out.buildings.map((b) => b.id)).toEqual(['b-ll'])
+    expect(out.units.map((u) => u.id)).toEqual(['unt-draft1'])
+  })
+
   it('landlords keep participant threads on bootstrap (Mode A)', () => {
     const actor: DemoActor = {
       userId: 'u-ll-a',

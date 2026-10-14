@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { defaultWorkspacePath, postRegisterPath, resolvePostLoginPath } from './workspaceRoutes'
 
 describe('postRegisterPath', () => {
-  it('routes tenants and contractors to portal homes', () => {
+  it('routes tenants, landlords, and contractors to portal homes', () => {
     expect(postRegisterPath('tenant', false, '/workspace')).toBe('/workspace/portals/tenant')
+    expect(postRegisterPath('landlord', false, '/workspace')).toBe('/workspace/portals/owner')
     expect(postRegisterPath('contractor', false, '/workspace')).toBe(
       '/workspace/portals/contractor',
     )

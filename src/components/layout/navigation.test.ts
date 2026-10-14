@@ -58,8 +58,10 @@ describe('workspace nav permission filtering', () => {
     expect(previewNavLabels(['occupants.view'])).toContain('Tenants')
   })
 
-  it('shows Agencies only when platform.manage is present', () => {
-    expect(previewNavLabels(['platform.manage'])).toContain('Agencies')
+  it('shows Agencies and Billing only when platform.manage is present', () => {
+    const labels = previewNavLabels(['platform.manage'])
+    expect(labels).toContain('Agencies')
+    expect(labels).toContain('Billing')
   })
 
   it('keeps Reports as a trailing top-level insight link when allowed', () => {
@@ -191,6 +193,28 @@ describe('buildWorkspaceNavForActor portal dedupe', () => {
     expect(hasUniquePaths(entries)).toBe(true)
   })
 
+  it('tenant with approved occupancy sees lease and payments portal links', () => {
+    const entries = buildWorkspaceNavForActor({
+      role: 'tenant',
+      has: has(['portal.tenant', 'maintenance.view', 'payments.manage', 'messages.manage']),
+      hasAny: hasAny([
+        'portal.tenant',
+        'maintenance.view',
+        'payments.manage',
+        'messages.manage',
+      ]),
+      tenantHasStaffNav: false,
+      tenantOccupancyReady: true,
+    })
+    const paths = navPaths(entries)
+    const labels = navLabels(entries)
+
+    expect(labels).toContain('My lease')
+    expect(labels).toContain('Payments')
+    expect(paths).toContain('/workspace/portals/tenant/leases')
+    expect(paths).toContain('/workspace/portals/tenant/payments')
+  })
+
   it('tenant with contractor permission does not get duplicate maintenance paths from operations + portal', () => {
     const entries = buildWorkspaceNavForActor({
       role: 'tenant',
@@ -233,6 +257,8 @@ describe('buildWorkspaceNavForActor portal dedupe', () => {
 
     expect(labels.filter((l) => l === 'Dashboard')).toHaveLength(1)
     expect(paths.filter((p) => p === '/workspace/portals/owner')).toHaveLength(1)
+    expect(labels).toContain('Applications')
+    expect(paths).toContain('/workspace/applications')
     expect(labels).toContain('Documents')
     expect(labels).toContain('My properties')
     expect(labels).toContain('Payments')

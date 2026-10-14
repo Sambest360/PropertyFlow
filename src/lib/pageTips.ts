@@ -1714,10 +1714,22 @@ export function clearTourSessionCooldown(): void {
   }
 }
 
+/**
+ * Record a first-visit preference without the legacy blocking modal (FW-05 / E2E P13).
+ * Tips stay off until the user opts in from Help or the role menu.
+ */
+export function ensurePageTipsPreferenceForFirstVisit(
+  userId: string,
+  hasTourOnPage: boolean,
+): void {
+  if (!userId || userId === 'guest' || userId === 'anon') return
+  if (!hasTourOnPage || hasPageTipsPreference(userId)) return
+  setPageTipsPreference(userId, true)
+}
+
 /** Re-enable tips for a user and clear seen marks so walkthroughs replay immediately. */
 export function resetPageTipsForUser(userId: string): void {
   if (!userId || userId === 'anon') return
-  // Record an explicit "enabled" choice (also hides the first-run preference dialog).
   setPageTipsPreference(userId, false)
   clearPageTipsForUser(userId)
   clearTourSessionCooldown()

@@ -40,8 +40,23 @@ export function markBootstrapFetched(lite: boolean, actorKey?: string | null): v
 }
 
 /** Skip auth-triggered refresh when mount/bootstrap just hydrated the store. */
-export function shouldSkipAuthBootstrapRefresh(): boolean {
+export function shouldSkipAuthBootstrapRefresh(
+  sessionUserId?: string | null,
+  hydratedForUserId?: string | null,
+): boolean {
+  if (sessionUserId && hydratedForUserId !== sessionUserId) return false
   return Date.now() - lastLiteAt < LITE_COOLDOWN_MS
+}
+
+/** Portal "Try again" and other forced refreshes must not no-op on cooldown. */
+export function shouldIgnoreBootstrapMissAfterFetch(input: {
+  force?: boolean
+  sessionUserId?: string | null
+  hydratedForUserId?: string | null
+}): boolean {
+  if (input.force) return false
+  if (!input.sessionUserId) return false
+  return shouldSkipAuthBootstrapRefresh(input.sessionUserId, input.hydratedForUserId)
 }
 
 export function dedupeBootstrapFetch(
@@ -61,10 +76,6 @@ export function dedupeBootstrapFetch(
       }
     }
     const promise = fetcher()
-      .then((boot) => {
-        if (boot) markBootstrapFetched(true, key)
-        return boot
-      })
       .finally(() => {
         if (inflightLite?.promise === promise) inflightLite = null
       })
@@ -98,12 +109,20 @@ export function scheduleDeferredFullBootstrap(run: () => void): void {
   setTimeout(run, 2_000)
 }
 
-/** Test-only: clear inflight + cooldown clocks. */
-export function resetBootstrapCoordForTests(): void {
+/**
+ * Portal "Try again" / forced auth recovery: drop inflight + cooldown so the
+ * next fetch is not a deduped null from a prior null-actor or soft-miss lite boot.
+ */
+export function resetBootstrapCoordForRetry(): void {
   inflightLite = null
   inflightFull = null
   lastLiteAt = 0
   lastFullAt = 0
   lastLiteKey = 'null'
   lastFullKey = 'null'
+}
+
+/** Test-only: clear inflight + cooldown clocks. */
+export function resetBootstrapCoordForTests(): void {
+  resetBootstrapCoordForRetry()
 }

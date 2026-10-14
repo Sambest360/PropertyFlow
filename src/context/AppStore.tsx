@@ -170,7 +170,10 @@ import { persistRefusalMessage } from '../lib/api/persistRefusal'
 import {
   bootstrapActorKey,
   dedupeBootstrapFetch,
+  markBootstrapFetched,
+  resetBootstrapCoordForRetry,
   scheduleDeferredFullBootstrap,
+  shouldIgnoreBootstrapMissAfterFetch,
 } from '../lib/bootstrapCoord'
 import {
   APP_STATE_STORAGE_KEY,
@@ -182,6 +185,8 @@ import {
   createClientCacheWriter,
   handleAuthKeyStorageEvent,
   bootstrapMatchesSession,
+  bootstrapSessionUserId,
+  canApplyBootstrapHydration,
 } from '../lib/clientCache'
 import { readStoredAuthUserId, getApiActor, actorHeaders, type DemoActor } from '../lib/api/actorAuth'
 import {
@@ -227,6 +232,7 @@ import {
   notifyViewingStatusChanged,
 } from '../lib/eventNotifications'
 import { mergeEntityLists } from '../lib/bootstrapMerge'
+import { reconcileAgencyIdSpace } from '../lib/agencyScope'
 import { getPropertyDeleteBlockReason } from '../lib/propertyDeletion'
 import {
   issueLeaseOnTenancyCreate,
@@ -355,15 +361,6 @@ function preservePortalFeLinks(base: AppState, boot: PostgresBootstrap): Postgre
 /** When Postgres bootstrap succeeds, merge server rows with recent local writes. */
 function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppState {
   boot = preservePortalFeLinks(base, boot)
-  const agencies = ((boot.agencies as Agency[]) ?? []).map((a) => ({
-    ...a,
-    enabledPermissions:
-      Array.isArray(a.enabledPermissions) && a.enabledPermissions.length
-        ? a.enabledPermissions
-        : [...DEFAULT_AGENCY_PERMISSIONS],
-  }))
-  const users = (boot.users as AppUser[]) ?? []
-
   const replaceLinked = Boolean(boot.scoped)
   const mergeOpts = { replaceWhenMissing: replaceLinked }
   const pick = <T extends { id: string }>(
@@ -371,6 +368,22 @@ function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppSta
     bootList: T[] | undefined,
     collectionKey: string,
   ): T[] => mergeEntityLists(baseList, bootList, collectionKey, mergeOpts)
+
+  let agencies = pick(
+    base.agencies,
+    ((boot.agencies as Agency[]) ?? []).map((a) => ({
+      ...a,
+      enabledPermissions:
+        Array.isArray(a.enabledPermissions) && a.enabledPermissions.length
+          ? a.enabledPermissions
+          : [...DEFAULT_AGENCY_PERMISSIONS],
+    })),
+    'agencies',
+  )
+  let users = pick(base.users, (boot.users as AppUser[]) ?? [], 'users')
+  const reconciled = reconcileAgencyIdSpace(agencies, users)
+  agencies = reconciled.agencies
+  users = reconciled.users
 
   return {
     ...base,
@@ -1065,7 +1078,20 @@ export function loadState(): AppState {
 
 const StoreContext = createContext<StoreContextValue | null>(null)
 
-async function fetchBootstrapFromApi(lite: boolean, actor: DemoActor | null, fullTimeoutMs = 10_000) {
+function priorTenantApplicationCount(
+  applications: Application[],
+  sessionUserId: string | null | undefined,
+): number {
+  if (!sessionUserId) return 0
+  return applications.filter((a) => a.applicantUserId === sessionUserId).length
+}
+
+async function fetchBootstrapFromApi(
+  lite: boolean,
+  actor: DemoActor | null,
+  fullTimeoutMs = 10_000,
+  hydrateOpts?: { priorTenantApplicationCount?: number },
+) {
   // Prefer live Auth actor when callers still pass mount-time null.
   const apiActor = getApiActor()
   const effective =
@@ -1091,6 +1117,7 @@ async function fetchBootstrapFromApi(lite: boolean, actor: DemoActor | null, ful
       actorRole: effective?.role ?? apiActor?.role ?? null,
     }
     let boot: Awaited<ReturnType<typeof fetchSupabaseBootstrap>> | null = null
+    let sessionRole: string | null = sessionProof.actorRole ?? null
     try {
       boot = await fetchSupabaseBootstrap(lite, { actorRole: sessionProof.actorRole })
       // P0-2: stale auth ids used to yield EMPTY arrays — requiring units
@@ -1099,7 +1126,11 @@ async function fetchBootstrapFromApi(lite: boolean, actor: DemoActor | null, ful
       // Mode A Sipho: END_USER/tenant + applications:[] under live session is
       // NOT remint success — data.ts already awaited session + retried apps.
       // remint56: null actorRole + AUTH_KEY + empty apps also fail-closed.
-      if (boot && shouldAcceptSupabaseBootstrap({ boot, ...sessionProof })) {
+      sessionRole = sessionProof.actorRole ?? boot?.actor?.role ?? null
+      if (
+        boot &&
+        shouldAcceptSupabaseBootstrap({ boot, ...sessionProof, actorRole: sessionRole })
+      ) {
         return enrichBootstrapWithPublicMarketplace(boot, lite, fullTimeoutMs)
       }
     } catch {
@@ -1110,7 +1141,16 @@ async function fetchBootstrapFromApi(lite: boolean, actor: DemoActor | null, ful
       // Live SA/session: keep auth. SA empty-start may still accept above.
       // Tenant / null-actor empty-apps after retries: soft hydrate-miss — do NOT
       // lock applications:[] as success (refreshBootstrap keeps prior state).
-      if (shouldSoftMissEmptyApplicationsBootstrap({ boot, ...sessionProof })) {
+      if (
+        shouldSoftMissEmptyApplicationsBootstrap(
+          {
+            boot,
+            ...sessionProof,
+            actorRole: sessionRole,
+          },
+          hydrateOpts,
+        )
+      ) {
         return null
       }
       if (!boot) return null
@@ -1197,13 +1237,23 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       actor?: DemoActor | null,
       opts?: { full?: boolean; force?: boolean; ingestNotifications?: boolean },
     ) => {
+    if (opts?.force) {
+      setHydrationFailed(false)
+      resetBootstrapCoordForRetry()
+    }
+
     const resolved =
       actor === undefined
         ? resolveBootstrapActor(stateRef.current.users)
         : resolveBootstrapActor(stateRef.current.users, actor)
     const lite = !opts?.full
     const actorKey = bootstrapActorKey(resolved)
-    const fetchBoot = () => fetchBootstrapFromApi(lite, resolved, opts?.full ? 25_000 : 20_000)
+    const sessionForPrior = resolved?.userId ?? readStoredAuthUserId()
+    const priorApps = priorTenantApplicationCount(stateRef.current.applications, sessionForPrior)
+    const fetchBoot = () =>
+      fetchBootstrapFromApi(lite, resolved, opts?.full ? 25_000 : 20_000, {
+        priorTenantApplicationCount: priorApps,
+      })
     const prevNotifications = stateRef.current.notifications
     const prevSuiteAlerts = stateRef.current.suiteAlerts
     const ingestUserId = opts?.ingestNotifications ? resolved?.userId : undefined
@@ -1213,19 +1263,54 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       return
     }
 
-    const boot = await dedupeBootstrapFetch(lite, fetchBoot, { force: opts?.force, actorKey })
+    let boot = await dedupeBootstrapFetch(lite, fetchBoot, { force: opts?.force, actorKey })
+    const storedAuth = readStoredAuthUserId()
+    if (!boot && lite && !opts?.full && (resolved?.userId || storedAuth)) {
+      boot = await dedupeBootstrapFetch(
+        false,
+        () => fetchBootstrapFromApi(false, resolved, 25_000),
+        { force: opts?.force, actorKey },
+      )
+    }
     if (!boot) {
       setTicketAccessNotesSupported(false)
-      if (resolved?.userId) setHydrationFailed(true)
+      const stored = storedAuth
+      if (stored && hydratedForUserIdRef.current === stored) {
+        setState((prev) => ensurePublicMarketplace(prev))
+        return
+      }
+      if (
+        shouldIgnoreBootstrapMissAfterFetch({
+          force: opts?.force,
+          sessionUserId: resolved?.userId ?? stored,
+          hydratedForUserId: hydratedForUserIdRef.current,
+        })
+      ) {
+        setState((prev) => ensurePublicMarketplace(prev))
+        return
+      }
+      if (resolved?.userId || stored) setHydrationFailed(true)
       setState((prev) => ensurePublicMarketplace(prev))
       return
     }
     // Drop a bootstrap whose user is no longer the session user (switch mid-flight).
-    if (!bootstrapMatchesSession(resolved?.userId, readStoredAuthUserId())) return
+    const sessionUserId = bootstrapSessionUserId(resolved?.userId, boot.actor?.userId)
+    const storedAfterBoot = readStoredAuthUserId()
+    if (
+      !canApplyBootstrapHydration({
+        sessionUserId,
+        storedAuthUserId: storedAfterBoot,
+        bootActorUserId: boot.actor?.userId,
+      })
+    ) {
+      if (resolved?.userId || storedAfterBoot) setHydrationFailed(true)
+      return
+    }
     setTicketAccessNotesSupported(ticketAccessNotesSupportedFromBootstrap(boot))
     setState((prev) => ensurePublicMarketplace(applyPostgresBootstrap(prev, boot)))
-    setHydratedForUserId(resolved?.userId ?? null)
+    setHydratedForUserId(sessionUserId)
     setHydrationFailed(false)
+    markBootstrapFetched(true, actorKey)
     if (ingestUserId) {
       const nextNotes = (boot.notifications as AppNotification[]) ?? []
       const fresh = diffNewNotifications(prevNotifications, nextNotes, ingestUserId)
@@ -1307,23 +1392,60 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     const run = async () => {
       const actor = resolveBootstrapActor(stateRef.current.users)
       const actorKey = bootstrapActorKey(actor)
-      const boot = await dedupeBootstrapFetch(
+      const sessionForPrior = actor?.userId ?? readStoredAuthUserId()
+      const priorApps = priorTenantApplicationCount(stateRef.current.applications, sessionForPrior)
+      const hydrateCtx = { priorTenantApplicationCount: priorApps }
+      let boot = await dedupeBootstrapFetch(
         true,
-        () => fetchBootstrapFromApi(true, actor, 20_000),
+        () => fetchBootstrapFromApi(true, actor, 20_000, hydrateCtx),
         { actorKey },
       )
+      const storedAuth = readStoredAuthUserId()
+      if (!boot && (actor?.userId || storedAuth)) {
+        boot = await dedupeBootstrapFetch(
+          false,
+          () => fetchBootstrapFromApi(false, actor, 25_000, hydrateCtx),
+          { actorKey },
+        )
+      }
       if (cancelled) return
       if (!boot) {
         setTicketAccessNotesSupported(false)
-        if (actor?.userId) setHydrationFailed(true)
+        const stored = storedAuth
+        if (stored && hydratedForUserIdRef.current === stored) {
+          setState((prev) => ensurePublicMarketplace(prev))
+          return
+        }
+        if (
+          shouldIgnoreBootstrapMissAfterFetch({
+            sessionUserId: actor?.userId ?? stored,
+            hydratedForUserId: hydratedForUserIdRef.current,
+          })
+        ) {
+          setState((prev) => ensurePublicMarketplace(prev))
+          return
+        }
+        if (actor?.userId || stored) setHydrationFailed(true)
         setState((prev) => ensurePublicMarketplace(prev))
         return
       }
-      if (!bootstrapMatchesSession(actor?.userId, readStoredAuthUserId())) return
+      const sessionUserId = bootstrapSessionUserId(actor?.userId, boot.actor?.userId)
+      const storedAfterBoot = readStoredAuthUserId()
+      if (
+        !canApplyBootstrapHydration({
+          sessionUserId,
+          storedAuthUserId: storedAfterBoot,
+          bootActorUserId: boot.actor?.userId,
+        })
+      ) {
+        if (actor?.userId || storedAfterBoot) setHydrationFailed(true)
+        return
+      }
       setTicketAccessNotesSupported(ticketAccessNotesSupportedFromBootstrap(boot))
       setState((prev) => ensurePublicMarketplace(applyPostgresBootstrap(prev, boot)))
-      setHydratedForUserId(actor?.userId ?? null)
+      setHydratedForUserId(sessionUserId)
       setHydrationFailed(false)
+      markBootstrapFetched(true, actorKey)
       try {
         localStorage.setItem(PG_HYDRATED_FLAG, 'postgres')
       } catch {
@@ -2481,6 +2603,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           user,
         }
       }
+      scheduleBootstrapRefreshAfterMutation()
       return res.ok && res.tempPassword
         ? { ok: true as const, user, generatedTempPassword: res.tempPassword }
         : { ok: true as const, user }
@@ -3006,6 +3129,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const unitOk = await persistUpsert('unit', unit.id, {
         ...unit,
         agencyId: property.agencyId,
+        landlordId: property.landlordId,
         unitNumber: input.unit.unitNumber,
       } as unknown as Record<string, unknown>)
       if (!unitOk) {

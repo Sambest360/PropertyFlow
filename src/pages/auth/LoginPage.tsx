@@ -5,7 +5,7 @@ import { AuthField, AuthShell } from '../../components/auth/AuthShell'
 import { PasswordField } from '../../components/auth/PasswordField'
 import { Button, Input } from '../../components/ui'
 import { useAuth } from '../../context/AuthContext'
-import { apiAuthBootstrapNeeded } from '../../lib/api/authClient'
+import { apiAuthBootstrapNeeded, readAuthToken } from '../../lib/api/authClient'
 import {
   supabaseAttachPendingRegistrationDocs,
   supabaseBootstrapNeeded,
@@ -53,6 +53,8 @@ export default function LoginPage() {
     const bouncedToWorkspace = Boolean(nextParam?.startsWith('/workspace'))
     if (bouncedToWorkspace) {
       if (!authReady) return
+      // L02: RequireAuth bounce must not POST /logout while /me is still verifying.
+      if (readAuthToken()) return
     }
     void purgeLocalIdentity()
     // eslint-disable-next-line react-hooks/exhaustive-deps

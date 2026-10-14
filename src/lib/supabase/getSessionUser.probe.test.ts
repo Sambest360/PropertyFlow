@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { setLoginInFlight } from '../auth/sessionArtifacts'
+import { setLoginInFlight, setRegisterInFlight } from '../auth/sessionArtifacts'
 import { supabaseGetSessionUser } from './auth'
 
 const harness = vi.hoisted(() => {
@@ -45,10 +45,17 @@ describe('supabaseGetSessionUser remint60 probe hole', () => {
 
   afterEach(() => {
     setLoginInFlight(false)
+    setRegisterInFlight(false)
   })
 
   it('does not full signOut while login is in flight', async () => {
     setLoginInFlight(true)
+    await expect(supabaseGetSessionUser()).resolves.toBeNull()
+    expect(harness.signOut).not.toHaveBeenCalled()
+  })
+
+  it('does not full signOut while registration is in flight', async () => {
+    setRegisterInFlight(true)
     await expect(supabaseGetSessionUser()).resolves.toBeNull()
     expect(harness.signOut).not.toHaveBeenCalled()
   })

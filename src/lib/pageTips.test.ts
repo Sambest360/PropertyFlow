@@ -4,6 +4,7 @@ import {
   clearAllPageTips,
   clearPageTipsForUser,
   clearPageTipsPreference,
+  ensurePageTipsPreferenceForFirstVisit,
   hasPageTipsPreference,
   hasSeenPageTip,
   isTourSessionCooldownActive,
@@ -156,6 +157,41 @@ describe('page tip preferences', () => {
   it('persists global disable so the preference gate turns tips off', () => {
     setPageTipsPreference('u-test', true)
     expect(hasPageTipsPreference('u-test')).toBe(true)
+    expect(arePageTipsDisabled('u-test')).toBe(true)
+  })
+
+  it('ensurePageTipsPreferenceForFirstVisit defaults tips off without a tour page', () => {
+    ensurePageTipsPreferenceForFirstVisit('u-test', false)
+    expect(hasPageTipsPreference('u-test')).toBe(false)
+  })
+
+  it('ensurePageTipsPreferenceForFirstVisit records opt-out when a tour exists (FW-05)', () => {
+    const tour = resolvePageTour('/workspace/portals/tenant', 'tenant')
+    expect(tour).not.toBeNull()
+    ensurePageTipsPreferenceForFirstVisit('u-test', true)
+    expect(hasPageTipsPreference('u-test')).toBe(true)
+    expect(arePageTipsDisabled('u-test')).toBe(true)
+  })
+
+  it('ensurePageTipsPreferenceForFirstVisit is idempotent', () => {
+    ensurePageTipsPreferenceForFirstVisit('u-test', true)
+    setPageTipsPreference('u-test', false)
+    ensurePageTipsPreferenceForFirstVisit('u-test', true)
+    expect(arePageTipsDisabled('u-test')).toBe(false)
+  })
+
+  it('tenant portal first visit records opt-out so revisits do not re-prompt (FW-27 P13)', () => {
+    const path = '/workspace/portals/tenant'
+    const tour = resolvePageTour(path, 'tenant')
+    expect(tour).not.toBeNull()
+    expect(hasPageTipsPreference('u-test')).toBe(false)
+
+    ensurePageTipsPreferenceForFirstVisit('u-test', Boolean(tour))
+    expect(hasPageTipsPreference('u-test')).toBe(true)
+    expect(arePageTipsDisabled('u-test')).toBe(true)
+
+    // Simulate navigate away and back — preference must stay decided.
+    ensurePageTipsPreferenceForFirstVisit('u-test', Boolean(resolvePageTour(path, 'tenant')))
     expect(arePageTipsDisabled('u-test')).toBe(true)
   })
 })

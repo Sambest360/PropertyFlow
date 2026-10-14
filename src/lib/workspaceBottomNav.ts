@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import type { Permission, Role } from '../types/domain'
 import { pathMatches } from '../components/layout/navigation'
+import { resolveWorkspaceApplicationsPath } from './workspaceRedirects'
 
 export type BottomNavTab = {
   id: string
@@ -52,7 +53,16 @@ export function resolveWorkspaceBottomNavTabs(input: {
     })
   }
 
-  if (has('applications.view')) {
+  if (has('portal.owner')) {
+    const appsTo = resolveWorkspaceApplicationsPath(has, input.role)
+    tabs.push({
+      id: 'applications',
+      label: 'Applications',
+      icon: Briefcase,
+      to: appsTo,
+      isActive: (p) => pathMatches(p, appsTo) || pathMatches(p, '/workspace/applications'),
+    })
+  } else if (has('applications.view')) {
     tabs.push({
       id: 'applications',
       label: 'Applicants',
@@ -95,6 +105,14 @@ export function resolveWorkspaceBottomNavTabs(input: {
       icon: CreditCard,
       to: '/workspace/operations/payments',
       isActive: (p) => pathMatches(p, '/workspace/operations/payments'),
+    })
+  } else if (has('portal.tenant') && has('payments.manage')) {
+    tabs.push({
+      id: 'payments',
+      label: 'Payments',
+      icon: CreditCard,
+      to: '/workspace/portals/tenant/payments',
+      isActive: (p) => pathMatches(p, '/workspace/portals/tenant/payments'),
     })
   }
 

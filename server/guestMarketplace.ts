@@ -18,6 +18,8 @@
  * so the server bundle does not pull extension-less client modules).
  */
 
+import { isFutureViewingSlot } from './viewingSlotTime.js'
+
 const PUBLIC_LISTING_STATUSES = new Set(['Published', 'Featured', 'Under Offer'])
 const PUBLIC_UNIT_STATUS_KEYS = new Set([
   'PUBLISHED',
@@ -128,6 +130,18 @@ function filterBootstrapForGuestAll(raw: Row, listingId?: string): Row {
     }))
   const viewingSlots = rows(raw.viewingSlots)
     .filter((s) => propIds.has(String(s.propertyId)))
+    .filter((s) => {
+      const status = String(s.status ?? '')
+      if (status && status !== 'Open' && status !== 'OPEN') return false
+      const date = String(s.date ?? '')
+      const time = String(s.time ?? '')
+      if (!date || !time) return false
+      const duration =
+        typeof s.durationMinutes === 'number'
+          ? s.durationMinutes
+          : Number(s.durationMinutes ?? 0) || undefined
+      return isFutureViewingSlot({ date, time, durationMinutes: duration })
+    })
     .map((s) => ({
       id: s.id,
       agencyId: s.agencyId,

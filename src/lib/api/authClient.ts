@@ -8,6 +8,12 @@ import type { UserVerification, VerificationDocument, VerificationProfile } from
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''
 const TOKEN_KEY = 'propertyflow-auth-token'
 
+/** Default /api/auth/me probe; cold navigations can exceed a short timeout (L02). */
+export const API_ME_TIMEOUT_MS = 12_000
+export const API_ME_RETRY_TIMEOUT_MS = 15_000
+/** Initial probe + one retry before the shell may treat auth as settled. */
+export const SESSION_PROBE_MAX_MS = API_ME_TIMEOUT_MS + API_ME_RETRY_TIMEOUT_MS + 2_000
+
 export type AuthUserDto = {
   id: string
   email: string
@@ -228,7 +234,7 @@ export async function apiLogout(): Promise<void> {
   }
 }
 
-export async function apiMe(timeoutMs = 12_000): Promise<AuthUserDto | null> {
+export async function apiMe(timeoutMs = API_ME_TIMEOUT_MS): Promise<AuthUserDto | null> {
   const token = readAuthToken()
   if (!token) return null
   const ctrl = new AbortController()

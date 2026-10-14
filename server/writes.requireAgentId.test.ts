@@ -112,7 +112,7 @@ describe('requireAgentId orphan-map verify + metadata repair (P0-5 r17)', () => 
 
     const unitInsert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO units'))
     expect(unitInsert).toBeTruthy()
-    expect(unitInsert![1][12]).toBe(AGENT_UUID)
+    expect(unitInsert![1][13]).toBe(AGENT_UUID)
   })
 
   it('resolves agent via users.metadata->>frontend_id and upserts entity_id_map', async () => {
@@ -160,7 +160,7 @@ describe('requireAgentId orphan-map verify + metadata repair (P0-5 r17)', () => 
 
     const unitInsert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO units'))
     expect(unitInsert).toBeTruthy()
-    expect(unitInsert![1][12]).toBe(AGENT_UUID)
+    expect(unitInsert![1][13]).toBe(AGENT_UUID)
   })
 
   it('still fail-closed 400 when agentId missing from map and metadata', async () => {
@@ -266,7 +266,7 @@ describe('requireAgentId orphan-map verify + metadata repair (P0-5 r17)', () => 
     expect(metaLookup).toBeFalsy()
 
     const unitInsert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO units'))
-    expect(unitInsert![1][12]).toBe(AGENT_UUID)
+    expect(unitInsert![1][13]).toBe(AGENT_UUID)
   })
 
   it('allows null/empty agentId (Unassigned) without 400', async () => {
@@ -290,6 +290,6 @@ describe('requireAgentId orphan-map verify + metadata repair (P0-5 r17)', () => 
     })
     expect(result.ok).toBe(true)
     const unitInsert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO units'))
-    expect(unitInsert![1][12]).toBe(null)
+    expect(unitInsert![1][13]).toBe(null)
   })
 })

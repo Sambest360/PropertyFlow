@@ -60,6 +60,34 @@ function typeAndModeMatch(
   return true
 }
 
+/** Mirrors BrowsePage.cardMatchesBrowseMode property resolution (FW-20 P10b). */
+function browseCardProperty(
+  card: { property_id?: string; id: string },
+  publicProperties: PropertyAsset[],
+  storeProperties: PropertyAsset[],
+): PropertyAsset | undefined {
+  return (
+    publicProperties.find((p) => p.id === card.property_id || p.unitId === card.id) ??
+    storeProperties.find((p) => p.id === card.property_id)
+  )
+}
+
+describe('browse signed-in property resolution (FW-20 P10b)', () => {
+  it('prefers publicly listed store rows over scoped portal drafts for cards', () => {
+    const pub = listing({ id: 'PR-1655', listingMode: 'rent', rent: 12000 })
+    const portalDraft = listing({
+      id: 'PR-1655',
+      status: 'Draft',
+      listingMode: 'rent',
+      rent: null,
+    })
+    const card = { property_id: 'PR-1655', id: 'unt-PR-1655' }
+    const resolved = browseCardProperty(card, [pub], [portalDraft])
+    expect(resolved?.status).toBe('Published')
+    expect(resolved?.rent).toBe(12000)
+  })
+})
+
 describe('browse type/mode filters (P1-3)', () => {
   it('rent mode excludes sale-only homes and houses excluded by type filter', () => {
     const apt = listing({ type: 'Apartment', listingMode: 'rent', rent: 12000 })

@@ -143,6 +143,8 @@ export type AppUser = {
   /** Employer / brokerage / trading name when relevant. */
   company?: string
   active: boolean
+  /** Session-only: true when users.metadata.mustChangePassword is set (temp password). */
+  mustChangePassword?: boolean
   avatar?: string
   /**
    * When set, replaces the role’s default permission pack for this user

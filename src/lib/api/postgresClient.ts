@@ -123,6 +123,27 @@ export async function fetchPublicMarketplaceFromApi(
   }
 }
 
+/** P3a / FW-04: one published listing bootstrap slice (works signed-in; no session required). */
+export async function fetchPublicListingBootstrapFromApi(
+  id: string,
+  timeoutMs = 10_000,
+): Promise<PostgresBootstrap | null> {
+  if (!isApiEnabled || !id) return null
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    const res = await fetch(`${API_BASE}/api/public/marketplace?id=${encodeURIComponent(id)}`, {
+      signal: ctrl.signal,
+    })
+    if (!res.ok) return null
+    return (await res.json()) as PostgresBootstrap
+  } catch {
+    return null
+  } finally {
+    clearTimeout(t)
+  }
+}
+
 /** P3a: all photos of one public listing (guest list cards carry one). Null if unavailable. */
 export async function fetchPublicListingImages(id: string, timeoutMs = 10_000): Promise<string[] | null> {
   if (!isApiEnabled || !id) return null

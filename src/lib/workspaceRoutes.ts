@@ -30,7 +30,7 @@ export function resolvePostLoginPath(role: Role, requestedNext?: string | null):
 /** Post-register landing (public signup). Prefer portal homes over legacy /workspace/tenant. */
 export function postRegisterPath(role: string, bootstrap: boolean, next: string): string {
   if (bootstrap) return '/workspace/admin/agencies/new'
-  if (role === 'landlord') return '/workspace/properties'
+  if (role === 'landlord') return '/workspace/portals/owner'
   if (role === 'contractor') return '/workspace/portals/contractor'
   if (role === 'tenant') {
     if (next.startsWith('/listing/') || next.startsWith('/browse')) return next

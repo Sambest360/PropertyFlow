@@ -8,6 +8,7 @@ import { GLOBAL_CLIENT_ID } from '../../data/platformLookups'
 import { ROLE_TO_DB } from './idMap'
 
 import { canonicalListingId, unitIdForProperty, listingIdAliases } from '../listingIds'
+import { propertyTypeToDb } from '../propertyType'
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -847,7 +848,7 @@ async function upsertUnit(id: string, data: Record<string, unknown>): Promise<vo
     listingRaw === 'RENT' || listingRaw === 'SALE' || listingRaw === 'BOTH' || listingRaw === 'NOT_LISTED'
       ? listingRaw
       : 'RENT'
-  const res = await supabase.from('units').upsert({
+  const unitRow: Record<string, unknown> = {
     id: uuid,
     client_id: await clientUuid(data.clientId ?? data.agencyId),
     building_id: buildingUuid,
@@ -871,7 +872,11 @@ async function upsertUnit(id: string, data: Record<string, unknown>): Promise<vo
     place_id: str(data.placeId) || null,
     formatted_address: str(data.formattedAddress) || null,
     updated_at: new Date().toISOString(),
-  })
+  }
+  if (Object.prototype.hasOwnProperty.call(data, 'type') && data.type != null) {
+    unitRow.property_type = propertyTypeToDb(str(data.type))
+  }
+  const res = await supabase.from('units').upsert(unitRow)
   throwIfUpsertFailed(res, 'unit')
 }
 
@@ -907,7 +912,7 @@ async function upsertProperty(id: string, data: Record<string, unknown>): Promis
   const buildingUuid = buildingFe ? await resolveUuid('building', buildingFe) : null
 
   if (buildingUuid) {
-    const res = await supabase.from('units').upsert({
+    const propertyRow: Record<string, unknown> = {
       id: unitUuidVal,
       client_id: clientId,
       building_id: buildingUuid,
@@ -948,7 +953,11 @@ async function upsertProperty(id: string, data: Record<string, unknown>): Promis
       place_id: str(data.placeId) || null,
       formatted_address: str(data.formattedAddress) || null,
       updated_at: new Date().toISOString(),
-    })
+    }
+    if (Object.prototype.hasOwnProperty.call(data, 'type') && data.type != null) {
+      propertyRow.property_type = propertyTypeToDb(str(data.type))
+    }
+    const res = await supabase.from('units').upsert(propertyRow)
     throwIfUpsertFailed(res, 'property/unit')
   } else {
     throw new Error(`property upsert failed: building ${str(data.buildingId) || id} not resolved`)

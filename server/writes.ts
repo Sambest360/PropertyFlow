@@ -17,6 +17,7 @@ import {
 import { SUB_FE_TO_UUID } from './idMap.js'
 import { resolveTicketLease } from './ticketLease.js'
 import { checkTicketPhotos } from '../src/lib/photoLimits.js'
+import { propertyTypeToDb } from '../src/lib/propertyType.js'
 import { resolveLiveListing } from './listingResolve.js'
 import { supabaseAuthConfigured } from './supabase/env.js'
 import { isValidSignatureDataUrl, signatureInvalidError } from '../src/lib/signature/signatureImage.js'
@@ -904,21 +905,26 @@ async function upsertProperty(feId: string, d: Record<string, unknown>): Promise
 
   const agent = await requireAgentId(d.agentId)
   const unitNumber = str(d.unitNumber ?? d.title, propFe).slice(0, 40)
+  const propertyTypeDb =
+    Object.prototype.hasOwnProperty.call(d, 'type') && d.type != null
+      ? propertyTypeToDb(str(d.type))
+      : null
 
   await query(
     `INSERT INTO units (
-       id, building_id, client_id, unit_number, square_meters, bedrooms, bathrooms, parking,
+       id, building_id, client_id, unit_number, property_type, square_meters, bedrooms, bathrooms, parking,
        listing_type, price, rent, status_config_key, agent_id, title, description, amenities,
        images, featured, lat, lng, place_id, formatted_address, geocoded_at, updated_at
      ) VALUES (
-       $1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8,
-       $9, $10, $11, $12, $13::uuid, $14, $15, $16::jsonb,
-       $17::jsonb, $18, $19, $20, $21, $22, $23::timestamptz, NOW()
+       $1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9,
+       $10, $11, $12, $13, $14::uuid, $15, $16, $17::jsonb,
+       $18::jsonb, $19, $20, $21, $22, $23, $24::timestamptz, NOW()
      )
      ON CONFLICT (id) DO UPDATE SET
        building_id = EXCLUDED.building_id,
        client_id = EXCLUDED.client_id,
        unit_number = EXCLUDED.unit_number,
+       property_type = COALESCE(EXCLUDED.property_type, units.property_type),
        square_meters = EXCLUDED.square_meters,
        bedrooms = EXCLUDED.bedrooms,
        bathrooms = EXCLUDED.bathrooms,
@@ -944,6 +950,7 @@ async function upsertProperty(feId: string, d: Record<string, unknown>): Promise
       buildingUuid,
       client,
       unitNumber,
+      propertyTypeDb,
       num(d.area) ?? num(d.squareMeters),
       num(d.beds) ?? num(d.bedrooms) ?? 0,
       num(d.baths) ?? num(d.bathrooms) ?? 0,

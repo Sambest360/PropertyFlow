@@ -150,7 +150,7 @@ function TenantPortalContent() {
             {portal.tenancy ? (
               <LinkedTenancyCard tenancy={portal.tenancy} />
             ) : (
-              <Card className="p-5">
+              <Card className="p-5" data-testid="tenant-lease-empty">
                 <h2 className="font-display text-lg font-semibold text-ink">My lease</h2>
                 <p className="mt-2 text-sm text-ink-500">
                   Lease details appear here once your application is approved and you have an active tenancy.

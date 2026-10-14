@@ -331,6 +331,12 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
             permission: 'platform.manage',
             icon: Users,
           },
+          {
+            to: '/workspace/platform/billing',
+            label: 'Billing',
+            permission: 'platform.manage',
+            icon: CreditCard,
+          },
         ],
       },
     },
@@ -425,6 +431,8 @@ export const TENANT_PORTAL_PATHS = new Set([
   '/workspace/portals/tenant/maintenance',
   '/workspace/portals/tenant/messages',
   '/workspace/portals/tenant/complaints',
+  '/workspace/portals/tenant/leases',
+  '/workspace/portals/tenant/payments',
 ])
 
 export const CONTRACTOR_PORTAL_PATHS = new Set(['/workspace/portals/contractor'])
@@ -535,7 +543,7 @@ function buildTenantApplicantNav(
           item: {
             to: '/workspace/portals/tenant/payments',
             label: 'Payments',
-            permission: 'payments.view',
+            anyOf: ['payments.manage', 'payments.view'],
             icon: CreditCard,
           },
         },
@@ -620,6 +628,7 @@ function buildLandlordOwnerNav(
   const promotedPaths = new Set([
     portalHome,
     '/workspace',
+    '/workspace/applications',
     '/workspace/operations/documents',
     '/workspace/operations/payments',
     '/workspace/operations/maintenance',
@@ -634,7 +643,7 @@ function buildLandlordOwnerNav(
     {
       type: 'link',
       item: {
-        to: '/workspace/portals/owner',
+        to: '/workspace/applications',
         label: 'Applications',
         permission: 'portal.owner',
         icon: ClipboardList,

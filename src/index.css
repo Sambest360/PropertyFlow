@@ -266,14 +266,21 @@
 
 .pf-story-chapter .pf-story-media {
   opacity: 0;
-  transform: translate3d(-28px, 0, 0);
+  /* Vertical only on narrow viewports — horizontal slide caused ~12px page overflow */
+  transform: translate3d(0, 16px, 0);
   transition:
     opacity 0.7s ease-out 60ms,
     transform 0.7s ease-out 60ms;
 }
 
-.pf-story-chapter.is-reverse .pf-story-media {
-  transform: translate3d(28px, 0, 0);
+@media (min-width: 768px) {
+  .pf-story-chapter .pf-story-media {
+    transform: translate3d(-28px, 0, 0);
+  }
+
+  .pf-story-chapter.is-reverse .pf-story-media {
+    transform: translate3d(28px, 0, 0);
+  }
 }
 
 .pf-story-chapter .pf-story-copy {

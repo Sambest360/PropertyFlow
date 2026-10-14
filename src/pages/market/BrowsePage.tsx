@@ -125,8 +125,8 @@ function cardMatchesBrowseMode(
 ): boolean {
   if (mode === 'all') return true
   const property =
-    storeProperties.find((p) => p.id === card.property_id) ??
-    properties.find((p) => p.id === card.property_id || p.unitId === card.id)
+    properties.find((p) => p.id === card.property_id || p.unitId === card.id) ??
+    storeProperties.find((p) => p.id === card.property_id)
   if (!property) return mode !== 'commercial'
   if (mode === 'commercial') return ['Commercial', 'Office'].includes(property.type)
   // P0-4: Buy mode should be sale-only, excluding 'both' mode listings
@@ -225,9 +225,10 @@ export default function BrowsePage() {
   }, [state.units, state.buildings, state.users, visibleStoreProperties, q, mode, filters, cursor, savedOnly])
 
   const cards: UnitCardPayload[] = useMemo(() => {
-    const raw = unitsFeed
-      ? unitsFeed.data
-      : filtered.map((p) => {
+    const raw =
+      unitsFeed && unitsFeed.data.length > 0
+        ? unitsFeed.data
+        : filtered.map((p) => {
           const building = p.buildingId
             ? state.buildings.find((b) => b.id === p.buildingId)
             : undefined
@@ -415,8 +416,8 @@ export default function BrowsePage() {
               <div className={`grid gap-5 ${showMap ? 'sm:grid-cols-2' : 'sm:grid-cols-2 lg:grid-cols-3'}`}>
                 {cards.map((card) => {
                   const property =
-                    state.properties.find((p) => p.id === card.property_id) ??
-                    properties.find((p) => p.unitId === card.id)
+                    properties.find((p) => p.id === card.property_id || p.unitId === card.id) ??
+                    state.properties.find((p) => p.id === card.property_id)
                   if (!property) return null
                   const building = state.buildings.find((b) => b.id === card.building.id)
                   const unit = state.units.find((u) => u.id === card.id)

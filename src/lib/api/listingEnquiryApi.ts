@@ -24,6 +24,26 @@ export type ListingEnquiryResult =
   | { ok: true; leadId: string; bookingId?: string | null; stage: string }
   | { ok: false; error: string }
 
+const ENQUIRY_TIMEOUT_MS = 20_000
+
+/** Map API / RPC codes to copy suitable for the listing enquiry form. */
+export function formatListingEnquiryError(raw: string): string {
+  const code = raw.trim().toLowerCase()
+  if (code === 'slot_not_found' || code.includes('slot_not_found')) {
+    return 'That viewing time is no longer available. Pick another slot or request a viewing without a slot.'
+  }
+  if (code === 'slot_unavailable' || code.includes('slot_unavailable')) {
+    return 'That slot just filled up. Choose another time or request a viewing without a slot.'
+  }
+  if (code === 'enquiry_failed' || code.includes('enquiry_failed')) {
+    return 'We could not save your enquiry. Try again in a moment.'
+  }
+  if (raw.toLowerCase().includes('abort') || raw.toLowerCase().includes('timeout')) {
+    return 'The server took too long to respond. Check your connection and try again.'
+  }
+  return raw
+}
+
 function offlineResult(input: ListingEnquiryInput): ListingEnquiryResult {
   const ts = Date.now()
   const stage =
@@ -42,10 +62,13 @@ function offlineResult(input: ListingEnquiryInput): ListingEnquiryResult {
 
 async function submitViaApi(input: ListingEnquiryInput): Promise<ListingEnquiryResult | null> {
   if (!isApiEnabled) return null
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), ENQUIRY_TIMEOUT_MS)
   try {
     const res = await fetch(`${API_BASE}/api/public/listing-enquiry`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: ctrl.signal,
       body: JSON.stringify({
         propertyId: input.propertyId,
         action: input.action,
@@ -62,7 +85,8 @@ async function submitViaApi(input: ListingEnquiryInput): Promise<ListingEnquiryR
     })
     const json = (await res.json()) as Record<string, unknown>
     if (!res.ok) {
-      return { ok: false, error: String(json.message ?? json.error ?? 'enquiry_failed') }
+      const raw = String(json.message ?? json.error ?? 'enquiry_failed')
+      return { ok: false, error: formatListingEnquiryError(raw) }
     }
     return {
       ok: true,
@@ -70,8 +94,13 @@ async function submitViaApi(input: ListingEnquiryInput): Promise<ListingEnquiryR
       bookingId: (json.bookingId ?? json.booking_id ?? null) as string | null,
       stage: String(json.stage ?? 'New Lead'),
     }
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      return { ok: false, error: formatListingEnquiryError('timeout') }
+    }
     return null
+  } finally {
+    clearTimeout(t)
   }
 }
 
@@ -93,7 +122,7 @@ async function submitViaSupabase(input: ListingEnquiryInput): Promise<ListingEnq
       p_interest_type: input.interestType === 'Buy' ? 'BUY' : 'RENT',
     })
     if (error) {
-      return { ok: false, error: error.message }
+      return { ok: false, error: formatListingEnquiryError(error.message) }
     }
     const row = (data ?? {}) as Record<string, unknown>
     return {

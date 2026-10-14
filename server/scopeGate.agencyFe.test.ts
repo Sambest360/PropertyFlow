@@ -57,7 +57,7 @@ describe('scopeGate agency FE (P0 r20)', () => {
     resolveUuid.mockReset()
     ensureEntityMapTable.mockClear()
     loadIdMapCache.mockReset()
-    loadIdMapCache.mockResolvedValue(agencyCache())
+    loadIdMapCache.mockImplementation(async () => agencyCache())
   })
 
   afterEach(() => {
@@ -72,6 +72,18 @@ describe('scopeGate agency FE (P0 r20)', () => {
       userId: 'u-95838e33',
       role: 'ground_agent',
       agencyId: null,
+    })
+    expect(out.agencyId).toBe(AGENCY_FE)
+  })
+
+  it('enrichActor normalizes a UUID agencyId header to FE (stale session / id-map)', async () => {
+    resolveUuid.mockResolvedValue(null)
+    query.mockResolvedValue([])
+    const { enrichActor } = await import('./scopeGate.js')
+    const out = await enrichActor({
+      userId: 'u-95838e33',
+      role: 'client_admin',
+      agencyId: QA_CLIENT_UUID,
     })
     expect(out.agencyId).toBe(AGENCY_FE)
   })

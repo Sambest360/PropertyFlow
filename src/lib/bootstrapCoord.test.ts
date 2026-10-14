@@ -3,12 +3,78 @@ import type { PostgresBootstrap } from './api/postgresClient'
 import {
   bootstrapActorKey,
   dedupeBootstrapFetch,
+  markBootstrapFetched,
+  resetBootstrapCoordForRetry,
   resetBootstrapCoordForTests,
+  shouldIgnoreBootstrapMissAfterFetch,
+  shouldSkipAuthBootstrapRefresh,
 } from './bootstrapCoord'
 
 function stubBoot(tag: string): PostgresBootstrap {
   return { fetchedAt: tag } as PostgresBootstrap
 }
+
+describe('shouldSkipAuthBootstrapRefresh (P04 cold /workspace)', () => {
+  beforeEach(() => {
+    resetBootstrapCoordForTests()
+  })
+
+  it('does not skip when the session user is not hydrated yet', () => {
+    markBootstrapFetched(true, 'null')
+    expect(shouldSkipAuthBootstrapRefresh('u-tenant', null)).toBe(false)
+    expect(shouldSkipAuthBootstrapRefresh('u-tenant', 'u-other')).toBe(false)
+  })
+
+  it('skips duplicate refresh when the same user just hydrated', () => {
+    markBootstrapFetched(true, 'tenant:u-tenant')
+    expect(shouldSkipAuthBootstrapRefresh('u-tenant', 'u-tenant')).toBe(true)
+  })
+})
+
+describe('resetBootstrapCoordForRetry (P04 portal Try again)', () => {
+  beforeEach(() => {
+    resetBootstrapCoordForTests()
+  })
+
+  it('clears lite cooldown so the next fetch runs after a forced retry', async () => {
+    const fetcher = vi.fn(async () => stubBoot('retry'))
+    markBootstrapFetched(true, 'tenant:u-tenant')
+    const cooled = await dedupeBootstrapFetch(true, fetcher, { actorKey: 'tenant:u-tenant' })
+    expect(cooled).toBeNull()
+    expect(fetcher).not.toHaveBeenCalled()
+    resetBootstrapCoordForRetry()
+    const boot = await dedupeBootstrapFetch(true, fetcher, { actorKey: 'tenant:u-tenant' })
+    expect(boot?.fetchedAt).toBe('retry')
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('shouldIgnoreBootstrapMissAfterFetch (P09b portal retry)', () => {
+  beforeEach(() => {
+    resetBootstrapCoordForTests()
+  })
+
+  it('never ignores a forced portal retry', () => {
+    markBootstrapFetched(true, 'tenant:u-tenant')
+    expect(
+      shouldIgnoreBootstrapMissAfterFetch({
+        force: true,
+        sessionUserId: 'u-tenant',
+        hydratedForUserId: null,
+      }),
+    ).toBe(false)
+  })
+
+  it('ignores duplicate auth refresh after a recent hydrate', () => {
+    markBootstrapFetched(true, 'tenant:u-tenant')
+    expect(
+      shouldIgnoreBootstrapMissAfterFetch({
+        sessionUserId: 'u-tenant',
+        hydratedForUserId: 'u-tenant',
+      }),
+    ).toBe(true)
+  })
+})
 
 describe('bootstrapActorKey', () => {
   it('keys null actor distinctly from tenant', () => {
@@ -44,6 +110,21 @@ describe('dedupeBootstrapFetch actor isolation (remint56)', () => {
     const [nullBoot, tenantBoot] = await Promise.all([pNull, pTenant])
     expect(nullBoot?.fetchedAt).toBe('null')
     expect(tenantBoot?.fetchedAt).toBe('tenant')
+  })
+
+  it('does not start lite cooldown until AppStore marks a successful hydrate', async () => {
+    const fetcher = vi.fn(async () => stubBoot('first'))
+    const first = await dedupeBootstrapFetch(true, fetcher, { actorKey: 'super_admin:sa-1' })
+    expect(first?.fetchedAt).toBe('first')
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    // Cooldown is applied only after markBootstrapFetched (post-hydrate), not on raw fetch.
+    const second = await dedupeBootstrapFetch(true, fetcher, { actorKey: 'super_admin:sa-1' })
+    expect(second?.fetchedAt).toBe('first')
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    markBootstrapFetched(true, 'super_admin:sa-1')
+    const cooled = await dedupeBootstrapFetch(true, fetcher, { actorKey: 'super_admin:sa-1' })
+    expect(cooled).toBeNull()
+    expect(fetcher).toHaveBeenCalledTimes(2)
   })
 
   it('shares inflight for the same actor key', async () => {

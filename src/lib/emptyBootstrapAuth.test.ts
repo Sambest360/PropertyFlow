@@ -186,6 +186,17 @@ describe('null-actor bootstrap race (remint56)', () => {
         storedAuthUserId: 'u-50cc6e30',
         actorRole: 'tenant',
       }),
+    ).toBe(false)
+    expect(
+      shouldSoftMissEmptyApplicationsBootstrap(
+        {
+          boot: { units: [{ id: 'u1' }], applications: [] },
+          actorUserId: 'u-50cc6e30',
+          storedAuthUserId: 'u-50cc6e30',
+          actorRole: 'tenant',
+        },
+        { priorTenantApplicationCount: 2 },
+      ),
     ).toBe(true)
     expect(
       shouldSoftMissEmptyApplicationsBootstrap({
@@ -247,5 +258,62 @@ describe('null-actor bootstrap race (remint56)', () => {
         actorRole: 'super_admin',
       }),
     ).toBe(true)
+  })
+
+  it('null actorRole + staff user roster + empty apps ⇒ accept (FW-17 team list reload)', () => {
+    expect(
+      shouldAcceptSupabaseBootstrap({
+        boot: { units: [{ id: 'u1' }], applications: [], users: [{ id: 'u-staff', role: 'agent' }] },
+        actorUserId: null,
+        storedAuthUserId: 'u-super',
+        actorRole: null,
+      }),
+    ).toBe(true)
+    expect(
+      shouldSoftMissEmptyApplicationsBootstrap({
+        boot: { units: [{ id: 'u1' }], applications: [], users: [{ id: 'u-staff' }] },
+        actorUserId: null,
+        storedAuthUserId: 'u-super',
+        actorRole: null,
+      }),
+    ).toBe(false)
+  })
+
+  it('null mount actorRole + boot.actor super_admin + empty apps ⇒ accept (FW-13 SA dashboard)', () => {
+    expect(
+      shouldAcceptSupabaseBootstrap({
+        boot: { units: [{ id: 'u1' }], applications: [] },
+        actorUserId: null,
+        storedAuthUserId: 'sa-1',
+        actorRole: 'super_admin',
+      }),
+    ).toBe(true)
+    expect(
+      shouldSoftMissEmptyApplicationsBootstrap({
+        boot: { units: [{ id: 'u1' }], applications: [] },
+        actorUserId: null,
+        storedAuthUserId: 'sa-1',
+        actorRole: 'super_admin',
+      }),
+    ).toBe(false)
+  })
+
+  it('FW-28: resolved tenant + empty apps + no local applicant rows ⇒ no soft-miss (portal may hydrate)', () => {
+    expect(
+      shouldSoftMissEmptyApplicationsBootstrap({
+        boot: { units: [], applications: [] },
+        actorUserId: 'u-applicant',
+        storedAuthUserId: 'u-applicant',
+        actorRole: 'tenant',
+      }),
+    ).toBe(false)
+    expect(
+      shouldSoftMissEmptyApplicationsBootstrap({
+        boot: { units: [], applications: [] },
+        actorUserId: 'u-applicant',
+        storedAuthUserId: 'u-applicant',
+        actorRole: 'END_USER',
+      }),
+    ).toBe(false)
   })
 })

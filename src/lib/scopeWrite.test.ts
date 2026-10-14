@@ -34,6 +34,43 @@ describe('canWriteEntity', () => {
     ).toBe(true)
   })
 
+  it('allows landlord building create when session agency is unset but they own the listing (L03)', () => {
+    const noAgency = buildPropertyScope(
+      { role: 'landlord', userId: 'u-johan', agencyId: null, agencySuspended: false },
+      { properties: [] },
+    )
+    expect(
+      canWriteEntity(noAgency, {
+        resource: 'building',
+        propertyId: null,
+        property: { agencyId: 'ag-ll-johan', agentId: null, landlordId: 'u-johan' },
+        agencyId: 'ag-ll-johan',
+      }),
+    ).toBe(true)
+  })
+
+  it('allows landlord unit upsert when landlordId is filled from the building (L03)', () => {
+    expect(
+      canWriteEntity(johan, {
+        resource: 'unit',
+        propertyId: 'unt-new',
+        property: { agencyId: 'ag-ll-johan', agentId: null, landlordId: 'u-johan' },
+        agencyId: 'ag-ll-johan',
+      }),
+    ).toBe(true)
+  })
+
+  it('rejects landlord listing writes for another landlord', () => {
+    expect(
+      canWriteEntity(johan, {
+        resource: 'building',
+        propertyId: null,
+        property: { agencyId: 'ag-ll-johan', agentId: null, landlordId: 'u-other' },
+        agencyId: 'ag-ll-johan',
+      }),
+    ).toBe(false)
+  })
+
   it('allows ground agent upserts on assigned property', () => {
     expect(
       canWriteEntity(james, {

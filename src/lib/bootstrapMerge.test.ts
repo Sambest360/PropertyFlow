@@ -56,6 +56,23 @@ describe('mergeEntityLists', () => {
     expect(merged).toEqual([{ id: 'p1', status: 'Draft' }])
   })
 
+  it('keeps a recently created agency when bootstrap snapshot omits it', () => {
+    resetLocalPersistWrites()
+    const now = 4_000_000
+    markLocalPersistWrite('agency', 'ag-new')
+
+    const local = [{ id: 'ag-new', name: 'New Co' }]
+    const remote = [{ id: 'ag-horizon', name: 'Horizon' }]
+
+    const merged = mergeEntityLists(local, remote, 'agencies', { now })
+    expect(merged).toEqual(
+      expect.arrayContaining([
+        { id: 'ag-horizon', name: 'Horizon' },
+        { id: 'ag-new', name: 'New Co' },
+      ]),
+    )
+  })
+
   it('keeps recently written local-only rows in scoped replace mode', () => {
     resetLocalPersistWrites()
     const now = 3_000_000

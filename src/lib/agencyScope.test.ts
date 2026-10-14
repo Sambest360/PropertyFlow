@@ -6,13 +6,98 @@ import {
   canSeeAgentRecord,
   canSeeLandlordAsset,
   filterScopedPropertyDocuments,
+  pickAgencyId,
+  reconcileAgencyIdSpace,
+  resolveViewerAgencyId,
 } from './agencyScope'
+import { CLIENT_TO_AGENCY } from './supabase/idMap'
 
 const propA = {
   agencyId: 'ag-a',
   agentId: 'u-agent-a',
   landlordId: 'u-ll-a',
 }
+
+describe('reconcileAgencyIdSpace (FW-14 / FW-15)', () => {
+  const clientUuid = '7515d803-1111-4111-8111-111111111111'
+
+  it('drops duplicate UUID agency rows and remaps user agencyId to ag-*', () => {
+    const { agencies, users } = reconcileAgencyIdSpace(
+      [
+        {
+          id: 'ag-vision',
+          name: 'Vision',
+          slug: 'vision',
+          city: '',
+          status: 'Active',
+          createdAt: '2026-01-01',
+          enabledPermissions: [],
+        },
+        {
+          id: clientUuid,
+          name: 'Vision',
+          slug: 'vision',
+          city: '',
+          status: 'Active',
+          createdAt: '2026-01-01',
+          enabledPermissions: [],
+        },
+      ],
+      [
+        {
+          id: 'u-ll',
+          name: 'Pat',
+          email: 'p@t.test',
+          role: 'landlord',
+          agencyId: clientUuid,
+          active: true,
+          verification: { status: 'pending' },
+        },
+      ],
+    )
+    expect(agencies.map((a) => a.id)).toEqual(['ag-vision'])
+    expect(users[0]?.agencyId).toBe('ag-vision')
+  })
+})
+
+describe('pickAgencyId / resolveViewerAgencyId (FW-19 A07)', () => {
+  const clientUuid = '7515d803-1111-4111-8111-111111111111'
+
+  it('prefers bootstrap ag-* when session still has client UUID', () => {
+    expect(pickAgencyId(clientUuid, 'ag-vision')).toBe('ag-vision')
+    expect(pickAgencyId('ag-vision', clientUuid)).toBe('ag-vision')
+  })
+
+  it('resolves viewer agency from single scoped agency row', () => {
+    expect(
+      resolveViewerAgencyId(clientUuid, {
+        agencies: [{ id: 'ag-vision' }],
+        bootstrapAgencyId: 'ag-vision',
+      }),
+    ).toBe('ag-vision')
+  })
+
+  it('lets agency admin see staff in FE id space', () => {
+    expect(
+      canSeeAgency('agent_admin', clientUuid, false, 'ag-vision', {
+        agencies: [{ id: 'ag-vision' }],
+        bootstrapAgencyId: 'ag-vision',
+      }),
+    ).toBe(true)
+  })
+
+  it('matches resource agency UUID to viewer FE id when seed map links them (FW-17)', () => {
+    const seedUuid = Object.keys(CLIENT_TO_AGENCY)[0]
+    if (!seedUuid) return
+    const fe = CLIENT_TO_AGENCY[seedUuid]
+    expect(
+      canSeeAgency('client_admin', fe, false, seedUuid, {
+        agencies: [{ id: fe }],
+        bootstrapAgencyId: fe,
+      }),
+    ).toBe(true)
+  })
+})
 
 describe('canSeeAgency', () => {
   it('lets super_admin see any agency resource', () => {

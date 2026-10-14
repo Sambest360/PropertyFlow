@@ -292,7 +292,7 @@ export default function MarketHome() {
         </div>
       </section>
 
-      <section id="home-story" className="relative z-10 -mt-1 bg-white">
+      <section id="home-story" className="relative z-10 -mt-1 overflow-x-clip bg-white">
         <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 sm:py-20 lg:px-8 lg:py-24">
           <Reveal>
             <p className="text-sm font-semibold uppercase tracking-wide text-primary">Why Letkaya</p>

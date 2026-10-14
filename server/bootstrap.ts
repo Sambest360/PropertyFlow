@@ -26,6 +26,7 @@ import {
   mapProperty,
 } from './idMap.js'
 import { canonicalListingId, unitIdForProperty } from '../src/lib/listingIds.js'
+import { resolvePropertyType } from '../src/lib/propertyType.js'
 import { deriveAgencyContractors } from '../src/lib/contractors.js'
 import type { Lead } from '../src/types/domain.js'
 import { hydrateDocumentsFromUploadedJson } from '../src/lib/hydrateApplicationDocs.js'
@@ -497,8 +498,10 @@ export async function buildBootstrap(opts?: {
     (load) => load(),
   )
 
-  // Runtime + seed aliases from entity_id_map (shared cache — no N+1)
-  const idCache = await loadIdMapCache()
+  // Fresh entity_id_map on every bootstrap — the 30s in-process cache can lag
+  // behind creates on another serverless instance and split agency FE ids (ag-*)
+  // from user agencyId / scoped rows until sign-in.
+  const idCache = await loadIdMapCache(true)
   const userByUuid = labelBootstrapUsers(users as Array<{ id: string; email: string; metadata: Record<string, unknown> | null }>, idCache.userBackendToFe)
 
   const mapCache = new Map<string, string>()
@@ -653,6 +656,7 @@ export async function buildBootstrap(opts?: {
       agentId: mapUser(u.agent_id),
       unitNumber: u.unit_number,
       title: u.title ?? u.unit_number,
+      propertyType: (u as { property_type?: string | null }).property_type ?? null,
       squareMeters: u.square_meters ? Number(u.square_meters) : 0,
       bedrooms: u.bedrooms ?? 0,
       bathrooms: u.bathrooms ? Number(u.bathrooms) : 0,
@@ -705,7 +709,7 @@ export async function buildBootstrap(opts?: {
       buildingId: u.buildingId,
       unitId: u.id,
       title: u.title,
-      type: u.bedrooms === 0 ? 'Office' : u.bedrooms >= 3 ? 'House' : 'Apartment',
+      type: resolvePropertyType({ stored: u.propertyType, bedrooms: u.bedrooms }),
       status,
       deletedAt,
       listingMode: u.listingType === 'sale' || u.listingType === 'rent' || u.listingType === 'both'

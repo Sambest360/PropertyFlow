@@ -49,12 +49,12 @@ export default function ChangePasswordPage({ forced = false }: { forced?: boolea
     setBusy(true)
     setError(null)
     try {
-      await apiChangePassword({ currentPassword, newPassword })
+      const updatedUser = await apiChangePassword({ currentPassword, newPassword })
       setCurrentPassword('')
       setNewPassword('')
       setConfirmPassword('')
       setDone(true)
-      completePasswordChange()
+      completePasswordChange(updatedUser)
       if (forced) navigate('/workspace', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Your password could not be changed.')

@@ -30,10 +30,13 @@ beforeEach(() => {
 
 import {
   APP_STATE_STORAGE_KEY,
+  AUTH_USER_STORAGE_KEY,
   PG_SOURCE_STORAGE_KEY,
   readOwnedClientCache,
   serializeClientCache,
   bootstrapMatchesSession,
+  bootstrapSessionUserId,
+  canApplyBootstrapHydration,
   createClientCacheWriter,
   handleAuthKeyStorageEvent,
   sessionUserSwitched,
@@ -113,6 +116,58 @@ describe('owner-keyed cache', () => {
     const fresh = appStore.defaultStateFor(true)
     expect(fresh.properties).toEqual([])
     expect(fresh.users).toEqual([])
+  })
+})
+
+describe('bootstrapSessionUserId (P04 cold /workspace)', () => {
+  it('uses stored auth when mount actor is still null', () => {
+    ls.setItem(AUTH_USER_STORAGE_KEY, 'u-tenant')
+    expect(bootstrapSessionUserId(null, null)).toBe('u-tenant')
+    expect(
+      bootstrapMatchesSession(bootstrapSessionUserId(null, null), ls.getItem(AUTH_USER_STORAGE_KEY)),
+    ).toBe(true)
+  })
+
+  it('prefers boot.actor when it matches stored session', () => {
+    ls.setItem(AUTH_USER_STORAGE_KEY, 'u-tenant')
+    expect(bootstrapSessionUserId(null, 'u-tenant')).toBe('u-tenant')
+  })
+})
+
+describe('canApplyBootstrapHydration (FW-30 cold tenant portal)', () => {
+  it('accepts boot actor when AUTH_KEY is not written yet', () => {
+    expect(
+      canApplyBootstrapHydration({
+        sessionUserId: 'u-tenant',
+        storedAuthUserId: null,
+        bootActorUserId: 'u-tenant',
+      }),
+    ).toBe(true)
+    expect(
+      canApplyBootstrapHydration({
+        sessionUserId: 'u-tenant',
+        storedAuthUserId: null,
+        bootActorUserId: 'u-other',
+      }),
+    ).toBe(false)
+  })
+
+  it('still requires stored session to match when AUTH_KEY is set', () => {
+    ls.setItem(AUTH_USER_STORAGE_KEY, 'u-tenant')
+    expect(
+      canApplyBootstrapHydration({
+        sessionUserId: 'u-tenant',
+        storedAuthUserId: 'u-tenant',
+        bootActorUserId: 'u-tenant',
+      }),
+    ).toBe(true)
+    expect(
+      canApplyBootstrapHydration({
+        sessionUserId: 'u-other',
+        storedAuthUserId: 'u-tenant',
+        bootActorUserId: 'u-other',
+      }),
+    ).toBe(false)
   })
 })
 

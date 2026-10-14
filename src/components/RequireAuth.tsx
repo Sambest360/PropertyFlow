@@ -1,13 +1,13 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { readAuthToken } from '../lib/api/authClient'
+import { authGateGraceMs, shouldDeferAuthRedirect } from '../lib/auth/authGate'
 import { AUTH_USER_STORAGE_KEY } from '../lib/clientCache'
 
 const ForcedChangePasswordPage = lazy(() => import('../pages/account/ChangePasswordPage'))
 
 const AUTH_KEY = AUTH_USER_STORAGE_KEY
-/** Brief hold before /login when local identity remains after authReady. */
-const STORED_IDENTITY_GRACE_MS = 6_000
 
 function readStoredAuthUserId(): string | null {
   try {
@@ -30,12 +30,14 @@ export function RequireAuth({ children }: { children: ReactNode }) {
       setStoredGraceDone(false)
       return
     }
-    if (!readStoredAuthUserId()) {
+    const storedId = readStoredAuthUserId()
+    const hasToken = Boolean(readAuthToken())
+    if (!storedId && !hasToken) {
       setStoredGraceDone(true)
       return
     }
     setStoredGraceDone(false)
-    const t = window.setTimeout(() => setStoredGraceDone(true), STORED_IDENTITY_GRACE_MS)
+    const t = window.setTimeout(() => setStoredGraceDone(true), authGateGraceMs(hasToken))
     return () => window.clearTimeout(t)
   }, [authReady, isAuthenticated, loginInFlight])
 
@@ -53,7 +55,14 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     // wipe the still-live Sipho session (My applications bounce).
     // remint58 grace2: same belt while loginInFlight is held through navigate,
     // even if AUTH_KEY was already cleared by a racing guest purge.
-    if (loginInFlight || (readStoredAuthUserId() && !storedGraceDone)) {
+    if (
+      shouldDeferAuthRedirect({
+        loginInFlight,
+        storedAuthUserId: readStoredAuthUserId(),
+        hasAuthToken: Boolean(readAuthToken()),
+        storedGraceDone,
+      })
+    ) {
       return (
         <div className="flex min-h-screen items-center justify-center bg-white text-sm text-ink-500">
           Checking session…

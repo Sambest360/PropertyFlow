@@ -1,4 +1,84 @@
-import type { Role } from '../types/domain.js'
+import type { Agency, AppUser, Role } from '../types/domain.js'
+import { CLIENT_TO_AGENCY } from './supabase/idMap.js'
+
+const CLIENT_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+/**
+ * Session (/me, Supabase profile) may still carry a client UUID while bootstrap
+ * rows use entity_id_map FE ids (ag-*). Prefer the bootstrap id when they diverge.
+ */
+export function pickAgencyId(
+  sessionAgencyId: string | null | undefined,
+  bootstrapAgencyId: string | null | undefined,
+): string | null {
+  const session = sessionAgencyId ?? null
+  const bootstrap = bootstrapAgencyId ?? null
+  if (!session) return bootstrap
+  if (!bootstrap || session === bootstrap) return session
+  if (bootstrap.startsWith('ag-') && CLIENT_UUID_RE.test(session)) return bootstrap
+  if (session.startsWith('ag-') && CLIENT_UUID_RE.test(bootstrap)) return session
+  return session
+}
+
+export type AgencyScopeContext = {
+  agencies?: ReadonlyArray<{ id: string }>
+  /** Bootstrap-synced agency for the signed-in user (FE id). */
+  bootstrapAgencyId?: string | null
+}
+
+/**
+ * After bootstrap merge, agencies/users can briefly disagree on UUID vs ag-* for
+ * the same client. Collapse duplicate agency rows and remap user agencyId to FE.
+ */
+export function reconcileAgencyIdSpace(
+  agencies: Agency[],
+  users: AppUser[],
+): { agencies: Agency[]; users: AppUser[] } {
+  const feBySlug = new Map<string, string>()
+  for (const a of agencies) {
+    if (a.id.startsWith('ag-') && a.slug) feBySlug.set(a.slug, a.id)
+  }
+  const uuidToFe = new Map<string, string>()
+  for (const a of agencies) {
+    if (!CLIENT_UUID_RE.test(a.id) || !a.slug) continue
+    const fe = feBySlug.get(a.slug)
+    if (fe) uuidToFe.set(a.id, fe)
+  }
+  if (!uuidToFe.size) return { agencies, users }
+  const nextAgencies = agencies.filter((a) => !(CLIENT_UUID_RE.test(a.id) && uuidToFe.has(a.id)))
+  const nextUsers = users.map((u) => {
+    if (!u.agencyId) return u
+    const fe = uuidToFe.get(u.agencyId)
+    return fe ? { ...u, agencyId: fe } : u
+  })
+  return { agencies: nextAgencies, users: nextUsers }
+}
+
+/** Viewer agency id in the same FE space as bootstrap users/properties. */
+export function resolveViewerAgencyId(
+  sessionAgencyId: string | null | undefined,
+  ctx?: AgencyScopeContext,
+): string | null {
+  const picked = pickAgencyId(sessionAgencyId, ctx?.bootstrapAgencyId ?? null)
+  if (picked && ctx?.agencies?.some((a) => a.id === picked)) return picked
+  if (picked && CLIENT_UUID_RE.test(picked) && ctx?.agencies?.length === 1) {
+    return ctx.agencies[0]!.id
+  }
+  return picked
+}
+
+/** Map a client UUID (or passthrough FE id) into bootstrap FE agency space. */
+export function agencyIdInFeSpace(
+  id: string | null | undefined,
+  ctx?: AgencyScopeContext,
+): string | null {
+  if (!id) return null
+  if (ctx?.agencies?.some((a) => a.id === id)) return id
+  const mapped = CLIENT_TO_AGENCY[id]
+  if (mapped) return mapped
+  return id
+}
 
 /** Agency boundary: super admin sees all; suspended / unscoped agencies see nothing. */
 export function canSeeAgency(
@@ -6,10 +86,15 @@ export function canSeeAgency(
   viewerAgencyId: string | null,
   agencySuspended: boolean,
   resourceAgencyId: string | null | undefined,
+  ctx?: AgencyScopeContext,
 ): boolean {
   if (role === 'super_admin') return true
-  if (!viewerAgencyId || agencySuspended) return false
-  return resourceAgencyId === viewerAgencyId
+  const viewerFe = resolveViewerAgencyId(viewerAgencyId, ctx)
+  if (!viewerFe || agencySuspended) return false
+  if (!resourceAgencyId) return false
+  const resourceFe = agencyIdInFeSpace(resourceAgencyId, ctx)
+  const viewerNorm = agencyIdInFeSpace(viewerFe, ctx)
+  return resourceFe === viewerNorm
 }
 
 /** Field agents only see their own book; principals / admins see the agency. */

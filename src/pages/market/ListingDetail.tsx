@@ -25,6 +25,12 @@ import { fetchPublicListingImages } from '../../lib/api/postgresClient'
 import { NO_PHOTOS_YET } from '../../lib/listingPhotos'
 import { isPubliclyListed } from '../../lib/publicListings'
 import { findByListingId } from '../../lib/listingIds'
+import { isApiEnabled, isSupabaseMode } from '../../lib/api/config'
+import {
+  fetchPublicListingSlice,
+  mergeListingLookupState,
+} from '../../lib/publicMarketplaceMerge'
+import type { PostgresBootstrap } from '../../lib/api/postgresClient'
 import { submitListingEnquiry } from '../../lib/api/listingEnquiryApi'
 import { sweetError, sweetInfo, sweetSuccess, sweetWarning } from '../../lib/sweetAlert'
 import { usePageMeta } from '../../hooks/usePageMeta'
@@ -38,11 +44,27 @@ type EnquiryIntent = 'lead' | 'viewing'
 export default function ListingDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { state, createApplication, createLead, recordGuestEnquiry } = useStore()
+  const { state, createApplication, createLead, recordGuestEnquiry, hydratedForUserId, hydrationFailed } =
+    useStore()
   const publicProperties = usePublicProperties()
   const { user, isAuthenticated, has } = useAuth()
   const { listedBy } = useAgentDisplay()
-  const p = findByListingId(state.properties, id)
+  const [publicListingSlice, setPublicListingSlice] = useState<PostgresBootstrap | null>(null)
+  const [listingFetchDone, setListingFetchDone] = useState(false)
+  const lookup = useMemo(
+    () =>
+      mergeListingLookupState(
+        {
+          properties: state.properties,
+          units: state.units,
+          users: state.users,
+          viewingSlots: state.viewingSlots,
+        },
+        publicListingSlice,
+      ),
+    [publicListingSlice, state.properties, state.units, state.users, state.viewingSlots],
+  )
+  const p = findByListingId(lookup.properties, id)
   const { saved, toggle } = useWishlist(isAuthenticated ? user.id : 'guest')
   const wishlisted = p ? saved(p.id) : false
 
@@ -67,6 +89,32 @@ export default function ListingDetail() {
     return () => window.clearTimeout(t)
   }, [])
 
+  const liveDataMode = isApiEnabled || isSupabaseMode
+  const awaitingSignedInHydration =
+    liveDataMode &&
+    isAuthenticated &&
+    user.id !== 'guest' &&
+    hydratedForUserId !== user.id &&
+    !hydrationFailed
+
+  useEffect(() => {
+    setPublicListingSlice(null)
+    setListingFetchDone(false)
+  }, [id, user.id])
+
+  useEffect(() => {
+    if (!id || p || awaitingSignedInHydration) return
+    let live = true
+    void fetchPublicListingSlice(id, 12_000).then((slice) => {
+      if (!live) return
+      if (slice) setPublicListingSlice(slice)
+      setListingFetchDone(true)
+    })
+    return () => {
+      live = false
+    }
+  }, [awaitingSignedInHydration, id, p])
+
   useEffect(() => {
     if (isAuthenticated && user.email) {
       setEmail((e) => e || user.email)
@@ -82,7 +130,7 @@ export default function ListingDetail() {
   }, [isAuthenticated, state.applications, user])
 
   const isListed =
-    p != null && isPubliclyListed(p, { units: state.units, users: state.users })
+    p != null && isPubliclyListed(p, { units: lookup.units, users: lookup.users })
 
   const listingDescription = p
     ? `${p.type} in ${p.suburb}, ${p.city}. ${p.description.trim().slice(0, 155)}${p.description.length > 155 ? '…' : ''}`
@@ -113,7 +161,9 @@ export default function ListingDetail() {
 
   if (!p) {
     const storeSettled = state.properties.length > 0 || state.units.length > 0
-    if (!storeSettled && !retryWindowOver) {
+    const awaitingPublicListingFetch =
+      liveDataMode && Boolean(id) && !listingFetchDone && !awaitingSignedInHydration
+    if (awaitingSignedInHydration || awaitingPublicListingFetch || (!storeSettled && !retryWindowOver)) {
       return (
         <div className="mx-auto max-w-3xl px-4 py-16 text-center" role="status" aria-live="polite">
           <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-primary-100 border-t-primary" />
@@ -188,7 +238,7 @@ export default function ListingDetail() {
         !blockedIds.has(x.id),
     )
     .slice(0, 3)
-  const openSlots = state.viewingSlots.filter(
+  const openSlots = lookup.viewingSlots.filter(
     (s) => s.propertyId === p.id && s.status === 'Open' && isFutureViewingSlot(s),
   )
   const isRent = p.listingMode !== 'sale'
@@ -234,7 +284,10 @@ export default function ListingDetail() {
         : null
 
     if (action === 'viewing' && openSlots.length > 0 && !selectedSlot) {
-      await sweetWarning('Pick a slot', 'Choose an available viewing time or register interest instead.')
+      await sweetWarning(
+        'Slot unavailable',
+        'That viewing time has passed or is no longer open. Choose another slot or request a viewing without a slot.',
+      )
       return
     }
 

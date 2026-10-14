@@ -22,6 +22,7 @@ import {
   loadIdMapCache,
 } from './idMapCache.js'
 import type { EntityType } from './entityMap.js'
+import { agencyIdInFeSpace } from '../src/lib/agencyScope.js'
 import type { PersistBody } from './writes.js'
 import type { DemoActor } from './actor.js'
 import { forbiddenError } from './actor.js'
@@ -204,17 +205,21 @@ async function resolveAgencySuspended(agencyId: string | null): Promise<boolean>
   return rows[0]?.status === 'suspended' || rows[0]?.status === 'Suspended'
 }
 
-/** Enrich actor agency from DB user row when header omitted. */
+/** Enrich actor agency from DB user row when header omitted; normalize UUID → FE. */
 export async function enrichActor(actor: DemoActor): Promise<DemoActor> {
-  if (actor.agencyId || actor.role === 'super_admin') return actor
-  const uuid = await resolveUuid('user', actor.userId)
-  if (!uuid) return actor
-  const rows = await query<{ client_id: string | null }>(
-    `SELECT client_id FROM users WHERE id = $1::uuid LIMIT 1`,
-    [uuid],
-  )
-  const agencyId = await agencyFe(rows[0]?.client_id ?? null)
-  return { ...actor, agencyId }
+  let agencyId = actor.agencyId
+  if (!agencyId && actor.role !== 'super_admin') {
+    const uuid = await resolveUuid('user', actor.userId)
+    if (!uuid) return actor
+    const rows = await query<{ client_id: string | null }>(
+      `SELECT client_id FROM users WHERE id = $1::uuid LIMIT 1`,
+      [uuid],
+    )
+    agencyId = (await agencyFe(rows[0]?.client_id ?? null)) ?? null
+  } else if (agencyId) {
+    agencyId = (await agencyFe(agencyId)) ?? agencyId
+  }
+  return agencyId === actor.agencyId ? actor : { ...actor, agencyId }
 }
 
 export async function buildActorPropertyScope(actor: DemoActor): Promise<PropertyScope> {
@@ -1170,7 +1175,23 @@ export async function assertPersistAllowed(
   const agencyId = (await agencyFe(rawAgencyId)) ?? rawAgencyId
 
   const agentId = strField(data, 'agentId') ?? existing?.agentId ?? null
-  const landlordId = strField(data, 'landlordId') ?? existing?.landlordId ?? null
+  let landlordId = strField(data, 'landlordId') ?? existing?.landlordId ?? null
+  // L03: listing wizard sends building → unit → property; unit rows often omit
+  // landlordId even though the parent building already carries it.
+  if (
+    !landlordId &&
+    (body.resource === 'property' || body.resource === 'unit') &&
+    actor.role === 'landlord'
+  ) {
+    const buildingFe = strField(data, 'buildingId')
+    if (buildingFe) {
+      const bld = await loadExisting('building', buildingFe)
+      landlordId = bld?.landlordId ?? null
+    }
+  }
+  if (!landlordId && body.resource === 'building' && actor.role === 'landlord') {
+    landlordId = actor.userId
+  }
   const assignedAgentId =
     strField(data, 'assignedAgentId') ?? existing?.assignedAgentId ?? null
   const contractorId = strField(data, 'contractorId') ?? existing?.contractorId ?? null
@@ -1520,7 +1541,8 @@ export function filterBootstrapUsersForActor(
       out.push(u)
       continue
     }
-    const sameAgency = Boolean(ag) && u.agencyId === ag
+    const sameAgency =
+      Boolean(ag) && agencyIdInFeSpace(u.agencyId) === agencyIdInFeSpace(ag)
     const visible =
       (sameAgency && (isStaff || AGENCY_STAFF_ROLES.has(String(u.role)))) ||
       related.has(u.id) ||

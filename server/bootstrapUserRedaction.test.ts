@@ -86,6 +86,21 @@ describe('bootstrap user redaction', () => {
     expect(out.agencyContractors).toEqual([])
   })
 
+  it('agency admin sees same-agency staff when session agency is seed UUID and rows use FE id', () => {
+    const seedUuid = 'a1000001-0001-4000-8000-000000000001'
+    const fe = 'ag-horizon'
+    const actor: DemoActor = { userId: 'u-adm', role: 'client_admin', agencyId: seedUuid }
+    const roster = [u('u-adm', 'client_admin', fe), u('u-staff', 'ground_agent', fe)]
+    const out = filterBootstrapUsersForActor(roster, actor, {
+      ...raw,
+      users: roster,
+      properties: [],
+      applications: [],
+      threads: [],
+    } as never)
+    expect(out.map((x) => x.id).sort()).toEqual(['u-adm', 'u-staff'])
+  })
+
   it('agency admin also sees contractor names (any agency) for the roster picker, redacted', () => {
     const actor: DemoActor = { userId: 'u-adm', role: 'client_admin', agencyId: 'ag-a' }
     const out = filterBootstrapUsersForActor([...users, u('u-adm', 'client_admin', 'ag-a')], actor, raw as never)
@@ -118,7 +133,17 @@ describe('guest marketplace slice', () => {
       payments: [{ id: 'P1' }],
       threads: [{ id: 'T1' }],
       trustTransactions: [{ id: 'TT1' }],
-      viewingSlots: [{ id: 'VS1', propertyId: 'p-pub', notes: 'gate code 1234' }, { id: 'VS2', propertyId: 'p-draft' }],
+      viewingSlots: [
+        {
+          id: 'VS1',
+          propertyId: 'p-pub',
+          notes: 'gate code 1234',
+          status: 'Open',
+          date: '2026-12-01',
+          time: '10:00',
+        },
+        { id: 'VS2', propertyId: 'p-draft', status: 'Open', date: '2026-12-02', time: '11:00' },
+      ],
     })
     expect((out.properties as Array<{ id: string }>).map((p) => p.id)).toEqual(['p-pub'])
     expect((out.units as Array<{ id: string }>).map((x) => x.id)).toEqual(['unt-p-pub'])
@@ -136,6 +161,37 @@ describe('guest marketplace slice', () => {
     }
   })
 
+  it('omits past or closed viewing slots from the guest slice', () => {
+    const out = filterBootstrapForGuest({
+      agencies: [{ id: 'ag-a', name: 'A' }],
+      users,
+      buildings: [{ id: 'b-1', landlordId: 'u-ll' }],
+      units: [{ id: 'unt-p-pub', buildingId: 'b-1', listingType: 'rent', statusKey: 'PUBLISHED' }],
+      properties: [
+        { id: 'p-pub', unitId: 'unt-p-pub', status: 'Published', agencyId: 'ag-a', agentId: 'u-james', landlordId: 'u-ll' },
+      ],
+      viewingSlots: [
+        {
+          id: 'VS-past',
+          propertyId: 'p-pub',
+          status: 'Open',
+          date: '2026-07-12',
+          time: '09:30',
+          durationMinutes: 40,
+        },
+        {
+          id: 'VS-future',
+          propertyId: 'p-pub',
+          status: 'Open',
+          date: '2026-12-01',
+          time: '10:00',
+          durationMinutes: 30,
+        },
+      ],
+    })
+    expect((out.viewingSlots as Array<{ id: string }>).map((s) => s.id)).toEqual(['VS-future'])
+  })
+
   it('drops landlord identity, verification status and agent ids; keeps the agent display name', () => {
     const out = filterBootstrapForGuest({
       agencies: [{ id: 'ag-a', name: 'A' }],
@@ -146,7 +202,17 @@ describe('guest marketplace slice', () => {
         { id: 'p-pub', unitId: 'unt-p-pub', status: 'Published', agencyId: 'ag-a', agentId: 'u-james', landlordId: 'u-ll' },
         { id: 'p-noagent', status: 'Published', agencyId: 'ag-a', agentId: null, landlordId: 'u-ll' },
       ],
-      viewingSlots: [{ id: 'VS1', propertyId: 'p-pub', agentId: 'u-james' }],
+      viewingSlots: [
+        {
+          id: 'VS1',
+          propertyId: 'p-pub',
+          agentId: 'u-james',
+          status: 'Open',
+          date: '2026-12-01',
+          time: '10:00',
+          durationMinutes: 30,
+        },
+      ],
     })
     const props = out.properties as Array<Record<string, unknown>>
     expect(props.map((p) => [p.id, p.agentId, p.landlordId, p.agentName])).toEqual([

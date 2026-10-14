@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Plus, Archive } from 'lucide-react'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
@@ -28,6 +28,11 @@ import {
   propertyMatchesBuildingFilter,
   propertyMatchesOccupancyFilter,
 } from '../lib/buildingHierarchy'
+import {
+  portfolioPropertyMatchesSearchQuery,
+  propertiesListQueryFromParams,
+  withPropertiesListQuery,
+} from '../lib/propertiesPortfolioSearch'
 
 function readStoredView(): PropertiesViewMode {
   try {
@@ -53,7 +58,11 @@ export default function Properties() {
       : '/workspace/properties/new',
     '/workspace/properties',
   )
-  const [q, setQ] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const q = propertiesListQueryFromParams(searchParams)
+  const setQ = (next: string) => {
+    setSearchParams(withPropertiesListQuery(searchParams, next), { replace: true })
+  }
   const [status, setStatus] = useState('All')
   const [type, setType] = useState('All')
   const [listingMode, setListingMode] = useState('all')
@@ -158,7 +167,6 @@ export default function Properties() {
   }, [portfolio])
 
   const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase()
     let rows = portfolio.filter((item) => {
       const p = item.property
       if (status !== 'All' && p.status !== status) return false
@@ -180,17 +188,7 @@ export default function Properties() {
         return false
       }
 
-      if (!needle) return true
-      return (
-        p.title.toLowerCase().includes(needle) ||
-        p.address.toLowerCase().includes(needle) ||
-        p.suburb.toLowerCase().includes(needle) ||
-        p.city.toLowerCase().includes(needle) ||
-        p.id.toLowerCase().includes(needle) ||
-        p.type.toLowerCase().includes(needle) ||
-        (item.buildingName?.toLowerCase().includes(needle) ?? false) ||
-        (item.unitNumber?.toLowerCase().includes(needle) ?? false)
-      )
+      return portfolioPropertyMatchesSearchQuery(item, q)
     })
 
     rows = [...rows].sort((a, b) => {
@@ -246,7 +244,7 @@ export default function Properties() {
     occupancy !== 'all'
 
   const clearFilters = () => {
-    setQ('')
+    setSearchParams(withPropertiesListQuery(searchParams, ''), { replace: true })
     setStatus('All')
     setType('All')
     setListingMode('all')

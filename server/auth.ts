@@ -232,7 +232,7 @@ export async function rowToSession(row: UserRow): Promise<SessionUser> {
   if (row.client_id) {
     let agencyFeCandidate: string | null = null
     try {
-      agencyFeCandidate = feAgencyFromCache(await loadIdMapCache(), row.client_id)
+      agencyFeCandidate = feAgencyFromCache(await loadIdMapCache(true), row.client_id)
     } catch {
       agencyFeCandidate = null
     }

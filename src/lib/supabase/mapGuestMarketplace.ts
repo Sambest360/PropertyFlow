@@ -14,6 +14,7 @@ import {
   type IdMapCache,
 } from './idMap'
 import { canonicalListingId, unitIdForProperty } from '../listingIds'
+import { resolvePropertyType } from '../propertyType'
 
 type RoleDb =
   | 'SUPER_ADMIN'
@@ -143,6 +144,7 @@ export function mapGuestMarketplacePayload(payload: {
       agentId: mapUserFe(u.agent_id as string),
       unitNumber: String(u.unit_number),
       title: String(u.title ?? u.unit_number),
+      propertyType: (u.property_type as string | null | undefined) ?? null,
       squareMeters: u.square_meters ? Number(u.square_meters) : 0,
       bedrooms: Number(u.bedrooms ?? 0),
       bathrooms: u.bathrooms ? Number(u.bathrooms) : 0,
@@ -192,7 +194,7 @@ export function mapGuestMarketplacePayload(payload: {
       buildingId: u.buildingId,
       unitId: u.id,
       title: u.title,
-      type: u.bedrooms === 0 ? 'Office' : u.bedrooms >= 3 ? 'House' : 'Apartment',
+      type: resolvePropertyType({ stored: u.propertyType, bedrooms: u.bedrooms }),
       status,
       listingMode: u.listingType,
       price: u.price,

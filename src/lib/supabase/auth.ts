@@ -9,8 +9,10 @@ import {
   beginDeferredAuthDecision,
   endDeferredAuthDecision,
   isLoginInFlight,
+  isRegisterInFlight,
 } from '../auth/sessionArtifacts'
 import type { AuthUserDto } from '../api/authClient'
+import { mustChangePasswordFromMetadata } from '../auth/mustChangePassword'
 
 export function supabaseAuthEnabled(): boolean {
   return isSupabaseConfigured()
@@ -74,6 +76,7 @@ function rowToAppUser(row: {
           ? meta.idNumberOrPassport
           : undefined,
     verification,
+    mustChangePassword: mustChangePasswordFromMetadata(meta),
   }
 }
 
@@ -93,6 +96,7 @@ export function appUserToDto(user: AppUser): AuthUserDto {
     company: user.company,
     idNumberOrPassport: user.idNumberOrPassport,
     verification: user.verification,
+    mustChangePassword: user.mustChangePassword === true ? true : undefined,
   }
 }
 
@@ -137,18 +141,41 @@ async function rowToAppUserFromRow(
   supabase: ReturnType<typeof createClient>,
 ): Promise<AppUser> {
   let agencySettings: Record<string, unknown> | null = null
+  let mapAgencyFe: string | null = null
   if (data.client_id) {
-    const { data: clientRow } = await supabase
-      .from('clients')
-      .select('settings')
-      .eq('id', data.client_id)
-      .maybeSingle()
+    const [{ data: clientRow }, { data: mapRow }] = await Promise.all([
+      supabase.from('clients').select('settings').eq('id', data.client_id).maybeSingle(),
+      supabase
+        .from('entity_id_map')
+        .select('frontend_id')
+        .eq('entity_type', 'agency')
+        .eq('backend_id', data.client_id)
+        .maybeSingle(),
+    ])
     agencySettings = (clientRow?.settings as Record<string, unknown> | null) ?? null
+    mapAgencyFe =
+      typeof mapRow?.frontend_id === 'string' && mapRow.frontend_id.trim()
+        ? mapRow.frontend_id.trim()
+        : null
   }
+
+  const settingsFe =
+    agencySettings && typeof agencySettings.frontend_id === 'string'
+      ? agencySettings.frontend_id
+      : null
+  const agencyFe = mapAgencyFe ?? settingsFe
 
   return rowToAppUser({
     ...data,
-    clients: agencySettings ? { settings: agencySettings } : null,
+    clients:
+      agencyFe || agencySettings
+        ? {
+            settings: {
+              ...(agencySettings ?? {}),
+              ...(agencyFe ? { frontend_id: agencyFe } : {}),
+            },
+          }
+        : null,
   })
 }
 
@@ -537,7 +564,7 @@ export async function supabaseGetSessionUser(): Promise<AppUser | null> {
     // the session sign-in just wrote when getUser misses or the live id
     // no longer matches the pre-login snapshot. Return null; the probe
     // ignores it when the hold generation moved or login is in flight.
-    if (isLoginInFlight()) return null
+    if (isLoginInFlight() || isRegisterInFlight()) return null
     const { data: live } = await supabase.auth.getSession()
     const liveId = live.session?.user?.id
     if (liveId !== snapshotId) return null

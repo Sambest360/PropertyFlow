@@ -39,6 +39,20 @@ describe('resolveWorkspaceBottomNavTabs', () => {
     expect(tabs.find((t) => t.id === 'applications')?.to).toBe('/workspace/sales/applications')
   })
 
+  it('sends landlords to the role-aware applications redirect', () => {
+    const tabs = resolveWorkspaceBottomNavTabs(
+      mockAuth(['portal.owner', 'applications.view', 'assets.view'], 'landlord'),
+    )
+    expect(tabs.find((t) => t.id === 'applications')?.to).toBe('/workspace/portals/owner')
+  })
+
+  it('sends tenants with payments.manage to the tenant portal payments page', () => {
+    const tabs = resolveWorkspaceBottomNavTabs(
+      mockAuth(['portal.tenant', 'payments.manage', 'maintenance.view'], 'tenant'),
+    )
+    expect(tabs.find((t) => t.id === 'payments')?.to).toBe('/workspace/portals/tenant/payments')
+  })
+
   it('adds More only when tabs would overflow', () => {
     const tabs = resolveWorkspaceBottomNavTabs(
       mockAuth([

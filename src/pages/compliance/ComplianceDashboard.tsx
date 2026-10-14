@@ -9,9 +9,9 @@ import {
   Clock,
 } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
-import { useAuth } from '../../context/AuthContext'
+import { useAgencyScope, useAuth } from '../../context/AuthContext'
+import { buildComplianceVerificationQueue } from '../../lib/complianceQueue'
 import type { PropertyDocument } from '../../types/domain'
-import type { UserVerification } from '../../lib/verification'
 import {
   PageHeader,
   Card,
@@ -31,7 +31,7 @@ type VerificationRow = {
   name: string
   email: string
   role: string
-  status: NonNullable<UserVerification['status']>
+  status: 'pending'
   submittedAt?: string
 }
 
@@ -66,6 +66,7 @@ function docStatusLabel(status: PropertyDocument['status']) {
 /** Compliance Dashboard — agency/staff verification queue + property compliance documents. */
 export default function ComplianceDashboard() {
   const { user } = useAuth()
+  const { scopeAgency } = useAgencyScope()
   const { state, updatePropertyDocument, updateUser } = useStore()
   const { users, properties, propertyDocuments } = state
   const [rejectNote, setRejectNote] = useState<Record<string, string>>({})
@@ -73,36 +74,21 @@ export default function ComplianceDashboard() {
   const [error, setError] = useState<string | null>(null)
 
   const isPrincipal = user?.role === 'super_admin' || user?.role === 'client_admin'
-  const agencyUsers = useMemo(
-    () => (user?.agencyId ? users.filter((u) => u.agencyId === user.agencyId) : users),
-    [users, user?.agencyId],
-  )
-
   const verificationQueue: VerificationRow[] = useMemo(
-    () =>
-      agencyUsers
-        .filter(
-          (u) =>
-            (u.role === 'landlord' || u.role === 'contractor') &&
-            u.verification?.status === 'pending',
-        )
-        .map((u) => ({
-          userId: u.id,
-          name: u.name,
-          email: u.email ?? '',
-          role: u.role,
-          status: u.verification!.status,
-          submittedAt: u.verification?.submittedAt,
-        })),
-    [agencyUsers],
+    () => buildComplianceVerificationQueue(users, (u) => scopeAgency(u.agencyId)),
+    [users, scopeAgency],
   )
 
   const complianceDocs = useMemo(
     () =>
       propertyDocuments
         .filter((d) => COMPLIANCE_CATEGORIES.includes(d.category))
-        .filter((d) => (user?.agencyId ? properties.some((p) => p.id === d.propertyId && p.agencyId === user.agencyId) : true)),
-    [propertyDocuments, properties, user?.agencyId],
+        .filter((d) => {
+          const property = properties.find((p) => p.id === d.propertyId)
+          if (!property) return false
+          return scopeAgency(property.agencyId)
+        }),
+    [propertyDocuments, properties, scopeAgency],
   )
 
   const docsNeedingAction = complianceDocs.filter((d) => d.status !== 'verified')

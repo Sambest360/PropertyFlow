@@ -20,6 +20,7 @@ import {
 import { hydrateDocumentsFromUploadedJson } from '../hydrateApplicationDocs'
 import { normalizeApplication } from '../applicationWorkflow'
 import { canonicalListingId, unitIdForProperty } from '../listingIds'
+import { resolvePropertyType } from '../propertyType'
 import { deriveAgencyContractors } from '../contractors'
 import { mapRoutesToFe } from '../messaging/modeA'
 
@@ -548,6 +549,7 @@ export async function fetchSupabaseBootstrap(
       agentId: mapUserFe(u.agent_id),
       unitNumber: u.unit_number,
       title: u.title ?? u.unit_number,
+      propertyType: (u as { property_type?: string | null }).property_type ?? null,
       squareMeters: u.square_meters ? Number(u.square_meters) : 0,
       bedrooms: u.bedrooms ?? 0,
       bathrooms: u.bathrooms ? Number(u.bathrooms) : 0,
@@ -601,7 +603,7 @@ export async function fetchSupabaseBootstrap(
       buildingId: u.buildingId,
       unitId: u.id,
       title: u.title,
-      type: u.bedrooms === 0 ? 'Office' : u.bedrooms >= 3 ? 'House' : 'Apartment',
+      type: resolvePropertyType({ stored: u.propertyType, bedrooms: u.bedrooms }),
       status,
       listingMode:
         u.listingType === 'sale' || u.listingType === 'rent' || u.listingType === 'both'

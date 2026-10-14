@@ -11,7 +11,7 @@ import { apiAuthBootstrapNeeded } from '../../lib/api/authClient'
 import { supabaseBootstrapNeeded, supabaseSignOut } from '../../lib/supabase/auth.js'
 import { isSupabaseMode } from '../../lib/api/config'
 import { isRegistrationRedirectError } from '../../lib/auth/registrationErrors'
-import { postRegisterPath } from '../../lib/workspaceRoutes'
+import { postRegisterPath, resolvePostLoginPath } from '../../lib/workspaceRoutes'
 import {
   stashPendingRegistrationDocs,
   validateRegistrationDocSizes,
@@ -91,7 +91,7 @@ function StepIndicator({ step, total }: { step: number; total: number }) {
 }
 
 export default function RegisterPage() {
-  const { register, isAuthenticated, authReady, purgeLocalIdentity } = useAuth()
+  const { register, isAuthenticated, authReady, user, purgeLocalIdentity } = useAuth()
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const next = params.get('next') || '/workspace'
@@ -122,9 +122,12 @@ export default function RegisterPage() {
   // otherwise the register wizard can complete "as" that user (the "Ayanda →
   // Samuel Bampo" bleed). Purge on mount, before the session probe resolves.
   useEffect(() => {
+    // remint61 / FW-06 L01: same as LoginPage — never purge once signed in;
+    // a late mount purge after signup must not wipe the fresh landlord session.
+    if (isAuthenticated) return
     void purgeLocalIdentity()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [isAuthenticated])
 
   useEffect(() => {
     void (isSupabaseMode ? supabaseBootstrapNeeded() : apiAuthBootstrapNeeded()).then(setBootstrapNeeded)
@@ -134,7 +137,7 @@ export default function RegisterPage() {
   const totalSteps = bootstrapNeeded ? 1 : 3
 
   if (authReady && isAuthenticated) {
-    return <Navigate to={next} replace />
+    return <Navigate to={resolvePostLoginPath(user.role, next)} replace />
   }
 
   const setDoc = (doc: VerificationDocument | null, key: string) => {

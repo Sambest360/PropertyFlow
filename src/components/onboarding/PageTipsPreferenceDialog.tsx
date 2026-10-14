@@ -1,15 +1,11 @@
-import { useEffect, useMemo } from 'react'
+import { useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { useStore } from '../../context/AppStore'
-import {
-  hasPageTipsPreference,
-  resolvePageTour,
-  setPageTipsPreference,
-} from '../../lib/pageTips'
+import { ensurePageTipsPreferenceForFirstVisit, resolvePageTour } from '../../lib/pageTips'
 import { tenantHasApprovedOccupancy } from '../../lib/tenantOccupancy'
 
-/** Silently default page tips on before the first walkthrough (no blocking modal — E2E P13). */
+/** Silently records first-visit tips preference (no blocking modal — FW-05 / E2E P13). */
 export function PageTipsPreferenceDialog() {
   const { user, isAuthenticated, authReady, isImpersonating } = useAuth()
   const { state } = useStore()
@@ -27,11 +23,11 @@ export function PageTipsPreferenceDialog() {
     [pathname, user?.role, tenantOccupancyReady],
   )
 
-  useEffect(() => {
-    if (!authReady || !isAuthenticated || isImpersonating || !uid || uid === 'guest') return
-    if (!tourOnPage || hasPageTipsPreference(uid)) return
-    setPageTipsPreference(uid, false)
-  }, [authReady, isAuthenticated, isImpersonating, uid, tourOnPage])
+  // Run synchronously before sibling PageTipWalkthrough renders (useEffect was too late for
+  // the legacy modal and could flash the walkthrough on first paint).
+  if (authReady && isAuthenticated && !isImpersonating && uid) {
+    ensurePageTipsPreferenceForFirstVisit(uid, Boolean(tourOnPage))
+  }
 
   return null
 }

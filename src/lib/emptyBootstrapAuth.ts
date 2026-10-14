@@ -25,6 +25,7 @@ export type EmptyBootstrapAuthInput = {
     | {
         units?: unknown[] | null
         applications?: unknown[] | null
+        users?: unknown[] | null
       }
     | null
     | undefined
@@ -39,6 +40,11 @@ export type EmptyBootstrapAuthInput = {
    * empty-apps accept/soft-miss (null-actor bootstrap race).
    */
   actorRole?: string | null
+}
+
+export type EmptyBootstrapHydrateOpts = {
+  /** Applicant rows already in memory for this session user (Sipho remint guard). */
+  priorTenantApplicationCount?: number
 }
 
 function hasLiveSession(input: EmptyBootstrapAuthInput): boolean {
@@ -56,6 +62,11 @@ function tenantApplicationsEmpty(boot: NonNullable<EmptyBootstrapAuthInput['boot
   return !Array.isArray(apps) || apps.length === 0
 }
 
+/** Staff / admin bootstrap carries a user roster; tenants do not rely on this for remint. */
+function hasStaffBootstrapUsers(boot: NonNullable<EmptyBootstrapAuthInput['boot']>): boolean {
+  return Array.isArray(boot.users) && boot.users.length > 0
+}
+
 /**
  * Tenant empty-apps gate, including null-actor race: live session + missing
  * role + empty applications is treated like tenant fail-closed (do not accept
@@ -65,7 +76,9 @@ export function isTenantLikeEmptyApps(input: EmptyBootstrapAuthInput): boolean {
   if (!input.boot || !tenantApplicationsEmpty(input.boot)) return false
   if (isTenantBootstrapActor(input.actorRole)) return true
   const role = (input.actorRole ?? '').trim()
-  // Null/missing role under live AUTH_KEY / actor id ⇒ tenant-like fail-closed.
+  // Null/missing role under live AUTH_KEY / actor id ⇒ tenant-like fail-closed,
+  // unless bootstrap already returned a staff user roster (FW-17 mount race).
+  if (!role && hasLiveSession(input) && hasStaffBootstrapUsers(input.boot)) return false
   return !role && hasLiveSession(input)
 }
 
@@ -93,13 +106,32 @@ export function shouldAcceptSupabaseBootstrap(input: EmptyBootstrapAuthInput): b
  * Soft hydrate-miss: live session + empty applications under tenant or
  * unresolved (null) actor — do NOT apply / lock applications:[].
  * refreshBootstrap keeps prior non-empty hydrate.
+ *
+ * FW-28: resolved tenant with zero local applicant rows must still hydrate
+ * (applicant home / portal skeleton must not hang).
  */
 export function shouldSoftMissEmptyApplicationsBootstrap(
   input: EmptyBootstrapAuthInput,
+  opts?: EmptyBootstrapHydrateOpts,
 ): boolean {
   if (!input.boot) return false
   if (!hasLiveSession(input)) return false
-  return isTenantLikeEmptyApps(input)
+  if (!tenantApplicationsEmpty(input.boot)) return false
+
+  const role = (input.actorRole ?? '').trim()
+
+  // Unresolved mount actor — wait for role + remint (remint56).
+  if (!role) {
+    if (hasStaffBootstrapUsers(input.boot)) return false
+    return hasLiveSession(input)
+  }
+
+  // Resolved tenant/applicant: only soft-miss when we'd wipe known local apps (Sipho).
+  if (isTenantBootstrapActor(role)) {
+    return (opts?.priorTenantApplicationCount ?? 0) > 0
+  }
+
+  return false
 }
 
 /**

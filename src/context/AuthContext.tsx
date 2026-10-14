@@ -5,20 +5,25 @@ import {
   canSeeAgency,
   canSeeAgentRecord,
   canSeeLandlordAsset,
+  pickAgencyId,
+  resolveViewerAgencyId,
 } from '../lib/agencyScope'
 import { setApiActor } from '../lib/api/actorAuth'
 import {
   apiLogin,
   apiLogout,
   apiMe,
+  API_ME_RETRY_TIMEOUT_MS,
   readAuthToken,
+  SESSION_PROBE_MAX_MS,
   apiRegister,
   syncActorFromUser,
   type AuthUserDto,
 } from '../lib/api/authClient'
 import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
-import { sessionUserSwitched } from '../lib/clientCache'
+import { portalHydrationUserId, sessionUserSwitched } from '../lib/clientCache'
 import { shouldSkipAuthBootstrapRefresh } from '../lib/bootstrapCoord'
+import { isStaleSessionProbe } from '../lib/auth/sessionProbeCoord'
 import { blockedPropertyIdsForApplicant } from '../lib/blockedApplicants'
 import { effectiveCan, roleLabels, roleBlurbs } from '../lib/permissions'
 import {
@@ -98,7 +103,7 @@ function mergeAuthUser(session: AppUser, fromStore: AppUser | null | undefined):
     email: session.email,
     name: session.name,
     active: session.active,
-    agencyId: session.agencyId,
+    agencyId: pickAgencyId(session.agencyId, fromStore.agencyId),
     enabledPermissions: session.enabledPermissions ?? fromStore.enabledPermissions,
   }
 }
@@ -141,6 +146,7 @@ function dtoToAppUser(dto: AuthUserDto): AppUser {
     company: dto.company,
     idNumberOrPassport: dto.idNumberOrPassport,
     verification: dto.verification,
+    mustChangePassword: dto.mustChangePassword === true ? true : undefined,
   }
 }
 
@@ -183,13 +189,20 @@ type AuthContextValue = {
   /** D3: the session must change its password (after a staff reset) before anything else. */
   mustChangePassword: boolean
   /** D3: call after a successful change-password; loads the workspace. */
-  completePasswordChange: () => void
+  completePasswordChange: (user?: AuthUserDto) => void
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const { state, addActivity, refreshBootstrap, resetForUserSwitch } = useStore()
+  const {
+    state,
+    addActivity,
+    refreshBootstrap,
+    resetForUserSwitch,
+    hydratedForUserId,
+    hydrationFailed,
+  } = useStore()
   const [authReady, setAuthReady] = useState(false)
   const [sessionUser, setSessionUser] = useState<AppUser | null>(null)
   // remint58 grace2: React mirror of the module loginInFlight flag so
@@ -200,6 +213,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [userId, setUserId] = useState(() => localStorage.getItem(AUTH_KEY) || '')
   const [realUserId, setRealUserId] = useState<string | null>(() => localStorage.getItem(REAL_AUTH_KEY))
   const [mustChangePassword, setMustChangePassword] = useState(false)
+  /** Bumped on login / password change / logout so slow /me cannot rewind state. */
+  const sessionProbeGenRef = useRef(0)
 
   useEffect(() => {
     let cancelled = false
@@ -220,7 +235,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, 5000)
     const hardReadyTimeout = window.setTimeout(() => {
       if (!cancelled) setAuthReady(true)
-    }, 12_000)
+    }, SESSION_PROBE_MAX_MS)
     ;(async () => {
       if (isSupabaseMode) {
         // remint60: this probe can still be awaiting getUser across login().
@@ -228,11 +243,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // session login() painted (APP + TN) once the generation moved or
         // loginInFlight is up. #60's sign-out credit does not cover this caller.
         const probeHoldGen = loginHoldGen.current
+        const probeGen = sessionProbeGenRef.current
         const profile = await supabaseGetSessionUser()
         if (cancelled) return
         clearTimeout(readyTimeout)
         clearTimeout(hardReadyTimeout)
+        if (isStaleSessionProbe(probeGen, sessionProbeGenRef.current)) {
+          setAuthReady(true)
+          return
+        }
         if (profile) {
+          setMustChangePassword(profile.mustChangePassword === true)
           applySessionUser(profile, setSessionUser, setUserId, setRealUserId)
         } else if (loginHoldGen.current !== probeHoldGen || isLoginInFlight()) {
           // Stale probe. Returning null is fine; do not clearSessionArtifacts.
@@ -251,14 +272,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAuthReady(true)
         return
       }
+      const probeGen = sessionProbeGenRef.current
       let me = await apiMe()
       if (cancelled) return
       // Cold typed /workspace loads can exceed a short /me probe; retry once
       // before treating the session as absent (E2E L02 / P04).
       if (!me && readAuthToken()) {
-        me = await apiMe(15_000)
+        me = await apiMe(API_ME_RETRY_TIMEOUT_MS)
         if (cancelled) return
       }
+      if (isStaleSessionProbe(probeGen, sessionProbeGenRef.current)) return
       setMustChangePassword(me?.mustChangePassword === true)
       if (me) {
         const appUser = dtoToAppUser(me)
@@ -297,6 +320,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (profile) {
         // Mid-login the login() apply already owns the shell; ignore echoes.
         if (isRegisterInFlight() || isLoginInFlight()) return
+        setMustChangePassword(profile.mustChangePassword === true)
         applySessionUser(profile, setSessionUser, setUserId, setRealUserId)
         return
       }
@@ -404,13 +428,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isApiEnabled && !isSupabaseMode) return
     if (!isAuthenticated || !user || user.id === 'guest') return
-    if (shouldSkipAuthBootstrapRefresh()) return
+    if (
+      shouldSkipAuthBootstrapRefresh(user.id, hydratedForUserId) &&
+      state.users.length > 0 &&
+      !hydrationFailed
+    ) {
+      return
+    }
     void refreshBootstrap({
       userId: user.id,
       role: user.role,
       agencyId: user.agencyId,
     })
-  }, [isAuthenticated, user.id, user.role, user.agencyId, refreshBootstrap])
+  }, [
+    isAuthenticated,
+    user.id,
+    user.role,
+    user.agencyId,
+    hydratedForUserId,
+    state.users.length,
+    refreshBootstrap,
+  ])
+
+  // P04 / P09b: mount bootstrap can soft-miss (lite tenant) or run with a null
+  // actor before apiMe lands — recover with a forced full refresh once Auth knows the actor.
+  const hydrationFailureAutoRetryRef = useRef(false)
+  useEffect(() => {
+    if (!hydrationFailed) {
+      hydrationFailureAutoRetryRef.current = false
+      return
+    }
+    if (!isApiEnabled && !isSupabaseMode) return
+    if (!isAuthenticated || !user || user.id === 'guest') return
+    const sessionTarget = portalHydrationUserId(true, user.id)
+    if (sessionTarget && hydratedForUserId === sessionTarget) return
+    if (hydrationFailureAutoRetryRef.current) return
+    hydrationFailureAutoRetryRef.current = true
+    void refreshBootstrap(
+      { userId: user.id, role: user.role, agencyId: user.agencyId },
+      { force: true, full: true },
+    )
+  }, [
+    isAuthenticated,
+    user.id,
+    user.role,
+    user.agencyId,
+    hydratedForUserId,
+    hydrationFailed,
+    refreshBootstrap,
+  ])
 
   useEffect(() => {
     if (!isAuthenticated) return
@@ -495,18 +561,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoginInFlight(true)
         setLoginInFlightState(true)
         shieldGuestPurgeForLogin()
+        sessionProbeGenRef.current += 1
         try {
           if (isSupabaseMode) {
             const appUser = await supabaseSignIn(email, password)
+            const mustChange = appUser.mustChangePassword === true
+            setMustChangePassword(mustChange)
             setSessionUser(appUser)
             setUserId(appUser.id)
             setRealUserId(null)
             syncActorFromUser(appUserToDto(appUser))
-            void refreshBootstrap({
-              userId: appUser.id,
-              role: appUser.role,
-              agencyId: appUser.agencyId,
-            })
+            if (!mustChange) {
+              void refreshBootstrap({
+                userId: appUser.id,
+                role: appUser.role,
+                agencyId: appUser.agencyId,
+              })
+            }
             if (loginHoldGen.current === holdGen) {
               releaseRequestedGen.current = holdGen
               releaseLoginHold()
@@ -553,8 +624,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // register flow. Clear first, then attempt; on error, clear again.
         // P0-register (R8): the in-flight flag keeps a previous user's live
         // session from re-hydrating through onAuthStateChange mid-register.
+        // remint61 / FW-06 L01: reuse the login navigation hold so a mount
+        // session probe that started on /register cannot clearSessionArtifacts
+        // after signup (landlord wizard is slow) and RequireAuth must not
+        // bounce to /login?next=/workspace before the portal route commits.
         setRegisterInFlight(true)
+        const holdGen = ++loginHoldGen.current
+        releaseRequestedGen.current = null
+        setLoginInFlight(true)
+        setLoginInFlightState(true)
+        shieldGuestPurgeForLogin()
         try {
+          let result: { user: AppUser; bootstrap: boolean }
           if (isSupabaseMode) {
             const res = await supabaseSignUp(input)
             setSessionUser(res.user)
@@ -566,9 +647,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               role: res.user.role,
               agencyId: res.user.agencyId,
             })
-            return { user: res.user, bootstrap: res.bootstrap }
-          }
-          const res = await apiRegister(input)
+            result = { user: res.user, bootstrap: res.bootstrap }
+          } else {
+            const res = await apiRegister(input)
             const appUser = dtoToAppUser(res.user)
             setSessionUser(appUser)
             setUserId(appUser.id)
@@ -579,11 +660,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               role: appUser.role,
               agencyId: appUser.agencyId,
             })
-            return { user: appUser, bootstrap: Boolean(res.bootstrap) }
+            result = { user: appUser, bootstrap: Boolean(res.bootstrap) }
+          }
+          if (loginHoldGen.current === holdGen) {
+            releaseRequestedGen.current = holdGen
+            releaseLoginHold()
+          }
+          return result
         } catch (err) {
-          // P0-1: the shared guard module is the source of truth for the wipe.
-          clearSessionArtifacts({ setSessionUser, setUserId, setRealUserId })
-          setApiActor(null)
+          if (loginHoldGen.current === holdGen) {
+            releaseRequestedGen.current = null
+            setLoginInFlight(false)
+            setLoginInFlightState(false)
+            // P0-1: the shared guard module is the source of truth for the wipe.
+            clearSessionArtifacts({ setSessionUser, setUserId, setRealUserId })
+            setApiActor(null)
+          }
           throw err
         } finally {
           setRegisterInFlight(false)
@@ -601,6 +693,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         clearSessionArtifacts({ setSessionUser, setUserId, setRealUserId })
         setApiActor(null)
+        sessionProbeGenRef.current += 1
         setMustChangePassword(false)
       },
       purgeLocalIdentity: async () => {
@@ -674,10 +767,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       roleLabel: isAuthenticated ? roleLabels[user.role] : 'Guest',
       roleBlurb: isAuthenticated ? roleBlurbs[user.role] : 'Sign in to manage properties',
       mustChangePassword,
-      completePasswordChange: () => {
-        setMustChangePassword(false)
+      completePasswordChange: (confirmedUser?: AuthUserDto) => {
+        sessionProbeGenRef.current += 1
+        setMustChangePassword(confirmedUser?.mustChangePassword === true ? true : false)
         if (isAuthenticated && user.id !== 'guest') {
-          void refreshBootstrap({ userId: user.id, role: user.role, agencyId: user.agencyId })
+          void refreshBootstrap(
+            { userId: user.id, role: user.role, agencyId: user.agencyId },
+            { force: true },
+          )
         }
       },
       usersForSwitcher: DEMO_SWITCHER
@@ -722,13 +819,24 @@ export function useAuth() {
 
 /** Scope helper: filter by agency unless super admin */
 export function useAgencyScope() {
-  const { user, role, agencyId } = useAuth()
+  const { user, role, agencyId: sessionAgencyId } = useAuth()
   const { state } = useStore()
+  const scopeCtx = useMemo(
+    () => ({
+      agencies: state.agencies,
+      bootstrapAgencyId: state.users.find((u) => u.id === user.id)?.agencyId ?? null,
+    }),
+    [state.agencies, state.users, user.id],
+  )
+  const agencyId = useMemo(
+    () => resolveViewerAgencyId(sessionAgencyId, scopeCtx),
+    [sessionAgencyId, scopeCtx],
+  )
   const agency = agencyId ? state.agencies.find((a) => a.id === agencyId) : null
   const agencySuspended = agency?.status === 'Suspended'
 
   const scopeAgency = (id: string | null | undefined) =>
-    canSeeAgency(role, agencyId, agencySuspended, id)
+    canSeeAgency(role, agencyId, agencySuspended, id, scopeCtx)
   const scopeAgent = (agentId: string | null | undefined) =>
     canSeeAgentRecord(role, user.id, agentId)
   const scopeLandlord = (landlordId: string) => canSeeLandlordAsset(role, user.id, landlordId)
