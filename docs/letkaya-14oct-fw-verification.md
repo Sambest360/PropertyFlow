@@ -27,6 +27,8 @@
 | FW-25 | Code fixed | `/workspace/leases` redirect; `WorkspaceAwareNotFound` (no public `/` fall-through) |
 | FW-29 | Code fixed | Tenant portal `leases`/`payments` routes + `WorkspacePaymentsRedirect` |
 
-**Automated:** `npm test` (1513+ passed), `npm run build`.
+**Automated:** `npm test` (1608 passed, 2026-10-14 `fix/letkaya-e2e-round` @ `d936774`), `npm run build`, `npm run lint`.
 
-**HQ (PDF header):** HTML escape + log redaction + prod actor headers — `61e1248`.
+**E2E round (`fix/letkaya-e2e-round`):** G04 `areas=` on browse + exact suburb match; live cache unpersist marketplace keys; wishlist hydrate gate; marketplace header session defer; tenant portal nav (leases/payments/messages via `portal.tenant`); write gate before `persistUpsert`; guest publish slice test; page tips toggle label; admin agency submit lock; property wizard draft scoped by agency/user.
+
+**HQ (PDF header):** HTML escape + log redaction + prod actor headers — `61e1248`; `writeGate.test.ts`, `actorAuth.test.ts`.

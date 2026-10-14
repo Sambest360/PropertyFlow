@@ -221,10 +221,13 @@ export function escapeHtml(v: string): string {
     .replace(/'/g, '&#39;')
 }
 
-function redactEmailForLog(email: string): string {
+export function redactEmailForLog(email: string): string {
   const at = email.indexOf('@')
   if (at <= 0) return '***'
-  return `***@${email.slice(at + 1)}`
+  const local = email.slice(0, at)
+  const domain = email.slice(at + 1)
+  const head = local.length ? `${local[0]}***` : '***'
+  return `${head}@${domain}`
 }
 
 export async function sendListingEnquiryConfirmation(input: {

@@ -381,15 +381,17 @@ function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppSta
     'agencies',
   )
   let users = pick(base.users, (boot.users as AppUser[]) ?? [], 'users')
-  const reconciled = reconcileAgencyIdSpace(agencies, users)
+  let properties = pick(base.properties, boot.properties as PropertyAsset[], 'properties')
+  const reconciled = reconcileAgencyIdSpace(agencies, users, properties)
   agencies = reconciled.agencies
   users = reconciled.users
+  properties = (reconciled.properties as PropertyAsset[]) ?? properties
 
   return {
     ...base,
     agencies,
     users,
-    properties: pick(base.properties, boot.properties as PropertyAsset[], 'properties'),
+    properties,
     buildings: pick(base.buildings, boot.buildings as Building[], 'buildings'),
     units: pick(base.units, boot.units as Unit[], 'units'),
     leads: pick(base.leads, boot.leads as Lead[], 'leads'),
@@ -1196,6 +1198,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const setHydratedForUserId = useCallback((id: string | null) => {
     hydratedForUserIdRef.current = id
     setHydratedForUserIdState(id)
+    void import('../lib/auth/writeGate').then(({ setWriteGateHydration }) => setWriteGateHydration(id))
   }, [])
   /** Signed-in bootstrap failed: portals show a retry state, not an endless skeleton. */
   const [hydrationFailed, setHydrationFailed] = useState(false)
@@ -1559,6 +1562,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       data: Record<string, unknown>,
     ): Promise<boolean> => {
       try {
+        const { canPersistWrites } = await import('../lib/auth/writeGate')
+        const { readStoredAuthUserId, getApiActor } = await import('../lib/api/actorAuth')
+        const sessionUserId = getApiActor()?.userId ?? readStoredAuthUserId()
+        if (!canPersistWrites(hydratedForUserIdRef.current, sessionUserId)) {
+          return false
+        }
         const { markLocalPersistWrite } = await import('../lib/bootstrapMerge')
         markLocalPersistWrite(resource, id)
         // P0-sync (R11): persistToApi falls back to /api/persist for application

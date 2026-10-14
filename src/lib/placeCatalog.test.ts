@@ -48,6 +48,9 @@ describe('propertyMatchesAreas', () => {
     expect(
       propertyMatchesAreas({ suburb: 'Humewood', city: 'Port Elizabeth' }, walmer),
     ).toBe(false)
+    expect(
+      propertyMatchesAreas({ suburb: 'Walmer Heights', city: 'Port Elizabeth' }, walmer),
+    ).toBe(false)
   })
 
   it('city selection includes PE suburbs', () => {

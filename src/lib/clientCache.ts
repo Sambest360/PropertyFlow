@@ -31,6 +31,12 @@ export const LIVE_MODE_UNPERSISTED_KEYS = [
   'trustAllocations',
   'payoutInstructions',
   'depositHoldings',
+  // Public marketplace slices — always refetch (G01–G03; never restore stale rows).
+  'properties',
+  'units',
+  'buildings',
+  'viewingSlots',
+  'leads',
   // Help desk tickets carry submitter names/contact details.
   'supportTickets',
   // Maintenance tickets (AppState.tickets): tenant names, unit access notes.

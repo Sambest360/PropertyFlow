@@ -190,6 +190,10 @@ describe('buildWorkspaceNavForActor portal dedupe', () => {
     expect(labels).toContain('Wishlist')
     expect(labels).not.toContain('My jobs')
     expect(paths).not.toContain('/workspace/portals/contractor')
+    expect(labels).toContain('Messages')
+    expect(paths).toContain('/workspace/portals/tenant/messages')
+    expect(labels).toContain('My lease')
+    expect(paths).toContain('/workspace/portals/tenant/leases')
     expect(hasUniquePaths(entries)).toBe(true)
   })
 

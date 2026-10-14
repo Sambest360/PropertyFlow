@@ -34,7 +34,8 @@ export type AgencyScopeContext = {
 export function reconcileAgencyIdSpace(
   agencies: Agency[],
   users: AppUser[],
-): { agencies: Agency[]; users: AppUser[] } {
+  properties?: PropertyAccessSubject[],
+): { agencies: Agency[]; users: AppUser[]; properties?: PropertyAccessSubject[] } {
   const feBySlug = new Map<string, string>()
   for (const a of agencies) {
     if (a.id.startsWith('ag-') && a.slug) feBySlug.set(a.slug, a.id)
@@ -45,14 +46,19 @@ export function reconcileAgencyIdSpace(
     const fe = feBySlug.get(a.slug)
     if (fe) uuidToFe.set(a.id, fe)
   }
-  if (!uuidToFe.size) return { agencies, users }
+  if (!uuidToFe.size) return { agencies, users, properties }
   const nextAgencies = agencies.filter((a) => !(CLIENT_UUID_RE.test(a.id) && uuidToFe.has(a.id)))
   const nextUsers = users.map((u) => {
     if (!u.agencyId) return u
     const fe = uuidToFe.get(u.agencyId)
     return fe ? { ...u, agencyId: fe } : u
   })
-  return { agencies: nextAgencies, users: nextUsers }
+  const nextProperties = properties?.map((p) => {
+    if (!p.agencyId) return p
+    const fe = uuidToFe.get(p.agencyId)
+    return fe ? { ...p, agencyId: fe } : p
+  })
+  return { agencies: nextAgencies, users: nextUsers, properties: nextProperties ?? properties }
 }
 
 /** Viewer agency id in the same FE space as bootstrap users/properties. */

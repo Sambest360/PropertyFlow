@@ -6,6 +6,7 @@
  */
 import { actorHeaders } from './actorAuth'
 import { authHeaders } from './authClient'
+import { assertCanPersistWrites } from '../auth/writeGate'
 import type { DepositRefundRecord } from '../../types/domain'
 
 export type DepositTransitionStep =
@@ -35,6 +36,9 @@ export async function postDepositTransition(
   step: DepositTransitionStep,
   payload: Record<string, unknown> = {},
 ): Promise<DepositTransitionResult> {
+  if (!assertCanPersistWrites()) {
+    return { ok: false, error: 'Workspace is still loading. Try again in a moment.' }
+  }
   try {
     const res = await fetch(
       `${API_BASE}/api/trust/deposits/${encodeURIComponent(depositId)}/${step}`,

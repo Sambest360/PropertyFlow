@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../../context/AppStore'
 import { RequirePermission } from '../../components/RequirePermission'
@@ -13,6 +13,7 @@ import { LiveAgencyPreview } from '../../components/wizard/LiveAgencyPreview'
 import { Button, Input, Select } from '../../components/ui'
 import { DEFAULT_AGENCY_PERMISSIONS } from '../../lib/permissions'
 import { readReturnTo } from '../../lib/returnTo'
+import { acquireSubmitLock, releaseSubmitLock } from '../../lib/wizardSubmitGuard'
 import { useWizardDraft, useWizardSteps } from '../../hooks/useWizardSteps'
 import type { Permission } from '../../types/domain'
 
@@ -64,6 +65,7 @@ export default function AdminAgencyCreatePage() {
 
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const submitLockRef = useRef(false)
 
   useEffect(() => {
     if (!draft.name.trim() || draft.slug) return
@@ -90,28 +92,35 @@ export default function AdminAgencyCreatePage() {
     goNext()
   }
 
-  function handleCreate() {
+  function handleCreate(e?: { preventDefault?: () => void }) {
+    e?.preventDefault?.()
+    if (!acquireSubmitLock(submitLockRef)) return
     const err = validateStep(0) ?? validateStep(2)
     if (err) {
       setError(err)
+      releaseSubmitLock(submitLockRef)
       return
     }
     setBusy(true)
-    const created = createAgency({
-      name: draft.name.trim(),
-      tradingAs: draft.tradingAs.trim() || undefined,
-      slug: draft.slug.trim() || draft.name.trim().toLowerCase().replace(/\s+/g, '-'),
-      city: draft.city.trim() || 'Port Elizabeth',
-      province: draft.province.trim() || undefined,
-      countryCode: draft.countryCode || 'ZA',
-      timezone: draft.timezone || 'Africa/Johannesburg',
-      email: draft.email.trim() || undefined,
-      phone: draft.phone.trim() || undefined,
-      enabledPermissions: draft.perms,
-    })
-    clearDraft()
-    setBusy(false)
-    navigate(`/workspace/admin/agencies/${created.id}`)
+    try {
+      const created = createAgency({
+        name: draft.name.trim(),
+        tradingAs: draft.tradingAs.trim() || undefined,
+        slug: draft.slug.trim() || draft.name.trim().toLowerCase().replace(/\s+/g, '-'),
+        city: draft.city.trim() || 'Port Elizabeth',
+        province: draft.province.trim() || undefined,
+        countryCode: draft.countryCode || 'ZA',
+        timezone: draft.timezone || 'Africa/Johannesburg',
+        email: draft.email.trim() || undefined,
+        phone: draft.phone.trim() || undefined,
+        enabledPermissions: draft.perms,
+      })
+      clearDraft()
+      navigate(`/workspace/admin/agencies/${created.id}`)
+    } finally {
+      setBusy(false)
+      releaseSubmitLock(submitLockRef)
+    }
   }
 
   function renderStep() {

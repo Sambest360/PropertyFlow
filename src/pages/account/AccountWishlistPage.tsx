@@ -12,8 +12,8 @@ import { usePrefersReducedMotion } from '../../hooks/useScrollMotion'
 
 export default function AccountWishlistPage() {
   const publicProperties = usePublicProperties()
-  const { state } = useStore()
-  const { user } = useAuth()
+  const { state, hydratedForUserId } = useStore()
+  const { user, authReady } = useAuth()
   const { ids: wishlistIds } = useWishlist(user.id)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const reducedMotion = usePrefersReducedMotion()
@@ -33,6 +33,13 @@ export default function AccountWishlistPage() {
       ? { label: 'Dashboard', to: '/workspace/portals/tenant' }
       : { label: 'Dashboard', to: '/workspace' }
 
+  const marketplaceLoading =
+    wishlistIds.length > 0 &&
+    authReady &&
+    user.id !== 'guest' &&
+    hydratedForUserId !== user.id &&
+    publicProperties.length === 0
+
   return (
     <DashboardPage>
       <DashboardBreadcrumb items={[homeCrumb, { label: 'Wishlist' }]} />
@@ -47,7 +54,11 @@ export default function AccountWishlistPage() {
         </p>
       </div>
 
-      {properties.length === 0 ? (
+      {marketplaceLoading ? (
+        <Card className="p-8 text-center">
+          <p className="text-sm text-ink-500">Loading your saved homes…</p>
+        </Card>
+      ) : properties.length === 0 ? (
         <Card className="p-8 text-center">
           <p className="text-sm text-ink-500">No saved homes yet.</p>
           <p className="mt-1 text-sm text-ink-400">

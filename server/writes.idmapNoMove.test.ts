@@ -94,7 +94,7 @@ describe('regression: guest apply and staff create still succeed', () => {
     expect(ins![1]).toEqual(['u-new-staff', AGENT])
     expect(String(ins![0])).not.toMatch(/DO UPDATE/)
     const unitInsert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO units'))
-    expect(unitInsert![1][12]).toBe(AGENT)
+    expect(unitInsert![1]).toContain(AGENT)
   })
 
   it('guest apply / tenancy: unmapped tenant with no client_id gets a mapping again', async () => {

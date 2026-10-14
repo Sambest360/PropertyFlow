@@ -282,3 +282,46 @@ describe('needsPublicMarketplaceMerge', () => {
     expect(needsPublicMarketplaceMerge(boot)).toBe(false)
   })
 })
+
+describe('mergePublicMarketplaceBootstrap (signed-in browse q=)', () => {
+  it('keeps public E2E listing when scoped session boot is empty', () => {
+    const e2eTitle = 'E2E TEST Agency Flat 1655'
+    const session = {
+      source: 'postgres' as const,
+      fetchedAt: 't1',
+      scoped: true,
+      agencies: [],
+      users: [],
+      buildings: [],
+      units: [],
+      properties: [],
+      leads: [],
+      applications: [{ id: 'app-1' } as never],
+      tenancies: [],
+      viewings: [],
+      payments: [],
+      propertyDocuments: [],
+      tickets: [],
+      threads: [],
+      messages: [],
+      notifications: [],
+    }
+    const pub = {
+      ...session,
+      scoped: false,
+      units: [{ id: 'unt-e2e', statusKey: 'PUBLISHED', listingType: 'rent' } as never],
+      properties: [
+        {
+          id: 'PR-1655',
+          title: e2eTitle,
+          status: 'Published',
+          unitId: 'unt-e2e',
+          agencyId: 'ag-1',
+        } as never,
+      ],
+    }
+    const merged = mergePublicMarketplaceBootstrap(session, pub)
+    expect(merged.properties.some((p) => p.title.includes('E2E TEST Agency Flat'))).toBe(true)
+    expect(merged.units.some((u) => u.id === 'unt-e2e')).toBe(true)
+  })
+})

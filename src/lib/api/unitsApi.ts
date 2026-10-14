@@ -17,6 +17,8 @@ import { buildDisplayMetadata, formatZARLabel } from './displayMetadata'
 import type { AppUser } from '../../types/domain'
 import { canonicalListingId } from '../listingIds'
 import { isPublicMarketplaceUnit } from '../publicListings'
+import type { Place } from '../placeCatalog'
+import { propertyMatchesAreas } from '../placeCatalog'
 
 export type UnitSearchFilters = {
   /** Free-text across title, suburb, city, unit number */
@@ -52,6 +54,8 @@ export type UnitSearchFilters = {
   client_id?: string
   /** When true, hide draft/occupied/off-market units from public browse feeds. */
   marketplace_public?: boolean
+  /** Curated suburb/city chips from browse `areas=` param (G04). */
+  area_places?: Place[]
   cursor?: string | null
   limit?: number
   sort?: 'featured' | 'rent_asc' | 'rent_desc' | 'price_asc' | 'price_desc' | 'newest' | 'beds_desc'
@@ -352,6 +356,13 @@ export function searchUnitsFeed(params: {
     const lng = unit.lng ?? building.lng
     if (!inBoundingBox(lat, lng, filters)) return false
     if (!matchesNear(lat, lng, filters)) return false
+
+    if (filters.area_places?.length) {
+      const prop = propertyByUnit.get(unit.id)
+      const suburb = prop?.suburb ?? building.suburb
+      const city = prop?.city ?? building.city
+      if (!propertyMatchesAreas({ suburb, city }, filters.area_places)) return false
+    }
 
     if (filters.q) {
       const q = filters.q.toLowerCase()

@@ -18,6 +18,6 @@ describe('Supabase mode', () => {
 
   it('serializeClientCache in live (Supabase) mode drops PII/trust books and tags the owner', () => {
     const raw = serializeClientCache({ properties: [1], users: [1], depositHoldings: [1] }, 'u-johan', true)
-    expect(readOwnedClientCache<Record<string, unknown>>(raw, 'u-johan')).toEqual({ properties: [1] })
+    expect(readOwnedClientCache<Record<string, unknown>>(raw, 'u-johan')).toEqual({})
   })
 })

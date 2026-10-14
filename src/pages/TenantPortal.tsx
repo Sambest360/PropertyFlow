@@ -65,9 +65,11 @@ export default function TenantPortal() {
 }
 
 function TenantPortalContent() {
-  const { state, setDocumentStatus } = useStore()
+  const { state, setDocumentStatus, hydratedForUserId } = useStore()
   const publicProperties = usePublicProperties()
-  const { user, has } = useAuth()
+  const { user, has, authReady } = useAuth()
+  const dashboardPending =
+    authReady && user.id !== 'guest' && hydratedForUserId !== user.id
   const location = useLocation()
   const view = resolveTenantView(location.pathname)
   const portal = useTenantPortalState()
@@ -227,13 +229,25 @@ function TenantPortalContent() {
                   stats={
                     portal.occupancyReady
                       ? [
-                          { label: 'Applications', value: String(portal.apps.length) },
+                          {
+                            label: 'Applications',
+                            value: dashboardPending ? '…' : String(portal.apps.length),
+                          },
                           { label: 'Due', value: String(duePayments.length) },
                           { label: 'Open tickets', value: String(openMaintenance) },
                         ]
                       : [
-                          { label: 'Applications', value: String(portal.apps.length) },
-                          { label: 'Wishlist', value: String(wishlistIds.length) },
+                          {
+                            label: 'Applications',
+                            value: dashboardPending ? '…' : String(portal.apps.length),
+                          },
+                          {
+                            label: 'Wishlist',
+                            value:
+                              dashboardPending && wishlistIds.length > 0 && wishlistProperties.length === 0
+                                ? '…'
+                                : String(wishlistIds.length),
+                          },
                           { label: 'Approved', value: portal.occupancyReady ? 'Yes' : 'Not yet' },
                         ]
                   }
