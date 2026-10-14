@@ -462,6 +462,17 @@ export async function enforceStaffSignedStageMove(body: { resource: string; acti
   }
   const fromLease = uuid ? await storedLeaseESignStatus(uuid) : null
   if (fromLease && stageOrder(type, fromLease) >= requiredOrder) return
+  // A lease with no landlord part (pipeline.ts skips it without a landlord id)
+  // reads back as tenant_signed; its raw stored status 'completed' meets
+  // landlord_signed here (only in this gate).
+  if (uuid && required === 'landlord_signed') {
+    const raw = await query<{ esign: unknown }>(
+      `SELECT metadata->'eSign' AS esign FROM leases WHERE application_id = $1::uuid
+        ORDER BY updated_at DESC NULLS LAST LIMIT 1`,
+      [uuid],
+    )
+    if (asRow(raw[0]?.esign)?.status === 'completed') return
+  }
   throw Object.assign(
     coded(LEASE_SIGNATURE_NOT_RECORDED, `${asked} needs ${required} on the stored lease envelope (it shows ${fromLease ?? 'none'})`),
     { status: 409 },
