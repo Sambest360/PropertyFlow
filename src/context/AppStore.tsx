@@ -190,7 +190,6 @@ import { authHeaders } from '../lib/api/authClient'
 import { emptyPublicMarketplaceBootstrap } from '../lib/publicMarketplaceDemo'
 import { repairUnitsForMarketplaceVisibility } from '../lib/marketplaceVisibility'
 import {
-  appStateHasPublicBrowseListings,
   enrichBootstrapWithPublicMarketplace,
   fetchMergedPublicMarketplaceSlice,
 } from '../lib/publicMarketplaceMerge'
@@ -1375,29 +1374,6 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     }, 1500)
   }, [refreshBootstrap])
 
-  const refreshPublicMarketplaceInState = useCallback(async () => {
-    if (!LIVE_DATA_MODE) return
-    const current = stateRef.current
-    const slice = await fetchMergedPublicMarketplaceSlice({
-      properties: current.properties,
-      units: current.units,
-      users: current.users,
-      buildings: current.buildings,
-      viewingSlots: current.viewingSlots,
-      agencies: current.agencies,
-    })
-    if (!slice) return
-    patch((s) => ({
-      ...s,
-      properties: slice.properties,
-      units: slice.units,
-      users: slice.users,
-      buildings: slice.buildings,
-      viewingSlots: slice.viewingSlots,
-      agencies: slice.agencies as Agency[],
-    }))
-  }, [patch])
-
   useEffect(() => {
     if (!isApiEnabled && !isSupabaseMode) {
       setState((prev) => ensurePublicMarketplace(prev))
@@ -1569,6 +1545,29 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       return next
     })
   }, [])
+
+  const refreshPublicMarketplaceInState = useCallback(async () => {
+    if (!LIVE_DATA_MODE) return
+    const current = stateRef.current
+    const slice = await fetchMergedPublicMarketplaceSlice({
+      properties: current.properties,
+      units: current.units,
+      users: current.users,
+      buildings: current.buildings,
+      viewingSlots: current.viewingSlots,
+      agencies: current.agencies,
+    })
+    if (!slice) return
+    patch((s) => ({
+      ...s,
+      properties: slice.properties,
+      units: slice.units,
+      users: slice.users,
+      buildings: slice.buildings,
+      viewingSlots: slice.viewingSlots,
+      agencies: slice.agencies as Agency[],
+    }))
+  }, [patch])
 
   /** Durable persist for mutation paths that must gate success UI on a
    *  committed write. Marks the local write (so a concurrent bootstrap refresh
