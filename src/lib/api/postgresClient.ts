@@ -47,6 +47,8 @@ export type PostgresBootstrap = {
   csvImportBatches?: unknown[]
   /** CR7 help desk — own submissions + the viewer's desk (server-filtered). */
   supportTickets?: unknown[]
+  /** Guest marketplace RPC/API failed (distinct from legitimately zero listings). */
+  marketplaceFetchFailed?: boolean
 }
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''

@@ -8,6 +8,7 @@ import {
   pickAgencyId,
   resolveViewerAgencyId,
 } from '../lib/agencyScope'
+import { agencyBlocksStaffAccess } from '../lib/agencyStatus'
 import { setApiActor } from '../lib/api/actorAuth'
 import {
   apiLogin,
@@ -835,7 +836,7 @@ export function useAgencyScope() {
     [sessionAgencyId, scopeCtx],
   )
   const agency = agencyId ? state.agencies.find((a) => a.id === agencyId) : null
-  const agencySuspended = agency?.status === 'Suspended'
+  const agencySuspended = agencyBlocksStaffAccess(agency?.status)
 
   const scopeAgency = (id: string | null | undefined) =>
     canSeeAgency(role, agencyId, agencySuspended, id, scopeCtx)
@@ -869,7 +870,7 @@ export function usePropertyScope(): PropertyScope & {
   const { user, role, agencyId } = useAuth()
   const { state } = useStore()
   const agency = agencyId ? state.agencies.find((a) => a.id === agencyId) : null
-  const agencySuspended = agency?.status === 'Suspended'
+  const agencySuspended = agencyBlocksStaffAccess(agency?.status)
 
   const scope = useMemo(() => {
     const blockedPropertyIds = blockedPropertyIdsForApplicant(state.applications, user)

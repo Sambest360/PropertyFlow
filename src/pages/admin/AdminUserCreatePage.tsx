@@ -125,7 +125,9 @@ export default function AdminUserCreatePage() {
   const lockAgency = Boolean(queryAgencyId) || !isPlatform
 
   const agencies = useMemo(() => {
-    if (isPlatform && !queryAgencyId) return state.agencies
+    if (isPlatform && !queryAgencyId) {
+      return state.agencies.filter((a) => a.status !== 'Cancelled')
+    }
     const locked = queryAgencyId ?? scopeAgencyId
     return state.agencies.filter((a) => a.id === locked)
   }, [isPlatform, queryAgencyId, scopeAgencyId, state.agencies])

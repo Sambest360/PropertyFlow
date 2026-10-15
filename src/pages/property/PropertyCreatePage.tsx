@@ -169,7 +169,9 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   const showAgentPicker = (isPlatformAdmin || isAgencyManager) && !isAgentCreator
   const showLandlordPicker = !isLandlord && (isPlatformAdmin || isAgencyManager || isAgentCreator)
 
-  const agencies = state.agencies.filter((a) => scopeAgency(a.id) || has('platform.manage'))
+  const agencies = state.agencies.filter(
+    (a) => (scopeAgency(a.id) || has('platform.manage')) && a.status !== 'Cancelled',
+  )
   const scopedBuildings = state.buildings.filter(
     (b) => has('platform.manage') || b.clientId === (queryAgencyId || agencyId),
   )

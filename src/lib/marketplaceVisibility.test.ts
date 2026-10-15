@@ -86,6 +86,37 @@ describe('getGuestMarketplaceBlockReason', () => {
     const users = [{ id: 'll-2', verification: { status: 'pending' as const } }] as never
     expect(guestVisibleAfterPublish(p, baseUnit({ statusKey: 'DRAFT' }), users)).toBe(false)
   })
+
+  it('building landlord pending blocks guests when property landlord is empty', () => {
+    const p = baseProperty({ status: 'Published', landlordId: '', buildingId: 'bld-1' })
+    const users = [{ id: 'll-bld', name: 'Building Owner', verification: { status: 'pending' as const } }] as never
+    const buildings = [
+      {
+        id: 'bld-1',
+        clientId: 'ag-1',
+        landlordId: 'll-bld',
+        name: 'Block',
+        addressLine1: '1 St',
+        suburb: '',
+        city: 'Gqeberha',
+        province: '',
+        grading: null,
+        solarCapacityKw: 0,
+        hasBorehole: false,
+        lat: 0,
+        lng: 0,
+        images: [],
+        createdAt: '2026-01-01',
+      },
+    ]
+    const block = getGuestMarketplaceBlockReason(p, {
+      units: [baseUnit()],
+      users,
+      buildings,
+    })
+    expect(block?.landlordUserId).toBe('ll-bld')
+    expect(block?.message).toMatch(/building/i)
+  })
 })
 
 describe('repairUnitsForMarketplaceVisibility', () => {

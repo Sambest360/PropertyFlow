@@ -187,8 +187,11 @@ import {
   shouldWipeAuthAfterBootstrapMiss,
 } from '../lib/emptyBootstrapAuth'
 import { authHeaders } from '../lib/api/authClient'
-import { emptyPublicMarketplaceBootstrap } from '../lib/publicMarketplaceDemo'
-import { repairUnitsForMarketplaceVisibility } from '../lib/marketplaceVisibility'
+import { emptyPublicMarketplaceBootstrapWithReason } from '../lib/publicMarketplaceDemo'
+import {
+  computeUnitPatchForPropertyStatus,
+  repairUnitsForMarketplaceVisibility,
+} from '../lib/marketplaceVisibility'
 import {
   enrichBootstrapWithPublicMarketplace,
   fetchMergedPublicMarketplaceSlice,
@@ -384,6 +387,7 @@ function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppSta
 
   return {
     ...base,
+    publicMarketplaceFetchFailed: Boolean(boot.marketplaceFetchFailed),
     agencies,
     users,
     properties,
@@ -501,6 +505,8 @@ export type AppState = {
   csvImportBatches: CsvImportBatch[]
   /** CR7 help desk tickets (event_log, server-only). */
   supportTickets: SupportTicket[]
+  /** True when the last guest marketplace fetch errored (signed-out /browse). */
+  publicMarketplaceFetchFailed: boolean
 }
 
 type StoreContextValue = {
@@ -519,6 +525,8 @@ type StoreContextValue = {
   ) => Promise<void>
   createAgency: (input: Omit<Agency, 'id' | 'createdAt' | 'status'> & { status?: Agency['status']; enabledPermissions?: Agency['enabledPermissions'] }) => Agency
   updateAgency: (id: string, patch: Partial<Agency>) => void
+  /** Soft-delete: sets agency status to Cancelled (data retained; staff lose access). */
+  cancelAgency: (id: string) => Promise<{ ok: true } | { ok: false; reason: string }>
   createUser: (input: Omit<AppUser, 'id' | 'active'> & {
     active?: boolean
     /** Plain password for invite / staff create (hashed server-side). */
@@ -1018,6 +1026,7 @@ export const defaultStateFor = (_liveDataMode: boolean): AppState => ({
   charges: [],
   csvImportBatches: [],
   supportTickets: [],
+  publicMarketplaceFetchFailed: false,
 })
 
 const defaultState = (): AppState => defaultStateFor(LIVE_DATA_MODE)
@@ -1085,6 +1094,29 @@ function priorTenantApplicationCount(
   return applications.filter((a) => a.applicantUserId === sessionUserId).length
 }
 
+function bootstrapHasPublicMarketplaceRows(
+  pub: { properties?: unknown[]; units?: unknown[] } | null,
+): boolean {
+  if (!pub) return false
+  return Boolean(pub.properties?.length || pub.units?.length)
+}
+
+async function fetchGuestMarketplaceBootstrap(
+  lite: boolean,
+  fullTimeoutMs: number,
+): Promise<import('../lib/api/postgresClient').PostgresBootstrap> {
+  if (isSupabaseMode) {
+    const { fetchPublicMarketplaceBootstrap } = await import('../lib/supabase/publicMarketplace')
+    const pub = await fetchPublicMarketplaceBootstrap(lite)
+    if (bootstrapHasPublicMarketplaceRows(pub)) return pub!
+    return emptyPublicMarketplaceBootstrapWithReason(pub === null)
+  }
+  const { fetchPublicMarketplaceFromApi } = await import('../lib/api/postgresClient')
+  const pub = await fetchPublicMarketplaceFromApi(fullTimeoutMs, lite)
+  if (bootstrapHasPublicMarketplaceRows(pub)) return pub!
+  return emptyPublicMarketplaceBootstrapWithReason(pub === null)
+}
+
 async function fetchBootstrapFromApi(
   lite: boolean,
   actor: DemoActor | null,
@@ -1102,10 +1134,7 @@ async function fetchBootstrapFromApi(
   const guest = !effective?.userId && !readStoredAuthUserId()
 
   if (isSupabaseMode && guest) {
-    const { fetchPublicMarketplaceBootstrap } = await import('../lib/supabase/publicMarketplace')
-    const pub = await fetchPublicMarketplaceBootstrap(lite)
-    if (pub?.properties?.length) return pub
-    return emptyPublicMarketplaceBootstrap()
+    return fetchGuestMarketplaceBootstrap(lite, fullTimeoutMs)
   }
 
   if (isSupabaseMode) {
@@ -1160,20 +1189,12 @@ async function fetchBootstrapFromApi(
     } catch {
       /* ignore */
     }
-    const { fetchPublicMarketplaceBootstrap } = await import('../lib/supabase/publicMarketplace')
-    const pub = await fetchPublicMarketplaceBootstrap(lite)
-    if (pub?.properties?.length) return pub
-    return emptyPublicMarketplaceBootstrap()
+    return fetchGuestMarketplaceBootstrap(lite, fullTimeoutMs)
   }
 
-  const { fetchPostgresBootstrap, fetchPublicMarketplaceFromApi } = await import(
-    '../lib/api/postgresClient'
-  )
+  const { fetchPostgresBootstrap } = await import('../lib/api/postgresClient')
   if (guest) {
-    // /api/bootstrap is 401 without a session; guests get the published-listings slice.
-    const pub = await fetchPublicMarketplaceFromApi(fullTimeoutMs, lite)
-    if (pub?.properties?.length) return pub
-    return emptyPublicMarketplaceBootstrap()
+    return fetchGuestMarketplaceBootstrap(lite, fullTimeoutMs)
   }
   const boot = await fetchPostgresBootstrap(fullTimeoutMs, effective, lite)
   if (!boot) return null
@@ -2559,6 +2580,32 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const next = { ...state.agencies.find((a) => a.id === id), ...p, id }
       persistUpsert('agency', id, next as Record<string, unknown>)
     },
+    cancelAgency: async (id) => {
+      const agency = stateRef.current.agencies.find((a) => a.id === id)
+      if (!agency) return { ok: false, reason: 'Agency not found.' }
+      if (agency.status === 'Cancelled') {
+        return { ok: false, reason: 'This agency is already cancelled.' }
+      }
+      const next = { ...agency, status: 'Cancelled' as const }
+      patch((s) => ({
+        ...s,
+        agencies: s.agencies.map((a) => (a.id === id ? next : a)),
+      }))
+      const result = await persistUpsertResult('agency', id, next as unknown as Record<string, unknown>)
+      if (!result.ok) {
+        patch((s) => ({
+          ...s,
+          agencies: s.agencies.map((a) => (a.id === id ? agency : a)),
+        }))
+        const { persistErrorMessage } = await import('../lib/api/persist')
+        return {
+          ok: false,
+          reason: persistErrorMessage(result) ?? 'Could not cancel agency. Try again.',
+        }
+      }
+      addActivity(`Agency cancelled: ${agency.name}`, 'Super Admin', null)
+      return { ok: true }
+    },
     createUser: (input) => {
       const { password, tempPassword, onTempPassword, ...rest } = input as typeof input & {
         password?: string
@@ -3224,12 +3271,28 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       return property
     },
     updateProperty: (id, p) => {
-      const prev = state.properties.find((x) => x.id === id)
+      const prev = stateRef.current.properties.find((x) => x.id === id)
       let pe: PropertyEvent | null = null
+      let unitPatch: Unit | null = null
+      if (prev && p.status != null) {
+        const targetUnitId = prev.unitId === prev.id ? prev.id : prev.unitId
+        const unit = targetUnitId
+          ? stateRef.current.units.find((u) => u.id === targetUnitId)
+          : undefined
+        unitPatch = computeUnitPatchForPropertyStatus({ ...prev, ...p }, unit, p.status)
+      }
       patch((s) => {
         const current = s.properties.find((x) => x.id === id)
         const properties = s.properties.map((x) => (x.id === id ? { ...x, ...p } : x))
-        if (!current) return { ...s, properties }
+        if (!current) {
+          return {
+            ...s,
+            properties,
+            units: unitPatch
+              ? s.units.map((u) => (u.id === unitPatch!.id ? unitPatch! : u))
+              : s.units,
+          }
+        }
         const changes: PropertyEvent['changes'] = []
         if (p.status != null && p.status !== current.status) {
           changes.push({ field: 'Status', from: current.status, to: p.status })
@@ -3251,7 +3314,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             s.users.find((u) => u.id === p.agentId)?.name ?? (p.agentId ? 'Assigned' : 'Unassigned')
           changes.push({ field: 'Agent', from: fromName, to: toName })
         }
-        if (!changes.length) return { ...s, properties }
+        if (!changes.length) {
+          return {
+            ...s,
+            properties,
+            units: unitPatch
+              ? s.units.map((u) => (u.id === unitPatch!.id ? unitPatch! : u))
+              : s.units,
+          }
+        }
         pe = {
           id: uid('pe'),
           agencyId: current.agencyId,
@@ -3262,7 +3333,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           at: new Date().toISOString(),
           changes,
         }
-        return { ...s, properties, propertyEvents: [pe, ...s.propertyEvents].slice(0, 400) }
+        return {
+          ...s,
+          properties,
+          units: unitPatch
+            ? s.units.map((u) => (u.id === unitPatch!.id ? unitPatch! : u))
+            : s.units,
+          propertyEvents: [pe, ...s.propertyEvents].slice(0, 400),
+        }
       })
       if (prev) {
         emitSuiteEvent({
@@ -3275,7 +3353,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           recipientUserIds: propertyDeskStakeholderIds(state.users, { ...prev, ...p }),
         })
       }
-      persistUpsert('property', id, { ...prev, ...p, id } as Record<string, unknown>)
+      if (prev) {
+        persistUpsert('property', id, { ...prev, ...p, id } as Record<string, unknown>)
+      }
+      if (unitPatch) {
+        persistUpsert('unit', unitPatch.id, unitPatch as unknown as Record<string, unknown>)
+      }
       if (pe) persistUpsert('property_event', pe.id, pe as unknown as Record<string, unknown>)
       scheduleBootstrapRefreshAfterMutation()
     },
@@ -3312,28 +3395,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       // invisible on /browse and /listing/{id}.
       // P0-4: Ensure atomic publish to prevent race conditions and dual IDs
       const PUBLIC_ON: PropertyAsset['status'][] = ['Published', 'Featured', 'Under Offer']
-      const unitListingType: Unit['listingType'] =
-        prev?.listingMode === 'sale' ? 'sale' : prev?.listingMode === 'both' ? 'both' : 'rent'
-      const nextUnitStatus: Unit['statusKey'] = PUBLIC_ON.includes(status)
-        ? status === 'Featured'
-          ? 'FEATURED'
-          : status === 'Under Offer'
-            ? 'UNDER_OFFER'
-            : 'PUBLISHED'
-        : prev?.status === 'Rented'
-          ? 'OCCUPIED'
-          : prev?.status === 'Maintenance'
-            ? 'MAINTENANCE'
-            : 'DRAFT'
-      let unitPatch: Unit | null = null
-      // P0-4: Handle both cases where unitId is separate or same as property.id
       const targetUnitId = prev?.unitId === prev?.id ? prev.id : prev?.unitId
-      if (targetUnitId) {
-        const unit = stateRef.current.units.find((u) => u.id === targetUnitId)
-        if (unit && (unit.statusKey !== nextUnitStatus || unit.listingType !== unitListingType)) {
-          unitPatch = { ...unit, statusKey: nextUnitStatus, listingType: unitListingType }
-        }
-      }
+      const unit = targetUnitId
+        ? stateRef.current.units.find((u) => u.id === targetUnitId)
+        : undefined
+      const unitPatch = computeUnitPatchForPropertyStatus(prev, unit, status)
+      const nextUnitStatus = unitPatch?.statusKey ?? 'DRAFT'
+      const unitListingType = unitPatch?.listingType ?? unit?.listingType ?? 'rent'
       patch((s) => {
         const current = s.properties.find((x) => x.id === id)
         if (!current || current.status === status) {

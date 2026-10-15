@@ -240,8 +240,12 @@ export default function PropertyDetail() {
 
   const guestMarketplaceBlock = useMemo(() => {
     if (!p || !portfolioLabelLooksLive(p, unit?.statusKey)) return null
-    return getGuestMarketplaceBlockReason(p, { units: state.units, users: state.users })
-  }, [p, unit?.statusKey, state.units, state.users])
+    return getGuestMarketplaceBlockReason(p, {
+      units: state.units,
+      users: state.users,
+      buildings: state.buildings,
+    })
+  }, [p, unit?.statusKey, state.units, state.users, state.buildings])
 
   const handleMakeLive = async () => {
     const blockReason = validatePropertyReadyToPublish(p)
@@ -249,11 +253,15 @@ export default function PropertyDetail() {
       await sweetWarning('Not ready to publish', blockReason)
       return
     }
-    if (
-      !guestVisibleAfterPublish(p, unit, state.users) &&
-      p.landlordId &&
-      state.users.find((u) => u.id === p.landlordId)?.verification?.status === 'pending'
-    ) {
+    const buildingLandlordId = p.buildingId
+      ? state.buildings.find((b) => b.id === p.buildingId)?.landlordId
+      : null
+    const pendingLandlordId =
+      [p.landlordId, buildingLandlordId].find((id) => {
+        if (!id) return false
+        return state.users.find((u) => u.id === id)?.verification?.status === 'pending'
+      }) ?? null
+    if (!guestVisibleAfterPublish(p, unit, state.users, state.buildings) && pendingLandlordId) {
       const proceed = await sweetConfirm(
         'Landlord not verified yet',
         'This listing can go live in your portfolio, but signed-out visitors will not see it on /browse until the linked landlord is approved. Publish anyway?',
@@ -280,6 +288,7 @@ export default function PropertyDetail() {
               )
             : state.units,
           users: state.users,
+          buildings: state.buildings,
         },
       )
       if (stillHidden) {

@@ -18,6 +18,7 @@ import { SUB_FE_TO_UUID } from './idMap.js'
 import { resolveTicketLease } from './ticketLease.js'
 import { checkTicketPhotos } from '../src/lib/photoLimits.js'
 import { propertyTypeToDb } from '../src/lib/propertyType.js'
+import { mapAgencyStatusToDb } from '../src/lib/agencyStatus.js'
 import { resolveLiveListing } from './listingResolve.js'
 import { supabaseAuthConfigured } from './supabase/env.js'
 import { isValidSignatureDataUrl, signatureInvalidError } from '../src/lib/signature/signatureImage.js'
@@ -534,7 +535,7 @@ async function upsertEntity(
 
 async function upsertAgency(feId: string, d: Record<string, unknown>): Promise<string> {
   const uuid = await ensureUuid('agency', feId)
-  const status = str(d.status, 'Active') === 'Suspended' ? 'suspended' : 'active'
+  const status = mapAgencyStatusToDb(str(d.status, 'Active') as 'Active' | 'Suspended' | 'Cancelled')
   await query(
     `INSERT INTO clients (id, company_name, subdomain, status, city, settings, updated_at)
      VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb, NOW())

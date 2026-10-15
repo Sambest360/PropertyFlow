@@ -395,9 +395,13 @@ export default function BrowsePage() {
           {cards.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-primary-100 bg-white p-10 text-center">
               <Filter className="mx-auto h-8 w-8 text-ink-400" />
-              <p className="mt-3 font-semibold">No listings yet</p>
+              <p className="mt-3 font-semibold">
+                {state.publicMarketplaceFetchFailed ? 'Listings temporarily unavailable' : 'No listings yet'}
+              </p>
               <p className="mt-1 text-sm text-ink-500">
-                Agencies haven’t published homes here yet — check back soon, or clear filters if you’re searching.
+                {state.publicMarketplaceFetchFailed
+                  ? 'We could not load the public marketplace. Refresh the page in a moment, or try again later.'
+                  : 'Agencies haven’t published homes here yet — check back soon, or clear filters if you’re searching.'}
               </p>
               <button
                 type="button"

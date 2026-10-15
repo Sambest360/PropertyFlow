@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   Building2,
   Pencil,
   Plus,
+  Trash2,
   UserPlus,
   Users,
 } from 'lucide-react'
+import { useSuiteAlert } from '../../components/alerts/SuiteAlert'
 import { useStore } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
 import { RequirePermission } from '../../components/RequirePermission'
@@ -17,6 +19,8 @@ import { ImpersonateUserButton } from '../../components/admin/ImpersonateUserBut
 import { Badge, Button, Card, Modal, PageHeader, Select, cn } from '../../components/ui'
 import { ResponsiveDataList } from '../../components/data/ResponsiveDataList'
 import { roleLabels } from '../../lib/permissions'
+import { agencyStatusBadgeTone } from '../../lib/agencyStatus'
+import { sweetWarning } from '../../lib/sweetAlert'
 import { withReturnTo } from '../../lib/returnTo'
 import type { Permission } from '../../types/domain'
 
@@ -26,7 +30,9 @@ type Tab = 'overview' | 'users' | 'properties'
 
 export default function AgencyDetailPage() {
   const { id } = useParams()
-  const { state, updateAgency, updateProperty, updateUser } = useStore()
+  const navigate = useNavigate()
+  const alert = useSuiteAlert()
+  const { state, updateAgency, cancelAgency, updateProperty, updateUser } = useStore()
   const { has } = useAuth()
   const [tab, setTab] = useState<Tab>('overview')
   const [capsOpen, setCapsOpen] = useState(false)
@@ -70,6 +76,26 @@ export default function AgencyDetailPage() {
     setCapsOpen(true)
   }
 
+  const handleDeleteAgency = async () => {
+    const ok = await alert.confirmDelete({
+      title: `Delete ${agency.name}?`,
+      text:
+        'The agency will be cancelled. Data is retained for audit, but staff lose workspace access.',
+      confirmLabel: 'Delete agency',
+    })
+    if (!ok) return
+    const result = await cancelAgency(agency.id)
+    if (result.ok === false) {
+      await sweetWarning('Could not delete agency', result.reason)
+      return
+    }
+    void alert.deleted({
+      title: 'Agency cancelled',
+      text: `${agency.name} was cancelled.`,
+    })
+    navigate('/workspace/admin/agencies')
+  }
+
   return (
     <RequirePermission permission="platform.manage">
       <div className="animate-fade-in space-y-5">
@@ -82,17 +108,32 @@ export default function AgencyDetailPage() {
                 <Pencil className="h-4 w-4" strokeWidth={ICON_STROKE} />
                 Modules
               </Button>
-              <Select
-                className="min-h-11 cursor-pointer"
-                value={agency.status}
-                onChange={(e) =>
-                  updateAgency(agency.id, { status: e.target.value as typeof agency.status })
-                }
-                aria-label="Agency status"
-              >
-                <option value="Active">Active</option>
-                <option value="Suspended">Suspended</option>
-              </Select>
+              {agency.status === 'Cancelled' ? (
+                <Badge tone={agencyStatusBadgeTone(agency.status)}>Cancelled</Badge>
+              ) : (
+                <>
+                  <Select
+                    className="min-h-11 cursor-pointer"
+                    value={agency.status}
+                    onChange={(e) =>
+                      updateAgency(agency.id, { status: e.target.value as typeof agency.status })
+                    }
+                    aria-label="Agency status"
+                  >
+                    <option value="Active">Active</option>
+                    <option value="Suspended">Suspended</option>
+                  </Select>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="min-h-11 cursor-pointer text-accent-600"
+                    onClick={() => void handleDeleteAgency()}
+                  >
+                    <Trash2 className="h-4 w-4" strokeWidth={ICON_STROKE} />
+                    Delete agency
+                  </Button>
+                </>
+              )}
               <BackButton to="/workspace/admin/agencies" label="All agencies" />
             </ActionButtonRow>
           }

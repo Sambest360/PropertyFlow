@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Building2, Pencil, Plus } from 'lucide-react'
+import { Building2, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useStore } from '../../context/AppStore'
 import { RequirePermission } from '../../components/RequirePermission'
@@ -7,26 +7,61 @@ import { AgencyCapabilityChecklist } from '../../components/admin/AgencyCapabili
 import { StepDots } from '../../components/wizard/StepDots'
 import { Badge, Button, Card, Input, Modal, PageHeader, Select } from '../../components/ui'
 import { ResponsiveDataList } from '../../components/data/ResponsiveDataList'
+import { useSuiteAlert } from '../../components/alerts/SuiteAlert'
+import { sweetWarning } from '../../lib/sweetAlert'
+import { agencyIsSelectable, agencyStatusBadgeTone } from '../../lib/agencyStatus'
 import { DEFAULT_AGENCY_PERMISSIONS } from '../../lib/permissions'
 import type { Agency, Permission } from '../../types/domain'
 
 const ICON_STROKE = 1.6
 
 export default function AdminAgenciesPage() {
-  const { state, updateAgency, resetDemo } = useStore()
+  const { state, updateAgency, cancelAgency, resetDemo } = useStore()
   const navigate = useNavigate()
+  const alert = useSuiteAlert()
   const [editId, setEditId] = useState<string | null>(null)
+  const [showCancelled, setShowCancelled] = useState(false)
+
+  const cancelledCount = useMemo(
+    () => state.agencies.filter((a) => a.status === 'Cancelled').length,
+    [state.agencies],
+  )
+
+  const visibleAgencies = useMemo(
+    () =>
+      showCancelled ? state.agencies : state.agencies.filter((a) => agencyIsSelectable(a.status)),
+    [state.agencies, showCancelled],
+  )
 
   const rows = useMemo(
     () =>
-      state.agencies.map((a) => ({
+      visibleAgencies.map((a) => ({
         agency: a,
         assets: state.properties.filter((p) => p.agencyId === a.id).length,
         users: state.users.filter((u) => u.agencyId === a.id).length,
         caps: a.enabledPermissions?.length ?? 0,
       })),
-    [state.agencies, state.properties, state.users],
+    [visibleAgencies, state.properties, state.users],
   )
+
+  const handleCancelAgency = async (a: Agency) => {
+    const ok = await alert.confirmDelete({
+      title: `Delete ${a.name}?`,
+      text:
+        'The agency will be cancelled. Listings and records stay in the database for audit, but staff will lose workspace access. This cannot be undone from the agency portal.',
+      confirmLabel: 'Delete agency',
+    })
+    if (!ok) return
+    const result = await cancelAgency(a.id)
+    if (result.ok === false) {
+      await sweetWarning('Could not delete agency', result.reason)
+      return
+    }
+    void alert.deleted({
+      title: 'Agency cancelled',
+      text: `${a.name} was cancelled.`,
+    })
+  }
 
   const editing = editId ? state.agencies.find((a) => a.id === editId) : null
 
@@ -56,7 +91,7 @@ export default function AdminAgenciesPage() {
           }
         />
 
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Card className="p-4">
             <p className="text-xs text-ink-500">Agencies</p>
             <p className="tabular text-2xl font-semibold">{state.agencies.length}</p>
@@ -73,7 +108,23 @@ export default function AdminAgenciesPage() {
               {state.agencies.filter((a) => a.status === 'Suspended').length}
             </p>
           </Card>
+          <Card className="p-4">
+            <p className="text-xs text-ink-500">Cancelled</p>
+            <p className="tabular text-2xl font-semibold">{cancelledCount}</p>
+          </Card>
         </div>
+
+        {cancelledCount > 0 ? (
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-ink-600">
+            <input
+              type="checkbox"
+              className="h-4 w-4 cursor-pointer"
+              checked={showCancelled}
+              onChange={(e) => setShowCancelled(e.target.checked)}
+            />
+            Show cancelled agencies ({cancelledCount})
+          </label>
+        ) : null}
 
         {rows.length === 0 ? (
           <Card className="p-10 text-center">
@@ -139,18 +190,20 @@ export default function AdminAgenciesPage() {
                 header: 'Status',
                 render: ({ agency: a }) => (
                   <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                    <Badge tone={a.status === 'Active' ? 'success' : 'danger'}>{a.status}</Badge>
-                    <Select
-                      className="max-w-[8rem] text-xs"
-                      value={a.status}
-                      onChange={(e) =>
-                        updateAgency(a.id, { status: e.target.value as Agency['status'] })
-                      }
-                      aria-label={`Status for ${a.name}`}
-                    >
-                      <option value="Active">Active</option>
-                      <option value="Suspended">Suspended</option>
-                    </Select>
+                    <Badge tone={agencyStatusBadgeTone(a.status)}>{a.status}</Badge>
+                    {a.status !== 'Cancelled' ? (
+                      <Select
+                        className="max-w-[8rem] text-xs"
+                        value={a.status}
+                        onChange={(e) =>
+                          updateAgency(a.id, { status: e.target.value as Agency['status'] })
+                        }
+                        aria-label={`Status for ${a.name}`}
+                      >
+                        <option value="Active">Active</option>
+                        <option value="Suspended">Suspended</option>
+                      </Select>
+                    ) : null}
                   </div>
                 ),
               },
@@ -180,6 +233,18 @@ export default function AdminAgenciesPage() {
                       <Pencil className="h-4 w-4" strokeWidth={ICON_STROKE} />
                       Edit
                     </Button>
+                    {a.status !== 'Cancelled' ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        className="min-h-11 cursor-pointer text-accent-600"
+                        onClick={() => void handleCancelAgency(a)}
+                        aria-label={`Delete ${a.name}`}
+                      >
+                        <Trash2 className="h-4 w-4" strokeWidth={ICON_STROKE} />
+                      </Button>
+                    ) : null}
                   </div>
                 ),
               },
@@ -194,7 +259,7 @@ export default function AdminAgenciesPage() {
                     <p className="font-semibold text-ink">{a.name}</p>
                     <p className="text-xs text-ink-500">{a.slug} · {a.city}</p>
                   </div>
-                  <Badge tone={a.status === 'Active' ? 'success' : 'danger'}>{a.status}</Badge>
+                  <Badge tone={agencyStatusBadgeTone(a.status)}>{a.status}</Badge>
                 </div>
                 <dl className="mt-3 grid grid-cols-3 gap-2 text-xs">
                   <div>

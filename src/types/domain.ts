@@ -108,7 +108,7 @@ export type Agency = {
   name: string
   slug: string
   city: string
-  status: 'Active' | 'Suspended'
+  status: 'Active' | 'Suspended' | 'Cancelled'
   createdAt: string
   /** Modules this agency’s staff may use (intersected with role permissions). */
   enabledPermissions: Permission[]

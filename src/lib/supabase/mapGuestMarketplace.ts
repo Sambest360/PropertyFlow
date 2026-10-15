@@ -15,6 +15,7 @@ import {
 } from './idMap'
 import { canonicalListingId, unitIdForProperty } from '../listingIds'
 import { resolvePropertyType } from '../propertyType'
+import { mapAgencyStatusFromDb } from '../agencyStatus'
 
 type RoleDb =
   | 'SUPER_ADMIN'
@@ -86,7 +87,7 @@ export function mapGuestMarketplacePayload(payload: {
       name: String(c.company_name),
       slug: String(c.subdomain),
       city: String(c.city ?? ''),
-      status: c.status === 'active' ? 'Active' : 'Suspended',
+      status: mapAgencyStatusFromDb(String(c.status)),
       createdAt: dateOnly(c.created_at as string),
       enabledPermissions: null as null,
     }))

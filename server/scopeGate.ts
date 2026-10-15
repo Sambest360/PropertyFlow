@@ -202,7 +202,8 @@ async function resolveAgencySuspended(agencyId: string | null): Promise<boolean>
     `SELECT status FROM clients WHERE id = $1::uuid LIMIT 1`,
     [clientUuid],
   )
-  return rows[0]?.status === 'suspended' || rows[0]?.status === 'Suspended'
+  const st = String(rows[0]?.status ?? '').toLowerCase()
+  return st === 'suspended' || st === 'cancelled'
 }
 
 /** Enrich actor agency from DB user row when header omitted; normalize UUID → FE. */
@@ -1066,6 +1067,24 @@ export async function resolveActorUsersManage(actor: DemoActor): Promise<boolean
   return effectiveCan(actor.role, 'users.manage', agencyEnabled, userEnabled)
 }
 
+/** Cancelled agencies and status → Cancelled are super-admin only. */
+export async function enforceAgencyWritePolicy(actor: DemoActor, body: PersistBody): Promise<void> {
+  const deny = (why: string) =>
+    forbiddenError(`Forbidden: ${actor.role} ${actor.userId} cannot ${body.action} agency ${body.id} (${why})`)
+  if (actor.role === 'super_admin') return
+  const data = body.data ?? {}
+  const nextStatus = strField(data, 'status')
+  if (nextStatus === 'Cancelled') throw deny('only a super admin may cancel an agency')
+  const clientUuid = await resolveUuid('agency', body.id)
+  if (!clientUuid) return
+  const rows = await query<{ status: string }>(
+    `SELECT status FROM clients WHERE id = $1::uuid LIMIT 1`,
+    [clientUuid],
+  )
+  const st = String(rows[0]?.status ?? '').toLowerCase()
+  if (st === 'cancelled') throw deny('agency is cancelled; only a super admin may update it')
+}
+
 export async function assertSupportTicketAllowed(
   actor: DemoActor,
   body: PersistBody,
@@ -1214,6 +1233,10 @@ export async function assertPersistAllowed(
     // Users have their own policy (may strip privileged fields from body.data).
     await enforceUserWritePolicy(actor, body, existing)
     return {}
+  }
+
+  if (body.resource === 'agency') {
+    await enforceAgencyWritePolicy(actor, body)
   }
 
   if (TRUST_RESOURCES.has(body.resource)) {

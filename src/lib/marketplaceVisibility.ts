@@ -1,4 +1,4 @@
-import type { Unit } from '../data/infrastructure'
+import type { Building, Unit } from '../data/infrastructure'
 import type { AppUser, PropertyAsset } from '../types/domain'
 import { resolveUnitForProperty } from './applicationApi'
 import {
@@ -6,6 +6,9 @@ import {
   PUBLIC_LISTING_STATUSES,
   PUBLIC_UNIT_STATUS_KEYS,
 } from './publicListings'
+import { resolvePortfolioStatus, type StandardPropertyStatus } from './propertyStatus'
+
+const PUBLIC_PROPERTY_STATUSES: PropertyAsset['status'][] = ['Published', 'Featured', 'Under Offer']
 
 /** Unit row fields that match a published property status (same rules as publishProperty). */
 export function expectedMarketplaceUnitFields(
@@ -22,6 +25,30 @@ export function expectedMarketplaceUnitFields(
         ? 'UNDER_OFFER'
         : 'PUBLISHED'
   return { statusKey, listingType }
+}
+
+/** Same unit status + listingType mapping as publishProperty. */
+export function computeUnitPatchForPropertyStatus(
+  property: PropertyAsset,
+  unit: Unit | undefined,
+  status: PropertyAsset['status'],
+): Unit | null {
+  if (!unit) return null
+  const unitListingType: Unit['listingType'] =
+    property.listingMode === 'sale' ? 'sale' : property.listingMode === 'both' ? 'both' : 'rent'
+  const nextUnitStatus: Unit['statusKey'] = PUBLIC_PROPERTY_STATUSES.includes(status)
+    ? status === 'Featured'
+      ? 'FEATURED'
+      : status === 'Under Offer'
+        ? 'UNDER_OFFER'
+        : 'PUBLISHED'
+    : property.status === 'Rented'
+      ? 'OCCUPIED'
+      : property.status === 'Maintenance'
+        ? 'MAINTENANCE'
+        : 'DRAFT'
+  if (unit.statusKey === nextUnitStatus && unit.listingType === unitListingType) return null
+  return { ...unit, statusKey: nextUnitStatus, listingType: unitListingType }
 }
 
 /**
@@ -49,7 +76,6 @@ export function repairUnitsForMarketplaceVisibility(
   }
   return units.map((u) => byId.get(u.id) ?? u)
 }
-import { resolvePortfolioStatus, type StandardPropertyStatus } from './propertyStatus'
 
 export type GuestMarketplaceBlock = {
   message: string
@@ -63,6 +89,48 @@ const LIVE_PORTFOLIO_LABELS = new Set<StandardPropertyStatus>([
   'Under Offer',
 ])
 
+function landlordVerificationBlock(
+  landlordId: string | null | undefined,
+  users: AppUser[] | undefined,
+  scope: 'property' | 'building',
+): GuestMarketplaceBlock | null {
+  if (!landlordId || !users?.length) return null
+  const landlord = users.find((u) => u.id === landlordId)
+  const v = landlord?.verification?.status
+  const who = landlord?.name ?? 'owner'
+  const prefix =
+    scope === 'building'
+      ? `The building’s linked landlord (${who})`
+      : `The linked landlord (${who})`
+  if (v === 'pending') {
+    return {
+      message: `${prefix} is pending document verification. Signed-out visitors will not see this listing until a Super Admin approves them.`,
+      landlordUserId: landlordId,
+    }
+  }
+  if (v === 'rejected') {
+    return {
+      message: `${prefix} was rejected. Guests cannot browse this listing until verification is resolved or the property is agency-owned.`,
+      landlordUserId: landlordId,
+    }
+  }
+  return null
+}
+
+/** Mirrors Supabase get_public_marketplace_bootstrap* building landlord filter. */
+export function buildingBlocksGuestMarketplace(
+  property: PropertyAsset,
+  buildings: Building[] | undefined,
+  users: AppUser[] | undefined,
+): GuestMarketplaceBlock | null {
+  const buildingId = property.buildingId?.trim()
+  if (!buildingId || !buildings?.length) return null
+  const building = buildings.find((b) => b.id === buildingId)
+  if (!building?.landlordId) return null
+  if (property.landlordId && property.landlordId === building.landlordId) return null
+  return landlordVerificationBlock(building.landlordId, users, 'building')
+}
+
 /** Staff portfolio shows Available/Featured/Under Offer while guests may still be blocked. */
 export function portfolioLabelLooksLive(
   property: PropertyAsset,
@@ -73,14 +141,23 @@ export function portfolioLabelLooksLive(
   return LIVE_PORTFOLIO_LABELS.has(label)
 }
 
+export type GuestMarketplaceBlockOpts = {
+  units?: Unit[]
+  users?: AppUser[]
+  buildings?: Building[]
+}
+
 /**
  * Why signed-out /browse and GET /api/public/marketplace omit this listing.
- * Returns null when guests would see it (same rules as isPubliclyListed).
+ * Returns null when guests would see it (same rules as isPubliclyListed + building landlord).
  */
 export function getGuestMarketplaceBlockReason(
   property: PropertyAsset,
-  opts?: { units?: Unit[]; users?: AppUser[] },
+  opts?: GuestMarketplaceBlockOpts,
 ): GuestMarketplaceBlock | null {
+  const buildingBlock = buildingBlocksGuestMarketplace(property, opts?.buildings, opts?.users)
+  if (buildingBlock) return buildingBlock
+
   if (isPubliclyListed(property, opts)) return null
 
   if (property.deletedAt) {
@@ -113,22 +190,12 @@ export function getGuestMarketplaceBlockReason(
     }
   }
 
-  if (property.landlordId && opts?.users?.length) {
-    const landlord = opts.users.find((u) => u.id === property.landlordId)
-    const v = landlord?.verification?.status
-    if (v === 'pending') {
-      return {
-        message: `The linked landlord (${landlord?.name ?? 'owner'}) is pending document verification. Signed-out visitors will not see this listing until a Super Admin approves them.`,
-        landlordUserId: property.landlordId,
-      }
-    }
-    if (v === 'rejected') {
-      return {
-        message: `The linked landlord (${landlord?.name ?? 'owner'}) was rejected. Guests cannot browse this listing until verification is resolved or the property is agency-owned.`,
-        landlordUserId: property.landlordId,
-      }
-    }
-  }
+  const propertyLandlordBlock = landlordVerificationBlock(
+    property.landlordId,
+    opts?.users,
+    'property',
+  )
+  if (propertyLandlordBlock) return propertyLandlordBlock
 
   return {
     message:
@@ -141,10 +208,12 @@ export function guestVisibleAfterPublish(
   property: PropertyAsset,
   unit: Unit | undefined,
   users: AppUser[],
+  buildings?: Building[],
 ): boolean {
   const published: PropertyAsset = { ...property, status: 'Published' }
   const units = unit
     ? [{ ...unit, statusKey: 'PUBLISHED' as Unit['statusKey'] }]
     : []
+  if (buildingBlocksGuestMarketplace(published, buildings, users)) return false
   return isPubliclyListed(published, { units, users })
 }

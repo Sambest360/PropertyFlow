@@ -31,6 +31,7 @@ import { deriveAgencyContractors } from '../src/lib/contractors.js'
 import type { Lead } from '../src/types/domain.js'
 import { hydrateDocumentsFromUploadedJson } from '../src/lib/hydrateApplicationDocs.js'
 import { normalizeApplication } from '../src/lib/applicationWorkflow.js'
+import { mapAgencyStatusFromDb } from '../src/lib/agencyStatus.js'
 
 /** Global config client id — mirrors src/data/platformLookups. */
 const GLOBAL_CLIENT_ID = 'global'
@@ -569,7 +570,7 @@ export async function buildBootstrap(opts?: {
     name: c.company_name,
     slug: c.subdomain,
     city: c.city ?? '',
-    status: c.status === 'active' ? 'Active' : 'Suspended',
+    status: mapAgencyStatusFromDb(c.status),
     createdAt: dateOnly(c.created_at),
     enabledPermissions: null as null, // AppStore fills defaults
   }))

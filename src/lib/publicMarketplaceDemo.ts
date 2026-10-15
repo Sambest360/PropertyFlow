@@ -28,5 +28,15 @@ export function emptyPublicMarketplaceBootstrap(): PostgresBootstrap {
     propertyEvents: [],
     invoices: [],
     lookups: [],
+    marketplaceFetchFailed: false,
+  }
+}
+
+export function emptyPublicMarketplaceBootstrapWithReason(
+  marketplaceFetchFailed: boolean,
+): PostgresBootstrap {
+  return {
+    ...emptyPublicMarketplaceBootstrap(),
+    marketplaceFetchFailed,
   }
 }

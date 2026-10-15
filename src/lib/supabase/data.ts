@@ -22,6 +22,7 @@ import { normalizeApplication } from '../applicationWorkflow'
 import { canonicalListingId, unitIdForProperty } from '../listingIds'
 import { resolvePropertyType } from '../propertyType'
 import { deriveAgencyContractors } from '../contractors'
+import { mapAgencyStatusFromDb } from '../agencyStatus'
 import { mapRoutesToFe } from '../messaging/modeA'
 
 type RoleDb =
@@ -482,7 +483,7 @@ export async function fetchSupabaseBootstrap(
     name: c.company_name,
     slug: c.subdomain,
     city: c.city ?? '',
-    status: c.status === 'active' ? 'Active' : 'Suspended',
+    status: mapAgencyStatusFromDb(c.status),
     createdAt: dateOnly(c.created_at),
     enabledPermissions: null as null,
   }))

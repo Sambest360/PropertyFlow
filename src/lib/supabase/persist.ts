@@ -9,6 +9,7 @@ import { ROLE_TO_DB } from './idMap'
 
 import { canonicalListingId, unitIdForProperty, listingIdAliases } from '../listingIds'
 import { propertyTypeToDb } from '../propertyType'
+import { mapAgencyStatusToDb } from '../agencyStatus'
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -228,7 +229,7 @@ async function upsertAgency(id: string, data: Record<string, unknown>): Promise<
     id: uuid,
     company_name: str(data.name, 'Agency'),
     subdomain: str(data.slug, id),
-    status: str(data.status).toLowerCase() === 'suspended' ? 'suspended' : 'active',
+    status: mapAgencyStatusToDb(str(data.status, 'Active') as 'Active' | 'Suspended' | 'Cancelled'),
     city: str(data.city),
     settings: {
       frontend_id: id,
