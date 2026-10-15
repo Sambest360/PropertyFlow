@@ -1,0 +1,24 @@
+# Free local Postgres for Letkaya (dev). Does not use AWS billing.
+# Start: npm run db:up && npm run db:reset
+# Connection matches .env.local DATABASE_URL (port 5433 avoids ServBay on 5432).
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: propertyflow-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: propertyflow
+      POSTGRES_PASSWORD: propertyflow
+      POSTGRES_DB: propertyflow
+    ports:
+      - "5433:5432"
+    volumes:
+      - propertyflow_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U propertyflow -d propertyflow"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  propertyflow_pgdata:
