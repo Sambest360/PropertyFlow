@@ -30,6 +30,11 @@ import type { AssetCondition } from '../data/infrastructure'
 import { isVerificationApproved } from '../lib/verification'
 import { validatePropertyReadyToPublish } from '../lib/propertyStatus'
 import {
+  getGuestMarketplaceBlockReason,
+  guestVisibleAfterPublish,
+  portfolioLabelLooksLive,
+} from '../lib/marketplaceVisibility'
+import {
   canDeletePropertyRole,
   getPropertyDeleteBlockReason,
   isPropertyDeleted,
@@ -233,11 +238,28 @@ export default function PropertyDetail() {
 
   const publishBlockedReason = validatePropertyReadyToPublish(p)
 
+  const guestMarketplaceBlock = useMemo(() => {
+    if (!p || !portfolioLabelLooksLive(p, unit?.statusKey)) return null
+    return getGuestMarketplaceBlockReason(p, { units: state.units, users: state.users })
+  }, [p, unit?.statusKey, state.units, state.users])
+
   const handleMakeLive = async () => {
     const blockReason = validatePropertyReadyToPublish(p)
     if (blockReason) {
       await sweetWarning('Not ready to publish', blockReason)
       return
+    }
+    if (
+      !guestVisibleAfterPublish(p, unit, state.users) &&
+      p.landlordId &&
+      state.users.find((u) => u.id === p.landlordId)?.verification?.status === 'pending'
+    ) {
+      const proceed = await sweetConfirm(
+        'Landlord not verified yet',
+        'This listing can go live in your portfolio, but signed-out visitors will not see it on /browse until the linked landlord is approved. Publish anyway?',
+        'Publish anyway',
+      )
+      if (!proceed) return
     }
     setPublishBusy(true)
     try {
@@ -246,6 +268,24 @@ export default function PropertyDetail() {
         await sweetWarning(
           'Could not publish',
           'The listing status did not save. Try again from this page.',
+        )
+        return
+      }
+      const stillHidden = getGuestMarketplaceBlockReason(
+        { ...p, status: 'Published' },
+        {
+          units: unit
+            ? state.units.map((u) =>
+                u.id === unit.id ? { ...u, statusKey: 'PUBLISHED' } : u,
+              )
+            : state.units,
+          users: state.users,
+        },
+      )
+      if (stillHidden) {
+        await sweetWarning(
+          'Saved, but hidden from guests',
+          stillHidden.message,
         )
         return
       }
@@ -268,7 +308,7 @@ export default function PropertyDetail() {
     if (!ok) return
     setDeleteBusy(true)
     try {
-      const result = deleteProperty(p.id)
+      const result = await deleteProperty(p.id)
       if (result.ok === false) {
         await sweetWarning('Could not delete', result.reason)
         return
@@ -322,6 +362,7 @@ export default function PropertyDetail() {
         onRestore={isPropertyDeleted(p) ? handleRestore : undefined}
         deleteBusy={deleteBusy}
         onToggleFeatured={() => updateProperty(p.id, { featured: !p.featured })}
+        guestMarketplaceBlock={guestMarketplaceBlock}
       />
 
       <div className="sticky top-0 z-20 -mx-1 mb-5 bg-white/95 px-1 backdrop-blur-md">

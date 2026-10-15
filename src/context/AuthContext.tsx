@@ -565,6 +565,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           if (isSupabaseMode) {
             const appUser = await supabaseSignIn(email, password)
+            const { writeAuthToken } = await import('../lib/api/authClient')
+            writeAuthToken(null)
             const mustChange = appUser.mustChangePassword === true
             setMustChangePassword(mustChange)
             setSessionUser(appUser)

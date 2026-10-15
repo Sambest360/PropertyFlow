@@ -105,7 +105,12 @@ export function PropertyOverviewPanel({
         <div className="flex min-w-0 flex-col gap-6">
           <section>
             <h2 className="font-semibold text-ink">About</h2>
-            <ExpandableDescription text={property.description} className="mt-2" />
+            <ExpandableDescription
+              text={property.description}
+              className="mt-2"
+              containExpandedScroll
+              expandedMaxHeightClass="max-h-[min(18rem,40vh)]"
+            />
             <div className="mt-4">
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-400">
                 Features

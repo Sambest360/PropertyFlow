@@ -1,6 +1,10 @@
 import type { AssetCondition, Building, InfraRoom, InternalAsset, RoomKind } from '../data/infrastructure'
 import type { PropertyAsset, Room } from '../types/domain'
 import { uid } from '../data/seed'
+import { togglePropertyFeature, type ListingMode } from './propertyFeatures'
+import { summarizeRooms } from './roomSummary'
+
+export const UNFURNISHED_AMENITY_LABEL = 'Unfurnished'
 
 export type WizardRoomDraft = {
   id: string
@@ -51,6 +55,10 @@ export type PropertyWizardDraft = {
   draftPropertyId: string
   /** In-unit inventory captured at the Assets step (P1-2); matched to rooms on save. */
   starterAssets: WizardAssetDraft[]
+  /** When true, rooms use the no-bedroom open-plan preset (0 beds on listings). */
+  listingUnfurnished?: boolean
+  /** Restored when turning off unfurnished / no-bedroom mode. */
+  roomsBeforeUnfurnished?: WizardRoomDraft[]
 }
 
 export function defaultWizardRooms(): WizardRoomDraft[] {
@@ -60,6 +68,65 @@ export function defaultWizardRooms(): WizardRoomDraft[] {
     { id: uid('r'), name: 'Kitchen', kind: 'kitchen', beds: 0, baths: 0, areaSqm: '' },
     { id: uid('r'), name: 'Lounge', kind: 'living', beds: 0, baths: 0, areaSqm: '' },
   ]
+}
+
+/** Open-plan layout with no bedroom rooms — 0 bedrooms on marketplace cards. */
+export function defaultUnfurnishedWizardRooms(): WizardRoomDraft[] {
+  return [
+    { id: uid('r'), name: 'Open plan living', kind: 'living', beds: 0, baths: 0, areaSqm: '' },
+    { id: uid('r'), name: 'Bathroom', kind: 'bathroom', beds: 0, baths: 1, areaSqm: '' },
+    { id: uid('r'), name: 'Kitchen', kind: 'kitchen', beds: 0, baths: 0, areaSqm: '' },
+  ]
+}
+
+export function unfurnishedBedroomCount(rooms: WizardRoomDraft[]): number {
+  return summarizeRooms(rooms.map((r) => ({ kind: r.kind, beds: r.beds, baths: r.baths }))).bedrooms
+}
+
+export function applyUnfurnishedListingPreset(
+  draft: PropertyWizardDraft,
+  listingMode: ListingMode | PropertyWizardDraft['listingMode'],
+): PropertyWizardDraft {
+  const snapshot = draft.roomsBeforeUnfurnished ?? draft.rooms
+  let amenities = draft.amenities
+  if (listingMode === 'rent' || listingMode === 'both') {
+    amenities = togglePropertyFeature(amenities, UNFURNISHED_AMENITY_LABEL, listingMode)
+  }
+  return {
+    ...draft,
+    listingUnfurnished: true,
+    roomsBeforeUnfurnished: snapshot,
+    rooms: defaultUnfurnishedWizardRooms(),
+    amenities,
+    starterAssets: [],
+  }
+}
+
+export function clearUnfurnishedListingPreset(draft: PropertyWizardDraft): PropertyWizardDraft {
+  const furnishingLabels = new Set(['Furnished', 'Semi-furnished', UNFURNISHED_AMENITY_LABEL])
+  return {
+    ...draft,
+    listingUnfurnished: false,
+    rooms: draft.roomsBeforeUnfurnished?.length ? draft.roomsBeforeUnfurnished : defaultWizardRooms(),
+    roomsBeforeUnfurnished: undefined,
+    amenities: draft.amenities.filter((a) => !furnishingLabels.has(a)),
+  }
+}
+
+/** Amenities step: selecting Unfurnished applies the room preset; clearing it restores bedrooms. */
+export function draftAfterAmenitiesChange(
+  draft: PropertyWizardDraft,
+  amenities: string[],
+): PropertyWizardDraft {
+  const had = draft.amenities.includes(UNFURNISHED_AMENITY_LABEL)
+  const has = amenities.includes(UNFURNISHED_AMENITY_LABEL)
+  if (has && !had && (draft.listingMode === 'rent' || draft.listingMode === 'both')) {
+    return applyUnfurnishedListingPreset({ ...draft, amenities }, draft.listingMode)
+  }
+  if (!has && (had || draft.listingUnfurnished)) {
+    return { ...clearUnfurnishedListingPreset({ ...draft, amenities }), amenities }
+  }
+  return { ...draft, amenities }
 }
 
 function roomsFromProperty(infraRooms: InfraRoom[], propertyRooms: Room[]): WizardRoomDraft[] {
@@ -166,5 +233,6 @@ export function draftFromProperty(
     // Edit mode manages existing inventory on the detail page's inventory tab;
     // the wizard's starter list stays empty so nothing is duplicated on save.
     starterAssets: [],
+    listingUnfurnished: property.amenities?.includes(UNFURNISHED_AMENITY_LABEL) ?? false,
   }
 }

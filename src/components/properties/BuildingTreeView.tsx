@@ -10,6 +10,7 @@ import { gradingLabel } from '../../lib/buildingGrading'
 import {
   STANDALONE_BUILDING_KEY,
   groupPortfolioByBuilding,
+  shouldUseBuildingGroupChrome,
   type BuildingPortfolioGroup,
 } from '../../lib/buildingHierarchy'
 import { Badge, cn } from '../ui'
@@ -157,6 +158,17 @@ export function BuildingTreeView({
   return (
     <div className="space-y-3">
       {groups.map((group) => {
+        if (!shouldUseBuildingGroupChrome(group)) {
+          return (
+            <PropertyListView
+              key={group.key}
+              items={group.items}
+              rowLinksToDetail
+              reducedMotion={reducedMotion}
+            />
+          )
+        }
+
         const open = expandedBuildings.has(group.key)
         return (
           <div key={group.key} className="space-y-2">

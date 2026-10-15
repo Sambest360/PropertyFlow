@@ -104,7 +104,17 @@ describe('isPubliclyListed', () => {
     }
     expect(isPubliclyListed(p, { units: [], users: [landlord] as never })).toBe(false)
   })
-})
+
+  it('approved landlord allows a published listing on the market', () => {
+    const p = baseProperty({ status: 'Published', landlordId: 'll-2' })
+    const landlord = {
+      id: 'll-2',
+      verification: { status: 'approved' as const },
+    }
+    expect(
+      isPubliclyListed(p, { units: [baseUnit()], users: [landlord] as never }),
+    ).toBe(true)
+  })
 
   it('OFF_MARKET unit status is not publicly listed (Draft/OFF_MARKET alignment)', () => {
     const p = baseProperty({ status: 'Published' })
@@ -127,4 +137,4 @@ describe('isPubliclyListed', () => {
     const p = baseProperty({ status: 'Published', landlordId: '' })
     expect(isPubliclyListed(p, { units: [baseUnit()], users: [] })).toBe(true)
   })
-
+})

@@ -695,7 +695,12 @@ export default function ListingDetail() {
 
             <div className="border-b border-primary-100 py-6">
               <h2 className="text-lg font-semibold">About this property</h2>
-              <ExpandableDescription text={p.description} className="mt-3" />
+              <ExpandableDescription
+                text={p.description}
+                className="mt-3"
+                containExpandedScroll
+                expandedMaxHeightClass="max-h-[min(18rem,40vh)]"
+              />
             </div>
 
             {p.rooms.length > 0 && (

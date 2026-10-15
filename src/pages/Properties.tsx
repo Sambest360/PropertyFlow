@@ -27,6 +27,7 @@ import {
   groupPortfolioByBuilding,
   propertyMatchesBuildingFilter,
   propertyMatchesOccupancyFilter,
+  shouldUseBuildingGroupChrome,
 } from '../lib/buildingHierarchy'
 import {
   portfolioPropertyMatchesSearchQuery,
@@ -374,28 +375,36 @@ export default function Properties() {
         </Card>
       ) : (
         <div className="space-y-6">
-          {groupPortfolioByBuilding(filtered, state.buildings).map((group) => (
-            <div key={group.key}>
-              <div className="mb-3 flex flex-wrap items-baseline gap-2">
-                <h2 className="font-display text-lg font-semibold text-ink">{group.label}</h2>
-                <p className="text-xs font-medium text-ink-400">
-                  {group.unitCount} {group.unitCount === 1 ? 'unit' : 'units'}
-                  {group.suburbCity ? ` · ${group.suburbCity}` : ''}
-                </p>
+          {groupPortfolioByBuilding(filtered, state.buildings).map((group) => {
+            const cards = group.items.map((item) => (
+              <PropertyPortfolioCard
+                key={item.property.id}
+                item={item}
+                expanded={expandedId === item.property.id}
+                onToggle={toggleExpand}
+                reducedMotion={reducedMotion}
+              />
+            ))
+            if (!shouldUseBuildingGroupChrome(group)) {
+              return (
+                <div key={group.key} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  {cards}
+                </div>
+              )
+            }
+            return (
+              <div key={group.key}>
+                <div className="mb-3 flex flex-wrap items-baseline gap-2">
+                  <h2 className="font-display text-lg font-semibold text-ink">{group.label}</h2>
+                  <p className="text-xs font-medium text-ink-400">
+                    {group.unitCount} {group.unitCount === 1 ? 'unit' : 'units'}
+                    {group.suburbCity ? ` · ${group.suburbCity}` : ''}
+                  </p>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{cards}</div>
               </div>
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {group.items.map((item) => (
-                  <PropertyPortfolioCard
-                    key={item.property.id}
-                    item={item}
-                    expanded={expandedId === item.property.id}
-                    onToggle={toggleExpand}
-                    reducedMotion={reducedMotion}
-                  />
-                ))}
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 

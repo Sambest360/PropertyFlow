@@ -4,6 +4,7 @@ import type { InternalAsset, LookupConfig } from '../../data/infrastructure'
 import type { MaintenanceTicket } from '../../types/domain'
 import { ImageDropzone } from '../ImageDropzone'
 import { ContractorPicker } from '../contractors/ContractorPicker'
+import { SmartTextEditor } from '../editor/SmartTextEditor'
 import { Button, Input, Modal, Select, Textarea } from '../ui'
 
 const TAGS = ['leak', 'no hot water', 'electrical', 'access', 'safety', 'noise', 'pest', 'structural']
@@ -127,15 +128,14 @@ export function EditTicketModal({
           Title
           <Input className="mt-1 min-h-11" value={title} onChange={(e) => setTitle(e.target.value)} required />
         </label>
-        <label className="block text-xs font-medium text-ink-500 sm:col-span-2">
-          Description
-          <Textarea
-            className="mt-1 min-h-[6rem]"
+        <div className="sm:col-span-2">
+          <SmartTextEditor
+            label="Description"
+            variant="operational"
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Symptoms, when it started, what was tried…"
+            onChange={setDescription}
           />
-        </label>
+        </div>
         <label className="block text-xs font-medium text-ink-500">
           Priority
           <Select className="mt-1 min-h-11 w-full" value={priority} onChange={(e) => setPriority(e.target.value as Priority)}>

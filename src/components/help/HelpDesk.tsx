@@ -8,6 +8,7 @@ import { useMemo, useState, type FormEvent } from 'react'
 import { CheckCircle2, Inbox, Send } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useStore } from '../../context/AppStore'
+import { SmartTextEditor } from '../editor/SmartTextEditor'
 import { Badge, Button, Card, Input, Textarea } from '../ui'
 import {
   SUPPORT_BODY_MAX,
@@ -187,18 +188,15 @@ export function HelpDesk() {
                 data-testid="help-ticket-subject"
               />
             </label>
-            <label className="block text-sm font-medium text-ink">
-              What do you need help with?
-              <Textarea
-                className="mt-1"
-                rows={5}
+            <div data-testid="help-ticket-body">
+              <SmartTextEditor
+                label="What do you need help with?"
+                variant="operational"
                 value={body}
+                onChange={setBody}
                 maxLength={SUPPORT_BODY_MAX}
-                onChange={(e) => setBody(e.target.value)}
-                required
-                data-testid="help-ticket-body"
               />
-            </label>
+            </div>
             {submitMsg ? (
               <p
                 role={submitMsg.tone === 'error' ? 'alert' : 'status'}

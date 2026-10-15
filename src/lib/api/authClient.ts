@@ -63,6 +63,29 @@ export function authHeaders(): Record<string, string> {
   return { Authorization: `Bearer ${token}` }
 }
 
+/**
+ * Authorization for same-origin /api/* calls. Supabase mode must send the GoTrue
+ * access token — never a stale propertyflow-auth-token from API-mode Neon.
+ */
+export async function resolveApiAuthorizationHeader(): Promise<Record<string, string>> {
+  if (!isSupabaseMode) return authHeaders()
+  try {
+    const { createClient } = await import('../../utils/supabase/client')
+    const supabase = createClient()
+    let session = (await supabase.auth.getSession()).data.session
+    if (!session?.access_token) {
+      const refreshed = await supabase.auth.refreshSession()
+      session = refreshed.data.session ?? session
+    }
+    if (session?.access_token) {
+      return { Authorization: `Bearer ${session.access_token}` }
+    }
+  } catch {
+    /* ignore */
+  }
+  return {}
+}
+
 async function parseJson<T>(res: Response): Promise<T> {
   const data = (await res.json().catch(() => ({}))) as T & { message?: string; error?: string }
   if (!res.ok) {

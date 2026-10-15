@@ -313,6 +313,44 @@ export async function findUserById(id: string): Promise<UserRow | null> {
   return rows[0] ?? null
 }
 
+export async function findUserByAuthUserId(authUserId: string): Promise<UserRow | null> {
+  const rows = await query<UserRow>(
+    `SELECT u.id, u.email, u.password_hash, u.first_name, u.last_name, u.phone, u.role,
+            u.active, u.client_id, u.metadata,
+            COALESCE(c.settings->>'frontend_id', c.id::text) AS agency_fe
+     FROM users u
+     LEFT JOIN clients c ON c.id = u.client_id
+     WHERE u.auth_user_id = $1::uuid
+     LIMIT 1`,
+    [authUserId],
+  )
+  return rows[0] ?? null
+}
+
+/** Validate a Supabase access token (GoTrue) and load the linked public.users session. */
+export async function resolveSessionFromSupabaseAccessToken(
+  accessToken: string,
+): Promise<SessionUser | null> {
+  const {
+    resolveSupabasePublishableKeyForGoTrue,
+    resolveSupabaseUrlForGoTrue,
+    supabaseAuthConfigured,
+  } = await import('./supabase/env.js')
+  if (!supabaseAuthConfigured()) return null
+  const base = resolveSupabaseUrlForGoTrue()
+  const key = resolveSupabasePublishableKeyForGoTrue()
+  if (!base || !key) return null
+  const goTrue = await fetch(`${base}/auth/v1/user`, {
+    headers: { apikey: key, Authorization: `Bearer ${accessToken}` },
+  }).catch(() => null)
+  if (!goTrue?.ok) return null
+  const goTrueUser = (await goTrue.json().catch(() => ({}))) as { id?: string }
+  if (!goTrueUser.id) return null
+  const row = await findUserByAuthUserId(goTrueUser.id)
+  if (!row || !row.active) return null
+  return rowToSession(row)
+}
+
 async function countUsers(): Promise<number> {
   const rows = await query<{ n: string }>('SELECT COUNT(*)::text AS n FROM users')
   return Number(rows[0]?.n ?? 0)
@@ -364,11 +402,13 @@ async function resolveSessionUserUncached(c: Context): Promise<SessionUser | nul
   const token = readBearerOrCookie(c)
   if (!token) return null
   const payload = verifyToken(token)
-  if (!payload) return null
-  const row = await findUserById(payload.sub)
-  if (!row || !row.active) return null
-  if (tokenRevokedByPasswordChange(payload.iat, row.metadata)) return null
-  return rowToSession(row)
+  if (payload) {
+    const row = await findUserById(payload.sub)
+    if (!row || !row.active) return null
+    if (tokenRevokedByPasswordChange(payload.iat, row.metadata)) return null
+    return rowToSession(row)
+  }
+  return resolveSessionFromSupabaseAccessToken(token)
 }
 
 /** Attach session actor headers for downstream persist gates when Authorization cookie present. */

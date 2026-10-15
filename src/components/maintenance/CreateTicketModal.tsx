@@ -6,6 +6,7 @@ import type { InternalAsset, LookupConfig } from '../../data/infrastructure'
 import { PropertySearchPicker } from '../PropertySearchPicker'
 import { ImageDropzone } from '../ImageDropzone'
 import { ContractorPicker } from '../contractors/ContractorPicker'
+import { SmartTextEditor } from '../editor/SmartTextEditor'
 import { Button, Input, Modal, Select, Textarea, cn } from '../ui'
 
 const ICON_STROKE = 1.6
@@ -179,15 +180,14 @@ export function CreateTicketModal({
             required
           />
         </label>
-        <label className="block text-xs font-medium text-ink-500 sm:col-span-2">
-          Description
-          <Textarea
-            className="mt-1 min-h-[5rem]"
+        <div className="sm:col-span-2">
+          <SmartTextEditor
+            label="Description"
+            variant="operational"
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="What failed, when it started, symptoms, and anything already tried…"
+            onChange={setDescription}
           />
-        </label>
+        </div>
         <label className="block text-xs font-medium text-ink-500">
           Priority
           <Select

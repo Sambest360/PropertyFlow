@@ -7,6 +7,7 @@ import { PropertySearchPicker } from '../PropertySearchPicker'
 import { ImageDropzone } from '../ImageDropzone'
 import { MAX_TICKET_PHOTOS, checkTicketPhotos } from '../../lib/photoLimits'
 import { ContractorPicker } from '../contractors/ContractorPicker'
+import { SmartTextEditor } from '../editor/SmartTextEditor'
 import { Input, Select, Textarea, cn } from '../ui'
 
 export const ISSUE_TAGS = ['leak', 'no hot water', 'electrical', 'access', 'safety', 'noise', 'pest', 'structural']
@@ -241,15 +242,14 @@ export function MaintenanceTicketForm({
         />
       </label>
 
-      <label className="block text-sm font-medium text-ink sm:col-span-2">
-        Description
-        <Textarea
-          className="mt-1.5 min-h-[6rem]"
+      <div className="sm:col-span-2">
+        <SmartTextEditor
+          label="Description"
+          variant="operational"
           value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="What failed, when it started, symptoms, and anything already tried…"
+          onChange={setDescription}
         />
-      </label>
+      </div>
 
       <label className="block text-sm font-medium text-ink">
         Priority

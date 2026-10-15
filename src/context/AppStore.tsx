@@ -634,7 +634,9 @@ type StoreContextValue = {
     status?: PropertyAsset['status'],
     created?: PropertyAsset,
   ) => Promise<boolean>
-  deleteProperty: (id: string) => { ok: true } | { ok: false; reason: string }
+  deleteProperty: (
+    id: string,
+  ) => Promise<{ ok: true } | { ok: false; reason: string }>
   restoreProperty: (id: string) => { ok: true } | { ok: false; reason: string }
   createBuilding: (input: Omit<Building, 'id' | 'createdAt' | 'images'> & { images?: string[] }) => Building
   createUnitFromTemplate: (input: {
@@ -1555,28 +1557,30 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
    *  keeps the optimistic row) and performs ONE Supabase write — not a queued
    *  duplicate plus an awaited one. Resolves false when the write rejected
    *  (RLS, constraint, network) so callers can surface the real error. */
-  const persistUpsert = useCallback(
+  const persistUpsertResult = useCallback(
     async (
       resource: Parameters<typeof queueUpsert>[0],
       id: string,
       data: Record<string, unknown>,
-    ): Promise<boolean> => {
+    ): Promise<import('../lib/api/persist').PersistApiResult> => {
       try {
-        const { canPersistWrites } = await import('../lib/auth/writeGate')
+        const { canPersistWrites, PERSIST_WRITE_GATE_MESSAGE } = await import('../lib/auth/writeGate')
         const { readStoredAuthUserId, getApiActor } = await import('../lib/api/actorAuth')
         const sessionUserId = getApiActor()?.userId ?? readStoredAuthUserId()
         if (!canPersistWrites(hydratedForUserIdRef.current, sessionUserId)) {
-          return false
+          return { ok: false, error: PERSIST_WRITE_GATE_MESSAGE }
         }
         const { markLocalPersistWrite } = await import('../lib/bootstrapMerge')
         markLocalPersistWrite(resource, id)
-        // P0-sync (R11): persistToApi falls back to /api/persist for application
-        // upserts when browser RLS rejects the guest write — staff and guest
-        // must share the same reference_code row (no invent search RPC).
-        const { persistToApi } = await import('../lib/api/persist')
-        const ok = await persistToApi({ resource, action: 'upsert', id, data: { ...data, id } })
+        const { persistToApiDetailed } = await import('../lib/api/persist')
+        const result = await persistToApiDetailed({
+          resource,
+          action: 'upsert',
+          id,
+          data: { ...data, id },
+        })
         if (
-          ok &&
+          result.ok &&
           (resource === 'user' ||
             resource === 'agency' ||
             resource === 'building' ||
@@ -1585,12 +1589,24 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ) {
           scheduleBootstrapRefreshAfterMutation()
         }
-        return ok
+        return result
       } catch {
-        return false
+        return { ok: false, error: 'Could not save. Try again.' }
       }
     },
     [scheduleBootstrapRefreshAfterMutation],
+  )
+
+  const persistUpsert = useCallback(
+    async (
+      resource: Parameters<typeof queueUpsert>[0],
+      id: string,
+      data: Record<string, unknown>,
+    ): Promise<boolean> => {
+      const result = await persistUpsertResult(resource, id, data)
+      return result.ok
+    },
+    [persistUpsertResult],
   )
 
   /**
@@ -2602,12 +2618,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         id: user.id,
         data: { ...(user as unknown as Record<string, unknown>), id: user.id, ...(plain ? { tempPassword: plain } : {}) },
       })
-      const ok = res.ok
-      if (!ok) {
+      if (!res.ok) {
         patch((s) => ({ ...s, users: s.users.filter((u) => u.id !== user.id) }))
+        const serverError = res.ok === false ? res.error : undefined
         return {
           ok: false as const,
           error:
+            serverError ||
             'Could not create a sign-in account for this user. Check the email is unused and try again — no success until Auth is verified.',
           user,
         }
@@ -3103,6 +3120,66 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         rooms: input.property.rooms?.length ? input.property.rooms : propertyRooms,
       }
 
+      const unitPersistBase = {
+        ...unit,
+        agencyId: property.agencyId,
+        landlordId: property.landlordId,
+        unitNumber: input.unit.unitNumber,
+        buildingId: building.id,
+        type: property.type,
+        listingMode: property.listingMode,
+        status: property.status,
+        beds: property.beds,
+        baths: property.baths,
+        area: property.area,
+        images: property.images,
+      } as Record<string, unknown>
+
+      const { persistErrorMessage } = await import('../lib/api/persist')
+
+      const throwPersistFailure = (label: string, message?: string) => {
+        throw new Error(message || `Could not save the ${label}. Try again.`)
+      }
+
+      // P0-5: durable writes before local state — no phantom wizard rows on failure.
+      if (!existingBuilding) {
+        const buildingResult = await persistUpsertResult(
+          'building',
+          building.id,
+          building as unknown as Record<string, unknown>,
+        )
+        if (!buildingResult.ok) {
+          throwPersistFailure('building', persistErrorMessage(buildingResult))
+        }
+      }
+
+      let unitPersistData = { ...unitPersistBase, agentId: unit.agentId }
+      let unitResult = await persistUpsertResult('unit', unit.id, unitPersistData)
+      const unitErr = persistErrorMessage(unitResult)
+      if (
+        !unitResult.ok &&
+        unit.agentId &&
+        (unitErr?.includes('agent not resolved') || unitErr?.toLowerCase().includes('agent'))
+      ) {
+        unitPersistData = { ...unitPersistBase, agentId: null }
+        unitResult = await persistUpsertResult('unit', unit.id, unitPersistData)
+        if (unitResult.ok) {
+          unit.agentId = null
+          property.agentId = null
+        }
+      }
+      if (!unitResult.ok) {
+        throwPersistFailure('unit', persistErrorMessage(unitResult))
+      }
+
+      const propertyResult = await persistUpsertResult('property', property.id, {
+        ...property,
+        unitNumber: input.unit.unitNumber,
+      } as unknown as Record<string, unknown>)
+      if (!propertyResult.ok) {
+        throwPersistFailure('property', persistErrorMessage(propertyResult))
+      }
+
       patch((s) => ({
         ...s,
         buildings: existingBuilding ? s.buildings : [building, ...s.buildings],
@@ -3123,37 +3200,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         recipientUserIds: propertyDeskStakeholderIds(state.users, property),
       })
 
-      // P0-5: serialize building → unit → property; fail closed on upsert false
-      // so the wizard never navigates "live" on a phantom local-only row.
-      if (!existingBuilding) {
-        const buildingOk = await persistUpsert(
-          'building',
-          building.id,
-          building as unknown as Record<string, unknown>,
-        )
-        if (!buildingOk) {
-          throw new Error('Could not save the building. Try again.')
-        }
-      }
-      const unitOk = await persistUpsert('unit', unit.id, {
-        ...unit,
-        agencyId: property.agencyId,
-        landlordId: property.landlordId,
-        unitNumber: input.unit.unitNumber,
-      } as unknown as Record<string, unknown>)
-      if (!unitOk) {
-        throw new Error('Could not save the unit. Try again.')
-      }
       for (const room of infraRooms) {
-        // Rooms are non-gating for listing durability (unit+property are).
         void persistUpsert('room', room.id, room as unknown as Record<string, unknown>)
-      }
-      const propertyOk = await persistUpsert('property', property.id, {
-        ...property,
-        unitNumber: input.unit.unitNumber,
-      } as unknown as Record<string, unknown>)
-      if (!propertyOk) {
-        throw new Error('Could not save the property. Try again.')
       }
 
       return property
@@ -3383,7 +3431,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       // actually flipped to a public state.
       return Boolean(prev && PUBLIC_ON.includes(status))
     },
-    deleteProperty: (id) => {
+    deleteProperty: async (id) => {
       const property = stateRef.current.properties.find((x) => x.id === id)
       if (!property) return { ok: false, reason: 'Property not found.' }
 
@@ -3393,6 +3441,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         stateRef.current.applications,
       )
       if (blockReason) return { ok: false, reason: blockReason }
+
+      const prevUnit = property.unitId
+        ? stateRef.current.units.find((u) => u.id === property.unitId)
+        : undefined
 
       const deletedAt = new Date().toISOString()
       const pe: PropertyEvent = {
@@ -3423,17 +3475,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           : s.units,
       }))
 
-      emitSuiteEvent({
-        agencyId: property.agencyId,
-        resource: 'property',
-        action: 'deleted',
-        title: 'Property deleted',
-        body: `“${property.title}” was moved to the archive.`,
-        link: '/workspace/properties/archive',
-        recipientUserIds: propertyDeskStakeholderIds(state.users, property),
-      })
+      const { persistErrorMessage } = await import('../lib/api/persist')
+      if (property.unitId) {
+        const { markLocalPersistWrite } = await import('../lib/bootstrapMerge')
+        markLocalPersistWrite('unit', property.unitId)
+      }
 
-      persistUpsert('property', id, {
+      const propertyResult = await persistUpsertResult('property', id, {
         ...property,
         deletedAt,
         status: 'Archived',
@@ -3441,8 +3489,34 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         statusKey: 'DELETED',
         listingMode: 'not_listed',
       } as Record<string, unknown>)
-      persistUpsert('property_event', pe.id, pe as unknown as Record<string, unknown>)
-      scheduleBootstrapRefreshAfterMutation()
+      if (!propertyResult.ok) {
+        patch((s) => ({
+          ...s,
+          properties: s.properties.map((x) => (x.id === id ? property : x)),
+          propertyEvents: s.propertyEvents.filter((e) => e.id !== pe.id),
+          units:
+            prevUnit
+              ? s.units.map((u) => (u.id === prevUnit.id ? prevUnit : u))
+              : s.units,
+        }))
+        return {
+          ok: false,
+          reason: persistErrorMessage(propertyResult) ?? 'Could not delete property.',
+        }
+      }
+
+      void persistUpsert('property_event', pe.id, pe as unknown as Record<string, unknown>)
+
+      emitSuiteEvent({
+        agencyId: property.agencyId,
+        resource: 'property',
+        action: 'deleted',
+        title: 'Property deleted',
+        body: `“${property.title}” was moved to the archive.`,
+        link: '/workspace/properties/archive',
+        recipientUserIds: propertyDeskStakeholderIds(stateRef.current.users, property),
+      })
+
       return { ok: true }
     },
     restoreProperty: (id) => {

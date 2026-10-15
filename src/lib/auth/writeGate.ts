@@ -23,3 +23,7 @@ export function assertCanPersistWrites(): boolean {
   const sessionUserId = getApiActor()?.userId ?? readStoredAuthUserId()
   return canPersistWrites(hydratedForUserIdRef, sessionUserId)
 }
+
+/** Shown when bootstrap hydration has not caught up with the signed-in session. */
+export const PERSIST_WRITE_GATE_MESSAGE =
+  'Workspace is still loading. Wait a moment and try again.'

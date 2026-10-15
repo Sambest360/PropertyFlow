@@ -78,6 +78,14 @@ export function groupPortfolioByBuilding<T extends BuildingGroupable>(
   return groups
 }
 
+/** Collapsible building header only for multi-unit groups or dual rent+sale listings. */
+export function shouldUseBuildingGroupChrome<T extends BuildingGroupable>(
+  group: BuildingPortfolioGroup<T>,
+): boolean {
+  if (group.items.some((i) => i.property.listingMode === 'both')) return true
+  return group.unitCount > 1
+}
+
 /** Sibling listed properties that share a building (excludes `propertyId`). */
 export function siblingUnitsInBuilding(
   properties: PropertyAsset[],

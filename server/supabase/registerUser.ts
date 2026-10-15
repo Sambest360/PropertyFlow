@@ -138,18 +138,10 @@ async function goTruePasswordSignIn(
   email: string,
   password: string,
 ): Promise<{ ok: boolean; status: number; userId?: string }> {
-  const base = (
-    process.env.VITE_SUPABASE_URL ||
-    process.env.SUPABASE_URL ||
-    process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    ''
-  ).replace(/\/$/, '')
-  const key =
-    process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-    process.env.VITE_SUPABASE_ANON_KEY ||
-    process.env.SUPABASE_PUBLISHABLE_KEY ||
-    process.env.SUPABASE_ANON_KEY ||
-    ''
+  const { resolveSupabasePublishableKeyForGoTrue, resolveSupabaseUrlForGoTrue } =
+    await import('./env.js')
+  const base = resolveSupabaseUrlForGoTrue()
+  const key = resolveSupabasePublishableKeyForGoTrue()
   if (!base || !key) return { ok: false, status: 0 }
   try {
     const res = await fetch(`${base}/auth/v1/token?grant_type=password`, {

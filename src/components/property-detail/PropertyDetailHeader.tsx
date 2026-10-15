@@ -8,6 +8,7 @@ import type { BuildingGrading } from '../../data/infrastructure'
 import { gradingLabel } from '../../lib/buildingGrading'
 import { resolvePortfolioStatus } from '../../lib/propertyStatus'
 import { isPropertyDeleted } from '../../lib/propertyDeletion'
+import type { GuestMarketplaceBlock } from '../../lib/marketplaceVisibility'
 import { canEditPropertyListing, ICON_STROKE } from './types'
 
 export function PropertyDetailHeader({
@@ -30,6 +31,7 @@ export function PropertyDetailHeader({
   onDelete,
   onRestore,
   deleteBusy,
+  guestMarketplaceBlock,
 }: {
   property: PropertyAsset
   occupancy?: string | null
@@ -51,6 +53,8 @@ export function PropertyDetailHeader({
   onDelete?: () => void
   onRestore?: () => void
   deleteBusy?: boolean
+  /** Staff sees Available but signed-out /browse hides the listing */
+  guestMarketplaceBlock?: GuestMarketplaceBlock | null
 }) {
   const deleted = isPropertyDeleted(property)
   const resolved = deleted
@@ -174,6 +178,26 @@ export function PropertyDetailHeader({
 
       {deleteBlockedReason && canDelete && !deleted ? (
         <p className="mt-3 text-sm text-ink-500">{deleteBlockedReason}</p>
+      ) : null}
+
+      {guestMarketplaceBlock && canManage && !isDraft && !deleted ? (
+        <div
+          className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950"
+          role="status"
+        >
+          <p className="font-semibold text-sky-950">Hidden from public browse</p>
+          <p className="mt-0.5 text-sky-900/90">{guestMarketplaceBlock.message}</p>
+          {guestMarketplaceBlock.landlordUserId ? (
+            <p className="mt-2">
+              <Link
+                to={`/workspace/admin/users/${guestMarketplaceBlock.landlordUserId}`}
+                className="font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                Review landlord verification
+              </Link>
+            </p>
+          ) : null}
+        </div>
       ) : null}
 
       {isDraft && canManage ? (

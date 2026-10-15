@@ -58,6 +58,9 @@ import {
   type LandlordDraft,
 } from '../../components/wizard/LandlordPicker'
 import {
+  applyUnfurnishedListingPreset,
+  clearUnfurnishedListingPreset,
+  draftAfterAmenitiesChange,
   draftFromProperty,
   defaultWizardRooms,
   emptyWizardAsset,
@@ -230,6 +233,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     publishAfterSave: isLandlord,
     draftPropertyId: '',
     starterAssets: [],
+    listingUnfurnished: false,
   }
 
   const seedDraft =
@@ -352,6 +356,26 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     [draft.rooms],
   )
   const totalAreaSqm = useMemo(() => totalAreaFromRooms(draft.rooms), [draft.rooms])
+
+  const listingDescriptionContext = useMemo(
+    () => ({
+      propertyType: draft.propertyType,
+      listingMode: draft.listingMode,
+      suburb: draft.suburb,
+      city: draft.city,
+      beds: roomSummary.bedrooms,
+      baths: roomSummary.bathrooms,
+      parking: draft.parking,
+      garages: roomSummary.garages,
+      areaSqm: totalAreaSqm > 0 ? totalAreaSqm : undefined,
+      rent: draft.rent ? Number(draft.rent) : null,
+      price: draft.price ? Number(draft.price) : null,
+      amenities: draft.amenities,
+      unfurnished: draft.listingUnfurnished,
+      title: draft.title,
+    }),
+    [draft, roomSummary, totalAreaSqm],
+  )
 
   const computedGrading = useMemo(
     () =>
@@ -665,8 +689,12 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
         sessionDraftPropertyIdRef.current = id
       }
       navigate(returnTo)
-    } catch {
-      setError('Could not save your progress. Try again.')
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : 'Could not save your progress. Try again.'
+      setError(message)
     } finally {
       setBusy(false)
       releaseSubmitLock(submitLockRef)
@@ -1051,6 +1079,31 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
             <p className="text-xs text-ink-400">
               Add bedroom, bathroom, and garage rooms below — other room kinds (kitchen, lounge, etc.) do not affect these counts.
             </p>
+            <label className="flex min-h-11 cursor-pointer items-start gap-2 rounded-xl border border-primary-100 bg-primary-50/40 px-3 py-3 text-sm text-ink-700">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={Boolean(draft.listingUnfurnished)}
+                onChange={(e) => {
+                  const on = e.target.checked
+                  setDraft((d) =>
+                    on
+                      ? applyUnfurnishedListingPreset(d, d.listingMode)
+                      : clearUnfurnishedListingPreset(d),
+                  )
+                }}
+              />
+              <span>
+                {draft.listingMode === 'sale'
+                  ? 'No bedrooms (open plan)'
+                  : 'Unfurnished (no bedrooms)'}
+                <span className="mt-0.5 block text-xs font-normal text-ink-500">
+                  {draft.listingMode === 'sale'
+                    ? 'Uses an open-plan room layout with 0 bedrooms on the listing.'
+                    : 'Sets the Unfurnished feature, clears starter inventory, and uses 0 bedrooms.'}
+                </span>
+              </span>
+            </label>
             <CounterPillRow label="Open parking bays" value={draft.parking} onChange={(parking) => setDraft((d) => ({ ...d, parking }))} />
             <div className="overflow-x-auto rounded-lg border border-primary-100">
               <table className="min-w-full text-sm">
@@ -1209,7 +1262,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
             <PropertyFeaturePicker
               listingMode={draft.listingMode}
               value={draft.amenities}
-              onChange={(amenities) => setDraft((d) => ({ ...d, amenities }))}
+              onChange={(amenities) => setDraft((d) => draftAfterAmenitiesChange(d, amenities))}
             />
           </WizardSectionCard>
         )
@@ -1330,6 +1383,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
               id="property-create-description"
               value={draft.description}
               onChange={(description) => setDraft((d) => ({ ...d, description }))}
+              listingContext={listingDescriptionContext}
             />
             {draft.description.trim() ? (
               <div className="rounded-xl border border-primary-100 bg-primary-50/40 p-4">

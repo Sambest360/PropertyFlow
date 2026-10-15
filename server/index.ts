@@ -475,18 +475,10 @@ app.patch('/api/admin/users/:userId/verification', async (c) => {
       if (!token) {
         return c.json({ error: 'unauthorized', message: 'Sign in required' }, 401)
       }
-      const sbBase = (
-        process.env.VITE_SUPABASE_URL ||
-        process.env.SUPABASE_URL ||
-        process.env.NEXT_PUBLIC_SUPABASE_URL ||
-        ''
-      ).replace(/\/$/, '')
-      const sbKey =
-        process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-        process.env.VITE_SUPABASE_ANON_KEY ||
-        process.env.SUPABASE_PUBLISHABLE_KEY ||
-        process.env.SUPABASE_ANON_KEY ||
-        ''
+      const { resolveSupabasePublishableKeyForGoTrue, resolveSupabaseUrlForGoTrue } =
+        await import('./supabase/env.js')
+      const sbBase = resolveSupabaseUrlForGoTrue()
+      const sbKey = resolveSupabasePublishableKeyForGoTrue()
       if (!sbBase || !sbKey) {
         return c.json({ error: 'forbidden', message: 'Super admin required' }, 403)
       }

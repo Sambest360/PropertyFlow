@@ -7,6 +7,7 @@ import {
   groupPortfolioByBuilding,
   propertyMatchesBuildingFilter,
   propertyMatchesOccupancyFilter,
+  shouldUseBuildingGroupChrome,
   siblingUnitsInBuilding,
 } from './buildingHierarchy'
 
@@ -81,6 +82,44 @@ describe('groupPortfolioByBuilding', () => {
       buildings,
     )
     expect(groups[0].key).toBe(STANDALONE_BUILDING_KEY)
+  })
+})
+
+describe('shouldUseBuildingGroupChrome', () => {
+  it('is false for a single rent-only unit in a building', () => {
+    const group = groupPortfolioByBuilding(
+      [{ property: prop({ id: 'p1', title: 'Only', buildingId: 'bld-skyline' }) }],
+      buildings,
+    )[0]
+    expect(shouldUseBuildingGroupChrome(group)).toBe(false)
+  })
+
+  it('is true for two units in the same building', () => {
+    const group = groupPortfolioByBuilding(
+      [
+        { property: prop({ id: 'p1', title: 'A', buildingId: 'bld-skyline' }) },
+        { property: prop({ id: 'p2', title: 'B', buildingId: 'bld-skyline' }) },
+      ],
+      buildings,
+    )[0]
+    expect(shouldUseBuildingGroupChrome(group)).toBe(true)
+  })
+
+  it('is true for a single listing with rent and sale on one row', () => {
+    const group = groupPortfolioByBuilding(
+      [
+        {
+          property: prop({
+            id: 'p1',
+            title: 'Dual',
+            buildingId: 'bld-skyline',
+            listingMode: 'both',
+          }),
+        },
+      ],
+      buildings,
+    )[0]
+    expect(shouldUseBuildingGroupChrome(group)).toBe(true)
   })
 })
 

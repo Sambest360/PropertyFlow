@@ -9,7 +9,8 @@ import {
   type ComplaintSeverity,
 } from '../../lib/tenantTicketPriority'
 import type { TenantPortalState } from '../../hooks/useTenantPortalState'
-import { Badge, Button, Card, Input, Select, Textarea, statusTone } from '../../components/ui'
+import { SmartTextEditor } from '../../components/editor/SmartTextEditor'
+import { Badge, Button, Card, Input, Select, statusTone } from '../../components/ui'
 
 const COMPLAINT_PREFIX = 'Complaint:'
 
@@ -98,12 +99,7 @@ export function TenantComplaintsView({ portal }: { portal: TenantPortalState }) 
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
             />
-            <Textarea
-              rows={4}
-              placeholder="Describe what happened and when…"
-              value={details}
-              onChange={(e) => setDetails(e.target.value)}
-            />
+            <SmartTextEditor variant="operational" value={details} onChange={setDetails} />
             <Select value={severity} onChange={(e) => setSeverity(e.target.value as typeof severity)}>
               {(Object.keys(COMPLAINT_SEVERITY_TO_PRIORITY) as ComplaintSeverity[]).map((s) => (
                 <option key={s} value={s}>

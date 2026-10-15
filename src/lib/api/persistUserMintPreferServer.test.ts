@@ -20,6 +20,7 @@ vi.mock('./actorAuth', () => ({
 
 vi.mock('./authClient', () => ({
   authHeaders: () => ({}),
+  resolveApiAuthorizationHeader: async () => ({}),
 }))
 
 vi.mock('../bootstrapMerge', () => ({
@@ -138,6 +139,71 @@ describe('persistToApi user mint fail-closed (supabase mode)', () => {
     })
     expect(ok).toBe(false)
     expect(persistToSupabase).not.toHaveBeenCalled()
+  })
+})
+
+describe('persistUserCreateViaServer error messages', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.resetModules()
+  })
+
+  const userMintOp = {
+    resource: 'user' as const,
+    action: 'upsert' as const,
+    id: 'u-agent1',
+    data: {
+      id: 'u-agent1',
+      email: 'qa.agent@example.com',
+      role: 'ground_agent',
+      tempPassword: 'x',
+    },
+  }
+
+  it('returns dev:full guidance when /api/persist answers with the SPA HTML shell', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response('<!doctype html><html></html>', {
+            status: 200,
+            headers: { 'content-type': 'text/html' },
+          }),
+      ),
+    )
+    const { persistUserCreateViaServer, LOCAL_API_REQUIRED_MESSAGE } = await import('./persist')
+    const res = await persistUserCreateViaServer(userMintOp)
+    expect(res).toEqual({ ok: false, error: LOCAL_API_REQUIRED_MESSAGE })
+    expect(res.ok === false && res.error).toMatch(/dev:full/i)
+  })
+
+  it('returns server message on 401 JSON', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: 'persist_failed',
+              message: 'Sign-in required. Please sign in and try again.',
+            }),
+            { status: 401, headers: { 'content-type': 'application/json' } },
+          ),
+      ),
+    )
+    const { persistUserCreateViaServer } = await import('./persist')
+    const res = await persistUserCreateViaServer(userMintOp)
+    expect(res).toEqual({
+      ok: false,
+      error: 'Sign-in required. Please sign in and try again.',
+    })
+  })
+
+  it('returns dev:full guidance when fetch fails (API not running)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new TypeError('Failed to fetch'))))
+    const { persistUserCreateViaServer, LOCAL_API_REQUIRED_MESSAGE } = await import('./persist')
+    const res = await persistUserCreateViaServer(userMintOp)
+    expect(res).toEqual({ ok: false, error: LOCAL_API_REQUIRED_MESSAGE })
   })
 })
 

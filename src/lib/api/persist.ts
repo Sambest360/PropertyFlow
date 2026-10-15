@@ -2,7 +2,7 @@
  * Fire-and-forget persistence — Supabase in production, Hono API locally.
  */
 import { actorHeaders } from './actorAuth'
-import { authHeaders } from './authClient'
+import { resolveApiAuthorizationHeader } from './authClient'
 import { isApiEnabled, isSupabaseMode } from './config'
 import type { EntityType } from './persistTypes'
 import {
@@ -25,11 +25,43 @@ export type PersistOp = {
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''
 
-function jsonHeaders(): Record<string, string> {
+/** Shown when Vite returns the SPA shell or the Hono API on :8787 is down. */
+export const LOCAL_API_REQUIRED_MESSAGE =
+  'Local API is not running. Stop Vite and run `npm run dev:full`, then try again.'
+
+function isSpaHtmlResponse(contentType: string | null | undefined, bodyText: string): boolean {
+  const ct = (contentType ?? '').toLowerCase()
+  if (ct.includes('text/html')) return true
+  const t = bodyText.trim().toLowerCase()
+  return t.startsWith('<!doctype') || t.startsWith('<html')
+}
+
+function messageFromPersistFailure(
+  status: number,
+  contentType: string | null | undefined,
+  bodyText: string,
+  refusalMessage?: string,
+): string | undefined {
+  if (refusalMessage) return refusalMessage
+  if (isSpaHtmlResponse(contentType, bodyText)) return LOCAL_API_REQUIRED_MESSAGE
+  if (bodyText) {
+    try {
+      const parsed = JSON.parse(bodyText) as { message?: string; error?: string }
+      const msg = parsed.message || parsed.error
+      if (msg) return msg
+    } catch {
+      /* ignore */
+    }
+  }
+  if (status === 401) return 'Your session expired — sign in again and retry.'
+  return undefined
+}
+
+async function jsonHeaders(): Promise<Record<string, string>> {
   return {
     'Content-Type': 'application/json',
     ...actorHeaders(),
-    ...authHeaders(),
+    ...(await resolveApiAuthorizationHeader()),
   }
 }
 
@@ -88,6 +120,30 @@ export function parsePersistRefusal(
   status: number,
   bodyText: string,
 ): PersistRefusal | null {
+  if (status === 401) {
+    try {
+      const body = JSON.parse(bodyText) as { message?: unknown; error?: unknown }
+      const message =
+        typeof body.message === 'string'
+          ? body.message
+          : typeof body.error === 'string'
+            ? body.error
+            : null
+      if (message) {
+        return {
+          resource: String(op.resource),
+          id: String(op.id),
+          action: String(op.action),
+          status,
+          code: 'ACTOR_REQUIRED',
+          message,
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    return null
+  }
   // Coded 400 / 403 / 409: a policy refusal the UI must show (toast + refresh).
   if (status !== 400 && status !== 403 && status !== 409) return null
   try {
@@ -113,26 +169,40 @@ function reportPersistRefusal(refusal: PersistRefusal | null): void {
   globalThis.dispatchEvent(new CustomEvent<PersistRefusal>(PERSIST_REFUSED_EVENT, { detail: refusal }))
 }
 
+export type PersistApiResult = { ok: true } | { ok: false; error?: string }
+
+export function persistErrorMessage(result: PersistApiResult): string | undefined {
+  if (result.ok === false) return result.error
+  return undefined
+}
+
 /** POST /api/persist using DATABASE_URL (bypasses browser RLS). */
-export async function persistViaServerApi(op: PersistOp): Promise<boolean> {
+export async function persistViaServerApiDetailed(op: PersistOp): Promise<PersistApiResult> {
   try {
     const res = await fetch(`${API_BASE}/api/persist`, {
       method: 'POST',
-      headers: jsonHeaders(),
+      headers: await jsonHeaders(),
       body: JSON.stringify(op),
     })
     const text = await res.text().catch(() => '')
     const contentType = res.headers.get('content-type')
     if (!isPersistApiSuccessResponse(res.status, contentType, text)) {
       console.warn('[persist]', op.resource, op.action, op.id, res.status, text.slice(0, 200))
-      reportPersistRefusal(parsePersistRefusal(op, res.status, text))
-      return false
+      const refusal = parsePersistRefusal(op, res.status, text)
+      reportPersistRefusal(refusal)
+      const message = messageFromPersistFailure(res.status, contentType, text, refusal?.message)
+      return { ok: false, error: message }
     }
-    return true
+    return { ok: true }
   } catch (err) {
     console.warn('[persist] offline / failed', op.resource, op.id, err)
-    return false
+    return { ok: false, error: LOCAL_API_REQUIRED_MESSAGE }
   }
+}
+
+export async function persistViaServerApi(op: PersistOp): Promise<boolean> {
+  const result = await persistViaServerApiDetailed(op)
+  return result.ok
 }
 
 /**
@@ -142,11 +212,12 @@ export async function persistViaServerApi(op: PersistOp): Promise<boolean> {
  */
 export async function persistUserCreateViaServer(
   op: PersistOp,
-): Promise<{ ok: true; tempPassword?: string } | { ok: false }> {
+): Promise<{ ok: true; tempPassword?: string } | { ok: false; error?: string }> {
   try {
     const res = await fetch(`${API_BASE}/api/persist`, {
       method: 'POST',
-      headers: jsonHeaders(),
+      headers: await jsonHeaders(),
+      credentials: 'include',
       cache: 'no-store',
       body: JSON.stringify(op),
     })
@@ -154,8 +225,15 @@ export async function persistUserCreateViaServer(
     if (!isPersistApiSuccessResponse(res.status, res.headers.get('content-type'), text)) {
       // Status only: a refusal body never holds a password, but keep logs minimal.
       console.warn('[persist] user create refused', op.id, res.status)
-      reportPersistRefusal(parsePersistRefusal(op, res.status, text))
-      return { ok: false }
+      const refusal = parsePersistRefusal(op, res.status, text)
+      reportPersistRefusal(refusal)
+      const message = messageFromPersistFailure(
+        res.status,
+        res.headers.get('content-type'),
+        text,
+        refusal?.message,
+      )
+      return { ok: false, error: message }
     }
     const parsed = JSON.parse(text) as { tempPassword?: unknown }
     return typeof parsed.tempPassword === 'string' && parsed.tempPassword
@@ -163,7 +241,7 @@ export async function persistUserCreateViaServer(
       : { ok: true }
   } catch {
     console.warn('[persist] user create failed', op.id)
-    return { ok: false }
+    return { ok: false, error: LOCAL_API_REQUIRED_MESSAGE }
   }
 }
 
@@ -231,50 +309,46 @@ export function preferServerPersistForTenancy(
   return resource === 'tenancy' && action === 'upsert'
 }
 
-export async function persistToApi(op: PersistOp): Promise<boolean> {
+const GENERIC_PERSIST_FAILURE = 'Could not save. Try again.'
+
+export async function persistToApiDetailed(op: PersistOp): Promise<PersistApiResult> {
   if (isSupabaseMode) {
-    // CR7: help desk tickets are server-only (scope gate derives routing and
-    // submitter). There is deliberately no browser Supabase path for them.
     if (op.resource === 'support_ticket') {
-      return persistViaServerApi(op)
+      return persistViaServerApiDetailed(op)
     }
-    // P0-sync (R12/R13): application upserts are fail-closed on /api/persist.
-    // Browser RLS cannot stamp listing agency client_id for END_USER; a "soft"
-    // supabase fallback that returns true (or leaves optimistic My Apps) while
-    // staff bootstrap never loads the row is worse than a hard apply error.
-    // createApplication awaits this and rolls back the optimistic APP on false.
     if (preferServerPersistForApplication(op.resource, op.action)) {
-      return persistViaServerApi(op)
+      return persistViaServerApiDetailed(op)
     }
-    // P0-sa-mint: staff/agent create with temp password — Auth + link + verify
-    // only exists on the server upsertUser path (not browser RLS upsert).
     if (preferServerPersistForUserMint(op.resource, op.action, op.data)) {
       console.info('[persist] path=server user-mint', { id: op.id })
-      return persistViaServerApi(op)
+      return persistViaServerApiDetailed(op)
     }
-    // CR10: a user write carrying `signature` goes through /api/persist so the
-    // server's own-row rule and PNG / 150 KB check apply (browser upsert never
-    // sends the signature).
     if (preferServerPersistForSignature(op.resource, op.action, op.data)) {
-      return persistViaServerApi(op)
+      return persistViaServerApiDetailed(op)
     }
-    // P0-5 residual: building/unit/property — same soft-true miss as applications.
     if (preferServerPersistForListingHierarchy(op.resource, op.action)) {
       console.info('[persist] path=server listing-hierarchy', {
         resource: op.resource,
         id: op.id,
       })
-      return persistViaServerApi(op)
+      return persistViaServerApiDetailed(op)
     }
-    // P0-r21: tenancy/lease mint — unitIdFromProperty on server.
     if (preferServerPersistForTenancy(op.resource, op.action)) {
       console.info('[persist] path=server tenancy', { id: op.id })
-      return persistViaServerApi(op)
+      return persistViaServerApiDetailed(op)
     }
-    return persistToSupabase(op)
+    const ok = await persistToSupabase(op)
+    return ok ? { ok: true } : { ok: false, error: GENERIC_PERSIST_FAILURE }
   }
-  if (!apiConfigured()) return false
-  return persistViaServerApi(op)
+  if (!apiConfigured()) {
+    return { ok: false, error: LOCAL_API_REQUIRED_MESSAGE }
+  }
+  return persistViaServerApiDetailed(op)
+}
+
+export async function persistToApi(op: PersistOp): Promise<boolean> {
+  const result = await persistToApiDetailed(op)
+  return result.ok
 }
 
 export async function persistBatchToApi(ops: PersistOp[]): Promise<boolean> {
@@ -294,7 +368,7 @@ export async function persistBatchToApi(ops: PersistOp[]): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE}/api/persist/batch`, {
       method: 'POST',
-      headers: jsonHeaders(),
+      headers: await jsonHeaders(),
       body: JSON.stringify({ ops }),
     })
     if (!res.ok) {
@@ -329,7 +403,7 @@ export async function persistApproveApplication(params: {
       `${API_BASE}/api/applications/${encodeURIComponent(params.applicationId)}/approve`,
       {
         method: 'POST',
-        headers: jsonHeaders(),
+        headers: await jsonHeaders(),
         body: JSON.stringify({
           actorUserId: params.actorUserId,
           tenancy: params.tenancy,
@@ -352,7 +426,7 @@ export async function persistMarkNotificationsRead(params: {
   try {
     const res = await fetch(`${API_BASE}/api/notifications/mark-read`, {
       method: 'POST',
-      headers: jsonHeaders(),
+      headers: await jsonHeaders(),
       body: JSON.stringify(params),
     })
     return res.ok
