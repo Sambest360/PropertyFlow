@@ -9,4 +9,10 @@ describe('formatListingEnquiryError', () => {
   it('maps timeouts', () => {
     expect(formatListingEnquiryError('timeout')).toMatch(/too long/i)
   })
+
+  it('maps missing RPC / schema cache errors', () => {
+    const msg =
+      'Could not find the function public.submit_public_listing_enquiry(...) in the schema cache'
+    expect(formatListingEnquiryError(msg)).toMatch(/not available on this environment/i)
+  })
 })

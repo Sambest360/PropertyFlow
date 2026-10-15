@@ -26,6 +26,7 @@ import {
   mapProperty,
 } from './idMap.js'
 import { canonicalListingId, unitIdForProperty } from '../src/lib/listingIds.js'
+import { dedupePropertyAssets, dedupeUnits } from '../src/lib/propertyDedupe.js'
 import { resolvePropertyType } from '../src/lib/propertyType.js'
 import { deriveAgencyContractors } from '../src/lib/contractors.js'
 import type { Lead } from '../src/types/domain.js'
@@ -1431,6 +1432,13 @@ export async function buildBootstrap(opts?: {
     roomUuidToFeId,
   })
 
+  const unitsOut = dedupeUnits(cleanUnits)
+  const propertiesOut = dedupePropertyAssets(properties, unitsOut)
+  const keptUnitIds = new Set(
+    propertiesOut.flatMap((p) => [p.unitId, p.id].filter(Boolean) as string[]),
+  )
+  const unitsScoped = unitsOut.filter((u) => keptUnitIds.has(u.id))
+
   return {
     source: 'postgres',
     fetchedAt: new Date().toISOString(),
@@ -1439,8 +1447,8 @@ export async function buildBootstrap(opts?: {
     agencies,
     users: appUsers,
     buildings: mappedBuildings,
-    units: cleanUnits,
-    properties,
+    units: unitsScoped,
+    properties: propertiesOut,
     leads: mappedLeads,
     applications: mappedApps.map((row) => normalizeApplication(row as import('../src/types/domain.js').Application)),
     tenancies,

@@ -4,7 +4,8 @@
  */
 import { randomUUID } from 'node:crypto'
 import { query } from './db.js'
-import { canonicalListingId, unitIdForProperty, listingIdAliases } from '../src/lib/listingIds.js'
+import { listingIdAliases } from '../src/lib/listingIds.js'
+import { ensureListingUnitUuid } from './listingUuid.js'
 import {
   AGENCY_TO_CLIENT,
   BUILDING_TO_FRONTEND,
@@ -256,26 +257,21 @@ export async function ensureUuid(
   frontendId: string,
   preferredUuid?: string,
 ): Promise<string> {
+  if (entityType === 'property' || entityType === 'unit') {
+    return ensureListingUnitUuid(frontendId, preferredUuid)
+  }
+
   const existing = await resolveUuid(entityType, frontendId)
   if (existing) return existing
 
   const uuid = preferredUuid && isUuid(preferredUuid) ? preferredUuid : randomUUID()
   await ensureEntityMapTable()
-  const pairs: Array<{ et: EntityType; fe: string }> =
-    entityType === 'property' || entityType === 'unit'
-      ? [
-          { et: 'property', fe: canonicalListingId(frontendId) },
-          { et: 'unit', fe: unitIdForProperty(frontendId) },
-        ]
-      : [{ et: entityType, fe: frontendId }]
-  for (const row of pairs) {
-    await query(
-      `INSERT INTO entity_id_map (entity_type, frontend_id, backend_id)
-       VALUES ($1, $2, $3::uuid)
-       ON CONFLICT (entity_type, frontend_id) DO UPDATE SET backend_id = EXCLUDED.backend_id`,
-      [row.et, row.fe, uuid],
-    )
-  }
+  await query(
+    `INSERT INTO entity_id_map (entity_type, frontend_id, backend_id)
+     VALUES ($1, $2, $3::uuid)
+     ON CONFLICT (entity_type, frontend_id) DO UPDATE SET backend_id = EXCLUDED.backend_id`,
+    [entityType, frontendId, uuid],
+  )
   return uuid
 }
 

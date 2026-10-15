@@ -29,6 +29,12 @@ const ENQUIRY_TIMEOUT_MS = 20_000
 /** Map API / RPC codes to copy suitable for the listing enquiry form. */
 export function formatListingEnquiryError(raw: string): string {
   const code = raw.trim().toLowerCase()
+  if (
+    code.includes('schema cache') ||
+    code.includes('submit_public_listing_enquiry')
+  ) {
+    return 'Enquiries are not available on this environment yet. Please try again later or contact the agency.'
+  }
   if (code === 'slot_not_found' || code.includes('slot_not_found')) {
     return 'That viewing time is no longer available. Pick another slot or request a viewing without a slot.'
   }

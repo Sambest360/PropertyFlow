@@ -20,6 +20,8 @@ import { checkTicketPhotos } from '../src/lib/photoLimits.js'
 import { propertyTypeToDb } from '../src/lib/propertyType.js'
 import { mapAgencyStatusToDb } from '../src/lib/agencyStatus.js'
 import { resolveLiveListing } from './listingResolve.js'
+import { canonicalListingId } from '../src/lib/listingIds.js'
+import { ensureListingUnitUuid } from './listingUuid.js'
 import { supabaseAuthConfigured } from './supabase/env.js'
 import { isValidSignatureDataUrl, signatureInvalidError } from '../src/lib/signature/signatureImage.js'
 import {
@@ -837,16 +839,16 @@ async function upsertBuilding(feId: string, d: Record<string, unknown>): Promise
 
 async function upsertProperty(feId: string, d: Record<string, unknown>): Promise<string> {
   // Flat PropertyAsset → units row (+ ensure building if provided)
-  const propFe = feId.startsWith('unt-') ? feId.slice(4) : feId
-  const uuid = await ensureUuid('property', propFe)
-  await ensureUuid('unit', `unt-${propFe}`, uuid)
+  const canon = canonicalListingId(feId)
+  const slug = canon.replace(/^unt-/i, '')
+  const uuid = await ensureListingUnitUuid(feId)
 
   let buildingUuid = d.buildingId ? await resolveUuid('building', str(d.buildingId)) : null
   const client = await clientId(d.agencyId ?? d.clientId)
 
   if (!buildingUuid) {
     // Create a lightweight building shell for orphan property creates
-    buildingUuid = await ensureUuid('building', `bld-auto-${propFe}`)
+    buildingUuid = await ensureUuid('building', `bld-auto-${slug}`)
     await query(
       `INSERT INTO buildings (id, client_id, name, address, city, province, suburb, lat, lng, place_id, formatted_address, geocoded_at, images, updated_at)
        VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::timestamptz, $13::jsonb, NOW())
@@ -863,7 +865,7 @@ async function upsertProperty(feId: string, d: Record<string, unknown>): Promise
       [
         buildingUuid,
         client,
-        str(d.title, propFe),
+        str(d.title, slug),
         str(d.address, 'Address TBD'),
         str(d.city, 'City'),
         'GP',
@@ -905,7 +907,7 @@ async function upsertProperty(feId: string, d: Record<string, unknown>): Promise
   }
 
   const agent = await requireAgentId(d.agentId)
-  const unitNumber = str(d.unitNumber ?? d.title, propFe).slice(0, 40)
+  const unitNumber = str(d.unitNumber ?? d.title, slug).slice(0, 40)
   const propertyTypeDb =
     Object.prototype.hasOwnProperty.call(d, 'type') && d.type != null
       ? propertyTypeToDb(str(d.type))
