@@ -18,6 +18,7 @@ import { PROPERTYFLOW_GOOGLE_MAP_STYLES } from '../lib/api/googleMapStyles'
 import { hasMappedCoordinates } from '../lib/mapCoords'
 import { staticMapImageUrl } from '../lib/api/documents'
 import 'leaflet/dist/leaflet.css'
+import { PropertyLoader } from './loading/PropertyLoader'
 
 function shortPrice(amount: number): string {
   if (amount >= 1_000_000) {
@@ -310,9 +311,9 @@ function GooglePropertyMap({
   if (!isLoaded) {
     return (
       <div
-        className={`flex min-h-[280px] items-center justify-center rounded-xl bg-primary-50 text-sm text-ink-500 ${className ?? ''}`}
+        className={`flex min-h-[280px] items-center justify-center rounded-xl bg-primary-50 ${className ?? ''}`}
       >
-        Loading map…
+        <PropertyLoader size="sm" label="Loading map…" inline />
       </div>
     )
   }

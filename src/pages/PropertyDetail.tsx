@@ -29,6 +29,7 @@ import {
 import type { AssetCondition } from '../data/infrastructure'
 import { isVerificationApproved } from '../lib/verification'
 import { validatePropertyReadyToPublish } from '../lib/propertyStatus'
+import { resolveInfraRoomsForUnit } from '../lib/infraRoomsFromBootstrap'
 import {
   getGuestMarketplaceBlockReason,
   guestVisibleAfterPublish,
@@ -113,8 +114,8 @@ export default function PropertyDetail() {
     )
   }, [p, state.properties, inPropertyScope])
   const rooms = useMemo(
-    () => (unit ? state.infraRooms.filter((r) => r.unitId === unit.id) : []),
-    [state.infraRooms, unit],
+    () => resolveInfraRoomsForUnit(p, unit, state.infraRooms),
+    [p, state.infraRooms, unit],
   )
   const assets = useMemo(
     () => (unit ? state.internalAssets.filter((a) => a.unitId === unit.id) : []),

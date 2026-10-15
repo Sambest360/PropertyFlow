@@ -7,6 +7,7 @@ import { useAuth } from '../../context/AuthContext'
 import { ActionButtonRow } from '../../components/ActionButtonRow'
 import { BackButton } from '../../components/BackButton'
 import { Badge, Button, Input, cn } from '../../components/ui'
+import { PropertyLoader } from '../../components/loading/PropertyLoader'
 import { PropertyFeaturesDisplay } from '../../components/property-features/PropertyFeaturesDisplay'
 import { ExpandableDescription } from '../../components/listing/ExpandableDescription'
 import { formatZAR } from '../../data/seed'
@@ -14,7 +15,7 @@ import { PropertyCard } from '../../components/PropertyCard'
 import { PropertyMap } from '../../components/PropertyMap'
 import { ListingPhotoGallery } from '../../components/listing/ListingPhotoGallery'
 import { ListingReviewsSection } from '../../components/reviews/ListingReviewsSection'
-import { averageRating } from '../../components/reviews/StarRating'
+import { propertyListingRating } from '../../components/reviews/StarRating'
 import {
   blockedPropertyIdsForApplicant,
   isApplicantBlockedOnProperty,
@@ -22,7 +23,7 @@ import {
 import { useWishlist } from '../../hooks/useWishlist'
 import { hasMappedCoordinates } from '../../lib/mapCoords'
 import { fetchPublicListingImages } from '../../lib/api/postgresClient'
-import { NO_PHOTOS_YET } from '../../lib/listingPhotos'
+import { NO_PHOTOS_YET, normalizeListingImages } from '../../lib/listingPhotos'
 import { isPubliclyListed } from '../../lib/publicListings'
 import { findByListingId } from '../../lib/listingIds'
 import { isApiEnabled, isSupabaseMode } from '../../lib/api/config'
@@ -144,20 +145,21 @@ export default function ListingDetail() {
     preloadImage: p?.images[0],
   })
 
-  // P3a: guest list payloads carry one photo per listing; load the rest here.
+  // P3a: list/bootstrap may carry one photo; detail loads the full gallery from the API.
   const [fullImages, setFullImages] = useState<string[] | null>(null)
-  const listingKey = p?.id
-  const shownCount = p?.images.length ?? 0
   useEffect(() => {
-    if (!listingKey || shownCount > 1) return
+    setFullImages(null)
+  }, [id])
+  useEffect(() => {
+    if (!isApiEnabled || !id) return
     let live = true
-    void fetchPublicListingImages(listingKey).then((imgs) => {
-      if (live && imgs && imgs.length > shownCount) setFullImages(imgs)
+    void fetchPublicListingImages(id).then((imgs) => {
+      if (live && imgs) setFullImages(imgs)
     })
     return () => {
       live = false
     }
-  }, [listingKey, shownCount])
+  }, [id])
 
   if (!p) {
     const storeSettled = state.properties.length > 0 || state.units.length > 0
@@ -165,10 +167,13 @@ export default function ListingDetail() {
       liveDataMode && Boolean(id) && !listingFetchDone && !awaitingSignedInHydration
     if (awaitingSignedInHydration || awaitingPublicListingFetch || (!storeSettled && !retryWindowOver)) {
       return (
-        <div className="mx-auto max-w-3xl px-4 py-16 text-center" role="status" aria-live="polite">
-          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-primary-100 border-t-primary" />
-          <p className="mt-4 font-semibold text-ink">Loading listing…</p>
-          <p className="mt-2 text-sm text-ink-500">Fetching the latest listing details.</p>
+        <div className="mx-auto max-w-3xl px-4 py-16">
+          <PropertyLoader
+            size="lg"
+            label="Loading listing…"
+            className="mx-auto"
+          />
+          <p className="mt-4 text-center text-sm text-ink-500">Fetching the latest listing details.</p>
         </div>
       )
     }
@@ -244,13 +249,7 @@ export default function ListingDetail() {
   const isRent = p.listingMode !== 'sale'
   const fullName = `${firstName.trim()} ${lastName.trim()}`.trim()
 
-  const listingReviewAvg = averageRating(
-    state.reviews.filter(
-      (r) =>
-        r.propertyId === p.id &&
-        (r.targetType === 'property' || r.targetType === 'application'),
-    ),
-  )
+  const listingReviewAvg = propertyListingRating(state.reviews, p.id)
 
   if (isBlockedForUser) {
     return <Navigate to="/browse" replace />
@@ -651,8 +650,11 @@ export default function ListingDetail() {
         </div>
 
         <div className="mt-6">
-          {(fullImages ?? p.images).length ? (
-            <ListingPhotoGallery images={fullImages ?? p.images} title={p.title} />
+          {normalizeListingImages(fullImages ?? p.images).length ? (
+            <ListingPhotoGallery
+              images={normalizeListingImages(fullImages ?? p.images)}
+              title={p.title}
+            />
           ) : (
             <div className="flex aspect-[16/7] items-center justify-center rounded-2xl bg-primary-50 text-sm font-medium text-ink-500">
               {NO_PHOTOS_YET}

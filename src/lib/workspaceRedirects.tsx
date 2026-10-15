@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { PropertyLoader } from '../components/loading/PropertyLoader'
 import type { Permission, Role } from '../types/domain'
 
 export function resolveWorkspaceApplicationsPath(
@@ -41,8 +42,8 @@ export function WorkspaceApplicationsRedirect() {
   const { has, role, authReady } = useAuth()
   if (!authReady) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center text-sm text-ink-500">
-        Loading…
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <PropertyLoader size="sm" label="Loading…" />
       </div>
     )
   }
@@ -54,8 +55,8 @@ export function WorkspaceLeasesRedirect() {
   const { has, role, authReady } = useAuth()
   if (!authReady) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center text-sm text-ink-500">
-        Loading…
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <PropertyLoader size="sm" label="Loading…" />
       </div>
     )
   }
@@ -67,8 +68,8 @@ export function WorkspacePaymentsRedirect() {
   const { has, role, authReady } = useAuth()
   if (!authReady) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center text-sm text-ink-500">
-        Loading…
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <PropertyLoader size="sm" label="Loading…" />
       </div>
     )
   }

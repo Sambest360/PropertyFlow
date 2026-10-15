@@ -5,6 +5,7 @@ import { resolveUnitForProperty } from './applicationApi'
 import { findByListingId } from './listingIds'
 import { repairUnitsForMarketplaceVisibility } from './marketplaceVisibility'
 import { isPublicMarketplaceUnit, isPubliclyListed } from './publicListings'
+import { dedupePropertyAssets } from './propertyDedupe'
 
 function sessionPropertyTombstoned(
   property: PropertyAsset | undefined,
@@ -108,7 +109,7 @@ function mergePropertiesForBrowse(
     else if (pubOk) merged.push(pubRow)
     else merged.push(sessionRow)
   }
-  return merged
+  return dedupePropertyAssets(merged, units)
 }
 
 /** Union guest/public marketplace rows into a signed-in bootstrap without dropping portal scope. */

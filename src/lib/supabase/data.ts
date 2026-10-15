@@ -20,9 +20,16 @@ import {
 import { hydrateDocumentsFromUploadedJson } from '../hydrateApplicationDocs'
 import { normalizeApplication } from '../applicationWorkflow'
 import { canonicalListingId, unitIdForProperty } from '../listingIds'
+import { propertyStatusFromUnit } from '../propertyBootstrapFromUnit'
 import { resolvePropertyType } from '../propertyType'
 import { deriveAgencyContractors } from '../contractors'
 import { mapAgencyStatusFromDb } from '../agencyStatus'
+import {
+  mapDbAssetsToInternalAssets,
+  mapDbRoomsToInfraRooms,
+  type DbInternalAssetRow,
+  type DbRoomRow,
+} from '../infraRoomsFromBootstrap'
 import { mapRoutesToFe } from '../messaging/modeA'
 
 type RoleDb =
@@ -543,6 +550,14 @@ export async function fetchSupabaseBootstrap(
 
   const unitsRaw = (unitsRes.data ?? []).map((u) => {
     const b = buildingByUuid.get(u.building_id)
+    const statusKey = u.status_config_key
+    const rawListing = u.listing_type?.toLowerCase()
+    const listingType =
+      statusKey === 'DELETED' || rawListing === 'not_listed'
+        ? 'not_listed'
+        : rawListing === 'both'
+          ? 'both'
+          : rawListing ?? 'rent'
     return {
       id: unitIdForProperty(canonicalListingId(mapPropertyFe(u.id) ?? u.id)),
       clientId: mapAgencyFe(u.client_id)!,
@@ -555,11 +570,10 @@ export async function fetchSupabaseBootstrap(
       bedrooms: u.bedrooms ?? 0,
       bathrooms: u.bathrooms ? Number(u.bathrooms) : 0,
       parking: u.parking ?? 0,
-      listingType:
-        u.listing_type?.toLowerCase() === 'both' ? 'both' : u.listing_type?.toLowerCase() ?? 'rent',
+      listingType,
       price: u.price != null ? Number(u.price) : null,
       rent: u.rent != null ? Number(u.rent) : null,
-      statusKey: u.status_config_key,
+      statusKey,
       description: u.description ?? '',
       amenities: Array.isArray(u.amenities) ? u.amenities : [],
       images: Array.isArray(u.images) ? u.images : [],
@@ -572,29 +586,48 @@ export async function fetchSupabaseBootstrap(
       createdAt: dateOnly(u.created_at),
       _propertyId: canonicalListingId(mapPropertyFe(u.id) ?? u.id),
       _unitUuid: u.id,
+      _updatedAt: iso(u.updated_at),
     }
   })
 
-  const rooms = roomsRes.data ?? []
-  const assets = assetsRes.data ?? []
+  let rooms = roomsRes.data ?? []
+  let assets = assetsRes.data ?? []
+  if (skipHeavy) {
+    const unitUuids = unitsRaw.map((u) => u._unitUuid as string)
+    if (unitUuids.length > 0) {
+      const [scopedRoomsRes, scopedAssetsRes] = await Promise.all([
+        supabase.from('rooms').select('*').in('unit_id', unitUuids),
+        supabase.from('internal_assets').select('*').in('unit_id', unitUuids),
+      ])
+      rooms = scopedRoomsRes.data ?? []
+      assets = scopedAssetsRes.data ?? []
+    }
+  }
+
+  const unitUuidToFeId = new Map(unitsRaw.map((u) => [u._unitUuid as string, u.id]))
+  const roomUuidToFeId = new Map(
+    rooms.map((r) => [
+      r.id as string,
+      feFromCache(cache, 'room', r.id as string, r.id as string) ?? (r.id as string),
+    ]),
+  )
+  const infraRooms = mapDbRoomsToInfraRooms(rooms as DbRoomRow[], {
+    cache,
+    unitUuidToFeId,
+    mapAgencyFe,
+  })
+  const internalAssets = mapDbAssetsToInternalAssets(assets as DbInternalAssetRow[], {
+    cache,
+    unitUuidToFeId,
+    mapAgencyFe,
+    roomUuidToFeId,
+  })
 
   const properties = unitsRaw.map((u) => {
     const b = buildings.find((x) => x.id === u.buildingId)
     const unitRooms = rooms.filter((r) => r.unit_id === u._unitUuid)
     const unitAssets = assets.filter((a) => a.unit_id === u._unitUuid)
-    const statusKey = u.statusKey
-    const status =
-      statusKey === 'DRAFT' || statusKey === 'OFF_MARKET' || statusKey === 'NOT_LISTED'
-        ? 'Draft'
-        : statusKey === 'OCCUPIED'
-          ? 'Rented'
-          : statusKey === 'MAINTENANCE'
-            ? 'Maintenance'
-            : statusKey === 'UNDER_OFFER'
-              ? 'Under Offer'
-              : statusKey === 'FEATURED' || u.featured
-                ? 'Featured'
-                : 'Published'
+    const { status, deletedAt } = propertyStatusFromUnit(u.statusKey, u.featured, u._updatedAt)
 
     return {
       id: u._propertyId,
@@ -606,6 +639,7 @@ export async function fetchSupabaseBootstrap(
       title: u.title,
       type: resolvePropertyType({ stored: u.propertyType, bedrooms: u.bedrooms }),
       status,
+      deletedAt,
       listingMode:
         u.listingType === 'sale' || u.listingType === 'rent' || u.listingType === 'both'
           ? u.listingType
@@ -654,7 +688,7 @@ export async function fetchSupabaseBootstrap(
     }
   })
 
-  const cleanUnits = unitsRaw.map(({ _propertyId, _unitUuid, ...rest }) => rest)
+  const cleanUnits = unitsRaw.map(({ _propertyId, _unitUuid, _updatedAt, ...rest }) => rest)
 
   const leads = (leadsRes.data ?? []).map((l) => ({
     id: mappedFe(cache, 'lead', l.id, l.id),
@@ -1161,5 +1195,7 @@ export async function fetchSupabaseBootstrap(
     depositHoldings,
     arrearsSnapshots,
     csvImportBatches,
+    infraRooms,
+    internalAssets,
   }
 }

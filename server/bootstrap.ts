@@ -32,6 +32,12 @@ import type { Lead } from '../src/types/domain.js'
 import { hydrateDocumentsFromUploadedJson } from '../src/lib/hydrateApplicationDocs.js'
 import { normalizeApplication } from '../src/lib/applicationWorkflow.js'
 import { mapAgencyStatusFromDb } from '../src/lib/agencyStatus.js'
+import {
+  mapDbAssetsToInternalAssets,
+  mapDbRoomsToInfraRooms,
+  type DbInternalAssetRow,
+  type DbRoomRow,
+} from '../src/lib/infraRoomsFromBootstrap.js'
 
 /** Global config client id — mirrors src/data/platformLookups. */
 const GLOBAL_CLIENT_ID = 'global'
@@ -499,6 +505,20 @@ export async function buildBootstrap(opts?: {
     (load) => load(),
   )
 
+  let roomRows = rooms
+  let assetRows = assets
+  if (skipHeavy && units.length > 0) {
+    const unitUuids = units.map((u) => u.id)
+    const [scopedRooms, scopedAssets] = await Promise.all([
+      query<DbRoomRow>('SELECT * FROM rooms WHERE unit_id = ANY($1::uuid[])', [unitUuids]),
+      query<DbInternalAssetRow>('SELECT * FROM internal_assets WHERE unit_id = ANY($1::uuid[])', [
+        unitUuids,
+      ]),
+    ])
+    roomRows = scopedRooms
+    assetRows = scopedAssets
+  }
+
   // Fresh entity_id_map on every bootstrap — the 30s in-process cache can lag
   // behind creates on another serverless instance and split agency FE ids (ag-*)
   // from user agencyId / scoped rows until sign-in.
@@ -685,8 +705,8 @@ export async function buildBootstrap(opts?: {
 
   const properties = mappedUnits.map((u) => {
     const b = mappedBuildings.find((x) => x.id === u.buildingId)
-    const unitRooms = rooms.filter((r) => r.unit_id === u._unitUuid)
-    const unitAssets = assets.filter((a) => a.unit_id === u._unitUuid)
+    const unitRooms = roomRows.filter((r) => r.unit_id === u._unitUuid)
+    const unitAssets = assetRows.filter((a) => a.unit_id === u._unitUuid)
     const statusKey = u.statusKey
     const deletedAt = statusKey === 'DELETED' ? u.updatedAt : null
     const status =
@@ -1397,6 +1417,20 @@ export async function buildBootstrap(opts?: {
 
   const ticketAccessNotesSupported = await ticketAccessNotesColumnExists()
 
+  const unitUuidToFeId = new Map(mappedUnits.map((u) => [u._unitUuid, u.id]))
+  const roomUuidToFeId = new Map(roomRows.map((r) => [r.id, mappedFe('room', r.id, r.id)]))
+  const infraRooms = mapDbRoomsToInfraRooms(roomRows, {
+    resolveFeId: mappedFe,
+    unitUuidToFeId,
+    mapAgencyFe: agencyFe,
+  })
+  const internalAssets = mapDbAssetsToInternalAssets(assetRows, {
+    resolveFeId: mappedFe,
+    unitUuidToFeId,
+    mapAgencyFe: agencyFe,
+    roomUuidToFeId,
+  })
+
   return {
     source: 'postgres',
     fetchedAt: new Date().toISOString(),
@@ -1432,6 +1466,8 @@ export async function buildBootstrap(opts?: {
     csvImportBatches: mappedCsvBatches,
     lookups: mappedLookups,
     supportTickets: mappedSupportTickets,
+    infraRooms,
+    internalAssets,
   }
 }
 

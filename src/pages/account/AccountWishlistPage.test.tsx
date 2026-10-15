@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 const store = {
   state: { applications: [] },
   hydratedForUserId: null as string | null,
+  appBootstrapPending: false,
 }
 const auth = {
   user: { id: 'u-1', role: 'tenant' as const },
@@ -32,6 +33,7 @@ describe('AccountWishlistPage (FW-44)', () => {
   it('shows loading copy while hydrate pending and ids exist', () => {
     store.hydratedForUserId = null
     const html = renderToStaticMarkup(<AccountWishlistPage />)
+    expect(html).toContain('role="status"')
     expect(html).toContain('Loading your saved homes')
     expect(html).not.toContain('No saved homes yet')
   })

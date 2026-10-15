@@ -11,6 +11,7 @@ import { ScrollToTop } from './components/ScrollToTop'
 import { RequirePermission } from './components/RequirePermission'
 
 import { RequireAuth } from './components/RequireAuth'
+import { PropertyLoader } from './components/loading/PropertyLoader'
 import { TempPasswordHost } from './components/admin/TempPasswordHost'
 import { useAuth } from './context/AuthContext'
 import {
@@ -88,8 +89,8 @@ const HelpPage = lazy(() => import('./pages/HelpPage'))
 
 function PageFallback() {
   return (
-    <div className="flex min-h-[40vh] items-center justify-center text-sm text-ink-500">
-      Loading…
+    <div className="flex min-h-[40vh] items-center justify-center">
+      <PropertyLoader label="Loading page…" size="md" />
     </div>
   )
 }

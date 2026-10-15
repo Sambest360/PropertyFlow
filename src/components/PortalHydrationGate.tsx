@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext'
 import { useStore } from '../context/AppStore'
 import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
 import { portalHydrationUserId } from '../lib/clientCache'
+import { PropertyLoader } from './loading/PropertyLoader'
 
 export { portalHydrationUserId }
 
@@ -38,6 +39,9 @@ export function usePortalHydrating(): boolean {
 export function PortalSkeleton() {
   return (
     <div data-testid="portal-skeleton" aria-busy="true" aria-label="Loading your workspace" className="space-y-4 p-4">
+      <div className="flex justify-center py-4">
+        <PropertyLoader size="md" label="Loading your workspace…" />
+      </div>
       <div className="h-8 w-1/3 animate-pulse rounded-md bg-surface-muted" />
       <div className="grid gap-4 sm:grid-cols-3">
         {[0, 1, 2].map((i) => (

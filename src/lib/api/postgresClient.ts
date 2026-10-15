@@ -49,6 +49,8 @@ export type PostgresBootstrap = {
   supportTickets?: unknown[]
   /** Guest marketplace RPC/API failed (distinct from legitimately zero listings). */
   marketplaceFetchFailed?: boolean
+  infraRooms?: unknown[]
+  internalAssets?: unknown[]
 }
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''

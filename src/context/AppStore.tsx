@@ -66,6 +66,7 @@ import {
 import { commitProposedPayout } from '../lib/trust/proposePayoutCommit'
 import { isPubliclyListed } from '../lib/publicListings'
 import { findByListingId, nextUniquePropertyId } from '../lib/listingIds'
+import { dedupePropertyAssets } from '../lib/propertyDedupe'
 import {
   uid,
   formatZAR,
@@ -155,6 +156,7 @@ import {
   isApplicantBlockedOnProperty,
   viewingBelongsToApplication,
 } from '../lib/blockedApplicants'
+import { roomsToInfraRooms } from '../lib/infraRoomsFromBootstrap'
 import type { PostgresBootstrap } from '../lib/api/postgresClient'
 import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
 import { ensureLeaseEnvelopeForSign, leaseSignatureSaved } from '../lib/leaseSignatureOrdering'
@@ -384,6 +386,7 @@ function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppSta
   properties = (reconciled.properties as PropertyAsset[]) ?? properties
   let units = pick(base.units, boot.units as Unit[], 'units')
   units = repairUnitsForMarketplaceVisibility(properties, units, users)
+  properties = dedupePropertyAssets(properties, units)
 
   return {
     ...base,
@@ -452,6 +455,12 @@ function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppSta
     supportTickets: Array.isArray(boot.supportTickets)
       ? (boot.supportTickets as SupportTicket[])
       : base.supportTickets,
+    infraRooms: pick(base.infraRooms, boot.infraRooms as InfraRoom[] | undefined, 'infraRooms'),
+    internalAssets: pick(
+      base.internalAssets,
+      boot.internalAssets as InternalAsset[] | undefined,
+      'internalAssets',
+    ),
   }
 }
 
@@ -3265,7 +3274,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       })
 
       for (const room of infraRooms) {
-        void persistUpsert('room', room.id, room as unknown as Record<string, unknown>)
+        const roomResult = await persistUpsertResult(
+          'room',
+          room.id,
+          room as unknown as Record<string, unknown>,
+        )
+        if (!roomResult.ok) {
+          throwPersistFailure('room', persistErrorMessage(roomResult))
+        }
       }
 
       return property
@@ -3365,12 +3381,33 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     setPropertyRooms: (id, rooms) => {
       const beds = rooms.reduce((n, r) => n + r.beds, 0)
       const baths = rooms.reduce((n, r) => n + r.baths, 0)
+      const prev = stateRef.current.properties.find((x) => x.id === id)
+      if (!prev) return
+      const unitId = prev.unitId
+      const unit = stateRef.current.units.find((u) => u.id === unitId)
+      const clientId = unit?.clientId ?? prev.agencyId
+      const infraForUnit = roomsToInfraRooms(rooms, unitId, clientId)
       patch((s) => ({
         ...s,
         properties: s.properties.map((x) => (x.id === id ? { ...x, rooms, beds, baths } : x)),
+        infraRooms: [...s.infraRooms.filter((r) => r.unitId !== unitId), ...infraForUnit],
+        units: unit
+          ? s.units.map((u) =>
+              u.id === unitId ? { ...u, bedrooms: beds, bathrooms: baths } : u,
+            )
+          : s.units,
       }))
-      const prev = state.properties.find((x) => x.id === id)
-      if (prev) persistUpsert('property', id, { ...prev, rooms, beds, baths } as unknown as Record<string, unknown>)
+      persistUpsert('property', id, { ...prev, rooms, beds, baths } as unknown as Record<string, unknown>)
+      if (unit) {
+        persistUpsert('unit', unit.id, {
+          ...unit,
+          bedrooms: beds,
+          bathrooms: baths,
+        } as unknown as Record<string, unknown>)
+      }
+      for (const room of infraForUnit) {
+        persistUpsert('room', room.id, room as unknown as Record<string, unknown>)
+      }
       scheduleBootstrapRefreshAfterMutation()
     },
     publishProperty: async (id, status = 'Published', created?: PropertyAsset) => {
@@ -3564,8 +3601,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }))
 
       const { persistErrorMessage } = await import('../lib/api/persist')
+      const { markLocalPersistWrite } = await import('../lib/bootstrapMerge')
       if (property.unitId) {
-        const { markLocalPersistWrite } = await import('../lib/bootstrapMerge')
         markLocalPersistWrite('unit', property.unitId)
       }
 
@@ -3595,6 +3632,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
       void persistUpsert('property_event', pe.id, pe as unknown as Record<string, unknown>)
 
+      markLocalPersistWrite('property', id)
+
       emitSuiteEvent({
         agencyId: property.agencyId,
         resource: 'property',
@@ -3606,6 +3645,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       })
 
       void refreshPublicMarketplaceInState()
+      scheduleBootstrapRefreshAfterMutation()
       return { ok: true }
     },
     restoreProperty: (id) => {

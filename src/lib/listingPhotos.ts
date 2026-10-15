@@ -19,3 +19,17 @@ export function partitionPhotosBySize(urls: string[], maxBytes = MAX_LISTING_PHO
   const ok = urls.filter((u) => u.length <= maxBytes)
   return { ok, refused: urls.length - ok.length }
 }
+
+/** Gallery display: trim, drop empties, dedupe URLs (first occurrence = cover). */
+export function normalizeListingImages(urls: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of urls) {
+    if (typeof raw !== 'string') continue
+    const u = raw.trim()
+    if (!u || seen.has(u)) continue
+    seen.add(u)
+    out.push(u)
+  }
+  return out
+}

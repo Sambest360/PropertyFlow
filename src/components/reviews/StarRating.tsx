@@ -1,4 +1,5 @@
 import { Star } from 'lucide-react'
+import type { Review } from '../../types/domain'
 import { cn } from '../ui'
 
 export function StarRating({
@@ -49,4 +50,17 @@ export function averageRating(reviews: { rating: number }[]): number | null {
   if (!reviews.length) return null
   const sum = reviews.reduce((acc, r) => acc + r.rating, 0)
   return Math.round((sum / reviews.length) * 10) / 10
+}
+
+/** Property + application reviews shown on listing cards and detail header. */
+export function propertyListingReviews(reviews: Review[], propertyId: string): Review[] {
+  return reviews.filter(
+    (r) =>
+      r.propertyId === propertyId &&
+      (r.targetType === 'property' || r.targetType === 'application'),
+  )
+}
+
+export function propertyListingRating(reviews: Review[], propertyId: string): number | null {
+  return averageRating(propertyListingReviews(reviews, propertyId))
 }

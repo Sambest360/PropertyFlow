@@ -66,6 +66,8 @@ export function repairUnitsForMarketplaceVisibility(
     if (!unitId) continue
     const unit = byId.get(unitId)
     if (!unit) continue
+    if (property.deletedAt) continue
+    if (unit.statusKey === 'DELETED') continue
     if (isPubliclyListed(property, { units: [unit], users })) continue
     const expected = expectedMarketplaceUnitFields(property)
     if (!expected) continue

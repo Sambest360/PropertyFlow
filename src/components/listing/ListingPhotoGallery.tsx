@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, Images, X } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { cn } from '../ui'
 import { usePrefersReducedMotion } from '../../hooks/useScrollMotion'
+import { normalizeListingImages } from '../../lib/listingPhotos'
 
 export function ListingPhotoGallery({
   images,
@@ -11,10 +12,12 @@ export function ListingPhotoGallery({
   images: string[]
   title: string
 }) {
-  const photos = images.length ? images : []
+  const photos = normalizeListingImages(images)
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [index, setIndex] = useState(0)
   const reducedMotion = usePrefersReducedMotion()
+  const multiPhotoGrid = photos.length > 1
+  const gridExtras = multiPhotoGrid ? photos.slice(1, 5) : []
 
   const openAt = (i: number) => {
     if (!photos.length) return
@@ -22,20 +25,21 @@ export function ListingPhotoGallery({
     setLightboxOpen(true)
   }
 
-  const gridExtras =
-    photos.length > 1
-      ? photos.slice(1, 5)
-      : photos[0]
-        ? [photos[0], photos[0], photos[0], photos[0]]
-        : []
-
   return (
     <div>
       <div className="relative">
-        <div className="grid gap-2 overflow-hidden rounded-3xl sm:h-[420px] sm:grid-cols-4 sm:grid-rows-2">
+        <div
+          className={cn(
+            'grid gap-2 overflow-hidden rounded-3xl',
+            multiPhotoGrid && 'sm:h-[420px] sm:grid-cols-4 sm:grid-rows-2',
+          )}
+        >
           <button
             type="button"
-            className="group relative cursor-pointer sm:col-span-2 sm:row-span-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+            className={cn(
+              'group relative cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary',
+              multiPhotoGrid && 'sm:col-span-2 sm:row-span-2',
+            )}
             onClick={() => openAt(0)}
             aria-label={`View photo 1 of ${photos.length}`}
             disabled={!photos.length}

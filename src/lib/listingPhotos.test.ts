@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { LISTING_PHOTO_TOO_LARGE, MAX_LISTING_PHOTOS, MAX_LISTING_PHOTO_BYTES, listingPhotosLabel, partitionPhotosBySize } from './listingPhotos'
+import {
+  LISTING_PHOTO_TOO_LARGE,
+  MAX_LISTING_PHOTOS,
+  MAX_LISTING_PHOTO_BYTES,
+  listingPhotosLabel,
+  normalizeListingImages,
+  partitionPhotosBySize,
+} from './listingPhotos'
 
 describe('listing photo limits (P3a)', () => {
   it('8 photos, one named constant, "Photos (n/8)" counter', () => {
@@ -10,6 +17,14 @@ describe('listing photo limits (P3a)', () => {
     const create = readFileSync('src/pages/property/PropertyCreatePage.tsx', 'utf8')
     expect(create).toContain('max={MAX_LISTING_PHOTOS}')
   })
+  it('normalizeListingImages trims, drops empties, dedupes in order', () => {
+    expect(normalizeListingImages([' https://a/x ', '', 'https://a/x', 'https://b/y'])).toEqual([
+      'https://a/x',
+      'https://b/y',
+    ])
+    expect(normalizeListingImages([])).toEqual([])
+  })
+
   it('refuses photos over 600 KB after resizing, with the message', () => {
     expect(MAX_LISTING_PHOTO_BYTES).toBe(600 * 1024)
     const { ok, refused } = partitionPhotosBySize(['a'.repeat(100), 'b'.repeat(MAX_LISTING_PHOTO_BYTES + 1)])

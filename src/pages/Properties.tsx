@@ -34,6 +34,7 @@ import {
   propertiesListQueryFromParams,
   withPropertiesListQuery,
 } from '../lib/propertiesPortfolioSearch'
+import { dedupePropertyAssets } from '../lib/propertyDedupe'
 
 function readStoredView(): PropertiesViewMode {
   try {
@@ -88,10 +89,13 @@ export default function Properties() {
   }, [view])
 
   const scoped = useMemo(() => {
-    return state.properties.filter(
-      (p) => allowedPropertyIds.has(p.id) && !isPropertyDeleted(p),
+    return dedupePropertyAssets(
+      state.properties.filter(
+        (p) => allowedPropertyIds.has(p.id) && !isPropertyDeleted(p),
+      ),
+      state.units,
     )
-  }, [state.properties, allowedPropertyIds])
+  }, [state.properties, state.units, allowedPropertyIds])
 
   const deletedCount = useMemo(() => {
     return state.properties.filter(

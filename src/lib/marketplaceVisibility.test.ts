@@ -129,4 +129,13 @@ describe('repairUnitsForMarketplaceVisibility', () => {
     expect(isPubliclyListed(p, { units: repaired, users })).toBe(true)
     expect(repaired[0]?.statusKey).toBe('PUBLISHED')
   })
+
+  it('does not revive a DELETED unit when bootstrap property row lacks deletedAt', () => {
+    const p = baseProperty({ status: 'Published' })
+    const units = [baseUnit({ statusKey: 'DELETED', listingType: 'not_listed' })]
+    const users = [{ id: 'll-1', verification: { status: 'approved' as const } }] as never
+    const repaired = repairUnitsForMarketplaceVisibility([p], units, users)
+    expect(repaired[0]?.statusKey).toBe('DELETED')
+    expect(repaired[0]?.listingType).toBe('not_listed')
+  })
 })
