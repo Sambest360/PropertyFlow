@@ -3,7 +3,9 @@ import {
   getGuestMarketplaceBlockReason,
   guestVisibleAfterPublish,
   portfolioLabelLooksLive,
+  repairUnitsForMarketplaceVisibility,
 } from './marketplaceVisibility'
+import { isPubliclyListed } from './publicListings'
 import type { PropertyAsset } from '../types/domain'
 import type { Unit } from '../data/infrastructure'
 
@@ -83,5 +85,17 @@ describe('getGuestMarketplaceBlockReason', () => {
     const p = baseProperty({ status: 'Draft', landlordId: 'll-2' })
     const users = [{ id: 'll-2', verification: { status: 'pending' as const } }] as never
     expect(guestVisibleAfterPublish(p, baseUnit({ statusKey: 'DRAFT' }), users)).toBe(false)
+  })
+})
+
+describe('repairUnitsForMarketplaceVisibility', () => {
+  it('aligns unit status when property is published but unit is still draft', () => {
+    const p = baseProperty({ status: 'Published' })
+    const units = [baseUnit({ statusKey: 'DRAFT' })]
+    const users = [{ id: 'll-1', verification: { status: 'approved' as const } }] as never
+    expect(isPubliclyListed(p, { units, users })).toBe(false)
+    const repaired = repairUnitsForMarketplaceVisibility([p], units, users)
+    expect(isPubliclyListed(p, { units: repaired, users })).toBe(true)
+    expect(repaired[0]?.statusKey).toBe('PUBLISHED')
   })
 })

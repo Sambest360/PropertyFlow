@@ -11,7 +11,7 @@
 export const AUTH_USER_STORAGE_KEY = 'propertyflow-auth-user'
 
 /** AppState mirror key. Re-exported by AppStore. */
-export const APP_STATE_STORAGE_KEY = 'propertyflow-v18'
+export const APP_STATE_STORAGE_KEY = 'propertyflow-v19'
 /** "Last hydrated from Postgres" marker. Re-exported by AppStore. */
 export const PG_SOURCE_STORAGE_KEY = 'propertyflow-pg-source'
 

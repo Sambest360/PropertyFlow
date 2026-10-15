@@ -6,6 +6,49 @@ import {
   PUBLIC_LISTING_STATUSES,
   PUBLIC_UNIT_STATUS_KEYS,
 } from './publicListings'
+
+/** Unit row fields that match a published property status (same rules as publishProperty). */
+export function expectedMarketplaceUnitFields(
+  property: PropertyAsset,
+): Pick<Unit, 'statusKey' | 'listingType'> | null {
+  if (property.deletedAt) return { statusKey: 'DELETED', listingType: 'not_listed' }
+  if (!PUBLIC_LISTING_STATUSES.includes(property.status)) return null
+  const listingType: Unit['listingType'] =
+    property.listingMode === 'sale' ? 'sale' : property.listingMode === 'both' ? 'both' : 'rent'
+  const statusKey: Unit['statusKey'] =
+    property.status === 'Featured'
+      ? 'FEATURED'
+      : property.status === 'Under Offer'
+        ? 'UNDER_OFFER'
+        : 'PUBLISHED'
+  return { statusKey, listingType }
+}
+
+/**
+ * In-memory fix when property is public but the linked unit row still has draft/occupied keys.
+ * Does not persist — publish/delete refresh handles durable writes.
+ */
+export function repairUnitsForMarketplaceVisibility(
+  properties: PropertyAsset[],
+  units: Unit[],
+  users: AppUser[],
+): Unit[] {
+  const byId = new Map(units.map((u) => [u.id, u]))
+  for (const property of properties) {
+    const unitId = property.unitId?.trim()
+    if (!unitId) continue
+    const unit = byId.get(unitId)
+    if (!unit) continue
+    if (isPubliclyListed(property, { units: [unit], users })) continue
+    const expected = expectedMarketplaceUnitFields(property)
+    if (!expected) continue
+    const repaired = { ...unit, ...expected }
+    if (isPubliclyListed(property, { units: [repaired], users })) {
+      byId.set(unitId, repaired)
+    }
+  }
+  return units.map((u) => byId.get(u.id) ?? u)
+}
 import { resolvePortfolioStatus, type StandardPropertyStatus } from './propertyStatus'
 
 export type GuestMarketplaceBlock = {

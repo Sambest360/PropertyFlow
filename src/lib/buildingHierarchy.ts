@@ -78,12 +78,39 @@ export function groupPortfolioByBuilding<T extends BuildingGroupable>(
   return groups
 }
 
-/** Collapsible building header only for multi-unit groups or dual rent+sale listings. */
+/** Collapsible header when the group exposes both rent and sale markets. */
 export function shouldUseBuildingGroupChrome<T extends BuildingGroupable>(
   group: BuildingPortfolioGroup<T>,
 ): boolean {
-  if (group.items.some((i) => i.property.listingMode === 'both')) return true
-  return group.unitCount > 1
+  let hasSale = false
+  let hasRent = false
+  for (const { property } of group.items) {
+    if (property.listingMode === 'both') return true
+    if (property.listingMode === 'sale') hasSale = true
+    if (property.listingMode === 'rent') hasRent = true
+  }
+  return hasSale && hasRent
+}
+
+function listingModeGroupSortRank(mode: PropertyAsset['listingMode']): number {
+  return mode === 'sale' ? 1 : 0
+}
+
+/** Rent (and dual) listings before sale within a sale+rent group. */
+export function sortPortfolioItemsForSaleRentGroup<T extends BuildingGroupable>(
+  items: T[],
+): T[] {
+  return [...items].sort((a, b) => {
+    const byMode =
+      listingModeGroupSortRank(a.property.listingMode) -
+      listingModeGroupSortRank(b.property.listingMode)
+    if (byMode !== 0) return byMode
+    return a.property.title.localeCompare(b.property.title)
+  })
+}
+
+export function isDualListingPortfolioItem(item: BuildingGroupable): boolean {
+  return item.property.listingMode === 'both'
 }
 
 /** Sibling listed properties that share a building (excludes `propertyId`). */

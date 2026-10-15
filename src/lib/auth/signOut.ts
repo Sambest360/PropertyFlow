@@ -21,6 +21,7 @@ export const STALE_KEYS = [
   // survive sign-out on a shared browser.
   APP_STATE_STORAGE_KEY,
   PG_SOURCE_STORAGE_KEY,
+  'propertyflow-v18',
 ]
 
 function clearStaleSessionKeys() {

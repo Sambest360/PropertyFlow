@@ -3,7 +3,30 @@ import type { AppUser, PropertyAsset, ViewingSlot } from '../types/domain'
 import type { Building, Unit } from '../data/infrastructure'
 import { resolveUnitForProperty } from './applicationApi'
 import { findByListingId } from './listingIds'
+import { repairUnitsForMarketplaceVisibility } from './marketplaceVisibility'
 import { isPublicMarketplaceUnit, isPubliclyListed } from './publicListings'
+
+function sessionPropertyTombstoned(
+  property: PropertyAsset | undefined,
+  sessionUnits: Unit[],
+): boolean {
+  if (!property) return false
+  if (property.deletedAt) return true
+  const unit = resolveUnitForProperty(property, sessionUnits)
+  if (unit?.statusKey === 'DELETED') return true
+  if (unit?.listingType === 'not_listed') return true
+  return false
+}
+
+function sessionUnitTombstoned(
+  unitId: string,
+  sessionProps: PropertyAsset[],
+  sessionUnits: Unit[],
+): boolean {
+  const unit = sessionUnits.find((u) => u.id === unitId)
+  if (unit?.statusKey === 'DELETED' || unit?.listingType === 'not_listed') return true
+  return sessionProps.some((p) => p.unitId === unitId && Boolean(p.deletedAt))
+}
 
 function unionPreferPrimary<T extends { id: string }>(primary: T[], secondary: T[] | undefined): T[] {
   if (!secondary?.length) return primary
@@ -36,6 +59,7 @@ function mergeUnitsForBrowse(
   for (const id of ids) {
     const sessionRow = sessionMap.get(id)
     const pubRow = pubMap.get(id)
+    if (sessionUnitTombstoned(id, sessionProps, sessionUnits)) continue
     if (!sessionRow) {
       if (pubRow) merged.push(pubRow)
       continue
@@ -58,6 +82,7 @@ function mergeUnitsForBrowse(
 function mergePropertiesForBrowse(
   sessionProps: PropertyAsset[],
   pubProps: PropertyAsset[],
+  sessionUnits: Unit[],
   units: Unit[],
   users: AppUser[],
 ): PropertyAsset[] {
@@ -68,6 +93,7 @@ function mergePropertiesForBrowse(
   for (const id of ids) {
     const sessionRow = sessionMap.get(id)
     const pubRow = pubMap.get(id)
+    if (sessionPropertyTombstoned(sessionRow, sessionUnits)) continue
     if (!sessionRow) {
       if (pubRow) merged.push(pubRow)
       continue
@@ -101,8 +127,9 @@ export function mergePublicMarketplaceBootstrap(
     (session.users as AppUser[]) ?? [],
     (pub.users as AppUser[]) ?? [],
   )
-  const units = mergeUnitsForBrowse(sessionUnits, pubUnits, sessionProps, pubProps, users)
-  const properties = mergePropertiesForBrowse(sessionProps, pubProps, units, users)
+  let units = mergeUnitsForBrowse(sessionUnits, pubUnits, sessionProps, pubProps, users)
+  let properties = mergePropertiesForBrowse(sessionProps, pubProps, sessionUnits, units, users)
+  units = repairUnitsForMarketplaceVisibility(properties, units, users)
 
   return {
     ...session,
@@ -162,8 +189,8 @@ export async function fetchPublicMarketplaceSlice(
     const { fetchPublicMarketplaceFromApi } = await import('./api/postgresClient')
     return fetchPublicMarketplaceFromApi(timeoutMs, lite)
   }
-  const { buildPublicMarketplaceDemoBootstrap } = await import('./publicMarketplaceDemo')
-  return buildPublicMarketplaceDemoBootstrap()
+  const { emptyPublicMarketplaceBootstrap } = await import('./publicMarketplaceDemo')
+  return emptyPublicMarketplaceBootstrap()
 }
 
 /** Narrow public slice for a direct /listing/:id URL when scoped store rows are missing. */
@@ -256,4 +283,41 @@ export async function enrichBootstrapWithPublicMarketplace(
   const pubUnits = (pub.units as Unit[] | undefined) ?? []
   if (!pubProps.length && !pubUnits.length) return boot
   return mergePublicMarketplaceBootstrap(boot, pub)
+}
+
+export type PublicMarketplaceStateSlice = {
+  properties: PropertyAsset[]
+  units: Unit[]
+  users: AppUser[]
+  buildings: Building[]
+  viewingSlots: ViewingSlot[]
+  agencies: { id: string }[]
+}
+
+/** Re-fetch guest marketplace rows and merge into current session state (post publish/delete). */
+export async function fetchMergedPublicMarketplaceSlice(
+  current: PublicMarketplaceStateSlice,
+  timeoutMs = 15_000,
+): Promise<PublicMarketplaceStateSlice | null> {
+  const pub = await fetchPublicMarketplaceSlice(true, timeoutMs)
+  if (!pub) return null
+  const sessionBoot = {
+    source: 'postgres' as const,
+    fetchedAt: '',
+    properties: current.properties,
+    units: current.units,
+    users: current.users,
+    buildings: current.buildings,
+    viewingSlots: current.viewingSlots,
+    agencies: current.agencies,
+  } as PostgresBootstrap
+  const merged = mergePublicMarketplaceBootstrap(sessionBoot, pub)
+  return {
+    properties: (merged.properties as PropertyAsset[]) ?? current.properties,
+    units: (merged.units as Unit[]) ?? current.units,
+    users: (merged.users as AppUser[]) ?? current.users,
+    buildings: (merged.buildings as Building[]) ?? current.buildings,
+    viewingSlots: (merged.viewingSlots as ViewingSlot[]) ?? current.viewingSlots,
+    agencies: (merged.agencies as { id: string }[]) ?? current.agencies,
+  }
 }

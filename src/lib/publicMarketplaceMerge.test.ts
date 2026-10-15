@@ -63,6 +63,59 @@ describe('mergePublicMarketplaceBootstrap', () => {
     expect(bootstrapHasPublicBrowseListings(merged)).toBe(true)
   })
 
+  it('omits a listing when the session copy is deleted even if public still shows it', () => {
+    const session: PostgresBootstrap = {
+      source: 'postgres',
+      fetchedAt: 't1',
+      agencies: [],
+      users: [],
+      buildings: [],
+      units: [{ id: 'unt-1', statusKey: 'DELETED', listingType: 'not_listed' } as never],
+      properties: [
+        {
+          id: 'PR-1001',
+          status: 'Archived',
+          title: 'Gone',
+          unitId: 'unt-1',
+          deletedAt: '2026-05-01T00:00:00.000Z',
+        } as never,
+      ],
+      leads: [],
+      applications: [],
+      tenancies: [],
+      viewings: [],
+      payments: [],
+      propertyDocuments: [],
+      tickets: [],
+      threads: [],
+      messages: [],
+      notifications: [],
+    }
+    const pub: PostgresBootstrap = {
+      source: 'postgres',
+      fetchedAt: 't2',
+      agencies: [],
+      users: [],
+      buildings: [],
+      units: [{ id: 'unt-1', statusKey: 'PUBLISHED', listingType: 'rent' } as never],
+      properties: [{ id: 'PR-1001', status: 'Published', title: 'Public copy', unitId: 'unt-1' } as never],
+      leads: [],
+      applications: [],
+      tenancies: [],
+      viewings: [],
+      payments: [],
+      propertyDocuments: [],
+      tickets: [],
+      threads: [],
+      messages: [],
+      notifications: [],
+    }
+
+    const merged = mergePublicMarketplaceBootstrap(session, pub)
+    expect(merged.properties?.some((p) => p.id === 'PR-1001')).toBe(false)
+    expect(merged.units?.some((u) => u.id === 'unt-1')).toBe(false)
+  })
+
   it('keeps session property rows when ids overlap', () => {
     const session: PostgresBootstrap = {
       source: 'postgres',

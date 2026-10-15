@@ -385,7 +385,9 @@ export default function Properties() {
                 reducedMotion={reducedMotion}
               />
             ))
-            if (!shouldUseBuildingGroupChrome(group)) {
+            const loneDualListing =
+              group.unitCount === 1 && group.items[0].property.listingMode === 'both'
+            if (!shouldUseBuildingGroupChrome(group) || loneDualListing) {
               return (
                 <div key={group.key} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                   {cards}

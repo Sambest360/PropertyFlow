@@ -8,6 +8,7 @@ import {
   propertyMatchesBuildingFilter,
   propertyMatchesOccupancyFilter,
   shouldUseBuildingGroupChrome,
+  sortPortfolioItemsForSaleRentGroup,
   siblingUnitsInBuilding,
 } from './buildingHierarchy'
 
@@ -94,11 +95,40 @@ describe('shouldUseBuildingGroupChrome', () => {
     expect(shouldUseBuildingGroupChrome(group)).toBe(false)
   })
 
-  it('is true for two units in the same building', () => {
+  it('is false for two rent-only units in the same building', () => {
     const group = groupPortfolioByBuilding(
       [
         { property: prop({ id: 'p1', title: 'A', buildingId: 'bld-skyline' }) },
         { property: prop({ id: 'p2', title: 'B', buildingId: 'bld-skyline' }) },
+      ],
+      buildings,
+    )[0]
+    expect(shouldUseBuildingGroupChrome(group)).toBe(false)
+  })
+
+  it('is true for one sale and one rent in the same building', () => {
+    const group = groupPortfolioByBuilding(
+      [
+        {
+          property: prop({
+            id: 'p1',
+            title: 'Sale unit',
+            buildingId: 'bld-skyline',
+            listingMode: 'sale',
+            price: 1_850_000,
+            rent: null,
+          }),
+        },
+        {
+          property: prop({
+            id: 'p2',
+            title: 'Rent unit',
+            buildingId: 'bld-skyline',
+            listingMode: 'rent',
+            rent: 11_800,
+            price: null,
+          }),
+        },
       ],
       buildings,
     )[0]
@@ -120,6 +150,33 @@ describe('shouldUseBuildingGroupChrome', () => {
       buildings,
     )[0]
     expect(shouldUseBuildingGroupChrome(group)).toBe(true)
+  })
+})
+
+describe('sortPortfolioItemsForSaleRentGroup', () => {
+  it('orders rent before sale', () => {
+    const rows = [
+      {
+        property: prop({
+          id: 'p1',
+          title: 'Sale',
+          listingMode: 'sale',
+          price: 1_000_000,
+          rent: null,
+        }),
+      },
+      {
+        property: prop({
+          id: 'p2',
+          title: 'Rent',
+          listingMode: 'rent',
+          rent: 10_000,
+          price: null,
+        }),
+      },
+    ]
+    const sorted = sortPortfolioItemsForSaleRentGroup(rows)
+    expect(sorted.map((r) => r.property.id)).toEqual(['p2', 'p1'])
   })
 })
 

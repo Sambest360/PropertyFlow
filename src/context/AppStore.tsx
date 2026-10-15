@@ -68,14 +68,6 @@ import { isPubliclyListed } from '../lib/publicListings'
 import { findByListingId, nextUniquePropertyId } from '../lib/listingIds'
 import {
   uid,
-  seedAgencyContractors,
-  seedTrustTransactions,
-  seedTrustAllocations,
-  seedCharges,
-  seedPayoutInstructions,
-  seedDepositHoldings,
-  seedArrearsSnapshots,
-  seedCsvImportBatches,
   formatZAR,
 } from '../data/seed'
 import type { AssetCondition, Building, InfraRoom, InternalAsset, LookupConfig, RoomKind, Unit, UnitTemplate } from '../data/infrastructure'
@@ -195,10 +187,12 @@ import {
   shouldWipeAuthAfterBootstrapMiss,
 } from '../lib/emptyBootstrapAuth'
 import { authHeaders } from '../lib/api/authClient'
-import { buildPublicMarketplaceDemoBootstrap } from '../lib/publicMarketplaceDemo'
+import { emptyPublicMarketplaceBootstrap } from '../lib/publicMarketplaceDemo'
+import { repairUnitsForMarketplaceVisibility } from '../lib/marketplaceVisibility'
 import {
   appStateHasPublicBrowseListings,
   enrichBootstrapWithPublicMarketplace,
+  fetchMergedPublicMarketplaceSlice,
 } from '../lib/publicMarketplaceMerge'
 import {
   PERSIST_REFUSED_EVENT,
@@ -386,6 +380,8 @@ function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppSta
   agencies = reconciled.agencies
   users = reconciled.users
   properties = (reconciled.properties as PropertyAsset[]) ?? properties
+  let units = pick(base.units, boot.units as Unit[], 'units')
+  units = repairUnitsForMarketplaceVisibility(properties, units, users)
 
   return {
     ...base,
@@ -393,7 +389,7 @@ function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppSta
     users,
     properties,
     buildings: pick(base.buildings, boot.buildings as Building[], 'buildings'),
-    units: pick(base.units, boot.units as Unit[], 'units'),
+    units,
     leads: pick(base.leads, boot.leads as Lead[], 'leads'),
     applications: pick(base.applications, boot.applications as Application[], 'applications').map(
       normalizeApplication,
@@ -984,7 +980,7 @@ type StoreContextValue = {
 /** API/Supabase mode never starts from seed trust/charge books (spec-portal-first-load). */
 const LIVE_DATA_MODE = isApiEnabled || isSupabaseMode
 
-export const defaultStateFor = (liveDataMode: boolean): AppState => ({
+export const defaultStateFor = (_liveDataMode: boolean): AppState => ({
   agencies: [],
   users: [],
   properties: [],
@@ -1013,15 +1009,15 @@ export const defaultStateFor = (liveDataMode: boolean): AppState => ({
   clientSubscriptions: [],
   invoices: [],
   vendorRoutes: SEED_VENDOR_ROUTES,
-  agencyContractors: seedAgencyContractors,
+  agencyContractors: [],
   // Trust / Banking module state
-  trustTransactions: liveDataMode ? [] : seedTrustTransactions,
-  trustAllocations: liveDataMode ? [] : seedTrustAllocations,
-  payoutInstructions: liveDataMode ? [] : seedPayoutInstructions,
-  depositHoldings: liveDataMode ? [] : seedDepositHoldings,
-  arrearsSnapshots: liveDataMode ? [] : seedArrearsSnapshots,
-  charges: liveDataMode ? [] : seedCharges,
-  csvImportBatches: liveDataMode ? [] : seedCsvImportBatches,
+  trustTransactions: [],
+  trustAllocations: [],
+  payoutInstructions: [],
+  depositHoldings: [],
+  arrearsSnapshots: [],
+  charges: [],
+  csvImportBatches: [],
   supportTickets: [],
 })
 
@@ -1110,7 +1106,7 @@ async function fetchBootstrapFromApi(
     const { fetchPublicMarketplaceBootstrap } = await import('../lib/supabase/publicMarketplace')
     const pub = await fetchPublicMarketplaceBootstrap(lite)
     if (pub?.properties?.length) return pub
-    return buildPublicMarketplaceDemoBootstrap()
+    return emptyPublicMarketplaceBootstrap()
   }
 
   if (isSupabaseMode) {
@@ -1168,7 +1164,7 @@ async function fetchBootstrapFromApi(
     const { fetchPublicMarketplaceBootstrap } = await import('../lib/supabase/publicMarketplace')
     const pub = await fetchPublicMarketplaceBootstrap(lite)
     if (pub?.properties?.length) return pub
-    return buildPublicMarketplaceDemoBootstrap()
+    return emptyPublicMarketplaceBootstrap()
   }
 
   const { fetchPostgresBootstrap, fetchPublicMarketplaceFromApi } = await import(
@@ -1178,7 +1174,7 @@ async function fetchBootstrapFromApi(
     // /api/bootstrap is 401 without a session; guests get the published-listings slice.
     const pub = await fetchPublicMarketplaceFromApi(fullTimeoutMs, lite)
     if (pub?.properties?.length) return pub
-    return buildPublicMarketplaceDemoBootstrap()
+    return emptyPublicMarketplaceBootstrap()
   }
   const boot = await fetchPostgresBootstrap(fullTimeoutMs, effective, lite)
   if (!boot) return null
@@ -1186,8 +1182,7 @@ async function fetchBootstrapFromApi(
 }
 
 function ensurePublicMarketplace(state: AppState): AppState {
-  if (appStateHasPublicBrowseListings(state)) return state
-  return applyPostgresBootstrap(state, buildPublicMarketplaceDemoBootstrap())
+  return state
 }
 
 export function AppStoreProvider({ children }: { children: ReactNode }) {
@@ -1379,6 +1374,29 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       void refreshBootstrap(actor, { force: true })
     }, 1500)
   }, [refreshBootstrap])
+
+  const refreshPublicMarketplaceInState = useCallback(async () => {
+    if (!LIVE_DATA_MODE) return
+    const current = stateRef.current
+    const slice = await fetchMergedPublicMarketplaceSlice({
+      properties: current.properties,
+      units: current.units,
+      users: current.users,
+      buildings: current.buildings,
+      viewingSlots: current.viewingSlots,
+      agencies: current.agencies,
+    })
+    if (!slice) return
+    patch((s) => ({
+      ...s,
+      properties: slice.properties,
+      units: slice.units,
+      users: slice.users,
+      buildings: slice.buildings,
+      viewingSlots: slice.viewingSlots,
+      agencies: slice.agencies as Agency[],
+    }))
+  }, [patch])
 
   useEffect(() => {
     if (!isApiEnabled && !isSupabaseMode) {
@@ -3427,6 +3445,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         }
       }
       scheduleBootstrapRefreshAfterMutation()
+      if (prev && PUBLIC_ON.includes(status)) {
+        void refreshPublicMarketplaceInState()
+      }
       // P0-publish: the wizard's primary Publish now knows whether the listing
       // actually flipped to a public state.
       return Boolean(prev && PUBLIC_ON.includes(status))
@@ -3517,6 +3538,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         recipientUserIds: propertyDeskStakeholderIds(stateRef.current.users, property),
       })
 
+      void refreshPublicMarketplaceInState()
       return { ok: true }
     },
     restoreProperty: (id) => {

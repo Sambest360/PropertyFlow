@@ -20,7 +20,14 @@ import { formatZAR } from '../../data/seed'
 import { appendAgentMetaRow } from '../../lib/agentDisplay'
 import { useAgentDisplay, useHideAgentColumn } from '../../hooks/useAgentDisplay'
 import { resolvePortfolioStatus } from '../../lib/propertyStatus'
-import { listingModeLabel, priceLabel, type PortfolioProperty } from './types'
+import {
+  listingModeLabel,
+  marketSegmentLabel,
+  priceLabel,
+  priceLabelForSegment,
+  type PortfolioProperty,
+  type PropertyListRow,
+} from './types'
 
 const ICON_STROKE = 1.6
 
@@ -295,14 +302,24 @@ function RowCellAction({
   )
 }
 
+function normalizePropertyListRows(
+  items: PortfolioProperty[],
+  rows?: PropertyListRow[],
+): PropertyListRow[] {
+  if (rows?.length) return rows
+  return items.map((item) => ({ item }))
+}
+
 export function PropertyListView({
   items,
+  rows,
   expandedId,
   onToggle,
   reducedMotion,
   rowLinksToDetail = false,
 }: {
   items: PortfolioProperty[]
+  rows?: PropertyListRow[]
   expandedId?: string | null
   onToggle?: (item: PortfolioProperty) => void
   reducedMotion?: boolean
@@ -314,6 +331,7 @@ export function PropertyListView({
   const toggle = (item: PortfolioProperty) => onToggle?.(item)
   const detailHref = (item: PortfolioProperty) =>
     rowLinksToDetail ? `/workspace/properties/${item.property.id}` : undefined
+  const listRows = normalizePropertyListRows(items, rows)
   return (
     <>
       <div className="hidden overflow-hidden rounded-[1.25rem] border border-primary-100/80 bg-white shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)] md:block">
@@ -330,12 +348,21 @@ export function PropertyListView({
               </tr>
             </thead>
             <tbody>
-              {items.map((item) => {
+              {listRows.map((row) => {
+                const item = row.item
                 const p = item.property
+                const segment = row.marketSegment
+                const rowKey = segment ? `${p.id}-${segment}` : p.id
                 const expanded = !rowLinksToDetail && expandedId === p.id
                 const linkTo = detailHref(item)
+                const displayTitle = segment
+                  ? `${p.title} — ${marketSegmentLabel(segment)}`
+                  : p.title
+                const displayPrice = segment
+                  ? priceLabelForSegment(p, segment, formatZAR)
+                  : priceLabel(p, formatZAR)
                 return (
-                  <Fragment key={p.id}>
+                  <Fragment key={rowKey}>
                     <tr
                       className={cn(
                         'border-b border-primary-50',
@@ -380,7 +407,7 @@ export function PropertyListView({
                           />
                           <span className="min-w-0">
                             <span className="block truncate font-semibold text-ink group-hover:text-primary">
-                              {p.title}
+                              {displayTitle}
                             </span>
                             <span className="mt-0.5 flex items-center gap-1 truncate text-xs text-ink-500">
                               <MapPin className="h-3 w-3 shrink-0" strokeWidth={ICON_STROKE} aria-hidden />
@@ -405,7 +432,7 @@ export function PropertyListView({
                           onClick={() => toggle(item)}
                           className="w-full cursor-pointer text-left font-semibold tabular text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
-                          {priceLabel(p, formatZAR)}
+                          {displayPrice}
                         </RowCellAction>
                       </td>
                       <td className="px-3 py-3">
@@ -442,7 +469,7 @@ export function PropertyListView({
                         </td>
                       ) : null}
                     </tr>
-                    {!rowLinksToDetail ? (
+                    {!rowLinksToDetail && !segment ? (
                     <tr className={cn(!expanded && 'border-b border-primary-50')}>
                       <td colSpan={colSpan} className="p-0">
                         <div
@@ -479,13 +506,22 @@ export function PropertyListView({
       </div>
 
       <ul className="space-y-2 md:hidden">
-        {items.map((item) => {
+        {listRows.map((row) => {
+          const item = row.item
           const p = item.property
+          const segment = row.marketSegment
+          const rowKey = segment ? `${p.id}-${segment}` : p.id
           const expanded = !rowLinksToDetail && expandedId === p.id
           const linkTo = detailHref(item)
+          const displayTitle = segment
+            ? `${p.title} — ${marketSegmentLabel(segment)}`
+            : p.title
+          const displayPrice = segment
+            ? priceLabelForSegment(p, segment, formatZAR)
+            : priceLabel(p, formatZAR)
           return (
             <li
-              key={p.id}
+              key={rowKey}
               className={cn(
                 'overflow-hidden rounded-[1.25rem] border shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)]',
                 expanded
@@ -509,7 +545,7 @@ export function PropertyListView({
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-start gap-2">
-                    <p className="min-w-0 flex-1 truncate font-semibold text-ink">{p.title}</p>
+                    <p className="min-w-0 flex-1 truncate font-semibold text-ink">{displayTitle}</p>
                     {!rowLinksToDetail ? (
                       <ChevronDown
                         className={cn(
@@ -527,7 +563,7 @@ export function PropertyListView({
                     {item.buildingName ? `${item.buildingName} · ` : ''}
                     {p.suburb}, {p.city} · {p.type}
                   </p>
-                  <p className="mt-1.5 font-semibold tabular text-ink">{priceLabel(p, formatZAR)}</p>
+                  <p className="mt-1.5 font-semibold tabular text-ink">{displayPrice}</p>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <StatusBadge item={item} />
                     <AttentionBadges item={item} />
@@ -539,7 +575,7 @@ export function PropertyListView({
                   ) : null}
                 </div>
               </RowCellAction>
-              {!rowLinksToDetail ? (
+              {!rowLinksToDetail && !segment ? (
               <div
                 className={cn(
                   'grid transition-[grid-template-rows] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',

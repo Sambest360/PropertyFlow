@@ -10,10 +10,13 @@ import { gradingLabel } from '../../lib/buildingGrading'
 import {
   STANDALONE_BUILDING_KEY,
   groupPortfolioByBuilding,
+  isDualListingPortfolioItem,
   shouldUseBuildingGroupChrome,
+  sortPortfolioItemsForSaleRentGroup,
   type BuildingPortfolioGroup,
 } from '../../lib/buildingHierarchy'
 import { Badge, cn } from '../ui'
+import { DualListingGroupView } from './DualListingGroupView'
 import { PropertyListView } from './PropertyListView'
 import type { PortfolioProperty } from './types'
 
@@ -121,7 +124,7 @@ export function BuildingTreeView({
   const defaultExpanded = useMemo(() => {
     const set = new Set<string>()
     for (const g of groups) {
-      if (initiallyExpandMultiUnit && g.unitCount > 1) set.add(g.key)
+      if (initiallyExpandMultiUnit && shouldUseBuildingGroupChrome(g)) set.add(g.key)
       if (g.key === STANDALONE_BUILDING_KEY) set.add(g.key)
       if (groups.length === 1) set.add(g.key)
     }
@@ -137,7 +140,7 @@ export function BuildingTreeView({
     lastSigRef.current = groupKeySig
     const next = new Set<string>()
     for (const g of groups) {
-      if (initiallyExpandMultiUnit && g.unitCount > 1) next.add(g.key)
+      if (initiallyExpandMultiUnit && shouldUseBuildingGroupChrome(g)) next.add(g.key)
       if (g.key === STANDALONE_BUILDING_KEY) next.add(g.key)
       if (groups.length === 1) next.add(g.key)
     }
@@ -169,6 +172,17 @@ export function BuildingTreeView({
           )
         }
 
+        if (group.unitCount === 1 && isDualListingPortfolioItem(group.items[0])) {
+          return (
+            <DualListingGroupView
+              key={`dual-${group.items[0].property.id}`}
+              item={group.items[0]}
+              reducedMotion={reducedMotion}
+            />
+          )
+        }
+
+        const sortedItems = sortPortfolioItemsForSaleRentGroup(group.items)
         const open = expandedBuildings.has(group.key)
         return (
           <div key={group.key} className="space-y-2">
@@ -189,7 +203,7 @@ export function BuildingTreeView({
                 {open ? (
                   <div className="pl-0 sm:pl-3">
                     <PropertyListView
-                      items={group.items}
+                      items={sortedItems}
                       rowLinksToDetail
                       reducedMotion={reducedMotion}
                     />

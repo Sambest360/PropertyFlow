@@ -49,26 +49,26 @@ import * as appStore from '../context/AppStore'
 const AUTH_KEY = 'propertyflow-auth-user'
 
 describe('sign-out wipes the client cache', () => {
-  it('signOut clears propertyflow-v18 and propertyflow-pg-source', async () => {
-    expect(appStore.APP_STATE_STORAGE_KEY).toBe('propertyflow-v18')
+  it('signOut clears propertyflow-v19 and propertyflow-pg-source', async () => {
+    expect(appStore.APP_STATE_STORAGE_KEY).toBe('propertyflow-v19')
     expect(appStore.PG_SOURCE_STORAGE_KEY).toBe('propertyflow-pg-source')
     expect(STALE_KEYS).toContain(APP_STATE_STORAGE_KEY)
     expect(STALE_KEYS).toContain(PG_SOURCE_STORAGE_KEY)
     vi.stubGlobal('window', { location: { assign: vi.fn() } })
-    ls.setItem('propertyflow-v18', '{"ownerUserId":"u-a","state":{}}')
+    ls.setItem('propertyflow-v19', '{"ownerUserId":"u-a","state":{}}')
     ls.setItem('propertyflow-pg-source', 'postgres')
     await signOutAndRedirect(async () => {})
-    expect(ls.getItem('propertyflow-v18')).toBeNull()
+    expect(ls.getItem('propertyflow-v19')).toBeNull()
     expect(ls.getItem('propertyflow-pg-source')).toBeNull()
   })
 
-  it('clearSessionArtifacts clears propertyflow-v18 and propertyflow-pg-source', () => {
-    expect(AUTH_STORAGE_KEYS).toContain('propertyflow-v18')
+  it('clearSessionArtifacts clears propertyflow-v19 and propertyflow-pg-source', () => {
+    expect(AUTH_STORAGE_KEYS).toContain('propertyflow-v19')
     expect(AUTH_STORAGE_KEYS).toContain('propertyflow-pg-source')
-    ls.setItem('propertyflow-v18', '{}')
+    ls.setItem('propertyflow-v19', '{}')
     ls.setItem('propertyflow-pg-source', 'postgres')
     clearSessionArtifacts({ setSessionUser: vi.fn(), setUserId: vi.fn(), setRealUserId: vi.fn() })
-    expect(ls.getItem('propertyflow-v18')).toBeNull()
+    expect(ls.getItem('propertyflow-v19')).toBeNull()
     expect(ls.getItem('propertyflow-pg-source')).toBeNull()
   })
 })
@@ -178,7 +178,8 @@ describe('live mode defaults', () => {
       expect(s[k]).toEqual([])
     }
     const demo = appStore.defaultStateFor(false)
-    expect(demo.trustTransactions.length + demo.charges.length).toBeGreaterThan(0)
+    expect(demo.trustTransactions).toEqual([])
+    expect(demo.charges).toEqual([])
   })
 
   it('mount with pg-source=postgres + cache + live session → bootstrap is not deferred', () => {

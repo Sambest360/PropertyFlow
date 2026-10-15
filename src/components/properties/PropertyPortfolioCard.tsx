@@ -16,7 +16,13 @@ import { formatZAR } from '../../data/seed'
 import { appendAgentMetaRow } from '../../lib/agentDisplay'
 import { useAgentDisplay, useHideAgentColumn } from '../../hooks/useAgentDisplay'
 import { resolvePortfolioStatus } from '../../lib/propertyStatus'
-import { listingModeLabel, priceLabel, type PortfolioProperty } from './types'
+import {
+  listingModeLabel,
+  priceLabel,
+  rentPriceLabel,
+  salePriceLabel,
+  type PortfolioProperty,
+} from './types'
 
 const ICON_STROKE = 1.6
 
@@ -217,7 +223,20 @@ export function PropertyPortfolioCard({
                 {p.suburb}, {p.city}
               </span>
             </p>
-            <p className="mt-2 tabular text-lg font-semibold text-ink">{priceLabel(p, formatZAR)}</p>
+            {p.listingMode === 'both' ? (
+              <div className="mt-2 space-y-0.5 tabular text-sm font-semibold text-ink">
+                <p>
+                  <span className="font-medium text-ink-500">To rent:</span>{' '}
+                  {rentPriceLabel(p, formatZAR)}
+                </p>
+                <p>
+                  <span className="font-medium text-ink-500">For sale:</span>{' '}
+                  {salePriceLabel(p, formatZAR)}
+                </p>
+              </div>
+            ) : (
+              <p className="mt-2 tabular text-lg font-semibold text-ink">{priceLabel(p, formatZAR)}</p>
+            )}
             {!expanded && (
               <>
                 <div className="mt-3 flex flex-wrap gap-3 text-xs text-ink-500">
