@@ -12,6 +12,7 @@ import { RequirePermission } from './components/RequirePermission'
 import { RequireAgencyOpsAccess } from './components/RequireAgencyOpsAccess'
 
 import { RequireAuth } from './components/RequireAuth'
+import { CanonicalIdRedirect } from './components/routing/CanonicalIdRedirect'
 import { PropertyLoader } from './components/loading/PropertyLoader'
 import { TempPasswordHost } from './components/admin/TempPasswordHost'
 import { useAuth } from './context/AuthContext'
@@ -194,9 +195,11 @@ export default function App() {
                 <Route
                   path="listing/:id"
                   element={
-                    <Suspense fallback={<PageFallback />}>
-                      <ListingDetail />
-                    </Suspense>
+                    <CanonicalIdRedirect entityTypes={['property', 'unit']} propertyLookup>
+                      <Suspense fallback={<PageFallback />}>
+                        <ListingDetail />
+                      </Suspense>
+                    </CanonicalIdRedirect>
                   }
                 />
                 <Route
@@ -257,42 +260,79 @@ export default function App() {
                 <Route
                   path="properties/:id/edit"
                   element={
-                    <Guard permission="assets.manage">
-                      <PropertyEditPage />
-                    </Guard>
+                    <CanonicalIdRedirect entityTypes={['property', 'unit']} propertyLookup>
+                      <Guard permission="assets.manage">
+                        <PropertyEditPage />
+                      </Guard>
+                    </CanonicalIdRedirect>
                   }
                 />
                 <Route
                   path="properties/:id"
                   element={
-                    <Guard
-                      anyOf={[
-                        'assets.view',
-                        'listings.publish',
-                        'portal.owner',
-                        'portal.tenant',
-                        'portal.contractor',
-                      ]}
-                    >
-                      <PropertyDetail />
-                    </Guard>
+                    <CanonicalIdRedirect entityTypes={['property', 'unit']} propertyLookup>
+                      <Guard
+                        anyOf={[
+                          'assets.view',
+                          'listings.publish',
+                          'portal.owner',
+                          'portal.tenant',
+                          'portal.contractor',
+                        ]}
+                      >
+                        <PropertyDetail />
+                      </Guard>
+                    </CanonicalIdRedirect>
                   }
                 />
 
                 {/* Sales — flat routes */}
                 <Route path="sales/crm" element={<Guard anyOf={['leads.view', 'leads.manage']}><CRM /></Guard>} />
-                <Route path="sales/crm/:id" element={<Guard anyOf={['leads.view', 'leads.manage']}><LeadDetail /></Guard>} />
+                <Route
+                  path="sales/crm/:id"
+                  element={
+                    <CanonicalIdRedirect entityTypes={['lead']}>
+                      <Guard anyOf={['leads.view', 'leads.manage']}>
+                        <LeadDetail />
+                      </Guard>
+                    </CanonicalIdRedirect>
+                  }
+                />
                 <Route path="sales/pipeline" element={<Navigate to="/workspace/sales/crm?view=board" replace />} />
                 <Route path="sales/applications" element={<Guard permission="applications.view"><Applications /></Guard>} />
-                <Route path="sales/applications/:id" element={<Guard permission="applications.view"><ApplicantDetail /></Guard>} />
-                <Route path="sales/applications/:id/inspection" element={<Guard permission="applications.review"><ApplicationInspectionPage /></Guard>} />
+                <Route
+                  path="sales/applications/:id"
+                  element={
+                    <CanonicalIdRedirect entityTypes={['application']}>
+                      <Guard permission="applications.view">
+                        <ApplicantDetail />
+                      </Guard>
+                    </CanonicalIdRedirect>
+                  }
+                />
+                <Route
+                  path="sales/applications/:id/inspection"
+                  element={
+                    <CanonicalIdRedirect entityTypes={['application']}>
+                      <Guard permission="applications.review">
+                        <ApplicationInspectionPage />
+                      </Guard>
+                    </CanonicalIdRedirect>
+                  }
+                />
                 <Route path="sales/viewings" element={<Guard permission="viewings.manage"><Viewings /></Guard>} />
                 <Route
                   path="sales/viewings/property/:propertyId"
                   element={
-                    <Guard permission="viewings.manage">
-                      <ViewingPropertyPage />
-                    </Guard>
+                    <CanonicalIdRedirect
+                      entityTypes={['property', 'unit']}
+                      propertyLookup
+                      paramKey="propertyId"
+                    >
+                      <Guard permission="viewings.manage">
+                        <ViewingPropertyPage />
+                      </Guard>
+                    </CanonicalIdRedirect>
                   }
                 />
 
@@ -314,12 +354,30 @@ export default function App() {
                     </Guard>
                   }
                 />
-                <Route path="operations/maintenance/:id" element={<Guard permission="maintenance.view"><MaintenanceDetail /></Guard>} />
+                <Route
+                  path="operations/maintenance/:id"
+                  element={
+                    <CanonicalIdRedirect entityTypes={['ticket']}>
+                      <Guard permission="maintenance.view">
+                        <MaintenanceDetail />
+                      </Guard>
+                    </CanonicalIdRedirect>
+                  }
+                />
                 <Route path="operations/contractors" element={<Guard permission="contractors.view"><ContractorsDirectory /></Guard>} />
                 <Route path="operations/documents" element={<Guard permission="documents.view"><Documents /></Guard>} />
                 <Route path="operations/communications" element={<Guard permission="messages.manage"><Communications /></Guard>} />
                 <Route path="operations/payments" element={<Guard permission="payments.view"><Payments /></Guard>} />
-                <Route path="operations/payments/:id" element={<Guard permission="payments.view"><PaymentDetail /></Guard>} />
+                <Route
+                  path="operations/payments/:id"
+                  element={
+                    <CanonicalIdRedirect entityTypes={['payment']}>
+                      <Guard permission="payments.view">
+                        <PaymentDetail />
+                      </Guard>
+                    </CanonicalIdRedirect>
+                  }
+                />
 
                 {/* Compliance */}
                 <Route path="compliance" element={<AgencyOpsGuard permission="compliance.view"><ComplianceDashboard /></AgencyOpsGuard>} />
@@ -336,7 +394,16 @@ export default function App() {
                 <Route path="portals/owner" element={<Guard permission="portal.owner"><OwnerPortal /></Guard>} />
                 <Route path="portals/tenant" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
                 <Route path="portals/tenant/applications" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
-                <Route path="portals/tenant/applications/:id" element={<Guard permission="portal.tenant"><TenantApplicationDetailPage /></Guard>} />
+                <Route
+                  path="portals/tenant/applications/:id"
+                  element={
+                    <CanonicalIdRedirect entityTypes={['application']}>
+                      <Guard permission="portal.tenant">
+                        <TenantApplicationDetailPage />
+                      </Guard>
+                    </CanonicalIdRedirect>
+                  }
+                />
                 <Route path="portals/tenant/maintenance" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
                 <Route path="portals/tenant/messages" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
                 <Route path="portals/tenant/complaints" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
@@ -350,9 +417,27 @@ export default function App() {
 
                 {/* People */}
                 <Route path="people/staff" element={<AgencyOpsGuard permission="users.manage"><StaffDirectory /></AgencyOpsGuard>} />
-                <Route path="people/staff/:id" element={<AgencyOpsGuard permission="users.manage"><StaffDetail /></AgencyOpsGuard>} />
+                <Route
+                  path="people/staff/:id"
+                  element={
+                    <CanonicalIdRedirect entityTypes={['user']}>
+                      <AgencyOpsGuard permission="users.manage">
+                        <StaffDetail />
+                      </AgencyOpsGuard>
+                    </CanonicalIdRedirect>
+                  }
+                />
                 <Route path="people/tenants" element={<AgencyOpsGuard permission="occupants.view"><TenantDirectory /></AgencyOpsGuard>} />
-                <Route path="people/tenants/:id" element={<AgencyOpsGuard permission="occupants.view"><OccupantDetail /></AgencyOpsGuard>} />
+                <Route
+                  path="people/tenants/:id"
+                  element={
+                    <CanonicalIdRedirect entityTypes={['tenancy']}>
+                      <AgencyOpsGuard permission="occupants.view">
+                        <OccupantDetail />
+                      </AgencyOpsGuard>
+                    </CanonicalIdRedirect>
+                  }
+                />
                 <Route path="people/leases" element={<AgencyOpsGuard permission="occupants.view"><LeasesDirectory /></AgencyOpsGuard>} />
                 <Route path="people/landlords" element={<AgencyOpsGuard anyOf={['users.manage', 'assets.manage']}><LandlordsDirectoryRoute><LandlordsDirectory /></LandlordsDirectoryRoute></AgencyOpsGuard>} />
 
@@ -361,10 +446,28 @@ export default function App() {
                 <Route path="admin" element={<AgencyOpsGuard anyOf={['users.manage', 'roles.assign', 'tenant.manage', 'config.manage', 'platform.manage']}><AdminHub /></AgencyOpsGuard>} />
                 <Route path="admin/users" element={<AgencyOpsGuard anyOf={['users.manage', 'roles.assign']}><AdminUsersPage /></AgencyOpsGuard>} />
                 <Route path="admin/users/new" element={<AgencyOpsGuard anyOf={['users.manage', 'roles.assign']}><AdminUserCreatePage /></AgencyOpsGuard>} />
-                <Route path="admin/users/:id" element={<AgencyOpsGuard permission="roles.assign"><AdminUserDetailPage /></AgencyOpsGuard>} />
+                <Route
+                  path="admin/users/:id"
+                  element={
+                    <CanonicalIdRedirect entityTypes={['user']}>
+                      <AgencyOpsGuard permission="roles.assign">
+                        <AdminUserDetailPage />
+                      </AgencyOpsGuard>
+                    </CanonicalIdRedirect>
+                  }
+                />
                 <Route path="admin/agencies" element={<Guard permission="platform.manage"><AdminAgenciesPage /></Guard>} />
                 <Route path="admin/agencies/new" element={<Guard permission="platform.manage"><AdminAgencyCreatePage /></Guard>} />
-                <Route path="admin/agencies/:id" element={<Guard permission="platform.manage"><AgencyDetailPage /></Guard>} />
+                <Route
+                  path="admin/agencies/:id"
+                  element={
+                    <CanonicalIdRedirect entityTypes={['agency']}>
+                      <Guard permission="platform.manage">
+                        <AgencyDetailPage />
+                      </Guard>
+                    </CanonicalIdRedirect>
+                  }
+                />
                 <Route path="admin/config" element={<AgencyOpsGuard anyOf={['config.manage', 'tenant.manage', 'platform.manage']}><AdminConfigPage /></AgencyOpsGuard>} />
                 <Route path="admin/pipeline" element={<AgencyOpsGuard anyOf={['config.manage', 'tenant.manage', 'platform.manage']}><LeadPipelineSettingsPage /></AgencyOpsGuard>} />
                 <Route path="admin/roles" element={<Navigate to="/workspace/admin/users" replace />} />

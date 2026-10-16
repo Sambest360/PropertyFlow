@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../../context/AppStore'
+import { hideBackendUuid } from '../../lib/displayIds'
 import { useAuth } from '../../context/AuthContext'
 import { Card } from '../../components/ui'
 import { Button } from '../../components/ui'
@@ -61,7 +62,8 @@ export default function PayfastResultPage({ cancelled = false }: { cancelled?: b
           <div className="mt-5 rounded-xl bg-primary-50 p-4 text-left text-sm">
             <p className="font-medium">{payment.type}</p>
             <p className="text-ink-500">
-              Reference {payment.id} · R{(payment.amount ?? 0).toFixed(2)}
+              Reference {payment.reference || hideBackendUuid(payment.id, 'Payment')} · R
+              {(payment.amount ?? 0).toFixed(2)}
             </p>
           </div>
         )}

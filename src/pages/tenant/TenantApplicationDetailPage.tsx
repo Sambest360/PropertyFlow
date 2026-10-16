@@ -28,6 +28,7 @@ import {
 } from '../../lib/applicationWorkflow'
 import { buildCheckoutBridge, guidedTransitionError, type PatchApplicationStatusResult } from '../../lib/api/applicationStatusApi'
 import { sweetError } from '../../lib/sweetAlert'
+import { hideBackendUuid, labelOrReference } from '../../lib/displayIds'
 import type { HateoasAction } from '../../lib/api/contracts'
 import type { WorkflowActionCapture } from '../../lib/workflowActionForms'
 import { formatZAR } from '../../data/seed'
@@ -219,7 +220,7 @@ export default function TenantApplicationDetailPage() {
           items={[
             { label: 'Dashboard', to: '/workspace/portals/tenant' },
             { label: 'My applications', to: '/workspace/portals/tenant/applications' },
-            { label: property?.title ?? application.id },
+            { label: labelOrReference(property?.title, application.id, 'Application') },
           ]}
         />
 
@@ -238,7 +239,7 @@ export default function TenantApplicationDetailPage() {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h1 className="font-display text-2xl font-semibold text-ink">
-                    {property?.title ?? application.propertyId}
+                    {labelOrReference(property?.title, application.propertyId, 'Property')}
                   </h1>
                   {property ? (
                     <p className="mt-1 flex items-center gap-1.5 text-sm text-ink-500">
@@ -247,7 +248,7 @@ export default function TenantApplicationDetailPage() {
                       {property.rent ? ` · ${formatZAR(property.rent)}/mo` : ''}
                     </p>
                   ) : null}
-                  <p className="mt-1 text-xs text-ink-400">{application.id}</p>
+                  <p className="mt-1 text-xs text-ink-400">{hideBackendUuid(application.id)}</p>
                 </div>
                 <div className="flex flex-col items-end gap-2">
                   <Badge tone={statusTone(application.stage)}>{application.stage}</Badge>
@@ -295,7 +296,9 @@ export default function TenantApplicationDetailPage() {
                 <p className="text-[11px] font-medium uppercase tracking-wide text-ink-400">
                   Linked tenancy
                 </p>
-                <p className="mt-1 font-semibold tabular text-ink">{linkedTenancy.id}</p>
+                <p className="mt-1 font-semibold tabular text-ink">
+                  {hideBackendUuid(linkedTenancy.id)}
+                </p>
                 <p className="mt-0.5 text-sm text-ink-500">
                   {linkedTenancy.startDate}
                   {linkedTenancy.endDate ? ` → ${linkedTenancy.endDate}` : ' · open-ended'}

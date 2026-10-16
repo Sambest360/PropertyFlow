@@ -23,13 +23,68 @@ describe('linkStaffAuthUser', () => {
         }),
       ),
     )
-    process.env.VITE_SUPABASE_URL = 'https://example.supabase.co'
-    process.env.VITE_SUPABASE_ANON_KEY = 'anon-test-key'
+    process.env.SUPABASE_URL = 'https://example.supabase.co'
+    process.env.SUPABASE_PUBLISHABLE_KEY =
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSJ9.test'
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.resetModules()
+  })
+
+  it('returns 409 when another profile already has the email', async () => {
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('id <> $2::uuid')) return { rows: [{ id: 'other-profile' }] }
+      return { rows: [] }
+    })
+
+    const { linkStaffAuthUser } = await import('./registerUser.js')
+    await expect(
+      linkStaffAuthUser({
+        email: 'taken@example.com',
+        password: ['mint', 'tok', 'dup'].join('-'),
+        firstName: 'A',
+        lastName: 'B',
+        roleFe: 'agent',
+        profileId: '11111111-1111-1111-1111-111111111111',
+      }),
+    ).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/already in use/i) })
+  })
+
+  it('returns 503 when GoTrue env is missing (probe status 0)', async () => {
+    delete process.env.SUPABASE_URL
+    delete process.env.SUPABASE_PUBLISHABLE_KEY
+    delete process.env.SUPABASE_ANON_KEY
+    delete process.env.VITE_SUPABASE_URL
+    delete process.env.VITE_SUPABASE_ANON_KEY
+    delete process.env.VITE_SUPABASE_PUBLISHABLE_KEY
+
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('id <> $2::uuid')) return { rows: [] }
+      if (sql.includes('FROM auth.users WHERE lower(email)')) return { rows: [] }
+      if (
+        sql.includes('FROM public.users') &&
+        sql.includes('auth_user_id = $2') &&
+        sql.includes('id = $1')
+      ) {
+        return { rows: [{ n: '1' }] }
+      }
+      return { rows: [] }
+    })
+    vi.stubGlobal('fetch', vi.fn())
+
+    const { linkStaffAuthUser } = await import('./registerUser.js')
+    await expect(
+      linkStaffAuthUser({
+        email: 'probe@example.com',
+        password: ['mint', 'tok', 'env'].join('-'),
+        firstName: 'A',
+        lastName: 'B',
+        roleFe: 'agent',
+        profileId: '55555555-5555-5555-5555-555555555555',
+      }),
+    ).rejects.toMatchObject({ status: 503, message: expect.stringMatching(/SUPABASE_URL/i) })
   })
 
   it('rejects guest-public-only roles outside the staff mint allow-list', async () => {
@@ -50,6 +105,7 @@ describe('linkStaffAuthUser', () => {
     // 1) no existing auth.users
     let profilePolls = 0
     query.mockImplementation(async (sql: string) => {
+      if (sql.includes('id <> $2::uuid')) return { rows: [] }
       if (sql.includes('FROM auth.users WHERE lower(email)')) {
         return { rows: [] }
       }
@@ -99,6 +155,7 @@ describe('linkStaffAuthUser', () => {
 
   it('throws and does not report success when password grant returns 400', async () => {
     query.mockImplementation(async (sql: string) => {
+      if (sql.includes('id <> $2::uuid')) return { rows: [] }
       if (sql.includes('FROM auth.users WHERE lower(email)')) return { rows: [] }
       if (
         sql.includes('FROM public.users') &&
@@ -137,6 +194,7 @@ describe('linkStaffAuthUser', () => {
     // Simulates the r13d false-OK: some other public.users row has the auth id,
     // but THIS mint profileId still has auth_user_id NULL.
     query.mockImplementation(async (sql: string) => {
+      if (sql.includes('id <> $2::uuid')) return { rows: [] }
       if (sql.includes('FROM auth.users WHERE lower(email)')) return { rows: [] }
       if (sql.includes('INSERT INTO auth.users') || sql.includes('INSERT INTO auth.identities')) {
         return { rows: [] }

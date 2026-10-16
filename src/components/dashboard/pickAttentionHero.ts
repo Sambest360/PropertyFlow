@@ -1,4 +1,5 @@
 import type { Application, MaintenanceTicket, PropertyAsset, Viewing } from '../../types/domain'
+import { hideBackendUuid } from '../../lib/displayIds'
 import type { AttentionHeroProps } from './AttentionHero'
 
 export type AttentionHeroKind = 'issue' | 'viewing' | 'application' | 'listing' | 'payment' | 'job'
@@ -130,7 +131,7 @@ export function pickAttentionHero(
       secondaryBadge: property?.type,
       property,
       stats: [
-        { label: 'App ID', value: app.id },
+        { label: 'App ID', value: hideBackendUuid(app.id) },
         { label: 'Type', value: app.type },
         {
           label: 'Location',
@@ -169,7 +170,7 @@ export function pickAttentionHero(
     secondaryBadge: featured.type,
     property: featured,
     stats: [
-      { label: 'Registry ID', value: featured.id },
+      { label: 'Registry ID', value: hideBackendUuid(featured.id) },
       { label: 'Status', value: featured.status },
       { label: 'Location', value: `${featured.suburb}, ${featured.city}` },
     ],

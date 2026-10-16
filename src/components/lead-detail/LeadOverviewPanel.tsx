@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { MapPin } from 'lucide-react'
 import type { Lead, PropertyAsset } from '../../types/domain'
 import { formatZAR } from '../../data/seed'
+import { hideBackendUuid } from '../../lib/displayIds'
 import { DetailSection, DetailStack, AgentAssigneeField, FlatField, FlatFieldGrid } from '../detail/FlatFields'
 import { ICON_STROKE } from './types'
 
@@ -23,7 +24,7 @@ export function LeadOverviewPanel({
         subtitle="Where this enquiry sits right now. Open Details for contact and notes."
       >
         <FlatFieldGrid className="lg:grid-cols-2">
-          <FlatField label="Lead ID" value={lead.id} />
+          <FlatField label="Lead ID" value={hideBackendUuid(lead.id)} />
           <FlatField label="Type" value={lead.type} />
           <FlatField label="Stage" value={lead.stage} />
           <FlatField label="Channel" value={lead.channel} />

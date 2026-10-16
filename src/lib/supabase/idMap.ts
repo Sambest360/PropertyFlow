@@ -1,3 +1,5 @@
+import { isBackendUuid } from '../displayIds'
+
 /** Frontend ↔ backend ID maps (mirrors server/idMap.ts seed aliases). */
 export const CLIENT_TO_AGENCY: Record<string, string> = {
   'a1000001-0001-4000-8000-000000000001': 'ag-horizon',
@@ -211,4 +213,28 @@ export function mapUser(
 export function mapProperty(cache: IdMapCache, unitId: string | null | undefined): string | null {
   if (!unitId) return null
   return feFromCache(cache, 'property', unitId, UNIT_TO_PROPERTY[unitId] ?? unitId)
+}
+
+export type IdMapRow = { entity_type: string; backend_id: string; frontend_id: string }
+
+export function buildIdMapCacheFromRows(rows: IdMapRow[]): IdMapCache {
+  return buildIdMapCache(rows, [])
+}
+
+/** Map a backend UUID route segment to a frontend id when entity_id_map has a row. */
+export function resolveFrontendRouteId(
+  cache: IdMapCache | null | undefined,
+  entityTypes: string[],
+  param: string | null | undefined,
+): string | null {
+  if (!cache || !param?.trim()) return null
+  const id = param.trim()
+  if (!isBackendUuid(id)) return null
+  for (const entityType of entityTypes) {
+    const mapped = cache.byType.get(entityType)?.get(id)
+    if (mapped && mapped !== id && !isBackendUuid(mapped)) return mapped
+  }
+  const agencyFe = cache.agencyByClient.get(id)
+  if (agencyFe && agencyFe !== id && !isBackendUuid(agencyFe)) return agencyFe
+  return null
 }

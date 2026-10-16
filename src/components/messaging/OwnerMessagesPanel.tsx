@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { hideBackendUuid, labelOrReference } from '../../lib/displayIds'
 import { MessageCircle, Send } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
 import { useAuth, usePropertyScope } from '../../context/AuthContext'
@@ -36,7 +37,7 @@ export function OwnerMessagesPanel() {
           tenancyId: t.id,
           tenantUserId: t.tenantUserId,
           propertyId: t.propertyId,
-          label: `${tenant?.name ?? t.tenantUserId} · ${prop?.title ?? t.propertyId}`,
+          label: `${tenant?.name ?? hideBackendUuid(t.tenantUserId, 'Tenant')} · ${labelOrReference(prop?.title, t.propertyId, 'Property')}`,
         }
       })
   }, [state.tenancies, state.users, state.properties, allowedPropertyIds])

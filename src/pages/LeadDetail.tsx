@@ -11,10 +11,12 @@ import { LeadDetailsPanel } from '../components/lead-detail/LeadDetailsPanel'
 import { LeadDealPanel } from '../components/lead-detail/LeadDealPanel'
 import { LeadActivityPanel } from '../components/lead-detail/LeadActivityPanel'
 import { CloseLeadModal } from '../components/lead-detail/CloseLeadModal'
+import { LeadMessageModal } from '../components/lead-detail/LeadMessageModal'
 import { isLeadDetailTab, type LeadDetailTab } from '../components/lead-detail/types'
 import { canCloseLead } from '../lib/leadLifecycle'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
 import type { PropertyEvent } from '../types/domain'
+import { useLeadContact } from '../hooks/useLeadContact'
 
 export default function LeadDetail() {
   const { id } = useParams()
@@ -107,6 +109,15 @@ export default function LeadDetail() {
   const canManage = has('leads.manage')
   const canClose = canCloseLead(lead, { userId: user.id, canManageLeads: canManage })
   const agentName = agent?.name ?? null
+  const {
+    portalUser,
+    canContact,
+    canInApp,
+    composeOpen,
+    setComposeOpen,
+    startInApp,
+    sendFirstMessage,
+  } = useLeadContact(lead, property)
 
   const tabs = [
     { id: 'overview', label: 'Overview' },
@@ -121,7 +132,11 @@ export default function LeadDetail() {
       <div className="animate-fade-in">
         <LeadDetailHeader
           lead={lead}
-          canManage={canManage}
+          property={property}
+          portalUser={portalUser}
+          canContact={canContact}
+          canInApp={canInApp}
+          onInApp={startInApp}
           canClose={canClose}
           onClose={() => setCloseOpen(true)}
         />
@@ -180,6 +195,13 @@ export default function LeadDetail() {
             subtitle="Timeline of stage changes, notes, and related property actions for this lead."
           />
         )}
+
+        <LeadMessageModal
+          open={composeOpen}
+          leadName={lead.name}
+          onClose={() => setComposeOpen(false)}
+          onSend={sendFirstMessage}
+        />
 
         <CloseLeadModal
           open={closeOpen}

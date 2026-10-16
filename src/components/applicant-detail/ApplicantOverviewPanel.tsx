@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { MapPin } from 'lucide-react'
 import type { Application, PropertyAsset } from '../../types/domain'
 import { formatZAR } from '../../data/seed'
+import { hideBackendUuid } from '../../lib/displayIds'
 import { DetailSection, DetailStack, AgentAssigneeField, FlatField, FlatFieldGrid } from '../detail/FlatFields'
 import { ICON_STROKE } from './types'
 
@@ -22,7 +23,7 @@ export function ApplicantOverviewPanel({
         subtitle="Where this application sits right now. Open Details for personal information."
       >
         <FlatFieldGrid className="lg:grid-cols-2">
-          <FlatField label="Application" value={application.id} />
+          <FlatField label="Application" value={hideBackendUuid(application.id)} />
           <FlatField label="Type" value={application.type} />
           <FlatField label="Stage" value={application.stage} />
           <FlatField label="Progress" value={`${application.progress}%`} tabular />

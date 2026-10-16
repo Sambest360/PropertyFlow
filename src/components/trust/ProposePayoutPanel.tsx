@@ -6,6 +6,7 @@
 import { useMemo, useState } from 'react'
 import { Send } from 'lucide-react'
 import type { AppUser, PropertyAsset, Tenancy } from '../../types/domain'
+import { labelOrReference } from '../../lib/displayIds'
 import { Button, Card, Input, Select } from '../ui'
 
 /** Params accepted by the store's proposePayoutInstruction. */
@@ -135,7 +136,11 @@ export function ProposePayoutPanel(props: {
             <Select value={tenancyId} onChange={(e) => setTenancyId(e.target.value)}>
               <option value="">Choose a tenancy</option>
               {options.map((t) => {
-                const title = properties.find((p) => p.id === t.propertyId)?.title ?? t.propertyId
+                const title = labelOrReference(
+                  properties.find((p) => p.id === t.propertyId)?.title,
+                  t.propertyId,
+                  'Property',
+                )
                 return (
                   <option key={t.id} value={t.id}>
                     {t.tenantName} · {title}

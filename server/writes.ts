@@ -681,29 +681,36 @@ async function upsertUser(feId: string, uuid: string, d: Record<string, unknown>
                 )
                 ELSE '{}'::jsonb
               END`
-  await query(
-    `INSERT INTO users (
-       id, client_id, email, password_hash, first_name, last_name, phone, role, active, metadata, updated_at
-     ) VALUES (
-       $1::uuid, $2::uuid, $3, ${passwordExpr}, $4, $5, $6, $7, $8, $9::jsonb, NOW()
-     )
-     ON CONFLICT (id) DO UPDATE SET
-       client_id = CASE WHEN ${fAgency} THEN EXCLUDED.client_id ELSE users.client_id END,
-       email = CASE WHEN ${fEmail} THEN EXCLUDED.email ELSE users.email END,${
-         passwordParam
-           ? `
-       password_hash = COALESCE(EXCLUDED.password_hash, users.password_hash),`
-           : ''
-       }
-       first_name = CASE WHEN ${fName} THEN EXCLUDED.first_name ELSE users.first_name END,
-       last_name = CASE WHEN ${fName} THEN EXCLUDED.last_name ELSE users.last_name END,
-       phone = CASE WHEN ${fPhone} THEN EXCLUDED.phone ELSE users.phone END,
-       role = CASE WHEN ${fRole} THEN EXCLUDED.role ELSE users.role END,
-       active = CASE WHEN ${fActive} THEN EXCLUDED.active ELSE users.active END,
-       metadata = ${metadataSql},
-       updated_at = NOW()`,
-    params,
-  )
+  try {
+    await query(
+      `INSERT INTO users (
+         id, client_id, email, password_hash, first_name, last_name, phone, role, active, metadata, updated_at
+       ) VALUES (
+         $1::uuid, $2::uuid, $3, ${passwordExpr}, $4, $5, $6, $7, $8, $9::jsonb, NOW()
+       )
+       ON CONFLICT (id) DO UPDATE SET
+         client_id = CASE WHEN ${fAgency} THEN EXCLUDED.client_id ELSE users.client_id END,
+         email = CASE WHEN ${fEmail} THEN EXCLUDED.email ELSE users.email END,${
+           passwordParam
+             ? `
+         password_hash = COALESCE(EXCLUDED.password_hash, users.password_hash),`
+             : ''
+         }
+         first_name = CASE WHEN ${fName} THEN EXCLUDED.first_name ELSE users.first_name END,
+         last_name = CASE WHEN ${fName} THEN EXCLUDED.last_name ELSE users.last_name END,
+         phone = CASE WHEN ${fPhone} THEN EXCLUDED.phone ELSE users.phone END,
+         role = CASE WHEN ${fRole} THEN EXCLUDED.role ELSE users.role END,
+         active = CASE WHEN ${fActive} THEN EXCLUDED.active ELSE users.active END,
+         metadata = ${metadataSql},
+         updated_at = NOW()`,
+      params,
+    )
+  } catch (err) {
+    if (err && typeof err === 'object' && (err as { code?: string }).code === '23505') {
+      throw Object.assign(new Error('This email is already in use.'), { status: 409 })
+    }
+    throw err
+  }
 
   // P0-sa-mint: when Supabase Auth is configured, public.users + password_hash
   // alone is not a sign-in. Create auth.users (+ identity), link auth_user_id

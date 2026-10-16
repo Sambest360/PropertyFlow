@@ -35,9 +35,10 @@ import {
   type ClosedLeadStage,
 } from '../lib/leadLifecycle'
 import { CloseLeadModal } from '../components/lead-detail/CloseLeadModal'
+import { CrmLeadContactBar } from '../components/lead-detail/CrmLeadContactBar'
 import { LeadCsvImportPanel } from '../components/syndication/LeadCsvImportPanel'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
-import type { Lead } from '../types/domain'
+import type { Lead, PropertyAsset } from '../types/domain'
 import { useLookupOptions } from '../hooks/useLookupOptions'
 
 const ICON_STROKE = 1.6
@@ -182,6 +183,13 @@ export default function CRM() {
         }
       })
   }, [state.leads, state.properties, state.users, dealVisible])
+
+  const propertyById = useMemo(
+    () => new Map(state.properties.map((p) => [p.id, p])),
+    [state.properties],
+  )
+  const propertyForLead = (lead: Lead): PropertyAsset | null =>
+    propertyById.get(lead.propertyId) ?? null
 
   const channels = useMemo(() => {
     const set = new Set(portfolio.map((p) => p.lead.channel))
@@ -546,6 +554,7 @@ export default function CRM() {
             hideAgentColumn={hideAgentColumn}
             timeField={leadTab === 'history' ? 'updatedAt' : 'createdAt'}
             timeLabel={leadTab === 'history' ? 'Closed' : 'Received'}
+            propertyForLead={propertyForLead}
           />
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -553,6 +562,7 @@ export default function CRM() {
               <LeadCard
                 key={item.lead.id}
                 item={item}
+                property={propertyForLead(item.lead)}
                 onOpen={() => openLead(item.lead.id)}
                 mayClose={mayCloseLead(item.lead)}
                 onClose={() => setCloseTarget(item)}
@@ -711,6 +721,7 @@ function LeadList({
   hideAgentColumn,
   timeField,
   timeLabel,
+  propertyForLead,
 }: {
   items: PortfolioLead[]
   expandedId: string | null
@@ -721,6 +732,7 @@ function LeadList({
   hideAgentColumn?: boolean
   timeField: 'createdAt' | 'updatedAt'
   timeLabel: string
+  propertyForLead: (lead: Lead) => PropertyAsset | null
 }) {
   const colSpan = hideAgentColumn ? 6 : 7
   return (
@@ -851,6 +863,7 @@ function LeadList({
                         <td colSpan={colSpan} className="px-4 py-4 sm:px-5">
                           <LeadExpansion
                             item={item}
+                            property={propertyForLead(item.lead)}
                             reducedMotion={reducedMotion}
                             mayClose={mayClose(item.lead)}
                             onClose={() => onClose(item)}
@@ -910,6 +923,7 @@ function LeadList({
                 <div className="border-t border-primary-100/80 px-4 py-4">
                   <LeadExpansion
                     item={item}
+                    property={propertyForLead(item.lead)}
                     reducedMotion={reducedMotion}
                     mayClose={mayClose(item.lead)}
                     onClose={() => onClose(item)}
@@ -926,11 +940,13 @@ function LeadList({
 
 function LeadExpansion({
   item,
+  property,
   reducedMotion,
   mayClose,
   onClose,
 }: {
   item: PortfolioLead
+  property: PropertyAsset | null
   reducedMotion?: boolean
   mayClose?: boolean
   onClose?: () => void
@@ -985,6 +1001,7 @@ function LeadExpansion({
           ))}
         </dl>
         <ActionButtonRow className={cn('mt-4 border-t border-primary-100/80 pt-4', reducedMotion && 'transition-none')}>
+          <CrmLeadContactBar lead={l} property={property} compact />
           <Link to={detailTo} className="inline-flex">
             <Button className="min-h-11 cursor-pointer gap-2 rounded-2xl">
               Open lead
@@ -1009,6 +1026,7 @@ function LeadExpansion({
 
 function LeadCard({
   item,
+  property,
   onOpen,
   mayClose,
   onClose,
@@ -1017,6 +1035,7 @@ function LeadCard({
   timeField,
 }: {
   item: PortfolioLead
+  property: PropertyAsset | null
   onOpen: () => void
   mayClose?: boolean
   onClose?: () => void
@@ -1083,6 +1102,9 @@ function LeadCard({
         </div>
       </div>
       </button>
+      <div className="border-t border-primary-50 px-4 py-3">
+        <CrmLeadContactBar lead={l} property={property} compact />
+      </div>
     </div>
   )
 }

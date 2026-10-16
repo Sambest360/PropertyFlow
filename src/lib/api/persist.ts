@@ -11,6 +11,7 @@ import {
   supabaseMarkNotificationsRead,
 } from '../supabase/persist'
 import { markLocalPersistWrite } from '../bootstrapMerge'
+import { sanitizeUserFacingMessage } from '../displayIds'
 
 export type { EntityType } from './persistTypes'
 
@@ -41,20 +42,35 @@ function messageFromPersistFailure(
   contentType: string | null | undefined,
   bodyText: string,
   refusalMessage?: string,
-): string | undefined {
-  if (refusalMessage) return refusalMessage
+): string {
+  const finish = (msg: string) => sanitizeUserFacingMessage(msg)
+  if (refusalMessage) return finish(refusalMessage)
   if (isSpaHtmlResponse(contentType, bodyText)) return LOCAL_API_REQUIRED_MESSAGE
   if (bodyText) {
     try {
       const parsed = JSON.parse(bodyText) as { message?: string; error?: string }
-      const msg = parsed.message || parsed.error
-      if (msg) return msg
+      if (typeof parsed.message === 'string' && parsed.message.trim()) {
+        return finish(parsed.message.trim())
+      }
+      if (typeof parsed.error === 'string' && parsed.error.trim()) {
+        const code = parsed.error.trim()
+        if (code === 'database_unconfigured') {
+          return finish('Server database is not configured (DATABASE_URL).')
+        }
+        if (code !== 'persist_failed' && !/^[a-z][a-z0-9_]*$/.test(code)) return finish(code)
+      }
     } catch {
-      /* ignore */
+      const trimmed = bodyText.trim()
+      if (trimmed && !trimmed.startsWith('{') && trimmed.length < 500) return finish(trimmed)
     }
   }
-  if (status === 401) return 'Your session expired — sign in again and retry.'
-  return undefined
+  if (status === 401) return finish('Your session expired — sign in again and retry.')
+  if (status === 403) return finish('You do not have permission to save this change.')
+  if (status === 409) return finish('This email is already in use.')
+  if (status === 503) return finish('Server is temporarily unavailable. Try again shortly.')
+  if (status >= 500) return finish(`Server error (${status}). Try again or contact support.`)
+  if (status >= 400) return finish(`Could not save (${status}).`)
+  return finish('Could not save.')
 }
 
 async function jsonHeaders(): Promise<Record<string, string>> {
@@ -223,8 +239,7 @@ export async function persistUserCreateViaServer(
     })
     const text = await res.text().catch(() => '')
     if (!isPersistApiSuccessResponse(res.status, res.headers.get('content-type'), text)) {
-      // Status only: a refusal body never holds a password, but keep logs minimal.
-      console.warn('[persist] user create refused', op.id, res.status)
+      console.warn('[persist] user create refused', op.id, res.status, text.slice(0, 200))
       const refusal = parsePersistRefusal(op, res.status, text)
       reportPersistRefusal(refusal)
       const message = messageFromPersistFailure(

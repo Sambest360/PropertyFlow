@@ -249,6 +249,7 @@ import {
 } from '../lib/eventNotifications'
 import { mergeEntityLists } from '../lib/bootstrapMerge'
 import { reconcileAgencyIdSpace } from '../lib/agencyScope'
+import { buildIdMapCacheFromRows, type IdMapCache } from '../lib/supabase/idMap'
 import { getPropertyDeleteBlockReason } from '../lib/propertyDeletion'
 import {
   issueLeaseOnTenancyCreate,
@@ -489,6 +490,10 @@ function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppSta
       boot.internalAssets as InternalAsset[] | undefined,
       'internalAssets',
     ),
+    idMapCache:
+      boot.idMapRows?.length
+        ? buildIdMapCacheFromRows(boot.idMapRows)
+        : base.idMapCache,
   }
 }
 
@@ -548,6 +553,8 @@ export type AppState = {
   marketplaceRefreshing: boolean
   /** Background signed-in bootstrap refresh (UI only). */
   sessionRefreshing: boolean
+  /** Backend → FE ids from entity_id_map (routing only; never render). */
+  idMapCache: IdMapCache | null
 }
 
 type StoreContextValue = {
@@ -1078,6 +1085,7 @@ export const defaultStateFor = (_liveDataMode: boolean): AppState => ({
   publicMarketplaceFetchFailed: false,
   marketplaceRefreshing: false,
   sessionRefreshing: false,
+  idMapCache: null,
 })
 
 const defaultState = (): AppState => defaultStateFor(LIVE_DATA_MODE)
@@ -2875,7 +2883,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           ok: false as const,
           error:
             serverError ||
-            'Could not create a sign-in account for this user. Check the email is unused and try again — no success until Auth is verified.',
+            'Could not create this user. Check the email is unused and try again.',
           user,
         }
       }

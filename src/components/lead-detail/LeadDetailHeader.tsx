@@ -1,19 +1,29 @@
-import { Archive, Mail, MessageCircle, Phone } from 'lucide-react'
-import type { Lead } from '../../types/domain'
+import { Archive } from 'lucide-react'
+import type { AppUser, Lead, PropertyAsset } from '../../types/domain'
 import { ActionButtonRow } from '../ActionButtonRow'
 import { BackButton } from '../BackButton'
 import { Button } from '../ui'
 import { isClosedLeadStage } from '../../lib/leadLifecycle'
 import { ICON_STROKE } from './types'
+import { LeadContactActions } from './LeadContactActions'
+import { Mail, Phone } from 'lucide-react'
 
 export function LeadDetailHeader({
   lead,
-  canManage,
+  property,
+  portalUser,
+  canContact,
+  canInApp,
+  onInApp,
   canClose,
   onClose,
 }: {
   lead: Lead
-  canManage: boolean
+  property: PropertyAsset | null
+  portalUser: AppUser | null
+  canContact: boolean
+  canInApp: boolean
+  onInApp: () => void
   canClose?: boolean
   onClose?: () => void
 }) {
@@ -36,43 +46,21 @@ export function LeadDetailHeader({
           </div>
         </div>
 
-        <ActionButtonRow className="sm:w-auto">
+        <ActionButtonRow className="sm:w-auto sm:flex-wrap sm:justify-end">
           {canClose && onClose && !isClosedLeadStage(lead.stage) ? (
             <Button variant="secondary" className="min-h-11 cursor-pointer text-accent" onClick={onClose}>
               <Archive className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
               Close lead
             </Button>
           ) : null}
-          {canManage ? (
-            <>
-              <Button
-                variant="secondary"
-                className="min-h-11"
-                onClick={() => window.open(`tel:${lead.phone}`, '_self')}
-              >
-                <Phone className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                Call
-              </Button>
-              <Button
-                variant="secondary"
-                className="min-h-11"
-                onClick={() => window.open(`mailto:${lead.email}`, '_self')}
-              >
-                <Mail className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                Email
-              </Button>
-              <Button
-                variant="secondary"
-                className="min-h-11"
-                onClick={() =>
-                  window.open(`https://wa.me/${lead.phone.replace(/\D/g, '')}`, '_blank', 'noopener')
-                }
-              >
-                <MessageCircle className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                WhatsApp
-              </Button>
-            </>
-          ) : null}
+          <LeadContactActions
+            lead={lead}
+            property={property}
+            portalUser={portalUser}
+            canContact={canContact}
+            canInApp={canInApp}
+            onInApp={onInApp}
+          />
           <BackButton to="/workspace/sales/crm" label="All leads" />
         </ActionButtonRow>
       </div>

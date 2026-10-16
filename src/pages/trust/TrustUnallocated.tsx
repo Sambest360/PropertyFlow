@@ -13,6 +13,7 @@ import { DashboardPage } from '../../components/dashboard'
 import { FieldHelp } from '../../components/onboarding/FieldHelp'
 import { TRUST_MODE_A_COPY } from '../../lib/trust/modeA'
 import { sweetSuccess, sweetError } from '../../lib/sweetAlert'
+import { labelOrReference } from '../../lib/displayIds'
 
 function formatCents(cents: number): string {
   return formatZAR(cents / 100)
@@ -242,7 +243,13 @@ export default function TrustUnallocated() {
                       >
                         <div>
                           <p className="text-sm font-medium text-ink">{occ.tenantName}</p>
-                          <p className="text-xs text-ink-500">{occ.propertyId}</p>
+                          <p className="text-xs text-ink-500">
+                            {labelOrReference(
+                              state.properties.find((p) => p.id === occ.propertyId)?.title,
+                              occ.propertyId,
+                              'Property',
+                            )}
+                          </p>
                         </div>
                         <Button
                           variant="ghost"

@@ -177,6 +177,48 @@ describe('persistUserCreateViaServer error messages', () => {
     expect(res.ok === false && res.error).toMatch(/dev:full/i)
   })
 
+  it('returns server message on 502 JSON (auth verification)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: 'persist_failed',
+              message:
+                'Auth linked but sign-in verification failed (status 400)',
+            }),
+            { status: 502, headers: { 'content-type': 'application/json' } },
+          ),
+      ),
+    )
+    const { persistUserCreateViaServer } = await import('./persist')
+    const res = await persistUserCreateViaServer(userMintOp)
+    expect(res).toEqual({
+      ok: false,
+      error: 'Auth linked but sign-in verification failed (status 400)',
+    })
+  })
+
+  it('returns status fallback when body has only persist_failed code', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: 'persist_failed' }), {
+            status: 502,
+            headers: { 'content-type': 'application/json' },
+          }),
+      ),
+    )
+    const { persistUserCreateViaServer } = await import('./persist')
+    const res = await persistUserCreateViaServer(userMintOp)
+    expect(res.ok).toBe(false)
+    if (!res.ok) {
+      expect(res.error).toMatch(/Server error \(502\)/)
+    }
+  })
+
   it('returns server message on 401 JSON', async () => {
     vi.stubGlobal(
       'fetch',

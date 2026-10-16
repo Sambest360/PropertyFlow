@@ -1439,9 +1439,16 @@ export async function buildBootstrap(opts?: {
   )
   const unitsScoped = unitsOut.filter((u) => keptUnitIds.has(u.id))
 
+  const idMapRows = await query<{
+    entity_type: string
+    frontend_id: string
+    backend_id: string
+  }>(`SELECT entity_type, frontend_id, backend_id::text AS backend_id FROM entity_id_map`)
+
   return {
     source: 'postgres',
     fetchedAt: new Date().toISOString(),
+    idMapRows,
     /** False until migration 013 adds maintenance_tickets.access_notes. */
     ticketAccessNotesSupported,
     agencies,

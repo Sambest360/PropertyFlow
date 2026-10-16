@@ -272,5 +272,10 @@ export function mapGuestMarketplacePayload(payload: {
     propertyEvents: [],
     invoices: [],
     lookups: [],
+    idMapRows: (payload.entity_id_map ?? []).map((row) => ({
+      entity_type: String(row.entity_type),
+      backend_id: String(row.backend_id),
+      frontend_id: String(row.frontend_id),
+    })),
   }
 }

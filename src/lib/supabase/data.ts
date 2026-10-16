@@ -1187,6 +1187,11 @@ export async function fetchSupabaseBootstrap(
     csvImportBatches,
     infraRooms,
     internalAssets,
+    idMapRows: (idMapRes.data ?? []).map((row) => ({
+      entity_type: String(row.entity_type),
+      backend_id: String(row.backend_id),
+      frontend_id: String(row.frontend_id),
+    })),
   }
 
   const actor =
