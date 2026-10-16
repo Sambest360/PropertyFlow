@@ -75,6 +75,10 @@ import { ensureUuid, resolveFrontendId, resolveUuid } from './entityMap.js'
 import { docIdFromEnvelopeId } from './signiflow.js'
 import { registerSupabaseUserDirect } from './supabase/registerUser.js'
 import { runningCommitSha } from './appConfig.js'
+import { dbHostFingerprint, serverAuthMode } from './authMode.js'
+
+// Log resolved auth mode once at boot (mode only — never env values).
+serverAuthMode()
 
 function productionAuthSecretMissing(): boolean {
   return process.env.NODE_ENV === 'production' && !process.env.AUTH_SECRET?.trim()
@@ -257,6 +261,16 @@ app.get('/api/cron/lease-reminders', async (c) => {
   return c.json(r.body, r.status)
 })
 
+/** Strip the DB hostname from error text so /api/health never echoes it. */
+function redactDbHost(message: string): string {
+  try {
+    const host = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL).hostname : ''
+    return host ? message.split(host).join('[db-host]') : message
+  } catch {
+    return message
+  }
+}
+
 app.get('/api/health', async (c) => {
   if (!databaseConfigured) {
     return c.json(
@@ -264,7 +278,9 @@ app.get('/api/health', async (c) => {
         ok: false,
         database: 'unconfigured',
         error: databaseConfigError || 'DATABASE_URL is not set',
-        commit: runningCommitSha(),
+        authMode: serverAuthMode(),
+      dbHost: dbHostFingerprint(process.env.DATABASE_URL),
+      commit: runningCommitSha(),
         at: new Date().toISOString(),
       },
       503,
@@ -277,6 +293,8 @@ app.get('/api/health', async (c) => {
       database: 'configured',
       warning: databaseConfigWarning,
       pool: Boolean(pool),
+      authMode: serverAuthMode(),
+      dbHost: dbHostFingerprint(process.env.DATABASE_URL),
       commit: runningCommitSha(),
       at: new Date().toISOString(),
     })
@@ -288,11 +306,13 @@ app.get('/api/health', async (c) => {
       database: 'up',
       warning: databaseConfigWarning,
       pool: Boolean(pool),
+      authMode: serverAuthMode(),
+      dbHost: dbHostFingerprint(process.env.DATABASE_URL),
       commit: runningCommitSha(),
       at: new Date().toISOString(),
     })
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    const message = redactDbHost(err instanceof Error ? err.message : String(err))
     return c.json(
       {
         ok: false,
@@ -300,7 +320,9 @@ app.get('/api/health', async (c) => {
         error: message,
         warning: databaseConfigWarning,
         hint: 'Use the Supabase Transaction pooler URI (port 6543) and redeploy after setting DATABASE_URL.',
-        commit: runningCommitSha(),
+        authMode: serverAuthMode(),
+      dbHost: dbHostFingerprint(process.env.DATABASE_URL),
+      commit: runningCommitSha(),
         at: new Date().toISOString(),
       },
       503,

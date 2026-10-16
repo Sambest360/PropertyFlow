@@ -10,6 +10,7 @@ import {
 } from '../lib/agencyScope'
 import { agencyBlocksStaffAccess } from '../lib/agencyStatus'
 import { setApiActor } from '../lib/api/actorAuth'
+import { clearStaleAuthOnFailure } from '../lib/auth/authFailureCleanup'
 import {
   apiLogin,
   apiLogout,
@@ -618,6 +619,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             clearSessionArtifacts({ setSessionUser, setUserId, setRealUserId })
             setApiActor(null)
           }
+          clearStaleAuthOnFailure(err, { supabaseMode: isSupabaseMode })
           throw err
         }
       },

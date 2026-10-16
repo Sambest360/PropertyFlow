@@ -7,6 +7,7 @@ import bcrypt from 'bcryptjs'
 import type { Context } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { query } from './db.js'
+import { isServerSupabaseMode } from './authMode.js'
 import { USER_TO_UUID, ensureUuid, resolveUuid } from './entityMap.js'
 import { feAgencyFromCache, loadIdMapCache } from './idMapCache.js'
 import { isReservedSuperAdminEmail, resolveFrontendRole } from '../src/lib/supabase/idMap.js'
@@ -336,7 +337,7 @@ export async function resolveSessionFromSupabaseAccessToken(
     resolveSupabaseUrlForGoTrue,
     supabaseAuthConfigured,
   } = await import('./supabase/env.js')
-  if (!supabaseAuthConfigured()) return null
+  if (!isServerSupabaseMode() || !supabaseAuthConfigured()) return null
   const base = resolveSupabaseUrlForGoTrue()
   const key = resolveSupabasePublishableKeyForGoTrue()
   if (!base || !key) return null
@@ -408,6 +409,9 @@ async function resolveSessionUserUncached(c: Context): Promise<SessionUser | nul
     if (tokenRevokedByPasswordChange(payload.iat, row.metadata)) return null
     return rowToSession(row)
   }
+  // API mode: a token that is not our JWT is simply unauthenticated — no
+  // GoTrue call, no auth_user_id query (column may not exist on Neon).
+  if (!isServerSupabaseMode()) return null
   return resolveSessionFromSupabaseAccessToken(token)
 }
 

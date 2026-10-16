@@ -1,5 +1,6 @@
 import type { Context, Next } from 'hono'
 import { createClient } from './server.js'
+import { isServerSupabaseMode } from '../authMode.js'
 
 const AUTH_PATH_PREFIXES = ['/api/auth', '/api/health']
 
@@ -18,11 +19,10 @@ export async function supabaseSessionMiddleware(c: Context, next: Next) {
     await next()
     return
   }
-  const configured =
-    process.env.SUPABASE_URL ||
-    process.env.VITE_SUPABASE_URL ||
-    process.env.NEXT_PUBLIC_SUPABASE_URL
-  if (!configured) {
+  // API mode never refreshes GoTrue sessions (that is what piled sb-* cookies
+  // into 494 REQUEST_HEADER_TOO_LARGE).
+  const configured = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL
+  if (!isServerSupabaseMode() || !configured) {
     await next()
     return
   }
