@@ -36,6 +36,7 @@ import {
 } from '../lib/leadLifecycle'
 import { CloseLeadModal } from '../components/lead-detail/CloseLeadModal'
 import { CrmLeadContactBar } from '../components/lead-detail/CrmLeadContactBar'
+import { CrmLeadViewingBar } from '../components/lead-detail/CrmLeadViewingBar'
 import { LeadCsvImportPanel } from '../components/syndication/LeadCsvImportPanel'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
 import type { Lead, PropertyAsset } from '../types/domain'
@@ -1002,6 +1003,7 @@ function LeadExpansion({
         </dl>
         <ActionButtonRow className={cn('mt-4 border-t border-primary-100/80 pt-4', reducedMotion && 'transition-none')}>
           <CrmLeadContactBar lead={l} property={property} compact />
+          <CrmLeadViewingBar lead={l} property={property} compact />
           <Link to={detailTo} className="inline-flex">
             <Button className="min-h-11 cursor-pointer gap-2 rounded-2xl">
               Open lead
@@ -1102,8 +1104,9 @@ function LeadCard({
         </div>
       </div>
       </button>
-      <div className="border-t border-primary-50 px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2 border-t border-primary-50 px-4 py-3">
         <CrmLeadContactBar lead={l} property={property} compact />
+        <CrmLeadViewingBar lead={l} property={property} compact />
       </div>
     </div>
   )

@@ -1,4 +1,4 @@
-import { Archive } from 'lucide-react'
+import { Archive, CalendarPlus } from 'lucide-react'
 import type { AppUser, Lead, PropertyAsset } from '../../types/domain'
 import { ActionButtonRow } from '../ActionButtonRow'
 import { BackButton } from '../BackButton'
@@ -17,6 +17,8 @@ export function LeadDetailHeader({
   onInApp,
   canClose,
   onClose,
+  canSchedule,
+  onScheduleViewing,
 }: {
   lead: Lead
   property: PropertyAsset | null
@@ -26,6 +28,8 @@ export function LeadDetailHeader({
   onInApp: () => void
   canClose?: boolean
   onClose?: () => void
+  canSchedule?: boolean
+  onScheduleViewing?: () => void
 }) {
   return (
     <div className="mb-5">
@@ -51,6 +55,12 @@ export function LeadDetailHeader({
             <Button variant="secondary" className="min-h-11 cursor-pointer text-accent" onClick={onClose}>
               <Archive className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
               Close lead
+            </Button>
+          ) : null}
+          {canSchedule && onScheduleViewing ? (
+            <Button className="min-h-11 cursor-pointer gap-2" onClick={onScheduleViewing}>
+              <CalendarPlus className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+              Schedule viewing
             </Button>
           ) : null}
           <LeadContactActions

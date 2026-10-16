@@ -1,10 +1,18 @@
 import { Link } from 'react-router-dom'
 import { ArrowRight, FileText, Link2 } from 'lucide-react'
 import type { LeadStageContext } from '../../lib/leadContext'
-import { Badge, cn } from '../ui'
+import { Badge, Button, cn } from '../ui'
 import { ICON_STROKE } from './types'
 
-export function LeadStageContextPanel({ context }: { context: LeadStageContext }) {
+export function LeadStageContextPanel({
+  context,
+  onScheduleViewing,
+  canScheduleViewing,
+}: {
+  context: LeadStageContext
+  onScheduleViewing?: () => void
+  canScheduleViewing?: boolean
+}) {
   return (
     <section className="overflow-hidden rounded-2xl border border-primary-100 bg-white">
       <div className="border-l-4 border-primary bg-gradient-to-r from-primary-50/80 to-white px-5 py-4">
@@ -56,15 +64,32 @@ export function LeadStageContextPanel({ context }: { context: LeadStageContext }
           <div className="rounded-xl border border-dashed border-primary-200 bg-primary-50/40 px-4 py-5 text-center">
             <Link2 className="mx-auto h-5 w-5 text-primary" strokeWidth={ICON_STROKE} aria-hidden />
             <p className="mt-2 text-sm font-medium text-ink">{context.emptyMessage}</p>
-            {context.emptyAction ? (
-              <Link
-                to={context.emptyAction.href}
-                className="mt-3 inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-white transition-colors duration-200 hover:bg-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              >
-                {context.emptyAction.title}
-                <ArrowRight className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-              </Link>
-            ) : null}
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+              {canScheduleViewing && onScheduleViewing ? (
+                <Button
+                  type="button"
+                  className="min-h-11 gap-2"
+                  onClick={onScheduleViewing}
+                >
+                  Schedule viewing
+                  <ArrowRight className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                </Button>
+              ) : null}
+              {context.emptyAction ? (
+                <Link
+                  to={context.emptyAction.href}
+                  className={cn(
+                    'inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl px-4 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                    canScheduleViewing && onScheduleViewing
+                      ? 'border border-primary-200 bg-white text-primary hover:bg-primary-50'
+                      : 'bg-primary text-white hover:bg-primary-600',
+                  )}
+                >
+                  {context.emptyAction.title}
+                  <ArrowRight className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                </Link>
+              ) : null}
+            </div>
           </div>
         ) : null}
       </div>

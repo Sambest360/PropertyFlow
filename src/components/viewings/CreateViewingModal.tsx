@@ -41,6 +41,7 @@ export function CreateViewingModal({
   agents,
   defaultPropertyId,
   defaultDate,
+  defaultGuests,
   lockProperty,
   onSubmit,
 }: {
@@ -50,6 +51,7 @@ export function CreateViewingModal({
   agents: AppUser[]
   defaultPropertyId?: string | null
   defaultDate?: string | null
+  defaultGuests?: ViewingGuest[]
   /** When true, property cannot be changed (property workspace). */
   lockProperty?: boolean
   onSubmit: (payload: CreateViewingPayload) => void
@@ -82,11 +84,11 @@ export function CreateViewingModal({
     setTitle('')
     setNotes('')
     setDurationMinutes('45')
-    setGuests([])
+    setGuests(defaultGuests?.length ? [...defaultGuests] : [])
     setError(null)
     const prop = properties.find((p) => p.id === initialProp)
     setAgentId(prop?.agentId ?? '')
-  }, [open, defaultPropertyId, defaultDate, properties])
+  }, [open, defaultPropertyId, defaultDate, defaultGuests, properties])
 
   useEffect(() => {
     if (selected?.agentId) {

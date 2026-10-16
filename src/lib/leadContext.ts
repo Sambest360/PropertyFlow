@@ -6,6 +6,7 @@ import type {
   PropertyAsset,
   Viewing,
 } from '../types/domain'
+import { leadViewingDeskHref } from './leadViewing'
 
 export type LeadStageLink = {
   id: string
@@ -214,7 +215,7 @@ export function buildLeadStageContext(
                   id: `viewing-${upcomingViewing.id}`,
                   title: `${upcomingViewing.date} at ${upcomingViewing.time}`,
                   description: 'Open the property viewing desk for this booking.',
-                  href: `/workspace/sales/viewings/property/${encodeURIComponent(upcomingViewing.propertyId)}?viewing=${encodeURIComponent(upcomingViewing.id)}`,
+                  href: leadViewingDeskHref(upcomingViewing),
                   meta: upcomingViewing.status,
                 },
               ]
@@ -240,7 +241,7 @@ export function buildLeadStageContext(
                   id: `viewing-${completedViewing.id}`,
                   title: `Viewing on ${completedViewing.date}`,
                   description: completedViewing.feedback || 'Open viewing record for attendance and notes.',
-                  href: `/workspace/sales/viewings/property/${encodeURIComponent(completedViewing.propertyId)}?viewing=${encodeURIComponent(completedViewing.id)}`,
+                  href: leadViewingDeskHref(completedViewing),
                   meta: completedViewing.attendance,
                 },
               ]
