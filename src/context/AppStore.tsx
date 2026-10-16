@@ -198,6 +198,7 @@ import {
   enrichBootstrapWithPublicMarketplace,
   fetchMergedPublicMarketplaceSlice,
 } from '../lib/publicMarketplaceMerge'
+import { shouldApplyRefreshResult } from '../lib/refreshCoordination'
 import {
   PERSIST_REFUSED_EVENT,
   persistApproveApplication,
@@ -516,6 +517,10 @@ export type AppState = {
   supportTickets: SupportTicket[]
   /** True when the last guest marketplace fetch errored (signed-out /browse). */
   publicMarketplaceFetchFailed: boolean
+  /** Background public marketplace fetch (UI only — never clears listing rows). */
+  marketplaceRefreshing: boolean
+  /** Background signed-in bootstrap refresh (UI only). */
+  sessionRefreshing: boolean
 }
 
 type StoreContextValue = {
@@ -532,6 +537,14 @@ type StoreContextValue = {
     actor?: DemoActor | null,
     opts?: { full?: boolean; force?: boolean; ingestNotifications?: boolean },
   ) => Promise<void>
+  /** Lite workspace bootstrap with force + stale-guard (nav, LiveSync, post-mutation). */
+  refreshSessionData: (opts?: {
+    full?: boolean
+    force?: boolean
+    ingestNotifications?: boolean
+  }) => Promise<void>
+  /** Public listings slice — guest RPC or merged marketplace for signed-in browse. */
+  refreshMarketplaceListings: (opts?: { force?: boolean }) => Promise<void>
   createAgency: (input: Omit<Agency, 'id' | 'createdAt' | 'status'> & { status?: Agency['status']; enabledPermissions?: Agency['enabledPermissions'] }) => Agency
   updateAgency: (id: string, patch: Partial<Agency>) => void
   /** Soft-delete: sets agency status to Cancelled (data retained; staff lose access). */
@@ -1036,6 +1049,8 @@ export const defaultStateFor = (_liveDataMode: boolean): AppState => ({
   csvImportBatches: [],
   supportTickets: [],
   publicMarketplaceFetchFailed: false,
+  marketplaceRefreshing: false,
+  sessionRefreshing: false,
 })
 
 const defaultState = (): AppState => defaultStateFor(LIVE_DATA_MODE)
@@ -1392,18 +1407,6 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   [],
 )
 
-  const refreshAfterMutationRef = useRef<number | null>(null)
-  const scheduleBootstrapRefreshAfterMutation = useCallback(() => {
-    if (refreshAfterMutationRef.current != null) {
-      window.clearTimeout(refreshAfterMutationRef.current)
-    }
-    refreshAfterMutationRef.current = window.setTimeout(() => {
-      refreshAfterMutationRef.current = null
-      const actor = resolveBootstrapActor(stateRef.current.users)
-      void refreshBootstrap(actor, { force: true })
-    }, 1500)
-  }, [refreshBootstrap])
-
   useEffect(() => {
     if (!isApiEnabled && !isSupabaseMode) {
       setState((prev) => ensurePublicMarketplace(prev))
@@ -1576,28 +1579,102 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
+  const sessionRefreshIdRef = useRef(0)
+  const marketplaceRefreshIdRef = useRef(0)
+
+  const refreshSessionData = useCallback(
+    async (opts?: { full?: boolean; force?: boolean; ingestNotifications?: boolean }) => {
+      if (!LIVE_DATA_MODE) return
+      const requestId = ++sessionRefreshIdRef.current
+      patch((s) => ({ ...s, sessionRefreshing: true }))
+      try {
+        const actor = resolveBootstrapActor(stateRef.current.users)
+        await refreshBootstrap(actor, {
+          force: opts?.force ?? true,
+          full: opts?.full,
+          ingestNotifications: opts?.ingestNotifications,
+        })
+      } finally {
+        if (shouldApplyRefreshResult(requestId, sessionRefreshIdRef.current)) {
+          patch((s) => ({ ...s, sessionRefreshing: false }))
+        }
+      }
+    },
+    [patch, refreshBootstrap],
+  )
+
+  const refreshMarketplaceListings = useCallback(
+    async (opts?: { force?: boolean }) => {
+      if (!LIVE_DATA_MODE) return
+      const requestId = ++marketplaceRefreshIdRef.current
+      patch((s) => ({ ...s, marketplaceRefreshing: true }))
+      try {
+        const stored = readStoredAuthUserId()
+        const apiActor = getApiActor()
+        const isGuest = !stored && !apiActor?.userId
+        const current = stateRef.current
+
+        if (isGuest) {
+          const boot = await dedupeBootstrapFetch(
+            true,
+            () => fetchGuestMarketplaceBootstrap(true, 15_000),
+            { force: opts?.force ?? true },
+          )
+          if (!boot || !shouldApplyRefreshResult(requestId, marketplaceRefreshIdRef.current)) {
+            return
+          }
+          patch((s) => ({
+            ...ensurePublicMarketplace(applyPostgresBootstrap(s, boot)),
+            publicMarketplaceFetchFailed: Boolean(boot.marketplaceFetchFailed),
+            marketplaceRefreshing: false,
+          }))
+          return
+        }
+
+        const slice = await fetchMergedPublicMarketplaceSlice({
+          properties: current.properties,
+          units: current.units,
+          users: current.users,
+          buildings: current.buildings,
+          viewingSlots: current.viewingSlots,
+          agencies: current.agencies,
+        })
+        if (!slice || !shouldApplyRefreshResult(requestId, marketplaceRefreshIdRef.current)) {
+          return
+        }
+        patch((s) => ({
+          ...s,
+          properties: slice.properties,
+          units: slice.units,
+          users: slice.users,
+          buildings: slice.buildings,
+          viewingSlots: slice.viewingSlots,
+          agencies: slice.agencies as Agency[],
+          marketplaceRefreshing: false,
+        }))
+      } finally {
+        if (shouldApplyRefreshResult(requestId, marketplaceRefreshIdRef.current)) {
+          patch((s) => ({ ...s, marketplaceRefreshing: false }))
+        }
+      }
+    },
+    [patch],
+  )
+
   const refreshPublicMarketplaceInState = useCallback(async () => {
-    if (!LIVE_DATA_MODE) return
-    const current = stateRef.current
-    const slice = await fetchMergedPublicMarketplaceSlice({
-      properties: current.properties,
-      units: current.units,
-      users: current.users,
-      buildings: current.buildings,
-      viewingSlots: current.viewingSlots,
-      agencies: current.agencies,
-    })
-    if (!slice) return
-    patch((s) => ({
-      ...s,
-      properties: slice.properties,
-      units: slice.units,
-      users: slice.users,
-      buildings: slice.buildings,
-      viewingSlots: slice.viewingSlots,
-      agencies: slice.agencies as Agency[],
-    }))
-  }, [patch])
+    await refreshMarketplaceListings({ force: true })
+  }, [refreshMarketplaceListings])
+
+  const refreshAfterMutationRef = useRef<number | null>(null)
+  const scheduleBootstrapRefreshAfterMutation = useCallback(() => {
+    if (refreshAfterMutationRef.current != null) {
+      window.clearTimeout(refreshAfterMutationRef.current)
+    }
+    refreshAfterMutationRef.current = window.setTimeout(() => {
+      refreshAfterMutationRef.current = null
+      void refreshSessionData({ force: true })
+    }, 1500)
+  }, [refreshSessionData])
 
   /** Durable persist for mutation paths that must gate success UI on a
    *  committed write. Marks the local write (so a concurrent bootstrap refresh
@@ -1632,7 +1709,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             resource === 'agency' ||
             resource === 'building' ||
             resource === 'unit' ||
-            resource === 'property')
+            resource === 'property' ||
+            resource === 'lead' ||
+            resource === 'application' ||
+            resource === 'viewing' ||
+            resource === 'viewing_slot' ||
+            resource === 'ticket')
         ) {
           scheduleBootstrapRefreshAfterMutation()
         }
@@ -2536,6 +2618,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     },
     toasts,
     refreshBootstrap,
+    refreshSessionData,
+    refreshMarketplaceListings,
     resetDemo: () => {
       localStorage.removeItem(STORAGE_KEY)
       localStorage.removeItem(PG_HYDRATED_FLAG)
@@ -5659,6 +5743,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           state.properties.find((p) => p.id === slot.propertyId),
         ),
       })
+      scheduleBootstrapRefreshAfterMutation()
       return slot
     },
     updateViewingSlot: (id, p) => {
@@ -5764,6 +5849,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           })
         }
       }
+      scheduleBootstrapRefreshAfterMutation()
     },
     removeViewing: (id) => {
       const viewing = state.viewings.find((v) => v.id === id)
@@ -5811,6 +5897,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           recipientUserIds: viewingDeskStakeholderIds(state.users, viewing, property),
         })
       }
+      scheduleBootstrapRefreshAfterMutation()
     },
     removeViewingSlot: (id) => {
       const slot = state.viewingSlots.find((s) => s.id === id)
@@ -5842,6 +5929,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           recipientUserIds: viewingSlotDeskStakeholderIds(state.users, slot, property),
         })
       }
+      scheduleBootstrapRefreshAfterMutation()
     },
     transferViewingSlot: (fromSlotId, toSlotId) => {
       let ok = false
@@ -5917,6 +6005,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             ? viewingSlotDeskStakeholderIds(state.users, transferSlot, transferProperty)
             : [],
         })
+        scheduleBootstrapRefreshAfterMutation()
       }
       return ok
     },
@@ -6061,6 +6150,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       notifyViewingScheduled(notify, state.users, state.applications, viewing, property, {
         excludeUserId: viewing.agentId,
       })
+      scheduleBootstrapRefreshAfterMutation()
       return viewing
     },
     updateViewing: (id, p) => {
@@ -6162,6 +6252,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           recipientUserIds: viewingDeskStakeholderIds(state.users, prev, property),
         })
       }
+      scheduleBootstrapRefreshAfterMutation()
     },
     createPayment: (input) => {
       const payment: PaymentRecord = {
@@ -6931,6 +7022,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }
       persistUpsert('ticket', ticket.id, ticket as unknown as Record<string, unknown>)
       notifyMaintenanceOpened(notify, state.users, ticket, prop, ticket.reportedByUserId)
+      scheduleBootstrapRefreshAfterMutation()
       return ticket
     },
     createMaintenanceTicket: ({ actorUserId, request, propertyId, tenancyId }) => {
@@ -7171,6 +7263,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           })
         }
       }
+      scheduleBootstrapRefreshAfterMutation()
     },
     assignContractorToTicket: ({ ticketId, contractorUserId, actorUserId }) => {
       const ticket = state.tickets.find((t) => t.id === ticketId)
@@ -7488,7 +7581,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     proposePayoutInstruction,
     approvePayoutInstruction,
     submitPayoutInstruction,
-  }), [state, hydratedForUserId, hydrationFailed, resetToDefault, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, importTrustTemplateCsv, upsertHeldDeposit, proposeDepositReleaseAction, approveDepositReleaseAction, rejectDepositReleaseAction, cancelDepositReleaseAction, recordDepositRefundAction, proposePayoutInstruction, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistDelete, refreshBootstrap, scheduleBootstrapRefreshAfterMutation, issueLeasePackageForTenancy])
+  }), [state, hydratedForUserId, hydrationFailed, resetToDefault, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, importTrustTemplateCsv, upsertHeldDeposit, proposeDepositReleaseAction, approveDepositReleaseAction, rejectDepositReleaseAction, cancelDepositReleaseAction, recordDepositRefundAction, proposePayoutInstruction, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistDelete, refreshBootstrap, refreshSessionData, refreshMarketplaceListings, scheduleBootstrapRefreshAfterMutation, issueLeasePackageForTenancy])
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }

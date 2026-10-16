@@ -26,6 +26,7 @@ import {
   type ViewingStatusFilter,
 } from '../components/viewings/types'
 import { readReturnTo } from '../lib/returnTo'
+import { DataRefreshBanner } from '../components/loading/DataRefreshBanner'
 
 const ICON_STROKE = 1.6
 
@@ -312,6 +313,8 @@ export default function Viewings() {
             ) : null
           }
         />
+
+        <DataRefreshBanner active={state.sessionRefreshing} label="Syncing viewings…" />
 
         <section className="grid gap-3 sm:grid-cols-3">
           <div className="rounded-[1.25rem] border border-primary-100 bg-gradient-to-br from-primary-50 to-white px-4 py-4">

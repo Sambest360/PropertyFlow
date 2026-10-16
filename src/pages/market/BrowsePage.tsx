@@ -24,6 +24,8 @@ import { canonicalListingId } from '../../lib/listingIds'
 import { useWishlist } from '../../hooks/useWishlist'
 import { usePageMeta } from '../../hooks/usePageMeta'
 import { FullScreenSheet } from '../../components/layout/mobile/FullScreenSheet'
+import { DataRefreshBanner } from '../../components/loading/DataRefreshBanner'
+import { PropertyLoader } from '../../components/loading/PropertyLoader'
 import { parseAreasParam, propertyMatchesAreas } from '../../lib/placeCatalog'
 
 function listingAmount(p: PropertyAsset, mode: string): number | null {
@@ -289,6 +291,9 @@ export default function BrowsePage() {
     setExpandedWishlistId((id) => (id === property.id ? null : property.id))
   }
 
+  const showFullMarketplaceLoader =
+    state.marketplaceRefreshing && cards.length === 0 && !state.publicMarketplaceFetchFailed
+
   return (
     <div className="min-h-[70vh] bg-primary-50/60">
       <div className="border-b border-primary-100 bg-white">
@@ -392,7 +397,15 @@ export default function BrowsePage() {
 
       <div className={`mx-auto grid max-w-7xl gap-0 lg:px-8 ${showMap ? 'lg:grid-cols-[1fr_380px]' : ''}`}>
         <div className={`p-4 sm:p-6 ${mobileView === 'map' ? 'hidden lg:block' : ''}`}>
-          {cards.length === 0 ? (
+          <DataRefreshBanner
+            active={state.marketplaceRefreshing && cards.length > 0}
+            label="Updating listings…"
+          />
+          {showFullMarketplaceLoader ? (
+            <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 py-16">
+              <PropertyLoader size="lg" label="Loading listings…" />
+            </div>
+          ) : cards.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-primary-100 bg-white p-10 text-center">
               <Filter className="mx-auto h-8 w-8 text-ink-400" />
               <p className="mt-3 font-semibold">

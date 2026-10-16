@@ -1,7 +1,9 @@
 import { useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ArrowDown, ArrowRight } from 'lucide-react'
-import { usePublicProperties } from '../../context/AppStore'
+import { usePublicProperties, useStore } from '../../context/AppStore'
+import { DataRefreshBanner } from '../../components/loading/DataRefreshBanner'
+import { PropertyLoader } from '../../components/loading/PropertyLoader'
 import { orderFeaturedListings } from '../../lib/marketplaceListings'
 import { PropertyCard } from '../../components/PropertyCard'
 import { AreaSearch } from '../../components/AreaSearch'
@@ -141,6 +143,7 @@ export default function MarketHome() {
     path: '/',
     preloadImage: HERO_LCP,
   })
+  const { state } = useStore()
   const properties = usePublicProperties()
   const [areas, setAreas] = useState<Place[]>([])
   const [mode, setMode] = useState<'buy' | 'rent'>('buy')
@@ -325,6 +328,15 @@ export default function MarketHome() {
             </Link>
           </Reveal>
 
+          <DataRefreshBanner
+            active={state.marketplaceRefreshing && featured.length > 0}
+            label="Updating listings…"
+          />
+          {state.marketplaceRefreshing && featured.length === 0 ? (
+            <div className="flex justify-center py-12">
+              <PropertyLoader size="lg" label="Loading featured homes…" />
+            </div>
+          ) : (
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {featured.slice(0, 8).map((p, i) => (
               <Reveal key={p.id} delayMs={Math.min(i, 5) * 70}>
@@ -332,6 +344,7 @@ export default function MarketHome() {
               </Reveal>
             ))}
           </div>
+          )}
 
           <Reveal className="mt-10 text-center sm:hidden">
             <Link

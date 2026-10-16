@@ -45,8 +45,15 @@ type EnquiryIntent = 'lead' | 'viewing'
 export default function ListingDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { state, createApplication, createLead, recordGuestEnquiry, hydratedForUserId, hydrationFailed } =
-    useStore()
+  const {
+    state,
+    createApplication,
+    createLead,
+    recordGuestEnquiry,
+    hydratedForUserId,
+    hydrationFailed,
+    refreshMarketplaceListings,
+  } = useStore()
   const publicProperties = usePublicProperties()
   const { user, isAuthenticated, has } = useAuth()
   const { listedBy } = useAgentDisplay()
@@ -102,6 +109,11 @@ export default function ListingDetail() {
     setPublicListingSlice(null)
     setListingFetchDone(false)
   }, [id, user.id])
+
+  useEffect(() => {
+    if (!id) return
+    void refreshMarketplaceListings({ force: true })
+  }, [id, refreshMarketplaceListings])
 
   useEffect(() => {
     if (!id || p || awaitingSignedInHydration) return

@@ -37,6 +37,7 @@ import {
 } from '../components/maintenance/types'
 import { readReturnTo } from '../lib/returnTo'
 import { listApprovedContractors } from '../lib/contractors'
+import { DataRefreshBanner } from '../components/loading/DataRefreshBanner'
 
 const ICON_STROKE = 1.6
 
@@ -355,6 +356,8 @@ export default function Maintenance() {
           </ActionButtonRow>
         }
       />
+
+      <DataRefreshBanner active={state.sessionRefreshing} label="Syncing maintenance…" />
 
       {flash && (
         <p className="mb-4 rounded-xl border border-primary-100 bg-primary-50/50 px-3 py-2 text-sm text-ink">

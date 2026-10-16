@@ -14,11 +14,14 @@ import { useNavCollapsed } from '../hooks/useNavCollapsed'
 import { useScrollChrome } from '../hooks/useScrollChrome'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
 import { cn } from './ui'
+import { useMarketplaceDataRefresh } from '../hooks/useMarketplaceDataRefresh'
+import { useWorkspaceDataRefresh } from '../hooks/useWorkspaceDataRefresh'
 
 /** Collapsed rail width — keep in sync with WorkspaceSidebar */
 const RAIL_WIDTH = '4.5rem'
 
 export function MarketplaceShell() {
+  useMarketplaceDataRefresh()
   return (
     <div className="flex min-h-screen flex-col overflow-x-hidden bg-white text-ink">
       <OnboardingLayer />
@@ -33,6 +36,7 @@ export function MarketplaceShell() {
 
 /** Admin shell — full white background; header and pages share the same left edge */
 export function WorkspaceShell() {
+  useWorkspaceDataRefresh()
   const nav = useWorkspaceNav()
   const { pathname } = useLocation()
   const reducedMotion = usePrefersReducedMotion()

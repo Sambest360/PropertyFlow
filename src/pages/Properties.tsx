@@ -35,6 +35,7 @@ import {
   withPropertiesListQuery,
 } from '../lib/propertiesPortfolioSearch'
 import { dedupePropertyAssets } from '../lib/propertyDedupe'
+import { DataRefreshBanner } from '../components/loading/DataRefreshBanner'
 
 function readStoredView(): PropertiesViewMode {
   try {
@@ -289,6 +290,8 @@ export default function Properties() {
           </ActionButtonRow>
         }
       />
+
+      <DataRefreshBanner active={state.sessionRefreshing} label="Syncing properties…" />
 
       <div className="mb-5">
         <VerificationPendingBanner user={user} />

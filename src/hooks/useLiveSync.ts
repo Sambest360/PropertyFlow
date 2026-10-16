@@ -11,7 +11,7 @@ import { createClient } from '../utils/supabase/client'
  */
 export function useLiveSync() {
   const { isAuthenticated, user } = useAuth()
-  const { refreshBootstrap } = useStore()
+  const { refreshSessionData } = useStore()
   const debounceRef = useRef<number | null>(null)
   const actorRef = useRef({ userId: user.id, role: user.role, agencyId: user.agencyId })
   actorRef.current = { userId: user.id, role: user.role, agencyId: user.agencyId }
@@ -24,11 +24,7 @@ export function useLiveSync() {
       if (debounceRef.current != null) window.clearTimeout(debounceRef.current)
       debounceRef.current = window.setTimeout(() => {
         debounceRef.current = null
-        const actor = actorRef.current
-        void refreshBootstrap(
-          { userId: actor.userId, role: actor.role, agencyId: actor.agencyId },
-          { force: true, ingestNotifications: true },
-        )
+        void refreshSessionData({ force: true, ingestNotifications: true })
       }, LIVE_SYNC_DEBOUNCE_MS)
     }
 
@@ -48,7 +44,11 @@ export function useLiveSync() {
         ch = ch.on('postgres_changes', { event: '*', schema: 'public', table }, scheduleRefresh)
       }
       channel = ch
-      void ch.subscribe()
+      void ch.subscribe((status) => {
+        if (status === 'CHANNEL_ERROR') {
+          console.warn('[liveSync] Realtime channel error — using focus/poll/nav refresh')
+        }
+      })
     }
 
     return () => {
@@ -57,7 +57,7 @@ export function useLiveSync() {
       if (debounceRef.current != null) window.clearTimeout(debounceRef.current)
       if (channel) void createClient().removeChannel(channel)
     }
-  }, [isAuthenticated, user.id, user.role, user.agencyId, refreshBootstrap])
+  }, [isAuthenticated, user.id, user.role, user.agencyId, refreshSessionData])
 }
 
 export function LiveSyncBridge() {
