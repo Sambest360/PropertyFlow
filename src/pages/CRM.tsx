@@ -39,6 +39,7 @@ import { CrmLeadContactBar } from '../components/lead-detail/CrmLeadContactBar'
 import { CrmLeadViewingBar } from '../components/lead-detail/CrmLeadViewingBar'
 import { LeadCsvImportPanel } from '../components/syndication/LeadCsvImportPanel'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
+import { leadContactLine } from '../lib/displayIds'
 import type { Lead, PropertyAsset } from '../types/domain'
 import { useLookupOptions } from '../hooks/useLookupOptions'
 
@@ -980,7 +981,7 @@ function LeadExpansion({
           <PersonAvatar name={l.name} />
           <div className="min-w-0">
             <p className="font-display text-2xl font-semibold tracking-tight text-ink">{l.name}</p>
-            <p className="truncate text-sm text-ink-500">{l.id}</p>
+            <p className="truncate text-sm text-ink-500">{leadContactLine(l)}</p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 pt-1">

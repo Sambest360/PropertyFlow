@@ -32,6 +32,19 @@ export function labelOrReference(
   return id.trim()
 }
 
+/** Subtitle under lead name: contact info, or human id — never a backend UUID. */
+export function leadContactLine(
+  lead: { id?: string | null; email?: string | null; phone?: string | null },
+  fallback = '—',
+): string {
+  const email = lead.email?.trim()
+  const phone = lead.phone?.trim()
+  if (email && phone) return `${email} · ${phone}`
+  if (email) return email
+  if (phone) return phone
+  return hideBackendUuid(lead.id, fallback)
+}
+
 /** Strip backend UUIDs from API / toast copy. */
 export function sanitizeUserFacingMessage(text: string): string {
   if (!text) return text

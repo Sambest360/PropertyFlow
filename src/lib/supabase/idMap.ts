@@ -1,4 +1,4 @@
-import { isBackendUuid } from '../displayIds'
+import { isListingUuid } from '../listingIds.js'
 
 /** Frontend ↔ backend ID maps (mirrors server/idMap.ts seed aliases). */
 export const CLIENT_TO_AGENCY: Record<string, string> = {
@@ -229,12 +229,12 @@ export function resolveFrontendRouteId(
 ): string | null {
   if (!cache || !param?.trim()) return null
   const id = param.trim()
-  if (!isBackendUuid(id)) return null
+  if (!isListingUuid(id)) return null
   for (const entityType of entityTypes) {
     const mapped = cache.byType.get(entityType)?.get(id)
-    if (mapped && mapped !== id && !isBackendUuid(mapped)) return mapped
+    if (mapped && mapped !== id && !isListingUuid(mapped)) return mapped
   }
   const agencyFe = cache.agencyByClient.get(id)
-  if (agencyFe && agencyFe !== id && !isBackendUuid(agencyFe)) return agencyFe
+  if (agencyFe && agencyFe !== id && !isListingUuid(agencyFe)) return agencyFe
   return null
 }
