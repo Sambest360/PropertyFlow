@@ -26,6 +26,7 @@ import { isAgencyStaff } from '../../lib/permissions'
 import type { Permission } from '../../types/domain'
 import { usePrefersReducedMotion } from '../../hooks/useScrollMotion'
 import { useNavCollapsed } from '../../hooks/useNavCollapsed'
+import { prefetchWorkspaceRoute } from '../../lib/routePrefetch'
 
 const ICON_STROKE = 1.6
 /** How far the active pill overlaps past the sidebar edge into the page */
@@ -83,6 +84,8 @@ function NavItemLink({
       ref={itemRef}
       to={item.to}
       onClick={onNavigate}
+      onMouseEnter={() => prefetchWorkspaceRoute(item.to)}
+      onFocus={() => prefetchWorkspaceRoute(item.to)}
       title={collapsed ? item.label : undefined}
       aria-current={active ? 'page' : undefined}
       className={cn(

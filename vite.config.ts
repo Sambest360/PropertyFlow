@@ -69,10 +69,24 @@ export default defineConfig(({ mode }) => {
     build: {
       rollupOptions: {
         output: {
-          manualChunks: {
-            vendor: ['react', 'react-dom', 'react-router-dom'],
-            charts: ['recharts'],
-            maps: ['leaflet', 'react-leaflet', '@react-google-maps/api'],
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined
+            if (
+              id.includes('node_modules/react/') ||
+              id.includes('node_modules/react-dom/') ||
+              id.includes('node_modules/react-router-dom/')
+            ) {
+              return 'vendor'
+            }
+            if (id.includes('node_modules/recharts')) return 'charts'
+            if (
+              id.includes('node_modules/leaflet') ||
+              id.includes('node_modules/react-leaflet') ||
+              id.includes('node_modules/@react-google-maps')
+            ) {
+              return 'maps'
+            }
+            return undefined
           },
         },
       },

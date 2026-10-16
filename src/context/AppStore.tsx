@@ -185,6 +185,7 @@ import {
 import { readStoredAuthUserId, getApiActor, actorHeaders, type DemoActor } from '../lib/api/actorAuth'
 import {
   clearPortfolioSnapshot,
+  hasPortfolioSnapshotForUser,
   mergePortfolioSnapshotIntoState,
   writePortfolioSnapshotFromState,
   type PortfolioSnapshotActor,
@@ -1295,9 +1296,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         // Session snapshot (owner-keyed) restores last workspace view until bootstrap lands.
         const loaded = loadState()
         const authUser = readStoredAuthUserId()
-        const seeded = LIVE_DATA_MODE
-          ? mergePortfolioSnapshotIntoState(
-              {
+        const snapshotReady = Boolean(authUser && hasPortfolioSnapshotForUser(authUser))
+        const liveBase = LIVE_DATA_MODE
+          ? snapshotReady
+            ? loaded
+            : {
                 ...loaded,
                 properties: [],
                 units: [],
@@ -1305,7 +1308,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
                 viewingSlots: [],
                 leads: [],
                 tickets: [],
-              },
+              }
+          : loaded
+        const seeded = LIVE_DATA_MODE
+          ? mergePortfolioSnapshotIntoState(
+              liveBase,
               authUser,
               portfolioSnapshotActor(getApiActor()),
             )

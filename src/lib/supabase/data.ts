@@ -58,6 +58,8 @@ const LITE_LIMITS = {
   viewingSlots: 80,
   lookups: 400,
   buildings: 80,
+  entityIdMap: 5_000,
+  users: 500,
 }
 
 const FULL_LIMITS = {
@@ -70,6 +72,8 @@ const FULL_LIMITS = {
   payments: 200,
   documents: 200,
   threads: 500,
+  entityIdMap: 20_000,
+  users: 2_000,
 }
 
 function dateOnly(v: string | null | undefined): string {
@@ -366,10 +370,16 @@ export async function fetchSupabaseBootstrap(
     csvBatchesRes,
   ] = await Promise.all([
 
-    supabase.from('entity_id_map').select('entity_type, backend_id, frontend_id'),
+    supabase
+      .from('entity_id_map')
+      .select('entity_type, backend_id, frontend_id')
+      .limit(lite ? LITE_LIMITS.entityIdMap : FULL_LIMITS.entityIdMap),
     supabase.from('clients').select('id, company_name, subdomain, status, city, created_at, settings'),
     // CR10 N4: never read users.metadata whole (it holds other users' signature).
-    supabase.from('users').select(USERS_SELECT),
+    supabase
+      .from('users')
+      .select(USERS_SELECT)
+      .limit(lite ? LITE_LIMITS.users : FULL_LIMITS.users),
     supabase.from('buildings').select('*').order('name').limit(lite ? LITE_LIMITS.buildings : 10_000),
     supabase.from('units').select('*').order('created_at', { ascending: false }).limit(limits.units),
     skipHeavy

@@ -13,6 +13,7 @@ export function useLiveSync() {
   const { isAuthenticated, user } = useAuth()
   const { refreshSessionData } = useStore()
   const debounceRef = useRef<number | null>(null)
+  const realtimeOkRef = useRef(!isSupabaseMode)
   const actorRef = useRef({ userId: user.id, role: user.role, agencyId: user.agencyId })
   actorRef.current = { userId: user.id, role: user.role, agencyId: user.agencyId }
 
@@ -24,7 +25,7 @@ export function useLiveSync() {
       if (debounceRef.current != null) window.clearTimeout(debounceRef.current)
       debounceRef.current = window.setTimeout(() => {
         debounceRef.current = null
-        void refreshSessionData({ force: true, ingestNotifications: true })
+        void refreshSessionData({ force: false, ingestNotifications: true })
       }, LIVE_SYNC_DEBOUNCE_MS)
     }
 
@@ -33,11 +34,13 @@ export function useLiveSync() {
 
     const poll = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return
+      if (isSupabaseMode && realtimeOkRef.current) return
       scheduleRefresh()
     }, LIVE_SYNC_POLL_MS)
 
     let channel: ReturnType<ReturnType<typeof createClient>['channel']> | null = null
     if (isSupabaseMode) {
+      realtimeOkRef.current = false
       const supabase = createClient()
       let ch = supabase.channel(`propertyflow-live-${user.id}`)
       for (const table of LIVE_SYNC_TABLES) {
@@ -45,7 +48,11 @@ export function useLiveSync() {
       }
       channel = ch
       void ch.subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          realtimeOkRef.current = true
+        }
         if (status === 'CHANNEL_ERROR') {
+          realtimeOkRef.current = false
           console.warn('[liveSync] Realtime channel error — using focus/poll/nav refresh')
         }
       })

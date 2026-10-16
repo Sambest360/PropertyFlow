@@ -13,15 +13,30 @@ export function useMarketplaceDataRefresh() {
   const { pathname, search } = useLocation()
   const { refreshMarketplaceListings } = useStore()
   const mounted = useRef(false)
-
-  const routeKey = `${pathname}${search}`
+  const prevPathnameRef = useRef<string | null>(null)
+  const prevSearchRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!shouldRefreshMarketplaceRoute(pathname)) return
     if (!mounted.current) {
       mounted.current = true
+      prevPathnameRef.current = pathname
+      prevSearchRef.current = search
+      void refreshMarketplaceListings({ force: false })
       return
     }
-    void refreshMarketplaceListings({ force: true })
-  }, [pathname, routeKey, refreshMarketplaceListings])
+
+    const searchChanged = pathname === '/browse' && prevSearchRef.current !== search
+    const listingChanged =
+      pathname.startsWith('/listing/') && prevPathnameRef.current !== pathname
+    const homeOrSavedEntered =
+      (pathname === '/' || pathname === '/saved') && prevPathnameRef.current !== pathname
+
+    prevPathnameRef.current = pathname
+    prevSearchRef.current = search
+
+    if (!searchChanged && !listingChanged && !homeOrSavedEntered) return
+
+    void refreshMarketplaceListings({ force: false })
+  }, [pathname, search, refreshMarketplaceListings])
 }

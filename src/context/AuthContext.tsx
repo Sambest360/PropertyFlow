@@ -23,7 +23,7 @@ import {
 } from '../lib/api/authClient'
 import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
 import { portalHydrationUserId, sessionUserSwitched } from '../lib/clientCache'
-import { shouldSkipAuthBootstrapRefresh } from '../lib/bootstrapCoord'
+import { isBootstrapFetchInFlight, shouldSkipAuthBootstrapRefresh } from '../lib/bootstrapCoord'
 import { isStaleSessionProbe } from '../lib/auth/sessionProbeCoord'
 import { blockedPropertyIdsForApplicant } from '../lib/blockedApplicants'
 import { effectiveCan, roleLabels, roleBlurbs } from '../lib/permissions'
@@ -429,6 +429,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isApiEnabled && !isSupabaseMode) return
     if (!isAuthenticated || !user || user.id === 'guest') return
+    if (isBootstrapFetchInFlight()) return
     if (
       shouldSkipAuthBootstrapRefresh(user.id, hydratedForUserId) &&
       state.users.length > 0 &&
@@ -464,6 +465,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const sessionTarget = portalHydrationUserId(true, user.id)
     if (sessionTarget && hydratedForUserId === sessionTarget) return
     if (hydrationFailureAutoRetryRef.current) return
+    if (isBootstrapFetchInFlight()) return
     hydrationFailureAutoRetryRef.current = true
     void refreshBootstrap(
       { userId: user.id, role: user.role, agencyId: user.agencyId },

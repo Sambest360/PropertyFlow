@@ -3,6 +3,7 @@ import type { PostgresBootstrap } from './api/postgresClient'
 import {
   bootstrapActorKey,
   dedupeBootstrapFetch,
+  isBootstrapFetchInFlight,
   markBootstrapFetched,
   resetBootstrapCoordForRetry,
   resetBootstrapCoordForTests,
@@ -13,6 +14,31 @@ import {
 function stubBoot(tag: string): PostgresBootstrap {
   return { fetchedAt: tag } as PostgresBootstrap
 }
+
+describe('isBootstrapFetchInFlight', () => {
+  beforeEach(() => {
+    resetBootstrapCoordForTests()
+  })
+
+  it('is false when no fetch is running', () => {
+    expect(isBootstrapFetchInFlight()).toBe(false)
+  })
+
+  it('is true while a deduped lite fetch is in flight', async () => {
+    let resolve!: (v: PostgresBootstrap | null) => void
+    const fetcher = vi.fn(
+      () =>
+        new Promise<PostgresBootstrap | null>((r) => {
+          resolve = r
+        }),
+    )
+    const p = dedupeBootstrapFetch(true, fetcher, { actorKey: 'agent:u-1' })
+    expect(isBootstrapFetchInFlight()).toBe(true)
+    resolve(stubBoot('done'))
+    await p
+    expect(isBootstrapFetchInFlight()).toBe(false)
+  })
+})
 
 describe('shouldSkipAuthBootstrapRefresh (P04 cold /workspace)', () => {
   beforeEach(() => {
