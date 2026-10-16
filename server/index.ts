@@ -464,9 +464,14 @@ app.patch('/api/admin/users/:userId/verification', async (c) => {
     //    supabase JWT as a Bearer header — validate it with GoTrue, then load
     //    the local profile and require super admin.
     let reviewerFeId: string | null = null
+    let reviewerRole: string | null = null
+    let reviewerAgencyId: string | null = null
     const session = await resolveSessionUser(c)
-    if (session && session.role === 'super_admin') {
+    const staffRoles = new Set(['super_admin', 'client_admin', 'agent_admin'])
+    if (session && staffRoles.has(session.role)) {
       reviewerFeId = session.frontendId
+      reviewerRole = session.role
+      reviewerAgencyId = session.agencyId
     } else {
       const authHeader = c.req.header('authorization') ?? ''
       const token = authHeader.toLowerCase().startsWith('bearer ')
@@ -501,13 +506,38 @@ app.patch('/api/admin/users/:userId/verification', async (c) => {
       ])
       const profile = profRows[0]
       const feRole = String(profile?.metadata?.frontend_role ?? '')
-      if (!profile || (profile.role !== 'SUPER_ADMIN' && feRole !== 'super_admin')) {
-        return c.json({ error: 'forbidden', message: 'Super admin required' }, 403)
+      const dbRole = String(profile?.role ?? '')
+      const allowedBearer =
+        profile &&
+        (dbRole === 'SUPER_ADMIN' ||
+          feRole === 'super_admin' ||
+          dbRole === 'AGENCY_ADMIN' ||
+          feRole === 'client_admin' ||
+          dbRole === 'AGENT_ADMIN' ||
+          feRole === 'agent_admin')
+      if (!allowedBearer) {
+        return c.json({ error: 'forbidden', message: 'Staff access required' }, 403)
       }
       reviewerFeId =
         typeof profile.metadata?.frontend_id === 'string'
           ? (profile.metadata.frontend_id as string)
           : profile.id
+      reviewerRole =
+        feRole ||
+        (dbRole === 'SUPER_ADMIN'
+          ? 'super_admin'
+          : dbRole === 'AGENCY_ADMIN'
+            ? 'client_admin'
+            : dbRole === 'AGENT_ADMIN'
+              ? 'agent_admin'
+              : null)
+      const clientRows = await query<{ agency_fe: string | null }>(
+        `SELECT COALESCE(c.settings->>'frontend_id', c.id::text) AS agency_fe
+         FROM users u LEFT JOIN clients c ON c.id = u.client_id
+         WHERE u.id = $1::uuid LIMIT 1`,
+        [profile.id],
+      )
+      reviewerAgencyId = clientRows[0]?.agency_fe ?? null
     }
 
     const userId = c.req.param('userId')
@@ -521,6 +551,8 @@ app.patch('/api/admin/users/:userId/verification', async (c) => {
       status,
       rejectNote: body.rejectNote,
       reviewerFrontendId: reviewerFeId,
+      reviewerRole,
+      reviewerAgencyId,
     })
     // Decision email + in-app notification — additive, never blocks the response.
     void (async () => {

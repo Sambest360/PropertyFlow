@@ -16,6 +16,7 @@ import {
 import { canonicalListingId, unitIdForProperty } from '../listingIds'
 import { resolvePropertyType } from '../propertyType'
 import { mapAgencyStatusFromDb } from '../agencyStatus'
+import { mapViewingSlotRow, type ViewingSlotDbRow } from './viewingSlotMap'
 
 type RoleDb =
   | 'SUPER_ADMIN'
@@ -51,6 +52,7 @@ export function mapGuestMarketplacePayload(payload: {
   units?: Record<string, unknown>[]
   rooms?: Record<string, unknown>[]
   entity_id_map?: { entity_type: string; backend_id: string; frontend_id: string }[]
+  viewing_slots?: Record<string, unknown>[]
 }): PostgresBootstrap {
   const clients = payload.clients ?? []
   const users = payload.users ?? []
@@ -233,6 +235,17 @@ export function mapGuestMarketplacePayload(payload: {
 
   const cleanUnits = unitsRaw.map(({ _propertyId, _unitUuid, ...rest }) => rest)
 
+  const viewingSlotsRaw = (payload.viewing_slots ?? []) as ViewingSlotDbRow[]
+  const viewingSlots = viewingSlotsRaw.map((s, i) =>
+    mapViewingSlotRow(s, {
+      index: i,
+      mapFeId: (entityType, uuid, fallback) => mappedFe(cache, entityType, uuid, fallback),
+      mapAgency: mapAgencyFe,
+      mapPropertyFromUnit: (unitId) => mapPropertyFe(unitId ? String(unitId) : null),
+      mapUser: mapUserFe,
+    }),
+  )
+
   return {
     source: 'postgres',
     fetchedAt: new Date().toISOString(),
@@ -247,7 +260,7 @@ export function mapGuestMarketplacePayload(payload: {
     applications: [],
     tenancies: [],
     viewings: [],
-    viewingSlots: [],
+    viewingSlots,
     payments: [],
     propertyDocuments: [],
     tickets: [],

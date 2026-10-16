@@ -104,9 +104,6 @@ const FULL_AGENT: Permission[] = [
   'documents.view',
   'payments.view',
   'messages.manage',
-  'occupants.view',
-  'trust.view',
-  'trust.view_arrears',
 ]
 
 /**
@@ -121,7 +118,6 @@ const CANDIDATE_AGENT: Permission[] = [
   'maintenance.view',
   'documents.view',
   'messages.manage',
-  'occupants.view',
 ]
 
 export const rolePermissions: Record<Role, Permission[]> = {

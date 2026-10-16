@@ -12,6 +12,7 @@ type PublicRpcPayload = {
   users?: Record<string, unknown>[]
   rooms?: Record<string, unknown>[]
   entity_id_map?: { entity_type: string; backend_id: string; frontend_id: string }[]
+  viewing_slots?: Record<string, unknown>[]
 }
 
 export async function fetchPublicMarketplaceBootstrap(lite = true): Promise<PostgresBootstrap | null> {

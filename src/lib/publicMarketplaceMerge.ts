@@ -218,11 +218,15 @@ export async function fetchPublicListingSlice(
   const unitId = property.unitId
   const units = ((full.units as Unit[]) ?? []).filter((u) => u.id === unitId)
   const buildingIds = new Set(units.map((u) => u.buildingId).filter(Boolean) as string[])
+  const viewingSlots = ((full.viewingSlots as ViewingSlot[]) ?? []).filter(
+    (s) => s.propertyId === property.id,
+  )
   return {
     ...full,
     properties: [property],
     units,
     buildings: ((full.buildings as Building[]) ?? []).filter((b) => buildingIds.has(b.id)),
+    viewingSlots,
   }
 }
 

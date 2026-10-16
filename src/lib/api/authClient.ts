@@ -158,14 +158,13 @@ export async function apiRegister(input: {
   return data
 }
 
-export async function apiUpdateUserVerification(input: {
-  userId: string
-  status: 'approved' | 'rejected'
-  rejectNote?: string
-}): Promise<AuthUserDto> {
-  // Supabase mode: still go through the server route (so the decision email +
-  // in-app notification fire server-side), passing the supabase JWT for the
-  // server to validate. The route is the single decision path in both modes.
+async function patchUserVerificationOnServer(
+  input: {
+    userId: string
+    status: 'approved' | 'rejected'
+    rejectNote?: string
+  },
+): Promise<AuthUserDto> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...authHeaders(),
@@ -189,6 +188,33 @@ export async function apiUpdateUserVerification(input: {
   )
   const data2 = await parseJson<{ ok: boolean; user: AuthUserDto }>(res)
   return data2.user
+}
+
+export async function apiUpdateUserVerification(input: {
+  userId: string
+  status: 'approved' | 'rejected'
+  rejectNote?: string
+  /** When set (e.g. from AppStore), fills AuthUserDto fields after Supabase RPC. */
+  subject?: Pick<AuthUserDto, 'name' | 'email' | 'role' | 'agencyId' | 'active'>
+}): Promise<AuthUserDto> {
+  if (isSupabaseMode) {
+    const { supabaseUpdateUserVerification } = await import('../supabase/auth')
+    const updated = await supabaseUpdateUserVerification(input)
+    void patchUserVerificationOnServer(input).catch(() => {
+      /* email/notification side effects; RPC already persisted */
+    })
+    const subject = input.subject
+    return {
+      id: input.userId,
+      email: subject?.email ?? updated.email ?? '',
+      name: subject?.name ?? updated.name ?? '',
+      role: subject?.role ?? updated.role ?? 'landlord',
+      agencyId: subject?.agencyId ?? updated.agencyId ?? null,
+      active: subject?.active ?? updated.active ?? true,
+      verification: updated.verification,
+    }
+  }
+  return patchUserVerificationOnServer(input)
 }
 
 export async function apiLogin(input: {

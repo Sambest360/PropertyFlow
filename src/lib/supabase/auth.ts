@@ -635,6 +635,7 @@ export async function supabaseUpdateUserVerification(input: {
   if (session) return session
 
   const meta = (data as Record<string, unknown>) ?? {}
+  const verification = meta.verification as UserVerification | undefined
   return {
     id: input.userId,
     name: '',
@@ -642,6 +643,6 @@ export async function supabaseUpdateUserVerification(input: {
     role: 'tenant',
     agencyId: null,
     active: true,
-    verification: meta.verification as UserVerification | undefined,
+    verification,
   }
 }

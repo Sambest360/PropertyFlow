@@ -7,6 +7,7 @@
  */
 
 import { APP_STATE_STORAGE_KEY, AUTH_USER_STORAGE_KEY, PG_SOURCE_STORAGE_KEY } from '../clientCache'
+import { clearPortfolioSnapshot } from '../portfolioSnapshot'
 
 export type SessionArtifactSetters = {
   setSessionUser: (u: unknown) => void
@@ -31,6 +32,7 @@ export function clearSessionArtifacts(setters: SessionArtifactSetters): void {
   setters.setUserId('')
   setters.setRealUserId(null)
   try {
+    clearPortfolioSnapshot()
     for (const key of AUTH_STORAGE_KEYS) localStorage.removeItem(key)
     // P0-register (R7): a stale Supabase GoTrue cache (sb-*auth* entries from a
     // previous staff session) must not survive a failed register — otherwise

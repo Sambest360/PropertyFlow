@@ -341,8 +341,16 @@ describe('landlord nav (CR6)', () => {
     expect(hasUniquePaths(entries)).toBe(true)
   })
 
-  it('ground agent keeps the Landlords directory', () => {
+  it('ground agent sees property ops only (no trust, people, admin, reports)', () => {
     const paths = navPaths(navForRole('ground_agent'))
-    expect(paths).toContain('/workspace/people/landlords')
+    const labels = navLabels(navForRole('ground_agent'))
+    expect(paths).not.toContain('/workspace/people/landlords')
+    expect(labels).not.toContain('Landlords')
+    expect(labels).not.toContain('Compliance')
+    expect(labels).not.toContain('Reports')
+    expect(labels).not.toContain('Team')
+    expect(paths.some((p) => p.startsWith('/workspace/trust'))).toBe(false)
+    expect(labels).toContain('Documents')
+    expect(labels).toContain('Payments')
   })
 })

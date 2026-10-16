@@ -12,6 +12,7 @@ function fakeStorage() {
 
 beforeEach(() => {
   vi.stubGlobal('localStorage', fakeStorage())
+  vi.stubGlobal('sessionStorage', fakeStorage())
 })
 
 const auth = {
@@ -24,6 +25,7 @@ vi.mock('../context/AppStore', () => ({ useStore: () => store }))
 vi.mock('../lib/api/config', () => ({ isApiEnabled: true, isSupabaseMode: false }))
 
 import { AUTH_USER_STORAGE_KEY } from '../lib/clientCache'
+import { writePortfolioSnapshot } from '../lib/portfolioSnapshot'
 import {
   PortalHydrationGate,
   PortalLoadError,
@@ -71,6 +73,33 @@ describe('OwnerPortal first load (live mode: API)', () => {
       }),
     ).toBe(true)
     localStorage.removeItem(AUTH_USER_STORAGE_KEY)
+  })
+
+  it('portfolio snapshot shows portal before bootstrap hydration completes', () => {
+    store.hydratedForUserId = null
+    writePortfolioSnapshot('u-johan', {
+      properties: [],
+      units: [],
+      buildings: [],
+      viewingSlots: [],
+      leads: [],
+      tickets: [],
+    })
+    expect(
+      isPortalHydrating({
+        isAuthenticated: true,
+        liveMode: true,
+        userId: 'u-johan',
+        hydratedForUserId: null,
+      }),
+    ).toBe(false)
+    const html = renderToStaticMarkup(
+      <PortalHydrationGate>
+        <i>cached-portfolio</i>
+      </PortalHydrationGate>,
+    )
+    expect(html).toContain('cached-portfolio')
+    expect(html).not.toContain('portal-skeleton')
   })
   it('a failed bootstrap shows an error with retry, not an endless skeleton', () => {
     store.hydratedForUserId = null

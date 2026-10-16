@@ -606,8 +606,10 @@ export async function updateUserVerification(opts: {
   status: 'approved' | 'rejected'
   rejectNote?: string
   reviewerFrontendId?: string | null
+  reviewerRole?: string | null
+  reviewerAgencyId?: string | null
 }): Promise<SessionUser> {
-  const rows = await query<UserRow>(
+  const rows = await query<UserRow & { agency_fe: string | null }>(
     `SELECT u.id, u.email, u.password_hash, u.first_name, u.last_name, u.phone, u.role,
             u.active, u.client_id, u.metadata,
             COALESCE(c.settings->>'frontend_id', c.id::text) AS agency_fe
@@ -615,6 +617,12 @@ export async function updateUserVerification(opts: {
      LEFT JOIN clients c ON c.id = u.client_id
      WHERE u.metadata->>'frontend_id' = $1
         OR u.id::text = $1
+        OR EXISTS (
+          SELECT 1 FROM entity_id_map m
+          WHERE m.entity_type = 'user'
+            AND m.frontend_id = $1
+            AND m.backend_id = u.id
+        )
      LIMIT 1`,
     [opts.frontendUserId],
   )
@@ -622,6 +630,16 @@ export async function updateUserVerification(opts: {
   if (!row) {
     const err = new Error('User not found') as Error & { status: number }
     err.status = 404
+    throw err
+  }
+  if (
+    opts.reviewerRole &&
+    opts.reviewerRole !== 'super_admin' &&
+    opts.reviewerAgencyId &&
+    row.agency_fe !== opts.reviewerAgencyId
+  ) {
+    const err = new Error('Forbidden') as Error & { status: number }
+    err.status = 403
     throw err
   }
   const meta = { ...(row.metadata ?? {}) } as Record<string, unknown>

@@ -184,6 +184,23 @@ import {
 } from '../lib/clientCache'
 import { readStoredAuthUserId, getApiActor, actorHeaders, type DemoActor } from '../lib/api/actorAuth'
 import {
+  clearPortfolioSnapshot,
+  mergePortfolioSnapshotIntoState,
+  writePortfolioSnapshotFromState,
+  type PortfolioSnapshotActor,
+} from '../lib/portfolioSnapshot'
+import { ensureBootstrapScopedForActor, bootstrapActorFromSession } from '../lib/applyBootstrapScope'
+function portfolioSnapshotActor(
+  actor: DemoActor | { userId: string; role: string; agencyId: string | null } | null | undefined,
+): PortfolioSnapshotActor | null {
+  if (!actor?.userId || !actor.role) return null
+  return {
+    userId: actor.userId,
+    role: actor.role as Role,
+    agencyId: actor.agencyId ?? null,
+  }
+}
+import {
   shouldAcceptSupabaseBootstrap,
   shouldSoftMissEmptyApplicationsBootstrap,
   shouldWipeAuthAfterBootstrapMiss,
@@ -359,6 +376,16 @@ function preservePortalFeLinks(base: AppState, boot: PostgresBootstrap): Postgre
 
 /** When Postgres bootstrap succeeds, merge server rows with recent local writes. */
 function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppState {
+  boot = ensureBootstrapScopedForActor(
+    boot,
+    boot.actor
+      ? bootstrapActorFromSession({
+          userId: boot.actor.userId,
+          role: boot.actor.role,
+          agencyId: boot.actor.agencyId,
+        })
+      : null,
+  )
   boot = preservePortalFeLinks(base, boot)
   const replaceLinked = Boolean(boot.scoped)
   const mergeOpts = { replaceWhenMissing: replaceLinked }
@@ -1171,7 +1198,11 @@ async function fetchBootstrapFromApi(
     let boot: Awaited<ReturnType<typeof fetchSupabaseBootstrap>> | null = null
     let sessionRole: string | null = sessionProof.actorRole ?? null
     try {
-      boot = await fetchSupabaseBootstrap(lite, { actorRole: sessionProof.actorRole })
+      boot = await fetchSupabaseBootstrap(lite, {
+        actorRole: sessionProof.actorRole ?? effective?.role ?? apiActor?.role ?? null,
+        actorUserId: effective?.userId ?? apiActor?.userId ?? sessionProof.actorUserId ?? readStoredAuthUserId(),
+        actorAgencyId: effective?.agencyId ?? apiActor?.agencyId ?? null,
+      })
       // P0-2: stale auth ids used to yield EMPTY arrays — requiring units
       // caught that. P0 empty-DB SA: 0 units / 0 agencies with a live session
       // is valid empty-start, NOT stale-auth (do not wipe propertyflow-auth-user).
@@ -1252,17 +1283,24 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     let cancelled = false
     const id = window.requestAnimationFrame(() => {
       try {
-        // G01–G03: do not paint stale marketplace rows from localStorage in live
-        // mode — wait for public/bootstrap fetch to avoid count/title flips.
+        // G01–G03: legacy localStorage never carries portfolio rows in live mode.
+        // Session snapshot (owner-keyed) restores last workspace view until bootstrap lands.
         const loaded = loadState()
+        const authUser = readStoredAuthUserId()
         const seeded = LIVE_DATA_MODE
-          ? {
-              ...loaded,
-              properties: [],
-              units: [],
-              buildings: [],
-              viewingSlots: [],
-            }
+          ? mergePortfolioSnapshotIntoState(
+              {
+                ...loaded,
+                properties: [],
+                units: [],
+                buildings: [],
+                viewingSlots: [],
+                leads: [],
+                tickets: [],
+              },
+              authUser,
+              portfolioSnapshotActor(getApiActor()),
+            )
           : loaded
         const cached = ensurePublicMarketplace(seeded)
         if (!cancelled) setState(cached)
@@ -1351,7 +1389,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       return
     }
     setTicketAccessNotesSupported(ticketAccessNotesSupportedFromBootstrap(boot))
-    setState((prev) => ensurePublicMarketplace(applyPostgresBootstrap(prev, boot)))
+    setState((prev) => {
+      const next = ensurePublicMarketplace(applyPostgresBootstrap(prev, boot))
+      if (sessionUserId) {
+        writePortfolioSnapshotFromState(
+          sessionUserId,
+          next,
+          portfolioSnapshotActor(boot.actor ?? resolved),
+        )
+      }
+      return next
+    })
     setHydratedForUserId(sessionUserId)
     setHydrationFailed(false)
     markBootstrapFetched(true, actorKey)
@@ -1385,7 +1433,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ).then((full) => {
           if (!full) return
           if (!bootstrapMatchesSession(deferredActor?.userId, readStoredAuthUserId())) return
-          setState((prev) => ensurePublicMarketplace(applyPostgresBootstrap(prev, full)))
+          setState((prev) => {
+            const next = ensurePublicMarketplace(applyPostgresBootstrap(prev, full))
+            const uid = deferredActor?.userId ?? readStoredAuthUserId()
+            if (uid) {
+              writePortfolioSnapshotFromState(
+                uid,
+                next,
+                portfolioSnapshotActor(full.actor ?? deferredActor ?? getApiActor()),
+              )
+            }
+            return next
+          })
         })
       })
     } else if (!opts?.full && isApiEnabled) {
@@ -1399,7 +1458,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ).then((full) => {
           if (!full) return
           if (!bootstrapMatchesSession(deferredActor?.userId, readStoredAuthUserId())) return
-          setState((prev) => ensurePublicMarketplace(applyPostgresBootstrap(prev, full)))
+          setState((prev) => {
+            const next = ensurePublicMarketplace(applyPostgresBootstrap(prev, full))
+            const uid = deferredActor?.userId ?? readStoredAuthUserId()
+            if (uid) {
+              writePortfolioSnapshotFromState(
+                uid,
+                next,
+                portfolioSnapshotActor(full.actor ?? deferredActor ?? getApiActor()),
+              )
+            }
+            return next
+          })
         })
       })
     }
@@ -1474,7 +1544,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         return
       }
       setTicketAccessNotesSupported(ticketAccessNotesSupportedFromBootstrap(boot))
-      setState((prev) => ensurePublicMarketplace(applyPostgresBootstrap(prev, boot)))
+      setState((prev) => {
+        const next = ensurePublicMarketplace(applyPostgresBootstrap(prev, boot))
+        if (sessionUserId) {
+          writePortfolioSnapshotFromState(
+            sessionUserId,
+            next,
+            portfolioSnapshotActor(boot.actor ?? actor),
+          )
+        }
+        return next
+      })
       setHydratedForUserId(sessionUserId)
       setHydrationFailed(false)
       markBootstrapFetched(true, actorKey)
@@ -1500,7 +1580,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ).then((full) => {
           if (cancelled || !full) return
           if (!bootstrapMatchesSession(deferredActor?.userId, readStoredAuthUserId())) return
-          setState((prev) => ensurePublicMarketplace(applyPostgresBootstrap(prev, full)))
+          setState((prev) => {
+            const next = ensurePublicMarketplace(applyPostgresBootstrap(prev, full))
+            const uid = deferredActor?.userId ?? readStoredAuthUserId()
+            if (uid) {
+              writePortfolioSnapshotFromState(
+                uid,
+                next,
+                portfolioSnapshotActor(full.actor ?? deferredActor ?? getApiActor()),
+              )
+            }
+            return next
+          })
         })
       })
     }
@@ -1520,6 +1611,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
   const resetToDefault = useCallback(() => {
     cacheWriterRef.current?.cancel()
+    clearPortfolioSnapshot()
     const fresh = defaultState()
     stateRef.current = fresh
     setState(fresh)
@@ -1543,6 +1635,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             STORAGE_KEY,
             LIVE_DATA_MODE ? serializeClientCache(st, owner, LIVE_DATA_MODE) : JSON.stringify(st),
           )
+          if (owner) writePortfolioSnapshotFromState(owner, st, portfolioSnapshotActor(getApiActor()))
         } catch {
           /* ignore quota errors */
         }

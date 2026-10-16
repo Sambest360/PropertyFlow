@@ -31,6 +31,8 @@ import {
   type DbRoomRow,
 } from '../infraRoomsFromBootstrap'
 import { mapRoutesToFe } from '../messaging/modeA'
+import { mapViewingSlotRow } from './viewingSlotMap'
+import { ensureBootstrapScopedForActor } from '../applyBootstrapScope'
 
 type RoleDb =
   | 'SUPER_ADMIN'
@@ -149,15 +151,6 @@ function viewingStatus(s: string): string {
   return map[s] ?? 'Scheduled'
 }
 
-function slotStatus(s: string): string {
-  const map: Record<string, string> = {
-    OPEN: 'Open',
-    FULL: 'Full',
-    CANCELLED: 'Cancelled',
-  }
-  return map[s] ?? 'Open'
-}
-
 function appStage(status: string): string {
   const map: Record<string, string> = {
     DRAFT: 'Started',
@@ -201,6 +194,8 @@ function mappedFe(
 export type FetchSupabaseBootstrapOpts = {
   /** FE role (`tenant`) or DB role (`END_USER`) — gates tenant apps retry. */
   actorRole?: string | null
+  actorUserId?: string | null
+  actorAgencyId?: string | null
 }
 
 function isTenantBootstrapRole(role?: string | null): boolean {
@@ -840,20 +835,15 @@ export async function fetchSupabaseBootstrap(
     }
   })
 
-  const viewingSlots = (viewingSlotsRes.data ?? []).map((s, i) => ({
-    id: mappedFe(cache, 'viewing_slot', s.id, `VS-pg-${i + 1}`),
-    agencyId: mapAgencyFe(s.client_id)!,
-    propertyId: mapPropertyFe(s.unit_id)!,
-    agentId: mapUserFe(s.agent_id) ?? '',
-    date: dateOnly(s.slot_date),
-    time: String(s.slot_time).slice(0, 5),
-    capacity: Number(s.capacity),
-    booked: Number(s.booked_count),
-    status: slotStatus(s.status),
-    title: s.title ?? undefined,
-    notes: s.notes ?? undefined,
-    durationMinutes: s.duration_minutes != null ? Number(s.duration_minutes) : undefined,
-  }))
+  const viewingSlots = (viewingSlotsRes.data ?? []).map((s, i) =>
+    mapViewingSlotRow(s, {
+      index: i,
+      mapFeId: (entityType, uuid, fallback) => mappedFe(cache, entityType, uuid, fallback),
+      mapAgency: mapAgencyFe,
+      mapPropertyFromUnit: mapPropertyFe,
+      mapUser: mapUserFe,
+    }),
+  )
 
   const payments = (paymentsRes.data ?? []).map((p) => ({
     id: mappedFe(cache, 'payment', p.id, p.id),
@@ -1164,7 +1154,7 @@ export async function fetchSupabaseBootstrap(
     }
   })
 
-  return {
+  const payload: PostgresBootstrap = {
     source: 'postgres',
     fetchedAt: new Date().toISOString(),
     agencies,
@@ -1198,4 +1188,22 @@ export async function fetchSupabaseBootstrap(
     infraRooms,
     internalAssets,
   }
+
+  const actor =
+    opts?.actorUserId && opts?.actorRole
+      ? {
+          userId: opts.actorUserId,
+          role: opts.actorRole,
+          agencyId: opts.actorAgencyId ?? null,
+        }
+      : null
+
+  const withActor = actor
+    ? {
+        ...payload,
+        actor: { userId: actor.userId, role: String(actor.role), agencyId: actor.agencyId },
+      }
+    : payload
+
+  return ensureBootstrapScopedForActor(withActor, actor) as PostgresBootstrap
 }

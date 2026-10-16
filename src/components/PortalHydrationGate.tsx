@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext'
 import { useStore } from '../context/AppStore'
 import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
 import { portalHydrationUserId } from '../lib/clientCache'
+import { hasPortfolioSnapshotForUser } from '../lib/portfolioSnapshot'
 import { PropertyLoader } from './loading/PropertyLoader'
 
 export { portalHydrationUserId }
@@ -22,7 +23,9 @@ export function isPortalHydrating(params: {
   if (!params.isAuthenticated || !params.liveMode) return false
   const sessionUserId = portalHydrationUserId(params.isAuthenticated, params.userId)
   if (!sessionUserId) return false
-  return params.hydratedForUserId !== sessionUserId
+  if (params.hydratedForUserId === sessionUserId) return false
+  if (hasPortfolioSnapshotForUser(sessionUserId)) return false
+  return true
 }
 
 export function usePortalHydrating(): boolean {
