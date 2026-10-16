@@ -16,13 +16,15 @@ import {
   readPendingRegistrationDocs,
 } from '../../lib/auth/registrationDocs'
 import { showAuthError } from '../../lib/sweetAlert'
+import { shouldPurgeGuestOnLoginMount } from '../../lib/auth/loginMountPurge'
 import { resolvePostLoginPath } from '../../lib/workspaceRoutes'
 import { createClient } from '../../utils/supabase/client'
 
 const ICON_STROKE = 1.6
 
 export default function LoginPage() {
-  const { login, isAuthenticated, authReady, user, purgeLocalIdentity } = useAuth()
+  const { login, isAuthenticated, authReady, loginInFlight, user, purgeLocalIdentity } =
+    useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [params] = useSearchParams()
@@ -49,16 +51,20 @@ export default function LoginPage() {
   // bare /login post-login re-fires this effect after login() clears
   // loginInFlight; purging then wipes mid-navigate → Suspense Loading → /login.
   useEffect(() => {
-    if (isAuthenticated) return
     const bouncedToWorkspace = Boolean(nextParam?.startsWith('/workspace'))
-    if (bouncedToWorkspace) {
-      if (!authReady) return
-      // L02: RequireAuth bounce must not POST /logout while /me is still verifying.
-      if (readAuthToken()) return
+    if (
+      !shouldPurgeGuestOnLoginMount({
+        isAuthenticated,
+        loginInFlight,
+        bouncedToWorkspace,
+        authReady,
+        hasAuthToken: Boolean(readAuthToken()),
+      })
+    ) {
+      return
     }
     void purgeLocalIdentity()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authReady, isAuthenticated, nextParam])
+  }, [authReady, isAuthenticated, loginInFlight, nextParam, purgeLocalIdentity])
 
   useEffect(() => {
     void (isSupabaseMode ? supabaseBootstrapNeeded() : apiAuthBootstrapNeeded()).then(setBootstrapNeeded)

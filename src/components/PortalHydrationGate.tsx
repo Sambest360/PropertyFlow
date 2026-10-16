@@ -4,9 +4,10 @@
  * an empty state or cached/seed rows. Not used on the public marketplace or
  * guest pages.
  */
-import type { ReactNode } from 'react'
+import { useCallback, useState, type ReactNode } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useStore } from '../context/AppStore'
+import { bootstrapActorKey, isBootstrapFetchInFlight } from '../lib/bootstrapCoord'
 import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
 import { portalHydrationUserId } from '../lib/clientCache'
 import { hasPortfolioSnapshotForUser } from '../lib/portfolioSnapshot'
@@ -56,15 +57,58 @@ export function PortalSkeleton() {
   )
 }
 
-export function PortalLoadError({ onRetry }: { onRetry: () => void }) {
+export function PortalLoadError({
+  onRetry,
+  retrying = false,
+}: {
+  onRetry: () => void
+  retrying?: boolean
+}) {
   return (
     <div data-testid="portal-load-error" role="alert" className="space-y-3 p-4">
       <p className="text-sm text-ink">We couldn't load your workspace. Check your connection and try again.</p>
-      <button type="button" onClick={onRetry} className="rounded-md border px-3 py-1.5 text-sm">
-        Try again
+      <button
+        type="button"
+        onClick={onRetry}
+        disabled={retrying}
+        className="rounded-md border px-3 py-1.5 text-sm disabled:opacity-50"
+      >
+        {retrying ? 'Trying again…' : 'Try again'}
       </button>
     </div>
   )
+}
+
+type PortalUser = { id: string; role: string; agencyId: string | null | undefined }
+
+export function portalHydrationBootstrapActor(user: PortalUser | null | undefined) {
+  return user?.id && user.id !== 'guest'
+    ? { userId: user.id, role: user.role, agencyId: user.agencyId }
+    : undefined
+}
+
+/** Returns null when a bootstrap for this actor is already in flight. */
+export function planPortalHydrationRetry(user: PortalUser | null | undefined) {
+  const actor = portalHydrationBootstrapActor(user)
+  if (isBootstrapFetchInFlight(bootstrapActorKey(actor))) return null
+  return actor
+}
+
+function PortalHydrationErrorPanel({
+  user,
+  refreshBootstrap,
+}: {
+  user: PortalUser | null | undefined
+  refreshBootstrap: (actor: undefined | { userId: string; role: string; agencyId?: string | null }, opts: { force: boolean }) => Promise<unknown>
+}) {
+  const [retrying, setRetrying] = useState(false)
+  const onRetry = useCallback(() => {
+    const actor = planPortalHydrationRetry(user)
+    if (actor === null) return
+    setRetrying(true)
+    void refreshBootstrap(actor, { force: true }).finally(() => setRetrying(false))
+  }, [refreshBootstrap, user])
+  return <PortalLoadError onRetry={onRetry} retrying={retrying} />
 }
 
 export function PortalHydrationGate({ children }: { children: ReactNode }) {
@@ -72,17 +116,7 @@ export function PortalHydrationGate({ children }: { children: ReactNode }) {
   const { user } = useAuth()
   const { hydrationFailed, refreshBootstrap } = useStore()
   if (hydrating && hydrationFailed) {
-    return (
-      <PortalLoadError
-        onRetry={() => {
-          const actor =
-            user?.id && user.id !== 'guest'
-              ? { userId: user.id, role: user.role, agencyId: user.agencyId }
-              : undefined
-          void refreshBootstrap(actor, { force: true, full: true })
-        }}
-      />
-    )
+    return <PortalHydrationErrorPanel user={user} refreshBootstrap={refreshBootstrap} />
   }
   if (hydrating) return <PortalSkeleton />
   return <>{children}</>

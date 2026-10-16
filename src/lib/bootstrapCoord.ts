@@ -39,8 +39,12 @@ export function markBootstrapFetched(lite: boolean, actorKey?: string | null): v
   }
 }
 
-/** Skip auth-triggered refresh when mount/bootstrap just hydrated the store. */
-export function isBootstrapFetchInFlight(): boolean {
+/** True when any lite/full bootstrap fetch is in flight (omit actorKey). */
+export function isBootstrapFetchInFlight(actorKey?: string | null): boolean {
+  if (actorKey != null && String(actorKey).trim() !== '') {
+    const key = String(actorKey).trim()
+    return inflightLite?.key === key || inflightFull?.key === key
+  }
   return inflightLite !== null || inflightFull !== null
 }
 

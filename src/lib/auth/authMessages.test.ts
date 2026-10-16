@@ -14,6 +14,11 @@ describe('formatAuthError', () => {
     expect(formatAuthError('Too many requests').title).toBe('Too many attempts')
   })
 
+  it('maps auth sign-in timeout before server 500 wording', () => {
+    expect(formatAuthError('Connection timed out (auth)').title).toBe('Connection timed out')
+    expect(formatAuthError('Connection timed out (auth)').title).not.toBe('Auth service error')
+  })
+
   it('does not blame demo users or surface repair-auth on auth 500s', () => {
     const r = formatAuthError('Server error (500): unexpected_failure')
     expect(r.title).toBe('Auth service error')

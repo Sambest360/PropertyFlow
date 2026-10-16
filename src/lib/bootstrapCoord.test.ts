@@ -34,9 +34,33 @@ describe('isBootstrapFetchInFlight', () => {
     )
     const p = dedupeBootstrapFetch(true, fetcher, { actorKey: 'agent:u-1' })
     expect(isBootstrapFetchInFlight()).toBe(true)
+    expect(isBootstrapFetchInFlight('agent:u-1')).toBe(true)
+    expect(isBootstrapFetchInFlight('tenant:u-other')).toBe(false)
     resolve(stubBoot('done'))
     await p
     expect(isBootstrapFetchInFlight()).toBe(false)
+  })
+
+  it('null-actor inflight does not block a different session actor key', async () => {
+    let resolve!: (v: PostgresBootstrap | null) => void
+    const fetcher = vi.fn(
+      () =>
+        new Promise<PostgresBootstrap | null>((r) => {
+          resolve = r
+        }),
+    )
+    const p = dedupeBootstrapFetch(true, fetcher, { actorKey: 'null' })
+    expect(isBootstrapFetchInFlight('tenant:u-sipho')).toBe(false)
+    expect(isBootstrapFetchInFlight('null')).toBe(true)
+    resolve(stubBoot('done'))
+    await p
+  })
+
+  it('clears inflight slot when lite fetch rejects', async () => {
+    const fetcher = vi.fn(() => Promise.reject(new Error('network')))
+    const p = dedupeBootstrapFetch(true, fetcher, { actorKey: 'agent:u-1', force: true })
+    await expect(p).rejects.toThrow('network')
+    expect(isBootstrapFetchInFlight('agent:u-1')).toBe(false)
   })
 })
 

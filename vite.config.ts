@@ -2,6 +2,14 @@ import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
+function isChartsChunk(id: string): boolean {
+  return (
+    /node_modules\/recharts(\/|$)/.test(id) ||
+    /node_modules\/victory-vendor(\/|$)/.test(id) ||
+    /node_modules\/d3(-[a-z0-9-]+)?(\/|$)/.test(id)
+  )
+}
+
 function isLocalSupabaseConfigured(env: Record<string, string>): boolean {
   const url = env.VITE_SUPABASE_URL?.trim() ?? ''
   const key = env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() ?? ''
@@ -74,11 +82,12 @@ export default defineConfig(({ mode }) => {
             if (
               id.includes('node_modules/react/') ||
               id.includes('node_modules/react-dom/') ||
-              id.includes('node_modules/react-router-dom/')
+              id.includes('node_modules/react-router-dom/') ||
+              id.includes('node_modules/clsx/')
             ) {
               return 'vendor'
             }
-            if (id.includes('node_modules/recharts')) return 'charts'
+            if (isChartsChunk(id)) return 'charts'
             if (
               id.includes('node_modules/leaflet') ||
               id.includes('node_modules/react-leaflet') ||
