@@ -105,7 +105,7 @@ export default function Communications() {
                   propertyId: tenancy?.propertyId ?? null,
                   applicationId: tenancy?.applicationId ?? null,
                   subject: newSubject.trim(),
-                  participantIds: [user.id, agentId ?? 'u-amelia'].filter(Boolean) as string[],
+                  participantIds: [user.id, agentId ?? 'u-lerato'].filter(Boolean) as string[],
                   routesTo: agentId ? 'agent' : 'agency',
                   fromUserId: user.id,
                   initialMessage: newSubject.trim(),

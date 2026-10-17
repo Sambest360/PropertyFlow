@@ -228,9 +228,9 @@ const TEMPLATES: Template[] = [
 
 const AGENCIES = ['ag-horizon', 'ag-cape', 'ag-garden'] as const
 const AGENTS_BY_AGENCY: Record<(typeof AGENCIES)[number], string[]> = {
-  'ag-horizon': ['u-james', 'u-priya', 'u-lerato'],
-  'ag-cape': ['u-zane', 'u-theo', 'u-sipho'],
-  'ag-garden': ['u-leigh', 'u-gita'],
+  'ag-horizon': ['u-james', 'u-lerato'],
+  'ag-cape': ['u-zane', 'u-nandi'],
+  'ag-garden': ['u-leigh', 'u-omar'],
 }
 const LANDLORDS_BY_AGENCY: Record<(typeof AGENCIES)[number], string[]> = {
   'ag-horizon': ['u-owner1', 'u-owner2'],
@@ -268,14 +268,11 @@ const CLIENT_UUID: Record<string, string> = {
 const AGENT_UUID: Record<string, string> = {
   'u-lerato': 'a2000001-0001-4000-8000-000000000003',
   'u-james': 'a2000001-0001-4000-8000-000000000004',
-  'u-priya': 'a2000001-0001-4000-8000-000000000005',
   'u-owner2': 'a2000001-0001-4000-8000-000000000006',
   'u-owner1': 'a2000001-0001-4000-8000-000000000007',
-  'u-sipho': 'a2000001-0001-4000-8000-000000000011',
   'u-cape-owner': 'a2000001-0001-4000-8000-000000000013',
   'u-zane': 'a2000001-0001-4000-8000-000000000016',
-  'u-theo': 'a2000001-0001-4000-8000-000000000017',
-  'u-gita': 'a2000001-0001-4000-8000-000000000021',
+  'u-nandi': 'a2000001-0001-4000-8000-000000000018',
   'u-leigh': 'a2000001-0001-4000-8000-000000000022',
   'u-garden-owner': 'a2000001-0001-4000-8000-000000000023',
 }

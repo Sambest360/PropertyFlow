@@ -9,7 +9,7 @@ import {
   Clock,
 } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
-import { useAgencyScope, useAuth } from '../../context/AuthContext'
+import { useAgencyScope, useAuth, usePropertyScope } from '../../context/AuthContext'
 import {
   buildComplianceRejectedVerifications,
   buildComplianceVerificationQueue,
@@ -63,6 +63,7 @@ function docStatusLabel(status: PropertyDocument['status']) {
 export default function ComplianceDashboard() {
   const { user } = useAuth()
   const { scopeAgency } = useAgencyScope()
+  const { allowedPropertyIds } = usePropertyScope()
   const { state, updatePropertyDocument, updateUser } = useStore()
   const { users, properties, propertyDocuments } = state
   const [declineTarget, setDeclineTarget] = useState<ComplianceVerificationRow | null>(null)
@@ -86,12 +87,8 @@ export default function ComplianceDashboard() {
     () =>
       propertyDocuments
         .filter((d) => COMPLIANCE_CATEGORIES.includes(d.category))
-        .filter((d) => {
-          const property = properties.find((p) => p.id === d.propertyId)
-          if (!property) return false
-          return scopeAgency(property.agencyId)
-        }),
-    [propertyDocuments, properties, scopeAgency],
+        .filter((d) => allowedPropertyIds.has(d.propertyId)),
+    [propertyDocuments, allowedPropertyIds],
   )
 
   const docsNeedingAction = complianceDocs.filter((d) => d.status !== 'verified')

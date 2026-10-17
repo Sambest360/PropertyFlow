@@ -200,6 +200,15 @@ export const AGENCY_HIERARCHY_ROLES: Role[] = [
   'agent',
 ]
 
+/** Temporarily hidden from create-user and hierarchy UI; RBAC unchanged. */
+export const DEFERRED_ADMIN_ROLES: readonly Role[] = ['client_admin', 'agent']
+
+export function rolesVisibleInAdminUi(roles: readonly Role[]): Role[] {
+  return roles.filter((r) => !DEFERRED_ADMIN_ROLES.includes(r))
+}
+
+export const AGENCY_HIERARCHY_ROLES_UI = rolesVisibleInAdminUi(AGENCY_HIERARCHY_ROLES)
+
 export const AGENCY_HIERARCHY_NOTES = [
   {
     title: 'Legal supervision',

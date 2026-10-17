@@ -153,15 +153,13 @@ describe('ticketInScope / dealInScope / paymentInScope / threadInScope', () => {
     ).toBe(false)
   })
 
-  it('allows unassigned off-book listing for field agent (agency Unassigned pool)', () => {
-    // p-a2 is Priya's listing — off James's book — but agentId null/empty = Unassigned pool
+  it('denies unassigned off-book deals for field agents (strict assignment)', () => {
     expect(
       dealInScope(agentScope, { propertyId: 'p-a2', agentId: null, agencyId: 'ag-a' }),
-    ).toBe(true)
+    ).toBe(false)
     expect(
       dealInScope(agentScope, { propertyId: 'p-a2', agentId: '', agencyId: 'ag-a' }),
-    ).toBe(true)
-    // other-agency Unassigned stays out (canSeeAgency gate)
+    ).toBe(false)
     expect(
       dealInScope(agentScope, { propertyId: 'p-b1', agentId: null, agencyId: 'ag-b' }),
     ).toBe(false)

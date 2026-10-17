@@ -9,7 +9,7 @@ import {
   Wrench,
 } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
-import { useAgencyScope, useAuth } from '../../context/AuthContext'
+import { useAuth, usePropertyScope } from '../../context/AuthContext'
 import { useSeenOpsItems } from '../../hooks/useSeenOpsItems'
 import { priorityTone, statusTone } from '../../components/ui'
 import { OpsPreviewModal, type PreviewTarget } from '../../components/admin/OpsPreviewModal'
@@ -86,7 +86,7 @@ function toListItem(
 
 export function AgencyDashboard() {
   const { state } = useStore()
-  const { scopeAgency } = useAgencyScope()
+  const { allowedPropertyIds, dealVisible, ticketVisible } = usePropertyScope()
   const { has, role, user } = useAuth()
   const { isSeen, markSeen } = useSeenOpsItems(user.id)
 
@@ -124,31 +124,26 @@ export function AgencyDashboard() {
   const properties = useMemo(
     () =>
       canProperties
-        ? state.properties.filter((p) => scopeAgency(p.agencyId))
+        ? state.properties.filter((p) => allowedPropertyIds.has(p.id))
         : [],
-    [state.properties, scopeAgency, canProperties],
+    [state.properties, allowedPropertyIds, canProperties],
   )
   const apps = useMemo(
     () =>
-      canApplications
-        ? state.applications.filter((a) => scopeAgency(a.agencyId))
-        : [],
-    [state.applications, scopeAgency, canApplications],
+      canApplications ? state.applications.filter((a) => dealVisible(a)) : [],
+    [state.applications, dealVisible, canApplications],
   )
   const tickets = useMemo(
-    () =>
-      canMaintenance ? state.tickets.filter((t) => scopeAgency(t.agencyId)) : [],
-    [state.tickets, scopeAgency, canMaintenance],
+    () => (canMaintenance ? state.tickets.filter((t) => ticketVisible(t)) : []),
+    [state.tickets, ticketVisible, canMaintenance],
   )
   const viewings = useMemo(
-    () =>
-      canViewings ? state.viewings.filter((v) => scopeAgency(v.agencyId)) : [],
-    [state.viewings, scopeAgency, canViewings],
+    () => (canViewings ? state.viewings.filter((v) => dealVisible(v)) : []),
+    [state.viewings, dealVisible, canViewings],
   )
   const viewingSlots = useMemo(
-    () =>
-      canViewings ? state.viewingSlots.filter((s) => scopeAgency(s.agencyId)) : [],
-    [state.viewingSlots, scopeAgency, canViewings],
+    () => (canViewings ? state.viewingSlots.filter((s) => dealVisible(s)) : []),
+    [state.viewingSlots, dealVisible, canViewings],
   )
   const users = state.users
 

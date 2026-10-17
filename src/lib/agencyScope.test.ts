@@ -129,10 +129,10 @@ describe('canSeeAgentRecord', () => {
     expect(canSeeAgentRecord('agent', 'u-me', 'u-other')).toBe(false)
   })
 
-  it('field agents see agency Unassigned pool (null/empty agentId)', () => {
-    expect(canSeeAgentRecord('ground_agent', 'u-me', null)).toBe(true)
-    expect(canSeeAgentRecord('ground_agent', 'u-me', '')).toBe(true)
-    expect(canSeeAgentRecord('agent', 'u-me', null)).toBe(true)
+  it('field agents do not see unassigned listings (strict assignment)', () => {
+    expect(canSeeAgentRecord('ground_agent', 'u-me', null)).toBe(false)
+    expect(canSeeAgentRecord('ground_agent', 'u-me', '')).toBe(false)
+    expect(canSeeAgentRecord('agent', 'u-me', null)).toBe(false)
   })
 })
 
@@ -175,7 +175,7 @@ describe('canAccessProperty', () => {
     ).toBe(false)
   })
 
-  it('allows field agents Unassigned listings in their agency', () => {
+  it('denies field agents unassigned listings in their agency', () => {
     expect(
       canAccessProperty(
         {
@@ -187,7 +187,7 @@ describe('canAccessProperty', () => {
         { ...propA, agentId: null },
         'p-unassigned',
       ),
-    ).toBe(true)
+    ).toBe(false)
   })
 
   it('allows tenants only for linked application / tenancy property ids', () => {

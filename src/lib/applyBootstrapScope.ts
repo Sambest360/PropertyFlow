@@ -7,9 +7,10 @@ import {
   type BootstrapActor,
   type BootstrapPayload,
 } from './bootstrapActorFilter'
+import { pickAgencyId } from './agencyScope'
 import { isFieldAgent } from './permissions'
 import { buildPropertyScope, toPropertyLinks } from './scope'
-import type { Role } from '../types/domain'
+import type { AppUser, Role } from '../types/domain'
 
 export function bootstrapActorFromSession(actor: {
   userId: string
@@ -23,18 +24,45 @@ export function bootstrapActorFromSession(actor: {
   }
 }
 
+/** Prefer live session actor + bootstrap user row over stale boot.actor agency ids. */
+export function resolveBootstrapScopingActor(
+  boot: PostgresBootstrap,
+  live: BootstrapActor | null | undefined,
+): BootstrapActor | null {
+  const fromBoot = boot.actor
+    ? bootstrapActorFromSession({
+        userId: boot.actor.userId,
+        role: boot.actor.role,
+        agencyId: boot.actor.agencyId,
+      })
+    : null
+  const base = live?.userId && live.role ? live : fromBoot
+  if (!base?.userId || !base.role) return null
+
+  const users = (boot.users ?? []) as AppUser[]
+  const bootstrapAgencyId = users.find((u) => u.id === base.userId)?.agencyId ?? null
+  const agencyId = pickAgencyId(base.agencyId, bootstrapAgencyId ?? fromBoot?.agencyId ?? null)
+
+  return {
+    userId: base.userId,
+    role: base.role,
+    agencyId,
+  }
+}
+
 export function scopeBootstrapPayloadForActor(
   boot: PostgresBootstrap,
   actor: BootstrapActor | null | undefined,
 ): PostgresBootstrap {
-  if (!actor?.userId || !actor.role) return boot
-  if (actor.role === 'super_admin') return boot
+  const resolved = resolveBootstrapScopingActor(boot, actor)
+  if (!resolved?.userId || !resolved.role) return boot
+  if (resolved.role === 'super_admin') return boot
 
   const scope = buildPropertyScope(
     {
-      role: actor.role as Role,
-      userId: actor.userId,
-      agencyId: actor.agencyId,
+      role: resolved.role as Role,
+      userId: resolved.userId,
+      agencyId: resolved.agencyId,
       agencySuspended: false,
     },
     {
@@ -50,9 +78,9 @@ export function scopeBootstrapPayloadForActor(
 
   return filterBootstrapForActor(
     boot as BootstrapPayload,
-    actor,
+    resolved,
     scope,
-    new Set([actor.userId]),
+    new Set([resolved.userId]),
   ) as PostgresBootstrap
 }
 
@@ -61,12 +89,18 @@ export function ensureBootstrapScopedForActor(
   boot: PostgresBootstrap,
   actor: BootstrapActor | null | undefined,
 ): PostgresBootstrap {
-  if (!actor?.userId || !actor.role) return boot
+  const resolved = resolveBootstrapScopingActor(boot, actor)
+  if (!resolved?.userId || !resolved.role) return boot
   if (boot.scoped === true) return boot
-  if (actor.role === 'super_admin') return boot
-  if (isFieldAgent(actor.role as Role) || actor.role === 'tenant' || actor.role === 'landlord' || actor.role === 'contractor') {
-    return scopeBootstrapPayloadForActor(boot, actor)
+  if (resolved.role === 'super_admin') return boot
+  if (
+    isFieldAgent(resolved.role as Role) ||
+    resolved.role === 'tenant' ||
+    resolved.role === 'landlord' ||
+    resolved.role === 'contractor'
+  ) {
+    return scopeBootstrapPayloadForActor(boot, resolved)
   }
   // Agency-wide staff: still narrow to single agency (filter sets scoped: false but trims agencies)
-  return scopeBootstrapPayloadForActor(boot, actor)
+  return scopeBootstrapPayloadForActor(boot, resolved)
 }

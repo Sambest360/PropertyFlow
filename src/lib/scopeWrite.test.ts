@@ -195,10 +195,8 @@ describe('canWriteEntity', () => {
     ).toBe(false)
   })
 
-  // P0 r19: deal write mirrors dealInScope (#41) — Unassigned pool before hard deny.
-  // application is NOT added to agency-level fieldOk (laundry stays closed).
-  it('allows FA Unassigned off-book in-agency application write', () => {
-    // p-a2 is Priya's listing (off James's book); agentId null = Unassigned pool
+  // Deal write mirrors dealInScope — strict assignment for field agents.
+  it('denies FA unassigned off-book in-agency application write', () => {
     expect(
       canWriteEntity(james, {
         resource: 'application',
@@ -207,7 +205,7 @@ describe('canWriteEntity', () => {
         agencyId: 'ag-a',
         agentId: null,
       }),
-    ).toBe(true)
+    ).toBe(false)
     expect(
       canWriteEntity(james, {
         resource: 'lead',
@@ -216,7 +214,7 @@ describe('canWriteEntity', () => {
         agencyId: 'ag-a',
         agentId: '',
       }),
-    ).toBe(true)
+    ).toBe(false)
   })
 
   it('denies FA Unassigned application write cross-agency', () => {

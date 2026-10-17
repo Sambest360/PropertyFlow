@@ -9,7 +9,12 @@ export function WizardFooter({
   onSubmit,
   continueLabel = 'Continue',
   submitLabel = 'Submit',
+  saveDraftLabel = 'Save draft',
   saveAndContinueLaterLabel = 'Save & continue later',
+  continueBusyLabel = 'Continuing…',
+  submitBusyLabel = 'Saving…',
+  saveDraftBusyLabel = 'Saving draft…',
+  saveAndContinueLaterBusyLabel = 'Saving…',
   backDisabled,
   continueDisabled,
   submitDisabled,
@@ -27,7 +32,12 @@ export function WizardFooter({
   onSubmit?: () => void
   continueLabel?: string
   submitLabel?: string
+  saveDraftLabel?: string
   saveAndContinueLaterLabel?: string
+  continueBusyLabel?: string
+  submitBusyLabel?: string
+  saveDraftBusyLabel?: string
+  saveAndContinueLaterBusyLabel?: string
   backDisabled?: boolean
   continueDisabled?: boolean
   submitDisabled?: boolean
@@ -47,7 +57,7 @@ export function WizardFooter({
           onClick={onContinue}
           disabled={continueDisabled || busy}
         >
-          {continueLabel}
+          {busy ? continueBusyLabel : continueLabel}
         </Button>
       ) : null}
       {showSubmit && onSubmit ? (
@@ -57,7 +67,7 @@ export function WizardFooter({
           onClick={onSubmit}
           disabled={submitDisabled || busy}
         >
-          {submitLabel}
+          {busy ? submitBusyLabel : submitLabel}
         </Button>
       ) : null}
       {showSaveAndContinueLater && onSaveAndContinueLater ? (
@@ -68,7 +78,7 @@ export function WizardFooter({
           onClick={onSaveAndContinueLater}
           disabled={busy}
         >
-          {saveAndContinueLaterLabel}
+          {busy ? saveAndContinueLaterBusyLabel : saveAndContinueLaterLabel}
         </Button>
       ) : null}
       {showSaveDraft && onSaveDraft ? (
@@ -79,7 +89,7 @@ export function WizardFooter({
           onClick={onSaveDraft}
           disabled={busy}
         >
-          Save draft
+          {busy ? saveDraftBusyLabel : saveDraftLabel}
         </Button>
       ) : null}
       {showBack && onBack ? (

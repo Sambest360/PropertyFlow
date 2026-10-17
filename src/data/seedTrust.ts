@@ -248,7 +248,7 @@ export const seedPayoutInstructions: PayoutInstruction[] = [
     bucketCode: 'owner_payable',
     status: 'settled',
     proposedBy: 'u-lerato',
-    approvedBy: 'u-amelia',
+    approvedBy: 'u-lerato',
     submittedAt: '2026-08-05T09:00:00.000Z',
     settledAt: '2026-08-05T10:00:00.000Z',
     partnerPayoutId: 'FNB-784430',

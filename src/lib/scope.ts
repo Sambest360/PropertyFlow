@@ -228,9 +228,8 @@ export function ticketInScope(
 }
 
 /**
- * Lead / application / viewing: property book, direct agent assignment,
- * or agency Unassigned pool (null/empty agentId) for in-agency field agents —
- * mirrors contractor claimable open jobs (resolveContractorPropertyIds).
+ * Lead / application / viewing: property book or direct agent assignment
+ * (field agents: strict — assigned property or row agentId matches viewer).
  */
 export function dealInScope(
   scope: PropertyScope,
@@ -247,12 +246,8 @@ export function dealInScope(
     return false
   }
   if (isFieldAgent(viewer.role)) {
-    // Unassigned pool: null/empty agentId is claimable by any in-agency FA
-    // (canSeeAgency already gated agency membership above).
     return (
-      scope.allowedPropertyIds.has(entity.propertyId) ||
-      entity.agentId === viewer.userId ||
-      !entity.agentId
+      scope.allowedPropertyIds.has(entity.propertyId) || entity.agentId === viewer.userId
     )
   }
   if (viewer.role === 'landlord' || viewer.role === 'contractor') {

@@ -828,8 +828,7 @@ export function useAuth() {
   return ctx
 }
 
-/** Scope helper: filter by agency unless super admin */
-export function useAgencyScope() {
+function useResolvedAgencyScope() {
   const { user, role, agencyId: sessionAgencyId } = useAuth()
   const { state } = useStore()
   const scopeCtx = useMemo(
@@ -845,9 +844,14 @@ export function useAgencyScope() {
   )
   const agency = agencyId ? state.agencies.find((a) => a.id === agencyId) : null
   const agencySuspended = agencyBlocksStaffAccess(agency?.status)
-
   const scopeAgency = (id: string | null | undefined) =>
     canSeeAgency(role, agencyId, agencySuspended, id, scopeCtx)
+  return { user, role, agencyId, agencySuspended, scopeCtx, scopeAgency }
+}
+
+/** Scope helper: filter by agency unless super admin */
+export function useAgencyScope() {
+  const { user, role, agencyId, agencySuspended, scopeAgency } = useResolvedAgencyScope()
   const scopeAgent = (agentId: string | null | undefined) =>
     canSeeAgentRecord(role, user.id, agentId)
   const scopeLandlord = (landlordId: string) => canSeeLandlordAsset(role, user.id, landlordId)
@@ -875,10 +879,8 @@ export function usePropertyScope(): PropertyScope & {
   ) => boolean
   threadVisible: (thread: Parameters<typeof threadInScope>[1]) => boolean
 } {
-  const { user, role, agencyId } = useAuth()
+  const { user, role, agencyId, agencySuspended, scopeAgency } = useResolvedAgencyScope()
   const { state } = useStore()
-  const agency = agencyId ? state.agencies.find((a) => a.id === agencyId) : null
-  const agencySuspended = agencyBlocksStaffAccess(agency?.status)
 
   const scope = useMemo(() => {
     const blockedPropertyIds = blockedPropertyIdsForApplicant(state.applications, user)
@@ -906,9 +908,6 @@ export function usePropertyScope(): PropertyScope & {
     state.tickets,
     state.agencyContractors,
   ])
-
-  const scopeAgency = (id: string | null | undefined) =>
-    canSeeAgency(role, agencyId, agencySuspended, id)
 
   return {
     ...scope,

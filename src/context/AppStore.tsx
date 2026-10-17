@@ -384,15 +384,22 @@ function preservePortalFeLinks(base: AppState, boot: PostgresBootstrap): Postgre
 
 /** When Postgres bootstrap succeeds, merge server rows with recent local writes. */
 function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppState {
+  const liveActor = resolveBootstrapActor(base.users)
   boot = ensureBootstrapScopedForActor(
     boot,
-    boot.actor
+    liveActor
       ? bootstrapActorFromSession({
-          userId: boot.actor.userId,
-          role: boot.actor.role,
-          agencyId: boot.actor.agencyId,
+          userId: liveActor.userId,
+          role: liveActor.role,
+          agencyId: liveActor.agencyId,
         })
-      : null,
+      : boot.actor
+        ? bootstrapActorFromSession({
+            userId: boot.actor.userId,
+            role: boot.actor.role,
+            agencyId: boot.actor.agencyId,
+          })
+        : null,
   )
   boot = preservePortalFeLinks(base, boot)
   const replaceLinked = Boolean(boot.scoped)

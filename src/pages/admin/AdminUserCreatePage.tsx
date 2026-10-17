@@ -20,6 +20,7 @@ import {
   roleLabels,
   rolePermissions,
   roleScopes,
+  rolesVisibleInAdminUi,
   userBasePermissions,
 } from '../../lib/permissions'
 import { readReturnTo } from '../../lib/returnTo'
@@ -112,14 +113,16 @@ export default function AdminUserCreatePage() {
           ? '/workspace/people/staff'
           : '/workspace/admin/users')
 
-  const baseCreatable = isPlatform ? ALL_ROLES : AGENCY_ADMIN_CREATABLE
-  const creatableRoles = intentLandlord
-    ? (['landlord'] as Role[]).filter((r) => baseCreatable.includes(r) || isPlatform)
-    : intentContractor
-      ? (['contractor'] as Role[]).filter((r) => baseCreatable.includes(r) || isPlatform)
-      : intentTeam
-        ? TEAM_ROLES.filter((r) => baseCreatable.includes(r) || (r === 'super_admin' && isPlatform))
-        : baseCreatable
+  const baseCreatable = rolesVisibleInAdminUi(isPlatform ? ALL_ROLES : AGENCY_ADMIN_CREATABLE)
+  const creatableRoles = rolesVisibleInAdminUi(
+    intentLandlord
+      ? (['landlord'] as Role[]).filter((r) => baseCreatable.includes(r) || isPlatform)
+      : intentContractor
+        ? (['contractor'] as Role[]).filter((r) => baseCreatable.includes(r) || isPlatform)
+        : intentTeam
+          ? TEAM_ROLES.filter((r) => baseCreatable.includes(r) || (r === 'super_admin' && isPlatform))
+          : baseCreatable,
+  )
 
   const queryAgencyId = searchParams.get('agencyId')
   const lockAgency = Boolean(queryAgencyId) || !isPlatform

@@ -567,9 +567,13 @@ function filterBootstrapEntitiesForActor(
 
   // Users are narrowed + redacted by filterBootstrapForActor after this runs.
   // Agencies for super_admin stay full; others get their own agency only.
+  const agencyScopeCtx = { agencies: raw.agencies }
   let agencies = raw.agencies
   if (actor.role !== 'super_admin' && actor.agencyId) {
-    agencies = raw.agencies.filter((a) => a.id === actor.agencyId)
+    const viewerAg = agencyIdInFeSpace(actor.agencyId, agencyScopeCtx)
+    agencies = raw.agencies.filter(
+      (a) => agencyIdInFeSpace(a.id, agencyScopeCtx) === viewerAg,
+    )
   }
 
   if (!scoped) {
@@ -581,9 +585,13 @@ function filterBootstrapEntitiesForActor(
         actor: { userId: actor.userId, role: actor.role, agencyId: actor.agencyId },
       }
     }
-    const ag = actor.agencyId
+    const ag = actor.agencyId ? agencyIdInFeSpace(actor.agencyId, agencyScopeCtx) : null
     // No pass-through for agency-wide staff without an agency (B1).
-    const inAg = (agencyId: string | null | undefined) => Boolean(ag) && agencyId === ag
+    const inAg = (agencyId: string | null | undefined) => {
+      if (!ag) return false
+      const resourceAg = agencyIdInFeSpace(agencyId, agencyScopeCtx)
+      return Boolean(resourceAg) && resourceAg === ag
+    }
     const props = raw.properties.filter((p) => inAg(p.agencyId))
     const propIds = new Set(props.map((p) => p.id))
     const buildingIds = new Set(

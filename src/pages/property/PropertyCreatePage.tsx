@@ -74,7 +74,8 @@ import type { AssetCondition } from '../../data/infrastructure'
 import type { PropertyAsset } from '../../types/domain'
 import { showTempPasswordOnce } from '../../lib/auth/tempPasswordBus'
 import { acquireSubmitLock, releaseSubmitLock } from '../../lib/wizardSubmitGuard'
-import { sweetToast } from '../../lib/sweetAlert'
+import { sweetError, sweetSuccess, sweetWarning } from '../../lib/sweetAlert'
+import { PropertyLoader } from '../../components/loading/PropertyLoader'
 
 const DRAFT_KEY = 'propertyflow:property-create'
 
@@ -277,6 +278,10 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   const { stepIndex, maxReachableIndex, goNext, goBack, goTo, markReachable, isFirst, isLast } =
     useWizardSteps({ totalSteps: STEPS.length, storageKey: wizardStorageKey })
 
+  const [busy, setBusy] = useState(false)
+  const [busyMessage, setBusyMessage] = useState('Saving…')
+  const [geocoding, setGeocoding] = useState(false)
+
   const locationPreviewCoords = useMemo(() => {
     const hasLocationText = Boolean(
       draft.address.trim() || draft.suburb.trim() || draft.city.trim() || draft.placeId,
@@ -301,24 +306,27 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
 
     const key = `${address}|${suburb}|${city}`
     const timer = window.setTimeout(() => {
-      void geocodeAddress({ address, suburb, city }).then((result) => {
-        setDraft((d) => {
-          if (`${d.address.trim()}|${d.suburb.trim()}|${d.city.trim()}` !== key) return d
-          return {
-            ...d,
-            lat: result.lat,
-            lng: result.lng,
-            placeId: result.placeId ?? d.placeId,
-            formattedAddress: result.formattedAddress || d.formattedAddress,
-          }
+      setGeocoding(true)
+      void geocodeAddress({ address, suburb, city })
+        .then((result) => {
+          setDraft((d) => {
+            if (`${d.address.trim()}|${d.suburb.trim()}|${d.city.trim()}` !== key) return d
+            return {
+              ...d,
+              lat: result.lat,
+              lng: result.lng,
+              placeId: result.placeId ?? d.placeId,
+              formattedAddress: result.formattedAddress || d.formattedAddress,
+            }
+          })
         })
-      })
+        .finally(() => setGeocoding(false))
     }, 650)
-    return () => window.clearTimeout(timer)
+    return () => {
+      window.clearTimeout(timer)
+      setGeocoding(false)
+    }
   }, [stepIndex, draft.address, draft.suburb, draft.city, setDraft])
-
-  const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     if (isEdit) return
@@ -512,16 +520,14 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   function handleContinue() {
     const err = validateStep(stepIndex)
     if (err) {
-      setError(err)
+      void sweetWarning('Check this step', err)
       return
     }
-    setError('')
     markReachable(stepIndex + 1)
     goNext()
   }
 
   function saveDraftOnly() {
-    setError('')
     void submitProperty('Draft', false)
   }
 
@@ -724,7 +730,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
 
   async function handleSaveAndContinueLater() {
     if (!acquireSubmitLock(submitLockRef)) return
-    setError('')
+    setBusyMessage('Saving progress…')
     setBusy(true)
     try {
       if (canSyncServerDraft()) {
@@ -732,13 +738,14 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
         setDraft((d) => ({ ...d, draftPropertyId: id }))
         sessionDraftPropertyIdRef.current = id
       }
+      await sweetSuccess('Progress saved', 'You can pick up where you left off.')
       navigate(returnTo)
     } catch (err) {
       const message =
         err instanceof Error && err.message
           ? err.message
           : 'Could not save your progress. Try again.'
-      setError(message)
+      await sweetError('Could not save progress', message)
     } finally {
       setBusy(false)
       releaseSubmitLock(submitLockRef)
@@ -747,13 +754,16 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
 
   /** Assets step: finish the listing as a Draft now, add inventory on the detail page. */
   async function handleAddAssetsLater() {
-    setError('')
     if (!canSyncServerDraft()) {
-      setError('Add a building name or street address first so the listing can be saved.')
+      void sweetWarning(
+        'Location required',
+        'Add a building name or street address first so the listing can be saved.',
+      )
       goTo(1)
       return
     }
     if (!acquireSubmitLock(submitLockRef)) return
+    setBusyMessage('Saving draft…')
     setBusy(true)
     try {
       const id = await syncServerDraft()
@@ -765,10 +775,10 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       } catch {
         /* ignore */
       }
-      void sweetToast('Draft saved')
+      await sweetSuccess('Draft saved', 'Add inventory from the property detail page.')
       navigate(`/workspace/properties/${id}?tab=inventory`)
     } catch {
-      setError('Could not save the listing. Try again.')
+      await sweetError('Could not save listing', 'Try again in a moment.')
     } finally {
       setBusy(false)
       releaseSubmitLock(submitLockRef)
@@ -777,17 +787,26 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
 
   async function submitProperty(status: 'Draft' | 'Published', fromReview: boolean) {
     if (!acquireSubmitLock(submitLockRef)) return
+    const willPublish =
+      (fromReview && draft.publishAfterSave && canPublish) || (status === 'Published' && canPublish)
+    setBusyMessage(
+      willPublish
+        ? 'Publishing listing…'
+        : isEdit
+          ? 'Saving changes…'
+          : 'Saving draft…',
+    )
     setBusy(true)
     try {
     const err = validateStep(6)
     if (err) {
-      setError(err)
+      await sweetWarning('Check assignment & title', err)
       if (fromReview) goTo(6)
       return
     }
     const listingImages = listingImagesForSubmit()
     if (listingImages.length === 0) {
-      setError('Add at least one listing photo.')
+      await sweetWarning('Photos required', 'Add at least one listing photo.')
       goTo(2)
       return
     }
@@ -891,8 +910,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       sessionDraftPropertyIdRef.current = created.id
     }
 
-    const shouldPublish =
-      (fromReview && draft.publishAfterSave && canPublish) || (status === 'Published' && canPublish)
+    const shouldPublish = willPublish
     if (shouldPublish) {
       // P0-5: await durable publish; do not navigate "live" until committed.
       // P0-publish (R7): pass the same-tick created snapshot so publish can
@@ -900,7 +918,10 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       // means the listing did not go live.
       const published = await publishProperty(propertyId, 'Published', createdProperty)
       if (!published) {
-        setError('Could not publish the listing. It was saved as a draft — retry from the listing page.')
+        await sweetWarning(
+          'Saved as draft',
+          'Could not publish the listing. It was saved as a draft — retry from the listing page.',
+        )
         return
       }
     }
@@ -918,14 +939,19 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       state.properties.some((p) => p.id === propertyId) || Boolean(createdProperty)
     const detailPath = `/workspace/properties/${propertyId}`
     const detailTarget = targetInStore ? detailPath : returnTo
-    void sweetToast(shouldPublish ? 'Listing published' : 'Draft saved')
+    const successTitle = shouldPublish
+      ? 'Listing published'
+      : isEdit
+        ? 'Changes saved'
+        : 'Draft saved'
+    await sweetSuccess(successTitle)
     navigate(detailTarget)
     } catch (err) {
       const message =
         err instanceof Error && err.message
           ? err.message
           : 'Could not save the listing. Try again.'
-      setError(message)
+      await sweetError('Could not save listing', message)
     } finally {
       setBusy(false)
       releaseSubmitLock(submitLockRef)
@@ -1065,6 +1091,12 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                 onChange={(e) => setDraft((d) => ({ ...d, province: e.target.value }))}
               />
             </div>
+            {geocoding ? (
+              <div className="mt-1 flex items-center gap-2 text-sm text-ink-500">
+                <PropertyLoader size="sm" inline label="Updating map location" />
+                Updating map location…
+              </div>
+            ) : null}
             <LocationMapPreview
               lat={locationPreviewCoords.lat}
               lng={locationPreviewCoords.lng}
@@ -1766,16 +1798,38 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                 )
               }
               busy={busy}
+              submitBusyLabel={
+                isEdit
+                  ? draft.publishAfterSave && canPublish
+                    ? 'Publishing…'
+                    : 'Saving…'
+                  : draft.publishAfterSave && canPublish
+                    ? 'Publishing…'
+                    : 'Saving draft…'
+              }
+              saveDraftBusyLabel="Saving draft…"
+              saveAndContinueLaterBusyLabel="Saving…"
             />
           }
         >
-          {error ? <p className="mb-4 text-sm text-accent-600">{error}</p> : null}
-          {(stepIndex > 0 || draft.draftPropertyId) && (
-            <p className="mb-4 rounded-lg border border-primary-100 bg-primary-50/60 px-3 py-2 text-sm text-ink-600">
-              Progress is saved automatically. Use <strong>Save &amp; continue later</strong> to exit and pick up where you left off.
-            </p>
-          )}
-          {renderStep()}
+          <div className="relative">
+            {(stepIndex > 0 || draft.draftPropertyId) && (
+              <p className="mb-4 rounded-lg border border-primary-100 bg-primary-50/60 px-3 py-2 text-sm text-ink-600">
+                Progress is saved automatically. Use <strong>Save &amp; continue later</strong> to exit and pick up where you left off.
+              </p>
+            )}
+            <div className={busy ? 'pointer-events-none select-none opacity-60' : undefined}>
+              {renderStep()}
+            </div>
+            {busy ? (
+              <div
+                className="absolute inset-0 z-10 flex items-center justify-center bg-white/75"
+                aria-live="polite"
+              >
+                <PropertyLoader size="md" label={busyMessage} />
+              </div>
+            ) : null}
+          </div>
         </CreateWizardShell>
       </div>
     </RequirePermission>

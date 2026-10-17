@@ -16,6 +16,6 @@ describe('wizardSubmitGuard', () => {
     const source = readFileSync('src/pages/property/PropertyCreatePage.tsx', 'utf8')
     expect(source).toContain('acquireSubmitLock')
     expect(source).toContain('submitLockRef')
-    expect(source).toContain('sweetToast')
+    expect(source).toMatch(/sweet(Warning|Error|Success)/)
   })
 })
