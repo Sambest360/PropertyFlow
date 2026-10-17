@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { GoogleMap, InfoWindowF, MarkerF, useJsApiLoader } from '@react-google-maps/api'
+import { GoogleMap, InfoWindowF, MarkerF } from '@react-google-maps/api'
 import { MapContainer, TileLayer, Marker, Popup, useMap, ZoomControl } from 'react-leaflet'
 import L from 'leaflet'
 import { ArrowRight, Bath, BedDouble, Car, Heart, MapPin, X } from 'lucide-react'
@@ -10,10 +10,10 @@ import {
   hasGoogleMapsKey,
   LEAFLET_BASEMAP_ATTRIBUTION,
   LEAFLET_BASEMAP_URL,
-  mapsLoaderConfig,
   SA_MAP_CENTER,
   SA_MAP_DEFAULT_ZOOM,
 } from '../lib/api/mapsLoader'
+import { useGoogleMaps } from '../context/GoogleMapsProvider'
 import { PROPERTYFLOW_GOOGLE_MAP_STYLES } from '../lib/api/googleMapStyles'
 import { hasMappedCoordinates } from '../lib/mapCoords'
 import { staticMapImageUrl } from '../lib/api/documents'
@@ -274,7 +274,7 @@ function GooglePropertyMap({
   detailBase: string
   className?: string
 }) {
-  const { isLoaded, loadError } = useJsApiLoader(mapsLoaderConfig())
+  const { enabled, isLoaded, loadError } = useGoogleMaps()
   const [activeId, setActiveId] = useState<string | null>(null)
   const active = withCoords.find((p) => p.id === activeId) ?? null
 
@@ -297,7 +297,7 @@ function GooglePropertyMap({
     [withCoords],
   )
 
-  if (loadError) {
+  if (!enabled || loadError) {
     return (
       <LeafletPropertyMap
         withCoords={withCoords}

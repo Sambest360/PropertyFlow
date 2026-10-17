@@ -34,6 +34,8 @@ import { ListingDescriptionEditor } from '../../components/listing/ListingDescri
 import { ExpandableDescription } from '../../components/listing/ExpandableDescription'
 import { PropertyFeaturePicker } from '../../components/property-features/PropertyFeaturePicker'
 import { PlacesAddressInput } from '../../components/PlacesAddressInput'
+import { LocationMapPreview } from '../../components/maps/LocationMapPreview'
+import { geocodeAddress } from '../../lib/api/geocoding'
 import { Button, Input, Select } from '../../components/ui'
 import { FormLabel, FieldHelp } from '../../components/onboarding/FieldHelp'
 import { uid } from '../../data/seed'
@@ -274,6 +276,46 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   }, [])
   const { stepIndex, maxReachableIndex, goNext, goBack, goTo, markReachable, isFirst, isLast } =
     useWizardSteps({ totalSteps: STEPS.length, storageKey: wizardStorageKey })
+
+  const locationPreviewCoords = useMemo(() => {
+    const hasLocationText = Boolean(
+      draft.address.trim() || draft.suburb.trim() || draft.city.trim() || draft.placeId,
+    )
+    if (!hasLocationText) return { lat: null as number | null, lng: null as number | null }
+    return { lat: draft.lat, lng: draft.lng }
+  }, [
+    draft.address,
+    draft.suburb,
+    draft.city,
+    draft.placeId,
+    draft.lat,
+    draft.lng,
+  ])
+
+  useEffect(() => {
+    if (stepIndex !== 1) return
+    const address = draft.address.trim()
+    const suburb = draft.suburb.trim()
+    const city = draft.city.trim()
+    if (!address && !suburb && !city) return
+
+    const key = `${address}|${suburb}|${city}`
+    const timer = window.setTimeout(() => {
+      void geocodeAddress({ address, suburb, city }).then((result) => {
+        setDraft((d) => {
+          if (`${d.address.trim()}|${d.suburb.trim()}|${d.city.trim()}` !== key) return d
+          return {
+            ...d,
+            lat: result.lat,
+            lng: result.lng,
+            placeId: result.placeId ?? d.placeId,
+            formattedAddress: result.formattedAddress || d.formattedAddress,
+          }
+        })
+      })
+    }, 650)
+    return () => window.clearTimeout(timer)
+  }, [stepIndex, draft.address, draft.suburb, draft.city, setDraft])
 
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -1023,6 +1065,11 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                 onChange={(e) => setDraft((d) => ({ ...d, province: e.target.value }))}
               />
             </div>
+            <LocationMapPreview
+              lat={locationPreviewCoords.lat}
+              lng={locationPreviewCoords.lng}
+              className="mt-1"
+            />
           </WizardSectionCard>
         )
       case 2:

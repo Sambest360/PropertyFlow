@@ -15,6 +15,7 @@ import { RequireAuth } from './components/RequireAuth'
 import { CanonicalIdRedirect } from './components/routing/CanonicalIdRedirect'
 import { PropertyLoader } from './components/loading/PropertyLoader'
 import { TempPasswordHost } from './components/admin/TempPasswordHost'
+import { GoogleMapsProvider } from './context/GoogleMapsProvider'
 import { useAuth } from './context/AuthContext'
 import {
   WorkspaceApplicationsRedirect,
@@ -150,6 +151,7 @@ function RedirectPropertyAsset() {
 export default function App() {
   return (
     <ThemeProvider>
+      <GoogleMapsProvider>
       <AppStoreProvider>
         <AuthProvider>
           <LiveSyncBridge />
@@ -509,6 +511,7 @@ export default function App() {
           </SuiteAlertProvider>
         </AuthProvider>
       </AppStoreProvider>
+      </GoogleMapsProvider>
     </ThemeProvider>
   )
 }
