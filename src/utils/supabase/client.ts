@@ -1,14 +1,18 @@
 import { createBrowserClient } from '@supabase/ssr'
 import { getSupabasePublishableKey, getSupabaseUrl } from './env'
 
-type BrowserClient = ReturnType<typeof createBrowserClient>
+function makeBrowserClient() {
+  return createBrowserClient(getSupabaseUrl(), getSupabasePublishableKey())
+}
+
+type BrowserClient = ReturnType<typeof makeBrowserClient>
 
 let browserClient: BrowserClient | null = null
 
 /** Browser Supabase client — singleton for the tab lifetime. */
 export function createClient(): BrowserClient {
   if (!browserClient) {
-    browserClient = createBrowserClient(getSupabaseUrl(), getSupabasePublishableKey())
+    browserClient = makeBrowserClient()
   }
   return browserClient
 }
