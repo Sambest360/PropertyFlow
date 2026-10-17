@@ -81,7 +81,7 @@ export default function PayfastResultPage({ cancelled = false }: { cancelled?: b
             to="/"
             className="text-sm text-ink-400 underline-offset-2 hover:underline"
           >
-            Back to Letkaya
+            Back to Lekaya Rentals
           </Link>
         </div>
       </Card>

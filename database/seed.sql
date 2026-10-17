@@ -1,5 +1,5 @@
 -- =============================================================================
--- Letkaya — Seed data for local TablePlus testing
+-- Lekaya — Seed data for local TablePlus testing
 -- Requires: schema.sql already applied
 -- =============================================================================
 USE propertyflow;

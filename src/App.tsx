@@ -76,6 +76,9 @@ const AdminAgencyCreatePage = lazy(() => import('./pages/admin/AdminAgencyCreate
 const AgencyDetailPage = lazy(() => import('./pages/admin/AgencyDetailPage'))
 const AdminConfigPage = lazy(() => import('./pages/admin/AdminConfigPage'))
 const LeadPipelineSettingsPage = lazy(() => import('./pages/admin/LeadPipelineSettingsPage'))
+const ApplicationJourneySettingsPage = lazy(
+  () => import('./pages/admin/ApplicationJourneySettingsPage'),
+)
 const AdminNotificationsPage = lazy(() => import('./pages/admin/AdminNotificationsPage'))
 const AdminAllUsersPage = lazy(() => import('./pages/admin/AdminAllUsersPage'))
 const TenantApplicationDetailPage = lazy(() => import('./pages/tenant/TenantApplicationDetailPage'))
@@ -470,6 +473,7 @@ export default function App() {
                 />
                 <Route path="admin/config" element={<AgencyOpsGuard anyOf={['config.manage', 'tenant.manage', 'platform.manage']}><AdminConfigPage /></AgencyOpsGuard>} />
                 <Route path="admin/pipeline" element={<AgencyOpsGuard anyOf={['config.manage', 'tenant.manage', 'platform.manage']}><LeadPipelineSettingsPage /></AgencyOpsGuard>} />
+                <Route path="admin/application-journey" element={<AgencyOpsGuard anyOf={['config.manage', 'tenant.manage', 'platform.manage']}><ApplicationJourneySettingsPage /></AgencyOpsGuard>} />
                 <Route path="admin/roles" element={<Navigate to="/workspace/admin/users" replace />} />
                 <Route path="admin/notifications" element={<AgencyOpsGuard anyOf={['notifications.broadcast', 'platform.manage']}><AdminNotificationsPage /></AgencyOpsGuard>} />
                 <Route path="admin/all-users" element={<Guard permission="platform.manage"><AdminAllUsersPage /></Guard>} />

@@ -490,15 +490,25 @@ export async function fetchSupabaseBootstrap(
       const settings = (c.settings as Record<string, unknown> | null) ?? {}
       return settings.frontend_id !== GLOBAL_CLIENT_ID && !settings.isGlobalConfigClient
     })
-    .map((c) => ({
-    id: mappedFe(cache, 'agency', c.id, c.id),
-    name: c.company_name,
-    slug: c.subdomain,
-    city: c.city ?? '',
-    status: mapAgencyStatusFromDb(c.status),
-    createdAt: dateOnly(c.created_at),
-    enabledPermissions: null as null,
-  }))
+    .map((c) => {
+      const settingsRaw = (c.settings as Record<string, unknown> | null) ?? {}
+      const applicationJourney =
+        settingsRaw.applicationJourney &&
+        typeof settingsRaw.applicationJourney === 'object' &&
+        !Array.isArray(settingsRaw.applicationJourney)
+          ? (settingsRaw.applicationJourney as import('../journey/types').AgencyJourneyOverride)
+          : undefined
+      return {
+        id: mappedFe(cache, 'agency', c.id, c.id),
+        name: c.company_name,
+        slug: c.subdomain,
+        city: c.city ?? '',
+        status: mapAgencyStatusFromDb(c.status),
+        createdAt: dateOnly(c.created_at),
+        enabledPermissions: null as null,
+        settings: applicationJourney ? { applicationJourney } : undefined,
+      }
+    })
 
   const appUsers = users.map((u) => {
     const meta = (u.metadata as Record<string, unknown> | null) ?? {}
@@ -758,12 +768,29 @@ export async function fetchSupabaseBootstrap(
       documents: hydrated.documents,
       docs: hydrated.documents.filter((d) => d.status !== 'required').map((d) => d.label),
       screening: hydrated.screening ?? screeningFromMeta ?? undefined,
+      creditCheckConsents: hydrated.creditCheckConsents,
+      screeningConsent:
+        meta.screeningConsent && typeof meta.screeningConsent === 'object'
+          ? (meta.screeningConsent as import('../../types/domain').Application['screeningConsent'])
+          : undefined,
+      idNumberOrPassport:
+        typeof meta.id_number_or_passport === 'string' ? meta.id_number_or_passport : undefined,
       viewingSlotId: null,
       notes: (a.message as string | null) ?? '',
+      declineReason:
+        typeof meta.decline_reason === 'string' && meta.decline_reason.trim()
+          ? meta.decline_reason.trim()
+          : undefined,
       moveInDate: dateOnly(a.move_in_date as string | null) || undefined,
       keyCollection: meta.keyCollection as Record<string, unknown> | undefined,
       submittedAt: dateOnly(a.submitted_at as string | null) || dateOnly(a.created_at as string | null),
       updatedAt: dateOnly(a.updated_at as string | null),
+      journeySnapshot:
+        a.journey_snapshot && typeof a.journey_snapshot === 'object' && !Array.isArray(a.journey_snapshot)
+          ? (a.journey_snapshot as import('../journey/types').JourneySnapshot)
+          : undefined,
+      journeyVersion:
+        typeof a.journey_version === 'number' ? (a.journey_version as number) : undefined,
       applicantUuid: a.applicant_id as string | null,
     }
   })

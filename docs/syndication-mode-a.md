@@ -1,6 +1,6 @@
 # Portal syndication — Mode A (Oscar gap §3 / Jim soft stamp)
 
-Letkaya’s syndication path is **own-site marketplace + manual portal packs +
+Lekaya’s syndication path is **own-site marketplace + manual portal packs +
 lead CSV into CRM**. That path must **never** be claimed as live Property24 /
 Private Property push or portal parity.
 

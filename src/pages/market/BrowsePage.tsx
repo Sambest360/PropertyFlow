@@ -169,7 +169,7 @@ export default function BrowsePage() {
   usePageMeta({
     title: browseTitle,
     description: savedOnly
-      ? 'Your saved property wishlist on Letkaya.'
+      ? 'Your saved property wishlist on Lekaya.'
       : 'Filter buy, rent, and commercial listings by area, price, beds, and amenities across South Africa.',
     path: savedOnly ? '/saved' : '/browse',
   })

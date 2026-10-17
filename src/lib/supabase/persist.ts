@@ -473,6 +473,10 @@ async function upsertApplication(id: string, data: Record<string, unknown>): Pro
         creditConsent:
           data.creditConsent !== undefined ? data.creditConsent : (storedDocsJson.creditConsent ?? null),
         screening: data.screening !== undefined ? data.screening : (storedDocsJson.screening ?? null),
+        creditCheckConsents:
+          data.creditCheckConsents !== undefined
+            ? data.creditCheckConsents
+            : (storedDocsJson.creditCheckConsents ?? null),
       },
       metadata: mergedMeta,
       // P0-sync (R9): the staff bootstrap orders applications by submitted_at

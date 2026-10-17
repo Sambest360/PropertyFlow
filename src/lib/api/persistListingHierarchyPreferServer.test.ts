@@ -20,6 +20,7 @@ vi.mock('./actorAuth', () => ({
 
 vi.mock('./authClient', () => ({
   authHeaders: () => ({}),
+  resolveApiAuthorizationHeader: async () => ({}),
 }))
 
 vi.mock('../bootstrapMerge', () => ({

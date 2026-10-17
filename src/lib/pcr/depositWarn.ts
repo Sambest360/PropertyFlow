@@ -32,5 +32,5 @@ export function refundDepositOutgoingSoftWarn(
 ): string | null {
   if (!app || app.type === 'Purchase') return null
   if (findInspection(app, 'outgoing')) return null
-  return 'Soft-warn: no outgoing PCR path on file. Process deposit carefully — Letkaya does not auto-forfeit; not RHA legal advice.'
+  return 'Soft-warn: no outgoing PCR path on file. Process deposit carefully — Lekaya does not auto-forfeit; not RHA legal advice.'
 }

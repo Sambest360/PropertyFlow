@@ -395,7 +395,7 @@ describe('CR7 support tickets — scope gate + writer', () => {
   })
 
   it('gives 403 when an agency admin resolves a staff ticket, even one stored with their agency', async () => {
-    // A staff row that carries an agency (legacy / hand-written) is still Letkaya support's.
+    // A staff row that carries an agency (legacy / hand-written) is still Lekaya support's.
     db.map.push({ entity_type: 'support_ticket', frontend_id: 'HD-staff-legacy', backend_id: 'e1000001-0001-4000-8000-0000000000aa' })
     db.events.set('e1000001-0001-4000-8000-0000000000aa', {
       id: 'e1000001-0001-4000-8000-0000000000aa',
@@ -468,7 +468,7 @@ describe('CR7 support tickets — bootstrap filter', () => {
     { id: 'HD-c1', agencyId: 'ag-cape', submittedByUserId: 'u-tenant-c' },
     { id: 'HD-p1', agencyId: null, submittedByUserId: 'u-admin-h' },
     { id: 'HD-p2', agencyId: null, submittedByUserId: 'u-agent-h' },
-    // Staff ticket stored with an agency: still Letkaya support's.
+    // Staff ticket stored with an agency: still Lekaya support's.
     { id: 'HD-s1', agencyId: 'ag-horizon', submittedByUserId: 'u-agent-h', submitterRole: 'ground_agent' },
   ]
   const raw = {

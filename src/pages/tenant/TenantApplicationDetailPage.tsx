@@ -16,6 +16,8 @@ import { DashboardTabs } from '../../components/dashboard/DashboardTabs'
 import { ApplicantApplicationPanel } from '../../components/applicant-detail/ApplicantApplicationPanel'
 import { ApplicantDocumentsPanel } from '../../components/applicant-detail/ApplicantDocumentsPanel'
 import { TenantApplicationDetailsForm } from '../../components/tenant/TenantApplicationDetailsForm'
+import { TenantCreditConsentPanel } from '../../components/tenant/TenantCreditConsentPanel'
+import { needsCreditConsentTask } from '../../lib/screening/creditConsent'
 import { TenantApplicationPaymentsPanel } from '../../components/tenant/TenantApplicationPaymentsPanel'
 import { Badge, Button, Card, cn, statusTone } from '../../components/ui'
 import { rolePermissions } from '../../lib/permissions'
@@ -39,8 +41,15 @@ type Tab = 'application' | 'documents' | 'details' | 'payments'
 export default function TenantApplicationDetailPage() {
   const { id } = useParams()
   const [params, setParams] = useSearchParams()
-  const { state, setDocumentStatus, uploadApplicationDocument, updateApplication, updatePayment, advanceApplicationWorkflow } =
-    useStore()
+  const {
+    state,
+    setDocumentStatus,
+    uploadApplicationDocument,
+    updateApplication,
+    updatePayment,
+    advanceApplicationWorkflow,
+    captureApplicationScreeningConsent,
+  } = useStore()
   const { user } = useAuth()
   const publicProperties = usePublicProperties()
 
@@ -443,11 +452,26 @@ export default function TenantApplicationDetailPage() {
         )}
 
         {tab === 'details' && (
-          <TenantApplicationDetailsForm
-            application={application}
-            onSave={(patch) => updateApplication(application.id, patch)}
-            autoSave
-          />
+          <div className="space-y-5">
+            {needsCreditConsentTask(application) || application.creditCheckConsents?.adults?.length ? (
+              <TenantCreditConsentPanel
+                application={application}
+                onCapture={async (adults) => {
+                  const saved = await captureApplicationScreeningConsent(application.id, {
+                    grantedBy: user.id,
+                    method: 'portal',
+                    adults,
+                  })
+                  if (!saved) throw new Error('consent persist failed')
+                }}
+              />
+            ) : null}
+            <TenantApplicationDetailsForm
+              application={application}
+              onSave={(patch) => updateApplication(application.id, patch)}
+              autoSave
+            />
+          </div>
         )}
 
         {tab === 'payments' && (

@@ -3,6 +3,7 @@ import { MapPin } from 'lucide-react'
 import type { Application, PropertyAsset } from '../../types/domain'
 import { formatZAR } from '../../data/seed'
 import { hideBackendUuid } from '../../lib/displayIds'
+import { Select } from '../ui'
 import { DetailSection, DetailStack, AgentAssigneeField, FlatField, FlatFieldGrid } from '../detail/FlatFields'
 import { ICON_STROKE } from './types'
 
@@ -11,10 +12,16 @@ export function ApplicantOverviewPanel({
   application,
   property,
   agentName,
+  canAssignAgent,
+  agents,
+  onAssignAgent,
 }: {
   application: Application
   property: PropertyAsset | null
   agentName: string | null
+  canAssignAgent?: boolean
+  agents?: Array<{ id: string; name: string }>
+  onAssignAgent?: (agentId: string | null) => void
 }) {
   return (
     <DetailStack columns={2}>
@@ -27,7 +34,25 @@ export function ApplicantOverviewPanel({
           <FlatField label="Type" value={application.type} />
           <FlatField label="Stage" value={application.stage} />
           <FlatField label="Progress" value={`${application.progress}%`} tabular />
-          <AgentAssigneeField agentId={application.agentId} agentName={agentName} />
+          {canAssignAgent && agents && onAssignAgent ? (
+            <div className="sm:col-span-2">
+              <p className="text-[11px] font-medium text-ink-400">Assigned agent</p>
+              <Select
+                className="mt-1 min-h-11 w-full max-w-md"
+                value={application.agentId ?? ''}
+                onChange={(e) => onAssignAgent(e.target.value || null)}
+              >
+                <option value="">Unassigned</option>
+                {agents.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          ) : (
+            <AgentAssigneeField agentId={application.agentId} agentName={agentName} />
+          )}
           <FlatField label="Submitted" value={application.submittedAt} />
           <FlatField label="Updated" value={application.updatedAt} />
         </FlatFieldGrid>

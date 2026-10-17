@@ -112,6 +112,18 @@ export default function ApplicantDetail() {
     [application, state.properties],
   )
 
+  const agentsForAgency = useMemo(
+    () =>
+      application
+        ? state.users.filter(
+            (u) =>
+              u.agencyId === application.agencyId &&
+              (u.role === 'agent' || u.role === 'ground_agent' || u.role === 'agent_admin'),
+          )
+        : [],
+    [application, state.users],
+  )
+
   const agentName = useMemo(() => {
     // P0-agent (R8): one shared resolver — the listing's real assigned agent
     // only. The application row's agent_id is stale-prone (earlier write
@@ -288,6 +300,7 @@ export default function ApplicantDetail() {
               signerName: capture.signerName,
             }
           : undefined,
+        capture,
       })
       if ('application' in result && result.status === 'SUCCESS') {
         logStageChange(prevStage, result.application.stage)
@@ -437,6 +450,9 @@ export default function ApplicantDetail() {
             application={application}
             property={property}
             agentName={agentName}
+            canAssignAgent={canReview && !isTenant}
+            agents={agentsForAgency.map((u) => ({ id: u.id, name: u.name }))}
+            onAssignAgent={(agentId) => updateApplication(application.id, { agentId })}
           />
         )}
         {tab === 'details' && (

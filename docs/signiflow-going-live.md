@@ -1,6 +1,6 @@
 # SigniFlow — Going Live (DQ-C1 Mode A)
 
-Letkaya soft-demo e-sign is the **mock** provider (non-production, staff-click
+Lekaya soft-demo e-sign is the **mock** provider (non-production, staff-click
 countersign in People → Leases). That path must **never** be claimed as a legally
 executed lease.
 

@@ -1,6 +1,6 @@
 import type { Unit } from '../data/infrastructure'
 import type { PropertyAsset } from '../types/domain'
-import { canonicalListingId, listingIdsMatch } from './listingIds'
+import { canonicalListingId, listingIdsMatch } from './listingIds.js'
 
 function isArchivedOrDeleted(p: PropertyAsset): boolean {
   return Boolean(p.deletedAt) || p.status === 'Archived'

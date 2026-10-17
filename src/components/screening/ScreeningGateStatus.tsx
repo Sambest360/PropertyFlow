@@ -7,6 +7,7 @@ import {
   screeningStatusLabel,
 } from '../../lib/screening'
 import type { Application } from '../../types/domain'
+import { ProviderBadge } from '../integrations/ProviderBadge'
 import { Badge } from '../ui'
 
 export function ScreeningGateStatus({
@@ -20,6 +21,7 @@ export function ScreeningGateStatus({
 
   return (
     <div className="flex flex-wrap items-center gap-2" role="status" data-testid="screening-soft-gate">
+      <ProviderBadge kind="screening" />
       <Badge tone={cleared ? 'success' : 'neutral'}>
         {cleared ? 'Screening cleared' : 'Screening gate open'}
       </Badge>

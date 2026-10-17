@@ -1,5 +1,5 @@
 -- =============================================================================
--- Letkaya — Asset OS Schema (PostgreSQL 13+)
+-- Lekaya — Asset OS Schema (PostgreSQL 13+)
 -- Hierarchy: Client → Buildings → Units → Rooms → Internal Assets
 -- Ops: applications, leases, viewing_slots, bookings (viewings), maintenance_tickets,
 --      leads, payments, documents, media, notifications, messages
@@ -329,6 +329,8 @@ CREATE TABLE applications (
   decided_at          TIMESTAMPTZ,
   decided_by          UUID REFERENCES users(id) ON DELETE SET NULL,
   metadata            JSONB DEFAULT '{}'::jsonb,
+  journey_snapshot    JSONB,
+  journey_version     INT,
   submitted_at        TIMESTAMPTZ,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -957,4 +959,4 @@ GROUP BY b.client_id, cs.plan_id, bp.per_unit_rate, bp.per_room_rate, bp.grade_p
 -- Midnight worker helper: usage for one client (matches the billing engine query)
 -- SELECT * FROM v_billing_usage WHERE client_id = 'target-client-uuid';
 
-SELECT 'Letkaya PostgreSQL Asset OS schema installed' AS message;
+SELECT 'Lekaya PostgreSQL Asset OS schema installed' AS message;

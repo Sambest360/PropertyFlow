@@ -507,7 +507,7 @@ export default function PropertyDetail() {
             // P0-approve: approveApplication now awaits the durable write and
             // returns ERROR when it fails, so the success dialog (and the
             // property-event log entry) only run after the stage is committed.
-            const result = await approveApplication(appId)
+            const result = await approveApplication(appId, { actorUserId: user.id })
             if (result.status === 'ERROR') {
               await alert.success({
                 title: 'Approval failed',

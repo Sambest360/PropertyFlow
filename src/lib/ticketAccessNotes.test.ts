@@ -1,25 +1,38 @@
-import { describe, expect, it } from 'vitest'
-import {
-  accessNotesFieldState,
-  getTicketAccessNotesSupported,
-  initialTicketAccessNotesSupported,
-  setTicketAccessNotesSupported,
-  ticketAccessNotesSupportedFromBootstrap,
-} from './ticketAccessNotes'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('./api/config', () => ({
+  isApiEnabled: false,
+  isSupabaseMode: false,
+}))
 
 describe('access-notes UI helper', () => {
-  it('unsupported: disabled with a "Not saved yet" hint', () => {
+  beforeEach(() => {
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    vi.resetModules()
+  })
+
+  it('unsupported: disabled with a "Not saved yet" hint', async () => {
+    const { accessNotesFieldState } = await import('./ticketAccessNotes')
     expect(accessNotesFieldState(false)).toEqual({ disabled: true, hint: 'Not saved yet' })
   })
-  it('supported: enabled, no hint', () => {
+  it('supported: enabled, no hint', async () => {
+    const { accessNotesFieldState } = await import('./ticketAccessNotes')
     expect(accessNotesFieldState(true)).toEqual({ disabled: false, hint: null })
   })
-  it('bootstrap flag: only an explicit true counts', () => {
+  it('bootstrap flag: only an explicit true counts', async () => {
+    const { ticketAccessNotesSupportedFromBootstrap } = await import('./ticketAccessNotes')
     expect(ticketAccessNotesSupportedFromBootstrap({ ticketAccessNotesSupported: true })).toBe(true)
     expect(ticketAccessNotesSupportedFromBootstrap({ ticketAccessNotesSupported: false })).toBe(false)
     expect(ticketAccessNotesSupportedFromBootstrap({})).toBe(false)
   })
-  it('store setter', () => {
+  it('store setter', async () => {
+    const {
+      getTicketAccessNotesSupported,
+      setTicketAccessNotesSupported,
+    } = await import('./ticketAccessNotes')
     setTicketAccessNotesSupported(false)
     expect(getTicketAccessNotesSupported()).toBe(false)
     setTicketAccessNotesSupported(true)
@@ -28,13 +41,16 @@ describe('access-notes UI helper', () => {
 })
 
 describe('initial flag by mode', () => {
-  it('API mode starts false until bootstrap lands', () => {
+  it('API mode starts false until bootstrap lands', async () => {
+    const { initialTicketAccessNotesSupported } = await import('./ticketAccessNotes')
     expect(initialTicketAccessNotesSupported({ apiEnabled: true, supabaseMode: false })).toBe(false)
   })
-  it('Supabase mode is always false', () => {
+  it('Supabase mode is always false', async () => {
+    const { initialTicketAccessNotesSupported } = await import('./ticketAccessNotes')
     expect(initialTicketAccessNotesSupported({ apiEnabled: false, supabaseMode: true })).toBe(false)
   })
-  it('local / demo mode is true', () => {
+  it('local / demo mode is true', async () => {
+    const { initialTicketAccessNotesSupported } = await import('./ticketAccessNotes')
     expect(initialTicketAccessNotesSupported({ apiEnabled: false, supabaseMode: false })).toBe(true)
   })
 })

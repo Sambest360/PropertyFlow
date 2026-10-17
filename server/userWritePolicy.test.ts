@@ -1,4 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { clearSupabaseAuthEnv, restoreSupabaseAuthEnv, snapshotSupabaseAuthEnv } from './test/supabaseAuthTestEnv.js'
+
+vi.mock('./supabase/env.js', () => ({
+  supabaseAuthConfigured: () => false,
+}))
 
 /** Test-only password fixtures, built at runtime (not credentials). */
 const TEST_FIXTURE_TEMP_PW = ['test', 'fixture', 'temp', 'pw'].join('-')
@@ -224,7 +229,11 @@ function answer(sqlRaw: string, params: unknown[] = []): unknown[] {
   return []
 }
 
+let savedSupabaseEnv: Record<string, string | undefined>
+
 beforeEach(() => {
+  savedSupabaseEnv = snapshotSupabaseAuthEnv()
+  clearSupabaseAuthEnv()
   query.mockReset()
   query.mockImplementation(async (sql: string, params?: unknown[]) => answer(sql, params))
   resolveUuid.mockReset()
@@ -245,6 +254,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  restoreSupabaseAuthEnv(savedSupabaseEnv)
   vi.resetModules()
 })
 
@@ -1028,9 +1038,9 @@ describe('Angela #80 (330a350): tenant application writes', () => {
     const params = insert[1] as unknown[]
     expect(params[2]).toBe(UN1) // stored unit, not p-2's
     expect(params[3]).toBe(UUID['u-t']) // stored applicant kept, not re-resolved
-    expect(sql).toContain('status = CASE WHEN $16::boolean THEN EXCLUDED.status ELSE applications.status END')
-    expect(params[15]).toBe(false)
-    expect(params[16]).toBe(false)
+    expect(sql).toContain('status = CASE WHEN $18::boolean THEN EXCLUDED.status ELSE applications.status END')
+    expect(params[17]).toBe(false)
+    expect(params[18]).toBe(false)
     const meta = JSON.parse(String(params[13])) as Record<string, unknown>
     expect(meta).not.toHaveProperty('stage')
     expect(meta).not.toHaveProperty('workflow_status')
@@ -1117,7 +1127,7 @@ describe('Angela / Jim #80 (c3f25ac): applicant moves on their own application',
     const insert = (await persistAndInsert(purchase))!
     const params = insert[1] as unknown[]
     expect(params[7]).toBe('SUBMITTED')
-    expect(params[15]).toBe(true)
+    expect(params[17]).toBe(true)
     expect(JSON.parse(String(params[13]))).toMatchObject({ workflow_status: 'offer_submitted' })
   })
 
@@ -1134,7 +1144,7 @@ describe('Angela / Jim #80 (c3f25ac): applicant moves on their own application',
     expect(body.data).toMatchObject({ workflowStatus: 'documents_uploaded', stage: 'Documents uploaded', status: 'UNDER_REVIEW' })
     const params = (await persistAndInsert(body))![1] as unknown[]
     expect(params[7]).toBe('UNDER_REVIEW')
-    expect(params[15]).toBe(true)
+    expect(params[17]).toBe(true)
     expect(JSON.parse(String(params[13]))).toMatchObject({ workflow_status: 'documents_uploaded', stage: 'Documents uploaded' })
   })
 
@@ -1200,7 +1210,7 @@ describe('Angela / Jim #80 (c3f25ac): applicant moves on their own application',
     expect(body.data).toMatchObject({ workflowStatus: 'tenant_signed' })
     expect(body.data).not.toHaveProperty('status')
     const params = (await persistAndInsert(body))![1] as unknown[]
-    expect(params[15]).toBe(false) // applications.status kept
+    expect(params[17]).toBe(false) // applications.status kept
     // Already past it (deposit invoice issued): nothing to mirror, no regression.
     setApp({ wf: 'deposit_invoice_sent' })
     const late = await tenantWrite({ workflowStatus: 'tenant_signed', stage: workflowStageLabel('Rental', 'tenant_signed') })
@@ -1345,14 +1355,14 @@ describe('Angela #80 (c3f25ac) older gaps', () => {
       resource: 'application', action: 'upsert', id: 'A-t', data: { propertyId: 'p-1', workflowStatus: 'conditionally_approved', stage: 'Conditionally approved' },
     }))![1] as unknown[]
     expect(params[7]).toBe('APPROVED')
-    expect(params[15]).toBe(true)
+    expect(params[17]).toBe(true)
   })
 
   it('a stage with no DB mapping keeps the stored status instead of resetting it to SUBMITTED', async () => {
     const params = (await persistAndInsert({
       resource: 'application', action: 'upsert', id: 'A-t', data: { propertyId: 'p-1', workflowStatus: 'lease_sent', stage: 'Lease sent' },
     }))![1] as unknown[]
-    expect(params[15]).toBe(false)
+    expect(params[17]).toBe(false)
   })
 })
 

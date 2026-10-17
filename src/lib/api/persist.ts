@@ -397,19 +397,31 @@ export async function persistBatchToApi(ops: PersistOp[]): Promise<boolean> {
   }
 }
 
+function useApproveApplicationRpc(): boolean {
+  const raw = String(
+    import.meta.env.VITE_USE_APPROVE_APPLICATION_RPC ??
+      import.meta.env.USE_APPROVE_APPLICATION_RPC ??
+      '',
+  )
+    .trim()
+    .toLowerCase()
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
+}
+
 export async function persistApproveApplication(params: {
   applicationId: string
   actorUserId?: string
   tenancy?: Record<string, unknown>
 }): Promise<boolean> {
   if (isSupabaseMode) {
-    // P0-approve (R8): the deployed approve_application RPC cannot commit —
-    // its leases INSERT omits the NOT NULL lease_reference column, so every
-    // call answers HTTP 400 "null value in column lease_reference". The direct
-    // mirror writes (application + lease + payments, gated in the store) ARE
-    // the durable transition, so the RPC is skipped entirely in Supabase mode
-    // rather than left firing a doomed request. Postgres-API mode keeps the
-    // server approve route below.
+    if (useApproveApplicationRpc()) {
+      const { supabaseApproveApplication } = await import('../supabase/persist')
+      return supabaseApproveApplication({
+        applicationId: params.applicationId,
+        tenancy: params.tenancy,
+      })
+    }
+    // Default: direct mirror writes in the store gate success (RPC optional after migration 020).
     return true
   }
   if (!apiConfigured()) return false

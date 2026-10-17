@@ -46,7 +46,7 @@ WhatsApp, SMS, or carrier delivery confirmation. Failures never fail the UI.
    MAILTRAP_SMTP_USER=<production inbox user>
    MAILTRAP_SMTP_PASS=<production inbox pass>
    MAILTRAP_FROM_EMAIL=no-reply@yourdomain.co.za   # must be on the verified domain
-   MAILTRAP_FROM_NAME=Letkaya
+   MAILTRAP_FROM_NAME=Lekaya Rentals
    ```
 
    Alternatively (API transport): keep `MAILTRAP_API_KEY`, set

@@ -64,6 +64,7 @@ import {
   sendListingEnquiryConfirmation,
   sendListingLeadAlert,
   sendApplicationApproved,
+  sendApplicationDeclined,
   sendApplicationReceived,
   sendDunningNoticeEmail,
   sendLeaseEndReminder,
@@ -1341,20 +1342,121 @@ app.post('/api/notify/application-received', async (c) => {
       propertyTitle?: string
       referenceCode?: string
     }
+    const actor = await resolveRequestActor(c, body as unknown as Record<string, unknown>)
+    if (!actor) {
+      return c.json({ error: 'actor_required', message: 'Sign in to confirm application email' }, 401)
+    }
+    if (actor.role !== 'tenant') {
+      return c.json({ error: 'forbidden', message: 'Only the applicant can request this email' }, 403)
+    }
+    const ref = String(body.referenceCode ?? '').trim()
+    if (!ref) {
+      return c.json({ error: 'reference_required' }, 400)
+    }
+    if (!databaseConfigured()) {
+      return c.json({ ok: true, emailed: false, reason: 'no_database' }, 202)
+    }
+    const rows = await query<{
+      applicant_id: string | null
+      db_email: string | null
+    }>(
+      `SELECT a.applicant_id::text AS applicant_id,
+              COALESCE(u.email, a.metadata->>'applicant_email') AS db_email
+         FROM applications a
+         LEFT JOIN users u ON u.id = a.applicant_id
+        WHERE a.reference_code = $1 OR a.metadata->>'frontend_id' = $1
+        LIMIT 1`,
+      [ref],
+    )
+    const row = rows[0]
+    if (!row) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    const actorUuid = await resolveUuid('user', actor.userId)
+    if (!actorUuid || !row.applicant_id || actorUuid !== row.applicant_id) {
+      return c.json({ error: 'forbidden', message: 'Application does not belong to this user' }, 403)
+    }
     const email = String(body.email ?? '').trim()
-    if (email) {
-      const gate = notifyEmailRateLimit(email)
+    const dbEmail = String(row.db_email ?? '').trim().toLowerCase()
+    if (email && dbEmail && email.toLowerCase() !== dbEmail) {
+      return c.json({ error: 'forbidden', message: 'Email does not match application' }, 403)
+    }
+    const sendTo = email || dbEmail
+    if (sendTo) {
+      const gate = notifyEmailRateLimit(sendTo)
       if (!gate.ok) {
         const rl = tooManyRequests(gate.retryAfterSec)
         return c.json(rl.body, rl.status, rl.headers)
       }
       void sendApplicationReceived({
-        email,
+        email: sendTo,
         applicantName: body.applicantName ? String(body.applicantName).trim() : undefined,
         propertyTitle: body.propertyTitle ? String(body.propertyTitle).trim() : undefined,
-        referenceCode: body.referenceCode ? String(body.referenceCode).trim() : undefined,
+        referenceCode: ref,
       })
     }
+    return c.json({ ok: true }, 202)
+  } catch {
+    return c.json({ ok: true }, 202)
+  }
+})
+
+app.post('/api/notify/application-declined', async (c) => {
+  try {
+    const body = (await c.req.json()) as {
+      applicationId?: string
+      email?: string
+      applicantName?: string
+      propertyTitle?: string
+      reason?: string
+    }
+    const actor = await resolveRequestActor(c, body as unknown as Record<string, unknown>)
+    if (!actor || !isStaffRole(actor.role)) {
+      return c.json({ error: 'forbidden', message: 'Staff actor required' }, actor ? 403 : 401)
+    }
+    const email = String(body.email ?? '').trim()
+    if (!email) return c.json({ ok: true, emailed: false }, 202)
+    const gate = notifyEmailRateLimit(email)
+    if (!gate.ok) {
+      const rl = tooManyRequests(gate.retryAfterSec)
+      return c.json(rl.body, rl.status, rl.headers)
+    }
+    void sendApplicationDeclined({
+      email,
+      applicantName: body.applicantName?.trim(),
+      propertyTitle: body.propertyTitle?.trim(),
+      reason: body.reason?.trim(),
+    })
+    return c.json({ ok: true }, 202)
+  } catch {
+    return c.json({ ok: true }, 202)
+  }
+})
+
+app.post('/api/notify/application-approved', async (c) => {
+  try {
+    const body = (await c.req.json()) as {
+      applicationId?: string
+      email?: string
+      applicantName?: string
+      propertyTitle?: string
+    }
+    const actor = await resolveRequestActor(c, body as unknown as Record<string, unknown>)
+    if (!actor || !isStaffRole(actor.role)) {
+      return c.json({ error: 'forbidden', message: 'Staff actor required' }, actor ? 403 : 401)
+    }
+    const email = String(body.email ?? '').trim()
+    if (!email) return c.json({ ok: true, emailed: false }, 202)
+    const gate = notifyEmailRateLimit(email)
+    if (!gate.ok) {
+      const rl = tooManyRequests(gate.retryAfterSec)
+      return c.json(rl.body, rl.status, rl.headers)
+    }
+    void sendApplicationApproved({
+      email,
+      applicantName: body.applicantName?.trim(),
+      propertyTitle: body.propertyTitle?.trim(),
+    })
     return c.json({ ok: true }, 202)
   } catch {
     return c.json({ ok: true }, 202)

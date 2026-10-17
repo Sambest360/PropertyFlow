@@ -92,7 +92,7 @@ export function LeadContactActions({
         onClick={onInApp}
       >
         <MessageCircle className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-        {!compact && 'Message in Letkaya'}
+        {!compact && 'Message in Lekaya'}
       </Button>
     </div>
   )

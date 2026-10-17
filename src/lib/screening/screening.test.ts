@@ -7,6 +7,7 @@ import {
   MockDevScreeningProvider,
   TpnScreeningProviderPlaceholder,
   applicationPassesScreeningSoftGate,
+  captureAdultCreditCheckConsents,
   captureScreeningConsent,
   creditCheckLabelFromScreening,
   hasScreeningConsent,
@@ -20,6 +21,17 @@ import {
   SCREENING_MODE_A_COPY,
   startScreening,
 } from './index'
+
+const PRIMARY_ID = '9001015800084'
+
+function withPrimaryAdultConsent(app: Application): Application {
+  return captureAdultCreditCheckConsents(
+    { ...app, idNumberOrPassport: PRIMARY_ID },
+    {
+      adults: [{ name: app.applicantName, idNumber: PRIMARY_ID, signatureText: app.applicantName }],
+    },
+  )
+}
 
 function rentalApp(overrides: Partial<Application> = {}): Application {
   return {
@@ -57,10 +69,12 @@ describe('screening pipeline', () => {
   })
 
   it('captures consent then starts mock screening as in_progress', async () => {
-    let app = captureScreeningConsent(rentalApp(), {
-      method: 'portal',
-      grantedBy: 'U-TENANT',
-    })
+    let app = withPrimaryAdultConsent(
+      captureScreeningConsent(rentalApp(), {
+        method: 'portal',
+        grantedBy: 'U-TENANT',
+      }),
+    )
     expect(hasScreeningConsent(app)).toBe(true)
     expect(app.creditConsent).toBe(true)
     expect(app.creditCheck).toBe('Consent Received')
@@ -317,12 +331,14 @@ describe('DQ-C3 screening soft-gate Mode A', () => {
 
   it('START_CREDIT_CHECK copy clarifies mock/manual not live bureau', () => {
     const app = normalizeApplication(
-      rentalApp({
-        creditConsent: true,
-        screeningConsent: { granted: true, method: 'portal' },
-        workflowStatus: 'reference_checks',
-        documents: verifiedDocs(),
-      }),
+      withPrimaryAdultConsent(
+        rentalApp({
+          creditConsent: true,
+          screeningConsent: { granted: true, method: 'portal' },
+          workflowStatus: 'reference_checks',
+          documents: verifiedDocs(),
+        }),
+      ),
     )
     const start = getAvailableTransitions(app, ['applications.review']).find(
       (a) => a.actionKey === 'START_CREDIT_CHECK',

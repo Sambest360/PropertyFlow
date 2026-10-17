@@ -1,4 +1,4 @@
-# Letkaya E2E round — PR report (section 5)
+# Lekaya E2E round — PR report (section 5)
 
 **Branch:** `fix/letkaya-e2e-round`  
 **Base:** `main`  

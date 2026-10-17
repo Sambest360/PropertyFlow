@@ -46,6 +46,7 @@ import {
   type WorkflowStatusKey,
 } from '../src/lib/applicationWorkflow.js'
 import { allDocsUploaded } from '../src/lib/workflow.js'
+import { hasAllAdultCreditConsents } from '../src/lib/screening/creditConsent.js'
 import { lockDocumentReviewFields } from '../src/lib/lockDocumentReviewFields.js'
 import type { Application, ApplicationDocument } from '../src/types/domain.js'
 
@@ -443,4 +444,40 @@ export async function enforceStaffSignedStageMove(body: { resource: string; acti
     coded(LEASE_SIGNATURE_NOT_RECORDED, `${asked} needs ${required} on the stored lease envelope (it shows ${fromLease ?? 'none'})`),
     { status: 409 },
   )
+}
+
+/** Staff transition into credit_check requires every adult NCA consent on file. */
+export async function enforceStaffCreditCheckConsent(body: {
+  resource: string
+  action: string
+  id: string
+  data?: Row
+}): Promise<void> {
+  if (body.resource !== 'application' || body.action === 'delete') return
+  const data = (body.data ?? {}) as Row
+  const type: AppType = str(data.type)?.toLowerCase().startsWith('p') ? 'Purchase' : 'Rental'
+  if (type !== 'Rental') return
+  const asked = requestedStatus(type, data)
+  if (asked !== 'credit_check') return
+  const uuid = await resolveUuid('application', body.id)
+  if (!uuid) return
+  const stored = await loadStored(uuid)
+  if (!stored) return
+  const meta = asRow(stored.metadata) ?? {}
+  const docsJson = asRow(stored.uploaded_docs_json) ?? {}
+  const incomingConsents = data.creditCheckConsents ?? docsJson.creditCheckConsents
+  const app = {
+    type: 'Rental' as const,
+    applicantName: str(meta.applicant_name) ?? 'Applicant',
+    idNumberOrPassport: str(meta.id_number_or_passport) ?? '',
+    creditCheckConsents: incomingConsents as Application['creditCheckConsents'],
+    creditConsent: typeof docsJson.creditConsent === 'boolean' ? docsJson.creditConsent : false,
+    screeningConsent:
+      meta.screeningConsent && typeof meta.screeningConsent === 'object'
+        ? (meta.screeningConsent as Application['screeningConsent'])
+        : undefined,
+  } as Application
+  if (!hasAllAdultCreditConsents(app)) {
+    throw transitionError('credit_check requires POPIA / NCA consent for every adult on the application')
+  }
 }

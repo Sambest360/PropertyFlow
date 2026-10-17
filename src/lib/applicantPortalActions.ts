@@ -7,6 +7,7 @@ import {
   type WorkflowTransition,
 } from './applicationWorkflow'
 import { allDocsUploaded } from './workflow'
+import { needsCreditConsentTask } from './screening/creditConsent'
 
 /** Workflow positions that mean the applicant has secured this listing. */
 export const APPLICANT_ACCEPTANCE_STATUSES: readonly WorkflowStatusKey[] = [
@@ -174,6 +175,16 @@ export function getApplicantTasks(
       detail: 'Review your information and submit when you are ready.',
       tone: 'primary',
       section: 'application',
+    })
+  }
+
+  if (needsCreditConsentTask(application)) {
+    tasks.push({
+      id: 'credit-consent',
+      label: 'Credit-check consent (NCA)',
+      detail: 'Each adult on the application must sign POPIA / NCA consent before screening.',
+      tone: 'primary',
+      section: 'details',
     })
   }
 

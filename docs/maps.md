@@ -1,6 +1,6 @@
 # Google Maps setup (local + Vercel)
 
-Letkaya reads a single browser key via Vite:
+Lekaya reads a single browser key via Vite:
 
 | Variable | Required | Used for |
 | --- | --- | --- |

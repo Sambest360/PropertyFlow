@@ -40,6 +40,7 @@ import { StickyMobileActionBar } from '../../components/layout/mobile/StickyMobi
 import { FullScreenSheet } from '../../components/layout/mobile/FullScreenSheet'
 import { isFutureViewingSlot } from '../../lib/viewingSlotTime'
 import { findOwnApplicationForProperty } from '../../lib/applicantApplication'
+import { formatEmploymentSummary } from '../../lib/employmentDisplay'
 
 type EnquiryIntent = 'lead' | 'viewing'
 
@@ -86,6 +87,8 @@ export default function ListingDetail() {
   const [note, setNote] = useState('')
   const [slotId, setSlotId] = useState('')
   const [income, setIncome] = useState('')
+  const [employerName, setEmployerName] = useState('')
+  const [jobTitle, setJobTitle] = useState('')
   const [idNumber, setIdNumber] = useState('')
   const [intent, setIntent] = useState<EnquiryIntent>('lead')
   const [submitting, setSubmitting] = useState(false)
@@ -429,13 +432,10 @@ export default function ListingDetail() {
       phone: phone.trim(),
       type: isRent ? 'Rental' : 'Purchase',
       income: Number(income) || 0,
-      employment: 'Declared on application',
+      employerName: employerName.trim() || undefined,
+      jobTitle: jobTitle.trim() || undefined,
+      employment: formatEmploymentSummary(employerName, jobTitle, ''),
       idNumberOrPassport: idNumber.trim(),
-      uploadedDocs: {
-        bankStatementsUrl: 'https://yourplatform.co.za/docs/bank',
-        idCopyUrl: 'https://yourplatform.co.za/docs/id',
-        payslipUrl: 'https://yourplatform.co.za/docs/payslip',
-      },
     })
 
     if (appResult && 'status' in appResult && appResult.status === 'ERROR') {
@@ -557,12 +557,24 @@ export default function ListingDetail() {
           required
         />
         {isRent && (
-          <Input
-            type="number"
-            placeholder="Monthly income (optional)"
-            value={income}
-            onChange={(e) => setIncome(e.target.value)}
-          />
+          <>
+            <Input
+              type="number"
+              placeholder="Monthly income (optional)"
+              value={income}
+              onChange={(e) => setIncome(e.target.value)}
+            />
+            <Input
+              placeholder="Employer name (optional)"
+              value={employerName}
+              onChange={(e) => setEmployerName(e.target.value)}
+            />
+            <Input
+              placeholder="Job title (optional)"
+              value={jobTitle}
+              onChange={(e) => setJobTitle(e.target.value)}
+            />
+          </>
         )}
         <Input
           placeholder="SA ID or passport (optional)"

@@ -39,11 +39,11 @@ console.log(`transport: ${mode} · from ${cfg.fromEmail}`)
 
 const result = await sendMailtrapEmail({
   to,
-  subject: 'Letkaya · Mailtrap integration test',
-  text: 'Congrats — Letkaya sent this test email through Mailtrap.',
+  subject: 'Lekaya · Mailtrap integration test',
+  text: 'Congrats — Lekaya sent this test email through Mailtrap.',
   html:
     '<h2 style="font-family:Arial,sans-serif;">It works 🎉</h2>' +
-    '<p style="font-family:Arial,sans-serif;">Letkaya sent this test email through the Mailtrap API.</p>',
+    '<p style="font-family:Arial,sans-serif;">Lekaya sent this test email through the Mailtrap API.</p>',
   category: 'Integration Test',
 })
 

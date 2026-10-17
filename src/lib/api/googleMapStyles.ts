@@ -1,5 +1,5 @@
 /**
- * Letkaya-branded Google Maps styles.
+ * Lekaya-branded Google Maps styles.
  * Soft canvas, muted POI/landscape, primary-tinted water — no purple glow.
  * Typed loosely so this module loads without requiring @types/google.maps at build time.
  */

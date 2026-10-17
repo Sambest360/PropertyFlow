@@ -102,7 +102,9 @@ import {
 } from '../lib/leadLifecycle'
 import { appendWorkflowEvent } from '../lib/applicationWorkflowEvents'
 import {
+  captureAdultCreditCheckConsents,
   captureScreeningConsent,
+  setCreditConsentAdultRoster,
   overrideScreening,
   startScreening,
   type ScreeningAsyncStatus,
@@ -140,6 +142,8 @@ import {
   validateApplicationSubmission,
   type SubmitApplicationResult,
 } from '../lib/applicationApi'
+import { initialWorkflowForCreate } from '../lib/createApplicationInitialStatus'
+import { formatEmploymentSummary } from '../lib/employmentDisplay'
 import {
   patchApplicationStatus,
   type PatchApplicationStatusRequest,
@@ -183,6 +187,8 @@ import {
   canApplyBootstrapHydration,
 } from '../lib/clientCache'
 import { readStoredAuthUserId, getApiActor, actorHeaders, type DemoActor } from '../lib/api/actorAuth'
+import { defaultRentalJourneyForAgency } from '../lib/journey/resolveJourney'
+import type { WorkflowActionCapture } from '../lib/workflowActionForms'
 import {
   clearPortfolioSnapshot,
   hasPortfolioSnapshotForUser,
@@ -785,6 +791,8 @@ type StoreContextValue = {
     type: 'Purchase' | 'Rental'
     income?: number
     employment?: string
+    employerName?: string
+    jobTitle?: string
     idNumberOrPassport?: string
     uploadedDocs?: Application['uploadedDocs']
     /** Skip income/availability guards (admin/demo only) */
@@ -794,8 +802,13 @@ type StoreContextValue = {
   /** POPIA consent capture before bureau screening. */
   captureApplicationScreeningConsent: (
     applicationId: string,
-    input?: { grantedBy?: string | null; method?: 'document' | 'checkbox' | 'portal' | 'staff'; note?: string },
-  ) => Application | null
+    input?: {
+      grantedBy?: string | null
+      method?: 'document' | 'checkbox' | 'portal' | 'staff'
+      note?: string
+      adults?: Array<{ name: string; idNumber: string; signatureText: string }>
+    },
+  ) => Promise<Application | null>
   /** Start async screening via ScreeningProvider (requires consent). */
   startApplicationScreening: (params: {
     applicationId: string
@@ -824,7 +837,10 @@ type StoreContextValue = {
   ) => void
   advanceApplication: (id: string, to?: ApplicationStage) => void
   /** P0-approve: awaited so callers only show success after a durable write. */
-  approveApplication: (id: string) => Promise<PatchApplicationStatusResult>
+  approveApplication: (
+    id: string,
+    options?: { actorUserId?: string },
+  ) => Promise<PatchApplicationStatusResult>
   /** Mirrors PATCH /api/v1/applications/{id}/status */
   /** Advance via configurable rental / purchase workflow template */
   advanceApplicationWorkflow: (params: {
@@ -833,6 +849,7 @@ type StoreContextValue = {
     targetStatus: WorkflowStatusKey
     /** CR10: TENANT_SIGNED / LANDLORD_SIGNED / MARK_LEASE_SIGNED carry the sign dialog capture. */
     signature?: LeaseSignCapture & { signerName?: string }
+    capture?: WorkflowActionCapture
   }) => Promise<PatchApplicationStatusResult | { status: 'SUCCESS'; application: Application }>
   patchApplicationStatus: (params: {
     applicationId: string
@@ -840,7 +857,7 @@ type StoreContextValue = {
     request: PatchApplicationStatusRequest
   }) => Promise<PatchApplicationStatusResult>
   scheduleMoveIn: (id: string, moveInDate: string, keyCollection: NonNullable<Application['keyCollection']>) => void
-  completeKeyHandover: (id: string) => void
+  completeKeyHandover: (id: string) => Promise<void>
   createViewingSlot: (input: Omit<ViewingSlot, 'id' | 'booked' | 'status'> & { capacity?: number }) => ViewingSlot
   updateViewingSlot: (id: string, patch: Partial<ViewingSlot>) => void
   bookViewingSlot: (slotId: string, applicantName: string, applicantEmail?: string, applicationId?: string) => Viewing | null
@@ -1846,6 +1863,34 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     [persistUpsertResult],
   )
 
+  const persistApplicationOrRollback = useCallback(
+    async (
+      applicationId: string,
+      nextApp: Application,
+      previousApp: Application | null | undefined,
+      userMessage?: { title: string; text?: string },
+    ): Promise<boolean> => {
+      const ok = await persistUpsert(
+        'application',
+        applicationId,
+        nextApp as unknown as Record<string, unknown>,
+      )
+      if (ok) return true
+      if (previousApp) {
+        patch((s) => ({
+          ...s,
+          applications: s.applications.map((a) => (a.id === applicationId ? previousApp : a)),
+        }))
+      }
+      if (userMessage) {
+        const { sweetError } = await import('../lib/sweetAlert')
+        await sweetError(userMessage.title, userMessage.text)
+      }
+      return false
+    },
+    [persistUpsert, patch],
+  )
+
   /**
    * P0-approve (R7): the deployed approve_application RPC cannot commit — its
    * leases INSERT omits the NOT NULL lease_reference column, so every call
@@ -2267,7 +2312,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         )
       }
       addActivity(
-        `Template CSV import: ${fresh.length} unallocated receipt(s) from ${batch.filename} (recorded in Letkaya, not yet matched to the bank)`,
+        `Template CSV import: ${fresh.length} unallocated receipt(s) from ${batch.filename} (recorded in Lekaya, not yet matched to the bank)`,
         actor.name,
         params.agencyId,
       )
@@ -3014,11 +3059,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             ...s,
             applications: s.applications.map((a) => (a.id === app.id ? updated : a)),
           }))
-          void leaseSaved.then((ok) => {
-            if (ok !== false) {
-              persistUpsert('application', app.id, updated as unknown as Record<string, unknown>)
-            }
-          })
+          if (await leaseSaved) {
+            await persistApplicationOrRollback(app.id, updated, app)
+          }
         }
       }
       return { ok: true }
@@ -4586,6 +4629,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           httpStatus: 422,
         } as SubmitApplicationResult
       }
+      const initialWorkflow = initialWorkflowForCreate({
+        skipGuards: input.skipGuards,
+        uploadedDocs: input.uploadedDocs,
+      })
+      const agencyRow = state.agencies.find((a) => a.id === agencyId)
+      const journeySnapshot = defaultRentalJourneyForAgency(agencyRow?.settings)
+      const employmentLine =
+        input.employment?.trim() ||
+        formatEmploymentSummary(input.employerName, input.jobTitle)
       const app: Application = {
         id: uid('APP'),
         agencyId,
@@ -4597,11 +4649,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         email: input.email,
         phone: input.phone,
         type: input.type,
-        workflowStatus: 'application_submitted',
-        stage: 'Application submitted',
+        workflowStatus: initialWorkflow.workflowStatus,
+        stage: initialWorkflow.stage,
         progress: STAGE_PROGRESS['Documents Pending'],
         income: input.income ?? 0,
-        employment: input.employment ?? 'To be completed',
+        employment: employmentLine,
+        employerName: input.employerName?.trim() || undefined,
+        jobTitle: input.jobTitle?.trim() || undefined,
         idNumberOrPassport: input.idNumberOrPassport,
         uploadedDocs: input.uploadedDocs,
         creditCheck: 'Not Started',
@@ -4612,6 +4666,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         notes: '',
         submittedAt: new Date().toISOString().slice(0, 10),
         updatedAt: new Date().toISOString().slice(0, 10),
+        journeySnapshot,
+        journeyVersion: journeySnapshot.version,
       }
       // P0-integrity: normalize once at creation so the stored stage label,
       // machine status and progress always agree — staff and applicant read
@@ -4665,38 +4721,58 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       // Additive: email confirmation to the applicant (works in both API and
       // Supabase modes since it rides the same origin). Fire-and-forget — a
       // mail hiccup must never block or fail the application.
-      void fetch('/api/notify/application-received', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: app.email,
-          applicantName: app.applicantName,
-          propertyTitle: property?.title,
-          referenceCode: app.id,
-        }),
-      }).catch(() => {})
+      void (async () => {
+        const { resolveApiAuthorizationHeader } = await import('../lib/api/authClient')
+        await fetch('/api/notify/application-received', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...actorHeaders(),
+            ...(await resolveApiAuthorizationHeader()),
+          },
+          body: JSON.stringify({
+            email: normalizedApp.email,
+            applicantName: normalizedApp.applicantName,
+            propertyTitle: property?.title,
+            referenceCode: normalizedApp.id,
+          }),
+        }).catch(() => {})
+      })()
 
       return app
     },
-    captureApplicationScreeningConsent: (applicationId, input) => {
-      let persisted: Application | null = null
-      patch((s) => ({
-        ...s,
-        applications: s.applications.map((a) => {
-          if (a.id !== applicationId) return a
-          const next = captureScreeningConsent(a, {
+    captureApplicationScreeningConsent: async (applicationId, input) => {
+      const prev = state.applications.find((a) => a.id === applicationId)
+      if (!prev) return null
+      let next: Application
+      if (input?.adults?.length) {
+        const roster = input.adults.map((a) => ({ name: a.name, idNumber: a.idNumber }))
+        const withRoster = setCreditConsentAdultRoster(prev, roster)
+        next = normalizeApplication(
+          captureAdultCreditCheckConsents(withRoster, {
+            adults: input.adults,
+            grantedBy: input?.grantedBy ?? null,
+          }),
+        )
+      } else {
+        next = normalizeApplication(
+          captureScreeningConsent(prev, {
             grantedBy: input?.grantedBy ?? null,
             method: input?.method ?? 'staff',
             note: input?.note,
-          })
-          persisted = next
-          return next
-        }),
-      }))
-      if (persisted) {
-        persistUpsert('application', applicationId, persisted as unknown as Record<string, unknown>)
+          }),
+        )
       }
-      return persisted
+      patch((s) => ({
+        ...s,
+        applications: s.applications.map((a) => (a.id === applicationId ? next : a)),
+      }))
+      const persisted = await persistApplicationOrRollback(applicationId, next, prev, {
+        title: 'Consent not saved',
+        text: 'Please try again.',
+      })
+      if (!persisted) return null
+      return next
     },
     startApplicationScreening: async ({ applicationId, actorUserId }) => {
       const app = state.applications.find((a) => a.id === applicationId)
@@ -4708,11 +4784,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       })
       if (started.ok === false) return { ok: false as const, error: started.error }
       const updated = normalizeApplication(started.application)
+      const prevSnap = app
       patch((s) => ({
         ...s,
         applications: s.applications.map((a) => (a.id === applicationId ? updated : a)),
       }))
-      persistUpsert('application', applicationId, updated as unknown as Record<string, unknown>)
+      const saved = await persistApplicationOrRollback(applicationId, updated, prevSnap, {
+        title: 'Screening not saved',
+        text: 'Please try again.',
+      })
+      if (!saved) return { ok: false as const, error: 'Could not save screening start' }
       addActivity(`Screening started for ${updated.applicantName}`, actorUser?.name ?? 'Agency', updated.agencyId)
       return { ok: true as const, application: updated }
     },
@@ -4792,11 +4873,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         }
       }
       if (prev) {
-        persistUpsert('application', id, {
+        const nextApp = {
           ...prev,
           ...p,
           updatedAt: new Date().toISOString().slice(0, 10),
-        } as unknown as Record<string, unknown>)
+        } as Application
+        void persistApplicationOrRollback(id, nextApp, prev, {
+          title: 'Application not saved',
+          text: 'Please try again.',
+        })
       }
     },
     setDocumentStatus: async (applicationId, key, status, note) => {
@@ -4895,24 +4980,20 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const before = preUpload
       const app = persisted as Application
       void (async () => {
-        const result = await persistUpsertResult(
+        const ok = await persistUpsert(
           'application',
           applicationId,
-          applicationUploadPayload(app, key, actor?.userId),
+          applicationUploadPayload(app, key, actor?.userId) as unknown as Record<string, unknown>,
         )
-        if (result.ok) return
+        if (ok) return
         if (before) {
           patch((s) => ({
             ...s,
             applications: s.applications.map((a) => (a.id === applicationId ? before : a)),
           }))
         }
-        const { persistErrorMessage } = await import('../lib/api/persist')
         const { sweetError } = await import('../lib/sweetAlert')
-        void sweetError(
-          'Upload not saved',
-          persistErrorMessage(result) ?? 'Could not save this document. Try again.',
-        )
+        void sweetError('Upload not saved', 'Could not save this document. Try again.')
       })()
     },
     advanceApplication: (id, to) => {
@@ -4927,22 +5008,21 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const prev = state.applications.find((a) => a.id === id)
       if (prev) {
         const stage = to ?? prev.stage
-        persistUpsert('application', id, {
+        const nextApp = {
           ...prev,
           stage,
           progress: STAGE_PROGRESS[stage] ?? prev.progress,
           updatedAt: new Date().toISOString().slice(0, 10),
-        } as unknown as Record<string, unknown>)
+        } as Application
+        void persistApplicationOrRollback(id, nextApp, prev)
       }
     },
-    approveApplication: async (id) => {
+    approveApplication: async (id, options) => {
       const app = state.applications.find((a) => a.id === id)
-      const actorUser =
-        state.users.find(
-          (u) =>
-            u.agencyId === app?.agencyId &&
-            (u.role === 'client_admin' || u.role === 'agent_admin'),
-        ) ?? state.users.find((u) => u.role === 'super_admin')
+      const actorUserId = options?.actorUserId ?? getApiActor()?.userId ?? null
+      const actorUser = actorUserId
+        ? state.users.find((u) => u.id === actorUserId)
+        : undefined
 
       // P0-approve (R8): snapshot of the pre-approve state. If the durable
       // mirror write fails, this restores the optimistic patch so the UI
@@ -4959,7 +5039,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
       setState((s) => {
         const current = s.applications.find((a) => a.id === id)
-        const actor = s.users.find((u) => u.id === (actorUser?.id ?? ''))
+        const actor = s.users.find((u) => u.id === (actorUserId ?? ''))
         const property = current ? s.properties.find((p) => p.id === current.propertyId) : undefined
         const unitId = current?.unitId ?? property?.unitId ?? null
         const unit = unitId ? s.units.find((u) => u.id === unitId) : undefined
@@ -4979,10 +5059,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           existingTenancies: s.tenancies,
           request: { status: 'APPROVED', payment_provider: 'auto' },
           actor: {
-            userId: actorUser?.id ?? 'system',
-            role: actor?.role ?? ('client_admin' as Role),
-            agencyId: actor?.agencyId ?? current?.agencyId ?? null,
-            permissions: rolePermissions[actor?.role ?? 'client_admin'] ?? [],
+            userId: actorUserId ?? actorUser?.id ?? 'system',
+            role: actor?.role ?? actorUser?.role ?? ('client_admin' as Role),
+            agencyId: actor?.agencyId ?? actorUser?.agencyId ?? current?.agencyId ?? null,
+            permissions: rolePermissions[actor?.role ?? actorUser?.role ?? 'client_admin'] ?? [],
           },
         })
 
@@ -5048,7 +5128,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         // The RPC stays best-effort for when a future deploy fixes it.
         void persistApproveApplication({
           applicationId: id,
-          actorUserId: actorUser?.id,
+          actorUserId: actorUserId ?? undefined,
           tenancy: ok.side_effects.lease
             ? (ok.side_effects.lease as unknown as Record<string, unknown>)
             : undefined,
@@ -5127,15 +5207,41 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             stateRef.current.tenancies.find((t) => t.id === ok.side_effects.lease!.id) ??
             ok.side_effects.lease
           await issueLeasePackageForTenancy(leaseRow, {
-            userId: actorUser?.id,
+            userId: actorUserId ?? undefined,
             name: actorUser?.name,
           })
+        }
+        if (approvedRemotely && app?.email) {
+          const propTitle = stateRef.current.properties.find((p) => p.id === app.propertyId)?.title
+          void (async () => {
+            const { resolveApiAuthorizationHeader } = await import('../lib/api/authClient')
+            await fetch('/api/notify/application-approved', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...actorHeaders(),
+                ...(await resolveApiAuthorizationHeader()),
+              },
+              body: JSON.stringify({
+                applicationId: id,
+                email: app.email,
+                applicantName: app.applicantName,
+                propertyTitle: propTitle,
+              }),
+            }).catch(() => {})
+          })()
         }
       }
 
       return result
     },
-    advanceApplicationWorkflow: async ({ applicationId, actorUserId, targetStatus, signature }) => {
+    advanceApplicationWorkflow: async ({
+      applicationId,
+      actorUserId,
+      targetStatus,
+      signature,
+      capture,
+    }) => {
       const app = state.applications.find((a) => a.id === applicationId)
       if (!app) {
         return {
@@ -5466,7 +5572,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           ...s,
           applications: s.applications.map((a) => (a.id === applicationId ? updatedApp : a)),
         }))
-        persistUpsert('application', applicationId, updatedApp as unknown as Record<string, unknown>)
+        const prevKey = stateRef.current.applications.find((a) => a.id === applicationId) ?? app
+        await persistApplicationOrRollback(applicationId, updatedApp, prevKey)
         addActivity(`Key handover completed for ${updatedApp.applicantName}`, actorUser?.name ?? 'Agency', updatedApp.agencyId)
         return { status: 'SUCCESS', application: updatedApp }
       }
@@ -5490,6 +5597,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         }
       }
       let updated = normalizeApplication(applyWorkflowTransition(app, targetStatus))
+      if (capture?.reason?.trim()) {
+        const reason = capture.reason.trim()
+        updated = { ...updated, declineReason: reason, notes: reason }
+      }
       // Real screening: entering credit_check starts the provider (consent-gated).
       // Approve paths must never invent Passed — that lives in the screening pipeline only.
       if (targetStatus === 'credit_check') {
@@ -5514,16 +5625,62 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         actorName: actorUser?.name ?? 'Agency',
         summary: `${updated.applicantName}: ${updated.stage}`,
       })
+      const preWorkflow = app
       patch((s) => ({
         ...s,
         applications: s.applications.map((a) => (a.id === applicationId ? updated : a)),
       }))
-      persistUpsert('application', applicationId, updated as unknown as Record<string, unknown>)
+      const workflowSaved = await persistApplicationOrRollback(applicationId, updated, preWorkflow, {
+        title: 'Workflow not saved',
+        text: 'Please try again.',
+      })
+      if (!workflowSaved) {
+        return {
+          status: 'ERROR' as const,
+          httpStatus: 502 as const,
+          error: 'This workflow step could not be saved.',
+          code: 'PERSIST_FAILED' as const,
+        }
+      }
       addActivity(
         `${updated.applicantName}: ${updated.stage}`,
         actorUser?.name ?? 'Agency',
         updated.agencyId,
       )
+      if (targetStatus === 'rejected' && updated.applicantUserId) {
+        const propertyTitle = state.properties.find((p) => p.id === updated.propertyId)?.title
+        notify({
+          userId: updated.applicantUserId,
+          agencyId: updated.agencyId,
+          title: 'Application update',
+          body: updated.declineReason
+            ? `Your application was not approved: ${updated.declineReason}`
+            : 'Your application was not approved.',
+          link: `/workspace/portals/tenant/applications/${encodeURIComponent(applicationId)}`,
+          resource: 'applicant',
+          action: 'updated',
+        })
+        if (updated.email) {
+          void (async () => {
+            const { resolveApiAuthorizationHeader } = await import('../lib/api/authClient')
+            await fetch('/api/notify/application-declined', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...actorHeaders(),
+                ...(await resolveApiAuthorizationHeader()),
+              },
+              body: JSON.stringify({
+                applicationId,
+                email: updated.email,
+                applicantName: updated.applicantName,
+                propertyTitle,
+                reason: updated.declineReason,
+              }),
+            }).catch(() => {})
+          })()
+        }
+      }
       // API mode: the server writes these notices (server/acceptedElsewhere.ts).
       if (!isApiEnabled && isApplicantAcceptanceStatus(targetStatus)) {
         notifyAcceptedElsewhere({
@@ -5750,13 +5907,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           notifications: [...notifications, ...s.notifications],
         }
       })
-      persistUpsert('application', id, updatedApp as unknown as Record<string, unknown>)
+      void persistApplicationOrRollback(id, updatedApp, app)
       for (const n of notifications) {
-        persistUpsert('notification', n.id, n as unknown as Record<string, unknown>)
+        void persistUpsert('notification', n.id, n as unknown as Record<string, unknown>)
       }
       addActivity(`Key handover email sent to ${app.applicantName}`, 'System', app.agencyId)
     },
-    completeKeyHandover: (id) => {
+    completeKeyHandover: async (id) => {
       const app = state.applications.find((a) => a.id === id)
       if (!app) return
       const prop = state.properties.find((p) => p.id === app.propertyId)
@@ -5811,10 +5968,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             : s.properties,
         }
       })
-      persistUpsert('application', id, updatedApp as unknown as Record<string, unknown>)
-      persistUpsert('tenancy', tenancy.id, tenancy as unknown as Record<string, unknown>)
+      const prevApp = app
+      await persistApplicationOrRollback(id, updatedApp, prevApp)
+      await persistUpsert('tenancy', tenancy.id, tenancy as unknown as Record<string, unknown>)
       if (updatedProp) {
-        persistUpsert('property', updatedProp.id, updatedProp as unknown as Record<string, unknown>)
+        await persistUpsert('property', updatedProp.id, updatedProp as unknown as Record<string, unknown>)
       }
       addActivity(
         `Keys handed over — ${app.applicantName} is now an active occupant`,
@@ -6209,13 +6367,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           if (app) {
             // After the booking lands: for a tenant the server accepts
             // viewingSlotId only for a slot they hold a booking on.
-            void bookingSaved.then(() =>
-              persistUpsert('application', applicationId, {
+            void bookingSaved.then(async () => {
+              const nextApp = {
                 ...app,
                 viewingSlotId: slotId,
                 updatedAt: new Date().toISOString().slice(0, 10),
-              } as unknown as Record<string, unknown>),
-            )
+              } as Application
+              await persistApplicationOrRollback(applicationId, nextApp, app)
+            })
           }
         }
         const property = state.properties.find((p) => p.id === created.propertyId)

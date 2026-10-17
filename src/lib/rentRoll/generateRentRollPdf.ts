@@ -148,7 +148,7 @@ function drawTable(ctx: DrawCtx, labels: string[], rows: string[][], numeric: bo
 
 function renderBook(ctx: DrawCtx, book: RentRollBook) {
   drawLine(ctx, 'RENT ROLL (AS-AT)', { size: 16, bold: true })
-  drawLine(ctx, 'Letkaya - point-in-time in-app book', { size: 9, color: ctx.muted })
+  drawLine(ctx, 'Lekaya Rentals - point-in-time in-app book', { size: 9, color: ctx.muted })
   drawWrapped(ctx, book.honesty, { size: 8, color: ctx.warn, width: 95 })
   drawLine(
     ctx,

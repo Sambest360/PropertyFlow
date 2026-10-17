@@ -1338,7 +1338,7 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
   const ref = str(d.referenceCode ?? feId)
 
   const docsJson: Record<string, unknown> = { documents: kept.documents }
-  for (const k of ['creditCheck', 'creditConsent', 'screening']) {
+  for (const k of ['creditCheck', 'creditConsent', 'creditCheckConsents', 'screening']) {
     docsJson[k] = has(k) ? d[k] : (kept.storedDocsJson[k] ?? null)
   }
   // Metadata merges over the stored object: on update an absent field is left
@@ -1360,31 +1360,41 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
   for (const [key, field] of metaFields) {
     if (has(field) || !stored) meta[key] = d[field] ?? null
   }
+  if (has('declineReason')) meta.decline_reason = d.declineReason ?? null
+
+  const journeySnapshotJson =
+    has('journeySnapshot') && d.journeySnapshot
+      ? JSON.stringify(d.journeySnapshot)
+      : null
+  const journeyVersion =
+    has('journeyVersion') && typeof d.journeyVersion === 'number' ? d.journeyVersion : null
 
   await query(
     `INSERT INTO applications (
        id, client_id, unit_id, applicant_id, agent_id, reference_code, application_type,
        status, monthly_income, employment_summary, message, uploaded_docs_json,
-       move_in_date, metadata, submitted_at, updated_at
+       move_in_date, metadata, journey_snapshot, journey_version, submitted_at, updated_at
      ) VALUES (
        $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7,
        $8, $9, $10, $11, $12::jsonb,
-       $13::date, $14::jsonb, COALESCE($15::timestamptz, NOW()), NOW()
+       $13::date, $14::jsonb, $15::jsonb, $16::int, COALESCE($17::timestamptz, NOW()), NOW()
      )
      ON CONFLICT (id) DO UPDATE SET
        -- P0-sync (R12): never leave a null/stale agency client_id on re-upsert.
        client_id = COALESCE(EXCLUDED.client_id, applications.client_id),
        unit_id = EXCLUDED.unit_id,
        applicant_id = COALESCE(EXCLUDED.applicant_id, applications.applicant_id),
-       agent_id = CASE WHEN $17::boolean THEN EXCLUDED.agent_id ELSE applications.agent_id END,
+       agent_id = CASE WHEN $19::boolean THEN EXCLUDED.agent_id ELSE applications.agent_id END,
        reference_code = COALESCE(EXCLUDED.reference_code, applications.reference_code),
-       status = CASE WHEN $16::boolean THEN EXCLUDED.status ELSE applications.status END,
+       status = CASE WHEN $18::boolean THEN EXCLUDED.status ELSE applications.status END,
        monthly_income = EXCLUDED.monthly_income,
        employment_summary = EXCLUDED.employment_summary,
        message = EXCLUDED.message,
        uploaded_docs_json = EXCLUDED.uploaded_docs_json,
        move_in_date = COALESCE(EXCLUDED.move_in_date, applications.move_in_date),
        metadata = applications.metadata || EXCLUDED.metadata,
+       journey_snapshot = COALESCE(EXCLUDED.journey_snapshot, applications.journey_snapshot),
+       journey_version = COALESCE(EXCLUDED.journey_version, applications.journey_version),
        updated_at = NOW()`,
     [
       uuid,
@@ -1401,6 +1411,8 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
       JSON.stringify(docsJson),
       d.moveInDate ? str(d.moveInDate) : null,
       JSON.stringify(meta),
+      journeySnapshotJson,
+      journeyVersion,
       d.submittedAt ? str(d.submittedAt) : null,
       statusSent,
       has('agentId'),

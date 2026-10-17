@@ -15,7 +15,7 @@ import type {
 
 /** Honesty label — UI banner + PDF header (safe claim). */
 export const OWNER_STATEMENT_MODE_A_COPY =
-  'Owner statement PDF from in-app book (payments / allocations / payouts submitted) - recorded in Letkaya, not yet matched to the bank.'
+  'Owner statement PDF from in-app book (payments / allocations / payouts submitted) - recorded in Lekaya, not yet matched to the bank.'
 
 /** Payout statuses eligible for the Mode A book (≤ submitted). Never treat as bank settlement. */
 export const OWNER_STATEMENT_PAYOUT_STATUSES = [

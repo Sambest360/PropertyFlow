@@ -4,7 +4,7 @@
  */
 import { isValidSignatureDataUrl, signatureInvalidError } from '../src/lib/signature/signatureImage.js'
 import { query } from './db.js'
-import { enforceStaffSignedStageMove } from './applicantApplicationPolicy.js'
+import { enforceStaffCreditCheckConsent, enforceStaffSignedStageMove } from './applicantApplicationPolicy.js'
 import { enforceStaffTenancyESign, isClientLeaseSignedWrite, leaseSignedRefusedError } from './leaseSign.js'
 import { MIN_PASSWORD_LENGTH } from './passwordPolicy.js'
 import {
@@ -1340,6 +1340,7 @@ export async function assertPersistAllowed(
   // CR10 gate: staff stage moves to a signed status need the stored envelope.
   if (body.resource === 'application' && !PORTAL_WRITE_ROLES.has(actor.role)) {
     await enforceStaffSignedStageMove(body as never)
+    await enforceStaffCreditCheckConsent(body as never)
   }
   return {}
 }

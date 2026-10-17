@@ -174,7 +174,7 @@ export default function TrustCashbook() {
                 variant="secondary"
                 size="sm"
                 onClick={handleExport}
-                title="Export current cashbook CSV. Balances come from the Letkaya ledger and are not yet matched to the bank."
+                title="Export current cashbook CSV. Balances come from the Lekaya ledger and are not yet matched to the bank."
               >
                 <Download className="h-4 w-4" />
                 Export CSV

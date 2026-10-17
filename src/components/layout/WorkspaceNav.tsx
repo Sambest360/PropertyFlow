@@ -445,7 +445,7 @@ export function WorkspaceSidebar({
   items: WorkspaceNavEntry[]
   /** Auto-hide while scrolling down the page */
   chromeHidden?: boolean
-  /** Soften the Letkaya wordmark while scrolled */
+  /** Soften the Lekaya wordmark while scrolled */
   brandMuted?: boolean
 }) {
   const { pathname } = useLocation()

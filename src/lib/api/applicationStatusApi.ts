@@ -243,7 +243,7 @@ export function buildCheckoutBridge(params: {
   const fields: Record<string, string> = {
     merchant_id: params.provider === 'payfast' ? '10047719' : 'peach_demo_merchant',
     amount: (amountCents / 100).toFixed(2),
-    item_name: `Letkaya · ${params.propertyTitle}`.slice(0, 100),
+    item_name: `Lekaya · ${params.propertyTitle}`.slice(0, 100),
     m_payment_id: params.paymentId,
     return_url: returnUrl,
     cancel_url: cancelUrl,

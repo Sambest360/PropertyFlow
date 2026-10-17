@@ -60,7 +60,7 @@ function downloadDoc(applicantName: string, doc: ApplicationDocument) {
         `Status: ${uploadLabel(doc.status)}`,
         doc.note ? `Note: ${doc.note}` : '',
         '',
-        'Letkaya — demo document pack export',
+        'Lekaya — demo document pack export',
       ]
         .filter(Boolean)
         .join('\n'),

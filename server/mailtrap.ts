@@ -76,7 +76,7 @@ export function mailtrapConfigFromEnv(): MailtrapConfig | null {
     smtp,
     api,
     fromEmail: process.env.MAILTRAP_FROM_EMAIL?.trim() || 'hello@demomailtrap.co',
-    fromName: process.env.MAILTRAP_FROM_NAME?.trim() || 'Letkaya',
+    fromName: process.env.MAILTRAP_FROM_NAME?.trim() || 'Lekaya Rentals',
   }
 }
 
@@ -185,6 +185,18 @@ export async function sendMailtrapEmail(input: MailtrapSendInput): Promise<Mailt
 // Branded HTML shell + business emails
 // ---------------------------------------------------------------------------
 
+function publicAppUrlBase(): string {
+  return (process.env.PUBLIC_APP_URL || process.env.PAYFAST_PUBLIC_URL || '').replace(/\/+$/, '')
+}
+
+function emailHeaderLogoHtml(): string {
+  const base = publicAppUrlBase()
+  if (base) {
+    return `<img src="${base}/brand/lekaya-logo-mono-white-1024.png" alt="Lekaya Rentals" width="160" style="display:block;border:0;height:auto" />`
+  }
+  return '<span style="color:#ffffff;font-size:18px;font-weight:bold;">Lekaya Rentals</span>'
+}
+
 function shell(title: string, bodyHtml: string): string {
   return `<!doctype html>
 <html><body style="margin:0;padding:0;background:#f4f6fb;font-family:Arial,Helvetica,sans-serif;">
@@ -192,14 +204,14 @@ function shell(title: string, bodyHtml: string): string {
     <tr><td align="center">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;">
         <tr><td style="background:#1d4ed8;padding:18px 28px;">
-          <span style="color:#ffffff;font-size:18px;font-weight:bold;">Let<span style="color:#f8b500">kaya</span></span>
+          ${emailHeaderLogoHtml()}
         </td></tr>
         <tr><td style="padding:28px;">
           <h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;">${escapeHtml(title)}</h1>
           ${bodyHtml}
         </td></tr>
         <tr><td style="padding:16px 28px;background:#f8fafc;color:#64748b;font-size:12px;">
-          Sent by Letkaya · This is an automated message.
+          Sent by Lekaya Rentals · This is an automated message.
         </td></tr>
       </table>
     </td></tr>
@@ -286,7 +298,7 @@ export async function sendListingLeadAlert(input: {
     p(`Hi${input.agentName ? ` <strong>${escapeHtml(input.agentName)}</strong>` : ''},`) +
     p(`<strong>${escapeHtml(input.leadName)}</strong> sent a ${kind}${propertyLine} from the marketplace.`) +
     contactRows +
-    p('Open your Letkaya workspace leads board to follow up.')
+    p('Open your Lekaya workspace leads board to follow up.')
   const text =
     `${input.leadName} sent a ${kind}${input.propertyTitle ? ` for ${input.propertyTitle}` : ''}.` +
     (input.leadEmail ? ` Email: ${input.leadEmail}.` : '') +
@@ -342,7 +354,7 @@ export async function sendWelcomeEmail(input: {
   firstName: string
   role?: string
 }): Promise<MailtrapSendResult> {
-  const subject = 'Welcome to Letkaya 🏡'
+  const subject = 'Welcome to Lekaya Rentals 🏡'
   const roleLine =
     input.role === 'landlord'
       ? 'Your documents are with our verification team — you will be notified once your account is approved and you can publish listings.'
@@ -354,11 +366,11 @@ export async function sendWelcomeEmail(input: {
     toName: input.firstName,
     subject,
     category: 'welcome',
-    text: `Hi ${input.firstName}, welcome to Letkaya! ${roleLine}`,
+    text: `Hi ${input.firstName}, welcome to Lekaya Rentals! ${roleLine}`,
     html: shell(
       subject,
       p(`Hi <strong>${escapeHtml(input.firstName)}</strong>,`) +
-        p('Welcome to <strong>Letkaya</strong> — your account has been created.') +
+        p('Welcome to <strong>Lekaya Rentals</strong> — your account has been created.') +
         p(escapeHtml(roleLine)) +
         p('Keep this email for your records — no reply is needed.'),
     ),
@@ -413,8 +425,8 @@ export async function sendVerificationDecision(input: {
 }): Promise<MailtrapSendResult> {
   const isLandlord = input.role !== 'contractor'
   const subject = input.approved
-    ? 'Your Letkaya account has been approved 🎉'
-    : 'Update on your Letkaya account'
+    ? 'Your Lekaya Rentals account has been approved 🎉'
+    : 'Update on your Lekaya Rentals account'
   const nextStep = input.approved
     ? isLandlord
       ? 'You can sign in now and start publishing your listings — applicants can find and apply to them right away.'
@@ -425,7 +437,7 @@ export async function sendVerificationDecision(input: {
     toName: input.firstName,
     subject,
     category: input.approved ? 'verification-approved' : 'verification-rejected',
-    text: `Hi${input.firstName ? ` ${input.firstName}` : ''}, ${input.approved ? 'your Letkaya account has been approved.' : 'your Letkaya verification was not approved.'} ${nextStep}`,
+    text: `Hi${input.firstName ? ` ${input.firstName}` : ''}, ${input.approved ? 'your Lekaya Rentals account has been approved.' : 'your Lekaya verification was not approved.'} ${nextStep}`,
     html: shell(
       subject,
       p(`Hi${input.firstName ? ` <strong>${escapeHtml(input.firstName)}</strong>` : ' there'},`) +
@@ -435,6 +447,35 @@ export async function sendVerificationDecision(input: {
             p('Sign in with the email and password you registered.')
           : p('Unfortunately your verification was <strong>not approved</strong>.') +
             p(escapeHtml(nextStep))),
+    ),
+  })
+}
+
+export async function sendApplicationDeclined(input: {
+  email: string
+  applicantName?: string
+  propertyTitle?: string
+  reason?: string
+}): Promise<MailtrapSendResult> {
+  const subject = 'Update on your rental application'
+  const propertyLine = input.propertyTitle
+    ? ` for <strong>${escapeHtml(input.propertyTitle)}</strong>`
+    : ''
+  const reasonLine = input.reason?.trim()
+    ? p(`Reason: ${escapeHtml(input.reason.trim())}`)
+    : p('The agency will contact you if further information is required.')
+  return sendMailtrapEmail({
+    to: input.email,
+    toName: input.applicantName,
+    subject,
+    category: 'application-declined',
+    text: `Your application${input.propertyTitle ? ` for ${input.propertyTitle}` : ''} was not approved.${input.reason ? ` Reason: ${input.reason}` : ''}`,
+    html: shell(
+      subject,
+      p(`Hi${input.applicantName ? ` <strong>${escapeHtml(input.applicantName)}</strong>` : ''},`) +
+        p(`Thank you for applying${propertyLine}. After review, this application was <strong>not approved</strong>.`) +
+        reasonLine +
+        p('You may still browse other listings on Lekaya Rentals.'),
     ),
   })
 }
@@ -544,9 +585,9 @@ export async function sendLeaseSignedEmail(input: {
     return { sent: false, reason: 'ENABLE_EMAIL_LEASE_SIGNED off (default)' }
   }
   const subject = 'Your lease has been signed'
-  const body = `Your lease for ${input.propertyTitle} has been signed by all parties. You can view it in Letkaya: ${input.leaseLink}.`
+  const body = `Your lease for ${input.propertyTitle} has been signed by all parties. You can view it in Lekaya: ${input.leaseLink}.`
   // CR10 N8: name, property title and link are escaped in the HTML.
-  const htmlBody = `Your lease for ${escapeHtml(input.propertyTitle)} has been signed by all parties. You can view it in Letkaya: ${escapeHtml(input.leaseLink)}.`
+  const htmlBody = `Your lease for ${escapeHtml(input.propertyTitle)} has been signed by all parties. You can view it in Lekaya: ${escapeHtml(input.leaseLink)}.`
   return sendMailtrapEmail({
     to: input.to,
     toName: input.name ?? undefined,

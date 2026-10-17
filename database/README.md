@@ -1,4 +1,4 @@
-# Letkaya database
+# Lekaya database
 
 Two schemas ship side-by-side:
 

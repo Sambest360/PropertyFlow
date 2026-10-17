@@ -313,7 +313,7 @@
   }
 }
 
-/* Leaflet map — Letkaya soft canvas + branded price pins */
+/* Leaflet map — Lekaya soft canvas + branded price pins */
 .pf-leaflet-map.leaflet-container {
   font: inherit;
   background: #f0f4fb;
@@ -520,7 +520,7 @@
   }
 }
 
-/* SweetAlert2 — Letkaya theme */
+/* SweetAlert2 — Lekaya theme */
 .pf-swal-popup {
   font-family: var(--font-sans);
   border-radius: 1.25rem !important;

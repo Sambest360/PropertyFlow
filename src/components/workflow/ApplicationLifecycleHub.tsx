@@ -241,7 +241,7 @@ export function ApplicationLifecycleHub({
   const assignedAgent = agentLabel(application.agentId, agentName)
   const workflowStatus = resolveWorkflowStatus(application)
   const progress = workflowProgress(application.type, workflowStatus)
-  const milestones = getLifecycleMilestones(application.type)
+  const milestones = getLifecycleMilestones(application.type, application)
 
   const [selectedStage, setSelectedStage] = useState<WorkflowStatusKey>(workflowStatus)
   const [modalAction, setModalAction] = useState<HateoasAction | null>(null)
@@ -374,7 +374,7 @@ export function ApplicationLifecycleHub({
             <h3 className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">Your journey</h3>
             <ol className="mt-3 flex gap-1 overflow-x-auto pb-2 [scrollbar-width:thin]">
               {milestones.map((m) => {
-                const visual = milestoneVisualState(application.type, workflowStatus, m.key)
+                const visual = milestoneVisualState(application.type, workflowStatus, m.key, application)
                 const selected = selectedStage === m.key
                 const isCurrent = visual === 'current'
                 const isDone = visual === 'completed'

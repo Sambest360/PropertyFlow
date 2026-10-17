@@ -1,6 +1,6 @@
 # FICA pack — Mode A (DQ-C2)
 
-Letkaya’s FICA pack is a **staff-managed in-app checklist** (ID, proof of
+Lekaya’s FICA pack is a **staff-managed in-app checklist** (ID, proof of
 address, FICA declaration). That path must **never** be claimed as live bureau
 screening or live FICA verification.
 

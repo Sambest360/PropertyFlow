@@ -118,6 +118,9 @@ export type Agency = {
   province?: string
   countryCode?: string
   timezone?: string
+  settings?: {
+    applicationJourney?: import('../lib/journey/types.js').AgencyJourneyOverride
+  }
 }
 
 export type AppUser = {
@@ -353,6 +356,8 @@ export type Application = {
   progress: number
   income: number
   employment: string
+  employerName?: string
+  jobTitle?: string
   idNumberOrPassport?: string
   uploadedDocs?: ApplicationUploadedDocs
   /**
@@ -362,6 +367,16 @@ export type Application = {
   creditCheck: 'Not Started' | 'Consent Received' | 'In Progress' | 'Passed' | 'Failed' | 'Pending'
   /** @deprecated prefer screeningConsent.granted — kept in sync by the screening pipeline. */
   creditConsent: boolean
+  /** Per-adult NCA credit-check consent (Reg 18) — frozen roster + signatures. */
+  creditCheckConsents?: {
+    adults: Array<{
+      name: string
+      idNumber: string
+      signatureText: string
+      grantedAt: string
+      method: 'applicant'
+    }>
+  }
   /** POPIA / NCA credit-check consent capture (who / when / method). */
   screeningConsent?: {
     granted: boolean
@@ -401,6 +416,11 @@ export type Application = {
   docs: string[]
   viewingSlotId: string | null
   notes: string
+  /** Staff decline / reject reason surfaced to applicant comms. */
+  declineReason?: string
+  /** Frozen journey config at application create (Phase 2). */
+  journeySnapshot?: import('../lib/journey/types.js').JourneySnapshot
+  journeyVersion?: number
   /** Why this applicant was blocked from the property / showings */
   blockReason?: string | null
   blockedAt?: string | null
