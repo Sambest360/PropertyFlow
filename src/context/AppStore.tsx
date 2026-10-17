@@ -1745,7 +1745,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             () => fetchGuestMarketplaceBootstrap(true, 15_000),
             { force: opts?.force ?? true },
           )
-          if (!boot || !shouldApplyRefreshResult(requestId, marketplaceRefreshIdRef.current)) {
+          if (!shouldApplyRefreshResult(requestId, marketplaceRefreshIdRef.current)) {
+            return
+          }
+          if (!boot) {
+            patch((s) => ({
+              ...s,
+              publicMarketplaceFetchFailed: true,
+              marketplaceRefreshing: false,
+            }))
             return
           }
           patch((s) => ({

@@ -41,6 +41,7 @@ import { FullScreenSheet } from '../../components/layout/mobile/FullScreenSheet'
 import { isFutureViewingSlot } from '../../lib/viewingSlotTime'
 import { findOwnApplicationForProperty } from '../../lib/applicantApplication'
 import { formatEmploymentSummary } from '../../lib/employmentDisplay'
+import { prefillEnquiryContact } from './listingEnquiryPrefill'
 
 type EnquiryIntent = 'lead' | 'viewing'
 
@@ -135,13 +136,18 @@ export default function ListingDetail() {
   }, [awaitingSignedInHydration, id, p])
 
   useEffect(() => {
-    if (isAuthenticated && user.email) {
-      setEmail((e) => e || user.email)
-      const parts = user.name.trim().split(/\s+/)
-      setFirstName((f) => f || parts[0] || '')
-      setLastName((l) => l || parts.slice(1).join(' ') || '')
-    }
-  }, [isAuthenticated, user.email, user.name])
+    if (!isAuthenticated) return
+    setEmail((e) => prefillEnquiryContact(user, { email: e, firstName: '', lastName: '', phone: '' }).email)
+    setFirstName((f) =>
+      prefillEnquiryContact(user, { email: '', firstName: f, lastName: '', phone: '' }).firstName,
+    )
+    setLastName((l) =>
+      prefillEnquiryContact(user, { email: '', firstName: '', lastName: l, phone: '' }).lastName,
+    )
+    setPhone((p) =>
+      prefillEnquiryContact(user, { email: '', firstName: '', lastName: '', phone: p }).phone,
+    )
+  }, [isAuthenticated, user.email, user.name, user.firstName, user.lastName, user.phone])
 
   const blockedIds = useMemo(() => {
     if (!isAuthenticated || user.id === 'guest') return new Set<string>()

@@ -19,6 +19,7 @@ import { showAuthError } from '../../lib/sweetAlert'
 import { shouldPurgeGuestOnLoginMount } from '../../lib/auth/loginMountPurge'
 import { resolvePostLoginPath } from '../../lib/workspaceRoutes'
 import { createClient } from '../../utils/supabase/client'
+import { PropertyLoader } from '../../components/loading/PropertyLoader'
 
 const ICON_STROKE = 1.6
 
@@ -82,7 +83,14 @@ export default function LoginPage() {
     }
   }, [])
 
-  if (authReady && isAuthenticated) {
+  if (isAuthenticated) {
+    if (!authReady) {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-white">
+          <PropertyLoader size="md" label="Signing you in…" />
+        </div>
+      )
+    }
     return <Navigate to={resolvePostLoginPath(user.role, next)} replace />
   }
 

@@ -25,6 +25,10 @@ export type ListingEnquiryResult =
   | { ok: false; error: string }
 
 const ENQUIRY_TIMEOUT_MS = 20_000
+const SUPABASE_ENQUIRY_TIMEOUT_MS = 15_000
+
+const ENQUIRY_UNAVAILABLE =
+  'We could not save your enquiry. Try again in a moment.'
 
 /** Map API / RPC codes to copy suitable for the listing enquiry form. */
 export function formatListingEnquiryError(raw: string): string {
@@ -42,7 +46,7 @@ export function formatListingEnquiryError(raw: string): string {
     return 'That slot just filled up. Choose another time or request a viewing without a slot.'
   }
   if (code === 'enquiry_failed' || code.includes('enquiry_failed')) {
-    return 'We could not save your enquiry. Try again in a moment.'
+    return ENQUIRY_UNAVAILABLE
   }
   if (raw.toLowerCase().includes('abort') || raw.toLowerCase().includes('timeout')) {
     return 'The server took too long to respond. Check your connection and try again.'
@@ -50,20 +54,10 @@ export function formatListingEnquiryError(raw: string): string {
   return raw
 }
 
-function offlineResult(input: ListingEnquiryInput): ListingEnquiryResult {
-  const ts = Date.now()
-  const stage =
-    input.action === 'viewing'
-      ? input.slotId
-        ? 'Viewing Scheduled'
-        : 'Viewing Requested'
-      : 'New Lead'
-  return {
-    ok: true,
-    leadId: `LD-guest-${ts}`,
-    bookingId: input.action === 'viewing' && input.slotId ? `VW-guest-${ts}` : null,
-    stage,
-  }
+function enquiryTimeout(ms: number): Promise<never> {
+  return new Promise((_, reject) => {
+    setTimeout(() => reject(new Error('timeout')), ms)
+  })
 }
 
 async function submitViaApi(input: ListingEnquiryInput): Promise<ListingEnquiryResult | null> {
@@ -104,7 +98,7 @@ async function submitViaApi(input: ListingEnquiryInput): Promise<ListingEnquiryR
     if (err instanceof Error && err.name === 'AbortError') {
       return { ok: false, error: formatListingEnquiryError('timeout') }
     }
-    return null
+    return { ok: false, error: formatListingEnquiryError(ENQUIRY_UNAVAILABLE) }
   } finally {
     clearTimeout(t)
   }
@@ -114,7 +108,7 @@ async function submitViaSupabase(input: ListingEnquiryInput): Promise<ListingEnq
   if (!isSupabaseMode) return null
   try {
     const supabase = createClient()
-    const { data, error } = await supabase.rpc('submit_public_listing_enquiry', {
+    const rpcPromise = supabase.rpc('submit_public_listing_enquiry', {
       p_property_fe_id: input.propertyId,
       p_action: input.action,
       p_first_name: input.firstName,
@@ -127,6 +121,7 @@ async function submitViaSupabase(input: ListingEnquiryInput): Promise<ListingEnq
       p_id_number: input.idNumber ?? null,
       p_interest_type: input.interestType === 'Buy' ? 'BUY' : 'RENT',
     })
+    const { data, error } = await Promise.race([rpcPromise, enquiryTimeout(SUPABASE_ENQUIRY_TIMEOUT_MS)])
     if (error) {
       return { ok: false, error: formatListingEnquiryError(error.message) }
     }
@@ -137,12 +132,13 @@ async function submitViaSupabase(input: ListingEnquiryInput): Promise<ListingEnq
       bookingId: (row.booking_id ?? row.bookingId ?? null) as string | null,
       stage: String(row.stage ?? 'New Lead'),
     }
-  } catch {
-    return null
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: formatListingEnquiryError(msg) }
   }
 }
 
-/** Guest enquiry — persists via API/Supabase when available, else local demo ids. */
+/** Guest enquiry — persists via API/Supabase when available; errors when unavailable. */
 export async function submitListingEnquiry(
   input: ListingEnquiryInput,
 ): Promise<ListingEnquiryResult> {
@@ -152,5 +148,5 @@ export async function submitListingEnquiry(
   const viaSupabase = await submitViaSupabase(input)
   if (viaSupabase) return viaSupabase
 
-  return offlineResult(input)
+  return { ok: false, error: ENQUIRY_UNAVAILABLE }
 }

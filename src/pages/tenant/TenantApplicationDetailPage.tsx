@@ -5,6 +5,7 @@ import { useStore, usePublicProperties } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
 import { resolveApplicationAgentName } from '../../lib/agentDisplay'
 import { RequirePermission } from '../../components/RequirePermission'
+import { PortalSkeleton } from '../../components/PortalHydrationGate'
 import { ActionButtonRow } from '../../components/ActionButtonRow'
 import { BackButton } from '../../components/BackButton'
 import {
@@ -43,6 +44,7 @@ export default function TenantApplicationDetailPage() {
   const [params, setParams] = useSearchParams()
   const {
     state,
+    hydratedForUserId,
     setDocumentStatus,
     uploadApplicationDocument,
     updateApplication,
@@ -50,7 +52,7 @@ export default function TenantApplicationDetailPage() {
     advanceApplicationWorkflow,
     captureApplicationScreeningConsent,
   } = useStore()
-  const { user } = useAuth()
+  const { user, authReady } = useAuth()
   const publicProperties = usePublicProperties()
 
   const tab = (['application', 'documents', 'details', 'payments'] as const).includes(
@@ -118,6 +120,17 @@ export default function TenantApplicationDetailPage() {
     }),
     [user],
   )
+
+  const awaitingHydration =
+    authReady && user.id !== 'guest' && hydratedForUserId !== user.id
+
+  if (awaitingHydration) {
+    return (
+      <RequirePermission permission="portal.tenant">
+        <PortalSkeleton />
+      </RequirePermission>
+    )
+  }
 
   if (!application) {
     return (

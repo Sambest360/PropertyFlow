@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { Filter, Heart, List, Map as MapIcon } from 'lucide-react'
 import { usePublicProperties, useStore } from '../../context/AppStore'
@@ -147,7 +147,23 @@ function cardMatchesBrowseMode(
 
 export default function BrowsePage() {
   const publicProperties = usePublicProperties()
-  const { state } = useStore()
+  const { state, refreshMarketplaceListings } = useStore()
+  const marketplaceRetryAttempt = useRef(0)
+
+  useEffect(() => {
+    if (!state.publicMarketplaceFetchFailed) {
+      marketplaceRetryAttempt.current = 0
+      return
+    }
+    const delays = [2000, 5000, 15000]
+    const attempt = marketplaceRetryAttempt.current
+    const delay = delays[Math.min(attempt, delays.length - 1)]
+    marketplaceRetryAttempt.current = attempt + 1
+    const t = window.setTimeout(() => {
+      void refreshMarketplaceListings({ force: true })
+    }, delay)
+    return () => window.clearTimeout(t)
+  }, [state.publicMarketplaceFetchFailed, refreshMarketplaceListings])
   const { user, isAuthenticated } = useAuth()
   const location = useLocation()
   const savedOnly = location.pathname === '/saved' || location.pathname.endsWith('/saved')
@@ -416,16 +432,29 @@ export default function BrowsePage() {
                   ? 'We could not load the public marketplace. Refresh the page in a moment, or try again later.'
                   : 'Agencies haven’t published homes here yet — check back soon, or clear filters if you’re searching.'}
               </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setFilters(defaultBrowseFilters())
-                  setCursor(null)
-                }}
-                className="mt-4 min-h-11 cursor-pointer text-sm font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              >
-                Clear all filters
-              </button>
+              {state.publicMarketplaceFetchFailed ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    marketplaceRetryAttempt.current = 0
+                    void refreshMarketplaceListings({ force: true })
+                  }}
+                  className="mt-4 min-h-11 cursor-pointer rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white hover:bg-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  Retry loading listings
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilters(defaultBrowseFilters())
+                    setCursor(null)
+                  }}
+                  className="mt-4 min-h-11 cursor-pointer text-sm font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  Clear all filters
+                </button>
+              )}
             </div>
           ) : savedOnly ? (
             <WishlistListView
