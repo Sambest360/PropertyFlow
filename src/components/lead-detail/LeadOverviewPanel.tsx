@@ -115,23 +115,13 @@ export function LeadOverviewPanel({
             ))}
           </ul>
         )}
-        {canSchedule && onScheduleViewing ? (
+        {canSchedule && onScheduleViewing && needsViewing ? (
           <Button type="button" className="mt-3 min-h-11 gap-2" onClick={onScheduleViewing}>
             Schedule viewing
             <ArrowRight className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
           </Button>
         ) : null}
       </DetailSection>
-
-      {canSchedule && onScheduleViewing && needsViewing ? (
-        <div className="rounded-2xl border border-dashed border-primary-200 bg-primary-50/40 px-5 py-4">
-          <p className="text-sm font-medium text-ink">No upcoming viewing booked for this contact.</p>
-          <Button type="button" className="mt-3 min-h-11 gap-2" onClick={onScheduleViewing}>
-            Schedule viewing
-            <ArrowRight className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-          </Button>
-        </div>
-      ) : null}
 
       <LeadStageContextPanel context={stageContext} />
     </div>

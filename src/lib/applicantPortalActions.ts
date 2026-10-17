@@ -167,16 +167,6 @@ export function getApplicantTasks(
   const status = resolveWorkflowStatus(application)
   const tasks: ApplicantTask[] = []
 
-  if (!application.phone?.trim() || !application.employment?.trim() || !application.income) {
-    tasks.push({
-      id: 'details',
-      label: 'Complete your details',
-      detail: 'Add phone, employment, and income so the agency can review your file.',
-      tone: 'primary',
-      section: 'details',
-    })
-  }
-
   if (status === 'application_started') {
     tasks.push({
       id: 'submit',
@@ -223,16 +213,6 @@ export function getApplicantTasks(
         : 'Your payment proof was submitted — the agency will verify shortly.',
       tone: awaitingProof.length ? 'primary' : 'warning',
       section: 'payments',
-    })
-  }
-
-  if (!application.creditConsent && application.documents.some((d) => d.key === 'credit_consent')) {
-    tasks.push({
-      id: 'consent',
-      label: 'Provide credit check consent',
-      detail: 'POPIA consent is required before the agency can run a credit check.',
-      tone: 'warning',
-      section: 'documents',
     })
   }
 

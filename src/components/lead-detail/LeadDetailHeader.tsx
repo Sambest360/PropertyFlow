@@ -19,6 +19,7 @@ export function LeadDetailHeader({
   onClose,
   canSchedule,
   onScheduleViewing,
+  showScheduleViewing = true,
 }: {
   lead: Lead
   property: PropertyAsset | null
@@ -30,6 +31,7 @@ export function LeadDetailHeader({
   onClose?: () => void
   canSchedule?: boolean
   onScheduleViewing?: () => void
+  showScheduleViewing?: boolean
 }) {
   return (
     <div className="mb-5">
@@ -57,7 +59,7 @@ export function LeadDetailHeader({
               Close lead
             </Button>
           ) : null}
-          {canSchedule && onScheduleViewing ? (
+          {canSchedule && onScheduleViewing && showScheduleViewing ? (
             <Button className="min-h-11 cursor-pointer gap-2" onClick={onScheduleViewing}>
               <CalendarPlus className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
               Schedule viewing

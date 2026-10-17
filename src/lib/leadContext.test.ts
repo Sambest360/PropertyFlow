@@ -99,4 +99,32 @@ describe('leadContext', () => {
     expect(ctx.links.some((l) => l.href.includes('/sales/applications/APP-1'))).toBe(true)
     expect(ctx.facts.some((f) => f.label === 'Application stage')).toBe(true)
   })
+
+  it('viewing_scheduled with upcoming viewing omits duplicate desk links', () => {
+    const viewingLead = { ...lead, stage: 'Viewing Scheduled' }
+    const viewings: Viewing[] = [
+      {
+        id: 'V-1',
+        agencyId: 'ag-1',
+        propertyId: 'PR-1',
+        slotId: 'slot-1',
+        applicantName: 'Amy Visser',
+        applicantEmail: 'amy.visser@propertyflow.demo',
+        date: '2026-10-19',
+        time: '10:00',
+        status: 'Scheduled',
+        attendance: 'Pending',
+        feedback: '',
+      },
+    ]
+    const ctx = buildLeadStageContext(viewingLead, {
+      property: { id: 'PR-1', title: '2-bed Gardens apartment' } as import('../types/domain').PropertyAsset,
+      applications: [],
+      viewings,
+      payments: [],
+    })
+    expect(ctx.links).toHaveLength(0)
+    expect(ctx.facts.some((f) => f.label === 'Viewing status')).toBe(false)
+    expect(ctx.headline).toContain('2026-10-19')
+  })
 })

@@ -9,6 +9,7 @@ import {
   getAvailableTransitions,
   getLifecycleMilestones,
   getStageRequirements,
+  milestoneVisualState,
   normalizeApplication,
   primaryNextTransition,
   resolveWorkflowStatus,
@@ -132,6 +133,20 @@ describe('applicationWorkflow', () => {
       'documents_uploaded',
     ])
     expect(categoryProgress(app)).toBe(0)
+  })
+
+  it('lists Viewing first on the rental journey rail', () => {
+    const milestones = getLifecycleMilestones('Rental')
+    expect(milestones[0]?.key).toBe('viewing_scheduled')
+    expect(milestoneVisualState('Rental', 'application_submitted', 'viewing_scheduled')).toBe(
+      'completed',
+    )
+    expect(milestoneVisualState('Rental', 'application_submitted', 'application_submitted')).toBe(
+      'current',
+    )
+    expect(milestoneVisualState('Rental', 'viewing_scheduled', 'application_started')).toBe(
+      'upcoming',
+    )
   })
 
   it('exposes lifecycle milestones and stage document requirements', () => {

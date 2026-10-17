@@ -4891,20 +4891,29 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           return result
         }),
       }))
-      if (persisted) {
-        const before = preUpload
-        const app = persisted as Application
-        void persistUpsert('application', applicationId, applicationUploadPayload(app, key, actor?.userId)).then(
-          (ok) => {
-            // A refused upload must not stay on screen as if it were saved.
-            if (ok || !before) return
-            patch((s) => ({
-              ...s,
-              applications: s.applications.map((a) => (a.id === applicationId ? before : a)),
-            }))
-          },
+      if (!persisted) return
+      const before = preUpload
+      const app = persisted as Application
+      void (async () => {
+        const result = await persistUpsertResult(
+          'application',
+          applicationId,
+          applicationUploadPayload(app, key, actor?.userId),
         )
-      }
+        if (result.ok) return
+        if (before) {
+          patch((s) => ({
+            ...s,
+            applications: s.applications.map((a) => (a.id === applicationId ? before : a)),
+          }))
+        }
+        const { persistErrorMessage } = await import('../lib/api/persist')
+        const { sweetError } = await import('../lib/sweetAlert')
+        void sweetError(
+          'Upload not saved',
+          persistErrorMessage(result) ?? 'Could not save this document. Try again.',
+        )
+      })()
     },
     advanceApplication: (id, to) => {
       patch((s) => ({
@@ -7689,7 +7698,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     proposePayoutInstruction,
     approvePayoutInstruction,
     submitPayoutInstruction,
-  }), [state, hydratedForUserId, hydrationFailed, resetToDefault, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, importTrustTemplateCsv, upsertHeldDeposit, proposeDepositReleaseAction, approveDepositReleaseAction, rejectDepositReleaseAction, cancelDepositReleaseAction, recordDepositRefundAction, proposePayoutInstruction, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistDelete, refreshBootstrap, refreshSessionData, refreshMarketplaceListings, scheduleBootstrapRefreshAfterMutation, issueLeasePackageForTenancy])
+  }), [state, hydratedForUserId, hydrationFailed, resetToDefault, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, importTrustTemplateCsv, upsertHeldDeposit, proposeDepositReleaseAction, approveDepositReleaseAction, rejectDepositReleaseAction, cancelDepositReleaseAction, recordDepositRefundAction, proposePayoutInstruction, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistUpsertResult, persistDelete, refreshBootstrap, refreshSessionData, refreshMarketplaceListings, scheduleBootstrapRefreshAfterMutation, issueLeasePackageForTenancy])
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }

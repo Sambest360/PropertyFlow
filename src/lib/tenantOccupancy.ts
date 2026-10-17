@@ -43,10 +43,31 @@ export const TENANT_OCCUPANCY_WORKFLOW_STATUSES: ReadonlySet<string> = new Set([
   'keys_ready',
   'keys_handed_over',
   'active_tenancy',
+  // Purchase (SA transfer) — unlock from accepted offer onward
+  'offer_accepted',
+  'sale_agreement_signed',
+  'attorney_assigned',
+  'fica_verification',
+  'bond_application',
+  'bond_approved',
+  'bond_declined',
+  'deposit_requested',
+  'transfer_processing',
+  'compliance_certificates',
+  'rates_clearance',
+  'transfer_duty_paid',
+  'deeds_lodgement',
+  'registration_in_progress',
+  'registered',
+  'purchase_price_paid',
+  'occupation',
+  'ownership_transferred',
+  'completed',
 ])
 
 /** Permissions only available after a tenant is approved onto a property. */
 export const TENANT_OCCUPANCY_PERMISSIONS = [
+  'documents.view',
   'payments.view',
   'payments.manage',
   'maintenance.view',

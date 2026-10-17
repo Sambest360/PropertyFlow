@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Bath, BedDouble, Car, Heart, MapPin, Share2, Star } from 'lucide-react'
 import { roomKindLabel } from '../../data/infrastructure'
 import { usePublicProperties, useStore } from '../../context/AppStore'
@@ -39,12 +39,15 @@ import { useAgentDisplay } from '../../hooks/useAgentDisplay'
 import { StickyMobileActionBar } from '../../components/layout/mobile/StickyMobileActionBar'
 import { FullScreenSheet } from '../../components/layout/mobile/FullScreenSheet'
 import { isFutureViewingSlot } from '../../lib/viewingSlotTime'
+import { findOwnApplicationForProperty } from '../../lib/applicantApplication'
 
 type EnquiryIntent = 'lead' | 'viewing'
 
 export default function ListingDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const enquiryAsideRef = useRef<HTMLElement | null>(null)
   const {
     state,
     createApplication,
@@ -173,6 +176,42 @@ export default function ListingDetail() {
     }
   }, [id])
 
+  const existingApplication = useMemo(() => {
+    if (!p || !isAuthenticated || user.id === 'guest') return null
+    return findOwnApplicationForProperty(state.applications, user, p.id)
+  }, [isAuthenticated, p, state.applications, user, user.id])
+
+  useEffect(() => {
+    if (searchParams.get('apply') !== '1' || !p || !isListed) return
+    const sp = new URLSearchParams(searchParams)
+    sp.delete('apply')
+    setSearchParams(sp, { replace: true })
+
+    if (existingApplication) {
+      navigate(
+        `/workspace/portals/tenant/applications/${encodeURIComponent(existingApplication.id)}`,
+        { replace: true },
+      )
+      return
+    }
+
+    const isDesktop = window.matchMedia('(min-width: 1024px)').matches
+    if (isDesktop) {
+      requestAnimationFrame(() => {
+        enquiryAsideRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
+    } else {
+      setEnquirySheetOpen(true)
+    }
+  }, [
+    existingApplication,
+    isListed,
+    navigate,
+    p,
+    searchParams,
+    setSearchParams,
+  ])
+
   if (!p) {
     const storeSettled = state.properties.length > 0 || state.units.length > 0
     const awaitingPublicListingFetch =
@@ -230,18 +269,6 @@ export default function ListingDetail() {
       </div>
     )
   }
-
-  const existingApplication = useMemo(() => {
-    if (!isAuthenticated || user.id === 'guest') return null
-    const email = user.email?.trim().toLowerCase()
-    return (
-      state.applications.find(
-        (a) =>
-          a.propertyId === p.id &&
-          (a.applicantUserId === user.id || (email && a.email?.trim().toLowerCase() === email)),
-      ) ?? null
-    )
-  }, [isAuthenticated, p.id, state.applications, user.email, user.id])
 
   const isBlockedForUser = blockedIds.has(p.id)
   const agentUser = p.agentId ? state.users.find((u) => u.id === p.agentId) : undefined
@@ -781,7 +808,10 @@ export default function ListingDetail() {
             </div>
           </div>
 
-          <aside className="hidden lg:block lg:sticky lg:top-24 lg:self-start">
+          <aside
+            ref={enquiryAsideRef}
+            className="hidden lg:block lg:sticky lg:top-24 lg:self-start"
+          >
             <form onSubmit={submitEnquiry} className="rounded-3xl border border-primary-100 bg-white p-5 shadow-lg shadow-ink/5">
               {priceBlock}
               {enquiryFormFields}

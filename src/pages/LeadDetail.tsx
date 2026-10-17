@@ -13,6 +13,7 @@ import { CloseLeadModal } from '../components/lead-detail/CloseLeadModal'
 import { LeadMessageModal } from '../components/lead-detail/LeadMessageModal'
 import { isLeadDetailTab, type LeadDetailTab } from '../components/lead-detail/types'
 import { canCloseLead } from '../lib/leadLifecycle'
+import { findLeadViewings } from '../lib/leadContext'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
 import type { PropertyEvent } from '../types/domain'
 import { useLeadContact } from '../hooks/useLeadContact'
@@ -121,6 +122,10 @@ export default function LeadDetail() {
   } = useLeadContact(lead, property)
 
   const schedule = useScheduleLeadViewing(lead, property)
+  const hasUpcomingViewing = findLeadViewings(lead, state.viewings).some(
+    (v) => v.status === 'Scheduled',
+  )
+  const canOfferSchedule = schedule.canSchedule && !hasUpcomingViewing
 
   const tabs = [
     { id: 'overview', label: 'Overview' },
@@ -143,6 +148,7 @@ export default function LeadDetail() {
           onClose={() => setCloseOpen(true)}
           canSchedule={schedule.canSchedule}
           onScheduleViewing={schedule.openSchedule}
+          showScheduleViewing={canOfferSchedule && tab !== 'overview'}
         />
 
         <div className="sticky top-0 z-20 -mx-1 mb-5 bg-white/95 px-1 backdrop-blur-md">
@@ -156,7 +162,7 @@ export default function LeadDetail() {
             agentName={agentName}
             viewings={state.viewings}
             applications={state.applications}
-            canSchedule={schedule.canSchedule}
+            canSchedule={canOfferSchedule}
             onScheduleViewing={schedule.openSchedule}
           />
         )}

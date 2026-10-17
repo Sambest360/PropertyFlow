@@ -176,8 +176,8 @@ describe('buildWorkspaceNavForActor portal dedupe', () => {
   it('pure tenant applicant sees one dashboard and no contractor portal links', () => {
     const entries = buildWorkspaceNavForActor({
       role: 'tenant',
-      has: has(['portal.tenant', 'maintenance.view']),
-      hasAny: hasAny(['portal.tenant', 'maintenance.view']),
+      has: has(['portal.tenant']),
+      hasAny: hasAny(['portal.tenant']),
       tenantHasStaffNav: false,
       tenantOccupancyReady: false,
     })
@@ -190,19 +190,28 @@ describe('buildWorkspaceNavForActor portal dedupe', () => {
     expect(labels).toContain('Wishlist')
     expect(labels).not.toContain('My jobs')
     expect(paths).not.toContain('/workspace/portals/contractor')
-    expect(labels).toContain('Messages')
-    expect(paths).toContain('/workspace/portals/tenant/messages')
-    expect(labels).toContain('My lease')
-    expect(paths).toContain('/workspace/portals/tenant/leases')
+    expect(labels).not.toContain('Messages')
+    expect(labels).not.toContain('My lease')
+    expect(labels).not.toContain('Payments')
+    expect(labels).not.toContain('Maintenance')
+    expect(labels).not.toContain('Complaints')
+    expect(labels).not.toContain('Documents')
     expect(hasUniquePaths(entries)).toBe(true)
   })
 
   it('tenant with approved occupancy sees lease and payments portal links', () => {
     const entries = buildWorkspaceNavForActor({
       role: 'tenant',
-      has: has(['portal.tenant', 'maintenance.view', 'payments.manage', 'messages.manage']),
+      has: has([
+        'portal.tenant',
+        'documents.view',
+        'maintenance.view',
+        'payments.manage',
+        'messages.manage',
+      ]),
       hasAny: hasAny([
         'portal.tenant',
+        'documents.view',
         'maintenance.view',
         'payments.manage',
         'messages.manage',
@@ -215,8 +224,13 @@ describe('buildWorkspaceNavForActor portal dedupe', () => {
 
     expect(labels).toContain('My lease')
     expect(labels).toContain('Payments')
+    expect(labels).toContain('Maintenance')
+    expect(labels).toContain('Messages')
+    expect(labels).toContain('Complaints')
+    expect(labels).toContain('Documents')
     expect(paths).toContain('/workspace/portals/tenant/leases')
     expect(paths).toContain('/workspace/portals/tenant/payments')
+    expect(paths).toContain('/workspace/operations/documents')
   })
 
   it('tenant with contractor permission does not get duplicate maintenance paths from operations + portal', () => {

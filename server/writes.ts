@@ -1238,16 +1238,33 @@ export function mergeRedactedApplicationFields(
   if (!Array.isArray(sentDocs)) {
     documents = storedDocs
   } else {
-    documents = sentDocs.map((raw) => {
+    const sentMerged = new Map<string, JsonRow>()
+    for (const raw of sentDocs) {
       const doc = asRow(raw)
-      if (!doc) return raw
-      const prev = storedDocs.find((x) => x && x.key === doc.key)
-      if (!prev) return doc
+      if (!doc || doc.key == null) continue
+      const key = String(doc.key)
+      const prev = storedDocs.find((x) => x && x.key === key) ?? null
+      if (!prev) {
+        sentMerged.set(key, doc)
+        continue
+      }
       const merged: JsonRow = { ...prev, ...doc }
       // A redacted document has no file: keep the stored one.
       if (doc.file == null && prev.file != null) merged.file = prev.file
-      return merged
-    })
+      sentMerged.set(key, merged)
+    }
+    const out: unknown[] = []
+    const seen = new Set<string>()
+    for (const prev of storedDocs) {
+      if (!prev || prev.key == null) continue
+      const key = String(prev.key)
+      seen.add(key)
+      out.push(sentMerged.has(key) ? sentMerged.get(key)! : prev)
+    }
+    for (const [key, doc] of sentMerged) {
+      if (!seen.has(key)) out.push(doc)
+    }
+    documents = out
   }
 
   const keyCollection: unknown =
@@ -1906,7 +1923,13 @@ async function upsertDocument(feId: string, d: Record<string, unknown>): Promise
       str(d.name, 'Document'),
       category,
       status,
-      d.url ? str(d.url) : d.storageUrl ? str(d.storageUrl) : null,
+      d.fileUrl
+        ? str(d.fileUrl)
+        : d.url
+          ? str(d.url)
+          : d.storageUrl
+            ? str(d.storageUrl)
+            : null,
       d.note ? str(d.note) : null,
       d.applicantName ? str(d.applicantName) : null,
       d.uploadedAt ? str(d.uploadedAt) : null,

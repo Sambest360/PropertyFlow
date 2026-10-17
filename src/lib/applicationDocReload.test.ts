@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Application } from '../types/domain'
 import { applicationUploadPayload, applyDocumentUpload } from './applicationDocUpload'
-import { lockDocumentReviewFields } from '../../server/applicantApplicationPolicy'
+import { lockDocumentReviewFields } from './lockDocumentReviewFields'
 import { normalizeApplication, resolveWorkflowStatus } from './applicationWorkflow'
 import { readDocumentFile } from './applicationDocDownscale'
 

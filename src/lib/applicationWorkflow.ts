@@ -781,13 +781,17 @@ export type LifecycleMilestone = {
 }
 
 const RENTAL_MILESTONES: LifecycleMilestone[] = [
+  {
+    key: 'viewing_scheduled',
+    label: 'Viewing',
+    description: 'Book or attend a property viewing before you submit your application.',
+  },
   { key: 'application_started', label: 'Application', description: 'Complete your details and submit your application.' },
   { key: 'application_submitted', label: 'Submitted', description: 'Agency receives your application for review.' },
   { key: 'documents_requested', label: 'Documents', description: 'Upload FICA, ID, and income documents.' },
   { key: 'fica_verification', label: 'Identity', description: 'Agency verifies your identity documents.' },
   { key: 'credit_check', label: 'Credit check', description: 'Credit bureau and affordability assessment (1–2 business days).' },
   { key: 'agent_review', label: 'Agent review', description: 'Agent reviews your full application file.' },
-  { key: 'viewing_scheduled', label: 'Viewing', description: 'Optional property viewing before or after approval.' },
   { key: 'conditionally_approved', label: 'Approved', description: 'Application approved — deposit and lease next.' },
   { key: 'deposit_invoice_sent', label: 'Deposit', description: 'Pay deposit and first month rent.' },
   { key: 'lease_sent', label: 'Lease', description: 'Review and sign the lease agreement.' },
@@ -910,7 +914,6 @@ export function milestoneVisualState(
   milestoneKey: WorkflowStatusKey,
 ): WorkflowStageState {
   const milestones = getLifecycleMilestones(type)
-  const currentIdx = milestones.findIndex((m) => m.key === currentStatus)
   const milestoneIdx = milestones.findIndex((m) => m.key === milestoneKey)
   if (milestoneIdx < 0) return 'skipped'
 
@@ -921,12 +924,6 @@ export function milestoneVisualState(
   if (milestoneKey === currentStatus) return 'current'
   if (currentDef.terminal && milestoneKey !== currentStatus) {
     return milestoneDef.order < currentDef.order ? 'completed' : 'skipped'
-  }
-
-  if (currentIdx >= 0 && milestoneIdx >= 0) {
-    if (milestoneIdx < currentIdx) return 'completed'
-    if (milestoneIdx === currentIdx) return 'current'
-    return 'upcoming'
   }
 
   if (milestoneDef.order < currentDef.order) return 'completed'

@@ -207,23 +207,8 @@ export function buildLeadStageContext(
         summary: upcomingViewing
           ? 'Confirm attendance and send directions before the slot.'
           : 'Link a viewing booking to this lead from the property viewing desk.',
-        links: [
-          ...(property ? [propertyViewingsLink(property)] : []),
-          ...(upcomingViewing
-            ? [
-                {
-                  id: `viewing-${upcomingViewing.id}`,
-                  title: `${upcomingViewing.date} at ${upcomingViewing.time}`,
-                  description: 'Open the property viewing desk for this booking.',
-                  href: leadViewingDeskHref(upcomingViewing),
-                  meta: upcomingViewing.status,
-                },
-              ]
-            : []),
-        ],
-        facts: upcomingViewing
-          ? [...facts, { label: 'Viewing status', value: upcomingViewing.status }]
-          : facts,
+        links: upcomingViewing ? [] : property ? [propertyViewingsLink(property)] : [],
+        facts,
         emptyMessage: !upcomingViewing && property ? 'No viewing booking matched to this contact yet.' : undefined,
         emptyAction:
           !upcomingViewing && property ? propertyViewingsLink(property) : undefined,
