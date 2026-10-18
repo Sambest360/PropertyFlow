@@ -1,4 +1,4 @@
-import { canSeeAgency, type AgencyScopeContext } from './agencyScope'
+import { canSeeAgency, type AgencyScopeContext } from './agencyScope.js'
 import type { Application, PropertyAsset, Role, Tenancy } from '../types/domain'
 
 export type PropertyDeleteViewer = { role: Role; userId: string; agencyId: string | null }
