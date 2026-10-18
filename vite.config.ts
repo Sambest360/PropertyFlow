@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { sentryVitePlugin } from '@sentry/vite-plugin'
 
 function isChartsChunk(id: string): boolean {
   return (
@@ -20,6 +21,9 @@ function isLocalSupabaseConfigured(env: Record<string, string>): boolean {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
+  const uploadMaps = Boolean(
+    env.SENTRY_AUTH_TOKEN && env.SENTRY_ORG && env.SENTRY_PROJECT,
+  )
   const apiEnabled =
     env.VITE_ENABLE_API === '1' ||
     env.VITE_ENABLE_API === 'true' ||
@@ -27,7 +31,26 @@ export default defineConfig(({ mode }) => {
     (mode === 'production' && env.VITE_ENABLE_API !== '0')
 
   return {
-    plugins: [react(), tailwindcss()],
+    define: {
+      'import.meta.env.VITE_SENTRY_RELEASE': JSON.stringify(env.VERCEL_GIT_COMMIT_SHA || ''),
+      'import.meta.env.VITE_SENTRY_ENVIRONMENT': JSON.stringify(env.VERCEL_ENV || mode),
+    },
+    plugins: [
+      react(),
+      tailwindcss(),
+      ...(uploadMaps
+        ? [
+            sentryVitePlugin({
+              org: env.SENTRY_ORG,
+              project: env.SENTRY_PROJECT,
+              authToken: env.SENTRY_AUTH_TOKEN,
+              release: { name: env.VERCEL_GIT_COMMIT_SHA || undefined },
+              sourcemaps: { filesToDeleteAfterUpload: ['./dist/**/*.map'] },
+              telemetry: false,
+            }),
+          ]
+        : []),
+    ],
     server: {
       warmup: {
         clientFiles: [
@@ -75,6 +98,7 @@ export default defineConfig(({ mode }) => {
       ],
     },
     build: {
+      sourcemap: uploadMaps ? 'hidden' : false,
       rollupOptions: {
         output: {
           manualChunks(id) {

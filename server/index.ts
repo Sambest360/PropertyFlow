@@ -1,4 +1,3 @@
-import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import {
@@ -76,6 +75,8 @@ import { ensureUuid, resolveFrontendId, resolveUuid } from './entityMap.js'
 import { docIdFromEnvelopeId } from './signiflow.js'
 import { registerSupabaseUserDirect } from './supabase/registerUser.js'
 import { runningCommitSha } from './appConfig.js'
+import { errStatus } from './errStatus.js'
+import { captureServerError } from './sentry.js'
 
 function productionAuthSecretMissing(): boolean {
   return process.env.NODE_ENV === 'production' && !process.env.AUTH_SECRET?.trim()
@@ -185,13 +186,17 @@ function errCode(err: unknown): { code?: string } {
   return {}
 }
 
-function errStatus(err: unknown): ContentfulStatusCode {
-  if (err && typeof err === 'object' && 'status' in err) {
-    const s = Number((err as { status: unknown }).status)
-    if (s >= 400 && s < 600) return s as ContentfulStatusCode
+app.onError((err, c) => {
+  captureServerError(err, { route: c.req.routePath, method: c.req.method, status: 500 })
+  return c.json({ error: 'internal_error', message: 'Internal Server Error' }, 500)
+})
+
+app.get('/api/debug-sentry', (c) => {
+  if (process.env.SENTRY_DEBUG_ROUTE !== '1') {
+    return c.json({ error: 'not_found' }, 404)
   }
-  return 500
-}
+  throw new Error('Sentry debug probe')
+})
 
 /** Verified actor (session first, see requestActor.ts) or a 401 error. */
 async function requireActor(
