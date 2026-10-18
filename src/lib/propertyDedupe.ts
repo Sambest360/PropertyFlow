@@ -40,12 +40,22 @@ export function pickPreferredProperty(a: PropertyAsset, b: PropertyAsset): Prope
   return a
 }
 
+function backendIdMatchesPeer(backendId: string | undefined, peer: PropertyAsset): boolean {
+  if (!backendId?.trim()) return false
+  const id = backendId.trim()
+  if (peer.backendId === id) return true
+  if (peer.id === id || peer.unitId === id) return true
+  return false
+}
+
 function sameListingGroup(a: PropertyAsset, b: PropertyAsset): boolean {
   if (propertyListingDedupeKey(a) === propertyListingDedupeKey(b)) return true
   if (listingIdsMatch(a.id, b.id)) return true
   if (a.unitId && b.unitId && listingIdsMatch(a.unitId, b.unitId)) return true
   if (a.unitId && listingIdsMatch(a.unitId, b.id)) return true
   if (b.unitId && listingIdsMatch(b.unitId, a.id)) return true
+  if (backendIdMatchesPeer(a.backendId, b) || backendIdMatchesPeer(b.backendId, a)) return true
+  if (a.backendId && b.backendId && a.backendId === b.backendId) return true
   return false
 }
 

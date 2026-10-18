@@ -1,4 +1,6 @@
+import { useRef } from 'react'
 import { Link } from 'react-router-dom'
+import { acquireSubmitLock, releaseSubmitLock } from '../../lib/wizardSubmitGuard'
 import { FileText, KeyRound, PenLine } from 'lucide-react'
 import type { Tenancy } from '../../types/domain'
 import { Badge, statusTone } from '../ui'
@@ -27,6 +29,7 @@ export function TenantLeasePanel({ tenancy }: { tenancy: Tenancy }) {
     state,
   } = useStore()
   const { user } = useAuth()
+  const renewalOfferLockRef = useRef(false)
   const live = state.tenancies.find((t) => t.id === tenancy.id) ?? tenancy
   const eSign = live.eSign
   const pdfUrl = live.leasePdfUrl || eSign?.pdfUrl || null
@@ -77,13 +80,18 @@ export function TenantLeasePanel({ tenancy }: { tenancy: Tenancy }) {
             propertyTitle={propertyTitle}
             handlers={{
               onOffer: ({ tenancyId, offeredEndDate, offeredRent, termMonths }) => {
-                const res = offerLeaseRenewal(tenancyId, {
-                  offeredEndDate,
-                  offeredRent,
-                  termMonths,
-                })
-                if (res.ok) notifyActor('Renewal offered', 'In-app renewal terms recorded.')
-                else notifyActor('Offer failed', 'reason' in res ? res.reason : 'Unknown error')
+                if (!acquireSubmitLock(renewalOfferLockRef)) return
+                try {
+                  const res = offerLeaseRenewal(tenancyId, {
+                    offeredEndDate,
+                    offeredRent,
+                    termMonths,
+                  })
+                  if (res.ok) notifyActor('Renewal offered', 'In-app renewal terms recorded.')
+                  else notifyActor('Offer failed', 'reason' in res ? res.reason : 'Unknown error')
+                } finally {
+                  releaseSubmitLock(renewalOfferLockRef)
+                }
               },
               onAccept: (tenancyId) => {
                 const res = acceptLeaseRenewal(tenancyId)

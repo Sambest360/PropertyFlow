@@ -450,6 +450,38 @@
   box-shadow: 0 8px 18px -10px rgba(15, 39, 68, 0.55);
 }
 
+/* Google Maps InfoWindow — match Leaflet pf-map-popup chrome */
+.pf-gmap-info {
+  font-family: inherit;
+  line-height: inherit;
+  overflow: hidden;
+}
+
+.gm-style .gm-style-iw-c:has(.pf-gmap-info) {
+  padding: 0 !important;
+  border-radius: 16px !important;
+  overflow: hidden !important;
+  box-shadow: none !important;
+}
+
+.gm-style .gm-style-iw-d:has(.pf-gmap-info) {
+  overflow: hidden !important;
+  max-height: none !important;
+}
+
+.gm-style .gm-style-iw-tc:has(+ .gm-style-iw-c .pf-gmap-info) {
+  filter: drop-shadow(0 4px 12px -6px rgba(15, 39, 68, 0.35));
+}
+
+.pf-gmap-info a.pf-map-cta {
+  color: #ffffff !important;
+  text-decoration: none !important;
+}
+
+.pf-gmap-info a.pf-map-cta:hover {
+  color: #ffffff !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pf-price-pill {
     transition: none;

@@ -205,6 +205,8 @@ export type InternalAssetItem = {
 
 export type PropertyAsset = {
   id: string
+  /** Postgres units.id when hydrated from Supabase */
+  backendId?: string
   agencyId: string
   landlordId: string
   agentId: string | null

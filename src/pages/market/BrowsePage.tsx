@@ -286,11 +286,27 @@ export default function BrowsePage() {
         ? 'Sale price in ZAR'
         : 'Sale price or monthly rent in ZAR'
 
+  const resolveCardProperty = useCallback(
+    (c: UnitCardPayload) =>
+      state.properties.find((p) => p.id === c.property_id) ??
+      properties.find((p) => p.id === c.property_id || p.unitId === c.id),
+    [state.properties, properties],
+  )
+
   const mapProperties = useMemo(() => {
-    return cards
-      .map((c) => state.properties.find((p) => p.id === c.property_id) ?? properties.find((p) => p.id === c.property_id || p.unitId === c.id))
-      .filter(Boolean) as PropertyAsset[]
-  }, [cards, state.properties, properties])
+    return cards.map((c) => resolveCardProperty(c)).filter(Boolean) as PropertyAsset[]
+  }, [cards, resolveCardProperty])
+
+  const cardsByPropertyId = useMemo(() => {
+    const map: Record<string, UnitCardPayload> = {}
+    for (const c of cards) {
+      const p = resolveCardProperty(c)
+      if (!p) continue
+      map[p.id] = c
+      if (c.property_id) map[c.property_id] = c
+    }
+    return map
+  }, [cards, resolveCardProperty])
 
   const wishlistProperties = useMemo(() => {
     if (!savedOnly) return [] as PropertyAsset[]
@@ -512,7 +528,12 @@ export default function BrowsePage() {
                 </div>
               </div>
               <div className="min-h-0 flex-1 p-2">
-                <PropertyMap properties={mapProperties.length ? mapProperties : filtered} mode={mode} className="h-full" />
+                <PropertyMap
+                  properties={mapProperties.length ? mapProperties : filtered}
+                  mode={mode}
+                  className="h-full"
+                  cardsByPropertyId={cardsByPropertyId}
+                />
               </div>
             </div>
           </aside>
@@ -529,7 +550,12 @@ export default function BrowsePage() {
             {mapProperties.length} {mapProperties.length === 1 ? 'listing' : 'listings'} on map
           </p>
           <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-primary-100">
-            <PropertyMap properties={mapProperties.length ? mapProperties : filtered} mode={mode} className="h-full" />
+            <PropertyMap
+              properties={mapProperties.length ? mapProperties : filtered}
+              mode={mode}
+              className="h-full"
+              cardsByPropertyId={cardsByPropertyId}
+            />
           </div>
         </div>
       </FullScreenSheet>

@@ -1,5 +1,6 @@
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import { acquireSubmitLock, releaseSubmitLock } from '../lib/wizardSubmitGuard'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { DashboardTabs } from '../components/dashboard/DashboardTabs'
@@ -183,6 +184,8 @@ export default function PropertyDetail() {
   const canPublishListing = has('listings.publish') && isVerificationApproved(user.verification, user.role)
   const [publishBusy, setPublishBusy] = useState(false)
   const [deleteBusy, setDeleteBusy] = useState(false)
+  const [approvingApplicationId, setApprovingApplicationId] = useState<string | null>(null)
+  const approveLockRef = useRef(false)
   const canReview = has('applications.review')
   const canMaintenance = has('maintenance.manage')
   const canPayments = has('payments.manage')
@@ -503,7 +506,11 @@ export default function PropertyDetail() {
               text: result.application.stage,
             })
           }}
+          approvingApplicationId={approvingApplicationId}
           onApprove={async (appId) => {
+            if (!acquireSubmitLock(approveLockRef)) return
+            setApprovingApplicationId(appId)
+            try {
             // P0-approve: approveApplication now awaits the durable write and
             // returns ERROR when it fails, so the success dialog (and the
             // property-event log entry) only run after the stage is committed.
@@ -531,6 +538,10 @@ export default function PropertyDetail() {
               title: 'Applicant approved',
               text: 'Deposit invoice and lease steps are ready on the application profile.',
             })
+            } finally {
+              setApprovingApplicationId(null)
+              releaseSubmitLock(approveLockRef)
+            }
           }}
           onSetDocStatus={setDocumentStatus}
           onSetWorkflowStage={(appId, workflowStatus) => {

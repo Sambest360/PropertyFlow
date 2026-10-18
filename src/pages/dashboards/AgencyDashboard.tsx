@@ -46,6 +46,11 @@ import {
   mergeCalendarEvents,
   type CalendarEvent,
 } from '../../lib/calendarEvents'
+import {
+  countDayCalendarEvents,
+  formatQuickLinksDayLabel,
+  isoDateKey,
+} from '../../lib/dashboardDayLinks'
 
 type DashTab = 'overview' | 'properties' | 'maintenance' | 'viewings' | 'applications'
 type ListFilter = 'all' | 'attention' | 'high' | 'scheduled' | 'awaiting' | 'listed'
@@ -360,69 +365,6 @@ export function AgencyDashboard() {
     canManageLeads,
   ])
 
-  const quickLinks = useMemo(() => {
-    const items: Array<{
-      to: string
-      label: string
-      icon: ReactNode
-      tone?: 'accent'
-    }> = []
-    if ((isPrincipal || isAgencyAdmin) && canManageUsers) {
-      items.push({
-        to: '/workspace/people/staff',
-        label: 'Team roster',
-        icon: <UserCog className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
-      })
-    }
-    if (canViewings) {
-      items.push({
-        to: '/workspace/sales/viewings',
-        label: `${scheduledViewings.length} viewings`,
-        icon: <CalendarDays className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
-      })
-    }
-    if (canMaintenance) {
-      items.push({
-        to: '/workspace/operations/maintenance',
-        label: `${openTickets.length} open issues`,
-        icon: <Wrench className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
-        tone: 'accent',
-      })
-      items.push({
-        to: '/workspace/operations/maintenance',
-        label: `${openTickets.filter((t) => t.priority === 'High' || t.priority === 'Urgent' || t.priority === 'Emergency').length} urgent`,
-        icon: <AlertTriangle className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
-        tone: 'accent',
-      })
-    }
-    if (canApplications) {
-      items.push({
-        to: '/workspace/sales/applications',
-        label: `${awaitingApps.length} apps`,
-        icon: <ClipboardList className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
-      })
-    }
-    if (canManageLeads) {
-      items.push({
-        to: '/workspace/sales/crm',
-        label: isPrincipal ? 'Pipeline health' : 'CRM board',
-        icon: <Users className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
-      })
-    }
-    return items
-  }, [
-    isPrincipal,
-    isAgencyAdmin,
-    canManageUsers,
-    canViewings,
-    canMaintenance,
-    canApplications,
-    canManageLeads,
-    scheduledViewings.length,
-    openTickets,
-    awaitingApps.length,
-  ])
-
   const banner = useMemo(() => {
     switch (tab) {
       case 'overview':
@@ -528,6 +470,79 @@ export function AgencyDashboard() {
     () => calendarEvents.filter((e) => e.date === dayKey),
     [calendarEvents, dayKey],
   )
+
+  const quickLinks = useMemo(() => {
+    const items: Array<{
+      to: string
+      label: string
+      icon: ReactNode
+      tone?: 'accent'
+    }> = []
+    const dayViewingCount = countDayCalendarEvents(dayEvents, ['viewing', 'viewing_slot'])
+    const dayTickets = openTickets.filter((t) => isoDateKey(t.openedAt) === dayKey)
+    const dayUrgent = dayTickets.filter(
+      (t) => t.priority === 'High' || t.priority === 'Urgent' || t.priority === 'Emergency',
+    )
+    const dayApps = awaitingApps.filter((a) => isoDateKey(a.updatedAt) === dayKey)
+
+    if ((isPrincipal || isAgencyAdmin) && canManageUsers) {
+      items.push({
+        to: '/workspace/people/staff',
+        label: 'Team roster',
+        icon: <UserCog className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
+      })
+    }
+    if (canViewings) {
+      items.push({
+        to: `/workspace/sales/viewings?date=${dayKey}`,
+        label: `${dayViewingCount} viewings`,
+        icon: <CalendarDays className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
+      })
+    }
+    if (canMaintenance) {
+      items.push({
+        to: '/workspace/operations/maintenance',
+        label: `${dayTickets.length} open issues`,
+        icon: <Wrench className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
+        tone: 'accent',
+      })
+      items.push({
+        to: '/workspace/operations/maintenance',
+        label: `${dayUrgent.length} urgent`,
+        icon: <AlertTriangle className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
+        tone: 'accent',
+      })
+    }
+    if (canApplications) {
+      items.push({
+        to: '/workspace/sales/applications',
+        label: `${dayApps.length} apps`,
+        icon: <ClipboardList className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
+      })
+    }
+    if (canManageLeads) {
+      items.push({
+        to: '/workspace/sales/crm',
+        label: isPrincipal ? 'Pipeline health' : 'CRM board',
+        icon: <Users className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
+      })
+    }
+    return items
+  }, [
+    dayKey,
+    dayEvents,
+    openTickets,
+    awaitingApps,
+    isPrincipal,
+    isAgencyAdmin,
+    canManageUsers,
+    canViewings,
+    canMaintenance,
+    canApplications,
+    canManageLeads,
+  ])
+
+  const quickLinksDayLabel = formatQuickLinksDayLabel(selectedDay)
 
   const { eventIndex, cycleDayEvent } = useEventCycle(
     dayKey,
@@ -751,7 +766,9 @@ export function AgencyDashboard() {
 
             {quickLinks.length > 0 && (
               <div className="rounded-[1.25rem] border border-primary-100 bg-white p-5 shadow-[0_12px_32px_-24px_rgba(15,39,68,0.3)]">
-                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-400">Quick links</p>
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-400">
+                  Quick links · {quickLinksDayLabel}
+                </p>
                 <QuickLinkChips items={quickLinks} />
               </div>
             )}

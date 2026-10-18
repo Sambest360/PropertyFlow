@@ -260,14 +260,27 @@ export async function ensureUuid(
   if (existing) return existing
 
   const uuid = preferredUuid && isUuid(preferredUuid) ? preferredUuid : randomUUID()
+  return upsertEntityMapFrontendId(entityType, frontendId, uuid)
+}
+
+/** Register a FE id → UUID row; concurrent first-writer wins (no last-writer overwrite). */
+export async function upsertEntityMapFrontendId(
+  entityType: EntityType,
+  frontendId: string,
+  backendId: string,
+): Promise<string> {
   await ensureEntityMapTable()
   await query(
     `INSERT INTO entity_id_map (entity_type, frontend_id, backend_id)
      VALUES ($1, $2, $3::uuid)
-     ON CONFLICT (entity_type, frontend_id) DO UPDATE SET backend_id = EXCLUDED.backend_id`,
-    [entityType, frontendId, uuid],
+     ON CONFLICT (entity_type, frontend_id) DO NOTHING`,
+    [entityType, frontendId, backendId],
   )
-  return uuid
+  const rows = await query<{ backend_id: string }>(
+    `SELECT backend_id FROM entity_id_map WHERE entity_type = $1 AND frontend_id = $2`,
+    [entityType, frontendId],
+  )
+  return rows[0]?.backend_id ?? backendId
 }
 
 export async function forgetId(entityType: EntityType, frontendId: string): Promise<void> {

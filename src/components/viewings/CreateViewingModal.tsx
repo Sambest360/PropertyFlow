@@ -1,4 +1,5 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { acquireSubmitLock, releaseSubmitLock } from '../../lib/wizardSubmitGuard'
 import { CalendarDays, DoorOpen, Users } from 'lucide-react'
 import type { AppUser, PropertyAsset } from '../../types/domain'
 import { PropertySearchPicker } from '../PropertySearchPicker'
@@ -67,6 +68,8 @@ export function CreateViewingModal({
   const [durationMinutes, setDurationMinutes] = useState('45')
   const [guests, setGuests] = useState<ViewingGuest[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const submitLockRef = useRef(false)
 
   const selected = properties.find((p) => p.id === propertyId)
 
@@ -100,6 +103,9 @@ export function CreateViewingModal({
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
+    if (!acquireSubmitLock(submitLockRef)) return
+    setSubmitting(true)
+    try {
     if (!propertyId) {
       setError('Select a property — every viewing must be linked to one.')
       return
@@ -153,6 +159,10 @@ export function CreateViewingModal({
       guests,
     })
     onClose()
+    } finally {
+      setSubmitting(false)
+      releaseSubmitLock(submitLockRef)
+    }
   }
 
   return (
@@ -167,12 +177,14 @@ export function CreateViewingModal({
           <Button type="button" variant="secondary" className="min-h-11" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" form="create-viewing-form" className="min-h-11">
-            {mode === 'slot'
-              ? guests.length
-                ? `Publish slot · invite ${guests.length}`
-                : 'Publish open slot'
-              : `Book ${guests.length || ''} ${guests.length === 1 ? 'person' : 'people'}`.trim()}
+          <Button type="submit" form="create-viewing-form" className="min-h-11" disabled={submitting}>
+            {submitting
+              ? 'Saving…'
+              : mode === 'slot'
+                ? guests.length
+                  ? `Publish slot · invite ${guests.length}`
+                  : 'Publish open slot'
+                : `Book ${guests.length || ''} ${guests.length === 1 ? 'person' : 'people'}`.trim()}
           </Button>
         </>
       }

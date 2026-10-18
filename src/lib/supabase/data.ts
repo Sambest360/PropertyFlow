@@ -373,6 +373,7 @@ export async function fetchSupabaseBootstrap(
     supabase
       .from('entity_id_map')
       .select('entity_type, backend_id, frontend_id')
+      .order('created_at', { ascending: false })
       .limit(lite ? LITE_LIMITS.entityIdMap : FULL_LIMITS.entityIdMap),
     supabase.from('clients').select('id, company_name, subdomain, status, city, created_at, settings'),
     // CR10 N4: never read users.metadata whole (it holds other users' signature).
@@ -469,7 +470,37 @@ export async function fetchSupabaseBootstrap(
     active: boolean
     metadata: Record<string, unknown> | null
   }>
-  const cache = buildIdMapCache(idMapRes.data ?? [], clients)
+  let idMapRows = idMapRes.data ?? []
+  const bootstrapUnitUuids = (unitsRes.data ?? []).map((u) => u.id as string)
+  const bootstrapBuildingUuids = (buildingsRes.data ?? []).map((b) => b.id as string)
+  if (bootstrapUnitUuids.length > 0 || bootstrapBuildingUuids.length > 0) {
+    const [unitPropMapRes, buildingMapRes] = await Promise.all([
+      bootstrapUnitUuids.length > 0
+        ? supabase
+            .from('entity_id_map')
+            .select('entity_type, backend_id, frontend_id')
+            .in('entity_type', ['property', 'unit'])
+            .in('backend_id', bootstrapUnitUuids)
+        : Promise.resolve({ data: [] as { entity_type: string; backend_id: string; frontend_id: string }[] }),
+      bootstrapBuildingUuids.length > 0
+        ? supabase
+            .from('entity_id_map')
+            .select('entity_type, backend_id, frontend_id')
+            .eq('entity_type', 'building')
+            .in('backend_id', bootstrapBuildingUuids)
+        : Promise.resolve({ data: [] as { entity_type: string; backend_id: string; frontend_id: string }[] }),
+    ])
+    const seen = new Set(idMapRows.map((r) => `${r.entity_type}:${r.frontend_id}`))
+    for (const row of [...(unitPropMapRes.data ?? []), ...(buildingMapRes.data ?? [])]) {
+      const key = `${row.entity_type}:${row.frontend_id}`
+      if (!seen.has(key)) {
+        seen.add(key)
+        idMapRows.push(row)
+      }
+    }
+  }
+
+  const cache = buildIdMapCache(idMapRows, clients)
 
   const userByUuid = new Map<string, string>()
   for (const u of users) {
@@ -599,6 +630,7 @@ export async function fetchSupabaseBootstrap(
       formattedAddress: u.formatted_address ?? b?.formatted_address ?? null,
       geocodedAt: iso(u.geocoded_at) ?? iso(b?.geocoded_at ?? null),
       createdAt: dateOnly(u.created_at),
+      backendId: u.id as string,
       _propertyId: canonicalListingId(mapPropertyFe(u.id) ?? u.id),
       _unitUuid: u.id,
       _updatedAt: iso(u.updated_at),
@@ -646,6 +678,7 @@ export async function fetchSupabaseBootstrap(
 
     return {
       id: u._propertyId,
+      backendId: u._unitUuid as string,
       agencyId: u.clientId,
       landlordId: b?.landlordId ?? '',
       agentId: u.agentId,

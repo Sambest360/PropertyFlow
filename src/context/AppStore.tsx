@@ -66,6 +66,7 @@ import {
 import { commitProposedPayout } from '../lib/trust/proposePayoutCommit'
 import { isPubliclyListed } from '../lib/publicListings'
 import { findByListingId, nextUniquePropertyId } from '../lib/listingIds'
+import { CreatePropertyBundleError } from '../lib/createPropertyBundleError'
 import { dedupePropertyAssets } from '../lib/propertyDedupe'
 import {
   uid,
@@ -694,6 +695,8 @@ type StoreContextValue = {
       brand?: string
       condition: AssetCondition
     }>
+    ids?: { propertyId: string; buildingId?: string; roomIds?: string[] }
+    idempotencyKey?: string
   }) => Promise<PropertyAsset>
   updateProperty: (id: string, patch: Partial<PropertyAsset>) => void
   setPropertyRooms: (id: string, rooms: Room[]) => void
@@ -3320,20 +3323,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
       const building: Building = existingBuilding ?? {
         ...(input.building as Omit<Building, 'id' | 'createdAt' | 'images'>),
-        id: uid('bld'),
+        id: input.ids?.buildingId ?? uid('bld'),
         images: input.building?.images?.length ? input.building.images : [],
         createdAt: new Date().toISOString().slice(0, 10),
       }
 
       // P0-4: Ensure single durable public ID - property.id is canonical, unit.id is derived
-      // P0-collision (R10): the wizard's leftover-draft bug reused one listing's
-      // unt- id for a second listing (rent/sale overwrite). Minting here is
-      // collision-guarded against the live property set as belt-and-braces —
-      // the wizard-side stale-draft fix (PropertyCreatePage) is the primary fix.
-      const propertyId = nextUniquePropertyId(
-        stateRef.current.properties.map((p) => p.id),
-        () => uid('unt'),
-      )
+      const propertyId = input.ids?.propertyId
+        ? input.ids.propertyId
+        : nextUniquePropertyId(stateRef.current.properties.map((p) => p.id), () => uid('unt'))
       const unitId = propertyId // Unit ID matches property ID for single public face
       const clientId = building.clientId
 
@@ -3375,7 +3373,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }
 
       const infraRooms: InfraRoom[] = roomDrafts.map((r, i) => ({
-        id: uid('rm'),
+        id: input.ids?.roomIds?.[i] ?? uid('rm'),
         clientId,
         unitId,
         name: r.name,
@@ -3456,6 +3454,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         baths: property.baths,
         area: property.area,
         images: property.images,
+        ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
       } as Record<string, unknown>
 
       const { persistErrorMessage } = await import('../lib/api/persist')
@@ -3494,13 +3493,23 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       if (!unitResult.ok) {
         throwPersistFailure('unit', persistErrorMessage(unitResult))
       }
+      if (unitResult.ok && unitResult.uuid) {
+        unit.backendId = unitResult.uuid
+        property.backendId = unitResult.uuid
+      }
 
       const propertyResult = await persistUpsertResult('property', property.id, {
         ...property,
         unitNumber: input.unit.unitNumber,
       } as unknown as Record<string, unknown>)
       if (!propertyResult.ok) {
-        throwPersistFailure('property', persistErrorMessage(propertyResult))
+        throw new CreatePropertyBundleError(
+          propertyId,
+          persistErrorMessage(propertyResult) ?? 'Could not save the property. Try again.',
+        )
+      }
+      if (propertyResult.ok && propertyResult.uuid) {
+        property.backendId = propertyResult.uuid
       }
 
       patch((s) => ({
@@ -3530,7 +3539,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           room as unknown as Record<string, unknown>,
         )
         if (!roomResult.ok) {
-          throwPersistFailure('room', persistErrorMessage(roomResult))
+          throw new CreatePropertyBundleError(
+            propertyId,
+            persistErrorMessage(roomResult) ?? 'Could not save a room. Try again.',
+          )
         }
       }
 

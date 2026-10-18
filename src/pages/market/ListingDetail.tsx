@@ -22,6 +22,7 @@ import {
 } from '../../lib/blockedApplicants'
 import { useWishlist } from '../../hooks/useWishlist'
 import { hasMappedCoordinates } from '../../lib/mapCoords'
+import { acquireSubmitLock, releaseSubmitLock } from '../../lib/wizardSubmitGuard'
 import { fetchPublicListingImages } from '../../lib/api/postgresClient'
 import { NO_PHOTOS_YET, normalizeListingImages } from '../../lib/listingPhotos'
 import { isPubliclyListed } from '../../lib/publicListings'
@@ -93,6 +94,9 @@ export default function ListingDetail() {
   const [idNumber, setIdNumber] = useState('')
   const [intent, setIntent] = useState<EnquiryIntent>('lead')
   const [submitting, setSubmitting] = useState(false)
+  const [appSubmitting, setAppSubmitting] = useState(false)
+  const enquiryLockRef = useRef(false)
+  const applicationLockRef = useRef(false)
   const [enquirySheetOpen, setEnquirySheetOpen] = useState(false)
   // P0-4 (R4): guest direct-URL opens used to flash "Listing not found" while
   // the public bootstrap was still in flight. Give the store a short window
@@ -338,6 +342,7 @@ export default function ListingDetail() {
       return
     }
 
+    if (!acquireSubmitLock(enquiryLockRef)) return
     setSubmitting(true)
     try {
       const result = await submitListingEnquiry({
@@ -414,20 +419,25 @@ export default function ListingDetail() {
       return true
     } finally {
       setSubmitting(false)
+      releaseSubmitLock(enquiryLockRef)
     }
-    return false
   }
 
   const submitApplication = async () => {
+    if (!acquireSubmitLock(applicationLockRef)) return
     if (!isAuthenticated) {
+      releaseSubmitLock(applicationLockRef)
       navigate(`/register?next=${encodeURIComponent(`/listing/${p.id}`)}`)
       return
     }
     if (!fullName || !email.trim()) {
       await sweetWarning('Missing details', 'Please enter your name and email.')
+      releaseSubmitLock(applicationLockRef)
       return
     }
 
+    setAppSubmitting(true)
+    try {
     const appResult = await createApplication({
       agencyId: p.agencyId,
       propertyId: p.id,
@@ -476,6 +486,10 @@ export default function ListingDetail() {
     )
     if (appRef) {
       navigate(`/workspace/portals/tenant/applications/${encodeURIComponent(appRef)}`)
+    }
+    } finally {
+      setAppSubmitting(false)
+      releaseSubmitLock(applicationLockRef)
     }
   }
 
@@ -646,8 +660,14 @@ export default function ListingDetail() {
             </Button>
           </Link>
         ) : (
-          <Button type="button" variant="secondary" className="w-full min-h-11" onClick={submitApplication}>
-            Submit full application
+          <Button
+            type="button"
+            variant="secondary"
+            className="w-full min-h-11"
+            disabled={appSubmitting}
+            onClick={submitApplication}
+          >
+            {appSubmitting ? 'Submitting…' : 'Submit full application'}
           </Button>
         )}
       </div>

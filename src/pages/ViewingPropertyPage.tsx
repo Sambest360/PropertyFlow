@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { acquireSubmitLock, releaseSubmitLock } from '../lib/wizardSubmitGuard'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   CalendarDays,
@@ -54,6 +55,8 @@ export default function ViewingPropertyPage() {
   const [inviteSlotId, setInviteSlotId] = useState<string | null>(null)
   const [inviteGuests, setInviteGuests] = useState<ViewingGuest[]>([])
   const [inviteError, setInviteError] = useState<string | null>(null)
+  const createViewingLockRef = useRef(false)
+  const inviteLockRef = useRef(false)
 
   const slotFocus = searchParams.get('slot')
   const bookingFocus = searchParams.get('booking')
@@ -142,6 +145,8 @@ export default function ViewingPropertyPage() {
   }
 
   const handleCreate = (payload: CreateViewingPayload) => {
+    if (!acquireSubmitLock(createViewingLockRef)) return
+    try {
     if (!agencyId || !canMutate(property.id)) return
     if (payload.mode === 'slot') {
       const slot = createViewingSlot({
@@ -173,9 +178,14 @@ export default function ViewingPropertyPage() {
         notes: payload.notes || undefined,
       })
     }
+    } finally {
+      releaseSubmitLock(createViewingLockRef)
+    }
   }
 
   const submitInvite = (slot: ViewingSlot) => {
+    if (!acquireSubmitLock(inviteLockRef)) return
+    try {
     const remaining = Math.max(0, slot.capacity - slot.booked)
     if (inviteGuests.length === 0) {
       setInviteError('Add at least one person.')
@@ -191,6 +201,9 @@ export default function ViewingPropertyPage() {
     setInviteGuests([])
     setInviteSlotId(null)
     setInviteError(null)
+    } finally {
+      releaseSubmitLock(inviteLockRef)
+    }
   }
 
   const editSlot = editSlotId ? slots.find((s) => s.id === editSlotId) ?? null : null

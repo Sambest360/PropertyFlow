@@ -920,15 +920,20 @@ async function upsertProperty(feId: string, d: Record<string, unknown>): Promise
       ? propertyTypeToDb(str(d.type))
       : null
 
+  const idempotencyKey =
+    typeof d.idempotencyKey === 'string' && d.idempotencyKey.trim()
+      ? d.idempotencyKey.trim()
+      : null
+
   await query(
     `INSERT INTO units (
        id, building_id, client_id, unit_number, property_type, square_meters, bedrooms, bathrooms, parking,
        listing_type, price, rent, status_config_key, agent_id, title, description, amenities,
-       images, featured, lat, lng, place_id, formatted_address, geocoded_at, updated_at
+       images, featured, lat, lng, place_id, formatted_address, geocoded_at, idempotency_key, updated_at
      ) VALUES (
        $1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9,
        $10, $11, $12, $13, $14::uuid, $15, $16, $17::jsonb,
-       $18::jsonb, $19, $20, $21, $22, $23, $24::timestamptz, NOW()
+       $18::jsonb, $19, $20, $21, $22, $23, $24::timestamptz, $25, NOW()
      )
      ON CONFLICT (id) DO UPDATE SET
        building_id = EXCLUDED.building_id,
@@ -954,6 +959,7 @@ async function upsertProperty(feId: string, d: Record<string, unknown>): Promise
        place_id = COALESCE(EXCLUDED.place_id, units.place_id),
        formatted_address = COALESCE(EXCLUDED.formatted_address, units.formatted_address),
        geocoded_at = COALESCE(EXCLUDED.geocoded_at, units.geocoded_at),
+       idempotency_key = COALESCE(units.idempotency_key, EXCLUDED.idempotency_key),
        updated_at = NOW()`,
     [
       uuid,
@@ -980,6 +986,7 @@ async function upsertProperty(feId: string, d: Record<string, unknown>): Promise
       d.placeId ? str(d.placeId) : null,
       d.formattedAddress ? str(d.formattedAddress) : null,
       d.geocodedAt ? str(d.geocodedAt) : null,
+      idempotencyKey,
     ],
   )
   return uuid

@@ -185,7 +185,7 @@ function reportPersistRefusal(refusal: PersistRefusal | null): void {
   globalThis.dispatchEvent(new CustomEvent<PersistRefusal>(PERSIST_REFUSED_EVENT, { detail: refusal }))
 }
 
-export type PersistApiResult = { ok: true } | { ok: false; error?: string }
+export type PersistApiResult = { ok: true; uuid?: string } | { ok: false; error?: string }
 
 export function persistErrorMessage(result: PersistApiResult): string | undefined {
   if (result.ok === false) return result.error
@@ -209,7 +209,14 @@ export async function persistViaServerApiDetailed(op: PersistOp): Promise<Persis
       const message = messageFromPersistFailure(res.status, contentType, text, refusal?.message)
       return { ok: false, error: message }
     }
-    return { ok: true }
+    let uuid: string | undefined
+    try {
+      const parsed = JSON.parse(text) as { uuid?: unknown }
+      if (typeof parsed.uuid === 'string' && parsed.uuid) uuid = parsed.uuid
+    } catch {
+      /* ignore */
+    }
+    return uuid ? { ok: true, uuid } : { ok: true }
   } catch (err) {
     console.warn('[persist] offline / failed', op.resource, op.id, err)
     return { ok: false, error: LOCAL_API_REQUIRED_MESSAGE }

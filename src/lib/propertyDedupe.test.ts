@@ -41,6 +41,14 @@ describe('dedupePropertyAssets', () => {
     expect(out[0].id).toBe('PR-abc')
   })
 
+  it('collapses optimistic unt-* row with hydrated twin sharing backendId', () => {
+    const uuid = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
+    const optimistic = prop({ id: 'unt-abc123', unitId: 'unt-abc123', backendId: uuid, title: 'Local' })
+    const hydrated = prop({ id: uuid, unitId: 'unt-abc123', backendId: uuid, title: 'Remote' })
+    const out = dedupePropertyAssets([optimistic, hydrated])
+    expect(out).toHaveLength(1)
+  })
+
   it('keeps distinct listings', () => {
     const a = prop({ id: 'PR-one', unitId: 'unt-PR-one' })
     const b = prop({ id: 'PR-two', unitId: 'unt-PR-two' })

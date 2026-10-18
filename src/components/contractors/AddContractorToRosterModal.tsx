@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { acquireSubmitLock, releaseSubmitLock } from '../../lib/wizardSubmitGuard'
 import { HardHat, Search, UserPlus } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import type { Agency, AppUser } from '../../types/domain'
@@ -42,6 +43,8 @@ export function AddContractorToRosterModal({
   const [notes, setNotes] = useState('')
   const [query, setQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const submitLockRef = useRef(false)
 
   const available = useMemo(
     () => listContractorsAvailableForRoster(roster, users, agencyId),
@@ -98,16 +101,25 @@ export function AddContractorToRosterModal({
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
+    if (!acquireSubmitLock(submitLockRef)) return
     if (!pickUserId) {
       setError('Choose a contractor account to add to your roster.')
+      releaseSubmitLock(submitLockRef)
       return
     }
     if (!pickTrades.length) {
       setError('Select at least one trade.')
+      releaseSubmitLock(submitLockRef)
       return
     }
     setError(null)
-    onSubmit({ contractorUserId: pickUserId, trades: pickTrades, notes: notes.trim() })
+    setBusy(true)
+    try {
+      onSubmit({ contractorUserId: pickUserId, trades: pickTrades, notes: notes.trim() })
+    } finally {
+      setBusy(false)
+      releaseSubmitLock(submitLockRef)
+    }
   }
 
   return (
@@ -126,9 +138,9 @@ export function AddContractorToRosterModal({
             className="min-h-11 cursor-pointer"
             form="add-contractor-roster-form"
             type="submit"
-            disabled={!pickUserId || !available.length}
+            disabled={busy || !pickUserId || !available.length}
           >
-            Add to roster
+            {busy ? 'Adding…' : 'Add to roster'}
           </Button>
         </>
       }

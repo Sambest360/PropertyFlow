@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { acquireSubmitLock, releaseSubmitLock } from '../lib/wizardSubmitGuard'
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { CalendarDays, Plus, Search } from 'lucide-react'
 import { useStore } from '../context/AppStore'
@@ -48,6 +49,7 @@ export default function Viewings() {
   const [kind, setKind] = useState<ViewingKindFilter>('all')
   const [status, setStatus] = useState<ViewingStatusFilter>('all')
   const [createOpen, setCreateOpen] = useState(() => searchParams.get('create') === '1')
+  const createViewingLockRef = useRef(false)
 
   useEffect(() => {
     if (dayFilter) setSelectedDate(dayFilter)
@@ -257,6 +259,8 @@ export default function Viewings() {
   }
 
   const handleCreate = (payload: CreateViewingPayload) => {
+    if (!acquireSubmitLock(createViewingLockRef)) return
+    try {
     if (!agencyId) return
     const prop = properties.find((p) => p.id === payload.propertyId)
     if (!prop || !canMutate(prop.id)) return
@@ -296,6 +300,9 @@ export default function Viewings() {
       return
     }
     selectDate(payload.date)
+    } finally {
+      releaseSubmitLock(createViewingLockRef)
+    }
   }
 
   return (

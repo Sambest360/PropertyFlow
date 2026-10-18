@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import { acquireSubmitLock, releaseSubmitLock } from '../lib/wizardSubmitGuard'
 import { Link } from 'react-router-dom'
 import { FileSignature, FileText, PenLine } from 'lucide-react'
 import { useStore } from '../context/AppStore'
@@ -65,6 +66,7 @@ export default function LeasesDirectory() {
   const [signFilter, setSignFilter] = useState<SignFilter>('all')
   const [sort, setSort] = useState('tenant')
   const [busyId, setBusyId] = useState<string | null>(null)
+  const renewalOfferLockRef = useRef(false)
 
   const rows: LeaseRow[] = useMemo(() => {
     return state.tenancies
@@ -215,21 +217,26 @@ export default function LeasesDirectory() {
 
   const renewalHandlers: LeaseRenewalsHandlers = {
     onOffer: ({ tenancyId, offeredEndDate, offeredRent, termMonths }) => {
-      const res = offerLeaseRenewal(tenancyId, { offeredEndDate, offeredRent, termMonths })
-      if (res.ok) {
-        notify({
-          userId: user?.id ?? 'system',
-          agencyId: user?.agencyId ?? null,
-          title: 'Renewal offered',
-          body: 'In-app renewal terms recorded (not CPA legal service).',
-        })
-      } else {
-        notify({
-          userId: user?.id ?? 'system',
-          agencyId: user?.agencyId ?? null,
-          title: 'Offer failed',
-          body: 'reason' in res ? res.reason : 'Unknown error',
-        })
+      if (!acquireSubmitLock(renewalOfferLockRef)) return
+      try {
+        const res = offerLeaseRenewal(tenancyId, { offeredEndDate, offeredRent, termMonths })
+        if (res.ok) {
+          notify({
+            userId: user?.id ?? 'system',
+            agencyId: user?.agencyId ?? null,
+            title: 'Renewal offered',
+            body: 'In-app renewal terms recorded (not CPA legal service).',
+          })
+        } else {
+          notify({
+            userId: user?.id ?? 'system',
+            agencyId: user?.agencyId ?? null,
+            title: 'Offer failed',
+            body: 'reason' in res ? res.reason : 'Unknown error',
+          })
+        }
+      } finally {
+        releaseSubmitLock(renewalOfferLockRef)
       }
     },
     onAccept: (tenancyId) => {

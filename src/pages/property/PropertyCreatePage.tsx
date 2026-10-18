@@ -74,6 +74,9 @@ import type { AssetCondition } from '../../data/infrastructure'
 import type { PropertyAsset } from '../../types/domain'
 import { showTempPasswordOnce } from '../../lib/auth/tempPasswordBus'
 import { acquireSubmitLock, releaseSubmitLock } from '../../lib/wizardSubmitGuard'
+import { nextUniquePropertyId } from '../../lib/listingIds'
+import { shouldRetainWizardDraftPropertyId } from '../../lib/propertyWizardResume'
+import { propertyIdFromCreateError } from '../../lib/createPropertyBundleError'
 import { sweetError, sweetSuccess, sweetWarning } from '../../lib/sweetAlert'
 import { PropertyLoader } from '../../components/loading/PropertyLoader'
 
@@ -261,15 +264,75 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   // mints a NEW listing. The in-session ref below still lets "Save & continue
   // later" → re-entry within the same mount reuse the id it just created.
   const sessionDraftPropertyIdRef = useRef('')
+  const pendingCreateIdsRef = useRef<PropertyDraft['pendingCreateIds']>(undefined)
   const submitLockRef = useRef(false)
+
+  function wizardOwnedDraftId(): string {
+    if (sessionDraftPropertyIdRef.current) return sessionDraftPropertyIdRef.current
+    if (shouldRetainWizardDraftPropertyId(draft, state.properties) && draft.draftPropertyId) {
+      return draft.draftPropertyId
+    }
+    return ''
+  }
+
+  function ensurePendingCreateIds(): NonNullable<PropertyDraft['pendingCreateIds']> {
+    const fromDraft = draft.pendingCreateIds ?? pendingCreateIdsRef.current
+    const roomIds = draft.rooms.map((r, i) => fromDraft?.roomIds?.[i] ?? r.id ?? uid('rm'))
+    if (fromDraft?.propertyId) {
+      const ids = {
+        propertyId: fromDraft.propertyId,
+        buildingId: draft.existingBuildingId ? undefined : fromDraft.buildingId ?? uid('bld'),
+        roomIds,
+      }
+      pendingCreateIdsRef.current = ids
+      if (!draft.createIdempotencyKey || draft.pendingCreateIds !== ids) {
+        setDraft((d) => ({
+          ...d,
+          pendingCreateIds: ids,
+          createIdempotencyKey: d.createIdempotencyKey ?? `create:${wizardStorageKey}`,
+        }))
+      }
+      return ids
+    }
+    const propertyId = nextUniquePropertyId(state.properties.map((p) => p.id), () => uid('unt'))
+    const ids = {
+      propertyId,
+      buildingId: draft.existingBuildingId ? undefined : uid('bld'),
+      roomIds,
+    }
+    pendingCreateIdsRef.current = ids
+    setDraft((d) => ({
+      ...d,
+      pendingCreateIds: ids,
+      createIdempotencyKey: d.createIdempotencyKey ?? `create:${wizardStorageKey}`,
+    }))
+    return ids
+  }
+
+  function bundleIdempotencyOpts() {
+    const pendingIds = ensurePendingCreateIds()
+    return {
+      ids: pendingIds,
+      idempotencyKey: draft.createIdempotencyKey ?? `create:${wizardStorageKey}`,
+    }
+  }
+
   useEffect(() => {
     if (isEdit) return
+    const retain = shouldRetainWizardDraftPropertyId(draft, state.properties)
+    if (retain && draft.resumeDraftPropertyId) {
+      sessionDraftPropertyIdRef.current = draft.resumeDraftPropertyId
+      if (draft.pendingCreateIds) pendingCreateIdsRef.current = draft.pendingCreateIds
+      return
+    }
     // P0-5 residual: FA Draft default must not imply live — a leftover
     // sessionStorage draft may revive publishAfterSave:true from a prior run.
-    if (draft.draftPropertyId || (isAgentCreator && draft.publishAfterSave)) {
+    if (draft.draftPropertyId || draft.resumeDraftPropertyId || (isAgentCreator && draft.publishAfterSave)) {
       setDraft((d) => ({
         ...d,
         draftPropertyId: '',
+        resumeDraftPropertyId: '',
+        pendingCreateIds: undefined,
         ...(isAgentCreator ? { publishAfterSave: false } : {}),
       }))
     }
@@ -660,16 +723,15 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     // P0-collision (R10): same session-scoped rule as submitProperty — a
     // draftPropertyId from leftover sessionStorage belongs to a previous
     // listing; only one recorded during this mount may be updated in place.
-    const sessionOwnedId =
-      sessionDraftPropertyIdRef.current ||
-      (draft.draftPropertyId && state.properties.some((p) => p.id === draft.draftPropertyId)
-        ? draft.draftPropertyId
-        : '')
+    const sessionOwnedId = wizardOwnedDraftId()
     if (sessionOwnedId) {
       return persistExisting(sessionOwnedId)
     }
 
+    const { ids, idempotencyKey } = bundleIdempotencyOpts()
     const created = await createPropertyBundle({
+      ids,
+      idempotencyKey,
       existingBuildingId: draft.existingBuildingId || undefined,
       building: draft.existingBuildingId
         ? undefined
@@ -735,12 +797,26 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     try {
       if (canSyncServerDraft()) {
         const id = await syncServerDraft()
-        setDraft((d) => ({ ...d, draftPropertyId: id }))
+        setDraft((d) => ({
+          ...d,
+          draftPropertyId: id,
+          resumeDraftPropertyId: id,
+          pendingCreateIds: pendingCreateIdsRef.current ?? d.pendingCreateIds,
+        }))
         sessionDraftPropertyIdRef.current = id
       }
       await sweetSuccess('Progress saved', 'You can pick up where you left off.')
       navigate(returnTo)
     } catch (err) {
+      const recoveredId = propertyIdFromCreateError(err)
+      if (recoveredId) {
+        sessionDraftPropertyIdRef.current = recoveredId
+        setDraft((d) => ({
+          ...d,
+          draftPropertyId: recoveredId,
+          pendingCreateIds: pendingCreateIdsRef.current ?? d.pendingCreateIds,
+        }))
+      }
       const message =
         err instanceof Error && err.message
           ? err.message
@@ -767,7 +843,12 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     setBusy(true)
     try {
       const id = await syncServerDraft()
-      setDraft((d) => ({ ...d, draftPropertyId: id }))
+      setDraft((d) => ({
+        ...d,
+        draftPropertyId: id,
+        resumeDraftPropertyId: id,
+        pendingCreateIds: pendingCreateIdsRef.current ?? d.pendingCreateIds,
+      }))
       sessionDraftPropertyIdRef.current = id
       clearDraft()
       try {
@@ -777,7 +858,16 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       }
       await sweetSuccess('Draft saved', 'Add inventory from the property detail page.')
       navigate(`/workspace/properties/${id}?tab=inventory`)
-    } catch {
+    } catch (err) {
+      const recoveredId = propertyIdFromCreateError(err)
+      if (recoveredId) {
+        sessionDraftPropertyIdRef.current = recoveredId
+        setDraft((d) => ({
+          ...d,
+          draftPropertyId: recoveredId,
+          pendingCreateIds: pendingCreateIdsRef.current ?? d.pendingCreateIds,
+        }))
+      }
       await sweetError('Could not save listing', 'Try again in a moment.')
     } finally {
       setBusy(false)
@@ -815,12 +905,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     // session is a legitimate "existing draft" to update. A value restored
     // from leftover sessionStorage belongs to a previous listing — reusing it
     // overwrote that listing (the unt-ljn8sf rent/sale collision).
-    const existingDraftId = isEdit
-      ? editPropertyId!
-      : (sessionDraftPropertyIdRef.current ||
-          (draft.draftPropertyId && state.properties.some((p) => p.id === draft.draftPropertyId)
-            ? draft.draftPropertyId
-            : '')) || null
+    const existingDraftId = isEdit ? editPropertyId! : wizardOwnedDraftId() || null
 
     let propertyId: string
     // P0-publish (R7): snapshot of a property created in this same tick —
@@ -845,7 +930,10 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       propertyId = existingDraftId
     } else {
       const { resolvedAgencyId, resolvedLandlordId, title, unitNumber, roomRows, starterAssets } = buildSubmitContext()
+      const { ids, idempotencyKey } = bundleIdempotencyOpts()
       const created = await createPropertyBundle({
+        ids,
+        idempotencyKey,
         existingBuildingId: draft.existingBuildingId || undefined,
         building: draft.existingBuildingId
           ? undefined
@@ -947,6 +1035,15 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     await sweetSuccess(successTitle)
     navigate(detailTarget)
     } catch (err) {
+      const recoveredId = propertyIdFromCreateError(err)
+      if (recoveredId) {
+        sessionDraftPropertyIdRef.current = recoveredId
+        setDraft((d) => ({
+          ...d,
+          draftPropertyId: recoveredId,
+          pendingCreateIds: pendingCreateIdsRef.current ?? d.pendingCreateIds,
+        }))
+      }
       const message =
         err instanceof Error && err.message
           ? err.message

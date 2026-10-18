@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, Fragment } from 'react'
+import { useEffect, useMemo, useRef, useState, Fragment } from 'react'
+import { acquireSubmitLock, releaseSubmitLock } from '../lib/wizardSubmitGuard'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ArrowRight,
@@ -117,6 +118,8 @@ export default function CRM() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [closeTarget, setCloseTarget] = useState<PortfolioLead | null>(null)
   const hideAgentColumn = useHideAgentColumn()
+  const walkInLockRef = useRef(false)
+  const [walkInBusy, setWalkInBusy] = useState(false)
 
   const canManageLeads = has('leads.manage')
   const mayCloseLead = (lead: Lead) =>
@@ -263,20 +266,27 @@ export default function CRM() {
   }
 
   const createWalkIn = () => {
-    const prop = state.properties.find((p) => allowedPropertyIds.has(p.id))
-    if (!prop || !agencyId || !canMutate(prop.id)) return
-    const lead = createLead({
-      agencyId,
-      propertyId: prop.id,
-      agentId: prop.agentId ?? user.id,
-      name: 'New walk-in lead',
-      email: 'lead@email.com',
-      phone: '+27 80 000 0000',
-      channel: 'Walk-in',
-      type: prop.listingMode === 'sale' ? 'Buy' : 'Rent',
-      value: prop.price ?? prop.rent ?? 0,
-    })
-    openLead(lead.id)
+    if (!acquireSubmitLock(walkInLockRef)) return
+    setWalkInBusy(true)
+    try {
+      const prop = state.properties.find((p) => allowedPropertyIds.has(p.id))
+      if (!prop || !agencyId || !canMutate(prop.id)) return
+      const lead = createLead({
+        agencyId,
+        propertyId: prop.id,
+        agentId: prop.agentId ?? user.id,
+        name: 'New walk-in lead',
+        email: 'lead@email.com',
+        phone: '+27 80 000 0000',
+        channel: 'Walk-in',
+        type: prop.listingMode === 'sale' ? 'Buy' : 'Rent',
+        value: prop.price ?? prop.rent ?? 0,
+      })
+      openLead(lead.id)
+    } finally {
+      setWalkInBusy(false)
+      releaseSubmitLock(walkInLockRef)
+    }
   }
 
   const advanceBoard = (item: PortfolioLead) => {
@@ -329,7 +339,7 @@ export default function CRM() {
           subtitle="Early enquiries before they become applicants — filter, sort, or use the board."
           actions={
             has('leads.manage') ? (
-              <Button className="min-h-11" onClick={createWalkIn}>
+              <Button className="min-h-11" disabled={walkInBusy} onClick={createWalkIn}>
                 <Plus className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
                 New lead
               </Button>
@@ -513,7 +523,7 @@ export default function CRM() {
             hint="Create a walk-in lead or capture one from a listing enquiry."
             action={
               has('leads.manage') ? (
-                <Button className="min-h-11" onClick={createWalkIn}>
+                <Button className="min-h-11" disabled={walkInBusy} onClick={createWalkIn}>
                   <Plus className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
                   New lead
                 </Button>

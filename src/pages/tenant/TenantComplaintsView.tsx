@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
+import { acquireSubmitLock, releaseSubmitLock } from '../../lib/wizardSubmitGuard'
 import { Link } from 'react-router-dom'
 import { AlertTriangle } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
@@ -20,21 +21,32 @@ export function TenantComplaintsView({ portal }: { portal: TenantPortalState }) 
   const [details, setDetails] = useState('')
   const [severity, setSeverity] = useState<ComplaintSeverity>('Medium')
   const [done, setDone] = useState('')
+  const [busy, setBusy] = useState(false)
+  const submitLockRef = useRef(false)
 
   const complaints = portal.tickets.filter((t) => t.title.startsWith(COMPLAINT_PREFIX))
   const openCount = complaints.filter((t) => t.status !== 'Completed').length
 
   const submitComplaint = async (e: FormEvent) => {
     e.preventDefault()
-    if (!subject.trim() || !details.trim()) return
+    if (!acquireSubmitLock(submitLockRef)) return
+    if (!subject.trim() || !details.trim()) {
+      releaseSubmitLock(submitLockRef)
+      return
+    }
+    setBusy(true)
     const propId = portal.tenancy?.propertyId ?? portal.property?.id
     if (!propId) {
       setDone('No property linked to your tenancy yet.')
+      setBusy(false)
+      releaseSubmitLock(submitLockRef)
       return
     }
     const prop = state.properties.find((p) => p.id === propId)
     if (!prop?.unitId) {
       setDone('No unit linked to your occupancy yet.')
+      setBusy(false)
+      releaseSubmitLock(submitLockRef)
       return
     }
     const result = createMaintenanceTicket({
@@ -52,15 +64,21 @@ export function TenantComplaintsView({ portal }: { portal: TenantPortalState }) 
     })
     if (result.status === 'ERROR') {
       setDone(result.error)
+      setBusy(false)
+      releaseSubmitLock(submitLockRef)
       return
     }
     if (!(await result.saved)) {
       setDone(TICKET_NOT_SAVED_MESSAGE)
+      setBusy(false)
+      releaseSubmitLock(submitLockRef)
       return
     }
     setDone(`Complaint logged as ${result.ticket_id}. Your agency will follow up in-app.`)
     setSubject('')
     setDetails('')
+    setBusy(false)
+    releaseSubmitLock(submitLockRef)
   }
 
   if (!portal.occupancyReady) {
@@ -107,8 +125,8 @@ export function TenantComplaintsView({ portal }: { portal: TenantPortalState }) 
                 </option>
               ))}
             </Select>
-            <Button type="submit" size="sm" className="min-h-11 cursor-pointer">
-              Submit complaint
+            <Button type="submit" size="sm" className="min-h-11 cursor-pointer" disabled={busy}>
+              {busy ? 'Submitting…' : 'Submit complaint'}
             </Button>
             {done ? <p className="text-xs text-ink-500">{done}</p> : null}
           </form>

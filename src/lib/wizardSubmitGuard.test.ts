@@ -18,4 +18,10 @@ describe('wizardSubmitGuard', () => {
     expect(source).toContain('submitLockRef')
     expect(source).toMatch(/sweet(Warning|Error|Success)/)
   })
+
+  it('tenant maintenance submit uses submit lock', () => {
+    const source = readFileSync('src/pages/tenant/TenantMaintenanceView.tsx', 'utf8')
+    expect(source).toContain('acquireSubmitLock')
+    expect(source).toContain('releaseSubmitLock')
+  })
 })

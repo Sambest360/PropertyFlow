@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { acquireSubmitLock, releaseSubmitLock } from '../../lib/wizardSubmitGuard'
 import { useNavigate } from 'react-router-dom'
 import { Banknote, ChevronRight, Plus, Search } from 'lucide-react'
 import type { PaymentRecord } from '../../types/domain'
@@ -42,6 +43,8 @@ export function PropertyPaymentsPanel({
   const [type, setType] = useState<PaymentRecord['type']>('Rent')
   const [dueDate, setDueDate] = useState('')
   const [method, setMethod] = useState('EFT')
+  const [creating, setCreating] = useState(false)
+  const createLockRef = useRef(false)
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -151,27 +154,37 @@ export function PropertyPaymentsPanel({
             </Button>
             <Button
               className="min-h-11"
-              disabled={!partyName.trim() || !dueDate || !amount}
+              disabled={creating || !partyName.trim() || !dueDate || !amount}
               onClick={() => {
+                if (!acquireSubmitLock(createLockRef)) return
                 const amt = Number(amount)
-                if (!Number.isFinite(amt)) return
-                onCreate({
-                  agencyId,
-                  propertyId,
-                  applicationId: null,
-                  tenancyId: null,
-                  partyName: partyName.trim(),
-                  partyUserId: null,
-                  type,
-                  amount: amt,
-                  dueDate,
-                  landlordVisible: true,
-                  method,
-                })
-                setModalOpen(false)
+                if (!Number.isFinite(amt)) {
+                  releaseSubmitLock(createLockRef)
+                  return
+                }
+                setCreating(true)
+                try {
+                  onCreate({
+                    agencyId,
+                    propertyId,
+                    applicationId: null,
+                    tenancyId: null,
+                    partyName: partyName.trim(),
+                    partyUserId: null,
+                    type,
+                    amount: amt,
+                    dueDate,
+                    landlordVisible: true,
+                    method,
+                  })
+                  setModalOpen(false)
+                } finally {
+                  setCreating(false)
+                  releaseSubmitLock(createLockRef)
+                }
               }}
             >
-              Create payment
+              {creating ? 'Saving…' : 'Create payment'}
             </Button>
           </>
         }
