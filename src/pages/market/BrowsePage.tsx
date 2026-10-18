@@ -20,7 +20,7 @@ import {
   type UnitCardPayload,
 } from '../../lib/api/unitsApi'
 import { blockedPropertyIdsForApplicant } from '../../lib/blockedApplicants'
-import { canonicalListingId } from '../../lib/listingIds'
+import { canonicalListingId, listingIdAliases, unitIdForProperty } from '../../lib/listingIds'
 import { useWishlist } from '../../hooks/useWishlist'
 import { usePageMeta } from '../../hooks/usePageMeta'
 import { FullScreenSheet } from '../../components/layout/mobile/FullScreenSheet'
@@ -302,8 +302,15 @@ export default function BrowsePage() {
     for (const c of cards) {
       const p = resolveCardProperty(c)
       if (!p) continue
-      map[p.id] = c
-      if (c.property_id) map[c.property_id] = c
+      const keys = new Set<string>([
+        ...listingIdAliases(p.id),
+        ...listingIdAliases(c.property_id),
+        ...listingIdAliases(c.id),
+        unitIdForProperty(p.id),
+      ])
+      for (const key of keys) {
+        if (key) map[key] = c
+      }
     }
     return map
   }, [cards, resolveCardProperty])

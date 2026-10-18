@@ -228,10 +228,14 @@ CREATE TABLE units (
   place_id          VARCHAR(255),
   formatted_address VARCHAR(500),
   geocoded_at       TIMESTAMPTZ,
+  /** Wizard create idempotency (migration 022) */
+  idempotency_key   TEXT NULL,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (building_id, unit_number)
 );
+
+CREATE UNIQUE INDEX ux_units_idempotency_key ON units (idempotency_key) WHERE idempotency_key IS NOT NULL;
 
 CREATE INDEX idx_units_client ON units (client_id);
 CREATE INDEX idx_units_building ON units (building_id);

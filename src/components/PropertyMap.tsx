@@ -1,11 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { GoogleMap, InfoWindowF, MarkerF } from '@react-google-maps/api'
-import { MapContainer, TileLayer, Marker, Popup, useMap, ZoomControl } from 'react-leaflet'
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+  useMap,
+  useMapEvents,
+  ZoomControl,
+} from 'react-leaflet'
 import L from 'leaflet'
-import { ArrowRight, Bath, BedDouble, Car, Heart, MapPin, X } from 'lucide-react'
+import { ArrowRight, MapPin, X } from 'lucide-react'
 import type { PropertyAsset } from '../types/domain'
-import { formatZAR } from '../data/seed'
+import { canonicalListingId } from '../lib/listingIds'
 import {
   hasGoogleMapsKey,
   LEAFLET_BASEMAP_ATTRIBUTION,
@@ -20,24 +28,11 @@ import { staticMapImageUrl } from '../lib/api/documents'
 import 'leaflet/dist/leaflet.css'
 import { PropertyLoader } from './loading/PropertyLoader'
 import type { UnitCardPayload } from '../lib/api/unitsApi'
-import { resolveMapPreviewFields } from './propertyMapPreview'
-
-function shortPrice(amount: number): string {
-  if (amount >= 1_000_000) {
-    const m = amount / 1_000_000
-    return `R${m >= 10 ? m.toFixed(1) : m.toFixed(2).replace(/0$/, '').replace(/\.$/, '')}m`
-  }
-  if (amount >= 1_000) return `R${Math.round(amount / 1_000)}k`
-  return formatZAR(amount)
-}
-
-function pinLabel(p: PropertyAsset, mode: string): string {
-  if (mode === 'rent' && p.rent != null) return `${shortPrice(p.rent)}/mo`
-  if (mode === 'buy' && p.price != null) return shortPrice(p.price)
-  if (p.price != null) return shortPrice(p.price)
-  if (p.rent != null) return `${shortPrice(p.rent)}/mo`
-  return 'View'
-}
+import {
+  formatMapPinLabel,
+  resolveCardForProperty,
+  resolveMapPreviewFields,
+} from './propertyMapPreview'
 
 function priceIcon(label: string, active: boolean) {
   return L.divIcon({
@@ -64,6 +59,13 @@ function FitToMarkers({ positions }: { positions: [number, number][] }) {
     map.fitBounds(L.latLngBounds(positions), { padding: [48, 48], maxZoom: 12 })
   }, [map, positions])
 
+  return null
+}
+
+function MapClickClearActive({ onClear }: { onClear: () => void }) {
+  useMapEvents({
+    click: () => onClear(),
+  })
   return null
 }
 
@@ -94,7 +96,6 @@ function MapListingPreview({
   card?: UnitCardPayload
   onClose?: () => void
 }) {
-  const [saved, setSaved] = useState(false)
   const { title, priceLabel, image, beds, baths, parking, area, suburb, city } =
     resolveMapPreviewFields(property, mode, card)
 
@@ -105,84 +106,58 @@ function MapListingPreview({
         ? 'For sale'
         : 'To rent'
 
+  const listingId = canonicalListingId(card?.property_id ?? property.id)
+  const stats = [
+    beds > 0 ? `${beds} bed` : null,
+    baths > 0 ? `${baths} bath` : null,
+    parking > 0 ? `${parking} park` : null,
+    area > 0 ? `${area.toLocaleString('en-ZA')} m²` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
   return (
-    <article className="pf-map-card w-[260px] overflow-hidden rounded-2xl bg-white sm:w-[280px]">
-      <div className="relative aspect-[16/10] overflow-hidden bg-primary-100">
-        {image ? (
-          <img src={image} alt="" className="h-full w-full object-cover" />
-        ) : (
-          <div className="h-full w-full bg-primary-100" aria-hidden />
-        )}
-        <span className="absolute left-2.5 top-2.5 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-ink shadow-sm">
-          {badge}
-        </span>
+    <article className="pf-map-card relative w-[min(100vw-2rem,300px)] overflow-hidden rounded-xl bg-white">
+      {onClose && (
         <button
           type="button"
-          aria-label={saved ? 'Remove from saved' : 'Save listing'}
-          aria-pressed={saved}
+          aria-label="Close preview"
           onClick={(e) => {
             e.preventDefault()
             e.stopPropagation()
-            setSaved((s) => !s)
+            onClose()
           }}
-          className="absolute bottom-2.5 right-2.5 inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-white/95 text-ink shadow-sm transition-colors duration-200 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="absolute right-1 top-1 z-10 inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-white/95 text-ink shadow-sm transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
-          <Heart className={`h-4 w-4 ${saved ? 'fill-accent text-accent' : ''}`} aria-hidden />
+          <X className="h-3.5 w-3.5" aria-hidden />
         </button>
-        {onClose && (
-          <button
-            type="button"
-            aria-label="Close preview"
-            onClick={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              onClose()
-            }}
-            className="absolute right-2 top-2 z-10 inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-white text-ink shadow-sm transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          >
-            <X className="h-4 w-4" aria-hidden />
-          </button>
-        )}
-      </div>
-
-      <div className="p-3.5">
-        <h3 className="line-clamp-1 text-[15px] font-semibold leading-snug text-ink">{title}</h3>
-        <p className="mt-1 flex items-center gap-1 text-xs text-ink-500">
-          <MapPin className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
-          <span className="line-clamp-1">
-            {property.formattedAddress ?? `${suburb}, ${city}`}
-          </span>
-        </p>
-
-        <p className="mt-2.5 font-sans text-base font-bold text-ink">{priceLabel}</p>
-
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-primary-100 pt-2.5 text-xs text-ink-500">
-          {beds > 0 && (
-            <span className="inline-flex items-center gap-1">
-              <BedDouble className="h-3.5 w-3.5" aria-hidden />
-              <span className="tabular">{beds} bed</span>
-            </span>
+      )}
+      <div className="flex gap-2.5 p-2.5">
+        <div className="relative h-[72px] w-[72px] shrink-0 overflow-hidden rounded-lg bg-primary-100">
+          {image ? (
+            <img src={image} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <div className="h-full w-full bg-primary-100" aria-hidden />
           )}
-          {baths > 0 && (
-            <span className="inline-flex items-center gap-1">
-              <Bath className="h-3.5 w-3.5" aria-hidden />
-              <span className="tabular">{baths} bath</span>
-            </span>
-          )}
-          <span className="inline-flex items-center gap-1">
-            <Car className="h-3.5 w-3.5" aria-hidden />
-            <span className="tabular">{parking}</span>
+          <span className="absolute bottom-0 left-0 right-0 bg-ink/70 px-1 py-0.5 text-center text-[9px] font-semibold leading-tight text-white">
+            {badge}
           </span>
-          <span className="ml-auto tabular">{area.toLocaleString('en-ZA')} m²</span>
         </div>
-
-        <Link
-          to={`${detailBase}/${property.id}`}
-          className="pf-map-cta mt-3.5 inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-1.5 rounded-xl bg-primary px-3 py-2.5 text-sm font-semibold text-white no-underline transition-colors duration-200 hover:bg-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
-        >
-          View listing
-          <ArrowRight className="h-4 w-4" aria-hidden />
-        </Link>
+        <div className="min-w-0 flex-1 pr-6">
+          <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-ink">{title}</h3>
+          <p className="mt-0.5 line-clamp-1 text-xs text-ink-500">
+            {suburb}, {city}
+          </p>
+          <p className="mt-1 text-sm font-bold tabular text-ink">{priceLabel}</p>
+          {stats ? <p className="mt-0.5 line-clamp-1 text-[11px] text-ink-500">{stats}</p> : null}
+          <Link
+            to={`${detailBase}/${listingId}`}
+            className="pf-map-cta mt-1.5 inline-flex cursor-pointer items-center gap-1 text-xs font-semibold text-primary no-underline hover:text-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            View listing
+            <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+          </Link>
+        </div>
       </div>
     </article>
   )
@@ -221,13 +196,17 @@ function LeafletPropertyMap({
         <TileLayer attribution={LEAFLET_BASEMAP_ATTRIBUTION} url={LEAFLET_BASEMAP_URL} />
         <ZoomControl position="bottomright" />
         <MapResize />
+        <MapClickClearActive onClear={() => setActiveId(null)} />
         <FitToMarkers key={positionsKey} positions={positions} />
 
-        {withCoords.map((p) => (
+        {withCoords.map((p) => {
+          const card = resolveCardForProperty(p, cardsByPropertyId)
+          const label = formatMapPinLabel(p, mode, card)
+          return (
           <Marker
             key={p.id}
             position={[p.lat, p.lng]}
-            icon={priceIcon(pinLabel(p, mode), activeId === p.id)}
+            icon={priceIcon(label, activeId === p.id)}
             zIndexOffset={activeId === p.id ? 1000 : 0}
             eventHandlers={{
               click: () => setActiveId(p.id),
@@ -240,18 +219,20 @@ function LeafletPropertyMap({
               maxWidth={300}
               minWidth={260}
               offset={[0, -8]}
-              autoPanPadding={[24, 24]}
+              autoPanPadding={[48, 80]}
+              keepInView
             >
               <MapListingPreview
                 property={p}
                 mode={mode}
                 detailBase={detailBase}
-                card={cardsByPropertyId?.[p.id]}
+                card={card}
                 onClose={() => setActiveId(null)}
               />
             </Popup>
           </Marker>
-        ))}
+          )
+        })}
       </MapContainer>
 
       {withCoords.length === 0 && (
@@ -327,6 +308,7 @@ function GooglePropertyMap({
         mapContainerClassName="h-full w-full rounded-xl"
         mapContainerStyle={{ height: '100%', width: '100%', minHeight: 280 }}
         onLoad={onLoad}
+        onClick={() => setActiveId(null)}
         options={{
           streetViewControl: false,
           mapTypeControl: false,
@@ -337,20 +319,26 @@ function GooglePropertyMap({
           gestureHandling: 'greedy',
         }}
       >
-        {withCoords.map((p) => (
+        {withCoords.map((p) => {
+          const card = resolveCardForProperty(p, cardsByPropertyId)
+          return (
           <MarkerF
             key={p.id}
             position={{ lat: p.lat, lng: p.lng }}
             title={p.title}
             label={{
-              text: pinLabel(p, mode),
+              text: formatMapPinLabel(p, mode, card),
               className: 'pf-gmap-price-label',
               fontSize: '11px',
               fontWeight: '600',
             }}
-            onClick={() => setActiveId(p.id)}
+            onClick={(e) => {
+              e.domEvent.stopPropagation()
+              setActiveId(p.id)
+            }}
           />
-        ))}
+          )
+        })}
         {active && (
           <InfoWindowF
             position={{ lat: active.lat, lng: active.lng }}
@@ -366,7 +354,7 @@ function GooglePropertyMap({
                 property={active}
                 mode={mode}
                 detailBase={detailBase}
-                card={cardsByPropertyId?.[active.id]}
+                card={resolveCardForProperty(active, cardsByPropertyId)}
                 onClose={() => setActiveId(null)}
               />
             </div>

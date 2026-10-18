@@ -1,10 +1,18 @@
 import { describe, expect, it } from 'vitest'
+import { buildPropertyScope } from './scope'
 import {
+  canDeleteProperty,
   canDeletePropertyRole,
+  canViewPropertyArchive,
   getPropertyDeleteBlockReason,
   propertyHasOccupant,
 } from './propertyDeletion'
 import type { Application, PropertyAsset, Tenancy } from '../types/domain'
+
+const properties = [
+  { id: 'p1', agencyId: 'ag1', agentId: 'fa1', landlordId: 'u1' },
+  { id: 'p2', agencyId: 'ag1', agentId: null, landlordId: 'u1' },
+]
 
 function property(overrides: Partial<PropertyAsset> = {}): PropertyAsset {
   return {
@@ -42,6 +50,27 @@ describe('propertyDeletion', () => {
     expect(canDeletePropertyRole('agent_admin')).toBe(true)
     expect(canDeletePropertyRole('client_admin')).toBe(true)
     expect(canDeletePropertyRole('ground_agent')).toBe(false)
+  })
+
+  it('canViewPropertyArchive includes full agents', () => {
+    expect(canViewPropertyArchive('agent_admin')).toBe(true)
+    expect(canViewPropertyArchive('ground_agent')).toBe(true)
+    expect(canViewPropertyArchive('agent')).toBe(false)
+  })
+
+  it('canDeleteProperty scopes full agents to assigned listings', () => {
+    const adminScope = buildPropertyScope(
+      { role: 'agent_admin', userId: 'adm', agencyId: 'ag1', agencySuspended: false },
+      { properties },
+    )
+    expect(canDeleteProperty(adminScope, properties[1])).toBe(true)
+
+    const faAssigned = buildPropertyScope(
+      { role: 'ground_agent', userId: 'fa1', agencyId: 'ag1', agencySuspended: false },
+      { properties },
+    )
+    expect(canDeleteProperty(faAssigned, properties[0])).toBe(true)
+    expect(canDeleteProperty(faAssigned, properties[1])).toBe(false)
   })
 
   it('blocks delete when an active tenancy exists', () => {

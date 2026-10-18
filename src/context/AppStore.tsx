@@ -258,7 +258,10 @@ import {
 import { mergeEntityLists } from '../lib/bootstrapMerge'
 import { reconcileAgencyIdSpace } from '../lib/agencyScope'
 import { buildIdMapCacheFromRows, type IdMapCache } from '../lib/supabase/idMap'
-import { getPropertyDeleteBlockReason } from '../lib/propertyDeletion'
+import {
+  canDeletePropertyForViewer,
+  getPropertyDeleteBlockReason,
+} from '../lib/propertyDeletion'
 import {
   issueLeaseOnTenancyCreate,
   recordLeaseSignature,
@@ -3822,6 +3825,26 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const property = stateRef.current.properties.find((x) => x.id === id)
       if (!property) return { ok: false, reason: 'Property not found.' }
 
+      const viewerUserId = readStoredAuthUserId() ?? getApiActor()?.userId ?? null
+      const s = stateRef.current
+      if (
+        !canDeletePropertyForViewer(
+          {
+            users: s.users,
+            agencies: s.agencies,
+            properties: s.properties,
+            applications: s.applications,
+            tenancies: s.tenancies,
+            tickets: s.tickets,
+            agencyContractors: s.agencyContractors,
+          },
+          viewerUserId,
+          property,
+        )
+      ) {
+        return { ok: false, reason: 'You do not have permission to delete this property.' }
+      }
+
       const blockReason = getPropertyDeleteBlockReason(
         property,
         stateRef.current.tenancies,
@@ -3914,6 +3937,26 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const property = stateRef.current.properties.find((x) => x.id === id)
       if (!property?.deletedAt) {
         return { ok: false, reason: 'Property is not in the archive.' }
+      }
+
+      const viewerUserId = readStoredAuthUserId() ?? getApiActor()?.userId ?? null
+      const s = stateRef.current
+      if (
+        !canDeletePropertyForViewer(
+          {
+            users: s.users,
+            agencies: s.agencies,
+            properties: s.properties,
+            applications: s.applications,
+            tenancies: s.tenancies,
+            tickets: s.tickets,
+            agencyContractors: s.agencyContractors,
+          },
+          viewerUserId,
+          property,
+        )
+      ) {
+        return { ok: false, reason: 'You do not have permission to restore this property.' }
       }
 
       const pe: PropertyEvent = {

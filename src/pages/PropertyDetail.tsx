@@ -37,7 +37,7 @@ import {
   portfolioLabelLooksLive,
 } from '../lib/marketplaceVisibility'
 import {
-  canDeletePropertyRole,
+  canDeleteProperty,
   getPropertyDeleteBlockReason,
   isPropertyDeleted,
 } from '../lib/propertyDeletion'
@@ -78,7 +78,8 @@ export default function PropertyDetail() {
     addPropertyEvent,
   } = useStore()
   const { has, user } = useAuth()
-  const { inPropertyScope } = usePropertyScope()
+  const propertyScope = usePropertyScope()
+  const { inPropertyScope } = propertyScope
   const alert = useSuiteAlert()
   const reviewPermissions = rolePermissions[user.role] ?? []
 
@@ -177,7 +178,8 @@ export default function PropertyDetail() {
   )
 
   const canManage = has('assets.manage')
-  const canAdminDelete = canManage && canDeletePropertyRole(user.role)
+  const canAdminDelete =
+    canManage && p ? canDeleteProperty(propertyScope, p) : false
   const deleteBlockedReason = p
     ? getPropertyDeleteBlockReason(p, state.tenancies, state.applications)
     : null

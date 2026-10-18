@@ -10,7 +10,14 @@ import { isApiEnabled } from '../../lib/api/config'
 import { showPasswordResetEntry } from '../../lib/auth/passwordResetUi'
 import { ICON_STROKE } from './types'
 
-export function TeamDetailHeader({ user }: { user: AppUser }) {
+type TeamDetailHeaderProps = {
+  user: AppUser
+  /** When true, agency/platform admins may enable or disable this account. */
+  mutable?: boolean
+  onToggleActive?: () => void
+}
+
+export function TeamDetailHeader({ user, mutable, onToggleActive }: TeamDetailHeaderProps) {
   const { has, realUser } = useAuth()
   const canReset = showPasswordResetEntry({
     hasUsersManage: has('users.manage'),
@@ -40,6 +47,16 @@ export function TeamDetailHeader({ user }: { user: AppUser }) {
         </div>
 
         <ActionButtonRow className="sm:w-auto">
+          {mutable && onToggleActive ? (
+            <Button
+              type="button"
+              variant={user.active ? 'secondary' : 'primary'}
+              className="min-h-11 cursor-pointer"
+              onClick={onToggleActive}
+            >
+              {user.active ? 'Disable account' : 'Enable account'}
+            </Button>
+          ) : null}
           <ImpersonateUserButton target={user} />
           {canReset ? <ResetPasswordButton userId={user.id} userName={user.name} /> : null}
           <Button

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { formatZAR } from '../data/seed'
-import { resolveMapPreviewFields } from './propertyMapPreview'
+import {
+  formatMapPinLabel,
+  resolveCardForProperty,
+  resolveMapPreviewFields,
+} from './propertyMapPreview'
 import type { PropertyAsset } from '../types/domain'
 import type { UnitCardPayload } from '../lib/api/unitsApi'
 
@@ -22,6 +26,8 @@ const baseProperty: PropertyAsset = {
 } as PropertyAsset
 
 const baseCard = {
+  id: 'unt-abc123',
+  property_id: 'unt-abc123',
   title: 'Ss Bella Mare — 2 bed rental',
   bedrooms: 2,
   bathrooms: 2,
@@ -47,5 +53,21 @@ describe('resolveMapPreviewFields', () => {
     expect(fields.title).toBe('2-Bedroom, 2-Bathroom')
     expect(fields.beds).toBe(1)
     expect(fields.priceLabel).toBe(`${formatZAR(14_500)} / month`)
+  })
+})
+
+describe('resolveCardForProperty', () => {
+  it('finds card when map is keyed by unit id alias', () => {
+    const card = { ...baseCard, id: 'unt-PR-imuc3d', property_id: 'PR-imuc3d' }
+    const aliasProperty = { ...baseProperty, id: 'PR-imuc3d' }
+    const cards = { 'unt-PR-imuc3d': card }
+    expect(resolveCardForProperty(aliasProperty, cards)?.bedrooms).toBe(2)
+  })
+})
+
+describe('formatMapPinLabel', () => {
+  it('matches card amount without rounding 14500 up to 15k', () => {
+    expect(formatMapPinLabel(baseProperty, 'rent', baseCard)).toBe('R14.5k/mo')
+    expect(formatMapPinLabel(baseProperty, 'rent')).toBe('R14.5k/mo')
   })
 })

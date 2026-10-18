@@ -976,6 +976,9 @@ async function upsertProperty(id: string, data: Record<string, unknown>): Promis
     if (Object.prototype.hasOwnProperty.call(data, 'type') && data.type != null) {
       propertyRow.property_type = propertyTypeToDb(str(data.type))
     }
+    if (typeof data.idempotencyKey === 'string' && data.idempotencyKey.trim()) {
+      propertyRow.idempotency_key = data.idempotencyKey.trim()
+    }
     const res = await supabase.from('units').upsert(propertyRow)
     throwIfUpsertFailed(res, 'property/unit')
   } else {
