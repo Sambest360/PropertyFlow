@@ -913,7 +913,37 @@ async function upsertProperty(feId: string, d: Record<string, unknown>): Promise
     )
   }
 
-  const agent = await requireAgentId(d.agentId)
+  const existingRows = await query<{
+    status_config_key: string
+    listing_type: string
+    agent_id: string | null
+  }>(`SELECT status_config_key, listing_type, agent_id FROM units WHERE id = $1::uuid`, [uuid])
+  const existingUnit = existingRows[0]
+  const storedStatus = (existingUnit?.status_config_key ?? '').toUpperCase()
+  const isRestore = d.restore === true
+  const isArchive =
+    !isRestore &&
+    storedStatus !== 'DELETED' &&
+    (d.deletedAt != null || String(d.statusKey ?? '').toUpperCase() === 'DELETED')
+
+  if (storedStatus === 'DELETED' && !isRestore) {
+    return uuid
+  }
+
+  let agent: string | null
+  if (isArchive) {
+    agent = existingUnit?.agent_id ?? null
+    if (!agent && d.agentId) {
+      try {
+        agent = await requireAgentId(d.agentId)
+      } catch {
+        agent = null
+      }
+    }
+  } else {
+    agent = await requireAgentId(d.agentId)
+  }
+
   const unitNumber = str(d.unitNumber ?? d.title, slug).slice(0, 40)
   const propertyTypeDb =
     Object.prototype.hasOwnProperty.call(d, 'type') && d.type != null
@@ -971,16 +1001,22 @@ async function upsertProperty(feId: string, d: Record<string, unknown>): Promise
       num(d.beds) ?? num(d.bedrooms) ?? 0,
       num(d.baths) ?? num(d.bathrooms) ?? 0,
       num(d.parking) ?? 0,
-      listingType(d.deletedAt ? 'not_listed' : (d.listingMode ?? d.listingType)),
+      isArchive && existingUnit
+        ? existingUnit.listing_type
+        : listingType(d.listingMode ?? d.listingType),
       num(d.price),
       num(d.rent),
-      str(d.statusKey) || unitStatusFromProperty(d.status, d.deletedAt),
+      isArchive
+        ? 'DELETED'
+        : isRestore
+          ? str(d.statusKey) || unitStatusFromProperty(d.status, undefined)
+          : str(d.statusKey) || unitStatusFromProperty(d.status, d.deletedAt),
       agent,
       str(d.title, unitNumber),
       str(d.description),
       JSON.stringify(Array.isArray(d.amenities) ? d.amenities : []),
       JSON.stringify(Array.isArray(d.images) ? d.images : []),
-      bool(d.featured) || str(d.status) === 'Featured',
+      isArchive ? false : bool(d.featured) || str(d.status) === 'Featured',
       num(d.lat),
       num(d.lng),
       d.placeId ? str(d.placeId) : null,

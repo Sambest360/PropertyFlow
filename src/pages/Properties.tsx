@@ -21,7 +21,7 @@ import {
 } from '../components/properties/types'
 import { useLookupOptions } from '../hooks/useLookupOptions'
 import { VerificationPendingBanner } from '../components/auth/VerificationBanner'
-import { canViewPropertyArchive, isPropertyDeleted } from '../lib/propertyDeletion'
+import { canOpenPropertyArchive, isPropertyDeleted } from '../lib/propertyDeletion'
 import {
   buildingsInScope,
   groupPortfolioByBuilding,
@@ -104,7 +104,7 @@ export default function Properties() {
     ).length
   }, [state.properties, allowedPropertyIds])
 
-  const canViewArchive = has('assets.manage') && canViewPropertyArchive(user.role)
+  const canViewArchive = canOpenPropertyArchive(user.role)
 
   const buildingById = useMemo(
     () => new Map(state.buildings.map((b) => [b.id, b])),

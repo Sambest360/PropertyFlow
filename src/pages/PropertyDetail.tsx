@@ -37,7 +37,7 @@ import {
   portfolioLabelLooksLive,
 } from '../lib/marketplaceVisibility'
 import {
-  canDeleteProperty,
+  canDeleteStoredProperty,
   getPropertyDeleteBlockReason,
   isPropertyDeleted,
 } from '../lib/propertyDeletion'
@@ -77,9 +77,8 @@ export default function PropertyDetail() {
     sendMessage,
     addPropertyEvent,
   } = useStore()
-  const { has, user } = useAuth()
-  const propertyScope = usePropertyScope()
-  const { inPropertyScope } = propertyScope
+  const { has, user, agencyId } = useAuth()
+  const { inPropertyScope } = usePropertyScope()
   const alert = useSuiteAlert()
   const reviewPermissions = rolePermissions[user.role] ?? []
 
@@ -178,16 +177,27 @@ export default function PropertyDetail() {
   )
 
   const canManage = has('assets.manage')
-  const canAdminDelete =
-    canManage && p ? canDeleteProperty(propertyScope, p) : false
+  const canAdminDelete = p
+    ? canDeleteStoredProperty({ role: user.role, userId: user.id, agencyId }, p)
+    : false
   const deleteBlockedReason = p
     ? getPropertyDeleteBlockReason(p, state.tenancies, state.applications)
     : null
+  const guestMarketplaceBlock = useMemo(() => {
+    if (!p || !portfolioLabelLooksLive(p, unit?.statusKey)) return null
+    return getGuestMarketplaceBlockReason(p, {
+      units: state.units,
+      users: state.users,
+      buildings: state.buildings,
+    })
+  }, [p, unit?.statusKey, state.units, state.users, state.buildings])
   const canPublishListing = has('listings.publish') && isVerificationApproved(user.verification, user.role)
   const [publishBusy, setPublishBusy] = useState(false)
   const [deleteBusy, setDeleteBusy] = useState(false)
+  const [restoreBusy, setRestoreBusy] = useState(false)
   const [approvingApplicationId, setApprovingApplicationId] = useState<string | null>(null)
   const approveLockRef = useRef(false)
+  const deleteLockRef = useRef(false)
   const canReview = has('applications.review')
   const canMaintenance = has('maintenance.manage')
   const canPayments = has('payments.manage')
@@ -243,15 +253,6 @@ export default function PropertyDetail() {
   ]
 
   const publishBlockedReason = validatePropertyReadyToPublish(p)
-
-  const guestMarketplaceBlock = useMemo(() => {
-    if (!p || !portfolioLabelLooksLive(p, unit?.statusKey)) return null
-    return getGuestMarketplaceBlockReason(p, {
-      units: state.units,
-      users: state.users,
-      buildings: state.buildings,
-    })
-  }, [p, unit?.statusKey, state.units, state.users, state.buildings])
 
   const handleMakeLive = async () => {
     const blockReason = validatePropertyReadyToPublish(p)
@@ -315,12 +316,20 @@ export default function PropertyDetail() {
       await sweetWarning('Cannot delete', deleteBlockedReason)
       return
     }
-    const ok = await sweetConfirm(
-      'Delete property?',
-      `“${p.title}” will be removed from your active portfolio. You can restore it from Deleted properties.`,
-      'Delete property',
-    )
+    const waitingAppsCount = apps.filter(
+      (a) => a.stage !== 'Active Tenancy' && a.stage !== 'Keys Handed Over' && a.stage !== 'Rejected',
+    ).length
+    const scheduledViewings = viewings.filter((v) => v.status === 'Scheduled').length
+    let body = `“${p.title}” will be removed from your active portfolio. You can restore it from Deleted properties.`
+    if (waitingAppsCount > 0) {
+      body += `\n\n${waitingAppsCount} open application(s) will remain attached to this listing.`
+    }
+    if (scheduledViewings > 0) {
+      body += `\n\n${scheduledViewings} scheduled viewing(s) will remain on the record.`
+    }
+    const ok = await sweetConfirm('Delete property?', body, 'Delete property')
     if (!ok) return
+    if (!acquireSubmitLock(deleteLockRef)) return
     setDeleteBusy(true)
     try {
       const result = await deleteProperty(p.id)
@@ -332,6 +341,7 @@ export default function PropertyDetail() {
       navigate('/workspace/properties/archive')
     } finally {
       setDeleteBusy(false)
+      releaseSubmitLock(deleteLockRef)
     }
   }
 
@@ -342,16 +352,18 @@ export default function PropertyDetail() {
       'Restore',
     )
     if (!ok) return
-    setDeleteBusy(true)
+    if (!acquireSubmitLock(deleteLockRef)) return
+    setRestoreBusy(true)
     try {
-      const result = restoreProperty(p.id)
+      const result = await restoreProperty(p.id)
       if (result.ok === false) {
         await sweetWarning('Could not restore', result.reason)
         return
       }
       await sweetSuccess('Property restored', `${p.title} is back as a draft.`)
     } finally {
-      setDeleteBusy(false)
+      setRestoreBusy(false)
+      releaseSubmitLock(deleteLockRef)
     }
   }
 
@@ -376,6 +388,7 @@ export default function PropertyDetail() {
         onDelete={handleDelete}
         onRestore={isPropertyDeleted(p) ? handleRestore : undefined}
         deleteBusy={deleteBusy}
+        restoreBusy={restoreBusy}
         onToggleFeatured={() => updateProperty(p.id, { featured: !p.featured })}
         guestMarketplaceBlock={guestMarketplaceBlock}
       />

@@ -22,7 +22,6 @@ import {
   loadIdMapCache,
 } from './idMapCache.js'
 import type { EntityType } from './entityMap.js'
-import { agencyIdInFeSpace } from '../src/lib/agencyScope.js'
 import type { PersistBody } from './writes.js'
 import type { DemoActor } from './actor.js'
 import { forbiddenError } from './actor.js'
@@ -34,6 +33,10 @@ import {
   type ScopeLinksInput,
 } from '../src/lib/scope.js'
 import { canWriteEntity } from '../src/lib/scopeWrite.js'
+import {
+  assertHardPropertyDeleteAllowed,
+  enforcePropertyUnitUpsert,
+} from './propertyDeletePolicy.js'
 import type { PropertyAccessSubject } from '../src/lib/agencyScope.js'
 import type { Permission, Role } from '../src/types/domain.js'
 import { effectiveCan } from '../src/lib/permissions.js'
@@ -313,6 +316,7 @@ type ExistingRow = {
   agencyId: string | null
   agentId: string | null
   landlordId: string | null
+  statusConfigKey: string | null
   assignedAgentId: string | null
   contractorId: string | null
   ownerUserId: string | null
@@ -354,8 +358,9 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
       client_id: string
       agent_id: string | null
       landlord_id: string | null
+      status_config_key: string
     }>(`
-      SELECT u.client_id, u.agent_id, b.landlord_id
+      SELECT u.client_id, u.agent_id, b.landlord_id, u.status_config_key
       FROM units u JOIN buildings b ON b.id = u.building_id
       WHERE u.id = $1::uuid LIMIT 1
     `, [uuid])
@@ -367,6 +372,7 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
       agencyId: toAgencyFe(r.client_id),
       agentId: await feUserId(r.agent_id),
       landlordId: await feUserId(r.landlord_id),
+      statusConfigKey: r.status_config_key,
     }
   }
 
@@ -1149,6 +1155,14 @@ export async function assertPersistAllowed(
   const data = body.data ?? {}
   const existing = await loadExisting(body.resource, body.id)
 
+  if (
+    body.action === 'delete' &&
+    (body.resource === 'property' || body.resource === 'unit' || body.resource === 'building')
+  ) {
+    await assertHardPropertyDeleteAllowed(actor, body.resource, body.id)
+    return {}
+  }
+
   // An existing application stays on its stored listing: a payload propertyId
   // must not move the scope check onto another property.
   let propertyId =
@@ -1186,7 +1200,7 @@ export async function assertPersistAllowed(
         strField(data, 'clientId') ??
         existing?.agencyId ??
         actor.agencyId)
-  const agencyId = (await agencyFe(rawAgencyId)) ?? rawAgencyId
+  let agencyId = (await agencyFe(rawAgencyId)) ?? rawAgencyId
 
   const agentId = strField(data, 'agentId') ?? existing?.agentId ?? null
   let landlordId = strField(data, 'landlordId') ?? existing?.landlordId ?? null
@@ -1264,7 +1278,26 @@ export async function assertPersistAllowed(
     )
   }
 
-  let property = await propertySubject(propertyId)
+  let unitGateSubject: PropertyAccessSubject | null = null
+  if (
+    (body.resource === 'property' || body.resource === 'unit') &&
+    existing?.agencyId
+  ) {
+    const gated = await enforcePropertyUnitUpsert(actor, body, {
+      propertyId: existing.propertyId ?? body.id,
+      agencyId: existing.agencyId,
+      agentId: existing.agentId,
+      landlordId: existing.landlordId,
+      statusConfigKey: existing.statusConfigKey,
+    })
+    if (gated) {
+      unitGateSubject = gated.property
+      propertyId = gated.propertyId
+      agencyId = gated.agencyId
+    }
+  }
+
+  let property = unitGateSubject ?? (await propertySubject(propertyId))
   if (propertyId && !property && (landlordId || agentId || agencyId)) {
     property = {
       agencyId: agencyId ?? '',
@@ -1272,8 +1305,7 @@ export async function assertPersistAllowed(
       landlordId: landlordId ?? '',
     }
   }
-  // Prefer payload landlord/agent on property upserts
-  if (body.resource === 'property' || body.resource === 'unit') {
+  if (!unitGateSubject && (body.resource === 'property' || body.resource === 'unit')) {
     property = {
       agencyId: agencyId ?? property?.agencyId ?? '',
       agentId: agentId ?? property?.agentId ?? null,

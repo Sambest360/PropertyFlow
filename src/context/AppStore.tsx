@@ -259,7 +259,7 @@ import { mergeEntityLists } from '../lib/bootstrapMerge'
 import { reconcileAgencyIdSpace } from '../lib/agencyScope'
 import { buildIdMapCacheFromRows, type IdMapCache } from '../lib/supabase/idMap'
 import {
-  canDeletePropertyForViewer,
+  canDeleteStoredProperty,
   getPropertyDeleteBlockReason,
 } from '../lib/propertyDeletion'
 import {
@@ -716,7 +716,7 @@ type StoreContextValue = {
   deleteProperty: (
     id: string,
   ) => Promise<{ ok: true } | { ok: false; reason: string }>
-  restoreProperty: (id: string) => { ok: true } | { ok: false; reason: string }
+  restoreProperty: (id: string) => Promise<{ ok: true } | { ok: false; reason: string }>
   createBuilding: (input: Omit<Building, 'id' | 'createdAt' | 'images'> & { images?: string[] }) => Building
   createUnitFromTemplate: (input: {
     buildingId: string
@@ -1790,12 +1790,20 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         }
         patch((s) => ({
           ...s,
-          properties: slice.properties,
-          units: slice.units,
-          users: slice.users,
-          buildings: slice.buildings,
-          viewingSlots: slice.viewingSlots,
-          agencies: slice.agencies as Agency[],
+          properties: mergeEntityLists(s.properties, slice.properties, 'properties', {
+            replaceWhenMissing: false,
+          }),
+          units: mergeEntityLists(s.units, slice.units, 'units', { replaceWhenMissing: false }),
+          users: mergeEntityLists(s.users, slice.users, 'users', { replaceWhenMissing: false }),
+          buildings: mergeEntityLists(s.buildings, slice.buildings, 'buildings', {
+            replaceWhenMissing: false,
+          }),
+          viewingSlots: mergeEntityLists(s.viewingSlots, slice.viewingSlots, 'viewingSlots', {
+            replaceWhenMissing: false,
+          }),
+          agencies: mergeEntityLists(s.agencies, slice.agencies as Agency[], 'agencies', {
+            replaceWhenMissing: false,
+          }),
           marketplaceRefreshing: false,
         }))
       } finally {
@@ -3826,19 +3834,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       if (!property) return { ok: false, reason: 'Property not found.' }
 
       const viewerUserId = readStoredAuthUserId() ?? getApiActor()?.userId ?? null
-      const s = stateRef.current
+      const actorUser = stateRef.current.users.find((u) => u.id === viewerUserId)
       if (
-        !canDeletePropertyForViewer(
-          {
-            users: s.users,
-            agencies: s.agencies,
-            properties: s.properties,
-            applications: s.applications,
-            tenancies: s.tenancies,
-            tickets: s.tickets,
-            agencyContractors: s.agencyContractors,
-          },
-          viewerUserId,
+        !actorUser ||
+        !canDeleteStoredProperty(
+          { role: actorUser.role, userId: actorUser.id, agencyId: actorUser.agencyId },
           property,
         )
       ) {
@@ -3878,9 +3878,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         propertyEvents: [pe, ...s.propertyEvents].slice(0, 400),
         units: property.unitId
           ? s.units.map((u) =>
-              u.id === property.unitId
-                ? { ...u, statusKey: 'DELETED', listingType: 'not_listed' }
-                : u,
+              u.id === property.unitId ? { ...u, statusKey: 'DELETED' } : u,
             )
           : s.units,
       }))
@@ -3897,7 +3895,6 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         status: 'Archived',
         featured: false,
         statusKey: 'DELETED',
-        listingMode: 'not_listed',
       } as Record<string, unknown>)
       if (!propertyResult.ok) {
         patch((s) => ({
@@ -3933,31 +3930,28 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       scheduleBootstrapRefreshAfterMutation()
       return { ok: true }
     },
-    restoreProperty: (id) => {
+    restoreProperty: async (id) => {
       const property = stateRef.current.properties.find((x) => x.id === id)
       if (!property?.deletedAt) {
         return { ok: false, reason: 'Property is not in the archive.' }
       }
 
       const viewerUserId = readStoredAuthUserId() ?? getApiActor()?.userId ?? null
-      const s = stateRef.current
+      const actorUser = stateRef.current.users.find((u) => u.id === viewerUserId)
       if (
-        !canDeletePropertyForViewer(
-          {
-            users: s.users,
-            agencies: s.agencies,
-            properties: s.properties,
-            applications: s.applications,
-            tenancies: s.tenancies,
-            tickets: s.tickets,
-            agencyContractors: s.agencyContractors,
-          },
-          viewerUserId,
+        !actorUser ||
+        !canDeleteStoredProperty(
+          { role: actorUser.role, userId: actorUser.id, agencyId: actorUser.agencyId },
           property,
         )
       ) {
         return { ok: false, reason: 'You do not have permission to restore this property.' }
       }
+
+      const prevProperty = property
+      const prevUnit = property.unitId
+        ? stateRef.current.units.find((u) => u.id === property.unitId)
+        : undefined
 
       const pe: PropertyEvent = {
         id: uid('pe'),
@@ -3978,16 +3972,43 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         propertyEvents: [pe, ...s.propertyEvents].slice(0, 400),
         units: property.unitId
           ? s.units.map((u) =>
-              u.id === property.unitId
-                ? {
-                    ...u,
-                    statusKey: 'DRAFT',
-                    listingType: u.listingType === 'not_listed' ? 'rent' : u.listingType,
-                  }
-                : u,
+              u.id === property.unitId ? { ...u, statusKey: 'DRAFT' } : u,
             )
           : s.units,
       }))
+
+      const { persistErrorMessage } = await import('../lib/api/persist')
+      const { markLocalPersistWrite } = await import('../lib/bootstrapMerge')
+      if (property.unitId) {
+        markLocalPersistWrite('unit', property.unitId)
+      }
+
+      const propertyResult = await persistUpsertResult('property', id, {
+        ...property,
+        restore: true,
+        deletedAt: null,
+        status: 'Draft',
+        featured: false,
+        statusKey: 'DRAFT',
+      } as Record<string, unknown>)
+      if (!propertyResult.ok) {
+        patch((s) => ({
+          ...s,
+          properties: s.properties.map((x) => (x.id === id ? prevProperty : x)),
+          propertyEvents: s.propertyEvents.filter((e) => e.id !== pe.id),
+          units:
+            prevUnit
+              ? s.units.map((u) => (u.id === prevUnit.id ? prevUnit : u))
+              : s.units,
+        }))
+        return {
+          ok: false,
+          reason: persistErrorMessage(propertyResult) ?? 'Could not restore property.',
+        }
+      }
+
+      void persistUpsert('property_event', pe.id, pe as unknown as Record<string, unknown>)
+      markLocalPersistWrite('property', id)
 
       emitSuiteEvent({
         agencyId: property.agencyId,
@@ -3996,17 +4017,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         title: 'Property restored',
         body: `“${property.title}” is back as a draft.`,
         link: `/workspace/properties/${id}`,
-        recipientUserIds: propertyDeskStakeholderIds(state.users, property),
+        recipientUserIds: propertyDeskStakeholderIds(stateRef.current.users, property),
       })
 
-      persistUpsert('property', id, {
-        ...property,
-        deletedAt: null,
-        status: 'Draft',
-        featured: false,
-        statusKey: 'DRAFT',
-      } as Record<string, unknown>)
-      persistUpsert('property_event', pe.id, pe as unknown as Record<string, unknown>)
+      void refreshPublicMarketplaceInState()
       scheduleBootstrapRefreshAfterMutation()
       return { ok: true }
     },

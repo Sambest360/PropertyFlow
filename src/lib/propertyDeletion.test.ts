@@ -1,25 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { buildPropertyScope } from './scope'
 import {
-  canDeleteProperty,
-  canDeletePropertyRole,
-  canViewPropertyArchive,
+  canDeletePropertyByRule,
+  canDeleteStoredProperty,
+  canOpenPropertyArchive,
   getPropertyDeleteBlockReason,
   propertyHasOccupant,
 } from './propertyDeletion'
 import type { Application, PropertyAsset, Tenancy } from '../types/domain'
 
-const properties = [
-  { id: 'p1', agencyId: 'ag1', agentId: 'fa1', landlordId: 'u1' },
-  { id: 'p2', agencyId: 'ag1', agentId: null, landlordId: 'u1' },
-]
+const stored = { agencyId: 'ag1', agentId: 'fa1' as string | null }
 
 function property(overrides: Partial<PropertyAsset> = {}): PropertyAsset {
   return {
     id: 'p1',
     agencyId: 'ag1',
     landlordId: 'u1',
-    agentId: null,
+    agentId: 'fa1',
     title: 'Flat 1',
     type: 'Apartment',
     status: 'Published',
@@ -45,34 +41,82 @@ function property(overrides: Partial<PropertyAsset> = {}): PropertyAsset {
   }
 }
 
-describe('propertyDeletion', () => {
-  it('allows agency admin roles to delete', () => {
-    expect(canDeletePropertyRole('agent_admin')).toBe(true)
-    expect(canDeletePropertyRole('client_admin')).toBe(true)
-    expect(canDeletePropertyRole('ground_agent')).toBe(false)
+describe('canDeletePropertyByRule', () => {
+  it('super_admin can delete any stored row', () => {
+    expect(
+      canDeletePropertyByRule(
+        { role: 'super_admin', userId: 'sa', agencyId: null },
+        { agencyId: 'ag-other', agentId: null },
+      ),
+    ).toBe(true)
   })
 
-  it('canViewPropertyArchive includes full agents', () => {
-    expect(canViewPropertyArchive('agent_admin')).toBe(true)
-    expect(canViewPropertyArchive('ground_agent')).toBe(true)
-    expect(canViewPropertyArchive('agent')).toBe(false)
+  it('agency admins only within their agency', () => {
+    const admin = { role: 'agent_admin' as const, userId: 'adm', agencyId: 'ag1' }
+    expect(canDeletePropertyByRule(admin, stored)).toBe(true)
+    expect(canDeletePropertyByRule(admin, { agencyId: 'ag2', agentId: null })).toBe(false)
+    expect(canDeletePropertyByRule({ ...admin, role: 'client_admin' }, stored)).toBe(true)
   })
 
-  it('canDeleteProperty scopes full agents to assigned listings', () => {
-    const adminScope = buildPropertyScope(
-      { role: 'agent_admin', userId: 'adm', agencyId: 'ag1', agencySuspended: false },
-      { properties },
-    )
-    expect(canDeleteProperty(adminScope, properties[1])).toBe(true)
-
-    const faAssigned = buildPropertyScope(
-      { role: 'ground_agent', userId: 'fa1', agencyId: 'ag1', agencySuspended: false },
-      { properties },
-    )
-    expect(canDeleteProperty(faAssigned, properties[0])).toBe(true)
-    expect(canDeleteProperty(faAssigned, properties[1])).toBe(false)
+  it('ground_agent and candidate agent only when assigned', () => {
+    const fa = { role: 'ground_agent' as const, userId: 'fa1', agencyId: 'ag1' }
+    expect(canDeletePropertyByRule(fa, stored)).toBe(true)
+    expect(canDeletePropertyByRule(fa, { agencyId: 'ag1', agentId: null })).toBe(false)
+    expect(canDeletePropertyByRule(fa, { agencyId: 'ag1', agentId: 'other' })).toBe(false)
+    expect(
+      canDeletePropertyByRule({ role: 'agent', userId: 'fa1', agencyId: 'ag1' }, stored),
+    ).toBe(true)
   })
 
+  it('refuses portal roles', () => {
+    expect(
+      canDeletePropertyByRule(
+        { role: 'landlord', userId: 'll', agencyId: 'ag1' },
+        stored,
+      ),
+    ).toBe(false)
+    expect(
+      canDeletePropertyByRule({ role: 'tenant', userId: 't', agencyId: null }, stored),
+    ).toBe(false)
+    expect(
+      canDeletePropertyByRule({ role: 'contractor', userId: 'c', agencyId: 'ag1' }, stored),
+    ).toBe(false)
+  })
+
+  it('negative: other agency, other agent, wrong role', () => {
+    expect(
+      canDeletePropertyByRule(
+        { role: 'ground_agent', userId: 'fa1', agencyId: 'ag1' },
+        { agencyId: 'ag2', agentId: 'fa1' },
+      ),
+    ).toBe(false)
+    expect(
+      canDeletePropertyByRule(
+        { role: 'ground_agent', userId: 'fa1', agencyId: 'ag1' },
+        { agencyId: 'ag1', agentId: 'fa2' },
+      ),
+    ).toBe(false)
+    expect(
+      canDeletePropertyByRule(
+        { role: 'landlord', userId: 'fa1', agencyId: 'ag1' },
+        stored,
+      ),
+    ).toBe(false)
+  })
+
+  it('canDeleteStoredProperty delegates to rule', () => {
+    expect(
+      canDeleteStoredProperty({ role: 'agent_admin', userId: 'a', agencyId: 'ag1' }, property()),
+    ).toBe(true)
+  })
+
+  it('canOpenPropertyArchive includes staff delete roles', () => {
+    expect(canOpenPropertyArchive('agent')).toBe(true)
+    expect(canOpenPropertyArchive('landlord')).toBe(false)
+  })
+})
+
+describe('propertyHasOccupant / block reason', () => {
   it('blocks delete when an active tenancy exists', () => {
     const tenancies: Tenancy[] = [
       {

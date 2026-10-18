@@ -1,92 +1,56 @@
-import { blockedPropertyIdsForApplicant } from './blockedApplicants'
-import { agencyBlocksStaffAccess } from './agencyStatus'
-import type { PropertyAccessSubject } from './agencyScope'
-import { buildPropertyScope, canMutateProperty, toPropertyLinks, type PropertyScope } from './scope'
-import type {
-  Agency,
-  AgencyContractor,
-  Application,
-  AppUser,
-  MaintenanceTicket,
-  PropertyAsset,
-  Role,
-  Tenancy,
-} from '../types/domain'
+import { canSeeAgency, type AgencyScopeContext } from './agencyScope'
+import type { Application, PropertyAsset, Role, Tenancy } from '../types/domain'
 
-const ADMIN_DELETE_ROLES: ReadonlySet<Role> = new Set([
+export type PropertyDeleteViewer = { role: Role; userId: string; agencyId: string | null }
+export type PropertyDeleteStored = { agencyId: string; agentId: string | null }
+
+const ARCHIVE_CAPABLE_ROLES: ReadonlySet<Role> = new Set([
   'super_admin',
   'client_admin',
   'agent_admin',
-])
-
-/** Roles that may delete/archive when the property is in their mutate scope. */
-const PROPERTY_DELETE_ROLES: ReadonlySet<Role> = new Set([
-  ...ADMIN_DELETE_ROLES,
   'ground_agent',
+  'agent',
 ])
-
-/** Agency admin roles that may remove properties from the active portfolio. */
-export function canDeletePropertyRole(role: Role): boolean {
-  return ADMIN_DELETE_ROLES.has(role)
-}
-
-/** Whether the viewer may open the property archive (list is still scope-filtered). */
-export function canViewPropertyArchive(role: Role): boolean {
-  return PROPERTY_DELETE_ROLES.has(role)
-}
 
 /**
- * Scoped delete/archive: agency-wide staff for in-agency listings; full agents
- * only for properties they are assigned to (`agentId`).
+ * Authoritative soft-delete / restore rule (mirrored on server).
+ * 1) super_admin — any property
+ * 2) client_admin / agent_admin — same agency (FE id space)
+ * 3) ground_agent / agent — same agency and units.agent_id = viewer
  */
-export function canDeleteProperty(
-  scope: PropertyScope,
-  property: PropertyAccessSubject & { id: string },
+export function canDeletePropertyByRule(
+  viewer: PropertyDeleteViewer,
+  stored: PropertyDeleteStored,
+  ctx?: AgencyScopeContext,
 ): boolean {
-  if (!PROPERTY_DELETE_ROLES.has(scope.viewer.role)) return false
-  return canMutateProperty(scope, property, property.id)
+  if (viewer.role === 'super_admin') return true
+  if (viewer.role === 'client_admin' || viewer.role === 'agent_admin') {
+    return canSeeAgency(viewer.role, viewer.agencyId, false, stored.agencyId, ctx)
+  }
+  if (viewer.role === 'ground_agent' || viewer.role === 'agent') {
+    return (
+      stored.agentId === viewer.userId &&
+      canSeeAgency(viewer.role, viewer.agencyId, false, stored.agencyId, ctx)
+    )
+  }
+  return false
 }
 
-export type PropertyDeleteScopeInput = {
-  users: readonly AppUser[]
-  agencies: readonly Agency[]
-  properties: readonly PropertyAsset[]
-  applications: readonly Application[]
-  tenancies: readonly Tenancy[]
-  tickets: readonly MaintenanceTicket[]
-  agencyContractors: readonly AgencyContractor[]
-}
-
-/** Client-side delete/restore gate using workspace state + signed-in user id. */
-export function canDeletePropertyForViewer(
-  input: PropertyDeleteScopeInput,
-  viewerUserId: string | null | undefined,
-  property: PropertyAsset,
+export function canDeleteStoredProperty(
+  viewer: PropertyDeleteViewer,
+  property: Pick<PropertyAsset, 'agencyId' | 'agentId'>,
+  ctx?: AgencyScopeContext,
 ): boolean {
-  if (!viewerUserId) return false
-  const user = input.users.find((u) => u.id === viewerUserId)
-  if (!user) return false
-  const agency = input.agencies.find((a) => a.id === user.agencyId)
-  const agencySuspended = agencyBlocksStaffAccess(agency?.status)
-  const blockedPropertyIds = blockedPropertyIdsForApplicant([...input.applications], user)
-  const scope = buildPropertyScope(
-    {
-      role: user.role,
-      userId: user.id,
-      agencyId: user.agencyId,
-      agencySuspended,
-    },
-    {
-      properties: toPropertyLinks(input.properties),
-      applications: input.applications,
-      tenancies: input.tenancies,
-      tickets: input.tickets,
-      blockedPropertyIds,
-      viewerEmail: user.email,
-      agencyContractors: input.agencyContractors,
-    },
+  return canDeletePropertyByRule(
+    viewer,
+    { agencyId: property.agencyId, agentId: property.agentId },
+    ctx,
   )
-  return canDeleteProperty(scope, property)
+}
+
+/** Roles that may open the deleted-properties list (rows still scope-filtered). */
+export function canOpenPropertyArchive(role: Role): boolean {
+  return ARCHIVE_CAPABLE_ROLES.has(role)
 }
 
 /** True when a tenant is currently staying or scheduled to move in. */
