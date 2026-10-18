@@ -263,4 +263,113 @@ describe('scopeGate agency FE (P0 r20)', () => {
       ),
     ).resolves.toEqual({})
   })
+
+  it('assertPersistAllowed: ground_agent upsert unassigned unit in agency', async () => {
+    loadIdMapCache.mockResolvedValue({
+      ...agencyCache(),
+      userBackendToFe: new Map([[USER_UUID, 'u-95838e33']]),
+    })
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM units u') && sql.includes('JOIN buildings')) {
+        if (sql.includes('WHERE u.id')) {
+          return [
+            {
+              client_id: QA_CLIENT_UUID,
+              agent_id: null,
+              landlord_id: null,
+              status_config_key: 'DRAFT',
+            },
+          ]
+        }
+        return [
+          {
+            unit_id: UNIT_UUID,
+            client_id: QA_CLIENT_UUID,
+            agent_id: null,
+            landlord_id: null,
+          },
+        ]
+      }
+      if (sql.includes('FROM applications a')) return []
+      if (sql.includes('FROM leases')) return []
+      if (sql.includes('FROM maintenance_tickets')) return []
+      if (sql.includes('FROM clients WHERE id')) return [{ status: 'active' }]
+      return []
+    })
+    resolveUuid.mockImplementation(async (et: string, fe: string) => {
+      if ((et === 'property' || et === 'unit') && fe === PROP_FE) return UNIT_UUID
+      if (et === 'agency') return QA_CLIENT_UUID
+      return null
+    })
+
+    const { assertPersistAllowed } = await import('./scopeGate.js')
+    await expect(
+      assertPersistAllowed(
+        { userId: 'u-95838e33', role: 'ground_agent', agencyId: AGENCY_FE },
+        {
+          resource: 'unit',
+          action: 'upsert',
+          id: PROP_FE,
+          data: {
+            agencyId: AGENCY_FE,
+            agentId: 'u-95838e33',
+            title: 'Coastal listing',
+          },
+        },
+      ),
+    ).resolves.toEqual({})
+  })
+
+  it('assertPersistAllowed: ground_agent denied upsert unit assigned to another agent', async () => {
+    const otherAgentUuid = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+    loadIdMapCache.mockResolvedValue({
+      ...agencyCache(),
+      userBackendToFe: new Map([[otherAgentUuid, 'u-other-fa']]),
+    })
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM units u') && sql.includes('JOIN buildings')) {
+        if (sql.includes('WHERE u.id')) {
+          return [
+            {
+              client_id: QA_CLIENT_UUID,
+              agent_id: otherAgentUuid,
+              landlord_id: null,
+              status_config_key: 'DRAFT',
+            },
+          ]
+        }
+        return [
+          {
+            unit_id: UNIT_UUID,
+            client_id: QA_CLIENT_UUID,
+            agent_id: otherAgentUuid,
+            landlord_id: null,
+          },
+        ]
+      }
+      if (sql.includes('FROM applications a')) return []
+      if (sql.includes('FROM leases')) return []
+      if (sql.includes('FROM maintenance_tickets')) return []
+      if (sql.includes('FROM clients WHERE id')) return [{ status: 'active' }]
+      return []
+    })
+    resolveUuid.mockImplementation(async (et: string, fe: string) => {
+      if ((et === 'property' || et === 'unit') && fe === PROP_FE) return UNIT_UUID
+      if (et === 'agency') return QA_CLIENT_UUID
+      return null
+    })
+
+    const { assertPersistAllowed } = await import('./scopeGate.js')
+    await expect(
+      assertPersistAllowed(
+        { userId: 'u-95838e33', role: 'ground_agent', agencyId: AGENCY_FE },
+        {
+          resource: 'unit',
+          action: 'upsert',
+          id: PROP_FE,
+          data: { agencyId: AGENCY_FE, title: 'Nope' },
+        },
+      ),
+    ).rejects.toMatchObject({ status: 403 })
+  })
 })

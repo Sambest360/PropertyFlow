@@ -175,7 +175,7 @@ describe('canAccessProperty', () => {
     ).toBe(false)
   })
 
-  it('denies field agents unassigned listings in their agency', () => {
+  it('allows field agents unassigned listings in their agency (listing pool)', () => {
     expect(
       canAccessProperty(
         {
@@ -187,7 +187,7 @@ describe('canAccessProperty', () => {
         { ...propA, agentId: null },
         'p-unassigned',
       ),
-    ).toBe(false)
+    ).toBe(true)
   })
 
   it('allows tenants only for linked application / tenancy property ids', () => {

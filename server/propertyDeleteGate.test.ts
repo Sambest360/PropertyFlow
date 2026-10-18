@@ -150,6 +150,22 @@ describe('property delete gate', () => {
     ).rejects.toMatchObject({ status: 409, code: 'PROPERTY_DELETE_BLOCKED' })
   })
 
+  it('enforcePropertyUnitUpsert: field agent keeps agentId on payload when stored unassigned', async () => {
+    const { enforcePropertyUnitUpsert } = await import('./propertyDeletePolicy.js')
+    const body = {
+      resource: 'unit' as const,
+      action: 'upsert' as const,
+      id: PROP_FE,
+      data: { agencyId: AGENCY_FE, agentId: 'u-agent', title: 'Draft' },
+    }
+    await enforcePropertyUnitUpsert(
+      { userId: 'u-agent', role: 'ground_agent', agencyId: AGENCY_FE },
+      body,
+      { ...existingRow, agentId: null },
+    )
+    expect(body.data.agentId).toBe('u-agent')
+  })
+
   it('enforcePropertyUnitUpsert: upsert on DELETED without restore → 403', async () => {
     const { enforcePropertyUnitUpsert } = await import('./propertyDeletePolicy.js')
     const body = {

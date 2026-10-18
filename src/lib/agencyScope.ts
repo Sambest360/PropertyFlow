@@ -167,11 +167,9 @@ export function canAccessProperty(
   if (!canSeeAgency(role, viewer.agencyId, viewer.agencySuspended, property.agencyId)) {
     return false
   }
-  if (
-    (role === 'ground_agent' || role === 'agent') &&
-    !canSeeAgentRecord(role, viewer.userId, property.agentId)
-  ) {
-    return false
+  if (role === 'ground_agent' || role === 'agent') {
+    if (!property.agentId) return true
+    if (!canSeeAgentRecord(role, viewer.userId, property.agentId)) return false
   }
   return true
 }

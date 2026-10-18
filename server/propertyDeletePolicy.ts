@@ -126,7 +126,12 @@ export async function enforcePropertyUnitUpsert(
   }
 
   const payloadAgent = strField(data, 'agentId')
-  if (payloadAgent != null && payloadAgent !== (storedAgentId ?? '')) {
+  const storedAgent = storedAgentId ?? ''
+  if (
+    storedAgent !== '' &&
+    payloadAgent != null &&
+    payloadAgent !== storedAgent
+  ) {
     const adminOk =
       actor.role === 'super_admin' ||
       (isAgencyWideRole(actor.role as Role) &&
@@ -139,7 +144,9 @@ export async function enforcePropertyUnitUpsert(
   if (actor.role === 'ground_agent' || actor.role === 'agent') {
     delete data.agencyId
     delete data.clientId
-    delete data.agentId
+    if (storedAgentId != null && storedAgentId !== '') {
+      delete data.agentId
+    }
   }
 
   const isArchive = isArchivePayload(data, storedStatus)
