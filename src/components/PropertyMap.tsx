@@ -107,17 +107,15 @@ function MapListingPreview({
         : 'To rent'
 
   const listingId = canonicalListingId(card?.property_id ?? property.id)
-  const stats = [
-    beds > 0 ? `${beds} bed` : null,
-    baths > 0 ? `${baths} bath` : null,
-    parking > 0 ? `${parking} park` : null,
-    area > 0 ? `${area.toLocaleString('en-ZA')} m²` : null,
-  ]
-    .filter(Boolean)
-    .join(' · ')
+  const statItems = [
+    beds > 0 ? { key: 'beds', label: `${beds} bed` } : null,
+    baths > 0 ? { key: 'baths', label: `${baths} bath` } : null,
+    parking > 0 ? { key: 'parking', label: `${parking} park` } : null,
+    area > 0 ? { key: 'area', label: `${area.toLocaleString('en-ZA')} m²` } : null,
+  ].filter(Boolean) as { key: string; label: string }[]
 
   return (
-    <article className="pf-map-card relative w-[min(100vw-2rem,300px)] overflow-hidden rounded-xl bg-white">
+    <article className="pf-map-card relative w-[min(100vw-1.5rem,340px)] overflow-hidden rounded-xl bg-white">
       {onClose && (
         <button
           type="button"
@@ -127,37 +125,41 @@ function MapListingPreview({
             e.stopPropagation()
             onClose()
           }}
-          className="absolute right-1 top-1 z-10 inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-white/95 text-ink shadow-sm transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-white/95 text-ink shadow-sm transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           <X className="h-3.5 w-3.5" aria-hidden />
         </button>
       )}
-      <div className="flex gap-2.5 p-2.5">
-        <div className="relative h-[72px] w-[72px] shrink-0 overflow-hidden rounded-lg bg-primary-100">
-          {image ? (
-            <img src={image} alt="" className="h-full w-full object-cover" />
-          ) : (
-            <div className="h-full w-full bg-primary-100" aria-hidden />
-          )}
-          <span className="absolute bottom-0 left-0 right-0 bg-ink/70 px-1 py-0.5 text-center text-[9px] font-semibold leading-tight text-white">
-            {badge}
-          </span>
-        </div>
-        <div className="min-w-0 flex-1 pr-6">
-          <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-ink">{title}</h3>
-          <p className="mt-0.5 line-clamp-1 text-xs text-ink-500">
-            {suburb}, {city}
-          </p>
-          <p className="mt-1 text-sm font-bold tabular text-ink">{priceLabel}</p>
-          {stats ? <p className="mt-0.5 line-clamp-1 text-[11px] text-ink-500">{stats}</p> : null}
-          <Link
-            to={`${detailBase}/${listingId}`}
-            className="pf-map-cta mt-1.5 inline-flex cursor-pointer items-center gap-1 text-xs font-semibold text-primary no-underline hover:text-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          >
-            View listing
-            <ArrowRight className="h-3.5 w-3.5" aria-hidden />
-          </Link>
-        </div>
+      <div className="relative aspect-[16/10] w-full overflow-hidden bg-primary-100">
+        {image ? (
+          <img src={image} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <div className="h-full w-full bg-primary-100" aria-hidden />
+        )}
+        <span className="absolute bottom-0 left-0 right-0 bg-ink/70 px-2 py-1 text-center text-[10px] font-semibold leading-tight text-white">
+          {badge}
+        </span>
+      </div>
+      <div className="p-3">
+        <h3 className="text-sm font-semibold leading-snug text-ink">{title}</h3>
+        <p className="mt-1 text-xs text-ink-500">
+          {suburb}, {city}
+        </p>
+        <p className="mt-1.5 text-sm font-bold tabular text-ink">{priceLabel}</p>
+        {statItems.length > 0 ? (
+          <ul className="mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-ink-500">
+            {statItems.map((item) => (
+              <li key={item.key}>{item.label}</li>
+            ))}
+          </ul>
+        ) : null}
+        <Link
+          to={`${detailBase}/${listingId}`}
+          className="pf-map-cta mt-2 inline-flex cursor-pointer items-center gap-1 text-xs font-semibold text-primary no-underline hover:text-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          View listing
+          <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+        </Link>
       </div>
     </article>
   )
@@ -216,8 +218,8 @@ function LeafletPropertyMap({
             <Popup
               className="pf-map-popup"
               closeButton={false}
-              maxWidth={300}
-              minWidth={260}
+              maxWidth={340}
+              minWidth={280}
               offset={[0, -8]}
               autoPanPadding={[48, 80]}
               keepInView
@@ -345,7 +347,7 @@ function GooglePropertyMap({
             onCloseClick={() => setActiveId(null)}
             options={{
               pixelOffset: new google.maps.Size(0, -36),
-              maxWidth: 300,
+              maxWidth: 340,
               headerDisabled: true,
             }}
           >

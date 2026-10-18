@@ -454,7 +454,7 @@
 .pf-gmap-info {
   font-family: inherit;
   line-height: inherit;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .gm-style .gm-style-iw-c:has(.pf-gmap-info) {
@@ -465,7 +465,7 @@
 }
 
 .gm-style .gm-style-iw-d:has(.pf-gmap-info) {
-  overflow: hidden !important;
+  overflow: visible !important;
   max-height: none !important;
 }
 
