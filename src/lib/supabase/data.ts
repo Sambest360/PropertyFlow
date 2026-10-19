@@ -15,6 +15,7 @@ import {
   mapProperty,
   mapUser,
   resolveFrontendRole,
+  alignActorUserId,
   type IdMapCache,
 } from './idMap'
 import { hydrateDocumentsFromUploadedJson } from '../hydrateApplicationDocs'
@@ -511,6 +512,7 @@ export async function fetchSupabaseBootstrap(
   for (const row of idMapRes.data ?? []) {
     if (row.entity_type === 'user') userByUuid.set(row.backend_id, row.frontend_id)
   }
+  alignActorUserId(userByUuid, users, opts?.actorUserId)
 
   const mapUserFe = (id: string | null | undefined) => mapUser(cache, userByUuid, id)
   const mapAgencyFe = (id: string | null | undefined) => mapAgency(cache, id)

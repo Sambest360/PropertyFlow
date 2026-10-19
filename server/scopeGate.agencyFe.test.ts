@@ -264,7 +264,7 @@ describe('scopeGate agency FE (P0 r20)', () => {
     ).resolves.toEqual({})
   })
 
-  it('assertPersistAllowed: ground_agent upsert unassigned unit in agency', async () => {
+  it('assertPersistAllowed: ground_agent upsert unassigned unit in agency is blocked', async () => {
     loadIdMapCache.mockResolvedValue({
       ...agencyCache(),
       userBackendToFe: new Map([[USER_UUID, 'u-95838e33']]),
@@ -317,7 +317,7 @@ describe('scopeGate agency FE (P0 r20)', () => {
           },
         },
       ),
-    ).resolves.toEqual({})
+    ).rejects.toMatchObject({ status: 403 })
   })
 
   it('assertPersistAllowed: ground_agent denied upsert unit assigned to another agent', async () => {

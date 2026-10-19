@@ -83,6 +83,15 @@ export function dedupePropertyAssets(properties: PropertyAsset[], _units?: Unit[
     for (let i = 1; i < group.length; i++) {
       best = pickPreferredProperty(best, group[i])
     }
+    // If the chosen best has no agentId but any row in the group has one,
+    // copy the agentId from the first row with an agentId (preserving group order)
+    if (!best.agentId) {
+      for (const p of group) {
+        if (p.agentId) {
+          return { ...best, agentId: p.agentId }
+        }
+      }
+    }
     return best
   })
 }

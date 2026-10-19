@@ -233,3 +233,31 @@ export function resolveFrontendRouteId(
   if (agencyFe && agencyFe !== id && !isListingUuid(agencyFe)) return agencyFe
   return null
 }
+
+export function sessionFrontendUserId(
+  meta: Record<string, unknown> | null | undefined,
+  email: string,
+): string {
+  if (typeof meta?.frontend_id === 'string' && meta.frontend_id) {
+    return meta.frontend_id
+  }
+  const emailKey = email.toLowerCase()
+  if (EMAIL_TO_USER[emailKey]) {
+    return EMAIL_TO_USER[emailKey]
+  }
+  return emailKey
+}
+
+export function alignActorUserId(
+  userByUuid: Map<string, string>,
+  users: { id: string; email: string; metadata?: Record<string, unknown> | null }[],
+  actorUserId: string | null | undefined,
+): void {
+  if (!actorUserId) return
+  for (const user of users) {
+    const frontendId = sessionFrontendUserId(user.metadata, user.email)
+    if (frontendId === actorUserId) {
+      userByUuid.set(user.id, actorUserId)
+    }
+  }
+}

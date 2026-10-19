@@ -3,7 +3,7 @@ import { isSupabaseConfigured } from '../../utils/supabase/env'
 import { RegistrationRedirectError } from '../auth/registrationErrors'
 import type { AppUser, Role } from '../../types/domain'
 import type { UserVerification, VerificationDocument } from '../verification'
-import { EMAIL_TO_USER, resolveFrontendRole } from './idMap.js'
+import { resolveFrontendRole, sessionFrontendUserId } from './idMap.js'
 import { resolveAuthChangeDecision } from './authChange.js'
 import {
   beginDeferredAuthDecision,
@@ -62,10 +62,7 @@ function rowToAppUser(row: {
   clients?: { settings: Record<string, unknown> | null } | null
 }): AppUser {
   const meta = row.metadata ?? {}
-  const frontendId =
-    typeof meta.frontend_id === 'string' && meta.frontend_id
-      ? meta.frontend_id
-      : EMAIL_TO_USER[row.email.toLowerCase()] ?? row.email.toLowerCase()
+  const frontendId = sessionFrontendUserId(meta, row.email)
   const feRole = resolveFrontendRole(row.role, meta, row.email)
   const verification =
     meta.verification && typeof meta.verification === 'object'

@@ -1,4 +1,4 @@
-import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMemo, useRef, useState } from 'react'
 import { acquireSubmitLock, releaseSubmitLock } from '../lib/wizardSubmitGuard'
 import { useStore } from '../context/AppStore'
@@ -216,7 +216,14 @@ export default function PropertyDetail() {
   }
 
   if (!inScope) {
-    return <Navigate to="/workspace/properties" replace />
+    return (
+      <Card className="p-10 text-center">
+        <p className="font-semibold">Property not found</p>
+        <div className="mt-3 flex justify-center">
+          <BackButton to="/workspace/properties" label="Back to properties" />
+        </div>
+      </Card>
+    )
   }
 
   const openTickets = tickets.filter((t) => t.status !== 'Completed' && t.status !== 'Cancelled').length
