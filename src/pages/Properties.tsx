@@ -366,7 +366,8 @@ export default function Properties() {
       ) : view === 'list' ? (
         <PropertyListView
           items={filtered}
-          rowLinksToDetail
+          expandedId={expandedId}
+          onToggle={toggleExpand}
           reducedMotion={reducedMotion}
         />
       ) : view === 'map' ? (

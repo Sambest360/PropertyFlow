@@ -13,6 +13,7 @@ import {
   MapPin,
   Wrench,
 } from 'lucide-react'
+import { useStore } from '../../context/AppStore'
 import { ActionButtonRow } from '../ActionButtonRow'
 import { Badge, Button, cn } from '../ui'
 import { AgentAssigneeText } from '../detail/FlatFields'
@@ -77,6 +78,8 @@ export function PropertyExpansion({
 }) {
   const [activePhoto, setActivePhoto] = useState(0)
   const p = item.property
+  const { state } = useStore()
+  const openLeads = state.leads.filter((l) => l.propertyId === p.id && l.stage !== 'Rejected' && l.stage !== 'Lease Signed' && l.stage !== 'Sale Completed').length
   const photos = p.images.length > 0 ? p.images.slice(0, 8) : []
   const detailId = `/workspace/properties/${p.id}`
   const current = photos[Math.min(activePhoto, Math.max(photos.length - 1, 0))]
@@ -241,6 +244,21 @@ export function PropertyExpansion({
                 Maintenance
                 {item.openTickets > 0 && (
                   <span className="tabular opacity-90">({item.openTickets})</span>
+                )}
+              </Button>
+            </Link>
+            <Link to={`/workspace/sales/crm`}>
+              <Button
+                variant="secondary"
+                className={cn(
+                  'min-h-10 rounded-xl px-3 text-sm',
+                  openLeads > 0 && 'border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100',
+                )}
+              >
+                <ClipboardList className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                Leads
+                {openLeads > 0 && (
+                  <span className="tabular opacity-90">({openLeads})</span>
                 )}
               </Button>
             </Link>
