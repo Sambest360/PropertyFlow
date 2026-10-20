@@ -289,7 +289,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
         setDraft((d) => ({
           ...d,
           pendingCreateIds: ids,
-          createIdempotencyKey: d.createIdempotencyKey ?? `create:${wizardStorageKey}`,
+          createIdempotencyKey: d.createIdempotencyKey ?? `create:${wizardStorageKey}:${ids.propertyId}`,
         }))
       }
       return ids
@@ -304,7 +304,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     setDraft((d) => ({
       ...d,
       pendingCreateIds: ids,
-      createIdempotencyKey: d.createIdempotencyKey ?? `create:${wizardStorageKey}`,
+      createIdempotencyKey: d.createIdempotencyKey ?? `create:${wizardStorageKey}:${ids.propertyId}`,
     }))
     return ids
   }
@@ -313,7 +313,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     const pendingIds = ensurePendingCreateIds()
     return {
       ids: pendingIds,
-      idempotencyKey: draft.createIdempotencyKey ?? `create:${wizardStorageKey}`,
+      idempotencyKey: draft.createIdempotencyKey ?? `create:${wizardStorageKey}:${pendingIds.propertyId}`,
     }
   }
 
