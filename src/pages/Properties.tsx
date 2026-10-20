@@ -9,7 +9,7 @@ import { ActionButtonRow } from '../components/ActionButtonRow'
 import { withReturnTo } from '../lib/returnTo'
 import { PropertyMap } from '../components/PropertyMap'
 import { PropertiesToolbar } from '../components/properties/PropertiesToolbar'
-import { BuildingTreeView } from '../components/properties/BuildingTreeView'
+import { PropertyListView } from '../components/properties/PropertyListView'
 import { PropertyPortfolioCard } from '../components/properties/PropertyPortfolioCard'
 import {
   VIEW_STORAGE_KEY,
@@ -364,9 +364,9 @@ export default function Properties() {
           </button>
         </Card>
       ) : view === 'list' ? (
-        <BuildingTreeView
+        <PropertyListView
           items={filtered}
-          buildings={state.buildings}
+          rowLinksToDetail
           reducedMotion={reducedMotion}
         />
       ) : view === 'map' ? (
