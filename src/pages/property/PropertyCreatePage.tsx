@@ -200,6 +200,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
 
   const createInitialDraft: PropertyDraft = {
     listingMode: 'rent',
+    requireViewingToApply: 'inherit',
     propertyType: 'Apartment',
     buildingName: '',
     existingBuildingId: '',
@@ -657,6 +658,8 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       title,
       type: draft.propertyType,
       listingMode: draft.listingMode,
+      requireViewingToApply:
+        draft.requireViewingToApply === 'on' ? true : draft.requireViewingToApply === 'off' ? false : null,
       price: draft.price ? Number(draft.price) : null,
       rent: draft.rent ? Number(draft.rent) : null,
       parking: draft.parking,
@@ -1448,6 +1451,25 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
         return (
           <WizardSectionCard title="Pricing & availability">
             <div className="grid gap-3 sm:grid-cols-2">
+              {(draft.listingMode === 'rent' || draft.listingMode === 'both') && (
+                <div className="sm:col-span-2">
+                  <FormLabel className="mb-1.5">Viewing required before apply</FormLabel>
+                  <Select
+                    className="min-h-11"
+                    value={draft.requireViewingToApply ?? 'inherit'}
+                    onChange={(e) =>
+                      setDraft((d) => ({
+                        ...d,
+                        requireViewingToApply: e.target.value as 'inherit' | 'on' | 'off',
+                      }))
+                    }
+                  >
+                    <option value="inherit">Follow agency default</option>
+                    <option value="on">Require a viewing</option>
+                    <option value="off">Allow applications without a viewing</option>
+                  </Select>
+                </div>
+              )}
               {(draft.listingMode === 'rent' || draft.listingMode === 'both') && (
                 <div>
                   <FormLabel

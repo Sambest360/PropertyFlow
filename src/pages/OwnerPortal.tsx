@@ -10,6 +10,7 @@ import {
   Wrench,
 } from 'lucide-react'
 import { useStore } from '../context/AppStore'
+import { ViewingEvidenceBadge } from '../components/applications/ViewingEvidenceBadge'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
 import {
@@ -221,6 +222,9 @@ function OwnerPortalContent() {
                         {prop?.title ?? app.propertyId} · {workflowStageLabel(app.type, resolveWorkflowStatus(app))}
                       </p>
                       {app.email ? <p className="mt-0.5 text-xs text-ink-400">{app.email}</p> : null}
+                      <div className="mt-2">
+                        <ViewingEvidenceBadge evidence={app.viewingEvidence} />
+                      </div>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {canApprove ? (

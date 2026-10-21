@@ -3,6 +3,7 @@ import type { ApplicantTask } from '../../lib/applicantPortalActions'
 import type { HateoasAction } from '../../lib/api/contracts'
 import type { WorkflowActionCapture } from '../../lib/workflowActionForms'
 import { ProviderBadge } from '../integrations/ProviderBadge'
+import { ViewingEvidenceBadge } from '../applications/ViewingEvidenceBadge'
 import { ApplicationLifecycleHub } from '../workflow/ApplicationLifecycleHub'
 
 /** Workflow hub — lifecycle is the central application experience. */
@@ -44,6 +45,7 @@ export function ApplicantApplicationPanel({
       <div className="mb-3 flex flex-wrap gap-2">
         <ProviderBadge kind="screening" />
         <ProviderBadge kind="esign" />
+        <ViewingEvidenceBadge evidence={application.viewingEvidence} />
       </div>
     <ApplicationLifecycleHub
       application={application}
