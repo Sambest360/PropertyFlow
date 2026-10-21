@@ -18,6 +18,7 @@ import { SUB_FE_TO_UUID } from './idMap.js'
 import { resolveTicketLease } from './ticketLease.js'
 import { checkTicketPhotos } from '../src/lib/photoLimits.js'
 import { propertyTypeToDb } from '../src/lib/propertyType.js'
+import { notifyWaitlistSpotOpen } from './listingLimits.js'
 import { mapAgencyStatusToDb } from '../src/lib/agencyStatus.js'
 import { resolveLiveListing } from './listingResolve.js'
 import { canonicalListingId } from '../src/lib/listingIds.js'
@@ -29,6 +30,15 @@ import {
   SUPPORT_NOTE_MAX,
   SUPPORT_SUBJECT_MAX,
 } from '../src/lib/supportTickets.js'
+import {
+  coApplicantEmailsFromPayload,
+  markBookingAttendance,
+  requireViewingColumn,
+  revokeApplyOverridesForLetStatus,
+  revokeApplyOverridesForLetUnit,
+  viewingEvidenceForNewApplication,
+  viewingIdsForWrite,
+} from './applyEligibility.js'
 
 export type PersistAction = 'upsert' | 'delete' | 'patch'
 export type PersistBody = {
@@ -356,6 +366,7 @@ export async function handlePersist(
   body: PersistBody,
   /** Acting user (front-end id or uuid) for audit rows written by the upsert. */
   actorUserId?: string | null,
+  actorRole?: string | null,
 ): Promise<{ ok: true; id: string; uuid: string; tempPassword?: string }> {
   await ensureEntityMapTable()
   const { resource, action, id, data = {} } = body
@@ -391,7 +402,7 @@ export async function handlePersist(
       ? { ok: true, id, uuid: res.uuid, tempPassword: res.generatedTempPassword }
       : { ok: true, id, uuid: res.uuid }
   }
-  const uuid = await upsertEntity(resource, id, data, actorUserId ?? null)
+  const uuid = await upsertEntity(resource, id, data, actorUserId ?? null, actorRole ?? null)
   if (
     resource === 'user' ||
     resource === 'agency' ||
@@ -471,6 +482,7 @@ async function upsertEntity(
   frontendId: string,
   data: Record<string, unknown>,
   actorUserId: string | null = null,
+  actorRole: string | null = null,
 ): Promise<string> {
   switch (resource) {
     case 'agency':
@@ -489,11 +501,11 @@ async function upsertEntity(
     case 'lead':
       return upsertLead(frontendId, data)
     case 'application':
-      return upsertApplication(frontendId, data)
+      return upsertApplication(frontendId, data, actorRole)
     case 'tenancy':
       return upsertTenancy(frontendId, data)
     case 'viewing':
-      return upsertViewing(frontendId, data)
+      return upsertViewing(frontendId, data, actorUserId, actorRole)
     case 'viewing_slot':
       return upsertViewingSlot(frontendId, data)
     case 'payment':
@@ -557,6 +569,25 @@ async function upsertAgency(feId: string, d: Record<string, unknown>): Promise<s
       JSON.stringify({
         frontend_id: feId,
         enabledPermissions: d.enabledPermissions ?? [],
+        ...(d.settings && typeof d.settings === 'object' && !Array.isArray(d.settings)
+          ? {
+              ...(typeof (d.settings as { listingLimits?: unknown }).listingLimits === 'object' &&
+              !Array.isArray((d.settings as { listingLimits?: unknown }).listingLimits)
+                ? { listingLimits: (d.settings as { listingLimits: unknown }).listingLimits }
+                : {}),
+              ...((d.settings as { applicationJourney?: unknown }).applicationJourney
+                ? { applicationJourney: (d.settings as { applicationJourney: unknown }).applicationJourney }
+                : {}),
+              ...(['requireViewingToApply', 'buildingViewingCountsForAllUnits', 'mainApplicantViewingCoversCoApplicants'] as const).reduce(
+                (acc, key) => {
+                  const value = (d.settings as Record<string, unknown>)[key]
+                  if (typeof value === 'boolean') acc[key] = value
+                  return acc
+                },
+                {} as Record<string, boolean>,
+              ),
+            }
+          : {}),
       }),
     ],
   )
@@ -954,16 +985,24 @@ async function upsertProperty(feId: string, d: Record<string, unknown>): Promise
     typeof d.idempotencyKey === 'string' && d.idempotencyKey.trim()
       ? d.idempotencyKey.trim()
       : null
+  const viewingRule = requireViewingColumn(d)
+  const statusKey = isArchive
+    ? 'DELETED'
+    : isRestore
+      ? str(d.statusKey) || unitStatusFromProperty(d.status, undefined)
+      : str(d.statusKey) || unitStatusFromProperty(d.status, d.deletedAt)
 
   await query(
     `INSERT INTO units (
        id, building_id, client_id, unit_number, property_type, square_meters, bedrooms, bathrooms, parking,
        listing_type, price, rent, status_config_key, agent_id, title, description, amenities,
-       images, featured, lat, lng, place_id, formatted_address, geocoded_at, idempotency_key, updated_at
+       images, featured, lat, lng, place_id, formatted_address, geocoded_at, idempotency_key,
+       require_viewing_to_apply, updated_at
      ) VALUES (
        $1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9,
        $10, $11, $12, $13, $14::uuid, $15, $16, $17::jsonb,
-       $18::jsonb, $19, $20, $21, $22, $23, $24::timestamptz, $25, NOW()
+       $18::jsonb, $19, $20, $21, $22, $23, $24::timestamptz, $25,
+       $26::boolean, NOW()
      )
      ON CONFLICT (id) DO UPDATE SET
        building_id = EXCLUDED.building_id,
@@ -990,6 +1029,10 @@ async function upsertProperty(feId: string, d: Record<string, unknown>): Promise
        formatted_address = COALESCE(EXCLUDED.formatted_address, units.formatted_address),
        geocoded_at = COALESCE(EXCLUDED.geocoded_at, units.geocoded_at),
        idempotency_key = COALESCE(units.idempotency_key, EXCLUDED.idempotency_key),
+       require_viewing_to_apply = CASE
+         WHEN $27::boolean THEN $26::boolean
+         ELSE units.require_viewing_to_apply
+       END,
        updated_at = NOW()`,
     [
       uuid,
@@ -1006,11 +1049,7 @@ async function upsertProperty(feId: string, d: Record<string, unknown>): Promise
         : listingType(d.listingMode ?? d.listingType),
       num(d.price),
       num(d.rent),
-      isArchive
-        ? 'DELETED'
-        : isRestore
-          ? str(d.statusKey) || unitStatusFromProperty(d.status, undefined)
-          : str(d.statusKey) || unitStatusFromProperty(d.status, d.deletedAt),
+      statusKey,
       agent,
       str(d.title, unitNumber),
       str(d.description),
@@ -1023,8 +1062,11 @@ async function upsertProperty(feId: string, d: Record<string, unknown>): Promise
       d.formattedAddress ? str(d.formattedAddress) : null,
       d.geocodedAt ? str(d.geocodedAt) : null,
       idempotencyKey,
+      viewingRule.value,
+      viewingRule.sent,
     ],
   )
+  await revokeApplyOverridesForLetStatus(uuid, statusKey)
   return uuid
 }
 
@@ -1315,7 +1357,11 @@ export function mergeRedactedApplicationFields(
   return { contact, documents, keyCollection, storedDocsJson: docsJson }
 }
 
-async function upsertApplication(feId: string, d: Record<string, unknown>): Promise<string> {
+async function upsertApplication(
+  feId: string,
+  d: Record<string, unknown>,
+  actorRole: string | null = null,
+): Promise<string> {
   const uuid = await ensureUuid('application', feId)
   // Stored row (if any). Narrowed writes (portal applicant: unchanged workflow
   // fields, agent / agency / listing dropped) must never blank the stored
@@ -1412,15 +1458,35 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
   const journeyVersion =
     has('journeyVersion') && typeof d.journeyVersion === 'number' ? d.journeyVersion : null
 
+  let viewingBookingId: string | null = null
+  let applyOverrideId: string | null = null
+  if (!stored) {
+    const gate = await viewingEvidenceForNewApplication({
+      unitId: unit,
+      applicationType: appType === 'PURCHASE' ? 'PURCHASE' : 'RENTAL',
+      actorRole,
+      applicantId: applicant,
+      applicantEmail: typeof d.email === 'string' ? d.email : null,
+      applicantPhone: typeof d.phone === 'string' ? d.phone : null,
+      coApplicantEmails: coApplicantEmailsFromPayload(d),
+    })
+    const ids = viewingIdsForWrite(false, gate)
+    viewingBookingId = ids.bookingId
+    applyOverrideId = ids.overrideId
+    if (gate.evidence) meta.viewing_evidence = gate.evidence
+  }
+
   await query(
     `INSERT INTO applications (
        id, client_id, unit_id, applicant_id, agent_id, reference_code, application_type,
        status, monthly_income, employment_summary, message, uploaded_docs_json,
-       move_in_date, metadata, journey_snapshot, journey_version, submitted_at, updated_at
+       move_in_date, metadata, journey_snapshot, journey_version, submitted_at,
+       viewing_booking_id, apply_override_id, updated_at
      ) VALUES (
        $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7,
        $8, $9, $10, $11, $12::jsonb,
-       $13::date, $14::jsonb, $15::jsonb, $16::int, COALESCE($17::timestamptz, NOW()), NOW()
+       $13::date, $14::jsonb, $15::jsonb, $16::int, COALESCE($17::timestamptz, NOW()),
+       $20::uuid, $21::uuid, NOW()
      )
      ON CONFLICT (id) DO UPDATE SET
        -- P0-sync (R12): never leave a null/stale agency client_id on re-upsert.
@@ -1438,6 +1504,8 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
        metadata = applications.metadata || EXCLUDED.metadata,
        journey_snapshot = COALESCE(EXCLUDED.journey_snapshot, applications.journey_snapshot),
        journey_version = COALESCE(EXCLUDED.journey_version, applications.journey_version),
+       viewing_booking_id = COALESCE(EXCLUDED.viewing_booking_id, applications.viewing_booking_id),
+       apply_override_id = COALESCE(EXCLUDED.apply_override_id, applications.apply_override_id),
        updated_at = NOW()`,
     [
       uuid,
@@ -1459,6 +1527,8 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
       d.submittedAt ? str(d.submittedAt) : null,
       statusSent,
       has('agentId'),
+      viewingBookingId,
+      applyOverrideId,
     ],
   )
   // "Accepted elsewhere" notices are written here, not by the client (the
@@ -1615,7 +1685,12 @@ async function upsertTenancy(feId: string, d: Record<string, unknown>): Promise<
   return uuid
 }
 
-async function upsertViewing(feId: string, d: Record<string, unknown>): Promise<string> {
+async function upsertViewing(
+  feId: string,
+  d: Record<string, unknown>,
+  actorUserId: string | null = null,
+  actorRole: string | null = null,
+): Promise<string> {
   const uuid = await ensureUuid('viewing', feId)
   const client = await clientId(d.agencyId)
   const unit = await unitIdFromProperty(d.propertyId)
@@ -1626,6 +1701,11 @@ async function upsertViewing(feId: string, d: Record<string, unknown>): Promise<
   const time = str(d.time, '10:00')
   const starts = `${date}T${time}:00`
   const status = VIEW_STATUS_TO_DB[str(d.status, 'Scheduled')] ?? 'SCHEDULED'
+  const prevBooking = await query<{ status: string; unit_id: string }>(
+    `SELECT status, unit_id::text AS unit_id FROM bookings WHERE id = $1::uuid`,
+    [uuid],
+  )
+  const prevStatus = prevBooking[0]?.status
 
   await query(
     `INSERT INTO bookings (
@@ -1655,6 +1735,24 @@ async function upsertViewing(feId: string, d: Record<string, unknown>): Promise<
       d.notes ? str(d.notes) : null,
     ],
   )
+  if ((status === 'COMPLETED' || status === 'NO_SHOW') && actorUserId && actorRole) {
+    try {
+      await markBookingAttendance(
+        { userId: actorUserId, role: actorRole as 'agent', agencyId: null },
+        feId,
+        { status, viewingMode: d.viewingMode === 'VIRTUAL' ? 'VIRTUAL' : 'IN_PERSON' },
+      )
+    } catch (err) {
+      const revert = prevStatus && prevStatus !== status ? prevStatus : 'SCHEDULED'
+      if (revert !== status) {
+        await query(`UPDATE bookings SET status = $2, updated_at = NOW() WHERE id = $1::uuid`, [uuid, revert])
+      }
+      throw err
+    }
+  }
+  if (status === 'CANCELLED' && prevStatus && prevStatus !== 'CANCELLED') {
+    await notifyWaitlistSpotOpen(prevBooking[0]?.unit_id || unit)
+  }
   return uuid
 }
 
@@ -2359,6 +2457,7 @@ export async function approveApplicationTx(params: {
       `UPDATE units SET status_config_key = 'OCCUPIED', updated_at = NOW() WHERE id = $1::uuid`,
       [app.unit_id],
     )
+    await revokeApplyOverridesForLetUnit(app.unit_id)
 
     let leaseUuid: string | null = null
     if (t?.id) {

@@ -529,20 +529,20 @@ export default function ViewingPropertyPage() {
                         <Pencil className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
                         Edit
                       </Button>
+                      <AttendanceActions
+                        onMark={(status, mode) => void markAttendance(v.id, status, mode)}
+                      />
                       <Select
                       className="min-h-11"
                       value={v.status}
-                      onChange={(e) =>
-                        updateViewing(v.id, {
-                          status: e.target.value as Viewing['status'],
-                          attendance:
-                            e.target.value === 'Completed'
-                              ? 'Attended'
-                              : e.target.value === 'No-show'
-                                ? 'No-show'
-                                : v.attendance,
-                        })
-                      }
+                      onChange={(e) => {
+                        const next = e.target.value as Viewing['status']
+                        if (next === 'Completed' || next === 'No-show') {
+                          void markAttendance(v.id, next === 'Completed' ? 'COMPLETED' : 'NO_SHOW', v.viewingMode ?? 'IN_PERSON')
+                          return
+                        }
+                        updateViewing(v.id, { status: next, attendance: v.attendance })
+                      }}
                     >
                       {VIEWING_BOOKING_STATUSES.map((s) => (
                         <option key={s} value={s}>
@@ -592,10 +592,12 @@ function AttendeeRow({
   viewing,
   canManage,
   onUpdate,
+  onAttendance,
 }: {
   viewing: Viewing
   canManage: boolean
   onUpdate: (id: string, patch: Partial<Viewing>) => void
+  onAttendance?: (id: string, status: 'COMPLETED' | 'NO_SHOW', viewingMode: 'IN_PERSON' | 'VIRTUAL') => void
 }) {
   return (
     <li className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-primary-50 px-3 py-2.5">
@@ -603,21 +605,26 @@ function AttendeeRow({
         <p className="text-sm font-medium text-ink">{viewing.applicantName}</p>
         <p className="text-xs text-ink-500">{viewing.applicantEmail ?? 'No email'}</p>
       </div>
+      {canManage && onAttendance ? (
+        <AttendanceActions
+          onMark={(status, viewingMode) => onAttendance(viewing.id, status, viewingMode)}
+        />
+      ) : null}
       {canManage ? (
         <Select
           className="min-h-11"
           value={viewing.status}
-          onChange={(e) =>
+          onChange={(e) => {
+            const next = e.target.value as Viewing['status']
+            if ((next === 'Completed' || next === 'No-show') && onAttendance) {
+              onAttendance(viewing.id, next === 'Completed' ? 'COMPLETED' : 'NO_SHOW', viewing.viewingMode ?? 'IN_PERSON')
+              return
+            }
             onUpdate(viewing.id, {
-              status: e.target.value as Viewing['status'],
-              attendance:
-                e.target.value === 'Completed'
-                  ? 'Attended'
-                  : e.target.value === 'No-show'
-                    ? 'No-show'
-                    : viewing.attendance,
+              status: next,
+              attendance: next === 'Completed' ? 'Attended' : next === 'No-show' ? 'No-show' : viewing.attendance,
             })
-          }
+          }}
         >
           {VIEWING_BOOKING_STATUSES.map((s) => (
             <option key={s} value={s}>

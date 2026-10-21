@@ -55,10 +55,12 @@ DROP TABLE IF EXISTS notifications CASCADE;
 DROP TABLE IF EXISTS media_assets CASCADE;
 DROP TABLE IF EXISTS documents CASCADE;
 DROP TABLE IF EXISTS payments CASCADE;
+DROP TABLE IF EXISTS viewing_waitlist CASCADE;
 DROP TABLE IF EXISTS leads CASCADE;
 DROP TABLE IF EXISTS maintenance_ticket_updates CASCADE;
 DROP TABLE IF EXISTS maintenance_tickets CASCADE;
 DROP TABLE IF EXISTS vendor_category_routes CASCADE;
+DROP TABLE IF EXISTS apply_overrides CASCADE;
 DROP TABLE IF EXISTS bookings CASCADE;
 DROP TABLE IF EXISTS viewing_slots CASCADE;
 DROP TABLE IF EXISTS leases CASCADE;
@@ -230,6 +232,15 @@ CREATE TABLE units (
   geocoded_at       TIMESTAMPTZ,
   /** Wizard create idempotency (migration 022) */
   idempotency_key   TEXT NULL,
+  /** NULL inherits the agency default; both NULL means unlimited (migration 024) */
+  max_enquiries     INT NULL CHECK (max_enquiries IS NULL OR max_enquiries >= 0),
+  max_viewings      INT NULL CHECK (max_viewings IS NULL OR max_viewings >= 0),
+  limit_action      VARCHAR(20) NOT NULL DEFAULT 'WAITLIST'
+                      CHECK (limit_action IN ('CLOSE', 'WAITLIST')),
+  limits_round_started_at TIMESTAMPTZ,
+  show_remaining    BOOLEAN NOT NULL DEFAULT FALSE,
+  /** NULL follows clients.settings.requireViewingToApply (missing key = on). */
+  require_viewing_to_apply BOOLEAN NULL,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (building_id, unit_number)
@@ -336,6 +347,8 @@ CREATE TABLE applications (
   journey_snapshot    JSONB,
   journey_version     INT,
   submitted_at        TIMESTAMPTZ,
+  viewing_booking_id  UUID,
+  apply_override_id   UUID,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (client_id, reference_code)
@@ -421,6 +434,10 @@ CREATE TABLE bookings (
                         CHECK (interest_level IN ('LOW', 'MEDIUM', 'HIGH', 'UNKNOWN')),
   feedback            TEXT,
   notes               VARCHAR(255),
+  viewing_mode        VARCHAR(20) NOT NULL DEFAULT 'IN_PERSON'
+                        CHECK (viewing_mode IN ('IN_PERSON', 'VIRTUAL')),
+  attended_marked_by  UUID REFERENCES users(id) ON DELETE SET NULL,
+  attended_marked_at  TIMESTAMPTZ,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -431,6 +448,38 @@ CREATE INDEX idx_bookings_starts ON bookings (unit_id, starts_at);
 CREATE INDEX idx_bookings_schedule_composite ON bookings (client_id, agent_id, starts_at, ends_at);
 CREATE INDEX idx_bookings_unit_scheduled ON bookings (unit_id, starts_at)
   WHERE status = 'SCHEDULED';
+
+CREATE TABLE apply_overrides (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id        UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  unit_id          UUID NOT NULL REFERENCES units(id) ON DELETE CASCADE,
+  applicant_id     UUID REFERENCES users(id) ON DELETE SET NULL,
+  applicant_email  VARCHAR(190),
+  granted_by       UUID REFERENCES users(id) ON DELETE SET NULL,
+  reason_code      VARCHAR(40) NOT NULL
+                     CHECK (reason_code IN ('VIRTUAL_VIEWING', 'OUT_OF_TOWN', 'REPEAT_TENANT', 'OTHER')),
+  reason_text      TEXT NOT NULL,
+  expires_at       TIMESTAMPTZ NOT NULL,
+  revoked_at       TIMESTAMPTZ,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT apply_overrides_applicant_present
+    CHECK (applicant_id IS NOT NULL OR (applicant_email IS NOT NULL AND length(trim(applicant_email)) > 0))
+);
+
+CREATE INDEX idx_apply_overrides_client ON apply_overrides (client_id);
+CREATE INDEX idx_apply_overrides_unit_applicant
+  ON apply_overrides (unit_id, applicant_id, expires_at);
+CREATE INDEX idx_apply_overrides_email
+  ON apply_overrides (unit_id, applicant_email)
+  WHERE applicant_email IS NOT NULL;
+
+ALTER TABLE applications
+  ADD CONSTRAINT fk_applications_viewing_booking
+  FOREIGN KEY (viewing_booking_id) REFERENCES bookings(id) ON DELETE SET NULL;
+
+ALTER TABLE applications
+  ADD CONSTRAINT fk_applications_apply_override
+  FOREIGN KEY (apply_override_id) REFERENCES apply_overrides(id) ON DELETE SET NULL;
 
 -- Preferred contractor per maintenance category (agency setup)
 CREATE TABLE vendor_category_routes (
@@ -517,12 +566,32 @@ CREATE TABLE leads (
   value_amount    NUMERIC(14,2),
   notes           TEXT,
   metadata        JSONB NOT NULL DEFAULT '{}',
+  is_waitlisted   BOOLEAN NOT NULL DEFAULT FALSE,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_leads_client ON leads (client_id);
+CREATE INDEX idx_leads_unit_round ON leads (unit_id, created_at)
+  WHERE is_waitlisted = FALSE;
 CREATE INDEX idx_leads_stage ON leads (client_id, stage);
+
+-- Overflow when a rental listing hits its viewing cap (migration 024)
+CREATE TABLE viewing_waitlist (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id     UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  unit_id       UUID NOT NULL REFERENCES units(id) ON DELETE CASCADE,
+  lead_id       UUID REFERENCES leads(id) ON DELETE SET NULL,
+  name          VARCHAR(160) NOT NULL,
+  email         VARCHAR(190) NOT NULL,
+  phone         VARCHAR(40),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  promoted_at   TIMESTAMPTZ
+);
+
+CREATE INDEX idx_viewing_waitlist_client ON viewing_waitlist (client_id);
+CREATE INDEX idx_viewing_waitlist_unit_open ON viewing_waitlist (unit_id, created_at)
+  WHERE promoted_at IS NULL;
 CREATE INDEX idx_leads_agent ON leads (agent_id);
 
 CREATE TABLE payments (

@@ -1,6 +1,8 @@
 import { query } from './db.js'
 import { readTicketAccessNotes, ticketAccessNotesColumnExists } from './ticketAccessNotes.js'
 import { isSafePhotoUrl } from '../src/lib/photoLimits.js'
+import { fieldsFromLimitSnapshot, listingLimitsFromSettings } from '../src/lib/listingLimitCopy.js'
+import { agencyViewingSettingsFromJson, readViewingEvidence } from '../src/lib/applyEligibility.js'
 import { resolveFrontendRole } from '../src/lib/supabase/idMap.js'
 import { mapPool } from './mapPool.js'
 import { loadIdMapCache } from './idMapCache.js'
@@ -295,8 +297,9 @@ export async function buildBootstrap(opts?: {
           status: string
           city: string | null
           created_at: Date
+          settings: unknown
         }>(
-          'SELECT id, company_name, subdomain, status, city, created_at FROM clients ORDER BY company_name',
+          'SELECT id, company_name, subdomain, status, city, created_at, settings FROM clients ORDER BY company_name',
         ),
       () =>
         query<{
@@ -594,6 +597,12 @@ export async function buildBootstrap(opts?: {
     status: mapAgencyStatusFromDb(c.status),
     createdAt: dateOnly(c.created_at),
     enabledPermissions: null as null, // AppStore fills defaults
+    settings: {
+      ...(listingLimitsFromSettings(c.settings)
+        ? { listingLimits: listingLimitsFromSettings(c.settings) }
+        : {}),
+      ...agencyViewingSettingsFromJson(c.settings),
+    },
   }))
 
   const appUsers = users.map((u) => {
@@ -691,6 +700,8 @@ export async function buildBootstrap(opts?: {
       amenities: Array.isArray(u.amenities) ? u.amenities : [],
       images: Array.isArray(u.images) ? u.images : [],
       featured: u.featured,
+      requireViewingToApply:
+        (u as { require_viewing_to_apply?: boolean | null }).require_viewing_to_apply ?? null,
       lat: u.lat ? Number(u.lat) : b?.lat ? Number(b.lat) : 0,
       lng: u.lng ? Number(u.lng) : b?.lng ? Number(b.lng) : 0,
       placeId: u.place_id ?? b?.place_id ?? null,
@@ -703,6 +714,16 @@ export async function buildBootstrap(opts?: {
       _unitUuid: u.id,
     }
   })
+
+  const limitByUnit = new Map<string, ReturnType<typeof fieldsFromLimitSnapshot>>()
+  if (units.length > 0) {
+    const snapRows = await query<{ id: string; snap: unknown }>(
+      `SELECT id::text AS id, unit_listing_limit_snapshot(id) AS snap
+         FROM units WHERE id = ANY($1::uuid[])`,
+      [units.map((u) => u.id)],
+    )
+    for (const row of snapRows) limitByUnit.set(row.id, fieldsFromLimitSnapshot(row.snap))
+  }
 
   const properties = mappedUnits.map((u) => {
     const b = mappedBuildings.find((x) => x.id === u.buildingId)
@@ -737,6 +758,7 @@ export async function buildBootstrap(opts?: {
       listingMode: u.listingType === 'sale' || u.listingType === 'rent' || u.listingType === 'both'
         ? u.listingType
         : 'rent',
+      ...limitByUnit.get(u._unitUuid),
       price: u.price,
       rent: u.rent,
       beds: u.bedrooms,
@@ -776,6 +798,7 @@ export async function buildBootstrap(opts?: {
       amenities: u.amenities,
       description: u.description,
       featured: u.featured,
+      requireViewingToApply: u.requireViewingToApply,
       createdAt: u.createdAt,
       solarCapacityKw: b?.solarCapacityKw,
       hasBorehole: b?.hasBorehole,
@@ -848,6 +871,7 @@ export async function buildBootstrap(opts?: {
       docs: hydrated.documents.filter((d) => d.status !== 'required').map((d) => d.label),
       screening: hydrated.screening ?? screeningFromMeta ?? undefined,
       viewingSlotId: null,
+      viewingEvidence: readViewingEvidence(meta),
       notes: (a.message as string) ?? '',
       moveInDate: dateOnly(a.move_in_date as Date | null) || undefined,
       keyCollection: (meta.keyCollection as Record<string, unknown> | undefined) ?? undefined,
@@ -965,6 +989,7 @@ export async function buildBootstrap(opts?: {
       date: dateOnly(starts),
       time: starts.toISOString().slice(11, 16),
       status: viewingStatus(b.status as string),
+      viewingMode: (b.viewing_mode as 'IN_PERSON' | 'VIRTUAL' | null) ?? 'IN_PERSON',
       attendance:
         (b.status as string) === 'COMPLETED'
           ? 'Attended'
