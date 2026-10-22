@@ -827,7 +827,7 @@ export async function fetchSupabaseBootstrap(
           ? meta.decline_reason.trim()
           : undefined,
       moveInDate: dateOnly(a.move_in_date as string | null) || undefined,
-      keyCollection: meta.keyCollection as Record<string, unknown> | undefined,
+      keyCollection: meta.keyCollection as import('../../types/domain').Application['keyCollection'] | undefined,
       submittedAt: dateOnly(a.submitted_at as string | null) || dateOnly(a.created_at as string | null),
       updatedAt: dateOnly(a.updated_at as string | null),
       journeySnapshot:

@@ -127,6 +127,9 @@ export type Agency = {
       limitAction?: 'CLOSE' | 'WAITLIST'
       showRemaining?: boolean
     }
+    requireViewingToApply?: boolean
+    buildingViewingCountsForAllUnits?: boolean
+    mainApplicantViewingCoversCoApplicants?: boolean
   }
 }
 
@@ -275,6 +278,12 @@ export type PropertyAsset = {
   mandateActive?: boolean | null
   /** Manual portal publication records (export pack / live_manual). */
   syndicationPublications?: ListingPublicationRecord[]
+  /** Unit-level override; null inherits agency setting. */
+  requireViewingToApply?: boolean | null
+  /** OCCUPIED unit: market while tenant still in place. */
+  advertiseWhileOccupied?: boolean
+  /** ISO date when the unit is expected to be vacant (occupied advert). */
+  availableFrom?: string | null
 }
 
 /** Soft Mode A portal publication row (mirrors src/lib/syndication types). */
@@ -432,6 +441,8 @@ export type Application = {
   /** @deprecated prefer documents[]; kept for display fallbacks */
   docs: string[]
   viewingSlotId: string | null
+  /** Mandatory-viewing proof (completed booking or staff override). */
+  viewingEvidence?: import('../lib/applyEligibility').ViewingEvidence | null
   notes: string
   /** Staff decline / reject reason surfaced to applicant comms. */
   declineReason?: string
@@ -552,6 +563,9 @@ export type Viewing = {
   time: string
   status: 'Scheduled' | 'Completed' | 'No-show' | 'Cancelled'
   attendance: string
+  viewingMode?: 'IN_PERSON' | 'VIRTUAL'
+  /** Occupied-listing tenant approval for a proposed viewing. */
+  tenantConsentStatus?: 'PENDING' | 'APPROVED' | 'DECLINED' | string
   feedback?: string
   notes?: string
 }

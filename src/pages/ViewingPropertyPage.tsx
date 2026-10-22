@@ -33,8 +33,11 @@ import {
   type ViewingGuest,
 } from '../components/viewings/GuestListEditor'
 import { VIEWING_BOOKING_STATUSES } from '../components/viewings/types'
+import { AttendanceActions } from '../components/viewings/AttendanceActions'
 import type { Viewing, ViewingSlot } from '../types/domain'
 import { isFutureViewingSlot } from '../lib/viewingSlotTime'
+import { patchBookingAttendance } from '../lib/api/viewingApply'
+import { sweetError } from '../lib/sweetAlert'
 
 const ICON_STROKE = 1.6
 
@@ -221,6 +224,23 @@ export default function ViewingPropertyPage() {
     updateViewing(editBooking.id, payload)
   }
 
+  const markAttendance = async (
+    bookingId: string,
+    status: 'COMPLETED' | 'NO_SHOW',
+    viewingMode: 'IN_PERSON' | 'VIRTUAL',
+  ) => {
+    const result = await patchBookingAttendance(bookingId, { status, viewingMode })
+    if (result.ok === false) {
+      await sweetError('Could not update attendance', result.message)
+      return
+    }
+    updateViewing(bookingId, {
+      status: status === 'COMPLETED' ? 'Completed' : 'No-show',
+      attendance: status === 'COMPLETED' ? 'Attended' : 'No-show',
+      viewingMode,
+    })
+  }
+
   return (
     <RequirePermission permission="viewings.manage">
       <div className="animate-fade-in space-y-5">
@@ -388,6 +408,7 @@ export default function ViewingPropertyPage() {
                                 viewing={v}
                                 canManage={has('viewings.manage')}
                                 onUpdate={updateViewing}
+                                onAttendance={markAttendance}
                               />
                             ))}
                             {attendees.length === 0 && (

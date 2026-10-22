@@ -313,7 +313,7 @@ export default function Viewings() {
     viewingMode: 'IN_PERSON' | 'VIRTUAL',
   ) => {
     const result = await patchBookingAttendance(bookingId, { status, viewingMode })
-    if (!result.ok) {
+    if (result.ok === false) {
       await sweetError('Could not update attendance', result.message)
       return
     }
