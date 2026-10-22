@@ -442,7 +442,7 @@ export type Application = {
   docs: string[]
   viewingSlotId: string | null
   /** Mandatory-viewing proof (completed booking or staff override). */
-  viewingEvidence?: import('../lib/applyEligibility').ViewingEvidence | null
+  viewingEvidence?: import('../lib/applyEligibility.js').ViewingEvidence | null
   notes: string
   /** Staff decline / reject reason surfaced to applicant comms. */
   declineReason?: string

@@ -357,7 +357,7 @@ export function agencyViewingSettingsFromJson(settings: unknown): {
   requireViewingToApply?: boolean
   buildingViewingCountsForAllUnits?: boolean
   mainApplicantViewingCoversCoApplicants?: boolean
-  applicationJourney?: import('./journey/types').AgencyJourneyOverride
+  applicationJourney?: import('./journey/types.js').AgencyJourneyOverride
 } {
   const raw = settings && typeof settings === 'object' && !Array.isArray(settings)
     ? (settings as Record<string, unknown>)
@@ -371,7 +371,7 @@ export function agencyViewingSettingsFromJson(settings: unknown): {
     out.mainApplicantViewingCoversCoApplicants = raw.mainApplicantViewingCoversCoApplicants
   }
   if (raw.applicationJourney && typeof raw.applicationJourney === 'object' && !Array.isArray(raw.applicationJourney)) {
-    out.applicationJourney = raw.applicationJourney as import('./journey/types').AgencyJourneyOverride
+    out.applicationJourney = raw.applicationJourney as import('./journey/types.js').AgencyJourneyOverride
   }
   return out
 }

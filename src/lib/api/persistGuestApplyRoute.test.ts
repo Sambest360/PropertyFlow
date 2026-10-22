@@ -131,6 +131,34 @@ vi.mock('../../../server/db.js', () => {
       const u = db.users.get(String(params[0]))
       return u ? [{ client_id: u.client_id }] : []
     }
+    // Viewing-before-apply gate: the guest attended an in-person viewing of the unit.
+    if (sql.includes('/* apply-eligibility */')) {
+      const u = db.units.get(String(params[0]))
+      if (!u) return []
+      return [{
+        unit_id: u.id,
+        client_id: u.client_id,
+        building_id: u.building_id,
+        listing_type: 'RENT',
+        require_viewing_to_apply: null,
+        settings: {},
+        completed_bookings: [{
+          id: 'c5000001-0001-4000-8000-000000000042',
+          unitId: u.id,
+          buildingId: u.building_id,
+          viewingMode: 'IN_PERSON',
+          applicantId: GUEST_UUID,
+          visitorEmail: 'ayanda.mokoena@example.com',
+          visitorPhone: null,
+          attendedAt: '2026-10-01T09:00:00.000Z',
+        }],
+        live_override: null,
+      }]
+    }
+    if (/SELECT email, phone FROM users WHERE id = \$1::uuid/.test(sql)) {
+      const u = db.users.get(String(params[0]))
+      return u ? [{ email: u.email, phone: null }] : []
+    }
     if (/SELECT id::text AS id FROM users WHERE id = \$1::uuid/.test(sql)) {
       const u = db.users.get(String(params[0]))
       return u ? [{ id: u.id }] : []

@@ -36,7 +36,9 @@ const ITEM = '22222222-2222-4222-8222-222222222222'
 const agent = { userId: AGENT, role: 'ground_agent' as const, agencyId: CLIENT }
 
 describe('inspection inventory rules', () => {
-  beforeEach(() => query.mockReset())
+  beforeEach(() => {
+    query.mockReset()
+  })
 
   it('creates an inventory row for every template item', async () => {
     query.mockImplementation(async (sql: string) => {
@@ -123,6 +125,18 @@ describe('inspection inventory rules', () => {
           pdf_document_id: null,
           dispute_note: null,
           tenant_attended: true,
+        }]
+      }
+      if (sql.includes('FROM leases l')) {
+        return [{
+          id: LEASE,
+          client_id: CLIENT,
+          unit_id: UNIT,
+          tenant_id: TENANT,
+          landlord_id: OTHER,
+          agent_id: AGENT,
+          deposit_amount: 0,
+          unit_agent_id: AGENT,
         }]
       }
       throw new Error(sql)

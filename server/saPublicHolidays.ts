@@ -102,4 +102,15 @@ export function subtractSaBusinessDays(iso: string, n: number): string {
   return cur
 }
 
+/** The date `n` SA business days after `iso` (skipping weekends + holidays). */
+export function addSaBusinessDays(iso: string, n: number): string {
+  let cur = iso
+  let left = n
+  while (left > 0) {
+    cur = isoAddDays(cur, 1)
+    if (isSaBusinessDay(cur)) left--
+  }
+  return cur
+}
+
 export { isoAddDays }
