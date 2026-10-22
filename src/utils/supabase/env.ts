@@ -29,6 +29,7 @@ function isPlaceholderSupabaseValue(value: string | undefined): boolean {
   export function isSupabaseConfigured(): boolean {
     const url = import.meta.env.VITE_SUPABASE_URL
     const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
+    if (import.meta.env.VITE_AUTH_MODE !== 'supabase') return false
     return !isPlaceholderSupabaseValue(url) && !isPlaceholderSupabaseValue(key)
   }
   

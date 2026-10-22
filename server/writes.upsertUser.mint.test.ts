@@ -39,12 +39,19 @@ vi.mock('./auth.js', () => ({
 
 describe('upsertUser mint residual (Auth-fail rollback)', () => {
   let savedEnv: Record<string, string | undefined>
+  let savedAuthMode: string | undefined
 
   beforeEach(() => {
     savedEnv = snapshotSupabaseAuthEnv()
     clearSupabaseAuthEnv()
     process.env.VITE_SUPABASE_URL = TEST_SUPABASE_URL
     process.env.VITE_SUPABASE_ANON_KEY = TEST_SUPABASE_ANON_KEY
+    // Auth-link rollback only runs in explicit Supabase mode (API mode is the default).
+    savedAuthMode = process.env.AUTH_MODE
+    process.env.AUTH_MODE = 'supabase'
+    // #105: server reads only non-VITE Supabase env.
+    process.env.SUPABASE_URL = TEST_SUPABASE_URL
+    process.env.SUPABASE_ANON_KEY = TEST_SUPABASE_ANON_KEY
     query.mockReset()
     ensureUuid.mockClear()
     forgetId.mockClear()
@@ -59,6 +66,8 @@ describe('upsertUser mint residual (Auth-fail rollback)', () => {
 
   afterEach(() => {
     restoreSupabaseAuthEnv(savedEnv)
+    if (savedAuthMode === undefined) delete process.env.AUTH_MODE
+    else process.env.AUTH_MODE = savedAuthMode
     vi.resetModules()
   })
 

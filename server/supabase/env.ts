@@ -1,8 +1,8 @@
+import { isServerSupabaseMode } from '../authMode.js'
 /** Server-only Supabase env (never use VITE_ or NEXT_PUBLIC_ for secrets). */
 export function getSupabaseUrl(): string {
     const url =
       process.env.SUPABASE_URL ||
-      process.env.VITE_SUPABASE_URL ||
       process.env.NEXT_PUBLIC_SUPABASE_URL
     if (!url) {
       throw new Error('Missing SUPABASE_URL — set it in .env.local or Vercel env vars')
@@ -13,7 +13,6 @@ export function getSupabaseUrl(): string {
   export function getSupabasePublishableKey(): string {
     const key =
       process.env.SUPABASE_PUBLISHABLE_KEY ||
-      process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
       process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
     if (!key) {
       throw new Error('Missing SUPABASE_PUBLISHABLE_KEY')
@@ -52,12 +51,11 @@ function isUsableSupabaseUrl(value: string | undefined): boolean {
   return /supabase\.co/i.test(value.trim())
 }
 
-/** Server-side GoTrue calls — prefer SUPABASE_* over VITE_* (Vercel config blobs). */
+/** Server-side GoTrue calls — server never reads VITE_* at runtime. */
 export function resolveSupabaseUrlForGoTrue(): string {
   for (const candidate of [
     process.env.SUPABASE_URL,
     process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.VITE_SUPABASE_URL,
   ]) {
     if (isUsableSupabaseUrl(candidate)) return candidate!.trim().replace(/\/$/, '')
   }
@@ -68,9 +66,7 @@ export function resolveSupabasePublishableKeyForGoTrue(): string {
   for (const candidate of [
     process.env.SUPABASE_PUBLISHABLE_KEY,
     process.env.SUPABASE_ANON_KEY,
-    process.env.VITE_SUPABASE_ANON_KEY,
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
-    process.env.VITE_SUPABASE_PUBLISHABLE_KEY,
   ]) {
     if (isUsableSupabaseApiKey(candidate)) return candidate!.trim()
   }
@@ -83,5 +79,6 @@ export function resolveSupabasePublishableKeyForGoTrue(): string {
  * Same URL/key pair as goTruePasswordSignIn in registerUser.ts.
  */
 export function supabaseAuthConfigured(): boolean {
+  if (!isServerSupabaseMode()) return false
   return Boolean(resolveSupabaseUrlForGoTrue() && resolveSupabasePublishableKeyForGoTrue())
 }
