@@ -26,6 +26,7 @@ import { acquireSubmitLock, releaseSubmitLock } from '../../lib/wizardSubmitGuar
 import { fetchPublicListingImages } from '../../lib/api/postgresClient'
 import { NO_PHOTOS_YET, normalizeListingImages } from '../../lib/listingPhotos'
 import { isPubliclyListed } from '../../lib/publicListings'
+import { availableFromLabel } from '../../lib/availableFromLabel'
 import { findByListingId } from '../../lib/listingIds'
 import { isApiEnabled, isSupabaseMode } from '../../lib/api/config'
 import {
@@ -89,6 +90,7 @@ export default function ListingDetail() {
   const [note, setNote] = useState('')
   const [slotId, setSlotId] = useState('')
   const [income, setIncome] = useState('')
+  const [moveInDate, setMoveInDate] = useState('')
   const [employerName, setEmployerName] = useState('')
   const [jobTitle, setJobTitle] = useState('')
   const [idNumber, setIdNumber] = useState('')
@@ -435,6 +437,11 @@ export default function ListingDetail() {
       releaseSubmitLock(applicationLockRef)
       return
     }
+    if (p.availableFrom && moveInDate && moveInDate < p.availableFrom) {
+      await sweetWarning('Move-in date', `Choose a move-in date on or after ${p.availableFrom}.`)
+      releaseSubmitLock(applicationLockRef)
+      return
+    }
 
     setAppSubmitting(true)
     try {
@@ -452,6 +459,7 @@ export default function ListingDetail() {
       jobTitle: jobTitle.trim() || undefined,
       employment: formatEmploymentSummary(employerName, jobTitle, ''),
       idNumberOrPassport: idNumber.trim(),
+      moveInDate: moveInDate || undefined,
     })
 
     if (appResult && 'status' in appResult && appResult.status === 'ERROR') {
@@ -515,6 +523,11 @@ export default function ListingDetail() {
       <Badge className="mt-2" tone="brand">
         {p.listingMode === 'both' ? 'Sale or rent' : p.listingMode === 'sale' ? 'For sale' : 'To rent'}
       </Badge>
+      {p.availableFrom ? (
+        <Badge className="mt-2 ml-2" tone="neutral">
+          {availableFromLabel(p.availableFrom)}
+        </Badge>
+      ) : null}
     </>
   )
 
@@ -583,6 +596,13 @@ export default function ListingDetail() {
               placeholder="Monthly income (optional)"
               value={income}
               onChange={(e) => setIncome(e.target.value)}
+            />
+            <Input
+              type="date"
+              aria-label="Move-in date"
+              value={moveInDate}
+              min={p.availableFrom ?? undefined}
+              onChange={(e) => setMoveInDate(e.target.value)}
             />
             <Input
               placeholder="Employer name (optional)"

@@ -218,6 +218,8 @@ export type PropertyAsset = {
   title: string
   type: string
   status: 'Draft' | 'Published' | 'Featured' | 'Under Offer' | 'Sold' | 'Rented' | 'Archived' | 'Maintenance'
+  advertiseWhileOccupied?: boolean
+  availableFrom?: string | null
   listingMode: 'sale' | 'rent' | 'both'
   price: number | null
   rent: number | null
@@ -539,6 +541,8 @@ export type Viewing = {
   attendance: string
   feedback?: string
   notes?: string
+  tenantConsentStatus?: 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'NOT_REQUIRED'
+  tenantProposedStartsAt?: string
 }
 
 export type PaymentAttachment = {

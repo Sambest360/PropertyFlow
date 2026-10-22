@@ -3,6 +3,12 @@
  * Accepts frontend demo IDs; resolves/registers UUIDs via entity_id_map.
  */
 import { query, withTransaction, clientQuery } from './db.js'
+import {
+  assertNoLeaseOverlap,
+  assertOccupiedBookingAllowed,
+  markBookingTenantPending,
+  syncAdvertAfterLeaseSave,
+} from './occupiedListing.js'
 import { invalidateIdMapCache } from './idMapCache.js'
 import { assertTicketAccessNotes, ensureTicketAccessNotesColumn, writeTicketAccessNotes } from './ticketAccessNotes.js'
 import { isAcceptanceStatus, notifyAcceptedElsewhereServer } from './acceptedElsewhere.js'
@@ -1557,13 +1563,22 @@ async function upsertTenancy(feId: string, d: Record<string, unknown>): Promise<
   // CR10 B2b: once a lease has a signing envelope its parties are fixed — a
   // save (or batch) can't swap tenant_id / landlord_id to someone else and
   // then sign as that party.
-  const lockedRows = await query<{ tenant_id: string | null; landlord_id: string | null; envelope_id: string | null }>(
+  const lockedRows = await query<{
+    tenant_id: string | null
+    landlord_id: string | null
+    envelope_id: string | null
+    status: string | null
+    end_date: string | null
+  }>(
     `SELECT tenant_id::text AS tenant_id, landlord_id::text AS landlord_id,
+            status, end_date::text AS end_date,
             metadata->'eSign'->>'envelopeId' AS envelope_id
        FROM leases WHERE id = $1::uuid FOR UPDATE`,
     [uuid],
   )
   assertLeasePartiesUnchanged(lockedRows[0], tenant, landlord)
+  const previousStatus = lockedRows[0]?.status ?? null
+  const previousEnd = lockedRows[0]?.end_date ?? null
 
   await query(
     `INSERT INTO leases (
@@ -1612,6 +1627,13 @@ async function upsertTenancy(feId: string, d: Record<string, unknown>): Promise<
       }),
     ],
   )
+  await syncAdvertAfterLeaseSave({
+    unitId: unit,
+    previousStatus,
+    previousEnd,
+    nextStatus: status,
+    nextEnd: d.endDate ? str(d.endDate) : null,
+  })
   return uuid
 }
 
@@ -1626,6 +1648,11 @@ async function upsertViewing(feId: string, d: Record<string, unknown>): Promise<
   const time = str(d.time, '10:00')
   const starts = `${date}T${time}:00`
   const status = VIEW_STATUS_TO_DB[str(d.status, 'Scheduled')] ?? 'SCHEDULED'
+  const consent = await assertOccupiedBookingAllowed(unit, {
+    date,
+    time,
+    startsAt: new Date(starts),
+  })
 
   await query(
     `INSERT INTO bookings (
@@ -1655,6 +1682,7 @@ async function upsertViewing(feId: string, d: Record<string, unknown>): Promise<
       d.notes ? str(d.notes) : null,
     ],
   )
+  if (consent === 'PENDING') await markBookingTenantPending(uuid, unit)
   return uuid
 }
 
@@ -2386,6 +2414,15 @@ export async function approveApplicationTx(params: {
           code: 'LEASE_PARTY_LOCKED',
         })
       }
+      const leaseStart = str(t.startDate, new Date().toISOString().slice(0, 10))
+      const leaseEnd = t.endDate ? str(t.endDate) : null
+      await assertNoLeaseOverlap(
+        (sql, params) => clientQuery(client, sql, params ?? []),
+        app.unit_id,
+        leaseStart,
+        leaseEnd,
+        leaseUuid,
+      )
       await clientQuery(
         client,
         `INSERT INTO leases (
@@ -2417,6 +2454,12 @@ export async function approveApplicationTx(params: {
           Math.min(28, Math.max(1, num(t.rentDueDay) ?? 1)),
           JSON.stringify({ frontend_id: str(t.id), from_approval: true }),
         ],
+      )
+      await clientQuery(
+        client,
+        `UPDATE units SET advertise_while_occupied = false, available_from = NULL, updated_at = NOW()
+          WHERE id = $1::uuid AND advertise_while_occupied = true`,
+        [app.unit_id],
       )
     }
 

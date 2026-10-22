@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { NO_PHOTOS_YET } from '../lib/listingPhotos'
+import { availableFromLabel } from '../lib/availableFromLabel'
 import { Bath, BedDouble, Car, Droplets, Heart, MapPin, Star, Sun, Zap } from 'lucide-react'
 import { formatZAR } from '../data/seed'
 import type { PropertyAsset } from '../types/domain'
@@ -139,8 +140,15 @@ export function PropertyCard({
               {NO_PHOTOS_YET}
             </div>
           )}
-          <div className="absolute left-3 top-3 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-ink shadow-sm">
-            {badge}
+          <div className="absolute left-3 top-3 flex flex-col items-start gap-1">
+            <div className="rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-ink shadow-sm">
+              {badge}
+            </div>
+            {property.availableFrom ? (
+              <div className="rounded-full bg-primary px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm">
+                {availableFromLabel(property.availableFrom)}
+              </div>
+            ) : null}
           </div>
           <button
             type="button"
