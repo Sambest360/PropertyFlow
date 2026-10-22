@@ -17,6 +17,7 @@ import { canonicalListingId, unitIdForProperty } from '../listingIds'
 import { resolvePropertyType } from '../propertyType'
 import { mapAgencyStatusFromDb } from '../agencyStatus'
 import { mapViewingSlotRow, type ViewingSlotDbRow } from './viewingSlotMap'
+import { fieldsFromLimitSnapshot } from '../listingLimitCopy'
 
 type RoleDb =
   | 'SUPER_ADMIN'
@@ -173,6 +174,7 @@ export function mapGuestMarketplacePayload(payload: {
       createdAt: dateOnly(u.created_at as string),
       _propertyId: canonicalListingId(mapPropertyFe(String(u.id)) ?? String(u.id)),
       _unitUuid: String(u.id),
+      _limit: fieldsFromLimitSnapshot(u),
     }
   })
 
@@ -200,6 +202,7 @@ export function mapGuestMarketplacePayload(payload: {
       type: resolvePropertyType({ stored: u.propertyType, bedrooms: u.bedrooms }),
       status,
       listingMode: u.listingType,
+      ...u._limit,
       price: u.price,
       rent: u.rent,
       beds: u.bedrooms,
@@ -233,7 +236,10 @@ export function mapGuestMarketplacePayload(payload: {
     }
   })
 
-  const cleanUnits = unitsRaw.map(({ _propertyId, _unitUuid, ...rest }) => rest)
+  const cleanUnits = unitsRaw.map(({ _propertyId, _unitUuid, _limit, ...rest }) => {
+    void _limit
+    return rest
+  })
 
   const viewingSlotsRaw = (payload.viewing_slots ?? []) as ViewingSlotDbRow[]
   const viewingSlots = viewingSlotsRaw.map((s, i) =>

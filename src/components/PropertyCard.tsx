@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { NO_PHOTOS_YET } from '../lib/listingPhotos'
 import { Bath, BedDouble, Car, Droplets, Heart, MapPin, Star, Sun, Zap } from 'lucide-react'
 import { formatZAR } from '../data/seed'
+import { listingAvailabilityCopy } from '../lib/listingLimitCopy'
 import type { PropertyAsset } from '../types/domain'
 import { featureByLabel } from '../lib/propertyFeatures'
 import { cn } from './ui'
@@ -92,6 +93,7 @@ export function PropertyCard({
       : property.listingMode === 'sale'
         ? 'For Sale'
         : 'To Rent'
+  const bookedBadge = listingAvailabilityCopy(property).badge
 
   const listingId = canonicalListingId(card?.property_id ?? property.id)
   const href = `/listing/${listingId}`
@@ -139,8 +141,15 @@ export function PropertyCard({
               {NO_PHOTOS_YET}
             </div>
           )}
-          <div className="absolute left-3 top-3 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-ink shadow-sm">
-            {badge}
+          <div className="absolute left-3 top-3 flex flex-col items-start gap-1">
+            <div className="rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-ink shadow-sm">
+              {badge}
+            </div>
+            {bookedBadge ? (
+              <div className="rounded-full bg-ink px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm">
+                {bookedBadge}
+              </div>
+            ) : null}
           </div>
           <button
             type="button"

@@ -22,7 +22,7 @@ export type ListingEnquiryInput = {
 
 export type ListingEnquiryResult =
   | { ok: true; leadId: string; bookingId?: string | null; stage: string }
-  | { ok: false; error: string }
+  | { ok: false; error: string; waitlist?: boolean }
 
 const ENQUIRY_TIMEOUT_MS = 20_000
 const SUPABASE_ENQUIRY_TIMEOUT_MS = 15_000
@@ -44,6 +44,9 @@ export function formatListingEnquiryError(raw: string): string {
   }
   if (code === 'slot_unavailable' || code.includes('slot_unavailable')) {
     return 'That slot just filled up. Choose another time or request a viewing without a slot.'
+  }
+  if (code === 'listing_full' || code.includes('listing_full')) {
+    return 'This listing is fully booked.'
   }
   if (code === 'enquiry_failed' || code.includes('enquiry_failed')) {
     return ENQUIRY_UNAVAILABLE
@@ -86,7 +89,11 @@ async function submitViaApi(input: ListingEnquiryInput): Promise<ListingEnquiryR
     const json = (await res.json()) as Record<string, unknown>
     if (!res.ok) {
       const raw = String(json.message ?? json.error ?? 'enquiry_failed')
-      return { ok: false, error: formatListingEnquiryError(raw) }
+      return {
+        ok: false,
+        error: formatListingEnquiryError(raw),
+        waitlist: json.waitlist === true,
+      }
     }
     return {
       ok: true,
@@ -126,6 +133,13 @@ async function submitViaSupabase(input: ListingEnquiryInput): Promise<ListingEnq
       return { ok: false, error: formatListingEnquiryError(error.message) }
     }
     const row = (data ?? {}) as Record<string, unknown>
+    if (row.ok === false || row.code === 'LISTING_FULL') {
+      return {
+        ok: false,
+        error: formatListingEnquiryError(String(row.code ?? row.message ?? 'LISTING_FULL')),
+        waitlist: row.waitlist === true,
+      }
+    }
     return {
       ok: true,
       leadId: String(row.lead_id ?? row.leadId ?? `LD-guest-${Date.now()}`),

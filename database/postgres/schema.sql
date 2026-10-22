@@ -55,6 +55,7 @@ DROP TABLE IF EXISTS notifications CASCADE;
 DROP TABLE IF EXISTS media_assets CASCADE;
 DROP TABLE IF EXISTS documents CASCADE;
 DROP TABLE IF EXISTS payments CASCADE;
+DROP TABLE IF EXISTS viewing_waitlist CASCADE;
 DROP TABLE IF EXISTS leads CASCADE;
 DROP TABLE IF EXISTS maintenance_ticket_updates CASCADE;
 DROP TABLE IF EXISTS maintenance_tickets CASCADE;
@@ -230,6 +231,13 @@ CREATE TABLE units (
   geocoded_at       TIMESTAMPTZ,
   /** Wizard create idempotency (migration 022) */
   idempotency_key   TEXT NULL,
+  /** NULL inherits the agency default; both NULL means unlimited (migration 024) */
+  max_enquiries     INT NULL CHECK (max_enquiries IS NULL OR max_enquiries >= 0),
+  max_viewings      INT NULL CHECK (max_viewings IS NULL OR max_viewings >= 0),
+  limit_action      VARCHAR(20) NOT NULL DEFAULT 'WAITLIST'
+                      CHECK (limit_action IN ('CLOSE', 'WAITLIST')),
+  limits_round_started_at TIMESTAMPTZ,
+  show_remaining    BOOLEAN NOT NULL DEFAULT FALSE,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (building_id, unit_number)
@@ -517,12 +525,32 @@ CREATE TABLE leads (
   value_amount    NUMERIC(14,2),
   notes           TEXT,
   metadata        JSONB NOT NULL DEFAULT '{}',
+  is_waitlisted   BOOLEAN NOT NULL DEFAULT FALSE,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_leads_client ON leads (client_id);
+CREATE INDEX idx_leads_unit_round ON leads (unit_id, created_at)
+  WHERE is_waitlisted = FALSE;
 CREATE INDEX idx_leads_stage ON leads (client_id, stage);
+
+-- Overflow when a rental listing hits its viewing cap (migration 024)
+CREATE TABLE viewing_waitlist (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id     UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  unit_id       UUID NOT NULL REFERENCES units(id) ON DELETE CASCADE,
+  lead_id       UUID REFERENCES leads(id) ON DELETE SET NULL,
+  name          VARCHAR(160) NOT NULL,
+  email         VARCHAR(190) NOT NULL,
+  phone         VARCHAR(40),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  promoted_at   TIMESTAMPTZ
+);
+
+CREATE INDEX idx_viewing_waitlist_client ON viewing_waitlist (client_id);
+CREATE INDEX idx_viewing_waitlist_unit_open ON viewing_waitlist (unit_id, created_at)
+  WHERE promoted_at IS NULL;
 CREATE INDEX idx_leads_agent ON leads (agent_id);
 
 CREATE TABLE payments (

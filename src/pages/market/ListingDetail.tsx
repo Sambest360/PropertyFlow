@@ -34,6 +34,7 @@ import {
 } from '../../lib/publicMarketplaceMerge'
 import type { PostgresBootstrap } from '../../lib/api/postgresClient'
 import { submitListingEnquiry } from '../../lib/api/listingEnquiryApi'
+import { listingAvailabilityCopy } from '../../lib/listingLimitCopy'
 import { sweetError, sweetInfo, sweetSuccess, sweetWarning } from '../../lib/sweetAlert'
 import { usePageMeta } from '../../hooks/usePageMeta'
 import { useAgentDisplay } from '../../hooks/useAgentDisplay'
@@ -299,6 +300,15 @@ export default function ListingDetail() {
     (s) => s.propertyId === p.id && s.status === 'Open' && isFutureViewingSlot(s),
   )
   const isRent = p.listingMode !== 'sale'
+  const availability = listingAvailabilityCopy(p)
+  const formsClosed = availability.viewingForm === 'hidden' && availability.enquiryForm === 'hidden'
+  const activeIntent: EnquiryIntent =
+    intent === 'viewing' && availability.viewingForm === 'hidden'
+      ? 'lead'
+      : intent === 'lead' && availability.enquiryForm === 'hidden'
+        ? 'viewing'
+        : intent
+  const activeMode = activeIntent === 'viewing' ? availability.viewingForm : availability.enquiryForm
   const fullName = `${firstName.trim()} ${lastName.trim()}`.trim()
 
   const listingReviewAvg = propertyListingRating(state.reviews, p.id)
@@ -328,7 +338,7 @@ export default function ListingDetail() {
       return
     }
 
-    const action: EnquiryIntent = intent
+    const action: EnquiryIntent = activeIntent
     const selectedSlot =
       action === 'viewing' && openSlots.length > 0
         ? openSlots.find((s) => s.id === (slotId || openSlots[0]?.id))
@@ -362,7 +372,16 @@ export default function ListingDetail() {
         value: p.price ?? p.rent ?? 0,
       })
 
-      if (!result.ok) {
+      if (result.ok === false) {
+        if (result.waitlist) {
+          await sweetSuccess(
+            'You are on the waitlist',
+            'We will contact you if a spot opens.',
+          )
+          setNote('')
+          setEnquirySheetOpen(false)
+          return
+        }
         await sweetError('Could not save enquiry', 'error' in result ? result.error : 'Unknown error')
         return
       }
@@ -515,35 +534,49 @@ export default function ListingDetail() {
       <Badge className="mt-2" tone="brand">
         {p.listingMode === 'both' ? 'Sale or rent' : p.listingMode === 'sale' ? 'For sale' : 'To rent'}
       </Badge>
+      {availability.badge ? (
+        <Badge className="mt-2 ml-2" tone="neutral">
+          {availability.badge}
+        </Badge>
+      ) : null}
+      {availability.spots ? <p className="mt-2 text-sm font-medium text-ink">{availability.spots}</p> : null}
     </>
   )
 
   const enquiryFormFields = (
     <>
+      {formsClosed ? (
+        <p className="text-sm text-ink-600">No longer taking enquiries.</p>
+      ) : (
+      <>
       <p className="text-xs text-ink-500">
         No account needed — your details are saved so an agent can follow up.
+        {activeMode === 'waitlist' ? ' This listing is fully booked — join the waitlist.' : ''}
       </p>
 
       <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {availability.enquiryForm !== 'hidden' && (
         <button
           type="button"
           onClick={() => setIntent('lead')}
           className={cn(
             'min-h-11 rounded-xl border px-3 py-2 text-left text-xs font-semibold transition-colors',
-            intent === 'lead'
+            activeIntent === 'lead'
               ? 'border-primary bg-primary-50 text-primary'
               : 'border-primary-100 text-ink-600 hover:bg-primary-50/60',
           )}
         >
-          Register interest
+          {availability.enquiryForm === 'waitlist' ? 'Join enquiry waitlist' : 'Register interest'}
           <span className="mt-0.5 block font-normal text-ink-500">Create a lead — no viewing required</span>
         </button>
+        )}
+        {availability.viewingForm !== 'hidden' && (
         <button
           type="button"
           onClick={() => setIntent('viewing')}
           className={cn(
             'min-h-11 rounded-xl border px-3 py-2 text-left text-xs font-semibold transition-colors',
-            intent === 'viewing'
+            activeIntent === 'viewing'
               ? 'border-primary bg-primary-50 text-primary'
               : 'border-primary-100 text-ink-600 hover:bg-primary-50/60',
           )}
@@ -555,6 +588,7 @@ export default function ListingDetail() {
               : 'No slots yet — we will schedule with you'}
           </span>
         </button>
+        )}
       </div>
 
       <div className="mt-4 space-y-3">
@@ -601,7 +635,7 @@ export default function ListingDetail() {
           value={idNumber}
           onChange={(e) => setIdNumber(e.target.value)}
         />
-        {intent === 'viewing' && openSlots.length > 0 && (
+        {activeIntent === 'viewing' && openSlots.length > 0 && (
           <select
             className="h-11 w-full rounded-xl border border-primary-100 bg-white px-3 text-base sm:text-sm"
             value={slotId || openSlots[0]?.id}
@@ -614,7 +648,7 @@ export default function ListingDetail() {
             ))}
           </select>
         )}
-        {intent === 'viewing' && openSlots.length === 0 && (
+        {activeIntent === 'viewing' && openSlots.length === 0 && (
           <p className="rounded-xl bg-primary-50 px-3 py-2 text-xs text-ink-600">
             No open viewing slots on this listing yet. Submit the form and the agent will
             propose a time with you directly — no slots are being missed.
@@ -630,7 +664,9 @@ export default function ListingDetail() {
         <Button type="submit" className="w-full min-h-11" disabled={submitting}>
           {submitting
             ? 'Saving…'
-            : intent === 'lead'
+            : activeMode === 'waitlist'
+              ? 'Join waitlist'
+              : activeIntent === 'lead'
               ? 'Register interest'
               : openSlots.length > 0
                 ? 'Book viewing slot'
@@ -665,21 +701,26 @@ export default function ListingDetail() {
             variant="secondary"
             className="w-full min-h-11"
             disabled={appSubmitting}
-            onClick={submitApplication}
+            onClick={() => void submitApplication()}
           >
             {appSubmitting ? 'Submitting…' : 'Submit full application'}
           </Button>
         )}
       </div>
+      </>
+      )}
     </>
   )
 
-  const mobileCtaLabel =
-    intent === 'lead'
-      ? 'Register interest'
-      : openSlots.length > 0
-        ? 'Book viewing'
-        : 'Request viewing'
+  const mobileCtaLabel = formsClosed
+    ? 'Fully booked'
+    : activeMode === 'waitlist'
+      ? 'Join waitlist'
+      : activeIntent === 'lead'
+        ? 'Register interest'
+        : openSlots.length > 0
+          ? 'Book viewing'
+          : 'Request viewing'
 
   return (
     <div className="bg-white pb-24 lg:pb-0">
@@ -861,6 +902,7 @@ export default function ListingDetail() {
           <Button
             type="button"
             className="w-full min-h-11"
+            disabled={formsClosed}
             onClick={() => setEnquirySheetOpen(true)}
           >
             {mobileCtaLabel}

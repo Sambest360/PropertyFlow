@@ -120,6 +120,13 @@ export type Agency = {
   timezone?: string
   settings?: {
     applicationJourney?: import('../lib/journey/types.js').AgencyJourneyOverride
+    /** Blank caps are unlimited. Unit NULL inherits these. */
+    listingLimits?: {
+      maxEnquiries?: number | null
+      maxViewings?: number | null
+      limitAction?: 'CLOSE' | 'WAITLIST'
+      showRemaining?: boolean
+    }
   }
 }
 
@@ -219,6 +226,14 @@ export type PropertyAsset = {
   type: string
   status: 'Draft' | 'Published' | 'Featured' | 'Under Offer' | 'Sold' | 'Rented' | 'Archived' | 'Maintenance'
   listingMode: 'sale' | 'rent' | 'both'
+  /** Public marketplace: listing hit its enquiry or viewing cap. */
+  fullyBooked?: boolean
+  viewingsFull?: boolean
+  enquiriesFull?: boolean
+  limitAction?: 'CLOSE' | 'WAITLIST'
+  showRemaining?: boolean
+  remainingViewings?: number | null
+  remainingEnquiries?: number | null
   price: number | null
   rent: number | null
   beds: number
