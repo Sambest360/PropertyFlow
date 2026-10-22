@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { acquireSubmitLock, releaseSubmitLock } from '../lib/wizardSubmitGuard'
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { CalendarDays, Plus, Search } from 'lucide-react'
 import { useStore } from '../context/AppStore'
@@ -26,6 +27,7 @@ import {
   type ViewingStatusFilter,
 } from '../components/viewings/types'
 import { readReturnTo } from '../lib/returnTo'
+import { DataRefreshBanner } from '../components/loading/DataRefreshBanner'
 
 const ICON_STROKE = 1.6
 
@@ -47,6 +49,7 @@ export default function Viewings() {
   const [kind, setKind] = useState<ViewingKindFilter>('all')
   const [status, setStatus] = useState<ViewingStatusFilter>('all')
   const [createOpen, setCreateOpen] = useState(() => searchParams.get('create') === '1')
+  const createViewingLockRef = useRef(false)
 
   useEffect(() => {
     if (dayFilter) setSelectedDate(dayFilter)
@@ -256,6 +259,8 @@ export default function Viewings() {
   }
 
   const handleCreate = (payload: CreateViewingPayload) => {
+    if (!acquireSubmitLock(createViewingLockRef)) return
+    try {
     if (!agencyId) return
     const prop = properties.find((p) => p.id === payload.propertyId)
     if (!prop || !canMutate(prop.id)) return
@@ -295,6 +300,9 @@ export default function Viewings() {
       return
     }
     selectDate(payload.date)
+    } finally {
+      releaseSubmitLock(createViewingLockRef)
+    }
   }
 
   return (
@@ -312,6 +320,8 @@ export default function Viewings() {
             ) : null
           }
         />
+
+        <DataRefreshBanner active={state.sessionRefreshing} label="Syncing viewings…" />
 
         <section className="grid gap-3 sm:grid-cols-3">
           <div className="rounded-[1.25rem] border border-primary-100 bg-gradient-to-br from-primary-50 to-white px-4 py-4">

@@ -16,6 +16,9 @@ import { Hono } from 'hono'
 import type { Hono as HonoApp } from 'hono'
 import { runningCommitSha } from '../server/appConfig.js'
 import { createVercelNodeHandler } from '../server/vercelNodeBridge.js'
+import { captureServerError, initServerSentry } from '../server/sentry.js'
+
+initServerSentry()
 
 let mainApp: HonoApp | null = null
 let mainLoading: Promise<HonoApp> | null = null
@@ -92,6 +95,7 @@ gateway.all('*', async (c) => {
     const app = await getMainApp()
     return app.fetch(c.req.raw)
   } catch (err) {
+    captureServerError(err, { route: 'api_boot', status: 503 })
     // P0-guest-register: if server/index (or its src/lib deps) fail to load,
     // return JSON so the client can fall back / show honest copy — never a
     // bare Vercel "Internal Server Error" that maps to fake demo-user blame.

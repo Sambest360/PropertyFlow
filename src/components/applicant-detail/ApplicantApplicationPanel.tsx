@@ -2,6 +2,7 @@ import type { Application, ApplicationDocument, PropertyAsset } from '../../type
 import type { ApplicantTask } from '../../lib/applicantPortalActions'
 import type { HateoasAction } from '../../lib/api/contracts'
 import type { WorkflowActionCapture } from '../../lib/workflowActionForms'
+import { ProviderBadge } from '../integrations/ProviderBadge'
 import { ApplicationLifecycleHub } from '../workflow/ApplicationLifecycleHub'
 
 /** Workflow hub — lifecycle is the central application experience. */
@@ -39,6 +40,11 @@ export function ApplicantApplicationPanel({
   onSaveDetails?: (patch: Partial<Application>) => void
 }) {
   return (
+    <>
+      <div className="mb-3 flex flex-wrap gap-2">
+        <ProviderBadge kind="screening" />
+        <ProviderBadge kind="esign" />
+      </div>
     <ApplicationLifecycleHub
       application={application}
       property={property}
@@ -52,5 +58,6 @@ export function ApplicantApplicationPanel({
       onUploadDocument={onUploadDocument}
       onSaveDetails={onSaveDetails}
     />
+    </>
   )
 }

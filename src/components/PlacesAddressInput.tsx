@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
-import { useJsApiLoader } from '@react-google-maps/api'
 import { Input, cn } from './ui'
-import { hasGoogleMapsKey, mapsLoaderConfig } from '../lib/api/mapsLoader'
+import { hasGoogleMapsKey } from '../lib/api/mapsLoader'
+import { useGoogleMaps } from '../context/GoogleMapsProvider'
 
 export type PlacesAddressValue = {
   address: string
@@ -59,10 +59,10 @@ function GooglePlacesAddressInput(props: Props) {
     'aria-label': ariaLabel,
   } = props
   const inputRef = useRef<HTMLInputElement>(null)
-  const { isLoaded, loadError } = useJsApiLoader(mapsLoaderConfig())
+  const { isLoaded, loadError } = useGoogleMaps()
 
   useEffect(() => {
-    if (!isLoaded || loadError || !inputRef.current || !onPlaceSelect) return
+    if (!hasGoogleMapsKey() || !isLoaded || loadError || !inputRef.current || !onPlaceSelect) return
     const g = window.google
     if (!g?.maps?.places?.Autocomplete) return
 

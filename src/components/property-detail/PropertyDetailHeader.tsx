@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Globe, Pencil, Star, Trash2, RotateCcw } from 'lucide-react'
+import { Globe, Loader2, Pencil, Star, Trash2, RotateCcw } from 'lucide-react'
 import type { PropertyAsset } from '../../types/domain'
 import { ActionButtonRow } from '../ActionButtonRow'
 import { BackButton } from '../BackButton'
@@ -31,6 +31,7 @@ export function PropertyDetailHeader({
   onDelete,
   onRestore,
   deleteBusy,
+  restoreBusy,
   guestMarketplaceBlock,
 }: {
   property: PropertyAsset
@@ -53,9 +54,11 @@ export function PropertyDetailHeader({
   onDelete?: () => void
   onRestore?: () => void
   deleteBusy?: boolean
+  restoreBusy?: boolean
   /** Staff sees Available but signed-out /browse hides the listing */
   guestMarketplaceBlock?: GuestMarketplaceBlock | null
 }) {
+  const archiveActionBusy = Boolean(deleteBusy || restoreBusy)
   const deleted = isPropertyDeleted(property)
   const resolved = deleted
     ? { label: 'Deleted' as const, tone: 'neutral' as const }
@@ -110,7 +113,7 @@ export function PropertyDetailHeader({
               <Button
                 className="min-h-11 cursor-pointer"
                 onClick={onPublish}
-                disabled={publishBusy}
+                disabled={publishBusy || archiveActionBusy}
               >
                 <Globe className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
                 Make live
@@ -129,6 +132,7 @@ export function PropertyDetailHeader({
                 variant="secondary"
                 className="min-h-11"
                 onClick={onToggleFeatured}
+                disabled={archiveActionBusy}
                 aria-pressed={property.featured}
               >
                 <Star
@@ -140,26 +144,34 @@ export function PropertyDetailHeader({
                 {property.featured ? 'Unfeature' : 'Feature'}
               </Button>
             ) : null}
-            {canManage && canDelete && !deleted && onDelete ? (
+            {canDelete && !deleted && onDelete ? (
               <Button
                 variant="secondary"
                 className="min-h-11 cursor-pointer text-accent-700 ring-accent-200 hover:bg-accent-50"
                 onClick={onDelete}
-                disabled={deleteBusy || Boolean(deleteBlockedReason)}
+                disabled={archiveActionBusy || Boolean(deleteBlockedReason)}
                 title={deleteBlockedReason ?? undefined}
               >
-                <Trash2 className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                Delete
+                {deleteBusy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" strokeWidth={ICON_STROKE} aria-hidden />
+                ) : (
+                  <Trash2 className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                )}
+                {deleteBusy ? 'Deleting…' : 'Delete'}
               </Button>
             ) : null}
-            {canManage && canDelete && deleted && onRestore ? (
+            {canDelete && deleted && onRestore ? (
               <Button
                 className="min-h-11 cursor-pointer"
                 onClick={onRestore}
-                disabled={deleteBusy}
+                disabled={archiveActionBusy}
               >
-                <RotateCcw className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                Restore
+                {restoreBusy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" strokeWidth={ICON_STROKE} aria-hidden />
+                ) : (
+                  <RotateCcw className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                )}
+                {restoreBusy ? 'Restoring…' : 'Restore'}
               </Button>
             ) : null}
             <BackButton to={backTo} label={backLabel} />

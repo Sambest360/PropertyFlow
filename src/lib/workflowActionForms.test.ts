@@ -39,6 +39,12 @@ describe('workflowActionForms', () => {
     expect(actionNeedsModal('LOG_ENQUIRY')).toBe(false)
   })
 
+  it('prefills bureau referral placeholder for DECLINE_CREDIT', () => {
+    const spec = getActionFormSpec('DECLINE_CREDIT', app())
+    expect(spec.kind).toBe('reject')
+    expect(spec.fields?.[0]?.placeholder).toMatch(/TransUnion/i)
+  })
+
   it('requires signature data for signature forms', () => {
     const spec = getActionFormSpec('TENANT_SIGNED', app())
     expect(spec.kind).toBe('signature')

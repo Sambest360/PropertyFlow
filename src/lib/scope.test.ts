@@ -153,15 +153,13 @@ describe('ticketInScope / dealInScope / paymentInScope / threadInScope', () => {
     ).toBe(false)
   })
 
-  it('allows unassigned off-book listing for field agent (agency Unassigned pool)', () => {
-    // p-a2 is Priya's listing — off James's book — but agentId null/empty = Unassigned pool
+  it('denies unassigned off-book deals for field agents (strict assignment)', () => {
     expect(
       dealInScope(agentScope, { propertyId: 'p-a2', agentId: null, agencyId: 'ag-a' }),
-    ).toBe(true)
+    ).toBe(false)
     expect(
       dealInScope(agentScope, { propertyId: 'p-a2', agentId: '', agencyId: 'ag-a' }),
-    ).toBe(true)
-    // other-agency Unassigned stays out (canSeeAgency gate)
+    ).toBe(false)
     expect(
       dealInScope(agentScope, { propertyId: 'p-b1', agentId: null, agencyId: 'ag-b' }),
     ).toBe(false)
@@ -257,5 +255,116 @@ describe('canMutateProperty', () => {
     expect(canMutateProperty(scope, properties[0], 'p-a1')).toBe(true)
     expect(canMutateProperty(scope, properties[1], 'p-a2')).toBe(false)
     expect(canMutateProperty(scope, null, 'p-a1')).toBe(false)
+  })
+
+  // Test cases for the new access rules
+  describe('new access rules with specific property set', () => {
+    const testProperties = [
+      // own: agent's own property
+      { id: 'p-own', agencyId: 'ag-a', agentId: 'u-viewer', landlordId: 'u-ll' },
+      // other-agent: another agent's property in same agency
+      { id: 'p-other-agent', agencyId: 'ag-a', agentId: 'u-other', landlordId: 'u-ll' },
+      // unassigned: null agentId in same agency
+      { id: 'p-unassigned', agencyId: 'ag-a', agentId: null, landlordId: 'u-ll' },
+      // other-agency-unassigned: null agentId in different agency
+      { id: 'p-other-agency-unassigned', agencyId: 'ag-b', agentId: null, landlordId: 'u-ll' },
+    ]
+
+    it('ground_agent: allowedPropertyIds = {own} only', () => {
+      const scope = buildPropertyScope(
+        { role: 'ground_agent', userId: 'u-viewer', agencyId: 'ag-a', agencySuspended: false },
+        { properties: testProperties },
+      )
+      expect(scope.agencyWide).toBe(false)
+      expect([...scope.allowedPropertyIds]).toEqual(['p-own'])
+    })
+
+    it('agent: allowedPropertyIds = {own} only', () => {
+      const scope = buildPropertyScope(
+        { role: 'agent', userId: 'u-viewer', agencyId: 'ag-a', agencySuspended: false },
+        { properties: testProperties },
+      )
+      expect(scope.agencyWide).toBe(false)
+      expect([...scope.allowedPropertyIds]).toEqual(['p-own'])
+    })
+
+    it('client_admin: {own, other-agent, unassigned} and NOT other-agency', () => {
+      const scope = buildPropertyScope(
+        { role: 'client_admin', userId: 'u-viewer', agencyId: 'ag-a', agencySuspended: false },
+        { properties: testProperties },
+      )
+      expect(scope.agencyWide).toBe(true)
+      const allowed = [...scope.allowedPropertyIds].sort()
+      expect([...allowed].sort()).toEqual(['p-own', 'p-other-agent', 'p-unassigned'].sort())
+      expect(allowed).not.toContain('p-other-agency-unassigned')
+    })
+
+    it('agent_admin: {own, other-agent, unassigned} and NOT other-agency', () => {
+      const scope = buildPropertyScope(
+        { role: 'agent_admin', userId: 'u-viewer', agencyId: 'ag-a', agencySuspended: false },
+        { properties: testProperties },
+      )
+      expect(scope.agencyWide).toBe(true)
+      const allowed = [...scope.allowedPropertyIds].sort()
+      expect([...allowed].sort()).toEqual(['p-own', 'p-other-agent', 'p-unassigned'].sort())
+      expect(allowed).not.toContain('p-other-agency-unassigned')
+    })
+
+    it('super_admin: all four', () => {
+      const scope = buildPropertyScope(
+        { role: 'super_admin', userId: 'u-viewer', agencyId: null, agencySuspended: false },
+        { properties: testProperties },
+      )
+      expect(scope.agencyWide).toBe(true)
+      const allowed = [...scope.allowedPropertyIds].sort()
+      expect(allowed).toEqual([
+        'p-own',
+        'p-other-agent',
+        'p-unassigned',
+        'p-other-agency-unassigned',
+      ].sort())
+    })
+
+    it('ground_agent: dealInScope for application on unassigned property is false', () => {
+      const scope = buildPropertyScope(
+        { role: 'ground_agent', userId: 'u-viewer', agencyId: 'ag-a', agencySuspended: false },
+        { properties: testProperties },
+      )
+      expect(
+        dealInScope(scope, {
+          propertyId: 'p-unassigned',
+          agentId: null,
+          agencyId: 'ag-a',
+        }),
+      ).toBe(false)
+      expect(
+        dealInScope(scope, {
+          propertyId: 'p-own',
+          agentId: 'u-viewer',
+          agencyId: 'ag-a',
+        }),
+      ).toBe(true)
+    })
+
+    it('agent: dealInScope for application on unassigned property is false', () => {
+      const scope = buildPropertyScope(
+        { role: 'agent', userId: 'u-viewer', agencyId: 'ag-a', agencySuspended: false },
+        { properties: testProperties },
+      )
+      expect(
+        dealInScope(scope, {
+          propertyId: 'p-unassigned',
+          agentId: null,
+          agencyId: 'ag-a',
+        }),
+      ).toBe(false)
+      expect(
+        dealInScope(scope, {
+          propertyId: 'p-own',
+          agentId: 'u-viewer',
+          agencyId: 'ag-a',
+        }),
+      ).toBe(true)
+    })
   })
 })

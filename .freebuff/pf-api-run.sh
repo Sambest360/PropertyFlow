@@ -1,5 +1,5 @@
 #!/bin/sh
-# Letkaya API server launcher for launchd (outlives tool runner reaping).
+# Lekaya Rentals API server launcher for launchd (outlives tool runner reaping).
 cd /Users/samBest360/Desktop/propertyflow || exit 1
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 set -a

@@ -131,7 +131,7 @@ export default function AdminAgenciesPage() {
             <Building2 className="mx-auto h-8 w-8 text-ink-400" strokeWidth={ICON_STROKE} />
             <p className="mt-3 font-semibold text-ink">No agencies yet</p>
             <p className="mt-1 text-sm text-ink-500">
-              Create your first brokerage to start adding principals, agents, and properties.
+              Create your first brokerage to start adding team members and properties.
             </p>
             <Link to="/workspace/admin/agencies/new" className="mt-4 inline-block">
               <Button className="min-h-11 cursor-pointer">

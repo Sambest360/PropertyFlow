@@ -13,6 +13,7 @@ import {
   MapPin,
   Wrench,
 } from 'lucide-react'
+import { useStore } from '../../context/AppStore'
 import { ActionButtonRow } from '../ActionButtonRow'
 import { Badge, Button, cn } from '../ui'
 import { AgentAssigneeText } from '../detail/FlatFields'
@@ -77,6 +78,15 @@ export function PropertyExpansion({
 }) {
   const [activePhoto, setActivePhoto] = useState(0)
   const p = item.property
+  const { state } = useStore()
+  const openLeadsList = state.leads.filter((l) => l.propertyId === p.id && l.stage !== 'Rejected' && l.stage !== 'Lease Signed' && l.stage !== 'Sale Completed')
+  const openTicketsList = state.tickets.filter((t) => t.propertyId === p.id && t.status !== 'Completed' && t.status !== 'Cancelled')
+  const waitingAppsList = state.applications.filter((a) => a.propertyId === p.id && a.progress < 100 && a.stage !== 'Active Tenancy' && a.stage !== 'Rejected')
+  const scheduledViewingsList = state.viewings.filter((v) => v.propertyId === p.id && v.status === 'Scheduled')
+  const openLeads = openLeadsList.length
+  const openTickets = openTicketsList.length
+  const waitingApps = waitingAppsList.length
+  const scheduledViewings = scheduledViewingsList.length
   const photos = p.images.length > 0 ? p.images.slice(0, 8) : []
   const detailId = `/workspace/properties/${p.id}`
   const current = photos[Math.min(activePhoto, Math.max(photos.length - 1, 0))]
@@ -223,40 +233,55 @@ export function PropertyExpansion({
             Quick actions
           </p>
           <ActionButtonRow>
-            <Link to={`/workspace/sales/viewings/property/${encodeURIComponent(p.id)}`}>
+            <Link to={scheduledViewings === 1 ? `/workspace/sales/viewings/property/${encodeURIComponent(p.id)}` : `/workspace/sales/viewings/property/${encodeURIComponent(p.id)}`}>
               <Button variant="primary" className="min-h-10 rounded-xl px-3 text-sm">
                 <CalendarDays className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
                 Viewing
-                {item.scheduledViewings > 0 && (
-                  <span className="tabular opacity-90">({item.scheduledViewings})</span>
+                {scheduledViewings > 0 && (
+                  <span className="tabular opacity-90">({scheduledViewings})</span>
                 )}
               </Button>
             </Link>
-            <Link to={`/workspace/operations/maintenance?property=${encodeURIComponent(p.id)}`}>
+            <Link to={openTickets === 1 ? `/workspace/operations/maintenance/${encodeURIComponent(openTicketsList[0].id)}` : `/workspace/operations/maintenance?property=${encodeURIComponent(p.id)}`}>
               <Button
-                variant={item.openTickets > 0 ? 'danger' : 'secondary'}
+                variant={openTickets > 0 ? 'danger' : 'secondary'}
                 className="min-h-10 rounded-xl px-3 text-sm"
               >
                 <Wrench className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
                 Maintenance
-                {item.openTickets > 0 && (
-                  <span className="tabular opacity-90">({item.openTickets})</span>
+                {openTickets > 0 && (
+                  <span className="tabular opacity-90">({openTickets})</span>
                 )}
               </Button>
             </Link>
-            <Link to={`/workspace/sales/applications?property=${encodeURIComponent(p.id)}`}>
+            <Link to={openLeads === 1 ? `/workspace/sales/crm/${encodeURIComponent(openLeadsList[0].id)}` : `/workspace/sales/crm`}>
               <Button
                 variant="secondary"
                 className={cn(
                   'min-h-10 rounded-xl px-3 text-sm',
-                  item.waitingApps > 0 &&
+                  openLeads > 0 && 'border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100',
+                )}
+              >
+                <ClipboardList className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                Leads
+                {openLeads > 0 && (
+                  <span className="tabular opacity-90">({openLeads})</span>
+                )}
+              </Button>
+            </Link>
+            <Link to={waitingApps === 1 ? `/workspace/sales/applications/${encodeURIComponent(waitingAppsList[0].id)}` : `/workspace/sales/applications?property=${encodeURIComponent(p.id)}`}>
+              <Button
+                variant="secondary"
+                className={cn(
+                  'min-h-10 rounded-xl px-3 text-sm',
+                  waitingApps > 0 &&
                     'border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100',
                 )}
               >
                 <ClipboardList className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
                 Applications
-                {item.waitingApps > 0 && (
-                  <span className="tabular opacity-90">({item.waitingApps})</span>
+                {waitingApps > 0 && (
+                  <span className="tabular opacity-90">({waitingApps})</span>
                 )}
               </Button>
             </Link>

@@ -24,7 +24,11 @@ import {
 } from '../lib/api/authClient'
 import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
 import { portalHydrationUserId, sessionUserSwitched } from '../lib/clientCache'
-import { shouldSkipAuthBootstrapRefresh } from '../lib/bootstrapCoord'
+import {
+  bootstrapActorKey,
+  isBootstrapFetchInFlight,
+  shouldSkipAuthBootstrapRefresh,
+} from '../lib/bootstrapCoord'
 import { isStaleSessionProbe } from '../lib/auth/sessionProbeCoord'
 import { blockedPropertyIdsForApplicant } from '../lib/blockedApplicants'
 import { effectiveCan, roleLabels, roleBlurbs } from '../lib/permissions'
@@ -430,6 +434,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isApiEnabled && !isSupabaseMode) return
     if (!isAuthenticated || !user || user.id === 'guest') return
+    const actorKey = bootstrapActorKey({ userId: user.id, role: user.role })
+    if (isBootstrapFetchInFlight(actorKey)) return
     if (
       shouldSkipAuthBootstrapRefresh(user.id, hydratedForUserId) &&
       state.users.length > 0 &&
@@ -465,6 +471,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const sessionTarget = portalHydrationUserId(true, user.id)
     if (sessionTarget && hydratedForUserId === sessionTarget) return
     if (hydrationFailureAutoRetryRef.current) return
+    const actorKey = bootstrapActorKey({ userId: user.id, role: user.role })
+    if (isBootstrapFetchInFlight(actorKey)) return
     hydrationFailureAutoRetryRef.current = true
     void refreshBootstrap(
       { userId: user.id, role: user.role, agencyId: user.agencyId },
@@ -822,8 +830,7 @@ export function useAuth() {
   return ctx
 }
 
-/** Scope helper: filter by agency unless super admin */
-export function useAgencyScope() {
+function useResolvedAgencyScope() {
   const { user, role, agencyId: sessionAgencyId } = useAuth()
   const { state } = useStore()
   const scopeCtx = useMemo(
@@ -839,9 +846,14 @@ export function useAgencyScope() {
   )
   const agency = agencyId ? state.agencies.find((a) => a.id === agencyId) : null
   const agencySuspended = agencyBlocksStaffAccess(agency?.status)
-
   const scopeAgency = (id: string | null | undefined) =>
     canSeeAgency(role, agencyId, agencySuspended, id, scopeCtx)
+  return { user, role, agencyId, agencySuspended, scopeCtx, scopeAgency }
+}
+
+/** Scope helper: filter by agency unless super admin */
+export function useAgencyScope() {
+  const { user, role, agencyId, agencySuspended, scopeAgency } = useResolvedAgencyScope()
   const scopeAgent = (agentId: string | null | undefined) =>
     canSeeAgentRecord(role, user.id, agentId)
   const scopeLandlord = (landlordId: string) => canSeeLandlordAsset(role, user.id, landlordId)
@@ -869,10 +881,8 @@ export function usePropertyScope(): PropertyScope & {
   ) => boolean
   threadVisible: (thread: Parameters<typeof threadInScope>[1]) => boolean
 } {
-  const { user, role, agencyId } = useAuth()
+  const { user, role, agencyId, agencySuspended, scopeAgency } = useResolvedAgencyScope()
   const { state } = useStore()
-  const agency = agencyId ? state.agencies.find((a) => a.id === agencyId) : null
-  const agencySuspended = agencyBlocksStaffAccess(agency?.status)
 
   const scope = useMemo(() => {
     const blockedPropertyIds = blockedPropertyIdsForApplicant(state.applications, user)
@@ -900,9 +910,6 @@ export function usePropertyScope(): PropertyScope & {
     state.tickets,
     state.agencyContractors,
   ])
-
-  const scopeAgency = (id: string | null | undefined) =>
-    canSeeAgency(role, agencyId, agencySuspended, id)
 
   return {
     ...scope,

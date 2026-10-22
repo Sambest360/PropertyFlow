@@ -446,6 +446,47 @@ export function foreignPortalPathsForRole(role: string): Set<string> {
   return new Set<string>()
 }
 
+/** Field agents: no agency-wide trust, compliance, people, admin, or reports. */
+const FIELD_AGENT_HIDDEN_PREFIXES = [
+  '/workspace/trust',
+  '/workspace/compliance',
+  '/workspace/people',
+  '/workspace/admin',
+  '/workspace/insights/reports',
+  '/workspace/platform',
+]
+
+function pathHiddenByPrefixes(path: string, prefixes: readonly string[]): boolean {
+  return prefixes.some((p) => path === p || path.startsWith(`${p}/`) || path.startsWith(`${p}?`))
+}
+
+export function stripNavByPathPrefixes(
+  entries: WorkspaceNavEntry[],
+  prefixes: readonly string[],
+): WorkspaceNavEntry[] {
+  const result: WorkspaceNavEntry[] = []
+  for (const entry of entries) {
+    if (entry.type === 'link') {
+      const path = navItemPath(entry.item)
+      const full = entry.item.to
+      if (pathHiddenByPrefixes(path, prefixes) || pathHiddenByPrefixes(full, prefixes)) continue
+      result.push(entry)
+      continue
+    }
+    const children = entry.group.children.filter((c) => {
+      const path = navItemPath(c)
+      return !pathHiddenByPrefixes(path, prefixes) && !pathHiddenByPrefixes(c.to, prefixes)
+    })
+    if (children.length === 0) continue
+    result.push({ type: 'group', group: { ...entry.group, children } })
+  }
+  return result
+}
+
+function buildFieldAgentNav(filtered: WorkspaceNavEntry[]): WorkspaceNavEntry[] {
+  return dedupeNavEntries(stripNavByPathPrefixes(filtered, FIELD_AGENT_HIDDEN_PREFIXES))
+}
+
 export function stripNavPaths(
   entries: WorkspaceNavEntry[],
   paths: Set<string>,
@@ -501,6 +542,14 @@ function portalDashboardLink(portalHome: string): WorkspaceNavEntry {
   }
 }
 
+const TENANT_OCCUPANCY_PORTAL_PATHS = [
+  '/workspace/portals/tenant/leases',
+  '/workspace/portals/tenant/payments',
+  '/workspace/portals/tenant/maintenance',
+  '/workspace/portals/tenant/messages',
+  '/workspace/portals/tenant/complaints',
+] as const
+
 function buildTenantApplicantNav(
   filtered: WorkspaceNavEntry[],
   portalHome: string,
@@ -511,20 +560,20 @@ function buildTenantApplicantNav(
     '/workspace/portals/tenant/applications',
     '/workspace/portals/tenant/viewings',
     ACCOUNT_WISHLIST_PATH,
-    '/workspace/portals/tenant/maintenance',
-    '/workspace/portals/tenant/messages',
-    '/workspace/portals/tenant/complaints',
-    '/workspace/portals/tenant/leases',
-    '/workspace/portals/tenant/payments',
     '/workspace',
     ...CONTRACTOR_PORTAL_PATHS,
     ...OWNER_PORTAL_PATHS,
     ...(occupancyReady
-      ? ['/workspace/operations/maintenance', '/workspace/operations/communications']
+      ? [
+          ...TENANT_OCCUPANCY_PORTAL_PATHS,
+          '/workspace/operations/maintenance',
+          '/workspace/operations/communications',
+        ]
       : []),
   ])
 
-  const tenantPortalLinks: WorkspaceNavEntry[] = [
+  const tenantPortalLinks: WorkspaceNavEntry[] = occupancyReady
+    ? [
     {
       type: 'link',
       item: {
@@ -571,6 +620,7 @@ function buildTenantApplicantNav(
       },
     },
   ]
+    : []
 
   const prepend: WorkspaceNavEntry[] = [
     portalDashboardLink(portalHome),
@@ -741,6 +791,11 @@ export type WorkspaceNavActorInput = {
 /** Permission-filtered nav with portal-actor dedupe and cross-portal link stripping. */
 export function buildWorkspaceNavForActor(input: WorkspaceNavActorInput): WorkspaceNavEntry[] {
   const filtered = filterWorkspaceNav(getWorkspaceNav(), input.has, input.hasAny)
+
+  if (input.role === 'ground_agent' || input.role === 'agent') {
+    return buildFieldAgentNav(filtered)
+  }
+
   const portalHome = resolvePortalHome(input.role, input.has)
 
   if (!portalHome) return dedupeNavEntries(filtered)

@@ -3,7 +3,7 @@ import { isSupabaseConfigured } from '../../utils/supabase/env'
 import { RegistrationRedirectError } from '../auth/registrationErrors'
 import type { AppUser, Role } from '../../types/domain'
 import type { UserVerification, VerificationDocument } from '../verification'
-import { EMAIL_TO_USER, resolveFrontendRole } from './idMap.js'
+import { resolveFrontendRole, sessionFrontendUserId } from './idMap.js'
 import { resolveAuthChangeDecision } from './authChange.js'
 import {
   beginDeferredAuthDecision,
@@ -18,6 +18,38 @@ export function supabaseAuthEnabled(): boolean {
   return isSupabaseConfigured()
 }
 
+export const SUPABASE_SIGN_IN_TIMEOUT_MS = 15_000
+
+/** Race sign-in against a client timeout so hung GoTrue calls do not masquerade as 500s. */
+export async function signInWithPasswordWithTimeout(
+  supabase: ReturnType<typeof createClient>,
+  email: string,
+  password: string,
+  timeoutMs = SUPABASE_SIGN_IN_TIMEOUT_MS,
+) {
+  let settled = false
+  const signInPromise = supabase.auth.signInWithPassword({
+    email: email.trim(),
+    password,
+  }).then((result) => {
+    settled = true
+    return result
+  })
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(
+      () => reject(new Error('Connection timed out (auth)')),
+      timeoutMs,
+    )
+  })
+  try {
+    return await Promise.race([signInPromise, timeoutPromise])
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId)
+    if (!settled) void signInPromise.catch(() => {})
+  }
+}
+
 function rowToAppUser(row: {
   metadata: Record<string, unknown> | null
   email: string
@@ -30,10 +62,7 @@ function rowToAppUser(row: {
   clients?: { settings: Record<string, unknown> | null } | null
 }): AppUser {
   const meta = row.metadata ?? {}
-  const frontendId =
-    typeof meta.frontend_id === 'string' && meta.frontend_id
-      ? meta.frontend_id
-      : EMAIL_TO_USER[row.email.toLowerCase()] ?? row.email.toLowerCase()
+  const frontendId = sessionFrontendUserId(meta, row.email)
   const feRole = resolveFrontendRole(row.role, meta, row.email)
   const verification =
     meta.verification && typeof meta.verification === 'object'
@@ -188,10 +217,7 @@ async function ensureSessionAfterSignUp(
 ): Promise<string> {
   if (signUpSession) return authUserId
 
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: email.trim(),
-    password,
-  })
+  const { data, error } = await signInWithPasswordWithTimeout(supabase, email, password)
   if (error) {
     const lower = error.message.toLowerCase()
     if (
@@ -219,15 +245,20 @@ export async function supabaseBootstrapNeeded(): Promise<boolean> {
 
 export async function supabaseSignIn(email: string, password: string): Promise<AppUser> {
   const supabase = createClient()
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: email.trim(),
-    password,
-  })
+  const { data, error } = await signInWithPasswordWithTimeout(supabase, email, password)
   if (error) {
     const status = typeof error.status === 'number' ? error.status : undefined
     const raw = (error.message || '').trim()
+    const code =
+      typeof (error as { code?: string }).code === 'string'
+        ? (error as { code: string }).code
+        : ''
+    if (import.meta.env.DEV && code) {
+      console.warn('[supabaseSignIn]', { status, code, message: raw })
+    }
     if (status && status >= 500) {
-      throw new Error(`Server error (${status}): ${raw || 'unexpected_failure'}`)
+      const detail = [raw || 'unexpected_failure', code].filter(Boolean).join(' — ')
+      throw new Error(`Server error (${status}): ${detail}`)
     }
     if (status === 429) {
       throw new Error(`Too many requests (${status}): ${raw || 'rate limit'}`)
@@ -419,10 +450,11 @@ export async function supabaseSignUp(
   const viaServer = await supabaseSignUpViaServer(input)
   if (viaServer) {
     const supabase = createClient()
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: input.email.trim(),
-      password: input.password,
-    })
+    const { data, error } = await signInWithPasswordWithTimeout(
+      supabase,
+      input.email,
+      input.password,
+    )
     if (error) {
       // P0-register (R9): a leftover session's token refresh can 400 between
       // the purge and the fresh password grant ("Invalid Refresh Token"-
@@ -635,6 +667,7 @@ export async function supabaseUpdateUserVerification(input: {
   if (session) return session
 
   const meta = (data as Record<string, unknown>) ?? {}
+  const verification = meta.verification as UserVerification | undefined
   return {
     id: input.userId,
     name: '',
@@ -642,6 +675,6 @@ export async function supabaseUpdateUserVerification(input: {
     role: 'tenant',
     agencyId: null,
     active: true,
-    verification: meta.verification as UserVerification | undefined,
+    verification,
   }
 }

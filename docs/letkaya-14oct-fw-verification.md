@@ -1,4 +1,4 @@
-# Letkaya 14 Oct full PDF — FW-01–FW-30 verification
+# Lekaya 14 Oct full PDF — FW-01–FW-30 verification
 
 **Log:** `Letkaya-Test-Log-14Oct-full.pdf` (runs 1–5, live site was `c1967a04`).  
 **Code baseline:** `main` through routing/navigation closure (post-`21d8b17`).  

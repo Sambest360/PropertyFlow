@@ -3,6 +3,7 @@ import { shouldShowAddressLine } from '../../lib/property/addressLines'
 import { MapPin } from 'lucide-react'
 import type { PropertyAsset, Tenancy } from '../../types/domain'
 import { formatZAR } from '../../data/seed'
+import { hideBackendUuid } from '../../lib/displayIds'
 import { DetailSection, DetailStack, AgentAssigneeField, FlatField, FlatFieldGrid } from '../detail/FlatFields'
 import { ICON_STROKE } from './types'
 
@@ -22,7 +23,7 @@ export function TenantOverviewPanel({
         subtitle="Current lease position. Open Details for contact information."
       >
         <FlatFieldGrid className="lg:grid-cols-2">
-          <FlatField label="Tenancy ID" value={tenancy.id} />
+          <FlatField label="Tenancy ID" value={hideBackendUuid(tenancy.id)} />
           <FlatField label="Status" value={tenancy.status} />
           <FlatField label="Rent" value={`${formatZAR(tenancy.rent)}/mo`} tabular />
           <FlatField label="Deposit" value={formatZAR(tenancy.deposit)} tabular />

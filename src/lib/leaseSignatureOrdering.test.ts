@@ -61,7 +61,7 @@ describe('Sign lease: application write after the lease save', () => {
     const body = src.slice(start, end)
     const leaseWrite = body.indexOf("leaseSignSave = persistUpsert('tenancy'")
     const wait = body.indexOf('await leaseSignatureSaved(')
-    const appWrite = body.indexOf("persistUpsert('application', applicationId, updated as unknown")
+    const appWrite = body.indexOf('await persistApplicationOrRollback(applicationId, updated, preWorkflow')
     expect(leaseWrite).toBeGreaterThan(0)
     expect(wait).toBeGreaterThan(leaseWrite)
     expect(appWrite).toBeGreaterThan(wait)

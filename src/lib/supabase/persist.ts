@@ -10,6 +10,8 @@ import { ROLE_TO_DB } from './idMap'
 import { canonicalListingId, unitIdForProperty, listingIdAliases } from '../listingIds'
 import { propertyTypeToDb } from '../propertyType'
 import { mapAgencyStatusToDb } from '../agencyStatus'
+import { parseUploadedDocsJson } from '../hydrateApplicationDocs'
+import { lockDocumentReviewFields } from '../lockDocumentReviewFields'
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -374,17 +376,17 @@ async function upsertApplication(id: string, data: Record<string, unknown>): Pro
   // violates unique (client_id, reference_code). Resolve the real row by its
   // natural key first and upsert onto that row's id (same pattern as
   // upsertLookup).
-  let existingRow: { id: string; metadata: unknown } | null = null
+  let existingRow: { id: string; metadata: unknown; uploaded_docs_json?: unknown } | null = null
   if (clientId) {
     const { data: byRef } = await supabase
       .from('applications')
-      .select('id, metadata, status')
+      .select('id, metadata, status, uploaded_docs_json')
       .eq('client_id', clientId)
       .eq('reference_code', id)
       .maybeSingle()
     if (byRef?.id) {
       uuid = byRef.id as string
-      existingRow = byRef as { id: string; metadata: unknown }
+      existingRow = byRef as { id: string; metadata: unknown; uploaded_docs_json?: unknown }
       await supabase
         .from('entity_id_map')
         .upsert(
@@ -394,13 +396,13 @@ async function upsertApplication(id: string, data: Record<string, unknown>): Pro
     } else {
       const { data: byFrontendMeta } = await supabase
         .from('applications')
-        .select('id, metadata, status')
+        .select('id, metadata, status, uploaded_docs_json')
         .eq('client_id', clientId)
         .eq('metadata->>frontend_id', id)
         .maybeSingle()
       if (byFrontendMeta?.id) {
         uuid = byFrontendMeta.id as string
-        existingRow = byFrontendMeta as { id: string; metadata: unknown }
+        existingRow = byFrontendMeta as { id: string; metadata: unknown; uploaded_docs_json?: unknown }
         await supabase
           .from('entity_id_map')
           .upsert(
@@ -436,6 +438,16 @@ async function upsertApplication(id: string, data: Record<string, unknown>): Pro
     mergedMeta = { ...existingMeta, ...incomingMeta }
   }
 
+  const storedDocsJson = parseUploadedDocsJson(existingRow?.uploaded_docs_json) ?? {}
+  const storedDocRows = Array.isArray(storedDocsJson.documents)
+    ? (storedDocsJson.documents as Array<Record<string, unknown>>)
+    : []
+  const incomingDocs = data.documents ?? data.docs
+  let mergedDocuments: unknown[] = storedDocRows
+  if (Array.isArray(incomingDocs)) {
+    mergedDocuments = lockDocumentReviewFields(incomingDocs, storedDocRows) as unknown[]
+  }
+
   const res = await supabase.from('applications').upsert(
     {
       id: uuid,
@@ -455,10 +467,16 @@ async function upsertApplication(id: string, data: Record<string, unknown>): Pro
       message: str(data.notes),
       move_in_date: str(data.moveInDate) || null,
       uploaded_docs_json: {
-        documents: data.documents ?? data.docs ?? [],
-        creditCheck: data.creditCheck ?? null,
-        creditConsent: data.creditConsent ?? null,
-        screening: data.screening ?? null,
+        documents: mergedDocuments,
+        creditCheck:
+          data.creditCheck !== undefined ? data.creditCheck : (storedDocsJson.creditCheck ?? null),
+        creditConsent:
+          data.creditConsent !== undefined ? data.creditConsent : (storedDocsJson.creditConsent ?? null),
+        screening: data.screening !== undefined ? data.screening : (storedDocsJson.screening ?? null),
+        creditCheckConsents:
+          data.creditCheckConsents !== undefined
+            ? data.creditCheckConsents
+            : (storedDocsJson.creditCheckConsents ?? null),
       },
       metadata: mergedMeta,
       // P0-sync (R9): the staff bootstrap orders applications by submitted_at
@@ -957,6 +975,9 @@ async function upsertProperty(id: string, data: Record<string, unknown>): Promis
     }
     if (Object.prototype.hasOwnProperty.call(data, 'type') && data.type != null) {
       propertyRow.property_type = propertyTypeToDb(str(data.type))
+    }
+    if (typeof data.idempotencyKey === 'string' && data.idempotencyKey.trim()) {
+      propertyRow.idempotency_key = data.idempotencyKey.trim()
     }
     const res = await supabase.from('units').upsert(propertyRow)
     throwIfUpsertFailed(res, 'property/unit')

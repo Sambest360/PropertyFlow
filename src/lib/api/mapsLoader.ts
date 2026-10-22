@@ -23,6 +23,8 @@ export function mapsLoaderConfig() {
     id: 'propertyflow-google-maps',
     googleMapsApiKey: GOOGLE_MAPS_API_KEY,
     libraries: [...GOOGLE_MAPS_LIBRARIES] as ('places')[],
+    language: 'en',
+    region: 'ZA',
   }
 }
 

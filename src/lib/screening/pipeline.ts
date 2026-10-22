@@ -4,6 +4,7 @@
  */
 
 import type { Application } from '../../types/domain'
+import { hasAllAdultCreditConsents } from './creditConsent.js'
 import { appendWorkflowEvent } from '../applicationWorkflowEvents.js'
 import { MockDevScreeningProvider } from './providers.js'
 import type { ScreeningProvider } from './types'
@@ -94,6 +95,7 @@ export function resolveConsent(app: Application): ScreeningConsent {
 }
 
 export function hasScreeningConsent(app: Application): boolean {
+  if (app.type === 'Rental') return hasAllAdultCreditConsents(app)
   return resolveConsent(app).granted === true
 }
 

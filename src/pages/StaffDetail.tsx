@@ -1,7 +1,7 @@
 import { Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMemo } from 'react'
 import { useStore } from '../context/AppStore'
-import { useAgencyScope } from '../context/AuthContext'
+import { useAgencyScope, useAuth } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
 import { DashboardTabs } from '../components/dashboard/DashboardTabs'
 import { HistoryTimeline } from '../components/history/HistoryTimeline'
@@ -17,8 +17,9 @@ const STAFF_ROLES = ['client_admin', 'agent_admin', 'ground_agent', 'agent', 'su
 export default function StaffDetail() {
   const { id } = useParams()
   const [params, setParams] = useSearchParams()
-  const { state } = useStore()
+  const { state, updateUser } = useStore()
   const { scopeAgency, agencyId } = useAgencyScope()
+  const { has } = useAuth()
 
   const user = state.users.find((u) => u.id === id)
 
@@ -121,6 +122,9 @@ export default function StaffDetail() {
   const agencyName =
     agency?.name ?? (user.role === 'super_admin' ? 'Platform' : agencyId ?? '—')
 
+  const isPlatform = has('platform.manage')
+  const mutable = isPlatform || (user.role !== 'super_admin' && scopeAgency(user.agencyId))
+
   const tabs = [
     { id: 'overview', label: 'Overview' },
     { id: 'details', label: 'Details' },
@@ -135,7 +139,11 @@ export default function StaffDetail() {
   return (
     <RequirePermission permission="users.manage">
       <div className="animate-fade-in">
-        <TeamDetailHeader user={user} />
+        <TeamDetailHeader
+          user={user}
+          mutable={mutable}
+          onToggleActive={() => updateUser(user.id, { active: !user.active })}
+        />
 
         <div className="sticky top-0 z-20 -mx-1 mb-5 bg-white/95 px-1 backdrop-blur-md">
           <DashboardTabs tabs={tabs} value={tab} onChange={setTab} />

@@ -15,7 +15,7 @@ describe('sendLeaseSignedEmail (CR10 part 8)', () => {
   it('copy is plain, with no legal claims', async () => {
     const { readFileSync } = await import('node:fs')
     const src = readFileSync('server/mailtrap.ts', 'utf8')
-    expect(src).toContain('has been signed by all parties. You can view it in Letkaya:')
+    expect(src).toContain('has been signed by all parties. You can view it in Lekaya:')
     expect(src).toContain("'Your lease has been signed'")
   })
   it('redacts recipient emails in logs', async () => {

@@ -1,41 +1,38 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { GoogleMap, InfoWindowF, MarkerF, useJsApiLoader } from '@react-google-maps/api'
-import { MapContainer, TileLayer, Marker, Popup, useMap, ZoomControl } from 'react-leaflet'
+import { GoogleMap, InfoWindowF, MarkerF } from '@react-google-maps/api'
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+  useMap,
+  useMapEvents,
+  ZoomControl,
+} from 'react-leaflet'
 import L from 'leaflet'
-import { ArrowRight, Bath, BedDouble, Car, Heart, MapPin, X } from 'lucide-react'
+import { ArrowRight, MapPin, X } from 'lucide-react'
 import type { PropertyAsset } from '../types/domain'
-import { formatZAR } from '../data/seed'
+import { canonicalListingId } from '../lib/listingIds'
 import {
   hasGoogleMapsKey,
   LEAFLET_BASEMAP_ATTRIBUTION,
   LEAFLET_BASEMAP_URL,
-  mapsLoaderConfig,
   SA_MAP_CENTER,
   SA_MAP_DEFAULT_ZOOM,
 } from '../lib/api/mapsLoader'
+import { useGoogleMaps } from '../context/GoogleMapsProvider'
 import { PROPERTYFLOW_GOOGLE_MAP_STYLES } from '../lib/api/googleMapStyles'
 import { hasMappedCoordinates } from '../lib/mapCoords'
 import { staticMapImageUrl } from '../lib/api/documents'
 import 'leaflet/dist/leaflet.css'
 import { PropertyLoader } from './loading/PropertyLoader'
-
-function shortPrice(amount: number): string {
-  if (amount >= 1_000_000) {
-    const m = amount / 1_000_000
-    return `R${m >= 10 ? m.toFixed(1) : m.toFixed(2).replace(/0$/, '').replace(/\.$/, '')}m`
-  }
-  if (amount >= 1_000) return `R${Math.round(amount / 1_000)}k`
-  return formatZAR(amount)
-}
-
-function pinLabel(p: PropertyAsset, mode: string): string {
-  if (mode === 'rent' && p.rent != null) return `${shortPrice(p.rent)}/mo`
-  if (mode === 'buy' && p.price != null) return shortPrice(p.price)
-  if (p.price != null) return shortPrice(p.price)
-  if (p.rent != null) return `${shortPrice(p.rent)}/mo`
-  return 'View'
-}
+import type { UnitCardPayload } from '../lib/api/unitsApi'
+import {
+  formatMapPinLabel,
+  resolveCardForProperty,
+  resolveMapPreviewFields,
+} from './propertyMapPreview'
 
 function priceIcon(label: string, active: boolean) {
   return L.divIcon({
@@ -65,6 +62,13 @@ function FitToMarkers({ positions }: { positions: [number, number][] }) {
   return null
 }
 
+function MapClickClearActive({ onClear }: { onClear: () => void }) {
+  useMapEvents({
+    click: () => onClear(),
+  })
+  return null
+}
+
 function MapResize() {
   const map = useMap()
   useEffect(() => {
@@ -83,23 +87,17 @@ function MapListingPreview({
   property,
   mode,
   detailBase,
+  card,
   onClose,
 }: {
   property: PropertyAsset
   mode: string
   detailBase: string
+  card?: UnitCardPayload
   onClose?: () => void
 }) {
-  const [saved, setSaved] = useState(false)
-
-  const priceLabel =
-    mode === 'rent' && property.rent != null
-      ? `${formatZAR(property.rent)} / month`
-      : property.price != null
-        ? formatZAR(property.price)
-        : property.rent != null
-          ? `${formatZAR(property.rent)} / month`
-          : '—'
+  const { title, priceLabel, image, beds, baths, parking, area, suburb, city } =
+    resolveMapPreviewFields(property, mode, card)
 
   const badge =
     property.listingMode === 'both'
@@ -108,83 +106,59 @@ function MapListingPreview({
         ? 'For sale'
         : 'To rent'
 
+  const listingId = canonicalListingId(card?.property_id ?? property.id)
+  const statItems = [
+    beds > 0 ? { key: 'beds', label: `${beds} bed` } : null,
+    baths > 0 ? { key: 'baths', label: `${baths} bath` } : null,
+    parking > 0 ? { key: 'parking', label: `${parking} park` } : null,
+    area > 0 ? { key: 'area', label: `${area.toLocaleString('en-ZA')} m²` } : null,
+  ].filter(Boolean) as { key: string; label: string }[]
+
   return (
-    <article className="pf-map-card w-[260px] overflow-hidden rounded-2xl bg-white sm:w-[280px]">
-      <div className="relative aspect-[16/10] overflow-hidden bg-primary-100">
-        <img src={property.images[0]} alt="" className="h-full w-full object-cover" />
-        <span className="absolute left-2.5 top-2.5 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-ink shadow-sm">
-          {badge}
-        </span>
+    <article className="pf-map-card relative w-[min(100vw-1.5rem,340px)] overflow-hidden rounded-xl bg-white">
+      {onClose && (
         <button
           type="button"
-          aria-label={saved ? 'Remove from saved' : 'Save listing'}
-          aria-pressed={saved}
+          aria-label="Close preview"
           onClick={(e) => {
             e.preventDefault()
             e.stopPropagation()
-            setSaved((s) => !s)
+            onClose()
           }}
-          className="absolute bottom-2.5 right-2.5 inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-white/95 text-ink shadow-sm transition-colors duration-200 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-white/95 text-ink shadow-sm transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
-          <Heart className={`h-4 w-4 ${saved ? 'fill-accent text-accent' : ''}`} aria-hidden />
+          <X className="h-3.5 w-3.5" aria-hidden />
         </button>
-        {onClose && (
-          <button
-            type="button"
-            aria-label="Close preview"
-            onClick={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              onClose()
-            }}
-            className="absolute right-2 top-2 z-10 inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-white text-ink shadow-sm transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          >
-            <X className="h-4 w-4" aria-hidden />
-          </button>
+      )}
+      <div className="relative aspect-[16/10] w-full overflow-hidden bg-primary-100">
+        {image ? (
+          <img src={image} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <div className="h-full w-full bg-primary-100" aria-hidden />
         )}
+        <span className="absolute bottom-0 left-0 right-0 bg-ink/70 px-2 py-1 text-center text-[10px] font-semibold leading-tight text-white">
+          {badge}
+        </span>
       </div>
-
-      <div className="p-3.5">
-        <h3 className="line-clamp-1 text-[15px] font-semibold leading-snug text-ink">
-          {property.title}
-        </h3>
-        <p className="mt-1 flex items-center gap-1 text-xs text-ink-500">
-          <MapPin className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
-          <span className="line-clamp-1">
-            {property.formattedAddress ?? `${property.suburb}, ${property.city}`}
-          </span>
+      <div className="p-3">
+        <h3 className="text-sm font-semibold leading-snug text-ink">{title}</h3>
+        <p className="mt-1 text-xs text-ink-500">
+          {suburb}, {city}
         </p>
-
-        <p className="mt-2.5 text-base font-bold tabular text-ink">{priceLabel}</p>
-
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-primary-100 pt-2.5 text-xs text-ink-500">
-          {property.beds > 0 && (
-            <span className="inline-flex items-center gap-1">
-              <BedDouble className="h-3.5 w-3.5" aria-hidden />
-              <span className="tabular">{property.beds} bed</span>
-            </span>
-          )}
-          {property.baths > 0 && (
-            <span className="inline-flex items-center gap-1">
-              <Bath className="h-3.5 w-3.5" aria-hidden />
-              <span className="tabular">{property.baths} bath</span>
-            </span>
-          )}
-          {property.parking > 0 && (
-            <span className="inline-flex items-center gap-1">
-              <Car className="h-3.5 w-3.5" aria-hidden />
-              <span className="tabular">{property.parking}</span>
-            </span>
-          )}
-          <span className="ml-auto tabular">{property.area.toLocaleString('en-ZA')} m²</span>
-        </div>
-
+        <p className="mt-1.5 text-sm font-bold tabular text-ink">{priceLabel}</p>
+        {statItems.length > 0 ? (
+          <ul className="mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-ink-500">
+            {statItems.map((item) => (
+              <li key={item.key}>{item.label}</li>
+            ))}
+          </ul>
+        ) : null}
         <Link
-          to={`${detailBase}/${property.id}`}
-          className="pf-map-cta mt-3.5 inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-1.5 rounded-xl bg-primary px-3 py-2.5 text-sm font-semibold transition-colors duration-200 hover:bg-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+          to={`${detailBase}/${listingId}`}
+          className="pf-map-cta mt-2 inline-flex cursor-pointer items-center gap-1 text-xs font-semibold text-primary no-underline hover:text-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           View listing
-          <ArrowRight className="h-4 w-4" aria-hidden />
+          <ArrowRight className="h-3.5 w-3.5" aria-hidden />
         </Link>
       </div>
     </article>
@@ -195,11 +169,13 @@ function LeafletPropertyMap({
   withCoords,
   mode,
   detailBase,
+  cardsByPropertyId,
   className,
 }: {
   withCoords: PropertyAsset[]
   mode: string
   detailBase: string
+  cardsByPropertyId?: Record<string, UnitCardPayload>
   className?: string
 }) {
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -222,13 +198,17 @@ function LeafletPropertyMap({
         <TileLayer attribution={LEAFLET_BASEMAP_ATTRIBUTION} url={LEAFLET_BASEMAP_URL} />
         <ZoomControl position="bottomright" />
         <MapResize />
+        <MapClickClearActive onClear={() => setActiveId(null)} />
         <FitToMarkers key={positionsKey} positions={positions} />
 
-        {withCoords.map((p) => (
+        {withCoords.map((p) => {
+          const card = resolveCardForProperty(p, cardsByPropertyId)
+          const label = formatMapPinLabel(p, mode, card)
+          return (
           <Marker
             key={p.id}
             position={[p.lat, p.lng]}
-            icon={priceIcon(pinLabel(p, mode), activeId === p.id)}
+            icon={priceIcon(label, activeId === p.id)}
             zIndexOffset={activeId === p.id ? 1000 : 0}
             eventHandlers={{
               click: () => setActiveId(p.id),
@@ -238,20 +218,23 @@ function LeafletPropertyMap({
             <Popup
               className="pf-map-popup"
               closeButton={false}
-              maxWidth={300}
-              minWidth={260}
+              maxWidth={340}
+              minWidth={280}
               offset={[0, -8]}
-              autoPanPadding={[24, 24]}
+              autoPanPadding={[48, 80]}
+              keepInView
             >
               <MapListingPreview
                 property={p}
                 mode={mode}
                 detailBase={detailBase}
+                card={card}
                 onClose={() => setActiveId(null)}
               />
             </Popup>
           </Marker>
-        ))}
+          )
+        })}
       </MapContainer>
 
       {withCoords.length === 0 && (
@@ -267,14 +250,16 @@ function GooglePropertyMap({
   withCoords,
   mode,
   detailBase,
+  cardsByPropertyId,
   className,
 }: {
   withCoords: PropertyAsset[]
   mode: string
   detailBase: string
+  cardsByPropertyId?: Record<string, UnitCardPayload>
   className?: string
 }) {
-  const { isLoaded, loadError } = useJsApiLoader(mapsLoaderConfig())
+  const { enabled, isLoaded, loadError } = useGoogleMaps()
   const [activeId, setActiveId] = useState<string | null>(null)
   const active = withCoords.find((p) => p.id === activeId) ?? null
 
@@ -297,12 +282,13 @@ function GooglePropertyMap({
     [withCoords],
   )
 
-  if (loadError) {
+  if (!enabled || loadError) {
     return (
       <LeafletPropertyMap
         withCoords={withCoords}
         mode={mode}
         detailBase={detailBase}
+        cardsByPropertyId={cardsByPropertyId}
         className={className}
       />
     )
@@ -324,6 +310,7 @@ function GooglePropertyMap({
         mapContainerClassName="h-full w-full rounded-xl"
         mapContainerStyle={{ height: '100%', width: '100%', minHeight: 280 }}
         onLoad={onLoad}
+        onClick={() => setActiveId(null)}
         options={{
           streetViewControl: false,
           mapTypeControl: false,
@@ -334,32 +321,45 @@ function GooglePropertyMap({
           gestureHandling: 'greedy',
         }}
       >
-        {withCoords.map((p) => (
+        {withCoords.map((p) => {
+          const card = resolveCardForProperty(p, cardsByPropertyId)
+          return (
           <MarkerF
             key={p.id}
             position={{ lat: p.lat, lng: p.lng }}
             title={p.title}
             label={{
-              text: pinLabel(p, mode),
+              text: formatMapPinLabel(p, mode, card),
               className: 'pf-gmap-price-label',
               fontSize: '11px',
               fontWeight: '600',
             }}
-            onClick={() => setActiveId(p.id)}
+            onClick={(e) => {
+              e.domEvent.stopPropagation()
+              setActiveId(p.id)
+            }}
           />
-        ))}
+          )
+        })}
         {active && (
           <InfoWindowF
             position={{ lat: active.lat, lng: active.lng }}
             onCloseClick={() => setActiveId(null)}
-            options={{ pixelOffset: new google.maps.Size(0, -36) }}
+            options={{
+              pixelOffset: new google.maps.Size(0, -36),
+              maxWidth: 340,
+              headerDisabled: true,
+            }}
           >
-            <MapListingPreview
-              property={active}
-              mode={mode}
-              detailBase={detailBase}
-              onClose={() => setActiveId(null)}
-            />
+            <div className="pf-gmap-info">
+              <MapListingPreview
+                property={active}
+                mode={mode}
+                detailBase={detailBase}
+                card={resolveCardForProperty(active, cardsByPropertyId)}
+                onClose={() => setActiveId(null)}
+              />
+            </div>
           </InfoWindowF>
         )}
       </GoogleMap>
@@ -420,12 +420,15 @@ export function PropertyMap({
   mode = 'all',
   className,
   detailBase = '/listing',
+  cardsByPropertyId,
 }: {
   properties: PropertyAsset[]
   mode?: string
   className?: string
   /** Path prefix for marker CTA — workspace uses `/workspace/properties` */
   detailBase?: string
+  /** Browse unit cards keyed by property id — aligns popup with grid cards */
+  cardsByPropertyId?: Record<string, UnitCardPayload>
 }) {
   const withCoords = useMemo(
     () => properties.filter((p) => hasMappedCoordinates(p)),
@@ -438,6 +441,7 @@ export function PropertyMap({
         withCoords={withCoords}
         mode={mode}
         detailBase={detailBase}
+        cardsByPropertyId={cardsByPropertyId}
         className={className}
       />
     )
@@ -448,6 +452,7 @@ export function PropertyMap({
       withCoords={withCoords}
       mode={mode}
       detailBase={detailBase}
+      cardsByPropertyId={cardsByPropertyId}
       className={className}
     />
   )

@@ -16,7 +16,8 @@ import { useWishlist } from '../../hooks/useWishlist'
 import { usePrefersReducedMotion } from '../../hooks/useScrollMotion'
 import { blockedPropertyIdsForApplicant } from '../../lib/blockedApplicants'
 import { resolveUnitForProperty } from '../../lib/applicationApi'
-import type { PropertyAsset } from '../../types/domain'
+import { findOwnApplicationForProperty } from '../../lib/applicantApplication'
+import type { Application, PropertyAsset } from '../../types/domain'
 
 const ICON_STROKE = 1.6
 
@@ -44,15 +45,21 @@ function listingStatusTone(p: PropertyAsset): 'brand' | 'info' | 'neutral' {
 function WishlistExpansion({
   property,
   canApply,
+  existingApplication,
   reducedMotion,
   onRemove,
 }: {
   property: PropertyAsset
   canApply: boolean
+  existingApplication: Application | null
   reducedMotion?: boolean
   onRemove: () => void
 }) {
   const listingHref = `/listing/${property.id}`
+  const applyHref = existingApplication
+    ? `/workspace/portals/tenant/applications/${encodeURIComponent(existingApplication.id)}`
+    : `${listingHref}?apply=1`
+  const applyLabel = existingApplication ? 'Continue application' : 'Apply'
   const shortDescription =
     property.description.trim().length > 180
       ? `${property.description.trim().slice(0, 177).trimEnd()}…`
@@ -108,10 +115,10 @@ function WishlistExpansion({
                 <ArrowRight className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
               </Button>
             </Link>
-            {canApply ? (
-              <Link to={listingHref} className="inline-flex">
+            {canApply || existingApplication ? (
+              <Link to={applyHref} className="inline-flex">
                 <Button variant="secondary" className="min-h-11 cursor-pointer rounded-2xl">
-                  Apply
+                  {applyLabel}
                 </Button>
               </Link>
             ) : null}
@@ -160,6 +167,11 @@ export function WishlistListView({
     if (unit && (unit.listingType === 'not_listed' || unit.statusKey === 'OCCUPIED')) return false
     return true
   }
+
+  const existingApplicationFor = (p: PropertyAsset) =>
+    isAuthenticated && user.id !== 'guest'
+      ? findOwnApplicationForProperty(state.applications, user, p.id)
+      : null
 
   return (
     <>
@@ -272,6 +284,7 @@ export function WishlistListView({
                               <WishlistExpansion
                                 property={p}
                                 canApply={canApplyFor(p)}
+                                existingApplication={existingApplicationFor(p)}
                                 reducedMotion={reducedMotion}
                                 onRemove={() => toggle(p.id)}
                               />
@@ -350,6 +363,7 @@ export function WishlistListView({
                     <WishlistExpansion
                       property={p}
                       canApply={canApplyFor(p)}
+                      existingApplication={existingApplicationFor(p)}
                       reducedMotion={reducedMotion}
                       onRemove={() => toggle(p.id)}
                     />

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { MessageCircle, Plus } from 'lucide-react'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
@@ -14,6 +15,7 @@ export default function Communications() {
   const { state, sendMessage, createThread } = useStore()
   const { user, role, agencyId } = useAuth()
   const { threadVisible, allowedPropertyIds, canMutate } = usePropertyScope()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [draft, setDraft] = useState('')
   const [newSubject, setNewSubject] = useState('')
   const [filter, setFilter] = useState<'all' | 'mine'>('all')
@@ -33,6 +35,18 @@ export default function Communications() {
   }, [state.threads, threadVisible, filter, propertyFilter, user.id])
 
   const [activeId, setActiveId] = useState('')
+  const threadFromUrl = searchParams.get('thread')
+
+  useEffect(() => {
+    if (!threadFromUrl) return
+    if (!threads.some((t) => t.id === threadFromUrl)) return
+    setActiveId(threadFromUrl)
+    setMobileShowThread(true)
+    const next = new URLSearchParams(searchParams)
+    next.delete('thread')
+    setSearchParams(next, { replace: true })
+  }, [threadFromUrl, threads, searchParams, setSearchParams])
+
   useEffect(() => {
     if (!activeId && threads[0]) setActiveId(threads[0].id)
     if (activeId && !threads.some((t) => t.id === activeId) && threads[0]) {
@@ -91,7 +105,7 @@ export default function Communications() {
                   propertyId: tenancy?.propertyId ?? null,
                   applicationId: tenancy?.applicationId ?? null,
                   subject: newSubject.trim(),
-                  participantIds: [user.id, agentId ?? 'u-amelia'].filter(Boolean) as string[],
+                  participantIds: [user.id, agentId ?? 'u-lerato'].filter(Boolean) as string[],
                   routesTo: agentId ? 'agent' : 'agency',
                   fromUserId: user.id,
                   initialMessage: newSubject.trim(),

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { Filter, Heart, List, Map as MapIcon } from 'lucide-react'
 import { usePublicProperties, useStore } from '../../context/AppStore'
@@ -20,10 +20,12 @@ import {
   type UnitCardPayload,
 } from '../../lib/api/unitsApi'
 import { blockedPropertyIdsForApplicant } from '../../lib/blockedApplicants'
-import { canonicalListingId } from '../../lib/listingIds'
+import { canonicalListingId, listingIdAliases, unitIdForProperty } from '../../lib/listingIds'
 import { useWishlist } from '../../hooks/useWishlist'
 import { usePageMeta } from '../../hooks/usePageMeta'
 import { FullScreenSheet } from '../../components/layout/mobile/FullScreenSheet'
+import { DataRefreshBanner } from '../../components/loading/DataRefreshBanner'
+import { PropertyLoader } from '../../components/loading/PropertyLoader'
 import { parseAreasParam, propertyMatchesAreas } from '../../lib/placeCatalog'
 
 function listingAmount(p: PropertyAsset, mode: string): number | null {
@@ -145,7 +147,23 @@ function cardMatchesBrowseMode(
 
 export default function BrowsePage() {
   const publicProperties = usePublicProperties()
-  const { state } = useStore()
+  const { state, refreshMarketplaceListings } = useStore()
+  const marketplaceRetryAttempt = useRef(0)
+
+  useEffect(() => {
+    if (!state.publicMarketplaceFetchFailed) {
+      marketplaceRetryAttempt.current = 0
+      return
+    }
+    const delays = [2000, 5000, 15000]
+    const attempt = marketplaceRetryAttempt.current
+    const delay = delays[Math.min(attempt, delays.length - 1)]
+    marketplaceRetryAttempt.current = attempt + 1
+    const t = window.setTimeout(() => {
+      void refreshMarketplaceListings({ force: true })
+    }, delay)
+    return () => window.clearTimeout(t)
+  }, [state.publicMarketplaceFetchFailed, refreshMarketplaceListings])
   const { user, isAuthenticated } = useAuth()
   const location = useLocation()
   const savedOnly = location.pathname === '/saved' || location.pathname.endsWith('/saved')
@@ -167,7 +185,7 @@ export default function BrowsePage() {
   usePageMeta({
     title: browseTitle,
     description: savedOnly
-      ? 'Your saved property wishlist on Letkaya.'
+      ? 'Your saved property wishlist on Lekaya.'
       : 'Filter buy, rent, and commercial listings by area, price, beds, and amenities across South Africa.',
     path: savedOnly ? '/saved' : '/browse',
   })
@@ -268,11 +286,34 @@ export default function BrowsePage() {
         ? 'Sale price in ZAR'
         : 'Sale price or monthly rent in ZAR'
 
+  const resolveCardProperty = useCallback(
+    (c: UnitCardPayload) =>
+      state.properties.find((p) => p.id === c.property_id) ??
+      properties.find((p) => p.id === c.property_id || p.unitId === c.id),
+    [state.properties, properties],
+  )
+
   const mapProperties = useMemo(() => {
-    return cards
-      .map((c) => state.properties.find((p) => p.id === c.property_id) ?? properties.find((p) => p.id === c.property_id || p.unitId === c.id))
-      .filter(Boolean) as PropertyAsset[]
-  }, [cards, state.properties, properties])
+    return cards.map((c) => resolveCardProperty(c)).filter(Boolean) as PropertyAsset[]
+  }, [cards, resolveCardProperty])
+
+  const cardsByPropertyId = useMemo(() => {
+    const map: Record<string, UnitCardPayload> = {}
+    for (const c of cards) {
+      const p = resolveCardProperty(c)
+      if (!p) continue
+      const keys = new Set<string>([
+        ...listingIdAliases(p.id),
+        ...listingIdAliases(c.property_id),
+        ...listingIdAliases(c.id),
+        unitIdForProperty(p.id),
+      ])
+      for (const key of keys) {
+        if (key) map[key] = c
+      }
+    }
+    return map
+  }, [cards, resolveCardProperty])
 
   const wishlistProperties = useMemo(() => {
     if (!savedOnly) return [] as PropertyAsset[]
@@ -288,6 +329,9 @@ export default function BrowsePage() {
   const toggleWishlistExpand = (property: PropertyAsset) => {
     setExpandedWishlistId((id) => (id === property.id ? null : property.id))
   }
+
+  const showFullMarketplaceLoader =
+    state.marketplaceRefreshing && cards.length === 0 && !state.publicMarketplaceFetchFailed
 
   return (
     <div className="min-h-[70vh] bg-primary-50/60">
@@ -392,7 +436,15 @@ export default function BrowsePage() {
 
       <div className={`mx-auto grid max-w-7xl gap-0 lg:px-8 ${showMap ? 'lg:grid-cols-[1fr_380px]' : ''}`}>
         <div className={`p-4 sm:p-6 ${mobileView === 'map' ? 'hidden lg:block' : ''}`}>
-          {cards.length === 0 ? (
+          <DataRefreshBanner
+            active={state.marketplaceRefreshing && cards.length > 0}
+            label="Updating listings…"
+          />
+          {showFullMarketplaceLoader ? (
+            <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 py-16">
+              <PropertyLoader size="lg" label="Loading listings…" />
+            </div>
+          ) : cards.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-primary-100 bg-white p-10 text-center">
               <Filter className="mx-auto h-8 w-8 text-ink-400" />
               <p className="mt-3 font-semibold">
@@ -403,16 +455,29 @@ export default function BrowsePage() {
                   ? 'We could not load the public marketplace. Refresh the page in a moment, or try again later.'
                   : 'Agencies haven’t published homes here yet — check back soon, or clear filters if you’re searching.'}
               </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setFilters(defaultBrowseFilters())
-                  setCursor(null)
-                }}
-                className="mt-4 min-h-11 cursor-pointer text-sm font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              >
-                Clear all filters
-              </button>
+              {state.publicMarketplaceFetchFailed ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    marketplaceRetryAttempt.current = 0
+                    void refreshMarketplaceListings({ force: true })
+                  }}
+                  className="mt-4 min-h-11 cursor-pointer rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white hover:bg-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  Retry loading listings
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilters(defaultBrowseFilters())
+                    setCursor(null)
+                  }}
+                  className="mt-4 min-h-11 cursor-pointer text-sm font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  Clear all filters
+                </button>
+              )}
             </div>
           ) : savedOnly ? (
             <WishlistListView
@@ -470,7 +535,12 @@ export default function BrowsePage() {
                 </div>
               </div>
               <div className="min-h-0 flex-1 p-2">
-                <PropertyMap properties={mapProperties.length ? mapProperties : filtered} mode={mode} className="h-full" />
+                <PropertyMap
+                  properties={mapProperties.length ? mapProperties : filtered}
+                  mode={mode}
+                  className="h-full"
+                  cardsByPropertyId={cardsByPropertyId}
+                />
               </div>
             </div>
           </aside>
@@ -487,7 +557,12 @@ export default function BrowsePage() {
             {mapProperties.length} {mapProperties.length === 1 ? 'listing' : 'listings'} on map
           </p>
           <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-primary-100">
-            <PropertyMap properties={mapProperties.length ? mapProperties : filtered} mode={mode} className="h-full" />
+            <PropertyMap
+              properties={mapProperties.length ? mapProperties : filtered}
+              mode={mode}
+              className="h-full"
+              cardsByPropertyId={cardsByPropertyId}
+            />
           </div>
         </div>
       </FullScreenSheet>

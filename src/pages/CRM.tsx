@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, Fragment } from 'react'
+import { useEffect, useMemo, useRef, useState, Fragment } from 'react'
+import { acquireSubmitLock, releaseSubmitLock } from '../lib/wizardSubmitGuard'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ArrowRight,
@@ -35,9 +36,12 @@ import {
   type ClosedLeadStage,
 } from '../lib/leadLifecycle'
 import { CloseLeadModal } from '../components/lead-detail/CloseLeadModal'
+import { CrmLeadContactBar } from '../components/lead-detail/CrmLeadContactBar'
+import { CrmLeadViewingBar } from '../components/lead-detail/CrmLeadViewingBar'
 import { LeadCsvImportPanel } from '../components/syndication/LeadCsvImportPanel'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
-import type { Lead } from '../types/domain'
+import { leadContactLine } from '../lib/displayIds'
+import type { Lead, PropertyAsset } from '../types/domain'
 import { useLookupOptions } from '../hooks/useLookupOptions'
 
 const ICON_STROKE = 1.6
@@ -114,6 +118,8 @@ export default function CRM() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [closeTarget, setCloseTarget] = useState<PortfolioLead | null>(null)
   const hideAgentColumn = useHideAgentColumn()
+  const walkInLockRef = useRef(false)
+  const [walkInBusy, setWalkInBusy] = useState(false)
 
   const canManageLeads = has('leads.manage')
   const mayCloseLead = (lead: Lead) =>
@@ -182,6 +188,13 @@ export default function CRM() {
         }
       })
   }, [state.leads, state.properties, state.users, dealVisible])
+
+  const propertyById = useMemo(
+    () => new Map(state.properties.map((p) => [p.id, p])),
+    [state.properties],
+  )
+  const propertyForLead = (lead: Lead): PropertyAsset | null =>
+    propertyById.get(lead.propertyId) ?? null
 
   const channels = useMemo(() => {
     const set = new Set(portfolio.map((p) => p.lead.channel))
@@ -253,20 +266,27 @@ export default function CRM() {
   }
 
   const createWalkIn = () => {
-    const prop = state.properties.find((p) => allowedPropertyIds.has(p.id))
-    if (!prop || !agencyId || !canMutate(prop.id)) return
-    const lead = createLead({
-      agencyId,
-      propertyId: prop.id,
-      agentId: prop.agentId ?? user.id,
-      name: 'New walk-in lead',
-      email: 'lead@email.com',
-      phone: '+27 80 000 0000',
-      channel: 'Walk-in',
-      type: prop.listingMode === 'sale' ? 'Buy' : 'Rent',
-      value: prop.price ?? prop.rent ?? 0,
-    })
-    openLead(lead.id)
+    if (!acquireSubmitLock(walkInLockRef)) return
+    setWalkInBusy(true)
+    try {
+      const prop = state.properties.find((p) => allowedPropertyIds.has(p.id))
+      if (!prop || !agencyId || !canMutate(prop.id)) return
+      const lead = createLead({
+        agencyId,
+        propertyId: prop.id,
+        agentId: prop.agentId ?? user.id,
+        name: 'New walk-in lead',
+        email: 'lead@email.com',
+        phone: '+27 80 000 0000',
+        channel: 'Walk-in',
+        type: prop.listingMode === 'sale' ? 'Buy' : 'Rent',
+        value: prop.price ?? prop.rent ?? 0,
+      })
+      openLead(lead.id)
+    } finally {
+      setWalkInBusy(false)
+      releaseSubmitLock(walkInLockRef)
+    }
   }
 
   const advanceBoard = (item: PortfolioLead) => {
@@ -319,7 +339,7 @@ export default function CRM() {
           subtitle="Early enquiries before they become applicants — filter, sort, or use the board."
           actions={
             has('leads.manage') ? (
-              <Button className="min-h-11" onClick={createWalkIn}>
+              <Button className="min-h-11" disabled={walkInBusy} onClick={createWalkIn}>
                 <Plus className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
                 New lead
               </Button>
@@ -503,7 +523,7 @@ export default function CRM() {
             hint="Create a walk-in lead or capture one from a listing enquiry."
             action={
               has('leads.manage') ? (
-                <Button className="min-h-11" onClick={createWalkIn}>
+                <Button className="min-h-11" disabled={walkInBusy} onClick={createWalkIn}>
                   <Plus className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
                   New lead
                 </Button>
@@ -546,6 +566,7 @@ export default function CRM() {
             hideAgentColumn={hideAgentColumn}
             timeField={leadTab === 'history' ? 'updatedAt' : 'createdAt'}
             timeLabel={leadTab === 'history' ? 'Closed' : 'Received'}
+            propertyForLead={propertyForLead}
           />
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -553,6 +574,7 @@ export default function CRM() {
               <LeadCard
                 key={item.lead.id}
                 item={item}
+                property={propertyForLead(item.lead)}
                 onOpen={() => openLead(item.lead.id)}
                 mayClose={mayCloseLead(item.lead)}
                 onClose={() => setCloseTarget(item)}
@@ -711,6 +733,7 @@ function LeadList({
   hideAgentColumn,
   timeField,
   timeLabel,
+  propertyForLead,
 }: {
   items: PortfolioLead[]
   expandedId: string | null
@@ -721,6 +744,7 @@ function LeadList({
   hideAgentColumn?: boolean
   timeField: 'createdAt' | 'updatedAt'
   timeLabel: string
+  propertyForLead: (lead: Lead) => PropertyAsset | null
 }) {
   const colSpan = hideAgentColumn ? 6 : 7
   return (
@@ -851,6 +875,7 @@ function LeadList({
                         <td colSpan={colSpan} className="px-4 py-4 sm:px-5">
                           <LeadExpansion
                             item={item}
+                            property={propertyForLead(item.lead)}
                             reducedMotion={reducedMotion}
                             mayClose={mayClose(item.lead)}
                             onClose={() => onClose(item)}
@@ -910,6 +935,7 @@ function LeadList({
                 <div className="border-t border-primary-100/80 px-4 py-4">
                   <LeadExpansion
                     item={item}
+                    property={propertyForLead(item.lead)}
                     reducedMotion={reducedMotion}
                     mayClose={mayClose(item.lead)}
                     onClose={() => onClose(item)}
@@ -926,11 +952,13 @@ function LeadList({
 
 function LeadExpansion({
   item,
+  property,
   reducedMotion,
   mayClose,
   onClose,
 }: {
   item: PortfolioLead
+  property: PropertyAsset | null
   reducedMotion?: boolean
   mayClose?: boolean
   onClose?: () => void
@@ -963,7 +991,7 @@ function LeadExpansion({
           <PersonAvatar name={l.name} />
           <div className="min-w-0">
             <p className="font-display text-2xl font-semibold tracking-tight text-ink">{l.name}</p>
-            <p className="truncate text-sm text-ink-500">{l.id}</p>
+            <p className="truncate text-sm text-ink-500">{leadContactLine(l)}</p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -985,6 +1013,8 @@ function LeadExpansion({
           ))}
         </dl>
         <ActionButtonRow className={cn('mt-4 border-t border-primary-100/80 pt-4', reducedMotion && 'transition-none')}>
+          <CrmLeadContactBar lead={l} property={property} compact />
+          <CrmLeadViewingBar lead={l} property={property} compact />
           <Link to={detailTo} className="inline-flex">
             <Button className="min-h-11 cursor-pointer gap-2 rounded-2xl">
               Open lead
@@ -1009,6 +1039,7 @@ function LeadExpansion({
 
 function LeadCard({
   item,
+  property,
   onOpen,
   mayClose,
   onClose,
@@ -1017,6 +1048,7 @@ function LeadCard({
   timeField,
 }: {
   item: PortfolioLead
+  property: PropertyAsset | null
   onOpen: () => void
   mayClose?: boolean
   onClose?: () => void
@@ -1083,6 +1115,10 @@ function LeadCard({
         </div>
       </div>
       </button>
+      <div className="flex flex-wrap items-center gap-2 border-t border-primary-50 px-4 py-3">
+        <CrmLeadContactBar lead={l} property={property} compact />
+        <CrmLeadViewingBar lead={l} property={property} compact />
+      </div>
     </div>
   )
 }

@@ -42,6 +42,20 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   }, [authReady, isAuthenticated, loginInFlight])
 
   if (!authReady) {
+    const hasPendingSession = Boolean(readAuthToken()) || Boolean(readStoredAuthUserId())
+    if (hasPendingSession) {
+      return (
+        <div className="relative min-h-screen">
+          {children}
+          <div
+            className="pointer-events-none absolute inset-0 z-[100] flex items-center justify-center bg-white/75"
+            aria-live="polite"
+          >
+            <p className="text-sm font-medium text-ink-500">Verifying session…</p>
+          </div>
+        </div>
+      )
+    }
     return (
       <div className="flex min-h-screen items-center justify-center bg-white text-sm text-ink-500">
         Checking session…

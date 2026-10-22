@@ -11,10 +11,11 @@ export type PageMetaInput = {
   preloadImage?: string
 }
 
-const SITE_NAME = 'Letkaya'
+const SITE_NAME = 'Lekaya Rentals'
 const DEFAULT_TITLE = `${SITE_NAME} — Property Management & Sales`
 const DEFAULT_DESCRIPTION =
-  'Browse, buy, and rent properties across South Africa. Search listings, book viewings, and apply online with Letkaya.'
+  'Browse, buy, and rent properties across South Africa. Search listings, book viewings, and apply online with Lekaya Rentals.'
+const DEFAULT_OG_IMAGE = '/og-image.png?v=2'
 
 function upsertMeta(attr: 'name' | 'property', key: string, content: string) {
   let el = document.querySelector(`meta[${attr}="${key}"]`) as HTMLMetaElement | null
@@ -59,11 +60,26 @@ function absoluteUrl(path: string): string {
   return `${origin}${path.startsWith('/') ? path : `/${path}`}`
 }
 
+function applyDefaultMeta() {
+  document.title = DEFAULT_TITLE
+  upsertMeta('name', 'description', DEFAULT_DESCRIPTION)
+  upsertMeta('property', 'og:title', DEFAULT_TITLE)
+  upsertMeta('property', 'og:description', DEFAULT_DESCRIPTION)
+  upsertMeta('property', 'og:site_name', SITE_NAME)
+  upsertMeta('property', 'og:type', 'website')
+  const defaultOg = absoluteUrl(DEFAULT_OG_IMAGE)
+  upsertMeta('property', 'og:image', defaultOg)
+  upsertMeta('name', 'twitter:card', 'summary_large_image')
+  upsertMeta('name', 'twitter:title', DEFAULT_TITLE)
+  upsertMeta('name', 'twitter:description', DEFAULT_DESCRIPTION)
+  upsertMeta('name', 'twitter:image', defaultOg)
+}
+
 export function usePageMeta(input: PageMetaInput = {}) {
   const title = input.title ? `${input.title} | ${SITE_NAME}` : DEFAULT_TITLE
   const description = input.description ?? DEFAULT_DESCRIPTION
   const canonical = input.path ? absoluteUrl(input.path) : undefined
-  const ogImage = input.image ? absoluteUrl(input.image) : undefined
+  const ogImage = absoluteUrl(input.image ?? DEFAULT_OG_IMAGE)
 
   useEffect(() => {
     document.title = title
@@ -72,17 +88,15 @@ export function usePageMeta(input: PageMetaInput = {}) {
     upsertMeta('property', 'og:description', description)
     upsertMeta('property', 'og:site_name', SITE_NAME)
     upsertMeta('property', 'og:type', 'website')
-    upsertMeta('name', 'twitter:card', ogImage ? 'summary_large_image' : 'summary')
+    upsertMeta('name', 'twitter:card', 'summary_large_image')
     upsertMeta('name', 'twitter:title', title)
     upsertMeta('name', 'twitter:description', description)
+    upsertMeta('property', 'og:image', ogImage)
+    upsertMeta('name', 'twitter:image', ogImage)
 
     if (canonical) {
       upsertLink('canonical', canonical)
       upsertMeta('property', 'og:url', canonical)
-    }
-    if (ogImage) {
-      upsertMeta('property', 'og:image', ogImage)
-      upsertMeta('name', 'twitter:image', ogImage)
     }
     if (input.preloadImage) {
       upsertPreloadImage(absoluteUrl(input.preloadImage))
@@ -91,8 +105,7 @@ export function usePageMeta(input: PageMetaInput = {}) {
     }
 
     return () => {
-      document.title = DEFAULT_TITLE
-      upsertMeta('name', 'description', DEFAULT_DESCRIPTION)
+      applyDefaultMeta()
       removePreloadImage()
     }
   }, [title, description, canonical, ogImage, input.preloadImage])

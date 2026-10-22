@@ -69,7 +69,7 @@ export default function PaymentDetail() {
     setPayOnlineBusy(true)
     setPayOnlineError(null)
     const result = await startPayfastCheckout(payment.id, {
-      itemName: `Letkaya · ${payment.type}`,
+      itemName: `Lekaya · ${payment.type}`,
       payer: { firstName: user.name.split(' ')[0], lastName: user.name.split(' ').slice(1).join(' ') },
     })
     if (result.ok) {

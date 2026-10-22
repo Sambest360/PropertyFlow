@@ -1,7 +1,9 @@
 import { useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ArrowDown, ArrowRight } from 'lucide-react'
-import { usePublicProperties } from '../../context/AppStore'
+import { usePublicProperties, useStore } from '../../context/AppStore'
+import { DataRefreshBanner } from '../../components/loading/DataRefreshBanner'
+import { PropertyLoader } from '../../components/loading/PropertyLoader'
 import { orderFeaturedListings } from '../../lib/marketplaceListings'
 import { PropertyCard } from '../../components/PropertyCard'
 import { AreaSearch } from '../../components/AreaSearch'
@@ -141,6 +143,7 @@ export default function MarketHome() {
     path: '/',
     preloadImage: HERO_LCP,
   })
+  const { state } = useStore()
   const properties = usePublicProperties()
   const [areas, setAreas] = useState<Place[]>([])
   const [mode, setMode] = useState<'buy' | 'rent'>('buy')
@@ -295,7 +298,7 @@ export default function MarketHome() {
       <section id="home-story" className="relative z-10 -mt-1 overflow-x-clip bg-white">
         <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 sm:py-20 lg:px-8 lg:py-24">
           <Reveal>
-            <p className="text-sm font-semibold uppercase tracking-wide text-primary">Why Letkaya</p>
+            <p className="text-sm font-semibold uppercase tracking-wide text-primary">Why Lekaya Rentals</p>
             <h2 className="mt-2 max-w-xl font-display text-2xl font-semibold text-ink sm:text-3xl">
               Search like a marketplace. Close like an agency.
             </h2>
@@ -325,6 +328,15 @@ export default function MarketHome() {
             </Link>
           </Reveal>
 
+          <DataRefreshBanner
+            active={state.marketplaceRefreshing && featured.length > 0}
+            label="Updating listings…"
+          />
+          {state.marketplaceRefreshing && featured.length === 0 ? (
+            <div className="flex justify-center py-12">
+              <PropertyLoader size="lg" label="Loading featured homes…" />
+            </div>
+          ) : (
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {featured.slice(0, 8).map((p, i) => (
               <Reveal key={p.id} delayMs={Math.min(i, 5) * 70}>
@@ -332,6 +344,7 @@ export default function MarketHome() {
               </Reveal>
             ))}
           </div>
+          )}
 
           <Reveal className="mt-10 text-center sm:hidden">
             <Link

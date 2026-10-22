@@ -1,5 +1,5 @@
 /**
- * Shared API UX contracts for Letkaya Asset OS.
+ * Shared API UX contracts for Lekaya Asset OS.
  * Every list/detail payload should be card-ready: actions, display_metadata, nested context.
  */
 

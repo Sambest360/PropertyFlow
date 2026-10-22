@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { MapPin, User } from 'lucide-react'
 import type { PaymentRecord, PropertyAsset } from '../../types/domain'
 import { formatZAR } from '../../data/seed'
+import { hideBackendUuid } from '../../lib/displayIds'
 import { DetailSection, DetailStack, FlatField, FlatFieldGrid } from '../detail/FlatFields'
 import { paymentAmountLabel } from '../payments/types'
 import { ICON_STROKE } from './types'
@@ -59,7 +60,7 @@ export function PaymentOverviewPanel({
         subtitle="Payment and billing details for this payment."
       >
         <FlatFieldGrid className="lg:grid-cols-2">
-          <FlatField label="Payment ID" value={payment.id} />
+          <FlatField label="Payment ID" value={hideBackendUuid(payment.id)} />
           <FlatField label="Type" value={payment.type} />
           <FlatField label="Status" value={payment.status} />
           <FlatField label="Billed amount" value={formatZAR(payment.amount)} tabular />

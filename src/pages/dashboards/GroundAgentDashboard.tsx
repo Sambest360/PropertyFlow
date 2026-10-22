@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { CalendarDays, ClipboardList, FileCheck2, Wrench } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
 import { useAuth, usePropertyScope } from '../../context/AuthContext'
@@ -38,6 +38,11 @@ import {
   mergeCalendarEvents,
   type CalendarEvent,
 } from '../../lib/calendarEvents'
+import {
+  countDayCalendarEvents,
+  formatQuickLinksDayLabel,
+  isoDateKey,
+} from '../../lib/dashboardDayLinks'
 
 type AgentTab = 'overview' | 'viewings' | 'tickets'
 type AgentFilter = 'all' | 'attention' | 'scheduled' | 'high'
@@ -272,6 +277,61 @@ export function GroundAgentDashboard() {
     () => calendarEvents.filter((e) => e.date === dayKey),
     [calendarEvents, dayKey],
   )
+
+  const quickLinks = useMemo(() => {
+    const items: Array<{
+      to: string
+      label: string
+      icon: ReactNode
+      tone?: 'accent'
+    }> = []
+    const dayViewingCount = countDayCalendarEvents(dayEvents, ['viewing', 'viewing_slot'])
+    const dayTickets = openTickets.filter((t) => isoDateKey(t.openedAt) === dayKey)
+    const dayApps = apps.filter((a) => isoDateKey(a.updatedAt) === dayKey)
+
+    if (isCandidate) {
+      items.push(
+        {
+          to: `/workspace/sales/viewings?date=${dayKey}`,
+          label: `${dayViewingCount} assigned`,
+          icon: <CalendarDays className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
+        },
+        {
+          to: '/workspace/operations/maintenance',
+          label: `${dayTickets.length} to check`,
+          icon: <Wrench className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
+          tone: 'accent',
+        },
+        {
+          to: '/workspace/sales/applications',
+          label: `${dayApps.length} apps`,
+          icon: <FileCheck2 className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
+        },
+      )
+    } else {
+      items.push(
+        {
+          to: `/workspace/sales/viewings?date=${dayKey}`,
+          label: `${dayViewingCount} viewings`,
+          icon: <CalendarDays className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
+        },
+        {
+          to: '/workspace/operations/maintenance',
+          label: `${dayTickets.length} maintenance`,
+          icon: <Wrench className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
+          tone: 'accent',
+        },
+        {
+          to: '/workspace/sales/applications',
+          label: `${dayApps.length} apps`,
+          icon: <FileCheck2 className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
+        },
+      )
+    }
+    return items
+  }, [dayKey, dayEvents, openTickets, apps, isCandidate])
+
+  const quickLinksDayLabel = formatQuickLinksDayLabel(selectedDay)
 
   const { eventIndex, cycleDayEvent } = useEventCycle(
     dayKey,
@@ -520,51 +580,12 @@ export function GroundAgentDashboard() {
               className="flex flex-col overflow-hidden"
             />
 
-            {(scheduled.length > 0 || openTickets.length > 0 || apps.length > 0) && (
-              <div className="rounded-[1.25rem] border border-primary-100 bg-white p-5 shadow-[0_12px_32px_-24px_rgba(15,39,68,0.3)]">
-                <QuickLinkChips
-                  items={
-                    isCandidate
-                      ? [
-                          {
-                            to: '/workspace/sales/viewings',
-                            label: `${scheduled.length} assigned`,
-                            icon: <CalendarDays className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
-                          },
-                          {
-                            to: '/workspace/operations/maintenance',
-                            label: `${openTickets.length} to check`,
-                            icon: <Wrench className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
-                            tone: 'accent',
-                          },
-                          {
-                            to: '/workspace/sales/applications',
-                            label: `${apps.length} apps`,
-                            icon: <FileCheck2 className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
-                          },
-                        ]
-                      : [
-                          {
-                            to: '/workspace/sales/viewings',
-                            label: `${scheduled.length} viewings`,
-                            icon: <CalendarDays className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
-                          },
-                          {
-                            to: '/workspace/operations/maintenance',
-                            label: `${openTickets.length} maintenance`,
-                            icon: <Wrench className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
-                            tone: 'accent',
-                          },
-                          {
-                            to: '/workspace/sales/applications',
-                            label: `${apps.length} apps`,
-                            icon: <FileCheck2 className="h-4 w-4" strokeWidth={1.6} aria-hidden />,
-                          },
-                        ]
-                  }
-                />
-              </div>
-            )}
+            <div className="rounded-[1.25rem] border border-primary-100 bg-white p-5 shadow-[0_12px_32px_-24px_rgba(15,39,68,0.3)]">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-400">
+                Quick links · {quickLinksDayLabel}
+              </p>
+              <QuickLinkChips items={quickLinks} />
+            </div>
 
             {focusViewing && (
               <div className="rounded-[1.25rem] border border-primary-100 bg-white p-5 shadow-[0_12px_32px_-24px_rgba(15,39,68,0.3)]">

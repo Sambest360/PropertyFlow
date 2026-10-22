@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import { acquireSubmitLock, releaseSubmitLock } from '../../lib/wizardSubmitGuard'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { Plus } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
@@ -26,6 +27,7 @@ export default function MaintenanceCreatePage() {
   const alert = useSuiteAlert()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const submitLockRef = useRef(false)
 
   const returnTo = readReturnTo(searchParams) ?? '/workspace/operations/maintenance'
   const initialPropertyId = searchParams.get('property') ?? undefined
@@ -46,7 +48,9 @@ export default function MaintenanceCreatePage() {
   }
 
   const handleSubmit = async (input: CreateTicketInput) => {
+    if (!acquireSubmitLock(submitLockRef)) return
     setBusy(true)
+    try {
     const result = await createMaintenanceFromInput(input, {
       properties,
       internalAssets: state.internalAssets,
@@ -57,8 +61,6 @@ export default function MaintenanceCreatePage() {
       actorUserId: user.id,
       actorRole: user.role,
     })
-    setBusy(false)
-
     if (result.ok === false) {
       setError(result.error)
       return
@@ -73,6 +75,10 @@ export default function MaintenanceCreatePage() {
         ? `/workspace/operations/maintenance/${encodeURIComponent(result.ticketId)}`
         : returnTo,
     )
+    } finally {
+      setBusy(false)
+      releaseSubmitLock(submitLockRef)
+    }
   }
 
   return (

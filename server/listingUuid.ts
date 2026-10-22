@@ -3,8 +3,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { canonicalListingId, listingIdAliases, unitIdForProperty } from '../src/lib/listingIds.js'
-import { query } from './db.js'
-import { ensureEntityMapTable, isUuid, resolveUuid } from './entityMap.js'
+import { ensureEntityMapTable, isUuid, resolveUuid, upsertEntityMapFrontendId } from './entityMap.js'
 
 /** Resolve an existing unit row UUID from any property/unit frontend id or alias. */
 export async function resolveListingUnitUuid(feId: string): Promise<string | null> {
@@ -30,16 +29,12 @@ export async function ensureListingUnitUuid(
   const unitFe = unitIdForProperty(canon)
 
   await ensureEntityMapTable()
+  let winner = uuid
   for (const row of [
-    { et: 'property', fe: canon },
-    { et: 'unit', fe: unitFe },
+    { et: 'property' as const, fe: canon },
+    { et: 'unit' as const, fe: unitFe },
   ]) {
-    await query(
-      `INSERT INTO entity_id_map (entity_type, frontend_id, backend_id)
-       VALUES ($1, $2, $3::uuid)
-       ON CONFLICT (entity_type, frontend_id) DO UPDATE SET backend_id = EXCLUDED.backend_id`,
-      [row.et, row.fe, uuid],
-    )
+    winner = await upsertEntityMapFrontendId(row.et, row.fe, winner)
   }
-  return uuid
+  return winner
 }

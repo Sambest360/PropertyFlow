@@ -313,7 +313,7 @@
   }
 }
 
-/* Leaflet map — Letkaya soft canvas + branded price pins */
+/* Leaflet map — Lekaya soft canvas + branded price pins */
 .pf-leaflet-map.leaflet-container {
   font: inherit;
   background: #f0f4fb;
@@ -393,7 +393,7 @@
 }
 
 .pf-map-card {
-  box-shadow: 0 18px 40px -18px rgba(15, 39, 68, 0.45);
+  box-shadow: 0 12px 28px -14px rgba(15, 39, 68, 0.4);
 }
 
 /* Leaflet forces blue link styles — keep our CTA readable */
@@ -402,12 +402,12 @@
 }
 
 .pf-map-popup a.pf-map-cta {
-  color: #ffffff !important;
+  color: #0b63c8 !important;
   text-decoration: none !important;
 }
 
 .pf-map-popup a.pf-map-cta:hover {
-  color: #ffffff !important;
+  color: #163a5c !important;
 }
 
 .pf-leaflet-map .leaflet-control-zoom {
@@ -448,6 +448,38 @@
   padding: 4px 8px !important;
   font-family: inherit !important;
   box-shadow: 0 8px 18px -10px rgba(15, 39, 68, 0.55);
+}
+
+/* Google Maps InfoWindow — match Leaflet pf-map-popup chrome */
+.pf-gmap-info {
+  font-family: inherit;
+  line-height: inherit;
+  overflow: visible;
+}
+
+.gm-style .gm-style-iw-c:has(.pf-gmap-info) {
+  padding: 0 !important;
+  border-radius: 16px !important;
+  overflow: hidden !important;
+  box-shadow: none !important;
+}
+
+.gm-style .gm-style-iw-d:has(.pf-gmap-info) {
+  overflow: visible !important;
+  max-height: none !important;
+}
+
+.gm-style .gm-style-iw-tc:has(+ .gm-style-iw-c .pf-gmap-info) {
+  filter: drop-shadow(0 4px 12px -6px rgba(15, 39, 68, 0.35));
+}
+
+.pf-gmap-info a.pf-map-cta {
+  color: #0b63c8 !important;
+  text-decoration: none !important;
+}
+
+.pf-gmap-info a.pf-map-cta:hover {
+  color: #163a5c !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -520,7 +552,7 @@
   }
 }
 
-/* SweetAlert2 — Letkaya theme */
+/* SweetAlert2 — Lekaya theme */
 .pf-swal-popup {
   font-family: var(--font-sans);
   border-radius: 1.25rem !important;

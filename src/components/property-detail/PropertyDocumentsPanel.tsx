@@ -12,7 +12,21 @@ import {
   resolveDocumentUrl,
 } from '../../lib/api/documents'
 import { useAuth } from '../../context/AuthContext'
+import {
+  downloadApplicationDocumentFile,
+  openApplicationDocumentFile,
+} from '../../lib/applicationDocumentFile'
+import { showAuthWarning } from '../../lib/sweetAlert'
 import { ICON_STROKE } from './types'
+
+function applicantPackFile(
+  applications: Application[],
+  row: AcceptedDocRow,
+): ApplicationDocument['file'] | undefined {
+  const docKey = row.key.includes(':') ? row.key.split(':')[1] : row.key
+  const app = applications.find((a) => a.id === row.applicationId)
+  return app?.documents.find((d) => d.key === docKey)?.file
+}
 
 const ACCEPTED_STAGES: string[] = [
   'Approved',
@@ -177,7 +191,26 @@ export function PropertyDocumentsPanel({
                     </td>
                     <td className="px-3 py-3 tabular text-ink-500">{d.uploadedAt ?? '—'}</td>
                     <td className="px-3 py-3">
-                      {href ? (
+                      {!href ? (
+                        <span className="text-xs text-ink-400">—</span>
+                      ) : /^data:/i.test(href) ? (
+                        <button
+                          type="button"
+                          className="inline-flex min-h-11 cursor-pointer items-center text-sm font-semibold text-primary underline-offset-2 hover:underline"
+                          onClick={() => {
+                            if (
+                              !openApplicationDocumentFile({
+                                name: d.name,
+                                dataUrl: href,
+                              })
+                            ) {
+                              void showAuthWarning('Could not open this file.')
+                            }
+                          }}
+                        >
+                          Open
+                        </button>
+                      ) : (
                         <a
                           href={href}
                           target="_blank"
@@ -186,8 +219,6 @@ export function PropertyDocumentsPanel({
                         >
                           Open
                         </a>
-                      ) : (
-                        <span className="text-xs text-ink-400">—</span>
                       )}
                     </td>
                   </tr>
@@ -271,7 +302,22 @@ export function PropertyDocumentsPanel({
                       <Button
                         variant="secondary"
                         className="min-h-11"
-                        onClick={() => setViewRow(r)}
+                        onClick={() => {
+                          const file = applicantPackFile(applications, r)
+                          if (file?.dataUrl) {
+                            if (
+                              !openApplicationDocumentFile({
+                                name: file.name,
+                                mimeType: file.mimeType,
+                                dataUrl: file.dataUrl,
+                              })
+                            ) {
+                              void showAuthWarning('Could not open this file — try Download.')
+                            }
+                            return
+                          }
+                          setViewRow(r)
+                        }}
                       >
                         <Eye className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
                         View
@@ -279,19 +325,22 @@ export function PropertyDocumentsPanel({
                       <Button
                         variant="secondary"
                         className="min-h-11"
+                        disabled={!r.uploaded}
                         onClick={() => {
-                          const blob = new Blob(
-                            [
-                              `Document: ${r.label}\nApplicant: ${r.applicantName}\nEmail: ${r.email}\nStatus: ${r.status}\n`,
-                            ],
-                            { type: 'text/plain' },
-                          )
-                          const url = URL.createObjectURL(blob)
-                          const a = document.createElement('a')
-                          a.href = url
-                          a.download = `${r.applicantName.replace(/\s+/g, '_')}-${r.label.slice(0, 24)}.txt`
-                          a.click()
-                          URL.revokeObjectURL(url)
+                          const file = applicantPackFile(applications, r)
+                          if (file?.dataUrl) {
+                            if (
+                              !downloadApplicationDocumentFile({
+                                name: file.name,
+                                mimeType: file.mimeType,
+                                dataUrl: file.dataUrl,
+                              })
+                            ) {
+                              void showAuthWarning('Could not download this file.')
+                            }
+                            return
+                          }
+                          void showAuthWarning('No file on record for this checklist item yet.')
                         }}
                       >
                         <Download className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
@@ -346,10 +395,15 @@ export function PropertyDocumentsPanel({
               <span className="text-ink-400">Applicant stage: </span>
               <strong>{viewRow.stage}</strong>
             </p>
-            <p className="rounded-xl bg-primary-50 p-3 text-ink-600">
-              {viewRow.note ||
-                'Demo preview — linked file would render here for the accepted applicant pack.'}
-            </p>
+            {viewRow.note ? (
+              <p className="rounded-xl bg-primary-50 p-3 text-ink-600">{viewRow.note}</p>
+            ) : null}
+            {!applicantPackFile(applications, viewRow)?.dataUrl ? (
+              <p className="rounded-xl bg-primary-50 p-3 text-ink-600">
+                No file is stored for this item yet — the applicant may still need to upload it, or
+                the agency view may not include file bytes for this application.
+              </p>
+            ) : null}
           </div>
         )}
       </Modal>

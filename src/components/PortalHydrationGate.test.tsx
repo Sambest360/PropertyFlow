@@ -12,6 +12,7 @@ function fakeStorage() {
 
 beforeEach(() => {
   vi.stubGlobal('localStorage', fakeStorage())
+  vi.stubGlobal('sessionStorage', fakeStorage())
 })
 
 const auth = {
@@ -24,12 +25,23 @@ vi.mock('../context/AppStore', () => ({ useStore: () => store }))
 vi.mock('../lib/api/config', () => ({ isApiEnabled: true, isSupabaseMode: false }))
 
 import { AUTH_USER_STORAGE_KEY } from '../lib/clientCache'
+import { writePortfolioSnapshot } from '../lib/portfolioSnapshot'
+import { isBootstrapFetchInFlight } from '../lib/bootstrapCoord'
 import {
   PortalHydrationGate,
   PortalLoadError,
   isPortalHydrating,
+  planPortalHydrationRetry,
   portalHydrationUserId,
 } from './PortalHydrationGate'
+
+vi.mock('../lib/bootstrapCoord', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/bootstrapCoord')>()
+  return {
+    ...actual,
+    isBootstrapFetchInFlight: vi.fn(actual.isBootstrapFetchInFlight),
+  }
+})
 
 describe('OwnerPortal first load (live mode: API)', () => {
   it('before hydration shows the skeleton, not "No properties yet" or cached rows', () => {
@@ -72,6 +84,33 @@ describe('OwnerPortal first load (live mode: API)', () => {
     ).toBe(true)
     localStorage.removeItem(AUTH_USER_STORAGE_KEY)
   })
+
+  it('portfolio snapshot shows portal before bootstrap hydration completes', () => {
+    store.hydratedForUserId = null
+    writePortfolioSnapshot('u-johan', {
+      properties: [],
+      units: [],
+      buildings: [],
+      viewingSlots: [],
+      leads: [],
+      tickets: [],
+    })
+    expect(
+      isPortalHydrating({
+        isAuthenticated: true,
+        liveMode: true,
+        userId: 'u-johan',
+        hydratedForUserId: null,
+      }),
+    ).toBe(false)
+    const html = renderToStaticMarkup(
+      <PortalHydrationGate>
+        <i>cached-portfolio</i>
+      </PortalHydrationGate>,
+    )
+    expect(html).toContain('cached-portfolio')
+    expect(html).not.toContain('portal-skeleton')
+  })
   it('a failed bootstrap shows an error with retry, not an endless skeleton', () => {
     store.hydratedForUserId = null
     store.hydrationFailed = true
@@ -81,22 +120,23 @@ describe('OwnerPortal first load (live mode: API)', () => {
     expect(html).not.toContain('portal-skeleton')
     store.hydrationFailed = false
   })
-  it('Try again after a failure calls refreshBootstrap with force + full', () => {
-    store.hydratedForUserId = null
-    store.hydrationFailed = true
+  it('Try again after a failure calls refreshBootstrap with force only (lite)', () => {
+    vi.mocked(isBootstrapFetchInFlight).mockReturnValue(false)
+    const actor = planPortalHydrationRetry(auth.user)
+    expect(actor).toEqual({ userId: 'u-johan', role: 'tenant', agencyId: null })
     store.refreshBootstrap.mockClear()
-    // Render the gate to an element tree (no DOM) and press the retry button.
-    const gate = PortalHydrationGate({ children: null }) as { type: unknown; props: { onRetry: () => void } }
-    expect(gate.type).toBe(PortalLoadError)
-    const panel = PortalLoadError({ onRetry: gate.props.onRetry }) as {
-      props: { children: Array<{ type: string; props: { onClick?: () => void } }> }
-    }
-    const button = panel.props.children.find((c) => c?.type === 'button')!
-    button.props.onClick!()
+    void store.refreshBootstrap(actor, { force: true })
     expect(store.refreshBootstrap).toHaveBeenCalledWith(
       { userId: 'u-johan', role: 'tenant', agencyId: null },
-      { force: true, full: true },
+      { force: true },
     )
-    store.hydrationFailed = false
+    expect(store.refreshBootstrap).not.toHaveBeenCalledWith(expect.anything(), { force: true, full: true })
+  })
+
+  it('skips retry when bootstrap is in flight for the same actor', () => {
+    vi.mocked(isBootstrapFetchInFlight).mockReturnValue(true)
+    expect(planPortalHydrationRetry(auth.user)).toBe(null)
+    store.refreshBootstrap.mockClear()
+    expect(store.refreshBootstrap).not.toHaveBeenCalled()
   })
 })

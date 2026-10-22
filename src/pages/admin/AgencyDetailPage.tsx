@@ -18,7 +18,7 @@ import { AgencyCapabilityChecklist } from '../../components/admin/AgencyCapabili
 import { ImpersonateUserButton } from '../../components/admin/ImpersonateUserButton'
 import { Badge, Button, Card, Modal, PageHeader, Select, cn } from '../../components/ui'
 import { ResponsiveDataList } from '../../components/data/ResponsiveDataList'
-import { roleLabels } from '../../lib/permissions'
+import { AGENCY_HIERARCHY_ROLES_UI, roleLabels } from '../../lib/permissions'
 import { agencyStatusBadgeTone } from '../../lib/agencyStatus'
 import { sweetWarning } from '../../lib/sweetAlert'
 import { withReturnTo } from '../../lib/returnTo'
@@ -210,17 +210,15 @@ export default function AgencyDetailPage() {
             <Card className="p-5">
               <h2 className="font-semibold text-ink">Hierarchy snapshot</h2>
               <ul className="mt-3 space-y-2 text-sm">
-                {[
-                  ['Principal / Broker', users.filter((u) => u.role === 'client_admin').length],
-                  ['Agency Administrator', users.filter((u) => u.role === 'agent_admin').length],
-                  ['Full Agent', users.filter((u) => u.role === 'ground_agent').length],
-                  ['Candidate / Intern', users.filter((u) => u.role === 'agent').length],
-                ].map(([label, count]) => (
-                  <li key={String(label)} className="flex justify-between gap-2">
-                    <span className="text-ink-500">{label}</span>
-                    <span className="tabular font-semibold text-ink">{count}</span>
-                  </li>
-                ))}
+                {AGENCY_HIERARCHY_ROLES_UI.map((role) => {
+                  const count = users.filter((u) => u.role === role).length
+                  return (
+                    <li key={role} className="flex justify-between gap-2">
+                      <span className="text-ink-500">{roleLabels[role]}</span>
+                      <span className="tabular font-semibold text-ink">{count}</span>
+                    </li>
+                  )
+                })}
               </ul>
             </Card>
           </div>
@@ -323,7 +321,7 @@ export default function AgencyDetailPage() {
                 )}
                 empty={
                   <p className="px-4 py-8 text-center text-ink-400">
-                    No users yet — add a Principal, admin, or agent to get started.
+                    No users yet — add an agency administrator or full agent to get started.
                   </p>
                 }
               />

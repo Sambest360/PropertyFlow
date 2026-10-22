@@ -5,7 +5,7 @@ import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { BackButton } from '../components/BackButton'
 import { Badge, Button, Card, Input, PageHeader } from '../components/ui'
-import { canDeletePropertyRole, isPropertyDeleted } from '../lib/propertyDeletion'
+import { canDeleteStoredProperty, canOpenPropertyArchive, isPropertyDeleted } from '../lib/propertyDeletion'
 import { sweetConfirm, sweetSuccess, sweetWarning } from '../lib/sweetAlert'
 
 function formatDeletedAt(iso: string): string {
@@ -22,12 +22,12 @@ function formatDeletedAt(iso: string): string {
 
 export default function PropertyArchive() {
   const { state, restoreProperty } = useStore()
-  const { has, user } = useAuth()
+  const { user, agencyId } = useAuth()
   const { allowedPropertyIds } = usePropertyScope()
   const [q, setQ] = useState('')
   const [busyId, setBusyId] = useState<string | null>(null)
 
-  const canManageArchive = has('assets.manage') && canDeletePropertyRole(user.role)
+  const canManageArchive = canOpenPropertyArchive(user.role)
 
   const archived = useMemo(() => {
     const needle = q.trim().toLowerCase()
@@ -54,7 +54,7 @@ export default function PropertyArchive() {
     if (!ok) return
     setBusyId(id)
     try {
-      const result = restoreProperty(id)
+      const result = await restoreProperty(id)
       if (result.ok === false) {
         await sweetWarning('Could not restore', result.reason)
         return
@@ -123,7 +123,8 @@ export default function PropertyArchive() {
                       View record
                     </Button>
                   </Link>
-                  {canManageArchive ? (
+                  {canManageArchive &&
+                  canDeleteStoredProperty({ role: user.role, userId: user.id, agencyId }, p) ? (
                     <Button
                       className="min-h-10 cursor-pointer"
                       disabled={busyId === p.id}

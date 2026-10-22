@@ -1,4 +1,3 @@
-import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import {
@@ -64,6 +63,7 @@ import {
   sendListingEnquiryConfirmation,
   sendListingLeadAlert,
   sendApplicationApproved,
+  sendApplicationDeclined,
   sendApplicationReceived,
   sendDunningNoticeEmail,
   sendLeaseEndReminder,
@@ -76,6 +76,8 @@ import { docIdFromEnvelopeId } from './signiflow.js'
 import { registerSupabaseUserDirect } from './supabase/registerUser.js'
 import { runningCommitSha } from './appConfig.js'
 import { dbHostFingerprint, serverAuthMode } from './authMode.js'
+import { errStatus } from './errStatus.js'
+import { captureServerError } from './sentry.js'
 
 // Log resolved auth mode once at boot (mode only — never env values).
 serverAuthMode()
@@ -188,13 +190,17 @@ function errCode(err: unknown): { code?: string } {
   return {}
 }
 
-function errStatus(err: unknown): ContentfulStatusCode {
-  if (err && typeof err === 'object' && 'status' in err) {
-    const s = Number((err as { status: unknown }).status)
-    if (s >= 400 && s < 600) return s as ContentfulStatusCode
+app.onError((err, c) => {
+  captureServerError(err, { route: c.req.routePath, method: c.req.method, status: 500 })
+  return c.json({ error: 'internal_error', message: 'Internal Server Error' }, 500)
+})
+
+app.get('/api/debug-sentry', (c) => {
+  if (process.env.SENTRY_DEBUG_ROUTE !== '1') {
+    return c.json({ error: 'not_found' }, 404)
   }
-  return 500
-}
+  throw new Error('Sentry debug probe')
+})
 
 /** Verified actor (session first, see requestActor.ts) or a 401 error. */
 async function requireActor(
@@ -486,9 +492,14 @@ app.patch('/api/admin/users/:userId/verification', async (c) => {
     //    supabase JWT as a Bearer header — validate it with GoTrue, then load
     //    the local profile and require super admin.
     let reviewerFeId: string | null = null
+    let reviewerRole: string | null = null
+    let reviewerAgencyId: string | null = null
     const session = await resolveSessionUser(c)
-    if (session && session.role === 'super_admin') {
+    const staffRoles = new Set(['super_admin', 'client_admin', 'agent_admin'])
+    if (session && staffRoles.has(session.role)) {
       reviewerFeId = session.frontendId
+      reviewerRole = session.role
+      reviewerAgencyId = session.agencyId
     } else {
       const authHeader = c.req.header('authorization') ?? ''
       const token = authHeader.toLowerCase().startsWith('bearer ')
@@ -523,13 +534,38 @@ app.patch('/api/admin/users/:userId/verification', async (c) => {
       ])
       const profile = profRows[0]
       const feRole = String(profile?.metadata?.frontend_role ?? '')
-      if (!profile || (profile.role !== 'SUPER_ADMIN' && feRole !== 'super_admin')) {
-        return c.json({ error: 'forbidden', message: 'Super admin required' }, 403)
+      const dbRole = String(profile?.role ?? '')
+      const allowedBearer =
+        profile &&
+        (dbRole === 'SUPER_ADMIN' ||
+          feRole === 'super_admin' ||
+          dbRole === 'AGENCY_ADMIN' ||
+          feRole === 'client_admin' ||
+          dbRole === 'AGENT_ADMIN' ||
+          feRole === 'agent_admin')
+      if (!allowedBearer) {
+        return c.json({ error: 'forbidden', message: 'Staff access required' }, 403)
       }
       reviewerFeId =
         typeof profile.metadata?.frontend_id === 'string'
           ? (profile.metadata.frontend_id as string)
           : profile.id
+      reviewerRole =
+        feRole ||
+        (dbRole === 'SUPER_ADMIN'
+          ? 'super_admin'
+          : dbRole === 'AGENCY_ADMIN'
+            ? 'client_admin'
+            : dbRole === 'AGENT_ADMIN'
+              ? 'agent_admin'
+              : null)
+      const clientRows = await query<{ agency_fe: string | null }>(
+        `SELECT COALESCE(c.settings->>'frontend_id', c.id::text) AS agency_fe
+         FROM users u LEFT JOIN clients c ON c.id = u.client_id
+         WHERE u.id = $1::uuid LIMIT 1`,
+        [profile.id],
+      )
+      reviewerAgencyId = clientRows[0]?.agency_fe ?? null
     }
 
     const userId = c.req.param('userId')
@@ -543,6 +579,8 @@ app.patch('/api/admin/users/:userId/verification', async (c) => {
       status,
       rejectNote: body.rejectNote,
       reviewerFrontendId: reviewerFeId,
+      reviewerRole,
+      reviewerAgencyId,
     })
     // Decision email + in-app notification — additive, never blocks the response.
     void (async () => {
@@ -1331,20 +1369,121 @@ app.post('/api/notify/application-received', async (c) => {
       propertyTitle?: string
       referenceCode?: string
     }
+    const actor = await resolveRequestActor(c, body as unknown as Record<string, unknown>)
+    if (!actor) {
+      return c.json({ error: 'actor_required', message: 'Sign in to confirm application email' }, 401)
+    }
+    if (actor.role !== 'tenant') {
+      return c.json({ error: 'forbidden', message: 'Only the applicant can request this email' }, 403)
+    }
+    const ref = String(body.referenceCode ?? '').trim()
+    if (!ref) {
+      return c.json({ error: 'reference_required' }, 400)
+    }
+    if (!databaseConfigured()) {
+      return c.json({ ok: true, emailed: false, reason: 'no_database' }, 202)
+    }
+    const rows = await query<{
+      applicant_id: string | null
+      db_email: string | null
+    }>(
+      `SELECT a.applicant_id::text AS applicant_id,
+              COALESCE(u.email, a.metadata->>'applicant_email') AS db_email
+         FROM applications a
+         LEFT JOIN users u ON u.id = a.applicant_id
+        WHERE a.reference_code = $1 OR a.metadata->>'frontend_id' = $1
+        LIMIT 1`,
+      [ref],
+    )
+    const row = rows[0]
+    if (!row) {
+      return c.json({ error: 'not_found' }, 404)
+    }
+    const actorUuid = await resolveUuid('user', actor.userId)
+    if (!actorUuid || !row.applicant_id || actorUuid !== row.applicant_id) {
+      return c.json({ error: 'forbidden', message: 'Application does not belong to this user' }, 403)
+    }
     const email = String(body.email ?? '').trim()
-    if (email) {
-      const gate = notifyEmailRateLimit(email)
+    const dbEmail = String(row.db_email ?? '').trim().toLowerCase()
+    if (email && dbEmail && email.toLowerCase() !== dbEmail) {
+      return c.json({ error: 'forbidden', message: 'Email does not match application' }, 403)
+    }
+    const sendTo = email || dbEmail
+    if (sendTo) {
+      const gate = notifyEmailRateLimit(sendTo)
       if (!gate.ok) {
         const rl = tooManyRequests(gate.retryAfterSec)
         return c.json(rl.body, rl.status, rl.headers)
       }
       void sendApplicationReceived({
-        email,
+        email: sendTo,
         applicantName: body.applicantName ? String(body.applicantName).trim() : undefined,
         propertyTitle: body.propertyTitle ? String(body.propertyTitle).trim() : undefined,
-        referenceCode: body.referenceCode ? String(body.referenceCode).trim() : undefined,
+        referenceCode: ref,
       })
     }
+    return c.json({ ok: true }, 202)
+  } catch {
+    return c.json({ ok: true }, 202)
+  }
+})
+
+app.post('/api/notify/application-declined', async (c) => {
+  try {
+    const body = (await c.req.json()) as {
+      applicationId?: string
+      email?: string
+      applicantName?: string
+      propertyTitle?: string
+      reason?: string
+    }
+    const actor = await resolveRequestActor(c, body as unknown as Record<string, unknown>)
+    if (!actor || !isStaffRole(actor.role)) {
+      return c.json({ error: 'forbidden', message: 'Staff actor required' }, actor ? 403 : 401)
+    }
+    const email = String(body.email ?? '').trim()
+    if (!email) return c.json({ ok: true, emailed: false }, 202)
+    const gate = notifyEmailRateLimit(email)
+    if (!gate.ok) {
+      const rl = tooManyRequests(gate.retryAfterSec)
+      return c.json(rl.body, rl.status, rl.headers)
+    }
+    void sendApplicationDeclined({
+      email,
+      applicantName: body.applicantName?.trim(),
+      propertyTitle: body.propertyTitle?.trim(),
+      reason: body.reason?.trim(),
+    })
+    return c.json({ ok: true }, 202)
+  } catch {
+    return c.json({ ok: true }, 202)
+  }
+})
+
+app.post('/api/notify/application-approved', async (c) => {
+  try {
+    const body = (await c.req.json()) as {
+      applicationId?: string
+      email?: string
+      applicantName?: string
+      propertyTitle?: string
+    }
+    const actor = await resolveRequestActor(c, body as unknown as Record<string, unknown>)
+    if (!actor || !isStaffRole(actor.role)) {
+      return c.json({ error: 'forbidden', message: 'Staff actor required' }, actor ? 403 : 401)
+    }
+    const email = String(body.email ?? '').trim()
+    if (!email) return c.json({ ok: true, emailed: false }, 202)
+    const gate = notifyEmailRateLimit(email)
+    if (!gate.ok) {
+      const rl = tooManyRequests(gate.retryAfterSec)
+      return c.json(rl.body, rl.status, rl.headers)
+    }
+    void sendApplicationApproved({
+      email,
+      applicantName: body.applicantName?.trim(),
+      propertyTitle: body.propertyTitle?.trim(),
+    })
     return c.json({ ok: true }, 202)
   } catch {
     return c.json({ ok: true }, 202)

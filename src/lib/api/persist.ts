@@ -11,6 +11,7 @@ import {
   supabaseMarkNotificationsRead,
 } from '../supabase/persist'
 import { markLocalPersistWrite } from '../bootstrapMerge'
+import { sanitizeUserFacingMessage } from '../displayIds'
 
 export type { EntityType } from './persistTypes'
 
@@ -41,20 +42,35 @@ function messageFromPersistFailure(
   contentType: string | null | undefined,
   bodyText: string,
   refusalMessage?: string,
-): string | undefined {
-  if (refusalMessage) return refusalMessage
+): string {
+  const finish = (msg: string) => sanitizeUserFacingMessage(msg)
+  if (refusalMessage) return finish(refusalMessage)
   if (isSpaHtmlResponse(contentType, bodyText)) return LOCAL_API_REQUIRED_MESSAGE
   if (bodyText) {
     try {
       const parsed = JSON.parse(bodyText) as { message?: string; error?: string }
-      const msg = parsed.message || parsed.error
-      if (msg) return msg
+      if (typeof parsed.message === 'string' && parsed.message.trim()) {
+        return finish(parsed.message.trim())
+      }
+      if (typeof parsed.error === 'string' && parsed.error.trim()) {
+        const code = parsed.error.trim()
+        if (code === 'database_unconfigured') {
+          return finish('Server database is not configured (DATABASE_URL).')
+        }
+        if (code !== 'persist_failed' && !/^[a-z][a-z0-9_]*$/.test(code)) return finish(code)
+      }
     } catch {
-      /* ignore */
+      const trimmed = bodyText.trim()
+      if (trimmed && !trimmed.startsWith('{') && trimmed.length < 500) return finish(trimmed)
     }
   }
-  if (status === 401) return 'Your session expired — sign in again and retry.'
-  return undefined
+  if (status === 401) return finish('Your session expired — sign in again and retry.')
+  if (status === 403) return finish('You do not have permission to save this change.')
+  if (status === 409) return finish('This email is already in use.')
+  if (status === 503) return finish('Server is temporarily unavailable. Try again shortly.')
+  if (status >= 500) return finish(`Server error (${status}). Try again or contact support.`)
+  if (status >= 400) return finish(`Could not save (${status}).`)
+  return finish('Could not save.')
 }
 
 async function jsonHeaders(): Promise<Record<string, string>> {
@@ -169,7 +185,7 @@ function reportPersistRefusal(refusal: PersistRefusal | null): void {
   globalThis.dispatchEvent(new CustomEvent<PersistRefusal>(PERSIST_REFUSED_EVENT, { detail: refusal }))
 }
 
-export type PersistApiResult = { ok: true } | { ok: false; error?: string }
+export type PersistApiResult = { ok: true; uuid?: string } | { ok: false; error?: string }
 
 export function persistErrorMessage(result: PersistApiResult): string | undefined {
   if (result.ok === false) return result.error
@@ -193,7 +209,14 @@ export async function persistViaServerApiDetailed(op: PersistOp): Promise<Persis
       const message = messageFromPersistFailure(res.status, contentType, text, refusal?.message)
       return { ok: false, error: message }
     }
-    return { ok: true }
+    let uuid: string | undefined
+    try {
+      const parsed = JSON.parse(text) as { uuid?: unknown }
+      if (typeof parsed.uuid === 'string' && parsed.uuid) uuid = parsed.uuid
+    } catch {
+      /* ignore */
+    }
+    return uuid ? { ok: true, uuid } : { ok: true }
   } catch (err) {
     console.warn('[persist] offline / failed', op.resource, op.id, err)
     return { ok: false, error: LOCAL_API_REQUIRED_MESSAGE }
@@ -223,8 +246,7 @@ export async function persistUserCreateViaServer(
     })
     const text = await res.text().catch(() => '')
     if (!isPersistApiSuccessResponse(res.status, res.headers.get('content-type'), text)) {
-      // Status only: a refusal body never holds a password, but keep logs minimal.
-      console.warn('[persist] user create refused', op.id, res.status)
+      console.warn('[persist] user create refused', op.id, res.status, text.slice(0, 200))
       const refusal = parsePersistRefusal(op, res.status, text)
       reportPersistRefusal(refusal)
       const message = messageFromPersistFailure(
@@ -382,19 +404,31 @@ export async function persistBatchToApi(ops: PersistOp[]): Promise<boolean> {
   }
 }
 
+function useApproveApplicationRpc(): boolean {
+  const raw = String(
+    import.meta.env.VITE_USE_APPROVE_APPLICATION_RPC ??
+      import.meta.env.USE_APPROVE_APPLICATION_RPC ??
+      '',
+  )
+    .trim()
+    .toLowerCase()
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
+}
+
 export async function persistApproveApplication(params: {
   applicationId: string
   actorUserId?: string
   tenancy?: Record<string, unknown>
 }): Promise<boolean> {
   if (isSupabaseMode) {
-    // P0-approve (R8): the deployed approve_application RPC cannot commit —
-    // its leases INSERT omits the NOT NULL lease_reference column, so every
-    // call answers HTTP 400 "null value in column lease_reference". The direct
-    // mirror writes (application + lease + payments, gated in the store) ARE
-    // the durable transition, so the RPC is skipped entirely in Supabase mode
-    // rather than left firing a doomed request. Postgres-API mode keeps the
-    // server approve route below.
+    if (useApproveApplicationRpc()) {
+      const { supabaseApproveApplication } = await import('../supabase/persist')
+      return supabaseApproveApplication({
+        applicationId: params.applicationId,
+        tenancy: params.tenancy,
+      })
+    }
+    // Default: direct mirror writes in the store gate success (RPC optional after migration 020).
     return true
   }
   if (!apiConfigured()) return false

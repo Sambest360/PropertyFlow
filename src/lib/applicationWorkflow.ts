@@ -3,11 +3,12 @@ import type { Permission } from '../types/domain'
 import { allDocsUploaded, allDocsVerified, ensureApplicationDocuments } from './workflow.js'
 import { ficaPackSoftGate } from './ficaPack.js'
 import {
-  hasScreeningConsent,
+  hasAllAdultCreditConsents,
   markScreeningInProgressOnWorkflow,
   screeningSoftGate,
 } from './screening/index.js'
 import { pcrSoftGate } from './pcr/index.js'
+import { canTransition as journeyCanTransition } from './journey/journeyGates.js'
 
 /** DQ-C2 + DQ-C3: FICA pack then screening soft-gate for approve / lease / move-in. */
 function approveLeaseSoftGate(app: Application): true | string {
@@ -382,7 +383,7 @@ export const RENTAL_WORKFLOW: WorkflowTemplate = {
     { from: 'fica_verification', to: 'employment_verification', actionKey: 'VERIFY_EMPLOYMENT', label: 'Verify employment', hint: 'Confirm employer and role', tone: 'secondary', requires: ['applications.review'] },
     { from: 'employment_verification', to: 'income_verification', actionKey: 'VERIFY_INCOME', label: 'Verify income', hint: 'Validate payslips and bank statements', tone: 'secondary', requires: ['applications.review'] },
     { from: 'income_verification', to: 'reference_checks', actionKey: 'RUN_REFERENCES', label: 'Run reference checks', hint: 'Contact previous landlord or agent', tone: 'secondary', requires: ['applications.review'] },
-    { from: 'reference_checks', to: 'credit_check', actionKey: 'START_CREDIT_CHECK', label: 'Start credit check (mock/manual)', hint: 'Requires POPIA consent — starts in-app mock/manual screening (not live TPN / not live bureau)', tone: 'secondary', requires: ['applications.review'], guard: (app) => hasScreeningConsent(app) || 'Capture POPIA credit-check consent before starting screening (in-app mock/manual — not live TPN)' },
+    { from: 'reference_checks', to: 'credit_check', actionKey: 'START_CREDIT_CHECK', label: 'Start credit check (mock/manual)', hint: 'Requires POPIA consent — starts in-app mock/manual screening (not live TPN / not live bureau)', tone: 'secondary', requires: ['applications.review'], guard: (app) => hasAllAdultCreditConsents(app) || 'Capture POPIA credit-check consent for every adult before starting screening (in-app mock/manual — not live TPN)' },
     { from: 'credit_check', to: 'affordability_assessment', actionKey: 'ASSESS_AFFORDABILITY', label: 'Assess affordability', hint: 'Rent-to-income and debt review', tone: 'secondary', requires: ['applications.review'] },
     { from: 'affordability_assessment', to: 'agent_review', actionKey: 'SUBMIT_AGENT_REVIEW', label: 'Submit for agent review', hint: 'Package file for manual decision', tone: 'primary', requires: ['applications.review'] },
     { from: 'agent_review', to: 'landlord_review', actionKey: 'SEND_LANDLORD_REVIEW', label: 'Send to landlord', hint: 'Owner approves or declines tenant', tone: 'secondary', requires: ['applications.review'] },
@@ -636,6 +637,8 @@ export function getAvailableTransitions(
       const ok = t.guard(app)
       if (ok !== true) return false
     }
+    const journeyOk = journeyCanTransition(app, status, t.to)
+    if (journeyOk !== true) return false
     return true
   })
 }
@@ -781,13 +784,17 @@ export type LifecycleMilestone = {
 }
 
 const RENTAL_MILESTONES: LifecycleMilestone[] = [
+  {
+    key: 'viewing_scheduled',
+    label: 'Viewing',
+    description: 'Book or attend a property viewing before you submit your application.',
+  },
   { key: 'application_started', label: 'Application', description: 'Complete your details and submit your application.' },
   { key: 'application_submitted', label: 'Submitted', description: 'Agency receives your application for review.' },
   { key: 'documents_requested', label: 'Documents', description: 'Upload FICA, ID, and income documents.' },
   { key: 'fica_verification', label: 'Identity', description: 'Agency verifies your identity documents.' },
   { key: 'credit_check', label: 'Credit check', description: 'Credit bureau and affordability assessment (1–2 business days).' },
   { key: 'agent_review', label: 'Agent review', description: 'Agent reviews your full application file.' },
-  { key: 'viewing_scheduled', label: 'Viewing', description: 'Optional property viewing before or after approval.' },
   { key: 'conditionally_approved', label: 'Approved', description: 'Application approved — deposit and lease next.' },
   { key: 'deposit_invoice_sent', label: 'Deposit', description: 'Pay deposit and first month rent.' },
   { key: 'lease_sent', label: 'Lease', description: 'Review and sign the lease agreement.' },
@@ -807,8 +814,27 @@ const PURCHASE_MILESTONES: LifecycleMilestone[] = [
   { key: 'occupation', label: 'Occupation', description: 'Take occupation of the property.' },
 ]
 
-export function getLifecycleMilestones(type: Application['type']): LifecycleMilestone[] {
-  return type === 'Purchase' ? PURCHASE_MILESTONES : RENTAL_MILESTONES
+export function getLifecycleMilestones(
+  type: Application['type'],
+  application?: Application | null,
+): LifecycleMilestone[] {
+  if (type === 'Purchase') return PURCHASE_MILESTONES
+  const snapshot = application?.journeySnapshot
+  if (!snapshot?.steps?.length) return RENTAL_MILESTONES
+  return snapshot.steps
+    .filter((s) => s.enabled)
+    .flatMap((s) => {
+      const key = s.statusKeys[0]
+      if (!key) return []
+      const base = RENTAL_MILESTONES.find((m) => m.key === key)
+      return [
+        {
+          key,
+          label: s.label,
+          description: s.applicantCopy ?? base?.description ?? s.label,
+        },
+      ]
+    })
 }
 
 const STAGE_REQUIREMENTS: Partial<Record<WorkflowStatusKey, StageRequirements>> = {
@@ -908,9 +934,9 @@ export function milestoneVisualState(
   type: Application['type'],
   currentStatus: WorkflowStatusKey,
   milestoneKey: WorkflowStatusKey,
+  application?: Application | null,
 ): WorkflowStageState {
-  const milestones = getLifecycleMilestones(type)
-  const currentIdx = milestones.findIndex((m) => m.key === currentStatus)
+  const milestones = getLifecycleMilestones(type, application)
   const milestoneIdx = milestones.findIndex((m) => m.key === milestoneKey)
   if (milestoneIdx < 0) return 'skipped'
 
@@ -921,12 +947,6 @@ export function milestoneVisualState(
   if (milestoneKey === currentStatus) return 'current'
   if (currentDef.terminal && milestoneKey !== currentStatus) {
     return milestoneDef.order < currentDef.order ? 'completed' : 'skipped'
-  }
-
-  if (currentIdx >= 0 && milestoneIdx >= 0) {
-    if (milestoneIdx < currentIdx) return 'completed'
-    if (milestoneIdx === currentIdx) return 'current'
-    return 'upcoming'
   }
 
   if (milestoneDef.order < currentDef.order) return 'completed'

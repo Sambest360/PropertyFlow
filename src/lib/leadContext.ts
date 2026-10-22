@@ -6,6 +6,7 @@ import type {
   PropertyAsset,
   Viewing,
 } from '../types/domain'
+import { leadViewingDeskHref } from './leadViewing'
 
 export type LeadStageLink = {
   id: string
@@ -206,23 +207,8 @@ export function buildLeadStageContext(
         summary: upcomingViewing
           ? 'Confirm attendance and send directions before the slot.'
           : 'Link a viewing booking to this lead from the property viewing desk.',
-        links: [
-          ...(property ? [propertyViewingsLink(property)] : []),
-          ...(upcomingViewing
-            ? [
-                {
-                  id: `viewing-${upcomingViewing.id}`,
-                  title: `${upcomingViewing.date} at ${upcomingViewing.time}`,
-                  description: 'Open the property viewing desk for this booking.',
-                  href: `/workspace/sales/viewings/property/${encodeURIComponent(upcomingViewing.propertyId)}?viewing=${encodeURIComponent(upcomingViewing.id)}`,
-                  meta: upcomingViewing.status,
-                },
-              ]
-            : []),
-        ],
-        facts: upcomingViewing
-          ? [...facts, { label: 'Viewing status', value: upcomingViewing.status }]
-          : facts,
+        links: upcomingViewing ? [] : property ? [propertyViewingsLink(property)] : [],
+        facts,
         emptyMessage: !upcomingViewing && property ? 'No viewing booking matched to this contact yet.' : undefined,
         emptyAction:
           !upcomingViewing && property ? propertyViewingsLink(property) : undefined,
@@ -240,7 +226,7 @@ export function buildLeadStageContext(
                   id: `viewing-${completedViewing.id}`,
                   title: `Viewing on ${completedViewing.date}`,
                   description: completedViewing.feedback || 'Open viewing record for attendance and notes.',
-                  href: `/workspace/sales/viewings/property/${encodeURIComponent(completedViewing.propertyId)}?viewing=${encodeURIComponent(completedViewing.id)}`,
+                  href: leadViewingDeskHref(completedViewing),
                   meta: completedViewing.attendance,
                 },
               ]

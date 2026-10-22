@@ -20,6 +20,16 @@ export {
 } from './providers.js'
 
 export {
+  captureAdultCreditCheckConsents,
+  creditConsentAdultsRequired,
+  hasAllAdultCreditConsents,
+  needsCreditConsentTask,
+  setCreditConsentAdultRoster,
+  type AdultCreditConsentRecord,
+  type CreditCheckConsents,
+} from './creditConsent.js'
+
+export {
   captureScreeningConsent,
   creditCheckLabelFromScreening,
   emptyScreeningResult,

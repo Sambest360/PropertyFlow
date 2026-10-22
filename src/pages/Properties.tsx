@@ -9,7 +9,7 @@ import { ActionButtonRow } from '../components/ActionButtonRow'
 import { withReturnTo } from '../lib/returnTo'
 import { PropertyMap } from '../components/PropertyMap'
 import { PropertiesToolbar } from '../components/properties/PropertiesToolbar'
-import { BuildingTreeView } from '../components/properties/BuildingTreeView'
+import { PropertyListView } from '../components/properties/PropertyListView'
 import { PropertyPortfolioCard } from '../components/properties/PropertyPortfolioCard'
 import {
   VIEW_STORAGE_KEY,
@@ -21,7 +21,7 @@ import {
 } from '../components/properties/types'
 import { useLookupOptions } from '../hooks/useLookupOptions'
 import { VerificationPendingBanner } from '../components/auth/VerificationBanner'
-import { canDeletePropertyRole, isPropertyDeleted } from '../lib/propertyDeletion'
+import { canOpenPropertyArchive, isPropertyDeleted } from '../lib/propertyDeletion'
 import {
   buildingsInScope,
   groupPortfolioByBuilding,
@@ -35,6 +35,7 @@ import {
   withPropertiesListQuery,
 } from '../lib/propertiesPortfolioSearch'
 import { dedupePropertyAssets } from '../lib/propertyDedupe'
+import { DataRefreshBanner } from '../components/loading/DataRefreshBanner'
 
 function readStoredView(): PropertiesViewMode {
   try {
@@ -103,7 +104,7 @@ export default function Properties() {
     ).length
   }, [state.properties, allowedPropertyIds])
 
-  const canViewArchive = has('assets.manage') && canDeletePropertyRole(user.role)
+  const canViewArchive = canOpenPropertyArchive(user.role)
 
   const buildingById = useMemo(
     () => new Map(state.buildings.map((b) => [b.id, b])),
@@ -290,6 +291,8 @@ export default function Properties() {
         }
       />
 
+      <DataRefreshBanner active={state.sessionRefreshing} label="Syncing properties…" />
+
       <div className="mb-5">
         <VerificationPendingBanner user={user} />
       </div>
@@ -361,9 +364,10 @@ export default function Properties() {
           </button>
         </Card>
       ) : view === 'list' ? (
-        <BuildingTreeView
+        <PropertyListView
           items={filtered}
-          buildings={state.buildings}
+          expandedId={expandedId}
+          onToggle={toggleExpand}
           reducedMotion={reducedMotion}
         />
       ) : view === 'map' ? (

@@ -11,6 +11,7 @@ import {
   Wrench,
 } from 'lucide-react'
 import { useStore } from '../context/AppStore'
+import { labelOrReference } from '../lib/displayIds'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
 import {
@@ -175,7 +176,7 @@ function ContractorPortalContent() {
               <Badge tone="neutral">{t.priority}</Badge>
             </div>
             <p className="text-sm text-ink-500">
-              {prop?.title ?? t.propertyId}
+              {labelOrReference(prop?.title, t.propertyId, 'Property')}
               {previewOnly ? '' : ` · ${t.assetLabel}`}
               {!previewOnly && t.locationDetail ? ` · ${t.locationDetail}` : ''}
             </p>

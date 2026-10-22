@@ -60,7 +60,7 @@ function downloadDoc(applicantName: string, doc: ApplicationDocument) {
         `Status: ${uploadLabel(doc.status)}`,
         doc.note ? `Note: ${doc.note}` : '',
         '',
-        'Letkaya — demo document pack export',
+        'Lekaya — demo document pack export',
       ]
         .filter(Boolean)
         .join('\n'),
@@ -84,6 +84,7 @@ export function PropertyApplicantsPanel({
   onSetDocStatus,
   onSetWorkflowStage,
   onBlock,
+  approvingApplicationId,
   /** P0-r21: lease truth for RECOVER_APPROVE — defaults assume lease exists. */
   leaseExistsForApplication,
 }: {
@@ -95,6 +96,7 @@ export function PropertyApplicantsPanel({
   onSetDocStatus: (applicationId: string, key: string, status: ApplicationDocument['status']) => void
   onSetWorkflowStage: (id: string, status: WorkflowStatusKey) => void
   onBlock: (id: string, reason: string) => void
+  approvingApplicationId?: string | null
   leaseExistsForApplication?: (applicationId: string) => boolean
 }) {
   const [query, setQuery] = useState('')
@@ -263,9 +265,10 @@ export function PropertyApplicantsPanel({
                         size="sm"
                         variant="secondary"
                         className="min-h-11"
+                        disabled={approvingApplicationId === a.id}
                         onClick={() => void onApprove(a.id)}
                       >
-                        Approve → lease
+                        {approvingApplicationId === a.id ? 'Approving…' : 'Approve → lease'}
                       </Button>
                     ) : null}
                     {canBlock && (

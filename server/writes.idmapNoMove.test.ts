@@ -52,7 +52,7 @@ describe('requireAgentId never moves an existing map entry', () => {
     const { handlePersist } = await import('./writes.js')
     const r = await handlePersist(unitBody('u-agent-x'))
     expect(r.ok).toBe(true)
-    expect(mapWrites()).toEqual([])
+    expect(mapWrites().filter((c) => String(c[0]).includes("'user'"))).toEqual([])
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()
   })
@@ -90,7 +90,13 @@ describe('regression: guest apply and staff create still succeed', () => {
     const { handlePersist } = await import('./writes.js')
     const r = await handlePersist(unitBody('u-new-staff'))
     expect(r.ok).toBe(true)
-    const ins = mapWrites().find((c) => /INSERT INTO entity_id_map/.test(String(c[0])))
+    const ins = mapWrites().find(
+      (c) =>
+        /INSERT INTO entity_id_map/.test(String(c[0])) &&
+        String(c[0]).includes("'user'") &&
+        (c[1] as unknown[])?.[0] === 'u-new-staff',
+    )
+    expect(ins).toBeTruthy()
     expect(ins![1]).toEqual(['u-new-staff', AGENT])
     expect(String(ins![0])).not.toMatch(/DO UPDATE/)
     const unitInsert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO units'))

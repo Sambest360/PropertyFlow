@@ -1,14 +1,56 @@
+import { canSeeAgency, type AgencyScopeContext } from './agencyScope.js'
 import type { Application, PropertyAsset, Role, Tenancy } from '../types/domain'
 
-const ADMIN_DELETE_ROLES: ReadonlySet<Role> = new Set([
+export type PropertyDeleteViewer = { role: Role; userId: string; agencyId: string | null }
+export type PropertyDeleteStored = { agencyId: string; agentId: string | null }
+
+const ARCHIVE_CAPABLE_ROLES: ReadonlySet<Role> = new Set([
   'super_admin',
   'client_admin',
   'agent_admin',
+  'ground_agent',
+  'agent',
 ])
 
-/** Agency admin roles that may remove properties from the active portfolio. */
-export function canDeletePropertyRole(role: Role): boolean {
-  return ADMIN_DELETE_ROLES.has(role)
+/**
+ * Authoritative soft-delete / restore rule (mirrored on server).
+ * 1) super_admin — any property
+ * 2) client_admin / agent_admin — same agency (FE id space)
+ * 3) ground_agent / agent — same agency and units.agent_id = viewer
+ */
+export function canDeletePropertyByRule(
+  viewer: PropertyDeleteViewer,
+  stored: PropertyDeleteStored,
+  ctx?: AgencyScopeContext,
+): boolean {
+  if (viewer.role === 'super_admin') return true
+  if (viewer.role === 'client_admin' || viewer.role === 'agent_admin') {
+    return canSeeAgency(viewer.role, viewer.agencyId, false, stored.agencyId, ctx)
+  }
+  if (viewer.role === 'ground_agent' || viewer.role === 'agent') {
+    return (
+      stored.agentId === viewer.userId &&
+      canSeeAgency(viewer.role, viewer.agencyId, false, stored.agencyId, ctx)
+    )
+  }
+  return false
+}
+
+export function canDeleteStoredProperty(
+  viewer: PropertyDeleteViewer,
+  property: Pick<PropertyAsset, 'agencyId' | 'agentId'>,
+  ctx?: AgencyScopeContext,
+): boolean {
+  return canDeletePropertyByRule(
+    viewer,
+    { agencyId: property.agencyId, agentId: property.agentId },
+    ctx,
+  )
+}
+
+/** Roles that may open the deleted-properties list (rows still scope-filtered). */
+export function canOpenPropertyArchive(role: Role): boolean {
+  return ARCHIVE_CAPABLE_ROLES.has(role)
 }
 
 /** True when a tenant is currently staying or scheduled to move in. */

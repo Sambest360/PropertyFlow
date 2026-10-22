@@ -1,4 +1,4 @@
-# Free local Postgres for Letkaya (dev). Does not use AWS billing.
+# Free local Postgres for Lekaya (dev). Does not use AWS billing.
 # Start: npm run db:up && npm run db:reset
 # Connection matches .env.local DATABASE_URL (port 5433 avoids ServBay on 5432).
 services:

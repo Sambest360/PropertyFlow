@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Check, Eye, FileText, Upload, XCircle } from 'lucide-react'
+import { Check, Download, Eye, FileText, Upload, XCircle } from 'lucide-react'
 import type { ApplicationDocument } from '../../types/domain'
 import {
   APPLICATION_DOC_ACCEPT,
@@ -8,6 +8,10 @@ import {
   applicationDocTypeError,
 } from '../../lib/applicationDocUpload'
 import { readDocumentFile } from '../../lib/applicationDocDownscale'
+import {
+  downloadApplicationDocumentFile,
+  openApplicationDocumentFile,
+} from '../../lib/applicationDocumentFile'
 import { showAuthWarning } from '../../lib/sweetAlert'
 import { Badge, Button, cn, statusTone, Textarea } from '../ui'
 import { ICON_STROKE } from './types'
@@ -103,15 +107,42 @@ export function ApplicationDocumentRow({
         ) : null}
 
         {doc.file?.dataUrl ? (
-          <Button
-            type="button"
-            variant="ghost"
-            className="min-h-9 cursor-pointer text-xs"
-            onClick={() => window.open(doc.file!.dataUrl, '_blank', 'noopener')}
-          >
-            <Eye className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} aria-hidden />
-            View file
-          </Button>
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              className="min-h-9 cursor-pointer text-xs"
+              onClick={() => {
+                const file = doc.file!
+                if (!openApplicationDocumentFile({ name: file.name, mimeType: file.mimeType, dataUrl: file.dataUrl })) {
+                  void showAuthWarning('Could not open this file — try Download instead.')
+                }
+              }}
+            >
+              <Eye className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} aria-hidden />
+              View file
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className="min-h-9 cursor-pointer text-xs"
+              onClick={() => {
+                const file = doc.file!
+                if (
+                  !downloadApplicationDocumentFile({
+                    name: file.name,
+                    mimeType: file.mimeType,
+                    dataUrl: file.dataUrl,
+                  })
+                ) {
+                  void showAuthWarning('Could not download this file — try uploading again.')
+                }
+              }}
+            >
+              <Download className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} aria-hidden />
+              Download
+            </Button>
+          </>
         ) : null}
 
         {showReview ? (

@@ -1,9 +1,8 @@
-export type LeadDetailTab = 'overview' | 'details' | 'deal' | 'activity' | 'history'
+export type LeadDetailTab = 'overview' | 'details' | 'activity' | 'history'
 
 export const LEAD_DETAIL_TABS: LeadDetailTab[] = [
   'overview',
   'details',
-  'deal',
   'activity',
   'history',
 ]

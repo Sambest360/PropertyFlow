@@ -155,7 +155,7 @@ export async function payfastCreate(c: Context, authorize?: PayfastCreateAuthori
     const itemName =
       typeof body.itemName === 'string' && body.itemName.trim()
         ? body.itemName.trim()
-        : `Letkaya · ${payment.paymentType} · ${payment.partyName}`
+        : `Lekaya · ${payment.paymentType} · ${payment.partyName}`
     const itemDescription = typeof body.itemDescription === 'string' ? body.itemDescription : undefined
     const payerRaw = (body.payer ?? {}) as Json
     const payer = {

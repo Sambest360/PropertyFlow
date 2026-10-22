@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { filterBootstrapForGuest, isGuestVisibleProperty } from './guestMarketplace.js'
 
 describe('guest marketplace published listings (Issue 2)', () => {
+  // DB-backed live listing title — unchanged until production data is renamed.
   const e2eTitle = 'E2E Letkaya Published Flat'
 
   const raw = {

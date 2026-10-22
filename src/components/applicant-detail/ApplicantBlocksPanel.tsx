@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Ban, MapPin } from 'lucide-react'
 import type { Application, PropertyAsset } from '../../types/domain'
+import { labelOrReference } from '../../lib/displayIds'
 import { Button } from '../ui'
 import { DetailSection } from '../detail/FlatFields'
 import { ICON_STROKE } from './types'
@@ -39,7 +40,9 @@ export function ApplicantBlocksPanel({
           {blocks.map(({ application: a, property }) => (
             <li key={a.id} className="py-4">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <p className="font-semibold text-ink">{property?.title ?? a.propertyId}</p>
+                <p className="font-semibold text-ink">
+                  {labelOrReference(property?.title, a.propertyId, 'Property')}
+                </p>
                 <p className="text-xs font-semibold uppercase tracking-wide text-accent-700">
                   Blocked
                 </p>

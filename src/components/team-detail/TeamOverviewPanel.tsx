@@ -1,4 +1,5 @@
 import type { AppUser } from '../../types/domain'
+import { hideBackendUuid } from '../../lib/displayIds'
 import { roleLabels } from '../../lib/permissions'
 import { DetailSection, DetailStack, FlatField, FlatFieldGrid } from '../detail/FlatFields'
 
@@ -22,7 +23,7 @@ export function TeamOverviewPanel({
         subtitle="Role and status at a glance. Open Details for contact information."
       >
         <FlatFieldGrid className="lg:grid-cols-2">
-          <FlatField label="Person ID" value={user.id} />
+          <FlatField label="Person ID" value={hideBackendUuid(user.id)} />
           <FlatField label="Role" value={roleLabels[user.role] ?? user.role} />
           <FlatField label="Agency" value={agencyName} />
           <FlatField label="Status" value={user.active ? 'Active' : 'Inactive'} />

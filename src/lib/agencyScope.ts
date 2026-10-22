@@ -111,9 +111,7 @@ export function canSeeAgentRecord(
 ): boolean {
   if (role === 'super_admin' || role === 'client_admin' || role === 'agent_admin') return true
   if (role === 'ground_agent' || role === 'agent') {
-    // P0-5: agency Unassigned pool (null/empty agentId) — mirrors dealInScope
-    // so FA property-book does not vanish after create when agentId was blank.
-    return !agentId || agentId === viewerUserId
+    return agentId === viewerUserId
   }
   return true
 }
@@ -169,11 +167,8 @@ export function canAccessProperty(
   if (!canSeeAgency(role, viewer.agencyId, viewer.agencySuspended, property.agencyId)) {
     return false
   }
-  if (
-    (role === 'ground_agent' || role === 'agent') &&
-    !canSeeAgentRecord(role, viewer.userId, property.agentId)
-  ) {
-    return false
+  if (role === 'ground_agent' || role === 'agent') {
+    if (!canSeeAgentRecord(role, viewer.userId, property.agentId)) return false
   }
   return true
 }

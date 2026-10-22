@@ -14,7 +14,10 @@ vi.mock('../supabase/persist', () => ({
   supabaseMarkNotificationsRead: vi.fn(async () => true),
 }))
 vi.mock('./actorAuth', () => ({ actorHeaders: () => ({}) }))
-vi.mock('./authClient', () => ({ authHeaders: () => ({}) }))
+vi.mock('./authClient', () => ({
+  authHeaders: () => ({}),
+  resolveApiAuthorizationHeader: vi.fn(async () => ({})),
+}))
 vi.mock('../bootstrapMerge', () => ({ markLocalPersistWrite: vi.fn() }))
 
 type HealthMode = 'slow' | 'failing' | 'network-error'

@@ -50,7 +50,7 @@ export async function generateLeasePdf(input: LeasePdfInput): Promise<LeasePdfRe
   }
 
   draw('RESIDENTIAL LEASE AGREEMENT', { size: 16, bold: true })
-  draw('Letkaya — generated lease (South Africa)', { size: 9, color: muted })
+  draw('Lekaya Rentals — generated lease (South Africa)', { size: 9, color: muted })
   draw(`Reference: ${input.leaseReference}`, { size: 10, color: muted })
   draw(
     `Generated: ${(input.generatedAt ?? new Date().toISOString()).slice(0, 19).replace('T', ' ')}`,
@@ -107,7 +107,7 @@ export async function generateLeasePdf(input: LeasePdfInput): Promise<LeasePdfRe
   )
   y -= 16
   draw(
-    'E-sign: countersign via Letkaya mock / partner adapter. Live SigniFlow/DocuSign needs partner keys.',
+    'E-sign: countersign via Lekaya mock / partner adapter. Live SigniFlow/DocuSign needs partner keys.',
     { size: 8, color: muted },
   )
 

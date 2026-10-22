@@ -66,6 +66,7 @@ import {
 import { commitProposedPayout } from '../lib/trust/proposePayoutCommit'
 import { isPubliclyListed } from '../lib/publicListings'
 import { findByListingId, nextUniquePropertyId } from '../lib/listingIds'
+import { CreatePropertyBundleError } from '../lib/createPropertyBundleError'
 import { dedupePropertyAssets } from '../lib/propertyDedupe'
 import {
   uid,
@@ -102,7 +103,9 @@ import {
 } from '../lib/leadLifecycle'
 import { appendWorkflowEvent } from '../lib/applicationWorkflowEvents'
 import {
+  captureAdultCreditCheckConsents,
   captureScreeningConsent,
+  setCreditConsentAdultRoster,
   overrideScreening,
   startScreening,
   type ScreeningAsyncStatus,
@@ -140,6 +143,8 @@ import {
   validateApplicationSubmission,
   type SubmitApplicationResult,
 } from '../lib/applicationApi'
+import { initialWorkflowForCreate } from '../lib/createApplicationInitialStatus'
+import { formatEmploymentSummary } from '../lib/employmentDisplay'
 import {
   patchApplicationStatus,
   type PatchApplicationStatusRequest,
@@ -183,6 +188,26 @@ import {
   canApplyBootstrapHydration,
 } from '../lib/clientCache'
 import { readStoredAuthUserId, getApiActor, actorHeaders, type DemoActor } from '../lib/api/actorAuth'
+import { defaultRentalJourneyForAgency } from '../lib/journey/resolveJourney'
+import type { WorkflowActionCapture } from '../lib/workflowActionForms'
+import {
+  clearPortfolioSnapshot,
+  hasPortfolioSnapshotForUser,
+  mergePortfolioSnapshotIntoState,
+  writePortfolioSnapshotFromState,
+  type PortfolioSnapshotActor,
+} from '../lib/portfolioSnapshot'
+import { ensureBootstrapScopedForActor, bootstrapActorFromSession } from '../lib/applyBootstrapScope'
+function portfolioSnapshotActor(
+  actor: DemoActor | { userId: string; role: string; agencyId: string | null } | null | undefined,
+): PortfolioSnapshotActor | null {
+  if (!actor?.userId || !actor.role) return null
+  return {
+    userId: actor.userId,
+    role: actor.role as Role,
+    agencyId: actor.agencyId ?? null,
+  }
+}
 import {
   shouldAcceptSupabaseBootstrap,
   shouldSoftMissEmptyApplicationsBootstrap,
@@ -198,6 +223,7 @@ import {
   enrichBootstrapWithPublicMarketplace,
   fetchMergedPublicMarketplaceSlice,
 } from '../lib/publicMarketplaceMerge'
+import { shouldApplyRefreshResult } from '../lib/refreshCoordination'
 import {
   PERSIST_REFUSED_EVENT,
   persistApproveApplication,
@@ -231,7 +257,11 @@ import {
 } from '../lib/eventNotifications'
 import { mergeEntityLists } from '../lib/bootstrapMerge'
 import { reconcileAgencyIdSpace } from '../lib/agencyScope'
-import { getPropertyDeleteBlockReason } from '../lib/propertyDeletion'
+import { buildIdMapCacheFromRows, type IdMapCache } from '../lib/supabase/idMap'
+import {
+  canDeleteStoredProperty,
+  getPropertyDeleteBlockReason,
+} from '../lib/propertyDeletion'
 import {
   issueLeaseOnTenancyCreate,
   recordLeaseSignature,
@@ -358,6 +388,23 @@ function preservePortalFeLinks(base: AppState, boot: PostgresBootstrap): Postgre
 
 /** When Postgres bootstrap succeeds, merge server rows with recent local writes. */
 function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppState {
+  const liveActor = resolveBootstrapActor(base.users)
+  boot = ensureBootstrapScopedForActor(
+    boot,
+    liveActor
+      ? bootstrapActorFromSession({
+          userId: liveActor.userId,
+          role: liveActor.role,
+          agencyId: liveActor.agencyId,
+        })
+      : boot.actor
+        ? bootstrapActorFromSession({
+            userId: boot.actor.userId,
+            role: boot.actor.role,
+            agencyId: boot.actor.agencyId,
+          })
+        : null,
+  )
   boot = preservePortalFeLinks(base, boot)
   const replaceLinked = Boolean(boot.scoped)
   const mergeOpts = { replaceWhenMissing: replaceLinked }
@@ -461,6 +508,10 @@ function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppSta
       boot.internalAssets as InternalAsset[] | undefined,
       'internalAssets',
     ),
+    idMapCache:
+      boot.idMapRows?.length
+        ? buildIdMapCacheFromRows(boot.idMapRows)
+        : base.idMapCache,
   }
 }
 
@@ -516,6 +567,12 @@ export type AppState = {
   supportTickets: SupportTicket[]
   /** True when the last guest marketplace fetch errored (signed-out /browse). */
   publicMarketplaceFetchFailed: boolean
+  /** Background public marketplace fetch (UI only — never clears listing rows). */
+  marketplaceRefreshing: boolean
+  /** Background signed-in bootstrap refresh (UI only). */
+  sessionRefreshing: boolean
+  /** Backend → FE ids from entity_id_map (routing only; never render). */
+  idMapCache: IdMapCache | null
 }
 
 type StoreContextValue = {
@@ -532,6 +589,14 @@ type StoreContextValue = {
     actor?: DemoActor | null,
     opts?: { full?: boolean; force?: boolean; ingestNotifications?: boolean },
   ) => Promise<void>
+  /** Lite workspace bootstrap with force + stale-guard (nav, LiveSync, post-mutation). */
+  refreshSessionData: (opts?: {
+    full?: boolean
+    force?: boolean
+    ingestNotifications?: boolean
+  }) => Promise<void>
+  /** Public listings slice — guest RPC or merged marketplace for signed-in browse. */
+  refreshMarketplaceListings: (opts?: { force?: boolean }) => Promise<void>
   createAgency: (input: Omit<Agency, 'id' | 'createdAt' | 'status'> & { status?: Agency['status']; enabledPermissions?: Agency['enabledPermissions'] }) => Agency
   updateAgency: (id: string, patch: Partial<Agency>) => void
   /** Soft-delete: sets agency status to Cancelled (data retained; staff lose access). */
@@ -633,6 +698,8 @@ type StoreContextValue = {
       brand?: string
       condition: AssetCondition
     }>
+    ids?: { propertyId: string; buildingId?: string; roomIds?: string[] }
+    idempotencyKey?: string
   }) => Promise<PropertyAsset>
   updateProperty: (id: string, patch: Partial<PropertyAsset>) => void
   setPropertyRooms: (id: string, rooms: Room[]) => void
@@ -649,7 +716,7 @@ type StoreContextValue = {
   deleteProperty: (
     id: string,
   ) => Promise<{ ok: true } | { ok: false; reason: string }>
-  restoreProperty: (id: string) => { ok: true } | { ok: false; reason: string }
+  restoreProperty: (id: string) => Promise<{ ok: true } | { ok: false; reason: string }>
   createBuilding: (input: Omit<Building, 'id' | 'createdAt' | 'images'> & { images?: string[] }) => Building
   createUnitFromTemplate: (input: {
     buildingId: string
@@ -737,6 +804,8 @@ type StoreContextValue = {
     type: 'Purchase' | 'Rental'
     income?: number
     employment?: string
+    employerName?: string
+    jobTitle?: string
     idNumberOrPassport?: string
     uploadedDocs?: Application['uploadedDocs']
     /** Skip income/availability guards (admin/demo only) */
@@ -746,8 +815,13 @@ type StoreContextValue = {
   /** POPIA consent capture before bureau screening. */
   captureApplicationScreeningConsent: (
     applicationId: string,
-    input?: { grantedBy?: string | null; method?: 'document' | 'checkbox' | 'portal' | 'staff'; note?: string },
-  ) => Application | null
+    input?: {
+      grantedBy?: string | null
+      method?: 'document' | 'checkbox' | 'portal' | 'staff'
+      note?: string
+      adults?: Array<{ name: string; idNumber: string; signatureText: string }>
+    },
+  ) => Promise<Application | null>
   /** Start async screening via ScreeningProvider (requires consent). */
   startApplicationScreening: (params: {
     applicationId: string
@@ -776,7 +850,10 @@ type StoreContextValue = {
   ) => void
   advanceApplication: (id: string, to?: ApplicationStage) => void
   /** P0-approve: awaited so callers only show success after a durable write. */
-  approveApplication: (id: string) => Promise<PatchApplicationStatusResult>
+  approveApplication: (
+    id: string,
+    options?: { actorUserId?: string },
+  ) => Promise<PatchApplicationStatusResult>
   /** Mirrors PATCH /api/v1/applications/{id}/status */
   /** Advance via configurable rental / purchase workflow template */
   advanceApplicationWorkflow: (params: {
@@ -785,6 +862,7 @@ type StoreContextValue = {
     targetStatus: WorkflowStatusKey
     /** CR10: TENANT_SIGNED / LANDLORD_SIGNED / MARK_LEASE_SIGNED carry the sign dialog capture. */
     signature?: LeaseSignCapture & { signerName?: string }
+    capture?: WorkflowActionCapture
   }) => Promise<PatchApplicationStatusResult | { status: 'SUCCESS'; application: Application }>
   patchApplicationStatus: (params: {
     applicationId: string
@@ -792,7 +870,7 @@ type StoreContextValue = {
     request: PatchApplicationStatusRequest
   }) => Promise<PatchApplicationStatusResult>
   scheduleMoveIn: (id: string, moveInDate: string, keyCollection: NonNullable<Application['keyCollection']>) => void
-  completeKeyHandover: (id: string) => void
+  completeKeyHandover: (id: string) => Promise<void>
   createViewingSlot: (input: Omit<ViewingSlot, 'id' | 'booked' | 'status'> & { capacity?: number }) => ViewingSlot
   updateViewingSlot: (id: string, patch: Partial<ViewingSlot>) => void
   bookViewingSlot: (slotId: string, applicantName: string, applicantEmail?: string, applicationId?: string) => Viewing | null
@@ -1036,6 +1114,9 @@ export const defaultStateFor = (_liveDataMode: boolean): AppState => ({
   csvImportBatches: [],
   supportTickets: [],
   publicMarketplaceFetchFailed: false,
+  marketplaceRefreshing: false,
+  sessionRefreshing: false,
+  idMapCache: null,
 })
 
 const defaultState = (): AppState => defaultStateFor(LIVE_DATA_MODE)
@@ -1156,7 +1237,11 @@ async function fetchBootstrapFromApi(
     let boot: Awaited<ReturnType<typeof fetchSupabaseBootstrap>> | null = null
     let sessionRole: string | null = sessionProof.actorRole ?? null
     try {
-      boot = await fetchSupabaseBootstrap(lite, { actorRole: sessionProof.actorRole })
+      boot = await fetchSupabaseBootstrap(lite, {
+        actorRole: sessionProof.actorRole ?? effective?.role ?? apiActor?.role ?? null,
+        actorUserId: effective?.userId ?? apiActor?.userId ?? sessionProof.actorUserId ?? readStoredAuthUserId(),
+        actorAgencyId: effective?.agencyId ?? apiActor?.agencyId ?? null,
+      })
       // P0-2: stale auth ids used to yield EMPTY arrays — requiring units
       // caught that. P0 empty-DB SA: 0 units / 0 agencies with a live session
       // is valid empty-start, NOT stale-auth (do not wipe propertyflow-auth-user).
@@ -1237,17 +1322,30 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     let cancelled = false
     const id = window.requestAnimationFrame(() => {
       try {
-        // G01–G03: do not paint stale marketplace rows from localStorage in live
-        // mode — wait for public/bootstrap fetch to avoid count/title flips.
+        // G01–G03: legacy localStorage never carries portfolio rows in live mode.
+        // Session snapshot (owner-keyed) restores last workspace view until bootstrap lands.
         const loaded = loadState()
+        const authUser = readStoredAuthUserId()
+        const snapshotReady = Boolean(authUser && hasPortfolioSnapshotForUser(authUser))
+        const liveBase = LIVE_DATA_MODE
+          ? snapshotReady
+            ? loaded
+            : {
+                ...loaded,
+                properties: [],
+                units: [],
+                buildings: [],
+                viewingSlots: [],
+                leads: [],
+                tickets: [],
+              }
+          : loaded
         const seeded = LIVE_DATA_MODE
-          ? {
-              ...loaded,
-              properties: [],
-              units: [],
-              buildings: [],
-              viewingSlots: [],
-            }
+          ? mergePortfolioSnapshotIntoState(
+              liveBase,
+              authUser,
+              portfolioSnapshotActor(getApiActor()),
+            )
           : loaded
         const cached = ensurePublicMarketplace(seeded)
         if (!cancelled) setState(cached)
@@ -1336,7 +1434,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       return
     }
     setTicketAccessNotesSupported(ticketAccessNotesSupportedFromBootstrap(boot))
-    setState((prev) => ensurePublicMarketplace(applyPostgresBootstrap(prev, boot)))
+    setState((prev) => {
+      const next = ensurePublicMarketplace(applyPostgresBootstrap(prev, boot))
+      if (sessionUserId) {
+        writePortfolioSnapshotFromState(
+          sessionUserId,
+          next,
+          portfolioSnapshotActor(boot.actor ?? resolved),
+        )
+      }
+      return next
+    })
     setHydratedForUserId(sessionUserId)
     setHydrationFailed(false)
     markBootstrapFetched(true, actorKey)
@@ -1370,7 +1478,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ).then((full) => {
           if (!full) return
           if (!bootstrapMatchesSession(deferredActor?.userId, readStoredAuthUserId())) return
-          setState((prev) => ensurePublicMarketplace(applyPostgresBootstrap(prev, full)))
+          setState((prev) => {
+            const next = ensurePublicMarketplace(applyPostgresBootstrap(prev, full))
+            const uid = deferredActor?.userId ?? readStoredAuthUserId()
+            if (uid) {
+              writePortfolioSnapshotFromState(
+                uid,
+                next,
+                portfolioSnapshotActor(full.actor ?? deferredActor ?? getApiActor()),
+              )
+            }
+            return next
+          })
         })
       })
     } else if (!opts?.full && isApiEnabled) {
@@ -1384,25 +1503,24 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ).then((full) => {
           if (!full) return
           if (!bootstrapMatchesSession(deferredActor?.userId, readStoredAuthUserId())) return
-          setState((prev) => ensurePublicMarketplace(applyPostgresBootstrap(prev, full)))
+          setState((prev) => {
+            const next = ensurePublicMarketplace(applyPostgresBootstrap(prev, full))
+            const uid = deferredActor?.userId ?? readStoredAuthUserId()
+            if (uid) {
+              writePortfolioSnapshotFromState(
+                uid,
+                next,
+                portfolioSnapshotActor(full.actor ?? deferredActor ?? getApiActor()),
+              )
+            }
+            return next
+          })
         })
       })
     }
   },
   [],
 )
-
-  const refreshAfterMutationRef = useRef<number | null>(null)
-  const scheduleBootstrapRefreshAfterMutation = useCallback(() => {
-    if (refreshAfterMutationRef.current != null) {
-      window.clearTimeout(refreshAfterMutationRef.current)
-    }
-    refreshAfterMutationRef.current = window.setTimeout(() => {
-      refreshAfterMutationRef.current = null
-      const actor = resolveBootstrapActor(stateRef.current.users)
-      void refreshBootstrap(actor, { force: true })
-    }, 1500)
-  }, [refreshBootstrap])
 
   useEffect(() => {
     if (!isApiEnabled && !isSupabaseMode) {
@@ -1471,7 +1589,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         return
       }
       setTicketAccessNotesSupported(ticketAccessNotesSupportedFromBootstrap(boot))
-      setState((prev) => ensurePublicMarketplace(applyPostgresBootstrap(prev, boot)))
+      setState((prev) => {
+        const next = ensurePublicMarketplace(applyPostgresBootstrap(prev, boot))
+        if (sessionUserId) {
+          writePortfolioSnapshotFromState(
+            sessionUserId,
+            next,
+            portfolioSnapshotActor(boot.actor ?? actor),
+          )
+        }
+        return next
+      })
       setHydratedForUserId(sessionUserId)
       setHydrationFailed(false)
       markBootstrapFetched(true, actorKey)
@@ -1497,7 +1625,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ).then((full) => {
           if (cancelled || !full) return
           if (!bootstrapMatchesSession(deferredActor?.userId, readStoredAuthUserId())) return
-          setState((prev) => ensurePublicMarketplace(applyPostgresBootstrap(prev, full)))
+          setState((prev) => {
+            const next = ensurePublicMarketplace(applyPostgresBootstrap(prev, full))
+            const uid = deferredActor?.userId ?? readStoredAuthUserId()
+            if (uid) {
+              writePortfolioSnapshotFromState(
+                uid,
+                next,
+                portfolioSnapshotActor(full.actor ?? deferredActor ?? getApiActor()),
+              )
+            }
+            return next
+          })
         })
       })
     }
@@ -1517,6 +1656,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
   const resetToDefault = useCallback(() => {
     cacheWriterRef.current?.cancel()
+    clearPortfolioSnapshot()
     const fresh = defaultState()
     stateRef.current = fresh
     setState(fresh)
@@ -1540,6 +1680,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             STORAGE_KEY,
             LIVE_DATA_MODE ? serializeClientCache(st, owner, LIVE_DATA_MODE) : JSON.stringify(st),
           )
+          if (owner) writePortfolioSnapshotFromState(owner, st, portfolioSnapshotActor(getApiActor()))
         } catch {
           /* ignore quota errors */
         }
@@ -1576,28 +1717,118 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
+  const sessionRefreshIdRef = useRef(0)
+  const marketplaceRefreshIdRef = useRef(0)
+
+  const refreshSessionData = useCallback(
+    async (opts?: { full?: boolean; force?: boolean; ingestNotifications?: boolean }) => {
+      if (!LIVE_DATA_MODE) return
+      const requestId = ++sessionRefreshIdRef.current
+      patch((s) => ({ ...s, sessionRefreshing: true }))
+      try {
+        const actor = resolveBootstrapActor(stateRef.current.users)
+        await refreshBootstrap(actor, {
+          force: opts?.force ?? true,
+          full: opts?.full,
+          ingestNotifications: opts?.ingestNotifications,
+        })
+      } finally {
+        if (shouldApplyRefreshResult(requestId, sessionRefreshIdRef.current)) {
+          patch((s) => ({ ...s, sessionRefreshing: false }))
+        }
+      }
+    },
+    [patch, refreshBootstrap],
+  )
+
+  const refreshMarketplaceListings = useCallback(
+    async (opts?: { force?: boolean }) => {
+      if (!LIVE_DATA_MODE) return
+      const requestId = ++marketplaceRefreshIdRef.current
+      patch((s) => ({ ...s, marketplaceRefreshing: true }))
+      try {
+        const stored = readStoredAuthUserId()
+        const apiActor = getApiActor()
+        const isGuest = !stored && !apiActor?.userId
+        const current = stateRef.current
+
+        if (isGuest) {
+          const boot = await dedupeBootstrapFetch(
+            true,
+            () => fetchGuestMarketplaceBootstrap(true, 15_000),
+            { force: opts?.force ?? true },
+          )
+          if (!shouldApplyRefreshResult(requestId, marketplaceRefreshIdRef.current)) {
+            return
+          }
+          if (!boot) {
+            patch((s) => ({
+              ...s,
+              publicMarketplaceFetchFailed: true,
+              marketplaceRefreshing: false,
+            }))
+            return
+          }
+          patch((s) => ({
+            ...ensurePublicMarketplace(applyPostgresBootstrap(s, boot)),
+            publicMarketplaceFetchFailed: Boolean(boot.marketplaceFetchFailed),
+            marketplaceRefreshing: false,
+          }))
+          return
+        }
+
+        const slice = await fetchMergedPublicMarketplaceSlice({
+          properties: current.properties,
+          units: current.units,
+          users: current.users,
+          buildings: current.buildings,
+          viewingSlots: current.viewingSlots,
+          agencies: current.agencies,
+        })
+        if (!slice || !shouldApplyRefreshResult(requestId, marketplaceRefreshIdRef.current)) {
+          return
+        }
+        patch((s) => ({
+          ...s,
+          properties: mergeEntityLists(s.properties, slice.properties, 'properties', {
+            replaceWhenMissing: false,
+          }),
+          units: mergeEntityLists(s.units, slice.units, 'units', { replaceWhenMissing: false }),
+          users: mergeEntityLists(s.users, slice.users, 'users', { replaceWhenMissing: false }),
+          buildings: mergeEntityLists(s.buildings, slice.buildings, 'buildings', {
+            replaceWhenMissing: false,
+          }),
+          viewingSlots: mergeEntityLists(s.viewingSlots, slice.viewingSlots, 'viewingSlots', {
+            replaceWhenMissing: false,
+          }),
+          agencies: mergeEntityLists(s.agencies, slice.agencies as Agency[], 'agencies', {
+            replaceWhenMissing: false,
+          }),
+          marketplaceRefreshing: false,
+        }))
+      } finally {
+        if (shouldApplyRefreshResult(requestId, marketplaceRefreshIdRef.current)) {
+          patch((s) => ({ ...s, marketplaceRefreshing: false }))
+        }
+      }
+    },
+    [patch],
+  )
+
   const refreshPublicMarketplaceInState = useCallback(async () => {
-    if (!LIVE_DATA_MODE) return
-    const current = stateRef.current
-    const slice = await fetchMergedPublicMarketplaceSlice({
-      properties: current.properties,
-      units: current.units,
-      users: current.users,
-      buildings: current.buildings,
-      viewingSlots: current.viewingSlots,
-      agencies: current.agencies,
-    })
-    if (!slice) return
-    patch((s) => ({
-      ...s,
-      properties: slice.properties,
-      units: slice.units,
-      users: slice.users,
-      buildings: slice.buildings,
-      viewingSlots: slice.viewingSlots,
-      agencies: slice.agencies as Agency[],
-    }))
-  }, [patch])
+    await refreshMarketplaceListings({ force: true })
+  }, [refreshMarketplaceListings])
+
+  const refreshAfterMutationRef = useRef<number | null>(null)
+  const scheduleBootstrapRefreshAfterMutation = useCallback(() => {
+    if (refreshAfterMutationRef.current != null) {
+      window.clearTimeout(refreshAfterMutationRef.current)
+    }
+    refreshAfterMutationRef.current = window.setTimeout(() => {
+      refreshAfterMutationRef.current = null
+      void refreshSessionData({ force: true })
+    }, 1500)
+  }, [refreshSessionData])
 
   /** Durable persist for mutation paths that must gate success UI on a
    *  committed write. Marks the local write (so a concurrent bootstrap refresh
@@ -1632,7 +1863,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             resource === 'agency' ||
             resource === 'building' ||
             resource === 'unit' ||
-            resource === 'property')
+            resource === 'property' ||
+            resource === 'lead' ||
+            resource === 'application' ||
+            resource === 'viewing' ||
+            resource === 'viewing_slot' ||
+            resource === 'ticket')
         ) {
           scheduleBootstrapRefreshAfterMutation()
         }
@@ -1654,6 +1890,34 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       return result.ok
     },
     [persistUpsertResult],
+  )
+
+  const persistApplicationOrRollback = useCallback(
+    async (
+      applicationId: string,
+      nextApp: Application,
+      previousApp: Application | null | undefined,
+      userMessage?: { title: string; text?: string },
+    ): Promise<boolean> => {
+      const ok = await persistUpsert(
+        'application',
+        applicationId,
+        nextApp as unknown as Record<string, unknown>,
+      )
+      if (ok) return true
+      if (previousApp) {
+        patch((s) => ({
+          ...s,
+          applications: s.applications.map((a) => (a.id === applicationId ? previousApp : a)),
+        }))
+      }
+      if (userMessage) {
+        const { sweetError } = await import('../lib/sweetAlert')
+        await sweetError(userMessage.title, userMessage.text)
+      }
+      return false
+    },
+    [persistUpsert, patch],
   )
 
   /**
@@ -2077,7 +2341,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         )
       }
       addActivity(
-        `Template CSV import: ${fresh.length} unallocated receipt(s) from ${batch.filename} (recorded in Letkaya, not yet matched to the bank)`,
+        `Template CSV import: ${fresh.length} unallocated receipt(s) from ${batch.filename} (recorded in Lekaya, not yet matched to the bank)`,
         actor.name,
         params.agencyId,
       )
@@ -2536,6 +2800,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     },
     toasts,
     refreshBootstrap,
+    refreshSessionData,
+    refreshMarketplaceListings,
     resetDemo: () => {
       localStorage.removeItem(STORAGE_KEY)
       localStorage.removeItem(PG_HYDRATED_FLAG)
@@ -2698,7 +2964,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           ok: false as const,
           error:
             serverError ||
-            'Could not create a sign-in account for this user. Check the email is unused and try again — no success until Auth is verified.',
+            'Could not create this user. Check the email is unused and try again.',
           user,
         }
       }
@@ -2822,11 +3088,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             ...s,
             applications: s.applications.map((a) => (a.id === app.id ? updated : a)),
           }))
-          void leaseSaved.then((ok) => {
-            if (ok !== false) {
-              persistUpsert('application', app.id, updated as unknown as Record<string, unknown>)
-            }
-          })
+          if (await leaseSaved) {
+            await persistApplicationOrRollback(app.id, updated, app)
+          }
         }
       }
       return { ok: true }
@@ -3070,20 +3334,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
       const building: Building = existingBuilding ?? {
         ...(input.building as Omit<Building, 'id' | 'createdAt' | 'images'>),
-        id: uid('bld'),
+        id: input.ids?.buildingId ?? uid('bld'),
         images: input.building?.images?.length ? input.building.images : [],
         createdAt: new Date().toISOString().slice(0, 10),
       }
 
       // P0-4: Ensure single durable public ID - property.id is canonical, unit.id is derived
-      // P0-collision (R10): the wizard's leftover-draft bug reused one listing's
-      // unt- id for a second listing (rent/sale overwrite). Minting here is
-      // collision-guarded against the live property set as belt-and-braces —
-      // the wizard-side stale-draft fix (PropertyCreatePage) is the primary fix.
-      const propertyId = nextUniquePropertyId(
-        stateRef.current.properties.map((p) => p.id),
-        () => uid('unt'),
-      )
+      const propertyId = input.ids?.propertyId
+        ? input.ids.propertyId
+        : nextUniquePropertyId(stateRef.current.properties.map((p) => p.id), () => uid('unt'))
       const unitId = propertyId // Unit ID matches property ID for single public face
       const clientId = building.clientId
 
@@ -3125,7 +3384,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }
 
       const infraRooms: InfraRoom[] = roomDrafts.map((r, i) => ({
-        id: uid('rm'),
+        id: input.ids?.roomIds?.[i] ?? uid('rm'),
         clientId,
         unitId,
         name: r.name,
@@ -3206,6 +3465,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         baths: property.baths,
         area: property.area,
         images: property.images,
+        ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
       } as Record<string, unknown>
 
       const { persistErrorMessage } = await import('../lib/api/persist')
@@ -3244,13 +3504,23 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       if (!unitResult.ok) {
         throwPersistFailure('unit', persistErrorMessage(unitResult))
       }
+      if (unitResult.ok && unitResult.uuid) {
+        unit.backendId = unitResult.uuid
+        property.backendId = unitResult.uuid
+      }
 
       const propertyResult = await persistUpsertResult('property', property.id, {
         ...property,
         unitNumber: input.unit.unitNumber,
       } as unknown as Record<string, unknown>)
       if (!propertyResult.ok) {
-        throwPersistFailure('property', persistErrorMessage(propertyResult))
+        throw new CreatePropertyBundleError(
+          propertyId,
+          persistErrorMessage(propertyResult) ?? 'Could not save the property. Try again.',
+        )
+      }
+      if (propertyResult.ok && propertyResult.uuid) {
+        property.backendId = propertyResult.uuid
       }
 
       patch((s) => ({
@@ -3280,7 +3550,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           room as unknown as Record<string, unknown>,
         )
         if (!roomResult.ok) {
-          throwPersistFailure('room', persistErrorMessage(roomResult))
+          throw new CreatePropertyBundleError(
+            propertyId,
+            persistErrorMessage(roomResult) ?? 'Could not save a room. Try again.',
+          )
         }
       }
 
@@ -3560,6 +3833,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const property = stateRef.current.properties.find((x) => x.id === id)
       if (!property) return { ok: false, reason: 'Property not found.' }
 
+      const viewerUserId = readStoredAuthUserId() ?? getApiActor()?.userId ?? null
+      const actorUser = stateRef.current.users.find((u) => u.id === viewerUserId)
+      if (
+        !actorUser ||
+        !canDeleteStoredProperty(
+          { role: actorUser.role, userId: actorUser.id, agencyId: actorUser.agencyId },
+          property,
+        )
+      ) {
+        return { ok: false, reason: 'You do not have permission to delete this property.' }
+      }
+
       const blockReason = getPropertyDeleteBlockReason(
         property,
         stateRef.current.tenancies,
@@ -3593,9 +3878,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         propertyEvents: [pe, ...s.propertyEvents].slice(0, 400),
         units: property.unitId
           ? s.units.map((u) =>
-              u.id === property.unitId
-                ? { ...u, statusKey: 'DELETED', listingType: 'not_listed' }
-                : u,
+              u.id === property.unitId ? { ...u, statusKey: 'DELETED' } : u,
             )
           : s.units,
       }))
@@ -3612,7 +3895,6 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         status: 'Archived',
         featured: false,
         statusKey: 'DELETED',
-        listingMode: 'not_listed',
       } as Record<string, unknown>)
       if (!propertyResult.ok) {
         patch((s) => ({
@@ -3648,11 +3930,28 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       scheduleBootstrapRefreshAfterMutation()
       return { ok: true }
     },
-    restoreProperty: (id) => {
+    restoreProperty: async (id) => {
       const property = stateRef.current.properties.find((x) => x.id === id)
       if (!property?.deletedAt) {
         return { ok: false, reason: 'Property is not in the archive.' }
       }
+
+      const viewerUserId = readStoredAuthUserId() ?? getApiActor()?.userId ?? null
+      const actorUser = stateRef.current.users.find((u) => u.id === viewerUserId)
+      if (
+        !actorUser ||
+        !canDeleteStoredProperty(
+          { role: actorUser.role, userId: actorUser.id, agencyId: actorUser.agencyId },
+          property,
+        )
+      ) {
+        return { ok: false, reason: 'You do not have permission to restore this property.' }
+      }
+
+      const prevProperty = property
+      const prevUnit = property.unitId
+        ? stateRef.current.units.find((u) => u.id === property.unitId)
+        : undefined
 
       const pe: PropertyEvent = {
         id: uid('pe'),
@@ -3673,16 +3972,43 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         propertyEvents: [pe, ...s.propertyEvents].slice(0, 400),
         units: property.unitId
           ? s.units.map((u) =>
-              u.id === property.unitId
-                ? {
-                    ...u,
-                    statusKey: 'DRAFT',
-                    listingType: u.listingType === 'not_listed' ? 'rent' : u.listingType,
-                  }
-                : u,
+              u.id === property.unitId ? { ...u, statusKey: 'DRAFT' } : u,
             )
           : s.units,
       }))
+
+      const { persistErrorMessage } = await import('../lib/api/persist')
+      const { markLocalPersistWrite } = await import('../lib/bootstrapMerge')
+      if (property.unitId) {
+        markLocalPersistWrite('unit', property.unitId)
+      }
+
+      const propertyResult = await persistUpsertResult('property', id, {
+        ...property,
+        restore: true,
+        deletedAt: null,
+        status: 'Draft',
+        featured: false,
+        statusKey: 'DRAFT',
+      } as Record<string, unknown>)
+      if (!propertyResult.ok) {
+        patch((s) => ({
+          ...s,
+          properties: s.properties.map((x) => (x.id === id ? prevProperty : x)),
+          propertyEvents: s.propertyEvents.filter((e) => e.id !== pe.id),
+          units:
+            prevUnit
+              ? s.units.map((u) => (u.id === prevUnit.id ? prevUnit : u))
+              : s.units,
+        }))
+        return {
+          ok: false,
+          reason: persistErrorMessage(propertyResult) ?? 'Could not restore property.',
+        }
+      }
+
+      void persistUpsert('property_event', pe.id, pe as unknown as Record<string, unknown>)
+      markLocalPersistWrite('property', id)
 
       emitSuiteEvent({
         agencyId: property.agencyId,
@@ -3691,17 +4017,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         title: 'Property restored',
         body: `“${property.title}” is back as a draft.`,
         link: `/workspace/properties/${id}`,
-        recipientUserIds: propertyDeskStakeholderIds(state.users, property),
+        recipientUserIds: propertyDeskStakeholderIds(stateRef.current.users, property),
       })
 
-      persistUpsert('property', id, {
-        ...property,
-        deletedAt: null,
-        status: 'Draft',
-        featured: false,
-        statusKey: 'DRAFT',
-      } as Record<string, unknown>)
-      persistUpsert('property_event', pe.id, pe as unknown as Record<string, unknown>)
+      void refreshPublicMarketplaceInState()
       scheduleBootstrapRefreshAfterMutation()
       return { ok: true }
     },
@@ -4394,6 +4713,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           httpStatus: 422,
         } as SubmitApplicationResult
       }
+      const initialWorkflow = initialWorkflowForCreate({
+        skipGuards: input.skipGuards,
+        uploadedDocs: input.uploadedDocs,
+      })
+      const agencyRow = state.agencies.find((a) => a.id === agencyId)
+      const journeySnapshot = defaultRentalJourneyForAgency(agencyRow?.settings)
+      const employmentLine =
+        input.employment?.trim() ||
+        formatEmploymentSummary(input.employerName, input.jobTitle)
       const app: Application = {
         id: uid('APP'),
         agencyId,
@@ -4405,11 +4733,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         email: input.email,
         phone: input.phone,
         type: input.type,
-        workflowStatus: 'application_submitted',
-        stage: 'Application submitted',
+        workflowStatus: initialWorkflow.workflowStatus,
+        stage: initialWorkflow.stage,
         progress: STAGE_PROGRESS['Documents Pending'],
         income: input.income ?? 0,
-        employment: input.employment ?? 'To be completed',
+        employment: employmentLine,
+        employerName: input.employerName?.trim() || undefined,
+        jobTitle: input.jobTitle?.trim() || undefined,
         idNumberOrPassport: input.idNumberOrPassport,
         uploadedDocs: input.uploadedDocs,
         creditCheck: 'Not Started',
@@ -4420,6 +4750,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         notes: '',
         submittedAt: new Date().toISOString().slice(0, 10),
         updatedAt: new Date().toISOString().slice(0, 10),
+        journeySnapshot,
+        journeyVersion: journeySnapshot.version,
       }
       // P0-integrity: normalize once at creation so the stored stage label,
       // machine status and progress always agree — staff and applicant read
@@ -4473,38 +4805,58 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       // Additive: email confirmation to the applicant (works in both API and
       // Supabase modes since it rides the same origin). Fire-and-forget — a
       // mail hiccup must never block or fail the application.
-      void fetch('/api/notify/application-received', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: app.email,
-          applicantName: app.applicantName,
-          propertyTitle: property?.title,
-          referenceCode: app.id,
-        }),
-      }).catch(() => {})
+      void (async () => {
+        const { resolveApiAuthorizationHeader } = await import('../lib/api/authClient')
+        await fetch('/api/notify/application-received', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...actorHeaders(),
+            ...(await resolveApiAuthorizationHeader()),
+          },
+          body: JSON.stringify({
+            email: normalizedApp.email,
+            applicantName: normalizedApp.applicantName,
+            propertyTitle: property?.title,
+            referenceCode: normalizedApp.id,
+          }),
+        }).catch(() => {})
+      })()
 
       return app
     },
-    captureApplicationScreeningConsent: (applicationId, input) => {
-      let persisted: Application | null = null
-      patch((s) => ({
-        ...s,
-        applications: s.applications.map((a) => {
-          if (a.id !== applicationId) return a
-          const next = captureScreeningConsent(a, {
+    captureApplicationScreeningConsent: async (applicationId, input) => {
+      const prev = state.applications.find((a) => a.id === applicationId)
+      if (!prev) return null
+      let next: Application
+      if (input?.adults?.length) {
+        const roster = input.adults.map((a) => ({ name: a.name, idNumber: a.idNumber }))
+        const withRoster = setCreditConsentAdultRoster(prev, roster)
+        next = normalizeApplication(
+          captureAdultCreditCheckConsents(withRoster, {
+            adults: input.adults,
+            grantedBy: input?.grantedBy ?? null,
+          }),
+        )
+      } else {
+        next = normalizeApplication(
+          captureScreeningConsent(prev, {
             grantedBy: input?.grantedBy ?? null,
             method: input?.method ?? 'staff',
             note: input?.note,
-          })
-          persisted = next
-          return next
-        }),
-      }))
-      if (persisted) {
-        persistUpsert('application', applicationId, persisted as unknown as Record<string, unknown>)
+          }),
+        )
       }
-      return persisted
+      patch((s) => ({
+        ...s,
+        applications: s.applications.map((a) => (a.id === applicationId ? next : a)),
+      }))
+      const persisted = await persistApplicationOrRollback(applicationId, next, prev, {
+        title: 'Consent not saved',
+        text: 'Please try again.',
+      })
+      if (!persisted) return null
+      return next
     },
     startApplicationScreening: async ({ applicationId, actorUserId }) => {
       const app = state.applications.find((a) => a.id === applicationId)
@@ -4516,11 +4868,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       })
       if (started.ok === false) return { ok: false as const, error: started.error }
       const updated = normalizeApplication(started.application)
+      const prevSnap = app
       patch((s) => ({
         ...s,
         applications: s.applications.map((a) => (a.id === applicationId ? updated : a)),
       }))
-      persistUpsert('application', applicationId, updated as unknown as Record<string, unknown>)
+      const saved = await persistApplicationOrRollback(applicationId, updated, prevSnap, {
+        title: 'Screening not saved',
+        text: 'Please try again.',
+      })
+      if (!saved) return { ok: false as const, error: 'Could not save screening start' }
       addActivity(`Screening started for ${updated.applicantName}`, actorUser?.name ?? 'Agency', updated.agencyId)
       return { ok: true as const, application: updated }
     },
@@ -4600,11 +4957,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         }
       }
       if (prev) {
-        persistUpsert('application', id, {
+        const nextApp = {
           ...prev,
           ...p,
           updatedAt: new Date().toISOString().slice(0, 10),
-        } as unknown as Record<string, unknown>)
+        } as Application
+        void persistApplicationOrRollback(id, nextApp, prev, {
+          title: 'Application not saved',
+          text: 'Please try again.',
+        })
       }
     },
     setDocumentStatus: async (applicationId, key, status, note) => {
@@ -4699,20 +5060,25 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           return result
         }),
       }))
-      if (persisted) {
-        const before = preUpload
-        const app = persisted as Application
-        void persistUpsert('application', applicationId, applicationUploadPayload(app, key, actor?.userId)).then(
-          (ok) => {
-            // A refused upload must not stay on screen as if it were saved.
-            if (ok || !before) return
-            patch((s) => ({
-              ...s,
-              applications: s.applications.map((a) => (a.id === applicationId ? before : a)),
-            }))
-          },
+      if (!persisted) return
+      const before = preUpload
+      const app = persisted as Application
+      void (async () => {
+        const ok = await persistUpsert(
+          'application',
+          applicationId,
+          applicationUploadPayload(app, key, actor?.userId) as unknown as Record<string, unknown>,
         )
-      }
+        if (ok) return
+        if (before) {
+          patch((s) => ({
+            ...s,
+            applications: s.applications.map((a) => (a.id === applicationId ? before : a)),
+          }))
+        }
+        const { sweetError } = await import('../lib/sweetAlert')
+        void sweetError('Upload not saved', 'Could not save this document. Try again.')
+      })()
     },
     advanceApplication: (id, to) => {
       patch((s) => ({
@@ -4726,22 +5092,21 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const prev = state.applications.find((a) => a.id === id)
       if (prev) {
         const stage = to ?? prev.stage
-        persistUpsert('application', id, {
+        const nextApp = {
           ...prev,
           stage,
           progress: STAGE_PROGRESS[stage] ?? prev.progress,
           updatedAt: new Date().toISOString().slice(0, 10),
-        } as unknown as Record<string, unknown>)
+        } as Application
+        void persistApplicationOrRollback(id, nextApp, prev)
       }
     },
-    approveApplication: async (id) => {
+    approveApplication: async (id, options) => {
       const app = state.applications.find((a) => a.id === id)
-      const actorUser =
-        state.users.find(
-          (u) =>
-            u.agencyId === app?.agencyId &&
-            (u.role === 'client_admin' || u.role === 'agent_admin'),
-        ) ?? state.users.find((u) => u.role === 'super_admin')
+      const actorUserId = options?.actorUserId ?? getApiActor()?.userId ?? null
+      const actorUser = actorUserId
+        ? state.users.find((u) => u.id === actorUserId)
+        : undefined
 
       // P0-approve (R8): snapshot of the pre-approve state. If the durable
       // mirror write fails, this restores the optimistic patch so the UI
@@ -4758,7 +5123,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
       setState((s) => {
         const current = s.applications.find((a) => a.id === id)
-        const actor = s.users.find((u) => u.id === (actorUser?.id ?? ''))
+        const actor = s.users.find((u) => u.id === (actorUserId ?? ''))
         const property = current ? s.properties.find((p) => p.id === current.propertyId) : undefined
         const unitId = current?.unitId ?? property?.unitId ?? null
         const unit = unitId ? s.units.find((u) => u.id === unitId) : undefined
@@ -4778,10 +5143,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           existingTenancies: s.tenancies,
           request: { status: 'APPROVED', payment_provider: 'auto' },
           actor: {
-            userId: actorUser?.id ?? 'system',
-            role: actor?.role ?? ('client_admin' as Role),
-            agencyId: actor?.agencyId ?? current?.agencyId ?? null,
-            permissions: rolePermissions[actor?.role ?? 'client_admin'] ?? [],
+            userId: actorUserId ?? actorUser?.id ?? 'system',
+            role: actor?.role ?? actorUser?.role ?? ('client_admin' as Role),
+            agencyId: actor?.agencyId ?? actorUser?.agencyId ?? current?.agencyId ?? null,
+            permissions: rolePermissions[actor?.role ?? actorUser?.role ?? 'client_admin'] ?? [],
           },
         })
 
@@ -4847,7 +5212,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         // The RPC stays best-effort for when a future deploy fixes it.
         void persistApproveApplication({
           applicationId: id,
-          actorUserId: actorUser?.id,
+          actorUserId: actorUserId ?? undefined,
           tenancy: ok.side_effects.lease
             ? (ok.side_effects.lease as unknown as Record<string, unknown>)
             : undefined,
@@ -4926,15 +5291,41 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             stateRef.current.tenancies.find((t) => t.id === ok.side_effects.lease!.id) ??
             ok.side_effects.lease
           await issueLeasePackageForTenancy(leaseRow, {
-            userId: actorUser?.id,
+            userId: actorUserId ?? undefined,
             name: actorUser?.name,
           })
+        }
+        if (approvedRemotely && app?.email) {
+          const propTitle = stateRef.current.properties.find((p) => p.id === app.propertyId)?.title
+          void (async () => {
+            const { resolveApiAuthorizationHeader } = await import('../lib/api/authClient')
+            await fetch('/api/notify/application-approved', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...actorHeaders(),
+                ...(await resolveApiAuthorizationHeader()),
+              },
+              body: JSON.stringify({
+                applicationId: id,
+                email: app.email,
+                applicantName: app.applicantName,
+                propertyTitle: propTitle,
+              }),
+            }).catch(() => {})
+          })()
         }
       }
 
       return result
     },
-    advanceApplicationWorkflow: async ({ applicationId, actorUserId, targetStatus, signature }) => {
+    advanceApplicationWorkflow: async ({
+      applicationId,
+      actorUserId,
+      targetStatus,
+      signature,
+      capture,
+    }) => {
       const app = state.applications.find((a) => a.id === applicationId)
       if (!app) {
         return {
@@ -5265,7 +5656,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           ...s,
           applications: s.applications.map((a) => (a.id === applicationId ? updatedApp : a)),
         }))
-        persistUpsert('application', applicationId, updatedApp as unknown as Record<string, unknown>)
+        const prevKey = stateRef.current.applications.find((a) => a.id === applicationId) ?? app
+        await persistApplicationOrRollback(applicationId, updatedApp, prevKey)
         addActivity(`Key handover completed for ${updatedApp.applicantName}`, actorUser?.name ?? 'Agency', updatedApp.agencyId)
         return { status: 'SUCCESS', application: updatedApp }
       }
@@ -5289,6 +5681,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         }
       }
       let updated = normalizeApplication(applyWorkflowTransition(app, targetStatus))
+      if (capture?.reason?.trim()) {
+        const reason = capture.reason.trim()
+        updated = { ...updated, declineReason: reason, notes: reason }
+      }
       // Real screening: entering credit_check starts the provider (consent-gated).
       // Approve paths must never invent Passed — that lives in the screening pipeline only.
       if (targetStatus === 'credit_check') {
@@ -5313,16 +5709,62 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         actorName: actorUser?.name ?? 'Agency',
         summary: `${updated.applicantName}: ${updated.stage}`,
       })
+      const preWorkflow = app
       patch((s) => ({
         ...s,
         applications: s.applications.map((a) => (a.id === applicationId ? updated : a)),
       }))
-      persistUpsert('application', applicationId, updated as unknown as Record<string, unknown>)
+      const workflowSaved = await persistApplicationOrRollback(applicationId, updated, preWorkflow, {
+        title: 'Workflow not saved',
+        text: 'Please try again.',
+      })
+      if (!workflowSaved) {
+        return {
+          status: 'ERROR' as const,
+          httpStatus: 502 as const,
+          error: 'This workflow step could not be saved.',
+          code: 'PERSIST_FAILED' as const,
+        }
+      }
       addActivity(
         `${updated.applicantName}: ${updated.stage}`,
         actorUser?.name ?? 'Agency',
         updated.agencyId,
       )
+      if (targetStatus === 'rejected' && updated.applicantUserId) {
+        const propertyTitle = state.properties.find((p) => p.id === updated.propertyId)?.title
+        notify({
+          userId: updated.applicantUserId,
+          agencyId: updated.agencyId,
+          title: 'Application update',
+          body: updated.declineReason
+            ? `Your application was not approved: ${updated.declineReason}`
+            : 'Your application was not approved.',
+          link: `/workspace/portals/tenant/applications/${encodeURIComponent(applicationId)}`,
+          resource: 'applicant',
+          action: 'updated',
+        })
+        if (updated.email) {
+          void (async () => {
+            const { resolveApiAuthorizationHeader } = await import('../lib/api/authClient')
+            await fetch('/api/notify/application-declined', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...actorHeaders(),
+                ...(await resolveApiAuthorizationHeader()),
+              },
+              body: JSON.stringify({
+                applicationId,
+                email: updated.email,
+                applicantName: updated.applicantName,
+                propertyTitle,
+                reason: updated.declineReason,
+              }),
+            }).catch(() => {})
+          })()
+        }
+      }
       // API mode: the server writes these notices (server/acceptedElsewhere.ts).
       if (!isApiEnabled && isApplicantAcceptanceStatus(targetStatus)) {
         notifyAcceptedElsewhere({
@@ -5549,13 +5991,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           notifications: [...notifications, ...s.notifications],
         }
       })
-      persistUpsert('application', id, updatedApp as unknown as Record<string, unknown>)
+      void persistApplicationOrRollback(id, updatedApp, app)
       for (const n of notifications) {
-        persistUpsert('notification', n.id, n as unknown as Record<string, unknown>)
+        void persistUpsert('notification', n.id, n as unknown as Record<string, unknown>)
       }
       addActivity(`Key handover email sent to ${app.applicantName}`, 'System', app.agencyId)
     },
-    completeKeyHandover: (id) => {
+    completeKeyHandover: async (id) => {
       const app = state.applications.find((a) => a.id === id)
       if (!app) return
       const prop = state.properties.find((p) => p.id === app.propertyId)
@@ -5610,10 +6052,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             : s.properties,
         }
       })
-      persistUpsert('application', id, updatedApp as unknown as Record<string, unknown>)
-      persistUpsert('tenancy', tenancy.id, tenancy as unknown as Record<string, unknown>)
+      const prevApp = app
+      await persistApplicationOrRollback(id, updatedApp, prevApp)
+      await persistUpsert('tenancy', tenancy.id, tenancy as unknown as Record<string, unknown>)
       if (updatedProp) {
-        persistUpsert('property', updatedProp.id, updatedProp as unknown as Record<string, unknown>)
+        await persistUpsert('property', updatedProp.id, updatedProp as unknown as Record<string, unknown>)
       }
       addActivity(
         `Keys handed over — ${app.applicantName} is now an active occupant`,
@@ -5659,6 +6102,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           state.properties.find((p) => p.id === slot.propertyId),
         ),
       })
+      scheduleBootstrapRefreshAfterMutation()
       return slot
     },
     updateViewingSlot: (id, p) => {
@@ -5764,6 +6208,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           })
         }
       }
+      scheduleBootstrapRefreshAfterMutation()
     },
     removeViewing: (id) => {
       const viewing = state.viewings.find((v) => v.id === id)
@@ -5811,6 +6256,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           recipientUserIds: viewingDeskStakeholderIds(state.users, viewing, property),
         })
       }
+      scheduleBootstrapRefreshAfterMutation()
     },
     removeViewingSlot: (id) => {
       const slot = state.viewingSlots.find((s) => s.id === id)
@@ -5842,6 +6288,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           recipientUserIds: viewingSlotDeskStakeholderIds(state.users, slot, property),
         })
       }
+      scheduleBootstrapRefreshAfterMutation()
     },
     transferViewingSlot: (fromSlotId, toSlotId) => {
       let ok = false
@@ -5917,6 +6364,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             ? viewingSlotDeskStakeholderIds(state.users, transferSlot, transferProperty)
             : [],
         })
+        scheduleBootstrapRefreshAfterMutation()
       }
       return ok
     },
@@ -6003,13 +6451,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           if (app) {
             // After the booking lands: for a tenant the server accepts
             // viewingSlotId only for a slot they hold a booking on.
-            void bookingSaved.then(() =>
-              persistUpsert('application', applicationId, {
+            void bookingSaved.then(async () => {
+              const nextApp = {
                 ...app,
                 viewingSlotId: slotId,
                 updatedAt: new Date().toISOString().slice(0, 10),
-              } as unknown as Record<string, unknown>),
-            )
+              } as Application
+              await persistApplicationOrRollback(applicationId, nextApp, app)
+            })
           }
         }
         const property = state.properties.find((p) => p.id === created.propertyId)
@@ -6061,6 +6510,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       notifyViewingScheduled(notify, state.users, state.applications, viewing, property, {
         excludeUserId: viewing.agentId,
       })
+      scheduleBootstrapRefreshAfterMutation()
       return viewing
     },
     updateViewing: (id, p) => {
@@ -6162,6 +6612,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           recipientUserIds: viewingDeskStakeholderIds(state.users, prev, property),
         })
       }
+      scheduleBootstrapRefreshAfterMutation()
     },
     createPayment: (input) => {
       const payment: PaymentRecord = {
@@ -6931,6 +7382,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }
       persistUpsert('ticket', ticket.id, ticket as unknown as Record<string, unknown>)
       notifyMaintenanceOpened(notify, state.users, ticket, prop, ticket.reportedByUserId)
+      scheduleBootstrapRefreshAfterMutation()
       return ticket
     },
     createMaintenanceTicket: ({ actorUserId, request, propertyId, tenancyId }) => {
@@ -7171,6 +7623,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           })
         }
       }
+      scheduleBootstrapRefreshAfterMutation()
     },
     assignContractorToTicket: ({ ticketId, contractorUserId, actorUserId }) => {
       const ticket = state.tickets.find((t) => t.id === ticketId)
@@ -7488,7 +7941,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     proposePayoutInstruction,
     approvePayoutInstruction,
     submitPayoutInstruction,
-  }), [state, hydratedForUserId, hydrationFailed, resetToDefault, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, importTrustTemplateCsv, upsertHeldDeposit, proposeDepositReleaseAction, approveDepositReleaseAction, rejectDepositReleaseAction, cancelDepositReleaseAction, recordDepositRefundAction, proposePayoutInstruction, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistDelete, refreshBootstrap, scheduleBootstrapRefreshAfterMutation, issueLeasePackageForTenancy])
+  }), [state, hydratedForUserId, hydrationFailed, resetToDefault, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, importTrustTemplateCsv, upsertHeldDeposit, proposeDepositReleaseAction, approveDepositReleaseAction, rejectDepositReleaseAction, cancelDepositReleaseAction, recordDepositRefundAction, proposePayoutInstruction, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistUpsertResult, persistDelete, refreshBootstrap, refreshSessionData, refreshMarketplaceListings, scheduleBootstrapRefreshAfterMutation, issueLeasePackageForTenancy])
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }

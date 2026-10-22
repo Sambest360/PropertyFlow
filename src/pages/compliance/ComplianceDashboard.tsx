@@ -9,8 +9,12 @@ import {
   Clock,
 } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
-import { useAgencyScope, useAuth } from '../../context/AuthContext'
-import { buildComplianceVerificationQueue } from '../../lib/complianceQueue'
+import { useAgencyScope, useAuth, usePropertyScope } from '../../context/AuthContext'
+import {
+  buildComplianceRejectedVerifications,
+  buildComplianceVerificationQueue,
+  type ComplianceVerificationRow,
+} from '../../lib/complianceQueue'
 import type { PropertyDocument } from '../../types/domain'
 import {
   PageHeader,
@@ -19,21 +23,13 @@ import {
   Badge,
   Button,
   EmptyState,
-  Input,
+  cn,
 } from '../../components/ui'
 import { DashboardPage } from '../../components/dashboard'
-import { SectionSubnav } from '../../components/layout/SectionSubnav'
+import { DeclineVerificationModal } from '../../components/compliance/DeclineVerificationModal'
 import { apiUpdateUserVerification } from '../../lib/api/authClient'
-import { sweetConfirm } from '../../lib/sweetAlert'
 
-type VerificationRow = {
-  userId: string
-  name: string
-  email: string
-  role: string
-  status: 'pending'
-  submittedAt?: string
-}
+type VerificationTab = 'pending' | 'rejected'
 
 const COMPLIANCE_CATEGORIES: PropertyDocument['category'][] = ['Compliance', 'Title']
 
@@ -67,15 +63,23 @@ function docStatusLabel(status: PropertyDocument['status']) {
 export default function ComplianceDashboard() {
   const { user } = useAuth()
   const { scopeAgency } = useAgencyScope()
+  const { allowedPropertyIds } = usePropertyScope()
   const { state, updatePropertyDocument, updateUser } = useStore()
   const { users, properties, propertyDocuments } = state
-  const [rejectNote, setRejectNote] = useState<Record<string, string>>({})
+  const [declineTarget, setDeclineTarget] = useState<ComplianceVerificationRow | null>(null)
+  const [verificationTab, setVerificationTab] = useState<VerificationTab>('pending')
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [busyAction, setBusyAction] = useState<'approve' | 'reject' | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const isPrincipal = user?.role === 'super_admin' || user?.role === 'client_admin'
-  const verificationQueue: VerificationRow[] = useMemo(
+  const verificationQueue: ComplianceVerificationRow[] = useMemo(
     () => buildComplianceVerificationQueue(users, (u) => scopeAgency(u.agencyId)),
+    [users, scopeAgency],
+  )
+
+  const rejectedVerifications: ComplianceVerificationRow[] = useMemo(
+    () => buildComplianceRejectedVerifications(users, (u) => scopeAgency(u.agencyId)),
     [users, scopeAgency],
   )
 
@@ -83,12 +87,8 @@ export default function ComplianceDashboard() {
     () =>
       propertyDocuments
         .filter((d) => COMPLIANCE_CATEGORIES.includes(d.category))
-        .filter((d) => {
-          const property = properties.find((p) => p.id === d.propertyId)
-          if (!property) return false
-          return scopeAgency(property.agencyId)
-        }),
-    [propertyDocuments, properties, scopeAgency],
+        .filter((d) => allowedPropertyIds.has(d.propertyId)),
+    [propertyDocuments, allowedPropertyIds],
   )
 
   const docsNeedingAction = complianceDocs.filter((d) => d.status !== 'verified')
@@ -100,35 +100,50 @@ export default function ComplianceDashboard() {
     actionDocs: docsNeedingAction.length,
   }
 
-  const decideVerification = async (row: VerificationRow, status: 'approved' | 'rejected') => {
+  const decideVerification = async (
+    row: ComplianceVerificationRow,
+    status: 'approved' | 'rejected',
+    rejectNote?: string,
+  ) => {
     if (status === 'rejected') {
-      const note = (rejectNote[row.userId] ?? '').trim()
+      const note = rejectNote?.trim() ?? ''
       if (!note) {
         setError('Add a rejection note first.')
         return
       }
-      const ok = await sweetConfirm('Decline verification?', `${row.name} will be notified with your note.`)
-      if (!ok) return
     }
     setError(null)
     setBusyId(row.userId)
+    setBusyAction(status === 'approved' ? 'approve' : 'reject')
+    const trimmedNote = rejectNote?.trim()
+    const subject = users.find((u) => u.id === row.userId)
     try {
       const dto = await apiUpdateUserVerification({
         userId: row.userId,
         status,
-        rejectNote: status === 'rejected' ? rejectNote[row.userId]?.trim() : undefined,
+        rejectNote: status === 'rejected' ? trimmedNote : undefined,
+        subject: subject
+          ? {
+              name: subject.name,
+              email: subject.email ?? '',
+              role: subject.role,
+              agencyId: subject.agencyId,
+              active: subject.active,
+            }
+          : undefined,
       })
       if (dto.verification) {
         updateUser(row.userId, { verification: dto.verification })
       } else {
         updateUser(row.userId, {
           verification: {
-            ...(status === 'rejected' ? { rejectNote: rejectNote[row.userId]?.trim() } : {}),
+            ...(status === 'rejected' && trimmedNote ? { rejectNote: trimmedNote } : {}),
             status,
             reviewedAt: new Date().toISOString(),
           },
         })
       }
+      if (status === 'rejected') setDeclineTarget(null)
     } catch (err) {
       // No fallback to a plain user write: verification decisions go through the
       // super-admin route only (a user write cannot change verification).
@@ -139,6 +154,7 @@ export default function ComplianceDashboard() {
       )
     } finally {
       setBusyId(null)
+      setBusyAction(null)
     }
   }
 
@@ -157,7 +173,31 @@ export default function ComplianceDashboard() {
 
   return (
     <DashboardPage>
-      <SectionSubnav items={[{ to: '/workspace/compliance', label: 'Dashboard', end: true }]} />
+      <nav
+        className="mb-5 flex gap-1 overflow-x-auto border-b border-primary-100 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        aria-label="Verification views"
+      >
+        {(
+          [
+            { id: 'pending' as const, label: 'Pending' },
+            { id: 'rejected' as const, label: 'Rejected' },
+          ] as const
+        ).map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setVerificationTab(tab.id)}
+            className={cn(
+              'min-h-11 shrink-0 cursor-pointer border-b-2 px-4 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+              verificationTab === tab.id
+                ? 'border-primary text-primary'
+                : 'border-transparent text-ink-400 hover:text-ink-600',
+            )}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
       <PageHeader
         title="Compliance"
         subtitle="Verification queue and property compliance documents"
@@ -195,81 +235,117 @@ export default function ComplianceDashboard() {
         </Card>
       ) : null}
 
-      {/* Verification queue */}
+      {/* Verification queue / rejected history */}
       <Card>
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-ink">Verification queue</h2>
-          <Badge tone={stats.pendingVerifications > 0 ? 'warning' : 'neutral'}>
-            {stats.pendingVerifications} pending
+          <h2 className="text-base font-semibold text-ink">
+            {verificationTab === 'pending' ? 'Verification queue' : 'Rejected verifications'}
+          </h2>
+          <Badge
+            tone={
+              verificationTab === 'pending'
+                ? stats.pendingVerifications > 0
+                  ? 'warning'
+                  : 'neutral'
+                : rejectedVerifications.length > 0
+                  ? 'danger'
+                  : 'neutral'
+            }
+          >
+            {verificationTab === 'pending'
+              ? `${stats.pendingVerifications} pending`
+              : `${rejectedVerifications.length} rejected`}
           </Badge>
         </div>
-        {verificationQueue.length === 0 ? (
+        {verificationTab === 'pending' ? (
+          verificationQueue.length === 0 ? (
+            <EmptyState
+              title="No pending verifications"
+              description="Landlord and contractor onboarding reviews appear here when submitted."
+            />
+          ) : (
+            <ul className="divide-y divide-primary-100">
+              {verificationQueue.map((row) => (
+                <li key={row.userId} className="flex flex-col gap-3 py-4 lg:flex-row lg:items-center">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-sm font-semibold text-ink">{row.name}</p>
+                      <Badge tone={row.role === 'landlord' ? 'info' : 'neutral'}>{row.role}</Badge>
+                    </div>
+                    <p className="truncate text-xs text-ink-500">{row.email}</p>
+                    {row.submittedAt ? (
+                      <p className="mt-0.5 flex items-center gap-1 text-xs text-ink-400">
+                        <Clock className="h-3 w-3" aria-hidden /> Submitted{' '}
+                        {new Date(row.submittedAt).toLocaleDateString('en-ZA', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric',
+                        })}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    {isPrincipal ? (
+                      <>
+                        <Button
+                          type="button"
+                          className="min-h-11 cursor-pointer"
+                          disabled={busyId === row.userId}
+                          aria-busy={busyId === row.userId && busyAction === 'approve'}
+                          onClick={() => void decideVerification(row, 'approved')}
+                        >
+                          {busyId === row.userId && busyAction === 'approve'
+                            ? 'Approving…'
+                            : 'Approve'}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="min-h-11 cursor-pointer"
+                          disabled={busyId === row.userId}
+                          onClick={() => setDeclineTarget(row)}
+                        >
+                          Reject
+                        </Button>
+                      </>
+                    ) : (
+                      <Badge tone="warning">Principal approval required</Badge>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )
+        ) : rejectedVerifications.length === 0 ? (
           <EmptyState
-            title="No pending verifications"
-            description="Landlord and contractor onboarding reviews appear here when submitted."
+            title="No rejected verifications"
+            description="Declined landlord and contractor applications appear here for your records."
           />
         ) : (
           <ul className="divide-y divide-primary-100">
-            {verificationQueue.map((row) => (
-              <li key={row.userId} className="flex flex-col gap-3 py-4 lg:flex-row lg:items-center">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="truncate text-sm font-semibold text-ink">{row.name}</p>
-                    <Badge tone={row.role === 'landlord' ? 'info' : 'neutral'}>{row.role}</Badge>
-                  </div>
-                  <p className="truncate text-xs text-ink-500">{row.email}</p>
-                  {row.submittedAt ? (
-                    <p className="mt-0.5 flex items-center gap-1 text-xs text-ink-400">
-                      <Clock className="h-3 w-3" aria-hidden /> Submitted{' '}
-                      {new Date(row.submittedAt).toLocaleDateString('en-ZA', {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                      })}
-                    </p>
-                  ) : null}
-                  {row.status === 'pending' && rejectNote[row.userId] !== undefined ? (
-                    <Input
-                      className="mt-2 max-w-md min-h-11"
-                      placeholder="Decline note (required to decline)"
-                      value={rejectNote[row.userId]}
-                      onChange={(e) =>
-                        setRejectNote((m) => ({ ...m, [row.userId]: e.target.value }))
-                      }
-                    />
-                  ) : null}
+            {rejectedVerifications.map((row) => (
+              <li key={row.userId} className="flex flex-col gap-2 py-4">
+                <div className="flex items-center gap-2">
+                  <p className="truncate text-sm font-semibold text-ink">{row.name}</p>
+                  <Badge tone={row.role === 'landlord' ? 'info' : 'neutral'}>{row.role}</Badge>
+                  <Badge tone="danger">Rejected</Badge>
                 </div>
-                <div className="flex shrink-0 gap-2">
-                  {isPrincipal ? (
-                    <>
-                      <Button
-                        type="button"
-                        className="min-h-11 cursor-pointer"
-                        disabled={busyId === row.userId}
-                        onClick={() => void decideVerification(row, 'approved')}
-                      >
-                        Approve
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        className="min-h-11 cursor-pointer"
-                        disabled={busyId === row.userId}
-                        onClick={() => {
-                          if (rejectNote[row.userId] === undefined) {
-                            setRejectNote((m) => ({ ...m, [row.userId]: '' }))
-                          } else {
-                            void decideVerification(row, 'rejected')
-                          }
-                        }}
-                      >
-                        {rejectNote[row.userId] === undefined ? 'Reject…' : 'Confirm reject'}
-                      </Button>
-                    </>
-                  ) : (
-                    <Badge tone="warning">Principal approval required</Badge>
-                  )}
-                </div>
+                <p className="truncate text-xs text-ink-500">{row.email}</p>
+                {row.reviewedAt ? (
+                  <p className="flex items-center gap-1 text-xs text-ink-400">
+                    <Clock className="h-3 w-3" aria-hidden /> Declined{' '}
+                    {new Date(row.reviewedAt).toLocaleDateString('en-ZA', {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric',
+                    })}
+                  </p>
+                ) : null}
+                {row.rejectNote?.trim() ? (
+                  <p className="rounded-xl bg-primary-50 px-3 py-2 text-xs text-ink-600">
+                    {row.rejectNote.trim()}
+                  </p>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -358,7 +434,7 @@ export default function ComplianceDashboard() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => markDocRejected(d, rejectNote[`doc-${d.id}`] ?? '')}
+                              onClick={() => markDocRejected(d, '')}
                               className="cursor-pointer text-xs font-semibold text-red-600 hover:underline"
                             >
                               Reject
@@ -381,6 +457,16 @@ export default function ComplianceDashboard() {
           </div>
         )}
       </Card>
+
+      <DeclineVerificationModal
+        open={declineTarget !== null}
+        subjectName={declineTarget?.name ?? ''}
+        subjectRole={declineTarget?.role ?? ''}
+        onClose={() => setDeclineTarget(null)}
+        onConfirm={(note) => {
+          if (declineTarget) void decideVerification(declineTarget, 'rejected', note)
+        }}
+      />
     </DashboardPage>
   )
 }

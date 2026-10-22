@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { Application } from '../../types/domain'
 import { formatZAR } from '../../data/seed'
+import { formatEmploymentSummary } from '../../lib/employmentDisplay'
 import { Button, Card, Input } from '../ui'
 
 export function TenantApplicationDetailsForm({
@@ -13,7 +14,8 @@ export function TenantApplicationDetailsForm({
   autoSave?: boolean
 }) {
   const [phone, setPhone] = useState(application.phone ?? '')
-  const [employment, setEmployment] = useState(application.employment ?? '')
+  const [employerName, setEmployerName] = useState(application.employerName ?? '')
+  const [jobTitle, setJobTitle] = useState(application.jobTitle ?? '')
   const [income, setIncome] = useState(String(application.income || ''))
   const [idNumber, setIdNumber] = useState(application.idNumberOrPassport ?? '')
   const [saved, setSaved] = useState(false)
@@ -21,17 +23,31 @@ export function TenantApplicationDetailsForm({
 
   useEffect(() => {
     setPhone(application.phone ?? '')
-    setEmployment(application.employment ?? '')
+    setEmployerName(application.employerName ?? '')
+    setJobTitle(application.jobTitle ?? '')
     setIncome(String(application.income || ''))
     setIdNumber(application.idNumberOrPassport ?? '')
-  }, [application.id, application.phone, application.employment, application.income, application.idNumberOrPassport])
+  }, [
+    application.id,
+    application.phone,
+    application.employerName,
+    application.jobTitle,
+    application.income,
+    application.idNumberOrPassport,
+  ])
 
-  const buildPatch = (): Partial<Application> => ({
-    phone: phone.trim(),
-    employment: employment.trim(),
-    income: Number(income) || 0,
-    idNumberOrPassport: idNumber.trim() || undefined,
-  })
+  const buildPatch = (): Partial<Application> => {
+    const employer = employerName.trim()
+    const title = jobTitle.trim()
+    return {
+      phone: phone.trim(),
+      employerName: employer || undefined,
+      jobTitle: title || undefined,
+      employment: formatEmploymentSummary(employer, title, application.employment ?? 'To be completed'),
+      income: Number(income) || 0,
+      idNumberOrPassport: idNumber.trim() || undefined,
+    }
+  }
 
   const save = () => {
     onSave(buildPatch())
@@ -46,6 +62,8 @@ export function TenantApplicationDetailsForm({
       const patch = buildPatch()
       const changed =
         patch.phone !== (application.phone ?? '') ||
+        patch.employerName !== (application.employerName ?? '') ||
+        patch.jobTitle !== (application.jobTitle ?? '') ||
         patch.employment !== (application.employment ?? '') ||
         patch.income !== application.income ||
         patch.idNumberOrPassport !== application.idNumberOrPassport
@@ -58,7 +76,7 @@ export function TenantApplicationDetailsForm({
     return () => {
       if (debounceRef.current) window.clearTimeout(debounceRef.current)
     }
-  }, [phone, employment, income, idNumber, autoSave, application, onSave])
+  }, [phone, employerName, jobTitle, income, idNumber, autoSave, application, onSave])
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
@@ -103,16 +121,24 @@ export function TenantApplicationDetailsForm({
             />
           </label>
           <label className="block text-sm">
-            <span className="font-medium text-ink">Employment</span>
+            <span className="font-medium text-ink">Employer</span>
             <Input
               className="mt-1"
-              value={employment}
-              onChange={(e) => setEmployment(e.target.value)}
-              placeholder="Employer and role"
-              required
+              value={employerName}
+              onChange={(e) => setEmployerName(e.target.value)}
+              placeholder="Company or organisation"
             />
           </label>
           <label className="block text-sm">
+            <span className="font-medium text-ink">Job title</span>
+            <Input
+              className="mt-1"
+              value={jobTitle}
+              onChange={(e) => setJobTitle(e.target.value)}
+              placeholder="Your role"
+            />
+          </label>
+          <label className="block text-sm sm:col-span-2">
             <span className="font-medium text-ink">Monthly income (ZAR)</span>
             <Input
               className="mt-1"

@@ -7,7 +7,7 @@ export const TRUST_CSV_TEMPLATE_HEADER =
   'value_date,direction,amount_zar,description,bank_ref'
 
 export const TRUST_CSV_NON_PRODUCTION_LABEL =
-  'Template CSV import — recorded in Letkaya, not yet matched to the bank'
+  'Template CSV import — recorded in Lekaya, not yet matched to the bank'
 
 export type TrustCsvRow = {
   valueDate: string

@@ -38,7 +38,21 @@ describe('applicantPortalActions', () => {
   it('surfaces submit task when application not yet submitted', () => {
     const tasks = getApplicantTasks(baseApp(), [])
     expect(tasks.some((t) => t.id === 'submit')).toBe(true)
-    expect(tasks.some((t) => t.id === 'details')).toBe(true)
+    expect(tasks.some((t) => t.id === 'details')).toBe(false)
+    expect(tasks.some((t) => t.id === 'consent')).toBe(false)
+  })
+
+  it('does not surface consent task when credit consent doc is pending', () => {
+    const tasks = getApplicantTasks(
+      baseApp({
+        documents: [
+          { key: 'id', label: 'ID copy', status: 'required' },
+          { key: 'credit_consent', label: 'Credit consent', status: 'required' },
+        ],
+      }),
+      [],
+    )
+    expect(tasks.some((t) => t.id === 'consent')).toBe(false)
   })
 
   it('builds applicant submit action for portal tenant', () => {

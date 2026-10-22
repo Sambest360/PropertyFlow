@@ -67,26 +67,21 @@ export function isUuid(id: string | null | undefined): boolean {
 /** Seed user frontend id → Postgres UUID (matches seed.sql). */
 export const USER_TO_UUID: Record<string, string> = {
   'u-super': 'a2000001-0001-4000-8000-000000000001',
-  'u-amelia': 'a2000001-0001-4000-8000-000000000002',
   'u-lerato': 'a2000001-0001-4000-8000-000000000003',
   'u-james': 'a2000001-0001-4000-8000-000000000004',
-  'u-priya': 'a2000001-0001-4000-8000-000000000005',
   'u-owner2': 'a2000001-0001-4000-8000-000000000006',
   'u-owner1': 'a2000001-0001-4000-8000-000000000007',
   'u-lucas': 'a2000001-0001-4000-8000-000000000008',
   'u-nomsa-t': 'a2000001-0001-4000-8000-000000000009',
   'u-fatima': 'a2000001-0001-4000-8000-000000000010',
-  'u-sipho': 'a2000001-0001-4000-8000-000000000011',
   'u-anya': 'a2000001-0001-4000-8000-000000000012',
   'u-cape-owner': 'a2000001-0001-4000-8000-000000000013',
   'u-maryam': 'a2000001-0001-4000-8000-000000000014',
   'u-aqua': 'a2000001-0001-4000-8000-000000000015',
   'u-zane': 'a2000001-0001-4000-8000-000000000016',
-  'u-theo': 'a2000001-0001-4000-8000-000000000017',
   'u-nandi': 'a2000001-0001-4000-8000-000000000018',
   'u-aya': 'a2000001-0001-4000-8000-000000000019',
   'u-bayfix': 'a2000001-0001-4000-8000-000000000020',
-  'u-gita': 'a2000001-0001-4000-8000-000000000021',
   'u-leigh': 'a2000001-0001-4000-8000-000000000022',
   'u-garden-owner': 'a2000001-0001-4000-8000-000000000023',
   'u-mia': 'a2000001-0001-4000-8000-000000000024',
@@ -265,14 +260,27 @@ export async function ensureUuid(
   if (existing) return existing
 
   const uuid = preferredUuid && isUuid(preferredUuid) ? preferredUuid : randomUUID()
+  return upsertEntityMapFrontendId(entityType, frontendId, uuid)
+}
+
+/** Register a FE id → UUID row; concurrent first-writer wins (no last-writer overwrite). */
+export async function upsertEntityMapFrontendId(
+  entityType: EntityType,
+  frontendId: string,
+  backendId: string,
+): Promise<string> {
   await ensureEntityMapTable()
   await query(
     `INSERT INTO entity_id_map (entity_type, frontend_id, backend_id)
      VALUES ($1, $2, $3::uuid)
-     ON CONFLICT (entity_type, frontend_id) DO UPDATE SET backend_id = EXCLUDED.backend_id`,
-    [entityType, frontendId, uuid],
+     ON CONFLICT (entity_type, frontend_id) DO NOTHING`,
+    [entityType, frontendId, backendId],
   )
-  return uuid
+  const rows = await query<{ backend_id: string }>(
+    `SELECT backend_id FROM entity_id_map WHERE entity_type = $1 AND frontend_id = $2`,
+    [entityType, frontendId],
+  )
+  return rows[0]?.backend_id ?? backendId
 }
 
 export async function forgetId(entityType: EntityType, frontendId: string): Promise<void> {

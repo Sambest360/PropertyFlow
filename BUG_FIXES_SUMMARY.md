@@ -1,4 +1,4 @@
-# Letkaya System - Bug Fixes & Error Resolution Summary
+# Lekaya System - Bug Fixes & Error Resolution Summary
 
 ## ✅ Critical Security Issues Fixed
 

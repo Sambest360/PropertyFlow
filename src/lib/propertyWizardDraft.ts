@@ -53,6 +53,12 @@ export type PropertyWizardDraft = {
   agentId: string
   publishAfterSave: boolean
   draftPropertyId: string
+  /** Set when user explicitly saves mid-wizard (save & continue / assets later). */
+  resumeDraftPropertyId?: string
+  /** Stable FE ids for idempotent create retries (sessionStorage). */
+  pendingCreateIds?: { propertyId: string; buildingId?: string; roomIds: string[] }
+  /** Server units.idempotency_key (wizard session). */
+  createIdempotencyKey?: string
   /** In-unit inventory captured at the Assets step (P1-2); matched to rooms on save. */
   starterAssets: WizardAssetDraft[]
   /** When true, rooms use the no-bedroom open-plan preset (0 beds on listings). */

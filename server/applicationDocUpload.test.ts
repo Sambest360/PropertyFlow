@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { mergeRedactedApplicationFields } from './writes'
-import { lockDocumentReviewFields } from './applicantApplicationPolicy'
+import { lockDocumentReviewFields } from '../src/lib/lockDocumentReviewFields'
 import { applicationUploadPayload } from '../src/lib/applicationDocUpload'
 import { allDocsUploaded } from '../src/lib/workflow'
 import type { Application } from '../src/types/domain'
@@ -21,6 +21,19 @@ describe('P3b: one-document save', () => {
     }>
     expect(out.map((d) => d.key).sort()).toEqual(['bank', 'id', 'payslip', 'ref'])
     expect(allDocsUploaded(out as never)).toBe(true)
+  })
+
+  it('merge keeps stored checklist keys when payload sends only one document (no policy expand)', () => {
+    const { documents } = mergeRedactedApplicationFields(
+      {
+        documents: [{ key: 'bank', label: 'Bank', status: 'uploaded', file: file('bank-new') }],
+      },
+      { uploaded_docs_json: { documents: stored }, metadata: {} },
+    )
+    expect((documents as Array<{ key: string }>).map((d) => d.key).sort()).toEqual(['bank', 'id', 'payslip', 'ref'])
+    const bank = (documents as Array<{ key: string; file?: { dataUrl: string } }>).find((d) => d.key === 'bank')
+    expect(bank?.file?.dataUrl).toContain('bank-new')
+    expect((documents as Array<{ key: string; file?: unknown }>).find((d) => d.key === 'id')?.file).toBeTruthy()
   })
 
   it('staff upload does not wipe other documents', () => {

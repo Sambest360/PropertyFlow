@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Bath, BedDouble, Car, Heart, MapPin, Share2, Star } from 'lucide-react'
 import { roomKindLabel } from '../../data/infrastructure'
 import { usePublicProperties, useStore } from '../../context/AppStore'
@@ -22,6 +22,7 @@ import {
 } from '../../lib/blockedApplicants'
 import { useWishlist } from '../../hooks/useWishlist'
 import { hasMappedCoordinates } from '../../lib/mapCoords'
+import { acquireSubmitLock, releaseSubmitLock } from '../../lib/wizardSubmitGuard'
 import { fetchPublicListingImages } from '../../lib/api/postgresClient'
 import { NO_PHOTOS_YET, normalizeListingImages } from '../../lib/listingPhotos'
 import { isPubliclyListed } from '../../lib/publicListings'
@@ -39,14 +40,26 @@ import { useAgentDisplay } from '../../hooks/useAgentDisplay'
 import { StickyMobileActionBar } from '../../components/layout/mobile/StickyMobileActionBar'
 import { FullScreenSheet } from '../../components/layout/mobile/FullScreenSheet'
 import { isFutureViewingSlot } from '../../lib/viewingSlotTime'
+import { findOwnApplicationForProperty } from '../../lib/applicantApplication'
+import { formatEmploymentSummary } from '../../lib/employmentDisplay'
+import { prefillEnquiryContact } from './listingEnquiryPrefill'
 
 type EnquiryIntent = 'lead' | 'viewing'
 
 export default function ListingDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { state, createApplication, createLead, recordGuestEnquiry, hydratedForUserId, hydrationFailed } =
-    useStore()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const enquiryAsideRef = useRef<HTMLElement | null>(null)
+  const {
+    state,
+    createApplication,
+    createLead,
+    recordGuestEnquiry,
+    hydratedForUserId,
+    hydrationFailed,
+    refreshMarketplaceListings,
+  } = useStore()
   const publicProperties = usePublicProperties()
   const { user, isAuthenticated, has } = useAuth()
   const { listedBy } = useAgentDisplay()
@@ -76,9 +89,14 @@ export default function ListingDetail() {
   const [note, setNote] = useState('')
   const [slotId, setSlotId] = useState('')
   const [income, setIncome] = useState('')
+  const [employerName, setEmployerName] = useState('')
+  const [jobTitle, setJobTitle] = useState('')
   const [idNumber, setIdNumber] = useState('')
   const [intent, setIntent] = useState<EnquiryIntent>('lead')
   const [submitting, setSubmitting] = useState(false)
+  const [appSubmitting, setAppSubmitting] = useState(false)
+  const enquiryLockRef = useRef(false)
+  const applicationLockRef = useRef(false)
   const [enquirySheetOpen, setEnquirySheetOpen] = useState(false)
   // P0-4 (R4): guest direct-URL opens used to flash "Listing not found" while
   // the public bootstrap was still in flight. Give the store a short window
@@ -104,6 +122,11 @@ export default function ListingDetail() {
   }, [id, user.id])
 
   useEffect(() => {
+    if (!id) return
+    void refreshMarketplaceListings({ force: true })
+  }, [id, refreshMarketplaceListings])
+
+  useEffect(() => {
     if (!id || p || awaitingSignedInHydration) return
     let live = true
     void fetchPublicListingSlice(id, 12_000).then((slice) => {
@@ -117,13 +140,18 @@ export default function ListingDetail() {
   }, [awaitingSignedInHydration, id, p])
 
   useEffect(() => {
-    if (isAuthenticated && user.email) {
-      setEmail((e) => e || user.email)
-      const parts = user.name.trim().split(/\s+/)
-      setFirstName((f) => f || parts[0] || '')
-      setLastName((l) => l || parts.slice(1).join(' ') || '')
-    }
-  }, [isAuthenticated, user.email, user.name])
+    if (!isAuthenticated) return
+    setEmail((e) => prefillEnquiryContact(user, { email: e, firstName: '', lastName: '', phone: '' }).email)
+    setFirstName((f) =>
+      prefillEnquiryContact(user, { email: '', firstName: f, lastName: '', phone: '' }).firstName,
+    )
+    setLastName((l) =>
+      prefillEnquiryContact(user, { email: '', firstName: '', lastName: l, phone: '' }).lastName,
+    )
+    setPhone((p) =>
+      prefillEnquiryContact(user, { email: '', firstName: '', lastName: '', phone: p }).phone,
+    )
+  }, [isAuthenticated, user.email, user.name, user.firstName, user.lastName, user.phone])
 
   const blockedIds = useMemo(() => {
     if (!isAuthenticated || user.id === 'guest') return new Set<string>()
@@ -160,6 +188,42 @@ export default function ListingDetail() {
       live = false
     }
   }, [id])
+
+  const existingApplication = useMemo(() => {
+    if (!p || !isAuthenticated || user.id === 'guest') return null
+    return findOwnApplicationForProperty(state.applications, user, p.id)
+  }, [isAuthenticated, p, state.applications, user, user.id])
+
+  useEffect(() => {
+    if (searchParams.get('apply') !== '1' || !p || !isListed) return
+    const sp = new URLSearchParams(searchParams)
+    sp.delete('apply')
+    setSearchParams(sp, { replace: true })
+
+    if (existingApplication) {
+      navigate(
+        `/workspace/portals/tenant/applications/${encodeURIComponent(existingApplication.id)}`,
+        { replace: true },
+      )
+      return
+    }
+
+    const isDesktop = window.matchMedia('(min-width: 1024px)').matches
+    if (isDesktop) {
+      requestAnimationFrame(() => {
+        enquiryAsideRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
+    } else {
+      setEnquirySheetOpen(true)
+    }
+  }, [
+    existingApplication,
+    isListed,
+    navigate,
+    p,
+    searchParams,
+    setSearchParams,
+  ])
 
   if (!p) {
     const storeSettled = state.properties.length > 0 || state.units.length > 0
@@ -218,18 +282,6 @@ export default function ListingDetail() {
       </div>
     )
   }
-
-  const existingApplication = useMemo(() => {
-    if (!isAuthenticated || user.id === 'guest') return null
-    const email = user.email?.trim().toLowerCase()
-    return (
-      state.applications.find(
-        (a) =>
-          a.propertyId === p.id &&
-          (a.applicantUserId === user.id || (email && a.email?.trim().toLowerCase() === email)),
-      ) ?? null
-    )
-  }, [isAuthenticated, p.id, state.applications, user.email, user.id])
 
   const isBlockedForUser = blockedIds.has(p.id)
   const agentUser = p.agentId ? state.users.find((u) => u.id === p.agentId) : undefined
@@ -290,6 +342,7 @@ export default function ListingDetail() {
       return
     }
 
+    if (!acquireSubmitLock(enquiryLockRef)) return
     setSubmitting(true)
     try {
       const result = await submitListingEnquiry({
@@ -366,20 +419,25 @@ export default function ListingDetail() {
       return true
     } finally {
       setSubmitting(false)
+      releaseSubmitLock(enquiryLockRef)
     }
-    return false
   }
 
   const submitApplication = async () => {
+    if (!acquireSubmitLock(applicationLockRef)) return
     if (!isAuthenticated) {
+      releaseSubmitLock(applicationLockRef)
       navigate(`/register?next=${encodeURIComponent(`/listing/${p.id}`)}`)
       return
     }
     if (!fullName || !email.trim()) {
       await sweetWarning('Missing details', 'Please enter your name and email.')
+      releaseSubmitLock(applicationLockRef)
       return
     }
 
+    setAppSubmitting(true)
+    try {
     const appResult = await createApplication({
       agencyId: p.agencyId,
       propertyId: p.id,
@@ -390,13 +448,10 @@ export default function ListingDetail() {
       phone: phone.trim(),
       type: isRent ? 'Rental' : 'Purchase',
       income: Number(income) || 0,
-      employment: 'Declared on application',
+      employerName: employerName.trim() || undefined,
+      jobTitle: jobTitle.trim() || undefined,
+      employment: formatEmploymentSummary(employerName, jobTitle, ''),
       idNumberOrPassport: idNumber.trim(),
-      uploadedDocs: {
-        bankStatementsUrl: 'https://yourplatform.co.za/docs/bank',
-        idCopyUrl: 'https://yourplatform.co.za/docs/id',
-        payslipUrl: 'https://yourplatform.co.za/docs/payslip',
-      },
     })
 
     if (appResult && 'status' in appResult && appResult.status === 'ERROR') {
@@ -431,6 +486,10 @@ export default function ListingDetail() {
     )
     if (appRef) {
       navigate(`/workspace/portals/tenant/applications/${encodeURIComponent(appRef)}`)
+    }
+    } finally {
+      setAppSubmitting(false)
+      releaseSubmitLock(applicationLockRef)
     }
   }
 
@@ -518,12 +577,24 @@ export default function ListingDetail() {
           required
         />
         {isRent && (
-          <Input
-            type="number"
-            placeholder="Monthly income (optional)"
-            value={income}
-            onChange={(e) => setIncome(e.target.value)}
-          />
+          <>
+            <Input
+              type="number"
+              placeholder="Monthly income (optional)"
+              value={income}
+              onChange={(e) => setIncome(e.target.value)}
+            />
+            <Input
+              placeholder="Employer name (optional)"
+              value={employerName}
+              onChange={(e) => setEmployerName(e.target.value)}
+            />
+            <Input
+              placeholder="Job title (optional)"
+              value={jobTitle}
+              onChange={(e) => setJobTitle(e.target.value)}
+            />
+          </>
         )}
         <Input
           placeholder="SA ID or passport (optional)"
@@ -589,8 +660,14 @@ export default function ListingDetail() {
             </Button>
           </Link>
         ) : (
-          <Button type="button" variant="secondary" className="w-full min-h-11" onClick={submitApplication}>
-            Submit full application
+          <Button
+            type="button"
+            variant="secondary"
+            className="w-full min-h-11"
+            disabled={appSubmitting}
+            onClick={submitApplication}
+          >
+            {appSubmitting ? 'Submitting…' : 'Submit full application'}
           </Button>
         )}
       </div>
@@ -769,7 +846,10 @@ export default function ListingDetail() {
             </div>
           </div>
 
-          <aside className="hidden lg:block lg:sticky lg:top-24 lg:self-start">
+          <aside
+            ref={enquiryAsideRef}
+            className="hidden lg:block lg:sticky lg:top-24 lg:self-start"
+          >
             <form onSubmit={submitEnquiry} className="rounded-3xl border border-primary-100 bg-white p-5 shadow-lg shadow-ink/5">
               {priceBlock}
               {enquiryFormFields}

@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+vi.mock('./supabase/env.js', () => ({
+  supabaseAuthConfigured: () => false,
+}))
+
 /**
  * A redacted bootstrap user (no email / phone) written back through
  * /api/persist must not wipe the stored contact details.
@@ -51,6 +55,7 @@ describe('upsertUser keeps stored email and phone when the payload omits them', 
     stored = { email: 'thandi@horizon.test', phone: '+27 82 000 0000' }
     query.mockReset()
     query.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('SELECT 1 AS ok FROM users WHERE id =')) return [{ ok: 1 }]
       if (sql.includes('INSERT INTO users')) stored = applyUpsert(sql, params ?? [], stored)
       return []
     })

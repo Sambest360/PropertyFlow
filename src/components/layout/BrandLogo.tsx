@@ -1,6 +1,21 @@
 import { Link } from 'react-router-dom'
 import { cn } from '../ui'
 
+const BRAND_ALT = 'Lekaya Rentals'
+
+function logoSrc(tone: 'default' | 'inverse' | 'bridge', layout: 'inline' | 'stack'): string {
+  if (layout === 'stack' || tone === 'bridge') return '/brand/lekaya-icon.svg'
+  if (tone === 'inverse') return '/brand/lekaya-logo-mono-white.svg'
+  return '/brand/lekaya-logo.svg'
+}
+
+const heightClass = {
+  xs: 'h-7',
+  sm: 'h-8',
+  md: 'h-9',
+  lg: 'h-11',
+} as const
+
 export function BrandLogo({
   to = '/',
   size = 'md',
@@ -10,72 +25,34 @@ export function BrandLogo({
 }: {
   to?: string
   size?: 'sm' | 'md' | 'lg' | 'xs'
-  /** default = dark ink; inverse = white; bridge = Le white / t ink over rail seam */
+  /** default = full logo; inverse = mono white; bridge = icon over rail seam */
   tone?: 'default' | 'inverse' | 'bridge'
-  /** stack = two-line lockup for narrow collapsed sidebar */
+  /** stack = icon mark for narrow collapsed sidebar */
   layout?: 'inline' | 'stack'
   /** @deprecated wordmark is always shown */
   showWordmark?: boolean
   className?: string
 }) {
-  const sizes = {
-    xs: 'text-[0.7rem] leading-none tracking-[-0.04em]',
-    sm: 'text-[1.05rem] leading-none tracking-[-0.04em]',
-    md: 'text-[1.35rem] leading-none tracking-[-0.045em]',
-    lg: 'text-[1.75rem] leading-none tracking-[-0.05em]',
-  }
-
-  const propertyClass = tone === 'inverse' ? 'text-white' : 'text-ink'
-  const flowClass =
-    tone === 'inverse'
-      ? 'text-white transition-opacity group-hover:opacity-90'
-      : 'text-primary transition-colors group-hover:text-primary-600'
-
-  if (layout === 'stack') {
-    return (
-      <Link
-        to={to}
-        aria-label="Letkaya"
-        className={cn(
-          'group inline-flex shrink-0 select-none flex-col items-center justify-center gap-0.5 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80',
-          className,
-        )}
-      >
-        <span className={cn('font-display font-semibold', sizes.xs, propertyClass)}>Let</span>
-        <span className={cn('relative font-display font-semibold', sizes.xs, flowClass)}>
-          kaya
-          <span
-            aria-hidden
-            className="absolute -bottom-[0.18em] left-0 right-0 h-[0.12em] rounded-full bg-accent"
-          />
-        </span>
-      </Link>
-    )
-  }
+  const src = logoSrc(tone, layout)
+  const h = layout === 'stack' ? heightClass.xs : heightClass[size]
 
   return (
     <Link
       to={to}
-      aria-label="Letkaya"
-      className={cn('group inline-flex shrink-0 items-baseline gap-0 select-none', className)}
+      aria-label={BRAND_ALT}
+      className={cn(
+        'group inline-flex shrink-0 select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+        layout === 'stack' && 'flex-col items-center justify-center py-1',
+        tone === 'inverse' && 'focus-visible:ring-white/80',
+        className,
+      )}
     >
-      <span className={cn('font-display font-semibold', sizes[size])}>
-        {tone === 'bridge' ? (
-          <>
-            <span className="text-white">Le</span>
-            <span className="text-ink">t</span>
-          </>
-        ) : (
-          <span className={propertyClass}>Let</span>
-        )}
-        <span className={cn('relative inline-block', flowClass)}>
-          kaya
-          <span
-            aria-hidden
-            className="absolute -bottom-[0.18em] left-0 right-0 h-[0.12em] rounded-full bg-accent"
-          />
-        </span>
-      </span>
+      <img
+        src={src}
+        alt={BRAND_ALT}
+        className={cn('w-auto object-contain object-left', h)}
+        decoding="async"
+      />
     </Link>
   )
 }
@@ -83,9 +60,11 @@ export function BrandLogo({
 /** Compact lockup for footers / dense UI */
 export function BrandWordmark({ className }: { className?: string }) {
   return (
-    <p className={cn('font-display text-lg font-semibold tracking-[-0.04em] text-ink', className)}>
-      Let<span className="text-primary">kaya</span>
-      <span className="ml-0.5 inline-block h-1.5 w-1.5 translate-y-[-0.15em] rounded-full bg-accent align-middle" />
-    </p>
+    <img
+      src="/brand/lekaya-logo.svg"
+      alt={BRAND_ALT}
+      className={cn('h-8 w-auto object-contain object-left', className)}
+      decoding="async"
+    />
   )
 }

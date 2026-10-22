@@ -681,29 +681,36 @@ async function upsertUser(feId: string, uuid: string, d: Record<string, unknown>
                 )
                 ELSE '{}'::jsonb
               END`
-  await query(
-    `INSERT INTO users (
-       id, client_id, email, password_hash, first_name, last_name, phone, role, active, metadata, updated_at
-     ) VALUES (
-       $1::uuid, $2::uuid, $3, ${passwordExpr}, $4, $5, $6, $7, $8, $9::jsonb, NOW()
-     )
-     ON CONFLICT (id) DO UPDATE SET
-       client_id = CASE WHEN ${fAgency} THEN EXCLUDED.client_id ELSE users.client_id END,
-       email = CASE WHEN ${fEmail} THEN EXCLUDED.email ELSE users.email END,${
-         passwordParam
-           ? `
-       password_hash = COALESCE(EXCLUDED.password_hash, users.password_hash),`
-           : ''
-       }
-       first_name = CASE WHEN ${fName} THEN EXCLUDED.first_name ELSE users.first_name END,
-       last_name = CASE WHEN ${fName} THEN EXCLUDED.last_name ELSE users.last_name END,
-       phone = CASE WHEN ${fPhone} THEN EXCLUDED.phone ELSE users.phone END,
-       role = CASE WHEN ${fRole} THEN EXCLUDED.role ELSE users.role END,
-       active = CASE WHEN ${fActive} THEN EXCLUDED.active ELSE users.active END,
-       metadata = ${metadataSql},
-       updated_at = NOW()`,
-    params,
-  )
+  try {
+    await query(
+      `INSERT INTO users (
+         id, client_id, email, password_hash, first_name, last_name, phone, role, active, metadata, updated_at
+       ) VALUES (
+         $1::uuid, $2::uuid, $3, ${passwordExpr}, $4, $5, $6, $7, $8, $9::jsonb, NOW()
+       )
+       ON CONFLICT (id) DO UPDATE SET
+         client_id = CASE WHEN ${fAgency} THEN EXCLUDED.client_id ELSE users.client_id END,
+         email = CASE WHEN ${fEmail} THEN EXCLUDED.email ELSE users.email END,${
+           passwordParam
+             ? `
+         password_hash = COALESCE(EXCLUDED.password_hash, users.password_hash),`
+             : ''
+         }
+         first_name = CASE WHEN ${fName} THEN EXCLUDED.first_name ELSE users.first_name END,
+         last_name = CASE WHEN ${fName} THEN EXCLUDED.last_name ELSE users.last_name END,
+         phone = CASE WHEN ${fPhone} THEN EXCLUDED.phone ELSE users.phone END,
+         role = CASE WHEN ${fRole} THEN EXCLUDED.role ELSE users.role END,
+         active = CASE WHEN ${fActive} THEN EXCLUDED.active ELSE users.active END,
+         metadata = ${metadataSql},
+         updated_at = NOW()`,
+      params,
+    )
+  } catch (err) {
+    if (err && typeof err === 'object' && (err as { code?: string }).code === '23505') {
+      throw Object.assign(new Error('This email is already in use.'), { status: 409 })
+    }
+    throw err
+  }
 
   // P0-sa-mint: when Supabase Auth is configured, public.users + password_hash
   // alone is not a sign-in. Create auth.users (+ identity), link auth_user_id
@@ -906,22 +913,57 @@ async function upsertProperty(feId: string, d: Record<string, unknown>): Promise
     )
   }
 
-  const agent = await requireAgentId(d.agentId)
+  const existingRows = await query<{
+    status_config_key: string
+    listing_type: string
+    agent_id: string | null
+  }>(`SELECT status_config_key, listing_type, agent_id FROM units WHERE id = $1::uuid`, [uuid])
+  const existingUnit = existingRows[0]
+  const storedStatus = (existingUnit?.status_config_key ?? '').toUpperCase()
+  const isRestore = d.restore === true
+  const isArchive =
+    !isRestore &&
+    storedStatus !== 'DELETED' &&
+    (d.deletedAt != null || String(d.statusKey ?? '').toUpperCase() === 'DELETED')
+
+  if (storedStatus === 'DELETED' && !isRestore) {
+    return uuid
+  }
+
+  let agent: string | null
+  if (isArchive) {
+    agent = existingUnit?.agent_id ?? null
+    if (!agent && d.agentId) {
+      try {
+        agent = await requireAgentId(d.agentId)
+      } catch {
+        agent = null
+      }
+    }
+  } else {
+    agent = await requireAgentId(d.agentId)
+  }
+
   const unitNumber = str(d.unitNumber ?? d.title, slug).slice(0, 40)
   const propertyTypeDb =
     Object.prototype.hasOwnProperty.call(d, 'type') && d.type != null
       ? propertyTypeToDb(str(d.type))
       : null
 
+  const idempotencyKey =
+    typeof d.idempotencyKey === 'string' && d.idempotencyKey.trim()
+      ? d.idempotencyKey.trim()
+      : null
+
   await query(
     `INSERT INTO units (
        id, building_id, client_id, unit_number, property_type, square_meters, bedrooms, bathrooms, parking,
        listing_type, price, rent, status_config_key, agent_id, title, description, amenities,
-       images, featured, lat, lng, place_id, formatted_address, geocoded_at, updated_at
+       images, featured, lat, lng, place_id, formatted_address, geocoded_at, idempotency_key, updated_at
      ) VALUES (
        $1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9,
        $10, $11, $12, $13, $14::uuid, $15, $16, $17::jsonb,
-       $18::jsonb, $19, $20, $21, $22, $23, $24::timestamptz, NOW()
+       $18::jsonb, $19, $20, $21, $22, $23, $24::timestamptz, $25, NOW()
      )
      ON CONFLICT (id) DO UPDATE SET
        building_id = EXCLUDED.building_id,
@@ -947,6 +989,7 @@ async function upsertProperty(feId: string, d: Record<string, unknown>): Promise
        place_id = COALESCE(EXCLUDED.place_id, units.place_id),
        formatted_address = COALESCE(EXCLUDED.formatted_address, units.formatted_address),
        geocoded_at = COALESCE(EXCLUDED.geocoded_at, units.geocoded_at),
+       idempotency_key = COALESCE(units.idempotency_key, EXCLUDED.idempotency_key),
        updated_at = NOW()`,
     [
       uuid,
@@ -958,21 +1001,28 @@ async function upsertProperty(feId: string, d: Record<string, unknown>): Promise
       num(d.beds) ?? num(d.bedrooms) ?? 0,
       num(d.baths) ?? num(d.bathrooms) ?? 0,
       num(d.parking) ?? 0,
-      listingType(d.deletedAt ? 'not_listed' : (d.listingMode ?? d.listingType)),
+      isArchive && existingUnit
+        ? existingUnit.listing_type
+        : listingType(d.listingMode ?? d.listingType),
       num(d.price),
       num(d.rent),
-      str(d.statusKey) || unitStatusFromProperty(d.status, d.deletedAt),
+      isArchive
+        ? 'DELETED'
+        : isRestore
+          ? str(d.statusKey) || unitStatusFromProperty(d.status, undefined)
+          : str(d.statusKey) || unitStatusFromProperty(d.status, d.deletedAt),
       agent,
       str(d.title, unitNumber),
       str(d.description),
       JSON.stringify(Array.isArray(d.amenities) ? d.amenities : []),
       JSON.stringify(Array.isArray(d.images) ? d.images : []),
-      bool(d.featured) || str(d.status) === 'Featured',
+      isArchive ? false : bool(d.featured) || str(d.status) === 'Featured',
       num(d.lat),
       num(d.lng),
       d.placeId ? str(d.placeId) : null,
       d.formattedAddress ? str(d.formattedAddress) : null,
       d.geocodedAt ? str(d.geocodedAt) : null,
+      idempotencyKey,
     ],
   )
   return uuid
@@ -1231,16 +1281,33 @@ export function mergeRedactedApplicationFields(
   if (!Array.isArray(sentDocs)) {
     documents = storedDocs
   } else {
-    documents = sentDocs.map((raw) => {
+    const sentMerged = new Map<string, JsonRow>()
+    for (const raw of sentDocs) {
       const doc = asRow(raw)
-      if (!doc) return raw
-      const prev = storedDocs.find((x) => x && x.key === doc.key)
-      if (!prev) return doc
+      if (!doc || doc.key == null) continue
+      const key = String(doc.key)
+      const prev = storedDocs.find((x) => x && x.key === key) ?? null
+      if (!prev) {
+        sentMerged.set(key, doc)
+        continue
+      }
       const merged: JsonRow = { ...prev, ...doc }
       // A redacted document has no file: keep the stored one.
       if (doc.file == null && prev.file != null) merged.file = prev.file
-      return merged
-    })
+      sentMerged.set(key, merged)
+    }
+    const out: unknown[] = []
+    const seen = new Set<string>()
+    for (const prev of storedDocs) {
+      if (!prev || prev.key == null) continue
+      const key = String(prev.key)
+      seen.add(key)
+      out.push(sentMerged.has(key) ? sentMerged.get(key)! : prev)
+    }
+    for (const [key, doc] of sentMerged) {
+      if (!seen.has(key)) out.push(doc)
+    }
+    documents = out
   }
 
   const keyCollection: unknown =
@@ -1314,7 +1381,7 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
   const ref = str(d.referenceCode ?? feId)
 
   const docsJson: Record<string, unknown> = { documents: kept.documents }
-  for (const k of ['creditCheck', 'creditConsent', 'screening']) {
+  for (const k of ['creditCheck', 'creditConsent', 'creditCheckConsents', 'screening']) {
     docsJson[k] = has(k) ? d[k] : (kept.storedDocsJson[k] ?? null)
   }
   // Metadata merges over the stored object: on update an absent field is left
@@ -1336,31 +1403,41 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
   for (const [key, field] of metaFields) {
     if (has(field) || !stored) meta[key] = d[field] ?? null
   }
+  if (has('declineReason')) meta.decline_reason = d.declineReason ?? null
+
+  const journeySnapshotJson =
+    has('journeySnapshot') && d.journeySnapshot
+      ? JSON.stringify(d.journeySnapshot)
+      : null
+  const journeyVersion =
+    has('journeyVersion') && typeof d.journeyVersion === 'number' ? d.journeyVersion : null
 
   await query(
     `INSERT INTO applications (
        id, client_id, unit_id, applicant_id, agent_id, reference_code, application_type,
        status, monthly_income, employment_summary, message, uploaded_docs_json,
-       move_in_date, metadata, submitted_at, updated_at
+       move_in_date, metadata, journey_snapshot, journey_version, submitted_at, updated_at
      ) VALUES (
        $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7,
        $8, $9, $10, $11, $12::jsonb,
-       $13::date, $14::jsonb, COALESCE($15::timestamptz, NOW()), NOW()
+       $13::date, $14::jsonb, $15::jsonb, $16::int, COALESCE($17::timestamptz, NOW()), NOW()
      )
      ON CONFLICT (id) DO UPDATE SET
        -- P0-sync (R12): never leave a null/stale agency client_id on re-upsert.
        client_id = COALESCE(EXCLUDED.client_id, applications.client_id),
        unit_id = EXCLUDED.unit_id,
        applicant_id = COALESCE(EXCLUDED.applicant_id, applications.applicant_id),
-       agent_id = CASE WHEN $17::boolean THEN EXCLUDED.agent_id ELSE applications.agent_id END,
+       agent_id = CASE WHEN $19::boolean THEN EXCLUDED.agent_id ELSE applications.agent_id END,
        reference_code = COALESCE(EXCLUDED.reference_code, applications.reference_code),
-       status = CASE WHEN $16::boolean THEN EXCLUDED.status ELSE applications.status END,
+       status = CASE WHEN $18::boolean THEN EXCLUDED.status ELSE applications.status END,
        monthly_income = EXCLUDED.monthly_income,
        employment_summary = EXCLUDED.employment_summary,
        message = EXCLUDED.message,
        uploaded_docs_json = EXCLUDED.uploaded_docs_json,
        move_in_date = COALESCE(EXCLUDED.move_in_date, applications.move_in_date),
        metadata = applications.metadata || EXCLUDED.metadata,
+       journey_snapshot = COALESCE(EXCLUDED.journey_snapshot, applications.journey_snapshot),
+       journey_version = COALESCE(EXCLUDED.journey_version, applications.journey_version),
        updated_at = NOW()`,
     [
       uuid,
@@ -1377,6 +1454,8 @@ async function upsertApplication(feId: string, d: Record<string, unknown>): Prom
       JSON.stringify(docsJson),
       d.moveInDate ? str(d.moveInDate) : null,
       JSON.stringify(meta),
+      journeySnapshotJson,
+      journeyVersion,
       d.submittedAt ? str(d.submittedAt) : null,
       statusSent,
       has('agentId'),
@@ -1899,7 +1978,13 @@ async function upsertDocument(feId: string, d: Record<string, unknown>): Promise
       str(d.name, 'Document'),
       category,
       status,
-      d.url ? str(d.url) : d.storageUrl ? str(d.storageUrl) : null,
+      d.fileUrl
+        ? str(d.fileUrl)
+        : d.url
+          ? str(d.url)
+          : d.storageUrl
+            ? str(d.storageUrl)
+            : null,
       d.note ? str(d.note) : null,
       d.applicantName ? str(d.applicantName) : null,
       d.uploadedAt ? str(d.uploadedAt) : null,

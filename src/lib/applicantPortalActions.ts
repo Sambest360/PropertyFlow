@@ -7,6 +7,7 @@ import {
   type WorkflowTransition,
 } from './applicationWorkflow'
 import { allDocsUploaded } from './workflow'
+import { needsCreditConsentTask } from './screening/creditConsent'
 
 /** Workflow positions that mean the applicant has secured this listing. */
 export const APPLICANT_ACCEPTANCE_STATUSES: readonly WorkflowStatusKey[] = [
@@ -167,16 +168,6 @@ export function getApplicantTasks(
   const status = resolveWorkflowStatus(application)
   const tasks: ApplicantTask[] = []
 
-  if (!application.phone?.trim() || !application.employment?.trim() || !application.income) {
-    tasks.push({
-      id: 'details',
-      label: 'Complete your details',
-      detail: 'Add phone, employment, and income so the agency can review your file.',
-      tone: 'primary',
-      section: 'details',
-    })
-  }
-
   if (status === 'application_started') {
     tasks.push({
       id: 'submit',
@@ -184,6 +175,16 @@ export function getApplicantTasks(
       detail: 'Review your information and submit when you are ready.',
       tone: 'primary',
       section: 'application',
+    })
+  }
+
+  if (needsCreditConsentTask(application)) {
+    tasks.push({
+      id: 'credit-consent',
+      label: 'Credit-check consent (NCA)',
+      detail: 'Each adult on the application must sign POPIA / NCA consent before screening.',
+      tone: 'primary',
+      section: 'details',
     })
   }
 
@@ -223,16 +224,6 @@ export function getApplicantTasks(
         : 'Your payment proof was submitted — the agency will verify shortly.',
       tone: awaitingProof.length ? 'primary' : 'warning',
       section: 'payments',
-    })
-  }
-
-  if (!application.creditConsent && application.documents.some((d) => d.key === 'credit_consent')) {
-    tasks.push({
-      id: 'consent',
-      label: 'Provide credit check consent',
-      detail: 'POPIA consent is required before the agency can run a credit check.',
-      tone: 'warning',
-      section: 'documents',
     })
   }
 

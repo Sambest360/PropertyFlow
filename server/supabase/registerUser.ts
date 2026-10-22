@@ -83,23 +83,29 @@ async function insertGoTrueUser(input: {
        )`,
       params,
     )
-  } catch {
+  } catch (err) {
+    if (isPgUniqueViolation(err)) rethrowGoTrueInsertError(err)
     // Older project generations lack some of the optional token columns.
-    await pool!.query(
-      `INSERT INTO auth.users (
-         id, instance_id, aud, role, email, encrypted_password,
-         email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
-         created_at, updated_at
-       ) VALUES (
-         $1, $2::uuid, 'authenticated', 'authenticated', $3,
-         crypt($4, gen_salt('bf', 10)),
-         NOW(),
-         '{"provider":"email","providers":["email"]}'::jsonb,
-         $5::jsonb,
-         NOW(), NOW()
-       )`,
-      params,
-    )
+    try {
+      await pool!.query(
+        `INSERT INTO auth.users (
+           id, instance_id, aud, role, email, encrypted_password,
+           email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+           created_at, updated_at
+         ) VALUES (
+           $1, $2::uuid, 'authenticated', 'authenticated', $3,
+           crypt($4, gen_salt('bf', 10)),
+           NOW(),
+           '{"provider":"email","providers":["email"]}'::jsonb,
+           $5::jsonb,
+           NOW(), NOW()
+         )`,
+        params,
+      )
+    } catch (err2) {
+      rethrowGoTrueInsertError(err2)
+    }
+    return
   }
 
   // GoTrue 500s on /token when the identity row is missing — mirror the seed scripts.
@@ -269,15 +275,7 @@ export async function registerSupabaseUserDirect(
     throw err
   }
 
-  // Prove the account can actually sign in before reporting success.
-  const probe = await goTruePasswordSignIn(email, input.password)
-  if (!probe.ok) {
-    const err = new Error(
-      `Account created but sign-in verification failed (status ${probe.status || 'network'}) — try signing in`,
-    ) as Error & { status: number }
-    err.status = 502
-    throw err
-  }
+  await verifyGoTruePasswordGrant(email, input.password)
 
   return { authUserId: id, email, roleFe, bootstrap }
 }
@@ -318,6 +316,41 @@ function statusError(message: string, status: number): Error & { status: number 
   return err
 }
 
+function isPgUniqueViolation(err: unknown): boolean {
+  return Boolean(err && typeof err === 'object' && (err as { code?: string }).code === '23505')
+}
+
+function rethrowGoTrueInsertError(err: unknown): never {
+  if (isPgUniqueViolation(err)) throw statusError('This email is already in use.', 409)
+  throw err
+}
+
+async function assertStaffMintEmailAvailable(email: string, profileId: string): Promise<void> {
+  const dup = await pool!.query<{ id: string }>(
+    `SELECT id::text AS id FROM public.users WHERE lower(email) = $1 AND id <> $2::uuid LIMIT 1`,
+    [email, profileId],
+  )
+  if (dup.rows[0]?.id) throw statusError('This email is already in use.', 409)
+}
+
+const GOTRUE_PROBE_ENV_HINT =
+  'Auth sign-in verification could not reach Supabase. Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY (or SUPABASE_ANON_KEY) on the server environment — not only encrypted VITE_* config values.'
+
+async function verifyGoTruePasswordGrant(email: string, password: string): Promise<void> {
+  let probe = await goTruePasswordSignIn(email, password)
+  if (!probe.ok && probe.status !== 0) {
+    await new Promise((r) => setTimeout(r, 500))
+    probe = await goTruePasswordSignIn(email, password)
+  }
+  if (!probe.ok) {
+    if (probe.status === 0) throw statusError(GOTRUE_PROBE_ENV_HINT, 503)
+    throw statusError(
+      `Auth linked but sign-in verification failed (status ${probe.status})`,
+      502,
+    )
+  }
+}
+
 /**
  * SA / staff mint: ensure auth.users (+ identity) exists for an already-upserted
  * public.users row, link auth_user_id, and verify a real GoTrue password grant
@@ -349,6 +382,8 @@ export async function linkStaffAuthUser(input: LinkStaffAuthInput): Promise<Link
   if (!input.profileId) {
     throw statusError('profileId is required', 400)
   }
+
+  await assertStaffMintEmailAvailable(email, input.profileId)
 
   const existingAuth = await pool!.query<{ id: string }>(
     `SELECT id::text AS id FROM auth.users WHERE lower(email) = $1 LIMIT 1`,
@@ -463,13 +498,7 @@ export async function linkStaffAuthUser(input: LinkStaffAuthInput): Promise<Link
     throw statusError('Auth user created but profile link failed for mint profileId', 500)
   }
 
-  const probe = await goTruePasswordSignIn(email, input.password)
-  if (!probe.ok) {
-    throw statusError(
-      `Auth linked but sign-in verification failed (status ${probe.status || 'network'})`,
-      502,
-    )
-  }
+  await verifyGoTruePasswordGrant(email, input.password)
 
   return { authUserId, email, roleFe, repairedOrphan }
 }

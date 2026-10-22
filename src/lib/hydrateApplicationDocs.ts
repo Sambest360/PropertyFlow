@@ -10,6 +10,7 @@ export type UploadedDocsPayload = {
   documents?: unknown
   creditCheck?: unknown
   creditConsent?: unknown
+  creditCheckConsents?: unknown
   screening?: unknown
 }
 
@@ -63,6 +64,7 @@ export function hydrateDocumentsFromUploadedJson(
   documents: ApplicationDocument[]
   creditCheck?: Application['creditCheck']
   creditConsent?: Application['creditConsent']
+  creditCheckConsents?: Application['creditCheckConsents']
   screening?: Application['screening']
 } {
   const parsed = parseUploadedDocsJson(uploadedDocsJson)
@@ -90,6 +92,12 @@ export function hydrateDocumentsFromUploadedJson(
     parsed.screening && typeof parsed.screening === 'object' && !Array.isArray(parsed.screening)
       ? (parsed.screening as Application['screening'])
       : undefined
+  const creditCheckConsents =
+    parsed.creditCheckConsents &&
+    typeof parsed.creditCheckConsents === 'object' &&
+    !Array.isArray(parsed.creditCheckConsents)
+      ? (parsed.creditCheckConsents as Application['creditCheckConsents'])
+      : undefined
 
-  return { documents, creditCheck, creditConsent, screening }
+  return { documents, creditCheck, creditConsent, creditCheckConsents, screening }
 }

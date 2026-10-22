@@ -22,4 +22,4 @@ export const LIVE_SYNC_TABLES = [
 export const LIVE_SYNC_DEBOUNCE_MS = 450
 
 /** Fallback poll when Realtime is unavailable (API mode or offline channel). */
-export const LIVE_SYNC_POLL_MS = 20_000
+export const LIVE_SYNC_POLL_MS = 60_000

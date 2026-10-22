@@ -1,4 +1,4 @@
-# Letkaya
+# Lekaya Rentals
 
 Multi-tenant **Property Management & Sales** platform (Vite SPA + local Hono API + Postgres).
 
@@ -69,9 +69,9 @@ Actor headers (`X-User-Id` / `X-Role` / `X-Agency-Id`) still gate writes; the se
 | Role | Team | Tenants | Users | Notes |
 | --- | --- | --- | --- | --- |
 | Super Admin | — | — | Platform | Create agencies |
-| Principal (`client_admin`) | Yes | Yes | Yes | Agency owner |
-| Agency admin (`agent_admin`) | Yes (+ add) | No | No | Team only |
-| Field agents | No | If `occupants.view` | No | Property-scoped |
+| Agency admin (`agent_admin`) | Yes (+ add) | No | No | Primary agency ops in admin UI |
+| Full agent (`ground_agent`) | No | If `occupants.view` | No | Property-scoped |
+| Principal (`client_admin`) / intern (`agent`) | — | — | — | RBAC remains in code; hidden from admin create-user UI for now |
 | Landlord / Tenant / Contractor | Portals | — | — | Property-linked |
 
 ## Property-linked access

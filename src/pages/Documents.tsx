@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { labelOrReference } from '../lib/displayIds'
 import { FileText, History } from 'lucide-react'
 import { useStore } from '../context/AppStore'
 import { usePropertyScope } from '../context/AuthContext'
@@ -131,7 +132,7 @@ export default function Documents() {
                   to={`/workspace/properties/${d.propertyId}?tab=documents`}
                   className="cursor-pointer font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
-                  {propertyTitle[d.propertyId] ?? d.propertyId}
+                  {labelOrReference(propertyTitle[d.propertyId], d.propertyId, 'Property')}
                 </Link>
               ),
             },
@@ -189,7 +190,7 @@ export default function Documents() {
                       to={`/workspace/properties/${d.propertyId}?tab=documents`}
                       className="mt-1 inline-block text-xs font-semibold text-primary hover:underline"
                     >
-                      {propertyTitle[d.propertyId] ?? d.propertyId}
+                      {labelOrReference(propertyTitle[d.propertyId], d.propertyId, 'Property')}
                     </Link>
                   </div>
                   <Badge tone={statusTone(d.status)}>{d.status}</Badge>

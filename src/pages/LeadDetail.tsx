@@ -8,18 +8,22 @@ import { HistoryTimeline } from '../components/history/HistoryTimeline'
 import { LeadDetailHeader } from '../components/lead-detail/LeadDetailHeader'
 import { LeadOverviewPanel } from '../components/lead-detail/LeadOverviewPanel'
 import { LeadDetailsPanel } from '../components/lead-detail/LeadDetailsPanel'
-import { LeadDealPanel } from '../components/lead-detail/LeadDealPanel'
 import { LeadActivityPanel } from '../components/lead-detail/LeadActivityPanel'
 import { CloseLeadModal } from '../components/lead-detail/CloseLeadModal'
+import { LeadMessageModal } from '../components/lead-detail/LeadMessageModal'
 import { isLeadDetailTab, type LeadDetailTab } from '../components/lead-detail/types'
 import { canCloseLead } from '../lib/leadLifecycle'
+import { findLeadViewings } from '../lib/leadContext'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
 import type { PropertyEvent } from '../types/domain'
+import { useLeadContact } from '../hooks/useLeadContact'
+import { useScheduleLeadViewing } from '../hooks/useScheduleLeadViewing'
+import { ScheduleLeadViewingModal } from '../components/lead-detail/ScheduleLeadViewingModal'
 
 export default function LeadDetail() {
   const { id } = useParams()
   const [params, setParams] = useSearchParams()
-  const { state, updateLeadStage, closeLead, addActivity, addPropertyEvent, setLeadRequirementState } = useStore()
+  const { state, closeLead, addActivity, addPropertyEvent } = useStore()
   const { user, has } = useAuth()
   const { dealVisible } = usePropertyScope()
   const alert = useSuiteAlert()
@@ -107,11 +111,25 @@ export default function LeadDetail() {
   const canManage = has('leads.manage')
   const canClose = canCloseLead(lead, { userId: user.id, canManageLeads: canManage })
   const agentName = agent?.name ?? null
+  const {
+    portalUser,
+    canContact,
+    canInApp,
+    composeOpen,
+    setComposeOpen,
+    startInApp,
+    sendFirstMessage,
+  } = useLeadContact(lead, property)
+
+  const schedule = useScheduleLeadViewing(lead, property)
+  const hasUpcomingViewing = findLeadViewings(lead, state.viewings).some(
+    (v) => v.status === 'Scheduled',
+  )
+  const canOfferSchedule = schedule.canSchedule && !hasUpcomingViewing
 
   const tabs = [
     { id: 'overview', label: 'Overview' },
     { id: 'details', label: 'Details' },
-    { id: 'deal', label: 'Progress' },
     { id: 'activity', label: 'Activity' },
     { id: 'history', label: 'History', count: historyEvents.length },
   ]
@@ -121,9 +139,16 @@ export default function LeadDetail() {
       <div className="animate-fade-in">
         <LeadDetailHeader
           lead={lead}
-          canManage={canManage}
+          property={property}
+          portalUser={portalUser}
+          canContact={canContact}
+          canInApp={canInApp}
+          onInApp={startInApp}
           canClose={canClose}
           onClose={() => setCloseOpen(true)}
+          canSchedule={schedule.canSchedule}
+          onScheduleViewing={schedule.openSchedule}
+          showScheduleViewing={canOfferSchedule && tab !== 'overview'}
         />
 
         <div className="sticky top-0 z-20 -mx-1 mb-5 bg-white/95 px-1 backdrop-blur-md">
@@ -131,36 +156,17 @@ export default function LeadDetail() {
         </div>
 
         {tab === 'overview' && (
-          <LeadOverviewPanel lead={lead} property={property} agentName={agentName} />
-        )}
-        {tab === 'details' && <LeadDetailsPanel lead={lead} agentName={agentName} />}
-        {tab === 'deal' && (
-          <LeadDealPanel
+          <LeadOverviewPanel
             lead={lead}
             property={property}
             agentName={agentName}
-            canManage={canManage}
-            applications={state.applications}
             viewings={state.viewings}
-            payments={state.payments}
-            activities={state.activities}
-            onCompleteRequirement={(requirementId, patch) => {
-              setLeadRequirementState(lead.id, lead.stage, requirementId, patch)
-            }}
-            onStageChange={(stage) => {
-              const prev = lead.stage
-              updateLeadStage(lead.id, stage)
-              addPropertyEvent({
-                agencyId: lead.agencyId,
-                propertyId: lead.propertyId,
-                actorUserId: user.id,
-                actorName: user.name,
-                action: 'changed the Lead stage',
-                changes: [{ field: 'Stage', from: prev, to: stage }],
-              })
-            }}
+            applications={state.applications}
+            canSchedule={canOfferSchedule}
+            onScheduleViewing={schedule.openSchedule}
           />
         )}
+        {tab === 'details' && <LeadDetailsPanel lead={lead} agentName={agentName} />}
         {tab === 'activity' && (
           <LeadActivityPanel
             lead={lead}
@@ -180,6 +186,25 @@ export default function LeadDetail() {
             subtitle="Timeline of stage changes, notes, and related property actions for this lead."
           />
         )}
+
+        <LeadMessageModal
+          open={composeOpen}
+          leadName={lead.name}
+          onClose={() => setComposeOpen(false)}
+          onSend={sendFirstMessage}
+        />
+
+        <ScheduleLeadViewingModal
+          open={schedule.modalOpen}
+          lead={lead}
+          property={property}
+          slots={schedule.viewingSlots}
+          viewings={schedule.viewings}
+          agents={schedule.agents}
+          onClose={() => schedule.setModalOpen(false)}
+          onBookSlot={schedule.bookOntoSlot}
+          onCreate={schedule.submitCreate}
+        />
 
         <CloseLeadModal
           open={closeOpen}

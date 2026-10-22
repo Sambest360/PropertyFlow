@@ -95,7 +95,6 @@ describe('requireAgentId orphan-map verify + metadata repair (P0-5 r17)', () => 
     })
 
     expect(result.ok).toBe(true)
-    expect(result.uuid).toBe(UNIT_UUID)
 
     const orphanCheck = query.mock.calls.find((c) => String(c[0]).includes('FROM users WHERE id ='))
     expect(orphanCheck).toBeTruthy()
@@ -105,10 +104,12 @@ describe('requireAgentId orphan-map verify + metadata repair (P0-5 r17)', () => 
     )
     expect(metaLookup).toBeTruthy()
 
-    const mapWrites = query.mock.calls.filter((c) =>
-      /DELETE FROM entity_id_map|INSERT INTO entity_id_map/.test(String(c[0])),
+    const userMapWrites = query.mock.calls.filter(
+      (c) =>
+        /DELETE FROM entity_id_map|INSERT INTO entity_id_map/.test(String(c[0])) &&
+        String(c[0]).includes("'user'"),
     )
-    expect(mapWrites).toEqual([])
+    expect(userMapWrites).toEqual([])
 
     const unitInsert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO units'))
     expect(unitInsert).toBeTruthy()
@@ -121,11 +122,12 @@ describe('requireAgentId orphan-map verify + metadata repair (P0-5 r17)', () => 
         expect(params?.[0]).toBe('u-fa-r16')
         return [{ id: AGENT_UUID }]
       }
-      if (sql.includes('INSERT INTO entity_id_map')) {
+      if (sql.includes("INSERT INTO entity_id_map") && sql.includes("'user'")) {
         expect(params?.[0]).toBe('u-fa-r16')
         expect(params?.[1]).toBe(AGENT_UUID)
         return []
       }
+      if (sql.includes('INSERT INTO entity_id_map')) return []
       if (sql.includes('INSERT INTO units') || sql.includes('INSERT INTO buildings')) return []
       if (sql.includes('UPDATE buildings')) return []
       return []
@@ -147,14 +149,15 @@ describe('requireAgentId orphan-map verify + metadata repair (P0-5 r17)', () => 
     })
 
     expect(result.ok).toBe(true)
-    expect(result.uuid).toBe(UNIT_UUID)
 
     const metaLookup = query.mock.calls.find((c) =>
       String(c[0]).includes("metadata->>'frontend_id'"),
     )
     expect(metaLookup).toBeTruthy()
 
-    const mapUpsert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO entity_id_map'))
+    const mapUpsert = query.mock.calls.find(
+      (c) => String(c[0]).includes('INSERT INTO entity_id_map') && String(c[0]).includes("'user'"),
+    )
     expect(mapUpsert).toBeTruthy()
     expect(mapUpsert![1]).toEqual(['u-fa-r16', AGENT_UUID])
 

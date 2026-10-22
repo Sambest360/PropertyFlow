@@ -118,10 +118,17 @@ export function getActionFormSpec(actionKey: string, application: Application): 
   }
 
   if (REJECT_ACTIONS.has(actionKey)) {
+    const bureauTemplate =
+      actionKey === 'DECLINE_CREDIT'
+        ? 'Credit outcome: application not approved based on bureau assessment. You may dispute inaccurate information with TransUnion (0861 482 482), Experian (0861 10 5665), or XDS (0860 937 000) under PAIA/ NCA. Agency note: '
+        : undefined
     return {
       kind: 'reject',
-      title: 'Confirm outcome',
-      description: 'This moves the application off the happy path. A reason is recorded in the file history.',
+      title: actionKey === 'DECLINE_CREDIT' ? 'Decline (credit)' : 'Confirm outcome',
+      description:
+        actionKey === 'DECLINE_CREDIT'
+          ? 'Applicant receives the reason below plus standard bureau referral wording.'
+          : 'This moves the application off the happy path. A reason is recorded in the file history.',
       confirmLabel: 'Confirm',
       fields: [
         {
@@ -129,7 +136,7 @@ export function getActionFormSpec(actionKey: string, application: Application): 
           label: 'Reason',
           type: 'textarea',
           required: true,
-          placeholder: 'Brief explanation for the applicant and audit trail',
+          placeholder: bureauTemplate ?? 'Brief explanation for the applicant and audit trail',
         },
       ],
     }

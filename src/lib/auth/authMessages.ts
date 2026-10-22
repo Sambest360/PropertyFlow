@@ -85,6 +85,18 @@ export function formatAuthError(message: string, err?: unknown): { title: string
     }
   }
 
+  if (
+    lower.includes('connection timed out (auth)') ||
+    lower.includes('timed out') ||
+    lower.includes('failed to fetch') ||
+    lower.includes('network')
+  ) {
+    return {
+      title: 'Connection timed out',
+      text: 'Check your internet and try again — your account was not locked out.',
+    }
+  }
+
   // Guest/register 500s are ordinary auth/service failures — never blame a
   // "broken demo user" or surface npm run db:repair-auth in prod guest UX.
   // repair-auth is an ops tool for seeded QA identities only (see scripts/).
@@ -97,13 +109,6 @@ export function formatAuthError(message: string, err?: unknown): { title: string
     return {
       title: 'Auth service error',
       text: 'The auth service failed. Try again in a moment. If this keeps happening, contact support.',
-    }
-  }
-
-  if (lower.includes('timed out') || lower.includes('failed to fetch') || lower.includes('network')) {
-    return {
-      title: 'Connection timed out',
-      text: 'Check your internet and try again — your account was not locked out.',
     }
   }
 

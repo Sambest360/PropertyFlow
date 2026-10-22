@@ -15,6 +15,7 @@ import {
   mapProperty,
   mapUser,
   resolveFrontendRole,
+  alignActorUserId,
   type IdMapCache,
 } from './idMap'
 import { hydrateDocumentsFromUploadedJson } from '../hydrateApplicationDocs'
@@ -31,6 +32,8 @@ import {
   type DbRoomRow,
 } from '../infraRoomsFromBootstrap'
 import { mapRoutesToFe } from '../messaging/modeA'
+import { mapViewingSlotRow } from './viewingSlotMap'
+import { ensureBootstrapScopedForActor } from '../applyBootstrapScope'
 
 type RoleDb =
   | 'SUPER_ADMIN'
@@ -56,6 +59,8 @@ const LITE_LIMITS = {
   viewingSlots: 80,
   lookups: 400,
   buildings: 80,
+  entityIdMap: 5_000,
+  users: 500,
 }
 
 const FULL_LIMITS = {
@@ -68,6 +73,8 @@ const FULL_LIMITS = {
   payments: 200,
   documents: 200,
   threads: 500,
+  entityIdMap: 20_000,
+  users: 2_000,
 }
 
 function dateOnly(v: string | null | undefined): string {
@@ -149,15 +156,6 @@ function viewingStatus(s: string): string {
   return map[s] ?? 'Scheduled'
 }
 
-function slotStatus(s: string): string {
-  const map: Record<string, string> = {
-    OPEN: 'Open',
-    FULL: 'Full',
-    CANCELLED: 'Cancelled',
-  }
-  return map[s] ?? 'Open'
-}
-
 function appStage(status: string): string {
   const map: Record<string, string> = {
     DRAFT: 'Started',
@@ -201,6 +199,8 @@ function mappedFe(
 export type FetchSupabaseBootstrapOpts = {
   /** FE role (`tenant`) or DB role (`END_USER`) — gates tenant apps retry. */
   actorRole?: string | null
+  actorUserId?: string | null
+  actorAgencyId?: string | null
 }
 
 function isTenantBootstrapRole(role?: string | null): boolean {
@@ -371,10 +371,17 @@ export async function fetchSupabaseBootstrap(
     csvBatchesRes,
   ] = await Promise.all([
 
-    supabase.from('entity_id_map').select('entity_type, backend_id, frontend_id'),
+    supabase
+      .from('entity_id_map')
+      .select('entity_type, backend_id, frontend_id')
+      .order('created_at', { ascending: false })
+      .limit(lite ? LITE_LIMITS.entityIdMap : FULL_LIMITS.entityIdMap),
     supabase.from('clients').select('id, company_name, subdomain, status, city, created_at, settings'),
     // CR10 N4: never read users.metadata whole (it holds other users' signature).
-    supabase.from('users').select(USERS_SELECT),
+    supabase
+      .from('users')
+      .select(USERS_SELECT)
+      .limit(lite ? LITE_LIMITS.users : FULL_LIMITS.users),
     supabase.from('buildings').select('*').order('name').limit(lite ? LITE_LIMITS.buildings : 10_000),
     supabase.from('units').select('*').order('created_at', { ascending: false }).limit(limits.units),
     skipHeavy
@@ -464,7 +471,37 @@ export async function fetchSupabaseBootstrap(
     active: boolean
     metadata: Record<string, unknown> | null
   }>
-  const cache = buildIdMapCache(idMapRes.data ?? [], clients)
+  let idMapRows = idMapRes.data ?? []
+  const bootstrapUnitUuids = (unitsRes.data ?? []).map((u) => u.id as string)
+  const bootstrapBuildingUuids = (buildingsRes.data ?? []).map((b) => b.id as string)
+  if (bootstrapUnitUuids.length > 0 || bootstrapBuildingUuids.length > 0) {
+    const [unitPropMapRes, buildingMapRes] = await Promise.all([
+      bootstrapUnitUuids.length > 0
+        ? supabase
+            .from('entity_id_map')
+            .select('entity_type, backend_id, frontend_id')
+            .in('entity_type', ['property', 'unit'])
+            .in('backend_id', bootstrapUnitUuids)
+        : Promise.resolve({ data: [] as { entity_type: string; backend_id: string; frontend_id: string }[] }),
+      bootstrapBuildingUuids.length > 0
+        ? supabase
+            .from('entity_id_map')
+            .select('entity_type, backend_id, frontend_id')
+            .eq('entity_type', 'building')
+            .in('backend_id', bootstrapBuildingUuids)
+        : Promise.resolve({ data: [] as { entity_type: string; backend_id: string; frontend_id: string }[] }),
+    ])
+    const seen = new Set(idMapRows.map((r) => `${r.entity_type}:${r.frontend_id}`))
+    for (const row of [...(unitPropMapRes.data ?? []), ...(buildingMapRes.data ?? [])]) {
+      const key = `${row.entity_type}:${row.frontend_id}`
+      if (!seen.has(key)) {
+        seen.add(key)
+        idMapRows.push(row)
+      }
+    }
+  }
+
+  const cache = buildIdMapCache(idMapRows, clients)
 
   const userByUuid = new Map<string, string>()
   for (const u of users) {
@@ -475,6 +512,7 @@ export async function fetchSupabaseBootstrap(
   for (const row of idMapRes.data ?? []) {
     if (row.entity_type === 'user') userByUuid.set(row.backend_id, row.frontend_id)
   }
+  alignActorUserId(userByUuid, users, opts?.actorUserId)
 
   const mapUserFe = (id: string | null | undefined) => mapUser(cache, userByUuid, id)
   const mapAgencyFe = (id: string | null | undefined) => mapAgency(cache, id)
@@ -485,15 +523,25 @@ export async function fetchSupabaseBootstrap(
       const settings = (c.settings as Record<string, unknown> | null) ?? {}
       return settings.frontend_id !== GLOBAL_CLIENT_ID && !settings.isGlobalConfigClient
     })
-    .map((c) => ({
-    id: mappedFe(cache, 'agency', c.id, c.id),
-    name: c.company_name,
-    slug: c.subdomain,
-    city: c.city ?? '',
-    status: mapAgencyStatusFromDb(c.status),
-    createdAt: dateOnly(c.created_at),
-    enabledPermissions: null as null,
-  }))
+    .map((c) => {
+      const settingsRaw = (c.settings as Record<string, unknown> | null) ?? {}
+      const applicationJourney =
+        settingsRaw.applicationJourney &&
+        typeof settingsRaw.applicationJourney === 'object' &&
+        !Array.isArray(settingsRaw.applicationJourney)
+          ? (settingsRaw.applicationJourney as import('../journey/types').AgencyJourneyOverride)
+          : undefined
+      return {
+        id: mappedFe(cache, 'agency', c.id, c.id),
+        name: c.company_name,
+        slug: c.subdomain,
+        city: c.city ?? '',
+        status: mapAgencyStatusFromDb(c.status),
+        createdAt: dateOnly(c.created_at),
+        enabledPermissions: null as null,
+        settings: applicationJourney ? { applicationJourney } : undefined,
+      }
+    })
 
   const appUsers = users.map((u) => {
     const meta = (u.metadata as Record<string, unknown> | null) ?? {}
@@ -584,6 +632,7 @@ export async function fetchSupabaseBootstrap(
       formattedAddress: u.formatted_address ?? b?.formatted_address ?? null,
       geocodedAt: iso(u.geocoded_at) ?? iso(b?.geocoded_at ?? null),
       createdAt: dateOnly(u.created_at),
+      backendId: u.id as string,
       _propertyId: canonicalListingId(mapPropertyFe(u.id) ?? u.id),
       _unitUuid: u.id,
       _updatedAt: iso(u.updated_at),
@@ -631,6 +680,7 @@ export async function fetchSupabaseBootstrap(
 
     return {
       id: u._propertyId,
+      backendId: u._unitUuid as string,
       agencyId: u.clientId,
       landlordId: b?.landlordId ?? '',
       agentId: u.agentId,
@@ -753,12 +803,29 @@ export async function fetchSupabaseBootstrap(
       documents: hydrated.documents,
       docs: hydrated.documents.filter((d) => d.status !== 'required').map((d) => d.label),
       screening: hydrated.screening ?? screeningFromMeta ?? undefined,
+      creditCheckConsents: hydrated.creditCheckConsents,
+      screeningConsent:
+        meta.screeningConsent && typeof meta.screeningConsent === 'object'
+          ? (meta.screeningConsent as import('../../types/domain').Application['screeningConsent'])
+          : undefined,
+      idNumberOrPassport:
+        typeof meta.id_number_or_passport === 'string' ? meta.id_number_or_passport : undefined,
       viewingSlotId: null,
       notes: (a.message as string | null) ?? '',
+      declineReason:
+        typeof meta.decline_reason === 'string' && meta.decline_reason.trim()
+          ? meta.decline_reason.trim()
+          : undefined,
       moveInDate: dateOnly(a.move_in_date as string | null) || undefined,
       keyCollection: meta.keyCollection as Record<string, unknown> | undefined,
       submittedAt: dateOnly(a.submitted_at as string | null) || dateOnly(a.created_at as string | null),
       updatedAt: dateOnly(a.updated_at as string | null),
+      journeySnapshot:
+        a.journey_snapshot && typeof a.journey_snapshot === 'object' && !Array.isArray(a.journey_snapshot)
+          ? (a.journey_snapshot as import('../journey/types').JourneySnapshot)
+          : undefined,
+      journeyVersion:
+        typeof a.journey_version === 'number' ? (a.journey_version as number) : undefined,
       applicantUuid: a.applicant_id as string | null,
     }
   })
@@ -840,20 +907,15 @@ export async function fetchSupabaseBootstrap(
     }
   })
 
-  const viewingSlots = (viewingSlotsRes.data ?? []).map((s, i) => ({
-    id: mappedFe(cache, 'viewing_slot', s.id, `VS-pg-${i + 1}`),
-    agencyId: mapAgencyFe(s.client_id)!,
-    propertyId: mapPropertyFe(s.unit_id)!,
-    agentId: mapUserFe(s.agent_id) ?? '',
-    date: dateOnly(s.slot_date),
-    time: String(s.slot_time).slice(0, 5),
-    capacity: Number(s.capacity),
-    booked: Number(s.booked_count),
-    status: slotStatus(s.status),
-    title: s.title ?? undefined,
-    notes: s.notes ?? undefined,
-    durationMinutes: s.duration_minutes != null ? Number(s.duration_minutes) : undefined,
-  }))
+  const viewingSlots = (viewingSlotsRes.data ?? []).map((s, i) =>
+    mapViewingSlotRow(s, {
+      index: i,
+      mapFeId: (entityType, uuid, fallback) => mappedFe(cache, entityType, uuid, fallback),
+      mapAgency: mapAgencyFe,
+      mapPropertyFromUnit: mapPropertyFe,
+      mapUser: mapUserFe,
+    }),
+  )
 
   const payments = (paymentsRes.data ?? []).map((p) => ({
     id: mappedFe(cache, 'payment', p.id, p.id),
@@ -1164,7 +1226,7 @@ export async function fetchSupabaseBootstrap(
     }
   })
 
-  return {
+  const payload: PostgresBootstrap = {
     source: 'postgres',
     fetchedAt: new Date().toISOString(),
     agencies,
@@ -1197,5 +1259,28 @@ export async function fetchSupabaseBootstrap(
     csvImportBatches,
     infraRooms,
     internalAssets,
+    idMapRows: (idMapRes.data ?? []).map((row) => ({
+      entity_type: String(row.entity_type),
+      backend_id: String(row.backend_id),
+      frontend_id: String(row.frontend_id),
+    })),
   }
+
+  const actor =
+    opts?.actorUserId && opts?.actorRole
+      ? {
+          userId: opts.actorUserId,
+          role: opts.actorRole,
+          agencyId: opts.actorAgencyId ?? null,
+        }
+      : null
+
+  const withActor = actor
+    ? {
+        ...payload,
+        actor: { userId: actor.userId, role: String(actor.role), agencyId: actor.agencyId },
+      }
+    : payload
+
+  return ensureBootstrapScopedForActor(withActor, actor) as PostgresBootstrap
 }

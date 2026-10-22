@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { acquireSubmitLock, releaseSubmitLock } from '../../lib/wizardSubmitGuard'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../../context/AppStore'
 import { useAgencyScope, useAuth } from '../../context/AuthContext'
@@ -20,6 +21,7 @@ import {
   roleLabels,
   rolePermissions,
   roleScopes,
+  rolesVisibleInAdminUi,
   userBasePermissions,
 } from '../../lib/permissions'
 import { readReturnTo } from '../../lib/returnTo'
@@ -112,14 +114,16 @@ export default function AdminUserCreatePage() {
           ? '/workspace/people/staff'
           : '/workspace/admin/users')
 
-  const baseCreatable = isPlatform ? ALL_ROLES : AGENCY_ADMIN_CREATABLE
-  const creatableRoles = intentLandlord
-    ? (['landlord'] as Role[]).filter((r) => baseCreatable.includes(r) || isPlatform)
-    : intentContractor
-      ? (['contractor'] as Role[]).filter((r) => baseCreatable.includes(r) || isPlatform)
-      : intentTeam
-        ? TEAM_ROLES.filter((r) => baseCreatable.includes(r) || (r === 'super_admin' && isPlatform))
-        : baseCreatable
+  const baseCreatable = rolesVisibleInAdminUi(isPlatform ? ALL_ROLES : AGENCY_ADMIN_CREATABLE)
+  const creatableRoles = rolesVisibleInAdminUi(
+    intentLandlord
+      ? (['landlord'] as Role[]).filter((r) => baseCreatable.includes(r) || isPlatform)
+      : intentContractor
+        ? (['contractor'] as Role[]).filter((r) => baseCreatable.includes(r) || isPlatform)
+        : intentTeam
+          ? TEAM_ROLES.filter((r) => baseCreatable.includes(r) || (r === 'super_admin' && isPlatform))
+          : baseCreatable,
+  )
 
   const queryAgencyId = searchParams.get('agencyId')
   const lockAgency = Boolean(queryAgencyId) || !isPlatform
@@ -180,6 +184,7 @@ export default function AdminUserCreatePage() {
   const [afterTempPath, setAfterTempPath] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const submitLockRef = useRef(false)
 
   const selectedAgencyId = lockAgency ? defaultAgencyId : agencyId
   const selectedAgency = useMemo(
@@ -415,7 +420,11 @@ export default function AdminUserCreatePage() {
   }
 
   const finish = async () => {
-    if (submitting) return
+    if (!acquireSubmitLock(submitLockRef)) return
+    if (submitting) {
+      releaseSubmitLock(submitLockRef)
+      return
+    }
     const agency = state.agencies.find((a) => a.id === selectedAgencyId)
     const allowed = agency?.enabledPermissions?.length
       ? new Set(agency.enabledPermissions)
@@ -431,10 +440,12 @@ export default function AdminUserCreatePage() {
     const plainTemp = tempPassword.trim()
     if (plainTemp && plainTemp.length < MIN_PASSWORD_LENGTH) {
       setError(`A temporary password needs at least ${MIN_PASSWORD_LENGTH} characters, or leave it blank to generate one.`)
+      releaseSubmitLock(submitLockRef)
       return
     }
     setSubmitting(true)
     setError('')
+    try {
     const result = await createUserDurable({
       name: fullDisplayName(firstName, lastName),
       firstName: firstName.trim(),
@@ -472,7 +483,6 @@ export default function AdminUserCreatePage() {
     })
 
     if (result.ok === false) {
-      setSubmitting(false)
       setError(result.error || 'User could not be created.')
       return
     }
@@ -496,11 +506,11 @@ export default function AdminUserCreatePage() {
     // Success notify ONLY after durable Auth+profile write verified.
     if (sendInvite) {
       const agencyLabel =
-        role === 'super_admin' ? 'Letkaya' : selectedAgency?.name ?? 'your agency'
+        role === 'super_admin' ? 'Lekaya Rentals' : selectedAgency?.name ?? 'your agency'
       notify({
         userId: created.id,
         agencyId: created.agencyId,
-        title: 'You’re invited to Letkaya',
+        title: 'You’re invited to Lekaya Rentals',
         body: `Hi ${created.name}, ${authUser.name} invited you to join ${agencyLabel} as ${roleLabels[created.role]}. Sign in at /login with your email and the temporary password you were given.`,
         link: '/login',
         silent: true,
@@ -516,12 +526,15 @@ export default function AdminUserCreatePage() {
     const nextPath = `/workspace/admin/users/${created.id}?tab=access`
     if (result.generatedTempPassword) {
       // Shown once; navigation waits until the modal is closed.
-      setSubmitting(false)
       setAfterTempPath(nextPath)
       setShownTempPassword(result.generatedTempPassword)
       return
     }
     navigate(nextPath)
+    } finally {
+      setSubmitting(false)
+      releaseSubmitLock(submitLockRef)
+    }
   }
 
   const submit = (e: FormEvent) => {

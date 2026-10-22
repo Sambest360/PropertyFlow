@@ -1,5 +1,5 @@
 -- =============================================================================
--- Letkaya — Seed data for local TablePlus testing
+-- Lekaya — Seed data for local TablePlus testing
 -- Requires: schema.sql already applied
 -- =============================================================================
 USE propertyflow;
@@ -148,10 +148,8 @@ INSERT INTO users (
 -- Platform
 (1, '33333333-3333-3333-3333-333333333301', NULL, NULL, 'super@propertyflow.app', @pwd, 'Samuel', 'Admin', '+27 82 000 0001', '+27 82 000 0001', NULL, NULL, 'super_admin', 'active', NOW(), NOW()),
 -- Horizon
-(2, '33333333-3333-3333-3333-333333333302', 1, 1, 'amelia@horizonrealty.co.za', @pwd, 'Amelia', 'Roux', '+27 11 555 0100', '+27 82 111 0100', '8501015800081', 'sa_id', 'client_admin', 'active', NOW(), NOW()),
 (3, '33333333-3333-3333-3333-333333333303', 1, 1, 'lerato@horizonrealty.co.za', @pwd, 'Lerato', 'Nkosi', '+27 11 555 0101', '+27 82 111 0101', '9002025800082', 'sa_id', 'agent', 'active', NOW(), NOW()),
 (4, '33333333-3333-3333-3333-333333333304', 1, 2, 'james@horizonrealty.co.za', @pwd, 'James', 'Okonkwo', '+27 11 555 0102', '+27 82 111 0102', '8803035800083', 'sa_id', 'agent', 'active', NOW(), NOW()),
-(5, '33333333-3333-3333-3333-333333333305', 1, 1, 'priya@horizonrealty.co.za', @pwd, 'Priya', 'Naidoo', '+27 11 555 0103', '+27 82 111 0103', '9204045800084', 'sa_id', 'agent', 'active', NOW(), NOW()),
 (6, '33333333-3333-3333-3333-333333333306', 1, NULL, 'trust@owners.co.za', @pwd, 'Horizon', 'Trust', '+27 11 555 0199', NULL, NULL, NULL, 'landlord', 'active', NOW(), NOW()),
 (7, '33333333-3333-3333-3333-333333333307', 1, NULL, 'jvdberg@email.com', @pwd, 'Johan', 'van der Berg', '+27 82 222 3344', '+27 82 222 3344', '7505055800085', 'sa_id', 'landlord', 'active', NOW(), NOW()),
 (8, '33333333-3333-3333-3333-333333333308', 1, 1, 'lucas@email.com', @pwd, 'Lucas', 'Pretorius', '+27 82 100 2000', '+27 82 100 2000', '9506065800086', 'sa_id', 'tenant', 'active', NOW(), NOW()),
@@ -159,7 +157,6 @@ INSERT INTO users (
 (10,'33333333-3333-3333-3333-333333333310', 1, 1, 'fatima.j@email.com', @pwd, 'Fatima', 'Jacobs', '+27 84 112 7788', '+27 84 112 7788', '9308085800088', 'sa_id', 'applicant', 'active', NOW(), NOW()),
 (11,'33333333-3333-3333-3333-333333333311', 1, 1, 'jobs@aquafix.co.za', @pwd, 'AquaFix', 'Plumbing', '+27 11 555 0888', NULL, NULL, NULL, 'contractor', 'active', NOW(), NOW()),
 -- Cape Coastal
-(12,'33333333-3333-3333-3333-333333333312', 2, 3, 'sipho@capecoastal.co.za', @pwd, 'Sipho', 'Molefe', '+27 21 555 0200', '+27 82 333 0200', '8709095800089', 'sa_id', 'client_admin', 'active', NOW(), NOW()),
 (13,'33333333-3333-3333-3333-333333333313', 2, 3, 'anya@capecoastal.co.za', @pwd, 'Anya', 'Botha', '+27 21 555 0201', '+27 82 333 0201', '9401015800090', 'sa_id', 'agent', 'active', NOW(), NOW()),
 (14,'33333333-3333-3333-3333-333333333314', 2, 4, 'dev@capecoastal.co.za', @pwd, 'Devon', 'Jacobs', '+27 21 555 0202', '+27 82 333 0202', '8902025800091', 'sa_id', 'agent', 'active', NOW(), NOW()),
 (15,'33333333-3333-3333-3333-333333333315', 2, NULL, 'sea@owners.co.za', @pwd, 'Seaview', 'Investments', '+27 21 555 0299', NULL, NULL, NULL, 'landlord', 'active', NOW(), NOW()),

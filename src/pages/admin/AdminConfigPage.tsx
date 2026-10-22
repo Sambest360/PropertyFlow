@@ -201,6 +201,7 @@ export default function AdminConfigPage() {
               deactivateLookup(id)
             }}
             onOpenPipeline={() => navigate('/workspace/admin/pipeline')}
+            onOpenApplicationJourney={() => navigate('/workspace/admin/application-journey')}
             onMove={(id, dir) => {
               const row = rows.find((r) => r.id === id)
               if (!row) return
@@ -360,6 +361,7 @@ function CatalogueEditor({
   setError,
   onCreate,
   onOpenPipeline,
+  onOpenApplicationJourney,
   onUpdate,
   onDeactivate,
   onMove,
@@ -386,6 +388,7 @@ function CatalogueEditor({
     displayLabel: string
   }) => void
   onOpenPipeline: () => void
+  onOpenApplicationJourney: () => void
   onUpdate: (id: string, patch: { displayLabel?: string; isActive?: boolean }) => void
   onDeactivate: (id: string) => void
   onMove: (id: string, dir: -1 | 1) => void
@@ -402,14 +405,24 @@ function CatalogueEditor({
               documents, payments, and more.
             </p>
           </div>
-          <Button
-            type="button"
-            variant="secondary"
-            className="min-h-11 cursor-pointer"
-            onClick={onOpenPipeline}
-          >
-            Open lead pipeline editor
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              className="min-h-11 cursor-pointer"
+              onClick={onOpenPipeline}
+            >
+              Open lead pipeline editor
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="min-h-11 cursor-pointer"
+              onClick={onOpenApplicationJourney}
+            >
+              Application journey
+            </Button>
+          </div>
         </div>
       ) : null}
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">

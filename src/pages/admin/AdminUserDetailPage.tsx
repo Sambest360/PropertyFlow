@@ -26,8 +26,10 @@ import { PersonAvatar } from '../../components/directory/DirectoryToolbar'
 import { Badge, Button, Card, Input, Select, cn } from '../../components/ui'
 import {
   defaultLicenseStatus,
+  DEFERRED_ADMIN_ROLES,
   mentorsForAgency,
   roleLabels,
+  rolesVisibleInAdminUi,
   userBasePermissions,
 } from '../../lib/permissions'
 import { formatZAR } from '../../data/seed'
@@ -81,7 +83,7 @@ export default function AdminUserDetailPage() {
   const isPlatform = has('platform.manage')
   const hasRolesAssign = has('roles.assign')
   const canEditPermissions = has('users.manage') || has('roles.assign')
-  const assignableRoles = isPlatform ? ALL_ROLES : AGENCY_ROLES
+  const assignableRoles = rolesVisibleInAdminUi(isPlatform ? ALL_ROLES : AGENCY_ROLES)
 
   const user = state.users.find((u) => u.id === id)
 
@@ -598,8 +600,9 @@ function AccessTab({
                   {roleLabels[r]}
                 </option>
               ))}
-              {user.role === 'agent' && !assignableRoles.includes('agent') ? (
-                <option value="agent">{roleLabels.agent}</option>
+              {DEFERRED_ADMIN_ROLES.includes(user.role) &&
+              !assignableRoles.includes(user.role) ? (
+                <option value={user.role}>{roleLabels[user.role]}</option>
               ) : null}
             </Select>
           </div>

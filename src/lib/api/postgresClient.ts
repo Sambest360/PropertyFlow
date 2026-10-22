@@ -51,6 +51,8 @@ export type PostgresBootstrap = {
   marketplaceFetchFailed?: boolean
   infraRooms?: unknown[]
   internalAssets?: unknown[]
+  /** entity_id_map rows for client-side UUID → FE route redirects (not shown in UI). */
+  idMapRows?: Array<{ entity_type: string; backend_id: string; frontend_id: string }>
 }
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''

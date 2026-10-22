@@ -1,3 +1,5 @@
+import { isListingUuid } from '../listingIds.js'
+
 /** Frontend ↔ backend ID maps (mirrors server/idMap.ts seed aliases). */
 export const CLIENT_TO_AGENCY: Record<string, string> = {
   'a1000001-0001-4000-8000-000000000001': 'ag-horizon',
@@ -9,7 +11,6 @@ export const EMAIL_TO_USER: Record<string, string> = {
   'ephraimbampo317@gmail.com': 'u-super-ephraim',
   'sambampo200@gmail.com': 'u-super',
   'super@propertyflow.app': 'u-super',
-  'amelia@horizonrealty.co.za': 'u-amelia',
   'lerato@horizonrealty.co.za': 'u-lerato',
   'lerato.nkosi@propertyflow.demo': 'u-admin-lerato',
   'james@horizonrealty.co.za': 'u-james',
@@ -26,23 +27,19 @@ export const EMAIL_TO_USER: Record<string, string> = {
   'fatima.jacobs@propertyflow.demo': 'u-tenant-fatima',
   'jobs@aquafix.propertyflow.demo': 'u-aqua',
   'jobs@paintworks.propertyflow.demo': 'u-paintworks',
-  'priya@horizonrealty.co.za': 'u-priya',
   'jvdberg@email.com': 'u-owner2',
   'trust@owners.co.za': 'u-owner1',
   'lucas@email.com': 'u-lucas',
   'nomsa.d@email.com': 'u-nomsa-t',
   'fatima.j@email.com': 'u-fatima',
-  'sipho@capecoastal.co.za': 'u-sipho',
   'anya@capecoastal.co.za': 'u-anya',
   'sea@owners.co.za': 'u-cape-owner',
   'm.khan@email.com': 'u-maryam',
   'jobs@aquafix.co.za': 'u-aqua',
   'zane@capecoastal.co.za': 'u-zane',
-  'theo@capecoastal.co.za': 'u-theo',
   'nandi@capecoastal.co.za': 'u-nandi',
   'aya@email.com': 'u-aya',
   'jobs@bayfix.co.za': 'u-bayfix',
-  'gita@gardenroutehomes.co.za': 'u-gita',
   'leigh@gardenroutehomes.co.za': 'u-leigh',
   'owners@gardenroutehomes.co.za': 'u-garden-owner',
   'mia@email.com': 'u-mia',
@@ -211,4 +208,56 @@ export function mapUser(
 export function mapProperty(cache: IdMapCache, unitId: string | null | undefined): string | null {
   if (!unitId) return null
   return feFromCache(cache, 'property', unitId, UNIT_TO_PROPERTY[unitId] ?? unitId)
+}
+
+export type IdMapRow = { entity_type: string; backend_id: string; frontend_id: string }
+
+export function buildIdMapCacheFromRows(rows: IdMapRow[]): IdMapCache {
+  return buildIdMapCache(rows, [])
+}
+
+/** Map a backend UUID route segment to a frontend id when entity_id_map has a row. */
+export function resolveFrontendRouteId(
+  cache: IdMapCache | null | undefined,
+  entityTypes: string[],
+  param: string | null | undefined,
+): string | null {
+  if (!cache || !param?.trim()) return null
+  const id = param.trim()
+  if (!isListingUuid(id)) return null
+  for (const entityType of entityTypes) {
+    const mapped = cache.byType.get(entityType)?.get(id)
+    if (mapped && mapped !== id && !isListingUuid(mapped)) return mapped
+  }
+  const agencyFe = cache.agencyByClient.get(id)
+  if (agencyFe && agencyFe !== id && !isListingUuid(agencyFe)) return agencyFe
+  return null
+}
+
+export function sessionFrontendUserId(
+  meta: Record<string, unknown> | null | undefined,
+  email: string,
+): string {
+  if (typeof meta?.frontend_id === 'string' && meta.frontend_id) {
+    return meta.frontend_id
+  }
+  const emailKey = email.toLowerCase()
+  if (EMAIL_TO_USER[emailKey]) {
+    return EMAIL_TO_USER[emailKey]
+  }
+  return emailKey
+}
+
+export function alignActorUserId(
+  userByUuid: Map<string, string>,
+  users: { id: string; email: string; metadata?: Record<string, unknown> | null }[],
+  actorUserId: string | null | undefined,
+): void {
+  if (!actorUserId) return
+  for (const user of users) {
+    const frontendId = sessionFrontendUserId(user.metadata, user.email)
+    if (frontendId === actorUserId) {
+      userByUuid.set(user.id, actorUserId)
+    }
+  }
 }

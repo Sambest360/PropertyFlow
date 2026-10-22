@@ -1,5 +1,5 @@
 -- =============================================================================
--- Letkaya — PostgreSQL seed (Port Elizabeth / Eastern Cape demo story)
+-- Lekaya — PostgreSQL seed (Port Elizabeth / Eastern Cape demo story)
 -- Requires: database/postgres/schema.sql already applied
 -- Password: most demo users still use the shared bcrypt placeholder (see README).
 -- Super admin sambampo200@gmail.com uses a real bcrypt hash of plaintext `secret`.
@@ -239,14 +239,10 @@ INSERT INTO users (id, client_id, email, password_hash, first_name, last_name, p
  'sambampo200@gmail.com', '$2b$10$JX.s61pusUiz2t3Qd74Bge4x0lcrELBAHU4SczXEKjsMaFX2sC3o6', 'Samuel', 'Admin', '+27 82 000 0001', 'SUPER_ADMIN', true),
 
 -- Horizon Realty staff
-('a2000001-0001-4000-8000-000000000002', 'a1000001-0001-4000-8000-000000000001',
- 'amelia@horizonrealty.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Amelia', 'Roux', '+27 82 111 0100', 'AGENCY_ADMIN', true),
 ('a2000001-0001-4000-8000-000000000003', 'a1000001-0001-4000-8000-000000000001',
  'lerato@horizonrealty.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Lerato', 'Nkosi', '+27 82 111 0101', 'AGENT_ADMIN', true),
 ('a2000001-0001-4000-8000-000000000004', 'a1000001-0001-4000-8000-000000000001',
  'james@horizonrealty.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'James', 'Okonkwo', '+27 82 111 0102', 'GROUND_AGENT', true),
-('a2000001-0001-4000-8000-000000000005', 'a1000001-0001-4000-8000-000000000001',
- 'priya@horizonrealty.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Priya', 'Naidoo', '+27 82 111 0103', 'GROUND_AGENT', true),
 
 -- Horizon landlords
 ('a2000001-0001-4000-8000-000000000006', 'a1000001-0001-4000-8000-000000000001',
@@ -263,8 +259,6 @@ INSERT INTO users (id, client_id, email, password_hash, first_name, last_name, p
  'fatima.j@email.com', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Fatima', 'Jacobs', '+27 84 112 7788', 'END_USER', true),
 
 -- Cape Coastal
-('a2000001-0001-4000-8000-000000000011', 'a1000001-0001-4000-8000-000000000002',
- 'sipho@capecoastal.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Sipho', 'Molefe', '+27 82 333 0200', 'AGENCY_ADMIN', true),
 ('a2000001-0001-4000-8000-000000000012', 'a1000001-0001-4000-8000-000000000002',
  'anya@capecoastal.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Anya', 'Botha', '+27 82 333 0201', 'GROUND_AGENT', true),
 ('a2000001-0001-4000-8000-000000000013', 'a1000001-0001-4000-8000-000000000002',
@@ -278,8 +272,6 @@ INSERT INTO users (id, client_id, email, password_hash, first_name, last_name, p
 -- Cape Coastal — month-sim staff + tenant + contractor
 ('a2000001-0001-4000-8000-000000000016', 'a1000001-0001-4000-8000-000000000002',
  'zane@capecoastal.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Zane', 'Petersen', '+27 82 333 0202', 'AGENT_ADMIN', true),
-('a2000001-0001-4000-8000-000000000017', 'a1000001-0001-4000-8000-000000000002',
- 'theo@capecoastal.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Theo', 'Jacobs', '+27 82 333 0203', 'GROUND_AGENT', true),
 ('a2000001-0001-4000-8000-000000000018', 'a1000001-0001-4000-8000-000000000002',
  'nandi@capecoastal.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Nandi', 'Bekker', '+27 82 333 0204', 'AGENT_ADMIN', true),
 ('a2000001-0001-4000-8000-000000000019', 'a1000001-0001-4000-8000-000000000002',
@@ -288,8 +280,6 @@ INSERT INTO users (id, client_id, email, password_hash, first_name, last_name, p
  'jobs@bayfix.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Bay', 'Fix', '+27 21 555 0440', 'CONTRACTOR', true),
 
 -- Garden Route Homes
-('a2000001-0001-4000-8000-000000000021', 'a1000001-0001-4000-8000-000000000003',
- 'gita@gardenroutehomes.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Gita', 'Naidoo', '+27 44 555 0301', 'AGENCY_ADMIN', true),
 ('a2000001-0001-4000-8000-000000000022', 'a1000001-0001-4000-8000-000000000003',
  'leigh@gardenroutehomes.co.za', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Leigh', 'Botha', '+27 44 555 0302', 'GROUND_AGENT', true),
 ('a2000001-0001-4000-8000-000000000023', 'a1000001-0001-4000-8000-000000000003',
@@ -429,7 +419,7 @@ INSERT INTO units (
   'a1000001-0001-4000-8000-000000000001',
   'B14', 102.00, 2, 2.0, 1,
   'RENT', NULL, 11800.00, 'AVAILABLE',
-  'a2000001-0001-4000-8000-000000000005',
+  'a2000001-0001-4000-8000-000000000004',
   'Beachview Towers B14 — 2-bed rental',
   'Corner unit with coastal views. Available for immediate occupation.',
   '["fibre","balcony","aircon","secure_parking","concierge"]'::jsonb,
@@ -506,7 +496,7 @@ INSERT INTO units (
   'a1000001-0001-4000-8000-000000000001',
   '7', 115.00, 2, 1.5, 1,
   'BOTH', 1750000.00, 13500.00, 'AVAILABLE',
-  'a2000001-0001-4000-8000-000000000005',
+  'a2000001-0001-4000-8000-000000000004',
   'Park Lane Mews Unit 7 — townhouse',
   'Low-maintenance 2-bed townhouse with courtyard, near Mill Park schools and the PE CBD.',
   '["fibre","courtyard","pet_friendly","garage"]'::jsonb,
@@ -662,7 +652,7 @@ INSERT INTO units (
   'a1000001-0001-4000-8000-000000000002',
   '3C', 68.00, 1, 1.0, 1,
   'RENT', NULL, 9500.00, 'OCCUPIED',
-  'a2000001-0001-4000-8000-000000000017',
+  'a2000001-0001-4000-8000-000000000016',
   'Richmond Hill Hillcrest Court 3C',
   'Bright 1-bed flat near the CBD — currently leased to Aya Daniels.',
   '["fibre","balcony","secure_parking"]'::jsonb,
@@ -751,7 +741,7 @@ INSERT INTO applications (
   'a1000001-0001-4000-8000-000000000001',
   'a4000001-0001-4000-8000-000000000003',
   'a2000001-0001-4000-8000-000000000010',
-  'a2000001-0001-4000-8000-000000000005',
+  'a2000001-0001-4000-8000-000000000004',
   'APP-HZ-902', 'RENTAL', 'CREDIT_CHECK',
   48000.00, 'Deloitte — Consultant', NULL, '2026-08-01',
   '2026-07-19 09:00:00+02'
@@ -818,7 +808,7 @@ INSERT INTO leases (
   NULL,
   'a2000001-0001-4000-8000-000000000019',
   'a2000001-0001-4000-8000-000000000014',
-  'a2000001-0001-4000-8000-000000000017',
+  'a2000001-0001-4000-8000-000000000016',
   'CC-LS-3C',
   'ACTIVE',
   '2026-04-01',
@@ -888,7 +878,7 @@ INSERT INTO viewing_slots (
   'c1000001-0001-4000-8000-000000000005',
   'a1000001-0001-4000-8000-000000000002',
   'a4000001-0001-4000-8000-000000000007',
-  'a2000001-0001-4000-8000-000000000017',
+  'a2000001-0001-4000-8000-000000000016',
   '2026-07-20', '16:00', 3, 1, 'OPEN',
   'Richmond Hill evening slot', NULL, 30
 ),
@@ -896,7 +886,7 @@ INSERT INTO viewing_slots (
   'c1000001-0001-4000-8000-000000000006',
   'a1000001-0001-4000-8000-000000000001',
   'a4000001-0001-4000-8000-000000000004',
-  'a2000001-0001-4000-8000-000000000005',
+  'a2000001-0001-4000-8000-000000000004',
   '2026-07-28', '11:00', 2, 1, 'OPEN',
   'Oxford townhouse — supervised', 'Mentor James attending.', 45
 );
@@ -910,7 +900,7 @@ INSERT INTO bookings (
   'a1000001-0001-4000-8000-000000000001',
   'a4000001-0001-4000-8000-000000000003',
   NULL,
-  'a2000001-0001-4000-8000-000000000005',
+  'a2000001-0001-4000-8000-000000000004',
   'a2000001-0001-4000-8000-000000000010',
   'Fatima Jacobs', 'fatima.j@email.com', '+27 84 112 7788',
   '2026-07-25 10:00:00+02', '2026-07-25 10:30:00+02',
@@ -966,7 +956,7 @@ INSERT INTO bookings (
   'a1000001-0001-4000-8000-000000000002',
   'a4000001-0001-4000-8000-000000000007',
   'c1000001-0001-4000-8000-000000000005',
-  'a2000001-0001-4000-8000-000000000017',
+  'a2000001-0001-4000-8000-000000000016',
   NULL,
   'Johan Steyn', 'j.steyn@email.com', '+27 84 900 1122',
   '2026-07-20 16:00:00+02', '2026-07-20 16:30:00+02',
@@ -977,7 +967,7 @@ INSERT INTO bookings (
   'a1000001-0001-4000-8000-000000000001',
   'a4000001-0001-4000-8000-000000000004',
   'c1000001-0001-4000-8000-000000000006',
-  'a2000001-0001-4000-8000-000000000005',
+  'a2000001-0001-4000-8000-000000000004',
   NULL,
   'Kabelo Mokoena', 'kabelo.m@email.com', '+27 83 221 0091',
   '2026-07-28 11:00:00+02', '2026-07-28 11:45:00+02',
@@ -1120,7 +1110,7 @@ INSERT INTO maintenance_tickets (
   'a4000001-0001-4000-8000-000000000005',
   NULL,
   NULL,
-  'a2000001-0001-4000-8000-000000000011',
+  'a2000001-0001-4000-8000-000000000018',
   'a2000001-0001-4000-8000-000000000016',
   'a2000001-0001-4000-8000-000000000020',
   'ELECTRICAL',
@@ -1172,7 +1162,7 @@ INSERT INTO leads (
   'af000001-0001-4000-8000-000000000001',
   'a1000001-0001-4000-8000-000000000001',
   'a4000001-0001-4000-8000-000000000004',
-  'a2000001-0001-4000-8000-000000000005',
+  'a2000001-0001-4000-8000-000000000004',
   'Kabelo Mokoena', 'kabelo.m@email.com', '+27 83 221 0091', 'Property24', 'Qualified',
   'BUY', 4100000.00, 'Cash buyer — wants Oxford townhouse walkthrough. frontendId=LD-2203',
   '2026-06-28 09:00:00+02', '2026-07-05 10:00:00+02'
@@ -1190,7 +1180,7 @@ INSERT INTO leads (
   'af000001-0001-4000-8000-000000000003',
   'a1000001-0001-4000-8000-000000000002',
   'a4000001-0001-4000-8000-000000000007',
-  'a2000001-0001-4000-8000-000000000017',
+  'a2000001-0001-4000-8000-000000000016',
   'Johan Steyn', 'j.steyn@email.com', '+27 84 900 1122', 'WhatsApp', 'Viewing Scheduled',
   'RENT', 9500.00, 'Richmond Hill flat — similar to Aya''s unit. frontendId=LD-2205',
   '2026-07-10 09:00:00+02', '2026-07-18 12:00:00+02'
@@ -1310,7 +1300,7 @@ INSERT INTO documents (
   'a4000001-0001-4000-8000-000000000007',
   'a3000001-0001-4000-8000-000000000006',
   NULL, 'a8000001-0001-4000-8000-000000000002',
-  'a2000001-0001-4000-8000-000000000017',
+  'a2000001-0001-4000-8000-000000000016',
   'Signed lease — Aya Daniels.pdf', 'LEASE', 'VERIFIED',
   'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf.pdf',
   'application/pdf', NULL, 'Aya Daniels', '2026-03-28 12:00:00+02'
@@ -1321,7 +1311,7 @@ INSERT INTO documents (
   'a4000001-0001-4000-8000-000000000007',
   'a3000001-0001-4000-8000-000000000006',
   NULL, NULL,
-  'a2000001-0001-4000-8000-000000000017',
+  'a2000001-0001-4000-8000-000000000016',
   'ID copy — Aya Daniels.pdf', 'ID', 'VERIFIED',
   'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf.pdf',
   'application/pdf', NULL, 'Aya Daniels', '2026-03-20 10:00:00+02'
@@ -1401,7 +1391,7 @@ INSERT INTO message_threads (
   NULL,
   'Richmond Hill — leaking tap follow-up',
   'AGENT',
-  '["a2000001-0001-4000-8000-000000000019","a2000001-0001-4000-8000-000000000017","a2000001-0001-4000-8000-000000000018"]'::jsonb,
+  '["a2000001-0001-4000-8000-000000000019","a2000001-0001-4000-8000-000000000016","a2000001-0001-4000-8000-000000000018"]'::jsonb,
   '2026-07-24 12:00:00+02', '2026-07-24 11:00:00+02'
 ),
 (
@@ -1428,7 +1418,7 @@ INSERT INTO messages (id, thread_id, client_id, from_user_id, body, created_at) 
   'b9000001-0001-4000-8000-000000000002',
   'b8000001-0001-4000-8000-000000000001',
   'a1000001-0001-4000-8000-000000000002',
-  'a2000001-0001-4000-8000-000000000017',
+  'a2000001-0001-4000-8000-000000000016',
   'Logged MT-4403 and assigned BayFix. They will WhatsApp you for access.',
   '2026-07-24 12:00:00+02'
 ),
@@ -1455,7 +1445,7 @@ INSERT INTO notifications (
 (
   'b7000001-0001-4000-8000-000000000001',
   'a1000001-0001-4000-8000-000000000002',
-  'a2000001-0001-4000-8000-000000000011',
+  'a2000001-0001-4000-8000-000000000018',
   'Lead stage changed',
   'Elena Costa moved to New on Newton Park office enquiry.',
   '/workspace/crm', 'lead', 'updated',
@@ -1491,7 +1481,7 @@ INSERT INTO notifications (
 (
   'b7000001-0001-4000-8000-000000000005',
   'a1000001-0001-4000-8000-000000000001',
-  'a2000001-0001-4000-8000-000000000005',
+  'a2000001-0001-4000-8000-000000000004',
   'Supervised viewing booked',
   'Oxford townhouse viewing with Kabelo on 28 Jul — James mentoring.',
   '/workspace/properties/PR-1003?tab=viewings', 'viewing', 'created',
@@ -1500,7 +1490,7 @@ INSERT INTO notifications (
 (
   'b7000001-0001-4000-8000-000000000006',
   'a1000001-0001-4000-8000-000000000003',
-  'a2000001-0001-4000-8000-000000000021',
+  'a2000001-0001-4000-8000-000000000022',
   'Compliance uploaded',
   'Electrical COC added for Framesby cottage.',
   '/workspace/properties/PR-1011?tab=documents', 'document', 'created',

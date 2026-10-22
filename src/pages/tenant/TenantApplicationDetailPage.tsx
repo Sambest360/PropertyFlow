@@ -5,6 +5,7 @@ import { useStore, usePublicProperties } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
 import { resolveApplicationAgentName } from '../../lib/agentDisplay'
 import { RequirePermission } from '../../components/RequirePermission'
+import { PortalSkeleton } from '../../components/PortalHydrationGate'
 import { ActionButtonRow } from '../../components/ActionButtonRow'
 import { BackButton } from '../../components/BackButton'
 import {
@@ -16,6 +17,8 @@ import { DashboardTabs } from '../../components/dashboard/DashboardTabs'
 import { ApplicantApplicationPanel } from '../../components/applicant-detail/ApplicantApplicationPanel'
 import { ApplicantDocumentsPanel } from '../../components/applicant-detail/ApplicantDocumentsPanel'
 import { TenantApplicationDetailsForm } from '../../components/tenant/TenantApplicationDetailsForm'
+import { TenantCreditConsentPanel } from '../../components/tenant/TenantCreditConsentPanel'
+import { needsCreditConsentTask } from '../../lib/screening/creditConsent'
 import { TenantApplicationPaymentsPanel } from '../../components/tenant/TenantApplicationPaymentsPanel'
 import { Badge, Button, Card, cn, statusTone } from '../../components/ui'
 import { rolePermissions } from '../../lib/permissions'
@@ -28,6 +31,7 @@ import {
 } from '../../lib/applicationWorkflow'
 import { buildCheckoutBridge, guidedTransitionError, type PatchApplicationStatusResult } from '../../lib/api/applicationStatusApi'
 import { sweetError } from '../../lib/sweetAlert'
+import { hideBackendUuid, labelOrReference } from '../../lib/displayIds'
 import type { HateoasAction } from '../../lib/api/contracts'
 import type { WorkflowActionCapture } from '../../lib/workflowActionForms'
 import { formatZAR } from '../../data/seed'
@@ -38,9 +42,17 @@ type Tab = 'application' | 'documents' | 'details' | 'payments'
 export default function TenantApplicationDetailPage() {
   const { id } = useParams()
   const [params, setParams] = useSearchParams()
-  const { state, setDocumentStatus, uploadApplicationDocument, updateApplication, updatePayment, advanceApplicationWorkflow } =
-    useStore()
-  const { user } = useAuth()
+  const {
+    state,
+    hydratedForUserId,
+    setDocumentStatus,
+    uploadApplicationDocument,
+    updateApplication,
+    updatePayment,
+    advanceApplicationWorkflow,
+    captureApplicationScreeningConsent,
+  } = useStore()
+  const { user, authReady } = useAuth()
   const publicProperties = usePublicProperties()
 
   const tab = (['application', 'documents', 'details', 'payments'] as const).includes(
@@ -108,6 +120,17 @@ export default function TenantApplicationDetailPage() {
     }),
     [user],
   )
+
+  const awaitingHydration =
+    authReady && user.id !== 'guest' && hydratedForUserId !== user.id
+
+  if (awaitingHydration) {
+    return (
+      <RequirePermission permission="portal.tenant">
+        <PortalSkeleton />
+      </RequirePermission>
+    )
+  }
 
   if (!application) {
     return (
@@ -219,7 +242,7 @@ export default function TenantApplicationDetailPage() {
           items={[
             { label: 'Dashboard', to: '/workspace/portals/tenant' },
             { label: 'My applications', to: '/workspace/portals/tenant/applications' },
-            { label: property?.title ?? application.id },
+            { label: labelOrReference(property?.title, application.id, 'Application') },
           ]}
         />
 
@@ -238,7 +261,7 @@ export default function TenantApplicationDetailPage() {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h1 className="font-display text-2xl font-semibold text-ink">
-                    {property?.title ?? application.propertyId}
+                    {labelOrReference(property?.title, application.propertyId, 'Property')}
                   </h1>
                   {property ? (
                     <p className="mt-1 flex items-center gap-1.5 text-sm text-ink-500">
@@ -247,7 +270,7 @@ export default function TenantApplicationDetailPage() {
                       {property.rent ? ` · ${formatZAR(property.rent)}/mo` : ''}
                     </p>
                   ) : null}
-                  <p className="mt-1 text-xs text-ink-400">{application.id}</p>
+                  <p className="mt-1 text-xs text-ink-400">{hideBackendUuid(application.id)}</p>
                 </div>
                 <div className="flex flex-col items-end gap-2">
                   <Badge tone={statusTone(application.stage)}>{application.stage}</Badge>
@@ -295,7 +318,9 @@ export default function TenantApplicationDetailPage() {
                 <p className="text-[11px] font-medium uppercase tracking-wide text-ink-400">
                   Linked tenancy
                 </p>
-                <p className="mt-1 font-semibold tabular text-ink">{linkedTenancy.id}</p>
+                <p className="mt-1 font-semibold tabular text-ink">
+                  {hideBackendUuid(linkedTenancy.id)}
+                </p>
                 <p className="mt-0.5 text-sm text-ink-500">
                   {linkedTenancy.startDate}
                   {linkedTenancy.endDate ? ` → ${linkedTenancy.endDate}` : ' · open-ended'}
@@ -440,11 +465,26 @@ export default function TenantApplicationDetailPage() {
         )}
 
         {tab === 'details' && (
-          <TenantApplicationDetailsForm
-            application={application}
-            onSave={(patch) => updateApplication(application.id, patch)}
-            autoSave
-          />
+          <div className="space-y-5">
+            {needsCreditConsentTask(application) || application.creditCheckConsents?.adults?.length ? (
+              <TenantCreditConsentPanel
+                application={application}
+                onCapture={async (adults) => {
+                  const saved = await captureApplicationScreeningConsent(application.id, {
+                    grantedBy: user.id,
+                    method: 'portal',
+                    adults,
+                  })
+                  if (!saved) throw new Error('consent persist failed')
+                }}
+              />
+            ) : null}
+            <TenantApplicationDetailsForm
+              application={application}
+              onSave={(patch) => updateApplication(application.id, patch)}
+              autoSave
+            />
+          </div>
         )}
 
         {tab === 'payments' && (

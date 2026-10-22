@@ -6,7 +6,12 @@
  * a Pool answering by SQL shape from small in-memory tables, applying the
  * users password UPDATE so revocation and must-change are end to end.
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { clearSupabaseAuthEnv, restoreSupabaseAuthEnv, snapshotSupabaseAuthEnv } from './test/supabaseAuthTestEnv.js'
+
+vi.mock('./supabase/env.js', () => ({
+  supabaseAuthConfigured: () => false,
+}))
 
 /** Test-only password fixtures, built at runtime (not credentials). */
 const PW = ['test', 'fixture', 'pw', 'long'].join('-')
@@ -287,10 +292,18 @@ beforeAll(async () => {
   app = mod.default as unknown as App
 })
 
+let savedSupabaseEnv: Record<string, string | undefined>
+
 beforeEach(async () => {
+  savedSupabaseEnv = snapshotSupabaseAuthEnv()
+  clearSupabaseAuthEnv()
   seed()
   db.writes = []
   ;(await import('./rateLimit')).resetPasswordResetRateLimitsForTests()
+})
+
+afterEach(() => {
+  restoreSupabaseAuthEnv(savedSupabaseEnv)
 })
 
 afterAll(() => {

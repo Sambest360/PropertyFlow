@@ -34,6 +34,8 @@ import { ListingDescriptionEditor } from '../../components/listing/ListingDescri
 import { ExpandableDescription } from '../../components/listing/ExpandableDescription'
 import { PropertyFeaturePicker } from '../../components/property-features/PropertyFeaturePicker'
 import { PlacesAddressInput } from '../../components/PlacesAddressInput'
+import { LocationMapPreview } from '../../components/maps/LocationMapPreview'
+import { geocodeAddress } from '../../lib/api/geocoding'
 import { Button, Input, Select } from '../../components/ui'
 import { FormLabel, FieldHelp } from '../../components/onboarding/FieldHelp'
 import { uid } from '../../data/seed'
@@ -72,7 +74,11 @@ import type { AssetCondition } from '../../data/infrastructure'
 import type { PropertyAsset } from '../../types/domain'
 import { showTempPasswordOnce } from '../../lib/auth/tempPasswordBus'
 import { acquireSubmitLock, releaseSubmitLock } from '../../lib/wizardSubmitGuard'
-import { sweetToast } from '../../lib/sweetAlert'
+import { nextUniquePropertyId } from '../../lib/listingIds'
+import { shouldRetainWizardDraftPropertyId } from '../../lib/propertyWizardResume'
+import { propertyIdFromCreateError } from '../../lib/createPropertyBundleError'
+import { sweetError, sweetSuccess, sweetWarning } from '../../lib/sweetAlert'
+import { PropertyLoader } from '../../components/loading/PropertyLoader'
 
 const DRAFT_KEY = 'propertyflow:property-create'
 
@@ -258,15 +264,75 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   // mints a NEW listing. The in-session ref below still lets "Save & continue
   // later" → re-entry within the same mount reuse the id it just created.
   const sessionDraftPropertyIdRef = useRef('')
+  const pendingCreateIdsRef = useRef<PropertyDraft['pendingCreateIds']>(undefined)
   const submitLockRef = useRef(false)
+
+  function wizardOwnedDraftId(): string {
+    if (sessionDraftPropertyIdRef.current) return sessionDraftPropertyIdRef.current
+    if (shouldRetainWizardDraftPropertyId(draft, state.properties) && draft.draftPropertyId) {
+      return draft.draftPropertyId
+    }
+    return ''
+  }
+
+  function ensurePendingCreateIds(): NonNullable<PropertyDraft['pendingCreateIds']> {
+    const fromDraft = draft.pendingCreateIds ?? pendingCreateIdsRef.current
+    const roomIds = draft.rooms.map((r, i) => fromDraft?.roomIds?.[i] ?? r.id ?? uid('rm'))
+    if (fromDraft?.propertyId) {
+      const ids = {
+        propertyId: fromDraft.propertyId,
+        buildingId: draft.existingBuildingId ? undefined : fromDraft.buildingId ?? uid('bld'),
+        roomIds,
+      }
+      pendingCreateIdsRef.current = ids
+      if (!draft.createIdempotencyKey || draft.pendingCreateIds !== ids) {
+        setDraft((d) => ({
+          ...d,
+          pendingCreateIds: ids,
+          createIdempotencyKey: d.createIdempotencyKey ?? `create:${wizardStorageKey}:${ids.propertyId}`,
+        }))
+      }
+      return ids
+    }
+    const propertyId = nextUniquePropertyId(state.properties.map((p) => p.id), () => uid('unt'))
+    const ids = {
+      propertyId,
+      buildingId: draft.existingBuildingId ? undefined : uid('bld'),
+      roomIds,
+    }
+    pendingCreateIdsRef.current = ids
+    setDraft((d) => ({
+      ...d,
+      pendingCreateIds: ids,
+      createIdempotencyKey: d.createIdempotencyKey ?? `create:${wizardStorageKey}:${ids.propertyId}`,
+    }))
+    return ids
+  }
+
+  function bundleIdempotencyOpts() {
+    const pendingIds = ensurePendingCreateIds()
+    return {
+      ids: pendingIds,
+      idempotencyKey: draft.createIdempotencyKey ?? `create:${wizardStorageKey}:${pendingIds.propertyId}`,
+    }
+  }
+
   useEffect(() => {
     if (isEdit) return
+    const retain = shouldRetainWizardDraftPropertyId(draft, state.properties)
+    if (retain && draft.resumeDraftPropertyId) {
+      sessionDraftPropertyIdRef.current = draft.resumeDraftPropertyId
+      if (draft.pendingCreateIds) pendingCreateIdsRef.current = draft.pendingCreateIds
+      return
+    }
     // P0-5 residual: FA Draft default must not imply live — a leftover
     // sessionStorage draft may revive publishAfterSave:true from a prior run.
-    if (draft.draftPropertyId || (isAgentCreator && draft.publishAfterSave)) {
+    if (draft.draftPropertyId || draft.resumeDraftPropertyId || (isAgentCreator && draft.publishAfterSave)) {
       setDraft((d) => ({
         ...d,
         draftPropertyId: '',
+        resumeDraftPropertyId: '',
+        pendingCreateIds: undefined,
         ...(isAgentCreator ? { publishAfterSave: false } : {}),
       }))
     }
@@ -275,8 +341,55 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   const { stepIndex, maxReachableIndex, goNext, goBack, goTo, markReachable, isFirst, isLast } =
     useWizardSteps({ totalSteps: STEPS.length, storageKey: wizardStorageKey })
 
-  const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [busyMessage, setBusyMessage] = useState('Saving…')
+  const [geocoding, setGeocoding] = useState(false)
+
+  const locationPreviewCoords = useMemo(() => {
+    const hasLocationText = Boolean(
+      draft.address.trim() || draft.suburb.trim() || draft.city.trim() || draft.placeId,
+    )
+    if (!hasLocationText) return { lat: null as number | null, lng: null as number | null }
+    return { lat: draft.lat, lng: draft.lng }
+  }, [
+    draft.address,
+    draft.suburb,
+    draft.city,
+    draft.placeId,
+    draft.lat,
+    draft.lng,
+  ])
+
+  useEffect(() => {
+    if (stepIndex !== 1) return
+    const address = draft.address.trim()
+    const suburb = draft.suburb.trim()
+    const city = draft.city.trim()
+    if (!address && !suburb && !city) return
+
+    const key = `${address}|${suburb}|${city}`
+    const timer = window.setTimeout(() => {
+      setGeocoding(true)
+      void geocodeAddress({ address, suburb, city })
+        .then((result) => {
+          setDraft((d) => {
+            if (`${d.address.trim()}|${d.suburb.trim()}|${d.city.trim()}` !== key) return d
+            return {
+              ...d,
+              lat: result.lat,
+              lng: result.lng,
+              placeId: result.placeId ?? d.placeId,
+              formattedAddress: result.formattedAddress || d.formattedAddress,
+            }
+          })
+        })
+        .finally(() => setGeocoding(false))
+    }, 650)
+    return () => {
+      window.clearTimeout(timer)
+      setGeocoding(false)
+    }
+  }, [stepIndex, draft.address, draft.suburb, draft.city, setDraft])
 
   useEffect(() => {
     if (isEdit) return
@@ -470,16 +583,14 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   function handleContinue() {
     const err = validateStep(stepIndex)
     if (err) {
-      setError(err)
+      void sweetWarning('Check this step', err)
       return
     }
-    setError('')
     markReachable(stepIndex + 1)
     goNext()
   }
 
   function saveDraftOnly() {
-    setError('')
     void submitProperty('Draft', false)
   }
 
@@ -612,16 +723,15 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     // P0-collision (R10): same session-scoped rule as submitProperty — a
     // draftPropertyId from leftover sessionStorage belongs to a previous
     // listing; only one recorded during this mount may be updated in place.
-    const sessionOwnedId =
-      sessionDraftPropertyIdRef.current ||
-      (draft.draftPropertyId && state.properties.some((p) => p.id === draft.draftPropertyId)
-        ? draft.draftPropertyId
-        : '')
+    const sessionOwnedId = wizardOwnedDraftId()
     if (sessionOwnedId) {
       return persistExisting(sessionOwnedId)
     }
 
+    const { ids, idempotencyKey } = bundleIdempotencyOpts()
     const created = await createPropertyBundle({
+      ids,
+      idempotencyKey,
       existingBuildingId: draft.existingBuildingId || undefined,
       building: draft.existingBuildingId
         ? undefined
@@ -682,21 +792,36 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
 
   async function handleSaveAndContinueLater() {
     if (!acquireSubmitLock(submitLockRef)) return
-    setError('')
+    setBusyMessage('Saving progress…')
     setBusy(true)
     try {
       if (canSyncServerDraft()) {
         const id = await syncServerDraft()
-        setDraft((d) => ({ ...d, draftPropertyId: id }))
+        setDraft((d) => ({
+          ...d,
+          draftPropertyId: id,
+          resumeDraftPropertyId: id,
+          pendingCreateIds: pendingCreateIdsRef.current ?? d.pendingCreateIds,
+        }))
         sessionDraftPropertyIdRef.current = id
       }
+      await sweetSuccess('Progress saved', 'You can pick up where you left off.')
       navigate(returnTo)
     } catch (err) {
+      const recoveredId = propertyIdFromCreateError(err)
+      if (recoveredId) {
+        sessionDraftPropertyIdRef.current = recoveredId
+        setDraft((d) => ({
+          ...d,
+          draftPropertyId: recoveredId,
+          pendingCreateIds: pendingCreateIdsRef.current ?? d.pendingCreateIds,
+        }))
+      }
       const message =
         err instanceof Error && err.message
           ? err.message
           : 'Could not save your progress. Try again.'
-      setError(message)
+      await sweetError('Could not save progress', message)
     } finally {
       setBusy(false)
       releaseSubmitLock(submitLockRef)
@@ -705,17 +830,25 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
 
   /** Assets step: finish the listing as a Draft now, add inventory on the detail page. */
   async function handleAddAssetsLater() {
-    setError('')
     if (!canSyncServerDraft()) {
-      setError('Add a building name or street address first so the listing can be saved.')
+      void sweetWarning(
+        'Location required',
+        'Add a building name or street address first so the listing can be saved.',
+      )
       goTo(1)
       return
     }
     if (!acquireSubmitLock(submitLockRef)) return
+    setBusyMessage('Saving draft…')
     setBusy(true)
     try {
       const id = await syncServerDraft()
-      setDraft((d) => ({ ...d, draftPropertyId: id }))
+      setDraft((d) => ({
+        ...d,
+        draftPropertyId: id,
+        resumeDraftPropertyId: id,
+        pendingCreateIds: pendingCreateIdsRef.current ?? d.pendingCreateIds,
+      }))
       sessionDraftPropertyIdRef.current = id
       clearDraft()
       try {
@@ -723,10 +856,19 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       } catch {
         /* ignore */
       }
-      void sweetToast('Draft saved')
+      await sweetSuccess('Draft saved', 'Add inventory from the property detail page.')
       navigate(`/workspace/properties/${id}?tab=inventory`)
-    } catch {
-      setError('Could not save the listing. Try again.')
+    } catch (err) {
+      const recoveredId = propertyIdFromCreateError(err)
+      if (recoveredId) {
+        sessionDraftPropertyIdRef.current = recoveredId
+        setDraft((d) => ({
+          ...d,
+          draftPropertyId: recoveredId,
+          pendingCreateIds: pendingCreateIdsRef.current ?? d.pendingCreateIds,
+        }))
+      }
+      await sweetError('Could not save listing', 'Try again in a moment.')
     } finally {
       setBusy(false)
       releaseSubmitLock(submitLockRef)
@@ -735,17 +877,26 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
 
   async function submitProperty(status: 'Draft' | 'Published', fromReview: boolean) {
     if (!acquireSubmitLock(submitLockRef)) return
+    const willPublish =
+      (fromReview && draft.publishAfterSave && canPublish) || (status === 'Published' && canPublish)
+    setBusyMessage(
+      willPublish
+        ? 'Publishing listing…'
+        : isEdit
+          ? 'Saving changes…'
+          : 'Saving draft…',
+    )
     setBusy(true)
     try {
     const err = validateStep(6)
     if (err) {
-      setError(err)
+      await sweetWarning('Check assignment & title', err)
       if (fromReview) goTo(6)
       return
     }
     const listingImages = listingImagesForSubmit()
     if (listingImages.length === 0) {
-      setError('Add at least one listing photo.')
+      await sweetWarning('Photos required', 'Add at least one listing photo.')
       goTo(2)
       return
     }
@@ -754,12 +905,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     // session is a legitimate "existing draft" to update. A value restored
     // from leftover sessionStorage belongs to a previous listing — reusing it
     // overwrote that listing (the unt-ljn8sf rent/sale collision).
-    const existingDraftId = isEdit
-      ? editPropertyId!
-      : (sessionDraftPropertyIdRef.current ||
-          (draft.draftPropertyId && state.properties.some((p) => p.id === draft.draftPropertyId)
-            ? draft.draftPropertyId
-            : '')) || null
+    const existingDraftId = isEdit ? editPropertyId! : wizardOwnedDraftId() || null
 
     let propertyId: string
     // P0-publish (R7): snapshot of a property created in this same tick —
@@ -784,7 +930,10 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       propertyId = existingDraftId
     } else {
       const { resolvedAgencyId, resolvedLandlordId, title, unitNumber, roomRows, starterAssets } = buildSubmitContext()
+      const { ids, idempotencyKey } = bundleIdempotencyOpts()
       const created = await createPropertyBundle({
+        ids,
+        idempotencyKey,
         existingBuildingId: draft.existingBuildingId || undefined,
         building: draft.existingBuildingId
           ? undefined
@@ -849,8 +998,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       sessionDraftPropertyIdRef.current = created.id
     }
 
-    const shouldPublish =
-      (fromReview && draft.publishAfterSave && canPublish) || (status === 'Published' && canPublish)
+    const shouldPublish = willPublish
     if (shouldPublish) {
       // P0-5: await durable publish; do not navigate "live" until committed.
       // P0-publish (R7): pass the same-tick created snapshot so publish can
@@ -858,7 +1006,10 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       // means the listing did not go live.
       const published = await publishProperty(propertyId, 'Published', createdProperty)
       if (!published) {
-        setError('Could not publish the listing. It was saved as a draft — retry from the listing page.')
+        await sweetWarning(
+          'Saved as draft',
+          'Could not publish the listing. It was saved as a draft — retry from the listing page.',
+        )
         return
       }
     }
@@ -876,14 +1027,28 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       state.properties.some((p) => p.id === propertyId) || Boolean(createdProperty)
     const detailPath = `/workspace/properties/${propertyId}`
     const detailTarget = targetInStore ? detailPath : returnTo
-    void sweetToast(shouldPublish ? 'Listing published' : 'Draft saved')
+    const successTitle = shouldPublish
+      ? 'Listing published'
+      : isEdit
+        ? 'Changes saved'
+        : 'Draft saved'
+    await sweetSuccess(successTitle)
     navigate(detailTarget)
     } catch (err) {
+      const recoveredId = propertyIdFromCreateError(err)
+      if (recoveredId) {
+        sessionDraftPropertyIdRef.current = recoveredId
+        setDraft((d) => ({
+          ...d,
+          draftPropertyId: recoveredId,
+          pendingCreateIds: pendingCreateIdsRef.current ?? d.pendingCreateIds,
+        }))
+      }
       const message =
         err instanceof Error && err.message
           ? err.message
           : 'Could not save the listing. Try again.'
-      setError(message)
+      await sweetError('Could not save listing', message)
     } finally {
       setBusy(false)
       releaseSubmitLock(submitLockRef)
@@ -1023,6 +1188,17 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                 onChange={(e) => setDraft((d) => ({ ...d, province: e.target.value }))}
               />
             </div>
+            {geocoding ? (
+              <div className="mt-1 flex items-center gap-2 text-sm text-ink-500">
+                <PropertyLoader size="sm" inline label="Updating map location" />
+                Updating map location…
+              </div>
+            ) : null}
+            <LocationMapPreview
+              lat={locationPreviewCoords.lat}
+              lng={locationPreviewCoords.lng}
+              className="mt-1"
+            />
           </WizardSectionCard>
         )
       case 2:
@@ -1719,16 +1895,38 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                 )
               }
               busy={busy}
+              submitBusyLabel={
+                isEdit
+                  ? draft.publishAfterSave && canPublish
+                    ? 'Publishing…'
+                    : 'Saving…'
+                  : draft.publishAfterSave && canPublish
+                    ? 'Publishing…'
+                    : 'Saving draft…'
+              }
+              saveDraftBusyLabel="Saving draft…"
+              saveAndContinueLaterBusyLabel="Saving…"
             />
           }
         >
-          {error ? <p className="mb-4 text-sm text-accent-600">{error}</p> : null}
-          {(stepIndex > 0 || draft.draftPropertyId) && (
-            <p className="mb-4 rounded-lg border border-primary-100 bg-primary-50/60 px-3 py-2 text-sm text-ink-600">
-              Progress is saved automatically. Use <strong>Save &amp; continue later</strong> to exit and pick up where you left off.
-            </p>
-          )}
-          {renderStep()}
+          <div className="relative">
+            {(stepIndex > 0 || draft.draftPropertyId) && (
+              <p className="mb-4 rounded-lg border border-primary-100 bg-primary-50/60 px-3 py-2 text-sm text-ink-600">
+                Progress is saved automatically. Use <strong>Save &amp; continue later</strong> to exit and pick up where you left off.
+              </p>
+            )}
+            <div className={busy ? 'pointer-events-none select-none opacity-60' : undefined}>
+              {renderStep()}
+            </div>
+            {busy ? (
+              <div
+                className="absolute inset-0 z-10 flex items-center justify-center bg-white/75"
+                aria-live="polite"
+              >
+                <PropertyLoader size="md" label={busyMessage} />
+              </div>
+            ) : null}
+          </div>
         </CreateWizardShell>
       </div>
     </RequirePermission>

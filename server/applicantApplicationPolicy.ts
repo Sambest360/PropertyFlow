@@ -46,6 +46,8 @@ import {
   type WorkflowStatusKey,
 } from '../src/lib/applicationWorkflow.js'
 import { allDocsUploaded } from '../src/lib/workflow.js'
+import { hasAllAdultCreditConsents } from '../src/lib/screening/creditConsent.js'
+import { lockDocumentReviewFields } from '../src/lib/lockDocumentReviewFields.js'
 import type { Application, ApplicationDocument } from '../src/types/domain.js'
 
 export const APPLICATION_TRANSITION_FORBIDDEN = 'APPLICATION_TRANSITION_FORBIDDEN'
@@ -214,42 +216,7 @@ function assertConsistent(data: Row, type: AppType, accept: readonly WorkflowSta
   }
 }
 
-const REVIEW_FIELDS = ['reviewedBy', 'reviewedAt', 'rejectedReason', 'note', 'lookedAt'] as const
-
-function fileKey(f: unknown): string | null {
-  const r = asRow(f)
-  if (!r) return null
-  return `${String(r.dataUrl ?? '')}|${String(r.uploadedAt ?? '')}|${String(r.name ?? '')}`
-}
-
-/**
- * Lock document review fields for a portal write: review state comes from the
- * stored document; a new upload becomes `uploaded` with review fields cleared.
- */
-export function lockDocumentReviewFields(sent: unknown, storedDocs: Row[]): unknown {
-  if (!Array.isArray(sent)) return sent
-  const out = sent.map((raw) => {
-    const doc = asRow(raw)
-    if (!doc) return raw
-    const prev = storedDocs.find((d) => d && d.key === doc.key) ?? null
-    const next: Row = { ...doc }
-    const newUpload = doc.file != null && fileKey(doc.file) !== fileKey(prev?.file)
-    if (newUpload) {
-      next.status = 'uploaded'
-      for (const k of REVIEW_FIELDS) delete next[k]
-      return next
-    }
-    next.status = prev?.status ?? (doc.file != null || prev?.file != null ? 'uploaded' : 'required')
-    for (const k of REVIEW_FIELDS) {
-      if (prev && prev[k] !== undefined) next[k] = prev[k]
-      else delete next[k]
-    }
-    return next
-  })
-  const sentKeys = new Set(out.map((d) => asRow(d)?.key))
-  for (const prev of storedDocs) if (prev && !sentKeys.has(prev.key)) out.push(prev)
-  return out
-}
+export { lockDocumentReviewFields } from '../src/lib/lockDocumentReviewFields.js'
 
 export type StoredApplication = {
   status: string | null
@@ -477,4 +444,40 @@ export async function enforceStaffSignedStageMove(body: { resource: string; acti
     coded(LEASE_SIGNATURE_NOT_RECORDED, `${asked} needs ${required} on the stored lease envelope (it shows ${fromLease ?? 'none'})`),
     { status: 409 },
   )
+}
+
+/** Staff transition into credit_check requires every adult NCA consent on file. */
+export async function enforceStaffCreditCheckConsent(body: {
+  resource: string
+  action: string
+  id: string
+  data?: Row
+}): Promise<void> {
+  if (body.resource !== 'application' || body.action === 'delete') return
+  const data = (body.data ?? {}) as Row
+  const type: AppType = str(data.type)?.toLowerCase().startsWith('p') ? 'Purchase' : 'Rental'
+  if (type !== 'Rental') return
+  const asked = requestedStatus(type, data)
+  if (asked !== 'credit_check') return
+  const uuid = await resolveUuid('application', body.id)
+  if (!uuid) return
+  const stored = await loadStored(uuid)
+  if (!stored) return
+  const meta = asRow(stored.metadata) ?? {}
+  const docsJson = asRow(stored.uploaded_docs_json) ?? {}
+  const incomingConsents = data.creditCheckConsents ?? docsJson.creditCheckConsents
+  const app = {
+    type: 'Rental' as const,
+    applicantName: str(meta.applicant_name) ?? 'Applicant',
+    idNumberOrPassport: str(meta.id_number_or_passport) ?? '',
+    creditCheckConsents: incomingConsents as Application['creditCheckConsents'],
+    creditConsent: typeof docsJson.creditConsent === 'boolean' ? docsJson.creditConsent : false,
+    screeningConsent:
+      meta.screeningConsent && typeof meta.screeningConsent === 'object'
+        ? (meta.screeningConsent as Application['screeningConsent'])
+        : undefined,
+  } as Application
+  if (!hasAllAdultCreditConsents(app)) {
+    throw transitionError('credit_check requires POPIA / NCA consent for every adult on the application')
+  }
 }

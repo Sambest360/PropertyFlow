@@ -73,6 +73,22 @@ describe('mergeEntityLists', () => {
     )
   })
 
+  it('keeps local archived property when remote slice is still published', () => {
+    resetLocalPersistWrites()
+    const now = 5_000_000
+    markLocalPersistWrite('property', 'p-arch')
+
+    const local = [{ id: 'p-arch', status: 'Archived', deletedAt: '2026-01-01T00:00:00.000Z' }]
+    const remote = [{ id: 'p-arch', status: 'Published', deletedAt: null }]
+
+    const merged = mergeEntityLists(local, remote, 'properties', {
+      now,
+      replaceWhenMissing: false,
+    })
+
+    expect(merged).toEqual(local)
+  })
+
   it('keeps recently written local-only rows in scoped replace mode', () => {
     resetLocalPersistWrites()
     const now = 3_000_000

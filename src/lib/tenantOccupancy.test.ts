@@ -141,10 +141,28 @@ describe('tenantHasApprovedOccupancy', () => {
       ),
     ).toBe(false)
   })
+
+  it('unlocks from purchase workflow offer_accepted onward', () => {
+    expect(
+      tenantHasApprovedOccupancy(
+        [app({ id: 'a1', stage: 'Application started', workflowStatus: 'offer_accepted' })],
+        [],
+        user,
+      ),
+    ).toBe(true)
+    expect(
+      tenantHasApprovedOccupancy(
+        [app({ id: 'a1', stage: 'Application started', workflowStatus: 'offer_submitted' })],
+        [],
+        user,
+      ),
+    ).toBe(false)
+  })
 })
 
 describe('isTenantOccupancyPermission', () => {
   it('flags payments and maintenance as occupancy-gated', () => {
+    expect(isTenantOccupancyPermission('documents.view')).toBe(true)
     expect(isTenantOccupancyPermission('payments.view')).toBe(true)
     expect(isTenantOccupancyPermission('maintenance.manage')).toBe(true)
     expect(isTenantOccupancyPermission('portal.tenant')).toBe(false)

@@ -164,7 +164,7 @@ function drawSectionTable(ctx: DrawCtx, lines: OwnerStatementLine[]) {
 
 function renderBook(ctx: DrawCtx, book: OwnerStatementBook) {
   drawLine(ctx, 'OWNER STATEMENT (IN-APP BOOK)', { size: 16, bold: true })
-  drawLine(ctx, 'Letkaya - printable statement', { size: 9, color: ctx.muted })
+  drawLine(ctx, 'Lekaya Rentals - printable statement', { size: 9, color: ctx.muted })
   drawWrapped(ctx, book.honesty, { size: 8, color: ctx.warn, width: 95 })
   drawLine(
     ctx,
@@ -211,7 +211,7 @@ function renderBook(ctx: DrawCtx, book: OwnerStatementBook) {
   drawLine(ctx, '4. Landlord payout instructions (<= submitted)', { size: 12, bold: true })
   drawWrapped(
     ctx,
-    'In-app status only through submitted. Recorded in Letkaya, not yet matched to the bank; partner remittance is not connected.',
+    'In-app status only through submitted. Recorded in Lekaya, not yet matched to the bank; partner remittance is not connected.',
     { size: 8, color: ctx.warn, width: 95 },
   )
   if (book.payouts.length === 0) {

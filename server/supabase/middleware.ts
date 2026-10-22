@@ -4,8 +4,14 @@ import { isServerSupabaseMode } from '../authMode.js'
 
 const AUTH_PATH_PREFIXES = ['/api/auth', '/api/health']
 
-function shouldSkipSupabaseRefresh(path: string): boolean {
-  return AUTH_PATH_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))
+export function shouldSkipSupabaseRefresh(path: string, method = 'GET'): boolean {
+  if (AUTH_PATH_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) {
+    return true
+  }
+  if (method === 'GET' && path.startsWith('/api/public/')) {
+    return true
+  }
+  return false
 }
 
 /**
@@ -15,7 +21,7 @@ function shouldSkipSupabaseRefresh(path: string): boolean {
  */
 export async function supabaseSessionMiddleware(c: Context, next: Next) {
   const path = new URL(c.req.url).pathname
-  if (shouldSkipSupabaseRefresh(path)) {
+  if (shouldSkipSupabaseRefresh(path, c.req.method)) {
     await next()
     return
   }

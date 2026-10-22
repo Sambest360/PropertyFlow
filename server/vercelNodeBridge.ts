@@ -11,6 +11,7 @@
  *   flowing). We drain the Node body into a Buffer first, then build a Web Request.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { captureServerError, flushServerSentry } from './sentry.js'
 
 export type FetchLike = (request: Request) => Response | Promise<Response>
 
@@ -95,8 +96,12 @@ export function createVercelNodeHandler(fetch: FetchLike) {
   ): Promise<Response | void> {
     if (isWebRequestInvocation(req, res)) {
       try {
-        return await fetch(req)
+        const response = await fetch(req)
+        await flushServerSentry()
+        return response
       } catch (err) {
+        captureServerError(err, { status: 500 })
+        await flushServerSentry()
         const message = err instanceof Error ? err.message : String(err)
         return Response.json({ ok: false, error: message || 'Internal Server Error' }, { status: 500 })
       }
@@ -110,8 +115,11 @@ export function createVercelNodeHandler(fetch: FetchLike) {
       const body = BODYLESS.has(method) ? undefined : await readIncomingBody(nodeReq)
       const webReq = buildWebRequest(nodeReq, body)
       const response = await fetch(webReq)
+      await flushServerSentry()
       await writeWebResponse(nodeRes, response)
     } catch (err) {
+      captureServerError(err, { status: 500 })
+      await flushServerSentry()
       if (!nodeRes.headersSent) {
         nodeRes.statusCode = 500
         nodeRes.setHeader('content-type', 'application/json; charset=utf-8')
