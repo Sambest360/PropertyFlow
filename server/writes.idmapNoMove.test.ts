@@ -10,11 +10,13 @@ vi.mock('./db.js', () => ({
   pool: { query: (...a: unknown[]) => query(...a) },
 }))
 vi.mock('./entityMap.js', () => ({
+  upsertEntityMapFrontendId: vi.fn(async (_et: string, _fe: string, backendId: string) => backendId),
   ensureEntityMapTable: vi.fn(async () => undefined),
   ensureUuid: vi.fn(async (et: string, _fe: string, preferred?: string) =>
     preferred ?? (et === 'building' ? BUILDING : UNIT)),
   resolveUuid: (...a: unknown[]) => resolveUuid(...a),
   forgetId: vi.fn(async () => undefined),
+  upsertEntityMapFrontendId: async (_et: string, _fe: string, uuid: string) => uuid,
   isUuid: (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v),
 }))
 
