@@ -10,6 +10,7 @@ vi.mock('./db.js', () => ({
   pool: { query: (...a: unknown[]) => query(...a) },
 }))
 vi.mock('./entityMap.js', () => ({
+  upsertEntityMapFrontendId: vi.fn(async (_et: string, _fe: string, backendId: string) => backendId),
   ensureEntityMapTable: vi.fn(async () => undefined),
   ensureUuid: vi.fn(async (et: string, _fe: string, preferred?: string) =>
     preferred ?? (et === 'building' ? BUILDING : UNIT)),
