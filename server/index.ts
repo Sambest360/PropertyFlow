@@ -1366,6 +1366,77 @@ app.post('/api/leads/:id/promote-waitlist', async (c) => {
   }
 })
 
+app.patch('/api/units/:id/advertise-while-occupied', async (c) => {
+  try {
+    const actor = await requireActor(c, null)
+    const body = (await c.req.json().catch(() => ({}))) as {
+      enabled?: boolean
+      expectedAvailableFrom?: string | null
+      reason?: string | null
+      photoMode?: 'CURRENT' | 'PRE_OCCUPATION' | null
+    }
+    const { patchAdvertiseWhileOccupied } = await import('./occupiedListing.js')
+    const result = await patchAdvertiseWhileOccupied(actor, c.req.param('id'), body)
+    return c.json(result)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'advertise_failed', message, ...errCode(err) }, errStatus(err))
+  }
+})
+
+app.post('/api/leases/:id/notice', async (c) => {
+  try {
+    const actor = await requireActor(c, null)
+    const body = (await c.req.json().catch(() => ({}))) as { givenBy?: string; givenAt?: string }
+    const { postLeaseNotice } = await import('./occupiedListing.js')
+    const result = await postLeaseNotice(actor, c.req.param('id'), body)
+    return c.json(result)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'notice_failed', message, ...errCode(err) }, errStatus(err))
+  }
+})
+
+app.get('/api/leases/:id/viewing-windows', async (c) => {
+  try {
+    const actor = await requireActor(c, null)
+    const { getViewingWindows } = await import('./occupiedListing.js')
+    const windows = await getViewingWindows(actor, c.req.param('id'))
+    return c.json({ windows })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'windows_failed', message, ...errCode(err) }, errStatus(err))
+  }
+})
+
+app.put('/api/leases/:id/viewing-windows', async (c) => {
+  try {
+    const actor = await requireActor(c, null)
+    const body = (await c.req.json().catch(() => ({}))) as {
+      windows?: Array<{ weekday: number | null; windowDate: string | null; startTime: string; endTime: string }>
+    }
+    const { putViewingWindows } = await import('./occupiedListing.js')
+    const windows = await putViewingWindows(actor, c.req.param('id'), body.windows ?? [])
+    return c.json({ windows })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'windows_failed', message, ...errCode(err) }, errStatus(err))
+  }
+})
+
+app.patch('/api/bookings/:id/tenant-response', async (c) => {
+  try {
+    const actor = await requireActor(c, null)
+    const body = (await c.req.json().catch(() => ({}))) as { status?: string; proposedStartsAt?: string | null }
+    const { patchTenantBookingResponse } = await import('./occupiedListing.js')
+    const result = await patchTenantBookingResponse(actor, c.req.param('id'), body)
+    return c.json(result)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'tenant_response_failed', message, ...errCode(err) }, errStatus(err))
+  }
+})
+
 app.post('/api/applications/:id/approve', async (c) => {
   try {
     const applicationId = c.req.param('id')

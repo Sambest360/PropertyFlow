@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { NO_PHOTOS_YET } from '../lib/listingPhotos'
+import { availableFromLabel } from '../lib/availableFromLabel'
 import { Bath, BedDouble, Car, Droplets, Heart, MapPin, Star, Sun, Zap } from 'lucide-react'
 import { formatZAR } from '../data/seed'
 import { listingAvailabilityCopy } from '../lib/listingLimitCopy'
@@ -148,6 +149,11 @@ export function PropertyCard({
             {bookedBadge ? (
               <div className="rounded-full bg-ink px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm">
                 {bookedBadge}
+              </div>
+            ) : null}
+            {property.availableFrom ? (
+              <div className="rounded-full bg-primary px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm">
+                {availableFromLabel(property.availableFrom)}
               </div>
             ) : null}
           </div>

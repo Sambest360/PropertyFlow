@@ -147,6 +147,11 @@ export function ticketStatus(s: string): string {
   return map[s] ?? 'Requested'
 }
 
+function consentStatus(value: unknown): 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'NOT_REQUIRED' {
+  if (value === 'PENDING' || value === 'ACCEPTED' || value === 'DECLINED' || value === 'NOT_REQUIRED') return value
+  return 'NOT_REQUIRED'
+}
+
 function viewingStatus(s: string): string {
   const map: Record<string, string> = {
     SCHEDULED: 'Scheduled',
@@ -355,6 +360,9 @@ export async function buildBootstrap(opts?: {
           amenities: unknown
           images: unknown
           featured: boolean
+          advertise_while_occupied?: boolean
+          available_from?: string | Date | null
+          occupied_viewing_notice_hours?: number
           lat: string | null
           lng: string | null
           place_id: string | null
@@ -696,6 +704,8 @@ export async function buildBootstrap(opts?: {
       amenities: Array.isArray(u.amenities) ? u.amenities : [],
       images: Array.isArray(u.images) ? u.images : [],
       featured: u.featured,
+      advertiseWhileOccupied: Boolean(u.advertise_while_occupied),
+      availableFrom: u.available_from ? dateOnly(new Date(u.available_from)) : null,
       lat: u.lat ? Number(u.lat) : b?.lat ? Number(b.lat) : 0,
       lng: u.lng ? Number(u.lng) : b?.lng ? Number(b.lng) : 0,
       placeId: u.place_id ?? b?.place_id ?? null,
@@ -792,6 +802,8 @@ export async function buildBootstrap(opts?: {
       amenities: u.amenities,
       description: u.description,
       featured: u.featured,
+      advertiseWhileOccupied: u.advertiseWhileOccupied,
+      availableFrom: u.availableFrom,
       createdAt: u.createdAt,
       solarCapacityKw: b?.solarCapacityKw,
       hasBorehole: b?.hasBorehole,
@@ -989,6 +1001,10 @@ export async function buildBootstrap(opts?: {
             : '—',
       feedback: (b.feedback as string) ?? undefined,
       notes: (b.notes as string) ?? undefined,
+      tenantConsentStatus: consentStatus(b.tenant_consent_status),
+      tenantProposedStartsAt: b.tenant_proposed_starts_at
+        ? new Date(b.tenant_proposed_starts_at as string).toISOString()
+        : undefined,
     }
   })
 

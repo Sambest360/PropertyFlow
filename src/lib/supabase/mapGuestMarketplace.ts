@@ -58,7 +58,12 @@ export function mapGuestMarketplacePayload(payload: {
   const clients = payload.clients ?? []
   const users = payload.users ?? []
   const buildingsRaw = payload.buildings ?? []
-  const unitsRawInput = payload.units ?? []
+  const tenantPiiKeys = ['tenant_id', 'tenant_name', 'tenant_email', 'tenant_phone', 'visitor_name', 'visitor_email', 'visitor_phone', 'password_hash']
+  const unitsRawInput = (payload.units ?? []).map((row) => {
+    const copy = { ...row }
+    for (const key of tenantPiiKeys) delete copy[key]
+    return copy
+  })
   const roomsRaw = payload.rooms ?? []
   const cache = buildIdMapCache(
     payload.entity_id_map ?? [],
@@ -162,6 +167,8 @@ export function mapGuestMarketplacePayload(payload: {
       price: u.price != null ? Number(u.price) : null,
       rent: u.rent != null ? Number(u.rent) : null,
       statusKey: String(u.status_config_key),
+      advertiseWhileOccupied: Boolean(u.advertise_while_occupied),
+      availableFrom: u.available_from ? String(u.available_from).slice(0, 10) : null,
       description: String(u.description ?? ''),
       amenities: Array.isArray(u.amenities) ? (u.amenities as string[]) : [],
       images: Array.isArray(u.images) ? (u.images as string[]) : [],
@@ -201,6 +208,8 @@ export function mapGuestMarketplacePayload(payload: {
       title: u.title,
       type: resolvePropertyType({ stored: u.propertyType, bedrooms: u.bedrooms }),
       status,
+      advertiseWhileOccupied: u.advertiseWhileOccupied,
+      availableFrom: u.availableFrom,
       listingMode: u.listingType,
       ...u._limit,
       price: u.price,

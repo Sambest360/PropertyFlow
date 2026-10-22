@@ -1,4 +1,5 @@
 import { query, withTransaction } from './db.js'
+import { assertOccupiedBookingAllowed, markBookingTenantPending } from './occupiedListing.js'
 import { ensureUuid, resolveUuid } from './entityMap.js'
 import { resolveLiveListing } from './listingResolve.js'
 import {
@@ -242,6 +243,11 @@ export async function submitPublicListingEnquiry(
         err.status = 404
         throw err
       }
+      const consent = await assertOccupiedBookingAllowed(unit.unitId, {
+        date: String(slot.slot_date).slice(0, 10),
+        time: String(slot.slot_time),
+        startsAt: slotStart,
+      })
 
       const viewingFeId = `VW-guest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       bookingFeId = viewingFeId
@@ -269,6 +275,7 @@ export async function submitPublicListingEnquiry(
           extraNotes || null,
         ],
       )
+      if (consent === 'PENDING') await markBookingTenantPending(bookingUuid, unit.unitId)
       await query(
         `UPDATE viewing_slots
          SET booked_count = booked_count + 1,

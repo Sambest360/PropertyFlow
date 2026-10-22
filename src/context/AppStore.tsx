@@ -807,6 +807,7 @@ type StoreContextValue = {
     employerName?: string
     jobTitle?: string
     idNumberOrPassport?: string
+    moveInDate?: string
     uploadedDocs?: Application['uploadedDocs']
     /** Skip income/availability guards (admin/demo only) */
     skipGuards?: boolean
@@ -4748,6 +4749,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         docs: [],
         viewingSlotId: null,
         notes: '',
+        moveInDate: input.moveInDate,
         submittedAt: new Date().toISOString().slice(0, 10),
         updatedAt: new Date().toISOString().slice(0, 10),
         journeySnapshot,
