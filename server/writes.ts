@@ -18,6 +18,7 @@ import { SUB_FE_TO_UUID } from './idMap.js'
 import { resolveTicketLease } from './ticketLease.js'
 import { checkTicketPhotos } from '../src/lib/photoLimits.js'
 import { propertyTypeToDb } from '../src/lib/propertyType.js'
+import { notifyWaitlistSpotOpen } from './listingLimits.js'
 import { mapAgencyStatusToDb } from '../src/lib/agencyStatus.js'
 import { resolveLiveListing } from './listingResolve.js'
 import { canonicalListingId } from '../src/lib/listingIds.js'
@@ -557,6 +558,14 @@ async function upsertAgency(feId: string, d: Record<string, unknown>): Promise<s
       JSON.stringify({
         frontend_id: feId,
         enabledPermissions: d.enabledPermissions ?? [],
+        ...(d.settings &&
+        typeof d.settings === 'object' &&
+        !Array.isArray(d.settings) &&
+        (d.settings as { listingLimits?: unknown }).listingLimits &&
+        typeof (d.settings as { listingLimits?: unknown }).listingLimits === 'object' &&
+        !Array.isArray((d.settings as { listingLimits?: unknown }).listingLimits)
+          ? { listingLimits: (d.settings as { listingLimits: unknown }).listingLimits }
+          : {}),
       }),
     ],
   )
@@ -1626,6 +1635,11 @@ async function upsertViewing(feId: string, d: Record<string, unknown>): Promise<
   const time = str(d.time, '10:00')
   const starts = `${date}T${time}:00`
   const status = VIEW_STATUS_TO_DB[str(d.status, 'Scheduled')] ?? 'SCHEDULED'
+  const prevBooking = await query<{ status: string; unit_id: string }>(
+    `SELECT status, unit_id::text AS unit_id FROM bookings WHERE id = $1::uuid`,
+    [uuid],
+  )
+  const prevStatus = prevBooking[0]?.status
 
   await query(
     `INSERT INTO bookings (
@@ -1655,6 +1669,9 @@ async function upsertViewing(feId: string, d: Record<string, unknown>): Promise<
       d.notes ? str(d.notes) : null,
     ],
   )
+  if (status === 'CANCELLED' && prevStatus && prevStatus !== 'CANCELLED') {
+    await notifyWaitlistSpotOpen(prevBooking[0]?.unit_id || unit)
+  }
   return uuid
 }
 

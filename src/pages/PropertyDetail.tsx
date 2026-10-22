@@ -16,6 +16,7 @@ import { PropertyFloorPlanPanel } from '../components/property-detail/PropertyFl
 import { PropertyInventoryPanel } from '../components/property-detail/PropertyInventoryPanel'
 import { PropertyApplicantsPanel } from '../components/property-detail/PropertyApplicantsPanel'
 import { PropertyViewingsPanel } from '../components/property-detail/PropertyViewingsPanel'
+import { ListingLimitsPanel } from '../components/property-detail/ListingLimitsPanel'
 import { PropertyMaintenancePanel } from '../components/property-detail/PropertyMaintenancePanel'
 import { PropertyPaymentsPanel } from '../components/property-detail/PropertyPaymentsPanel'
 import { PropertyDocumentsPanel } from '../components/property-detail/PropertyDocumentsPanel'
@@ -609,6 +610,10 @@ export default function PropertyDetail() {
       )}
 
       {tab === 'viewings' && (
+        <>
+        {canManage && (p.listingMode === 'rent' || p.listingMode === 'both') && (
+          <ListingLimitsPanel unitRef={p.unitId ?? p.id} backendId={p.backendId} />
+        )}
         <PropertyViewingsPanel
           slots={viewingSlots}
           viewings={viewings}
@@ -663,6 +668,7 @@ export default function PropertyDetail() {
             return ok
           }}
         />
+        </>
       )}
 
       {tab === 'maintenance' && (

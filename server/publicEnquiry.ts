@@ -1,6 +1,12 @@
-import { query } from './db.js'
+import { query, withTransaction } from './db.js'
 import { ensureUuid, resolveUuid } from './entityMap.js'
 import { resolveLiveListing } from './listingResolve.js'
+import {
+  capacityDecision,
+  findDuplicateLead,
+  listingFullError,
+  lockAndCount,
+} from './listingLimits.js'
 
 export type PublicEnquiryInput = {
   propertyId: string
@@ -116,109 +122,178 @@ export async function submitPublicListingEnquiry(
     stage = input.slotId ? 'Viewing Scheduled' : 'Viewing Requested'
   }
 
-  const leadFeId = `LD-guest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-  const leadUuid = await ensureUuid('lead', leadFeId)
+  const saved = await withTransaction(async () => {
+    const snap = await lockAndCount(unit.unitId)
+    const duplicateLeadId = await findDuplicateLead(unit.unitId, snap.roundStartedAt, email, phone)
+    const booksSlot = action === 'viewing' && Boolean(input.slotId)
+    if (!booksSlot && duplicateLeadId) {
+      return {
+        full: false as const,
+        leadId: duplicateLeadId,
+        bookingId: null as string | null,
+        stage,
+        duplicate: true,
+      }
+    }
+    const decision = booksSlot
+      ? capacityDecision(snap.viewingCount, snap.maxViewings, snap.limitAction)
+      : capacityDecision(snap.enquiryCount, snap.maxEnquiries, snap.limitAction)
 
-  await query(
-    `INSERT INTO leads (
-       id, client_id, unit_id, agent_id, name, email, phone, channel, stage,
-       interest_type, value_amount, notes, updated_at
-     ) VALUES (
-       $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'Web Form', $8,
-       $9, $10, $11, NOW()
-     )`,
-    [
-      leadUuid,
-      unit.clientId,
-      unit.unitId,
-      unit.agentId,
-      fullName,
-      email,
-      phone || null,
+    if (decision !== 'allow') {
+      let waitlistId: string | null = null
+      if (decision === 'waitlist') {
+        if (booksSlot) {
+          const inserted = await query<{ id: string }>(
+            `INSERT INTO viewing_waitlist (client_id, unit_id, name, email, phone)
+             VALUES ($1::uuid, $2::uuid, $3, $4, NULLIF($5, ''))
+             RETURNING id::text AS id`,
+            [unit.clientId, unit.unitId, fullName, email, phone],
+          )
+          waitlistId = inserted[0]?.id ?? null
+        } else {
+          const leadFeId = `LD-guest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+          const leadUuid = await ensureUuid('lead', leadFeId)
+          await query(
+            `INSERT INTO leads (
+               id, client_id, unit_id, agent_id, name, email, phone, channel, stage,
+               interest_type, value_amount, notes, is_waitlisted, updated_at
+             ) VALUES (
+               $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'Web Form', 'Waitlist',
+               $8, $9, $10, true, NOW()
+             )`,
+            [
+              leadUuid,
+              unit.clientId,
+              unit.unitId,
+              unit.agentId,
+              fullName,
+              email,
+              phone || null,
+              interest,
+              unit.value,
+              extraNotes || null,
+            ],
+          )
+          waitlistId = leadUuid
+        }
+      }
+      return { full: true as const, waitlist: decision === 'waitlist', waitlistId }
+    }
+
+    const leadFeId = `LD-guest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const leadUuid = duplicateLeadId ?? (await ensureUuid('lead', leadFeId))
+    if (!duplicateLeadId) {
+      await query(
+        `INSERT INTO leads (
+           id, client_id, unit_id, agent_id, name, email, phone, channel, stage,
+           interest_type, value_amount, notes, metadata, updated_at
+         ) VALUES (
+           $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, 'Web Form', $8,
+           $9, $10, $11, $12::jsonb, NOW()
+         )`,
+        [
+          leadUuid,
+          unit.clientId,
+          unit.unitId,
+          unit.agentId,
+          fullName,
+          email,
+          phone || null,
+          stage,
+          interest,
+          unit.value,
+          extraNotes || null,
+          JSON.stringify(booksSlot ? { limit_bucket: 'viewing' } : {}),
+        ],
+      )
+    }
+
+    let bookingFeId: string | null = null
+    if (booksSlot) {
+      const slotUuid = await resolveUuid('viewing_slot', str(input.slotId))
+      const slotRows = await query<{
+        slot_date: string
+        slot_time: string
+        capacity: number
+        booked_count: number
+        status: string
+      }>(
+        `SELECT slot_date::text, slot_time, capacity, booked_count, status
+         FROM viewing_slots
+         WHERE id = $1::uuid AND unit_id = $2::uuid AND client_id = $3::uuid
+         FOR UPDATE`,
+        [slotUuid, unit.unitId, unit.clientId],
+      )
+      const slot = slotRows[0]
+      if (!slot) {
+        const err = new Error('slot_not_found') as Error & { status?: number }
+        err.status = 404
+        throw err
+      }
+      if (slot.status !== 'OPEN' || slot.booked_count >= slot.capacity) {
+        const err = new Error('slot_unavailable') as Error & { status?: number }
+        err.status = 409
+        throw err
+      }
+      const timeNorm = String(slot.slot_time).length === 5 ? `${slot.slot_time}:00` : slot.slot_time
+      const slotStart = new Date(`${slot.slot_date}T${timeNorm}`)
+      if (!Number.isNaN(slotStart.getTime()) && slotStart.getTime() <= Date.now()) {
+        const err = new Error('slot_not_found') as Error & { status?: number }
+        err.status = 404
+        throw err
+      }
+
+      const viewingFeId = `VW-guest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      bookingFeId = viewingFeId
+      const bookingUuid = await ensureUuid('viewing', viewingFeId)
+      const startsAt = `${slot.slot_date}T${slot.slot_time}:00`
+
+      await query(
+        `INSERT INTO bookings (
+           id, client_id, unit_id, slot_id, agent_id, visitor_name, visitor_email, visitor_phone,
+           starts_at, status, notes, updated_at
+         ) VALUES (
+           $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, $8,
+           $9::timestamptz, 'SCHEDULED', $10, NOW()
+         )`,
+        [
+          bookingUuid,
+          unit.clientId,
+          unit.unitId,
+          slotUuid,
+          unit.agentId,
+          fullName,
+          email,
+          phone || null,
+          startsAt,
+          extraNotes || null,
+        ],
+      )
+      await query(
+        `UPDATE viewing_slots
+         SET booked_count = booked_count + 1,
+             status = CASE WHEN booked_count + 1 >= capacity THEN 'FULL' ELSE status END,
+             updated_at = NOW()
+         WHERE id = $1::uuid`,
+        [slotUuid],
+      )
+    }
+
+    return {
+      full: false as const,
+      leadId: duplicateLeadId ? duplicateLeadId : leadFeId,
+      bookingId: bookingFeId,
       stage,
-      interest,
-      unit.value,
-      extraNotes || null,
-    ],
-  )
-
-  let bookingFeId: string | null = null
-  if (action === 'viewing' && input.slotId) {
-    const slotUuid = await resolveUuid('viewing_slot', str(input.slotId))
-    const slotRows = await query<{
-      slot_date: string
-      slot_time: string
-      capacity: number
-      booked_count: number
-      status: string
-    }>(
-      `SELECT slot_date::text, slot_time, capacity, booked_count, status
-       FROM viewing_slots
-       WHERE id = $1::uuid AND unit_id = $2::uuid AND client_id = $3::uuid
-       FOR UPDATE`,
-      [slotUuid, unit.unitId, unit.clientId],
-    )
-    const slot = slotRows[0]
-    if (!slot) {
-      const err = new Error('slot_not_found') as Error & { status?: number }
-      err.status = 404
-      throw err
     }
-    if (slot.status !== 'OPEN' || slot.booked_count >= slot.capacity) {
-      const err = new Error('slot_unavailable') as Error & { status?: number }
-      err.status = 409
-      throw err
-    }
-    const timeNorm = String(slot.slot_time).length === 5 ? `${slot.slot_time}:00` : slot.slot_time
-    const slotStart = new Date(`${slot.slot_date}T${timeNorm}`)
-    if (!Number.isNaN(slotStart.getTime()) && slotStart.getTime() <= Date.now()) {
-      const err = new Error('slot_not_found') as Error & { status?: number }
-      err.status = 404
-      throw err
-    }
+  })
 
-    const viewingFeId = `VW-guest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    bookingFeId = viewingFeId
-    const bookingUuid = await ensureUuid('viewing', viewingFeId)
-    const startsAt = `${slot.slot_date}T${slot.slot_time}:00`
-
-    await query(
-      `INSERT INTO bookings (
-         id, client_id, unit_id, slot_id, agent_id, visitor_name, visitor_email, visitor_phone,
-         starts_at, status, notes, updated_at
-       ) VALUES (
-         $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, $8,
-         $9::timestamptz, 'SCHEDULED', $10, NOW()
-       )`,
-      [
-        bookingUuid,
-        unit.clientId,
-        unit.unitId,
-        slotUuid,
-        unit.agentId,
-        fullName,
-        email,
-        phone || null,
-        startsAt,
-        extraNotes || null,
-      ],
-    )
-
-    await query(
-      `UPDATE viewing_slots
-       SET booked_count = booked_count + 1,
-           status = CASE WHEN booked_count + 1 >= capacity THEN 'FULL' ELSE status END,
-           updated_at = NOW()
-       WHERE id = $1::uuid`,
-      [slotUuid],
-    )
-  }
+  if (saved.full) throw listingFullError(saved.waitlist, saved.waitlistId)
 
   return {
     ok: true,
-    leadId: leadFeId,
-    bookingId: bookingFeId,
-    stage,
+    leadId: saved.leadId,
+    bookingId: saved.bookingId,
+    stage: saved.stage,
     unitId: unit.unitId,
   }
 }
