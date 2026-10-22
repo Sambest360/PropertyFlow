@@ -7,6 +7,7 @@ import type { Lead } from '../../types/domain'
 import type { PostgresBootstrap } from '../api/postgresClient'
 import { createClient } from '../../utils/supabase/client'
 import { latestRefundBySubject } from '../trust/depositDualControl'
+import { listingLimitsFromSettings } from '../listingLimitCopy'
 import {
   buildIdMapCache,
   EMAIL_TO_USER,
@@ -531,6 +532,7 @@ export async function fetchSupabaseBootstrap(
         !Array.isArray(settingsRaw.applicationJourney)
           ? (settingsRaw.applicationJourney as import('../journey/types').AgencyJourneyOverride)
           : undefined
+      const listingLimits = listingLimitsFromSettings(settingsRaw)
       return {
         id: mappedFe(cache, 'agency', c.id, c.id),
         name: c.company_name,
@@ -539,7 +541,13 @@ export async function fetchSupabaseBootstrap(
         status: mapAgencyStatusFromDb(c.status),
         createdAt: dateOnly(c.created_at),
         enabledPermissions: null as null,
-        settings: applicationJourney ? { applicationJourney } : undefined,
+        settings:
+          applicationJourney || listingLimits
+            ? {
+                ...(applicationJourney ? { applicationJourney } : {}),
+                ...(listingLimits ? { listingLimits } : {}),
+              }
+            : undefined,
       }
     })
 

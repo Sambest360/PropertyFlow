@@ -23,6 +23,7 @@ vi.mock('./entityMap.js', () => ({
   ensureUuid: (...args: unknown[]) => ensureUuid(...(args as [string, string, string?])),
   resolveUuid: (...args: unknown[]) => resolveUuid(...args),
   forgetId: (...args: unknown[]) => forgetId(...args),
+  upsertEntityMapFrontendId: async (_et: string, _fe: string, uuid: string) => uuid,
   isUuid: (v: string) =>
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v),
 }))

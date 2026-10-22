@@ -46,9 +46,10 @@ describe('listingUuid', () => {
     query.mockResolvedValue([])
     const { ensureListingUnitUuid } = await import('./listingUuid.js')
     const uuid = await ensureListingUnitUuid('unt-bar')
-    const mapInserts = query.mock.calls.filter((c) =>
-      String(c[0]).includes('INSERT INTO entity_id_map'),
-    )
+    const mapInserts = query.mock.calls.filter((c) => {
+      const params = c[1] as unknown[] | undefined
+      return String(c[0]).includes('INSERT INTO entity_id_map') && params?.length === 3
+    })
     expect(mapInserts).toHaveLength(2)
     expect(mapInserts[0][1]).toEqual(['property', 'unt-bar', uuid])
     expect(mapInserts[1][1]).toEqual(['unit', 'unt-bar', uuid])

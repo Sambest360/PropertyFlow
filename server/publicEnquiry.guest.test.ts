@@ -30,7 +30,7 @@ const query = vi.hoisted(() => vi.fn())
 vi.mock('./db.js', () => ({
   databaseConfigured: true,
   query: (...args: unknown[]) => query(...args),
-  withTransaction: vi.fn(),
+  withTransaction: async (fn: () => Promise<unknown>) => fn(),
   clientQuery: vi.fn(),
   pool: { query: (...args: unknown[]) => query(...args) },
 }))
@@ -155,6 +155,9 @@ describe('guest register-interest on PR-1011', () => {
           },
         ]
       }
+      if (sql.includes('listing_limit_agency')) return [{ settings: {} }]
+      if (sql.includes('listing_limit_count')) return [{ n: 0 }]
+      if (sql.includes('listing_limit_duplicate')) return []
       if (sql.includes('INSERT INTO leads')) return []
       if (sql.includes('INSERT INTO buildings')) {
         const vals = params ?? []

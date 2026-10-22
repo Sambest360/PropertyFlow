@@ -243,7 +243,7 @@ async function gatedPersistInner(c: Parameters<typeof parseDemoActor>[0], body: 
   const { actor, handled } = await requireActorAndGate(c, body)
   if (handled) return handled
   const { handlePersist } = await loadWritesModule()
-  return handlePersist(body, actor.userId)
+  return handlePersist(body, actor.userId, actor.role)
 }
 
 /**
@@ -252,14 +252,15 @@ async function gatedPersistInner(c: Parameters<typeof parseDemoActor>[0], body: 
  * CRON_SECRET unset -> 503 and does nothing.
  */
 app.get('/api/cron/lease-reminders', async (c) => {
-  const r = await handleLeaseRemindersCron(c.req.header('authorization'), process.env.CRON_SECRET, {
+  const deps = {
     query,
     withTransaction,
-    resolveFrontendId: (type, id) => resolveFrontendId(type, id),
-    resolveUuid: (type, fe) => resolveUuid(type, fe),
+    resolveFrontendId: (type: 'user' | 'tenancy', id: string) => resolveFrontendId(type, id),
+    resolveUuid: (type: 'user', fe: string) => resolveUuid(type, fe),
     sendEmail: sendLeaseEndReminder,
     emailEnabled: isEmailLeaseReminderEnabled,
-  })
+  }
+  const r = await handleLeaseRemindersCron(c.req.header('authorization'), process.env.CRON_SECRET, deps)
   return c.json(r.body, r.status)
 })
 
@@ -1261,8 +1262,85 @@ app.post('/api/public/listing-enquiry', async (c) => {
     return c.json(result, 201)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
+    const waitlist =
+      err && typeof err === 'object' && 'waitlist' in err ? Boolean((err as { waitlist: unknown }).waitlist) : undefined
     console.error('[api/public/listing-enquiry]', message)
-    return c.json({ error: 'enquiry_failed', message }, errStatus(err))
+    const error = message === 'LISTING_FULL' ? 'LISTING_FULL' : 'enquiry_failed'
+    return c.json({ error, message, ...errCode(err), ...(waitlist != null ? { waitlist } : {}) }, errStatus(err))
+  }
+})
+
+app.get('/api/units/:id/listing-limits', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const { getListingLimits } = await import('./listingLimits.js')
+    return c.json(await getListingLimits(actor, c.req.param('id')))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'listing_limits_failed', message, ...errCode(err) }, errStatus(err))
+  }
+})
+
+app.patch('/api/units/:id/listing-limits', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const body = (await c.req.json()) as Record<string, unknown>
+    const { patchListingLimits } = await import('./listingLimits.js')
+    return c.json(await patchListingLimits(actor, c.req.param('id'), body))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'listing_limits_failed', message, ...errCode(err) }, errStatus(err))
+  }
+})
+
+app.post('/api/units/:id/listing-limits/reset', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const { resetListingLimits } = await import('./listingLimits.js')
+    return c.json(await resetListingLimits(actor, c.req.param('id')))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'listing_limits_failed', message, ...errCode(err) }, errStatus(err))
+  }
+})
+
+app.post('/api/units/:id/waitlist', async (c) => {
+  try {
+    const body = (await c.req.json()) as Record<string, unknown>
+    const { joinViewingWaitlist } = await import('./listingLimits.js')
+    const result = await joinViewingWaitlist({
+      unitRef: c.req.param('id'),
+      name: String(body.name ?? ''),
+      email: String(body.email ?? ''),
+      phone: body.phone ? String(body.phone) : undefined,
+      kind: body.kind === 'enquiry' ? 'enquiry' : 'viewing',
+    })
+    return c.json(result, 201)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'waitlist_failed', message, ...errCode(err) }, errStatus(err))
+  }
+})
+
+app.post('/api/waitlist/:id/promote', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const { promoteWaitlist } = await import('./listingLimits.js')
+    return c.json(await promoteWaitlist(actor, c.req.param('id')))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: message === 'LISTING_FULL' ? 'LISTING_FULL' : 'waitlist_promote_failed', message, ...errCode(err) }, errStatus(err))
+  }
+})
+
+app.post('/api/leads/:id/promote-waitlist', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const { promoteWaitlistedLead } = await import('./listingLimits.js')
+    return c.json(await promoteWaitlistedLead(actor, c.req.param('id')))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: message === 'LISTING_FULL' ? 'LISTING_FULL' : 'waitlist_promote_failed', message, ...errCode(err) }, errStatus(err))
   }
 })
 
