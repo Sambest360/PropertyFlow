@@ -46,8 +46,13 @@ describe('listingUuid', () => {
     query.mockResolvedValue([])
     const { ensureListingUnitUuid } = await import('./listingUuid.js')
     const uuid = await ensureListingUnitUuid('unt-bar')
-    const mapInserts = query.mock.calls.filter((c) =>
-      String(c[0]).includes('INSERT INTO entity_id_map'),
+    // Ignore the bulk seed INSERT that the real ensureEntityMapTable runs inside entityMap.ts;
+    // count only single-row FE id registrations.
+    const mapInserts = query.mock.calls.filter(
+      (c) =>
+        String(c[0]).includes('INSERT INTO entity_id_map') &&
+        Array.isArray(c[1]) &&
+        (c[1] as unknown[]).length === 3,
     )
     expect(mapInserts).toHaveLength(2)
     expect(mapInserts[0][1]).toEqual(['property', 'unt-bar', uuid])
