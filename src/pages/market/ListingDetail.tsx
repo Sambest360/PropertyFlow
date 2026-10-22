@@ -372,7 +372,7 @@ export default function ListingDetail() {
         value: p.price ?? p.rent ?? 0,
       })
 
-      if (!result.ok) {
+      if (result.ok === false) {
         if (result.waitlist) {
           await sweetSuccess(
             'You are on the waitlist',
