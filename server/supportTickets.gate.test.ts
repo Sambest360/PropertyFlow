@@ -61,6 +61,11 @@ function fakeQuery(sql: string, params: unknown[] = []): unknown[] {
       .slice(0, 1)
       .map((r) => ({ backend_id: r.backend_id }))
   }
+  if (sql.includes('FROM entity_id_map WHERE entity_type = $1 AND frontend_id = $2')) {
+    return db.map
+      .filter((r) => r.entity_type === String(params[0]) && r.frontend_id === String(params[1]))
+      .map((r) => ({ backend_id: r.backend_id }))
+  }
   if (sql.includes('FROM entity_id_map')) return db.map
   if (sql.includes("settings->'enabledPermissions'") && sql.includes('FROM clients')) {
     return [{ enabled: db.clientPerms.get(String(params[0])) ?? null }]

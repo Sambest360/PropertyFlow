@@ -19,6 +19,7 @@ vi.mock('./db.js', () => ({
 }))
 
 vi.mock('./entityMap.js', () => ({
+  upsertEntityMapFrontendId: vi.fn(async (_et: string, _fe: string, backendId: string) => backendId),
   ensureEntityMapTable: (...args: unknown[]) => ensureEntityMapTable(...args),
   ensureUuid: (...args: unknown[]) => ensureUuid(...(args as [string, string, string?])),
   resolveUuid: (...args: unknown[]) => resolveUuid(...args),
