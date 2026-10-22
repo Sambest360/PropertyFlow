@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 
-const HOST = 'ep-hidden-host-123.eu-central-1.aws.neon.tech'
+const HOST = 'example.invalid'
 vi.hoisted(() => {
   process.env.PF_SKIP_SERVE = '1'
-  process.env.DATABASE_URL = 'postgres://pfuser:pfpass@ep-hidden-host-123.eu-central-1.aws.neon.tech:6543/pfdbname'
+  process.env.DATABASE_URL = 'postgres://user:pass@example.invalid/db'
   process.env.AUTH_SECRET = 'test-secret-health'
   process.env.SUPABASE_URL = 'https://abcdefghijklmnopqrst.supabase.co'
   delete process.env.AUTH_MODE
