@@ -244,7 +244,7 @@ CREATE TABLE units (
                       CHECK (limit_action IN ('CLOSE', 'WAITLIST')),
   limits_round_started_at TIMESTAMPTZ,
   show_remaining    BOOLEAN NOT NULL DEFAULT FALSE,
-  /** NULL follows clients.settings.requireViewingToApply (missing key = on). */
+  /** NULL follows clients.settings.requireViewingToApply (missing key = off). */
   require_viewing_to_apply BOOLEAN NULL,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),

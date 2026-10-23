@@ -45,11 +45,15 @@ SELECT u.id::text AS unit_id,
            'applicantId', b.applicant_id,
            'visitorEmail', b.visitor_email,
            'visitorPhone', b.visitor_phone,
-           'attendedAt', b.attended_marked_at
+           'attendedAt', b.attended_marked_at,
+           'attendedBy', b.attended_marked_by
          ))
          FROM bookings b
          JOIN units bu ON bu.id = b.unit_id
          WHERE b.status = 'COMPLETED'
+           -- Only staff-marked attendance counts: a plain booking save can write
+           -- COMPLETED before markBookingAttendance runs (and reverts on failure).
+           AND b.attended_marked_by IS NOT NULL
            AND b.client_id = u.client_id
            AND (b.unit_id = u.id OR bu.building_id = u.building_id)
        ), '[]'::json) AS completed_bookings,
@@ -118,8 +122,10 @@ function settingsFlag(settings: unknown, key: string): boolean | null | undefine
   return boolOrNull(row[key])
 }
 
-function mapBookings(value: unknown): CompletedBooking[] {
+export function mapBookings(value: unknown): CompletedBooking[] {
   return asArray(value)
+    // Defence in depth with the SQL filter: unmarked attendance never counts.
+    .filter((item) => Boolean(asObject(item)?.attendedBy))
     .map((item) => {
       const row = asObject(item) ?? {}
       const mode = row.viewingMode === 'VIRTUAL' ? 'VIRTUAL' : 'IN_PERSON'
@@ -148,21 +154,27 @@ async function resolveUserUuid(ref: string | null | undefined): Promise<string |
   return isUuid(ref) ? ref : null
 }
 
-async function verifiedContact(
+/**
+ * Contact details used to match a completed booking to the applicant.
+ * With an account, only the account's own email and phone count: typed-in
+ * form values are ignored, so typing someone else's number or email cannot
+ * borrow their viewing. Without an account (staff-entered walk-in) the typed
+ * email is kept for override lookup, but a typed phone never matches.
+ */
+export async function verifiedContact(
   applicantId: string | null,
   email: string | null,
-  phone: string | null,
 ): Promise<{ email: string | null; phone: string | null }> {
-  if (!applicantId) return { email: normEmail(email) || null, phone }
+  if (!applicantId) return { email: normEmail(email) || null, phone: null }
   const rows = await query<{ email: string | null; phone: string | null }>(
     `SELECT email, phone FROM users WHERE id = $1::uuid`,
     [applicantId],
   )
   const row = rows[0]
-  if (!row) return { email: normEmail(email) || null, phone }
+  if (!row) return { email: null, phone: null }
   return {
-    email: normEmail(row.email) || normEmail(email) || null,
-    phone: row.phone || phone,
+    email: normEmail(row.email) || null,
+    phone: row.phone?.trim() || null,
   }
 }
 
@@ -176,7 +188,7 @@ export async function loadApplyEligibility(input: {
   coApplicantEmails: string[]
   authenticated?: boolean
 }): Promise<ApplyEligibility | null> {
-  const contact = await verifiedContact(input.applicantId, input.applicantEmail, input.applicantPhone)
+  const contact = await verifiedContact(input.applicantId, input.applicantEmail)
   const rows = await query<UnitContextRow>(UNIT_CONTEXT_SQL, [
     input.unitId,
     input.applicantId,

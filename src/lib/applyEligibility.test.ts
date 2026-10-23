@@ -41,7 +41,7 @@ function facts(patch: Partial<EligibilityFacts> = {}): EligibilityFacts {
     listingType: 'RENT',
     actorRole: 'tenant',
     unitRequire: null,
-    agencyRequire: undefined,
+    agencyRequire: true,
     buildingViewingCounts: false,
     mainApplicantCoversCoApplicants: true,
     targetUnitId: UNIT,
@@ -57,11 +57,37 @@ function facts(patch: Partial<EligibilityFacts> = {}): EligibilityFacts {
 }
 
 describe('viewing rule', () => {
-  it('treats a missing agency flag as on and lets a unit false turn the rule off', () => {
-    expect(viewingRuleEnabled(null, undefined)).toBe(true)
+  it('treats a missing agency flag as off (opt-in per agency) and lets the unit flag override', () => {
+    expect(viewingRuleEnabled(null, undefined)).toBe(false)
+    expect(viewingRuleEnabled(null, null)).toBe(false)
+    expect(viewingRuleEnabled(undefined, undefined)).toBe(false)
+    expect(viewingRuleEnabled(null, true)).toBe(true)
+    expect(viewingRuleEnabled(true, undefined)).toBe(true)
     expect(viewingRuleEnabled(null, false)).toBe(false)
     expect(viewingRuleEnabled(false, true)).toBe(false)
     expect(viewingRuleEnabled(true, false)).toBe(true)
+  })
+
+  it('lets a rental through when the agency has not turned the gate on', () => {
+    const noSetting = evaluateApplyEligibility(facts({ agencyRequire: undefined }))
+    expect(noSetting.eligible).toBe(true)
+    expect(noSetting.reason).toBe('RULE_OFF')
+    expect(evaluateApplyEligibility(facts({ agencyRequire: null })).reason).toBe('RULE_OFF')
+    expect(evaluateApplyEligibility(facts({ agencyRequire: undefined, unitRequire: true })).reason).toBe(
+      VIEWING_REQUIRED,
+    )
+  })
+
+  it('does not unlock on a typed phone that matches someone else\'s booking', () => {
+    const someoneElse = booking({ applicantId: 'other-user', visitorEmail: 'other@example.com', visitorPhone: '0821112222' })
+    // The applicant's own (account) phone is different, so no match.
+    expect(
+      evaluateApplyEligibility(facts({ applicantPhone: '0820000000', completedBookings: [someoneElse] })).reason,
+    ).toBe(VIEWING_REQUIRED)
+    // No account phone at all: still no match.
+    expect(
+      evaluateApplyEligibility(facts({ applicantPhone: null, completedBookings: [someoneElse] })).reason,
+    ).toBe(VIEWING_REQUIRED)
   })
 
   it('requires a login before a rental application', () => {

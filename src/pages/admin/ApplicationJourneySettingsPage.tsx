@@ -233,7 +233,7 @@ export default function ApplicationJourneySettingsPage() {
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
-              checked={agency?.settings?.requireViewingToApply !== false}
+              checked={agency?.settings?.requireViewingToApply === true}
               onChange={(e) => setViewingFlag('requireViewingToApply', e.target.checked)}
             />
             Require a completed viewing before a rental application

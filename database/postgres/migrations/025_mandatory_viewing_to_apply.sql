@@ -1,5 +1,5 @@
 -- Mandatory viewing before a rental application.
--- Agency default lives in clients.settings.requireViewingToApply (missing key = on).
+-- Agency default lives in clients.settings.requireViewingToApply (missing key = off; opt-in per agency).
 
 ALTER TABLE bookings
   ADD COLUMN IF NOT EXISTS viewing_mode VARCHAR(20) NOT NULL DEFAULT 'IN_PERSON';

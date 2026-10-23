@@ -26,7 +26,7 @@ function implement(existing: boolean, withBooking: boolean) {
           building_id: null,
           listing_type: 'RENT',
           require_viewing_to_apply: null,
-          settings: {},
+          settings: { requireViewingToApply: true },
           completed_bookings: withBooking
             ? [
                 {
@@ -35,6 +35,7 @@ function implement(existing: boolean, withBooking: boolean) {
                   viewingMode: 'IN_PERSON',
                   visitorEmail: 'e2e-tenant@example.com',
                   attendedAt: '2026-11-12T08:00:00.000Z',
+                  attendedBy: '44444444-4444-4444-8444-444444444444',
                 },
               ]
             : [],
@@ -130,5 +131,44 @@ describe('application create stores viewing evidence', () => {
         'tenant',
       ),
     ).rejects.toMatchObject({ code: 'VIEWING_REQUIRED' })
+  })
+})
+
+describe('application create with no agency viewing setting', () => {
+  beforeEach(() => {
+    query.mockReset()
+  })
+
+  it('creates a rental application without a viewing when the agency has not opted in', async () => {
+    implement(false, false)
+    const base = query.getMockImplementation()!
+    query.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('/* apply-eligibility */')) {
+        const rows = (await base(sql, params)) as Array<Record<string, unknown>>
+        return rows.map((row) => ({ ...row, settings: {} }))
+      }
+      return base(sql, params)
+    })
+    const { handlePersist } = await import('./writes.js')
+    await handlePersist(
+      {
+        resource: 'application',
+        action: 'upsert',
+        id: 'APP-E2E-3',
+        data: {
+          propertyId: 'PR-9003',
+          email: 'e2e-tenant@example.com',
+          applicantName: 'E2E TEST',
+          type: 'Rental',
+        },
+      },
+      null,
+      'tenant',
+    )
+    const insert = query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO applications'))
+    expect(insert).toBeTruthy()
+    const params = insert?.[1] as unknown[]
+    expect(params[19]).toBeNull()
+    expect(params[20]).toBeNull()
   })
 })
