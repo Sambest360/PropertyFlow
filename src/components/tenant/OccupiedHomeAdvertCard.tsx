@@ -11,7 +11,15 @@ type RequestRow = { id: string; startsAt: string; tenantConsentStatus: string }
 function formatStartsAt(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+  // starts_at is SAST wall time labelled Z (app convention): show it as stored.
+  return d.toLocaleString('en-ZA', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'UTC',
+  })
 }
 
 export function OccupiedHomeAdvertCard({
