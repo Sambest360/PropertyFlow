@@ -410,7 +410,10 @@ describe('guest public apply inherits listing agency (PR-1011)', () => {
     expect(db.units.get(FRAMESBY_UNIT)?.client_id).toBe(BAYVIEW_CLIENT)
   })
 
-  it('guest apply (application path) maps an unmapped applicant with no client_id (#86)', async () => {
+  // Security hardening (Angela, #109 follow-up a): this used to look the
+  // account up by the typed email and link the unmapped id to it. A typed email
+  // never picks an account now: the application saves with no linked account.
+  it('application with an unmapped applicantUserId and a typed email saves without an account, no id-map link (#86)', async () => {
     const APPLICANT = 'f0000000-0000-4000-8000-0000000000a1'
     const base = query.getMockImplementation()!
     query.mockImplementation(async (sql: string, params?: unknown[]) => {
@@ -435,7 +438,11 @@ describe('guest public apply inherits listing agency (PR-1011)', () => {
       },
     })
     expect(result.ok).toBe(true)
-    expect(db.mapRows).toContainEqual({ entity_type: 'user', frontend_id: 'u-guest-unmapped', backend_id: APPLICANT })
+    expect(db.mapRows.filter((r) => r.entity_type === 'user')).toEqual([])
+    expect(query.mock.calls.some((c) => String(c[0]).includes('LOWER(TRIM(email))'))).toBe(false)
+    const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO applications'))
+    expect((insert![1] as unknown[])[3]).toBeNull()
+    expect((insert![1] as unknown[])[3]).not.toBe(APPLICANT)
     const moves = query.mock.calls.filter((c) => /DELETE FROM entity_id_map/.test(String(c[0])))
     expect(moves).toEqual([])
   })

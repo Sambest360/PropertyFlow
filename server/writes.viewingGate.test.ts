@@ -14,9 +14,17 @@ const UNIT = '11111111-1111-4111-8111-111111111111'
 const CLIENT = '22222222-2222-4222-8222-222222222222'
 const APP = '33333333-3333-4333-8333-333333333333'
 const BOOKING = '66666666-6666-4666-8666-666666666666'
+/** The signed-in tenant's own account (applicants act as themselves). */
+const TENANT = '77777777-7777-4777-8777-777777777777'
 
 function implement(existing: boolean, withBooking: boolean) {
-  query.mockImplementation(async (sql: string) => {
+  query.mockImplementation(async (sql: string, params?: unknown[]) => {
+    if (/SELECT id::text AS id FROM users WHERE id = \$1::uuid/.test(sql)) {
+      return params?.[0] === TENANT ? [{ id: TENANT }] : []
+    }
+    if (/SELECT email, phone FROM users WHERE id = \$1::uuid/.test(sql)) {
+      return params?.[0] === TENANT ? [{ email: 'e2e-tenant@example.com', phone: null }] : []
+    }
     if (sql.includes('/* apply-eligibility */')) {
       if (existing) throw new Error('eligibility gate must not run on update')
       return [
@@ -77,7 +85,7 @@ describe('application create stores viewing evidence', () => {
           type: 'Rental',
         },
       },
-      null,
+      TENANT,
       'tenant',
     )
     const insert = query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO applications'))
@@ -102,7 +110,7 @@ describe('application create stores viewing evidence', () => {
           type: 'Rental',
         },
       },
-      null,
+      TENANT,
       'tenant',
     )
     const insert = query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO applications'))
@@ -127,7 +135,7 @@ describe('application create stores viewing evidence', () => {
             type: 'Rental',
           },
         },
-        null,
+        TENANT,
         'tenant',
       ),
     ).rejects.toMatchObject({ code: 'VIEWING_REQUIRED' })
@@ -162,7 +170,7 @@ describe('application create with no agency viewing setting', () => {
           type: 'Rental',
         },
       },
-      null,
+      TENANT,
       'tenant',
     )
     const insert = query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO applications'))
