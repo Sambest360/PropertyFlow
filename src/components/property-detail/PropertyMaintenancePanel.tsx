@@ -12,6 +12,13 @@ import { maintenanceEditHref } from '../../pages/maintenance/MaintenanceEditPage
 import { currentReturnPath } from '../../lib/returnTo'
 import { ListPagination, paginate } from './ListPagination'
 import { ICON_STROKE } from './types'
+import {
+  RESPONSIBLE_FILTER_OPTIONS,
+  ResponsiblePartyBadge,
+  TicketResponsibilityCard,
+  matchesResponsibleFilter,
+  type ResponsibleFilter,
+} from '../maintenance/TicketResponsibilityCard'
 
 const STATUSES: MaintenanceTicket['status'][] = [
   'Requested',
@@ -55,6 +62,7 @@ export function PropertyMaintenancePanel({
   const createHref = maintenanceCreateHref({ propertyId, returnTo })
 
   const [query, setQuery] = useState('')
+  const [responsible, setResponsible] = useState<ResponsibleFilter>('all')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const [completeId, setCompleteId] = useState<string | null>(null)
@@ -63,19 +71,20 @@ export function PropertyMaintenancePanel({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return tickets
-    return tickets.filter(
+    const byParty = tickets.filter((t) => matchesResponsibleFilter(t, responsible))
+    if (!q) return byParty
+    return byParty.filter(
       (t) =>
         t.title.toLowerCase().includes(q) ||
         t.status.toLowerCase().includes(q) ||
         t.priority.toLowerCase().includes(q) ||
         t.assetLabel.toLowerCase().includes(q),
     )
-  }, [tickets, query])
+  }, [tickets, query, responsible])
 
   useEffect(() => {
     setPage(1)
-  }, [query])
+  }, [query, responsible])
 
   const paged = useMemo(() => paginate(filtered, page), [filtered, page])
 
@@ -104,6 +113,18 @@ export function PropertyMaintenancePanel({
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
+          <Select
+            className="min-h-11"
+            value={responsible}
+            onChange={(e) => setResponsible(e.target.value as ResponsibleFilter)}
+            aria-label="Filter by responsible party"
+          >
+            {RESPONSIBLE_FILTER_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </Select>
           {canManage && unitId && (
             <Link to={createHref}>
               <Button className="min-h-11 cursor-pointer">
@@ -146,6 +167,7 @@ export function PropertyMaintenancePanel({
                   <span className="block truncate font-semibold text-ink">{t.title}</span>
                   <span className="text-xs text-ink-500">{t.assetLabel}</span>
                 </span>
+                <ResponsiblePartyBadge ticket={t} />
                 <Badge tone={priorityTone(t.priority)}>{t.priority}</Badge>
                 <Badge tone={statusTone(t.status)}>{t.status}</Badge>
                 <ChevronDown
@@ -160,6 +182,7 @@ export function PropertyMaintenancePanel({
               {open && (
                 <div className="space-y-3 border-t border-primary-100/80 bg-white px-4 py-4">
                   <p className="text-sm text-ink-600">{t.description}</p>
+                  <TicketResponsibilityCard ticket={t} canManage={canManage} onChanged={(patch) => onUpdate(t.id, patch)} />
                   <dl className="grid gap-2 text-sm sm:grid-cols-2">
                     <div>
                       <dt className="text-xs text-ink-400">Contractor</dt>

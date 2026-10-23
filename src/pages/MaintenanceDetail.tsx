@@ -21,6 +21,7 @@ import {
   type PortfolioTicket,
 } from '../components/maintenance/types'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
+import { TicketResponsibilityCard } from '../components/maintenance/TicketResponsibilityCard'
 import { canContractorClaimTicket, listApprovedContractors } from '../lib/contractors'
 import { isVerificationPending } from '../lib/verification'
 
@@ -261,6 +262,14 @@ export default function MaintenanceDetail() {
             }
           />
         ) : (
+          <>
+          <div className="mb-4">
+            <TicketResponsibilityCard
+              ticket={ticket}
+              canManage={canManage}
+              onChanged={(patch) => updateTicket(ticket.id, patch)}
+            />
+          </div>
           <MaintenanceOverviewPanel
             item={item}
             canManage={canManage}
@@ -275,6 +284,7 @@ export default function MaintenanceDetail() {
                 : undefined
             }
           />
+          </>
         )}
 
         <CompleteTicketModal

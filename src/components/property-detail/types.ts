@@ -6,6 +6,7 @@ export const PROPERTY_DETAIL_TABS = [
   'applicants',
   'viewings',
   'maintenance',
+  'rules',
   'payments',
   'documents',
   'messages',

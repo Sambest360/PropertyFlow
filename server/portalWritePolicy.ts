@@ -65,6 +65,15 @@ import {
   storedLeaseESignStatus,
 } from './applicantApplicationPolicy.js'
 import { workflowProgress, workflowStageLabel } from '../src/lib/applicationWorkflow.js'
+import {
+  PRIORITY_TO_UI,
+  loadUnitContext,
+  resolveRuleSet,
+  ruleForTenantTicket,
+  stampTicketRule,
+  type UnitContext,
+} from './maintenanceRules.js'
+import { rulePropertyType } from '../src/lib/maintenanceRules.js'
 
 /**
  * Staff-owned application fields an applicant's write never changes
@@ -259,14 +268,25 @@ export async function ticketWarrantyCovered(
  * Server mirror of AppStore createTicket's vendor routing
  * (resolvePreferredVendor over the agency's category routes): the preferred
  * contractor for a new tenant ticket on a listing of `unitClientUuid`.
- * Routes are the shared SEED_VENDOR_ROUTES (there is no vendor-route table;
- * the client reads the same seed).
+ * An active vendor_category_routes row for the agency wins (contractor uuid);
+ * otherwise the shared SEED_VENDOR_ROUTES the client also reads.
  */
 export async function preferredVendorForTicket(
   unitClientUuid: string | null,
   categoryKey: string,
 ): Promise<string | null> {
   if (!unitClientUuid) return null
+  try {
+    const routed = await query<{ contractor_user_id: string | null }>(
+      `SELECT contractor_user_id::text AS contractor_user_id FROM vendor_category_routes
+        WHERE client_id = $1::uuid AND category_key = ANY($2::text[]) AND is_active
+        ORDER BY (category_key = $3) DESC LIMIT 1`,
+      [unitClientUuid, [categoryKey, categoryKey === 'APPLIANCE_FAULT' ? 'APPLIANCE_FAILURE' : categoryKey], categoryKey],
+    )
+    if (routed[0]?.contractor_user_id) return routed[0].contractor_user_id
+  } catch {
+    // Table missing on an old database: the seed routes below still apply.
+  }
   const agencies = [...new Set(SEED_VENDOR_ROUTES.map((r) => r.clientId))]
   for (const agencyFe of agencies) {
     if ((await resolveUuid('agency', agencyFe)) !== unitClientUuid) continue
@@ -487,18 +507,20 @@ export async function enforcePortalWritePolicy(
           }
         }
 
+        // The cost notice is a create-time acknowledgement, never a column.
+        const costNoticeAcknowledged = data.costNoticeAcknowledged === true
+        delete data.costNoticeAcknowledged
+        // The category is fixed after create (its rule snapshot is on the row).
+        if (rows[0]) delete data.categoryKey
+
         let unit: string | null = stored?.unit_id ?? null
         if (!rows[0]) {
           unit =
             (await resolveUuid('property', str(data.propertyId) ?? '')) ??
             (await resolveUuid('unit', str(data.unitId ?? data.propertyId) ?? ''))
-          // New ticket: route it to the agency's preferred vendor for the
-          // category, as the client does (AppStore createTicket).
           const u = unit
             ? await query<{ client_id: string | null }>(`SELECT client_id::text AS client_id FROM units WHERE id = $1::uuid`, [unit])
             : []
-          const vendor = await preferredVendorForTicket(u[0]?.client_id ?? null, str(data.categoryKey) ?? 'GENERAL')
-          if (vendor) data.contractorId = vendor
           // New ticket: only on a unit where the tenant holds a lease (Active,
           // Notice or Pending) — never on a listing they have only applied
           // to. Linked to that lease (server-stamped); any other tenancy is
@@ -509,6 +531,36 @@ export async function enforcePortalWritePolicy(
           const sentTenancy = str(data.tenancyId)
           if (sentTenancy && sentTenancy !== own) throw deny('not their tenancy')
           data.tenancyId = own
+          // Responsibility rules (migration 029): who fixes this category on
+          // this unit. Unknown / staff-only categories are a 400; EMERGENCY and
+          // OTHER always pass. The rule is snapshotted onto the new row by
+          // upsertTicket (stampTicketRule).
+          const clientId = u[0]?.client_id ?? null
+          const unitCtx: UnitContext | null =
+            (unit ? await loadUnitContext(unit) : null) ??
+            (unit && clientId
+              ? { id: unit, clientId, agentId: null, propertyType: rulePropertyType(null), unitLabel: 'the unit' }
+              : null)
+          if (unitCtx) {
+            const sentPriority = typeof data.priority === 'string' ? data.priority.toUpperCase() : null
+            const rule = ruleForTenantTicket(await resolveRuleSet(unitCtx), {
+              categoryKey: data.categoryKey,
+              title: data.title,
+              description: data.description,
+              priority: sentPriority,
+              costNoticeAcknowledged,
+            })
+            if (str(data.categoryKey)) data.categoryKey = rule.categoryKey
+            if (rule.priority && rule.priority !== sentPriority) data.priority = PRIORITY_TO_UI[rule.priority]
+            stampTicketRule(data, rule)
+            // Routing: only a landlord repair goes to the agency's preferred
+            // vendor (as AppStore createTicket does). Body corporate tickets
+            // become an agent task; tenant-cost tickets are informational.
+            if (rule.responsibleParty === 'LANDLORD') {
+              const vendor = await preferredVendorForTicket(clientId, rule.vendorCategoryKey ?? rule.categoryKey)
+              if (vendor) data.contractorId = vendor
+            }
+          }
         }
         // Warranty cover: from the asset's warranty on the ticket date, never
         // from the tenant.

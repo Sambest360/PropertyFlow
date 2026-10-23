@@ -41,6 +41,8 @@ export type CreateTicketRequest = {
   priority: ApiTicketPriority | MaintenanceTicket['priority']
   title: string
   description: string
+  /** Tenant acknowledged the cost notice on a TENANT-responsible category. */
+  cost_notice_acknowledged?: boolean
 }
 
 export type PatchTicketRequest = {
@@ -276,6 +278,7 @@ export function buildTicketFromCreate(params: {
     description: params.request.description,
     warrantyCovered: params.warrantyCovered,
     escalatedAt: null,
+    ...(params.request.cost_notice_acknowledged ? { costNoticeAcknowledged: true } : {}),
   }
 }
 

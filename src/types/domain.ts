@@ -810,6 +810,14 @@ export type MaintenanceTicket = {
   escalatedAt?: string | null
   contractorAssignedAt?: string | null
   estimatedCost?: number | null
+  /** Who fixes it, snapshotted from the unit's maintenance rules (migration 029). */
+  responsibleParty?: 'LANDLORD' | 'TENANT' | 'BODY_CORPORATE' | 'SHARED' | null
+  ruleItemId?: string | null
+  /** Gas, electrical, flooding, security, sewage or structural hazard reported. */
+  isSafetyFlag?: boolean
+  overrideReason?: string | null
+  /** Create only: tenant acknowledged a TENANT-responsible repair may be charged to them. */
+  costNoticeAcknowledged?: boolean
 }
 
 /** Agency-approved vendor linked to maintenance routing. */
