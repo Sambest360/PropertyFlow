@@ -319,7 +319,13 @@ describe('027 public_listing_unit_json', () => {
     expect(check).toContain("WHEN s.n ~ '\\.[[:alpha:]]' THEN NULL")
     expect(check).toContain("WHEN s.n ~ '[A-Za-z]' AND s.n ~ '[^A-Za-z\\u00C0-\\u024F\\u1E00-\\u1EFF ''.-]' THEN NULL")
     expect(check).toMatch(/WHEN s\.f ~\* '\(gmail\|[^']*dotcom\|/)
-    expect(check).toContain('translate(s0.n, ')
+    // Angela G2 (Michael 18:36): the fold is for the check only (s.f): NFKD, combining marks stripped, then the
+    // look-alike map (incl. IPA ɡ, dotless ı). The name returned is s.n, never the fold.
+    expect(check).toContain("translate(regexp_replace(normalize(s0.n, NFKD), '[\\u0300-\\u036F")
+    expect(check).toMatch(/\\u1AB0-\\u1AFF\\u1DC0-\\u1DFF\\u20D0-\\u20F0\\uFE20-\\uFE2F\]', '', 'g'\)/)
+    expect(check).toMatch(/'[^']*ɡıɩɑȷ[^']*', '[^']*giiaj[^']*'\) AS f/)
+    expect(check).toContain('ELSE s.n END')
+    expect(check).not.toMatch(/ELSE s\.f/)
     expect(check.indexOf("p_name ~ '[\\uFF00-\\uFFEF]'")).toBeLessThan(check.indexOf('WHEN s.n IS NULL'))
     for (const fn of ['public_listing_agent_name(UUID)', 'public_listing_display_name(text)']) {
       expect(MIGRATION).toContain(`REVOKE ALL ON FUNCTION ${fn} FROM PUBLIC, anon, authenticated;`)

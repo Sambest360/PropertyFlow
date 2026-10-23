@@ -1,5 +1,5 @@
 {
-  "_comment": "Angela r4+r5 / Jim v3: listed_by probes shared by the vitest suite and the kivrl post-checks (fix-c, Package 1). reject => NULL, accept => unchanged; unicode_accept only where the database ctype classifies Unicode letters (kivrl: ICU en_US).",
+  "_comment": "Angela r4+r5 / Jim v3: listed_by probes shared by the vitest suite and the kivrl post-checks (fix-c, Package 1). reject => NULL, accept => unchanged; unicode_accept only where the database ctype classifies Unicode letters (kivrl: ICU en_US). r6 (Angela G2 / Jim 110-1): diacritic, IPA and all-Cyrillic probes that only the check-only fold (027 public_listing_display_name, s.f) catches; Latin-diacritic names must come back byte-identical.",
   "reject": {
     "literal email": "anya@x.com",
     "spelled at/dot (Jim)": "anya at x dot com",
@@ -50,7 +50,15 @@
     "glued dotcom": "smithdotcom",
     "icloud word (Jim residual)": "anya icloud",
     "mweb word (Jim residual)": "anya mweb",
-    "live word (Jim residual)": "anya live"
+    "live word (Jim residual)": "anya live",
+    "diacritic spelled at/dot (Angela G2)": "john át gmáil dót cóm",
+    "grave spelled at/dot (Angela G2)": "anya àt x dòt còm",
+    "umlaut provider (Angela G2)": "gmäil",
+    "umlaut glued contact (Angela G2)": "jöhnätgmäildötcöm",
+    "IPA g + Cyrillic provider (Angela G2)": "ɡмаіӏ",
+    "dotless i provider (G2)": "gmaıl",
+    "all-Cyrillic at after a name (Jim 110-1 fold)": "Анна ат",
+    "all-Cyrillic at alone (Jim 110-1 fold)": "ат"
   },
   "accept": {
     "first and last": "Staff Agent",
@@ -71,6 +79,11 @@
     "greek": "Ελένη",
     "cyrillic": "Анна",
     "accented": "José Álvarez",
-    "latin extended": "Łukasz Nowak"
+    "latin extended": "Łukasz Nowak",
+    "acute (G2 display)": "André",
+    "diaeresis alone (G2 display)": "Zoë",
+    "umlaut (G2 display)": "Müller",
+    "acute twice (G2 display)": "Renée",
+    "diaeresis (G2 display)": "Gaël"
   }
 }
