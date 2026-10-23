@@ -14,6 +14,7 @@ import {
   computeAvailableFrom,
   computeNoticeEndDate,
   leaseOverlapFromDbError,
+  listTenantViewingRequests,
   patchAdvertiseWhileOccupied,
   postLeaseNotice,
   shouldClearAdvert,
@@ -292,5 +293,32 @@ describe('public marketplace RPC (migration 027)', () => {
     expect(MIGRATION).toContain('CREATE EXTENSION IF NOT EXISTS btree_gist')
     expect(MIGRATION).toContain('ADD CONSTRAINT leases_no_date_overlap')
     expect(MIGRATION).toContain("WHERE (status IN ('PENDING', 'ACTIVE', 'NOTICE'))")
+  })
+})
+
+describe('T9 (Angela r5): listTenantViewingRequests (occupiedListing.ts:594)', () => {
+  it('asks only for SCHEDULED + PENDING rows after the SAST wall clock (stored as Z), oldest first', async () => {
+    const deps = fakeDeps([
+      ['FROM leases WHERE id', () => [{ id: LEASE, client_id: CLIENT, unit_id: UNIT, tenant_id: TENANT }]],
+      ['FROM bookings', () => [{ id: 'b1', starts_at: '2027-02-01T14:00:00.000Z', tenant_consent_status: 'PENDING' }]],
+    ], { resolveUuid: async (type, id) => (type === 'tenancy' ? LEASE : type === 'user' && id === tenant.userId ? TENANT : null) })
+    const rows = await listTenantViewingRequests(tenant, 'L-1', deps)
+    expect(rows).toEqual([{ id: 'b1', startsAt: '2027-02-01T14:00:00.000Z', tenantConsentStatus: 'PENDING' }])
+    const call = deps.calls.find((x) => x.sql.includes('FROM bookings'))!
+    const flat = call.sql.replace(/\s+/g, ' ')
+    expect(flat).toContain("starts_at > (NOW() AT TIME ZONE 'Africa/Johannesburg') AT TIME ZONE 'UTC'")
+    expect(flat).toContain("status = 'SCHEDULED' AND tenant_consent_status = 'PENDING'")
+    expect(flat).toContain('ORDER BY starts_at')
+    expect(flat).not.toMatch(/visitor_|email|phone/)
+    expect(call.params).toEqual([UNIT])
+  })
+
+  it('refuses a caller who is not the lease tenant', async () => {
+    const deps = fakeDeps([
+      ['FROM leases WHERE id', () => [{ id: LEASE, client_id: CLIENT, unit_id: UNIT, tenant_id: APPLICANT }]],
+    ], { resolveUuid: async (type, id) => (type === 'tenancy' ? LEASE : type === 'user' && id === tenant.userId ? TENANT : null) })
+    await expect(listTenantViewingRequests(tenant, 'L-1', deps)).rejects.toThrow(/Forbidden/)
+    expect(deps.calls.some((x) => x.sql.includes('FROM bookings'))).toBe(false)
+    await expect(listTenantViewingRequests(agent, 'L-1', deps)).rejects.toThrow(/Forbidden/)
   })
 })

@@ -313,7 +313,14 @@ describe('027 public_listing_unit_json', () => {
     expect(check).toContain("WHEN s.n IS NULL OR char_length(s.n) > 60 THEN NULL")
     expect(check).toContain("WHEN s.n !~ '^[[:alpha:]]+([ ''.-]{1,2}[[:alpha:]]+)*[.]?$' THEN NULL")
     expect(check).toMatch(/WHEN s\.n ~ '\[0-9\u0660-\u0669[^']*\uFF10-\uFF19\]' THEN NULL/)
-    expect(check).toMatch(/WHEN s\.n ~\* '\\m\(at\|dot\|zero\|oh\|nil\|one\|/)
+    expect(check).toMatch(/WHEN s\.f ~\* '\\m\(at\|dot\|zero\|oh\|nil\|one\|/)
+    // Angela r5: raw-input checks before NFKC, the period rule after NFKC, mixed script, glued words, homoglyph fold.
+    expect(check).toContain("WHEN p_name ~ '[\\uFF00-\\uFFEF]' OR p_name ~ '\\.[[:alpha:]]' THEN NULL")
+    expect(check).toContain("WHEN s.n ~ '\\.[[:alpha:]]' THEN NULL")
+    expect(check).toContain("WHEN s.n ~ '[A-Za-z]' AND s.n ~ '[^A-Za-z\\u00C0-\\u024F\\u1E00-\\u1EFF ''.-]' THEN NULL")
+    expect(check).toMatch(/WHEN s\.f ~\* '\(gmail\|[^']*dotcom\|/)
+    expect(check).toContain('translate(s0.n, ')
+    expect(check.indexOf("p_name ~ '[\\uFF00-\\uFFEF]'")).toBeLessThan(check.indexOf('WHEN s.n IS NULL'))
     for (const fn of ['public_listing_agent_name(UUID)', 'public_listing_display_name(text)']) {
       expect(MIGRATION).toContain(`REVOKE ALL ON FUNCTION ${fn} FROM PUBLIC, anon, authenticated;`)
     }
