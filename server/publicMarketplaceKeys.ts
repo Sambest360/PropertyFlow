@@ -64,6 +64,7 @@ export const PUBLIC_UNIT_KEYS = [
   'geocoded_at',
   'advertise_while_occupied',
   'available_from',
+  'listed_by',
   'created_at',
   'updated_at',
 ] as const

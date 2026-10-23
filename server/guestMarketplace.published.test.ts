@@ -44,4 +44,18 @@ describe('guest marketplace published listings (Issue 2)', () => {
     }
     expect(isGuestVisibleProperty(draft.properties[0], draft.units, draft.users)).toBe(false)
   })
+  it('keeps an advertised occupied unit and drops an occupied one that is not advertised', () => {
+    const occupied = {
+      ...raw,
+      properties: [{ ...raw.properties[0], status: 'Occupied' }],
+      units: [
+        { ...raw.units[0], statusKey: 'OCCUPIED', advertiseWhileOccupied: true, availableFrom: '2027-02-01' },
+      ],
+    }
+    expect(isGuestVisibleProperty(occupied.properties[0], occupied.units, occupied.users)).toBe(true)
+    const notAdvertised = { ...occupied, units: [{ ...occupied.units[0], advertiseWhileOccupied: false }] }
+    expect(isGuestVisibleProperty(notAdvertised.properties[0], notAdvertised.units, notAdvertised.users)).toBe(false)
+    const unlisted = { ...occupied, units: [{ ...occupied.units[0], listingType: 'not_listed' }] }
+    expect(isGuestVisibleProperty(unlisted.properties[0], unlisted.units, unlisted.users)).toBe(false)
+  })
 })

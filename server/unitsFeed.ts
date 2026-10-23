@@ -55,12 +55,22 @@ export async function fetchUnitsPage(opts: {
   const limit = Math.min(Math.max(opts.limit ?? 24, 1), 100)
   const decoded = decodeCursor(opts.cursor)
   const params: unknown[] = []
-  // GET /api/v1/units has no auth: only publicly listed units, same rule as the
-  // marketplace RPCs (024 public_units) and guestMarketplace.ts isGuestVisibleProperty.
-  // Drafts, occupied, deleted, not_listed and pending/rejected-landlord units stay private.
-  let where = `WHERE u.status_config_key IN ('PUBLISHED', 'FEATURED', 'VACANT', 'UNDER_OFFER', 'AVAILABLE')
-       AND lower(coalesce(u.listing_type, 'rent')) <> 'not_listed'
-       AND coalesce(ll.metadata->'verification'->>'status', 'approved') NOT IN ('pending', 'rejected')`
+  // Signed-out endpoint: publicly listed units only, the same rule as
+  // get_public_marketplace_bootstrap (027). Drafts, unlisted units, occupied
+  // units that are not advertised and units of unverified landlords stay out.
+  let where = `WHERE (
+      (
+        u.status_config_key IN ('PUBLISHED', 'FEATURED', 'VACANT', 'UNDER_OFFER', 'AVAILABLE')
+        AND lower(coalesce(u.listing_type, 'rent')) <> 'not_listed'
+      )
+      OR (
+        u.advertise_while_occupied = true
+        AND u.available_from IS NOT NULL
+        AND upper(u.status_config_key) = 'OCCUPIED'
+        AND lower(coalesce(u.listing_type, 'rent')) IN ('rent', 'both')
+      )
+    )
+    AND coalesce(ll.metadata->'verification'->>'status', 'approved') NOT IN ('pending', 'rejected')`
 
   if (opts.clientId) {
     params.push(opts.clientId)

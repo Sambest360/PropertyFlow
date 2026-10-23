@@ -3,6 +3,7 @@ import { Button, Card, Input } from '../ui'
 import { isApiEnabled, isSupabaseMode } from '../../lib/api/config'
 import { authHeaders } from '../../lib/api/authClient'
 import { createClient } from '../../utils/supabase/client'
+import { waitlistStaffOnlyNote } from '../../lib/waitlistAccess'
 
 type Person = { id: string; name: string; email: string; phone?: string | null }
 
@@ -37,9 +38,12 @@ function counter(count: number, cap: number | null): string {
 export function ListingLimitsPanel({
   unitRef,
   backendId,
+  viewerIsStaff = true,
 }: {
   unitRef: string
   backendId?: string | null
+  /** False for landlords: waitlist PII is staff-only (027 RLS). */
+  viewerIsStaff?: boolean
 }) {
   const [view, setView] = useState<LimitsView | null>(null)
   const [maxEnquiries, setMaxEnquiries] = useState('')
@@ -109,7 +113,8 @@ export function ListingLimitsPanel({
       maxViewings: unit.max_viewings,
       limitAction: unit.limit_action === 'CLOSE' ? 'CLOSE' : 'WAITLIST',
       showRemaining: Boolean(unit.show_remaining),
-      waitlist: (waitRes.data ?? []) as Person[],
+      // RLS hides waitlist rows from non-staff; an error or an empty read is just an empty list.
+      waitlist: (waitRes.error ? [] : (waitRes.data ?? [])) as Person[],
       waitlistedLeads: (leadRes.data ?? []) as Person[],
     })
   }, [apply, unitId, unitRef])
@@ -288,6 +293,10 @@ export function ListingLimitsPanel({
               Reset counters / reopen
             </Button>
           </div>
+          {(() => {
+            const note = waitlistStaffOnlyNote({ supabaseMode: !isApiEnabled && isSupabaseMode, viewerIsStaff })
+            return note ? <p className="text-sm text-ink-500">{note}</p> : null
+          })()}
           <WaitlistList title="Viewing waitlist" people={view.waitlist} busy={busy} onPromote={(id) => void promote('viewing', id)} />
           <WaitlistList title="Enquiry waitlist" people={view.waitlistedLeads} busy={busy} onPromote={(id) => void promote('lead', id)} />
         </>

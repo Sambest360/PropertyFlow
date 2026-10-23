@@ -202,6 +202,37 @@ CREATE POLICY tenant_viewing_windows_mutate ON tenant_viewing_windows
     )
   );
 
+-- viewing_waitlist holds guest name / email / phone: own-agency staff only
+-- (kivrl fix.sql a2). Replaces 024's role-wide LANDLORD / END_USER / CONTRACTOR
+-- read clause; landlords in Supabase mode get an empty waitlist panel.
+DROP POLICY IF EXISTS viewing_waitlist_select ON viewing_waitlist;
+CREATE POLICY viewing_waitlist_select ON viewing_waitlist
+  FOR SELECT TO authenticated
+  USING (
+    is_super_admin()
+    OR (
+      current_app_user_role() IN ('AGENCY_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT', 'AGENT')
+      AND client_id = current_app_client_id()
+    )
+  );
+DROP POLICY IF EXISTS viewing_waitlist_mutate ON viewing_waitlist;
+CREATE POLICY viewing_waitlist_mutate ON viewing_waitlist
+  FOR ALL TO authenticated
+  USING (
+    is_super_admin()
+    OR (
+      current_app_user_role() IN ('AGENCY_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT', 'AGENT')
+      AND client_id = current_app_client_id()
+    )
+  )
+  WITH CHECK (
+    is_super_admin()
+    OR (
+      current_app_user_role() IN ('AGENCY_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT', 'AGENT')
+      AND client_id = current_app_client_id()
+    )
+  );
+
 -- Landlord verification gate for public listings. Internal helper only: it
 -- reads users.metadata so the public RPC bodies never touch landlord columns.
 -- SECURITY INVOKER and no EXECUTE for PUBLIC / anon / authenticated; only the
@@ -222,10 +253,30 @@ $$;
 
 REVOKE ALL ON FUNCTION public_listing_landlord_ok(UUID) FROM PUBLIC, anon, authenticated;
 
+-- "Listed by <agent display name>" for the public listing (Michael b). Same
+-- display-name rule as the app (first_name + ' ' + last_name, trimmed; see
+-- server/bootstrap.ts and src/lib/supabase/data.ts). Name only: no email,
+-- phone or id. Internal helper: SECURITY INVOKER, no EXECUTE for PUBLIC /
+-- anon / authenticated; only the DEFINER RPCs (via public_listing_unit_json) call it.
+CREATE OR REPLACE FUNCTION public_listing_agent_name(p_agent_id UUID)
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public
+AS $$
+  SELECT nullif(trim(coalesce(a.first_name, '') || ' ' || coalesce(a.last_name, '')), '')
+  FROM users a
+  WHERE a.id = p_agent_id;
+$$;
+
+REVOKE ALL ON FUNCTION public_listing_agent_name(UUID) FROM PUBLIC, anon, authenticated;
+
 -- Public unit shape for the anon marketplace RPCs. Explicit keys so a column
 -- added later (tenant, lease, agent or internal fields) never leaks to guests.
 -- POPIA: no tenant or lease data here; only the date the home comes free.
--- No agent_id (the API guest slice drops agent ids too).
+-- No agent_id (the API guest slice drops agent ids too); listed_by is the
+-- agent's display name only.
 -- SECURITY INVOKER and no EXECUTE for PUBLIC / anon / authenticated: anon
 -- cannot call it on an arbitrary unit uuid; only the RPCs below use it.
 CREATE OR REPLACE FUNCTION public_listing_unit_json(p_unit_id UUID)
@@ -262,6 +313,7 @@ AS $$
     'geocoded_at', u.geocoded_at,
     'advertise_while_occupied', u.advertise_while_occupied,
     'available_from', u.available_from,
+    'listed_by', public_listing_agent_name(u.agent_id),
     'created_at', u.created_at,
     'updated_at', u.updated_at
   )
@@ -332,7 +384,7 @@ AS $$
     WHERE vs.unit_id IN (SELECT id FROM public_units)
       AND vs.status = 'OPEN'
       AND vs.booked_count < vs.capacity
-      AND vs.slot_date >= CURRENT_DATE
+      AND vs.slot_date >= (now() AT TIME ZONE 'Africa/Johannesburg')::date
   )
   SELECT jsonb_build_object(
     'clients', coalesce((SELECT jsonb_agg(jsonb_build_object(
@@ -463,7 +515,7 @@ AS $$
     WHERE vs.unit_id IN (SELECT id FROM public_units)
       AND vs.status = 'OPEN'
       AND vs.booked_count < vs.capacity
-      AND vs.slot_date >= CURRENT_DATE
+      AND vs.slot_date >= (now() AT TIME ZONE 'Africa/Johannesburg')::date
   )
   SELECT jsonb_build_object(
     'clients', coalesce((SELECT jsonb_agg(jsonb_build_object(
@@ -583,6 +635,7 @@ DECLARE
   v_notice_hours  INT;
   v_starts_at     TIMESTAMPTZ;
   v_tenant_id     UUID;
+  v_available     DATE;
 BEGIN
   IF p_property_fe_id IS NULL OR trim(p_property_fe_id) = '' THEN
     RAISE EXCEPTION 'property_required';
@@ -615,15 +668,21 @@ BEGIN
           AND u.available_from IS NOT NULL
           AND upper(u.status_config_key) = 'OCCUPIED'
           AND lower(coalesce(u.listing_type, 'rent')) IN ('rent', 'both')),
-         GREATEST(24, COALESCE(u.occupied_viewing_notice_hours, 24))
+         GREATEST(24, COALESCE(u.occupied_viewing_notice_hours, 24)),
+         u.available_from
   INTO v_client_id, v_agent_id, v_status_key, v_listing_type, v_value,
-       v_occupied, v_notice_hours
+       v_occupied, v_notice_hours, v_available
   FROM units u
   WHERE u.id = v_unit_id
   FOR UPDATE;
 
   IF v_client_id IS NULL THEN
     RAISE EXCEPTION 'property_not_found';
+  END IF;
+
+  -- 027: an unlisted unit is never public, whatever its status or flag.
+  IF lower(coalesce(v_listing_type, 'rent')) = 'not_listed' THEN
+    RAISE EXCEPTION 'property_not_public';
   END IF;
 
   -- 027: an advertised occupied rental is public too.
@@ -641,6 +700,12 @@ BEGIN
   END IF;
   IF p_id_number IS NOT NULL AND trim(p_id_number) <> '' THEN
     v_extra_notes := coalesce(v_extra_notes || E'\n', '') || 'ID/Passport: ' || trim(p_id_number);
+  END IF;
+  -- 027: tag for staff, first line of the lead notes (same text as
+  -- server/publicEnquiry.ts occupiedInterestNote).
+  IF COALESCE(v_occupied, false) THEN
+    v_extra_notes := 'Interested, available from ' || to_char(v_available, 'FMDD Mon YYYY')
+      || coalesce(E'\n' || v_extra_notes, '');
   END IF;
 
   IF p_action = 'lead' THEN
@@ -704,7 +769,11 @@ BEGIN
       RAISE EXCEPTION 'slot_unavailable';
     END IF;
 
-    v_starts_at := (v_slot_date::text || 'T' || v_slot_time || ':00')::timestamptz;
+    -- Slot date and time are South African wall-clock time; build a real
+    -- timestamptz in Africa/Johannesburg, whatever the session TimeZone
+    -- (Supabase runs UTC). slot_time is VARCHAR(8): 'HH:MM' or 'HH:MM:SS'.
+    v_starts_at := (v_slot_date::text || ' ' || left(v_slot_time, 5) || ':00')::timestamp
+      AT TIME ZONE 'Africa/Johannesburg';
 
     -- 027: a viewing of an occupied home needs the notice period and must fall
     -- inside the sitting tenant's windows (server/occupiedListing.ts
@@ -772,7 +841,8 @@ BEGIN
     'ok', true,
     'lead_id', v_lead_id,
     'booking_id', v_booking_id,
-    'stage', v_stage
+    'stage', v_stage,
+    'available_from', CASE WHEN COALESCE(v_occupied, false) THEN v_available END
   );
 END;
 $$;
@@ -784,4 +854,14 @@ REVOKE ALL ON FUNCTION submit_public_listing_enquiry(
 GRANT EXECUTE ON FUNCTION submit_public_listing_enquiry(
   TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, TEXT, TEXT
 ) TO anon, authenticated;
+
+-- 024's DEFINER helpers (Michael c). listing_capacity_gate takes a name, email
+-- and phone and can write waitlist rows: no browser caller (only the DEFINER
+-- enquiry RPC above, running as owner), so nobody public can EXECUTE it.
+-- unit_listing_limit_snapshot: the public RPCs call it as owner; the only
+-- browser caller is the staff panel (ListingLimitsPanel.tsx), so authenticated
+-- keeps EXECUTE and anon loses it.
+REVOKE ALL ON FUNCTION listing_capacity_gate(UUID, TEXT, BOOLEAN, TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION unit_listing_limit_snapshot(UUID) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION unit_listing_limit_snapshot(UUID) TO authenticated;
 -- END 027-public-bodies
