@@ -15,6 +15,7 @@ import { FieldHelp } from '../../components/onboarding/FieldHelp'
 import { TRUST_MODE_A_COPY } from '../../lib/trust/modeA'
 import { DEPOSIT_REFUND_RECORDED_LABEL } from '../../lib/trust/depositDualControl'
 import type { DepositHolding } from '../../types/domain'
+import { fetchInspectionDeductions } from '../../lib/api/trustDepositsApi'
 
 const toCents = (zar: string) => Math.round(Number(zar || '0') * 100)
 
@@ -182,6 +183,14 @@ export default function TrustDeposits() {
     setRefundZar('')
     setInterestZar('')
     setDeductions([])
+    if (kind === 'refund') {
+      // Prefill from deductions approved on the move-out inspection, if any.
+      void fetchInspectionDeductions(id).then((lines) => {
+        if (lines.length) {
+          setDeductions(lines.map((l) => ({ reason: l.reason, zar: (l.amountCents / 100).toFixed(2) })))
+        }
+      })
+    }
   }
 
   async function finish(id: string, run: () => Promise<{ ok: boolean; error?: string }>, fallback: string) {

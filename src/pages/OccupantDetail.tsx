@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { useStore } from '../context/AppStore'
-import { usePropertyScope } from '../context/AuthContext'
+import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
 import { DashboardTabs } from '../components/dashboard/DashboardTabs'
 import { HistoryTimeline } from '../components/history/HistoryTimeline'
@@ -10,6 +10,8 @@ import { TenantOverviewPanel } from '../components/tenant-detail/TenantOverviewP
 import { TenantDetailsPanel } from '../components/tenant-detail/TenantDetailsPanel'
 import { TenantLeasePanel } from '../components/tenant-detail/TenantLeasePanel'
 import { TenantPaymentsPanel } from '../components/tenant-detail/TenantPaymentsPanel'
+import { LeaseInspectionsPanel } from '../components/inspections/LeaseInspectionsPanel'
+import { inspectionsAvailable } from '../lib/inspections/api'
 import { isTenantDetailTab, type TenantDetailTab } from '../components/tenant-detail/types'
 import type { PropertyEvent } from '../types/domain'
 
@@ -18,6 +20,7 @@ export default function OccupantDetail() {
   const [params, setParams] = useSearchParams()
   const { state } = useStore()
   const { dealVisible } = usePropertyScope()
+  const { user } = useAuth()
 
   const tenancy = state.tenancies.find((t) => t.id === id)
   const property = tenancy
@@ -108,6 +111,7 @@ export default function OccupantDetail() {
     { id: 'overview', label: 'Overview' },
     { id: 'details', label: 'Details' },
     { id: 'lease', label: 'Lease' },
+    ...(inspectionsAvailable ? [{ id: 'inspections', label: 'Inspections' }] : []),
     { id: 'payments', label: 'Payments', count: payments.length },
     { id: 'history', label: 'History', count: historyEvents.length },
   ]
@@ -136,6 +140,12 @@ export default function OccupantDetail() {
           />
         )}
         {tab === 'lease' && <TenantLeasePanel tenancy={tenancy} />}
+        {tab === 'inspections' && inspectionsAvailable && (
+          <LeaseInspectionsPanel
+            leaseId={tenancy.id}
+            mode={user.role === 'landlord' ? 'landlord' : user.role === 'tenant' ? 'tenant' : 'staff'}
+          />
+        )}
         {tab === 'payments' && <TenantPaymentsPanel payments={payments} />}
         {tab === 'history' && (
           <HistoryTimeline

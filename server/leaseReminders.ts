@@ -11,6 +11,10 @@
  *   with the notifications. A new end_date (renewal) re-arms.
  * - Recipients: lease agent (round-trip id, same agency), agency admins holding
  *   users.manage in that client_id, and the landlord. Never the tenant or another agency.
+ * - Inspection reminders (same run, same recipients, same event_log dedup):
+ *   move-in in the 7 calendar days before start_date while no signed move-in
+ *   exists; move-out in the 3 calendar days before end_date while no move-out
+ *   is scheduled (RHA s5(3) joint inspections). See reminderNeeded().
  */
 import { timingSafeEqual } from 'node:crypto'
 import type pg from 'pg'
@@ -22,6 +26,7 @@ import {
   saBusinessDaysBetween,
   subtractSaBusinessDays,
 } from './saPublicHolidays.js'
+import { reminderNeeded } from './inspectionReminderRules.js'
 
 export const LEASE_REMINDER_BANDS = [80, 45] as const
 export type LeaseReminderBand = (typeof LEASE_REMINDER_BANDS)[number]
@@ -81,7 +86,12 @@ export async function handleLeaseRemindersCron(
   if (denied === 401) return { status: 401, body: { ok: false, error: 'unauthorized' } }
   try {
     const result = await runLeaseReminders(deps)
-    return { status: 200, body: result }
+    // A failed inspection pass (e.g. migration 026 not applied) never fails the lease run.
+    const inspectionReminders = await runInspectionReminders(deps).catch((err: unknown) => {
+      ;(deps.log ?? defaultLog)('[lease-reminders] inspection reminders failed', err)
+      return { checked: 0, created: 0, failed: true }
+    })
+    return { status: 200, body: { ...result, inspectionReminders } }
   } catch (err) {
     ;(deps.log ?? defaultLog)('[lease-reminders] run failed', err)
     return { status: 500, body: { ok: false, error: 'run_failed' } }
@@ -148,6 +158,16 @@ export function buildReminderCopy(input: {
 // ---------------------------------------------------------------------------
 // Run
 // ---------------------------------------------------------------------------
+
+type RecipientLease = {
+  id: string
+  client_id: string
+  landlord_id: string | null
+  agent_id: string | null
+  tenant_id: string | null
+  unit_client_id: string | null
+  building_client_id: string | null
+}
 
 type LeaseRow = {
   id: string
@@ -227,7 +247,7 @@ export async function runLeaseReminders(deps: LeaseReminderDeps): Promise<LeaseR
   return { ok: true, checked, created, skipped: checked - created }
 }
 
-async function resolveRecipients(lease: LeaseRow, deps: LeaseReminderDeps): Promise<UserRow[]> {
+async function resolveRecipients(lease: RecipientLease, deps: LeaseReminderDeps): Promise<UserRow[]> {
   const ids = [lease.agent_id, lease.landlord_id].filter((x): x is string => Boolean(x))
   const users = await deps.query<UserRow>(
     `SELECT id::text AS id, client_id::text AS client_id, role, email, first_name, metadata
@@ -345,4 +365,168 @@ async function processLease(lease: LeaseRow, today: string, deps: LeaseReminderD
     }
   }
   return true
+}
+
+// ---------------------------------------------------------------------------
+// Inspection reminders (RHA s5(3): joint move-in and outgoing inspections)
+// ---------------------------------------------------------------------------
+
+export type InspectionReminderKind = 'move_in' | 'move_out'
+
+/** Calendar days ahead the batch looks: move-in window 7, move-out window 3. */
+export const INSPECTION_MOVE_IN_DAYS = 7
+export const INSPECTION_MOVE_OUT_DAYS = 3
+
+export const INSPECTION_REMINDER_SQL = `SELECT l.id::text AS id, l.client_id::text AS client_id,
+       l.start_date::text AS start_date, l.end_date::text AS end_date,
+       l.landlord_id::text AS landlord_id, l.agent_id::text AS agent_id, l.tenant_id::text AS tenant_id,
+       l.lease_reference, u.unit_number, b.name AS building_name,
+       u.client_id::text AS unit_client_id, b.client_id::text AS building_client_id,
+       EXISTS (SELECT 1 FROM inspections i
+                WHERE i.lease_id = l.id AND i.type = 'MOVE_IN' AND i.status = 'SIGNED') AS signed_move_in,
+       EXISTS (SELECT 1 FROM inspections i
+                WHERE i.lease_id = l.id AND i.type = 'MOVE_OUT' AND i.scheduled_at IS NOT NULL) AS move_out_scheduled
+  FROM leases l
+  JOIN units u ON u.id = l.unit_id
+  JOIN buildings b ON b.id = u.building_id
+ WHERE l.status IN ('PENDING', 'ACTIVE', 'NOTICE')
+   AND l.client_id IS NOT NULL
+   AND (
+     (l.start_date >= $1::date AND l.start_date <= $2::date)
+     OR (l.end_date IS NOT NULL AND l.end_date >= $1::date AND l.end_date <= $3::date)
+   )
+   AND ($4::uuid IS NULL OR l.id > $4::uuid)
+ ORDER BY l.id
+ LIMIT ${LEASE_REMINDER_BATCH_SIZE}`
+
+type InspectionLeaseRow = RecipientLease & {
+  start_date: string | null
+  end_date: string | null
+  lease_reference: string
+  unit_number: string | null
+  building_name: string | null
+  signed_move_in: boolean
+  move_out_scheduled: boolean
+}
+
+export function inspectionDedupKey(leaseId: string, kind: InspectionReminderKind, dateIso: string): string {
+  return `inspection:${leaseId}:${kind}:${dateIso}`
+}
+
+export function buildInspectionReminderCopy(input: {
+  kind: InspectionReminderKind
+  propertyLabel: string
+  leaseReference: string
+  dateIso: string
+}): { title: string; body: string } {
+  const when = formatDMMMYYYY(input.dateIso)
+  if (input.kind === 'move_in') {
+    return {
+      title: 'Move-in inspection not signed yet',
+      body: [
+        `${input.propertyLabel} (lease ${input.leaseReference}) starts on ${when}.`,
+        'Book the joint move-in inspection with the tenant before the start date. Without a signed move-in inspection, deposit deductions cannot be suggested later.',
+      ].join('\n'),
+    }
+  }
+  return {
+    title: 'Outgoing inspection due',
+    body: [
+      `${input.propertyLabel} (lease ${input.leaseReference}) ends on ${when}.`,
+      'Schedule the joint outgoing inspection with the tenant in the 3 days before the lease ends.',
+    ].join('\n'),
+  }
+}
+
+export async function runInspectionReminders(
+  deps: LeaseReminderDeps,
+): Promise<{ checked: number; created: number }> {
+  const today = (deps.todayIso ?? (() => sastTodayIso()))()
+  const log = deps.log ?? defaultLog
+  let checked = 0
+  let created = 0
+  let cursor: string | null = null
+  for (;;) {
+    const rows: InspectionLeaseRow[] = await deps.query<InspectionLeaseRow>(INSPECTION_REMINDER_SQL, [
+      today,
+      isoAddDays(today, INSPECTION_MOVE_IN_DAYS),
+      isoAddDays(today, INSPECTION_MOVE_OUT_DAYS),
+      cursor,
+    ])
+    for (const lease of rows) {
+      checked++
+      try {
+        created += await processInspectionLease(lease, today, deps)
+      } catch (err) {
+        log(`[lease-reminders] inspection reminder for lease ${lease.id} failed`, err)
+      }
+    }
+    if (rows.length < LEASE_REMINDER_BATCH_SIZE) break
+    cursor = rows[rows.length - 1].id
+  }
+  return { checked, created }
+}
+
+async function processInspectionLease(lease: InspectionLeaseRow, today: string, deps: LeaseReminderDeps): Promise<number> {
+  const startIso = lease.start_date ? lease.start_date.slice(0, 10) : null
+  const endIso = lease.end_date ? lease.end_date.slice(0, 10) : null
+  const kinds = reminderNeeded({
+    today,
+    startDate: startIso,
+    endDate: endIso,
+    signedMoveIn: Boolean(lease.signed_move_in),
+    moveOutScheduled: Boolean(lease.move_out_scheduled),
+  })
+  if (!kinds.length) return 0
+  const recipients = await resolveRecipients(lease, deps)
+  if (recipients.length === 0) return 0
+  const propertyLabel = [lease.building_name, lease.unit_number ? `unit ${lease.unit_number}` : null]
+    .filter(Boolean)
+    .join(', ') || 'Property'
+  const tenancyFe = (await deps.resolveFrontendId('tenancy', lease.id)) ?? lease.id
+  const linkPath = `/workspace/people/tenants/${encodeURIComponent(tenancyFe)}?tab=inspections`
+  let created = 0
+  for (const kind of kinds) {
+    const dateIso = (kind === 'move_in' ? startIso : endIso) as string
+    const key = inspectionDedupKey(lease.id, kind, dateIso)
+    const copy = buildInspectionReminderCopy({ kind, propertyLabel, leaseReference: lease.lease_reference, dateIso })
+    const inserted = await deps.withTransaction(async (client) => {
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [key])
+      const existing = await client.query(
+        `SELECT 1 FROM event_log WHERE event_type = 'inspection_reminder' AND payload->>'dedup_key' = $1 LIMIT 1`,
+        [key],
+      )
+      if (existing.rows.length > 0) return false
+      await client.query(
+        `INSERT INTO event_log (client_id, event_type, subject_type, subject_id, payload)
+         VALUES ($1::uuid, 'inspection_reminder', 'lease', $2::uuid, $3::jsonb)`,
+        [
+          lease.client_id,
+          lease.id,
+          JSON.stringify({ dedup_key: key, kind, date: dateIso, recipients: recipients.map((r) => r.id) }),
+        ],
+      )
+      for (const r of recipients) {
+        await client.query(
+          `INSERT INTO notifications (client_id, user_id, title, body, link_path, resource_type, action_type)
+           VALUES ($1::uuid, $2::uuid, $3, $4, $5, 'inspection', 'reminder')`,
+          [lease.client_id, r.id, copy.title, copy.body, linkPath],
+        )
+      }
+      return true
+    })
+    if (!inserted) continue
+    created++
+    if (deps.sendEmail && (deps.emailEnabled?.() ?? false)) {
+      for (const r of recipients) {
+        if (!r.email) continue
+        try {
+          await deps.sendEmail({ email: r.email, name: r.first_name ?? undefined, ...copy })
+        } catch (err) {
+          ;(deps.log ?? defaultLog)(`[lease-reminders] inspection email failed for lease ${lease.id}`, err)
+        }
+      }
+    }
+  }
+  return created
 }

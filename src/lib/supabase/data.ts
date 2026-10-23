@@ -970,7 +970,10 @@ export async function fetchSupabaseBootstrap(
     }
   }
 
-  const propertyDocuments = (documentsRes.data ?? []).map((d) => ({
+  // Inspection photos / PDFs (note inspection-file:*) load through /api/inspection-files.
+  const propertyDocuments = (documentsRes.data ?? [])
+    .filter((d) => !String(d.note ?? '').startsWith('inspection-file:'))
+    .map((d) => ({
     id: mappedFe(cache, 'document', d.id, d.id),
     agencyId: mapAgencyFe(d.client_id)!,
     propertyId: mapPropertyFe(d.unit_id) ?? '',

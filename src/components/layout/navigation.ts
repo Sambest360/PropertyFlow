@@ -320,6 +320,12 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
             icon: GitBranch,
           },
           {
+            to: '/workspace/admin/inventory-templates',
+            label: 'Inventory templates',
+            anyOf: ['config.manage', 'tenant.manage', 'platform.manage'],
+            icon: ClipboardList,
+          },
+          {
             to: '/workspace/admin/notifications',
             label: 'Notifications',
             anyOf: ['notifications.broadcast', 'platform.manage'],
