@@ -279,6 +279,19 @@ REVOKE ALL ON FUNCTION public_listing_landlord_ok(UUID) FROM PUBLIC, anon, authe
 --     symbol fail it (Michael r4 ruling).
 --   * denylist of spelled-out contact words, as whole words: at, dot, the
 --     digits zero..nine / oh / nil, and mail / phone / domain words.
+-- Angela r5 (Michael: work the full list):
+--   * the RAW input (before NFKC) is refused if it has any fullwidth/halfwidth
+--     form (U+FF00-U+FFEF: 'Ｊｏｈｎ' no longer folds to 'John') or a period
+--     glued to a letter ('x.io', 'wa.me', 'smith.dev', 'anya.properties');
+--     the period rule runs again after NFKC (U+2024 and friends fold to '.').
+--   * mixed script: a Latin letter next to any letter outside Latin
+--     (A-Z, U+00C0-U+024F, U+1E00-U+1EFF) is refused, so Cyrillic / Greek /
+--     IPA homoglyphs inside a Latin word (' аt ' with a Cyrillic а) are NULL.
+--     A name written wholly in one other script ('Анна', 'Ελένη') stays.
+--   * the denylists run on a homoglyph fold (Cyrillic / Greek look-alikes to
+--     Latin), so an all-Cyrillic 'ат' is caught as 'at'.
+--   * glued contact words anywhere inside a word: mail providers and
+--     dot+TLD ('johnatgmaildotcom').
 CREATE OR REPLACE FUNCTION public_listing_display_name(p_name text)
 RETURNS text
 LANGUAGE sql
@@ -287,16 +300,25 @@ SECURITY INVOKER
 SET search_path = public
 AS $$
   SELECT CASE
+    -- Raw input, before NFKC: fullwidth/halfwidth forms, or a period glued to a letter (a domain).
+    WHEN p_name ~ '[\uFF00-\uFFEF]' OR p_name ~ '\.[[:alpha:]]' THEN NULL
     WHEN s.n IS NULL OR char_length(s.n) > 60 THEN NULL
     -- Any decimal digit of any script (glibc classifies non-ASCII digits as
     -- [[:alpha:]], so they are refused explicitly; NFKC already folded the
     -- fullwidth, superscript and circled forms to ASCII).
     WHEN s.n ~ '[0-9٠-٩۰-۹߀-߉०-९০-৯੦-੯૦-૯୦-୯௦-௯౦-౯೦-೯൦-൯෦-෯๐-๙໐-໙༠-༩၀-၉႐-႙០-៩᠐-᠙᥆-᥏᧐-᧙᭐-᭙᮰-᮹᱀-᱉᱐-᱙꘠-꘩꣐-꣙꤀-꤉꩐-꩙０-９]' THEN NULL
+    WHEN s.n ~ '\.[[:alpha:]]' THEN NULL
     WHEN s.n !~ '^[[:alpha:]]+([ ''.-]{1,2}[[:alpha:]]+)*[.]?$' THEN NULL
-    WHEN s.n ~* '\m(at|dot|zero|oh|nil|one|two|three|four|five|six|seven|eight|nine|com|co|za|net|org|www|http|https|gmail|yahoo|hotmail|outlook|whatsapp|email|mail|phone|cell|call|sms|tel)\M' THEN NULL
+    -- Mixed script: Latin letters together with any non-Latin letter (homoglyphs).
+    WHEN s.n ~ '[A-Za-z]' AND s.n ~ '[^A-Za-z\u00C0-\u024F\u1E00-\u1EFF ''.-]' THEN NULL
+    WHEN s.f ~* '\m(at|dot|zero|oh|nil|one|two|three|four|five|six|seven|eight|nine|com|co|za|net|org|io|me|dev|wa|www|http|https|web|site|link|visit|gmail|yahoo|hotmail|outlook|icloud|mweb|live|whatsapp|email|mail|phone|cell|call|sms|tel)\M' THEN NULL
+    WHEN s.f ~* '(gmail|googlemail|yahoo|hotmail|outlook|icloud|mweb|telkomsa|vodamail|webmail|protonmail|whatsapp|dotcom|dotco|dotnet|dotorg|dotza|dotio)' THEN NULL
     ELSE s.n
   END
-  FROM (SELECT nullif(regexp_replace(trim(normalize(p_name, NFKC)), ' {2,}', ' ', 'g'), '') AS n) s;
+  FROM (
+    SELECT s0.n, translate(s0.n, 'аеорсухіјѕԁԛԝһӏтмкнАВЕКМНОРСТХІЈЅοαντικρΑΒΕΖΗΙΚΜΝΟΡΤΥΧ', 'aeopcyxijsdqwhltmkhABEKMHOPCTXIJSoavtikpABEZHIKMNOPTYX') AS f
+    FROM (SELECT nullif(regexp_replace(trim(normalize(p_name, NFKC)), ' {2,}', ' ', 'g'), '') AS n) s0
+  ) s;
 $$;
 
 REVOKE ALL ON FUNCTION public_listing_display_name(text) FROM PUBLIC, anon, authenticated;

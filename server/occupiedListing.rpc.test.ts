@@ -8,7 +8,8 @@
  */
 import pg from 'pg'
 import { describe, expect, it } from 'vitest'
-import { PUBLIC_UNIT_FORBIDDEN_KEYS } from './occupiedListing.js'
+import { PUBLIC_UNIT_FORBIDDEN_KEYS, listTenantViewingRequests, type OccupiedDeps } from './occupiedListing.js'
+import type { DemoActor } from './actor.js'
 import { bookingWallClock } from './bootstrap.js'
 import { slotStoredStart } from './slotInstant.js'
 import { readFileSync } from 'node:fs'
@@ -788,6 +789,157 @@ describe.skipIf(!url)('027 on a live database', () => {
         expect(sorted(Object.keys(pub!)).filter((k) => SNAPSHOT_KEYS.includes(k)), fn).toEqual(SNAPSHOT_KEYS)
         expect(payload.units.some((u) => u.id === f.unitA || u.id === f.unitB), fn).toBe(false)
       }
+    })
+  })
+
+  it('snapshot guard S5 (Angela r5): a not_listed unit is never public, so a caller with no other branch gets {}', async () => {
+    await withTx(async (c) => {
+      const f = await fixture(c)
+      const l2 = (await c.query<{ id: string }>(`SELECT gen_random_uuid()::text AS id`)).rows[0].id
+      await c.query(`INSERT INTO auth.users (id) VALUES ($1::uuid)`, [l2])
+      await c.query(
+        `INSERT INTO users (client_id, email, first_name, last_name, role, auth_user_id)
+         VALUES ($1::uuid, 'landlord-s5.rpc-test@example.invalid', 'Other', 'Landlord', 'LANDLORD', $2::uuid)`,
+        [f.clientA, l2],
+      )
+      const snap = async (unit: string) =>
+        (await c.query<{ s: Record<string, unknown> | null }>(`SELECT unit_listing_limit_snapshot($1::uuid) AS s`, [unit])).rows[0].s
+      // Control: the same unit while it IS public gives data to these callers (so {} below is the not_listed rule).
+      await c.query('RESET ROLE')
+      await c.query(`UPDATE units SET status_config_key = 'AVAILABLE', listing_type = 'RENT', advertise_while_occupied = false WHERE id = $1::uuid`, [f.unitA2])
+      for (const sub of [l2, f.tenantSub]) {
+        await as(c, 'authenticated', sub)
+        expect(Object.keys((await snap(f.unitA2)) ?? {}).sort(), 'public control').toEqual(SNAPSHOT_KEYS)
+      }
+      // A published status with listing_type NOT_LISTED (the only spelling units_listing_type_check allows; the guard
+      // lower()s it): {} for a non-staff, non-owner caller.
+      for (const lt of ['NOT_LISTED']) {
+        for (const status of ['PUBLISHED', 'FEATURED', 'VACANT', 'UNDER_OFFER', 'AVAILABLE']) {
+          await c.query('RESET ROLE')
+          await c.query(`UPDATE units SET status_config_key = $2, listing_type = $3 WHERE id = $1::uuid`, [f.unitA2, status, lt])
+          for (const sub of [l2, f.tenantSub]) {
+            await as(c, 'authenticated', sub)
+            expect(await snap(f.unitA2), `${status}/${lt}`).toEqual({})
+          }
+        }
+      }
+      // An occupied advert that is not_listed is not public either.
+      await c.query('RESET ROLE')
+      await c.query(
+        `UPDATE units SET status_config_key = 'OCCUPIED', listing_type = 'NOT_LISTED', advertise_while_occupied = true,
+                available_from = DATE '2027-02-01' WHERE id = $1::uuid`,
+        [f.unitA2],
+      )
+      await as(c, 'authenticated', l2)
+      expect(await snap(f.unitA2)).toEqual({})
+    })
+  })
+
+  it('snapshot own-landlord branch (Michael r5): stored building landlord_id AND the unit agency = the caller agency', async () => {
+    await withTx(async (c) => {
+      const f = await fixture(c)
+      const ids = (await c.query<{ lb: string; co: string }>(`SELECT gen_random_uuid()::text AS lb, gen_random_uuid()::text AS co`)).rows[0]
+      await c.query(`INSERT INTO auth.users (id) SELECT unnest($1::uuid[])`, [[ids.lb, ids.co]])
+      // LB: a landlord of agency B. CO: a non-landlord (contractor) of agency A.
+      const lb = (await c.query<{ id: string }>(
+        `INSERT INTO users (client_id, email, first_name, last_name, role, auth_user_id)
+         VALUES ($1::uuid, 'landlord-b.rpc-test@example.invalid', 'Bee', 'Landlord', 'LANDLORD', $2::uuid) RETURNING id::text AS id`,
+        [f.clientB, ids.lb],
+      )).rows[0].id
+      await c.query(
+        `INSERT INTO users (client_id, email, first_name, last_name, role, auth_user_id)
+         VALUES ($1::uuid, 'contractor-r5.rpc-test@example.invalid', 'Con', 'Tractor', 'CONTRACTOR', $2::uuid)`,
+        [f.clientA, ids.co],
+      )
+      await c.query(`UPDATE users SET client_id = $1::uuid WHERE id = $2::uuid`, [f.clientA, f.landlord])
+      // Drafts, so the public branch never applies.
+      await c.query(`UPDATE units SET status_config_key = 'DRAFT', advertise_while_occupied = false WHERE id = ANY($1::uuid[])`, [[f.unitA, f.unitB]])
+      const setLandlord = async (unit: string, landlord: string) => {
+        await c.query('RESET ROLE')
+        await c.query(`UPDATE buildings SET landlord_id = $1::uuid WHERE id = (SELECT building_id FROM units WHERE id = $2::uuid)`, [landlord, unit])
+      }
+      const snap = async (unit: string) =>
+        (await c.query<{ s: Record<string, unknown> | null }>(`SELECT unit_listing_limit_snapshot($1::uuid) AS s`, [unit])).rows[0].s
+      const keys = (v: Record<string, unknown> | null) => (v === null ? null : Object.keys(v).sort())
+
+      // Positive: the building's own landlord, same agency as the unit, gets the snapshot.
+      await setLandlord(f.unitA, f.landlord)
+      await as(c, 'authenticated', f.landlordSub)
+      expect(keys(await snap(f.unitA)), 'own landlord, same agency').toEqual(SNAPSHOT_KEYS)
+      // Negative 1: a landlord of another agency's building (LB owns unitB's building, agency B) asks for unitA: {}.
+      await setLandlord(f.unitB, lb)
+      await as(c, 'authenticated', ids.lb)
+      expect(await snap(f.unitA), 'landlord of another agency building').toEqual({})
+      // ...and LB on its own building in its own agency does get data (the rule is per building, not per role).
+      expect(keys(await snap(f.unitB)), 'LB own building, own agency').toEqual(SNAPSHOT_KEYS)
+      // Negative 2: mismatched client. The stored building landlord_id is the caller, but the unit is agency B
+      // and the caller's stored client is agency A: {}.
+      await setLandlord(f.unitB, f.landlord)
+      await as(c, 'authenticated', f.landlordSub)
+      expect(await snap(f.unitB), 'stored landlord, other agency unit').toEqual({})
+      // Same, the other way round: LB's stored client moves to A while its building stays in B: {}.
+      await setLandlord(f.unitB, lb)
+      await c.query(`UPDATE users SET client_id = $1::uuid WHERE id = $2::uuid`, [f.clientA, lb])
+      await as(c, 'authenticated', ids.lb)
+      expect(await snap(f.unitB), 'landlord client moved away from the building agency').toEqual({})
+      // Negative 3: non-landlords of the same agency (contractor, END_USER tenant): {}.
+      for (const sub of [ids.co, f.tenantSub]) {
+        await as(c, 'authenticated', sub)
+        expect(await snap(f.unitA), 'non-landlord').toEqual({})
+      }
+      // A landlord whose building no longer lists them (landlord_id cleared): {}.
+      await c.query('RESET ROLE')
+      await c.query(`UPDATE buildings SET landlord_id = NULL WHERE id = (SELECT building_id FROM units WHERE id = $1::uuid)`, [f.unitA])
+      await as(c, 'authenticated', f.landlordSub)
+      expect(await snap(f.unitA), 'landlord_id cleared').toEqual({})
+    })
+  })
+
+  it('T9 (Angela r5, occupiedListing.ts:594): tenant viewing requests are future-only on the SAST wall clock stored as Z', async () => {
+    await withTx(async (c) => {
+      const f = await fixture(c)
+      // Wall-as-Z: the SAST wall clock now, labelled UTC (app convention), +/- 30 minutes and +/- 3 hours.
+      const at = async (offset: string) =>
+        (await c.query<{ t: string }>(
+          `SELECT to_char(((now() AT TIME ZONE 'Africa/Johannesburg') + $1::interval), 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS t`,
+          [offset],
+        )).rows[0].t
+      const insert = async (startsAt: string, consent = 'PENDING', status = 'SCHEDULED') =>
+        (await c.query<{ id: string }>(
+          `INSERT INTO bookings (client_id, unit_id, visitor_name, starts_at, status, tenant_consent_status)
+           VALUES ($1::uuid, $2::uuid, 'Visitor', $3::timestamptz, $4, $5) RETURNING id::text AS id`,
+          [f.clientA, f.unitA, startsAt, status, consent],
+        )).rows[0].id
+      const past3h = await insert(await at('-3 hours'))
+      const past30 = await insert(await at('-30 minutes'))
+      // Between real UTC now and SAST wall now: a real instant in the future, but already past on the SAST clock.
+      const past90 = await insert(await at('-90 minutes'))
+      const next30 = await insert(await at('30 minutes'))
+      const next3h = await insert(await at('3 hours'))
+      await insert(await at('2 hours'), 'ACCEPTED')
+      await insert(await at('2 hours'), 'PENDING', 'CANCELLED')
+      const actor = { role: 'tenant', userId: 'U-rpc-tenant', agencyId: null } as DemoActor
+      const deps: OccupiedDeps = {
+        query: async (sql, params = []) => (await c.query(sql, params as unknown[])).rows,
+        resolveUuid: async (type, id) => (type === 'tenancy' && id === 'L-rpc' ? f.leaseA : type === 'user' && id === actor.userId ? f.tenant : null),
+        assertUnitManageable: async () => ({ clientId: f.clientA }),
+        canPublish: async () => false,
+        now: () => new Date(),
+      }
+      for (const tz of ['UTC', 'Africa/Johannesburg', 'America/New_York']) {
+        await c.query(`SELECT set_config('TimeZone', $1, true)`, [tz])
+        const rows = await listTenantViewingRequests(actor, 'L-rpc', deps)
+        expect(rows.map((r) => r.id), tz).toEqual([next30, next3h])
+        expect(rows.some((r) => [past3h, past30, past90].includes(r.id)), tz).toBe(false)
+        for (const r of rows) expect(r.tenantConsentStatus).toBe('PENDING')
+      }
+      // startsAt is returned as stored (wall time labelled Z), not shifted by the session zone.
+      const rows = await listTenantViewingRequests(actor, 'L-rpc', deps)
+      const stored = (await c.query<{ t: string }>(
+        `SELECT to_char(starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS t FROM bookings WHERE id = $1::uuid`,
+        [next30],
+      )).rows[0].t
+      expect(rows[0].startsAt.slice(0, 19)).toBe(stored)
     })
   })
 
