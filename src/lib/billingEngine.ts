@@ -22,7 +22,8 @@ export type ClientSubscription = {
   updatedAt: string
 }
 
-export type InvoiceLineItem = { label: string; amount: number }
+/** kind 'screening': screening-check charges (server/screeningChecks.ts), billed before VAT. */
+export type InvoiceLineItem = { label: string; amount: number; kind?: 'screening' }
 
 export type PlatformInvoice = {
   id: string
@@ -101,10 +102,14 @@ export function buildInvoice(params: {
   periodStart: string
   periodEnd: string
   createdAt?: string
+  /** Extra pre-VAT charges, e.g. screening checks. */
+  extraLineItems?: InvoiceLineItem[]
 }): PlatformInvoice {
   const baseAmount = round2(params.plan.baseMonthlyFee)
   const assetUsageAmount = params.usage.assetUsageAmount
-  const subtotal = baseAmount + assetUsageAmount
+  const extras = params.extraLineItems ?? []
+  const extrasAmount = round2(extras.reduce((sum, li) => sum + li.amount, 0))
+  const subtotal = baseAmount + assetUsageAmount + extrasAmount
   const vatAmount = round2(subtotal * SA_VAT_RATE)
   const totalAmountDue = round2(subtotal + vatAmount)
 
@@ -114,6 +119,7 @@ export function buildInvoice(params: {
     { label: `Unit charge (${params.usage.unitCount} × R${params.plan.perUnitRate})`, amount: params.usage.unitCharge },
     { label: `Room charge (${params.usage.roomCount} × R${params.plan.perRoomRate})`, amount: params.usage.roomCharge },
     { label: `Grade P premium (${params.usage.gradePBuildingCount})`, amount: params.usage.gradingPremium },
+    ...extras,
     { label: 'VAT 15%', amount: vatAmount },
   ]
 
@@ -142,6 +148,7 @@ export function runBillingCycle(params: {
   periodStart: string
   periodEnd: string
   invoiceId: string
+  extraLineItems?: InvoiceLineItem[]
 }): PlatformInvoice {
   const usage = calculateUsage({ ...params.usageInput, clientId: params.clientId }, params.plan)
   return buildInvoice({
@@ -152,6 +159,7 @@ export function runBillingCycle(params: {
     usage,
     periodStart: params.periodStart,
     periodEnd: params.periodEnd,
+    extraLineItems: params.extraLineItems,
   })
 }
 

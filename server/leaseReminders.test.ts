@@ -300,7 +300,7 @@ describe('cron auth', () => {
     expect(route).toContain('process.env.CRON_SECRET')
     expect(route).not.toMatch(/resolveRequestActor|x-demo|X-Role/i)
     const vercel = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'))
-    expect(vercel.crons).toEqual([{ path: '/api/cron/lease-reminders', schedule: '0 5 * * *' }])
+    expect(vercel.crons).toContainEqual({ path: '/api/cron/lease-reminders', schedule: '0 5 * * *' })
   })
 })
 

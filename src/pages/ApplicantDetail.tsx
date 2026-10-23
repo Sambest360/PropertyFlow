@@ -14,6 +14,7 @@ import { ApplicantDetailHeader } from '../components/applicant-detail/ApplicantD
 import { ApplicantOverviewPanel } from '../components/applicant-detail/ApplicantOverviewPanel'
 import { ApplicantDetailsPanel } from '../components/applicant-detail/ApplicantDetailsPanel'
 import { ApplicantDocumentsPanel } from '../components/applicant-detail/ApplicantDocumentsPanel'
+import { ScreeningChecksPanel } from '../components/screening/ScreeningChecksPanel'
 import {
   ApplicantResidencesPanel,
   buildPastResidences,
@@ -62,8 +63,6 @@ export default function ApplicantDetail() {
     blockApplication,
     addPropertyEvent,
     updateApplication,
-    captureApplicationScreeningConsent,
-    startApplicationScreening,
     overrideApplicationScreening,
   } = useStore()
   const { user, has } = useAuth()
@@ -460,20 +459,7 @@ export default function ApplicantDetail() {
             application={application}
             agentName={agentName}
             canReview={canReview}
-            onCaptureConsent={() =>
-              captureApplicationScreeningConsent(application.id, {
-                grantedBy: user.id,
-                method: 'staff',
-                note: 'Staff-recorded POPIA consent',
-              })
-            }
-            onStartScreening={async () => {
-              const result = await startApplicationScreening({
-                applicationId: application.id,
-                actorUserId: user.id,
-              })
-              if (result.ok === false) window.alert(result.error)
-            }}
+            checksPanel={<ScreeningChecksPanel applicationId={application.id} />}
             onOverrideScreening={async ({ newStatus, reason, score, externalReference }) => {
               const result = await overrideApplicationScreening({
                 applicationId: application.id,

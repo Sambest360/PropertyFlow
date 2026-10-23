@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useStore } from '../../context/AppStore'
 import { useAgencyScope, useAuth } from '../../context/AuthContext'
 import { RequirePermission } from '../../components/RequirePermission'
+import { ScreeningSettingsCard } from '../../components/screening/ScreeningSettingsCard'
 import { Badge, Button, Card, PageHeader, cn } from '../../components/ui'
 import { DEFAULT_RENTAL_JOURNEY } from '../../lib/journey/defaultRentalJourney'
 import { resolveJourney } from '../../lib/journey/resolveJourney'
@@ -200,6 +201,7 @@ export default function ApplicationJourneySettingsPage() {
             }
           />
         ) : null}
+        {agency ? <ScreeningSettingsCard key={`screening-${agency.id}`} agencyId={agency.id} /> : null}
         <div className="flex gap-3">
           <Button type="button" variant="secondary" onClick={resetDefault}>
             Reset to SA default

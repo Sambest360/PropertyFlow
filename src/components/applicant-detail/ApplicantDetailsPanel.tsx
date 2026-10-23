@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Briefcase, IdCard, ShieldCheck } from 'lucide-react'
 import type { Application } from '../../types/domain'
 import { formatZAR } from '../../data/seed'
@@ -15,6 +15,7 @@ import {
 import { ScreeningGateStatus } from '../screening/ScreeningGateStatus'
 import { FieldHelp } from '../onboarding/FieldHelp'
 import { SCREENING_MODE_A_COPY } from '../../lib/screening'
+import { maskIdNumber } from '../../lib/screening/consentTerms'
 import { ICON_STROKE } from './types'
 
 /** Personal / screening details — flat text, no nested cards. */
@@ -22,6 +23,7 @@ export function ApplicantDetailsPanel({
   application,
   agentName,
   canReview = false,
+  checksPanel,
   onCaptureConsent,
   onStartScreening,
   onOverrideScreening,
@@ -29,6 +31,8 @@ export function ApplicantDetailsPanel({
   application: Application
   agentName: string | null
   canReview?: boolean
+  /** Server-backed checks (ScreeningChecksPanel); shown above the legacy screening record. */
+  checksPanel?: ReactNode
   onCaptureConsent?: () => void
   onStartScreening?: () => void | Promise<void>
   onOverrideScreening?: (input: {
@@ -84,7 +88,7 @@ export function ApplicantDetailsPanel({
           <FlatField
             icon={IdCard}
             label="ID / passport"
-            value={application.idNumberOrPassport || '—'}
+            value={maskIdNumber(application.idNumberOrPassport) || '—'}
             tabular
           />
           <FlatField icon={Briefcase} label="Employment" value={application.employment || '—'} />
@@ -96,9 +100,11 @@ export function ApplicantDetailsPanel({
         </FlatFieldGrid>
       </DetailSection>
 
+      {checksPanel}
+
       <DetailSection
         title="Screening"
-        subtitle="Consent, mock/manual bureau status, and audited overrides — approve does not invent a credit pass."
+        subtitle="Application screening record and audited manual overrides. Approve does not invent a credit pass."
         actions={<FieldHelp title="Screening" body={SCREENING_MODE_A_COPY} />}
       >
         {application.type === 'Rental' && canReview ? (

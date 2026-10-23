@@ -11,7 +11,8 @@
     }
   },
   "crons": [
-    { "path": "/api/cron/lease-reminders", "schedule": "0 5 * * *" }
+    { "path": "/api/cron/lease-reminders", "schedule": "0 5 * * *" },
+    { "path": "/api/cron/screening-purge", "schedule": "30 1 * * *" }
   ],
   "headers": [
     {

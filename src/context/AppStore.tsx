@@ -119,6 +119,7 @@ import {
   runBillingCycle,
   type BillingPlan,
   type ClientSubscription,
+  type InvoiceLineItem,
   type PlatformInvoice,
 } from '../lib/billingEngine'
 import {
@@ -1066,7 +1067,12 @@ type StoreContextValue = {
     instructionId: string
     actorUserId: string
   }) => Promise<{ ok: boolean; error?: string }>
-  runClientBillingCycle: (clientId: string, periodStart?: string, periodEnd?: string) => PlatformInvoice | null
+  runClientBillingCycle: (
+    clientId: string,
+    periodStart?: string,
+    periodEnd?: string,
+    extraLineItems?: InvoiceLineItem[],
+  ) => PlatformInvoice | null
   markInvoicePaid: (invoiceId: string) => void
   toasts: NotificationToast[]
 }
@@ -7858,7 +7864,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     },
     notify,
     addActivity,
-    runClientBillingCycle: (clientId, periodStart, periodEnd) => {
+    runClientBillingCycle: (clientId, periodStart, periodEnd, extraLineItems) => {
       const sub = state.clientSubscriptions.find(
         (s) => s.clientId === clientId && ['ACTIVE', 'TRIAL', 'PAST_DUE'].includes(s.status),
       )
@@ -7886,6 +7892,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         periodStart: start.toISOString().slice(0, 10),
         periodEnd: endDefault.toISOString().slice(0, 10),
         invoiceId: uid('INV'),
+        extraLineItems,
       })
       patch((s) => ({ ...s, invoices: [invoice, ...s.invoices] }))
       persistUpsert('invoice', invoice.id, invoice as unknown as Record<string, unknown>)
