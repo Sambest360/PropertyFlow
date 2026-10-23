@@ -300,15 +300,24 @@ describe('027 public_listing_unit_json', () => {
     for (const fn of RPCS) expect(fnBody(fn)).toContain('public_listing_landlord_ok(b.landlord_id)')
   })
 
-  it('listed_by helper returns the display name only (first + last, trimmed) and is not callable', () => {
+  it('listed_by helper returns the display name only, through the strict name check, and is not callable', () => {
     const helper = stripComments(fnBody('public_listing_agent_name'))
     expect(helper).toMatch(/SECURITY INVOKER/)
     expect(helper).toMatch(/RETURNS text/)
     expect(helper.replace(/\s+/g, ' ')).toContain(
-      "SELECT nullif(trim(coalesce(a.first_name, '') || ' ' || coalesce(a.last_name, '')), '') FROM users a WHERE a.id = p_agent_id;",
+      "SELECT public_listing_display_name(coalesce(a.first_name, '') || ' ' || coalesce(a.last_name, '')) FROM users a WHERE a.id = p_agent_id;",
     )
-    expect(MIGRATION).toContain('REVOKE ALL ON FUNCTION public_listing_agent_name(UUID) FROM PUBLIC, anon, authenticated;')
-    expect(MIGRATION).not.toMatch(/GRANT[^;]*public_listing_agent_name/i)
+    const check = stripComments(fnBody('public_listing_display_name')).replace(/\s+/g, ' ')
+    expect(check).toContain('SECURITY INVOKER')
+    expect(check).toContain("normalize(p_name, NFKC)")
+    expect(check).toContain("WHEN s.n IS NULL OR char_length(s.n) > 60 THEN NULL")
+    expect(check).toContain("WHEN s.n !~ '^[[:alpha:]]+([ ''.-]{1,2}[[:alpha:]]+)*[.]?$' THEN NULL")
+    expect(check).toMatch(/WHEN s\.n ~ '\[0-9\u0660-\u0669[^']*\uFF10-\uFF19\]' THEN NULL/)
+    expect(check).toMatch(/WHEN s\.n ~\* '\\m\(at\|dot\|zero\|oh\|nil\|one\|/)
+    for (const fn of ['public_listing_agent_name(UUID)', 'public_listing_display_name(text)']) {
+      expect(MIGRATION).toContain(`REVOKE ALL ON FUNCTION ${fn} FROM PUBLIC, anon, authenticated;`)
+    }
+    expect(MIGRATION).not.toMatch(/GRANT[^;]*public_listing_(agent|display)_name/i)
   })
 })
 
@@ -325,12 +334,41 @@ describe('027 024 DEFINER helpers are not anon-callable (Michael c)', () => {
     }
   })
 
-  it('grants the snapshot back to authenticated only (staff ListingLimitsPanel); never the gate', () => {
+  it('grants the snapshot back to authenticated only (ListingLimitsPanel); never the gate', () => {
     const grant = block.indexOf(`GRANT EXECUTE ON FUNCTION ${SNAP} TO authenticated;`)
     expect(grant).toBeGreaterThan(block.indexOf(`REVOKE ALL ON FUNCTION ${SNAP}`))
     expect(MIGRATION).not.toMatch(/GRANT[^;]*unit_listing_limit_snapshot[^;]*anon/i)
     const after = block.slice(block.indexOf(`REVOKE ALL ON FUNCTION ${GATE}`))
     expect(after).not.toMatch(/GRANT[^;]*listing_capacity_gate/i)
+  })
+
+  it('the snapshot is guarded (Michael ruling 1, Jim P1/P2): STABLE DEFINER, pinned path, {} when denied', () => {
+    const fn = fnBody('unit_listing_limit_snapshot')
+    const flat = stripComments(fn).replace(/\s+/g, ' ')
+    expect(fn).toMatch(/LANGUAGE plpgsql\s+STABLE\s+SECURITY DEFINER\s+SET search_path = public/)
+    // Denied callers get an empty object, never NULL (jsonb || NULL wipes the unit).
+    expect(flat).toContain("THEN RETURN '{}'::jsonb; END IF;")
+    expect(flat).not.toMatch(/RETURN NULL/i)
+    expect(flat).toContain("coalesce(nullif(current_setting('role', true), ''), 'none') NOT IN ('anon', 'authenticated')")
+    expect(flat).toContain('OR is_super_admin()')
+    expect(flat).toContain('(is_agency_staff() AND u.client_id = current_app_client_id())')
+    expect(flat).toContain(
+      '(b.landlord_id IS NOT NULL AND b.landlord_id = current_app_user_id() AND u.client_id = current_app_client_id())',
+    )
+    expect(flat).toContain('AND public_listing_landlord_ok(b.landlord_id)')
+    expect(block.indexOf('CREATE OR REPLACE FUNCTION unit_listing_limit_snapshot(')).toBeLessThan(
+      block.indexOf(`REVOKE ALL ON FUNCTION ${SNAP} FROM PUBLIC, anon, authenticated;`),
+    )
+  })
+
+  it('the snapshot returns counts and limits only (no PII keys)', () => {
+    const fn = stripComments(fnBody('unit_listing_limit_snapshot'))
+    const keys = [...fn.matchAll(/'([a-z_]+)',\s/g)].map((m) => m[1])
+    const allowed = new Set([
+      'fully_booked', 'enquiries_full', 'viewings_full', 'limit_action', 'show_remaining',
+      'enquiry_count', 'viewing_count', 'max_enquiries', 'max_viewings', 'remaining', 'enquiries', 'viewings',
+    ])
+    expect(keys.filter((k) => !allowed.has(k) && /name|email|phone|contact|id_number|address/.test(k))).toEqual([])
   })
 })
 
@@ -398,13 +436,18 @@ describe('027 submit_public_listing_enquiry (occupied adverts)', () => {
     expect(objectKeys(ret)).toEqual(['ok', 'lead_id', 'booking_id', 'stage', 'available_from'])
   })
 
-  it('24h notice compares a real Africa/Johannesburg timestamptz with now() (Michael d)', () => {
+  it('stores SAST wall time labelled Z; Africa/Johannesburg only for the 24h notice (Michael ruling 2, Jim P3/F1)', () => {
     const flat = body.replace(/\s+/g, ' ')
     expect(flat).toContain(
-      "v_starts_at := (v_slot_date::text || ' ' || left(v_slot_time, 5) || ':00')::timestamp AT TIME ZONE 'Africa/Johannesburg';",
+      "v_starts_at := (v_slot_date::text || ' ' || left(v_slot_time, 5) || ':00')::timestamp AT TIME ZONE 'UTC';",
     )
+    expect(body).not.toMatch(/::timestamp\s+AT TIME ZONE 'Africa\/Johannesburg'/)
     expect(body).not.toMatch(/\|\| ':00'\)::timestamptz/)
-    expect(body).toMatch(/IF v_starts_at < NOW\(\) \+ make_interval\(hours => v_notice_hours\)/)
+    expect(flat).toContain(
+      "IF (v_starts_at AT TIME ZONE 'UTC') < (NOW() AT TIME ZONE 'Africa/Johannesburg') + make_interval(hours => v_notice_hours) THEN",
+    )
+    expect(flat).toContain('SAST wall-clock time labelled Z')
+    expect(flat).toMatch(/INSERT INTO bookings[^;]*v_starts_at/)
     for (const fn of RPCS) {
       expect(fnBody(fn)).toContain("vs.slot_date >= (now() AT TIME ZONE 'Africa/Johannesburg')::date")
       expect(fnBody(fn)).not.toContain('CURRENT_DATE')

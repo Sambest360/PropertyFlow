@@ -1,0 +1,50 @@
+{
+  "_comment": "Angela r4 / Jim v3: listed_by probes shared by the vitest suite and the kivrl post-checks (fix-c, Package 1). reject => NULL, accept => unchanged; unicode_accept only where the database ctype classifies Unicode letters (kivrl: ICU en_US).",
+  "reject": {
+    "literal email": "anya@x.com",
+    "spelled at/dot (Jim)": "anya at x dot com",
+    "spelled gmail (Jim)": "john at gmail dot com",
+    "(at)": "anya(at)x.co.za",
+    "[at]": "anya [at] x",
+    "bare (at)": "(at)",
+    "underscored phone (Jim)": "082_555_1234",
+    "fullwidth digits (Jim)": "０８２５５５１２３４",
+    "fullwidth at (Jim)": "anya＠x.com",
+    "spelled-out digits": "zero eight two five five five one two three four",
+    "spelled-out digits, title case": "Oh Eight Two Five",
+    "uuid": "0b7e3c1a-5d2f-4c8e-9a61-3f2d7c9b8e10",
+    "international phone": "+27 82 555 1234",
+    "name plus phone": "Anya 0825551234",
+    "wa.me link": "wa.me/27825551234",
+    "domain words": "anya x co za",
+    "whatsapp word": "Whatsapp Anya",
+    "url": "https://x.co.za",
+    "underscore": "Anya_Smith",
+    "tab": "Anya\tSmith",
+    "markup": "<b>Anya</b>",
+    "too long": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "symbol only": "-",
+    "blank": "   ",
+    "arabic-indic digits": "٠٨٢٥٥٥",
+    "circled and superscript digits": "Anya ①²",
+    "fullwidth letters spelling at": "anya ａｔ x",
+    "dotted email without at": "anya.x.com",
+    "dotted domain": "anya.gmail",
+    "triple separator": "Anya - - Smith"
+  },
+  "accept": {
+    "first and last": "Staff Agent",
+    "hyphenated": "Thandiwe Mbatha-Dlamini",
+    "apostrophe": "Sean O'Brien",
+    "single name": "Anya",
+    "max length": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "initials with periods": "J. R. Smith",
+    "trailing period": "Anya Smith Jr.",
+    "dotted name": "anya.x"
+  },
+  "unicode_accept": {
+    "diaeresis": "Zoë Ndlovu",
+    "greek": "Ελένη",
+    "cyrillic": "Анна"
+  }
+}

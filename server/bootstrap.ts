@@ -69,6 +69,15 @@ function dateOnly(v: Date | string | null | undefined): string {
   return s.slice(0, 10)
 }
 
+/**
+ * bookings.starts_at holds SAST wall time labelled Z (app convention, see
+ * server/slotInstant.ts), so the viewing's date and time are read back in UTC.
+ */
+export function bookingWallClock(startsAt: Date | string): { date: string; time: string } {
+  const d = new Date(startsAt)
+  return { date: dateOnly(d), time: d.toISOString().slice(11, 16) }
+}
+
 function iso(v: Date | string | null | undefined): string | null {
   if (!v) return null
   return typeof v === 'string' ? v : v.toISOString()
@@ -991,8 +1000,7 @@ export async function buildBootstrap(opts?: {
         : null,
       applicantName: b.visitor_name as string,
       applicantEmail: (b.visitor_email as string) ?? undefined,
-      date: dateOnly(starts),
-      time: starts.toISOString().slice(11, 16),
+      ...bookingWallClock(starts),
       status: viewingStatus(b.status as string),
       attendance:
         (b.status as string) === 'COMPLETED'
