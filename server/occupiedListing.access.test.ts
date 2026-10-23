@@ -153,6 +153,14 @@ describe('027 tenant_viewing_windows RLS', () => {
     for (const m of MIGRATION.matchAll(/CREATE POLICY (\w+)/g)) {
       expect(MIGRATION).toContain(`DROP POLICY IF EXISTS ${m[1]}`)
     }
+    // No bare CREATE TABLE / INDEX / FUNCTION; constraints are added only when missing.
+    expect(MIGRATION).not.toMatch(/CREATE TABLE (?!IF NOT EXISTS)/)
+    expect(MIGRATION).not.toMatch(/CREATE FUNCTION/)
+    for (const m of MIGRATION.matchAll(/^CREATE INDEX (?!IF NOT EXISTS)/gm)) throw new Error(`non-idempotent: ${m[0]}`)
+    expect(MIGRATION).not.toMatch(/DROP CONSTRAINT/)
+    for (const m of MIGRATION.matchAll(/ADD CONSTRAINT (\w+)/g)) {
+      expect(MIGRATION).toContain(`WHERE conname = '${m[1]}'`)
+    }
   })
 
   it('defaults the advert OFF per unit in the migration and schema.sql', () => {

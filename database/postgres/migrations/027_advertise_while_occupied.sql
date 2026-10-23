@@ -8,20 +8,36 @@ ALTER TABLE units
   ADD COLUMN IF NOT EXISTS available_from DATE,
   ADD COLUMN IF NOT EXISTS occupied_viewing_notice_hours INT NOT NULL DEFAULT 24;
 
-ALTER TABLE units DROP CONSTRAINT IF EXISTS units_occupied_viewing_notice_hours_check;
-ALTER TABLE units
-  ADD CONSTRAINT units_occupied_viewing_notice_hours_check
-  CHECK (occupied_viewing_notice_hours >= 24);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'units_occupied_viewing_notice_hours_check' AND conrelid = 'public.units'::regclass
+  ) THEN
+    ALTER TABLE units
+      ADD CONSTRAINT units_occupied_viewing_notice_hours_check
+      CHECK (occupied_viewing_notice_hours >= 24);
+  END IF;
+END
+$$;
 
 ALTER TABLE leases
   ADD COLUMN IF NOT EXISTS notice_given_at DATE,
   ADD COLUMN IF NOT EXISTS notice_given_by VARCHAR(20),
   ADD COLUMN IF NOT EXISTS notice_end_date DATE;
 
-ALTER TABLE leases DROP CONSTRAINT IF EXISTS leases_notice_given_by_check;
-ALTER TABLE leases
-  ADD CONSTRAINT leases_notice_given_by_check
-  CHECK (notice_given_by IS NULL OR notice_given_by IN ('TENANT', 'LANDLORD'));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'leases_notice_given_by_check' AND conrelid = 'public.leases'::regclass
+  ) THEN
+    ALTER TABLE leases
+      ADD CONSTRAINT leases_notice_given_by_check
+      CHECK (notice_given_by IS NULL OR notice_given_by IN ('TENANT', 'LANDLORD'));
+  END IF;
+END
+$$;
 
 CREATE TABLE IF NOT EXISTS tenant_viewing_windows (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -119,28 +135,58 @@ ALTER TABLE bookings
   ADD COLUMN IF NOT EXISTS tenant_notified_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS tenant_proposed_starts_at TIMESTAMPTZ;
 
-ALTER TABLE bookings DROP CONSTRAINT IF EXISTS bookings_tenant_consent_status_check;
-ALTER TABLE bookings
-  ADD CONSTRAINT bookings_tenant_consent_status_check
-  CHECK (tenant_consent_status IN ('PENDING', 'ACCEPTED', 'DECLINED', 'NOT_REQUIRED'));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'bookings_tenant_consent_status_check' AND conrelid = 'public.bookings'::regclass
+  ) THEN
+    ALTER TABLE bookings
+      ADD CONSTRAINT bookings_tenant_consent_status_check
+      CHECK (tenant_consent_status IN ('PENDING', 'ACCEPTED', 'DECLINED', 'NOT_REQUIRED'));
+  END IF;
+END
+$$;
 
 CREATE EXTENSION IF NOT EXISTS btree_gist;
 
-ALTER TABLE leases DROP CONSTRAINT IF EXISTS leases_no_date_overlap;
-ALTER TABLE leases ADD CONSTRAINT leases_no_date_overlap
-  EXCLUDE USING gist (
-    unit_id WITH =,
-    daterange(
-      start_date,
-      CASE WHEN end_date IS NULL THEN 'infinity'::date ELSE (end_date + 1) END,
-      '[)'
-    ) WITH &&
-  )
-  WHERE (status IN ('PENDING', 'ACTIVE', 'NOTICE'));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'leases_no_date_overlap' AND conrelid = 'public.leases'::regclass
+  ) THEN
+    ALTER TABLE leases ADD CONSTRAINT leases_no_date_overlap
+      EXCLUDE USING gist (
+        unit_id WITH =,
+        daterange(
+          start_date,
+          CASE WHEN end_date IS NULL THEN 'infinity'::date ELSE (end_date + 1) END,
+          '[)'
+        ) WITH &&
+      )
+      WHERE (status IN ('PENDING', 'ACTIVE', 'NOTICE'));
+  END IF;
+END
+$$;
 
-DROP INDEX IF EXISTS idx_leases_unit_active;
-CREATE INDEX idx_leases_unit_active ON leases (unit_id, status)
-  WHERE status IN ('PENDING', 'ACTIVE', 'NOTICE');
+-- Widen main's idx_leases_unit_active (PENDING, ACTIVE) to include NOTICE.
+-- No-op when the index already covers NOTICE (live kivrl has #106's version).
+DO $$
+BEGIN
+  IF coalesce((
+    SELECT pg_get_indexdef(i.indexrelid) LIKE '%NOTICE%'
+    FROM pg_index i
+    JOIN pg_class c ON c.oid = i.indexrelid
+    WHERE c.relname = 'idx_leases_unit_active'
+      AND i.indrelid = 'public.leases'::regclass
+  ), false) = false THEN
+    DROP INDEX IF EXISTS idx_leases_unit_active;
+    CREATE INDEX idx_leases_unit_active ON leases (unit_id, status)
+      WHERE status IN ('PENDING', 'ACTIVE', 'NOTICE');
+  END IF;
+END
+$$;
 
 -- Public unit shape for the anon marketplace RPCs. Explicit keys so a column
 -- added later (tenant, lease or internal fields) never leaks to guests.
