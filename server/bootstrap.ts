@@ -433,7 +433,8 @@ export async function buildBootstrap(opts?: {
       () => query('SELECT * FROM viewing_slots ORDER BY slot_date, slot_time'),
       () => query('SELECT * FROM payments ORDER BY due_date LIMIT $1', [limits.payments]),
       () =>
-        query('SELECT * FROM documents ORDER BY uploaded_at NULLS LAST LIMIT $1', [
+        // Inspection photos / PDFs are served by /api/inspection-files (scoped), not bootstrap.
+        query(`SELECT * FROM documents WHERE COALESCE(note, '') NOT LIKE 'inspection-file:%' ORDER BY uploaded_at NULLS LAST LIMIT $1`, [
           limits.documents,
         ]),
       () => query('SELECT * FROM maintenance_tickets ORDER BY created_at DESC LIMIT $1', [
