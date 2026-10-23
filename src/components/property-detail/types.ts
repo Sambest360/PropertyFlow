@@ -3,6 +3,7 @@ export const PROPERTY_DETAIL_TABS = [
   'map',
   'floorplan',
   'inventory',
+  'inspections',
   'applicants',
   'viewings',
   'maintenance',

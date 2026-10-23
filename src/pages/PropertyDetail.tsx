@@ -6,6 +6,7 @@ import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { DashboardTabs } from '../components/dashboard/DashboardTabs'
 import { UnitInventoryChecklist } from '../components/property-detail/UnitInventoryChecklist'
 import { inspectionsAvailable } from '../lib/inspections/api'
+import { LeaseInspectionsPanel } from '../components/inspections/LeaseInspectionsPanel'
 import { BackButton } from '../components/BackButton'
 import { Card } from '../components/ui'
 import { normalizeApplication } from '../lib/applicationWorkflow'
@@ -125,6 +126,38 @@ export default function PropertyDetail() {
     () => (unit ? state.internalAssets.filter((a) => a.unitId === unit.id) : []),
     [state.internalAssets, unit],
   )
+  /**
+   * Landlord inspections: this landlord's leases on this property, in default-pick order.
+   * A lease that Ended in the last 30 days comes first (stand-in for "move-out deductions
+   * pending", which the client can't see), then Active, then Pending Move-In, then older Ended.
+   */
+  const landlordLeases = useMemo(() => {
+    if (!p || user.role !== 'landlord') return []
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000
+    const time = (d: string | null) => (d ? new Date(d).getTime() || 0 : 0)
+    const rank = (t: (typeof state.tenancies)[number]) => {
+      if (t.status === 'Ended') {
+        const e = time(t.endDate)
+        return e >= cutoff && e <= Date.now() ? 0 : 3
+      }
+      return t.status === 'Active' ? 1 : 2
+    }
+    return state.tenancies
+      .filter((t) => t.propertyId === p.id && t.landlordId === user.id)
+      .sort(
+        (a, b) =>
+          rank(a) - rank(b) ||
+          time(b.endDate) - time(a.endDate) ||
+          time(b.startDate) - time(a.startDate),
+      )
+  }, [p, user.role, user.id, state.tenancies])
+  const pickedLeaseId = params.get('lease')
+  const landlordLease = landlordLeases.find((t) => t.id === pickedLeaseId) ?? landlordLeases[0] ?? null
+  const pickLease = (leaseId: string) => {
+    const sp = new URLSearchParams(params)
+    sp.set('lease', leaseId)
+    setParams(sp, { replace: true })
+  }
   const apps = useMemo(
     () => (p ? state.applications.filter((a) => a.propertyId === p.id) : []),
     [state.applications, p],
@@ -252,6 +285,7 @@ export default function PropertyDetail() {
     { id: 'map', label: 'Map' },
     { id: 'floorplan', label: 'Floor plan', count: rooms.length },
     { id: 'inventory', label: 'Inventory', count: assets.length },
+    ...(inspectionsAvailable && landlordLease ? [{ id: 'inspections', label: 'Inspections' }] : []),
     { id: 'applicants', label: 'Applicants', count: waitingApps },
     { id: 'viewings', label: 'Viewings', count: openSlots },
     { id: 'maintenance', label: 'Maintenance', count: openTickets },
@@ -457,6 +491,28 @@ export default function PropertyDetail() {
         />
       )}
 
+      {tab === 'inspections' && inspectionsAvailable && landlordLease && (
+        <div className="space-y-4">
+          {landlordLeases.length > 1 && (
+            <label htmlFor="landlord-inspections-lease" className="block text-sm font-semibold text-ink-600">
+              Lease
+              <select
+                id="landlord-inspections-lease"
+                className="mt-1 block w-full max-w-md rounded-lg border border-primary-100 bg-white px-3 py-2 text-sm font-normal"
+                value={landlordLease.id}
+                onChange={(e) => pickLease(e.target.value)}
+              >
+                {landlordLeases.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {`${t.tenantName} · ${t.status} · ${t.startDate}–${t.endDate ?? 'ongoing'}`}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <LeaseInspectionsPanel key={landlordLease.id} leaseId={landlordLease.id} mode="landlord" />
+        </div>
+      )}
       {tab === 'inventory' && inspectionsAvailable && (
         <UnitInventoryChecklist unitRef={p.backendId ?? p.id} canManage={canManage} />
       )}
