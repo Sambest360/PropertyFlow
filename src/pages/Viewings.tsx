@@ -28,6 +28,7 @@ import {
 } from '../components/viewings/types'
 import { readReturnTo } from '../lib/returnTo'
 import { DataRefreshBanner } from '../components/loading/DataRefreshBanner'
+import { tenantConsentLabel } from '../lib/viewingConsent'
 
 const ICON_STROKE = 1.6
 
@@ -178,7 +179,13 @@ export default function Viewings() {
               item.kind === 'booking'
                 ? `Viewing · ${time}`
                 : `Open slot · ${time}`,
-            meta: `${item.property.title} · ${viewingPrimaryLabel(item)}`,
+            meta: [
+              item.property.title,
+              viewingPrimaryLabel(item),
+              item.kind === 'booking' ? tenantConsentLabel(item.viewing)?.label : null,
+            ]
+              .filter(Boolean)
+              .join(' · '),
             status: st,
             date,
             propertyId: item.property.id,

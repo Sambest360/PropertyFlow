@@ -11,6 +11,7 @@ import {
 import { useSuiteAlert } from '../alerts/SuiteAlert'
 import { ListPagination, paginate } from './ListPagination'
 import { ICON_STROKE } from './types'
+import { TenantConsentBadge } from '../viewings/TenantConsentBadge'
 
 type SlotDraft = {
   title: string
@@ -252,6 +253,7 @@ export function PropertyViewingsPanel({
                           ) : (
                             <Badge tone={statusTone(v.status)}>{v.status}</Badge>
                           )}
+                          <TenantConsentBadge viewing={v} />
                         </div>
                       </li>
                     ))}

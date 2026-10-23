@@ -19,6 +19,7 @@
  */
 
 import { isFutureViewingSlot } from './viewingSlotTime.js'
+import { isOccupiedAdvert } from '../src/lib/occupiedAdvert.js'
 
 const PUBLIC_LISTING_STATUSES = new Set(['Published', 'Featured', 'Under Offer'])
 const PUBLIC_UNIT_STATUS_KEYS = new Set([
@@ -48,14 +49,21 @@ function verificationStatus(u: Row | undefined): string | undefined {
 
 export function isGuestVisibleProperty(property: Row, units: Row[], users: Row[]): boolean {
   if (property.deletedAt) return false
-  if (!PUBLIC_LISTING_STATUSES.has(String(property.status))) return false
   const unitId = str(property.unitId)
-  if (unitId) {
-    const unit = units.find((u) => u.id === unitId)
-    if (unit) {
-      if (unit.listingType === 'not_listed') return false
-      if (!PUBLIC_UNIT_STATUS_KEYS.has(String(unit.statusKey))) return false
-    }
+  const unit = unitId ? units.find((u) => u.id === unitId) : undefined
+  // Occupied advert (027): listed while the tenant stays, same predicate as the RPC.
+  const occupiedAdvert = unit
+    ? isOccupiedAdvert({
+        statusKey: str(unit.statusKey),
+        listingType: str(unit.listingType),
+        advertiseWhileOccupied: Boolean(unit.advertiseWhileOccupied),
+        availableFrom: str(unit.availableFrom),
+      })
+    : false
+  if (!occupiedAdvert && !PUBLIC_LISTING_STATUSES.has(String(property.status))) return false
+  if (unit) {
+    if (unit.listingType === 'not_listed') return false
+    if (!occupiedAdvert && !PUBLIC_UNIT_STATUS_KEYS.has(String(unit.statusKey))) return false
   }
   const landlordId = str(property.landlordId)
   if (landlordId) {

@@ -55,7 +55,22 @@ export async function fetchUnitsPage(opts: {
   const limit = Math.min(Math.max(opts.limit ?? 24, 1), 100)
   const decoded = decodeCursor(opts.cursor)
   const params: unknown[] = []
-  let where = 'WHERE 1=1'
+  // Signed-out endpoint: publicly listed units only, the same rule as
+  // get_public_marketplace_bootstrap (027). Drafts, unlisted units, occupied
+  // units that are not advertised and units of unverified landlords stay out.
+  let where = `WHERE (
+      (
+        u.status_config_key IN ('PUBLISHED', 'FEATURED', 'VACANT', 'UNDER_OFFER', 'AVAILABLE')
+        AND lower(coalesce(u.listing_type, 'rent')) <> 'not_listed'
+      )
+      OR (
+        u.advertise_while_occupied = true
+        AND u.available_from IS NOT NULL
+        AND upper(u.status_config_key) = 'OCCUPIED'
+        AND lower(coalesce(u.listing_type, 'rent')) IN ('rent', 'both')
+      )
+    )
+    AND coalesce(ll.metadata->'verification'->>'status', 'approved') NOT IN ('pending', 'rejected')`
 
   if (opts.clientId) {
     params.push(opts.clientId)
@@ -76,6 +91,8 @@ export async function fetchUnitsPage(opts: {
             u.square_meters, u.price, u.rent, u.featured, u.amenities, u.images,
             u.lat, u.lng, u.created_at
      FROM units u
+     JOIN buildings b ON b.id = u.building_id
+     LEFT JOIN users ll ON ll.id = b.landlord_id
      ${where}
      ORDER BY u.created_at DESC, u.id DESC
      LIMIT $${limitParam}`,

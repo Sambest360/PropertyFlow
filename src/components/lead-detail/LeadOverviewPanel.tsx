@@ -9,6 +9,7 @@ import { DetailSection, DetailStack, AgentAssigneeField, FlatField, FlatFieldGri
 import { Badge, Button } from '../ui'
 import { LeadStageContextPanel } from './LeadStageContextPanel'
 import { ICON_STROKE } from './types'
+import { TenantConsentBadge } from '../viewings/TenantConsentBadge'
 
 export function LeadOverviewPanel({
   lead,
@@ -108,6 +109,7 @@ export function LeadOverviewPanel({
                   </span>
                   <span className="flex items-center gap-2">
                     <Badge tone="neutral">{v.status}</Badge>
+                    <TenantConsentBadge viewing={v} />
                     <ArrowRight className="h-4 w-4 text-ink-300 group-hover:text-primary" strokeWidth={ICON_STROKE} />
                   </span>
                 </Link>

@@ -3,6 +3,7 @@
  * Accepts frontend demo IDs; resolves/registers UUIDs via entity_id_map.
  */
 import { query, withTransaction, clientQuery } from './db.js'
+import { slotStartSast } from './slotInstant.js'
 import {
   assertNoLeaseOverlap,
   assertOccupiedBookingAllowed,
@@ -1674,7 +1675,8 @@ async function upsertViewing(feId: string, d: Record<string, unknown>): Promise<
   const bookedOrMoved = !prevBooking[0] || prevStart !== new Date(starts).getTime()
   const consent =
     bookedOrMoved && status === 'SCHEDULED'
-      ? await assertOccupiedBookingAllowed(unit, { date, time, startsAt: new Date(starts) })
+      ? // Notice is measured from the real SAST instant, whatever the server TZ.
+        await assertOccupiedBookingAllowed(unit, { date, time, startsAt: slotStartSast(date, time) })
       : 'NOT_REQUIRED'
 
   await query(

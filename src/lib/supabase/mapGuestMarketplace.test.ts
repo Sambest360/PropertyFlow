@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { mapGuestMarketplacePayload } from './mapGuestMarketplace'
 
+// PostgresBootstrap arrays are unknown[]; read rows as plain records in assertions.
+type Row = Record<string, unknown>
+const rows = (xs: unknown[] | undefined): Row[] => (xs ?? []) as Row[]
+
 describe('mapGuestMarketplacePayload viewing_slots', () => {
   const unitUuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
   const slotUuid = '11111111-2222-3333-4444-555555555555'
@@ -63,10 +67,10 @@ describe('mapGuestMarketplacePayload viewing_slots', () => {
 
     expect(boot.properties).toHaveLength(1)
     expect(boot.viewingSlots).toHaveLength(1)
-    expect(boot.viewingSlots[0].id).toBe('VS-1')
-    expect(boot.viewingSlots[0].status).toBe('Open')
-    expect(boot.viewingSlots[0].propertyId).toBe(boot.properties[0].id)
-    expect(boot.viewingSlots[0].propertyId).toBe('PR-9001')
+    expect(rows(boot.viewingSlots)[0].id).toBe('VS-1')
+    expect(rows(boot.viewingSlots)[0].status).toBe('Open')
+    expect(rows(boot.viewingSlots)[0].propertyId).toBe(rows(boot.properties)[0].id)
+    expect(rows(boot.viewingSlots)[0].propertyId).toBe('PR-9001')
   })
 })
 
@@ -143,10 +147,10 @@ describe('mapGuestMarketplacePayload with the 027 public payload', () => {
 
     expect(boot.users).toEqual([])
     expect(boot.agencies).toHaveLength(1)
-    expect(boot.agencies[0].id).toBe('AG-EXPLICIT')
-    expect(boot.agencies[0].name).toBe('Explicit Realty')
+    expect(rows(boot.agencies)[0].id).toBe('AG-EXPLICIT')
+    expect(rows(boot.agencies)[0].name).toBe('Explicit Realty')
     expect(boot.properties).toHaveLength(1)
-    const p = boot.properties[0]
+    const p = rows(boot.properties)[0]
     expect(p.id).toBe('PR-EXP')
     expect(p.agencyId).toBe('AG-EXPLICIT')
     expect(p.landlordId).toBe('')
@@ -155,10 +159,10 @@ describe('mapGuestMarketplacePayload with the 027 public payload', () => {
     expect(p.availableFrom).toBe('2027-02-01')
     expect(p.images).toEqual(['cover.jpg'])
     expect(p.city).toBe('Durban')
-    expect(boot.buildings[0].landlordId).toBeNull()
+    expect(rows(boot.buildings)[0].landlordId).toBeNull()
     expect(boot.viewingSlots).toHaveLength(1)
-    expect(boot.viewingSlots[0].propertyId).toBe('PR-EXP')
-    expect(boot.viewingSlots[0].agentId).toBe('')
+    expect(rows(boot.viewingSlots)[0].propertyId).toBe('PR-EXP')
+    expect(rows(boot.viewingSlots)[0].agentId).toBe('')
   })
 
   it('ignores landlord / agent ids even if an older payload still sends them', () => {
@@ -170,9 +174,26 @@ describe('mapGuestMarketplacePayload with the 027 public payload', () => {
       entity_id_map: [{ entity_type: 'user', backend_id: 'llll-uuid', frontend_id: 'U-LL' }],
     })
     expect(boot.users).toEqual([])
-    expect(boot.agencies[0].id).toBe('AG-OLD')
-    expect(boot.properties[0].landlordId).toBe('')
-    expect(boot.properties[0].agentId).toBeNull()
+    expect(rows(boot.agencies)[0].id).toBe('AG-OLD')
+    expect(rows(boot.properties)[0].landlordId).toBe('')
+    expect(rows(boot.properties)[0].agentId).toBeNull()
     expect(JSON.stringify(boot.properties)).not.toContain('landlord@example.test')
+  })
+
+  it('maps 027 listed_by to the property agentName (Supabase-only "Listed by"), no agent id', () => {
+    const boot = mapGuestMarketplacePayload({
+      clients: [{ id: clientUuid, company_name: 'Agency', settings: { frontend_id: 'AG-LB' } }],
+      buildings: [{ id: buildingUuid, client_id: clientUuid, name: 'B', address: 'A', city: 'C' }],
+      units: [
+        { id: unitUuid, client_id: clientUuid, building_id: buildingUuid, unit_number: '1', status_config_key: 'PUBLISHED', listed_by: '  Pam Beesly ' },
+        { id: 'aaaaaaaa-bbbb-cccc-dddd-000000000002', client_id: clientUuid, building_id: buildingUuid, unit_number: '2', status_config_key: 'PUBLISHED', listed_by: null },
+      ],
+    })
+    const props = rows(boot.properties)
+    expect(props[0].agentName).toBe('Pam Beesly')
+    expect(props[0].agentId).toBeNull()
+    expect(props[1].agentName).toBeNull()
+    // The unit slice does not carry the helper field.
+    expect(rows(boot.units).some((u) => '_listedBy' in u || 'listed_by' in u)).toBe(false)
   })
 })

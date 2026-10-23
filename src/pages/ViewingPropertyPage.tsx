@@ -35,6 +35,7 @@ import {
 import { VIEWING_BOOKING_STATUSES } from '../components/viewings/types'
 import type { Viewing, ViewingSlot } from '../types/domain'
 import { isFutureViewingSlot } from '../lib/viewingSlotTime'
+import { TenantConsentBadge } from '../components/viewings/TenantConsentBadge'
 
 const ICON_STROKE = 1.6
 
@@ -554,6 +555,7 @@ export default function ViewingPropertyPage() {
                   ) : (
                     <Badge tone={statusTone(v.status)}>{v.status}</Badge>
                   )}
+                  <TenantConsentBadge viewing={v} />
                 </li>
               ))}
             </ul>
@@ -628,6 +630,7 @@ function AttendeeRow({
       ) : (
         <Badge tone={statusTone(viewing.status)}>{viewing.status}</Badge>
       )}
+      <TenantConsentBadge viewing={viewing} />
     </li>
   )
 }

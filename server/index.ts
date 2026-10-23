@@ -945,7 +945,9 @@ app.get('/api/v1/units', async (c) => {
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    return c.json({ error: 'units_feed_failed', message }, 500)
+    console.error('[api/v1/units]', message)
+    // Signed-out route: never echo database / driver text.
+    return c.json({ error: 'units_feed_failed', message: 'Listings are unavailable right now.' }, 500)
   }
 })
 

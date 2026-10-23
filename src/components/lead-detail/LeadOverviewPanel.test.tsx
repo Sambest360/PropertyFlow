@@ -91,4 +91,23 @@ describe('LeadOverviewPanel viewings', () => {
     )
     expect((html.match(/Schedule viewing/g) ?? []).length).toBe(1)
   })
+
+  it('labels an occupied-home viewing awaiting or declined by the tenant, not plain Scheduled', () => {
+    const render = (v: Viewing) =>
+      renderToStaticMarkup(
+        <LeadOverviewPanel
+          lead={lead}
+          property={property}
+          agentName="Agent"
+          viewings={[v]}
+          applications={[]}
+          canSchedule
+          onScheduleViewing={() => {}}
+        />,
+      )
+    expect(render({ ...scheduledViewing, tenantConsentStatus: 'PENDING' })).toContain('Tenant consent PENDING')
+    expect(render({ ...scheduledViewing, tenantConsentStatus: 'DECLINED' })).toContain('Tenant DECLINED')
+    const plain = render({ ...scheduledViewing, tenantConsentStatus: 'ACCEPTED' })
+    expect(plain).not.toContain('tenant-consent-badge')
+  })
 })

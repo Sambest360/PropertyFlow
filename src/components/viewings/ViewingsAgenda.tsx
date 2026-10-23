@@ -11,6 +11,7 @@ import {
   viewingDeskLinkLabel,
   type PortfolioViewing,
 } from './types'
+import { TenantConsentBadge } from './TenantConsentBadge'
 
 const ICON_STROKE = 1.6
 
@@ -119,6 +120,7 @@ function AgendaRow({
             <span className="flex flex-wrap items-center gap-2">
               <span className="truncate font-semibold text-ink">{item.property.title}</span>
               <Badge tone={statusTone(st)}>{st}</Badge>
+              {item.kind === 'booking' && <TenantConsentBadge viewing={item.viewing} />}
               <Badge tone="neutral">{item.kind === 'slot' ? 'Open slot' : 'Invite'}</Badge>
             </span>
             <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-ink-500">

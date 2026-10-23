@@ -148,6 +148,8 @@ export function mapGuestMarketplacePayload(payload: {
       createdAt: dateOnly(u.created_at as string),
       _propertyId: canonicalListingId(mapPropertyFe(String(u.id)) ?? String(u.id)),
       _unitUuid: String(u.id),
+      // 027 listed_by: the listing agent's display name only (no id / contact).
+      _listedBy: typeof u.listed_by === 'string' && u.listed_by.trim() ? u.listed_by.trim() : null,
       _limit: fieldsFromLimitSnapshot(u),
     }
   })
@@ -170,6 +172,7 @@ export function mapGuestMarketplacePayload(payload: {
       agencyId: u.clientId,
       landlordId: b?.landlordId ?? '',
       agentId: u.agentId,
+      agentName: u._listedBy,
       buildingId: u.buildingId,
       unitId: u.id,
       title: u.title,
@@ -212,8 +215,9 @@ export function mapGuestMarketplacePayload(payload: {
     }
   })
 
-  const cleanUnits = unitsRaw.map(({ _propertyId, _unitUuid, _limit, ...rest }) => {
+  const cleanUnits = unitsRaw.map(({ _propertyId, _unitUuid, _limit, _listedBy, ...rest }) => {
     void _limit
+    void _listedBy
     return rest
   })
 

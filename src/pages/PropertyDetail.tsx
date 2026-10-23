@@ -633,7 +633,11 @@ export default function PropertyDetail() {
       {tab === 'viewings' && (
         <>
         {canManage && (p.listingMode === 'rent' || p.listingMode === 'both') && (
-          <ListingLimitsPanel unitRef={p.unitId ?? p.id} backendId={p.backendId} />
+          <ListingLimitsPanel
+            unitRef={p.unitId ?? p.id}
+            backendId={p.backendId}
+            viewerIsStaff={user.role !== 'landlord'}
+          />
         )}
         <PropertyViewingsPanel
           slots={viewingSlots}
