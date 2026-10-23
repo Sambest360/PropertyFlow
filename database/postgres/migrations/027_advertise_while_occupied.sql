@@ -292,6 +292,13 @@ REVOKE ALL ON FUNCTION public_listing_landlord_ok(UUID) FROM PUBLIC, anon, authe
 --     Latin), so an all-Cyrillic 'ат' is caught as 'at'.
 --   * glued contact words anywhere inside a word: mail providers and
 --     dot+TLD ('johnatgmaildotcom').
+-- Angela r5 G2 (Michael 18:36, blocking): the fold also strips diacritics
+--   for the CHECK ONLY: NFKD, then every combining mark (U+0300-U+036F and
+--   the other Mn blocks) is removed, then IPA / small-capital / dotless
+--   look-alikes (ɡ ı ɩ ɑ ȷ ɪ ʟ ...) map to Latin, all before the denylists.
+--   'john át gmáil dót cóm', 'gmäil' and 'ɡмаіӏ' are NULL. The name that is
+--   returned (s.n, NFKC as before) is never folded: 'André', 'Zoë', 'Müller'
+--   come back byte-identical to the (precomposed) input.
 CREATE OR REPLACE FUNCTION public_listing_display_name(p_name text)
 RETURNS text
 LANGUAGE sql
@@ -316,7 +323,10 @@ AS $$
     ELSE s.n
   END
   FROM (
-    SELECT s0.n, translate(s0.n, 'аеорсухіјѕԁԛԝһӏтмкнАВЕКМНОРСТХІЈЅοαντικρΑΒΕΖΗΙΚΜΝΟΡΤΥΧ', 'aeopcyxijsdqwhltmkhABEKMHOPCTXIJSoavtikpABEZHIKMNOPTYX') AS f
+    -- f is for the CHECK ONLY: NFKD, combining marks stripped, look-alikes folded to Latin.
+    SELECT s0.n, translate(regexp_replace(normalize(s0.n, NFKD), '[\u0300-\u036F\u0483-\u0489\u0591-\u05BD\u05BF\u05C1\u05C2\u05C4\u05C5\u05C7\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06DC\u06DF-\u06E4\u06E7\u06E8\u06EA-\u06ED\u1AB0-\u1AFF\u1DC0-\u1DFF\u20D0-\u20F0\uFE20-\uFE2F]', '', 'g'),
+                           'аеорсухіјѕԁԛԝһӏтмкнАВЕКМНОРСТХІЈЅοαντικρΑΒΕΖΗΙΚΜΝΟΡΤΥΧɡıɩɑȷɪʟɴʀʏɢʜǀᴀᴄᴅᴇᴊᴋᴍᴏᴘᴛᴜᴠᴡᴢϲϳօսոհ',
+                           'aeopcyxijsdqwhltmkhABEKMHOPCTXIJSoavtikpABEZHIKMNOPTYXgiiajilnryghlacdejkmoptuvwzcjounh') AS f
     FROM (SELECT nullif(regexp_replace(trim(normalize(p_name, NFKC)), ' {2,}', ' ', 'g'), '') AS n) s0
   ) s;
 $$;
