@@ -211,7 +211,7 @@ CREATE POLICY viewing_waitlist_select ON viewing_waitlist
   USING (
     is_super_admin()
     OR (
-      current_app_user_role() IN ('AGENCY_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT', 'AGENT')
+      current_app_user_role() IN ('AGENCY_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT')
       AND client_id = current_app_client_id()
     )
   );
@@ -221,14 +221,14 @@ CREATE POLICY viewing_waitlist_mutate ON viewing_waitlist
   USING (
     is_super_admin()
     OR (
-      current_app_user_role() IN ('AGENCY_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT', 'AGENT')
+      current_app_user_role() IN ('AGENCY_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT')
       AND client_id = current_app_client_id()
     )
   )
   WITH CHECK (
     is_super_admin()
     OR (
-      current_app_user_role() IN ('AGENCY_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT', 'AGENT')
+      current_app_user_role() IN ('AGENCY_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT')
       AND client_id = current_app_client_id()
     )
   );

@@ -342,7 +342,7 @@ describe('027 viewing_waitlist RLS: own-agency staff only (fix.sql a2)', () => {
       expect(MIGRATION.slice(start - 200, start)).toContain(`DROP POLICY IF EXISTS ${name} ON viewing_waitlist;`)
       const policy = MIGRATION.slice(start, MIGRATION.indexOf(';', start))
       expect(policy).toContain('TO authenticated')
-      expect(policy).toContain("current_app_user_role() IN ('AGENCY_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT', 'AGENT')")
+      expect(policy).toContain("current_app_user_role() IN ('AGENCY_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT')")
       expect(policy).toContain('client_id = current_app_client_id()')
       expect(policy).not.toMatch(/LANDLORD|END_USER|CONTRACTOR|TENANT/)
       if (name.endsWith('_mutate')) expect(policy).toContain('WITH CHECK')
