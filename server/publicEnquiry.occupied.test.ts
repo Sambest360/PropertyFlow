@@ -131,13 +131,13 @@ describe('24h notice across the UTC / SAST boundary (API mode, Michael d)', () =
     expect(query.mock.calls.some((c) => String(c[0]).includes('INSERT INTO bookings'))).toBe(false)
   })
 
-  it('accepts 00:45 SAST on 11 Jan (24.25h away) and stores the real instant', async () => {
+  it('accepts 00:45 SAST on 11 Jan (24.25h away) and stores the wall time labelled Z (same as staff bookings)', async () => {
     slot = { slot_date: '2027-01-11', slot_time: '00:45:00' }
     const result = await enquire('VS-1')
     expect(result.ok).toBe(true)
     const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO bookings'))
     expect(insert).toBeTruthy()
-    expect((insert![1] as unknown[])).toContain('2027-01-10T22:45:00.000Z')
+    expect((insert![1] as unknown[])).toContain('2027-01-11T00:45:00.000Z')
   })
 })
 

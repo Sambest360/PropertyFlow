@@ -27,6 +27,8 @@ import { Badge, Button, Card, Input, Select, cn } from '../../components/ui'
 import {
   defaultLicenseStatus,
   DEFERRED_ADMIN_ROLES,
+  grantablePermissions,
+  rolePermissions,
   mentorsForAgency,
   roleLabels,
   rolesVisibleInAdminUi,
@@ -577,6 +579,12 @@ function AccessTab({
   ) => void
   onUpdatePermissions: (enabledPermissions: Permission[]) => void
 }) {
+  const { role: granterRole, has } = useAuth()
+  const grantable = grantablePermissions(user.role, {
+    agencyEnabled: agency?.enabledPermissions,
+    granterRole,
+    granterPermissions: rolePermissions.super_admin.filter((p) => has(p)),
+  })
   return (
     <div className="space-y-8">
       <DetailSection title="Role & agency" subtitle="What this person can do starts with their role.">
@@ -695,13 +703,13 @@ function AccessTab({
       {canEditPermissions && mutable && user.role !== 'super_admin' ? (
         <DetailSection
           title="Permissions"
-          subtitle="Defaults come from the role. Only modules enabled for the agency are available."
+          subtitle="Defaults come from the role. Only permissions this role can have, that the agency has switched on, are shown."
         >
           <AgencyCapabilityChecklist
             value={currentPerms}
             onChange={onUpdatePermissions}
-            allowed={agency?.enabledPermissions}
-            resetTo={userBasePermissions(user.role)}
+            allowed={grantable}
+            resetTo={userBasePermissions(user.role).filter((p) => grantable.includes(p))}
             className={cn(!reducedMotion && 'animate-fade-in')}
           />
         </DetailSection>

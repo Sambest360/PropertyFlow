@@ -133,7 +133,11 @@ describe('027 tenant_viewing_windows RLS', () => {
     expect(select).not.toContain('CONTRACTOR')
     expect(select).toMatch(/'AGENCY_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT'\)\s+AND client_id = current_app_client_id\(\)/)
     expect(select).toMatch(/l\.id = tenant_viewing_windows\.lease_id\s+AND l\.tenant_id = current_app_user_id\(\)/)
-    expect(select).toMatch(/u\.id = tenant_viewing_windows\.unit_id\s+AND b\.landlord_id = current_app_user_id\(\)/)
+    // Own landlord inside the unit's own agency only (step-3 bar, r4): no cross-agency read.
+    expect(select).toMatch(/'LANDLORD'\s+AND tenant_viewing_windows\.client_id = current_app_client_id\(\)/)
+    expect(select).toMatch(/u\.id = tenant_viewing_windows\.unit_id\s+AND u\.client_id = current_app_client_id\(\)\s+AND b\.landlord_id = current_app_user_id\(\)/)
+    // The tenant branch requires row, lease, unit and agency to agree.
+    expect(select).toMatch(/l\.unit_id = tenant_viewing_windows\.unit_id\s+AND l\.client_id = tenant_viewing_windows\.client_id/)
     // Never a bare "same client" clause for every role.
     expect(select).not.toMatch(/OR client_id = current_app_client_id\(\)/)
   })

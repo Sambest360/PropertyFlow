@@ -1,7 +1,7 @@
 import { query, withTransaction } from './db.js'
 import { isOccupiedAdvert } from '../src/lib/occupiedAdvert.js'
 import { availableFromLabel } from '../src/lib/availableFromLabel.js'
-import { slotStartSast } from './slotInstant.js'
+import { slotStartSast, slotStoredStart } from './slotInstant.js'
 import { assertOccupiedBookingAllowed, markBookingTenantPending } from './occupiedListing.js'
 import { ensureUuid, resolveUuid } from './entityMap.js'
 import { resolveLiveListing } from './listingResolve.js'
@@ -286,7 +286,9 @@ export async function submitPublicListingEnquiry(
       const viewingFeId = `VW-guest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       bookingFeId = viewingFeId
       const bookingUuid = await ensureUuid('viewing', viewingFeId)
-      const startsAt = slotStart.toISOString()
+      // Stored as the slot's wall time labelled Z (app convention); slotStart
+      // (the real SAST instant) is only for the notice / past checks above.
+      const startsAt = slotStoredStart(String(slot.slot_date), String(slot.slot_time)).toISOString()
 
       await query(
         `INSERT INTO bookings (

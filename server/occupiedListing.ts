@@ -591,7 +591,7 @@ export async function listTenantViewingRequests(
     `SELECT id::text AS id, starts_at, tenant_consent_status
        FROM bookings
       WHERE unit_id = $1::uuid AND status = 'SCHEDULED' AND tenant_consent_status = 'PENDING'
-        AND starts_at > NOW()
+        AND starts_at > (NOW() AT TIME ZONE 'Africa/Johannesburg') AT TIME ZONE 'UTC'
       ORDER BY starts_at`,
     [lease.unit_id],
   )

@@ -126,8 +126,9 @@ $$;
 -- package; edit it here and re-extract, never fork the text.
 
 -- Viewing windows reveal when a sitting tenant is home. Readable by agency
--- staff of the same client, the tenant on that lease, and the landlord of the
--- unit only (no role-wide clause).
+-- staff of the same client, the tenant on that lease (row, lease, unit and
+-- agency must agree), and the unit's own landlord inside that agency only
+-- (no role-wide clause, no cross-agency read for any role: step-3 bar, r4).
 DROP POLICY IF EXISTS tenant_viewing_windows_select ON tenant_viewing_windows;
 CREATE POLICY tenant_viewing_windows_select ON tenant_viewing_windows
   FOR SELECT TO authenticated
@@ -143,15 +144,21 @@ CREATE POLICY tenant_viewing_windows_select ON tenant_viewing_windows
         SELECT 1 FROM leases l
         WHERE l.id = tenant_viewing_windows.lease_id
           AND l.tenant_id = current_app_user_id()
+          AND l.unit_id = tenant_viewing_windows.unit_id
+          AND l.client_id = tenant_viewing_windows.client_id
       )
     )
     OR (
+      -- Own landlord only, inside the unit's own agency (Oscar r4): no
+      -- cross-agency read even if another agency's building names this user.
       current_app_user_role() = 'LANDLORD'
+      AND tenant_viewing_windows.client_id = current_app_client_id()
       AND EXISTS (
         SELECT 1
         FROM units u
         JOIN buildings b ON b.id = u.building_id
         WHERE u.id = tenant_viewing_windows.unit_id
+          AND u.client_id = current_app_client_id()
           AND b.landlord_id = current_app_user_id()
       )
     )
@@ -173,6 +180,8 @@ CREATE POLICY tenant_viewing_windows_mutate ON tenant_viewing_windows
         SELECT 1 FROM leases l
         WHERE l.id = tenant_viewing_windows.lease_id
           AND l.tenant_id = current_app_user_id()
+          AND l.unit_id = tenant_viewing_windows.unit_id
+          AND l.client_id = tenant_viewing_windows.client_id
       )
     )
   )
@@ -258,6 +267,40 @@ REVOKE ALL ON FUNCTION public_listing_landlord_ok(UUID) FROM PUBLIC, anon, authe
 -- server/bootstrap.ts and src/lib/supabase/data.ts). Name only: no email,
 -- phone or id. Internal helper: SECURITY INVOKER, no EXECUTE for PUBLIC /
 -- anon / authenticated; only the DEFINER RPCs (via public_listing_unit_json) call it.
+-- Angela r4: the name is checked at read time (an agent can rename themself
+-- at any moment), and anything that is not plainly a name is NULL to anon:
+--   * the name is NFKC-normalised first (fullwidth / superscript / circled
+--     forms fold to ASCII, '＠' to '@'); then any decimal digit of any script
+--     is refused, and the allowlist is letters (POSIX [[:alpha:]]: Unicode
+--     letters, accented included, under kivrl's ICU en_US ctype) in words
+--     joined by at most two of space, apostrophe, hyphen or period (so
+--     "J. R. Smith", "O'Brien", "Mbatha-Dlamini"), an optional final period,
+--     at most 60 characters. '@', brackets, '_', '+', '/' and every other
+--     symbol fail it (Michael r4 ruling).
+--   * denylist of spelled-out contact words, as whole words: at, dot, the
+--     digits zero..nine / oh / nil, and mail / phone / domain words.
+CREATE OR REPLACE FUNCTION public_listing_display_name(p_name text)
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public
+AS $$
+  SELECT CASE
+    WHEN s.n IS NULL OR char_length(s.n) > 60 THEN NULL
+    -- Any decimal digit of any script (glibc classifies non-ASCII digits as
+    -- [[:alpha:]], so they are refused explicitly; NFKC already folded the
+    -- fullwidth, superscript and circled forms to ASCII).
+    WHEN s.n ~ '[0-9٠-٩۰-۹߀-߉०-९০-৯੦-੯૦-૯୦-୯௦-௯౦-౯೦-೯൦-൯෦-෯๐-๙໐-໙༠-༩၀-၉႐-႙០-៩᠐-᠙᥆-᥏᧐-᧙᭐-᭙᮰-᮹᱀-᱉᱐-᱙꘠-꘩꣐-꣙꤀-꤉꩐-꩙０-９]' THEN NULL
+    WHEN s.n !~ '^[[:alpha:]]+([ ''.-]{1,2}[[:alpha:]]+)*[.]?$' THEN NULL
+    WHEN s.n ~* '\m(at|dot|zero|oh|nil|one|two|three|four|five|six|seven|eight|nine|com|co|za|net|org|www|http|https|gmail|yahoo|hotmail|outlook|whatsapp|email|mail|phone|cell|call|sms|tel)\M' THEN NULL
+    ELSE s.n
+  END
+  FROM (SELECT nullif(regexp_replace(trim(normalize(p_name, NFKC)), ' {2,}', ' ', 'g'), '') AS n) s;
+$$;
+
+REVOKE ALL ON FUNCTION public_listing_display_name(text) FROM PUBLIC, anon, authenticated;
+
 CREATE OR REPLACE FUNCTION public_listing_agent_name(p_agent_id UUID)
 RETURNS text
 LANGUAGE sql
@@ -265,7 +308,7 @@ STABLE
 SECURITY INVOKER
 SET search_path = public
 AS $$
-  SELECT nullif(trim(coalesce(a.first_name, '') || ' ' || coalesce(a.last_name, '')), '')
+  SELECT public_listing_display_name(coalesce(a.first_name, '') || ' ' || coalesce(a.last_name, ''))
   FROM users a
   WHERE a.id = p_agent_id;
 $$;
@@ -769,17 +812,23 @@ BEGIN
       RAISE EXCEPTION 'slot_unavailable';
     END IF;
 
-    -- Slot date and time are South African wall-clock time; build a real
-    -- timestamptz in Africa/Johannesburg, whatever the session TimeZone
-    -- (Supabase runs UTC). slot_time is VARCHAR(8): 'HH:MM' or 'HH:MM:SS'.
+    -- Time storage (Michael ruling 2): bookings.starts_at (TIMESTAMPTZ) holds
+    -- SAST wall-clock time labelled Z, like every other write in the app
+    -- (server/writes.ts upsertViewing, server/bootstrap.ts and
+    -- src/lib/supabase/data.ts read it back with toISOString()). So a 10:00
+    -- slot is stored as 10:00+00, never converted to 08:00Z. slot_time is
+    -- VARCHAR(8): 'HH:MM' or 'HH:MM:SS'.
     v_starts_at := (v_slot_date::text || ' ' || left(v_slot_time, 5) || ':00')::timestamp
-      AT TIME ZONE 'Africa/Johannesburg';
+      AT TIME ZONE 'UTC';
 
     -- 027: a viewing of an occupied home needs the notice period and must fall
     -- inside the sitting tenant's windows (server/occupiedListing.ts
     -- refuseOccupiedBooking). The tenant then accepts or declines it.
     IF COALESCE(v_occupied, false) THEN
-      IF v_starts_at < NOW() + make_interval(hours => v_notice_hours) THEN
+      -- Like with like: the stored wall time against SAST wall-clock now.
+      -- Africa/Johannesburg is used ONLY for this notice comparison.
+      IF (v_starts_at AT TIME ZONE 'UTC')
+         < (NOW() AT TIME ZONE 'Africa/Johannesburg') + make_interval(hours => v_notice_hours) THEN
         RAISE EXCEPTION 'notice_too_short';
       END IF;
       IF NOT EXISTS (
@@ -855,12 +904,140 @@ GRANT EXECUTE ON FUNCTION submit_public_listing_enquiry(
   TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, TEXT, TEXT
 ) TO anon, authenticated;
 
+-- unit_listing_limit_snapshot guard (Michael ruling 1, Jim P1/P2, Oscar).
+-- 024 made it a DEFINER readable by any signed-in user on any unit id, so an
+-- END_USER in one agency could read another agency's DRAFT unit counts. It now
+-- returns the 024 counts only when the caller may see them, otherwise '{}'
+-- (never NULL: the public RPCs do public_listing_unit_json(u.id) || snapshot,
+-- and jsonb || NULL would wipe the unit). END_USER, CONTRACTOR, other-agency
+-- and no-profile sign-ups get '{}' on a non-public unit, and a missing unit is
+-- '{}' too, so the answer is no unit-exists oracle. Callers and their roles:
+--   * get_public_marketplace_bootstrap(_lite) (anon/authenticated, as owner):
+--     only public units are in the payload, and those pass the public check.
+--   * ListingLimitsPanel.tsx (authenticated: own-agency staff, or the unit's
+--     landlord, who has assets.manage): staff and own-landlord branches.
+--   * promote_viewing_waitlist (024, DEFINER, authenticated): runs as owner
+--     but the caller's identity still applies; own-agency staff and SA pass.
+--   * server/bootstrap.ts (API server pool: no anon/authenticated role set,
+--     the server authorises the request itself): passes the no-API-role branch.
+-- The JSON is counts and limits only (no applicant names or contacts), so the
+-- landlord branch needs no stripping. The 024 query below is verbatim.
+CREATE OR REPLACE FUNCTION unit_listing_limit_snapshot(p_unit_id UUID)
+RETURNS JSONB
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT (
+    -- Server pool / owner / service_role: not a PostgREST API role.
+    coalesce(nullif(current_setting('role', true), ''), 'none') NOT IN ('anon', 'authenticated')
+    OR is_super_admin()
+    OR EXISTS (
+      SELECT 1
+      FROM units u
+      JOIN buildings b ON b.id = u.building_id
+      WHERE u.id = p_unit_id
+        AND (
+          -- Own-agency staff.
+          (is_agency_staff() AND u.client_id = current_app_client_id())
+          -- The unit's own landlord, in that agency (read-only: counts only).
+          OR (b.landlord_id IS NOT NULL AND b.landlord_id = current_app_user_id()
+              AND u.client_id = current_app_client_id())
+          -- A public listing (same rule as the public RPCs' public_units).
+          OR (
+            (
+              (
+                u.status_config_key IN ('PUBLISHED', 'FEATURED', 'VACANT', 'UNDER_OFFER', 'AVAILABLE')
+                AND lower(coalesce(u.listing_type, 'rent')) <> 'not_listed'
+              )
+              OR (
+                u.advertise_while_occupied = true
+                AND u.available_from IS NOT NULL
+                AND upper(u.status_config_key) = 'OCCUPIED'
+                AND lower(coalesce(u.listing_type, 'rent')) IN ('rent', 'both')
+              )
+            )
+            AND public_listing_landlord_ok(b.landlord_id)
+          )
+        )
+    )
+  ) THEN
+    RETURN '{}'::jsonb;
+  END IF;
+
+  -- A missing unit is '{}' as well (never NULL): no unit-exists oracle.
+  RETURN coalesce((
+    WITH u AS (
+      SELECT
+        units.id,
+        units.listing_type,
+        units.limit_action,
+        units.show_remaining,
+        units.limits_round_started_at,
+        CASE
+          WHEN upper(coalesce(units.listing_type, '')) IN ('RENT', 'BOTH') THEN
+            COALESCE(units.max_enquiries, NULLIF(c.settings #>> '{listingLimits,maxEnquiries}', '')::int)
+          ELSE NULL
+        END AS eff_enquiries,
+        CASE
+          WHEN upper(coalesce(units.listing_type, '')) IN ('RENT', 'BOTH') THEN
+            COALESCE(units.max_viewings, NULLIF(c.settings #>> '{listingLimits,maxViewings}', '')::int)
+          ELSE NULL
+        END AS eff_viewings
+      FROM units
+      JOIN clients c ON c.id = units.client_id
+      WHERE units.id = p_unit_id
+    ),
+    counts AS (
+      SELECT
+        (SELECT COUNT(*)::int FROM leads l
+          WHERE l.unit_id = u.id
+            AND COALESCE(l.is_waitlisted, false) = false
+            AND COALESCE(l.metadata->>'limit_bucket', '') <> 'viewing'
+            AND COALESCE(l.metadata->>'spam', '') <> 'true'
+            AND (u.limits_round_started_at IS NULL OR l.created_at >= u.limits_round_started_at)
+        ) AS enquiries,
+        (SELECT COUNT(*)::int FROM bookings b
+          WHERE b.unit_id = u.id
+            AND b.status IN ('SCHEDULED', 'COMPLETED', 'NO_SHOW')
+            AND (u.limits_round_started_at IS NULL OR b.created_at >= u.limits_round_started_at)
+        ) AS viewings
+      FROM u
+    )
+    SELECT jsonb_build_object(
+      'fully_booked',
+        (u.eff_enquiries IS NOT NULL AND counts.enquiries >= u.eff_enquiries)
+        OR (u.eff_viewings IS NOT NULL AND counts.viewings >= u.eff_viewings),
+      'enquiries_full', u.eff_enquiries IS NOT NULL AND counts.enquiries >= u.eff_enquiries,
+      'viewings_full', u.eff_viewings IS NOT NULL AND counts.viewings >= u.eff_viewings,
+      'limit_action', u.limit_action,
+      'show_remaining', u.show_remaining,
+      'enquiry_count', counts.enquiries,
+      'viewing_count', counts.viewings,
+      'max_enquiries', u.eff_enquiries,
+      'max_viewings', u.eff_viewings,
+      'remaining', CASE
+        WHEN COALESCE(u.show_remaining, false) THEN jsonb_build_object(
+          'enquiries', CASE WHEN u.eff_enquiries IS NULL THEN NULL ELSE GREATEST(u.eff_enquiries - counts.enquiries, 0) END,
+          'viewings', CASE WHEN u.eff_viewings IS NULL THEN NULL ELSE GREATEST(u.eff_viewings - counts.viewings, 0) END
+        )
+        ELSE NULL
+      END
+    )
+    FROM u, counts
+  ), '{}'::jsonb);
+END;
+$$;
+
 -- 024's DEFINER helpers (Michael c). listing_capacity_gate takes a name, email
 -- and phone and can write waitlist rows: no browser caller (only the DEFINER
 -- enquiry RPC above, running as owner), so nobody public can EXECUTE it.
 -- unit_listing_limit_snapshot: the public RPCs call it as owner; the only
--- browser caller is the staff panel (ListingLimitsPanel.tsx), so authenticated
--- keeps EXECUTE and anon loses it.
+-- browser caller is ListingLimitsPanel.tsx (staff, or the unit's landlord), so
+-- authenticated keeps EXECUTE (the guard above decides what it sees) and anon
+-- loses it.
 REVOKE ALL ON FUNCTION listing_capacity_gate(UUID, TEXT, BOOLEAN, TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION unit_listing_limit_snapshot(UUID) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION unit_listing_limit_snapshot(UUID) TO authenticated;

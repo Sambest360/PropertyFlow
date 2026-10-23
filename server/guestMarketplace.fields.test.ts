@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { filterBootstrapForGuest } from './guestMarketplace.js'
 
+// CHARACTERIZATION TESTS (ported from #112 ef87c536, round 4): they pin what
+// filterBootstrapForGuest does today on a hand-built bootstrap, so a change to the
+// guest slice shows up here. They do not prove the live bootstrap's shape.
 // Angela's guest-path audit: bootstrap.ts:315 selects users.email/phone/metadata and
 // bootstrap.ts:301 clients.settings. None of it may reach the signed-out slice.
 const FORBIDDEN = new Set([
