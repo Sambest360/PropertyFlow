@@ -67,3 +67,23 @@ export async function postDepositTransition(
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
 }
+
+/**
+ * Deductions a move-out inspection approved for this deposit (server reads the
+ * deposit_deductions_approved hand-off). Empty when there are none or offline.
+ */
+export async function fetchInspectionDeductions(
+  depositId: string,
+): Promise<Array<{ reason: string; amountCents: number }>> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/api/trust/deposits/${encodeURIComponent(depositId)}/inspection-deductions`,
+      { headers: { ...actorHeaders(), ...authHeaders() }, credentials: 'include' },
+    )
+    if (!res.ok) return []
+    const body = (await res.json().catch(() => ({}))) as { deductions?: Array<{ reason: string; amountCents: number }> }
+    return Array.isArray(body.deductions) ? body.deductions : []
+  } catch {
+    return []
+  }
+}

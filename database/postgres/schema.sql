@@ -65,6 +65,11 @@ DROP TABLE IF EXISTS bookings CASCADE;
 DROP TABLE IF EXISTS viewing_slots CASCADE;
 DROP TABLE IF EXISTS leases CASCADE;
 DROP TABLE IF EXISTS applications CASCADE;
+DROP TABLE IF EXISTS deposit_deductions CASCADE;
+DROP TABLE IF EXISTS inspection_signatures CASCADE;
+DROP TABLE IF EXISTS inspection_items CASCADE;
+DROP TABLE IF EXISTS inspections CASCADE;
+DROP TABLE IF EXISTS inventory_templates CASCADE;
 DROP TABLE IF EXISTS internal_assets CASCADE;
 DROP TABLE IF EXISTS rooms CASCADE;
 DROP TABLE IF EXISTS units CASCADE;
@@ -306,6 +311,9 @@ CREATE TABLE internal_assets (
   warranty_expires_at TIMESTAMPTZ,
   last_inspected_at   TIMESTAMPTZ,
   notes               TEXT,
+  quantity            INT NOT NULL DEFAULT 1 CONSTRAINT internal_assets_quantity_positive CHECK (quantity > 0),
+  -- [{documentId, uploadedAt, uploadedBy, uploaderRole, mimeType, bytes}] (files in documents)
+  photos              JSONB NOT NULL DEFAULT '[]'::jsonb,
   metadata            JSONB DEFAULT '{}'::jsonb,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -644,7 +652,7 @@ CREATE TABLE documents (
                       )),
   status            VARCHAR(20) NOT NULL DEFAULT 'UPLOADED'
                       CHECK (status IN ('REQUIRED', 'UPLOADED', 'VERIFIED', 'REJECTED')),
-  storage_url       VARCHAR(1000),
+  storage_url       TEXT,
   mime_type         VARCHAR(120),
   file_size_bytes   INT,
   note              TEXT,
@@ -792,6 +800,99 @@ CREATE TABLE automation_runs (
   error_message   VARCHAR(500),
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- -----------------------------------------------------------------------------
+-- Move-in / move-out inspections (migration 026)
+-- -----------------------------------------------------------------------------
+
+CREATE TABLE inventory_templates (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id       UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  property_type   VARCHAR(40) NOT NULL CHECK (property_type IN ('house', 'apartment', 'room')),
+  items           JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (client_id, property_type)
+);
+
+CREATE INDEX idx_inventory_templates_client ON inventory_templates (client_id);
+
+CREATE TABLE inspections (
+  id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id               UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  unit_id                 UUID NOT NULL REFERENCES units(id) ON DELETE CASCADE,
+  lease_id                UUID NOT NULL REFERENCES leases(id) ON DELETE CASCADE,
+  type                    VARCHAR(20) NOT NULL CHECK (type IN ('MOVE_IN', 'MOVE_OUT', 'ROUTINE')),
+  status                  VARCHAR(30) NOT NULL DEFAULT 'DRAFT'
+                            CHECK (status IN ('DRAFT', 'AWAITING_SIGNATURES', 'SIGNED', 'DISPUTED')),
+  scheduled_at            TIMESTAMPTZ,
+  conducted_at            TIMESTAMPTZ,
+  tenant_attended         BOOLEAN NOT NULL DEFAULT TRUE,
+  baseline_inspection_id  UUID REFERENCES inspections(id) ON DELETE SET NULL,
+  pdf_document_id         UUID REFERENCES documents(id) ON DELETE SET NULL,
+  dispute_note            TEXT,
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_inspections_client ON inspections (client_id);
+CREATE INDEX idx_inspections_lease ON inspections (lease_id, type);
+CREATE INDEX idx_inspections_unit ON inspections (unit_id);
+
+CREATE TABLE inspection_items (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id       UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  inspection_id   UUID NOT NULL REFERENCES inspections(id) ON DELETE CASCADE,
+  asset_id        UUID REFERENCES internal_assets(id) ON DELETE SET NULL,
+  room_id         UUID REFERENCES rooms(id) ON DELETE SET NULL,
+  item_name       VARCHAR(160) NOT NULL,
+  quantity        INT NOT NULL DEFAULT 1 CHECK (quantity > 0),
+  condition       VARCHAR(40),
+  outcome         VARCHAR(20) CHECK (outcome IS NULL OR outcome IN ('OK', 'DAMAGED', 'MISSING', 'WEAR_AND_TEAR')),
+  notes           TEXT,
+  photos          JSONB NOT NULL DEFAULT '[]'::jsonb,
+  tenant_comment  TEXT,
+  addendum        BOOLEAN NOT NULL DEFAULT FALSE,
+  added_at        TIMESTAMPTZ,
+  tenant_agreed   BOOLEAN,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_inspection_items_inspection ON inspection_items (inspection_id);
+CREATE INDEX idx_inspection_items_client ON inspection_items (client_id);
+
+CREATE TABLE inspection_signatures (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id       UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  inspection_id   UUID NOT NULL REFERENCES inspections(id) ON DELETE CASCADE,
+  signer_user_id  UUID REFERENCES users(id) ON DELETE SET NULL,
+  role            VARCHAR(20) NOT NULL CHECK (role IN ('TENANT', 'AGENT', 'LANDLORD')),
+  signed_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ip              VARCHAR(80),
+  method          VARCHAR(20) NOT NULL DEFAULT 'IN_APP' CHECK (method IN ('IN_APP', 'ESIGN')),
+  witness_note    TEXT,
+  tenant_declined BOOLEAN NOT NULL DEFAULT FALSE,
+  UNIQUE (inspection_id, role)
+);
+
+CREATE INDEX idx_inspection_signatures_client ON inspection_signatures (client_id);
+
+CREATE TABLE deposit_deductions (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id           UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  lease_id            UUID NOT NULL REFERENCES leases(id) ON DELETE CASCADE,
+  inspection_item_id  UUID REFERENCES inspection_items(id) ON DELETE SET NULL,
+  description         VARCHAR(255) NOT NULL,
+  amount_cents        INT NOT NULL CHECK (amount_cents >= 0),
+  evidence            JSONB NOT NULL DEFAULT '[]'::jsonb,
+  status              VARCHAR(20) NOT NULL DEFAULT 'SUGGESTED'
+                        CHECK (status IN ('SUGGESTED', 'APPROVED', 'REJECTED')),
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_deposit_deductions_lease ON deposit_deductions (lease_id, status);
+CREATE INDEX idx_deposit_deductions_client ON deposit_deductions (client_id);
 
 -- -----------------------------------------------------------------------------
 -- Convenience views

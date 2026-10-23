@@ -16,6 +16,11 @@
  * proposer, in the WHERE), so a race loses with 409. Each runs with its
  * event_log audit row in one transaction (D2). release_approved is not
  * refunded: paying the money out stays a separate, manual step.
+ *
+ * Move-out inspections hand their APPROVED deductions over as an event_log row
+ * (deposit_deductions_approved) on the holding; GET .../inspection-deductions
+ * reads it back to prefill the refund split, and /refund uses it when the body
+ * sends no deductions list.
  */
 import { randomUUID } from 'node:crypto'
 import { query, withTransaction, clientQuery } from './db.js'
@@ -381,7 +386,10 @@ export async function recordDepositRefund(
     throw forbiddenError('Dual control: the approver cannot also record the refund; a second person must')
   }
   const heldCents = cents(row.held_cents)
-  const split = validateRefundSplit(body, heldCents)
+  const split = validateRefundSplit(
+    body.deductions === undefined ? { ...body, deductions: await approvedInspectionDeductions(row.id) } : body,
+    heldCents,
+  )
   const refund: DepositRefundRecord = {
     ...split,
     heldCents,
@@ -405,4 +413,33 @@ export async function recordDepositRefund(
     { from: 'release_approved', to: 'refunded', reason: DEPOSIT_REFUND_RECORDED_LABEL, refund },
   )
   return { ok: true, deposit: { id: feId, status: 'refunded', refund, updatedAt: iso(updatedAt) } }
+}
+
+/** Latest deductions a move-out inspection handed to this deposit (uuid), or []. */
+export async function approvedInspectionDeductions(depositUuid: string): Promise<DepositRefundDeduction[]> {
+  const rows = await query<{ payload: unknown }>(
+    `SELECT payload FROM event_log
+      WHERE event_type = 'deposit_deductions_approved' AND subject_type = 'deposit_holding'
+        AND subject_id = $1::uuid
+      ORDER BY created_at DESC, id DESC LIMIT 1`,
+    [depositUuid],
+  )
+  const raw = rows[0]?.payload
+  const payload = (typeof raw === 'string' ? JSON.parse(raw) : raw) as { deductions?: unknown } | null
+  if (!Array.isArray(payload?.deductions)) return []
+  return payload.deductions
+    .map((d) => (d ?? {}) as Record<string, unknown>)
+    .filter((d) => typeof d.reason === 'string' && isCentsInt(d.amountCents) && d.amountCents > 0)
+    .map((d) => ({ reason: String(d.reason).slice(0, 200), amountCents: d.amountCents as number }))
+}
+
+/** GET /:id/inspection-deductions: the refund prefill. Same officers as propose. */
+export async function getInspectionDeductions(
+  actor: DemoActor,
+  feId: string,
+): Promise<{ ok: true; deductions: DepositRefundDeduction[]; totalCents: number }> {
+  const row = await loadDeposit(feId)
+  await assertDepositOfficer(actor, row, 'read deductions for', DEPOSIT_PROPOSE_PERMS)
+  const deductions = await approvedInspectionDeductions(row.id)
+  return { ok: true, deductions, totalCents: deductions.reduce((sum, d) => sum + d.amountCents, 0) }
 }

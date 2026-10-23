@@ -1,9 +1,10 @@
-export type TenantDetailTab = 'overview' | 'details' | 'lease' | 'payments' | 'history'
+export type TenantDetailTab = 'overview' | 'details' | 'lease' | 'inspections' | 'payments' | 'history'
 
 export const TENANT_DETAIL_TABS: TenantDetailTab[] = [
   'overview',
   'details',
   'lease',
+  'inspections',
   'payments',
   'history',
 ]

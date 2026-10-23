@@ -4,6 +4,8 @@ import { acquireSubmitLock, releaseSubmitLock } from '../lib/wizardSubmitGuard'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { DashboardTabs } from '../components/dashboard/DashboardTabs'
+import { UnitInventoryChecklist } from '../components/property-detail/UnitInventoryChecklist'
+import { inspectionsAvailable } from '../lib/inspections/api'
 import { BackButton } from '../components/BackButton'
 import { Card } from '../components/ui'
 import { normalizeApplication } from '../lib/applicationWorkflow'
@@ -455,6 +457,9 @@ export default function PropertyDetail() {
         />
       )}
 
+      {tab === 'inventory' && inspectionsAvailable && (
+        <UnitInventoryChecklist unitRef={p.backendId ?? p.id} canManage={canManage} />
+      )}
       {tab === 'inventory' && (
         <PropertyInventoryPanel
           assets={assets}

@@ -44,6 +44,8 @@ const LeadDetail = lazy(() => import('./pages/LeadDetail'))
 const Applications = lazy(() => import('./pages/Applications'))
 const ApplicantDetail = lazy(() => import('./pages/ApplicantDetail'))
 const ApplicationInspectionPage = lazy(() => import('./pages/ApplicationInspectionPage'))
+const InspectionComparePage = lazy(() => import('./pages/InspectionComparePage'))
+const InventoryTemplatesPage = lazy(() => import('./pages/admin/InventoryTemplatesPage'))
 const Viewings = lazy(() => import('./pages/Viewings'))
 const ViewingPropertyPage = lazy(() => import('./pages/ViewingPropertyPage'))
 const Maintenance = lazy(() => import('./pages/Maintenance'))
@@ -325,6 +327,14 @@ export default function App() {
                     </CanonicalIdRedirect>
                   }
                 />
+                <Route
+                  path="inspections/:id/compare"
+                  element={
+                    <Guard anyOf={['occupants.view', 'portal.tenant', 'portal.owner']}>
+                      <InspectionComparePage />
+                    </Guard>
+                  }
+                />
                 <Route path="sales/viewings" element={<Guard permission="viewings.manage"><Viewings /></Guard>} />
                 <Route
                   path="sales/viewings/property/:propertyId"
@@ -475,6 +485,7 @@ export default function App() {
                 />
                 <Route path="admin/config" element={<AgencyOpsGuard anyOf={['config.manage', 'tenant.manage', 'platform.manage']}><AdminConfigPage /></AgencyOpsGuard>} />
                 <Route path="admin/pipeline" element={<AgencyOpsGuard anyOf={['config.manage', 'tenant.manage', 'platform.manage']}><LeadPipelineSettingsPage /></AgencyOpsGuard>} />
+                <Route path="admin/inventory-templates" element={<AgencyOpsGuard anyOf={['config.manage', 'tenant.manage', 'platform.manage']}><InventoryTemplatesPage /></AgencyOpsGuard>} />
                 <Route path="admin/application-journey" element={<AgencyOpsGuard anyOf={['config.manage', 'tenant.manage', 'platform.manage']}><ApplicationJourneySettingsPage /></AgencyOpsGuard>} />
                 <Route path="admin/roles" element={<Navigate to="/workspace/admin/users" replace />} />
                 <Route path="admin/notifications" element={<AgencyOpsGuard anyOf={['notifications.broadcast', 'platform.manage']}><AdminNotificationsPage /></AgencyOpsGuard>} />

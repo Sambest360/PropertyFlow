@@ -79,6 +79,7 @@ import { dbHostFingerprint, serverAuthMode } from './authMode.js'
 import { errStatus } from './errStatus.js'
 import { registerViewingApplyRoutes } from './viewingApplyRoutes.js'
 import { captureServerError } from './sentry.js'
+import { registerInspectionRoutes } from './inspectionRoutes.js'
 
 // Log resolved auth mode once at boot (mode only — never env values).
 serverAuthMode()
@@ -1065,6 +1066,24 @@ for (const step of ['propose-release', 'approve-release', 'reject-release', 'can
     }
   })
 }
+
+/**
+ * Deductions approved on a move-out inspection (POST /api/leases/:id/deductions),
+ * read back to prefill the refund split for this deposit.
+ */
+app.get('/api/trust/deposits/:id/inspection-deductions', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const { getInspectionDeductions } = await import('./depositRoutes.js')
+    return c.json(await getInspectionDeductions(actor, c.req.param('id')))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'deposit_inspection_deductions_failed', message }, errStatus(err))
+  }
+})
+
+/** Lease inventory, move-in / move-out inspections and deposit deductions. */
+registerInspectionRoutes(app)
 
 /** Generic domain persist (RPC). AppStore fire-and-forgets here. */
 app.post('/api/persist', async (c) => {

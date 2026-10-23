@@ -1,12 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  INSPECTION_REMINDER_SQL,
   LEASE_BATCH_SQL,
+  buildInspectionReminderCopy,
   buildReminderCopy,
   checkCronAuth,
   currentBand,
   dedupKey,
   formatDMMMYYYY,
   handleLeaseRemindersCron,
+  inspectionDedupKey,
+  runInspectionReminders,
   runLeaseReminders,
   sastTodayIso,
   type LeaseReminderDeps,
@@ -113,7 +117,20 @@ function baseUsers(): User[] {
 type EventRow = { client_id: string; subject_id: string; payload: Record<string, unknown> }
 type NotifRow = { client_id: string; user_id: string; title: string; body: string; link_path: string; resource_type: string; action_type: string }
 
-function fakeDb(opts: { leases: Lease[]; users?: User[]; failInsertFor?: string; failNotifications?: boolean }) {
+type InspectionLease = Omit<Lease, 'status' | 'metadata' | 'end_date'> & {
+  start_date: string | null
+  end_date: string | null
+  signed_move_in: boolean
+  move_out_scheduled: boolean
+}
+
+function fakeDb(opts: {
+  leases: Lease[]
+  users?: User[]
+  failInsertFor?: string
+  failNotifications?: boolean
+  inspectionLeases?: InspectionLease[]
+}) {
   const state = {
     leases: opts.leases,
     users: opts.users ?? baseUsers(),
@@ -143,6 +160,15 @@ function fakeDb(opts: { leases: Lease[]; users?: User[]; failInsertFor?: string;
         .slice(0, 200)
         .map(({ status: _s, metadata: _m, ...rest }) => rest)
     }
+    if (text === INSPECTION_REMINDER_SQL) {
+      const [today, moveInHorizon, moveOutHorizon, cursor] = params as [string, string, string, string | null]
+      return (opts.inspectionLeases ?? []).filter(
+        (l) =>
+          ((l.start_date !== null && l.start_date >= today && l.start_date <= moveInHorizon) ||
+            (l.end_date !== null && l.end_date >= today && l.end_date <= moveOutHorizon)) &&
+          (cursor === null || l.id > cursor),
+      )
+    }
     if (/FROM clients/.test(text)) {
       const enabled = state.agencyEnabled[params[0] as string]
       return enabled ? [{ enabled }] : []
@@ -164,6 +190,7 @@ function fakeDb(opts: { leases: Lease[]; users?: User[]; failInsertFor?: string;
         state.sql.push(text)
         if (/pg_advisory_xact_lock\(hashtext\(\$1\)\)/.test(text)) return { rows: [{}] }
         if (/SELECT 1 FROM event_log/.test(text)) {
+          // Both reminder kinds dedup on payload.dedup_key; keys never collide across kinds.
           const key = params[0]
           const hit = [...state.events, ...staged.events].some((e) => e.payload.dedup_key === key)
           return { rows: hit ? [{ '?column?': 1 }] : [] }
@@ -176,7 +203,8 @@ function fakeDb(opts: { leases: Lease[]; users?: User[]; failInsertFor?: string;
         if (/INSERT INTO notifications/.test(text)) {
           if (opts.failNotifications) throw new Error('notif failed')
           const [client_id, user_id, title, body, link_path] = params as string[]
-          staged.notifications.push({ client_id, user_id, title, body, link_path, resource_type: 'lease', action_type: 'reminder' })
+          const resource_type = /'inspection', 'reminder'/.test(text) ? 'inspection' : 'lease'
+          staged.notifications.push({ client_id, user_id, title, body, link_path, resource_type, action_type: 'reminder' })
           return { rows: [] }
         }
         throw new Error(`unexpected tx query: ${text}`)
@@ -290,7 +318,13 @@ describe('cron auth', () => {
     const { deps } = fakeDb({ leases: [mkLease(1, 80), mkLease(2, 82)] })
     const r = await handleLeaseRemindersCron('Bearer sekret', 'sekret', deps)
     expect(r.status).toBe(200)
-    expect(r.body).toEqual({ ok: true, checked: 2, created: 1, skipped: 1 })
+    expect(r.body).toEqual({
+      ok: true,
+      checked: 2,
+      created: 1,
+      skipped: 1,
+      inspectionReminders: { checked: 0, created: 0 },
+    })
   })
   it('route is wired in server/index.ts with no actor resolution', async () => {
     const { readFileSync } = await import('node:fs')
@@ -536,5 +570,79 @@ describe('helpers', () => {
   })
   it('today is computed in SAST', () => {
     expect(sastTodayIso(new Date('2026-10-11T22:30:00Z'))).toBe('2026-10-12')
+  })
+})
+
+function mkInspectionLease(n: number, over: Partial<InspectionLease> = {}): InspectionLease {
+  const { status: _s, metadata: _m, end_date: _e, ...base } = mkLease(n, 200)
+  return {
+    ...base,
+    start_date: '2025-01-01',
+    end_date: '2027-12-31',
+    signed_move_in: true,
+    move_out_scheduled: false,
+    ...over,
+  }
+}
+
+describe('inspection reminders', () => {
+  it('move-in: reminds before start_date while no signed move-in, once (event_log dedup)', async () => {
+    const lease = mkInspectionLease(1, { start_date: isoAddDays(TODAY, 5), signed_move_in: false })
+    const { state, deps } = fakeDb({ leases: [], inspectionLeases: [lease] })
+    expect(await runInspectionReminders(deps)).toEqual({ checked: 1, created: 1 })
+    expect(state.events).toHaveLength(1)
+    expect(state.events[0].payload.dedup_key).toBe(inspectionDedupKey(leaseId(1), 'move_in', isoAddDays(TODAY, 5)))
+    expect(state.events[0].payload.kind).toBe('move_in')
+    expect(recipientsOf(state.notifications)).toEqual([AGENT, ADMIN, LANDLORD].sort())
+    expect(state.notifications.every((n) => n.resource_type === 'inspection')).toBe(true)
+    expect(state.notifications.every((n) => n.link_path === '/workspace/people/tenants/ten-0001?tab=inspections')).toBe(true)
+    expect(await runInspectionReminders(deps)).toEqual({ checked: 1, created: 0 })
+    expect(state.notifications).toHaveLength(3)
+  })
+
+  it('move-in: nothing once the move-in is signed', async () => {
+    const lease = mkInspectionLease(1, { start_date: isoAddDays(TODAY, 2), signed_move_in: true })
+    const { state, deps } = fakeDb({ leases: [], inspectionLeases: [lease] })
+    expect((await runInspectionReminders(deps)).created).toBe(0)
+    expect(state.events).toHaveLength(0)
+  })
+
+  it('move-out: reminds in the 3 days before end_date, not 4 days out, not once scheduled', async () => {
+    const due = mkInspectionLease(1, { end_date: isoAddDays(TODAY, 3) })
+    const early = mkInspectionLease(2, { end_date: isoAddDays(TODAY, 4) })
+    const booked = mkInspectionLease(3, { end_date: isoAddDays(TODAY, 1), move_out_scheduled: true })
+    const { state, deps } = fakeDb({ leases: [], inspectionLeases: [due, early, booked] })
+    expect(await runInspectionReminders(deps)).toEqual({ checked: 2, created: 1 })
+    expect(state.events.map((e) => e.subject_id)).toEqual([leaseId(1)])
+    expect(state.events[0].payload.kind).toBe('move_out')
+  })
+
+  it('never notifies the tenant', async () => {
+    const lease = mkInspectionLease(1, { end_date: isoAddDays(TODAY, 1) })
+    const { state, deps } = fakeDb({ leases: [], inspectionLeases: [lease] })
+    await runInspectionReminders(deps)
+    expect(state.notifications.some((n) => n.user_id === TENANT)).toBe(false)
+  })
+
+  it('a failing inspection pass does not fail the lease-end cron', async () => {
+    const { deps } = fakeDb({ leases: [mkLease(1, 80)] })
+    const query = deps.query
+    deps.query = (async (text: string, params?: unknown[]) => {
+      if (text === INSPECTION_REMINDER_SQL) throw new Error('relation "inspections" does not exist')
+      return query(text, params)
+    }) as typeof deps.query
+    const r = await handleLeaseRemindersCron('Bearer sekret', 'sekret', deps)
+    expect(r.status).toBe(200)
+    expect(r.body).toMatchObject({ ok: true, created: 1, inspectionReminders: { failed: true } })
+  })
+
+  it('copy is neutral and dated', () => {
+    const moveIn = buildInspectionReminderCopy({ kind: 'move_in', propertyLabel: 'Oak Court, unit 4B', leaseReference: 'LR-1', dateIso: '2026-11-02' })
+    expect(moveIn.body).toContain('starts on 2 Nov 2026')
+    const moveOut = buildInspectionReminderCopy({ kind: 'move_out', propertyLabel: 'Oak Court, unit 4B', leaseReference: 'LR-1', dateIso: '2026-11-02' })
+    expect(moveOut.body).toContain('ends on 2 Nov 2026')
+    for (const c of [moveIn, moveOut]) {
+      expect(`${c.title} ${c.body}`).not.toMatch(/\bwe\b|required by law/i)
+    }
   })
 })
