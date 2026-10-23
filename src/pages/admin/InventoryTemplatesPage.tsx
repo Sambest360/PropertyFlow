@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { RequirePermission } from '../../components/RequirePermission'
 import { Button, Card, PageHeader } from '../../components/ui'
-import { authHeaders } from '../../lib/api/authClient'
+import { inspectionApi } from '../../lib/inspections/api'
 import { defaultInventoryTemplate, type InventoryPropertyType, type InventoryTemplateItem } from '../../lib/inspections/templates'
 
 const TYPES: InventoryPropertyType[] = ['house', 'apartment', 'room']
@@ -14,12 +14,8 @@ export default function InventoryTemplatesPage() {
 
   useEffect(() => {
     let cancelled = false
-    fetch('/api/inventory-templates', { headers: authHeaders() })
-      .then(async (res) => {
-        if (!res.ok) return
-        const body = (await res.json()) as {
-          templates?: Array<{ property_type: string; items: InventoryTemplateItem[] }>
-        }
+    inspectionApi<{ templates?: Array<{ property_type: string; items: InventoryTemplateItem[] }> }>('/api/inventory-templates')
+      .then((body) => {
         const match = body.templates?.find((row) => row.property_type === propertyType)
         if (!cancelled && match?.items?.length) setItems(match.items)
       })
@@ -40,14 +36,13 @@ export default function InventoryTemplatesPage() {
   async function save() {
     setError(null)
     setMessage(null)
-    const res = await fetch('/api/inventory-templates', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ propertyType, items }),
-    })
-    if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as { message?: string }
-      setError(body.message || 'Could not save the template')
+    try {
+      await inspectionApi('/api/inventory-templates', {
+        method: 'POST',
+        body: JSON.stringify({ propertyType, items }),
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save the template')
       return
     }
     setMessage('Template saved for this agency.')
@@ -76,7 +71,7 @@ export default function InventoryTemplatesPage() {
           </div>
           <ul className="space-y-2">
             {items.map((item, index) => (
-              <li key={`${item.room}-${item.name}-${index}`} className="grid gap-2 sm:grid-cols-[1fr_1fr_5rem]">
+              <li key={index} className="grid gap-2 sm:grid-cols-[1fr_1fr_5rem]">
                 <input
                   className="min-h-11 rounded-xl border border-primary-100 px-3 text-sm"
                   value={item.room}

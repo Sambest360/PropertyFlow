@@ -34,6 +34,8 @@ import { TenantViewingsView } from './tenant/TenantViewingsView'
 import { TenantMaintenanceView } from './tenant/TenantMaintenanceView'
 import { TenantMessagesView } from './tenant/TenantMessagesView'
 import { PortalHydrationGate } from '../components/PortalHydrationGate'
+import { LeaseInspectionsPanel } from '../components/inspections/LeaseInspectionsPanel'
+import { inspectionsAvailable } from '../lib/inspections/api'
 
 type TenantView =
   | 'home'
@@ -150,7 +152,10 @@ function TenantPortalContent() {
         ) : view === 'leases' ? (
           <div data-tip-target="tenant-leases" className="space-y-5">
             {portal.tenancy ? (
-              <LinkedTenancyCard tenancy={portal.tenancy} />
+              <>
+                <LinkedTenancyCard tenancy={portal.tenancy} />
+                {inspectionsAvailable && <LeaseInspectionsPanel leaseId={portal.tenancy.id} mode="tenant" />}
+              </>
             ) : (
               <Card className="p-5" data-testid="tenant-lease-empty">
                 <h2 className="font-display text-lg font-semibold text-ink">My lease</h2>
