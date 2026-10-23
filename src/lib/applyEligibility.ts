@@ -42,6 +42,17 @@ export const AGENCY_ADMIN_ROLES = new Set(['super_admin', 'client_admin'])
 
 export const ASSIGNED_AGENT_ROLES = new Set(['agent_admin', 'ground_agent', 'agent'])
 
+/**
+ * Frontend roles that may set the per-unit viewing-gate override
+ * (units.require_viewing_to_apply). The viewing process is the agency's call,
+ * so only agency staff may; landlords, tenants and contractors may not.
+ */
+export const UNIT_VIEWING_OVERRIDE_ROLES: ReadonlySet<string> = VIEWING_STAFF_ROLES
+
+export function canSetUnitViewingOverride(role: string | null | undefined): boolean {
+  return Boolean(role && UNIT_VIEWING_OVERRIDE_ROLES.has(role))
+}
+
 export type ViewingMode = 'IN_PERSON' | 'VIRTUAL'
 
 export type ViewingEvidence = {

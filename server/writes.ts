@@ -22,7 +22,7 @@ import { notifyWaitlistSpotOpen } from './listingLimits.js'
 import { mapAgencyStatusToDb } from '../src/lib/agencyStatus.js'
 import { resolveLiveListing } from './listingResolve.js'
 import { canonicalListingId } from '../src/lib/listingIds.js'
-import { ensureListingUnitUuid } from './listingUuid.js'
+import { ensureListingUnitUuid, resolveListingUnitUuid } from './listingUuid.js'
 import { supabaseAuthConfigured } from './supabase/env.js'
 import { isValidSignatureDataUrl, signatureInvalidError } from '../src/lib/signature/signatureImage.js'
 import {
@@ -32,8 +32,8 @@ import {
 } from '../src/lib/supportTickets.js'
 import {
   coApplicantEmailsFromPayload,
+  authorizedRequireViewingColumn,
   markBookingAttendance,
-  requireViewingColumn,
   revokeApplyOverridesForLetStatus,
   revokeApplyOverridesForLetUnit,
   viewingEvidenceForNewApplication,
@@ -493,7 +493,7 @@ async function upsertEntity(
       return upsertBuilding(frontendId, data)
     case 'property':
     case 'unit':
-      return upsertProperty(frontendId, data)
+      return upsertProperty(frontendId, data, actorRole)
     case 'room':
       return upsertRoom(frontendId, data)
     case 'asset':
@@ -875,10 +875,17 @@ async function upsertBuilding(feId: string, d: Record<string, unknown>): Promise
   return uuid
 }
 
-async function upsertProperty(feId: string, d: Record<string, unknown>): Promise<string> {
+async function upsertProperty(
+  feId: string,
+  d: Record<string, unknown>,
+  actorRole: string | null = null,
+): Promise<string> {
   // Flat PropertyAsset → units row (+ ensure building if provided)
   const canon = canonicalListingId(feId)
   const slug = canon.replace(/^unt-/i, '')
+  // Only agency staff may set the per-unit viewing-gate override. Checked
+  // before any write (id map included) so a refused write changes nothing.
+  const viewingRule = await authorizedRequireViewingColumn(actorRole, d, await resolveListingUnitUuid(feId))
   const uuid = await ensureListingUnitUuid(feId)
 
   let buildingUuid = d.buildingId ? await resolveUuid('building', str(d.buildingId)) : null
@@ -985,7 +992,6 @@ async function upsertProperty(feId: string, d: Record<string, unknown>): Promise
     typeof d.idempotencyKey === 'string' && d.idempotencyKey.trim()
       ? d.idempotencyKey.trim()
       : null
-  const viewingRule = requireViewingColumn(d)
   const statusKey = isArchive
     ? 'DELETED'
     : isRestore

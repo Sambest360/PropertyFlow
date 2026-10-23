@@ -443,4 +443,31 @@ describe('viewing gate hardening (PR 1 fixes)', () => {
       }),
     ).rejects.toMatchObject({ code: 'VIEWING_REQUIRED' })
   })
+
+  it('refuses (404) instead of allowing when the unit cannot be loaded', async () => {
+    query.mockImplementation(async () => [])
+    const { viewingEvidenceForNewApplication } = await import('./applyEligibility.js')
+    await expect(
+      viewingEvidenceForNewApplication({
+        unitId: UNIT,
+        applicationType: 'RENTAL',
+        actorRole: 'tenant',
+        applicantId: null,
+        applicantEmail: 'e2e-tenant@example.com',
+        applicantPhone: null,
+      }),
+    ).rejects.toMatchObject({ status: 404, code: 'NOT_FOUND' })
+  })
+})
+
+describe('unit viewing override role check', () => {
+  it('allows agency staff roles only', async () => {
+    const { canSetUnitViewingOverride } = await import('../src/lib/applyEligibility.js')
+    for (const role of ['super_admin', 'client_admin', 'agent_admin', 'ground_agent', 'agent']) {
+      expect(canSetUnitViewingOverride(role)).toBe(true)
+    }
+    for (const role of ['landlord', 'tenant', 'contractor', '', null, undefined]) {
+      expect(canSetUnitViewingOverride(role)).toBe(false)
+    }
+  })
 })

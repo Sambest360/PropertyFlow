@@ -126,7 +126,19 @@ describe('guest public apply inherits listing agency (PR-1011)', () => {
         return limited.map((r) => ({ backend_id: r.backend_id, frontend_id: r.frontend_id }))
       }
 
-      if (sql.includes('/* apply-eligibility */')) return []
+      // The unit loads with no viewing rule (agency setting absent): the gate is open.
+      if (sql.includes('/* apply-eligibility */')) {
+        return [{
+          unit_id: String(params?.[0] ?? ''),
+          client_id: null,
+          building_id: null,
+          listing_type: 'RENT',
+          require_viewing_to_apply: null,
+          settings: {},
+          completed_bookings: [],
+          live_override: null,
+        }]
+      }
       if (sql.includes('FROM users') || sql.includes('FROM clients')) return []
       // #80: listing agent for an application created without agentId.
       if (sql.includes('SELECT agent_id::text AS agent_id FROM units')) return []

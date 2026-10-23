@@ -6,6 +6,7 @@ import { query } from './db.js'
 import { isUuid, resolveUuid } from './entityMap.js'
 import {
   attendanceDecision,
+  canSetUnitViewingOverride,
   dbRoleToFrontend,
   evaluateApplyEligibility,
   isLetStatus,
@@ -241,7 +242,8 @@ export async function viewingEvidenceForNewApplication(input: {
     coApplicantEmails: input.coApplicantEmails ?? [],
     authenticated: true,
   })
-  if (!result) return { bookingId: null, overrideId: null, evidence: null }
+  // Fail closed: a unit the gate cannot load is refused, never waved through.
+  if (!result) throw coded(404, 'NOT_FOUND', 'Unit not found')
   if (!result.eligible) {
     throw coded(403, result.reason, 'Book and attend a viewing before applying for this unit')
   }
@@ -472,6 +474,37 @@ export function requireViewingColumn(data: Record<string, unknown>): { value: bo
     return { value: data.requireViewingToApply, sent: true }
   }
   return { value: null, sent: true }
+}
+
+/**
+ * Per-unit viewing-gate override, authorised (Michael: the viewing process is
+ * the agency's call). Agency staff may set it. Anyone else (in practice a
+ * landlord editing their own listing) may not change it: a write that repeats
+ * the stored value (or sends nothing) keeps the stored value, a write that
+ * would change it is refused with 403 VIEWING_OVERRIDE_STAFF_ONLY. Runs before
+ * any row is written, so a refused write changes nothing.
+ */
+export async function authorizedRequireViewingColumn(
+  actorRole: string | null,
+  data: Record<string, unknown>,
+  unitUuid: string | null,
+): Promise<{ value: boolean | null; sent: boolean }> {
+  const rule = requireViewingColumn(data)
+  if (!rule.sent || canSetUnitViewingOverride(actorRole)) return rule
+  // A unit not created yet has no override (null).
+  const rows = unitUuid
+    ? await query<{ require_viewing_to_apply: boolean | null }>(
+        `/* unit-viewing-override */ SELECT require_viewing_to_apply FROM units WHERE id = $1::uuid`,
+        [unitUuid],
+      )
+    : []
+  const current = boolOrNull(rows[0]?.require_viewing_to_apply)
+  if (rule.value === current) return { value: null, sent: false }
+  throw coded(
+    403,
+    'VIEWING_OVERRIDE_STAFF_ONLY',
+    'Only agency staff can change whether this unit requires a viewing before applying',
+  )
 }
 
 export async function readUnitApplyEligibilityForActor(actor: DemoActor, unitRef: string): Promise<ApplyEligibility> {
