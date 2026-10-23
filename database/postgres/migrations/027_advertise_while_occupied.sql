@@ -45,16 +45,74 @@ CREATE INDEX IF NOT EXISTS idx_viewing_windows_lease ON tenant_viewing_windows (
 CREATE INDEX IF NOT EXISTS idx_viewing_windows_unit ON tenant_viewing_windows (unit_id);
 
 ALTER TABLE tenant_viewing_windows ENABLE ROW LEVEL SECURITY;
+-- Viewing windows reveal when a sitting tenant is home. Readable by agency
+-- staff of the same client, the tenant on that lease, and the landlord of the
+-- unit only (no role-wide clause).
 DROP POLICY IF EXISTS tenant_viewing_windows_select ON tenant_viewing_windows;
 CREATE POLICY tenant_viewing_windows_select ON tenant_viewing_windows
   FOR SELECT TO authenticated
-  USING (is_super_admin() OR client_id = current_app_client_id()
-         OR current_app_user_role() IN ('LANDLORD', 'END_USER', 'CONTRACTOR'));
+  USING (
+    is_super_admin()
+    OR (
+      current_app_user_role() IN ('AGENCY_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT')
+      AND client_id = current_app_client_id()
+    )
+    OR (
+      current_app_user_role() = 'END_USER'
+      AND EXISTS (
+        SELECT 1 FROM leases l
+        WHERE l.id = tenant_viewing_windows.lease_id
+          AND l.tenant_id = current_app_user_id()
+      )
+    )
+    OR (
+      current_app_user_role() = 'LANDLORD'
+      AND EXISTS (
+        SELECT 1
+        FROM units u
+        JOIN buildings b ON b.id = u.building_id
+        WHERE u.id = tenant_viewing_windows.unit_id
+          AND b.landlord_id = current_app_user_id()
+      )
+    )
+  );
+
+-- Written by agency staff of the same client or the tenant on that lease.
 DROP POLICY IF EXISTS tenant_viewing_windows_mutate ON tenant_viewing_windows;
 CREATE POLICY tenant_viewing_windows_mutate ON tenant_viewing_windows
   FOR ALL TO authenticated
-  USING (is_super_admin() OR client_id = current_app_client_id())
-  WITH CHECK (is_super_admin() OR client_id = current_app_client_id());
+  USING (
+    is_super_admin()
+    OR (
+      current_app_user_role() IN ('AGENCY_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT')
+      AND client_id = current_app_client_id()
+    )
+    OR (
+      current_app_user_role() = 'END_USER'
+      AND EXISTS (
+        SELECT 1 FROM leases l
+        WHERE l.id = tenant_viewing_windows.lease_id
+          AND l.tenant_id = current_app_user_id()
+      )
+    )
+  )
+  WITH CHECK (
+    is_super_admin()
+    OR (
+      current_app_user_role() IN ('AGENCY_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT')
+      AND client_id = current_app_client_id()
+    )
+    OR (
+      current_app_user_role() = 'END_USER'
+      AND EXISTS (
+        SELECT 1 FROM leases l
+        WHERE l.id = tenant_viewing_windows.lease_id
+          AND l.tenant_id = current_app_user_id()
+          AND l.unit_id = tenant_viewing_windows.unit_id
+          AND l.client_id = tenant_viewing_windows.client_id
+      )
+    )
+  );
 
 ALTER TABLE bookings
   ADD COLUMN IF NOT EXISTS tenant_consent_status VARCHAR(20) NOT NULL DEFAULT 'NOT_REQUIRED',
