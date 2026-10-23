@@ -52,7 +52,7 @@ ALTER TABLE applications
 
 ALTER TABLE apply_overrides ENABLE ROW LEVEL SECURITY;
 
--- Staff of the agency, the applicant themself, and the landlord of the unit.
+-- Staff of the agency and the applicant themself (no landlord branch: applicant contacts).
 DROP POLICY IF EXISTS apply_overrides_select ON apply_overrides;
 CREATE POLICY apply_overrides_select ON apply_overrides
   FOR SELECT TO authenticated
@@ -63,16 +63,6 @@ CREATE POLICY apply_overrides_select ON apply_overrides
       AND client_id = current_app_client_id()
     )
     OR applicant_id = current_app_user_id()
-    OR (
-      current_app_user_role() = 'LANDLORD'
-      AND EXISTS (
-        SELECT 1
-        FROM units u
-        JOIN buildings b ON b.id = u.building_id
-        WHERE u.id = apply_overrides.unit_id
-          AND b.landlord_id = current_app_user_id()
-      )
-    )
   );
 
 -- Only agency staff grant or revoke overrides.
