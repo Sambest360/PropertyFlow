@@ -279,7 +279,8 @@ describe('public marketplace RPC (migration 027)', () => {
   it('both RPCs keep the 024 listing-limit snapshot (fully_booked / remaining) and add occupied adverts', () => {
     const merged = MIGRATION.match(/public_listing_unit_json\(u\.id\) \|\| unit_listing_limit_snapshot\(u\.id\)/g) ?? []
     expect(merged).toHaveLength(2)
-    expect(MIGRATION.match(/u\.advertise_while_occupied = true\s+AND u\.available_from IS NOT NULL/g)).toHaveLength(2)
+    // Two bootstrap RPCs plus the enquiry RPC (which must accept the same adverts).
+    expect(MIGRATION.match(/u\.advertise_while_occupied = true\s+AND u\.available_from IS NOT NULL/g)).toHaveLength(3)
     expect(MIGRATION).toContain(PUBLIC_OCCUPIED_ADVERT_SQL.split('\n')[0])
     const snapshot = readFileSync('database/postgres/migrations/024_listing_lead_viewing_limits.sql', 'utf8')
     expect(snapshot).toContain("'fully_booked'")

@@ -45,6 +45,13 @@ export function formatListingEnquiryError(raw: string): string {
   if (code === 'slot_unavailable' || code.includes('slot_unavailable')) {
     return 'That slot just filled up. Choose another time or request a viewing without a slot.'
   }
+  // Occupied adverts (027 RPC raises these lower-case; the API sends upper-case codes).
+  if (code.includes('notice_too_short')) {
+    return 'Someone still lives here, so viewings need more notice. Pick a later time.'
+  }
+  if (code.includes('outside_viewing_window')) {
+    return 'Someone still lives here and that time is outside their viewing hours. Pick another slot.'
+  }
   if (code === 'listing_full' || code.includes('listing_full')) {
     return 'This listing is fully booked.'
   }

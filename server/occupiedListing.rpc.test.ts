@@ -7,6 +7,17 @@
 import pg from 'pg'
 import { describe, expect, it } from 'vitest'
 import { PUBLIC_UNIT_FORBIDDEN_KEYS } from './occupiedListing.js'
+import {
+  PUBLIC_BUILDING_KEYS,
+  PUBLIC_CLIENT_KEYS,
+  PUBLIC_ID_MAP_KEYS,
+  PUBLIC_ROOM_KEYS,
+  PUBLIC_SLOT_KEYS,
+  PUBLIC_UNIT_KEYS,
+  PUBLIC_UNIT_LIMIT_KEYS,
+} from './publicMarketplaceKeys.js'
+
+const sorted = (keys: readonly string[]) => [...keys].sort()
 
 const url = process.env.OCCUPIED_RPC_DATABASE_URL
 
@@ -44,14 +55,36 @@ describe.skipIf(!url)('get_public_marketplace_bootstrap* on a live database', ()
         expect(unit).toHaveProperty('remaining')
         const keys = Object.keys(unit!)
         for (const bad of PUBLIC_UNIT_FORBIDDEN_KEYS) expect(keys, `${fn} unit`).not.toContain(bad)
-        for (const user of payload.users) {
-          expect(Object.keys(user), `${fn} user`).not.toContain('password_hash')
-          expect(Object.keys(user), `${fn} user`).not.toContain('auth_user_id')
+        expect(sorted(keys), `${fn} unit keys`).toEqual(sorted([...PUBLIC_UNIT_KEYS, ...PUBLIC_UNIT_LIMIT_KEYS]))
+        expect(payload.users, `${fn} users`).toEqual([])
+        const p = payload as unknown as Record<string, Record<string, unknown>[] | undefined>
+        const exact: Array<[string, readonly string[]]> = [
+          ['clients', PUBLIC_CLIENT_KEYS],
+          ['buildings', PUBLIC_BUILDING_KEYS],
+          ['rooms', PUBLIC_ROOM_KEYS],
+          ['viewing_slots', PUBLIC_SLOT_KEYS],
+          ['entity_id_map', PUBLIC_ID_MAP_KEYS],
+        ]
+        for (const [section, allowed] of exact) {
+          for (const row of p[section] ?? []) {
+            expect(sorted(Object.keys(row)), `${fn} ${section}`).toEqual(sorted(allowed))
+          }
         }
+        expect((p.entity_id_map ?? []).some((m) => m.entity_type === 'user'), `${fn} user ids`).toBe(false)
         // No lease row (tenant, reference, notice) is serialised anywhere.
         const text = JSON.stringify(payload)
         expect(text).not.toContain('lease_reference')
         expect(text).not.toContain('notice_given_by')
+      }
+      await client.query('RESET ROLE')
+      for (const role of ['anon', 'authenticated']) {
+        const priv = await client.query<{ unit_json: boolean; boot: boolean; lite: boolean }>(
+          `SELECT has_function_privilege($1, 'public_listing_unit_json(uuid)', 'EXECUTE') AS unit_json,
+                  has_function_privilege($1, 'get_public_marketplace_bootstrap(boolean)', 'EXECUTE') AS boot,
+                  has_function_privilege($1, 'get_public_marketplace_bootstrap_lite(boolean)', 'EXECUTE') AS lite`,
+          [role],
+        )
+        expect(priv.rows[0], role).toEqual({ unit_json: false, boot: true, lite: true })
       }
     } finally {
       await client.query('ROLLBACK').catch(() => undefined)
