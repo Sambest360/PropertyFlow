@@ -3,7 +3,7 @@ import { Button, Card, Input } from '../ui'
 import { isApiEnabled, isSupabaseMode } from '../../lib/api/config'
 import { authHeaders } from '../../lib/api/authClient'
 import { createClient } from '../../utils/supabase/client'
-import { waitlistStaffOnlyNote } from '../../lib/waitlistAccess'
+import { LISTING_LIMITS_READ_ONLY_NOTE, waitlistStaffOnlyNote } from '../../lib/waitlistAccess'
 
 type Person = { id: string; name: string; email: string; phone?: string | null }
 
@@ -42,7 +42,7 @@ export function ListingLimitsPanel({
 }: {
   unitRef: string
   backendId?: string | null
-  /** False for landlords: waitlist PII is staff-only (027 RLS). */
+  /** False for landlords: read-only counts; limit edits, resets, promotes and waitlist PII are staff-only. */
   viewerIsStaff?: boolean
 }) {
   const [view, setView] = useState<LimitsView | null>(null)
@@ -256,49 +256,55 @@ export function ListingLimitsPanel({
             Enquiries {counter(view.enquiryCount, view.maxEnquiries)} · Viewings{' '}
             {counter(view.viewingCount, view.maxViewings)}
           </p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="text-xs font-medium text-ink-600">
-              Max enquiries
-              <Input className="mt-1" inputMode="numeric" value={maxEnquiries} onChange={(e) => setMaxEnquiries(e.target.value)} placeholder="Unlimited" />
-            </label>
-            <label className="text-xs font-medium text-ink-600">
-              Max viewings
-              <Input className="mt-1" inputMode="numeric" value={maxViewings} onChange={(e) => setMaxViewings(e.target.value)} placeholder="Unlimited" />
-            </label>
-          </div>
-          <div className="flex flex-wrap items-center gap-3 text-sm">
-            <label className="flex items-center gap-2">
-              <input
-                type="radio"
-                name="limit-action"
-                checked={limitAction === 'WAITLIST'}
-                onChange={() => setLimitAction('WAITLIST')}
-              />
-              Waitlist when full
-            </label>
-            <label className="flex items-center gap-2">
-              <input type="radio" name="limit-action" checked={limitAction === 'CLOSE'} onChange={() => setLimitAction('CLOSE')} />
-              Close when full
-            </label>
-            <label className="flex items-center gap-2">
-              <input type="checkbox" checked={showRemaining} onChange={(e) => setShowRemaining(e.target.checked)} />
-              Show spots left
-            </label>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" disabled={busy} onClick={() => void save()}>
-              Save limits
-            </Button>
-            <Button type="button" size="sm" variant="secondary" disabled={busy} onClick={() => void resetRound()}>
-              Reset counters / reopen
-            </Button>
-          </div>
+          {viewerIsStaff ? (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="text-xs font-medium text-ink-600">
+                  Max enquiries
+                  <Input className="mt-1" inputMode="numeric" value={maxEnquiries} onChange={(e) => setMaxEnquiries(e.target.value)} placeholder="Unlimited" />
+                </label>
+                <label className="text-xs font-medium text-ink-600">
+                  Max viewings
+                  <Input className="mt-1" inputMode="numeric" value={maxViewings} onChange={(e) => setMaxViewings(e.target.value)} placeholder="Unlimited" />
+                </label>
+              </div>
+              <div className="flex flex-wrap items-center gap-3 text-sm">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="limit-action"
+                    checked={limitAction === 'WAITLIST'}
+                    onChange={() => setLimitAction('WAITLIST')}
+                  />
+                  Waitlist when full
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="radio" name="limit-action" checked={limitAction === 'CLOSE'} onChange={() => setLimitAction('CLOSE')} />
+                  Close when full
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={showRemaining} onChange={(e) => setShowRemaining(e.target.checked)} />
+                  Show spots left
+                </label>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" size="sm" disabled={busy} onClick={() => void save()}>
+                  Save limits
+                </Button>
+                <Button type="button" size="sm" variant="secondary" disabled={busy} onClick={() => void resetRound()}>
+                  Reset counters / reopen
+                </Button>
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-ink-500">{LISTING_LIMITS_READ_ONLY_NOTE}</p>
+          )}
           {(() => {
             const note = waitlistStaffOnlyNote({ supabaseMode: !isApiEnabled && isSupabaseMode, viewerIsStaff })
             return note ? <p className="text-sm text-ink-500">{note}</p> : null
           })()}
-          <WaitlistList title="Viewing waitlist" people={view.waitlist} busy={busy} onPromote={(id) => void promote('viewing', id)} />
-          <WaitlistList title="Enquiry waitlist" people={view.waitlistedLeads} busy={busy} onPromote={(id) => void promote('lead', id)} />
+          <WaitlistList title="Viewing waitlist" people={view.waitlist} busy={busy} onPromote={viewerIsStaff ? (id) => void promote('viewing', id) : undefined} />
+          <WaitlistList title="Enquiry waitlist" people={view.waitlistedLeads} busy={busy} onPromote={viewerIsStaff ? (id) => void promote('lead', id) : undefined} />
         </>
       ) : !error ? (
         <p className="text-sm text-ink-500">Loading limits…</p>
@@ -307,7 +313,7 @@ export function ListingLimitsPanel({
   )
 }
 
-function WaitlistList({
+export function WaitlistList({
   title,
   people,
   busy,
@@ -316,7 +322,8 @@ function WaitlistList({
   title: string
   people: Person[]
   busy: boolean
-  onPromote: (id: string) => void
+  /** Omitted for landlords: promoting is staff-only. */
+  onPromote?: (id: string) => void
 }) {
   if (people.length === 0) return null
   return (
@@ -328,9 +335,11 @@ function WaitlistList({
             <span>
               {person.name} · {person.email}
             </span>
-            <Button type="button" size="sm" variant="secondary" disabled={busy} onClick={() => onPromote(person.id)}>
-              Promote
-            </Button>
+            {onPromote ? (
+              <Button type="button" size="sm" variant="secondary" disabled={busy} onClick={() => onPromote(person.id)}>
+                Promote
+              </Button>
+            ) : null}
           </li>
         ))}
       </ul>

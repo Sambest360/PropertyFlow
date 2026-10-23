@@ -39,6 +39,7 @@ import { listingAvailabilityCopy } from '../../lib/listingLimitCopy'
 import { sweetError, sweetInfo, sweetSuccess, sweetWarning } from '../../lib/sweetAlert'
 import { usePageMeta } from '../../hooks/usePageMeta'
 import { useAgentDisplay } from '../../hooks/useAgentDisplay'
+import { listingHeadline } from '../../lib/agentDisplay'
 import { StickyMobileActionBar } from '../../components/layout/mobile/StickyMobileActionBar'
 import { FullScreenSheet } from '../../components/layout/mobile/FullScreenSheet'
 import { isFutureViewingSlot } from '../../lib/viewingSlotTime'
@@ -64,7 +65,7 @@ export default function ListingDetail() {
   } = useStore()
   const publicProperties = usePublicProperties()
   const { user, isAuthenticated, has } = useAuth()
-  const { listedBy } = useAgentDisplay()
+  const { viewerId } = useAgentDisplay()
   const [publicListingSlice, setPublicListingSlice] = useState<PostgresBootstrap | null>(null)
   const [listingFetchDone, setListingFetchDone] = useState(false)
   const lookup = useMemo(
@@ -804,10 +805,7 @@ export default function ListingDetail() {
           <div>
             <div className="border-b border-primary-100 pb-6">
               <p className="text-lg font-semibold text-ink">
-                {(() => {
-                  const by = listedBy(p.agentId, agent?.name)
-                  return by ? `${p.type} · listed by ${by}` : p.type
-                })()}
+                {listingHeadline(p.type, viewerId, p.agentId, agent?.name)}
               </p>
               <p className="text-sm text-ink-500">
                 {[p.beds > 0 && `${p.beds} bedrooms`, p.baths > 0 && `${p.baths} bathrooms`, `${p.parking} parking`, `${p.area} m²`, `${p.rooms.length} configured rooms`]

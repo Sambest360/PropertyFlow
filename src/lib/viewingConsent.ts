@@ -31,9 +31,3 @@ export function tenantConsentLabel(
   }
   return null
 }
-
-/** Status text for read-only badges: "Scheduled" only when nothing is pending. */
-export function viewingStatusWithConsent(v: Pick<Viewing, 'status' | 'tenantConsentStatus'>): string {
-  const c = tenantConsentLabel(v)
-  return c ? `${v.status} · ${c.label}` : v.status
-}

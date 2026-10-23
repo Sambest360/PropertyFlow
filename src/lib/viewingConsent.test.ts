@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { tenantConsentLabel, viewingStatusWithConsent } from './viewingConsent'
+import { tenantConsentLabel } from './viewingConsent'
 
 describe('tenantConsentLabel (occupied-home viewings)', () => {
   it('flags PENDING and DECLINED on scheduled bookings', () => {
@@ -20,13 +20,4 @@ describe('tenantConsentLabel (occupied-home viewings)', () => {
     expect(tenantConsentLabel({ status: 'Cancelled', tenantConsentStatus: 'DECLINED' })).toBeNull()
   })
 
-  it('never renders a pending booking as plain Scheduled', () => {
-    expect(viewingStatusWithConsent({ status: 'Scheduled', tenantConsentStatus: 'PENDING' })).toBe(
-      'Scheduled · Tenant consent PENDING',
-    )
-    expect(viewingStatusWithConsent({ status: 'Scheduled', tenantConsentStatus: 'DECLINED' })).toBe(
-      'Scheduled · Tenant DECLINED',
-    )
-    expect(viewingStatusWithConsent({ status: 'Scheduled', tenantConsentStatus: 'ACCEPTED' })).toBe('Scheduled')
-  })
 })

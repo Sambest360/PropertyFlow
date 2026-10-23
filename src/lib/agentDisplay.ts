@@ -44,6 +44,21 @@ export function listedByAgentPhrase(
   return agentAssigneeLabel(viewerId, agentId, agentName, fallback)
 }
 
+/**
+ * Listing headline "<type> · listed by <name>". When the public listing has no
+ * name (027 listed_by is NULL: no agent, or the name failed the allowlist)
+ * the "listed by" part is hidden, never replaced by a placeholder.
+ */
+export function listingHeadline(
+  type: string,
+  viewerId: string | null | undefined,
+  agentId: string | null | undefined,
+  agentName: string | null | undefined,
+): string {
+  const by = listedByAgentPhrase(viewerId, agentId, agentName, '')
+  return by ? `${type} · listed by ${by}` : type
+}
+
 export function appendAgentMetaRow(
   rows: Array<{ label: string; value: string }>,
   viewerId: string | null | undefined,
