@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { ArrowUpRight, DoorOpen, MapPin, Users } from 'lucide-react'
 import { Badge, cn, statusTone } from '../ui'
+import { AttendanceActions } from './AttendanceActions'
 import { useAgentDisplay } from '../../hooks/useAgentDisplay'
 import {
   viewingPrimaryLabel,
@@ -18,10 +19,12 @@ export function ViewingsAgenda({
   items,
   reducedMotion,
   emptyLabel,
+  onAttendance,
 }: {
   items: PortfolioViewing[]
   reducedMotion?: boolean
   emptyLabel?: string
+  onAttendance?: (id: string, status: 'COMPLETED' | 'NO_SHOW', viewingMode: 'IN_PERSON' | 'VIRTUAL') => void
 }) {
   if (items.length === 0) {
     return (
@@ -55,7 +58,7 @@ export function ViewingsAgenda({
           </div>
           <ul className="space-y-2">
             {(byTime.get(time) ?? []).map((item) => (
-              <AgendaRow key={viewingRowKey(item)} item={item} reducedMotion={reducedMotion} />
+              <AgendaRow key={viewingRowKey(item)} item={item} reducedMotion={reducedMotion} onAttendance={onAttendance} />
             ))}
           </ul>
         </section>
@@ -79,9 +82,11 @@ function AgendaAgent({ item }: { item: PortfolioViewing }) {
 function AgendaRow({
   item,
   reducedMotion,
+  onAttendance,
 }: {
   item: PortfolioViewing
   reducedMotion?: boolean
+  onAttendance?: (id: string, status: 'COMPLETED' | 'NO_SHOW', viewingMode: 'IN_PERSON' | 'VIRTUAL') => void
 }) {
   const st = viewingStatus(item)
   const to = viewingDeskPath(item)
@@ -92,7 +97,7 @@ function AgendaRow({
       : item.viewing.applicantName
 
   return (
-    <li>
+    <li className="space-y-2">
       <Link
         to={to}
         className={cn(
@@ -140,6 +145,11 @@ function AgendaRow({
           </span>
         </span>
       </Link>
+      {item.kind === 'booking' && onAttendance ? (
+        <div className="px-1">
+          <AttendanceActions onMark={(status, viewingMode) => onAttendance(item.viewing.id, status, viewingMode)} />
+        </div>
+      ) : null}
     </li>
   )
 }

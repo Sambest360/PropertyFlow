@@ -77,6 +77,7 @@ import { registerSupabaseUserDirect } from './supabase/registerUser.js'
 import { runningCommitSha } from './appConfig.js'
 import { dbHostFingerprint, serverAuthMode } from './authMode.js'
 import { errStatus } from './errStatus.js'
+import { registerViewingApplyRoutes } from './viewingApplyRoutes.js'
 import { captureServerError } from './sentry.js'
 
 // Log resolved auth mode once at boot (mode only — never env values).
@@ -1365,6 +1366,8 @@ app.post('/api/leads/:id/promote-waitlist', async (c) => {
     return c.json({ error: message === 'LISTING_FULL' ? 'LISTING_FULL' : 'waitlist_promote_failed', message, ...errCode(err) }, errStatus(err))
   }
 })
+
+registerViewingApplyRoutes(app)
 
 app.post('/api/applications/:id/approve', async (c) => {
   try {

@@ -127,6 +127,9 @@ export type Agency = {
       limitAction?: 'CLOSE' | 'WAITLIST'
       showRemaining?: boolean
     }
+    requireViewingToApply?: boolean
+    buildingViewingCountsForAllUnits?: boolean
+    mainApplicantViewingCoversCoApplicants?: boolean
   }
 }
 
@@ -275,6 +278,8 @@ export type PropertyAsset = {
   mandateActive?: boolean | null
   /** Manual portal publication records (export pack / live_manual). */
   syndicationPublications?: ListingPublicationRecord[]
+  /** Unit-level override; null inherits agency setting. */
+  requireViewingToApply?: boolean | null
 }
 
 /** Soft Mode A portal publication row (mirrors src/lib/syndication types). */
@@ -432,6 +437,8 @@ export type Application = {
   /** @deprecated prefer documents[]; kept for display fallbacks */
   docs: string[]
   viewingSlotId: string | null
+  /** Mandatory-viewing proof (completed booking or staff override). */
+  viewingEvidence?: import('../lib/applyEligibility.js').ViewingEvidence | null
   notes: string
   /** Staff decline / reject reason surfaced to applicant comms. */
   declineReason?: string
@@ -552,6 +559,7 @@ export type Viewing = {
   time: string
   status: 'Scheduled' | 'Completed' | 'No-show' | 'Cancelled'
   attendance: string
+  viewingMode?: 'IN_PERSON' | 'VIRTUAL'
   feedback?: string
   notes?: string
 }
