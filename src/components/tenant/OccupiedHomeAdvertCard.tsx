@@ -2,18 +2,24 @@ import { useEffect, useState } from 'react'
 import { Badge, Button, Card } from '../ui'
 import { authHeaders } from '../../lib/api/authClient'
 import { availableFromLabel } from '../../lib/availableFromLabel'
-import type { PropertyAsset, Tenancy, Viewing } from '../../types/domain'
+import type { PropertyAsset, Tenancy } from '../../types/domain'
 
 type WindowRow = { weekday: number | null; windowDate: string | null; startTime: string; endTime: string }
+/** Date and time only: the visitor's details stay with the agency (POPIA). */
+type RequestRow = { id: string; startsAt: string; tenantConsentStatus: string }
+
+function formatStartsAt(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
 
 export function OccupiedHomeAdvertCard({
   tenancy,
   property,
-  requests,
 }: {
   tenancy: Tenancy
   property: PropertyAsset | null
-  requests: Viewing[]
 }) {
   const [windows, setWindows] = useState<WindowRow[]>([])
   const [weekday, setWeekday] = useState('6')
@@ -21,7 +27,7 @@ export function OccupiedHomeAdvertCard({
   const [endTime, setEndTime] = useState('12:00')
   const [message, setMessage] = useState<string | null>(null)
   const [proposedStartsAt, setProposedStartsAt] = useState('')
-  const pending = requests.filter((v) => v.tenantConsentStatus === 'PENDING')
+  const [pending, setPending] = useState<RequestRow[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -29,6 +35,12 @@ export function OccupiedHomeAdvertCard({
       .then((res) => res.json())
       .then((body: { windows?: WindowRow[] }) => {
         if (!cancelled && Array.isArray(body.windows)) setWindows(body.windows)
+      })
+      .catch(() => undefined)
+    void fetch(`/api/leases/${encodeURIComponent(tenancy.id)}/viewing-requests`, { headers: { ...authHeaders() } })
+      .then((res) => res.json())
+      .then((body: { requests?: RequestRow[] }) => {
+        if (!cancelled && Array.isArray(body.requests)) setPending(body.requests)
       })
       .catch(() => undefined)
     return () => {
@@ -53,7 +65,7 @@ export function OccupiedHomeAdvertCard({
   }
 
   async function respond(id: string, status: 'ACCEPTED' | 'DECLINED') {
-    await fetch(`/api/bookings/${encodeURIComponent(id)}/tenant-response`, {
+    const res = await fetch(`/api/bookings/${encodeURIComponent(id)}/tenant-response`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({
@@ -61,6 +73,12 @@ export function OccupiedHomeAdvertCard({
         proposedStartsAt: status === 'DECLINED' && proposedStartsAt ? proposedStartsAt : null,
       }),
     })
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { message?: string }
+      setMessage(body.message ?? 'Could not save your answer')
+      return
+    }
+    setPending((rows) => rows.filter((r) => r.id !== id))
     setMessage(status === 'ACCEPTED' ? 'Viewing accepted' : 'Viewing declined')
   }
 
@@ -116,7 +134,7 @@ export function OccupiedHomeAdvertCard({
       )}
       {pending.map((v) => (
         <div key={v.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-primary-100 px-3 py-2">
-          <p className="text-sm">{v.applicantName} · {v.date} {v.time}</p>
+          <p className="text-sm">Viewing · {formatStartsAt(v.startsAt)}</p>
           <div className="flex gap-2">
             <Button type="button" className="min-h-11" onClick={() => void respond(v.id, 'ACCEPTED')}>Accept</Button>
             <Button type="button" variant="secondary" className="min-h-11" onClick={() => void respond(v.id, 'DECLINED')}>Decline</Button>

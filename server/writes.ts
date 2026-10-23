@@ -6,6 +6,7 @@ import { query, withTransaction, clientQuery } from './db.js'
 import {
   assertNoLeaseOverlap,
   assertOccupiedBookingAllowed,
+  leaseOverlapFromDbError,
   markBookingTenantPending,
   syncAdvertAfterLeaseSave,
 } from './occupiedListing.js'
@@ -1522,6 +1523,11 @@ export function assertLeasePartiesUnchanged(
   }
 }
 
+/** leases_no_date_overlap fired: answer 409 LEASE_OVERLAP instead of a 500. */
+function rethrowLeaseOverlap(err: unknown): never {
+  throw leaseOverlapFromDbError(err) ?? err
+}
+
 async function upsertTenancy(feId: string, d: Record<string, unknown>): Promise<string> {
   const uuid = await ensureUuid('tenancy', feId)
   const client = await clientId(d.agencyId)
@@ -1635,7 +1641,7 @@ async function upsertTenancy(feId: string, d: Record<string, unknown>): Promise<
         billingSchedule: d.billingSchedule ?? null,
       }),
     ],
-  )
+  ).catch(rethrowLeaseOverlap)
   await syncAdvertAfterLeaseSave({
     unitId: unit,
     previousStatus,
@@ -1657,16 +1663,19 @@ async function upsertViewing(feId: string, d: Record<string, unknown>): Promise<
   const time = str(d.time, '10:00')
   const starts = `${date}T${time}:00`
   const status = VIEW_STATUS_TO_DB[str(d.status, 'Scheduled')] ?? 'SCHEDULED'
-  const prevBooking = await query<{ status: string; unit_id: string }>(
-    `SELECT status, unit_id::text AS unit_id FROM bookings WHERE id = $1::uuid`,
+  const prevBooking = await query<{ status: string; unit_id: string; starts_at: string }>(
+    `SELECT status, unit_id::text AS unit_id, starts_at FROM bookings WHERE id = $1::uuid`,
     [uuid],
   )
   const prevStatus = prevBooking[0]?.status
-  const consent = await assertOccupiedBookingAllowed(unit, {
-    date,
-    time,
-    startsAt: new Date(starts),
-  })
+  // Occupied adverts: check notice + tenant windows when a viewing is booked or
+  // moved, not when an existing one is cancelled or given feedback.
+  const prevStart = prevBooking[0]?.starts_at ? new Date(prevBooking[0].starts_at).getTime() : null
+  const bookedOrMoved = !prevBooking[0] || prevStart !== new Date(starts).getTime()
+  const consent =
+    bookedOrMoved && status === 'SCHEDULED'
+      ? await assertOccupiedBookingAllowed(unit, { date, time, startsAt: new Date(starts) })
+      : 'NOT_REQUIRED'
 
   await query(
     `INSERT INTO bookings (
@@ -2471,7 +2480,7 @@ export async function approveApplicationTx(params: {
           Math.min(28, Math.max(1, num(t.rentDueDay) ?? 1)),
           JSON.stringify({ frontend_id: str(t.id), from_approval: true }),
         ],
-      )
+      ).catch(rethrowLeaseOverlap)
       await clientQuery(
         client,
         `UPDATE units SET advertise_while_occupied = false, available_from = NULL, updated_at = NOW()

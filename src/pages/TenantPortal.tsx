@@ -210,7 +210,6 @@ function TenantPortalContent() {
                   <OccupiedHomeAdvertCard
                     tenancy={portal.tenancy}
                     property={portal.property}
-                    requests={state.viewings.filter((v) => v.propertyId === portal.property?.id)}
                   />
                 )}
                 <div data-tip-target="tenant-hero">

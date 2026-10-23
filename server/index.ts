@@ -1424,6 +1424,18 @@ app.put('/api/leases/:id/viewing-windows', async (c) => {
   }
 })
 
+app.get('/api/leases/:id/viewing-requests', async (c) => {
+  try {
+    const actor = await requireActor(c, null)
+    const { listTenantViewingRequests } = await import('./occupiedListing.js')
+    const requests = await listTenantViewingRequests(actor, c.req.param('id'))
+    return c.json({ requests })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'viewing_requests_failed', message, ...errCode(err) }, errStatus(err))
+  }
+})
+
 app.patch('/api/bookings/:id/tenant-response', async (c) => {
   try {
     const actor = await requireActor(c, null)
@@ -1501,7 +1513,7 @@ app.post('/api/applications/:id/approve', async (c) => {
     return c.json({ ok: true, ...result })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    return c.json({ error: 'approve_failed', message }, errStatus(err))
+    return c.json({ error: 'approve_failed', message, ...errCode(err) }, errStatus(err))
   }
 })
 

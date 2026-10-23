@@ -300,6 +300,33 @@ export async function assertTenancyReadable(
   throw forbiddenError('Lease is outside your scope')
 }
 
+/**
+ * Manage gate for one unit (advertise while occupied, landlord notice): super
+ * admin; the unit's property is in the actor's property scope; or an
+ * agency-wide role in the unit's agency. Portal tenants and contractors never
+ * pass. Throws 404 when the unit is unknown, 403 when it is outside scope.
+ */
+export async function assertUnitManageable(actor: DemoActor, unitUuid: string): Promise<{ clientId: string }> {
+  const rows = await query<{ client_id: string }>(
+    `SELECT client_id::text AS client_id FROM units WHERE id = $1::uuid LIMIT 1`,
+    [unitUuid],
+  )
+  const r = rows[0]
+  if (!r) throw Object.assign(new Error('Unit not found'), { status: 404 })
+  if (actor.role === 'super_admin') return { clientId: r.client_id }
+  if (actor.role === 'tenant' || actor.role === 'contractor') {
+    throw forbiddenError(`Forbidden: ${actor.role} cannot manage this unit`)
+  }
+  const scope = await buildActorPropertyScope(actor)
+  const propertyId = await fePropertyFromUnit(unitUuid)
+  if (propertyId && scope.allowedPropertyIds.has(propertyId)) return { clientId: r.client_id }
+  const agencyId = await agencyFe(r.client_id)
+  if (isAgencyWideRole(actor.role as Role) && scope.viewer.agencyId && agencyId === scope.viewer.agencyId) {
+    return { clientId: r.client_id }
+  }
+  throw forbiddenError('Unit is outside your scope')
+}
+
 /** FE agency id for a client UUID (entity_id_map first, then seed map). */
 export async function agencyFeForClient(clientId: string | null | undefined): Promise<string | null> {
   return agencyFe(clientId)

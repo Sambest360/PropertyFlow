@@ -1,4 +1,5 @@
--- Occupied rentals can stay on the public marketplace with available_from.
+-- 027: occupied rentals can stay on the public marketplace with available_from.
+-- Depends on 024_listing_lead_viewing_limits.sql (unit_listing_limit_snapshot).
 -- EXCLUDE cannot be NOT VALID in PostgreSQL (only CHECK and FK can); the
 -- constraint is validated on add. Seed leases do not overlap.
 
@@ -83,6 +84,58 @@ DROP INDEX IF EXISTS idx_leases_unit_active;
 CREATE INDEX idx_leases_unit_active ON leases (unit_id, status)
   WHERE status IN ('PENDING', 'ACTIVE', 'NOTICE');
 
+-- Public unit shape for the anon marketplace RPCs. Explicit keys so a column
+-- added later (tenant, lease or internal fields) never leaks to guests.
+-- POPIA: no tenant or lease data here; only the date the home comes free.
+-- Only the SECURITY DEFINER RPCs below call it, so anon gets no direct EXECUTE.
+CREATE OR REPLACE FUNCTION public_listing_unit_json(p_unit_id UUID)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT jsonb_build_object(
+    'id', u.id,
+    'building_id', u.building_id,
+    'client_id', u.client_id,
+    'agent_id', u.agent_id,
+    'unit_number', u.unit_number,
+    'property_type', u.property_type,
+    'square_meters', u.square_meters,
+    'bedrooms', u.bedrooms,
+    'bathrooms', u.bathrooms,
+    'parking', u.parking,
+    'listing_type', u.listing_type,
+    'price', u.price,
+    'rent', u.rent,
+    'deposit_amount', u.deposit_amount,
+    'status_config_key', u.status_config_key,
+    'title', u.title,
+    'description', u.description,
+    'amenities', u.amenities,
+    'images', u.images,
+    'featured', u.featured,
+    'lat', u.lat,
+    'lng', u.lng,
+    'place_id', u.place_id,
+    'formatted_address', u.formatted_address,
+    'geocoded_at', u.geocoded_at,
+    'advertise_while_occupied', u.advertise_while_occupied,
+    'available_from', u.available_from,
+    'created_at', u.created_at,
+    'updated_at', u.updated_at
+  )
+  FROM units u
+  WHERE u.id = p_unit_id;
+$$;
+
+REVOKE ALL ON FUNCTION public_listing_unit_json(UUID) FROM PUBLIC;
+
+-- Rebuilt from 024_listing_lead_viewing_limits.sql: keeps
+-- unit_listing_limit_snapshot (fully_booked / remaining) and adds occupied adverts.
+-- Units and landlord users use explicit keys (to_jsonb on users exposed
+-- password_hash and auth_user_id to anon).
 CREATE OR REPLACE FUNCTION get_public_marketplace_bootstrap(p_lite boolean DEFAULT true)
 RETURNS jsonb
 LANGUAGE sql
@@ -146,13 +199,24 @@ AS $$
   SELECT jsonb_build_object(
     'clients', coalesce((SELECT jsonb_agg(to_jsonb(c) ORDER BY c.company_name) FROM unit_clients c), '[]'::jsonb),
     'buildings', coalesce((SELECT jsonb_agg(to_jsonb(b) ORDER BY b.name) FROM unit_buildings b), '[]'::jsonb),
-    'units', coalesce((SELECT jsonb_agg(to_jsonb(u) ORDER BY u.created_at DESC) FROM public_units u), '[]'::jsonb),
+    'units', coalesce((SELECT jsonb_agg((public_listing_unit_json(u.id) || unit_listing_limit_snapshot(u.id)) ORDER BY u.created_at DESC) FROM public_units u), '[]'::jsonb),
     'rooms', coalesce((SELECT jsonb_agg(to_jsonb(r) ORDER BY r.name) FROM unit_rooms r), '[]'::jsonb),
     'viewing_slots', coalesce(
       (SELECT jsonb_agg(to_jsonb(vs) ORDER BY vs.slot_date, vs.slot_time) FROM public_slots vs),
       '[]'::jsonb
     ),
-    'users', coalesce((SELECT jsonb_agg(to_jsonb(u) ORDER BY u.email) FROM unit_landlords u), '[]'::jsonb),
+    'users', coalesce((SELECT jsonb_agg(jsonb_build_object(
+        'id', u.id,
+        'client_id', u.client_id,
+        'role', u.role,
+        'email', u.email,
+        'first_name', u.first_name,
+        'last_name', u.last_name,
+        'phone', u.phone,
+        'active', u.active,
+        'metadata', u.metadata,
+        'created_at', u.created_at
+      ) ORDER BY u.email) FROM unit_landlords u), '[]'::jsonb),
     'entity_id_map', coalesce(
       (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.entity_type, m.frontend_id)
        FROM entity_id_map m
@@ -235,7 +299,7 @@ AS $$
         || jsonb_build_object('images', jsonb_build_array(b.images->0))
         ORDER BY b.name) FROM unit_buildings b), '[]'::jsonb),
     'units', coalesce((SELECT jsonb_agg(
-        (to_jsonb(u) - 'images')
+        ((public_listing_unit_json(u.id) || unit_listing_limit_snapshot(u.id)) - 'images')
         || jsonb_build_object('images', CASE WHEN uc.cover IS NOT NULL THEN jsonb_build_array(uc.cover) ELSE '[]'::jsonb END)
         ORDER BY u.created_at DESC)
       FROM public_units u JOIN unit_cover uc ON uc.id = u.id), '[]'::jsonb),
@@ -243,7 +307,18 @@ AS $$
       (SELECT jsonb_agg(to_jsonb(vs) ORDER BY vs.slot_date, vs.slot_time) FROM public_slots vs),
       '[]'::jsonb
     ),
-    'users', coalesce((SELECT jsonb_agg(to_jsonb(u) ORDER BY u.email) FROM unit_landlords u), '[]'::jsonb),
+    'users', coalesce((SELECT jsonb_agg(jsonb_build_object(
+        'id', u.id,
+        'client_id', u.client_id,
+        'role', u.role,
+        'email', u.email,
+        'first_name', u.first_name,
+        'last_name', u.last_name,
+        'phone', u.phone,
+        'active', u.active,
+        'metadata', u.metadata,
+        'created_at', u.created_at
+      ) ORDER BY u.email) FROM unit_landlords u), '[]'::jsonb),
     'entity_id_map', coalesce(
       (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.entity_type, m.frontend_id)
        FROM entity_id_map m

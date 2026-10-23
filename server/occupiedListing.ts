@@ -3,33 +3,45 @@
  * available_from is stored on the unit for the public marketplace RPC.
  */
 import { query } from './db.js'
-import { isUuid, resolveUuid } from './entityMap.js'
-import type { DemoActor } from './actor.js'
+import { isUuid, resolveUuid, type EntityType } from './entityMap.js'
+import { forbiddenError, type DemoActor } from './actor.js'
 import { addSaBusinessDays, isoAddDays } from './saPublicHolidays.js'
+import {
+  MIN_OCCUPIED_VIEWING_NOTICE_HOURS,
+  POPIA_PHOTO_WARNING,
+  isOccupiedAdvert,
+} from '../src/lib/occupiedAdvert.js'
+
+export { POPIA_PHOTO_WARNING, isOccupiedAdvert }
 
 export const LEASE_OVERLAP = 'LEASE_OVERLAP'
 export const NOTICE_TOO_SHORT = 'NOTICE_TOO_SHORT'
 export const OUTSIDE_VIEWING_WINDOW = 'OUTSIDE_VIEWING_WINDOW'
 export const AVAILABLE_FROM_REQUIRED = 'AVAILABLE_FROM_REQUIRED'
 
-export const POPIA_PHOTO_WARNING =
-  'Do not use photos that show the tenant, their family, or their belongings. Prefer photos taken before they moved in.'
-
-/** Predicate copied into get_public_marketplace_bootstrap (migration 024). */
+/** Predicate copied into get_public_marketplace_bootstrap (migration 027). */
 export const PUBLIC_OCCUPIED_ADVERT_SQL = `u.advertise_while_occupied = true
           AND u.available_from IS NOT NULL
           AND upper(u.status_config_key) = 'OCCUPIED'
           AND lower(coalesce(u.listing_type, 'rent')) IN ('rent', 'both')`
 
-const TENANT_PII_KEYS = [
+/** Keys a public unit must never carry (tenant, lease or visitor PII, credentials). */
+export const PUBLIC_UNIT_FORBIDDEN_KEYS = [
   'tenant_id',
   'tenant_name',
   'tenant_email',
   'tenant_phone',
+  'lease_id',
+  'lease_reference',
+  'notice_given_at',
+  'notice_given_by',
+  'notice_end_date',
   'visitor_name',
   'visitor_email',
   'visitor_phone',
   'password_hash',
+  'auth_user_id',
+  'idempotency_key',
 ] as const
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -43,7 +55,26 @@ export type ViewingWindowInput = {
   endTime: string
 }
 
-type QueryFn = (sql: string, params?: unknown[]) => Promise<Record<string, unknown>[]>
+type Row = Record<string, unknown>
+type QueryFn = (sql: string, params?: unknown[]) => Promise<Row[]>
+
+/** DB and scope access, injectable for tests (see leaseReminders deps). */
+export type OccupiedDeps = {
+  query: QueryFn
+  resolveUuid: (type: EntityType, id: string) => Promise<string | null>
+  assertUnitManageable: (actor: DemoActor, unitId: string) => Promise<{ clientId: string }>
+  canPublish: (actor: DemoActor) => Promise<boolean>
+  now: () => Date
+}
+
+export const defaultOccupiedDeps: OccupiedDeps = {
+  query: (sql, params) => query(sql, params),
+  resolveUuid,
+  // Lazy: scopeGate -> portalWritePolicy -> writes -> occupiedListing is a cycle.
+  assertUnitManageable: async (actor, unitId) => (await import('./scopeGate.js')).assertUnitManageable(actor, unitId),
+  canPublish: async (actor) => (await import('./scopeGate.js')).actorStoredCan(actor, ['listings.publish']),
+  now: () => new Date(),
+}
 
 function coded(status: number, code: string, message: string): Error & { status: number; code: string } {
   return Object.assign(new Error(message), { status, code })
@@ -87,20 +118,25 @@ function noticePeriodFromMetadata(metadata: unknown): NoticePeriod | null {
 }
 
 /**
- * Fixed-term notice is 20 SA business days after givenAt (CPA cancellation;
- * confirm with counsel). Month-to-month (no end_date) is one calendar month
- * unless metadata.noticePeriod says otherwise.
+ * Fixed-term notice is 20 SA business days after givenAt (CPA s14
+ * cancellation; confirm with counsel), but never past the lease's own end.
+ * Month-to-month (no end_date) is one calendar month unless
+ * metadata.noticePeriod says otherwise.
  */
 export function computeNoticeEndDate(input: {
   givenAt: string
   endDate: string | null
   metadata?: unknown
 }): string {
+  const given = input.givenAt.slice(0, 10)
   const custom = noticePeriodFromMetadata(input.metadata)
-  if (custom?.unit === 'business_days') return addSaBusinessDays(input.givenAt.slice(0, 10), custom.count)
-  if (custom?.unit === 'calendar_months') return addCalendarMonths(input.givenAt.slice(0, 10), custom.count)
-  if (!input.endDate) return addCalendarMonths(input.givenAt.slice(0, 10), 1)
-  return addSaBusinessDays(input.givenAt.slice(0, 10), 20)
+  let end: string
+  if (custom?.unit === 'business_days') end = addSaBusinessDays(given, custom.count)
+  else if (custom?.unit === 'calendar_months') end = addCalendarMonths(given, custom.count)
+  else if (!input.endDate) end = addCalendarMonths(given, 1)
+  else end = addSaBusinessDays(given, 20)
+  const leaseEnd = input.endDate?.slice(0, 10)
+  return leaseEnd && leaseEnd < end ? leaseEnd : end
 }
 
 export function computeAvailableFrom(input: {
@@ -122,6 +158,7 @@ export function computeAvailableFrom(input: {
       : `Lease ends ${formatDayMonth(input.endDate!)}`
     return { availableFrom, reason }
   }
+  // Month-to-month without notice: the agent must say when and why.
   const expected = input.expectedAvailableFrom?.slice(0, 10)
   const why = input.expectedReason?.trim()
   if (expected && why) return { availableFrom: expected, reason: why }
@@ -159,14 +196,8 @@ export function slotInsideWindows(slotDate: string, slotTime: string, windows: V
 }
 
 export function noticeHoursMet(startsAt: Date, now: Date, hours: number): boolean {
-  const floor = Math.max(24, hours)
+  const floor = Math.max(MIN_OCCUPIED_VIEWING_NOTICE_HOURS, hours)
   return startsAt.getTime() - now.getTime() >= floor * 60 * 60 * 1000
-}
-
-export function sanitizePublicUnit<T extends Record<string, unknown>>(unit: T): T {
-  const out = { ...unit }
-  for (const key of TENANT_PII_KEYS) delete out[key]
-  return out
 }
 
 export function shouldClearAdvert(input: {
@@ -184,18 +215,121 @@ export function shouldClearAdvert(input: {
   return false
 }
 
-/** Withdraw or recompute the occupied advert after a lease save. */
-export async function syncAdvertAfterLeaseSave(input: {
-  unitId: string
-  previousStatus: string | null
-  previousEnd: string | null
-  nextStatus: string
-  nextEnd: string | null
-}): Promise<void> {
-  const units = await query<{ advertise_while_occupied: boolean }>(
-    `SELECT advertise_while_occupied FROM units WHERE id = $1::uuid`,
-    [input.unitId],
+/** The DB exclusion constraint fired (two writers raced past assertNoLeaseOverlap). */
+export function leaseOverlapFromDbError(err: unknown): (Error & { status: number; code: string }) | null {
+  if (!err || typeof err !== 'object') return null
+  const e = err as { code?: unknown; constraint?: unknown }
+  if (e.code === '23P01' && e.constraint === 'leases_no_date_overlap') {
+    return coded(409, LEASE_OVERLAP, 'That start date overlaps the current lease')
+  }
+  return null
+}
+
+async function writeEvent(
+  deps: OccupiedDeps,
+  clientId: string,
+  eventType: string,
+  subjectType: string,
+  subjectId: string,
+  actor: DemoActor | null,
+  payload: Record<string, unknown>,
+) {
+  const actorUuid = actor ? await actorUserUuid(deps, actor) : null
+  await deps.query(
+    `INSERT INTO event_log (client_id, event_type, subject_type, subject_id, actor_user_id, payload)
+     VALUES ($1::uuid, $2, $3, $4::uuid, $5::uuid, $6::jsonb)`,
+    [clientId, eventType, subjectType, subjectId, actorUuid, JSON.stringify(payload)],
   )
+}
+
+async function notifyUser(
+  deps: OccupiedDeps,
+  clientId: string,
+  userId: string,
+  title: string,
+  body: string,
+  linkPath: string,
+  resourceType = 'unit',
+) {
+  await deps.query(
+    `INSERT INTO notifications (client_id, user_id, title, body, link_path, resource_type, action_type)
+     VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, 'updated')`,
+    [clientId, userId, title, body, linkPath, resourceType],
+  )
+}
+
+async function resolveOr(deps: OccupiedDeps, type: EntityType, id: string): Promise<string | null> {
+  const mapped = await deps.resolveUuid(type, id)
+  if (mapped) return mapped
+  return isUuid(id) ? id : null
+}
+
+export async function resolveUnitUuid(id: string, deps: OccupiedDeps = defaultOccupiedDeps): Promise<string | null> {
+  const fromUnit = await deps.resolveUuid('unit', id)
+  if (fromUnit) return fromUnit
+  return resolveOr(deps, 'property', id)
+}
+
+async function actorUserUuid(deps: OccupiedDeps, actor: DemoActor): Promise<string | null> {
+  return resolveOr(deps, 'user', actor.userId)
+}
+
+async function currentTenantId(deps: OccupiedDeps, unitId: string): Promise<string | null> {
+  const rows = await deps.query(
+    `SELECT tenant_id::text AS tenant_id FROM leases
+      WHERE unit_id = $1::uuid AND status IN ('ACTIVE', 'NOTICE')
+      ORDER BY start_date DESC LIMIT 1`,
+    [unitId],
+  )
+  return (rows[0]?.tenant_id as string | null | undefined) ?? null
+}
+
+export async function clearOccupiedAdvert(
+  unitId: string,
+  actor: DemoActor | null,
+  reason: string,
+  deps: OccupiedDeps = defaultOccupiedDeps,
+): Promise<void> {
+  const rows = await deps.query(
+    `UPDATE units SET advertise_while_occupied = false, available_from = NULL, updated_at = NOW()
+      WHERE id = $1::uuid AND advertise_while_occupied = true
+      RETURNING client_id::text AS client_id`,
+    [unitId],
+  )
+  const clientId = rows[0]?.client_id as string | undefined
+  if (!clientId) return
+  await writeEvent(deps, clientId, 'occupied_listing_withdrawn', 'unit', unitId, actor, { reason })
+  const apps = await deps.query(
+    `SELECT applicant_id::text AS applicant_id FROM applications
+      WHERE unit_id = $1::uuid AND status IN ('SUBMITTED', 'UNDER_REVIEW', 'CREDIT_CHECK')`,
+    [unitId],
+  )
+  for (const app of apps) {
+    if (!app.applicant_id) continue
+    await notifyUser(
+      deps,
+      clientId,
+      String(app.applicant_id),
+      'Listing withdrawn',
+      'This home is no longer coming free, so it has been taken off the market.',
+      '/workspace/portals/tenant/applications',
+      'application',
+    )
+  }
+}
+
+/** Withdraw or recompute the occupied advert after a lease save. */
+export async function syncAdvertAfterLeaseSave(
+  input: {
+    unitId: string
+    previousStatus: string | null
+    previousEnd: string | null
+    nextStatus: string
+    nextEnd: string | null
+  },
+  deps: OccupiedDeps = defaultOccupiedDeps,
+): Promise<void> {
+  const units = await deps.query(`SELECT advertise_while_occupied FROM units WHERE id = $1::uuid`, [input.unitId])
   if (!units[0]?.advertise_while_occupied) return
   const noticeWithdrawn = input.previousStatus === 'NOTICE' && input.nextStatus !== 'NOTICE'
   const openEnded = Boolean(input.previousEnd) && !input.nextEnd && input.nextStatus !== 'NOTICE'
@@ -208,17 +342,13 @@ export async function syncAdvertAfterLeaseSave(input: {
       nextEnd: input.nextEnd,
     })
   ) {
-    const reason = noticeWithdrawn
-      ? 'notice withdrawn'
-      : openEnded
-        ? 'lease no longer ending'
-        : 'lease end moved'
-    await clearOccupiedAdvert(input.unitId, null, reason)
+    const reason = noticeWithdrawn ? 'notice withdrawn' : openEnded ? 'lease no longer ending' : 'lease renewed'
+    await clearOccupiedAdvert(input.unitId, null, reason, deps)
     return
   }
   if (input.nextStatus === 'NOTICE') return
   if (!input.previousEnd || !input.nextEnd || input.nextEnd >= input.previousEnd) return
-  const settings = await query<{ settings: unknown }>(
+  const settings = await deps.query(
     `SELECT c.settings FROM units u JOIN clients c ON c.id = u.client_id WHERE u.id = $1::uuid`,
     [input.unitId],
   )
@@ -229,122 +359,10 @@ export async function syncAdvertAfterLeaseSave(input: {
     turnoverDays: turnoverDaysFromSettings(settings[0]?.settings),
   })
   if ('error' in computed) return
-  await query(`UPDATE units SET available_from = $2::date, updated_at = NOW() WHERE id = $1::uuid`, [
+  await deps.query(`UPDATE units SET available_from = $2::date, updated_at = NOW() WHERE id = $1::uuid`, [
     input.unitId,
     computed.availableFrom,
   ])
-}
-
-export async function resolveUnitUuid(id: string): Promise<string | null> {
-  const fromUnit = await resolveUuid('unit', id)
-  if (fromUnit) return fromUnit
-  const fromProperty = await resolveUuid('property', id)
-  if (fromProperty) return fromProperty
-  return isUuid(id) ? id : null
-}
-
-async function resolveLeaseUuid(id: string): Promise<string | null> {
-  const mapped = await resolveUuid('tenancy', id)
-  if (mapped) return mapped
-  return isUuid(id) ? id : null
-}
-
-async function resolveBookingUuid(id: string): Promise<string | null> {
-  const mapped = await resolveUuid('viewing', id)
-  if (mapped) return mapped
-  return isUuid(id) ? id : null
-}
-
-async function actorUserUuid(actor: DemoActor): Promise<string | null> {
-  const mapped = await resolveUuid('user', actor.userId)
-  if (mapped) return mapped
-  return isUuid(actor.userId) ? actor.userId : null
-}
-
-const STAFF = new Set(['super_admin', 'client_admin', 'agent_admin', 'ground_agent', 'agent'])
-
-async function assertCanManageUnit(actor: DemoActor, unitId: string): Promise<{ clientId: string; tenantId: string | null }> {
-  const rows = await query<{
-    client_id: string
-    agent_id: string | null
-    landlord_id: string | null
-    tenant_id: string | null
-  }>(
-    `SELECT u.client_id::text AS client_id, u.agent_id::text AS agent_id, b.landlord_id::text AS landlord_id,
-            (SELECT l.tenant_id::text FROM leases l
-              WHERE l.unit_id = u.id AND l.status IN ('ACTIVE', 'NOTICE')
-              ORDER BY l.start_date DESC LIMIT 1) AS tenant_id
-       FROM units u
-       JOIN buildings b ON b.id = u.building_id
-      WHERE u.id = $1::uuid`,
-    [unitId],
-  )
-  const row = rows[0]
-  if (!row) throw coded(404, 'NOT_FOUND', 'Unit not found')
-  if (actor.role === 'super_admin') return { clientId: row.client_id, tenantId: row.tenant_id }
-  const userUuid = await actorUserUuid(actor)
-  if (!userUuid) throw coded(403, 'FORBIDDEN', 'Forbidden')
-  const actorRows = await query<{ client_id: string | null }>(
-    `SELECT client_id::text AS client_id FROM users WHERE id = $1::uuid`,
-    [userUuid],
-  )
-  const sameAgency = actorRows[0]?.client_id === row.client_id
-  const isAgent = STAFF.has(actor.role) && actor.role !== 'client_admin' && actor.role !== 'super_admin'
-  if (actor.role === 'client_admin' && sameAgency) return { clientId: row.client_id, tenantId: row.tenant_id }
-  if (isAgent && sameAgency && row.agent_id === userUuid) return { clientId: row.client_id, tenantId: row.tenant_id }
-  if (actor.role === 'landlord' && row.landlord_id === userUuid) return { clientId: row.client_id, tenantId: row.tenant_id }
-  throw coded(403, 'FORBIDDEN', 'Forbidden')
-}
-
-async function writeEvent(clientId: string, eventType: string, subjectType: string, subjectId: string, actor: DemoActor, payload: Record<string, unknown>) {
-  const actorUuid = await actorUserUuid(actor)
-  await query(
-    `INSERT INTO event_log (client_id, event_type, subject_type, subject_id, actor_user_id, payload)
-     VALUES ($1::uuid, $2, $3, $4::uuid, $5::uuid, $6::jsonb)`,
-    [clientId, eventType, subjectType, subjectId, actorUuid, JSON.stringify(payload)],
-  )
-}
-
-async function notifyUser(clientId: string, userId: string, title: string, body: string, linkPath: string) {
-  await query(
-    `INSERT INTO notifications (client_id, user_id, title, body, link_path, resource_type, action_type)
-     VALUES ($1::uuid, $2::uuid, $3, $4, $5, 'unit', 'updated')`,
-    [clientId, userId, title, body, linkPath],
-  )
-}
-
-export async function clearOccupiedAdvert(unitId: string, actor: DemoActor | null, reason: string): Promise<void> {
-  const rows = await query<{ client_id: string; advertise_while_occupied: boolean }>(
-    `UPDATE units SET advertise_while_occupied = false, available_from = NULL, updated_at = NOW()
-      WHERE id = $1::uuid AND advertise_while_occupied = true
-      RETURNING client_id::text AS client_id, advertise_while_occupied`,
-    [unitId],
-  )
-  if (!rows[0]) return
-  if (actor) {
-    await writeEvent(rows[0].client_id, 'occupied_listing_withdrawn', 'unit', unitId, actor, { reason })
-  } else {
-    await query(
-      `INSERT INTO event_log (client_id, event_type, subject_type, subject_id, payload)
-       VALUES ($1::uuid, 'occupied_listing_withdrawn', 'unit', $2::uuid, $3::jsonb)`,
-      [rows[0].client_id, unitId, JSON.stringify({ reason })],
-    )
-  }
-  const apps = await query<{ applicant_id: string | null }>(
-    `SELECT applicant_id::text AS applicant_id FROM applications
-      WHERE unit_id = $1::uuid AND status IN ('SUBMITTED', 'UNDER_REVIEW', 'CREDIT_CHECK')`,
-    [unitId],
-  )
-  for (const app of apps) {
-    if (!app.applicant_id) continue
-    await notifyUser(
-      rows[0].client_id,
-      app.applicant_id,
-      'Listing withdrawn',
-      'This home is no longer being advertised while the current tenant stays.',
-      '/workspace/portals/tenant/applications',
-    )
-  }
 }
 
 export async function patchAdvertiseWhileOccupied(
@@ -356,24 +374,21 @@ export async function patchAdvertiseWhileOccupied(
     reason?: string | null
     photoMode?: 'CURRENT' | 'PRE_OCCUPATION' | null
   },
+  deps: OccupiedDeps = defaultOccupiedDeps,
 ): Promise<{ advertiseWhileOccupied: boolean; availableFrom: string | null; reason: string | null; popiaWarning: string }> {
-  const unitId = await resolveUnitUuid(unitRef)
+  const unitId = await resolveUnitUuid(unitRef, deps)
   if (!unitId) throw coded(404, 'NOT_FOUND', 'Unit not found')
-  const access = await assertCanManageUnit(actor, unitId)
-  const enabled = Boolean(body.enabled)
-  if (!enabled) {
-    await clearOccupiedAdvert(unitId, actor, 'turned off')
+  const access = await deps.assertUnitManageable(actor, unitId)
+  if (actor.role !== 'super_admin' && actor.role !== 'landlord' && !(await deps.canPublish(actor))) {
+    throw forbiddenError(`Forbidden: ${actor.role} ${actor.userId} cannot advertise this unit (missing listings.publish)`)
+  }
+  if (!body.enabled) {
+    await clearOccupiedAdvert(unitId, actor, 'turned off', deps)
     return { advertiseWhileOccupied: false, availableFrom: null, reason: null, popiaWarning: POPIA_PHOTO_WARNING }
   }
-  const leases = await query<{
-    status: string
-    end_date: string | null
-    notice_end_date: string | null
-    notice_given_at: string | null
-    settings: unknown
-  }>(
+  const leases = await deps.query(
     `SELECT l.status, l.end_date::text AS end_date, l.notice_end_date::text AS notice_end_date,
-            l.notice_given_at::text AS notice_given_at, c.settings
+            l.notice_given_at::text AS notice_given_at, l.tenant_id::text AS tenant_id, c.settings
        FROM units u
        JOIN clients c ON c.id = u.client_id
        LEFT JOIN leases l ON l.unit_id = u.id AND l.status IN ('ACTIVE', 'NOTICE')
@@ -385,10 +400,10 @@ export async function patchAdvertiseWhileOccupied(
   const lease = leases[0]
   if (!lease?.status) throw coded(400, AVAILABLE_FROM_REQUIRED, 'An active or notice lease is required')
   const computed = computeAvailableFrom({
-    status: lease.status,
-    endDate: lease.end_date,
-    noticeEndDate: lease.notice_end_date,
-    noticeGivenAt: lease.notice_given_at,
+    status: String(lease.status),
+    endDate: (lease.end_date as string | null) ?? null,
+    noticeEndDate: (lease.notice_end_date as string | null) ?? null,
+    noticeGivenAt: (lease.notice_given_at as string | null) ?? null,
     turnoverDays: turnoverDaysFromSettings(lease.settings),
     expectedAvailableFrom: body.expectedAvailableFrom,
     expectedReason: body.reason,
@@ -396,21 +411,22 @@ export async function patchAdvertiseWhileOccupied(
   if ('error' in computed) {
     throw coded(400, AVAILABLE_FROM_REQUIRED, 'A month-to-month lease needs an expected available date and a reason')
   }
-  await query(
+  await deps.query(
     `UPDATE units SET advertise_while_occupied = true, available_from = $2::date, updated_at = NOW() WHERE id = $1::uuid`,
     [unitId, computed.availableFrom],
   )
-  await writeEvent(access.clientId, 'listing_advertised_while_occupied', 'unit', unitId, actor, {
+  await writeEvent(deps, access.clientId, 'listing_advertised_while_occupied', 'unit', unitId, actor, {
     availableFrom: computed.availableFrom,
     reason: computed.reason,
     advertisePhotoMode: body.photoMode === 'PRE_OCCUPATION' ? 'PRE_OCCUPATION' : 'CURRENT',
   })
-  if (access.tenantId) {
+  if (lease.tenant_id) {
     await notifyUser(
+      deps,
       access.clientId,
-      access.tenantId,
+      String(lease.tenant_id),
       'Your home is being advertised',
-      `Viewings may be booked from ${formatDayMonth(computed.availableFrom)}. Set the times you can host them.`,
+      `It is listed as available from ${formatDayMonth(computed.availableFrom)}. Set the times you can host viewings.`,
       '/workspace/portals/tenant',
     )
   }
@@ -426,113 +442,164 @@ export async function postLeaseNotice(
   actor: DemoActor,
   leaseRef: string,
   body: { givenBy?: string; givenAt?: string },
-): Promise<{ noticeEndDate: string; status: 'NOTICE' }> {
-  const leaseId = await resolveLeaseUuid(leaseRef)
+  deps: OccupiedDeps = defaultOccupiedDeps,
+): Promise<{ noticeEndDate: string; status: 'NOTICE'; availableFrom: string | null }> {
+  const leaseId = await resolveOr(deps, 'tenancy', leaseRef)
   if (!leaseId) throw coded(404, 'NOT_FOUND', 'Lease not found')
   const givenBy = body.givenBy === 'LANDLORD' ? 'LANDLORD' : body.givenBy === 'TENANT' ? 'TENANT' : null
   const givenAt = body.givenAt?.slice(0, 10)
-  if (!givenBy || !givenAt) throw coded(400, 'NOTICE_INVALID', 'givenBy and givenAt are required')
-  const rows = await query<{
-    client_id: string
-    unit_id: string
-    tenant_id: string | null
-    end_date: string | null
-    metadata: unknown
-    advertise_while_occupied: boolean
-  }>(
+  if (!givenBy || !givenAt || !/^\d{4}-\d{2}-\d{2}$/.test(givenAt)) {
+    throw coded(400, 'NOTICE_INVALID', 'givenBy and givenAt are required')
+  }
+  const rows = await deps.query(
     `SELECT l.client_id::text AS client_id, l.unit_id::text AS unit_id, l.tenant_id::text AS tenant_id,
-            l.end_date::text AS end_date, l.metadata, u.advertise_while_occupied
-       FROM leases l JOIN units u ON u.id = l.unit_id
+            l.status, l.end_date::text AS end_date, l.metadata, u.advertise_while_occupied, c.settings
+       FROM leases l
+       JOIN units u ON u.id = l.unit_id
+       JOIN clients c ON c.id = l.client_id
       WHERE l.id = $1::uuid`,
     [leaseId],
   )
   const lease = rows[0]
   if (!lease) throw coded(404, 'NOT_FOUND', 'Lease not found')
-  const userUuid = await actorUserUuid(actor)
   if (givenBy === 'TENANT') {
-    if (actor.role !== 'tenant' || userUuid !== lease.tenant_id) throw coded(403, 'FORBIDDEN', 'Forbidden')
+    const userUuid = await actorUserUuid(deps, actor)
+    if (actor.role !== 'tenant' || !userUuid || userUuid !== lease.tenant_id) throw forbiddenError('Forbidden')
   } else {
-    await assertCanManageUnit(actor, lease.unit_id)
+    await deps.assertUnitManageable(actor, String(lease.unit_id))
   }
-  const noticeEndDate = computeNoticeEndDate({
-    givenAt,
-    endDate: lease.end_date,
-    metadata: lease.metadata,
-  })
-  await query(
+  if (lease.status !== 'ACTIVE') throw coded(409, 'NOTICE_INVALID', 'Notice can only be given on an active lease')
+  const endDate = (lease.end_date as string | null) ?? null
+  const noticeEndDate = computeNoticeEndDate({ givenAt, endDate, metadata: lease.metadata })
+  // The lease now ends on the notice date, so leases_no_date_overlap and
+  // assertNoLeaseOverlap let a successor start after it. The contract end is
+  // kept in metadata.originalEndDate.
+  await deps.query(
     `UPDATE leases SET status = 'NOTICE', notice_given_at = $2::date, notice_given_by = $3,
-            notice_end_date = $4::date, updated_at = NOW()
+            notice_end_date = $4::date, end_date = $4::date,
+            metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('originalEndDate', $5::text),
+            updated_at = NOW()
       WHERE id = $1::uuid`,
-    [leaseId, givenAt, givenBy, noticeEndDate],
+    [leaseId, givenAt, givenBy, noticeEndDate, endDate],
   )
-  await writeEvent(lease.client_id, 'lease_notice_given', 'lease', leaseId, actor, { givenBy, givenAt, noticeEndDate })
+  await writeEvent(deps, String(lease.client_id), 'lease_notice_given', 'lease', leaseId, actor, {
+    givenBy,
+    givenAt,
+    noticeEndDate,
+  })
+  let availableFrom: string | null = null
   if (lease.advertise_while_occupied) {
-    const settings = await query<{ settings: unknown }>(`SELECT settings FROM clients WHERE id = $1::uuid`, [lease.client_id])
     const computed = computeAvailableFrom({
       status: 'NOTICE',
-      endDate: lease.end_date,
+      endDate,
       noticeEndDate,
-      turnoverDays: turnoverDaysFromSettings(settings[0]?.settings),
+      turnoverDays: turnoverDaysFromSettings(lease.settings),
     })
     if (!('error' in computed)) {
-      await query(`UPDATE units SET available_from = $2::date, updated_at = NOW() WHERE id = $1::uuid`, [
+      availableFrom = computed.availableFrom
+      await deps.query(`UPDATE units SET available_from = $2::date, updated_at = NOW() WHERE id = $1::uuid`, [
         lease.unit_id,
-        computed.availableFrom,
+        availableFrom,
       ])
     }
   }
-  return { noticeEndDate, status: 'NOTICE' }
+  return { noticeEndDate, status: 'NOTICE', availableFrom }
 }
 
-export async function getViewingWindows(actor: DemoActor, leaseRef: string): Promise<ViewingWindowInput[]> {
-  const lease = await loadLeaseForTenant(actor, leaseRef)
-  const rows = await query<{ weekday: number | null; window_date: string | null; start_time: string; end_time: string }>(
-    `SELECT weekday, window_date::text AS window_date, start_time, end_time
-       FROM tenant_viewing_windows WHERE lease_id = $1::uuid ORDER BY weekday NULLS LAST, window_date, start_time`,
-    [lease.id],
-  )
-  return rows.map((r) => ({
-    weekday: r.weekday,
-    windowDate: r.window_date,
-    startTime: r.start_time,
-    endTime: r.end_time,
-  }))
-}
-
-export async function putViewingWindows(actor: DemoActor, leaseRef: string, windows: ViewingWindowInput[]): Promise<ViewingWindowInput[]> {
-  const lease = await loadLeaseForTenant(actor, leaseRef)
-  for (const w of windows) {
-    const hasDay = w.weekday != null
-    const hasDate = Boolean(w.windowDate)
-    if (hasDay === hasDate) throw coded(400, 'WINDOW_INVALID', 'Each window needs a weekday or a date, not both')
-    if (!w.startTime || !w.endTime || w.startTime.slice(0, 5) >= w.endTime.slice(0, 5)) {
-      throw coded(400, 'WINDOW_INVALID', 'Window end must be after the start')
-    }
-  }
-  await query(`DELETE FROM tenant_viewing_windows WHERE lease_id = $1::uuid`, [lease.id])
-  for (const w of windows) {
-    await query(
-      `INSERT INTO tenant_viewing_windows (client_id, unit_id, lease_id, weekday, window_date, start_time, end_time)
-       VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5::date, $6, $7)`,
-      [lease.client_id, lease.unit_id, lease.id, w.weekday, w.windowDate, w.startTime.slice(0, 5), w.endTime.slice(0, 5)],
-    )
-  }
-  return getViewingWindows(actor, leaseRef)
-}
-
-async function loadLeaseForTenant(actor: DemoActor, leaseRef: string): Promise<{ id: string; client_id: string; unit_id: string; tenant_id: string | null }> {
-  const leaseId = await resolveLeaseUuid(leaseRef)
+async function loadLeaseForTenant(
+  deps: OccupiedDeps,
+  actor: DemoActor,
+  leaseRef: string,
+): Promise<{ id: string; client_id: string; unit_id: string }> {
+  const leaseId = await resolveOr(deps, 'tenancy', leaseRef)
   if (!leaseId) throw coded(404, 'NOT_FOUND', 'Lease not found')
-  const rows = await query<{ id: string; client_id: string; unit_id: string; tenant_id: string | null }>(
+  const rows = await deps.query(
     `SELECT id::text AS id, client_id::text AS client_id, unit_id::text AS unit_id, tenant_id::text AS tenant_id
        FROM leases WHERE id = $1::uuid`,
     [leaseId],
   )
   const lease = rows[0]
   if (!lease) throw coded(404, 'NOT_FOUND', 'Lease not found')
-  const userUuid = await actorUserUuid(actor)
-  if (actor.role !== 'tenant' || !userUuid || userUuid !== lease.tenant_id) throw coded(403, 'FORBIDDEN', 'Forbidden')
-  return lease
+  const userUuid = await actorUserUuid(deps, actor)
+  if (actor.role !== 'tenant' || !userUuid || userUuid !== lease.tenant_id) throw forbiddenError('Forbidden')
+  return { id: String(lease.id), client_id: String(lease.client_id), unit_id: String(lease.unit_id) }
+}
+
+function windowRows(rows: Row[]): ViewingWindowInput[] {
+  return rows.map((r) => ({
+    weekday: r.weekday == null ? null : Number(r.weekday),
+    windowDate: (r.window_date as string | null) ?? null,
+    startTime: String(r.start_time),
+    endTime: String(r.end_time),
+  }))
+}
+
+export async function getViewingWindows(
+  actor: DemoActor,
+  leaseRef: string,
+  deps: OccupiedDeps = defaultOccupiedDeps,
+): Promise<ViewingWindowInput[]> {
+  const lease = await loadLeaseForTenant(deps, actor, leaseRef)
+  const rows = await deps.query(
+    `SELECT weekday, window_date::text AS window_date, start_time, end_time
+       FROM tenant_viewing_windows WHERE lease_id = $1::uuid ORDER BY weekday NULLS LAST, window_date, start_time`,
+    [lease.id],
+  )
+  return windowRows(rows)
+}
+
+export async function putViewingWindows(
+  actor: DemoActor,
+  leaseRef: string,
+  windows: ViewingWindowInput[],
+  deps: OccupiedDeps = defaultOccupiedDeps,
+): Promise<ViewingWindowInput[]> {
+  const lease = await loadLeaseForTenant(deps, actor, leaseRef)
+  for (const w of windows) {
+    const hasDay = w.weekday != null
+    const hasDate = Boolean(w.windowDate)
+    if (hasDay === hasDate) throw coded(400, 'WINDOW_INVALID', 'Each window needs a weekday or a date, not both')
+    if (hasDay && (!Number.isInteger(w.weekday) || w.weekday! < 0 || w.weekday! > 6)) {
+      throw coded(400, 'WINDOW_INVALID', 'Weekday must be 0 (Sunday) to 6 (Saturday)')
+    }
+    if (!w.startTime || !w.endTime || w.startTime.slice(0, 5) >= w.endTime.slice(0, 5)) {
+      throw coded(400, 'WINDOW_INVALID', 'Window end must be after the start')
+    }
+  }
+  await deps.query(`DELETE FROM tenant_viewing_windows WHERE lease_id = $1::uuid`, [lease.id])
+  for (const w of windows) {
+    await deps.query(
+      `INSERT INTO tenant_viewing_windows (client_id, unit_id, lease_id, weekday, window_date, start_time, end_time)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5::date, $6, $7)`,
+      [lease.client_id, lease.unit_id, lease.id, w.weekday, w.windowDate, w.startTime.slice(0, 5), w.endTime.slice(0, 5)],
+    )
+  }
+  return getViewingWindows(actor, leaseRef, deps)
+}
+
+/**
+ * Viewing requests on the tenant's own home awaiting their answer. Date and
+ * time only: the visitor's name and contact details stay with the agency.
+ */
+export async function listTenantViewingRequests(
+  actor: DemoActor,
+  leaseRef: string,
+  deps: OccupiedDeps = defaultOccupiedDeps,
+): Promise<Array<{ id: string; startsAt: string; tenantConsentStatus: string }>> {
+  const lease = await loadLeaseForTenant(deps, actor, leaseRef)
+  const rows = await deps.query(
+    `SELECT id::text AS id, starts_at, tenant_consent_status
+       FROM bookings
+      WHERE unit_id = $1::uuid AND status = 'SCHEDULED' AND tenant_consent_status = 'PENDING'
+        AND starts_at > NOW()
+      ORDER BY starts_at`,
+    [lease.unit_id],
+  )
+  return rows.map((r) => ({
+    id: String(r.id),
+    startsAt: new Date(r.starts_at as string).toISOString(),
+    tenantConsentStatus: String(r.tenant_consent_status),
+  }))
 }
 
 export function refuseOccupiedBooking(input: {
@@ -545,7 +612,7 @@ export function refuseOccupiedBooking(input: {
   windows: ViewingWindowInput[]
 }): 'PENDING' | 'NOT_REQUIRED' {
   if (!input.occupiedAdvert) return 'NOT_REQUIRED'
-  const hours = Math.max(24, input.noticeHours || 24)
+  const hours = Math.max(MIN_OCCUPIED_VIEWING_NOTICE_HOURS, input.noticeHours || MIN_OCCUPIED_VIEWING_NOTICE_HOURS)
   if (!noticeHoursMet(input.startsAt, input.now, hours)) {
     throw coded(400, NOTICE_TOO_SHORT, `Viewings of an occupied home need at least ${hours} hours' notice`)
   }
@@ -555,67 +622,65 @@ export function refuseOccupiedBooking(input: {
   return 'PENDING'
 }
 
+/** Refuse a booking on an occupied advert that breaks the notice floor or the tenant's windows. */
 export async function assertOccupiedBookingAllowed(
   unitId: string,
   slot: { date: string; time: string; startsAt: Date },
-  now = new Date(),
+  deps: OccupiedDeps = defaultOccupiedDeps,
 ): Promise<'PENDING' | 'NOT_REQUIRED'> {
-  const rows = await query<{
-    advertise_while_occupied: boolean
-    status_config_key: string
-    occupied_viewing_notice_hours: number
-  }>(
+  const rows = await deps.query(
     `SELECT advertise_while_occupied, status_config_key, occupied_viewing_notice_hours
        FROM units WHERE id = $1::uuid`,
     [unitId],
   )
   const unit = rows[0]
-  const occupiedAdvert = Boolean(unit?.advertise_while_occupied) && String(unit?.status_config_key ?? '').toUpperCase() === 'OCCUPIED'
+  const occupiedAdvert =
+    Boolean(unit?.advertise_while_occupied) && String(unit?.status_config_key ?? '').toUpperCase() === 'OCCUPIED'
   if (!occupiedAdvert) return 'NOT_REQUIRED'
-  const windows = await query<{ weekday: number | null; window_date: string | null; start_time: string; end_time: string }>(
-    `SELECT weekday, window_date::text AS window_date, start_time, end_time
-       FROM tenant_viewing_windows WHERE unit_id = $1::uuid`,
+  // Windows of the sitting tenant only, never a previous lease's.
+  const windows = await deps.query(
+    `SELECT w.weekday, w.window_date::text AS window_date, w.start_time, w.end_time
+       FROM tenant_viewing_windows w
+       JOIN leases l ON l.id = w.lease_id AND l.status IN ('ACTIVE', 'NOTICE')
+      WHERE w.unit_id = $1::uuid`,
     [unitId],
   )
   return refuseOccupiedBooking({
     occupiedAdvert,
-    noticeHours: Number(unit?.occupied_viewing_notice_hours) || 24,
+    noticeHours: Number(unit?.occupied_viewing_notice_hours) || MIN_OCCUPIED_VIEWING_NOTICE_HOURS,
     startsAt: slot.startsAt,
-    now,
+    now: deps.now(),
     slotDate: slot.date,
     slotTime: slot.time,
-    windows: windows.map((w) => ({
-      weekday: w.weekday,
-      windowDate: w.window_date,
-      startTime: w.start_time,
-      endTime: w.end_time,
-    })),
+    windows: windowRows(windows),
   })
 }
 
-export async function markBookingTenantPending(bookingId: string, unitId: string): Promise<void> {
-  const rows = await query<{ client_id: string; tenant_id: string | null }>(
+/** Mark a new booking as awaiting the sitting tenant and tell them. */
+export async function markBookingTenantPending(
+  bookingId: string,
+  unitId: string,
+  deps: OccupiedDeps = defaultOccupiedDeps,
+): Promise<void> {
+  const rows = await deps.query(
     `UPDATE bookings SET tenant_consent_status = 'PENDING', tenant_notified_at = NOW(), updated_at = NOW()
       WHERE id = $1::uuid
-      RETURNING client_id::text AS client_id,
-                (SELECT tenant_id::text FROM leases l
-                  WHERE l.unit_id = bookings.unit_id AND l.status IN ('ACTIVE', 'NOTICE')
-                  ORDER BY l.start_date DESC LIMIT 1) AS tenant_id`,
+      RETURNING client_id::text AS client_id`,
     [bookingId],
   )
-  const row = rows[0]
-  if (!row?.tenant_id) return
-  await query(
-    `INSERT INTO event_log (client_id, event_type, subject_type, subject_id, payload)
-     VALUES ($1::uuid, 'viewing_tenant_notified', 'booking', $2::uuid, $3::jsonb)`,
-    [row.client_id, bookingId, JSON.stringify({ unitId })],
-  )
+  const clientId = rows[0]?.client_id as string | undefined
+  if (!clientId) return
+  const tenantId = await currentTenantId(deps, unitId)
+  await writeEvent(deps, clientId, 'viewing_tenant_notified', 'booking', bookingId, null, { unitId })
+  if (!tenantId) return
   await notifyUser(
-    row.client_id,
-    row.tenant_id,
+    deps,
+    clientId,
+    tenantId,
     'Viewing requested',
     'Someone wants to view your home. Accept or decline the time.',
     '/workspace/portals/tenant',
+    'viewing',
   )
 }
 
@@ -623,35 +688,53 @@ export async function patchTenantBookingResponse(
   actor: DemoActor,
   bookingRef: string,
   body: { status?: string; proposedStartsAt?: string | null },
+  deps: OccupiedDeps = defaultOccupiedDeps,
 ): Promise<{ status: 'ACCEPTED' | 'DECLINED' }> {
-  const bookingId = await resolveBookingUuid(bookingRef)
+  const bookingId = await resolveOr(deps, 'viewing', bookingRef)
   if (!bookingId) throw coded(404, 'NOT_FOUND', 'Booking not found')
   const status = body.status === 'ACCEPTED' ? 'ACCEPTED' : body.status === 'DECLINED' ? 'DECLINED' : null
   if (!status) throw coded(400, 'RESPONSE_INVALID', 'status must be ACCEPTED or DECLINED')
-  const rows = await query<{ client_id: string; unit_id: string; tenant_id: string | null }>(
-    `SELECT b.client_id::text AS client_id, b.unit_id::text AS unit_id,
-            (SELECT l.tenant_id::text FROM leases l
-              WHERE l.unit_id = b.unit_id AND l.status IN ('ACTIVE', 'NOTICE')
-              ORDER BY l.start_date DESC LIMIT 1) AS tenant_id
+  const rows = await deps.query(
+    `SELECT b.client_id::text AS client_id, b.unit_id::text AS unit_id, b.agent_id::text AS agent_id,
+            b.tenant_consent_status
        FROM bookings b WHERE b.id = $1::uuid`,
     [bookingId],
   )
   const booking = rows[0]
   if (!booking) throw coded(404, 'NOT_FOUND', 'Booking not found')
-  const userUuid = await actorUserUuid(actor)
-  if (actor.role !== 'tenant' || !userUuid || userUuid !== booking.tenant_id) throw coded(403, 'FORBIDDEN', 'Forbidden')
-  await query(
+  const tenantId = await currentTenantId(deps, String(booking.unit_id))
+  const userUuid = await actorUserUuid(deps, actor)
+  if (actor.role !== 'tenant' || !userUuid || userUuid !== tenantId) throw forbiddenError('Forbidden')
+  if (booking.tenant_consent_status === 'NOT_REQUIRED') {
+    throw coded(409, 'RESPONSE_INVALID', 'This viewing does not need your answer')
+  }
+  const proposed = status === 'DECLINED' ? body.proposedStartsAt ?? null : null
+  await deps.query(
     `UPDATE bookings SET tenant_consent_status = $2, tenant_proposed_starts_at = $3::timestamptz, updated_at = NOW()
       WHERE id = $1::uuid`,
-    [bookingId, status, status === 'DECLINED' ? body.proposedStartsAt ?? null : null],
+    [bookingId, status, proposed],
   )
-  await writeEvent(booking.client_id, 'viewing_tenant_responded', 'booking', bookingId, actor, {
+  await writeEvent(deps, String(booking.client_id), 'viewing_tenant_responded', 'booking', bookingId, actor, {
     status,
-    proposedStartsAt: body.proposedStartsAt ?? null,
+    proposedStartsAt: proposed,
   })
+  if (booking.agent_id) {
+    await notifyUser(
+      deps,
+      String(booking.client_id),
+      String(booking.agent_id),
+      status === 'ACCEPTED' ? 'Tenant accepted a viewing' : 'Tenant declined a viewing',
+      status === 'ACCEPTED'
+        ? 'The sitting tenant accepted the viewing time.'
+        : 'The sitting tenant declined the viewing time. Offer another slot.',
+      '/workspace/viewings',
+      'viewing',
+    )
+  }
   return { status }
 }
 
+/** 409 LEASE_OVERLAP when a successor lease starts before available_from or overlaps an open lease. */
 export async function assertNoLeaseOverlap(
   run: QueryFn,
   unitId: string,
@@ -659,10 +742,7 @@ export async function assertNoLeaseOverlap(
   end: string | null,
   ignoreLeaseId?: string | null,
 ): Promise<void> {
-  const unitRows = await run(
-    `SELECT available_from::text AS available_from FROM units WHERE id = $1::uuid`,
-    [unitId],
-  )
+  const unitRows = await run(`SELECT available_from::text AS available_from FROM units WHERE id = $1::uuid`, [unitId])
   const availableFrom = (unitRows[0]?.available_from as string | null) ?? null
   const open = await run(
     `SELECT start_date::text AS start_date, end_date::text AS end_date, id::text AS id

@@ -31,6 +31,7 @@
 -- =============================================================================
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- leases_no_date_overlap (migration 027)
 CREATE EXTENSION IF NOT EXISTS btree_gist;
 
 -- Drop views first, then tables in dependency order
@@ -240,6 +241,7 @@ CREATE TABLE units (
                       CHECK (limit_action IN ('CLOSE', 'WAITLIST')),
   limits_round_started_at TIMESTAMPTZ,
   show_remaining    BOOLEAN NOT NULL DEFAULT FALSE,
+  /** Occupied rental stays on the marketplace until available_from (migration 027) */
   advertise_while_occupied BOOLEAN NOT NULL DEFAULT FALSE,
   available_from    DATE,
   occupied_viewing_notice_hours INT NOT NULL DEFAULT 24
@@ -375,6 +377,7 @@ CREATE TABLE leases (
                         )),
   start_date          DATE NOT NULL,
   end_date            DATE,
+  /** Notice given on this lease (migration 027) */
   notice_given_at     DATE,
   notice_given_by     VARCHAR(20) CHECK (notice_given_by IS NULL OR notice_given_by IN ('TENANT', 'LANDLORD')),
   notice_end_date     DATE,
@@ -396,6 +399,7 @@ CREATE INDEX idx_leases_unit_tenant ON leases (unit_id, tenant_id, status);
 CREATE INDEX idx_leases_unit_active ON leases (unit_id, status)
   WHERE status IN ('PENDING', 'ACTIVE', 'NOTICE');
 
+-- No two open leases on one unit may overlap (migration 027)
 ALTER TABLE leases ADD CONSTRAINT leases_no_date_overlap
   EXCLUDE USING gist (
     unit_id WITH =,
@@ -407,6 +411,7 @@ ALTER TABLE leases ADD CONSTRAINT leases_no_date_overlap
   )
   WHERE (status IN ('PENDING', 'ACTIVE', 'NOTICE'));
 
+-- When the sitting tenant can host viewings (migration 027)
 CREATE TABLE tenant_viewing_windows (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   client_id       UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
@@ -470,6 +475,7 @@ CREATE TABLE bookings (
                         CHECK (interest_level IN ('LOW', 'MEDIUM', 'HIGH', 'UNKNOWN')),
   feedback            TEXT,
   notes               VARCHAR(255),
+  /** Sitting tenant's answer to a viewing on an occupied advert (migration 027) */
   tenant_consent_status VARCHAR(20) NOT NULL DEFAULT 'NOT_REQUIRED'
                         CHECK (tenant_consent_status IN ('PENDING', 'ACCEPTED', 'DECLINED', 'NOT_REQUIRED')),
   tenant_notified_at  TIMESTAMPTZ,

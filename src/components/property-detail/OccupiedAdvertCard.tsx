@@ -2,10 +2,8 @@ import { useState } from 'react'
 import { Badge, Button, Card } from '../ui'
 import { authHeaders } from '../../lib/api/authClient'
 import { availableFromLabel } from '../../lib/availableFromLabel'
+import { POPIA_PHOTO_WARNING } from '../../lib/occupiedAdvert'
 import type { PropertyAsset, Tenancy } from '../../types/domain'
-
-const POPIA =
-  'Do not use photos that show the tenant, their family, or their belongings. Prefer photos taken before they moved in.'
 
 export function OccupiedAdvertCard({
   property,
@@ -22,6 +20,10 @@ export function OccupiedAdvertCard({
   const [photoMode, setPhotoMode] = useState<'CURRENT' | 'PRE_OCCUPATION'>('CURRENT')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Month-to-month with no notice: the agent must give a date and a reason.
+  const needsExpected = !tenancy?.endDate && tenancy?.leaseStatus !== 'notice'
+  const missingExpected = needsExpected && !enabled && (!expected || !note.trim())
 
   const leaseReason = tenancy?.endDate
     ? `Lease ends ${availableFromLabel(tenancy.endDate).replace('Available from ', '')}`
@@ -68,7 +70,7 @@ export function OccupiedAdvertCard({
         </div>
         {availableFrom ? <Badge tone="brand">{availableFromLabel(availableFrom)}</Badge> : null}
       </div>
-      <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-900">{POPIA}</p>
+      <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-900">{POPIA_PHOTO_WARNING}</p>
       <label className="flex items-center gap-2 text-sm text-ink-600">
         <input
           type="checkbox"
@@ -77,7 +79,7 @@ export function OccupiedAdvertCard({
         />
         Use pre-occupation photos
       </label>
-      {!tenancy?.endDate && (
+      {needsExpected && !enabled && (
         <div className="grid gap-2 sm:grid-cols-2">
           <input
             type="date"
@@ -95,7 +97,10 @@ export function OccupiedAdvertCard({
         </div>
       )}
       {error ? <p className="text-sm text-red-700">{error}</p> : null}
-      <Button type="button" className="min-h-11" disabled={busy} onClick={() => save(!enabled)}>
+      {missingExpected ? (
+        <p className="text-xs text-ink-500">Enter the expected available date and the reason to advertise.</p>
+      ) : null}
+      <Button type="button" className="min-h-11" disabled={busy || missingExpected} onClick={() => save(!enabled)}>
         {busy ? 'Saving…' : enabled ? 'Stop advertising' : 'Advertise while occupied'}
       </Button>
     </Card>
