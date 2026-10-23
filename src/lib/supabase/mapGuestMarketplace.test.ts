@@ -69,3 +69,110 @@ describe('mapGuestMarketplacePayload viewing_slots', () => {
     expect(boot.viewingSlots[0].propertyId).toBe('PR-9001')
   })
 })
+
+describe('mapGuestMarketplacePayload with the 027 public payload', () => {
+  const clientUuid = 'cccccccc-dddd-eeee-ffff-000000000002'
+  const buildingUuid = 'bbbbbbbb-cccc-dddd-eeee-000000000002'
+  const unitUuid = 'aaaaaaaa-bbbb-cccc-dddd-000000000002'
+  const slotUuid = '11111111-2222-3333-4444-000000000002'
+
+  it('renders agencies, listings and slots from explicit keys with users []', () => {
+    const boot = mapGuestMarketplacePayload({
+      clients: [
+        {
+          id: clientUuid,
+          company_name: 'Explicit Realty',
+          trading_as: 'Explicit',
+          subdomain: 'explicit',
+          city: 'Durban',
+          status: 'ACTIVE',
+          created_at: '2026-01-01T00:00:00Z',
+          frontend_id: 'AG-EXPLICIT',
+        },
+      ],
+      buildings: [
+        {
+          id: buildingUuid,
+          client_id: clientUuid,
+          name: 'Tower',
+          address: '9 Beach Rd',
+          suburb: 'Umhlanga',
+          city: 'Durban',
+          province: 'KZN',
+          images: ['cover.jpg'],
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      units: [
+        {
+          id: unitUuid,
+          client_id: clientUuid,
+          building_id: buildingUuid,
+          unit_number: '12',
+          title: 'Sea view flat',
+          status_config_key: 'OCCUPIED',
+          listing_type: 'RENT',
+          advertise_while_occupied: true,
+          available_from: '2027-02-01',
+          rent: 12000,
+          images: [],
+          fully_booked: false,
+          remaining: { enquiries: 5, viewings: 2 },
+        },
+      ],
+      users: [],
+      entity_id_map: [
+        { entity_type: 'property', backend_id: unitUuid, frontend_id: 'PR-EXP' },
+        { entity_type: 'viewing_slot', backend_id: slotUuid, frontend_id: 'VS-EXP' },
+      ],
+      viewing_slots: [
+        {
+          id: slotUuid,
+          client_id: clientUuid,
+          unit_id: unitUuid,
+          slot_date: '2027-01-10',
+          slot_time: '10:00',
+          capacity: 2,
+          booked_count: 0,
+          status: 'OPEN',
+          title: 'Viewing',
+          duration_minutes: 30,
+        },
+      ],
+    })
+
+    expect(boot.users).toEqual([])
+    expect(boot.agencies).toHaveLength(1)
+    expect(boot.agencies[0].id).toBe('AG-EXPLICIT')
+    expect(boot.agencies[0].name).toBe('Explicit Realty')
+    expect(boot.properties).toHaveLength(1)
+    const p = boot.properties[0]
+    expect(p.id).toBe('PR-EXP')
+    expect(p.agencyId).toBe('AG-EXPLICIT')
+    expect(p.landlordId).toBe('')
+    expect(p.agentId).toBeNull()
+    expect(p.advertiseWhileOccupied).toBe(true)
+    expect(p.availableFrom).toBe('2027-02-01')
+    expect(p.images).toEqual(['cover.jpg'])
+    expect(p.city).toBe('Durban')
+    expect(boot.buildings[0].landlordId).toBeNull()
+    expect(boot.viewingSlots).toHaveLength(1)
+    expect(boot.viewingSlots[0].propertyId).toBe('PR-EXP')
+    expect(boot.viewingSlots[0].agentId).toBe('')
+  })
+
+  it('ignores landlord / agent ids even if an older payload still sends them', () => {
+    const boot = mapGuestMarketplacePayload({
+      clients: [{ id: clientUuid, company_name: 'Old', settings: { frontend_id: 'AG-OLD' } }],
+      buildings: [{ id: buildingUuid, client_id: clientUuid, name: 'B', address: 'A', city: 'C', landlord_id: 'llll-uuid' }],
+      units: [{ id: unitUuid, client_id: clientUuid, building_id: buildingUuid, unit_number: '1', agent_id: 'agent-uuid', status_config_key: 'PUBLISHED' }],
+      users: [{ id: 'llll-uuid', email: 'landlord@example.test', first_name: 'L', last_name: 'L', role: 'LANDLORD' }],
+      entity_id_map: [{ entity_type: 'user', backend_id: 'llll-uuid', frontend_id: 'U-LL' }],
+    })
+    expect(boot.users).toEqual([])
+    expect(boot.agencies[0].id).toBe('AG-OLD')
+    expect(boot.properties[0].landlordId).toBe('')
+    expect(boot.properties[0].agentId).toBeNull()
+    expect(JSON.stringify(boot.properties)).not.toContain('landlord@example.test')
+  })
+})
