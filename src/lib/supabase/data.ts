@@ -698,6 +698,7 @@ export async function fetchSupabaseBootstrap(
     return {
       id: u._propertyId,
       backendId: u._unitUuid as string,
+      updatedAt: (u._updatedAt as string | null | undefined) ?? null,
       agencyId: u.clientId,
       landlordId: b?.landlordId ?? '',
       agentId: u.agentId,

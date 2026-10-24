@@ -10,6 +10,7 @@ import { withReturnTo } from '../lib/returnTo'
 import { PropertyMap } from '../components/PropertyMap'
 import { PropertiesToolbar } from '../components/properties/PropertiesToolbar'
 import { PropertyListView } from '../components/properties/PropertyListView'
+import { latestActivityByProperty } from '../lib/propertyActivity'
 import { PropertyPortfolioCard } from '../components/properties/PropertyPortfolioCard'
 import {
   VIEW_STORAGE_KEY,
@@ -76,7 +77,8 @@ export default function Properties() {
   const [attention, setAttention] = useState<AttentionFilter>('all')
   const [buildingFilter, setBuildingFilter] = useState('all')
   const [occupancy, setOccupancy] = useState<OccupancyFilter>('all')
-  const [sort, setSort] = useState<SortKey>('building')
+  // Newest first; any new activity on a property moves it back to the top.
+  const [sort, setSort] = useState<SortKey>('recent')
   const [view, setView] = useState<PropertiesViewMode>(() => readStoredView())
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
@@ -175,6 +177,27 @@ export default function Properties() {
     return [...set].sort((a, b) => a.localeCompare(b))
   }, [portfolio])
 
+  const activity = useMemo(
+    () => latestActivityByProperty(state),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      state.properties,
+      state.leads,
+      state.applications,
+      state.viewings,
+      state.payments,
+      state.tenancies,
+      state.tickets,
+      state.propertyDocuments,
+      state.propertyEvents,
+      state.threads,
+    ],
+  )
+  const storeIndex = useMemo(
+    () => new Map(state.properties.map((p, i) => [p.id, i])),
+    [state.properties],
+  )
+
   const filtered = useMemo(() => {
     let rows = portfolio.filter((item) => {
       const p = item.property
@@ -201,6 +224,12 @@ export default function Properties() {
     })
 
     rows = [...rows].sort((a, b) => {
+      if (sort === 'recent') {
+        const byActivity = (activity.get(b.property.id) ?? '').localeCompare(activity.get(a.property.id) ?? '')
+        if (byActivity !== 0) return byActivity
+        // Same moment (many dates are day-only): store order is newest first.
+        return (storeIndex.get(a.property.id) ?? 0) - (storeIndex.get(b.property.id) ?? 0)
+      }
       if (sort === 'building') {
         const an = a.buildingName ?? 'zzz'
         const bn = b.buildingName ?? 'zzz'
@@ -235,6 +264,8 @@ export default function Properties() {
     buildingFilter,
     occupancy,
     sort,
+    activity,
+    storeIndex,
   ])
 
   const buildingGroupCount = useMemo(
@@ -388,7 +419,7 @@ export default function Properties() {
         </Card>
       ) : (
         <div className="space-y-6">
-          {groupPortfolioByBuilding(filtered, state.buildings).map((group) => {
+          {groupPortfolioByBuilding(filtered, state.buildings, { keepOrder: sort === 'recent' }).map((group) => {
             const cards = group.items.map((item) => (
               <PropertyPortfolioCard
                 key={item.property.id}

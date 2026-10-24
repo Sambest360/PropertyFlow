@@ -343,6 +343,7 @@ export function PropertiesToolbar({
                 onChange={(e) => onSortChange(e.target.value as SortKey)}
                 aria-label="Sort properties"
               >
+                <option value="recent">Sort: Recent activity</option>
                 <option value="name">Sort: Name</option>
                 <option value="building">Sort: Building</option>
                 <option value="suburb">Sort: Suburb</option>

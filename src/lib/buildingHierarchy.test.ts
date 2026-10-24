@@ -77,6 +77,17 @@ describe('groupPortfolioByBuilding', () => {
     expect(groups[1].unitCount).toBe(1)
   })
 
+  it('keepOrder keeps the incoming (recent activity) order for groups and units', () => {
+    const rows = [
+      { property: prop({ id: 'p3', title: 'Cottage', buildingId: null }) },
+      { property: prop({ id: 'p1', title: 'Unit B', buildingId: 'bld-skyline' }) },
+      { property: prop({ id: 'p2', title: 'Unit A', buildingId: 'bld-skyline' }) },
+    ]
+    const groups = groupPortfolioByBuilding(rows, buildings, { keepOrder: true })
+    expect(groups.map((g) => g.key)).toEqual([STANDALONE_BUILDING_KEY, 'bld-skyline'])
+    expect(groups[1].items.map((i) => i.property.title)).toEqual(['Unit B', 'Unit A'])
+  })
+
   it('treats unknown buildingId as standalone', () => {
     const groups = groupPortfolioByBuilding(
       [{ property: prop({ id: 'p1', title: 'X', buildingId: 'bld-missing' }) }],

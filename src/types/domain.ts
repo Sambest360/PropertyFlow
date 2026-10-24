@@ -217,6 +217,8 @@ export type PropertyAsset = {
   id: string
   /** Postgres units.id when hydrated from Supabase */
   backendId?: string
+  /** Postgres units.updated_at (ISO) — last edit, used for "Recent activity" order. */
+  updatedAt?: string | null
   agencyId: string
   landlordId: string
   agentId: string | null

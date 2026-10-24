@@ -13,7 +13,7 @@ export type OccupancyFilter =
   | 'DRAFT'
   | 'PUBLISHED'
   | 'unknown'
-export type SortKey = 'name' | 'suburb' | 'status' | 'price' | 'attention' | 'building'
+export type SortKey = 'recent' | 'name' | 'suburb' | 'status' | 'price' | 'attention' | 'building'
 
 export type PortfolioProperty = {
   property: PropertyAsset

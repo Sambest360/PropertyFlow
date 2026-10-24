@@ -33,7 +33,10 @@ function buildingLabel(building: Building | null, fallbackSuburb: string, fallba
 export function groupPortfolioByBuilding<T extends BuildingGroupable>(
   items: T[],
   buildings: Building[],
+  /** Keep the incoming order (e.g. recent activity): groups by first item, items as given. */
+  opts?: { keepOrder?: boolean },
 ): BuildingPortfolioGroup<T>[] {
+  const keepOrder = Boolean(opts?.keepOrder)
   const byId = new Map(buildings.map((b) => [b.id, b]))
   const buckets = new Map<string, T[]>()
 
@@ -50,7 +53,9 @@ export function groupPortfolioByBuilding<T extends BuildingGroupable>(
   for (const [key, groupItems] of buckets) {
     const building = key === STANDALONE_BUILDING_KEY ? null : (byId.get(key) ?? null)
     const sample = groupItems[0]?.property
-    const sortedItems = [...groupItems].sort((a, b) => a.property.title.localeCompare(b.property.title))
+    const sortedItems = keepOrder
+      ? groupItems
+      : [...groupItems].sort((a, b) => a.property.title.localeCompare(b.property.title))
     groups.push({
       key,
       building,
@@ -67,6 +72,9 @@ export function groupPortfolioByBuilding<T extends BuildingGroupable>(
       unitCount: sortedItems.length,
     })
   }
+
+  // Map insertion order already follows the first (most recent) item per group.
+  if (keepOrder) return groups
 
   groups.sort((a, b) => {
     if (a.key === STANDALONE_BUILDING_KEY) return 1
