@@ -7,7 +7,7 @@
  * bootstrap, live-sync refresh and marketplace RPC re-read and shipped all of
  * it (0.9–1.2 s per query on Supabase, multi-MB responses to every browser).
  *
- * Needs migration 029_listing_photos_storage.sql applied first.
+ * Needs migration 030_listing_photos_storage.sql applied first.
  *
  * Usage:
  *   npx tsx scripts/migratePhotosToStorage.ts          # dry-run report

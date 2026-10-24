@@ -1,4 +1,4 @@
--- 029: listing / ticket photos move out of Postgres into Supabase Storage.
+-- 030: listing / ticket photos move out of Postgres into Supabase Storage.
 -- Inline base64 data URLs in units.images / buildings.images made every
 -- bootstrap ship ~10 MB (21 units + 23 buildings took 0.9–1.2 s per query).
 -- Rows now keep the public Storage URL; the bucket is public-read (CDN cached)
