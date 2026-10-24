@@ -23,6 +23,10 @@ import { Client } from 'pg'
 import { createClient } from '@supabase/supabase-js'
 
 loadEnv({ path: '.env.local' })
+// `vercel env pull` writes "[SENSITIVE]" for secrets it cannot download; treat those as unset.
+for (const [k, v] of Object.entries(process.env)) {
+  if (v?.includes('[SENSITIVE]')) delete process.env[k]
+}
 
 const WRITE = process.argv.includes('--write')
 const BUCKET = 'listing-photos'
