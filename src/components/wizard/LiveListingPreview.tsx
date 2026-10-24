@@ -15,6 +15,7 @@ import { formatZAR } from '../../data/seed'
 import { ExpandableDescription } from '../listing/ExpandableDescription'
 import { featureByLabel } from '../../lib/propertyFeatures'
 import type { BuildingGrading } from '../../data/infrastructure'
+import { isLoadSheddingFreeListing } from '../../lib/loadShedding'
 
 export type LiveListingPreviewProps = {
   title?: string
@@ -124,9 +125,7 @@ export function LiveListingPreview({
   const priceLine = resolvePriceLine(listingMode, rent, price)
   const entryFees = resolveEntryFees(listingMode, rent, price)
 
-  const loadFree =
-    solarCapacityKw >= 3 ||
-    amenities.some((a) => /generator|inverter|solar|ups/i.test(a))
+  const loadFree = isLoadSheddingFreeListing(amenities)
 
   const premium = grading === 'P' || (solarCapacityKw >= 20 && hasBorehole)
 

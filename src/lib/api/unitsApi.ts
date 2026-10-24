@@ -19,6 +19,7 @@ import { canonicalListingId } from '../listingIds'
 import { isPublicMarketplaceUnit } from '../publicListings'
 import type { Place } from '../placeCatalog'
 import { propertyMatchesAreas } from '../placeCatalog'
+import { isLoadSheddingFreeListing } from '../loadShedding'
 
 export type UnitSearchFilters = {
   /** Free-text across title, suburb, city, unit number */
@@ -139,10 +140,9 @@ export function haversineKm(lat1: number, lng1: number, lat2: number, lng2: numb
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
-export function isLoadSheddingFree(building: Building, amenities: string[]): boolean {
-  if (building.solarCapacityKw >= 3) return true
-  if (building.hasBorehole && building.solarCapacityKw > 0) return true
-  return amenities.some((a) => /generator|inverter|solar|ups/i.test(a))
+/** Explicit listing choice only (see src/lib/loadShedding.ts); building kept for callers. */
+export function isLoadSheddingFree(_building: Building, amenities: string[]): boolean {
+  return isLoadSheddingFreeListing(amenities)
 }
 
 export function isPremiumTier(building: Building): boolean {

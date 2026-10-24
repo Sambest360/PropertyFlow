@@ -8,7 +8,6 @@ import type { PropertyAsset } from '../types/domain'
 import { featureByLabel } from '../lib/propertyFeatures'
 import { cn } from './ui'
 import {
-  isLoadSheddingFree,
   isPremiumTier,
   resolveTotalEntryFees,
   type UnitCardPayload,
@@ -19,6 +18,7 @@ import { useStore } from '../context/AppStore'
 import { useWishlist } from '../hooks/useWishlist'
 import { canonicalListingId } from '../lib/listingIds'
 import { propertyListingRating } from './reviews/StarRating'
+import { isLoadSheddingFreeListing } from '../lib/loadShedding'
 
 export function PropertyCard({
   property,
@@ -42,12 +42,7 @@ export function PropertyCard({
   const { saved, toggle } = useWishlist(isAuthenticated ? user.id : 'guest')
   const wishlisted = saved(property.id)
 
-  const loadFree =
-    card?.is_load_shedding_free ??
-    (building
-      ? isLoadSheddingFree(building, property.amenities)
-      : Boolean(property.solarCapacityKw && property.solarCapacityKw >= 3) ||
-        property.amenities.some((a) => /generator|solar/i.test(a)))
+  const loadFree = card?.is_load_shedding_free ?? isLoadSheddingFreeListing(property.amenities)
 
   const premium =
     card?.is_premium_tier ??

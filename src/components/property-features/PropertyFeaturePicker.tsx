@@ -6,6 +6,7 @@ import {
   type ListingMode,
 } from '../../lib/propertyFeatures'
 import { cn } from '../ui'
+import { isLoadSheddingFreeListing } from '../../lib/loadShedding'
 
 const ICON_STROKE = 1.6
 
@@ -27,7 +28,10 @@ export function PropertyFeaturePicker({
   })).filter((c) => c.features.length > 0)
 
   const orphans = value.filter(
-    (label) => !available.some((f) => f.label === label) && !available.some((f) => f.label.toLowerCase() === label.toLowerCase()),
+    (label) =>
+      !isLoadSheddingFreeListing([label]) &&
+      !available.some((f) => f.label === label) &&
+      !available.some((f) => f.label.toLowerCase() === label.toLowerCase()),
   )
 
   const modeHint =

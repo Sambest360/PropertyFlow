@@ -27,6 +27,7 @@ import { FullScreenSheet } from '../../components/layout/mobile/FullScreenSheet'
 import { DataRefreshBanner } from '../../components/loading/DataRefreshBanner'
 import { ListingCardGridSkeleton } from '../../components/loading/PageSkeleton'
 import { parseAreasParam, propertyMatchesAreas } from '../../lib/placeCatalog'
+import { isLoadSheddingFreeListing } from '../../lib/loadShedding'
 
 function listingAmount(p: PropertyAsset, mode: string): number | null {
   if (mode === 'rent') return p.rent
@@ -76,9 +77,7 @@ function matchesFilters(
   if (f.minSolarKw && (p.solarCapacityKw ?? 0) < Number(f.minSolarKw)) return false
   if (f.hasBorehole && !p.hasBorehole) return false
 
-  const loadFree =
-    Boolean(p.solarCapacityKw && p.solarCapacityKw >= 3) ||
-    p.amenities.some((a) => /generator|inverter|solar|ups/i.test(a))
+  const loadFree = isLoadSheddingFreeListing(p.amenities)
   if (f.loadSheddingFree && !loadFree) return false
 
   const premium =

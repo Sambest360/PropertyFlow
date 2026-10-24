@@ -50,7 +50,6 @@ import { useLookupOptions } from '../../hooks/useLookupOptions'
 import { formatZAR } from '../../data/seed'
 import {
   gradingLabel,
-  inferSolarCapacityKw,
   resolveBuildingGrading,
 } from '../../lib/buildingGrading'
 import { sanitizeRoomCounts, summarizeRooms } from '../../lib/roomSummary'
@@ -81,6 +80,7 @@ import { shouldRetainWizardDraftPropertyId, shouldStartFreshWizard } from '../..
 import { propertyIdFromCreateError } from '../../lib/createPropertyBundleError'
 import { sweetError, sweetSuccess, sweetWarning } from '../../lib/sweetAlert'
 import { PropertyLoader } from '../../components/loading/PropertyLoader'
+import { isLoadSheddingFreeListing, withLoadSheddingFree } from '../../lib/loadShedding'
 
 const DRAFT_KEY = 'propertyflow:property-create'
 
@@ -532,7 +532,9 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     [draft.hasBorehole, draft.amenities, draft.propertyType],
   )
 
-  const computedSolarKw = useMemo(() => inferSolarCapacityKw(draft.amenities), [draft.amenities])
+  // Solar kW is the building's stored figure (0 for a new building) — never
+  // guessed from amenities like "Solar", which used to invent 5 kW.
+  const computedSolarKw = Number(draft.solarCapacityKw) || 0
 
   // P0-4 (R4): listing photos must be this listing's own uploads only.
   // Inheriting an existing building's images published another listing's
@@ -1168,6 +1170,8 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                     lat: b?.lat ?? d.lat,
                     lng: b?.lng ?? d.lng,
                     hasBorehole: b?.hasBorehole ?? d.hasBorehole,
+                    // Keep the building's real solar figure (no longer guessed from amenities).
+                    solarCapacityKw: b ? String(b.solarCapacityKw ?? 0) : d.solarCapacityKw,
                   }))
                 }}
               >
@@ -1250,6 +1254,19 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                   onChange={(e) => setDraft((d) => ({ ...d, hasBorehole: e.target.checked }))}
                 />
                 Borehole on site
+              </label>
+              <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-primary-100 px-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={isLoadSheddingFreeListing(draft.amenities)}
+                  onChange={(e) =>
+                    setDraft((d) => ({ ...d, amenities: withLoadSheddingFree(d.amenities, e.target.checked) }))
+                  }
+                />
+                <span>
+                  Load-shedding free
+                  <span className="block text-xs text-ink-400">Backup power covers outages — shows a tag on the listing</span>
+                </span>
               </label>
               <div className="rounded-lg border border-primary-100 bg-primary-50/40 px-4 py-3">
                 <p className="text-xs font-medium text-ink-500">Building grade</p>
