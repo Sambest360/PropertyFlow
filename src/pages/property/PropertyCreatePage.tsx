@@ -1598,15 +1598,6 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       case 6:
         return (
           <WizardSectionCard title="Assignment" description="Who owns and manages this listing?">
-            {!isLandlord ? (
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 text-sm text-emerald-950">
-                <p className="font-semibold">Landlord is optional</p>
-                <p className="mt-1 text-emerald-900/90">
-                  Choose <strong>Agency-owned</strong> below if this is your agency’s stock — you do not need a landlord
-                  on file to save. Use <strong>People → Landlords</strong> in the sidebar to manage owners separately.
-                </p>
-              </div>
-            ) : null}
             <Input
               className="min-h-11"
               placeholder="Listing title"
@@ -1664,6 +1655,14 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                 ) : null}
                 {showLandlordPicker ? (
                   <div>
+                    <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 text-sm text-emerald-950">
+                      <p className="font-semibold">Landlord is optional</p>
+                      <p className="mt-1 text-emerald-900/90">
+                        Choose <strong>Agency-owned</strong> below if this is your agency’s stock — you do not need a
+                        landlord on file to save. Use <strong>People → Landlords</strong> in the sidebar to manage owners
+                        separately.
+                      </p>
+                    </div>
                     <FormLabel className="mb-1.5">Landlord</FormLabel>
                     <LandlordPicker
                       landlords={landlordsForAgency}
