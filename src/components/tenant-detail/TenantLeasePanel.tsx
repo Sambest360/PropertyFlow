@@ -71,8 +71,8 @@ export function TenantLeasePanel({ tenancy }: { tenancy: Tenancy }) {
       </DetailSection>
 
       <DetailSection
-        title="Renewals & scheduled escalation"
-        subtitle="Year-ops clock beside this lease — in-app book only."
+        title="Renewals & escalation"
+        subtitle="Renewal, expiry notice and yearly rent increase for this lease."
         actions={<FieldHelp title="Renewals / escalation" body={RENEWALS_MODE_A_COPY} />}
       >
         <div className="space-y-3">
@@ -134,11 +134,12 @@ export function TenantLeasePanel({ tenancy }: { tenancy: Tenancy }) {
                 if (res.ok) notifyActor('Escalation saved', 'Staff-set % (not live CPI).')
                 else notifyActor('Save failed', 'reason' in res ? res.reason : 'Unknown error')
               },
-              onApplyEscalation: () => {
-                const result = applyDueLeaseEscalations()
+              onApplyEscalation: (tenancyId) => {
+                // Only this lease — not every lease with an increase due.
+                const result = applyDueLeaseEscalations(undefined, { tenancyIds: [tenancyId] })
                 notifyActor(
-                  'Escalation apply',
-                  `Applied ${result.applied} due increase(s) (in-app).`,
+                  result.applied ? 'Rent increase applied' : 'No increase due',
+                  result.applied ? 'The scheduled increase was applied to this lease.' : 'This lease has no increase due yet.',
                 )
               },
             }}

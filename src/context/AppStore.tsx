@@ -926,7 +926,8 @@ type StoreContextValue = {
     input: { escalationPct: number | null; nextEscalationOn: string | null; asOf?: string },
   ) => { ok: true } | { ok: false; reason: string }
   /** Mode A: apply due scheduled increases across Active tenancies. */
-  applyDueLeaseEscalations: (asOf?: string) => { applied: number; asOf: string }
+  /** Apply due scheduled increases; pass tenancyIds to touch only those leases. */
+  applyDueLeaseEscalations: (asOf?: string, opts?: { tenancyIds?: string[] }) => { applied: number; asOf: string }
   sendMessage: (threadId: string, fromUserId: string, body: string) => Message
   createThread: (input: Omit<MessageThread, 'id' | 'updatedAt'> & { initialMessage: string; fromUserId: string }) => MessageThread
   createTicket: (input: Omit<MaintenanceTicket, 'id' | 'openedAt' | 'status' | 'cost' | 'photos' | 'contractorId' | 'assignedAgentId' | 'reportedByUserId'> & Partial<Pick<MaintenanceTicket, 'status' | 'cost' | 'photos' | 'contractorId' | 'assignedAgentId' | 'reportedByUserId' | 'categoryKey' | 'unitId' | 'internalAssetId' | 'warrantyCovered'>>) => MaintenanceTicket
@@ -7232,9 +7233,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       return { ok: true as const }
     },
 
-    applyDueLeaseEscalations: (asOfInput) => {
+    applyDueLeaseEscalations: (asOfInput, opts) => {
       const asOf = (asOfInput ?? new Date().toISOString().slice(0, 10)).slice(0, 10)
-      const due = planDueEscalations(stateRef.current.tenancies, asOf)
+      const only = opts?.tenancyIds ? new Set(opts.tenancyIds) : null
+      const due = planDueEscalations(stateRef.current.tenancies, asOf).filter(
+        (row) => !only || only.has(row.tenancyId),
+      )
       let applied = 0
       for (const row of due) {
         const tenancy = stateRef.current.tenancies.find((t) => t.id === row.tenancyId)
