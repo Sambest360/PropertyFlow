@@ -236,31 +236,30 @@ export default function TrustUnallocated() {
                   <p className="text-sm text-ink-500">No occupancies found</p>
                 ) : (
                   <div className="space-y-2">
-                    {filteredOccupancies.map((occ) => (
-                      <div
-                        key={occ.id}
-                        className="flex items-center justify-between rounded-lg border border-primary-100 p-2 hover:bg-primary-50"
-                      >
-                        <div>
-                          <p className="text-sm font-medium text-ink">{occ.tenantName}</p>
-                          <p className="text-xs text-ink-500">
-                            {labelOrReference(
-                              state.properties.find((p) => p.id === occ.propertyId)?.title,
-                              occ.propertyId,
-                              'Property',
-                            )}
-                          </p>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
+                    {filteredOccupancies.map((occ) => {
+                      const propertyLabel = labelOrReference(
+                        state.properties.find((p) => p.id === occ.propertyId)?.title,
+                        occ.propertyId,
+                        'Property',
+                      )
+                      return (
+                        // The whole row allocates — no need to hit the small split icon.
+                        <button
+                          key={occ.id}
+                          type="button"
                           onClick={() => handleAddAllocation(occ.id, Math.min(occ.rent * 100, remaining))}
                           disabled={remaining <= 0}
+                          aria-label={`Allocate to ${occ.tenantName}, ${propertyLabel}`}
+                          className="flex min-h-11 w-full cursor-pointer items-center justify-between gap-3 rounded-lg border border-primary-100 p-2 text-left transition-colors duration-150 hover:border-primary-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
                         >
-                          <Split className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ))}
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium text-ink">{occ.tenantName}</span>
+                            <span className="block truncate text-xs text-ink-500">{propertyLabel}</span>
+                          </span>
+                          <Split className="h-4 w-4 shrink-0 text-ink-400" aria-hidden />
+                        </button>
+                      )
+                    })}
                   </div>
                 )}
               </div>
