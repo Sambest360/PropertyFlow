@@ -24,8 +24,11 @@ import {
   type ApplicationPipelineBucket as PipelineBucket,
 } from '../lib/applicationPipeline'
 import { propertyRefLabel } from '../lib/propertyRefs'
+import { usePortalHydrating } from '../components/PortalHydrationGate'
+import { DataTableSkeleton } from '../components/loading/PageSkeleton'
 
 export default function Applications() {
+  const dataLoading = usePortalHydrating()
   const { state } = useStore()
   const { user, role } = useAuth()
   const { dealVisible } = usePropertyScope()
@@ -198,7 +201,9 @@ export default function Applications() {
           }
         />
 
-        {portfolio.length === 0 ? (
+        {dataLoading ? (
+          <DataTableSkeleton />
+        ) : portfolio.length === 0 ? (
           <DirectoryEmpty title="No applications in your scope yet" />
         ) : filtered.length === 0 ? (
           <DirectoryEmpty

@@ -36,6 +36,8 @@ import {
 } from '../lib/propertiesPortfolioSearch'
 import { dedupePropertyAssets } from '../lib/propertyDedupe'
 import { DataRefreshBanner } from '../components/loading/DataRefreshBanner'
+import { usePortalHydrating } from '../components/PortalHydrationGate'
+import { DataTableSkeleton } from '../components/loading/PageSkeleton'
 
 function readStoredView(): PropertiesViewMode {
   try {
@@ -48,6 +50,7 @@ function readStoredView(): PropertiesViewMode {
 }
 
 export default function Properties() {
+  const dataLoading = usePortalHydrating()
   const { state } = useStore()
   const { has, user } = useAuth()
   const { allowedPropertyIds, agencyId } = usePropertyScope()
@@ -328,7 +331,9 @@ export default function Properties() {
         onClearFilters={filtersActive ? clearFilters : undefined}
       />
 
-      {portfolio.length === 0 ? (
+      {dataLoading ? (
+        <DataTableSkeleton />
+      ) : portfolio.length === 0 ? (
         <Card className="p-10 text-center">
           <p className="font-semibold text-ink">No properties yet</p>
           <p className="mt-2 text-sm text-ink-500">

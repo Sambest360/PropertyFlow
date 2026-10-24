@@ -25,7 +25,7 @@ import { useWishlist } from '../../hooks/useWishlist'
 import { usePageMeta } from '../../hooks/usePageMeta'
 import { FullScreenSheet } from '../../components/layout/mobile/FullScreenSheet'
 import { DataRefreshBanner } from '../../components/loading/DataRefreshBanner'
-import { PropertyLoader } from '../../components/loading/PropertyLoader'
+import { ListingCardGridSkeleton } from '../../components/loading/PageSkeleton'
 import { parseAreasParam, propertyMatchesAreas } from '../../lib/placeCatalog'
 
 function listingAmount(p: PropertyAsset, mode: string): number | null {
@@ -441,9 +441,7 @@ export default function BrowsePage() {
             label="Updating listings…"
           />
           {showFullMarketplaceLoader ? (
-            <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 py-16">
-              <PropertyLoader size="lg" label="Loading listings…" />
-            </div>
+            <ListingCardGridSkeleton count={6} className={showMap ? 'lg:grid-cols-2 xl:grid-cols-2' : undefined} />
           ) : cards.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-primary-100 bg-white p-10 text-center">
               <Filter className="mx-auto h-8 w-8 text-ink-400" />

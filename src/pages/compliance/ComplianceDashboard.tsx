@@ -28,6 +28,8 @@ import {
 import { DashboardPage } from '../../components/dashboard'
 import { DeclineVerificationModal } from '../../components/compliance/DeclineVerificationModal'
 import { apiUpdateUserVerification } from '../../lib/api/authClient'
+import { usePortalHydrating } from '../../components/PortalHydrationGate'
+import { DataTableSkeleton } from '../../components/loading/PageSkeleton'
 
 type VerificationTab = 'pending' | 'rejected'
 
@@ -61,6 +63,7 @@ function docStatusLabel(status: PropertyDocument['status']) {
 
 /** Compliance Dashboard — agency/staff verification queue + property compliance documents. */
 export default function ComplianceDashboard() {
+  const dataLoading = usePortalHydrating()
   const { user } = useAuth()
   const { scopeAgency } = useAgencyScope()
   const { allowedPropertyIds } = usePropertyScope()
@@ -360,7 +363,9 @@ export default function ComplianceDashboard() {
             {stats.actionDocs} need action
           </Badge>
         </div>
-        {complianceDocs.length === 0 ? (
+        {dataLoading ? (
+          <DataTableSkeleton />
+        ) : complianceDocs.length === 0 ? (
           <EmptyState
             title="No compliance documents yet"
             description="Compliance and title documents attached to properties appear here."

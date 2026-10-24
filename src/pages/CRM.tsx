@@ -44,6 +44,8 @@ import { leadContactLine } from '../lib/displayIds'
 import type { Lead, PropertyAsset } from '../types/domain'
 import { useLookupOptions } from '../hooks/useLookupOptions'
 import { propertyRefLabel } from '../lib/propertyRefs'
+import { usePortalHydrating } from '../components/PortalHydrationGate'
+import { DataTableSkeleton } from '../components/loading/PageSkeleton'
 
 const ICON_STROKE = 1.6
 const VIEW_KEY = 'propertyflow-crm-view'
@@ -99,6 +101,7 @@ function isActiveStage(stage: string) {
 }
 
 export default function CRM() {
+  const dataLoading = usePortalHydrating()
   const { state, createLead, updateLeadStage, closeLead, addPropertyEvent } = useStore()
   const { user, has } = useAuth()
   const { dealVisible, allowedPropertyIds, agencyId, canMutate } = usePropertyScope()
@@ -518,7 +521,9 @@ export default function CRM() {
           }
         />
 
-        {portfolio.length === 0 ? (
+        {dataLoading ? (
+          <DataTableSkeleton />
+        ) : portfolio.length === 0 ? (
           <DirectoryEmpty
             title="No leads in your scope yet"
             hint="Create a walk-in lead or capture one from a listing enquiry."

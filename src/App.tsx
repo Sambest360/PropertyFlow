@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { lazy, Suspense, type ReactNode } from 'react'
 import { SpeedInsights } from '@vercel/speed-insights/react'
 import { ThemeProvider } from './context/ThemeContext'
@@ -13,7 +13,7 @@ import { RequireAgencyOpsAccess } from './components/RequireAgencyOpsAccess'
 
 import { RequireAuth } from './components/RequireAuth'
 import { CanonicalIdRedirect } from './components/routing/CanonicalIdRedirect'
-import { PropertyLoader } from './components/loading/PropertyLoader'
+import { PageSkeleton, skeletonVariantForPath } from './components/loading/PageSkeleton'
 import { TempPasswordHost } from './components/admin/TempPasswordHost'
 import { GoogleMapsProvider } from './context/GoogleMapsProvider'
 import { useAuth } from './context/AuthContext'
@@ -95,10 +95,13 @@ const TrustDeposits = lazy(() => import('./pages/trust/TrustDeposits'))
 const TrustArrears = lazy(() => import('./pages/trust/TrustArrears'))
 const HelpPage = lazy(() => import('./pages/HelpPage'))
 
+/** Route chunk still downloading: ghost layout shaped like the page being opened. */
 function PageFallback() {
+  const { pathname } = useLocation()
+  const variant = skeletonVariantForPath(pathname)
   return (
-    <div className="flex min-h-[40vh] items-center justify-center">
-      <PropertyLoader label="Loading page…" size="md" />
+    <div className={pathname.startsWith('/workspace') ? '' : 'mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8'}>
+      <PageSkeleton variant={variant} />
     </div>
   )
 }

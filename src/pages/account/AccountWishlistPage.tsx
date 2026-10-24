@@ -5,7 +5,7 @@ import { usePublicProperties, useStore } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
 import { DashboardBreadcrumb, DashboardPage } from '../../components/dashboard'
 import { Button, Card } from '../../components/ui'
-import { PropertyLoader } from '../../components/loading/PropertyLoader'
+import { ListingCardGridSkeleton } from '../../components/loading/PageSkeleton'
 import { WishlistListView } from '../../components/wishlist/WishlistListView'
 import { blockedPropertyIdsForApplicant } from '../../lib/blockedApplicants'
 import { useWishlist } from '../../hooks/useWishlist'
@@ -56,9 +56,7 @@ export default function AccountWishlistPage() {
       </div>
 
       {marketplaceLoading ? (
-        <Card className="flex justify-center p-8">
-          <PropertyLoader label="Loading your saved homes…" size="md" />
-        </Card>
+        <ListingCardGridSkeleton count={4} label="Loading your saved homes…" />
       ) : properties.length === 0 ? (
         <Card className="p-8 text-center">
           <p className="text-sm text-ink-500">No saved homes yet.</p>

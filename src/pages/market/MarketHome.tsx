@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { ArrowDown, ArrowRight } from 'lucide-react'
 import { usePublicProperties, useStore } from '../../context/AppStore'
 import { DataRefreshBanner } from '../../components/loading/DataRefreshBanner'
-import { PropertyLoader } from '../../components/loading/PropertyLoader'
+import { ListingCardGridSkeleton } from '../../components/loading/PageSkeleton'
 import { orderFeaturedListings } from '../../lib/marketplaceListings'
 import { PropertyCard } from '../../components/PropertyCard'
 import { AreaSearch } from '../../components/AreaSearch'
@@ -333,9 +333,7 @@ export default function MarketHome() {
             label="Updating listings…"
           />
           {state.marketplaceRefreshing && featured.length === 0 ? (
-            <div className="flex justify-center py-12">
-              <PropertyLoader size="lg" label="Loading featured homes…" />
-            </div>
+            <ListingCardGridSkeleton count={8} label="Loading featured homes…" />
           ) : (
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {featured.slice(0, 8).map((p, i) => (

@@ -20,6 +20,8 @@ import { Badge, Button, PageHeader, cn } from '../components/ui'
 import type { AppUser } from '../types/domain'
 import { OwnerStatementDownloadPanel } from '../components/ownerStatement/OwnerStatementDownloadPanel'
 import { RentRollAuditPackPanel } from '../components/rentRoll/RentRollAuditPackPanel'
+import { usePortalHydrating } from '../components/PortalHydrationGate'
+import { DataTableSkeleton } from '../components/loading/PageSkeleton'
 
 const ICON_STROKE = 1.6
 const VIEW_KEY = 'propertyflow-landlords-view'
@@ -33,6 +35,7 @@ type PortfolioLandlord = {
 type AttentionFilter = 'all' | 'active' | 'inactive' | 'with_properties'
 
 export default function LandlordsDirectory() {
+  const dataLoading = usePortalHydrating()
   const { state } = useStore()
   const { has } = useAuth()
   const { scopeAgency, agencyId } = useAgencyScope()
@@ -166,7 +169,9 @@ export default function LandlordsDirectory() {
           onClearFilters={clearFilters}
         />
 
-        {portfolio.length === 0 ? (
+        {dataLoading ? (
+          <DataTableSkeleton />
+        ) : portfolio.length === 0 ? (
           <DirectoryEmpty
             title="No landlords yet"
             hint="That is fine — agency-owned properties do not need one. Add a landlord when you manage stock on behalf of a private owner."

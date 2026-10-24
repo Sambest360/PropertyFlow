@@ -11,7 +11,7 @@ import { bootstrapActorKey, isBootstrapFetchInFlight } from '../lib/bootstrapCoo
 import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
 import { portalHydrationUserId } from '../lib/clientCache'
 import { hasPortfolioSnapshotForUser } from '../lib/portfolioSnapshot'
-import { PropertyLoader } from './loading/PropertyLoader'
+import { PageSkeleton } from './loading/PageSkeleton'
 
 export { portalHydrationUserId }
 
@@ -42,17 +42,8 @@ export function usePortalHydrating(): boolean {
 
 export function PortalSkeleton() {
   return (
-    <div data-testid="portal-skeleton" aria-busy="true" aria-label="Loading your workspace" className="space-y-4 p-4">
-      <div className="flex justify-center py-4">
-        <PropertyLoader size="md" label="Loading your workspace…" />
-      </div>
-      <div className="h-8 w-1/3 animate-pulse rounded-md bg-surface-muted" />
-      <div className="grid gap-4 sm:grid-cols-3">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="h-24 animate-pulse rounded-lg bg-surface-muted" />
-        ))}
-      </div>
-      <div className="h-48 animate-pulse rounded-lg bg-surface-muted" />
+    <div data-testid="portal-skeleton" aria-label="Loading your workspace">
+      <PageSkeleton variant="dashboard" label="Loading your workspace…" />
     </div>
   )
 }
@@ -121,3 +112,4 @@ export function PortalHydrationGate({ children }: { children: ReactNode }) {
   if (hydrating) return <PortalSkeleton />
   return <>{children}</>
 }
+

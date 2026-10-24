@@ -39,6 +39,8 @@ import {
 import { readReturnTo } from '../lib/returnTo'
 import { listApprovedContractors } from '../lib/contractors'
 import { DataRefreshBanner } from '../components/loading/DataRefreshBanner'
+import { usePortalHydrating } from '../components/PortalHydrationGate'
+import { DataTableSkeleton } from '../components/loading/PageSkeleton'
 
 const ICON_STROKE = 1.6
 
@@ -53,6 +55,7 @@ function readStoredView(): MaintenanceViewMode {
 }
 
 export default function Maintenance() {
+  const dataLoading = usePortalHydrating()
   const {
     state,
     patchMaintenanceTicket,
@@ -392,7 +395,9 @@ export default function Maintenance() {
         onClearFilters={clearFilters}
       />
 
-      {portfolio.length === 0 ? (
+      {dataLoading ? (
+        <DataTableSkeleton />
+      ) : portfolio.length === 0 ? (
         <Card className="p-10 text-center text-sm text-ink-500">
           No maintenance in your scope yet.
         </Card>

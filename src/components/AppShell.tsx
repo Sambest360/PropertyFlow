@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { MarketplaceFooter } from './layout/MarketplaceFooter'
 import { MarketplaceHeader } from './layout/MarketplaceHeader'
@@ -16,6 +17,7 @@ import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
 import { cn } from './ui'
 import { useMarketplaceDataRefresh } from '../hooks/useMarketplaceDataRefresh'
 import { useWorkspaceDataRefresh } from '../hooks/useWorkspaceDataRefresh'
+import { PageSkeleton, skeletonVariantForPath } from './loading/PageSkeleton'
 
 /** Collapsed rail width — keep in sync with WorkspaceSidebar */
 const RAIL_WIDTH = '4.5rem'
@@ -80,7 +82,10 @@ export function WorkspaceShell() {
             key={pathname}
             className={reducedMotion ? 'w-full' : 'w-full animate-workspace-page'}
           >
-            <Outlet />
+            {/* Page chunks load inside the shell so the header and sidebar stay put. */}
+            <Suspense fallback={<PageSkeleton variant={skeletonVariantForPath(pathname)} />}>
+              <Outlet />
+            </Suspense>
           </div>
         </main>
       </div>

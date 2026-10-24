@@ -3,7 +3,7 @@ import type { Permission } from '../types/domain'
 import { useAuth } from '../context/AuthContext'
 import { readAuthToken } from '../lib/api/authClient'
 import { readStoredAuthUserId } from '../lib/api/actorAuth'
-import { PropertyLoader } from './loading/PropertyLoader'
+import { PageSkeleton, skeletonVariantForPath } from './loading/PageSkeleton'
 
 function hasPendingSessionArtifact(): boolean {
   return Boolean(readAuthToken()) || Boolean(readStoredAuthUserId())
@@ -27,9 +27,9 @@ export function RequirePermission({
 
   if (pendingSession) {
     return (
-      <div className="flex min-h-[12rem] items-center justify-center p-6">
-        <PropertyLoader size="sm" label="Loading…" />
-      </div>
+      <PageSkeleton
+        variant={skeletonVariantForPath(typeof window === 'undefined' ? '' : window.location.pathname)}
+      />
     )
   }
 

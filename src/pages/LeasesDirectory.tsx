@@ -30,6 +30,8 @@ import {
   type LeaseRenewalsHandlers,
 } from '../components/renewals/LeaseRenewalsPanel'
 import { propertyRefLabel } from '../lib/propertyRefs'
+import { usePortalHydrating } from '../components/PortalHydrationGate'
+import { DataTableSkeleton } from '../components/loading/PageSkeleton'
 
 const ICON_STROKE = 1.6
 const VIEW_KEY = 'propertyflow-leases-view'
@@ -46,6 +48,7 @@ type LeaseRow = {
 }
 
 export default function LeasesDirectory() {
+  const dataLoading = usePortalHydrating()
   const {
     state,
     recordTenancyLeaseSign,
@@ -428,7 +431,9 @@ export default function LeasesDirectory() {
           }
         />
 
-        {filtered.length === 0 ? (
+        {dataLoading ? (
+          <DataTableSkeleton />
+        ) : filtered.length === 0 ? (
           <DirectoryEmpty
             title="No leases match"
             hint="Approve a rental application to create a tenancy — the lease PDF is generated on approve."

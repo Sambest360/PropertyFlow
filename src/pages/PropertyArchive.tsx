@@ -7,6 +7,8 @@ import { BackButton } from '../components/BackButton'
 import { Badge, Button, Card, Input, PageHeader } from '../components/ui'
 import { canDeleteStoredProperty, canOpenPropertyArchive, isPropertyDeleted } from '../lib/propertyDeletion'
 import { sweetConfirm, sweetSuccess, sweetWarning } from '../lib/sweetAlert'
+import { usePortalHydrating } from '../components/PortalHydrationGate'
+import { DataTableSkeleton } from '../components/loading/PageSkeleton'
 
 function formatDeletedAt(iso: string): string {
   try {
@@ -21,6 +23,7 @@ function formatDeletedAt(iso: string): string {
 }
 
 export default function PropertyArchive() {
+  const dataLoading = usePortalHydrating()
   const { state, restoreProperty } = useStore()
   const { user, agencyId } = useAuth()
   const { allowedPropertyIds } = usePropertyScope()
@@ -89,7 +92,9 @@ export default function PropertyArchive() {
         </div>
       </div>
 
-      {archived.length === 0 ? (
+      {dataLoading ? (
+        <DataTableSkeleton />
+      ) : archived.length === 0 ? (
         <Card className="p-10 text-center">
           <p className="font-semibold text-ink">No deleted properties</p>
           <p className="mt-2 text-sm text-ink-500">

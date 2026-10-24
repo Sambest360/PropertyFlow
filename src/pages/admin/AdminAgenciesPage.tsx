@@ -12,10 +12,13 @@ import { sweetWarning } from '../../lib/sweetAlert'
 import { agencyIsSelectable, agencyStatusBadgeTone } from '../../lib/agencyStatus'
 import { DEFAULT_AGENCY_PERMISSIONS } from '../../lib/permissions'
 import type { Agency, Permission } from '../../types/domain'
+import { usePortalHydrating } from '../../components/PortalHydrationGate'
+import { DataTableSkeleton } from '../../components/loading/PageSkeleton'
 
 const ICON_STROKE = 1.6
 
 export default function AdminAgenciesPage() {
+  const dataLoading = usePortalHydrating()
   const { state, updateAgency, cancelAgency, resetDemo } = useStore()
   const navigate = useNavigate()
   const alert = useSuiteAlert()
@@ -126,7 +129,9 @@ export default function AdminAgenciesPage() {
           </label>
         ) : null}
 
-        {rows.length === 0 ? (
+        {dataLoading ? (
+          <DataTableSkeleton />
+        ) : rows.length === 0 ? (
           <Card className="p-10 text-center">
             <Building2 className="mx-auto h-8 w-8 text-ink-400" strokeWidth={ICON_STROKE} />
             <p className="mt-3 font-semibold text-ink">No agencies yet</p>

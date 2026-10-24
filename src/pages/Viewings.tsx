@@ -30,10 +30,13 @@ import { readReturnTo } from '../lib/returnTo'
 import { DataRefreshBanner } from '../components/loading/DataRefreshBanner'
 import { patchBookingAttendance } from '../lib/api/viewingApply'
 import { sweetError } from '../lib/sweetAlert'
+import { usePortalHydrating } from '../components/PortalHydrationGate'
+import { DataTableSkeleton } from '../components/loading/PageSkeleton'
 
 const ICON_STROKE = 1.6
 
 export default function Viewings() {
+  const dataLoading = usePortalHydrating()
   const { state, createViewingSlot, bookViewingSlot, createViewing, updateViewing } = useStore()
   const { agencyId, has } = useAuth()
   const { dealVisible, allowedPropertyIds, canMutate } = usePropertyScope()
@@ -450,7 +453,9 @@ export default function Viewings() {
           )}
         </div>
 
-        {portfolio.length === 0 ? (
+        {dataLoading ? (
+          <DataTableSkeleton />
+        ) : portfolio.length === 0 ? (
           <Card className="p-10 text-center">
             <p className="text-sm text-ink-500">No viewing slots or bookings in your scope yet.</p>
             {has('viewings.manage') && (

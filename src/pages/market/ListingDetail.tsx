@@ -7,7 +7,7 @@ import { useAuth } from '../../context/AuthContext'
 import { ActionButtonRow } from '../../components/ActionButtonRow'
 import { BackButton } from '../../components/BackButton'
 import { Badge, Button, Input, cn } from '../../components/ui'
-import { PropertyLoader } from '../../components/loading/PropertyLoader'
+import { PageSkeleton } from '../../components/loading/PageSkeleton'
 import { PropertyFeaturesDisplay } from '../../components/property-features/PropertyFeaturesDisplay'
 import { ExpandableDescription } from '../../components/listing/ExpandableDescription'
 import { formatZAR } from '../../data/seed'
@@ -256,13 +256,8 @@ export default function ListingDetail() {
       liveDataMode && Boolean(id) && !listingFetchDone && !awaitingSignedInHydration
     if (awaitingSignedInHydration || awaitingPublicListingFetch || (!storeSettled && !retryWindowOver)) {
       return (
-        <div className="mx-auto max-w-3xl px-4 py-16">
-          <PropertyLoader
-            size="lg"
-            label="Loading listing…"
-            className="mx-auto"
-          />
-          <p className="mt-4 text-center text-sm text-ink-500">Fetching the latest listing details.</p>
+        <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
+          <PageSkeleton variant="listing" label="Loading listing…" />
         </div>
       )
     }

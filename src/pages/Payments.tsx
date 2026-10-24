@@ -21,6 +21,8 @@ import {
   type PortfolioPayment,
 } from '../components/payments/types'
 import { useLookupOptions } from '../hooks/useLookupOptions'
+import { usePortalHydrating } from '../components/PortalHydrationGate'
+import { DataTableSkeleton } from '../components/loading/PageSkeleton'
 
 function readStoredView(): PaymentsViewMode {
   try {
@@ -33,6 +35,7 @@ function readStoredView(): PaymentsViewMode {
 }
 
 export default function Payments() {
+  const dataLoading = usePortalHydrating()
   const { state, runRentCycle } = useStore()
   const { user, role, has } = useAuth()
   const { paymentVisible, allowedPropertyIds, agencyId } = usePropertyScope()
@@ -248,7 +251,9 @@ export default function Payments() {
           paymentTypes={paymentTypes}
         />
 
-        {portfolio.length === 0 ? (
+        {dataLoading ? (
+          <DataTableSkeleton />
+        ) : portfolio.length === 0 ? (
           <Card className="p-10 text-center text-sm text-ink-500">
             No payments in your scope for this role.
           </Card>

@@ -22,6 +22,8 @@ import { useAgentDisplay, useHideAgentColumn } from '../hooks/useAgentDisplay'
 import { formatZAR } from '../data/seed'
 import type { Tenancy } from '../types/domain'
 import { propertyRefLabel } from '../lib/propertyRefs'
+import { usePortalHydrating } from '../components/PortalHydrationGate'
+import { DataTableSkeleton } from '../components/loading/PageSkeleton'
 
 const ICON_STROKE = 1.6
 const VIEW_KEY = 'propertyflow-occupants-view'
@@ -46,6 +48,7 @@ function daysUntil(date: string | null | undefined) {
 }
 
 export default function TenantDirectory() {
+  const dataLoading = usePortalHydrating()
   const { state } = useStore()
   const { dealVisible } = usePropertyScope()
   const reducedMotion = usePrefersReducedMotion()
@@ -184,7 +187,9 @@ export default function TenantDirectory() {
           }
         />
 
-        {portfolio.length === 0 ? (
+        {dataLoading ? (
+          <DataTableSkeleton />
+        ) : portfolio.length === 0 ? (
           <DirectoryEmpty
             title="No tenants in your scope yet"
             hint="Tenants appear when a lease becomes active."

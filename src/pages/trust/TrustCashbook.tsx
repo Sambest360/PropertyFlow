@@ -21,6 +21,8 @@ import {
   trustTransactionsToCsv,
 } from '../../lib/trust/csvImport'
 import { sweetSuccess, sweetError } from '../../lib/sweetAlert'
+import { usePortalHydrating } from '../../components/PortalHydrationGate'
+import { DataTableSkeleton } from '../../components/loading/PageSkeleton'
 
 function formatCents(cents: number): string {
   return formatZAR(cents / 100)
@@ -63,6 +65,7 @@ function downloadText(filename: string, content: string) {
 }
 
 export default function TrustCashbook() {
+  const dataLoading = usePortalHydrating()
   const { state, importTrustTemplateCsv } = useStore()
   const { user } = useAuth()
   const fileRef = useRef<HTMLInputElement>(null)
@@ -277,7 +280,9 @@ export default function TrustCashbook() {
       </Card>
 
       <Card>
-        {transactions.length === 0 ? (
+        {dataLoading ? (
+          <DataTableSkeleton />
+        ) : transactions.length === 0 ? (
           <EmptyState
             title="No transactions found"
             description="Import a template CSV or adjust filters. Seed rows (if any) are sample history only."

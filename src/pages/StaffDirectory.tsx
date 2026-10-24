@@ -20,6 +20,8 @@ import { DirectoryFilterSelect, directoryResultLabel } from '../components/direc
 import { AllAccountsDirectory } from '../components/directory/AllAccountsDirectory'
 import { Badge, Button, PageHeader, cn } from '../components/ui'
 import type { AppUser } from '../types/domain'
+import { usePortalHydrating } from '../components/PortalHydrationGate'
+import { DataTableSkeleton } from '../components/loading/PageSkeleton'
 
 const ICON_STROKE = 1.6
 const VIEW_KEY = 'propertyflow-staff-view'
@@ -117,6 +119,7 @@ function PeopleScopeTabs({
 }
 
 function StaffDirectoryView({ onShowAllAccounts }: { onShowAllAccounts?: () => void }) {
+  const dataLoading = usePortalHydrating()
   const { state } = useStore()
   const { has } = useAuth()
   const { scopeAgency, agencyId } = useAgencyScope()
@@ -300,7 +303,9 @@ function StaffDirectoryView({ onShowAllAccounts }: { onShowAllAccounts?: () => v
           }
         />
 
-        {portfolio.length === 0 ? (
+        {dataLoading ? (
+          <DataTableSkeleton />
+        ) : portfolio.length === 0 ? (
           <DirectoryEmpty title="No team members in scope" />
         ) : filtered.length === 0 ? (
           <DirectoryEmpty
