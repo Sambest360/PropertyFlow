@@ -21,6 +21,7 @@ import { PropertyInventoryPanel } from '../components/property-detail/PropertyIn
 import { PropertyApplicantsPanel } from '../components/property-detail/PropertyApplicantsPanel'
 import { PropertyViewingsPanel } from '../components/property-detail/PropertyViewingsPanel'
 import { ListingLimitsPanel } from '../components/property-detail/ListingLimitsPanel'
+import { PropertyRulesPanel } from '../components/property-detail/PropertyRulesPanel'
 import { PropertyMaintenancePanel } from '../components/property-detail/PropertyMaintenancePanel'
 import { PropertyPaymentsPanel } from '../components/property-detail/PropertyPaymentsPanel'
 import { PropertyDocumentsPanel } from '../components/property-detail/PropertyDocumentsPanel'
@@ -81,6 +82,7 @@ export default function PropertyDetail() {
     createThread,
     sendMessage,
     addPropertyEvent,
+    addPropertyDocument,
   } = useStore()
   const { has, user, agencyId } = useAuth()
   const { inPropertyScope } = usePropertyScope()
@@ -290,6 +292,7 @@ export default function PropertyDetail() {
     { id: 'applicants', label: 'Applicants', count: waitingApps },
     { id: 'viewings', label: 'Viewings', count: openSlots },
     { id: 'maintenance', label: 'Maintenance', count: openTickets },
+    ...(canMaintenance ? [{ id: 'rules', label: 'Rules' }] : []),
     { id: 'payments', label: 'Payments', count: overduePayments },
     { id: 'documents', label: 'Documents', count: acceptedDocCount },
     { id: 'messages', label: 'Messages', count: threads.length },
@@ -812,6 +815,25 @@ export default function PropertyDetail() {
             }
             return ok
           }}
+        />
+      )}
+
+      {tab === 'rules' && canMaintenance && (
+        <PropertyRulesPanel
+          unitRef={p.backendId || p.unitId || p.id}
+          documents={state.propertyDocuments.filter((d) => d.propertyId === p.id)}
+          canManage={canMaintenance}
+          onAddDocument={(name, url) =>
+            addPropertyDocument({
+              agencyId: p.agencyId,
+              propertyId: p.id,
+              name,
+              category: 'Lease',
+              status: 'uploaded',
+              uploadedAt: new Date().toISOString(),
+              fileUrl: url,
+            })
+          }
         />
       )}
 

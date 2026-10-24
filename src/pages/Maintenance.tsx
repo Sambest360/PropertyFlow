@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { matchesResponsibleFilter, type ResponsibleFilter } from '../components/maintenance/TicketResponsibilityCard'
 import { checkTicketPhotos } from '../lib/photoLimits'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, Plus } from 'lucide-react'
@@ -73,6 +74,7 @@ export default function Maintenance() {
   const [propertyId, setPropertyId] = useState(() => searchParams.get('property') || 'all')
   const [contractorFilter, setContractorFilter] = useState(() => searchParams.get('contractor') || 'all')
   const [attention, setAttention] = useState<AttentionFilter>('all')
+  const [responsible, setResponsible] = useState<ResponsibleFilter>('all')
   const [sort, setSort] = useState<SortKey>('priority')
   const [view, setView] = useState<MaintenanceViewMode>(() => readStoredView())
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -182,6 +184,7 @@ export default function Maintenance() {
       if (attention === 'escalated' && !t.escalatedAt) return false
       if (attention === 'warranty' && !t.warrantyCovered) return false
       if (attention === 'unassigned' && t.contractorId) return false
+      if (!matchesResponsibleFilter(t, responsible)) return false
 
       if (!needle) return true
       return (
@@ -204,20 +207,22 @@ export default function Maintenance() {
     })
 
     return rows
-  }, [portfolio, q, priority, propertyId, contractorFilter, attention, sort])
+  }, [portfolio, q, priority, propertyId, contractorFilter, attention, responsible, sort])
 
   const filtersActive =
     Boolean(q.trim()) ||
     priority !== 'all' ||
     propertyId !== 'all' ||
     contractorFilter !== 'all' ||
-    attention !== 'all'
+    attention !== 'all' ||
+    responsible !== 'all'
 
   const clearFilters = () => {
     setQ('')
     setPriority('all')
     setPropertyFilter('all')
     setAttention('all')
+    setResponsible('all')
   }
 
   const resultLabel =
@@ -375,6 +380,8 @@ export default function Maintenance() {
         properties={properties.map((p) => ({ id: p.id, title: p.title }))}
         attention={attention}
         onAttentionChange={setAttention}
+        responsible={responsible}
+        onResponsibleChange={setResponsible}
         sort={sort}
         onSortChange={setSort}
         view={view}

@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { cors } from 'hono/cors'
 import {
   databaseConfigError,
@@ -1345,6 +1345,95 @@ app.post('/api/units/:id/listing-limits/reset', async (c) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     return c.json({ error: 'listing_limits_failed', message, ...errCode(err) }, errStatus(err))
+  }
+})
+
+/** Maintenance responsibility rules (migration 029): server/maintenanceRuleRoutes.ts. */
+function maintenanceRulesError(c: Context, err: unknown) {
+  const message = err instanceof Error ? err.message : String(err)
+  return c.json({ error: 'maintenance_rules_failed', message, ...errCode(err) }, errStatus(err))
+}
+
+app.get('/api/units/:id/maintenance-categories', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const { getUnitMaintenanceCategories } = await import('./maintenanceRuleRoutes.js')
+    return c.json(await getUnitMaintenanceCategories(actor, c.req.param('id')))
+  } catch (err) {
+    return maintenanceRulesError(c, err)
+  }
+})
+
+app.get('/api/maintenance-rule-sets', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const { listRuleSets } = await import('./maintenanceRuleRoutes.js')
+    return c.json(await listRuleSets(actor, { unitId: c.req.query('unitId') ?? null }))
+  } catch (err) {
+    return maintenanceRulesError(c, err)
+  }
+})
+
+app.get('/api/maintenance-rule-sets/:id', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const { getRuleSet } = await import('./maintenanceRuleRoutes.js')
+    return c.json(await getRuleSet(actor, c.req.param('id')))
+  } catch (err) {
+    return maintenanceRulesError(c, err)
+  }
+})
+
+app.post('/api/maintenance-rule-sets', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const body = ((await c.req.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
+    const { createRuleSet } = await import('./maintenanceRuleRoutes.js')
+    return c.json(await createRuleSet(actor, body), 201)
+  } catch (err) {
+    return maintenanceRulesError(c, err)
+  }
+})
+
+app.patch('/api/maintenance-rule-sets/:id', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const body = ((await c.req.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
+    const { updateRuleSet } = await import('./maintenanceRuleRoutes.js')
+    return c.json(await updateRuleSet(actor, c.req.param('id'), body))
+  } catch (err) {
+    return maintenanceRulesError(c, err)
+  }
+})
+
+app.delete('/api/maintenance-rule-sets/:id', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const { deactivateRuleSet } = await import('./maintenanceRuleRoutes.js')
+    return c.json(await deactivateRuleSet(actor, c.req.param('id')))
+  } catch (err) {
+    return maintenanceRulesError(c, err)
+  }
+})
+
+app.patch('/api/tickets/:id/responsibility', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const body = ((await c.req.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
+    const { patchTicketResponsibility } = await import('./maintenanceRuleRoutes.js')
+    return c.json(await patchTicketResponsibility(actor, c.req.param('id'), body))
+  } catch (err) {
+    return maintenanceRulesError(c, err)
+  }
+})
+
+app.post('/api/tickets/:id/forward-body-corporate', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const { forwardToBodyCorporate } = await import('./maintenanceRuleRoutes.js')
+    return c.json(await forwardToBodyCorporate(actor, c.req.param('id')))
+  } catch (err) {
+    return maintenanceRulesError(c, err)
   }
 })
 

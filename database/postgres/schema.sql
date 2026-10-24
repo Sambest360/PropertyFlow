@@ -1348,4 +1348,74 @@ GROUP BY b.client_id, cs.plan_id, bp.per_unit_rate, bp.per_room_rate, bp.grade_p
 -- Midnight worker helper: usage for one client (matches the billing engine query)
 -- SELECT * FROM v_billing_usage WHERE client_id = 'target-client-uuid';
 
+-- -----------------------------------------------------------------------------
+-- Maintenance responsibility rules (migration 029)
+-- client_id NULL = platform template; unit_id NULL = agency default for a
+-- property_type. Templates are seeded by the migration (the server falls back
+-- to src/lib/maintenanceRules.ts when none are stored). RLS is in 029.
+-- -----------------------------------------------------------------------------
+
+DROP TABLE IF EXISTS maintenance_rule_items CASCADE;
+DROP TABLE IF EXISTS maintenance_rule_sets CASCADE;
+
+CREATE TABLE maintenance_rule_sets (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id             UUID REFERENCES clients(id) ON DELETE CASCADE,
+  unit_id               UUID REFERENCES units(id) ON DELETE CASCADE,
+  property_type         VARCHAR(40)
+                          CHECK (property_type IS NULL OR property_type IN ('house', 'apartment', 'townhouse', 'room')),
+  name                  VARCHAR(160) NOT NULL,
+  source_document_id    UUID REFERENCES documents(id) ON DELETE SET NULL,
+  source_url            VARCHAR(1000),
+  body_corporate_email  VARCHAR(190),
+  version               INT NOT NULL DEFAULT 1 CHECK (version >= 1),
+  active                BOOLEAN NOT NULL DEFAULT TRUE,
+  created_by            UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT maintenance_rule_sets_unit_needs_client CHECK (unit_id IS NULL OR client_id IS NOT NULL),
+  CONSTRAINT maintenance_rule_sets_default_needs_type CHECK (unit_id IS NOT NULL OR property_type IS NOT NULL)
+);
+
+CREATE INDEX idx_rule_sets_client ON maintenance_rule_sets (client_id);
+CREATE UNIQUE INDEX uq_rule_sets_unit_active
+  ON maintenance_rule_sets (unit_id) WHERE active AND unit_id IS NOT NULL;
+CREATE UNIQUE INDEX uq_rule_sets_agency_default_active
+  ON maintenance_rule_sets (client_id, property_type) WHERE active AND unit_id IS NULL AND client_id IS NOT NULL;
+CREATE UNIQUE INDEX uq_rule_sets_platform_active
+  ON maintenance_rule_sets (property_type) WHERE active AND client_id IS NULL;
+
+CREATE TABLE maintenance_rule_items (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  rule_set_id           UUID NOT NULL REFERENCES maintenance_rule_sets(id) ON DELETE CASCADE,
+  category_key          VARCHAR(80) NOT NULL,
+  label                 VARCHAR(200) NOT NULL,
+  room_group            VARCHAR(40) NOT NULL DEFAULT 'general',
+  responsible_party     VARCHAR(20) NOT NULL
+                          CHECK (responsible_party IN ('LANDLORD', 'TENANT', 'BODY_CORPORATE', 'SHARED')),
+  guidance_text         TEXT NOT NULL DEFAULT '',
+  clause_ref            VARCHAR(80),
+  tenant_can_log        BOOLEAN NOT NULL DEFAULT TRUE,
+  default_priority      VARCHAR(20) NOT NULL DEFAULT 'MEDIUM'
+                          CHECK (default_priority IN ('LOW', 'MEDIUM', 'HIGH', 'URGENT', 'EMERGENCY')),
+  vendor_category_key   VARCHAR(80),
+  is_safety             BOOLEAN NOT NULL DEFAULT FALSE,
+  sort_order            INT NOT NULL DEFAULT 0,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (rule_set_id, category_key)
+);
+
+CREATE INDEX idx_rule_items_set ON maintenance_rule_items (rule_set_id);
+
+-- Ticket snapshot: the rule that applied when the ticket was logged.
+ALTER TABLE maintenance_tickets
+  ADD COLUMN responsible_party VARCHAR(20)
+    CHECK (responsible_party IS NULL OR responsible_party IN ('LANDLORD', 'TENANT', 'BODY_CORPORATE', 'SHARED')),
+  ADD COLUMN rule_item_id UUID REFERENCES maintenance_rule_items(id) ON DELETE SET NULL,
+  ADD COLUMN is_safety_flag BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN responsibility_overridden_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  ADD COLUMN override_reason TEXT;
+
+CREATE INDEX idx_tickets_responsible_party ON maintenance_tickets (client_id, responsible_party);
+
 SELECT 'Lekaya PostgreSQL Asset OS schema installed' AS message;

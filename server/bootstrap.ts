@@ -1378,6 +1378,11 @@ export async function buildBootstrap(opts?: {
     resolvedAt: iso(t.completed_at as Date | null),
     warrantyCovered: Boolean(t.warranty_covered),
     escalatedAt: iso(t.escalated_at as Date | null),
+    // Responsibility rule snapshot (migration 029; absent columns read as unset).
+    responsibleParty: (t.responsible_party as string | null | undefined) ?? null,
+    ruleItemId: (t.rule_item_id as string | null | undefined) ?? null,
+    isSafetyFlag: Boolean(t.is_safety_flag),
+    overrideReason: (t.override_reason as string | null | undefined) ?? null,
   }))
 
   for (const t of mappedTickets) {

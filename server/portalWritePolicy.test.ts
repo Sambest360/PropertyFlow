@@ -525,13 +525,20 @@ describe("Follow-up: a tenant's own ticket never sets assignment, cost or status
     // The tenant's own pick is dropped; the server's routing wins.
     expect((created.data as Record<string, unknown>).contractorId).toBe(expected)
 
-    // No route for the category: agency queue (no contractor).
+    // Other (no rule, no route): agency queue (no contractor).
     const general: Body = {
       resource: 'ticket', action: 'upsert', id: 'TK-new',
-      data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', categoryKey: 'NO_SUCH_CATEGORY' },
+      data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', categoryKey: 'OTHER' },
     }
     await gate(TENANT, general)
     expect(general.data).not.toHaveProperty('contractorId')
+
+    // Migration 029: an unknown category is refused, not silently queued.
+    const unknown: Body = {
+      resource: 'ticket', action: 'upsert', id: 'TK-new',
+      data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', categoryKey: 'NO_SUCH_CATEGORY' },
+    }
+    await expect(gate(TENANT, unknown)).rejects.toMatchObject({ status: 400, code: 'TICKET_CATEGORY_INVALID' })
 
     // An update of an existing ticket is never re-routed.
     const upd: Body = {
@@ -540,6 +547,123 @@ describe("Follow-up: a tenant's own ticket never sets assignment, cost or status
     }
     await gate(TENANT, upd)
     expect(upd.data).not.toHaveProperty('contractorId')
+  })
+})
+
+describe('Migration 029: tenant ticket responsibility rules through the portal gate', () => {
+  const agencyFe = 'ag-horizon' // SEED_VENDOR_ROUTES: PLUMBING -> u-aqua
+  let unitType: string | null = null
+  let dbRoute: string | null = null
+  beforeEach(() => {
+    unitType = null
+    dbRoute = null
+    resolveUuid.mockImplementation(async (t: string, fe: string) => {
+      if (t === 'property' && fe === 'p-1') return UN1
+      if (t === 'agency' && fe === agencyFe) return CA
+      if (t === 'agency') return null
+      return UUID[fe] ?? null
+    })
+    const base = query.getMockImplementation()!
+    query.mockImplementation(async (sql: string, params?: unknown[]) => {
+      const q = sql.replace(/\s+/g, ' ')
+      if (q.includes('FROM units u LEFT JOIN buildings b') && params?.[0] === UN1) {
+        return unitType
+          ? [{ id: UN1, client_id: CA, agent_id: UUID['u-agent'], property_type: unitType, unit_number: '1', building_name: 'E2E TEST Court' }]
+          : []
+      }
+      if (q.includes('FROM vendor_category_routes')) return dbRoute ? [{ contractor_user_id: dbRoute }] : []
+      return base(sql, params)
+    })
+  })
+  const create = (data: Record<string, unknown>): Body => ({
+    resource: 'ticket',
+    action: 'upsert',
+    id: 'TK-new',
+    data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', ...data },
+  })
+
+  it('House, "Geyser burst": LANDLORD, the vendor route\'s contractor, URGENT', async () => {
+    const { SEED_VENDOR_ROUTES, resolvePreferredVendor } = await import('../src/lib/maintenanceApi.js')
+    const { takeTicketRule } = await import('./maintenanceRules.js')
+    unitType = 'house'
+    const body = create({ categoryKey: 'GEYSER_BURST', title: 'Geyser burst', priority: 'Medium' })
+    await expect(gate(TENANT, body)).resolves.toEqual({})
+    const data = body.data as Record<string, unknown>
+    expect(data.contractorId).toBe(resolvePreferredVendor(SEED_VENDOR_ROUTES, agencyFe, 'PLUMBING'))
+    expect(data.priority).toBe('Urgent')
+    expect(data.categoryKey).toBe('GEYSER_BURST')
+    expect(takeTicketRule(data)).toMatchObject({ responsibleParty: 'LANDLORD', priority: 'URGENT', isSafetyFlag: true })
+  })
+
+  it('an active vendor_category_routes row wins over the seed routes', async () => {
+    unitType = 'house'
+    dbRoute = '00000000-0000-4000-8000-0000000000c9'
+    const body = create({ categoryKey: 'GEYSER_BURST', title: 'Geyser burst' })
+    await gate(TENANT, body)
+    expect((body.data as Record<string, unknown>).contractorId).toBe(dbRoute)
+  })
+
+  it('Apartment, "Lift broken": BODY_CORPORATE, never sent to a contractor', async () => {
+    const { takeTicketRule } = await import('./maintenanceRules.js')
+    unitType = 'apartment'
+    const body = create({ categoryKey: 'LIFT', title: 'Lift broken', contractorId: 'u-co' })
+    await gate(TENANT, body)
+    const data = body.data as Record<string, unknown>
+    expect(data).not.toHaveProperty('contractorId')
+    expect(takeTicketRule(data)).toMatchObject({
+      responsibleParty: 'BODY_CORPORATE',
+      warnings: [expect.objectContaining({ code: 'APARTMENT_NO_CONDUCT_RULES' })],
+    })
+  })
+
+  it('unknown category is a 400; EMERGENCY and OTHER always succeed', async () => {
+    unitType = 'house'
+    await expect(gate(TENANT, create({ categoryKey: 'LIFT', title: 'E2E TEST' }))).rejects.toMatchObject({
+      status: 400,
+      code: 'TICKET_CATEGORY_INVALID',
+    })
+    const emergency = create({ categoryKey: 'EMERGENCY', title: 'Smell of gas', priority: 'Low' })
+    await expect(gate(TENANT, emergency)).resolves.toEqual({})
+    expect((emergency.data as Record<string, unknown>).priority).toBe('Emergency')
+    await expect(gate(TENANT, create({ categoryKey: 'OTHER', title: 'E2E TEST something' }))).resolves.toEqual({})
+  })
+
+  it('a TENANT category needs the cost notice; the flag never reaches the writer', async () => {
+    unitType = 'house'
+    await expect(gate(TENANT, create({ categoryKey: 'LIGHT_BULBS', title: 'Bulb out' }))).rejects.toMatchObject({
+      status: 400,
+      code: 'TICKET_COST_NOTICE_REQUIRED',
+    })
+    const ok = create({ categoryKey: 'LIGHT_BULBS', title: 'Bulb out', costNoticeAcknowledged: true, contractorId: 'u-co' })
+    await expect(gate(TENANT, ok)).resolves.toEqual({})
+    const data = ok.data as Record<string, unknown>
+    expect(data).not.toHaveProperty('costNoticeAcknowledged')
+    // Informational: no contractor for a tenant-cost repair.
+    expect(data).not.toHaveProperty('contractorId')
+  })
+
+  it('upsertTicket snapshots the rule on the new row in the same transaction', async () => {
+    unitType = 'house'
+    const body = create({ categoryKey: 'GEYSER_BURST', title: 'Geyser burst', description: 'E2E TEST water everywhere' })
+    await gate(TENANT, body)
+    query.mockClear()
+    const { handlePersist } = await import('./writes.js')
+    await handlePersist(body as never, 'u-t')
+    const sqls = query.mock.calls.map((c) => String(c[0]).replace(/\s+/g, ' ').trim())
+    const insert = sqls.findIndex((q) => q.startsWith('INSERT INTO maintenance_tickets'))
+    const snap = sqls.findIndex((q) => q.startsWith('UPDATE maintenance_tickets SET responsible_party'))
+    expect(insert).toBeGreaterThanOrEqual(0)
+    expect(snap).toBeGreaterThan(insert)
+    const params = query.mock.calls[snap]![1] as unknown[]
+    expect(params.slice(1)).toEqual(['LANDLORD', null, true])
+    // A landlord repair needs no agent task.
+    expect(sqls.some((q) => q.includes("'maintenance_agent_task'"))).toBe(false)
+  })
+
+  it('an existing ticket keeps its category (no re-validation, no re-routing)', async () => {
+    const body: Body = { resource: 'ticket', action: 'upsert', id: 'TK-mine', data: { propertyId: 'p-1', agencyId: 'ag-a', reportedByUserId: 'u-t', categoryKey: 'NO_SUCH' } }
+    await expect(gate(TENANT, body)).resolves.toEqual({})
+    expect(body.data).not.toHaveProperty('categoryKey')
   })
 })
 

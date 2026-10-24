@@ -17,6 +17,8 @@ import type {
 } from './types'
 import { TICKET_PRIORITIES } from './types'
 
+import { RESPONSIBLE_FILTER_OPTIONS, type ResponsibleFilter } from './TicketResponsibilityCard'
+
 const ICON_STROKE = 1.6
 
 export function MaintenanceToolbar({
@@ -29,6 +31,8 @@ export function MaintenanceToolbar({
   properties,
   attention,
   onAttentionChange,
+  responsible = 'all',
+  onResponsibleChange,
   sort,
   onSortChange,
   view,
@@ -47,6 +51,8 @@ export function MaintenanceToolbar({
   properties: Array<{ id: string; title: string }>
   attention: AttentionFilter
   onAttentionChange: (v: AttentionFilter) => void
+  responsible?: ResponsibleFilter
+  onResponsibleChange?: (v: ResponsibleFilter) => void
   sort: SortKey
   onSortChange: (v: SortKey) => void
   view: MaintenanceViewMode
@@ -209,6 +215,21 @@ export function MaintenanceToolbar({
               <option value="warranty">Warranty</option>
               <option value="unassigned">Unassigned</option>
             </Select>
+
+            {onResponsibleChange ? (
+              <Select
+                className="min-h-11"
+                value={responsible}
+                onChange={(e) => onResponsibleChange(e.target.value as ResponsibleFilter)}
+                aria-label="Filter by responsible party"
+              >
+                {RESPONSIBLE_FILTER_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </Select>
+            ) : null}
 
             <Select
               className="min-h-11"

@@ -23,6 +23,15 @@ import {
 } from './entityMap.js'
 import { SUB_FE_TO_UUID } from './idMap.js'
 import { resolveTicketLease } from './ticketLease.js'
+import {
+  applyTicketRule,
+  loadUnitContext,
+  resolveRuleSet,
+  ruleForStaffTicket,
+  takeTicketRule,
+  type TicketRule,
+  type UnitContext,
+} from './maintenanceRules.js'
 import { checkTicketPhotos } from '../src/lib/photoLimits.js'
 import { propertyTypeToDb } from '../src/lib/propertyType.js'
 import { notifyWaitlistSpotOpen } from './listingLimits.js'
@@ -1989,7 +1998,7 @@ async function upsertTicket(
        lease_id = CASE WHEN $26::boolean THEN EXCLUDED.lease_id ELSE maintenance_tickets.lease_id END,
        assigned_to = CASE WHEN $19::boolean THEN EXCLUDED.assigned_to ELSE maintenance_tickets.assigned_to END,
        contractor_id = CASE WHEN $20::boolean THEN EXCLUDED.contractor_id ELSE maintenance_tickets.contractor_id END,
-       category_key = EXCLUDED.category_key,
+       category_key = COALESCE(EXCLUDED.category_key, maintenance_tickets.category_key),
        title = EXCLUDED.title,
        description = EXCLUDED.description,
        priority = CASE WHEN $23::boolean THEN EXCLUDED.priority ELSE maintenance_tickets.priority END,
@@ -2065,13 +2074,55 @@ async function upsertTicket(
   // (503) if the check errors, never a silent drop. Safe after #89 too: no
   // transaction is active yet for query() to join.
   if (d.accessNotes !== undefined) await ensureTicketAccessNotesColumn()
+  // New ticket: the responsibility rule (migration 029) is snapshotted in the
+  // same transaction as the row. A tenant's rule was resolved and validated
+  // by the portal policy; a staff ticket resolves here and is never refused.
+  const rule = stored ? null : await newTicketRule(d, unit)
+  const finish = async () => {
+    if (!rule) return
+    await applyTicketRule(uuid, rule.rule, {
+      unit: rule.unit,
+      title: str(d.title, 'Ticket'),
+      description: str(d.description, ''),
+      reference: feId,
+      actorUserId: await userId(actorUserId),
+    })
+  }
   // Photos or access notes: one transaction with the ticket row and the audit.
   if (photosSent || d.accessNotes !== undefined) {
-    await withTransaction((c) => write((sql, params) => clientQuery(c, sql, params)))
+    await withTransaction(async (c) => {
+      await write((sql, params) => clientQuery(c, sql, params))
+      await finish()
+    })
+  } else if (rule) {
+    await withTransaction(async () => {
+      await write((sql, params) => query(sql, params))
+      await finish()
+    })
   } else {
     await write((sql, params) => query(sql, params))
   }
   return uuid
+}
+
+async function newTicketRule(
+  d: Record<string, unknown>,
+  unitId: string,
+): Promise<{ rule: TicketRule; unit: UnitContext } | null> {
+  const stamped = takeTicketRule(d)
+  try {
+    const unit = await loadUnitContext(unitId)
+    if (!unit) return null
+    if (stamped) return { rule: stamped, unit }
+    const set = await resolveRuleSet(unit)
+    // Staff are the agent: no rule warnings back to themselves.
+    const staff = ruleForStaffTicket(set, { categoryKey: d.categoryKey, title: d.title, description: d.description })
+    return { rule: { ...staff, warnings: [] }, unit }
+  } catch (err) {
+    if (stamped) throw err
+    console.warn('[maintenance-rules] staff ticket saved without a rule snapshot', err instanceof Error ? err.message : err)
+    return null
+  }
 }
 
 async function upsertDocument(feId: string, d: Record<string, unknown>): Promise<string> {
