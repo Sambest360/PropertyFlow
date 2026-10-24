@@ -332,7 +332,7 @@ export default function MarketHome() {
             active={state.marketplaceRefreshing && featured.length > 0}
             label="Updating listings…"
           />
-          {state.marketplaceRefreshing && featured.length === 0 ? (
+          {featured.length === 0 && !state.publicMarketplaceFetchFailed && (state.marketplaceRefreshing || !state.publicMarketplaceSettled) ? (
             <ListingCardGridSkeleton count={8} label="Loading featured homes…" />
           ) : (
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">

@@ -320,8 +320,12 @@ export default function BrowsePage() {
     setExpandedWishlistId((id) => (id === property.id ? null : property.id))
   }
 
+  // Ghost cards until the first marketplace load finishes — a fresh visit to
+  // /browse?mode=rent used to flash "No listings yet" for a few seconds.
   const showFullMarketplaceLoader =
-    state.marketplaceRefreshing && cards.length === 0 && !state.publicMarketplaceFetchFailed
+    cards.length === 0 &&
+    !state.publicMarketplaceFetchFailed &&
+    (state.marketplaceRefreshing || !state.publicMarketplaceSettled)
 
   return (
     <div className="min-h-[70vh] bg-primary-50/60">

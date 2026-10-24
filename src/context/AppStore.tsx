@@ -574,6 +574,8 @@ export type AppState = {
   publicMarketplaceFetchFailed: boolean
   /** Background public marketplace fetch (UI only — never clears listing rows). */
   marketplaceRefreshing: boolean
+  /** True once a public marketplace load has finished this visit (success or failure). Never restored from cache. */
+  publicMarketplaceSettled: boolean
   /** Background signed-in bootstrap refresh (UI only). */
   sessionRefreshing: boolean
   /** Backend → FE ids from entity_id_map (routing only; never render). */
@@ -1127,6 +1129,7 @@ export const defaultStateFor = (_liveDataMode: boolean): AppState => ({
   supportTickets: [],
   publicMarketplaceFetchFailed: false,
   marketplaceRefreshing: false,
+  publicMarketplaceSettled: false,
   sessionRefreshing: false,
   idMapCache: null,
 })
@@ -1152,6 +1155,7 @@ export function loadState(): AppState {
     return {
       ...base,
       ...parsed,
+      publicMarketplaceSettled: false,
       buildings: parsed.buildings ?? base.buildings,
       units: parsed.units ?? base.units,
       infraRooms: parsed.infraRooms ?? base.infraRooms,
@@ -1311,6 +1315,11 @@ function ensurePublicMarketplace(state: AppState): AppState {
   return state
 }
 
+/** A marketplace load finished (rows, empty, or failed): pages may now show their empty state. */
+function settleMarketplace(state: AppState): AppState {
+  return state.publicMarketplaceSettled ? state : { ...state, publicMarketplaceSettled: true }
+}
+
 export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>(() => defaultState())
   const [toasts, setToasts] = useState<NotificationToast[]>([])
@@ -1398,7 +1407,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     const ingestUserId = opts?.ingestNotifications ? resolved?.userId : undefined
 
     if (!isApiEnabled && !isSupabaseMode) {
-      setState((prev) => ensurePublicMarketplace(prev))
+      setState((prev) => settleMarketplace(ensurePublicMarketplace(prev)))
       return
     }
 
@@ -1415,7 +1424,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       setTicketAccessNotesSupported(false)
       const stored = storedAuth
       if (stored && hydratedForUserIdRef.current === stored) {
-        setState((prev) => ensurePublicMarketplace(prev))
+        setState((prev) => settleMarketplace(ensurePublicMarketplace(prev)))
         return
       }
       if (
@@ -1425,11 +1434,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           hydratedForUserId: hydratedForUserIdRef.current,
         })
       ) {
-        setState((prev) => ensurePublicMarketplace(prev))
+        setState((prev) => settleMarketplace(ensurePublicMarketplace(prev)))
         return
       }
       if (resolved?.userId || stored) setHydrationFailed(true)
-      setState((prev) => ensurePublicMarketplace(prev))
+      setState((prev) => settleMarketplace(ensurePublicMarketplace(prev)))
       return
     }
     // Drop a bootstrap whose user is no longer the session user (switch mid-flight).
@@ -1447,7 +1456,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     }
     setTicketAccessNotesSupported(ticketAccessNotesSupportedFromBootstrap(boot))
     setState((prev) => {
-      const next = ensurePublicMarketplace(applyPostgresBootstrap(prev, boot))
+      const next = settleMarketplace(ensurePublicMarketplace(applyPostgresBootstrap(prev, boot)))
       if (sessionUserId) {
         writePortfolioSnapshotFromState(
           sessionUserId,
@@ -1491,7 +1500,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           if (!full) return
           if (!bootstrapMatchesSession(deferredActor?.userId, readStoredAuthUserId())) return
           setState((prev) => {
-            const next = ensurePublicMarketplace(applyPostgresBootstrap(prev, full))
+            const next = settleMarketplace(ensurePublicMarketplace(applyPostgresBootstrap(prev, full)))
             const uid = deferredActor?.userId ?? readStoredAuthUserId()
             if (uid) {
               writePortfolioSnapshotFromState(
@@ -1516,7 +1525,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           if (!full) return
           if (!bootstrapMatchesSession(deferredActor?.userId, readStoredAuthUserId())) return
           setState((prev) => {
-            const next = ensurePublicMarketplace(applyPostgresBootstrap(prev, full))
+            const next = settleMarketplace(ensurePublicMarketplace(applyPostgresBootstrap(prev, full)))
             const uid = deferredActor?.userId ?? readStoredAuthUserId()
             if (uid) {
               writePortfolioSnapshotFromState(
@@ -1536,7 +1545,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!isApiEnabled && !isSupabaseMode) {
-      setState((prev) => ensurePublicMarketplace(prev))
+      setState((prev) => settleMarketplace(ensurePublicMarketplace(prev)))
       return
     }
     let cancelled = false
@@ -1572,7 +1581,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         setTicketAccessNotesSupported(false)
         const stored = storedAuth
         if (stored && hydratedForUserIdRef.current === stored) {
-          setState((prev) => ensurePublicMarketplace(prev))
+          setState((prev) => settleMarketplace(ensurePublicMarketplace(prev)))
           return
         }
         if (
@@ -1581,11 +1590,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             hydratedForUserId: hydratedForUserIdRef.current,
           })
         ) {
-          setState((prev) => ensurePublicMarketplace(prev))
+          setState((prev) => settleMarketplace(ensurePublicMarketplace(prev)))
           return
         }
         if (actor?.userId || stored) setHydrationFailed(true)
-        setState((prev) => ensurePublicMarketplace(prev))
+        setState((prev) => settleMarketplace(ensurePublicMarketplace(prev)))
         return
       }
       const sessionUserId = bootstrapSessionUserId(actor?.userId, boot.actor?.userId)
@@ -1602,7 +1611,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }
       setTicketAccessNotesSupported(ticketAccessNotesSupportedFromBootstrap(boot))
       setState((prev) => {
-        const next = ensurePublicMarketplace(applyPostgresBootstrap(prev, boot))
+        const next = settleMarketplace(ensurePublicMarketplace(applyPostgresBootstrap(prev, boot)))
         if (sessionUserId) {
           writePortfolioSnapshotFromState(
             sessionUserId,
@@ -1638,7 +1647,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           if (cancelled || !full) return
           if (!bootstrapMatchesSession(deferredActor?.userId, readStoredAuthUserId())) return
           setState((prev) => {
-            const next = ensurePublicMarketplace(applyPostgresBootstrap(prev, full))
+            const next = settleMarketplace(ensurePublicMarketplace(applyPostgresBootstrap(prev, full)))
             const uid = deferredActor?.userId ?? readStoredAuthUserId()
             if (uid) {
               writePortfolioSnapshotFromState(
@@ -1782,7 +1791,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             return
           }
           patch((s) => ({
-            ...ensurePublicMarketplace(applyPostgresBootstrap(s, boot)),
+            ...settleMarketplace(ensurePublicMarketplace(applyPostgresBootstrap(s, boot))),
             publicMarketplaceFetchFailed: Boolean(boot.marketplaceFetchFailed),
             marketplaceRefreshing: false,
           }))
@@ -1820,7 +1829,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         }))
       } finally {
         if (shouldApplyRefreshResult(requestId, marketplaceRefreshIdRef.current)) {
-          patch((s) => ({ ...s, marketplaceRefreshing: false }))
+          patch((s) => ({ ...s, marketplaceRefreshing: false, publicMarketplaceSettled: true }))
         }
       }
     },
