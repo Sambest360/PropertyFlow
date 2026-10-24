@@ -551,7 +551,10 @@ export async function buildBootstrap(opts?: {
   for (const [backendId, fe] of idCache.agencyBackendToFe) {
     mapCache.set(`agency:${backendId}`, fe)
   }
-  // DQ-M1: FE aliases for trust entities so allocate/import survive reload
+  // DQ-M1: FE aliases for every entity mappedFe() resolves below, so rows
+  // carry their front-end ids (PAY-…, lead ids) instead of raw UUIDs and
+  // survive reload. Trust entities were the only ones loaded before, which left
+  // payments, leads, applications, tickets, viewings and documents on UUIDs.
   {
     const trustTypes = [
       'trust_transaction',
@@ -560,6 +563,18 @@ export async function buildBootstrap(opts?: {
       'payout_instruction',
       'deposit_holding',
       'tenancy',
+      'payment',
+      'lead',
+      'application',
+      'ticket',
+      'viewing',
+      'viewing_slot',
+      'document',
+      'message',
+      'thread',
+      'property_event',
+      'building',
+      'support_ticket',
     ] as const
     const trustRows = await query<{
       entity_type: string
@@ -577,6 +592,12 @@ export async function buildBootstrap(opts?: {
   }
   const mappedFe = (entityType: string, uuid: string, fallback: string) =>
     mapCache.get(`${entityType}:${uuid}`) ?? fallback
+  // The property id a unit gets below (entity_id_map first, then the seed map),
+  // for every row that points at a unit. Plain mapProperty() only knows the seed
+  // units, so leads/applications/payments/tickets carried the raw unit UUID and
+  // never matched their property ("Unlinked property", UUIDs in the lists).
+  const propertyFe = (unitId: string | null | undefined): string | null =>
+    unitId ? canonicalListingId(mappedFe('property', unitId, mapProperty(unitId) ?? unitId)) : null
 
   // Agency FE id for any client UUID: entity_id_map alias first, then seed map.
   // Everything with an agencyId must use this so trust books share one id space
@@ -683,8 +704,9 @@ export async function buildBootstrap(opts?: {
   }))
 
   const buildingByUuid = new Map(buildings.map((b) => [b.id, b]))
+  // Same resolution as mappedBuildings ids, so units keep pointing at their building.
   const feBuildingByUuid = new Map(
-    buildings.map((b) => [b.id, BUILDING_TO_FRONTEND[b.id] ?? b.id]),
+    buildings.map((b) => [b.id, mappedFe('building', b.id, BUILDING_TO_FRONTEND[b.id] ?? b.id)]),
   )
 
   const mappedUnits = units.map((u) => {
@@ -822,7 +844,7 @@ export async function buildBootstrap(opts?: {
   const mappedLeads = (leads as Array<Record<string, unknown>>).map((l) => ({
     id: mappedFe('lead', l.id as string, LEAD_IDS[l.id as string] ?? (l.id as string)),
     agencyId: agencyFe(l.client_id as string)!,
-    propertyId: mapProperty(l.unit_id as string | null) ?? '',
+    propertyId: propertyFe(l.unit_id as string | null) ?? '',
     agentId: mapUser(l.agent_id as string | null),
     name: l.name as string,
     email: (l.email as string) ?? '',
@@ -866,7 +888,7 @@ export async function buildBootstrap(opts?: {
     return {
       id: APP_REF_TO_ID[ref] ?? ref,
       agencyId: agencyFe(a.client_id as string)!,
-      propertyId: mapProperty(a.unit_id as string)!,
+      propertyId: propertyFe(a.unit_id as string)!,
       agentId: mapUser(a.agent_id as string | null),
       applicantUserId: mapUser(a.applicant_id as string | null),
       applicantName: metaName || 'Applicant',
@@ -956,7 +978,7 @@ export async function buildBootstrap(opts?: {
     return {
       id: mappedFe('tenancy', l.id as string, LEASE_IDS[l.id as string] ?? (l.id as string)),
       agencyId: agencyFe(l.client_id as string)!,
-      propertyId: mappedFe('property', l.unit_id as string, mapProperty(l.unit_id as string)!),
+      propertyId: propertyFe(l.unit_id as string)!,
       landlordId: mapUser(l.landlord_id as string | null) ?? '',
       agentId: mapUser(l.agent_id as string | null),
       applicationId: l.application_id
@@ -992,7 +1014,7 @@ export async function buildBootstrap(opts?: {
     return {
       id: mappedFe('viewing', b.id as string, `VW-pg-${i + 1}`),
       agencyId: agencyFe(b.client_id as string)!,
-      propertyId: mapProperty(b.unit_id as string)!,
+      propertyId: propertyFe(b.unit_id as string)!,
       agentId: mapUser(b.agent_id as string | null) ?? '',
       slotId: slotUuid
         ? mappedFe('viewing_slot', slotUuid, SLOT_IDS[slotUuid] ?? slotUuid)
@@ -1025,7 +1047,7 @@ export async function buildBootstrap(opts?: {
       SLOT_IDS[s.id as string] ?? `VS-pg-${i + 1}`,
     ),
     agencyId: agencyFe(s.client_id as string)!,
-    propertyId: mapProperty(s.unit_id as string)!,
+    propertyId: propertyFe(s.unit_id as string)!,
     agentId: mapUser(s.agent_id as string | null) ?? '',
     date: dateOnly(s.slot_date as Date | string),
     time: String(s.slot_time).slice(0, 5),
@@ -1072,7 +1094,7 @@ export async function buildBootstrap(opts?: {
     const subjectUnit = e.subject_id as string | null
     const propertyId =
       (payload.propertyId as string) ||
-      (subjectUnit ? mapProperty(subjectUnit) : null) ||
+      (subjectUnit ? propertyFe(subjectUnit) : null) ||
       ''
     return {
       id: mappedFe('property_event', e.id as string, `pe-pg-${i + 1}`),
@@ -1200,7 +1222,7 @@ export async function buildBootstrap(opts?: {
     id: mappedFe('payout_instruction', p.id as string, p.id as string),
     agencyId: agencyFe(p.client_id as string)!,
     occupancyId: (p.occupancy_id as string) ?? null,
-    propertyId: p.unit_id ? (mapProperty(p.unit_id as string) ?? '') : '',
+    propertyId: p.unit_id ? (propertyFe(p.unit_id as string) ?? '') : '',
     payeeType: (p.payee_type as string) ?? 'landlord',
     payeeId: mapUser(p.payee_id as string | null) ?? ((p.payee_id as string) ?? ''),
     bankAccountId: (p.bank_account_id as string) ?? '',
@@ -1291,7 +1313,7 @@ export async function buildBootstrap(opts?: {
   const mappedPayments = (payments as Array<Record<string, unknown>>).map((p) => ({
     id: mappedFe('payment', p.id as string, PAYMENT_IDS[p.id as string] ?? (p.id as string)),
     agencyId: agencyFe(p.client_id as string)!,
-    propertyId: mapProperty(p.unit_id as string | null) ?? '',
+    propertyId: propertyFe(p.unit_id as string | null) ?? '',
     applicationId: null as string | null,
     tenancyId: p.lease_id ? (LEASE_IDS[p.lease_id as string] ?? (p.lease_id as string)) : null,
     partyName: p.party_name as string,
@@ -1321,7 +1343,7 @@ export async function buildBootstrap(opts?: {
   const propertyDocuments = (documents as Array<Record<string, unknown>>).map((d) => ({
     id: mappedFe('document', d.id as string, DOC_IDS[d.id as string] ?? (d.id as string)),
     agencyId: agencyFe(d.client_id as string)!,
-    propertyId: mapProperty(d.unit_id as string | null) ?? '',
+    propertyId: propertyFe(d.unit_id as string | null) ?? '',
     name: d.name as string,
     category: docCategory(d.category as string),
     // Raw documents.category (e.g. 'ID') — the FE category folds ID into Other;
@@ -1349,7 +1371,7 @@ export async function buildBootstrap(opts?: {
   const mappedTickets = (tickets as Array<Record<string, unknown>>).map((t) => ({
     id: mappedFe('ticket', t.id as string, TICKET_IDS[t.id as string] ?? (t.id as string)),
     agencyId: agencyFe(t.client_id as string)!,
-    propertyId: mapProperty(t.unit_id as string)!,
+    propertyId: propertyFe(t.unit_id as string)!,
     unitId: null as string | null,
     categoryKey: (t.category_key as string) ?? undefined,
     assetLabel: undefined as string | undefined,
@@ -1398,7 +1420,7 @@ export async function buildBootstrap(opts?: {
       id: mappedFe('thread', th.id as string, THREAD_IDS[th.id as string] ?? (th.id as string)),
       agencyId: agencyFe(th.client_id as string)!,
       propertyId: th.unit_id
-        ? mappedFe('property', th.unit_id as string, mapProperty(th.unit_id as string)!)
+        ? propertyFe(th.unit_id as string)
         : null,
       applicationId: null as string | null,
       subject: th.subject as string,
