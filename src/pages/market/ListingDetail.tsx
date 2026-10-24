@@ -42,6 +42,8 @@ import { StickyMobileActionBar } from '../../components/layout/mobile/StickyMobi
 import { FullScreenSheet } from '../../components/layout/mobile/FullScreenSheet'
 import { isFutureViewingSlot } from '../../lib/viewingSlotTime'
 import { findOwnApplicationForProperty } from '../../lib/applicantApplication'
+import { rentalApplyButton } from '../../lib/applyEligibility'
+import { fetchApplyEligibility } from '../../lib/api/viewingApply'
 import { formatEmploymentSummary } from '../../lib/employmentDisplay'
 import { prefillEnquiryContact } from './listingEnquiryPrefill'
 
@@ -96,6 +98,8 @@ export default function ListingDetail() {
   const [intent, setIntent] = useState<EnquiryIntent>('lead')
   const [submitting, setSubmitting] = useState(false)
   const [appSubmitting, setAppSubmitting] = useState(false)
+  const [applyEligibility, setApplyEligibility] = useState<{ eligible: boolean; reason: string } | null>(null)
+  const [applyEligibilityLoading, setApplyEligibilityLoading] = useState(false)
   const enquiryLockRef = useRef(false)
   const applicationLockRef = useRef(false)
   const [enquirySheetOpen, setEnquirySheetOpen] = useState(false)
@@ -194,6 +198,24 @@ export default function ListingDetail() {
     if (!p || !isAuthenticated || user.id === 'guest') return null
     return findOwnApplicationForProperty(state.applications, user, p.id)
   }, [isAuthenticated, p, state.applications, user, user.id])
+
+  useEffect(() => {
+    if (!p || !isAuthenticated || user.id === 'guest' || p.listingMode === 'sale' || existingApplication) {
+      setApplyEligibility(null)
+      setApplyEligibilityLoading(false)
+      return
+    }
+    let live = true
+    setApplyEligibilityLoading(true)
+    void fetchApplyEligibility(p.backendId || p.id).then((row) => {
+      if (!live) return
+      setApplyEligibility(row ?? { eligible: false, reason: 'VIEWING_REQUIRED' })
+      setApplyEligibilityLoading(false)
+    })
+    return () => {
+      live = false
+    }
+  }, [existingApplication, isAuthenticated, p, user.id])
 
   useEffect(() => {
     if (searchParams.get('apply') !== '1' || !p || !isListed) return
@@ -454,6 +476,11 @@ export default function ListingDetail() {
       releaseSubmitLock(applicationLockRef)
       return
     }
+    if (p.listingMode !== 'sale' && applyEligibility && !applyEligibility.eligible) {
+      await sweetWarning('Viewing required', 'Book and attend a viewing first.')
+      releaseSubmitLock(applicationLockRef)
+      return
+    }
 
     setAppSubmitting(true)
     try {
@@ -696,15 +723,14 @@ export default function ListingDetail() {
             </Button>
           </Link>
         ) : (
-          <Button
-            type="button"
-            variant="secondary"
-            className="w-full min-h-11"
-            disabled={appSubmitting}
-            onClick={() => void submitApplication()}
-          >
-            {appSubmitting ? 'Submitting…' : 'Submit full application'}
-          </Button>
+          <RentalApplyButton
+            isRent={isRent}
+            loading={applyEligibilityLoading}
+            eligibility={applyEligibility}
+            submitting={appSubmitting}
+            onApply={() => void submitApplication()}
+            onBook={() => setIntent('viewing')}
+          />
         )}
       </div>
       </>
@@ -931,6 +957,49 @@ export default function ListingDetail() {
           </section>
         )}
       </div>
+    </div>
+  )
+}
+
+function RentalApplyButton({
+  isRent,
+  loading,
+  eligibility,
+  submitting,
+  onApply,
+  onBook,
+}: {
+  isRent: boolean
+  loading: boolean
+  eligibility: { eligible: boolean } | null
+  submitting: boolean
+  onApply: () => void
+  onBook: () => void
+}) {
+  if (!isRent) {
+    return (
+      <Button type="button" variant="secondary" className="w-full min-h-11" disabled={submitting} onClick={onApply}>
+        {submitting ? 'Submitting…' : 'Submit full application'}
+      </Button>
+    )
+  }
+  const control = rentalApplyButton(eligibility, loading)
+  return (
+    <div className="space-y-2">
+      <Button
+        type="button"
+        variant="secondary"
+        className="w-full min-h-11"
+        disabled={submitting || control.disabled}
+        onClick={onApply}
+      >
+        {submitting ? 'Submitting…' : control.label}
+      </Button>
+      {control.bookFirst ? (
+        <button type="button" onClick={onBook} className="block w-full text-center text-xs font-semibold text-primary hover:underline">
+          Book a viewing
+        </button>
+      ) : null}
     </div>
   )
 }

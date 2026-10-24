@@ -126,6 +126,7 @@ describe('guest public apply inherits listing agency (PR-1011)', () => {
         return limited.map((r) => ({ backend_id: r.backend_id, frontend_id: r.frontend_id }))
       }
 
+      if (sql.includes('/* apply-eligibility */')) return []
       if (sql.includes('FROM users') || sql.includes('FROM clients')) return []
       // #80: listing agent for an application created without agentId.
       if (sql.includes('SELECT agent_id::text AS agent_id FROM units')) return []

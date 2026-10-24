@@ -8,6 +8,7 @@ import type { PostgresBootstrap } from '../api/postgresClient'
 import { createClient } from '../../utils/supabase/client'
 import { latestRefundBySubject } from '../trust/depositDualControl'
 import { listingLimitsFromSettings } from '../listingLimitCopy'
+import { agencyViewingSettingsFromJson, readViewingEvidence } from '../applyEligibility'
 import {
   buildIdMapCache,
   EMAIL_TO_USER,
@@ -541,13 +542,11 @@ export async function fetchSupabaseBootstrap(
         status: mapAgencyStatusFromDb(c.status),
         createdAt: dateOnly(c.created_at),
         enabledPermissions: null as null,
-        settings:
-          applicationJourney || listingLimits
-            ? {
-                ...(applicationJourney ? { applicationJourney } : {}),
-                ...(listingLimits ? { listingLimits } : {}),
-              }
-            : undefined,
+        settings: {
+          ...(applicationJourney ? { applicationJourney } : {}),
+          ...(listingLimits ? { listingLimits } : {}),
+          ...agencyViewingSettingsFromJson(settingsRaw),
+        },
       }
     })
 
@@ -634,6 +633,7 @@ export async function fetchSupabaseBootstrap(
       amenities: Array.isArray(u.amenities) ? u.amenities : [],
       images: Array.isArray(u.images) ? u.images : [],
       featured: u.featured,
+      requireViewingToApply: (u as { require_viewing_to_apply?: boolean | null }).require_viewing_to_apply ?? null,
       lat: u.lat ? Number(u.lat) : b?.lat ? Number(b.lat) : 0,
       lng: u.lng ? Number(u.lng) : b?.lng ? Number(b.lng) : 0,
       placeId: u.place_id ?? b?.place_id ?? null,
@@ -739,6 +739,7 @@ export async function fetchSupabaseBootstrap(
       amenities: u.amenities,
       description: u.description,
       featured: u.featured,
+      requireViewingToApply: u.requireViewingToApply,
       createdAt: u.createdAt,
       solarCapacityKw: b?.solarCapacityKw,
       hasBorehole: b?.hasBorehole,
@@ -819,13 +820,14 @@ export async function fetchSupabaseBootstrap(
       idNumberOrPassport:
         typeof meta.id_number_or_passport === 'string' ? meta.id_number_or_passport : undefined,
       viewingSlotId: null,
+      viewingEvidence: readViewingEvidence(meta),
       notes: (a.message as string | null) ?? '',
       declineReason:
         typeof meta.decline_reason === 'string' && meta.decline_reason.trim()
           ? meta.decline_reason.trim()
           : undefined,
       moveInDate: dateOnly(a.move_in_date as string | null) || undefined,
-      keyCollection: meta.keyCollection as Record<string, unknown> | undefined,
+      keyCollection: meta.keyCollection as import('../../types/domain').Application['keyCollection'] | undefined,
       submittedAt: dateOnly(a.submitted_at as string | null) || dateOnly(a.created_at as string | null),
       updatedAt: dateOnly(a.updated_at as string | null),
       journeySnapshot:
@@ -908,6 +910,9 @@ export async function fetchSupabaseBootstrap(
       date: dateOnly(b.starts_at),
       time: starts.toISOString().slice(11, 16),
       status: viewingStatus(b.status),
+      viewingMode: ((b as { viewing_mode?: string }).viewing_mode === 'VIRTUAL' ? 'VIRTUAL' : 'IN_PERSON') as
+        | 'IN_PERSON'
+        | 'VIRTUAL',
       attendance:
         b.status === 'COMPLETED' ? 'Attended' : b.status === 'NO_SHOW' ? 'No-show' : '—',
       feedback: b.feedback ?? undefined,

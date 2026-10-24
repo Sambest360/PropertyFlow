@@ -63,6 +63,7 @@ export type PropertyWizardDraft = {
   starterAssets: WizardAssetDraft[]
   /** When true, rooms use the no-bedroom open-plan preset (0 beds on listings). */
   listingUnfurnished?: boolean
+  requireViewingToApply?: 'inherit' | 'on' | 'off'
   /** Restored when turning off unfurnished / no-bedroom mode. */
   roomsBeforeUnfurnished?: WizardRoomDraft[]
 }
@@ -240,5 +241,11 @@ export function draftFromProperty(
     // the wizard's starter list stays empty so nothing is duplicated on save.
     starterAssets: [],
     listingUnfurnished: property.amenities?.includes(UNFURNISHED_AMENITY_LABEL) ?? false,
+    requireViewingToApply:
+      property.requireViewingToApply === true
+        ? 'on'
+        : property.requireViewingToApply === false
+          ? 'off'
+          : 'inherit',
   }
 }

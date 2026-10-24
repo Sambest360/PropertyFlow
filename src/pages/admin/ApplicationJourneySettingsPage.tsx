@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../../context/AppStore'
 import { useAgencyScope, useAuth } from '../../context/AuthContext'
 import { RequirePermission } from '../../components/RequirePermission'
@@ -6,6 +6,8 @@ import { Badge, Button, Card, PageHeader, cn } from '../../components/ui'
 import { DEFAULT_RENTAL_JOURNEY } from '../../lib/journey/defaultRentalJourney'
 import { resolveJourney } from '../../lib/journey/resolveJourney'
 import type { AgencyJourneyOverride } from '../../lib/journey/types'
+import { OVERRIDE_REASON_LABELS } from '../../lib/applyEligibility'
+import { fetchApplyOverrides, type ApplyOverrideRow } from '../../lib/api/viewingApply'
 
 function AgencyListingDefaults({
   maxEnquiries,
@@ -129,6 +131,32 @@ export default function ApplicationJourneySettingsPage() {
     saveOverride({ version: DEFAULT_RENTAL_JOURNEY.version, steps })
   }
 
+  const [overrides, setOverrides] = useState<ApplyOverrideRow[]>([])
+
+  useEffect(() => {
+    if (!effectiveAgencyId) return
+    let live = true
+    void fetchApplyOverrides(effectiveAgencyId).then((rows) => {
+      if (live) setOverrides(rows)
+    })
+    return () => {
+      live = false
+    }
+  }, [effectiveAgencyId, agency?.settings])
+
+  function setViewingFlag(
+    key: 'requireViewingToApply' | 'buildingViewingCountsForAllUnits' | 'mainApplicantViewingCoversCoApplicants',
+    value: boolean,
+  ) {
+    if (!agency) return
+    updateAgency(agency.id, {
+      settings: {
+        ...agency.settings,
+        [key]: value,
+      },
+    })
+  }
+
   function resetDefault() {
     if (!agency) return
     updateAgency(agency.id, {
@@ -200,6 +228,55 @@ export default function ApplicationJourneySettingsPage() {
             }
           />
         ) : null}
+        <Card className="space-y-3 p-4">
+          <h2 className="font-display text-lg font-semibold text-ink">Viewing before apply</h2>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={agency?.settings?.requireViewingToApply !== false}
+              onChange={(e) => setViewingFlag('requireViewingToApply', e.target.checked)}
+            />
+            Require a completed viewing before a rental application
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={agency?.settings?.buildingViewingCountsForAllUnits === true}
+              onChange={(e) => setViewingFlag('buildingViewingCountsForAllUnits', e.target.checked)}
+            />
+            A viewing of any unit in the building counts for every unit
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={agency?.settings?.mainApplicantViewingCoversCoApplicants !== false}
+              onChange={(e) => setViewingFlag('mainApplicantViewingCoversCoApplicants', e.target.checked)}
+            />
+            The main applicant’s viewing covers co-applicants
+          </label>
+        </Card>
+        <Card className="p-4">
+          <h2 className="font-display text-lg font-semibold text-ink">Apply overrides</h2>
+          {overrides.length === 0 ? (
+            <p className="mt-2 text-sm text-ink-500">No overrides for this agency.</p>
+          ) : (
+            <ul className="mt-3 divide-y divide-primary-50 text-sm">
+              {overrides.map((row) => (
+                <li key={row.id} className="py-2">
+                  <p className="font-medium text-ink">
+                    {row.unit_title ?? row.unit_id} · {row.applicant_email ?? 'Applicant'}
+                  </p>
+                  <p className="text-xs text-ink-500">
+                    {OVERRIDE_REASON_LABELS[row.reason_code as keyof typeof OVERRIDE_REASON_LABELS] ?? row.reason_code}
+                    {' – '}
+                    {row.reason_text}
+                    {row.revoked_at ? ' · Revoked' : ''}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
         <div className="flex gap-3">
           <Button type="button" variant="secondary" onClick={resetDefault}>
             Reset to SA default

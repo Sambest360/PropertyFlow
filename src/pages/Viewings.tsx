@@ -28,11 +28,13 @@ import {
 } from '../components/viewings/types'
 import { readReturnTo } from '../lib/returnTo'
 import { DataRefreshBanner } from '../components/loading/DataRefreshBanner'
+import { patchBookingAttendance } from '../lib/api/viewingApply'
+import { sweetError } from '../lib/sweetAlert'
 
 const ICON_STROKE = 1.6
 
 export default function Viewings() {
-  const { state, createViewingSlot, bookViewingSlot, createViewing } = useStore()
+  const { state, createViewingSlot, bookViewingSlot, createViewing, updateViewing } = useStore()
   const { agencyId, has } = useAuth()
   const { dealVisible, allowedPropertyIds, canMutate } = usePropertyScope()
   const reducedMotion = usePrefersReducedMotion()
@@ -305,6 +307,23 @@ export default function Viewings() {
     }
   }
 
+  const markAttendance = async (
+    bookingId: string,
+    status: 'COMPLETED' | 'NO_SHOW',
+    viewingMode: 'IN_PERSON' | 'VIRTUAL',
+  ) => {
+    const result = await patchBookingAttendance(bookingId, { status, viewingMode })
+    if (result.ok === false) {
+      await sweetError('Could not update attendance', result.message)
+      return
+    }
+    updateViewing(bookingId, {
+      status: status === 'COMPLETED' ? 'Completed' : 'No-show',
+      attendance: status === 'COMPLETED' ? 'Attended' : 'No-show',
+      viewingMode,
+    })
+  }
+
   return (
     <RequirePermission permission="viewings.manage">
       <div className="animate-fade-in space-y-5">
@@ -446,6 +465,7 @@ export default function Viewings() {
             items={dayItems}
             reducedMotion={reducedMotion}
             emptyLabel="Nothing on this day matches your filters."
+            onAttendance={(id, status, mode) => void markAttendance(id, status, mode)}
           />
         )}
 
