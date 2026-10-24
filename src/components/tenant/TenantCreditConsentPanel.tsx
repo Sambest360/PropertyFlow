@@ -1,6 +1,14 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Application } from '../../types/domain'
 import { creditConsentAdultsRequired, hasAllAdultCreditConsents } from '../../lib/screening/creditConsent'
+import {
+  CHECK_TYPE_LABELS,
+  POPIA_RIGHTS_TEXT,
+  maskIdNumber,
+  providerDisplayName,
+  retentionText,
+} from '../../lib/screening/consentTerms'
+import { screeningApi, screeningApiAvailable, type ScreeningConsentTerms } from '../../lib/api/screeningApi'
 import { Button, Card, Input } from '../ui'
 
 type AdultDraft = { name: string; idNumber: string; signatureText: string; consented: boolean }
@@ -19,6 +27,140 @@ function draftsFromApp(application: Application): AdultDraft[] {
       consented: Boolean(match?.signatureText?.trim() && match.grantedAt),
     }
   })
+}
+
+/**
+ * Consent for the server-run checks (POST /api/screening/consents). Lists each
+ * check, its providers and retention, and the POPIA rights; signed with a
+ * checkbox and the applicant's typed name.
+ */
+function ScreeningConsentSection({ applicationId }: { applicationId: string }) {
+  const [terms, setTerms] = useState<ScreeningConsentTerms | null>(null)
+  const [agreed, setAgreed] = useState(false)
+  const [typedName, setTypedName] = useState('')
+  const [showText, setShowText] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    try {
+      setTerms(await screeningApi.consentTerms(applicationId))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load the consent wording')
+    }
+  }, [applicationId])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  if (!terms) return error ? <p className="text-sm text-red-600">{error}</p> : null
+
+  const active = terms.consents.filter((c) => c.active)
+  const submit = async () => {
+    setError(null)
+    setSaving(true)
+    try {
+      await screeningApi.giveConsent({
+        applicationId,
+        checkTypes: terms.checkTypes,
+        typedName,
+        consentTextVersion: terms.version,
+      })
+      setAgreed(false)
+      setTypedName('')
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save consent')
+    } finally {
+      setSaving(false)
+    }
+  }
+  const withdraw = async (id: string) => {
+    if (!window.confirm('Withdraw this consent? Checks already run are not undone.')) return
+    try {
+      await screeningApi.withdrawConsent(id)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not withdraw consent')
+    }
+  }
+
+  return (
+    <div className="mt-6 space-y-3 border-t border-primary-100 pt-5">
+      <h3 className="font-display text-base font-semibold text-ink">Screening checks consent</h3>
+      <p className="text-sm text-ink-500">
+        {terms.agencyName} will run these checks. Consent lasts {terms.validDays} days.
+      </p>
+      <ul className="space-y-2 text-sm">
+        {terms.checkTypes.map((type) => (
+          <li key={type} className="rounded-xl border border-primary-100 p-3">
+            <p className="font-medium text-ink">{CHECK_TYPE_LABELS[type]}</p>
+            <p className="text-xs text-ink-500">
+              Provider: {(terms.providers[type] ?? []).map(providerDisplayName).join(' or ') || 'not set up yet'}
+            </p>
+            <p className="text-xs text-ink-500">Kept: {retentionText(type, terms.creditRetentionMonths)}</p>
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs text-ink-500">{POPIA_RIGHTS_TEXT}</p>
+      <button
+        type="button"
+        className="text-xs font-semibold text-ink-500 hover:text-ink"
+        onClick={() => setShowText((v) => !v)}
+      >
+        {showText ? 'Hide full consent wording' : 'Read full consent wording'}
+      </button>
+      {showText ? (
+        <pre className="whitespace-pre-wrap rounded-xl bg-primary-50 p-3 text-xs text-ink">{terms.text}</pre>
+      ) : null}
+
+      {active.length ? (
+        <ul className="space-y-2">
+          {active.map((c) => (
+            <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <span className="text-emerald-700">
+                Consent given by {c.subjectName}
+                {c.subjectId ? ` (ID ${c.subjectId})` : ''} on {new Date(c.acceptedAt).toLocaleDateString()}
+              </span>
+              <button
+                type="button"
+                className="text-xs font-semibold text-ink-500 hover:text-ink"
+                onClick={() => void withdraw(c.id)}
+              >
+                Withdraw
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <>
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-1" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
+            <span>I have read the wording above and consent to these checks.</span>
+          </label>
+          <label className="block text-sm">
+            <span className="font-medium text-ink">Type your full name to sign ({terms.applicantName})</span>
+            <Input
+              className="mt-1"
+              placeholder="Type full legal name"
+              value={typedName}
+              onChange={(e) => setTypedName(e.target.value)}
+            />
+          </label>
+          <Button
+            type="button"
+            className="min-h-11"
+            disabled={!agreed || typedName.trim().length < 2 || saving}
+            onClick={() => void submit()}
+          >
+            {saving ? 'Saving…' : 'Give screening consent'}
+          </Button>
+        </>
+      )}
+      {error ? <p className="text-sm text-red-600">{error}</p> : null}
+    </div>
+  )
 }
 
 export function TenantCreditConsentPanel({
@@ -112,7 +254,7 @@ export function TenantCreditConsentPanel({
               <span className="font-medium text-ink">SA ID number</span>
               <Input
                 className="mt-1"
-                value={row.idNumber}
+                value={row.consented ? maskIdNumber(row.idNumber) : row.idNumber}
                 disabled={row.consented}
                 onChange={(e) => updateRow(index, { idNumber: e.target.value })}
               />
@@ -157,6 +299,7 @@ export function TenantCreditConsentPanel({
           </Button>
         )}
       </div>
+      {screeningApiAvailable ? <ScreeningConsentSection applicationId={application.id} /> : null}
     </Card>
   )
 }

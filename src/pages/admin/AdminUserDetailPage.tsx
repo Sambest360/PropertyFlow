@@ -43,6 +43,7 @@ import {
   verificationDecisionsEnabled,
   type UserVerification,
 } from '../../lib/verification'
+import { maskIdNumber } from '../../lib/screening/consentTerms'
 
 const ICON_STROKE = 1.6
 
@@ -361,7 +362,7 @@ function OverviewTab({
           <FlatField label="Name" value={user.name} />
           <FlatField label="Email" value={user.email} />
           <FlatField label="Phone" value={user.phone ?? '—'} />
-          <FlatField label="ID / passport" value={user.idNumberOrPassport ?? '—'} />
+          <FlatField label="ID / passport" value={maskIdNumber(user.idNumberOrPassport) || '—'} />
           <FlatField
             label="Date of birth"
             value={user.dateOfBirth ? formatDisplayDob(user.dateOfBirth) : '—'}
@@ -418,7 +419,7 @@ function OverviewTab({
                   <FlatField label="Trading name" value={profile.company} />
                 ) : null}
                 {typeof profile.idNumberOrPassport === 'string' ? (
-                  <FlatField label="ID / passport" value={profile.idNumberOrPassport} />
+                  <FlatField label="ID / passport" value={maskIdNumber(profile.idNumberOrPassport)} />
                 ) : null}
                 {Array.isArray(profile.trades) ? (
                   <FlatField label="Trades" value={(profile.trades as string[]).join(', ')} />

@@ -1,7 +1,7 @@
 import { isSupabaseMode } from './api/config'
 import { createClient } from '../utils/supabase/client'
 
-/** Public bucket created by migration 028_listing_photos_storage.sql. */
+/** Public bucket created by migration 029_listing_photos_storage.sql. */
 export const LISTING_PHOTOS_BUCKET = 'listing-photos'
 
 const DATA_URL_RE = /^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i

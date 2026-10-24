@@ -40,7 +40,9 @@ import {
 import { supabaseSessionMiddleware } from './supabase/middleware.js'
 import type { PersistBody } from './writes.js'
 import { payfastCreate, payfastItn, type LoadedPayment } from './payfastRoutes.js'
-import { screeningProviderInfo, screeningWebhook } from './screeningRoutes.js'
+import { registerScreeningRoutes, screeningProviderInfo, screeningWebhook } from './screeningRoutes.js'
+import { createProviderRegistry } from './screeningChecks.js'
+import { pgScreeningStore } from './screeningStore.js'
 import {
   esignCreateEnvelope,
   esignProviderInfo,
@@ -1757,6 +1759,13 @@ app.post('/api/payfast/create', async (c) => {
 app.post('/api/payfast/itn', (c) => payfastItn(c))
 app.get('/api/screening/provider', (c) => screeningProviderInfo(c))
 app.post('/api/screening/webhook', (c) => screeningWebhook(c))
+registerScreeningRoutes(app, {
+  store: pgScreeningStore,
+  registry: createProviderRegistry(process.env),
+  env: process.env,
+  now: () => new Date(),
+  requireActor: (c) => requireActor(c),
+})
 
 app.get('/api/esign/provider', (c) => esignProviderInfo(c))
 /**

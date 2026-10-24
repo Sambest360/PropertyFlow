@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../../context/AppStore'
 import { useAgencyScope, useAuth } from '../../context/AuthContext'
 import { RequirePermission } from '../../components/RequirePermission'
+import { ScreeningSettingsCard } from '../../components/screening/ScreeningSettingsCard'
 import { Badge, Button, Card, PageHeader, cn } from '../../components/ui'
 import { DEFAULT_RENTAL_JOURNEY } from '../../lib/journey/defaultRentalJourney'
 import { resolveJourney } from '../../lib/journey/resolveJourney'
 import type { AgencyJourneyOverride } from '../../lib/journey/types'
 import { OVERRIDE_REASON_LABELS } from '../../lib/applyEligibility'
 import { fetchApplyOverrides, type ApplyOverrideRow } from '../../lib/api/viewingApply'
+import { propertyRefLabel } from '../../lib/propertyRefs'
 
 function AgencyListingDefaults({
   maxEnquiries,
@@ -264,7 +266,7 @@ export default function ApplicationJourneySettingsPage() {
               {overrides.map((row) => (
                 <li key={row.id} className="py-2">
                   <p className="font-medium text-ink">
-                    {row.unit_title ?? row.unit_id} · {row.applicant_email ?? 'Applicant'}
+                    {row.unit_title ?? propertyRefLabel(row.unit_id)} · {row.applicant_email ?? 'Applicant'}
                   </p>
                   <p className="text-xs text-ink-500">
                     {OVERRIDE_REASON_LABELS[row.reason_code as keyof typeof OVERRIDE_REASON_LABELS] ?? row.reason_code}
@@ -277,6 +279,7 @@ export default function ApplicationJourneySettingsPage() {
             </ul>
           )}
         </Card>
+        {agency ? <ScreeningSettingsCard key={`screening-${agency.id}`} agencyId={agency.id} /> : null}
         <div className="flex gap-3">
           <Button type="button" variant="secondary" onClick={resetDefault}>
             Reset to SA default

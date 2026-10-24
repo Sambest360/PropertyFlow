@@ -5,10 +5,38 @@ import { RequirePermission } from '../components/RequirePermission'
 import { Badge, Button, Card, PageHeader, statusTone } from '../components/ui'
 import { formatZAR } from '../data/seed'
 import { calculateUsage, type PlatformInvoice } from '../lib/billingEngine'
+import {
+  ScreeningPricingCard,
+  ScreeningUsageCard,
+  currentMonth,
+  markScreeningInvoiced,
+  screeningInvoiceLineItem,
+} from '../components/screening/ScreeningBillingCards'
 
 export default function PlatformBilling() {
   const { state, runClientBillingCycle, markInvoicePaid } = useStore()
   const [selectedClient, setSelectedClient] = useState(state.agencies[0]?.id ?? '')
+  const [billingNote, setBillingNote] = useState<string | null>(null)
+  const [usageRefresh, setUsageRefresh] = useState(0)
+
+  const runCycle = async () => {
+    setBillingNote(null)
+    const month = currentMonth()
+    let screening = null
+    try {
+      screening = await screeningInvoiceLineItem(selectedClient, month)
+    } catch (err) {
+      setBillingNote(`Screening charges not added: ${err instanceof Error ? err.message : 'usage unavailable'}`)
+    }
+    const inv = runClientBillingCycle(selectedClient, undefined, undefined, screening ? [screening] : undefined)
+    if (!inv || !screening) return
+    try {
+      await markScreeningInvoiced(selectedClient, month, inv.id)
+      setUsageRefresh((n) => n + 1)
+    } catch (err) {
+      setBillingNote(`Invoice created, but screening charges were not marked invoiced: ${err instanceof Error ? err.message : 'error'}`)
+    }
+  }
 
   const planById = useMemo(
     () => Object.fromEntries(state.billingPlans.map((p) => [p.id, p])),
@@ -123,16 +151,11 @@ export default function PlatformBilling() {
                     </dd>
                   </div>
                 </dl>
-                <Button
-                  className="mt-5"
-                  onClick={() => {
-                    const inv = runClientBillingCycle(selectedClient)
-                    if (!inv) return
-                  }}
-                >
+                <Button className="mt-5" onClick={() => void runCycle()}>
                   <RefreshCw className="h-4 w-4" />
                   Run billing cycle (midnight worker)
                 </Button>
+                {billingNote ? <p className="mt-2 text-xs text-accent-700">{billingNote}</p> : null}
               </>
             ) : (
               <p className="text-sm text-ink-500">No active subscription for this client.</p>
@@ -160,6 +183,13 @@ export default function PlatformBilling() {
                       {formatZAR(inv.baseAmount)} · Usage {formatZAR(inv.assetUsageAmount)} · VAT{' '}
                       {formatZAR(inv.vatAmount)}
                     </p>
+                    {inv.lineItems
+                      .filter((li) => li.kind === 'screening')
+                      .map((li) => (
+                        <p key={li.label} className="text-xs text-ink-500">
+                          {li.label} · {formatZAR(li.amount)}
+                        </p>
+                      ))}
                     <p className="tabular mt-1 text-sm font-semibold text-ink">
                       {formatZAR(inv.totalAmountDue)} due
                     </p>
@@ -174,6 +204,9 @@ export default function PlatformBilling() {
             </ul>
           </Card>
         </div>
+
+        <ScreeningUsageCard refreshKey={usageRefresh} />
+        <ScreeningPricingCard />
 
         <Card className="mt-6 p-5">
           <h2 className="font-semibold text-ink">Subscriptions</h2>

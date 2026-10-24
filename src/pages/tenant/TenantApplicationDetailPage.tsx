@@ -18,6 +18,7 @@ import { ApplicantApplicationPanel } from '../../components/applicant-detail/App
 import { ApplicantDocumentsPanel } from '../../components/applicant-detail/ApplicantDocumentsPanel'
 import { TenantApplicationDetailsForm } from '../../components/tenant/TenantApplicationDetailsForm'
 import { TenantCreditConsentPanel } from '../../components/tenant/TenantCreditConsentPanel'
+import { screeningApiAvailable } from '../../lib/api/screeningApi'
 import { needsCreditConsentTask } from '../../lib/screening/creditConsent'
 import { TenantApplicationPaymentsPanel } from '../../components/tenant/TenantApplicationPaymentsPanel'
 import { Badge, Button, Card, cn, statusTone } from '../../components/ui'
@@ -466,7 +467,9 @@ export default function TenantApplicationDetailPage() {
 
         {tab === 'details' && (
           <div className="space-y-5">
-            {needsCreditConsentTask(application) || application.creditCheckConsents?.adults?.length ? (
+            {needsCreditConsentTask(application) ||
+            application.creditCheckConsents?.adults?.length ||
+            screeningApiAvailable ? (
               <TenantCreditConsentPanel
                 application={application}
                 onCapture={async (adults) => {
