@@ -2,13 +2,15 @@ import { useCallback, useId, useRef, useState, type DragEvent } from 'react'
 import { GripVertical, ImagePlus, Upload, X } from 'lucide-react'
 import { cn } from './ui'
 import { LISTING_PHOTO_TOO_LARGE, partitionPhotosBySize } from '../lib/listingPhotos'
+import { storePhotoDataUrl } from '../lib/photoStorage'
 
 const ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,image/heic,image/*'
 
 /**
- * Photos are stored inline as data URLs, so oversized uploads bloat every DB
- * row that carries them (and every public payload that serializes them).
- * Downscale to a max edge and re-encode before anything touches the store.
+ * Photos are downscaled and re-encoded first (the size cap is measured on the
+ * compressed data URL), then uploaded to Supabase Storage so rows carry a
+ * short public URL. Without Storage they stay inline as data URLs, which
+ * bloats every DB row and payload that carries them.
  */
 const MAX_EDGE_PX = 1600
 const TARGET_MAX_CHARS = 450_000
@@ -85,7 +87,8 @@ export type ImageDropzoneProps = {
 }
 
 /**
- * Click or drag-and-drop image picker. Stores images as compressed data URLs (no remote URLs).
+ * Click or drag-and-drop image picker. Stores compressed images in Supabase Storage (public URLs),
+ * falling back to inline data URLs when Storage is unavailable.
  */
 export function ImageDropzone({
   value,
@@ -106,6 +109,7 @@ export function ImageDropzone({
   const [error, setError] = useState<string | null>(null)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [dropIndex, setDropIndex] = useState<number | null>(null)
+  const [uploading, setUploading] = useState(false)
 
   const remaining = max == null ? Infinity : Math.max(0, max - value.length)
   const canAdd = !disabled && remaining > 0
@@ -123,12 +127,14 @@ export function ImageDropzone({
         const { ok: urls, refused } = maxBytes ? partitionPhotosBySize(all, maxBytes) : { ok: all, refused: 0 }
         if (refused > 0) setError(LISTING_PHOTO_TOO_LARGE)
         if (urls.length === 0) return
-        const next = multiple
-          ? [...value, ...urls].slice(0, max ?? undefined)
-          : [urls[0]]
-        onChange(next)
+        const room = multiple ? (max == null ? urls.length : Math.max(0, max - value.length)) : 1
+        setUploading(true)
+        const stored = await Promise.all(urls.slice(0, room).map(storePhotoDataUrl))
+        onChange(multiple ? [...value, ...stored] : [stored[0]])
       } catch {
         setError('Could not read that file. Try another image.')
+      } finally {
+        setUploading(false)
       }
     },
     [canAdd, max, maxBytes, multiple, onChange, value],
@@ -197,7 +203,7 @@ export function ImageDropzone({
       <span className="text-sm font-semibold text-ink">
         {dragging ? 'Drop to upload' : multiple ? 'Add photos' : 'Choose a photo'}
       </span>
-      <span className="max-w-xs text-xs text-ink-400">{hint}</span>
+      <span className="max-w-xs text-xs text-ink-400">{uploading ? 'Uploading…' : hint}</span>
       {max != null && (
         <span className="tabular text-[11px] text-ink-400">
           {value.length} / {max}
