@@ -36,6 +36,7 @@ import { PropertyFeaturePicker } from '../../components/property-features/Proper
 import { PlacesAddressInput } from '../../components/PlacesAddressInput'
 import { LocationMapPreview } from '../../components/maps/LocationMapPreview'
 import { geocodeAddress } from '../../lib/api/geocoding'
+import { canSetUnitViewingOverride } from '../../lib/applyEligibility'
 import { Button, Input, Select } from '../../components/ui'
 import { FormLabel, FieldHelp } from '../../components/onboarding/FieldHelp'
 import { uid } from '../../data/seed'
@@ -166,6 +167,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   const { user, agencyId, has, role } = useAuth()
   const { scopeAgency } = useAgencyScope()
   const isLandlord = role === 'landlord'
+  const canSetViewingOverride = canSetUnitViewingOverride(role)
   const landlordVerified = isVerificationApproved(user.verification, user.role)
   const canPublish = has('listings.publish') && landlordVerified
 
@@ -660,8 +662,14 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       title,
       type: draft.propertyType,
       listingMode: draft.listingMode,
-      requireViewingToApply:
-        draft.requireViewingToApply === 'on' ? true : draft.requireViewingToApply === 'off' ? false : null,
+      // Only agency staff set the per-unit viewing rule; a landlord's save
+      // leaves the stored value alone (the server refuses a landlord change).
+      ...(canSetViewingOverride
+        ? {
+            requireViewingToApply:
+              draft.requireViewingToApply === 'on' ? true : draft.requireViewingToApply === 'off' ? false : null,
+          }
+        : {}),
       price: draft.price ? Number(draft.price) : null,
       rent: draft.rent ? Number(draft.rent) : null,
       parking: draft.parking,
@@ -1453,7 +1461,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
         return (
           <WizardSectionCard title="Pricing & availability">
             <div className="grid gap-3 sm:grid-cols-2">
-              {(draft.listingMode === 'rent' || draft.listingMode === 'both') && (
+              {canSetViewingOverride && (draft.listingMode === 'rent' || draft.listingMode === 'both') && (
                 <div className="sm:col-span-2">
                   <FormLabel className="mb-1.5">Viewing required before apply</FormLabel>
                   <Select

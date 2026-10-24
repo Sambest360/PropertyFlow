@@ -126,7 +126,19 @@ describe('guest public apply inherits listing agency (PR-1011)', () => {
         return limited.map((r) => ({ backend_id: r.backend_id, frontend_id: r.frontend_id }))
       }
 
-      if (sql.includes('/* apply-eligibility */')) return []
+      // The unit loads with no viewing rule (agency setting absent): the gate is open.
+      if (sql.includes('/* apply-eligibility */')) {
+        return [{
+          unit_id: String(params?.[0] ?? ''),
+          client_id: null,
+          building_id: null,
+          listing_type: 'RENT',
+          require_viewing_to_apply: null,
+          settings: {},
+          completed_bookings: [],
+          live_override: null,
+        }]
+      }
       if (sql.includes('FROM users') || sql.includes('FROM clients')) return []
       // #80: listing agent for an application created without agentId.
       if (sql.includes('SELECT agent_id::text AS agent_id FROM units')) return []
@@ -398,7 +410,10 @@ describe('guest public apply inherits listing agency (PR-1011)', () => {
     expect(db.units.get(FRAMESBY_UNIT)?.client_id).toBe(BAYVIEW_CLIENT)
   })
 
-  it('guest apply (application path) maps an unmapped applicant with no client_id (#86)', async () => {
+  // Security hardening (Angela, #109 follow-up a): this used to look the
+  // account up by the typed email and link the unmapped id to it. A typed email
+  // never picks an account now: the application saves with no linked account.
+  it('application with an unmapped applicantUserId and a typed email saves without an account, no id-map link (#86)', async () => {
     const APPLICANT = 'f0000000-0000-4000-8000-0000000000a1'
     const base = query.getMockImplementation()!
     query.mockImplementation(async (sql: string, params?: unknown[]) => {
@@ -423,7 +438,11 @@ describe('guest public apply inherits listing agency (PR-1011)', () => {
       },
     })
     expect(result.ok).toBe(true)
-    expect(db.mapRows).toContainEqual({ entity_type: 'user', frontend_id: 'u-guest-unmapped', backend_id: APPLICANT })
+    expect(db.mapRows.filter((r) => r.entity_type === 'user')).toEqual([])
+    expect(query.mock.calls.some((c) => String(c[0]).includes('LOWER(TRIM(email))'))).toBe(false)
+    const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO applications'))
+    expect((insert![1] as unknown[])[3]).toBeNull()
+    expect((insert![1] as unknown[])[3]).not.toBe(APPLICANT)
     const moves = query.mock.calls.filter((c) => /DELETE FROM entity_id_map/.test(String(c[0])))
     expect(moves).toEqual([])
   })

@@ -1,5 +1,5 @@
 -- Mandatory viewing before a rental application.
--- Agency default lives in clients.settings.requireViewingToApply (missing key = on).
+-- Agency default lives in clients.settings.requireViewingToApply (missing key = off; opt-in per agency).
 
 ALTER TABLE bookings
   ADD COLUMN IF NOT EXISTS viewing_mode VARCHAR(20) NOT NULL DEFAULT 'IN_PERSON';
@@ -59,7 +59,7 @@ CREATE POLICY apply_overrides_select ON apply_overrides
   USING (
     is_super_admin()
     OR (
-      current_app_user_role() IN ('AGENCY_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT', 'AGENT')
+      current_app_user_role() IN ('AGENCY_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT')
       AND client_id = current_app_client_id()
     )
     OR applicant_id = current_app_user_id()
@@ -82,14 +82,14 @@ CREATE POLICY apply_overrides_mutate ON apply_overrides
   USING (
     is_super_admin()
     OR (
-      current_app_user_role() IN ('AGENCY_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT', 'AGENT')
+      current_app_user_role() IN ('AGENCY_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT')
       AND client_id = current_app_client_id()
     )
   )
   WITH CHECK (
     is_super_admin()
     OR (
-      current_app_user_role() IN ('AGENCY_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT', 'AGENT')
+      current_app_user_role() IN ('AGENCY_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT')
       AND client_id = current_app_client_id()
     )
   );

@@ -14,9 +14,17 @@ const UNIT = '11111111-1111-4111-8111-111111111111'
 const CLIENT = '22222222-2222-4222-8222-222222222222'
 const APP = '33333333-3333-4333-8333-333333333333'
 const BOOKING = '66666666-6666-4666-8666-666666666666'
+/** The signed-in tenant's own account (applicants act as themselves). */
+const TENANT = '77777777-7777-4777-8777-777777777777'
 
 function implement(existing: boolean, withBooking: boolean) {
-  query.mockImplementation(async (sql: string) => {
+  query.mockImplementation(async (sql: string, params?: unknown[]) => {
+    if (/SELECT id::text AS id FROM users WHERE id = \$1::uuid/.test(sql)) {
+      return params?.[0] === TENANT ? [{ id: TENANT }] : []
+    }
+    if (/SELECT email, phone FROM users WHERE id = \$1::uuid/.test(sql)) {
+      return params?.[0] === TENANT ? [{ email: 'e2e-tenant@example.com', phone: null }] : []
+    }
     if (sql.includes('/* apply-eligibility */')) {
       if (existing) throw new Error('eligibility gate must not run on update')
       return [
@@ -26,7 +34,7 @@ function implement(existing: boolean, withBooking: boolean) {
           building_id: null,
           listing_type: 'RENT',
           require_viewing_to_apply: null,
-          settings: {},
+          settings: { requireViewingToApply: true },
           completed_bookings: withBooking
             ? [
                 {
@@ -35,6 +43,7 @@ function implement(existing: boolean, withBooking: boolean) {
                   viewingMode: 'IN_PERSON',
                   visitorEmail: 'e2e-tenant@example.com',
                   attendedAt: '2026-11-12T08:00:00.000Z',
+                  attendedBy: '44444444-4444-4444-8444-444444444444',
                 },
               ]
             : [],
@@ -76,7 +85,7 @@ describe('application create stores viewing evidence', () => {
           type: 'Rental',
         },
       },
-      null,
+      TENANT,
       'tenant',
     )
     const insert = query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO applications'))
@@ -101,7 +110,7 @@ describe('application create stores viewing evidence', () => {
           type: 'Rental',
         },
       },
-      null,
+      TENANT,
       'tenant',
     )
     const insert = query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO applications'))
@@ -126,9 +135,48 @@ describe('application create stores viewing evidence', () => {
             type: 'Rental',
           },
         },
-        null,
+        TENANT,
         'tenant',
       ),
     ).rejects.toMatchObject({ code: 'VIEWING_REQUIRED' })
+  })
+})
+
+describe('application create with no agency viewing setting', () => {
+  beforeEach(() => {
+    query.mockReset()
+  })
+
+  it('creates a rental application without a viewing when the agency has not opted in', async () => {
+    implement(false, false)
+    const base = query.getMockImplementation()!
+    query.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('/* apply-eligibility */')) {
+        const rows = (await base(sql, params)) as Array<Record<string, unknown>>
+        return rows.map((row) => ({ ...row, settings: {} }))
+      }
+      return base(sql, params)
+    })
+    const { handlePersist } = await import('./writes.js')
+    await handlePersist(
+      {
+        resource: 'application',
+        action: 'upsert',
+        id: 'APP-E2E-3',
+        data: {
+          propertyId: 'PR-9003',
+          email: 'e2e-tenant@example.com',
+          applicantName: 'E2E TEST',
+          type: 'Rental',
+        },
+      },
+      TENANT,
+      'tenant',
+    )
+    const insert = query.mock.calls.find((call) => String(call[0]).includes('INSERT INTO applications'))
+    expect(insert).toBeTruthy()
+    const params = insert?.[1] as unknown[]
+    expect(params[19]).toBeNull()
+    expect(params[20]).toBeNull()
   })
 })

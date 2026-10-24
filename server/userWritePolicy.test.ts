@@ -178,6 +178,19 @@ function answer(sqlRaw: string, params: unknown[] = []): unknown[] {
   if (sql.includes('WHERE b.landlord_id = $1::uuid AND u.client_id = $2::uuid')) {
     return [{ n: params[0] === UUID['u-o'] && params[1] === CA ? 1 : 0 }]
   }
+  // The unit loads with no viewing rule (agency setting absent): the gate is open.
+  if (sql.includes('/* apply-eligibility */')) {
+    return [{
+      unit_id: String(params[0] ?? ''),
+      client_id: null,
+      building_id: null,
+      listing_type: 'RENT',
+      require_viewing_to_apply: null,
+      settings: {},
+      completed_bookings: [],
+      live_override: null,
+    }]
+  }
   if (sql.includes("CONCAT_WS(' ', first_name, last_name)")) {
     return params[0] === UUID['u-o'] ? [{ name: 'Olive Owner' }] : []
   }
@@ -201,6 +214,9 @@ function answer(sqlRaw: string, params: unknown[] = []): unknown[] {
   }
   if (sql.includes('FROM leases') || sql.includes('FROM maintenance_tickets')) return []
   if (sql.includes('FROM clients WHERE id')) return [{ status: 'active' }]
+  if (/SELECT id::text AS id FROM users WHERE id = \$1::uuid/.test(sql)) {
+    return users[String(params[0])] ? [{ id: String(params[0]) }] : []
+  }
   if (sql.startsWith('SELECT 1 AS ok FROM users WHERE id = $1::uuid')) {
     return users[String(params[0])] ? [{ ok: 1 }] : []
   }

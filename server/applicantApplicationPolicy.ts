@@ -325,28 +325,10 @@ export async function enforceApplicantApplicationWrite(
     if (slot) await assertOwnSlotBooking(actor, slot)
     setDerived(data, type, initial)
     if (Array.isArray(data.documents)) data.documents = lockDocumentReviewFields(data.documents, [])
-    if (data.propertyId) {
-      try {
-        const { coApplicantEmailsFromPayload, viewingEvidenceForNewApplication } = await import(
-          './applyEligibility.js'
-        )
-        const { resolveLiveListing } = await import('./listingResolve.js')
-        const listing = await resolveLiveListing(data.propertyId)
-        await viewingEvidenceForNewApplication({
-          unitId: listing.unitId,
-          applicationType: type === 'Purchase' ? 'PURCHASE' : 'RENTAL',
-          actorRole: actor.role,
-          applicantId: actor.userId,
-          applicantEmail: typeof data.email === 'string' ? data.email : null,
-          applicantPhone: typeof data.phone === 'string' ? data.phone : null,
-          coApplicantEmails: coApplicantEmailsFromPayload(data),
-        })
-      } catch (err) {
-        const code = err && typeof err === 'object' && 'code' in err ? String((err as { code: unknown }).code) : ''
-        const status = err && typeof err === 'object' && 'status' in err ? (err as { status: unknown }).status : 0
-        if (code === 'VIEWING_REQUIRED' || code === 'LOGIN_REQUIRED' || status === 403) throw err
-      }
-    }
+    // The viewing gate runs once, in the write itself (upsertApplication ->
+    // viewingEvidenceForNewApplication), on the applicant's resolved account
+    // uuid, and fails closed. No pre-check here: it would duplicate that
+    // decision with a second, weaker copy.
     return
   }
 

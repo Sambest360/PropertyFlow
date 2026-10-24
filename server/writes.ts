@@ -38,7 +38,7 @@ import { notifyWaitlistSpotOpen } from './listingLimits.js'
 import { mapAgencyStatusToDb } from '../src/lib/agencyStatus.js'
 import { resolveLiveListing } from './listingResolve.js'
 import { canonicalListingId } from '../src/lib/listingIds.js'
-import { ensureListingUnitUuid } from './listingUuid.js'
+import { ensureListingUnitUuid, resolveListingUnitUuid } from './listingUuid.js'
 import { supabaseAuthConfigured } from './supabase/env.js'
 import { isValidSignatureDataUrl, signatureInvalidError } from '../src/lib/signature/signatureImage.js'
 import {
@@ -48,8 +48,8 @@ import {
 } from '../src/lib/supportTickets.js'
 import {
   coApplicantEmailsFromPayload,
+  authorizedRequireViewingColumn,
   markBookingAttendance,
-  requireViewingColumn,
   revokeApplyOverridesForLetStatus,
   revokeApplyOverridesForLetUnit,
   viewingEvidenceForNewApplication,
@@ -340,6 +340,83 @@ async function resolveApplicantOrTenantUuid(opts: {
 
 
 /**
+ * A user id (front-end id or uuid) that resolves to a live users row, or null:
+ * the id map, a live uuid, or users.metadata.frontend_id. Never looks anyone
+ * up by email and never writes the id map.
+ */
+async function resolveLiveUserUuid(ref: unknown): Promise<string | null> {
+  if (ref == null || ref === '') return null
+  const refStr = str(ref)
+  const candidates = [await userId(refStr), isUuid(refStr) ? refStr : null]
+  for (const uuid of candidates) {
+    if (!uuid) continue
+    const live = await query<{ id: string }>(
+      `SELECT id::text AS id FROM users WHERE id = $1::uuid LIMIT 1`,
+      [uuid],
+    )
+    if (live[0]?.id) return uuid
+  }
+  // An account created outside the id map keeps its front-end id in metadata.
+  const byFe = await query<{ id: string }>(
+    `SELECT id::text AS id FROM users WHERE metadata->>'frontend_id' = $1 LIMIT 1`,
+    [refStr],
+  )
+  return byFe[0]?.id ?? null
+}
+
+/** Portal roles that apply for themselves: the application is always their own account. */
+const SELF_APPLICANT_ROLES: ReadonlySet<string> = new Set(['tenant', 'contractor'])
+
+/**
+ * Applicant of an application write (Angela, security follow-up (a)).
+ *
+ * - Tenant / contractor (applying for themselves): only the actor's own
+ *   account. A typed email is never used to find an account, so it cannot
+ *   attach the application to someone else, borrow their verified contact
+ *   details for the viewing gate, or link the two ids in the id map. An actor
+ *   whose account does not resolve is refused (fail closed).
+ * - Staff on behalf of an applicant: applicantUserId must be a real account id
+ *   (front-end id or uuid of a live users row). A typed email is not an
+ *   account pick: with no applicantUserId, or one that is not a real account,
+ *   the application has no linked account (walk-in) and the email stays
+ *   contact data only.
+ */
+async function resolveApplicationApplicant(opts: {
+  actorUserId: string | null
+  actorRole: string | null
+  applicantUserId: unknown
+}): Promise<string | null> {
+  if (opts.actorRole && SELF_APPLICANT_ROLES.has(opts.actorRole)) {
+    const own = await resolveLiveUserUuid(opts.actorUserId)
+    if (!own) {
+      throw Object.assign(new Error('Your account could not be resolved; sign in again to apply'), {
+        status: 403,
+        code: 'APPLICANT_ACCOUNT_UNRESOLVED',
+      })
+    }
+    const sent = opts.applicantUserId
+    if (sent != null && sent !== '' && sent !== opts.actorUserId) {
+      const sentUuid = await resolveLiveUserUuid(sent)
+      if (sentUuid !== own) {
+        throw Object.assign(new Error('An application can only be made for your own account'), {
+          status: 403,
+          code: 'APPLICANT_NOT_SELF',
+        })
+      }
+    }
+    return own
+  }
+  if (opts.applicantUserId == null || opts.applicantUserId === '') return null
+  const picked = await resolveLiveUserUuid(opts.applicantUserId)
+  if (!picked) {
+    // Not a real account: saved with no linked account (like a walk-in), never
+    // matched to someone by the typed email.
+    console.warn('[application] applicantUserId does not resolve to an account; saving without one')
+  }
+  return picked
+}
+
+/**
  * P0-5 residual / r17: agentId set but unmapped → fail create (no soft-null agent).
  * Map first, then verify users.id exists (orphan map UUID must not win). On miss/orphan,
  * fall through to users.metadata->>frontend_id and repair entity_id_map FE→live id
@@ -509,7 +586,7 @@ async function upsertEntity(
       return upsertBuilding(frontendId, data)
     case 'property':
     case 'unit':
-      return upsertProperty(frontendId, data)
+      return upsertProperty(frontendId, data, actorRole)
     case 'room':
       return upsertRoom(frontendId, data)
     case 'asset':
@@ -517,7 +594,7 @@ async function upsertEntity(
     case 'lead':
       return upsertLead(frontendId, data)
     case 'application':
-      return upsertApplication(frontendId, data, actorRole)
+      return upsertApplication(frontendId, data, actorRole, actorUserId)
     case 'tenancy':
       return upsertTenancy(frontendId, data)
     case 'viewing':
@@ -891,10 +968,17 @@ async function upsertBuilding(feId: string, d: Record<string, unknown>): Promise
   return uuid
 }
 
-async function upsertProperty(feId: string, d: Record<string, unknown>): Promise<string> {
+async function upsertProperty(
+  feId: string,
+  d: Record<string, unknown>,
+  actorRole: string | null = null,
+): Promise<string> {
   // Flat PropertyAsset → units row (+ ensure building if provided)
   const canon = canonicalListingId(feId)
   const slug = canon.replace(/^unt-/i, '')
+  // Only agency staff may set the per-unit viewing-gate override. Checked
+  // before any write (id map included) so a refused write changes nothing.
+  const viewingRule = await authorizedRequireViewingColumn(actorRole, d, await resolveListingUnitUuid(feId))
   const uuid = await ensureListingUnitUuid(feId)
 
   let buildingUuid = d.buildingId ? await resolveUuid('building', str(d.buildingId)) : null
@@ -1001,7 +1085,6 @@ async function upsertProperty(feId: string, d: Record<string, unknown>): Promise
     typeof d.idempotencyKey === 'string' && d.idempotencyKey.trim()
       ? d.idempotencyKey.trim()
       : null
-  const viewingRule = requireViewingColumn(d)
   const statusKey = isArchive
     ? 'DELETED'
     : isRestore
@@ -1377,6 +1460,7 @@ async function upsertApplication(
   feId: string,
   d: Record<string, unknown>,
   actorRole: string | null = null,
+  actorUserId: string | null = null,
 ): Promise<string> {
   const uuid = await ensureUuid('application', feId)
   // Stored row (if any). Narrowed writes (portal applicant: unchanged workflow
@@ -1412,16 +1496,13 @@ async function upsertApplication(
     listingClient = listing.clientId
   }
   const client = await agencyClientForApplication(d.agencyId, listingClient ?? '')
-  // Mode A Sipho: if applicantUserId missing, resolve from email → users and
-  // persist. Only while no applicant is stored: an update without
-  // applicantUserId keeps the stored applicant (never re-resolved by email).
+  // Applicant account (never resolved from a typed email; see
+  // resolveApplicationApplicant). An update without applicantUserId keeps the
+  // stored applicant.
   const applicant =
     stored?.applicant_id && !has('applicantUserId')
       ? stored.applicant_id
-      : await resolveApplicantOrTenantUuid({
-          userFeId: d.applicantUserId,
-          email: d.email,
-        })
+      : await resolveApplicationApplicant({ actorUserId, actorRole, applicantUserId: d.applicantUserId })
   let agent = await userId(d.agentId)
   if (!agent && !has('agentId') && !stored) {
     // New application without an agent (portal applicants cannot pick one):

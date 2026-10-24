@@ -42,6 +42,17 @@ export const AGENCY_ADMIN_ROLES = new Set(['super_admin', 'client_admin'])
 
 export const ASSIGNED_AGENT_ROLES = new Set(['agent_admin', 'ground_agent', 'agent'])
 
+/**
+ * Frontend roles that may set the per-unit viewing-gate override
+ * (units.require_viewing_to_apply). The viewing process is the agency's call,
+ * so only agency staff may; landlords, tenants and contractors may not.
+ */
+export const UNIT_VIEWING_OVERRIDE_ROLES: ReadonlySet<string> = VIEWING_STAFF_ROLES
+
+export function canSetUnitViewingOverride(role: string | null | undefined): boolean {
+  return Boolean(role && UNIT_VIEWING_OVERRIDE_ROLES.has(role))
+}
+
 export type ViewingMode = 'IN_PERSON' | 'VIRTUAL'
 
 export type ViewingEvidence = {
@@ -60,6 +71,8 @@ export type CompletedBooking = {
   visitorEmail: string | null
   visitorPhone: string | null
   attendedAt: string | null
+  /** users.id of the staff member who marked attendance (null = not marked). */
+  attendedBy?: string | null
 }
 
 export type ApplyEligibility = {
@@ -78,7 +91,7 @@ export type EligibilityFacts = {
   listingType: string
   actorRole: string | null
   unitRequire: boolean | null
-  /** Undefined or null means the agency has not set the key (default on). */
+  /** Undefined or null means the agency has not set the key (default off). */
   agencyRequire: boolean | null | undefined
   buildingViewingCounts: boolean
   mainApplicantCoversCoApplicants: boolean
@@ -110,14 +123,18 @@ export function normPhone(value: string | null | undefined): string {
   return (value ?? '').replace(/\D/g, '')
 }
 
-/** NULL unit flag follows the agency. A missing agency key stays on. */
+/**
+ * The viewing gate is an opt-in, per-agency setting (default OFF).
+ * A unit flag (true/false) overrides the agency; a NULL unit flag follows the
+ * agency; a missing or null agency key means the gate is off.
+ */
 export function viewingRuleEnabled(
   unitRequire: boolean | null | undefined,
   agencyRequire: boolean | null | undefined,
 ): boolean {
   if (unitRequire === true) return true
   if (unitRequire === false) return false
-  return agencyRequire !== false
+  return agencyRequire === true
 }
 
 export function isLetStatus(statusKey: string | null | undefined): boolean {
