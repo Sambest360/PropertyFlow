@@ -147,6 +147,11 @@ export function ticketStatus(s: string): string {
   return map[s] ?? 'Requested'
 }
 
+function consentStatus(value: unknown): 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'NOT_REQUIRED' {
+  if (value === 'PENDING' || value === 'ACCEPTED' || value === 'DECLINED' || value === 'NOT_REQUIRED') return value
+  return 'NOT_REQUIRED'
+}
+
 function viewingStatus(s: string): string {
   const map: Record<string, string> = {
     SCHEDULED: 'Scheduled',
@@ -634,6 +639,10 @@ export async function fetchSupabaseBootstrap(
       images: Array.isArray(u.images) ? u.images : [],
       featured: u.featured,
       requireViewingToApply: (u as { require_viewing_to_apply?: boolean | null }).require_viewing_to_apply ?? null,
+      advertiseWhileOccupied: Boolean((u as { advertise_while_occupied?: boolean }).advertise_while_occupied),
+      availableFrom: (u as { available_from?: string | null }).available_from
+        ? dateOnly(String((u as { available_from?: string | null }).available_from).slice(0, 10))
+        : null,
       lat: u.lat ? Number(u.lat) : b?.lat ? Number(b.lat) : 0,
       lng: u.lng ? Number(u.lng) : b?.lng ? Number(b.lng) : 0,
       placeId: u.place_id ?? b?.place_id ?? null,
@@ -740,6 +749,8 @@ export async function fetchSupabaseBootstrap(
       description: u.description,
       featured: u.featured,
       requireViewingToApply: u.requireViewingToApply,
+      advertiseWhileOccupied: u.advertiseWhileOccupied,
+      availableFrom: u.availableFrom,
       createdAt: u.createdAt,
       solarCapacityKw: b?.solarCapacityKw,
       hasBorehole: b?.hasBorehole,
@@ -917,6 +928,10 @@ export async function fetchSupabaseBootstrap(
         b.status === 'COMPLETED' ? 'Attended' : b.status === 'NO_SHOW' ? 'No-show' : '—',
       feedback: b.feedback ?? undefined,
       notes: b.notes ?? undefined,
+      tenantConsentStatus: consentStatus((b as { tenant_consent_status?: string }).tenant_consent_status),
+      tenantProposedStartsAt: (b as { tenant_proposed_starts_at?: string | null }).tenant_proposed_starts_at
+        ? new Date(String((b as { tenant_proposed_starts_at?: string }).tenant_proposed_starts_at)).toISOString()
+        : undefined,
     }
   })
 

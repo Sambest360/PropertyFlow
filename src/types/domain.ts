@@ -228,6 +228,8 @@ export type PropertyAsset = {
   title: string
   type: string
   status: 'Draft' | 'Published' | 'Featured' | 'Under Offer' | 'Sold' | 'Rented' | 'Archived' | 'Maintenance'
+  advertiseWhileOccupied?: boolean
+  availableFrom?: string | null
   listingMode: 'sale' | 'rent' | 'both'
   /** Public marketplace: listing hit its enquiry or viewing cap. */
   fullyBooked?: boolean
@@ -562,6 +564,8 @@ export type Viewing = {
   viewingMode?: 'IN_PERSON' | 'VIRTUAL'
   feedback?: string
   notes?: string
+  tenantConsentStatus?: 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'NOT_REQUIRED'
+  tenantProposedStartsAt?: string
 }
 
 export type PaymentAttachment = {

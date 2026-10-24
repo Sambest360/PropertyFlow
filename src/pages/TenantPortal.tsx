@@ -36,6 +36,7 @@ import { TenantMessagesView } from './tenant/TenantMessagesView'
 import { PortalHydrationGate } from '../components/PortalHydrationGate'
 import { LeaseInspectionsPanel } from '../components/inspections/LeaseInspectionsPanel'
 import { inspectionsAvailable } from '../lib/inspections/api'
+import { OccupiedHomeAdvertCard } from '../components/tenant/OccupiedHomeAdvertCard'
 
 type TenantView =
   | 'home'
@@ -210,6 +211,12 @@ function TenantPortalContent() {
             )}
             {view === 'home' && (
               <>
+                {portal.occupancyReady && portal.tenancy && portal.property?.advertiseWhileOccupied && (
+                  <OccupiedHomeAdvertCard
+                    tenancy={portal.tenancy}
+                    property={portal.property}
+                  />
+                )}
                 <div data-tip-target="tenant-hero">
                 <AttentionHero
                   image={portal.property?.images[0] ?? wishlistProperties[0]?.images[0]}

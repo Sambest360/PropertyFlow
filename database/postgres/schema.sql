@@ -31,6 +31,8 @@
 -- =============================================================================
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- leases_no_date_overlap (migration 027)
+CREATE EXTENSION IF NOT EXISTS btree_gist;
 
 -- Drop views first, then tables in dependency order
 DROP VIEW IF EXISTS v_ticket_kanban CASCADE;
@@ -63,6 +65,7 @@ DROP TABLE IF EXISTS vendor_category_routes CASCADE;
 DROP TABLE IF EXISTS apply_overrides CASCADE;
 DROP TABLE IF EXISTS bookings CASCADE;
 DROP TABLE IF EXISTS viewing_slots CASCADE;
+DROP TABLE IF EXISTS tenant_viewing_windows CASCADE;
 DROP TABLE IF EXISTS leases CASCADE;
 DROP TABLE IF EXISTS applications CASCADE;
 DROP TABLE IF EXISTS deposit_deductions CASCADE;
@@ -246,6 +249,11 @@ CREATE TABLE units (
   show_remaining    BOOLEAN NOT NULL DEFAULT FALSE,
   /** NULL follows clients.settings.requireViewingToApply (missing key = on). */
   require_viewing_to_apply BOOLEAN NULL,
+  /** Occupied rental stays on the marketplace until available_from (migration 027) */
+  advertise_while_occupied BOOLEAN NOT NULL DEFAULT FALSE,
+  available_from    DATE,
+  occupied_viewing_notice_hours INT NOT NULL DEFAULT 24
+                      CHECK (occupied_viewing_notice_hours >= 24),
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (building_id, unit_number)
@@ -382,6 +390,10 @@ CREATE TABLE leases (
                         )),
   start_date          DATE NOT NULL,
   end_date            DATE,
+  /** Notice given on this lease (migration 027) */
+  notice_given_at     DATE,
+  notice_given_by     VARCHAR(20) CHECK (notice_given_by IS NULL OR notice_given_by IN ('TENANT', 'LANDLORD')),
+  notice_end_date     DATE,
   rent_amount         NUMERIC(14,2) NOT NULL,
   deposit_amount      NUMERIC(14,2) NOT NULL DEFAULT 0,
   rent_due_day        SMALLINT NOT NULL DEFAULT 1 CHECK (rent_due_day BETWEEN 1 AND 28),
@@ -398,7 +410,41 @@ CREATE INDEX idx_leases_tenant ON leases (tenant_id);
 CREATE INDEX idx_leases_status ON leases (client_id, status);
 CREATE INDEX idx_leases_unit_tenant ON leases (unit_id, tenant_id, status);
 CREATE INDEX idx_leases_unit_active ON leases (unit_id, status)
-  WHERE status IN ('PENDING', 'ACTIVE');
+  WHERE status IN ('PENDING', 'ACTIVE', 'NOTICE');
+
+-- No two open leases on one unit may overlap (migration 027)
+ALTER TABLE leases ADD CONSTRAINT leases_no_date_overlap
+  EXCLUDE USING gist (
+    unit_id WITH =,
+    daterange(
+      start_date,
+      CASE WHEN end_date IS NULL THEN 'infinity'::date ELSE (end_date + 1) END,
+      '[)'
+    ) WITH &&
+  )
+  WHERE (status IN ('PENDING', 'ACTIVE', 'NOTICE'));
+
+-- When the sitting tenant can host viewings (migration 027)
+CREATE TABLE tenant_viewing_windows (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id       UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  unit_id         UUID NOT NULL REFERENCES units(id) ON DELETE CASCADE,
+  lease_id        UUID NOT NULL REFERENCES leases(id) ON DELETE CASCADE,
+  weekday         SMALLINT CHECK (weekday IS NULL OR weekday BETWEEN 0 AND 6),
+  window_date     DATE,
+  start_time      VARCHAR(8) NOT NULL,
+  end_time        VARCHAR(8) NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (
+    (weekday IS NOT NULL AND window_date IS NULL)
+    OR (weekday IS NULL AND window_date IS NOT NULL)
+  ),
+  CHECK (start_time < end_time)
+);
+
+CREATE INDEX idx_viewing_windows_client ON tenant_viewing_windows (client_id);
+CREATE INDEX idx_viewing_windows_lease ON tenant_viewing_windows (lease_id);
+CREATE INDEX idx_viewing_windows_unit ON tenant_viewing_windows (unit_id);
 
 CREATE TABLE viewing_slots (
   id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -446,6 +492,11 @@ CREATE TABLE bookings (
                         CHECK (viewing_mode IN ('IN_PERSON', 'VIRTUAL')),
   attended_marked_by  UUID REFERENCES users(id) ON DELETE SET NULL,
   attended_marked_at  TIMESTAMPTZ,
+  /** Sitting tenant's answer to a viewing on an occupied advert (migration 027) */
+  tenant_consent_status VARCHAR(20) NOT NULL DEFAULT 'NOT_REQUIRED'
+                        CHECK (tenant_consent_status IN ('PENDING', 'ACCEPTED', 'DECLINED', 'NOT_REQUIRED')),
+  tenant_notified_at  TIMESTAMPTZ,
+  tenant_proposed_starts_at TIMESTAMPTZ,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

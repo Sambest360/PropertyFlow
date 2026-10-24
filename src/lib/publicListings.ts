@@ -35,12 +35,15 @@ export function isPubliclyListed(
   },
 ): boolean {
   if (property.deletedAt) return false
-  if (!PUBLIC_LISTING_STATUSES.includes(property.status)) return false
+  const occupiedAdvert =
+    Boolean(property.advertiseWhileOccupied && property.availableFrom) && property.listingMode !== 'sale'
+
+  if (!occupiedAdvert && !PUBLIC_LISTING_STATUSES.includes(property.status)) return false
 
   if (opts?.units?.length) {
     const unit = resolveUnitForProperty(property, opts.units)
     if (unit?.listingType === 'not_listed') return false
-    if (unit && !PUBLIC_UNIT_STATUS_KEYS.has(unit.statusKey)) return false
+    if (unit && !occupiedAdvert && !PUBLIC_UNIT_STATUS_KEYS.has(unit.statusKey)) return false
   }
 
   if (opts?.users?.length && property.landlordId) {
@@ -59,7 +62,8 @@ export function isPublicMarketplaceUnit(
   opts?: { users?: AppUser[] },
 ): boolean {
   if (unit.listingType === 'not_listed') return false
-  if (!PUBLIC_UNIT_STATUS_KEYS.has(unit.statusKey)) return false
+  const occupiedAdvert = Boolean(property?.advertiseWhileOccupied && property.availableFrom)
+  if (!occupiedAdvert && !PUBLIC_UNIT_STATUS_KEYS.has(unit.statusKey)) return false
   if (!property) return true
   return isPubliclyListed(property, { units: [unit], users: opts?.users })
 }

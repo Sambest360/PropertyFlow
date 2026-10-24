@@ -56,6 +56,7 @@ import { LEASE_IDS, TICKET_IDS } from './idMap.js'
 import { forbiddenError, type DemoActor } from './actor.js'
 import { APP_STAGE_TO_DB, type PersistBody } from './writes.js'
 import { resolveLiveListing } from './listingResolve.js'
+import { isOccupiedAdvert } from '../src/lib/occupiedAdvert.js'
 import { SIGN_PARTY_STATUSES, isClientLeaseSignedWrite, leaseSignedRefusedError, stampLeaseSignature } from './leaseSign.js'
 import { isAcceptanceStatus, notifyAcceptedElsewhereServer } from './acceptedElsewhere.js'
 import {
@@ -113,9 +114,11 @@ export async function isPubliclyListedForApplication(propertyId: unknown): Promi
   const rows = await query<{
     status_config_key: string | null
     listing_type: string | null
+    advertise_while_occupied: boolean | null
+    available_from: string | null
     landlord_verification: string | null
   }>(
-    `SELECT u.status_config_key, u.listing_type,
+    `SELECT u.status_config_key, u.listing_type, u.advertise_while_occupied, u.available_from::text AS available_from,
             l.metadata->'verification'->>'status' AS landlord_verification
        FROM units u
        LEFT JOIN buildings b ON b.id = u.building_id
@@ -125,7 +128,15 @@ export async function isPubliclyListedForApplication(propertyId: unknown): Promi
   )
   const r = rows[0]
   if (!r) return false
-  if (!PUBLIC_UNIT_STATUS_KEYS.has(String(r.status_config_key ?? '').toUpperCase())) return false
+  const statusKey = String(r.status_config_key ?? '').toUpperCase()
+  const listing = String(r.listing_type ?? '').toUpperCase()
+  const occupiedAdvert = isOccupiedAdvert({
+    statusKey,
+    listingType: listing,
+    advertiseWhileOccupied: r.advertise_while_occupied,
+    availableFrom: r.available_from,
+  })
+  if (!occupiedAdvert && !PUBLIC_UNIT_STATUS_KEYS.has(statusKey)) return false
   if (String(r.listing_type ?? '').toUpperCase() === 'NOT_LISTED') return false
   if (r.landlord_verification === 'pending' || r.landlord_verification === 'rejected') return false
   return true

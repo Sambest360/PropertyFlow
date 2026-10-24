@@ -1,4 +1,6 @@
 import { query, withTransaction } from './db.js'
+import { isOccupiedAdvert } from '../src/lib/occupiedAdvert.js'
+import { assertOccupiedBookingAllowed, markBookingTenantPending } from './occupiedListing.js'
 import { ensureUuid, resolveUuid } from './entityMap.js'
 import { resolveLiveListing } from './listingResolve.js'
 import {
@@ -40,6 +42,7 @@ async function resolvePublicUnit(propertyFeId: string): Promise<{
   clientId: string
   agentId: string | null
   statusKey: string
+  occupiedAdvert: boolean
   value: number
 } | null> {
   // query() returns the row array, not { rows }. Destructuring { rows }
@@ -60,8 +63,12 @@ async function resolvePublicUnit(propertyFeId: string): Promise<{
     status_config_key: string
     price: string | null
     rent: string | null
+    listing_type?: string | null
+    advertise_while_occupied?: boolean | null
+    available_from?: string | null
   }>(
-    `SELECT id, client_id, agent_id, status_config_key, price::text, rent::text
+    `SELECT id, client_id, agent_id, status_config_key, price::text, rent::text,
+            listing_type, advertise_while_occupied, available_from::text AS available_from
      FROM units WHERE id = $1::uuid LIMIT 1`,
     [listing.unitId],
   )
@@ -73,6 +80,12 @@ async function resolvePublicUnit(propertyFeId: string): Promise<{
     clientId: listing.clientId || row.client_id,
     agentId: row.agent_id,
     statusKey: row.status_config_key,
+    occupiedAdvert: isOccupiedAdvert({
+      statusKey: row.status_config_key,
+      listingType: row.listing_type ?? null,
+      advertiseWhileOccupied: row.advertise_while_occupied ?? null,
+      availableFrom: row.available_from ?? null,
+    }),
     value,
   }
 }
@@ -101,7 +114,10 @@ export async function submitPublicListingEnquiry(
     throw err
   }
 
-  if (!['PUBLISHED', 'FEATURED', 'VACANT', 'UNDER_OFFER', 'AVAILABLE'].includes(unit.statusKey)) {
+  if (
+    !unit.occupiedAdvert &&
+    !['PUBLISHED', 'FEATURED', 'VACANT', 'UNDER_OFFER', 'AVAILABLE'].includes(unit.statusKey)
+  ) {
     const err = new Error('property_not_public') as Error & { status?: number }
     err.status = 422
     throw err
@@ -242,6 +258,11 @@ export async function submitPublicListingEnquiry(
         err.status = 404
         throw err
       }
+      const consent = await assertOccupiedBookingAllowed(unit.unitId, {
+        date: String(slot.slot_date).slice(0, 10),
+        time: String(slot.slot_time),
+        startsAt: slotStart,
+      })
 
       const viewingFeId = `VW-guest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       bookingFeId = viewingFeId
@@ -269,6 +290,7 @@ export async function submitPublicListingEnquiry(
           extraNotes || null,
         ],
       )
+      if (consent === 'PENDING') await markBookingTenantPending(bookingUuid, unit.unitId)
       await query(
         `UPDATE viewing_slots
          SET booked_count = booked_count + 1,

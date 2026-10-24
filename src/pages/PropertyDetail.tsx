@@ -13,6 +13,7 @@ import { normalizeApplication } from '../lib/applicationWorkflow'
 import { rolePermissions } from '../lib/permissions'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
 import { PropertyDetailHeader } from '../components/property-detail/PropertyDetailHeader'
+import { OccupiedAdvertCard } from '../components/property-detail/OccupiedAdvertCard'
 import { PropertyOverviewPanel } from '../components/property-detail/PropertyOverviewPanel'
 import { PropertyMapPanel } from '../components/property-detail/PropertyMapPanel'
 import { PropertyFloorPlanPanel } from '../components/property-detail/PropertyFloorPlanPanel'
@@ -436,6 +437,21 @@ export default function PropertyDetail() {
         onToggleFeatured={() => updateProperty(p.id, { featured: !p.featured })}
         guestMarketplaceBlock={guestMarketplaceBlock}
       />
+
+      {canManage && (p.status === 'Rented' || p.advertiseWhileOccupied) && (
+        <OccupiedAdvertCard
+          property={p}
+          tenancy={
+            state.tenancies.find(
+              (t) =>
+                t.propertyId === p.id &&
+                t.status !== 'Ended' &&
+                t.leaseStatus !== 'ended' &&
+                t.leaseStatus !== 'cancelled',
+            ) ?? null
+          }
+        />
+      )}
 
       <div className="sticky top-0 z-20 -mx-1 mb-5 bg-white/95 px-1 backdrop-blur-md">
         <DashboardTabs tabs={tabs} value={tab} onChange={setTab} />
