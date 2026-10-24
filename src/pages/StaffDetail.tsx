@@ -11,6 +11,7 @@ import { TeamDetailsPanel } from '../components/team-detail/TeamDetailsPanel'
 import { TeamWorkloadPanel } from '../components/team-detail/TeamWorkloadPanel'
 import { isTeamDetailTab, type TeamDetailTab } from '../components/team-detail/types'
 import type { PropertyEvent } from '../types/domain'
+import { propertyRefLabel } from '../lib/propertyRefs'
 
 const STAFF_ROLES = ['client_admin', 'agent_admin', 'ground_agent', 'agent', 'super_admin'] as const
 
@@ -58,7 +59,7 @@ export default function StaffDetail() {
       )
       .map((lead) => ({
         lead,
-        propertyTitle: state.properties.find((p) => p.id === lead.propertyId)?.title ?? lead.propertyId,
+        propertyTitle: state.properties.find((p) => p.id === lead.propertyId)?.title ?? propertyRefLabel(lead.propertyId),
       }))
     const properties = state.properties.filter((p) => p.agentId === user.id)
     return {

@@ -8,6 +8,7 @@ import { Send } from 'lucide-react'
 import type { AppUser, PropertyAsset, Tenancy } from '../../types/domain'
 import { labelOrReference } from '../../lib/displayIds'
 import { Button, Card, Input, Select } from '../ui'
+import { personRefLabel } from '../../lib/propertyRefs'
 
 /** Params accepted by the store's proposePayoutInstruction. */
 export type ProposePayoutParams = {
@@ -94,7 +95,7 @@ export function ProposePayoutPanel(props: {
   if (!canPropose || !actorUserId) return null
 
   const selected = options.find((t) => t.id === tenancyId) ?? null
-  const landlordName = selected ? (users.find((u) => u.id === selected.landlordId)?.name ?? selected.landlordId) : null
+  const landlordName = selected ? (users.find((u) => u.id === selected.landlordId)?.name ?? personRefLabel(selected.landlordId)) : null
 
   async function handlePropose() {
     if (!selected || !actorUserId) {

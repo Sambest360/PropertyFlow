@@ -51,7 +51,7 @@
     "leaflet": "^1.9.4",
     "lucide-react": "^1.25.0",
     "mailtrap": "^4.10.0",
-    "nodemailer": "^9.1.1",
+    "nodemailer": "^10.2.1",
     "pdf-lib": "^1.17.1",
     "pg": "^8.22.0",
     "react": "^19.2.7",

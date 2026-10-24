@@ -11,6 +11,7 @@ import type {
   LeaseESignState,
   LeaseSignParty,
 } from './types'
+import { propertyRefLabel } from '../propertyRefs'
 
 export type IssueLeaseContext = {
   tenancy: Tenancy
@@ -159,7 +160,7 @@ export async function issueLeaseOnTenancyCreate(
       tenancyId: tenancy.id,
       leaseReference: tenancy.id,
       agencyName: ctx.agencyName ?? 'Agency',
-      propertyTitle: property?.title ?? tenancy.propertyId,
+      propertyTitle: property?.title ?? propertyRefLabel(tenancy.propertyId),
       propertyAddress: address,
       tenantName: tenancy.tenantName,
       tenantEmail: tenancy.tenantEmail,
@@ -202,7 +203,7 @@ export async function issueLeaseOnTenancyCreate(
     applicationId: tenancy.applicationId,
     leaseDocumentId: document.id,
     pdfUrl: pdf.dataUrl,
-    subject: `Lease for ${property?.title ?? tenancy.propertyId}`,
+    subject: `Lease for ${property?.title ?? propertyRefLabel(tenancy.propertyId)}`,
     tenant: {
       name: tenancy.tenantName,
       email: tenancy.tenantEmail,

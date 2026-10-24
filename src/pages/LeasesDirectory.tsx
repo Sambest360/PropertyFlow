@@ -29,6 +29,7 @@ import {
   LeaseRenewalsPanel,
   type LeaseRenewalsHandlers,
 } from '../components/renewals/LeaseRenewalsPanel'
+import { propertyRefLabel } from '../lib/propertyRefs'
 
 const ICON_STROKE = 1.6
 const VIEW_KEY = 'propertyflow-leases-view'
@@ -92,7 +93,7 @@ export default function LeasesDirectory() {
         const status = tenancy.eSign?.status ?? (doc ? 'generated' : 'not_started')
         return {
           tenancy,
-          propertyTitle: property?.title ?? tenancy.propertyId,
+          propertyTitle: property?.title ?? propertyRefLabel(tenancy.propertyId),
           landlordName: landlord?.name ?? null,
           pdfUrl,
           signLabel: leaseESignLabel(status as NonNullable<Tenancy['eSign']>['status']),

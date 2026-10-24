@@ -14,6 +14,7 @@ import { isValidSignatureDataUrl } from '../lib/signature/signatureImage'
 import type { LeaseSignCapture } from '../lib/lease/signaturePrefill'
 import { applicationUploadPayload, applyDocumentUpload } from '../lib/applicationDocUpload'
 import { summarizeRooms } from '../lib/roomSummary'
+import { normalizePropertyRefs } from '../lib/propertyRefs'
 import type {
   Agency,
   AppUser,
@@ -300,6 +301,7 @@ import {
   viewingDeskStakeholderIds,
   viewingSlotDeskStakeholderIds,
 } from '../lib/notificationRecipients'
+import { propertyRefLabel } from '../lib/propertyRefs'
 
 /**
  * App state persistence key.
@@ -435,7 +437,9 @@ function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppSta
   units = repairUnitsForMarketplaceVisibility(properties, units, users)
   properties = dedupePropertyAssets(properties, units)
 
-  return {
+  // Rows can reference a property by units.id (UUID) while properties are keyed by
+  // listing id; normalize so title lookups resolve instead of showing the UUID.
+  return normalizePropertyRefs({
     ...base,
     publicMarketplaceFetchFailed: Boolean(boot.marketplaceFetchFailed),
     agencies,
@@ -512,7 +516,7 @@ function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppSta
       boot.idMapRows?.length
         ? buildIdMapCacheFromRows(boot.idMapRows)
         : base.idMapCache,
-  }
+  })
 }
 
 
@@ -4767,7 +4771,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         resource: 'applicant',
         action: 'created',
         title: 'New application',
-        body: `${input.applicantName} applied for ${property?.title ?? input.propertyId} (${input.type}).`,
+        body: `${input.applicantName} applied for ${property?.title ?? propertyRefLabel(input.propertyId)} (${input.type}).`,
         link: `/workspace/sales/applications/${encodeURIComponent(app.id)}`,
         actorUserId: input.applicantUserId ?? null,
         includeActor: false,
@@ -6504,7 +6508,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         resource: 'viewing',
         action: 'created',
         title: 'Viewing scheduled',
-        body: `${viewing.applicantName} · ${property?.title ?? viewing.propertyId} · ${viewing.date} ${viewing.time}`,
+        body: `${viewing.applicantName} · ${property?.title ?? propertyRefLabel(viewing.propertyId)} · ${viewing.date} ${viewing.time}`,
         link: `/workspace/sales/viewings/property/${encodeURIComponent(viewing.propertyId)}?booking=${encodeURIComponent(viewing.id)}`,
         actorUserId: viewing.agentId,
         recipientUserIds: viewingDeskStakeholderIds(state.users, viewing, property),
@@ -6607,7 +6611,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           resource: 'viewing',
           action: 'updated',
           title: `Viewing ${nextStatus.toLowerCase()}`,
-          body: `${prev.applicantName} · ${property?.title ?? prev.propertyId} · ${prev.date} ${prev.time}`,
+          body: `${prev.applicantName} · ${property?.title ?? propertyRefLabel(prev.propertyId)} · ${prev.date} ${prev.time}`,
           link: prev.propertyId
             ? `/workspace/sales/viewings/property/${prev.propertyId}?booking=${encodeURIComponent(prev.id)}`
             : '/workspace/sales/viewings',

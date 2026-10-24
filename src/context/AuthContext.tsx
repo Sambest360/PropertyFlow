@@ -74,6 +74,7 @@ import {
   shieldGuestPurgeForLogin,
 } from '../lib/auth/sessionArtifacts'
 import { AUTH_USER_STORAGE_KEY } from '../lib/clientCache'
+import { personRefLabel } from '../lib/propertyRefs'
 
 const AUTH_KEY = AUTH_USER_STORAGE_KEY
 const REAL_AUTH_KEY = 'propertyflow-auth-real-user'
@@ -768,7 +769,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!realUserId) return
         const actor = state.users.find((u) => u.id === realUserId)
         addActivity(
-          `Impersonation ended: back to ${actor?.name ?? realUserId}`,
+          `Impersonation ended: back to ${actor?.name ?? personRefLabel(realUserId)}`,
           actor?.name ?? 'Admin',
           actor?.agencyId ?? null,
         )

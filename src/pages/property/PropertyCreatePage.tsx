@@ -69,6 +69,7 @@ import {
   type PropertyWizardDraft as PropertyDraft,
   type WizardAssetDraft,
   type WizardRoomDraft as RoomDraft,
+  wizardCreateIdempotencyKey,
 } from '../../lib/propertyWizardDraft'
 import type { AssetCondition } from '../../data/infrastructure'
 import type { PropertyAsset } from '../../types/domain'
@@ -290,7 +291,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
         setDraft((d) => ({
           ...d,
           pendingCreateIds: ids,
-          createIdempotencyKey: d.createIdempotencyKey ?? `create:${wizardStorageKey}:${ids.propertyId}`,
+          createIdempotencyKey: wizardCreateIdempotencyKey(wizardStorageKey, ids.propertyId, d.createIdempotencyKey),
         }))
       }
       return ids
@@ -305,7 +306,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     setDraft((d) => ({
       ...d,
       pendingCreateIds: ids,
-      createIdempotencyKey: d.createIdempotencyKey ?? `create:${wizardStorageKey}:${ids.propertyId}`,
+      createIdempotencyKey: wizardCreateIdempotencyKey(wizardStorageKey, ids.propertyId),
     }))
     return ids
   }
@@ -314,7 +315,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     const pendingIds = ensurePendingCreateIds()
     return {
       ids: pendingIds,
-      idempotencyKey: draft.createIdempotencyKey ?? `create:${wizardStorageKey}:${pendingIds.propertyId}`,
+      idempotencyKey: wizardCreateIdempotencyKey(wizardStorageKey, pendingIds.propertyId, draft.createIdempotencyKey),
     }
   }
 
@@ -334,6 +335,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
         draftPropertyId: '',
         resumeDraftPropertyId: '',
         pendingCreateIds: undefined,
+        createIdempotencyKey: undefined,
         ...(isAgentCreator ? { publishAfterSave: false } : {}),
       }))
     }
@@ -1934,7 +1936,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
           <div className="relative">
             {(stepIndex > 0 || draft.draftPropertyId) && (
               <p className="mb-4 rounded-lg border border-primary-100 bg-primary-50/60 px-3 py-2 text-sm text-ink-600">
-                Progress is saved automatically. Use <strong>Save &amp; continue later</strong> to exit and pick up where you left off.
+                Progress is saved automatically. Use <strong>Save</strong> to exit and pick up where you left off.
               </p>
             )}
             <div className={busy ? 'pointer-events-none select-none opacity-60' : undefined}>

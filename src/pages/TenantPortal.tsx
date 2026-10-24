@@ -37,6 +37,7 @@ import { PortalHydrationGate } from '../components/PortalHydrationGate'
 import { LeaseInspectionsPanel } from '../components/inspections/LeaseInspectionsPanel'
 import { inspectionsAvailable } from '../lib/inspections/api'
 import { OccupiedHomeAdvertCard } from '../components/tenant/OccupiedHomeAdvertCard'
+import { propertyRefLabel } from '../lib/propertyRefs'
 
 type TenantView =
   | 'home'
@@ -575,7 +576,7 @@ function ApplicationsPanel({
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
-                      <p className="font-semibold text-ink">{prop?.title ?? a.propertyId}</p>
+                      <p className="font-semibold text-ink">{prop?.title ?? propertyRefLabel(a.propertyId)}</p>
                       <p className="text-xs text-ink-400">
                         {a.id}
                         {prop ? ` · ${prop.suburb}, ${prop.city}` : ''}

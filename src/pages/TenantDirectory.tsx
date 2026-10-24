@@ -21,6 +21,7 @@ import { appendAgentMetaRow } from '../lib/agentDisplay'
 import { useAgentDisplay, useHideAgentColumn } from '../hooks/useAgentDisplay'
 import { formatZAR } from '../data/seed'
 import type { Tenancy } from '../types/domain'
+import { propertyRefLabel } from '../lib/propertyRefs'
 
 const ICON_STROKE = 1.6
 const VIEW_KEY = 'propertyflow-occupants-view'
@@ -66,7 +67,7 @@ export default function TenantDirectory() {
         const agent = tenancy.agentId ? state.users.find((u) => u.id === tenancy.agentId) : null
         return {
           tenancy,
-          propertyTitle: property?.title ?? tenancy.propertyId,
+          propertyTitle: property?.title ?? propertyRefLabel(tenancy.propertyId),
           propertyArea: property ? `${property.suburb}, ${property.city}` : '—',
           agentName: agent?.name ?? null,
         }

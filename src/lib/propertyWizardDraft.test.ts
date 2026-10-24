@@ -6,6 +6,7 @@ import {
   draftAfterAmenitiesChange,
   unfurnishedBedroomCount,
   UNFURNISHED_AMENITY_LABEL,
+  wizardCreateIdempotencyKey,
   type PropertyWizardDraft,
 } from './propertyWizardDraft'
 import { defaultWizardRooms } from './propertyWizardDraft'
@@ -80,5 +81,26 @@ describe('unfurnished listing preset', () => {
     const next = draftAfterAmenitiesChange(baseDraft(), ['Fibre', UNFURNISHED_AMENITY_LABEL])
     expect(next.listingUnfurnished).toBe(true)
     expect(unfurnishedBedroomCount(next.rooms)).toBe(0)
+  })
+})
+
+describe('wizardCreateIdempotencyKey', () => {
+  const storageKey = 'propertyflow:property-create:ag-14gu4m'
+
+  it('keeps a stored key that belongs to the pending property', () => {
+    const key = `create:${storageKey}:unt-new1`
+    expect(wizardCreateIdempotencyKey(storageKey, 'unt-new1', key)).toBe(key)
+  })
+
+  it('replaces a key left over from an earlier listing', () => {
+    expect(wizardCreateIdempotencyKey(storageKey, 'unt-new2', `create:${storageKey}:unt-old`)).toBe(
+      `create:${storageKey}:unt-new2`,
+    )
+  })
+
+  it('replaces the legacy per-agency key that had no property id', () => {
+    expect(wizardCreateIdempotencyKey(storageKey, 'unt-new3', `create:${storageKey}`)).toBe(
+      `create:${storageKey}:unt-new3`,
+    )
   })
 })

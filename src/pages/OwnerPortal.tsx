@@ -32,6 +32,7 @@ import { gradingLabel } from '../lib/buildingGrading'
 import { rolePermissions } from '../lib/permissions'
 import { OwnerMessagesPanel } from '../components/messaging/OwnerMessagesPanel'
 import { PortalHydrationGate } from '../components/PortalHydrationGate'
+import { propertyRefLabel } from '../lib/propertyRefs'
 
 const ICON_STROKE = 1.6
 
@@ -219,7 +220,7 @@ function OwnerPortalContent() {
                     <div className="min-w-0">
                       <p className="font-semibold text-ink">{app.applicantName}</p>
                       <p className="text-xs text-ink-500">
-                        {prop?.title ?? app.propertyId} · {workflowStageLabel(app.type, resolveWorkflowStatus(app))}
+                        {prop?.title ?? propertyRefLabel(app.propertyId)} · {workflowStageLabel(app.type, resolveWorkflowStatus(app))}
                       </p>
                       {app.email ? <p className="mt-0.5 text-xs text-ink-400">{app.email}</p> : null}
                       <div className="mt-2">
@@ -374,7 +375,7 @@ function OwnerPortalContent() {
                 >
                   <div className="min-w-0">
                     <p className="truncate font-medium text-ink">
-                      {p.type} · {propertyById[p.propertyId]?.title ?? p.propertyId}
+                      {p.type} · {propertyById[p.propertyId]?.title ?? propertyRefLabel(p.propertyId)}
                     </p>
                     <p className="text-xs text-ink-400">
                       {p.partyName} · Due {p.dueDate ?? '—'}
@@ -416,7 +417,7 @@ function OwnerPortalContent() {
                 <div className="min-w-0">
                   <p className="truncate font-medium text-ink">{t.title}</p>
                   <p className="text-xs text-ink-400">
-                    {propertyById[t.propertyId]?.title ?? t.propertyId} · {t.priority}
+                    {propertyById[t.propertyId]?.title ?? propertyRefLabel(t.propertyId)} · {t.priority}
                   </p>
                 </div>
                 <Badge tone={statusTone(t.status)}>{t.status}</Badge>

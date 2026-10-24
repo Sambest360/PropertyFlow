@@ -15,6 +15,7 @@ import { RENEWALS_MODE_A_COPY } from '../../lib/renewals'
 import { LeaseRenewalsPanel } from '../renewals/LeaseRenewalsPanel'
 import { LeaseSigningRecord } from '../lease/LeaseSigningRecord'
 import { SignedCopyNote } from '../lease/SignedCopyNote'
+import { propertyRefLabel } from '../../lib/propertyRefs'
 
 export function TenantLeasePanel({ tenancy }: { tenancy: Tenancy }) {
   const {
@@ -35,7 +36,7 @@ export function TenantLeasePanel({ tenancy }: { tenancy: Tenancy }) {
   const pdfUrl = live.leasePdfUrl || eSign?.pdfUrl || null
   const signLabel = eSign ? eSignStatusLabel(eSign.status) : 'Not issued'
   const propertyTitle =
-    state.properties.find((p) => p.id === live.propertyId)?.title ?? live.propertyId
+    state.properties.find((p) => p.id === live.propertyId)?.title ?? propertyRefLabel(live.propertyId)
 
   const notifyActor = (title: string, body: string) => {
     notify({

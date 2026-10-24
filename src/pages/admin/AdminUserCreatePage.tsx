@@ -31,6 +31,7 @@ import { Badge, Button, Input, Select, cn } from '../../components/ui'
 import { TempPasswordModal } from '../../components/admin/ResetPasswordButton'
 import { MIN_PASSWORD_LENGTH } from '../../lib/auth/passwordPolicy'
 import type { Agency, Permission, Role } from '../../types/domain'
+import { propertyRefLabel } from '../../lib/propertyRefs'
 
 const ALL_ROLES: Role[] = [
   'super_admin',
@@ -1004,7 +1005,7 @@ export default function AdminUserCreatePage() {
                           const prop = state.properties.find((p) => p.id === t.propertyId)
                           return (
                             <option key={t.id} value={t.id}>
-                              {t.tenantName} · {prop?.title ?? t.propertyId} · {t.status}
+                              {t.tenantName} · {prop?.title ?? propertyRefLabel(t.propertyId)} · {t.status}
                             </option>
                           )
                         })}

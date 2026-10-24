@@ -13,6 +13,7 @@ import { Button, Card } from '../../components/ui'
 import { getLookups } from '../../lib/lookups'
 import { readReturnTo } from '../../lib/returnTo'
 import { useSuiteAlert } from '../../components/alerts/SuiteAlert'
+import { propertyRefLabel } from '../../lib/propertyRefs'
 
 const FORM_ID = 'maintenance-edit-form'
 
@@ -123,7 +124,7 @@ export default function MaintenanceEditPage() {
         <Card className="overflow-hidden p-0">
           <div className="border-b border-primary-100 bg-primary-50/40 px-5 py-4">
             <h2 className="font-display text-base font-semibold text-ink">Record details</h2>
-            <p className="mt-0.5 text-sm text-ink-500">{ticket.id} · {properties[0]?.title ?? ticket.propertyId}</p>
+            <p className="mt-0.5 text-sm text-ink-500">{ticket.id} · {properties[0]?.title ?? propertyRefLabel(ticket.propertyId)}</p>
           </div>
           <div className="p-5 sm:p-6">
             <MaintenanceTicketForm

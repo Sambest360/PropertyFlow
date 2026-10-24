@@ -23,6 +23,7 @@ import {
   PIPELINE_BUCKET_LABELS,
   type ApplicationPipelineBucket as PipelineBucket,
 } from '../lib/applicationPipeline'
+import { propertyRefLabel } from '../lib/propertyRefs'
 
 export default function Applications() {
   const { state } = useStore()
@@ -58,7 +59,7 @@ export default function Applications() {
             : undefined
         return {
           application,
-          propertyTitle: prop?.title ?? application.propertyId,
+          propertyTitle: prop?.title ?? propertyRefLabel(application.propertyId),
           agentName: agent?.name ?? null,
           gridIndependent: Boolean(
             building && (building.solarCapacityKw >= 3 || building.hasBorehole),

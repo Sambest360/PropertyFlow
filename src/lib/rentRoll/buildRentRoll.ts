@@ -10,6 +10,7 @@ import {
   type RentRollBook,
   type RentRollRow,
 } from './types'
+import { personRefLabel, propertyRefLabel } from '../propertyRefs'
 
 const RENT_LIKE: ReadonlySet<PaymentRecord['type']> = new Set([
   'Rent',
@@ -48,7 +49,7 @@ function landlordName(
   landlordId: string,
   landlords: AppUser[] | undefined,
 ): string {
-  return landlords?.find((u) => u.id === landlordId)?.name ?? landlordId
+  return landlords?.find((u) => u.id === landlordId)?.name ?? personRefLabel(landlordId)
 }
 
 function propertyAddress(p: PropertyAsset | undefined): string {
@@ -84,7 +85,7 @@ export function buildRentRollAsAt(input: RentRollAsAtInput): RentRollBook {
       return {
         tenancyId: t.id,
         propertyId: t.propertyId,
-        propertyTitle: prop?.title ?? t.propertyId,
+        propertyTitle: prop?.title ?? propertyRefLabel(t.propertyId),
         propertyAddress: propertyAddress(prop),
         landlordId: t.landlordId,
         landlordName: landlordName(t.landlordId, input.landlords),

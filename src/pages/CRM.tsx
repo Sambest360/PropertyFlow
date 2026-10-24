@@ -43,6 +43,7 @@ import { useSuiteAlert } from '../components/alerts/SuiteAlert'
 import { leadContactLine } from '../lib/displayIds'
 import type { Lead, PropertyAsset } from '../types/domain'
 import { useLookupOptions } from '../hooks/useLookupOptions'
+import { propertyRefLabel } from '../lib/propertyRefs'
 
 const ICON_STROKE = 1.6
 const VIEW_KEY = 'propertyflow-crm-view'
@@ -181,7 +182,7 @@ export default function CRM() {
         const agent = lead.agentId ? state.users.find((u) => u.id === lead.agentId) : null
         return {
           lead,
-          propertyTitle: property?.title ?? lead.propertyId,
+          propertyTitle: property?.title ?? propertyRefLabel(lead.propertyId),
           propertySuburb: property ? `${property.suburb}, ${property.city}` : '—',
           agentName: agent?.name ?? null,
           boardStage: boardStageFor(lead.stage),

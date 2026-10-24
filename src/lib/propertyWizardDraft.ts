@@ -68,6 +68,20 @@ export type PropertyWizardDraft = {
   roomsBeforeUnfurnished?: WizardRoomDraft[]
 }
 
+/**
+ * units.idempotency_key for a wizard create. The key belongs to one pending
+ * property id: a stored key from an earlier listing (or the legacy
+ * `create:<storageKey>` form without an id) is replaced, otherwise every new
+ * listing reuses it and hits ux_units_idempotency_key.
+ */
+export function wizardCreateIdempotencyKey(
+  storageKey: string,
+  propertyId: string,
+  existing?: string,
+): string {
+  return existing && existing.endsWith(`:${propertyId}`) ? existing : `create:${storageKey}:${propertyId}`
+}
+
 export function defaultWizardRooms(): WizardRoomDraft[] {
   return [
     { id: uid('r'), name: 'Bedroom', kind: 'bedroom', beds: 1, baths: 0, areaSqm: '' },

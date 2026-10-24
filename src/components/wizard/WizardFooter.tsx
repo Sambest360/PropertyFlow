@@ -10,7 +10,7 @@ export function WizardFooter({
   continueLabel = 'Continue',
   submitLabel = 'Submit',
   saveDraftLabel = 'Save draft',
-  saveAndContinueLaterLabel = 'Save & continue later',
+  saveAndContinueLaterLabel = 'Save',
   continueBusyLabel = 'Continuing…',
   submitBusyLabel = 'Saving…',
   saveDraftBusyLabel = 'Saving draft…',

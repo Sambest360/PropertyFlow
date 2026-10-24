@@ -10,16 +10,15 @@
  * Needs migration 028_listing_photos_storage.sql applied first.
  *
  * Usage:
- *   set -a && source .env.local && set +a
  *   npx tsx scripts/migratePhotosToStorage.ts          # dry-run report
  *   npx tsx scripts/migratePhotosToStorage.ts --write  # upload + update rows
  *
- * Env: DIRECT_URL (or DATABASE_URL), SUPABASE_URL (or VITE_SUPABASE_URL),
- * SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY).
+ * Env (.env.local): SUPABASE_URL (or VITE_SUPABASE_URL) and
+ * SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY). The secret key reads and
+ * writes through the Data API, so no database password is needed.
  */
 import { randomUUID } from 'node:crypto'
 import { config as loadEnv } from 'dotenv'
-import { Client } from 'pg'
 import { createClient } from '@supabase/supabase-js'
 
 loadEnv({ path: '.env.local' })
@@ -38,75 +37,62 @@ const EXT_BY_MIME: Record<string, string> = {
   'image/gif': 'gif',
 }
 
-// POSTGRES_URL_NON_POOLING is what the Vercel–Supabase integration provides (`vercel env pull`).
-const directUrl =
-  process.env.DIRECT_URL ?? process.env.POSTGRES_URL_NON_POOLING ?? process.env.DATABASE_URL
 const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL
 const secret = process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY
-if (!directUrl) throw new Error('Missing DIRECT_URL or DATABASE_URL')
-if (WRITE && (!supabaseUrl || !secret)) {
-  throw new Error('--write needs SUPABASE_URL and SUPABASE_SECRET_KEY (service role) to upload')
+if (!supabaseUrl) throw new Error('Missing SUPABASE_URL or VITE_SUPABASE_URL in .env.local')
+if (!secret) {
+  throw new Error(
+    'Missing SUPABASE_SECRET_KEY in .env.local — copy the secret key from Supabase → Project Settings → API Keys',
+  )
 }
 
-const storage = WRITE
-  ? createClient(supabaseUrl!, secret!, { auth: { autoRefreshToken: false, persistSession: false } }).storage
-  : null
+const supabase = createClient(supabaseUrl, secret, {
+  auth: { autoRefreshToken: false, persistSession: false },
+})
 
 async function upload(dataUrl: string, table: string, rowId: string): Promise<string | null> {
   const m = DATA_URL_RE.exec(dataUrl)
   const mime = m?.[1].toLowerCase()
   if (!m || !mime || !EXT_BY_MIME[mime]) return null
   const path = `migrated/${table}/${rowId}/${randomUUID()}.${EXT_BY_MIME[mime]}`
-  const { error } = await storage!
+  const { error } = await supabase.storage
     .from(BUCKET)
     .upload(path, Buffer.from(m[2], 'base64'), { contentType: mime, cacheControl: '31536000', upsert: false })
   if (error) throw new Error(`upload ${path}: ${error.message}`)
-  return storage!.from(BUCKET).getPublicUrl(path).data.publicUrl
+  return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl
 }
 
-const db = new Client({
-  connectionString: directUrl,
-  ssl: /localhost|127\.0\.0\.1/.test(directUrl) ? undefined : { rejectUnauthorized: false },
-  statement_timeout: 30_000,
-})
-await db.connect()
-
-try {
-  for (const table of ['units', 'buildings'] as const) {
-    const res = await db.query<{ id: string; images: unknown[] }>(
-      `SELECT id, images FROM ${table}
-        WHERE jsonb_typeof(images) = 'array' AND EXISTS (
-          SELECT 1 FROM jsonb_array_elements_text(images) e WHERE e LIKE 'data:%'
-        )`,
-    )
-    let photos = 0
-    let chars = 0
-    for (const row of res.rows) {
-      const next: unknown[] = []
-      for (const img of row.images) {
-        if (typeof img === 'string' && img.startsWith('data:')) {
-          photos++
-          chars += img.length
-          next.push(WRITE ? ((await upload(img, table, row.id)) ?? img) : img)
-        } else {
-          next.push(img)
-        }
+for (const table of ['units', 'buildings'] as const) {
+  const { data: ids, error: idsError } = await supabase.from(table).select('id')
+  if (idsError) throw new Error(`${table}: ${idsError.message}`)
+  let rows = 0
+  let photos = 0
+  let chars = 0
+  // One row at a time keeps each response small (a row can carry several MB).
+  for (const { id } of ids ?? []) {
+    const { data: row, error } = await supabase.from(table).select('images').eq('id', id).single()
+    if (error) throw new Error(`${table} ${id}: ${error.message}`)
+    const images: unknown[] = Array.isArray(row?.images) ? row.images : []
+    if (!images.some((img) => typeof img === 'string' && img.startsWith('data:'))) continue
+    rows++
+    const next: unknown[] = []
+    for (const img of images) {
+      if (typeof img === 'string' && img.startsWith('data:')) {
+        photos++
+        chars += img.length
+        next.push(WRITE ? ((await upload(img, table, id)) ?? img) : img)
+      } else {
+        next.push(img)
       }
-      // Only touch images; leave updated_at etc. to existing triggers.
-      if (WRITE) await db.query(`UPDATE ${table} SET images = $2::jsonb WHERE id = $1`, [row.id, JSON.stringify(next)])
     }
-    console.log(
-      `${table}: ${res.rows.length} row(s), ${photos} inline photo(s), ${(chars / 1024 / 1024).toFixed(1)} MB` +
-        (WRITE ? ' → moved to Storage' : ' (dry run)'),
-    )
+    if (WRITE) {
+      const { error: updateError } = await supabase.from(table).update({ images: next }).eq('id', id)
+      if (updateError) throw new Error(`update ${table} ${id}: ${updateError.message}`)
+    }
   }
-  if (WRITE) {
-    // Reclaim the TOAST space the base64 strings held.
-    await db.query('VACUUM (ANALYZE) units')
-    await db.query('VACUUM (ANALYZE) buildings')
-  } else {
-    console.log('Dry run only — re-run with --write to upload and update rows.')
-  }
-} finally {
-  await db.end()
+  console.log(
+    `${table}: ${rows} row(s), ${photos} inline photo(s), ${(chars / 1024 / 1024).toFixed(1)} MB` +
+      (WRITE ? ' → moved to Storage' : ' (dry run)'),
+  )
 }
+if (!WRITE) console.log('Dry run only — re-run with --write to upload and update rows.')
