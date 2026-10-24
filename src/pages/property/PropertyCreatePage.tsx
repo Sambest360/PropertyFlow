@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MAX_LISTING_PHOTOS, MAX_LISTING_PHOTO_BYTES, listingPhotosLabel } from '../../lib/listingPhotos'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Building2,
   Home,
@@ -77,7 +77,7 @@ import type { PropertyAsset } from '../../types/domain'
 import { showTempPasswordOnce } from '../../lib/auth/tempPasswordBus'
 import { acquireSubmitLock, releaseSubmitLock } from '../../lib/wizardSubmitGuard'
 import { nextUniquePropertyId } from '../../lib/listingIds'
-import { shouldRetainWizardDraftPropertyId } from '../../lib/propertyWizardResume'
+import { shouldRetainWizardDraftPropertyId, shouldStartFreshWizard } from '../../lib/propertyWizardResume'
 import { propertyIdFromCreateError } from '../../lib/createPropertyBundleError'
 import { sweetError, sweetSuccess, sweetWarning } from '../../lib/sweetAlert'
 import { PropertyLoader } from '../../components/loading/PropertyLoader'
@@ -257,6 +257,31 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   const wizardStorageKey = isEdit
     ? `${DRAFT_KEY}:edit:${editPropertyId}`
     : `${DRAFT_KEY}:${wizardScopeKey}`
+
+  // Unsaved leftovers from an earlier visit are dropped before the draft loads
+  // (explicitly saved drafts and a refresh of this same visit are kept).
+  const { key: historyEntryKey } = useLocation()
+  const freshStartCheckedRef = useRef(false)
+  if (!isEdit && !freshStartCheckedRef.current) {
+    freshStartCheckedRef.current = true
+    try {
+      const raw = sessionStorage.getItem(`${wizardStorageKey}:draft`)
+      const entryStorageKey = `${wizardStorageKey}:entry`
+      if (
+        shouldStartFreshWizard({
+          storedDraft: raw ? (JSON.parse(raw) as PropertyDraft) : null,
+          entryKey: historyEntryKey,
+          lastEntryKey: sessionStorage.getItem(entryStorageKey),
+        })
+      ) {
+        sessionStorage.removeItem(`${wizardStorageKey}:draft`)
+        sessionStorage.removeItem(`${wizardStorageKey}:step`)
+      }
+      sessionStorage.setItem(entryStorageKey, historyEntryKey)
+    } catch {
+      /* storage unavailable: nothing persisted to clear */
+    }
+  }
 
   const { draft, setDraft, clearDraft } = useWizardDraft<PropertyDraft>(wizardStorageKey, seedDraft)
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { shouldRetainWizardDraftPropertyId } from './propertyWizardResume'
+import { shouldRetainWizardDraftPropertyId, shouldStartFreshWizard } from './propertyWizardResume'
 
 const props = [
   { id: 'unt-own', status: 'Draft' as const, agencyId: 'ag-a' },
@@ -42,5 +42,26 @@ describe('shouldRetainWizardDraftPropertyId', () => {
         props,
       ),
     ).toBe(false)
+  })
+})
+
+describe('shouldStartFreshWizard', () => {
+  const unsaved = { draftPropertyId: '', resumeDraftPropertyId: '' }
+
+  it('clears unsaved leftovers on a new visit to Add property', () => {
+    expect(shouldStartFreshWizard({ storedDraft: unsaved, entryKey: 'k2', lastEntryKey: 'k1' })).toBe(true)
+  })
+
+  it('keeps progress on a refresh of the same visit', () => {
+    expect(shouldStartFreshWizard({ storedDraft: unsaved, entryKey: 'k1', lastEntryKey: 'k1' })).toBe(false)
+  })
+
+  it('keeps an explicitly saved draft', () => {
+    const saved = { draftPropertyId: 'unt-1', resumeDraftPropertyId: 'unt-1' }
+    expect(shouldStartFreshWizard({ storedDraft: saved, entryKey: 'k2', lastEntryKey: 'k1' })).toBe(false)
+  })
+
+  it('has nothing to clear without a stored draft', () => {
+    expect(shouldStartFreshWizard({ storedDraft: null, entryKey: 'k2', lastEntryKey: null })).toBe(false)
   })
 })

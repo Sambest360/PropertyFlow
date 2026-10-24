@@ -14,3 +14,22 @@ export function shouldRetainWizardDraftPropertyId(
   if (draft.agencyId && row.agencyId !== draft.agencyId) return false
   return true
 }
+
+/**
+ * Add property opens empty unless the user explicitly saved a draft
+ * ("Save" → server draft, resumeDraftPropertyId === draftPropertyId) or this
+ * is the same history entry as before (a page refresh mid-wizard keeps the
+ * auto-saved progress). A fresh click on Add property gets a new history
+ * entry, so leftover unsaved input from an earlier visit is discarded.
+ */
+export function shouldStartFreshWizard(params: {
+  storedDraft: Pick<PropertyWizardDraft, 'draftPropertyId' | 'resumeDraftPropertyId'> | null
+  entryKey: string
+  lastEntryKey: string | null
+}): boolean {
+  const { storedDraft, entryKey, lastEntryKey } = params
+  if (!storedDraft) return false
+  const resumeId = storedDraft.resumeDraftPropertyId?.trim()
+  if (resumeId && resumeId === storedDraft.draftPropertyId?.trim()) return false
+  return entryKey !== lastEntryKey
+}
