@@ -12,6 +12,7 @@ import {
 import type { MaintenanceTicket } from '../../types/domain'
 import { Badge, Button, cn, priorityTone, statusTone } from '../ui'
 import { formatAge, type PortfolioTicket } from './types'
+import { UnopenedDot } from '../../context/UnopenedContext'
 
 const ICON_STROKE = 1.6
 
@@ -195,7 +196,7 @@ export function MaintenanceListView({
                           <PriorityPip priority={t.priority} expanded={expanded} />
                           <span className="min-w-0">
                             <span className="block truncate font-semibold text-ink group-hover:text-primary">
-                              {t.title}
+                              <UnopenedDot kind="ticket" id={t.id} className="mr-1.5 align-middle" />{t.title}
                             </span>
                             <span className="mt-0.5 flex items-center gap-1 truncate text-xs text-ink-500">
                               <MapPin className="h-3 w-3 shrink-0" strokeWidth={ICON_STROKE} aria-hidden />
@@ -285,7 +286,7 @@ export function MaintenanceListView({
                 <PriorityPip priority={t.priority} />
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold text-ink">{t.title}</span>
+                    <span className="font-semibold text-ink"><UnopenedDot kind="ticket" id={t.id} className="mr-1.5 align-middle" />{t.title}</span>
                     <Badge tone={statusTone(t.status)}>{t.status}</Badge>
                   </span>
                   <span className="mt-1 block truncate text-xs text-ink-500">

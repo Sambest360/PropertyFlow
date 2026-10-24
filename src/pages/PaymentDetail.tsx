@@ -17,6 +17,7 @@ import {
 import { daysPastDue, isOpenPayment, type MarkPaymentPaidDetails } from '../components/payments/types'
 import { canSendDunningNotice } from '../lib/rentCycle'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
+import { useMarkOpened } from '../context/UnopenedContext'
 
 export default function PaymentDetail() {
   const { id } = useParams()
@@ -32,6 +33,7 @@ export default function PaymentDetail() {
   const [payOnlineError, setPayOnlineError] = useState<string | null>(null)
 
   const payment = state.payments.find((p) => p.id === id)
+  useMarkOpened('payment', payment?.id)
 
   const tabParam = params.get('tab')
   const tab: PaymentDetailTab = isPaymentDetailTab(tabParam) ? tabParam : 'overview'

@@ -4,6 +4,7 @@ import { Badge, cn, statusTone } from '../ui'
 import { PersonAvatar } from '../directory/DirectoryToolbar'
 import { ApplicantExpansion } from './ApplicantPortfolioCard'
 import type { PortfolioApplicant } from './types'
+import { UnopenedDot } from '../../context/UnopenedContext'
 
 const ICON_STROKE = 1.6
 
@@ -75,7 +76,7 @@ export function ApplicantsListView({
                           <PersonAvatar name={a.applicantName} />
                           <span className="min-w-0">
                             <span className="block truncate font-semibold text-ink group-hover:text-primary">
-                              {a.applicantName}
+                              <UnopenedDot kind="application" id={a.id} className="mr-1.5 align-middle" />{a.applicantName}
                             </span>
                             <span className="mt-0.5 block truncate text-xs text-ink-500">
                               {a.email}
@@ -157,7 +158,7 @@ export function ApplicantsListView({
                 <PersonAvatar name={a.applicantName} />
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold text-ink">{a.applicantName}</span>
+                    <span className="font-semibold text-ink"><UnopenedDot kind="application" id={a.id} className="mr-1.5 align-middle" />{a.applicantName}</span>
                     <Badge tone={statusTone(a.stage)}>{a.stage}</Badge>
                   </span>
                   <span className="mt-1 block truncate text-xs text-ink-500">

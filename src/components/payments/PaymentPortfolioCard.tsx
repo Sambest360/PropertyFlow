@@ -3,6 +3,7 @@ import { Badge, Card, cn, statusTone } from '../ui'
 import { formatZAR } from '../../data/seed'
 import { PaymentExpansion } from './PaymentsListView'
 import { paymentAmountLabel, type PortfolioPayment } from './types'
+import { UnopenedDot } from '../../context/UnopenedContext'
 
 const ICON_STROKE = 1.6
 
@@ -77,7 +78,7 @@ export function PaymentPortfolioCard({
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex items-start gap-2">
-                  <h3 className="min-w-0 flex-1 font-semibold text-ink">{p.type}</h3>
+                  <h3 className="min-w-0 flex-1 font-semibold text-ink"><UnopenedDot kind="payment" id={p.id} className="mr-1.5 align-middle" />{p.type}</h3>
                   <ChevronDown
                     className={cn(
                       'mt-0.5 h-4 w-4 shrink-0 text-ink-400 transition-transform duration-300',

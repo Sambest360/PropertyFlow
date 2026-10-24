@@ -24,6 +24,7 @@ import { useSuiteAlert } from '../components/alerts/SuiteAlert'
 import { TicketResponsibilityCard } from '../components/maintenance/TicketResponsibilityCard'
 import { canContractorClaimTicket, listApprovedContractors } from '../lib/contractors'
 import { isVerificationPending } from '../lib/verification'
+import { useMarkOpened } from '../context/UnopenedContext'
 
 export default function MaintenanceDetail() {
   const { id } = useParams()
@@ -42,6 +43,7 @@ export default function MaintenanceDetail() {
   const [completeOpen, setCompleteOpen] = useState(false)
 
   const ticket = state.tickets.find((t) => t.id === id)
+  useMarkOpened('ticket', ticket?.id)
 
   const item: PortfolioTicket | null = useMemo(() => {
     if (!ticket) return null

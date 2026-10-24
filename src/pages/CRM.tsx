@@ -46,6 +46,7 @@ import { useLookupOptions } from '../hooks/useLookupOptions'
 import { propertyRefLabel } from '../lib/propertyRefs'
 import { usePortalHydrating } from '../components/PortalHydrationGate'
 import { DataTableSkeleton } from '../components/loading/PageSkeleton'
+import { UnopenedDot } from '../context/UnopenedContext'
 
 const ICON_STROKE = 1.6
 const VIEW_KEY = 'propertyflow-crm-view'
@@ -643,7 +644,7 @@ function LeadBoardCard({
           className="w-full cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           <div className="flex items-start justify-between gap-2">
-            <p className="text-sm font-semibold text-ink">{item.lead.name}</p>
+            <p className="text-sm font-semibold text-ink"><UnopenedDot kind="lead" id={item.lead.id} className="mr-1.5 align-middle" />{item.lead.name}</p>
             <Badge tone={statusTone(item.lead.stage)}>{item.lead.stage}</Badge>
             <span className="text-[10px] text-ink-500">{item.lead.type}</span>
           </div>
@@ -817,7 +818,7 @@ function LeadList({
                           <span className="min-w-0">
                             <span className="flex flex-wrap items-center gap-1.5">
                               <span className="truncate font-semibold text-ink group-hover:text-primary">
-                                {l.name}
+                                <UnopenedDot kind="lead" id={l.id} className="mr-1.5 align-middle" />{l.name}
                               </span>
                               <span className="text-xs text-ink-500">{l.type}</span>
                             </span>
@@ -917,7 +918,7 @@ function LeadList({
               >
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold text-ink">{l.name}</span>
+                    <span className="font-semibold text-ink"><UnopenedDot kind="lead" id={l.id} className="mr-1.5 align-middle" />{l.name}</span>
                     <Badge tone={statusTone(l.stage)}>{l.stage}</Badge>
                   </span>
                   <span className="mt-1 block truncate text-xs text-ink-500">
@@ -1095,7 +1096,7 @@ function LeadCard({
         <PersonAvatar name={l.name} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
-            <h3 className="truncate font-semibold text-ink">{l.name}</h3>
+            <h3 className="truncate font-semibold text-ink"><UnopenedDot kind="lead" id={l.id} className="mr-1.5 align-middle" />{l.name}</h3>
             <Badge tone={statusTone(l.stage)}>{l.stage}</Badge>
           </div>
           <p className="mt-1 truncate text-xs text-ink-500">{item.propertyTitle}</p>

@@ -11,6 +11,8 @@ import {
 import { formatZAR } from '../../data/seed'
 import { Badge, Button, cn, statusTone } from '../ui'
 import { paymentAmountLabel, type PortfolioPayment } from './types'
+import { isRawUuid } from '../../lib/propertyRefs'
+import { UnopenedDot } from '../../context/UnopenedContext'
 
 const ICON_STROKE = 1.6
 
@@ -69,7 +71,8 @@ export function PaymentExpansion({
           {paymentAmountLabel(p, formatZAR)}
         </p>
         <p className="text-sm text-ink-500">
-          {p.id}
+          {/* Readable payment code (PAY-…); never a raw database UUID. */}
+          {isRawUuid(p.id) ? (p.reference?.trim() || p.type) : p.id}
           {p.paidAt ? ` · Paid ${p.paidAt}` : ` · Due ${p.dueDate}`}
         </p>
       </div>
@@ -197,7 +200,7 @@ export function PaymentsListView({
                           </span>
                           <span className="min-w-0">
                             <span className="block truncate font-semibold text-ink group-hover:text-primary">
-                              {p.type}
+                              <UnopenedDot kind="payment" id={p.id} className="mr-1.5 align-middle" />{p.type}
                             </span>
                             <span className="mt-0.5 flex items-center gap-1 truncate text-xs text-ink-500">
                               {item.property ? (
@@ -296,7 +299,7 @@ export function PaymentsListView({
               >
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold text-ink">{p.type}</span>
+                    <span className="font-semibold text-ink"><UnopenedDot kind="payment" id={p.id} className="mr-1.5 align-middle" />{p.type}</span>
                     <Badge tone={statusTone(p.status)}>{p.status}</Badge>
                   </span>
                   <span className="mt-1 block truncate text-xs text-ink-500">

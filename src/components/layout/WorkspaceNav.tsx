@@ -27,6 +27,8 @@ import type { Permission } from '../../types/domain'
 import { usePrefersReducedMotion } from '../../hooks/useScrollMotion'
 import { useNavCollapsed } from '../../hooks/useNavCollapsed'
 import { prefetchWorkspaceRoute } from '../../lib/routePrefetch'
+import { useUnopened } from '../../context/UnopenedContext'
+import type { UnopenedKind } from '../../lib/unopened'
 
 const ICON_STROKE = 1.6
 /** How far the active pill overlaps past the sidebar edge into the page */
@@ -61,6 +63,45 @@ export function useWorkspaceNav(): WorkspaceNavEntry[] {
   }, [has, hasAny, role, user, state.applications, state.tenancies])
 }
 
+/** Sidebar sections that show a count of items the user has not opened yet. */
+const UNOPENED_KIND_BY_PATH: Record<string, UnopenedKind> = {
+  '/workspace/sales/crm': 'lead',
+  '/workspace/sales/applications': 'application',
+  '/workspace/sales/viewings': 'viewing',
+  '/workspace/operations/maintenance': 'ticket',
+  '/workspace/operations/payments': 'payment',
+}
+
+function useUnopenedCount(to: string): number {
+  const { counts } = useUnopened()
+  const kind = UNOPENED_KIND_BY_PATH[to]
+  return kind ? counts[kind] : 0
+}
+
+function UnopenedCount({ count, onDark }: { count: number; onDark?: boolean }) {
+  if (count <= 0) return null
+  return (
+    <span
+      className={cn(
+        'ml-auto inline-flex min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold leading-5 tabular',
+        onDark ? 'bg-white text-primary' : 'bg-primary text-white',
+      )}
+    >
+      {count > 99 ? '99+' : count}
+      <span className="sr-only"> not opened</span>
+    </span>
+  )
+}
+
+function UnopenedPip({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn('absolute h-2.5 w-2.5 rounded-full bg-primary ring-2 ring-white', className)}
+      aria-hidden
+    />
+  )
+}
+
 function NavItemLink({
   item,
   active,
@@ -79,6 +120,7 @@ function NavItemLink({
   nested?: boolean
 }) {
   const Icon = item.icon
+  const unopened = useUnopenedCount(item.to)
   return (
     <Link
       ref={itemRef}
@@ -119,6 +161,11 @@ function NavItemLink({
         aria-hidden
       />
       {!collapsed && <span className="truncate">{item.label}</span>}
+      {collapsed ? (
+        unopened > 0 ? <UnopenedPip className="right-1.5 top-1.5" /> : null
+      ) : (
+        <UnopenedCount count={unopened} onDark={rail} />
+      )}
     </Link>
   )
 }
@@ -151,6 +198,12 @@ function NavGroupBlock({
 }) {
   const GroupIcon = group.icon
   const childActive = group.children.some((c) => pathMatches(pathname, c.to, c.end))
+  const { counts } = useUnopened()
+  const unopenedFor = (to: string) => {
+    const kind = UNOPENED_KIND_BY_PATH[to]
+    return kind ? counts[kind] : 0
+  }
+  const childUnopened = group.children.reduce((n, c) => n + unopenedFor(c.to), 0)
   const flyoutRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -181,6 +234,7 @@ function NavGroupBlock({
           )}
         >
           <GroupIcon className="h-5 w-5" strokeWidth={ICON_STROKE} aria-hidden />
+          {childUnopened > 0 ? <UnopenedPip className="right-1.5 top-1.5" /> : null}
         </button>
         {flyoutOpen && (
           <div
@@ -206,6 +260,7 @@ function NavGroupBlock({
                 >
                   <Icon className="h-4 w-4 shrink-0" strokeWidth={ICON_STROKE} aria-hidden />
                   {child.label}
+                  <UnopenedCount count={unopenedFor(child.to)} />
                 </Link>
               )
             })}
@@ -236,6 +291,11 @@ function NavGroupBlock({
           aria-hidden
         />
         <span className="min-w-0 flex-1 truncate">{group.label}</span>
+        {!open && childUnopened > 0 ? (
+          <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-primary" title={`${childUnopened} not opened`}>
+            <span className="sr-only">{childUnopened} not opened</span>
+          </span>
+        ) : null}
         <ChevronDown
           className={cn(
             'h-4 w-4 shrink-0 text-ink-400 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',

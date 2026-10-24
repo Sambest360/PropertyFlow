@@ -12,6 +12,7 @@ import {
   viewingDeskLinkLabel,
   type PortfolioViewing,
 } from './types'
+import { UnopenedDot, useUnopened } from '../../context/UnopenedContext'
 
 const ICON_STROKE = 1.6
 
@@ -90,6 +91,8 @@ function AgendaRow({
 }) {
   const st = viewingStatus(item)
   const to = viewingDeskPath(item)
+  const { markOpened } = useUnopened()
+  const bookingId = item.kind === 'booking' ? item.viewing.id : null
   const linkLabel = viewingDeskLinkLabel(item)
   const peopleLabel =
     item.kind === 'slot'
@@ -100,6 +103,7 @@ function AgendaRow({
     <li className="space-y-2">
       <Link
         to={to}
+        onClick={() => markOpened('viewing', bookingId)}
         className={cn(
           'group flex min-h-14 cursor-pointer items-stretch gap-0 overflow-hidden rounded-[1.25rem] border border-primary-100 bg-white transition-colors duration-200 hover:border-primary-200 hover:bg-primary-50/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
           reducedMotion && 'transition-none',
@@ -122,7 +126,10 @@ function AgendaRow({
           </span>
           <span className="min-w-0 flex-1">
             <span className="flex flex-wrap items-center gap-2">
-              <span className="truncate font-semibold text-ink">{item.property.title}</span>
+              <span className="truncate font-semibold text-ink">
+                {bookingId ? <UnopenedDot kind="viewing" id={bookingId} className="mr-1.5 align-middle" /> : null}
+                {item.property.title}
+              </span>
               <Badge tone={statusTone(st)}>{st}</Badge>
               <Badge tone="neutral">{item.kind === 'slot' ? 'Open slot' : 'Invite'}</Badge>
             </span>

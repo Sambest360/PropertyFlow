@@ -37,6 +37,7 @@ import type { WorkflowActionCapture } from '../lib/workflowActionForms'
 import type { PropertyEvent } from '../types/domain'
 import { formatZAR } from '../data/seed'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
+import { useMarkOpened } from '../context/UnopenedContext'
 
 const ICON_STROKE = 1.6
 
@@ -73,6 +74,7 @@ export default function ApplicantDetail() {
   const [flash, setFlash] = useState<PatchApplicationStatusResult | null>(null)
 
   const application = state.applications.find((a) => a.id === id)
+  useMarkOpened('application', application?.id)
 
   const tabParam = params.get('tab')
   const tab: ApplicantDetailTab = isApplicantDetailTab(tabParam)

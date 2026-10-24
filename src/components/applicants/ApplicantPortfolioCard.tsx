@@ -6,6 +6,7 @@ import { appendAgentMetaRow } from '../../lib/agentDisplay'
 import { useAgentDisplay, useHideAgentColumn } from '../../hooks/useAgentDisplay'
 import { PersonAvatar } from '../directory/DirectoryToolbar'
 import type { PortfolioApplicant } from './types'
+import { UnopenedDot } from '../../context/UnopenedContext'
 
 const ICON_STROKE = 1.6
 
@@ -35,7 +36,7 @@ export function ApplicantPortfolioCard({
       <div className="flex items-start gap-3">
         <PersonAvatar name={a.applicantName} />
         <div className="min-w-0 flex-1">
-          <h3 className="font-semibold text-ink">{a.applicantName}</h3>
+          <h3 className="font-semibold text-ink"><UnopenedDot kind="application" id={a.id} className="mr-1.5 align-middle" />{a.applicantName}</h3>
           <p className="truncate text-xs text-ink-500">{item.propertyTitle}</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Badge tone={statusTone(a.stage)}>{a.stage}</Badge>

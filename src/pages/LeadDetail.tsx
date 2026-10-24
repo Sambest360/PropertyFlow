@@ -19,6 +19,7 @@ import type { PropertyEvent } from '../types/domain'
 import { useLeadContact } from '../hooks/useLeadContact'
 import { useScheduleLeadViewing } from '../hooks/useScheduleLeadViewing'
 import { ScheduleLeadViewingModal } from '../components/lead-detail/ScheduleLeadViewingModal'
+import { useMarkOpened } from '../context/UnopenedContext'
 
 export default function LeadDetail() {
   const { id } = useParams()
@@ -32,6 +33,7 @@ export default function LeadDetail() {
   const [closeOpen, setCloseOpen] = useState(false)
 
   const lead = state.leads.find((l) => l.id === id)
+  useMarkOpened('lead', lead?.id)
   const property = lead ? state.properties.find((p) => p.id === lead.propertyId) ?? null : null
   const agent = lead?.agentId ? state.users.find((u) => u.id === lead.agentId) : null
 

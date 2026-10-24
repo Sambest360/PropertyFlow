@@ -4,6 +4,7 @@ import { SpeedInsights } from '@vercel/speed-insights/react'
 import { ThemeProvider } from './context/ThemeContext'
 import { AppStoreProvider } from './context/AppStore'
 import { AuthProvider } from './context/AuthContext'
+import { UnopenedProvider } from './context/UnopenedContext'
 import { LiveSyncBridge } from './hooks/useLiveSync'
 import { SuiteAlertProvider } from './components/alerts/SuiteAlert'
 import { MarketplaceShell, WorkspaceShell } from './components/AppShell'
@@ -159,6 +160,7 @@ export default function App() {
       <GoogleMapsProvider>
       <AppStoreProvider>
         <AuthProvider>
+          <UnopenedProvider>
           <LiveSyncBridge />
           <SuiteAlertProvider>
           <BrowserRouter>
@@ -523,6 +525,7 @@ export default function App() {
             <TempPasswordHost />
           </BrowserRouter>
           </SuiteAlertProvider>
+          </UnopenedProvider>
         </AuthProvider>
       </AppStoreProvider>
       </GoogleMapsProvider>

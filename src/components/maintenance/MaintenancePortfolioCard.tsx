@@ -7,6 +7,7 @@ import {
 import { Badge, Card, cn, priorityTone, statusTone } from '../ui'
 import { formatAge, type PortfolioTicket } from './types'
 import { TicketExpansion } from './MaintenanceListView'
+import { UnopenedDot } from '../../context/UnopenedContext'
 
 const ICON_STROKE = 1.6
 
@@ -40,7 +41,7 @@ export function MaintenancePortfolioCard({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="truncate font-semibold text-ink">{t.title}</h2>
+              <h2 className="truncate font-semibold text-ink"><UnopenedDot kind="ticket" id={t.id} className="mr-1.5 align-middle" />{t.title}</h2>
               <Badge tone={priorityTone(t.priority)}>{t.priority}</Badge>
             </div>
             <p className="mt-1 flex items-center gap-1 truncate text-xs text-ink-500">

@@ -15,6 +15,7 @@ import {
   formatAge,
   type PortfolioTicket,
 } from './types'
+import { UnopenedDot } from '../../context/UnopenedContext'
 
 const ICON_STROKE = 1.6
 
@@ -246,7 +247,7 @@ function BoardCard({
           </div>
 
           <h3 className="mt-1 truncate text-sm font-semibold leading-snug text-ink">
-            {t.title}
+            <UnopenedDot kind="ticket" id={t.id} className="mr-1.5 align-middle" />{t.title}
           </h3>
 
           {/* Dense data row — property, asset, age */}
