@@ -7,7 +7,7 @@ import { useMemo, useState } from 'react'
 import { Send } from 'lucide-react'
 import type { AppUser, PropertyAsset, Tenancy } from '../../types/domain'
 import { labelOrReference } from '../../lib/displayIds'
-import { Button, Card, Input, Select } from '../ui'
+import { Button, Input, Modal, Select } from '../ui'
 import { personRefLabel } from '../../lib/propertyRefs'
 
 /** Params accepted by the store's proposePayoutInstruction. */
@@ -118,20 +118,47 @@ export function ProposePayoutPanel(props: {
     }
   }
 
+  const close = () => {
+    if (busy) return
+    setOpen(false)
+    setNote(null)
+  }
+
   return (
-    <div data-tip-target="trust-propose-payout">
-    <Card className="p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-ink-500">Propose a payout to a landlord for a tenancy.</p>
-        {!open && (
-          <Button variant="primary" size="sm" onClick={() => { setOpen(true); setNote(null) }}>
-            <Send className="h-4 w-4" />
-            Propose payout
-          </Button>
-        )}
-      </div>
-      {open && (
-        <div className="mt-3 grid gap-3 sm:grid-cols-[2fr_1fr_auto] sm:items-end">
+    <div data-tip-target="trust-propose-payout" className="flex flex-col items-end gap-1">
+      <Button
+        variant="primary"
+        className="min-h-11 gap-1.5"
+        onClick={() => {
+          setOpen(true)
+          setNote(null)
+        }}
+      >
+        <Send className="h-4 w-4" />
+        Propose payout
+      </Button>
+      {note?.tone === 'ok' && !open ? (
+        <p className="text-xs text-ink-600" role="status">
+          {note.text}
+        </p>
+      ) : null}
+      <Modal
+        open={open}
+        onClose={close}
+        title="Propose payout"
+        description="Propose a payout to a landlord for a tenancy. A second user must approve it."
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" disabled={busy} onClick={close}>
+              Cancel
+            </Button>
+            <Button variant="primary" disabled={busy} onClick={() => void handlePropose()}>
+              {busy ? 'Proposing…' : 'Propose payout'}
+            </Button>
+          </div>
+        }
+      >
+        <div className="grid gap-4">
           <label className="grid gap-1 text-sm text-ink-600">
             Tenancy
             <Select value={tenancyId} onChange={(e) => setTenancyId(e.target.value)}>
@@ -161,23 +188,14 @@ export function ProposePayoutPanel(props: {
               onChange={(e) => setAmount(e.target.value)}
             />
           </label>
-          <div className="flex gap-2">
-            <Button variant="primary" size="sm" disabled={busy} onClick={() => void handlePropose()}>
-              Propose payout
-            </Button>
-            <Button variant="ghost" size="sm" disabled={busy} onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-          </div>
-          {landlordName && <p className="text-xs text-ink-400 sm:col-span-3">Payee: {landlordName} (landlord)</p>}
+          {landlordName && <p className="text-xs text-ink-400">Payee: {landlordName} (landlord)</p>}
+          {note?.tone === 'error' ? (
+            <p className="text-sm text-red-700" role="alert">
+              {note.text}
+            </p>
+          ) : null}
         </div>
-      )}
-      {note && (
-        <p className={`mt-2 text-sm ${note.tone === 'ok' ? 'text-ink-600' : 'text-red-700'}`} role="status">
-          {note.text}
-        </p>
-      )}
-    </Card>
+      </Modal>
     </div>
   )
 }

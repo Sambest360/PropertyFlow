@@ -5,11 +5,13 @@ import {
   TrendingUp,
   AlertTriangle,
   CheckCircle2,
+  Plus,
 } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
 import { formatZAR } from '../../data/seed'
-import { PageHeader, Card, Badge, Button, EmptyState } from '../../components/ui'
+import { labelOrReference } from '../../lib/displayIds'
+import { PageHeader, Card, Badge, Button, EmptyState, Input, Modal, Select } from '../../components/ui'
 import { DashboardPage } from '../../components/dashboard'
 import { FieldHelp } from '../../components/onboarding/FieldHelp'
 import { TRUST_MODE_A_COPY } from '../../lib/trust/modeA'
@@ -101,6 +103,8 @@ export default function TrustDeposits() {
   const [expectedZar, setExpectedZar] = useState('')
   const [heldZar, setHeldZar] = useState('')
   const [deadline, setDeadline] = useState('')
+  const [recordOpen, setRecordOpen] = useState(false)
+  const [recordError, setRecordError] = useState<string | null>(null)
   const [panel, setPanel] = useState<{ id: string; kind: 'reject' | 'refund' } | null>(null)
   const [rejectReason, setRejectReason] = useState('')
   const [refundZar, setRefundZar] = useState('')
@@ -108,6 +112,10 @@ export default function TrustDeposits() {
   const [deductions, setDeductions] = useState<{ reason: string; zar: string }[]>([])
 
   const agencyId = user?.agencyId
+  const tenancyOptions = useMemo(
+    () => state.tenancies.filter((t) => !agencyId || t.agencyId === agencyId),
+    [state.tenancies, agencyId],
+  )
 
   const deposits = useMemo(
     () =>
@@ -152,13 +160,20 @@ export default function TrustDeposits() {
       statutoryDeadlineOn: deadline.trim() || null,
     })
     setBusyId(null)
-    setActionError(result.ok ? null : (result.error ?? 'Create failed'))
+    setRecordError(result.ok ? null : (result.error ?? 'Create failed'))
     if (result.ok) {
       setOccupancyId('')
       setExpectedZar('')
       setHeldZar('')
       setDeadline('')
+      setRecordOpen(false)
     }
+  }
+
+  const closeRecord = () => {
+    if (busyId === 'create') return
+    setRecordOpen(false)
+    setRecordError(null)
   }
 
   async function handlePropose(id: string) {
@@ -225,6 +240,20 @@ export default function TrustDeposits() {
       <PageHeader
         title="Deposit Register"
         subtitle="Deposit register — create/held + dual-control release"
+        actions={
+          <Button
+            variant="primary"
+            className="min-h-11 gap-1.5"
+            onClick={() => {
+              setRecordError(null)
+              setRecordOpen(true)
+            }}
+            data-testid="deposit-record-open"
+          >
+            <Plus className="h-4 w-4" />
+            Record held deposit
+          </Button>
+        }
       />
       <div className="mb-2"><FieldHelp title="Trust deposits" body={TRUST_MODE_A_COPY} /></div>
 
@@ -280,26 +309,59 @@ export default function TrustDeposits() {
         </Card>
       </div>
 
-      <Card className="p-5">
-        <h3 className="mb-3 text-lg font-semibold text-ink">Record held deposit</h3>
-        <p className="mb-4 text-sm text-ink-500">
-          Durable create/upsert — survives reload via deposit_holding persist. Not a bank receipt.
-        </p>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-          <label className="text-sm">
-            <span className="text-ink-500">Occupancy id</span>
-            <input
-              className="mt-1 w-full rounded-lg border border-primary-200 px-3 py-2"
+      <Modal
+        open={recordOpen}
+        onClose={closeRecord}
+        title="Record held deposit"
+        description="Records a deposit held in trust for a tenancy (saved to the deposit register). Not a bank receipt."
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" disabled={busyId === 'create'} onClick={closeRecord}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              disabled={!occupancyId.trim() || !expectedZar || busyId === 'create'}
+              onClick={() => void handleCreateHeld()}
+              data-testid="deposit-create-held"
+            >
+              {busyId === 'create' ? 'Saving…' : 'Record deposit'}
+            </Button>
+          </div>
+        }
+      >
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <label className="text-sm sm:col-span-2">
+            <span className="text-ink-500">Tenancy</span>
+            <Select
+              className="mt-1"
               value={occupancyId}
-              onChange={(e) => setOccupancyId(e.target.value)}
-              placeholder="TN-…"
+              onChange={(e) => {
+                const id = e.target.value
+                setOccupancyId(id)
+                // Pre-fill the lease deposit; the amount stays editable.
+                const t = tenancyOptions.find((x) => x.id === id)
+                if (t?.deposit && !expectedZar) setExpectedZar(String(t.deposit))
+              }}
               data-testid="deposit-occupancy-input"
-            />
+            >
+              <option value="">Choose a tenancy</option>
+              {tenancyOptions.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.tenantName} ·{' '}
+                  {labelOrReference(
+                    state.properties.find((p) => p.id === t.propertyId)?.title,
+                    t.propertyId,
+                    'Property',
+                  )}
+                </option>
+              ))}
+            </Select>
           </label>
           <label className="text-sm">
             <span className="text-ink-500">Expected (ZAR)</span>
-            <input
-              className="mt-1 w-full rounded-lg border border-primary-200 px-3 py-2"
+            <Input
+              className="mt-1"
               value={expectedZar}
               onChange={(e) => setExpectedZar(e.target.value)}
               inputMode="decimal"
@@ -308,36 +370,25 @@ export default function TrustDeposits() {
           </label>
           <label className="text-sm">
             <span className="text-ink-500">Held (ZAR)</span>
-            <input
-              className="mt-1 w-full rounded-lg border border-primary-200 px-3 py-2"
+            <Input
+              className="mt-1"
               value={heldZar}
               onChange={(e) => setHeldZar(e.target.value)}
               inputMode="decimal"
-              placeholder="same as expected"
+              placeholder="Same as expected"
             />
           </label>
-          <label className="text-sm">
-            <span className="text-ink-500">Statutory deadline</span>
-            <input
-              type="date"
-              className="mt-1 w-full rounded-lg border border-primary-200 px-3 py-2"
-              value={deadline}
-              onChange={(e) => setDeadline(e.target.value)}
-            />
+          <label className="text-sm sm:col-span-2">
+            <span className="text-ink-500">Statutory refund deadline</span>
+            <Input className="mt-1" type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
           </label>
+          {recordError ? (
+            <p className="text-sm text-red-700 sm:col-span-2" role="alert">
+              {recordError}
+            </p>
+          ) : null}
         </div>
-        <div className="mt-3">
-          <Button
-            variant="primary"
-            size="sm"
-            disabled={!occupancyId.trim() || !expectedZar || busyId === 'create'}
-            onClick={() => void handleCreateHeld()}
-            data-testid="deposit-create-held"
-          >
-            Create / upsert held
-          </Button>
-        </div>
-      </Card>
+      </Modal>
 
       {upcomingDeadlines.length > 0 && (
         <Card className="p-5">

@@ -129,18 +129,21 @@ export default function TrustPayouts() {
       <PageHeader
         title="Payouts"
         subtitle={PAYOUT_LABELS.subtitle}
+        actions={
+          has('trust.approve_payout') ? (
+            <ProposePayoutPanel
+              canPropose={has('trust.approve_payout')}
+              actorUserId={user?.id}
+              agencyId={agencyId}
+              tenancies={state.tenancies}
+              properties={state.properties}
+              users={state.users}
+              propose={proposePayoutInstruction}
+            />
+          ) : undefined
+        }
       />
       <div className="mb-2"><FieldHelp title="Trust payouts" body={TRUST_MODE_A_COPY} /></div>
-
-      <ProposePayoutPanel
-        canPropose={has('trust.approve_payout')}
-        actorUserId={user?.id}
-        agencyId={agencyId}
-        tenancies={state.tenancies}
-        properties={state.properties}
-        users={state.users}
-        propose={proposePayoutInstruction}
-      />
 
       {/* Summary */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
