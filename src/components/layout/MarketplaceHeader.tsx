@@ -14,8 +14,11 @@ import { initials } from '../dashboard/formatShortDate'
 import { cn } from '../ui'
 
 function marketplaceCategoryActive(pathname: string, search: string, to: string): boolean {
-  if (!pathname.startsWith('/browse') && pathname !== '/saved') return false
   const target = new URL(to, 'https://propertyflow.local')
+  // Non-browse links (Calculators) are active on their own pages only — they
+  // used to light up on plain /browse because they carry no ?mode.
+  if (target.pathname !== '/browse') return pathname.startsWith(target.pathname)
+  if (!pathname.startsWith('/browse') && pathname !== '/saved') return false
   const targetMode = target.searchParams.get('mode')
   const currentMode = new URLSearchParams(search).get('mode') ?? 'all'
   if (!targetMode) return currentMode === 'all'

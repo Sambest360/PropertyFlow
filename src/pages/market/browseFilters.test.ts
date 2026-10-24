@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { PropertyAsset } from '../../types/domain'
 import { parseAreasParam, propertyMatchesAreas } from '../../lib/placeCatalog'
+import { matchesBrowseMode } from '../../lib/browseMode'
 
 /**
  * P1-3 regression: the rent/buy mode + property-type filters must not return
@@ -52,11 +53,7 @@ function typeAndModeMatch(
     p.city.toLowerCase().includes(q.toLowerCase()) ||
     p.suburb.toLowerCase().includes(q.toLowerCase())
   if (!matchQ) return false
-  if (mode === 'commercial' && !['Commercial', 'Office'].includes(p.type)) return false
-  if (mode === 'buy' && !((p.listingMode === 'sale' || p.listingMode === 'both') && p.price != null))
-    return false
-  if (mode === 'rent' && !((p.listingMode === 'rent' || p.listingMode === 'both') && p.rent != null))
-    return false
+  if (!matchesBrowseMode(p, mode)) return false
   if (types.length && !types.includes(p.type)) return false
   return true
 }
@@ -116,6 +113,15 @@ describe('browse type/mode filters (P1-3)', () => {
     const apt = listing()
     expect(typeAndModeMatch(office, '', 'commercial', [])).toBe(true)
     expect(typeAndModeMatch(apt, '', 'commercial', [])).toBe(false)
+  })
+
+  it('Buy, Rent and Commercial never overlap', () => {
+    const office = listing({ type: 'Office', listingMode: 'both', rent: 4000, price: 900_000 })
+    const both = listing({ type: 'House', listingMode: 'both', rent: 18000, price: 3_000_000 })
+    // An office is Commercial only — not in Buy or Rent.
+    expect(['buy', 'rent', 'commercial'].filter((m) => typeAndModeMatch(office, '', m, []))).toEqual(['commercial'])
+    // A sale-or-rent home with both prices shows in Buy and Rent, not Commercial.
+    expect(['buy', 'rent', 'commercial'].filter((m) => typeAndModeMatch(both, '', m, []))).toEqual(['buy', 'rent'])
   })
 })
 
