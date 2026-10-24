@@ -298,7 +298,7 @@ describe('buildWorkspaceNavForActor portal dedupe', () => {
 
   it('Trust & Banking stays grouped with Dashboard not active on child pages', () => {
     const labels = previewNavLabels(['trust.view', 'trust.allocate', 'trust.approve_payout'])
-    expect(labels).toContain('Trust Dashboard')
+    expect(labels).toContain('Overview')
     expect(labels).toContain('Cashbook')
 
     // The dashboard link must be end-anchored so /workspace/trust/cashbook

@@ -1,6 +1,11 @@
 import type { LucideIcon } from 'lucide-react'
 import {
+  Banknote,
+  BookOpen,
   Building2,
+  Clock,
+  Inbox,
+  Lock,
   CalendarDays,
   Calculator,
   ClipboardList,
@@ -155,43 +160,45 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
         id: 'trust',
         label: 'Trust & Banking',
         icon: Wallet,
+        // Follows the money: overview → every movement → match receipts →
+        // chase arrears → deposits held → payouts out.
         children: [
           {
             to: '/workspace/trust',
-            label: 'Trust Dashboard',
+            label: 'Overview',
             permission: 'trust.view',
-            icon: Wallet,
+            icon: LayoutDashboard,
             end: true,
           },
           {
             to: '/workspace/trust/cashbook',
             label: 'Cashbook',
             permission: 'trust.view',
-            icon: CreditCard,
+            icon: BookOpen,
           },
           {
             to: '/workspace/trust/unallocated',
             label: 'Unallocated',
             permission: 'trust.allocate',
-            icon: AlertTriangle,
-          },
-          {
-            to: '/workspace/trust/payouts',
-            label: 'Payouts',
-            permission: 'trust.approve_payout',
-            icon: Wallet,
-          },
-          {
-            to: '/workspace/trust/deposits',
-            label: 'Deposits',
-            permission: 'trust.view',
-            icon: KeyRound,
+            icon: Inbox,
           },
           {
             to: '/workspace/trust/arrears',
             label: 'Arrears',
             anyOf: ['trust.view', 'trust.view_arrears'],
-            icon: AlertTriangle,
+            icon: Clock,
+          },
+          {
+            to: '/workspace/trust/deposits',
+            label: 'Deposits',
+            permission: 'trust.view',
+            icon: Lock,
+          },
+          {
+            to: '/workspace/trust/payouts',
+            label: 'Payouts',
+            permission: 'trust.approve_payout',
+            icon: Banknote,
           },
         ],
       },
