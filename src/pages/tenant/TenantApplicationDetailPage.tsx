@@ -224,6 +224,7 @@ export default function TenantApplicationDetailPage() {
           next_step_copy: 'Complete payment, then record your reference on the Payments tab if paying by EFT.',
         },
       })
+      setTab('payments')
     }
   }
 
@@ -323,6 +324,12 @@ export default function TenantApplicationDetailPage() {
           </ActionButtonRow>
         </div>
 
+        <div className="sticky top-0 z-20 -mx-1 mb-5 bg-white/95 px-1 backdrop-blur-md">
+          <DashboardTabs tabs={tabs} value={tab} onChange={setTab} />
+        </div>
+
+        {tab === 'overview' && (
+          <>
         {/* Where it stands, and the one thing to do next */}
         <Card className="mb-5 p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -359,35 +366,6 @@ export default function TenantApplicationDetailPage() {
           </div>
         </Card>
 
-        {flash?.status === 'SUCCESS' && flash.checkout && (
-          <Card className="mb-5 border-primary-100 bg-primary-50/80 p-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="font-display text-lg font-semibold text-ink">{flash.layout.headline}</p>
-                <p className="mt-1 text-sm text-ink-600">{flash.layout.next_step_copy}</p>
-              </div>
-              <div className="min-w-[240px] rounded-xl border border-primary-100 bg-white p-3 text-sm">
-                <p className="flex items-center gap-1.5 font-semibold text-ink">
-                  <CreditCard className="h-4 w-4 text-primary" strokeWidth={ICON_STROKE} aria-hidden />
-                  {formatZAR(flash.checkout.amount_zar)}
-                </p>
-                <Button
-                  className="mt-3 min-h-11 w-full cursor-pointer"
-                  onClick={() => window.open(flash.checkout!.checkout_url, '_blank', 'noopener')}
-                >
-                  <Wallet className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} aria-hidden />
-                  Open checkout
-                </Button>
-              </div>
-            </div>
-          </Card>
-        )}
-
-        <div className="sticky top-0 z-20 -mx-1 mb-5 bg-white/95 px-1 backdrop-blur-md">
-          <DashboardTabs tabs={tabs} value={tab} onChange={setTab} />
-        </div>
-
-        {tab === 'overview' && (
           <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
             <div className="min-w-0 space-y-5">
               {tasks.length > 1 ? (
@@ -471,6 +449,7 @@ export default function TenantApplicationDetailPage() {
               </Card>
             </aside>
           </div>
+          </>
         )}
 
         {tab === 'tenancy' && linkedTenancy ? (
@@ -550,6 +529,30 @@ export default function TenantApplicationDetailPage() {
               autoSave
             />
           </div>
+        )}
+
+        {tab === 'payments' && flash?.status === 'SUCCESS' && flash.checkout && (
+          <Card className="mb-5 border-primary-100 bg-primary-50/80 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="font-display text-lg font-semibold text-ink">{flash.layout.headline}</p>
+                <p className="mt-1 text-sm text-ink-600">{flash.layout.next_step_copy}</p>
+              </div>
+              <div className="min-w-[240px] rounded-xl border border-primary-100 bg-white p-3 text-sm">
+                <p className="flex items-center gap-1.5 font-semibold text-ink">
+                  <CreditCard className="h-4 w-4 text-primary" strokeWidth={ICON_STROKE} aria-hidden />
+                  {formatZAR(flash.checkout.amount_zar)}
+                </p>
+                <Button
+                  className="mt-3 min-h-11 w-full cursor-pointer"
+                  onClick={() => window.open(flash.checkout!.checkout_url, '_blank', 'noopener')}
+                >
+                  <Wallet className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} aria-hidden />
+                  Open checkout
+                </Button>
+              </div>
+            </div>
+          </Card>
         )}
 
         {tab === 'payments' && (
