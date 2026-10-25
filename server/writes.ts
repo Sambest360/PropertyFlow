@@ -1560,6 +1560,10 @@ async function upsertApplication(
     // Agency records kept on the application (staff-only; applicant writes drop them).
     ['pcrInspections', 'pcrInspections'],
     ['purchaseClosing', 'purchaseClosing'],
+    // The applicant's own details (Your details / consent forms).
+    ['idNumberOrPassport', 'idNumberOrPassport'],
+    ['employerName', 'employerName'],
+    ['jobTitle', 'jobTitle'],
   ]
   for (const [key, field] of metaFields) {
     if (has(field) || !stored) meta[key] = d[field] ?? null

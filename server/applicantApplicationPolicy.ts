@@ -479,7 +479,7 @@ export async function enforceStaffCreditCheckConsent(body: {
   const app = {
     type: 'Rental' as const,
     applicantName: str(meta.applicant_name) ?? 'Applicant',
-    idNumberOrPassport: str(meta.id_number_or_passport) ?? '',
+    idNumberOrPassport: str(meta.idNumberOrPassport) ?? str(meta.id_number_or_passport) ?? '',
     creditCheckConsents: incomingConsents as Application['creditCheckConsents'],
     creditConsent: typeof docsJson.creditConsent === 'boolean' ? docsJson.creditConsent : false,
     screeningConsent:

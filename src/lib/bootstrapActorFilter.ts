@@ -279,12 +279,14 @@ export function redactApplicationContact<T extends object>(row: T): T {
   const {
     idNumberOrPassport: _id,
     uploadedDocs: _docs,
+    creditCheckConsents: _consents,
     documents,
     keyCollection,
     ...rest
   } = row as Row
   void _id
   void _docs
+  void _consents
   const out: Row = { ...rest, email: '', phone: '' }
   if (Array.isArray(documents)) {
     out.documents = (documents as Row[]).map((d) => ({

@@ -11,7 +11,15 @@ import {
 import { screeningApi, screeningApiAvailable, type ScreeningConsentTerms } from '../../lib/api/screeningApi'
 import { Button, Card, Input } from '../ui'
 
-type AdultDraft = { name: string; idNumber: string; signatureText: string; consented: boolean }
+type AdultDraft = {
+  name: string
+  idNumber: string
+  signatureText: string
+  /** Consent already on file (read-only row). */
+  consented: boolean
+  /** The applicant ticked the consent box for this row. */
+  agreed: boolean
+}
 
 function draftsFromApp(application: Application): AdultDraft[] {
   const required = creditConsentAdultsRequired(application)
@@ -25,6 +33,7 @@ function draftsFromApp(application: Application): AdultDraft[] {
       idNumber: adult.idNumber,
       signatureText: match?.signatureText ?? '',
       consented: Boolean(match?.signatureText?.trim() && match.grantedAt),
+      agreed: Boolean(match?.signatureText?.trim() && match.grantedAt),
     }
   })
 }
@@ -171,20 +180,28 @@ export function TenantCreditConsentPanel({
   onCapture: (adults: Array<{ name: string; idNumber: string; signatureText: string }>) => Promise<void>
 }) {
   const [adults, setAdults] = useState<AdultDraft[]>(() => draftsFromApp(application))
+  // Reset the rows only when the saved consents (or the application) change —
+  // not on every refresh of the application object, which wiped what the
+  // applicant was typing (e.g. the ID number).
+  const savedKey = `${application.id}|${JSON.stringify(application.creditCheckConsents?.adults ?? [])}`
   useEffect(() => {
     setAdults(draftsFromApp(application))
-  }, [application])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedKey])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [savedMessage, setSavedMessage] = useState<string | null>(null)
 
   const complete = useMemo(() => hasAllAdultCreditConsents(application), [application])
 
   const updateRow = (index: number, patch: Partial<AdultDraft>) => {
     setAdults((rows) => rows.map((r, i) => (i === index ? { ...r, ...patch } : r)))
+    setError(null)
+    setSavedMessage(null)
   }
 
   const addAdult = () => {
-    setAdults((rows) => [...rows, { name: '', idNumber: '', signatureText: '', consented: false }])
+    setAdults((rows) => [...rows, { name: '', idNumber: '', signatureText: '', consented: false, agreed: false }])
   }
 
   const removeAdult = (index: number) => {
@@ -194,24 +211,30 @@ export function TenantCreditConsentPanel({
 
   const submit = async () => {
     setError(null)
+    setSavedMessage(null)
+    const open = adults.filter((a) => !a.consented)
+    if (!open.length) return
+    for (const row of open) {
+      const who = adults.length > 1 ? `Adult ${adults.indexOf(row) + 1}: ` : ''
+      if (!row.name.trim()) return setError(`${who}enter the full name.`)
+      if (!/^\d{13}$/.test(row.idNumber.replace(/\s+/g, ''))) {
+        return setError(`${who}enter a 13-digit SA ID number.`)
+      }
+      if (!row.agreed) return setError(`${who}tick the consent box.`)
+      if (row.signatureText.trim().length < 2) return setError(`${who}type your full legal name as your signature.`)
+    }
     setSaving(true)
     try {
-      const pending = adults.filter((a) => !a.consented && a.signatureText.trim().length >= 2)
-      if (!pending.length && complete) return
-      for (const row of pending) {
-        if (!row.name.trim() || !row.idNumber.trim()) {
-          setError('Name and ID number are required for each adult.')
-          return
-        }
-      }
       await onCapture(
-        pending.map((row) => ({
+        open.map((row) => ({
           name: row.name.trim(),
-          idNumber: row.idNumber.trim(),
+          idNumber: row.idNumber.replace(/\s+/g, ''),
           signatureText: row.signatureText.trim(),
         })),
       )
-      setAdults(draftsFromApp(application))
+      setSavedMessage('Consent saved.')
+    } catch {
+      setError('Could not save your consent. Check your connection and try again.')
     } finally {
       setSaving(false)
     }
@@ -256,17 +279,20 @@ export function TenantCreditConsentPanel({
                 className="mt-1"
                 value={row.consented ? maskIdNumber(row.idNumber) : row.idNumber}
                 disabled={row.consented}
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={16}
+                placeholder="13-digit ID number"
                 onChange={(e) => updateRow(index, { idNumber: e.target.value })}
               />
             </label>
             <label className="flex items-start gap-2 text-sm">
               <input
                 type="checkbox"
-                className="mt-1"
-                checked={row.consented || row.signatureText.length > 0}
-                disabled={row.consented}
-                onChange={() => undefined}
-                readOnly={!row.consented}
+                className="mt-1 h-4 w-4 cursor-pointer accent-primary"
+                checked={row.agreed}
+                disabled={row.consented || saving}
+                onChange={(e) => updateRow(index, { agreed: e.target.checked })}
               />
               <span>
                 I consent to a credit check and understand my rights under POPIA and the National Credit Act.
@@ -290,7 +316,12 @@ export function TenantCreditConsentPanel({
         <Button type="button" variant="secondary" className="min-h-11" onClick={addAdult}>
           Add another adult
         </Button>
-        {error ? <p className="text-sm text-red-600">{error}</p> : null}
+        {error ? (
+          <p className="text-sm text-red-600" role="alert">
+            {error}
+          </p>
+        ) : null}
+        {savedMessage && !complete ? <p className="text-sm font-medium text-emerald-700">{savedMessage}</p> : null}
         {complete ? (
           <p className="text-sm font-medium text-emerald-700">All required consents are on file.</p>
         ) : (
