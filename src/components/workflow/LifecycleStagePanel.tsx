@@ -140,7 +140,7 @@ export function LifecycleStagePanel({
         ) : null}
 
         {showDetailsForm ? (
-          <TenantApplicationDetailsForm application={application} onSave={onSaveDetails} autoSave />
+          <TenantApplicationDetailsForm application={application} onSave={onSaveDetails} />
         ) : null}
 
         {stageDocs.length > 0 ? (

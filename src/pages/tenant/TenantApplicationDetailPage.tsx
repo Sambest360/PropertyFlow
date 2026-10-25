@@ -526,7 +526,6 @@ export default function TenantApplicationDetailPage() {
             <TenantApplicationDetailsForm
               application={application}
               onSave={(patch) => updateApplication(application.id, patch)}
-              autoSave
             />
           </div>
         )}
