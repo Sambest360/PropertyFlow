@@ -16,31 +16,47 @@ export function getLookups(
   opts?: { includeInactive?: boolean; scopeOnly?: 'global' | 'agency' },
 ): LookupConfig[] {
   const includeInactive = opts?.includeInactive ?? false
+  const byOrder = (a: LookupConfig, b: LookupConfig) =>
+    a.sortOrder - b.sortOrder || a.displayLabel.localeCompare(b.displayLabel)
   const match = (clientId: string) =>
-    lookups
-      .filter(
-        (l) =>
-          l.clientId === clientId &&
-          l.configType === configType &&
-          (includeInactive || l.isActive),
-      )
-      .sort((a, b) => a.sortOrder - b.sortOrder || a.displayLabel.localeCompare(b.displayLabel))
+    lookups.filter((l) => l.clientId === clientId && l.configType === configType)
+  const visible = (rows: LookupConfig[]) =>
+    rows.filter((l) => includeInactive || l.isActive).sort(byOrder)
 
   if (opts?.scopeOnly === 'global' || agencyId === GLOBAL_CLIENT_ID || !agencyId) {
-    return match(GLOBAL_CLIENT_ID)
+    return visible(match(GLOBAL_CLIENT_ID))
   }
   if (opts?.scopeOnly === 'agency') {
-    return match(agencyId)
+    return visible(match(agencyId))
   }
 
-  const globalRows = match(GLOBAL_CLIENT_ID)
-  const agencyRows = match(agencyId)
+  // Merge before filtering, so a hidden agency override hides the default too.
   const byKey = new Map<string, LookupConfig>()
-  for (const row of globalRows) byKey.set(row.keyValue, row)
-  for (const row of agencyRows) byKey.set(row.keyValue, row)
-  return Array.from(byKey.values()).sort(
-    (a, b) => a.sortOrder - b.sortOrder || a.displayLabel.localeCompare(b.displayLabel),
+  for (const row of match(GLOBAL_CLIENT_ID)) byKey.set(row.keyValue, row)
+  for (const row of match(agencyId)) byKey.set(row.keyValue, row)
+  return visible(Array.from(byKey.values()))
+}
+
+/**
+ * The agency's own copy of a built-in (global) row, with `patch` applied.
+ * Built-in defaults are shared by every agency, so edits are stored as an
+ * agency row of the same key; reuses the agency's existing copy if any.
+ */
+export function agencyOverrideFor(
+  lookups: LookupConfig[],
+  row: LookupConfig,
+  agencyId: string,
+  patch: Partial<LookupConfig> = {},
+): LookupConfig {
+  const existing = lookups.find(
+    (l) => l.clientId === agencyId && l.configType === row.configType && l.keyValue === row.keyValue,
   )
+  const base: LookupConfig = existing ?? {
+    ...row,
+    id: `lk-${agencyId}-${row.configType}-${row.keyValue}`.toLowerCase().replace(/[^a-z0-9-]+/g, '-'),
+    clientId: agencyId,
+  }
+  return { ...base, ...patch, id: base.id, clientId: agencyId }
 }
 
 export function getLookupOptions(

@@ -57,49 +57,23 @@ export default function LeadPipelineSettingsPage() {
     [state.lookups, effectiveAgencyId],
   )
 
-  /** Agency-owned row that overrides a global default of the same key. */
-  function agencyOverrideFor(keyValue: string): LookupConfig | undefined {
-    return state.lookups.find(
-      (l) =>
-        l.clientId === effectiveAgencyId &&
-        l.configType === 'LEAD_STAGE' &&
-        l.keyValue === keyValue,
-    )
-  }
-
   /**
-   * Persist step config (label/requirements). Global defaults are readable by
-   * everyone but only writable by platform admins — agencies transparently
-   * get an agency-scoped override of the same step key instead.
+   * Persist step config (label/requirements). Built-in steps are shared by
+   * every agency, so the store saves an override for this agency instead.
    */
   function writeStep(
     row: LookupConfig,
     patch: { displayLabel?: string; requirements?: LeadStageRequirement[] },
   ) {
     setError(null)
-    const isGlobal = row.clientId === GLOBAL_CLIENT_ID
-    if (!isGlobal || isPlatform) {
-      updateLookup(row.id, {
+    updateLookup(
+      row.id,
+      {
         ...(patch.displayLabel !== undefined ? { displayLabel: patch.displayLabel } : {}),
-        ...(patch.requirements !== undefined ? { meta: { requirements: patch.requirements } } : {}),
-      })
-      return
-    }
-    const override = agencyOverrideFor(row.keyValue)
-    if (override) {
-      updateLookup(override.id, {
-        ...(patch.displayLabel !== undefined ? { displayLabel: patch.displayLabel } : {}),
-        ...(patch.requirements !== undefined ? { meta: { requirements: patch.requirements } } : {}),
-      })
-    } else {
-      createLookup({
-        clientId: effectiveAgencyId,
-        configType: 'LEAD_STAGE',
-        keyValue: row.keyValue,
-        displayLabel: patch.displayLabel ?? row.displayLabel,
-        meta: patch.requirements !== undefined ? { requirements: patch.requirements } : undefined,
-      })
-    }
+        ...(patch.requirements !== undefined ? { meta: { ...row.meta, requirements: patch.requirements } } : {}),
+      },
+      effectiveAgencyId,
+    )
   }
 
   function setRequirements(row: LookupConfig, next: LeadStageRequirement[]) {
@@ -134,21 +108,19 @@ export default function LeadPipelineSettingsPage() {
   }
 
   function moveStep(row: LookupConfig, dir: -1 | 1) {
-    const siblings = steps.filter((s) => s.clientId === row.clientId)
-    const ids = siblings.map((s) => s.id)
+    const ids = steps.map((s) => s.id)
     const idx = ids.indexOf(row.id)
     const swap = idx + dir
     if (idx < 0 || swap < 0 || swap >= ids.length) return
     const next = [...ids]
     ;[next[idx], next[swap]] = [next[swap], next[idx]]
-    reorderLookups(row.clientId, 'LEAD_STAGE', next)
+    reorderLookups(row.clientId, 'LEAD_STAGE', next, effectiveAgencyId)
   }
 
   function toggleActive(row: LookupConfig) {
     if (isRequiredLookupKey('LEAD_STAGE', row.keyValue)) return
-    if (row.clientId === GLOBAL_CLIENT_ID && !isPlatform) return
-    if (row.isActive) deactivateLookup(row.id)
-    else updateLookup(row.id, { isActive: true })
+    if (row.isActive) deactivateLookup(row.id, effectiveAgencyId)
+    else updateLookup(row.id, { isActive: true }, effectiveAgencyId)
   }
 
   function addStep() {
@@ -225,7 +197,6 @@ export default function LeadPipelineSettingsPage() {
                   <StepCard
                     row={row}
                     stepNumber={i + 1}
-                    isPlatform={isPlatform}
                     docTypeOptions={docTypeOptions}
                     onRename={(label) => writeStep(row, { displayLabel: label })}
                     onMove={(dir) => moveStep(row, dir)}
@@ -278,7 +249,6 @@ const KIND_LABELS = LEAD_REQUIREMENT_KIND_LABELS as Record<LeadRequirementKind, 
 function StepCard({
   row,
   stepNumber,
-  isPlatform,
   docTypeOptions,
   onRename,
   onMove,
@@ -289,7 +259,6 @@ function StepCard({
 }: {
   row: LookupConfig
   stepNumber: number
-  isPlatform: boolean
   docTypeOptions: Array<{ value: string; label: string }>
   onRename: (label: string) => void
   onMove: (dir: -1 | 1) => void
@@ -300,7 +269,7 @@ function StepCard({
 }) {
   const isGlobal = row.clientId === GLOBAL_CLIENT_ID
   const isRequired = isRequiredLookupKey('LEAD_STAGE', row.keyValue)
-  const canDeactivate = !isRequired && (isPlatform || !isGlobal)
+  const canDeactivate = !isRequired
   const requirements = requirementsForStageRow(row)
 
   return (
@@ -325,7 +294,7 @@ function StepCard({
         ) : null}
         {isGlobal ? (
           <Badge tone="info" className="shrink-0">
-            {isPlatform ? 'Global' : 'Platform default'}
+            Built-in
           </Badge>
         ) : (
           <Badge tone="neutral" className="shrink-0">

@@ -2371,8 +2371,13 @@ async function upsertMessage(feId: string, d: Record<string, unknown>): Promise<
 }
 
 async function upsertLookup(feId: string, d: Record<string, unknown>): Promise<string> {
+  // Built-in values live in code for every agency; edits are saved per agency
+  // (the app sends an agency override), never under a stand-in agency.
+  if (d.clientId === 'global' || !d.clientId) {
+    throw Object.assign(new Error('Choose an agency to save configuration'), { status: 400 })
+  }
+  const client = await clientId(d.clientId)
   const uuid = await ensureUuid('lookup', feId)
-  const client = await clientId(d.clientId === 'global' || !d.clientId ? 'ag-horizon' : d.clientId)
   // Preserve the id-map keys the platform writes into meta; type-specific
   // extras (e.g. LEAD_STAGE step requirements) merge over them server-side.
   const incomingMeta = isPlainObject(d.meta) ? d.meta : {}

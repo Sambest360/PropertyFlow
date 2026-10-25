@@ -77,6 +77,7 @@ import type { AssetCondition, Building, InfraRoom, InternalAsset, LookupConfig, 
 import { UNIT_TEMPLATES } from '../data/infrastructure'
 import type { MarkPaymentPaidDetails } from '../components/payments/types'
 import { isRequiredLookupKey, GLOBAL_CLIENT_ID } from '../data/platformLookups'
+import { agencyOverrideFor } from '../lib/lookups'
 import { DEFAULT_AGENCY_PERMISSIONS, defaultLicenseStatus, isAgencyStaff, rolePermissions, userBasePermissions } from '../lib/permissions'
 import {
   allDocsUploaded,
@@ -654,9 +655,10 @@ type StoreContextValue = {
   }) => Promise<{ ok: boolean; error?: string }>
   assignRole: (userId: string, role: Role, agencyId?: string | null) => void
   createLookup: (input: Omit<LookupConfig, 'id' | 'sortOrder' | 'isActive'> & { sortOrder?: number; isActive?: boolean }) => LookupConfig
-  updateLookup: (id: string, patch: Partial<Pick<LookupConfig, 'displayLabel' | 'isActive' | 'sortOrder' | 'keyValue' | 'meta'>>) => void
-  reorderLookups: (clientId: string, configType: string, orderedIds: string[]) => void
-  deactivateLookup: (id: string) => boolean
+  /** With `forAgencyId`, edits to a built-in (global) row are saved as that agency's override. */
+  updateLookup: (id: string, patch: Partial<Pick<LookupConfig, 'displayLabel' | 'isActive' | 'sortOrder' | 'keyValue' | 'meta'>>, forAgencyId?: string | null) => void
+  reorderLookups: (clientId: string, configType: string, orderedIds: string[], forAgencyId?: string | null) => void
+  deactivateLookup: (id: string, forAgencyId?: string | null) => boolean
   broadcastNotification: (input: {
     title: string
     body: string
@@ -1737,6 +1739,35 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       return next
     })
   }, [])
+
+  /**
+   * Apply a patch to lookup rows and return the rows to persist. Built-in
+   * (global) rows are shared by every agency, so with `forAgencyId` they are
+   * saved as that agency's override; without it they are left unchanged.
+   */
+  const writeLookupRows = useCallback(
+    (
+      rows: LookupConfig[],
+      patchFor: (row: LookupConfig) => Partial<LookupConfig>,
+      forAgencyId?: string | null,
+    ): LookupConfig[] => {
+      const current = stateRef.current.lookups
+      const saved: LookupConfig[] = []
+      for (const row of rows) {
+        if (row.clientId !== GLOBAL_CLIENT_ID) saved.push({ ...row, ...patchFor(row) })
+        else if (forAgencyId) saved.push(agencyOverrideFor(current, row, forAgencyId, patchFor(row)))
+      }
+      if (!saved.length) return saved
+      patch((s) => {
+        const byId = new Map(saved.map((r) => [r.id, r]))
+        const kept = s.lookups.map((l) => byId.get(l.id) ?? l)
+        const added = saved.filter((r) => !s.lookups.some((l) => l.id === r.id))
+        return { ...s, lookups: [...kept, ...added] }
+      })
+      return saved
+    },
+    [patch],
+  )
 
   const sessionRefreshIdRef = useRef(0)
   const marketplaceRefreshIdRef = useRef(0)
@@ -3184,51 +3215,32 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       persistUpsert('lookup', created.id, created as unknown as Record<string, unknown>)
       return created
     },
-    updateLookup: (id, p) => {
-      patch((s) => ({
-        ...s,
-        lookups: s.lookups.map((l) => {
-          if (l.id !== id) return l
-          if (p.isActive === false && isRequiredLookupKey(l.configType, l.keyValue)) return l
-          return { ...l, ...p }
-        }),
-      }))
-      const next = { ...state.lookups.find((l) => l.id === id), ...p, id }
-      persistUpsert('lookup', id, next as Record<string, unknown>)
+    updateLookup: (id, p, forAgencyId) => {
+      const target = state.lookups.find((l) => l.id === id)
+      if (!target) return
+      if (p.isActive === false && isRequiredLookupKey(target.configType, target.keyValue)) return
+      const next = writeLookupRows([target], () => p, forAgencyId)[0]
+      if (next) persistUpsert('lookup', next.id, next as unknown as Record<string, unknown>)
     },
-    reorderLookups: (clientId, configType, orderedIds) => {
-      const toPersist: LookupConfig[] = []
-      patch((s) => ({
-        ...s,
-        lookups: s.lookups.map((l) => {
-          if (l.clientId !== clientId || l.configType !== configType) return l
-          const idx = orderedIds.indexOf(l.id)
-          if (idx < 0) return l
-          const next = { ...l, sortOrder: idx }
-          toPersist.push(next)
-          return next
-        }),
-      }))
-      for (const row of toPersist) {
+    reorderLookups: (clientId, configType, orderedIds, forAgencyId) => {
+      const rows = orderedIds
+        .map((id) => state.lookups.find((l) => l.id === id))
+        .filter(
+          (l): l is LookupConfig =>
+            Boolean(l) && l!.configType === configType && (Boolean(forAgencyId) || l!.clientId === clientId),
+        )
+      const saved = writeLookupRows(rows, (row) => ({ sortOrder: orderedIds.indexOf(row.id) }), forAgencyId)
+      for (const row of saved) {
         persistUpsert('lookup', row.id, row as unknown as Record<string, unknown>)
       }
     },
-    deactivateLookup: (id) => {
-      let ok = false
-      let next: LookupConfig | undefined
-      patch((s) => {
-        const target = s.lookups.find((l) => l.id === id)
-        if (!target) return s
-        if (isRequiredLookupKey(target.configType, target.keyValue)) return s
-        ok = true
-        next = { ...target, isActive: false }
-        return {
-          ...s,
-          lookups: s.lookups.map((l) => (l.id === id ? next! : l)),
-        }
-      })
-      if (ok && next) persistUpsert('lookup', id, next as unknown as Record<string, unknown>)
-      return ok
+    deactivateLookup: (id, forAgencyId) => {
+      const target = state.lookups.find((l) => l.id === id)
+      if (!target || isRequiredLookupKey(target.configType, target.keyValue)) return false
+      const next = writeLookupRows([target], () => ({ isActive: false }), forAgencyId)[0]
+      if (!next) return false
+      persistUpsert('lookup', next.id, next as unknown as Record<string, unknown>)
+      return true
     },
     broadcastNotification: (input) => {
       const broadcastId = uid('nb')
@@ -7978,7 +7990,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     proposePayoutInstruction,
     approvePayoutInstruction,
     submitPayoutInstruction,
-  }), [state, hydratedForUserId, hydrationFailed, resetToDefault, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, importTrustTemplateCsv, upsertHeldDeposit, proposeDepositReleaseAction, approveDepositReleaseAction, rejectDepositReleaseAction, cancelDepositReleaseAction, recordDepositRefundAction, proposePayoutInstruction, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistUpsertResult, persistDelete, refreshBootstrap, refreshSessionData, refreshMarketplaceListings, scheduleBootstrapRefreshAfterMutation, issueLeasePackageForTenancy])
+  }), [state, hydratedForUserId, hydrationFailed, resetToDefault, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, importTrustTemplateCsv, upsertHeldDeposit, proposeDepositReleaseAction, approveDepositReleaseAction, rejectDepositReleaseAction, cancelDepositReleaseAction, recordDepositRefundAction, proposePayoutInstruction, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistUpsertResult, writeLookupRows, persistDelete, refreshBootstrap, refreshSessionData, refreshMarketplaceListings, scheduleBootstrapRefreshAfterMutation, issueLeasePackageForTenancy])
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }

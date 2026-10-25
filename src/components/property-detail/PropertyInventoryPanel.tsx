@@ -7,6 +7,7 @@ import { formatZAR } from '../../data/seed'
 import { useSuiteAlert } from '../alerts/SuiteAlert'
 import { ListPagination, paginate } from './ListPagination'
 import { ICON_STROKE } from './types'
+import { useLookupOptions } from '../../hooks/useLookupOptions'
 
 const CONDITIONS: AssetCondition[] = [
   'Excellent',
@@ -48,6 +49,11 @@ function emptyDraft(roomId = ''): AssetDraft {
   }
 }
 
+const DEFAULT_ASSET_TYPES = ['APPLIANCE', 'ELECTRONICS', 'FURNITURE', 'FIXTURE', 'OTHER'].map((t) => ({
+  value: t,
+  label: t,
+}))
+
 export function PropertyInventoryPanel({
   assets,
   rooms,
@@ -74,6 +80,14 @@ export function PropertyInventoryPanel({
   const [draft, setDraft] = useState<AssetDraft>(emptyDraft())
   const [page, setPage] = useState(1)
   const alert = useSuiteAlert()
+  // Asset types from Admin → Configuration; an item's existing type stays selectable.
+  const configuredTypes = useLookupOptions('ASSET_TYPE', clientId || null)
+  const assetTypeOptions = useMemo(() => {
+    const list = configuredTypes.length ? configuredTypes : DEFAULT_ASSET_TYPES
+    return draft.assetTypeKey && !list.some((o) => o.value === draft.assetTypeKey)
+      ? [{ value: draft.assetTypeKey, label: draft.assetTypeKey }, ...list]
+      : list
+  }, [configuredTypes, draft.assetTypeKey])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -350,8 +364,10 @@ export function PropertyInventoryPanel({
               value={draft.assetTypeKey}
               onChange={(e) => setDraft({ ...draft, assetTypeKey: e.target.value })}
             >
-              {['APPLIANCE', 'ELECTRONICS', 'FURNITURE', 'FIXTURE', 'OTHER'].map((t) => (
-                <option key={t}>{t}</option>
+              {assetTypeOptions.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
               ))}
             </Select>
           </label>

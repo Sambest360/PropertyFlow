@@ -14,11 +14,14 @@ export function PropertyFeaturePicker({
   value,
   onChange,
   listingMode,
+  agencyFeatures = [],
   reducedMotion,
 }: {
   value: string[]
   onChange: (next: string[]) => void
   listingMode: ListingMode
+  /** Extra features the agency added in Admin → Configuration. */
+  agencyFeatures?: string[]
   reducedMotion?: boolean
 }) {
   const available = featuresForMode(listingMode)
@@ -27,11 +30,15 @@ export function PropertyFeaturePicker({
     features: available.filter((f) => f.category === cat.id),
   })).filter((c) => c.features.length > 0)
 
+  const inCatalogue = (label: string) =>
+    available.some((f) => f.label.toLowerCase() === label.toLowerCase())
+  const extras = agencyFeatures.filter((label) => !inCatalogue(label))
+
   const orphans = value.filter(
     (label) =>
       !isLoadSheddingFreeListing([label]) &&
-      !available.some((f) => f.label === label) &&
-      !available.some((f) => f.label.toLowerCase() === label.toLowerCase()),
+      !inCatalogue(label) &&
+      !extras.includes(label),
   )
 
   const modeHint =
@@ -91,6 +98,37 @@ export function PropertyFeaturePicker({
           </div>
         </div>
       ))}
+
+      {extras.length > 0 && (
+        <div>
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-400">
+            Your agency's features
+          </p>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Your agency's features">
+            {extras.map((label) => {
+              const active = value.includes(label)
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => onChange(togglePropertyFeature(value, label, listingMode))}
+                  className={cn(
+                    'inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                    reducedMotion && 'transition-none',
+                    active
+                      ? 'border-primary bg-primary text-white shadow-sm'
+                      : 'border-primary-100 bg-white text-ink-600 hover:border-primary-200 hover:bg-primary-50',
+                  )}
+                >
+                  {active ? <Check className="h-3.5 w-3.5 shrink-0" strokeWidth={ICON_STROKE} aria-hidden /> : null}
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {orphans.length > 0 && (
         <div>

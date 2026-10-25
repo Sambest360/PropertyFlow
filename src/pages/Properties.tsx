@@ -57,8 +57,6 @@ export default function Properties() {
   const { allowedPropertyIds, agencyId } = usePropertyScope()
   const reducedMotion = usePrefersReducedMotion()
   const propertyTypes = useLookupOptions('PROPERTY_TYPE', agencyId)
-  const propertyStatuses = useLookupOptions('PROPERTY_STATUS', agencyId)
-  const listingModes = useLookupOptions('LISTING_MODE', agencyId)
   const createPropertyHref = withReturnTo(
     agencyId && !has('platform.manage')
       ? `/workspace/properties/new?agencyId=${agencyId}`
@@ -357,8 +355,6 @@ export default function Properties() {
         resultLabel={resultLabel}
         reducedMotion={reducedMotion}
         propertyTypes={propertyTypes}
-        propertyStatuses={propertyStatuses}
-        listingModes={listingModes}
         onClearFilters={filtersActive ? clearFilters : undefined}
       />
 

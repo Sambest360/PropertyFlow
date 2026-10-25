@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getLookups, isGlobalLookup } from './lookups'
+import { agencyOverrideFor, getLookups, isGlobalLookup } from './lookups'
 import { GLOBAL_CLIENT_ID } from '../data/platformLookups'
 import type { LookupConfig } from '../data/infrastructure'
 
@@ -79,5 +79,35 @@ describe('getLookups scoping', () => {
   it('treats missing agency id as global-only', () => {
     const globals = getLookups(rows, null, 'PROPERTY_STATUS')
     expect(globals.every((r) => isGlobalLookup(r.clientId))).toBe(true)
+  })
+})
+
+describe('agency overrides of built-in values', () => {
+  const builtIn: LookupConfig = {
+    id: 'g-house',
+    clientId: GLOBAL_CLIENT_ID,
+    configType: 'PROPERTY_TYPE',
+    keyValue: 'House',
+    displayLabel: 'House',
+    isActive: true,
+    sortOrder: 0,
+  }
+
+  it('creates a deterministic agency copy, then reuses it', () => {
+    const first = agencyOverrideFor([builtIn], builtIn, 'ag-1', { displayLabel: 'Freestanding house' })
+    expect(first).toMatchObject({ id: 'lk-ag-1-property-type-house', clientId: 'ag-1', keyValue: 'House', displayLabel: 'Freestanding house' })
+    const again = agencyOverrideFor([builtIn, first], builtIn, 'ag-1', { isActive: false })
+    expect(again).toMatchObject({ id: first.id, displayLabel: 'Freestanding house', isActive: false })
+  })
+
+  it('renames and hides apply to that agency only', () => {
+    const renamed = agencyOverrideFor([builtIn], builtIn, 'ag-1', { displayLabel: 'Freestanding house' })
+    expect(getLookups([builtIn, renamed], 'ag-1', 'PROPERTY_TYPE')[0].displayLabel).toBe('Freestanding house')
+    expect(getLookups([builtIn, renamed], 'ag-2', 'PROPERTY_TYPE')[0].displayLabel).toBe('House')
+
+    const hidden = agencyOverrideFor([builtIn], builtIn, 'ag-1', { isActive: false })
+    expect(getLookups([builtIn, hidden], 'ag-1', 'PROPERTY_TYPE')).toEqual([])
+    expect(getLookups([builtIn, hidden], 'ag-1', 'PROPERTY_TYPE', { includeInactive: true })).toHaveLength(1)
+    expect(getLookups([builtIn, hidden], 'ag-2', 'PROPERTY_TYPE')).toHaveLength(1)
   })
 })

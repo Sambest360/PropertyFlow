@@ -20,7 +20,6 @@ import {
   type PaymentsViewMode,
   type PortfolioPayment,
 } from '../components/payments/types'
-import { useLookupOptions } from '../hooks/useLookupOptions'
 import { usePortalHydrating } from '../components/PortalHydrationGate'
 import { DataTableSkeleton } from '../components/loading/PageSkeleton'
 
@@ -38,11 +37,9 @@ export default function Payments() {
   const dataLoading = usePortalHydrating()
   const { state, runRentCycle } = useStore()
   const { user, role, has } = useAuth()
-  const { paymentVisible, allowedPropertyIds, agencyId } = usePropertyScope()
+  const { paymentVisible, allowedPropertyIds } = usePropertyScope()
   const reducedMotion = usePrefersReducedMotion()
   const navigate = useNavigate()
-  const paymentStatuses = useLookupOptions('PAYMENT_STATUS', agencyId)
-  const paymentTypes = useLookupOptions('PAYMENT_TYPE', agencyId)
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [q, setQ] = useState('')
@@ -247,8 +244,6 @@ export default function Payments() {
           resultLabel={resultLabel}
           reducedMotion={reducedMotion}
           onClearFilters={clearFilters}
-          paymentStatuses={paymentStatuses}
-          paymentTypes={paymentTypes}
         />
 
         {dataLoading ? (

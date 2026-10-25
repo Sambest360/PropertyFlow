@@ -22,7 +22,7 @@ import {
   type ConfigGroupId,
   type ConfigTypeDef,
 } from '../../data/platformLookups'
-import { getLookups, isGlobalLookup } from '../../lib/lookups'
+import { getLookups } from '../../lib/lookups'
 import { usePrefersReducedMotion } from '../../hooks/useScrollMotion'
 
 const ICON_STROKE = 1.6
@@ -38,7 +38,6 @@ export default function AdminConfigPage() {
   const reducedMotion = usePrefersReducedMotion()
 
   const [viewAgencyId, setViewAgencyId] = useState(agencyId ?? state.agencies[0]?.id ?? '')
-  const [createScope, setCreateScope] = useState<'global' | 'agency'>(isPlatform ? 'global' : 'agency')
   const [selectedType, setSelectedType] = useState<string | null>(null)
   const [groupFilter, setGroupFilter] = useState<GroupFilter>('all')
   const [query, setQuery] = useState('')
@@ -46,26 +45,14 @@ export default function AdminConfigPage() {
   const [error, setError] = useState<string | null>(null)
   const [showInactive, setShowInactive] = useState(false)
 
+  // Every edit is saved for one agency: built-in values are shared by all
+  // agencies, so changing one stores the agency's own copy (see updateLookup).
   const effectiveAgencyId = isPlatform ? viewAgencyId : (agencyId ?? '')
-  const createClientId =
-    createScope === 'global' && isPlatform ? GLOBAL_CLIENT_ID : effectiveAgencyId
 
   const catalogueStats = useMemo(() => {
     return CONFIG_TYPE_DEFS.map((def) => {
-      const globals = getLookups(state.lookups, GLOBAL_CLIENT_ID, def.type, {
-        includeInactive: true,
-        scopeOnly: 'global',
-      })
-      const agencyRows = effectiveAgencyId
-        ? getLookups(state.lookups, effectiveAgencyId, def.type, {
-            includeInactive: true,
-            scopeOnly: 'agency',
-          })
-        : []
-      const active =
-        globals.filter((r) => r.isActive).length + agencyRows.filter((r) => r.isActive).length
-      const total = globals.length + agencyRows.length
-      return { def, active, total }
+      const merged = getLookups(state.lookups, effectiveAgencyId, def.type, { includeInactive: true })
+      return { def, active: merged.filter((r) => r.isActive).length, total: merged.length }
     })
   }, [state.lookups, effectiveAgencyId])
 
@@ -83,22 +70,20 @@ export default function AdminConfigPage() {
   }, [catalogueStats, groupFilter, query])
 
   const rows = useMemo(() => {
-    if (!selectedType) return []
-    if (!effectiveAgencyId && createScope !== 'global') return []
-    const globals = getLookups(state.lookups, GLOBAL_CLIENT_ID, selectedType, {
-      includeInactive: true,
-      scopeOnly: 'global',
-    })
-    const agencyRows = effectiveAgencyId
-      ? getLookups(state.lookups, effectiveAgencyId, selectedType, {
-          includeInactive: true,
-          scopeOnly: 'agency',
-        })
-      : []
-    return [...globals, ...agencyRows].sort(
-      (a, b) => a.sortOrder - b.sortOrder || a.displayLabel.localeCompare(b.displayLabel),
-    )
-  }, [state.lookups, effectiveAgencyId, selectedType, createScope])
+    if (!selectedType || !effectiveAgencyId) return []
+    return getLookups(state.lookups, effectiveAgencyId, selectedType, { includeInactive: true })
+  }, [state.lookups, effectiveAgencyId, selectedType])
+
+  /** Keys that ship with the app (shown as "Built-in"). */
+  const builtInKeys = useMemo(
+    () =>
+      new Set(
+        selectedType
+          ? getLookups(state.lookups, GLOBAL_CLIENT_ID, selectedType, { includeInactive: true }).map((r) => r.keyValue)
+          : [],
+      ),
+    [state.lookups, selectedType],
+  )
 
   const typeDef = CONFIG_TYPE_DEFS.find((d) => d.type === selectedType)
   const visibleRows = showInactive ? rows : rows.filter((r) => r.isActive)
@@ -115,14 +100,13 @@ export default function AdminConfigPage() {
     if (!selectedType) return
     const row = rows.find((r) => r.id === id)
     if (!row) return
-    const siblings = rows.filter((r) => r.clientId === row.clientId)
-    const ids = siblings.map((r) => r.id)
+    const ids = rows.map((r) => r.id)
     const idx = ids.indexOf(id)
     const swap = idx + dir
     if (idx < 0 || swap < 0 || swap >= ids.length) return
     const next = [...ids]
     ;[next[idx], next[swap]] = [next[swap], next[idx]]
-    reorderLookups(row.clientId, selectedType, next)
+    reorderLookups(row.clientId, selectedType, next, effectiveAgencyId)
   }
 
   return (
@@ -132,8 +116,8 @@ export default function AdminConfigPage() {
           title="Configuration"
           subtitle={
             selectedType
-              ? 'Add or rename values used across forms and filters.'
-              : 'Lists of values used in forms — property types, statuses, and more.'
+              ? 'Changes apply to this agency only.'
+              : 'Lists your agency can tailor — property types, lead stages, payment methods and more.'
           }
           actions={
             selectedType ? (
@@ -165,8 +149,10 @@ export default function AdminConfigPage() {
 
         {isPlatform && !selectedType ? <PhotoStorageCard /> : null}
 
-        {!effectiveAgencyId && !isPlatform ? (
-          <Card className="p-5 text-sm text-ink-500">No agency assigned — cannot edit configuration.</Card>
+        {!effectiveAgencyId ? (
+          <Card className="p-5 text-sm text-ink-500">
+            {isPlatform ? 'Choose an agency to edit its configuration.' : 'No agency assigned — cannot edit configuration.'}
+          </Card>
         ) : selectedType && typeDef ? (
           <CatalogueEditor
             typeDef={typeDef}
@@ -175,42 +161,33 @@ export default function AdminConfigPage() {
             inactiveCount={inactiveCount}
             showInactive={showInactive}
             onToggleInactive={() => setShowInactive((v) => !v)}
-            isPlatform={isPlatform}
-            createScope={createScope}
-            setCreateScope={setCreateScope}
-            createClientId={createClientId}
+            builtInKeys={builtInKeys}
+            createClientId={effectiveAgencyId}
             newLabel={newLabel}
             setNewLabel={setNewLabel}
             error={error}
             setError={setError}
             onCreate={(input) => {
-              if (!isPlatform && isGlobalLookup(input.clientId)) {
-                setError('Only platform admins can add global values')
+              const existing = rows.find((r) => r.keyValue === input.keyValue)
+              if (existing) {
+                // Re-adding a hidden value brings it back instead of failing.
+                if (!existing.isActive) updateLookup(existing.id, { isActive: true }, effectiveAgencyId)
+                else setError('That value is already in the list')
+                setNewLabel('')
                 return
               }
               createLookup(input)
               setNewLabel('')
             }}
             onUpdate={(id, patch) => {
-              const row = state.lookups.find((l) => l.id === id)
-              if (!row) return
-              if (!isPlatform && isGlobalLookup(row.clientId)) return
-              updateLookup(id, patch)
+              updateLookup(id, patch, effectiveAgencyId)
             }}
             onDeactivate={(id) => {
-              const row = state.lookups.find((l) => l.id === id)
-              if (!row) return
-              if (!isPlatform && isGlobalLookup(row.clientId)) return
-              deactivateLookup(id)
+              deactivateLookup(id, effectiveAgencyId)
             }}
             onOpenPipeline={() => navigate('/workspace/admin/pipeline')}
             onOpenApplicationJourney={() => navigate('/workspace/admin/application-journey')}
-            onMove={(id, dir) => {
-              const row = rows.find((r) => r.id === id)
-              if (!row) return
-              if (!isPlatform && isGlobalLookup(row.clientId)) return
-              move(id, dir)
-            }}
+            onMove={move}
             reducedMotion={reducedMotion}
           />
         ) : (
@@ -354,9 +331,7 @@ function CatalogueEditor({
   inactiveCount,
   showInactive,
   onToggleInactive,
-  isPlatform,
-  createScope,
-  setCreateScope,
+  builtInKeys,
   createClientId,
   newLabel,
   setNewLabel,
@@ -376,9 +351,7 @@ function CatalogueEditor({
   inactiveCount: number
   showInactive: boolean
   onToggleInactive: () => void
-  isPlatform: boolean
-  createScope: 'global' | 'agency'
-  setCreateScope: (s: 'global' | 'agency') => void
+  builtInKeys: Set<string>
   createClientId: string
   newLabel: string
   setNewLabel: (v: string) => void
@@ -458,7 +431,7 @@ function CatalogueEditor({
           const label = newLabel.trim()
           if (!label) return
           if (!createClientId) {
-            setError('Select an agency for agency-scoped values')
+            setError('Choose an agency first')
             return
           }
           const key = slugifyLookupKey(label).slice(0, 80)
@@ -478,19 +451,6 @@ function CatalogueEditor({
           }
         }}
       >
-        {isPlatform ? (
-          <div className="sm:w-44">
-            <label className="mb-1 block text-xs font-medium text-ink-500">Add as</label>
-            <Select
-              value={createScope}
-              onChange={(e) => setCreateScope(e.target.value as 'global' | 'agency')}
-              className="min-h-11 w-full cursor-pointer"
-            >
-              <option value="global">Everyone</option>
-              <option value="agency">This agency</option>
-            </Select>
-          </div>
-        ) : null}
         <div className="min-w-0 flex-1">
           <label className="mb-1 block text-xs font-medium text-ink-500">New value</label>
           <Input
@@ -516,10 +476,8 @@ function CatalogueEditor({
         ) : (
           rows.map((row) => {
             const required = isRequiredLookupKey(row.configType, row.keyValue)
-            const global = isGlobalLookup(row.clientId)
-            const canMutate = isPlatform || !global
-            const siblings = allRows.filter((r) => r.clientId === row.clientId)
-            const index = siblings.findIndex((r) => r.id === row.id)
+            const builtIn = builtInKeys.has(row.keyValue)
+            const index = allRows.findIndex((r) => r.id === row.id)
             return (
               <li
                 key={row.id}
@@ -529,21 +487,15 @@ function CatalogueEditor({
                 )}
               >
                 <div className="flex min-w-0 flex-1 items-center gap-2">
-                  <Input
-                    className="max-w-sm min-h-11"
+                  <LabelInput
+                    key={`${row.id}:${row.displayLabel}`}
                     value={row.displayLabel}
-                    readOnly={!canMutate}
-                    onChange={(e) => {
-                      if (!canMutate) return
-                      onUpdate(row.id, { displayLabel: e.target.value })
-                    }}
-                    aria-label={`Label for ${row.keyValue}`}
+                    onCommit={(label) => onUpdate(row.id, { displayLabel: label })}
+                    ariaLabel={`Label for ${row.keyValue}`}
                   />
-                  {isPlatform || global ? (
-                    <Badge tone={global ? 'info' : 'neutral'} className="shrink-0">
-                      {global ? 'Global' : 'Agency'}
-                    </Badge>
-                  ) : null}
+                  <Badge tone={builtIn ? 'info' : 'neutral'} className="shrink-0">
+                    {builtIn ? 'Built-in' : 'Added'}
+                  </Badge>
                   {required ? (
                     <Badge tone="neutral" className="shrink-0">
                       Required
@@ -557,7 +509,7 @@ function CatalogueEditor({
                       'inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-xl border border-primary-100 text-ink-500 hover:bg-primary-50 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
                       !reducedMotion && 'transition-colors duration-200',
                     )}
-                    disabled={!canMutate || index === 0}
+                    disabled={index === 0}
                     onClick={() => onMove(row.id, -1)}
                     aria-label="Move up"
                   >
@@ -569,7 +521,7 @@ function CatalogueEditor({
                       'inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-xl border border-primary-100 text-ink-500 hover:bg-primary-50 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
                       !reducedMotion && 'transition-colors duration-200',
                     )}
-                    disabled={!canMutate || index === siblings.length - 1}
+                    disabled={index === allRows.length - 1}
                     onClick={() => onMove(row.id, 1)}
                     aria-label="Move down"
                   >
@@ -584,9 +536,8 @@ function CatalogueEditor({
                         : 'bg-primary-50 text-primary hover:bg-primary-100',
                       !reducedMotion && 'transition-colors duration-200',
                     )}
-                    disabled={!canMutate || (required && row.isActive)}
+                    disabled={required && row.isActive}
                     onClick={() => {
-                      if (!canMutate) return
                       if (row.isActive) {
                         if (required) return
                         onDeactivate(row.id)
@@ -604,5 +555,38 @@ function CatalogueEditor({
         )}
       </ul>
     </Card>
+  )
+}
+
+/** Label editor that saves on blur / Enter instead of on every keystroke. */
+function LabelInput({
+  value,
+  onCommit,
+  ariaLabel,
+}: {
+  value: string
+  onCommit: (label: string) => void
+  ariaLabel: string
+}) {
+  const [draft, setDraft] = useState(value)
+  const commit = () => {
+    const label = draft.trim()
+    if (!label) setDraft(value)
+    else if (label !== value) onCommit(label)
+  }
+  return (
+    <Input
+      className="max-w-sm min-h-11"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          commit()
+        }
+      }}
+      aria-label={ariaLabel}
+    />
   )
 }

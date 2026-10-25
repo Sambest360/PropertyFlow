@@ -191,7 +191,6 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     queryAgencyId || (isLandlord ? user.agencyId ?? '' : agencyId || user.agencyId || agencies[0]?.id || '')
 
   const propertyTypes = useLookupOptions('PROPERTY_TYPE', agencyId)
-  const listingModes = useLookupOptions('LISTING_MODE', agencyId)
 
   const editProperty = isEdit
     ? state.properties.find((p) => p.id === editPropertyId)
@@ -480,6 +479,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   )
   const assetTypeOptions = useLookupOptions('ASSET_TYPE', listingAgencyId || null)
   const assetTypes = assetTypeOptions.length ? assetTypeOptions : ASSET_TYPES
+  const agencyFeatures = useLookupOptions('AMENITY', listingAgencyId || null).map((o) => o.label)
 
   const addStarterAsset = () =>
     setDraft((d) => ({
@@ -562,19 +562,8 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     }))
   }, [propertyTypes])
 
-  const listingOptions = useMemo(() => {
-    if (!listingModes.length) return LISTING_OPTIONS
-    const icons = LISTING_OPTIONS.reduce<Record<string, typeof KeyRound>>((acc, o) => {
-      acc[o.value] = o.icon
-      return acc
-    }, {})
-    return listingModes.map((m) => ({
-      value: m.value as 'rent' | 'sale' | 'both',
-      label: m.label,
-      blurb: m.value === 'both' ? 'Dual listing mode' : undefined,
-      icon: icons[m.value] ?? KeyRound,
-    }))
-  }, [listingModes])
+  // Rent / sale / both are app rules (marketplace sections), not configurable.
+  const listingOptions = LISTING_OPTIONS
 
   function validateStep(index: number): string | null {
     switch (index) {
@@ -1512,6 +1501,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
             <PropertyFeaturePicker
               listingMode={draft.listingMode}
               value={draft.amenities}
+              agencyFeatures={agencyFeatures}
               onChange={(amenities) => setDraft((d) => draftAfterAmenitiesChange(d, amenities))}
             />
           </WizardSectionCard>

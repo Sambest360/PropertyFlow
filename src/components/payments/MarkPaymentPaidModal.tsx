@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { PaymentRecord } from '../../types/domain'
 import { formatZAR } from '../../data/seed'
 import { Button, Input, Modal, Select, Textarea } from '../ui'
 import { PaymentAttachmentsField } from './PaymentAttachmentsField'
+import { useLookupOptions } from '../../hooks/useLookupOptions'
 import { PAY_METHODS, type MarkPaymentPaidDetails } from './types'
 
 export function MarkPaymentPaidModal({
@@ -21,6 +22,13 @@ export function MarkPaymentPaidModal({
   onConfirm: (details: MarkPaymentPaidDetails) => void
 }) {
   const [method, setMethod] = useState(payment.method ?? 'EFT')
+  // Agency's Payment methods (Admin → Configuration); stored by label, as
+  // existing payments are. The payment's current method always stays listed.
+  const configured = useLookupOptions('PAY_METHOD', payment.agencyId || null)
+  const methods = useMemo(() => {
+    const list = configured.length ? configured.map((o) => o.label) : [...PAY_METHODS]
+    return payment.method && !list.includes(payment.method) ? [payment.method, ...list] : list
+  }, [configured, payment.method])
   const [paidAt, setPaidAt] = useState(new Date().toISOString().slice(0, 10))
   const [reference, setReference] = useState('')
   const [paidAmount, setPaidAmount] = useState(String(payment.amount))
@@ -72,7 +80,7 @@ export function MarkPaymentPaidModal({
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-ink-500">Method</span>
             <Select className="min-h-11" value={method} onChange={(e) => setMethod(e.target.value)}>
-              {PAY_METHODS.map((m) => (
+              {methods.map((m) => (
                 <option key={m} value={m}>
                   {m}
                 </option>

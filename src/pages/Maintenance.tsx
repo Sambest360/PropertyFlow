@@ -8,7 +8,6 @@ import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
 import { scoreAssetHealth } from '../lib/api/ticketsApi'
 import { isWarrantyCovered } from '../lib/maintenanceApi'
-import { getLookupOptions } from '../lib/lookups'
 import type { AssetCondition } from '../data/infrastructure'
 import type { MaintenanceTicket } from '../types/domain'
 import type { TicketCompletionFields } from '../lib/maintenanceApi'
@@ -134,11 +133,6 @@ export default function Maintenance() {
   const contractors = useMemo(
     () => listApprovedContractors(state.agencyContractors, state.users, agencyId),
     [state.agencyContractors, state.users, agencyId],
-  )
-
-  const ticketPriorities = useMemo(
-    () => getLookupOptions(state.lookups, agencyId, 'TICKET_PRIORITY'),
-    [state.lookups, agencyId],
   )
 
   const portfolio: PortfolioTicket[] = useMemo(() => {
@@ -391,7 +385,6 @@ export default function Maintenance() {
         onViewChange={setView}
         resultLabel={resultLabel}
         reducedMotion={reducedMotion}
-        priorities={ticketPriorities}
         onClearFilters={clearFilters}
       />
 

@@ -575,6 +575,7 @@ export async function buildBootstrap(opts?: {
       'property_event',
       'building',
       'support_ticket',
+      'lookup',
     ] as const
     const trustRows = await query<{
       entity_type: string
