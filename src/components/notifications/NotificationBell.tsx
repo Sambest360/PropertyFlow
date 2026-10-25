@@ -177,22 +177,31 @@ function ToastCard({
   onOpen: () => void
 }) {
   const [remaining, setRemaining] = useState(toast.durationMs)
+  const [paused, setPaused] = useState(false)
   const reduced =
     typeof window !== 'undefined' &&
     window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  // The host passes a new onDismiss each render; keep the countdown from
+  // restarting whenever the page re-renders.
+  const dismissRef = useRef(onDismiss)
+  dismissRef.current = onDismiss
+  const remainingRef = useRef(toast.durationMs)
 
   useEffect(() => {
+    if (paused) return
     const started = Date.now()
+    const startLeft = remainingRef.current
     const tick = window.setInterval(() => {
-      const left = Math.max(0, toast.durationMs - (Date.now() - started))
+      const left = Math.max(0, startLeft - (Date.now() - started))
+      remainingRef.current = left
       setRemaining(left)
       if (left <= 0) {
         window.clearInterval(tick)
-        onDismiss()
+        dismissRef.current()
       }
     }, reduced ? 250 : 50)
     return () => window.clearInterval(tick)
-  }, [toast.durationMs, onDismiss, reduced])
+  }, [paused, reduced])
 
   const progress = Math.max(0, Math.min(1, remaining / toast.durationMs))
   const tone = toast.tone ?? 'info'
@@ -201,6 +210,10 @@ function ToastCard({
 
   return (
     <div
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocus={() => setPaused(true)}
+      onBlur={() => setPaused(false)}
       className={cn(
         'pointer-events-auto relative overflow-hidden rounded-2xl border bg-white shadow-lg animate-slide-down',
         style.border,
@@ -222,21 +235,13 @@ function ToastCard({
           <Icon className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-2">
-            <span className="block text-sm font-semibold text-ink">{toast.title}</span>
-            <span
-              className={cn(
-                'rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
-                style.chip,
-              )}
-            >
-              {style.label}
-            </span>
-          </span>
+          <span className="block text-sm font-semibold text-ink">{toast.title}</span>
           <span className="mt-0.5 block text-xs text-ink-500 line-clamp-2">{toast.body}</span>
-          <span className="mt-1 block text-[11px] tabular text-ink-400">
-            Tap to open · {Math.ceil(remaining / 1000)}s
-          </span>
+          {toast.link ? (
+            <span className="mt-1 block text-[11px] font-semibold text-primary">
+              {paused ? 'Open →' : 'Tap to open'}
+            </span>
+          ) : null}
         </span>
       </button>
       <button

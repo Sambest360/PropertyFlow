@@ -24,4 +24,11 @@ describe('diffNewNotifications', () => {
     const next = [note('N-1', 'u-1', true)]
     expect(diffNewNotifications(prev, next, 'u-1')).toEqual([])
   })
+
+  it('does not toast twice when the server sends back a just-shown notification under its database id', () => {
+    const now = new Date().toISOString()
+    const local = { ...note('N-local', 'u-1'), title: 'Application submitted', at: now }
+    const echoed = { ...local, id: '7eb09e47-bc24-498e-a51e-411fae8f7465' }
+    expect(diffNewNotifications([local], [echoed], 'u-1')).toEqual([])
+  })
 })

@@ -16,8 +16,20 @@ export function diffNewNotifications(
   next: readonly AppNotification[],
   userId: string,
 ): AppNotification[] {
-  const seen = new Set(prev.filter((n) => n.userId === userId).map((n) => n.id))
-  return next.filter((n) => n.userId === userId && !n.read && !seen.has(n.id))
+  const mine = prev.filter((n) => n.userId === userId)
+  const seen = new Set(mine.map((n) => n.id))
+  // A notification raised in this tab was already shown; if the server sends
+  // it back under another id, the same title/body/link from the last few
+  // minutes marks it as seen (older repeats are genuinely new).
+  const recent = Date.now() - 10 * 60_000
+  const seenContent = new Set(mine.filter((n) => Date.parse(n.at) >= recent).map(contentKey))
+  return next.filter(
+    (n) => n.userId === userId && !n.read && !seen.has(n.id) && !seenContent.has(contentKey(n)),
+  )
+}
+
+function contentKey(n: AppNotification): string {
+  return `${n.title}\u0000${n.body}\u0000${n.link ?? ''}`
 }
 
 export function toastsForNewNotifications(
