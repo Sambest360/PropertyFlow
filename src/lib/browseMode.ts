@@ -10,8 +10,34 @@ import type { PropertyAsset } from '../types/domain'
 
 export const COMMERCIAL_TYPES: readonly string[] = ['Commercial', 'Office']
 
+/**
+ * Commercial is decided by the property type, never by rent / sale. Besides
+ * the built-in Commercial and Office, agency-added types such as Retail,
+ * Industrial or Warehouse count too (matched case-insensitively).
+ */
+const COMMERCIAL_TYPE_RE = /\b(commercial|office|retail|industrial|warehouse|shop|factory|business)\b/i
+
 export function isCommercialType(type: string | null | undefined): boolean {
-  return Boolean(type) && COMMERCIAL_TYPES.includes(type as string)
+  return Boolean(type) && COMMERCIAL_TYPE_RE.test(String(type))
+}
+
+/**
+ * The price a browse card shows. A sale-or-rent listing shows the price for
+ * the section it is in — sale price under Buy, rent under Rent — and both
+ * where the section covers either (All, Commercial).
+ */
+export function browseCardPrice(
+  p: Pick<PropertyAsset, 'listingMode' | 'price' | 'rent'>,
+  mode: string | undefined,
+  fmt: (n: number) => string,
+): string {
+  const sale = p.price != null ? fmt(p.price) : null
+  const rent = p.rent != null ? `${fmt(p.rent)} / month` : null
+  if (p.listingMode === 'sale') return sale ?? ''
+  if (p.listingMode === 'rent') return rent ?? sale ?? ''
+  if (mode === 'buy') return sale ?? rent ?? ''
+  if (mode === 'rent') return rent ?? sale ?? ''
+  return [rent, sale ? `${sale} to buy` : null].filter(Boolean).join(' · ')
 }
 
 export function matchesBrowseMode(

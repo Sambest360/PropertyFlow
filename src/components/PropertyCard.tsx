@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { browseCardPrice } from '../lib/browseMode'
 import { NO_PHOTOS_YET } from '../lib/listingPhotos'
 import { availableFromLabel } from '../lib/availableFromLabel'
 import { Bath, BedDouble, Car, Droplets, Heart, MapPin, Star, Sun, Zap } from 'lucide-react'
@@ -63,18 +64,13 @@ export function PropertyCard({
 
   // P0-4 / P1-6 (E2E #2): sale listings show the sale price only — never a
   // rent-style "/ month" label, and rent wins over a stale sale price.
-  const isSaleListing = property.listingMode === 'sale'
-  const priceLabel = isSaleListing
-    ? property.price != null
-      ? formatZAR(property.price)
-      : (card?.display_metadata.primary_amount_label ?? '')
-    : card?.display_metadata.primary_amount_label
-      ? card.display_metadata.primary_amount_label
-      : property.rent != null
-        ? `${formatZAR(property.rent)} / month`
-        : property.price != null
-          ? formatZAR(property.price)
-          : ''
+  // A sale-or-rent listing shows the price for the section it is in.
+  const priceLabel =
+    browseCardPrice(property, browseMode, (n) => formatZAR(n)) ||
+    (card?.display_metadata.primary_amount_label ?? '')
+  // Move-in costs are a rental figure — not shown on a sale price.
+  const showsSalePrice =
+    property.listingMode === 'sale' || (property.listingMode === 'both' && browseMode === 'buy')
 
   // P1 (R4): QA flagged the static "Sale or Rent" badge as confusing because
   // it never changes per tab. Dual ('both') listings now say what the current
@@ -215,7 +211,7 @@ export function PropertyCard({
           </div>
 
           <p className="mt-2 tabular text-lg font-bold text-ink">{priceLabel}</p>
-          {entryFees != null && property.listingMode !== 'sale' && (
+          {entryFees != null && !showsSalePrice && (
             <p className="tabular text-xs text-ink-500">
               {formatZAR(entryFees)} to move in (rent + deposit)
             </p>
