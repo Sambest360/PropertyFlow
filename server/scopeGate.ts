@@ -64,6 +64,18 @@ async function fePropertyFromUnit(unitUuid: string | null | undefined): Promise<
   return fePropertyFromUnitCache(cache, unitUuid)
 }
 
+/**
+ * Same, refreshing the id-map cache once on a miss: each server instance has
+ * its own cache, so a listing saved through another instance moments ago
+ * (create property -> rooms) is not in this one's yet.
+ */
+async function fePropertyFromUnitFresh(unitUuid: string): Promise<string | null> {
+  return (
+    fePropertyFromUnitCache(await loadIdMapCache(), unitUuid) ??
+    fePropertyFromUnitCache(await loadIdMapCache(true), unitUuid)
+  )
+}
+
 /** Agency FE id — parity with bootstrap.ts agencyFe (entity_id_map first). */
 export async function agencyFeId(clientOrFeId: string | null | undefined): Promise<string | null> {
   if (!clientOrFeId) return null
@@ -645,8 +657,10 @@ function strField(data: Record<string, unknown> | undefined, key: string): strin
 async function propertySubject(propertyId: string | null): Promise<PropertyAccessSubject | null> {
   if (!propertyId) return null
   const cache = await loadIdMapCache()
-  const rows = await loadPropertyRows(cache)
-  return rows.find((p) => p.id === propertyId) ?? null
+  const found = (await loadPropertyRows(cache)).find((p) => p.id === propertyId)
+  if (found) return found
+  // Saved moments ago through another server instance: refresh this one's cache.
+  return (await loadPropertyRows(await loadIdMapCache(true))).find((p) => p.id === propertyId) ?? null
 }
 
 /** User fields only a super admin (or, partly, an agency users.manage admin) may set. */
@@ -1200,6 +1214,15 @@ export async function assertPersistAllowed(
     (body.resource === 'property' || body.resource === 'unit' ? body.id : null) ??
     existing?.propertyId ??
     null
+
+  // Rooms and assets carry their unit, not a property: derive the property
+  // from the unit (a new one has no stored row yet), else the owner check
+  // fell through to an agency-level gate no landlord passes.
+  if ((body.resource === 'room' || body.resource === 'asset') && !propertyId) {
+    const unitFe = strField(data, 'unitId')
+    const unitUuid = unitFe ? await resolveUuid('unit', unitFe) : null
+    propertyId = unitUuid ? await fePropertyFromUnitFresh(unitUuid) : null
+  }
 
   // Message: derive property from thread payload / existing
   if (body.resource === 'message' && !propertyId) {

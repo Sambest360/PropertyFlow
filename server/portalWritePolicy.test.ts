@@ -427,6 +427,15 @@ describe('landlord and contractor allow-lists', () => {
     await expect403(gate(LANDLORD, { resource: 'property', action: 'upsert', id: 'p-1', data: { landlordId: 'u-ll2', agencyId: 'ag-a' } }))
   })
 
+  it('a landlord adds rooms to their own listing (rooms carry only the unit), not to another landlord\'s', async () => {
+    await expect(
+      gate(LANDLORD, { resource: 'room', action: 'upsert', id: 'r-new', data: { unitId: 'p-1', clientId: 'ag-a', name: 'Lounge' } }),
+    ).resolves.toEqual({})
+    await expect403(
+      gate(LANDLORD, { resource: 'room', action: 'upsert', id: 'r-new2', data: { unitId: 'p-2', clientId: 'ag-a', name: 'Lounge' } }),
+    )
+  })
+
   it('a landlord cannot create applications (review only)', async () => {
     await expect403(gate(LANDLORD, { resource: 'application', action: 'upsert', id: 'A-new', data: { propertyId: 'p-1', agencyId: 'ag-a' } }))
   })
