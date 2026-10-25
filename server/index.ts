@@ -1084,6 +1084,52 @@ app.get('/api/trust/deposits/:id/inspection-deductions', async (c) => {
   }
 })
 
+/**
+ * Listing / ticket photos → Supabase Storage (server/photoStorage.ts). Any
+ * signed-in user may upload one compressed photo and gets its public URL; 503
+ * STORAGE_NOT_CONFIGURED tells the client to keep the photo inline for now.
+ */
+app.post('/api/photos', async (c) => {
+  try {
+    await requireActor(c)
+    const body = (await c.req.json().catch(() => ({}))) as { dataUrl?: unknown }
+    if (typeof body.dataUrl !== 'string') return c.json({ error: 'bad_request', message: 'dataUrl is required' }, 400)
+    const { uploadPhotoDataUrl } = await import('./photoStorage.js')
+    return c.json({ url: await uploadPhotoDataUrl(body.dataUrl, 'listings') })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    const code = (err as { code?: string }).code ?? 'photo_upload_failed'
+    return c.json({ error: code, message }, errStatus(err))
+  }
+})
+
+/** Super admin: how many rows still hold inline photos, and whether Storage is configured. */
+app.get('/api/admin/photo-migration', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    if (actor.role !== 'super_admin') return c.json({ error: 'forbidden', message: 'Super admin only' }, 403)
+    const { inlinePhotoCounts, photoStorageConfigured } = await import('./photoStorage.js')
+    return c.json({ configured: photoStorageConfigured(), remaining: await inlinePhotoCounts() })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'photo_migration_status_failed', message }, errStatus(err))
+  }
+})
+
+/** Super admin: move the next few rows' inline photos to Storage (call until remaining is 0). */
+app.post('/api/admin/photo-migration', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    if (actor.role !== 'super_admin') return c.json({ error: 'forbidden', message: 'Super admin only' }, 403)
+    const { migrateInlinePhotosBatch } = await import('./photoStorage.js')
+    return c.json(await migrateInlinePhotosBatch(3))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    const code = (err as { code?: string }).code ?? 'photo_migration_failed'
+    return c.json({ error: code, message }, errStatus(err))
+  }
+})
+
 /** Lease inventory, move-in / move-out inspections and deposit deductions. */
 registerInspectionRoutes(app)
 

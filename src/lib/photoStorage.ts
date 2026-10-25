@@ -1,4 +1,6 @@
-import { isSupabaseMode } from './api/config'
+import { isApiEnabled, isSupabaseMode } from './api/config'
+import { actorHeaders } from './api/actorAuth'
+import { resolveApiAuthorizationHeader } from './api/authClient'
 import { createClient } from '../utils/supabase/client'
 
 /** Public bucket created by migration 030_listing_photos_storage.sql. */
@@ -30,8 +32,30 @@ function dataUrlToBlob(dataUrl: string): Blob | null {
  * bootstrap and marketplace payloads stay small. Returns the data URL
  * unchanged when Storage is unavailable (API mode, signed out, upload error).
  */
+/**
+ * API auth mode (production): the server uploads with its Storage key
+ * (POST /api/photos). 503 means Storage isn't configured on the server yet —
+ * keep the photo inline so nothing is lost.
+ */
+async function storeViaServer(dataUrl: string): Promise<string> {
+  try {
+    const apiBase = (import.meta.env.VITE_API_BASE as string | undefined) || ''
+    const res = await fetch(`${apiBase}/api/photos`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...actorHeaders(), ...(await resolveApiAuthorizationHeader()) },
+      body: JSON.stringify({ dataUrl }),
+    })
+    if (!res.ok) return dataUrl
+    const body = (await res.json()) as { url?: string }
+    return typeof body.url === 'string' && body.url ? body.url : dataUrl
+  } catch {
+    return dataUrl
+  }
+}
+
 export async function storePhotoDataUrl(dataUrl: string): Promise<string> {
-  if (!isSupabaseMode) return dataUrl
+  if (!isSupabaseMode) return isApiEnabled ? storeViaServer(dataUrl) : dataUrl
   const blob = dataUrlToBlob(dataUrl)
   if (!blob) return dataUrl
   try {

@@ -11,6 +11,7 @@ import {
 import { useStore } from '../../context/AppStore'
 import { useAgencyScope, useAuth } from '../../context/AuthContext'
 import { RequirePermission } from '../../components/RequirePermission'
+import { PhotoStorageCard } from '../../components/admin/PhotoStorageCard'
 import { Badge, Button, Card, Input, PageHeader, Select, cn } from '../../components/ui'
 import {
   CONFIG_GROUPS,
@@ -161,6 +162,8 @@ export default function AdminConfigPage() {
             ) : null
           }
         />
+
+        {isPlatform && !selectedType ? <PhotoStorageCard /> : null}
 
         {!effectiveAgencyId && !isPlatform ? (
           <Card className="p-5 text-sm text-ink-500">No agency assigned — cannot edit configuration.</Card>
