@@ -21,7 +21,7 @@ export function ApplicantDocumentsPanel({
   onUploadDocument?: (
     key: string,
     file: { name: string; mimeType: string; dataUrl: string },
-  ) => void
+  ) => Promise<boolean> | void
 }) {
   return (
     <Card className="p-5">
@@ -31,7 +31,9 @@ export function ApplicantDocumentsPanel({
         <FieldHelp title="FICA pack" body={FICA_PACK_MODE_A_COPY} />
       </h2>
       <p className="mt-1 text-sm text-ink-500">
-        Full checklist for this application. Upload and review also happen in the Application lifecycle tab.
+        {isTenant
+          ? 'For each document: choose a file (PDF or photo), check it, then press Save document.'
+          : 'Full checklist for this application. Upload and review also happen in the Application lifecycle tab.'}
       </p>
 
       {canReview ? (

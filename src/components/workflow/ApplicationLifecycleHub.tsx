@@ -230,7 +230,7 @@ export function ApplicationLifecycleHub({
   onUploadDocument?: (
     key: string,
     file: { name: string; mimeType: string; dataUrl: string },
-  ) => void
+  ) => Promise<boolean> | void
   onSaveDetails?: (patch: Partial<Application>) => void
 }) {
   const alert = useSuiteAlert()

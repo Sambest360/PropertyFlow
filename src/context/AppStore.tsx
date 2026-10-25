@@ -863,7 +863,7 @@ type StoreContextValue = {
     key: string,
     file: { name: string; mimeType: string; dataUrl: string },
     actor?: { userId: string; name: string },
-  ) => void
+  ) => Promise<boolean>
   advanceApplication: (id: string, to?: ApplicationStage) => void
   /** P0-approve: awaited so callers only show success after a durable write. */
   approveApplication: (
@@ -5174,37 +5174,25 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         return false
       }
     },
-    uploadApplicationDocument: (applicationId, key, file, actor) => {
-      let persisted: Application | null = null
-      const preUpload = stateRef.current.applications.find((a) => a.id === applicationId) ?? null
+    uploadApplicationDocument: async (applicationId, key, file, actor) => {
+      // Saved first, shown after: the document only reads as uploaded once
+      // the server has stored it (the row shows a loader meanwhile).
+      const current = stateRef.current.applications.find((a) => a.id === applicationId)
+      if (!current) return false
+      const next = applyDocumentUpload(current, key, file, actor)
+      const ok = await persistUpsert(
+        'application',
+        applicationId,
+        applicationUploadPayload(next, key, actor?.userId) as unknown as Record<string, unknown>,
+      )
+      if (!ok) return false
       patch((s) => ({
         ...s,
-        applications: s.applications.map((a) => {
-          if (a.id !== applicationId) return a
-          const result = applyDocumentUpload(a, key, file, actor)
-          persisted = result
-          return result
-        }),
+        applications: s.applications.map((a) =>
+          a.id === applicationId ? applyDocumentUpload(a, key, file, actor) : a,
+        ),
       }))
-      if (!persisted) return
-      const before = preUpload
-      const app = persisted as Application
-      void (async () => {
-        const ok = await persistUpsert(
-          'application',
-          applicationId,
-          applicationUploadPayload(app, key, actor?.userId) as unknown as Record<string, unknown>,
-        )
-        if (ok) return
-        if (before) {
-          patch((s) => ({
-            ...s,
-            applications: s.applications.map((a) => (a.id === applicationId ? before : a)),
-          }))
-        }
-        const { sweetError } = await import('../lib/sweetAlert')
-        void sweetError('Upload not saved', 'Could not save this document. Try again.')
-      })()
+      return true
     },
     advanceApplication: (id, to) => {
       patch((s) => ({

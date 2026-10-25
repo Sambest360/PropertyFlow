@@ -37,7 +37,7 @@ export function ApplicantApplicationPanel({
   onUploadDocument?: (
     key: string,
     file: { name: string; mimeType: string; dataUrl: string },
-  ) => void
+  ) => Promise<boolean> | void
   onSaveDetails?: (patch: Partial<Application>) => void
 }) {
   return (
