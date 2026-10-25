@@ -18,6 +18,7 @@ import { TRUST_MODE_A_COPY } from '../../lib/trust/modeA'
 import { DEPOSIT_REFUND_RECORDED_LABEL } from '../../lib/trust/depositDualControl'
 import type { DepositHolding } from '../../types/domain'
 import { fetchInspectionDeductions } from '../../lib/api/trustDepositsApi'
+import { occupancyLabel } from '../../lib/propertyRefs'
 
 const toCents = (zar: string) => Math.round(Number(zar || '0') * 100)
 
@@ -407,7 +408,9 @@ export default function TrustDeposits() {
                   }`}
                 >
                   <div>
-                    <p className="font-medium text-ink">Occupancy {deposit.occupancyId}</p>
+                    <p className="font-medium text-ink">
+                      {occupancyLabel(deposit.occupancyId, state.tenancies, state.properties).primary}
+                    </p>
                     <p className="text-sm text-ink-500">
                       Deadline: {formatDate(deposit.statutoryDeadlineOn!)}
                     </p>
@@ -462,8 +465,15 @@ export default function TrustDeposits() {
                   className="grid grid-cols-12 gap-4 px-4 py-3 hover:bg-primary-50/30 transition-colors items-center"
                 >
                   <div className="col-span-2">
-                    <p className="font-medium text-ink">{deposit.occupancyId}</p>
-                    <p className="text-[11px] text-ink-400">{deposit.id}</p>
+                    {(() => {
+                      const who = occupancyLabel(deposit.occupancyId, state.tenancies, state.properties)
+                      return (
+                        <>
+                          <p className="font-medium text-ink">{who.primary}</p>
+                          {who.secondary ? <p className="text-[11px] text-ink-400">{who.secondary}</p> : null}
+                        </>
+                      )
+                    })()}
                   </div>
                   <div className="col-span-2 text-sm text-ink">
                     {formatCents(deposit.expectedCents)}

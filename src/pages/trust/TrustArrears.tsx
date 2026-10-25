@@ -12,6 +12,7 @@ import { DashboardPage } from '../../components/dashboard'
 import { FieldHelp } from '../../components/onboarding/FieldHelp'
 import { TRUST_MODE_A_COPY } from '../../lib/trust/modeA'
 import { buildTenancyArrears, todayYmd } from '../../lib/trust/tenancyArrears'
+import { occupancyLabel } from '../../lib/propertyRefs'
 
 function formatCents(cents: number): string {
   return formatZAR(cents / 100)
@@ -48,14 +49,17 @@ export default function TrustArrears() {
 
     if (searchQuery) {
       const query = searchQuery.toLowerCase()
-      result = result.filter((a) => a.occupancyId.toLowerCase().includes(query))
+      result = result.filter((a) => {
+        const who = occupancyLabel(a.occupancyId, state.tenancies, state.properties)
+        return [a.occupancyId, who.primary, who.secondary ?? ''].join(' ').toLowerCase().includes(query)
+      })
     }
 
     return result.sort(
       (a, b) =>
         b.d90plus + b.d90 + b.d60 + b.d30 - (a.d90plus + a.d90 + a.d60 + a.d30)
     )
-  }, [state.tenancies, state.payments, agencyId, searchQuery])
+  }, [state.tenancies, state.payments, state.properties, agencyId, searchQuery])
 
   const totalArrears = useMemo(
     () => arrears.reduce((sum, a) => sum + a.d30 + a.d60 + a.d90 + a.d90plus, 0),
@@ -151,7 +155,9 @@ export default function TrustArrears() {
                   }`}
                 >
                   <div className="col-span-2">
-                    <p className="font-medium text-ink">{snapshot.occupancyId}</p>
+                    <p className="font-medium text-ink">
+                      {occupancyLabel(snapshot.occupancyId, state.tenancies, state.properties).primary}
+                    </p>
                     <p className="text-xs text-ink-400">As of {formatDate(snapshot.asOf)}</p>
                   </div>
                   <div className="col-span-1 text-right text-sm">

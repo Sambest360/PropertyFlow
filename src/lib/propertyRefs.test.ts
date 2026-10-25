@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isRawUuid, normalizePropertyRefs, propertyRefLabel, UNKNOWN_PROPERTY_LABEL } from './propertyRefs'
+import { isRawUuid, normalizePropertyRefs, occupancyLabel, propertyRefLabel, UNKNOWN_PROPERTY_LABEL } from './propertyRefs'
 
 const UNIT_UUID = '7eb09e47-bc24-498e-a51e-411fae8f7465'
 
@@ -28,5 +28,16 @@ describe('propertyRefLabel', () => {
     expect(propertyRefLabel(UNIT_UUID)).toBe(UNKNOWN_PROPERTY_LABEL)
     expect(propertyRefLabel('PR-C21-CT02')).toBe('PR-C21-CT02')
     expect(propertyRefLabel('')).toBe('—')
+  })
+})
+
+describe('occupancyLabel', () => {
+  const tenancies = [{ id: 'TN-1', tenantName: 'Lwazi Ngcobo', propertyId: 'PR-1' }]
+  const properties = [{ id: 'PR-1', title: 'Two-bed townhouse' }]
+  it('shows the tenant and property instead of the lease id', () => {
+    expect(occupancyLabel('TN-1', tenancies, properties)).toEqual({ primary: 'Lwazi Ngcobo', secondary: 'Two-bed townhouse' })
+  })
+  it('never shows a raw UUID', () => {
+    expect(occupancyLabel('f5f29361-2ef0-57ba-84ce-84d8a52e01c6', tenancies, properties).primary).toBe('Tenancy not loaded')
   })
 })

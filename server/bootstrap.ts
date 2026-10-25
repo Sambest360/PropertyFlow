@@ -1221,7 +1221,7 @@ export async function buildBootstrap(opts?: {
   const mappedPayouts = (payouts as Array<Record<string, unknown>>).map((p) => ({
     id: mappedFe('payout_instruction', p.id as string, p.id as string),
     agencyId: agencyFe(p.client_id as string)!,
-    occupancyId: (p.occupancy_id as string) ?? null,
+    occupancyId: p.occupancy_id ? mappedFe('tenancy', p.occupancy_id as string, p.occupancy_id as string) : null,
     propertyId: p.unit_id ? (propertyFe(p.unit_id as string) ?? '') : '',
     payeeType: (p.payee_type as string) ?? 'landlord',
     payeeId: mapUser(p.payee_id as string | null) ?? ((p.payee_id as string) ?? ''),
@@ -1271,7 +1271,7 @@ export async function buildBootstrap(opts?: {
   const mappedDeposits = (deposits as Array<Record<string, unknown>>).map((d) => ({
     id: mappedFe('deposit_holding', d.id as string, d.id as string),
     agencyId: agencyFe(d.client_id as string)!,
-    occupancyId: (d.occupancy_id as string) ?? '',
+    occupancyId: d.occupancy_id ? mappedFe('tenancy', d.occupancy_id as string, d.occupancy_id as string) : '',
     expectedCents: Number(d.expected_cents),
     heldCents: Number(d.held_cents),
     interestAccruedCents: Number(d.interest_accrued_cents),
@@ -1290,7 +1290,7 @@ export async function buildBootstrap(opts?: {
   const mappedArrears = (arrears as Array<Record<string, unknown>>).map((s) => ({
     id: mappedFe('arrears', s.id as string, s.id as string),
     agencyId: agencyFe(s.client_id as string)!,
-    occupancyId: (s.occupancy_id as string) ?? '',
+    occupancyId: s.occupancy_id ? mappedFe('tenancy', s.occupancy_id as string, s.occupancy_id as string) : '',
     asOf: dateOnly(s.as_of as Date | string),
     currentCents: Number(s.current_cents),
     d30: Number(s.d30),

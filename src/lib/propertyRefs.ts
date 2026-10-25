@@ -72,3 +72,19 @@ export function personRefLabel(userId: string | null | undefined): string {
   if (!userId) return '—'
   return isRawUuid(userId) ? UNKNOWN_PERSON_LABEL : userId
 }
+
+/**
+ * Who a trust row (deposit, arrears, payout) belongs to: "Tenant · Property"
+ * from the tenancy, never the raw lease id.
+ */
+export function occupancyLabel(
+  occupancyId: string | null | undefined,
+  tenancies: ReadonlyArray<{ id: string; tenantName: string; propertyId: string }>,
+  properties: ReadonlyArray<{ id: string; title: string; backendId?: string }>,
+): { primary: string; secondary: string | null } {
+  if (!occupancyId) return { primary: 'No tenancy linked', secondary: null }
+  const t = tenancies.find((x) => x.id === occupancyId)
+  if (!t) return { primary: isRawUuid(occupancyId) ? 'Tenancy not loaded' : occupancyId, secondary: null }
+  const p = properties.find((x) => x.id === t.propertyId || x.backendId === t.propertyId)
+  return { primary: t.tenantName, secondary: p?.title ?? propertyRefLabel(t.propertyId) }
+}

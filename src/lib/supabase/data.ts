@@ -1147,7 +1147,7 @@ export async function fetchSupabaseBootstrap(
     trustTransactionId: a.trust_transaction_id
       ? (txnFeById.get(a.trust_transaction_id as string) ?? (a.trust_transaction_id as string))
       : '',
-    occupancyId: (a.occupancy_id as string) ?? null,
+    occupancyId: a.occupancy_id ? mappedFe(cache, 'tenancy', a.occupancy_id as string, a.occupancy_id as string) : null,
     bucketCode: (a.bucket_code as string) ?? 'unallocated',
     chargeId: (a.charge_id as string) ?? null,
     amountCents: Number(a.amount_cents),
@@ -1158,7 +1158,7 @@ export async function fetchSupabaseBootstrap(
   const payoutInstructions = (payoutsRes.data ?? []).map((p) => ({
     id: mappedFe(cache, 'payout', p.id as string, p.id as string),
     agencyId: mapAgencyFe(p.client_id as string)!,
-    occupancyId: (p.occupancy_id as string) ?? null,
+    occupancyId: p.occupancy_id ? mappedFe(cache, 'tenancy', p.occupancy_id as string, p.occupancy_id as string) : null,
     propertyId: p.unit_id ? (mapPropertyFe(p.unit_id as string) ?? '') : '',
     payeeType: (p.payee_type as string) ?? 'landlord',
     payeeId: mapUserFe(p.payee_id as string | null) ?? ((p.payee_id as string) ?? ''),
@@ -1197,7 +1197,7 @@ export async function fetchSupabaseBootstrap(
   const depositHoldings = (depositsRes.data ?? []).map((d) => ({
     id: mappedFe(cache, 'deposit', d.id as string, d.id as string),
     agencyId: mapAgencyFe(d.client_id as string)!,
-    occupancyId: (d.occupancy_id as string) ?? '',
+    occupancyId: d.occupancy_id ? mappedFe(cache, 'tenancy', d.occupancy_id as string, d.occupancy_id as string) : '',
     expectedCents: Number(d.expected_cents),
     heldCents: Number(d.held_cents),
     interestAccruedCents: Number(d.interest_accrued_cents),
@@ -1214,7 +1214,7 @@ export async function fetchSupabaseBootstrap(
   const arrearsSnapshots = (arrearsRes.data ?? []).map((s) => ({
     id: mappedFe(cache, 'arrears', s.id as string, s.id as string),
     agencyId: mapAgencyFe(s.client_id as string)!,
-    occupancyId: (s.occupancy_id as string) ?? '',
+    occupancyId: s.occupancy_id ? mappedFe(cache, 'tenancy', s.occupancy_id as string, s.occupancy_id as string) : '',
     asOf: dateOnly(s.as_of as string),
     currentCents: Number(s.current_cents),
     d30: Number(s.d30),
