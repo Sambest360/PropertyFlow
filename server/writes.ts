@@ -1557,6 +1557,9 @@ async function upsertApplication(
     ['stage', 'stage'],
     ['workflow_status', 'workflowStatus'],
     ['screening', 'screening'],
+    // Agency records kept on the application (staff-only; applicant writes drop them).
+    ['pcrInspections', 'pcrInspections'],
+    ['purchaseClosing', 'purchaseClosing'],
   ]
   for (const [key, field] of metaFields) {
     if (has(field) || !stored) meta[key] = d[field] ?? null

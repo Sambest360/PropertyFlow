@@ -265,8 +265,13 @@ async function assertOwnSlotBooking(actor: DemoActor, slotFe: string): Promise<v
   if (!Number(rows[0]?.n ?? 0)) throw lockedError(`viewingSlotId ${slotFe}: no booking of yours on that slot`)
 }
 
+/** Agency records on the application; an applicant's write never sets them. */
+const AGENCY_ONLY_FIELDS = ['pcrInspections', 'purchaseClosing'] as const
+
 /** Locked non-workflow fields: unchanged -> dropped, changed -> 403. */
 async function enforceLockedFields(actor: DemoActor, data: Row, meta: Row | null): Promise<void> {
+  // The applicant's client sends its whole copy back; drop (not refuse) these.
+  for (const k of AGENCY_ONLY_FIELDS) delete data[k]
   if (Object.prototype.hasOwnProperty.call(data, 'applicantUserId')) {
     const sent = data.applicantUserId
     if (sent != null && sent !== '' && sent !== actor.userId) {
@@ -321,6 +326,7 @@ export async function enforceApplicantApplicationWrite(
     assertConsistent(data, type, accept, 'new application')
     if (data.keyCollection != null) throw lockedError('keyCollection is set by the agency')
     delete data.keyCollection
+    for (const k of AGENCY_ONLY_FIELDS) delete data[k]
     const slot = str(data.viewingSlotId)
     if (slot) await assertOwnSlotBooking(actor, slot)
     setDerived(data, type, initial)

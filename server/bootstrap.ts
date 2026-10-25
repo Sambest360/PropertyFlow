@@ -912,6 +912,11 @@ export async function buildBootstrap(opts?: {
       notes: (a.message as string) ?? '',
       moveInDate: dateOnly(a.move_in_date as Date | null) || undefined,
       keyCollection: (meta.keyCollection as Record<string, unknown> | undefined) ?? undefined,
+      pcrInspections: Array.isArray(meta.pcrInspections) ? meta.pcrInspections : undefined,
+      purchaseClosing:
+        meta.purchaseClosing && typeof meta.purchaseClosing === 'object' && !Array.isArray(meta.purchaseClosing)
+          ? meta.purchaseClosing
+          : undefined,
       submittedAt: dateOnly(a.submitted_at as Date | null) || dateOnly(a.created_at as Date),
       updatedAt: dateOnly(a.updated_at as Date),
       _applicantUuid: a.applicant_id as string | null,

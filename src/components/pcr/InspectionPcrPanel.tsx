@@ -26,8 +26,11 @@ import {
   type ItemCondition,
   type PropertyConditionInspection,
 } from '../../lib/pcr'
+import { readDocumentFile } from '../../lib/applicationDocDownscale'
+import { storePhotoDataUrl } from '../../lib/photoStorage'
 import { PcrGateStatus } from './PcrGateStatus'
 import { FieldHelp } from '../onboarding/FieldHelp'
+import { Loader2 } from 'lucide-react'
 import { Badge, Button, Card } from '../ui'
 
 const CONDITIONS: ItemCondition[] = [
@@ -66,6 +69,7 @@ export function InspectionPcrPanel({
   const [flash, setFlash] = useState<string | null>(null)
   const [overrideReason, setOverrideReason] = useState('')
   const [claimDamage, setClaimDamage] = useState(false)
+  const [uploadingItemId, setUploadingItemId] = useState<string | null>(null)
 
   const inspection = findInspection(application, kind)
 
@@ -109,12 +113,22 @@ export function InspectionPcrPanel({
     persist(next, 'Item updated.')
   }
 
-  const onAddPhoto = (roomId: string, itemId: string, file: File) => {
-    if (!inspection || !canReview) return
-    const reader = new FileReader()
-    reader.onload = () => {
-      const url = typeof reader.result === 'string' ? reader.result : ''
-      if (!url) return
+  // Photos are shrunk, uploaded to photo storage and saved as a link: a raw
+  // phone photo inside the application would exceed the 4.5 MB request limit.
+  const onAddPhoto = async (roomId: string, itemId: string, file: File) => {
+    if (!inspection || !canReview || uploadingItemId) return
+    if (!file.type.startsWith('image/')) {
+      setFlash('Choose a photo (JPEG or PNG).')
+      return
+    }
+    setUploadingItemId(itemId)
+    try {
+      const read = await readDocumentFile(file, 1_500_000)
+      const url = await storePhotoDataUrl(read.dataUrl)
+      if (url.startsWith('data:')) {
+        setFlash('Photo could not be uploaded. Check your connection and try again.')
+        return
+      }
       const next = addItemPhoto(
         inspection,
         roomId,
@@ -122,9 +136,12 @@ export function InspectionPcrPanel({
         { id: `ph-${Date.now()}`, url, caption: file.name, capturedAt: nowIso() },
         nowIso(),
       )
-      persist(next, 'Photo attached (in-app — not a native field camera).')
+      persist(next, 'Photo added.')
+    } catch {
+      setFlash('Could not read that photo — try another one.')
+    } finally {
+      setUploadingItemId(null)
     }
-    reader.readAsDataURL(file)
   }
 
   const onStaffSign = () => {
@@ -355,24 +372,48 @@ export function InspectionPcrPanel({
                             Needs maintenance handoff
                           </label>
                           {canReview ? (
-                            <label className="cursor-pointer text-xs font-medium text-primary">
-                              Add photo
-                              <input
-                                type="file"
-                                accept="image/*"
-                                className="hidden"
-                                onChange={(e) => {
-                                  const f = e.target.files?.[0]
-                                  if (f) onAddPhoto(room.id, item.id, f)
-                                  e.target.value = ''
-                                }}
-                              />
-                            </label>
-                          ) : null}
-                          {item.photos.length ? (
-                            <span className="text-xs text-ink-500">{item.photos.length} photo(s)</span>
+                            uploadingItemId === item.id ? (
+                              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink-500" role="status">
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                                Uploading photo…
+                              </span>
+                            ) : (
+                              <label
+                                className={
+                                  uploadingItemId
+                                    ? 'pointer-events-none text-xs font-medium text-ink-300'
+                                    : 'cursor-pointer text-xs font-medium text-primary'
+                                }
+                              >
+                                Add photo
+                                <input
+                                  type="file"
+                                  accept="image/jpeg,image/png"
+                                  className="hidden"
+                                  disabled={Boolean(uploadingItemId)}
+                                  onChange={(e) => {
+                                    const f = e.target.files?.[0]
+                                    if (f) void onAddPhoto(room.id, item.id, f)
+                                    e.target.value = ''
+                                  }}
+                                />
+                              </label>
+                            )
                           ) : null}
                         </div>
+                        {item.photos.length ? (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {item.photos.map((ph) => (
+                              <a key={ph.id} href={ph.url} target="_blank" rel="noopener noreferrer">
+                                <img
+                                  src={ph.url}
+                                  alt={ph.caption || item.label}
+                                  className="h-16 w-16 rounded-lg border border-primary-100 object-cover"
+                                />
+                              </a>
+                            ))}
+                          </div>
+                        ) : null}
                       </li>
                     ))}
                   </ul>
