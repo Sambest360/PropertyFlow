@@ -33,7 +33,6 @@ import {
   ShieldCheck,
   Wallet,
   ScrollText,
-  Table2,
 } from 'lucide-react'
 import type { Permission } from '../../types/domain'
 import { ACCOUNT_WISHLIST_PATH } from '../../lib/accountRoutes'
@@ -711,6 +710,7 @@ function buildLandlordOwnerNav(
     '/workspace/operations/maintenance',
     '/workspace/properties',
     '/workspace/portals/owner',
+    '/workspace/insights/reports',
     ...TENANT_PORTAL_PATHS,
     ...CONTRACTOR_PORTAL_PATHS,
   ])
@@ -762,22 +762,14 @@ function buildLandlordOwnerNav(
         icon: Wrench,
       },
     },
+    // One Reports page: Owner statement and Rent roll are tabs on it.
     {
       type: 'link',
       item: {
-        to: '/workspace/insights/reports?tab=owner-statement',
-        label: 'Owner statement',
+        to: '/workspace/insights/reports',
+        label: 'Reports',
         permission: 'reports.view',
         icon: ScrollText,
-      },
-    },
-    {
-      type: 'link',
-      item: {
-        to: '/workspace/insights/reports?tab=rent-roll',
-        label: 'Rent roll',
-        permission: 'reports.view',
-        icon: Table2,
       },
     },
   ]

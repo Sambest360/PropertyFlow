@@ -283,6 +283,9 @@ describe('buildWorkspaceNavForActor portal dedupe', () => {
     expect(labels).toContain('Payments')
     expect(labels).not.toContain('My applications')
     expect(labels).not.toContain('My jobs')
+    // One Reports link — Owner statement and Rent roll are tabs on that page.
+    expect(labels).not.toContain('Owner statement')
+    expect(labels).not.toContain('Rent roll')
     expect(hasUniquePaths(entries)).toBe(true)
   })
 
@@ -339,7 +342,7 @@ describe('landlord nav (CR6)', () => {
     })
   }
 
-  it('landlord does not see the Landlords directory but keeps Contractors and the report tabs', () => {
+  it('landlord does not see the Landlords directory but keeps Contractors and one Reports link', () => {
     expect(rolePermissions.landlord).toContain('assets.manage')
     const entries = navForRole('landlord')
     const paths = navPaths(entries)
@@ -347,12 +350,9 @@ describe('landlord nav (CR6)', () => {
     expect(paths).not.toContain('/workspace/people/landlords')
     expect(labels).not.toContain('Landlords')
     expect(labels).toContain('Contractors')
-    expect(flattenNavLinks(entries).map((i) => i.to)).toEqual(
-      expect.arrayContaining([
-        '/workspace/insights/reports?tab=owner-statement',
-        '/workspace/insights/reports?tab=rent-roll',
-      ]),
-    )
+    // Owner statement and Rent roll are tabs on the one Reports page.
+    const reportLinks = flattenNavLinks(entries).filter((i) => i.to.startsWith('/workspace/insights/reports'))
+    expect(reportLinks.map((i) => i.to)).toEqual(['/workspace/insights/reports'])
     expect(hasUniquePaths(entries)).toBe(true)
   })
 
