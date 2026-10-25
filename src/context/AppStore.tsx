@@ -4807,19 +4807,30 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
       // P0-integrity / P0-sync (R11): await durable persist. Guest My Apps must
       // not keep an optimistic APP that staff bootstrap can never load.
-      const persisted = await persistUpsert(
-        'application',
-        normalizedApp.id,
-        normalizedApp as unknown as Record<string, unknown>,
-      )
-      if (!persisted) {
+      const { PERSIST_WRITE_GATE_MESSAGE, canPersistWrites } = await import('../lib/auth/writeGate')
+      const { readStoredAuthUserId: storedUser, getApiActor: apiActor } = await import('../lib/api/actorAuth')
+      const saveApp = () =>
+        persistUpsertResult('application', normalizedApp.id, normalizedApp as unknown as Record<string, unknown>)
+      let saved = await saveApp()
+      if (saved.ok === false && saved.error === PERSIST_WRITE_GATE_MESSAGE) {
+        // Applied right after sign-in / registration: wait for the account's data
+        // to finish loading (up to ~12 s), then save once more instead of failing.
+        for (let i = 0; i < 40; i++) {
+          await new Promise((r) => setTimeout(r, 300))
+          const sessionUserId = apiActor()?.userId ?? storedUser()
+          if (canPersistWrites(hydratedForUserIdRef.current, sessionUserId)) break
+        }
+        saved = await saveApp()
+      }
+      if (saved.ok === false) {
         patch((s) => ({
           ...s,
           applications: s.applications.filter((a) => a.id !== normalizedApp.id),
         }))
+        const { applicationSaveMessage } = await import('../lib/applicationSaveError')
         return {
           status: 'ERROR',
-          error: 'Application could not be saved for agency review. Please try again.',
+          error: applicationSaveMessage(saved.error),
           httpStatus: 500,
         } as SubmitApplicationResult
       }

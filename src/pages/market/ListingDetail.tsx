@@ -6,7 +6,7 @@ import { usePublicProperties, useStore } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
 import { ActionButtonRow } from '../../components/ActionButtonRow'
 import { BackButton } from '../../components/BackButton'
-import { Badge, Button, Input, cn } from '../../components/ui'
+import { Badge, Button, Input, Modal, cn } from '../../components/ui'
 import { PageSkeleton } from '../../components/loading/PageSkeleton'
 import { PropertyFeaturesDisplay } from '../../components/property-features/PropertyFeaturesDisplay'
 import { ExpandableDescription } from '../../components/listing/ExpandableDescription'
@@ -47,6 +47,7 @@ import { rentalApplyButton } from '../../lib/applyEligibility'
 import { fetchApplyEligibility } from '../../lib/api/viewingApply'
 import { formatEmploymentSummary } from '../../lib/employmentDisplay'
 import { prefillEnquiryContact } from './listingEnquiryPrefill'
+import { publicAreaLabel, toPublicListing } from '../../lib/publicLocation'
 
 type EnquiryIntent = 'lead' | 'viewing'
 
@@ -100,6 +101,9 @@ export default function ListingDetail() {
   const [intent, setIntent] = useState<EnquiryIntent>('lead')
   const [submitting, setSubmitting] = useState(false)
   const [appSubmitting, setAppSubmitting] = useState(false)
+  // Pre-apply warning: applicants confirm they understand they should view the home first.
+  const [viewWarningOpen, setViewWarningOpen] = useState(false)
+  const [viewAcknowledged, setViewAcknowledged] = useState(false)
   const [applyEligibility, setApplyEligibility] = useState<{ eligible: boolean; reason: string } | null>(null)
   const [applyEligibilityLoading, setApplyEligibilityLoading] = useState(false)
   const enquiryLockRef = useRef(false)
@@ -738,14 +742,65 @@ export default function ListingDetail() {
             </Button>
           </Link>
         ) : (
+          <>
+          <Modal
+            open={viewWarningOpen}
+            onClose={() => setViewWarningOpen(false)}
+            title="View the property before you apply"
+            description={p.title}
+            footer={
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  variant="secondary"
+                  className="min-h-11"
+                  onClick={() => {
+                    setViewWarningOpen(false)
+                    setIntent('viewing')
+                  }}
+                >
+                  Book a viewing
+                </Button>
+                <Button
+                  className="min-h-11"
+                  disabled={!viewAcknowledged || appSubmitting}
+                  onClick={() => {
+                    setViewWarningOpen(false)
+                    void submitApplication()
+                  }}
+                >
+                  Continue to apply
+                </Button>
+              </div>
+            }
+          >
+            <div className="space-y-4 text-sm text-ink-600">
+              <p>
+                We strongly recommend viewing a home in person before you apply. Photos and descriptions can't show
+                everything — the condition, the area, noise or parking.
+              </p>
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-primary-100 bg-primary-50/40 p-3">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4"
+                  checked={viewAcknowledged}
+                  onChange={(e) => setViewAcknowledged(e.target.checked)}
+                />
+                <span>I understand I should view this property before applying, and I want to continue with my application.</span>
+              </label>
+            </div>
+          </Modal>
           <RentalApplyButton
             isRent={isRent}
             loading={applyEligibilityLoading}
             eligibility={applyEligibility}
             submitting={appSubmitting}
-            onApply={() => void submitApplication()}
+            onApply={() => {
+              setViewAcknowledged(false)
+              setViewWarningOpen(true)
+            }}
             onBook={() => setIntent('viewing')}
           />
+          </>
         )}
       </div>
       </>
@@ -901,27 +956,23 @@ export default function ListingDetail() {
 
             <div className="py-6">
               <h2 className="text-lg font-semibold">Location</h2>
+              {/* Guests see the area only — never the street address or an exact pin. */}
               <p className="mt-1 text-sm text-ink-500">
-                {p.formattedAddress ?? p.address}
-                {(p.suburb || p.city) && (
-                  <>
-                    {' · '}
-                    {[p.suburb, p.city].filter(Boolean).join(', ')}
-                  </>
-                )}
+                {publicAreaLabel(p)} · Approximate location — contact the agent for the exact address.
               </p>
               {hasMappedCoordinates(p) ? (
                 <div className="mt-4 h-64 overflow-hidden rounded-2xl sm:h-80">
-                  <PropertyMap properties={[p]} mode={p.listingMode === 'sale' ? 'buy' : 'rent'} className="h-full" />
+                  <PropertyMap
+                    properties={[toPublicListing(p)]}
+                    mode={p.listingMode === 'sale' ? 'buy' : 'rent'}
+                    className="h-full"
+                  />
                 </div>
               ) : (
                 <div className="mt-4 flex h-48 items-center justify-center rounded-2xl bg-primary-100">
                   <div className="rounded-2xl bg-white/90 px-5 py-4 text-center shadow">
                     <MapPin className="mx-auto h-6 w-6 text-ink-500" />
-                    <p className="mt-1 font-semibold">{p.address}</p>
-                    <p className="text-xs text-ink-500">
-                      {p.suburb}, {p.city}
-                    </p>
+                    <p className="mt-1 font-semibold">{publicAreaLabel(p)}</p>
                   </div>
                 </div>
               )}
