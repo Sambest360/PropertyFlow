@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { JobTitleSelect } from '../../components/JobTitleSelect'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Bath, BedDouble, Car, Heart, MapPin, Share2, Star } from 'lucide-react'
 import { roomKindLabel } from '../../data/infrastructure'
@@ -669,11 +670,7 @@ export default function ListingDetail() {
               value={employerName}
               onChange={(e) => setEmployerName(e.target.value)}
             />
-            <Input
-              placeholder="Job title (optional)"
-              value={jobTitle}
-              onChange={(e) => setJobTitle(e.target.value)}
-            />
+            <JobTitleSelect value={jobTitle} onChange={setJobTitle} agencyId={p.agencyId} />
           </>
         )}
         <Input

@@ -3,6 +3,7 @@ import type { Application } from '../../types/domain'
 import { formatZAR } from '../../data/seed'
 import { formatEmploymentSummary } from '../../lib/employmentDisplay'
 import { Button, Card, Input } from '../ui'
+import { JobTitleSelect } from '../JobTitleSelect'
 
 export function TenantApplicationDetailsForm({
   application,
@@ -116,11 +117,11 @@ export function TenantApplicationDetailsForm({
           </label>
           <label className="block text-sm">
             <span className="font-medium text-ink">Job title</span>
-            <Input
+            <JobTitleSelect
               className="mt-1"
               value={jobTitle}
-              onChange={(e) => setJobTitle(e.target.value)}
-              placeholder="Your role"
+              onChange={setJobTitle}
+              agencyId={application.agencyId}
             />
           </label>
           <label className="block text-sm sm:col-span-2">

@@ -12,11 +12,19 @@ export type ConfigTypeDef = {
   requiredKeys: string[]
 }
 
-export type ConfigGroupId = 'property' | 'sales' | 'documents' | 'maintenance' | 'payments' | 'inventory'
+export type ConfigGroupId =
+  | 'property'
+  | 'sales'
+  | 'applications'
+  | 'documents'
+  | 'maintenance'
+  | 'payments'
+  | 'inventory'
 
 export const CONFIG_GROUPS: Array<{ id: ConfigGroupId; label: string; blurb: string }> = [
   { id: 'property', label: 'Property', blurb: 'Property types and extra features' },
   { id: 'sales', label: 'Sales', blurb: 'Lead pipeline stages' },
+  { id: 'applications', label: 'Applications', blurb: 'Choices applicants pick from' },
   { id: 'documents', label: 'Documents', blurb: 'Documents you ask for' },
   { id: 'maintenance', label: 'Maintenance', blurb: 'Fault categories' },
   { id: 'payments', label: 'Payments', blurb: 'How payments are received' },
@@ -58,6 +66,13 @@ export const CONFIG_TYPE_DEFS: ConfigTypeDef[] = [
     description: 'Documents a lead stage can require (set in Admin → Lead pipeline).',
     group: 'documents',
     requiredKeys: ['ID', 'Lease'],
+  },
+  {
+    type: 'JOB_TITLE',
+    label: 'Job titles',
+    description: 'The job titles applicants choose from when applying and on their application details ("Other" lets them type one).',
+    group: 'applications',
+    requiredKeys: [],
   },
   {
     type: 'TICKET_CATEGORY',
@@ -139,6 +154,28 @@ export const PLATFORM_CATALOGUE: Record<string, SeedItem[]> = {
     { key: 'Instant EFT', label: 'Instant EFT' },
     { key: 'Cheque', label: 'Cheque' },
     { key: 'Other', label: 'Other' },
+  ],
+  JOB_TITLE: [
+    { key: 'Accountant', label: 'Accountant' },
+    { key: 'Administrator', label: 'Administrator' },
+    { key: 'Business owner', label: 'Business owner' },
+    { key: 'Cashier', label: 'Cashier' },
+    { key: 'Civil servant', label: 'Civil servant' },
+    { key: 'Consultant', label: 'Consultant' },
+    { key: 'Driver', label: 'Driver' },
+    { key: 'Engineer', label: 'Engineer' },
+    { key: 'Lecturer', label: 'Lecturer' },
+    { key: 'Manager', label: 'Manager' },
+    { key: 'Nurse', label: 'Nurse' },
+    { key: 'Pensioner / retired', label: 'Pensioner / retired' },
+    { key: 'Police officer', label: 'Police officer' },
+    { key: 'Sales representative', label: 'Sales representative' },
+    { key: 'Self-employed', label: 'Self-employed' },
+    { key: 'Software developer', label: 'Software developer' },
+    { key: 'Student', label: 'Student' },
+    { key: 'Teacher', label: 'Teacher' },
+    { key: 'Technician', label: 'Technician' },
+    { key: 'Unemployed', label: 'Unemployed' },
   ],
   // Agencies add their own extras; built-in features live in src/lib/propertyFeatures.ts.
   AMENITY: [],
