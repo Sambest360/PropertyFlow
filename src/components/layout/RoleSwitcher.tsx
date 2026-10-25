@@ -1,30 +1,88 @@
-import { ChevronDown, HelpCircle, Home, KeyRound, LayoutDashboard, LogOut, PenLine, UserRound } from 'lucide-react'
+import {
+  CalendarDays,
+  ChevronDown,
+  FileText,
+  Heart,
+  HelpCircle,
+  Home,
+  KeyRound,
+  LayoutDashboard,
+  Lightbulb,
+  LogOut,
+  MessageSquare,
+  PenLine,
+  Settings,
+  UserRound,
+  Wallet,
+  Wrench,
+} from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
+import { useStore } from '../../context/AppStore'
 import { signOutAndRedirect } from '../../lib/auth/signOut'
-import { ACCOUNT_PASSWORD_PATH, ACCOUNT_SIGNATURE_PATH } from '../../lib/accountRoutes'
+import { ACCOUNT_PASSWORD_PATH, ACCOUNT_SIGNATURE_PATH, ACCOUNT_WISHLIST_PATH } from '../../lib/accountRoutes'
 import { isApiEnabled } from '../../lib/api/config'
 import { arePageTipsDisabled, resetPageTipsForUser, setPageTipsPreference } from '../../lib/pageTips'
+import { resolveWorkflowStatus } from '../../lib/applicationWorkflow'
 import { roleLabels } from '../../lib/permissions'
 import type { Permission, Role } from '../../types/domain'
 import { cn } from '../ui'
 
 const ICON_STROKE = 1.6
-const MENU_WIDTH_PX = 320
+const MENU_WIDTH_PX = 300
 const MENU_GAP_PX = 8
 const VIEWPORT_PAD_PX = 8
 
-type MenuItem =
-  | { kind: 'link'; label: string; to: string; icon: typeof LayoutDashboard }
-  | { kind: 'action'; label: string; onClick: () => void; icon: typeof LogOut; destructive?: boolean }
+type MenuLink = { label: string; to: string; icon: typeof LayoutDashboard; count?: number }
+type MenuSection = { title: string; items: MenuLink[] }
 
-function portalPath(role: Role, has: (p: Permission) => boolean): string | null {
-  if (role === 'tenant' && has('portal.tenant')) return '/workspace/portals/tenant'
-  if (role === 'contractor' && has('portal.contractor')) return '/workspace/portals/contractor'
-  if (role === 'landlord' && has('portal.owner')) return '/workspace/portals/owner'
-  return null
+const TENANT_PORTAL = '/workspace/portals/tenant'
+/** Applications that no longer need the tenant (not counted in the menu). */
+const ENDED_APPLICATION_STATUSES = new Set<string>(['rejected', 'cancelled', 'withdrawn', 'closed', 'deposit_refunded'])
+
+/**
+ * Shortcuts for the signed-in role: portal users get the pages they use
+ * (with counts that need attention), staff get their workspace.
+ */
+export function shortcutSections(input: {
+  role: Role
+  userId: string
+  has: (p: Permission) => boolean
+  hasAny: (p: Permission[]) => boolean
+  counts?: { applications: number; viewings: number; paymentsDue: number }
+}): MenuSection[] {
+  const { role, userId, has, hasAny, counts } = input
+  if (role === 'tenant' && has('portal.tenant')) {
+    return [
+      {
+        title: 'My home search',
+        items: [
+          { label: 'Overview', to: TENANT_PORTAL, icon: LayoutDashboard },
+          { label: 'Applications', to: `${TENANT_PORTAL}/applications`, icon: FileText, count: counts?.applications },
+          { label: 'Viewings', to: `${TENANT_PORTAL}/viewings`, icon: CalendarDays, count: counts?.viewings },
+          { label: 'Payments', to: `${TENANT_PORTAL}/payments`, icon: Wallet, count: counts?.paymentsDue },
+          { label: 'Maintenance', to: `${TENANT_PORTAL}/maintenance`, icon: Wrench },
+          { label: 'Messages', to: `${TENANT_PORTAL}/messages`, icon: MessageSquare },
+          { label: 'Saved homes', to: ACCOUNT_WISHLIST_PATH, icon: Heart },
+          { label: 'Browse homes', to: '/browse', icon: Home },
+        ],
+      },
+    ]
+  }
+  if (role === 'landlord' && has('portal.owner')) {
+    return [{ title: 'Go to', items: [{ label: 'Owner portal', to: '/workspace/portals/owner', icon: LayoutDashboard }] }]
+  }
+  if (role === 'contractor' && has('portal.contractor')) {
+    return [{ title: 'Go to', items: [{ label: 'My jobs', to: '/workspace/portals/contractor', icon: Wrench }] }]
+  }
+  const items: MenuLink[] = [{ label: 'Dashboard', to: '/workspace', icon: LayoutDashboard }]
+  if (has('roles.assign')) items.push({ label: 'My profile', to: `/workspace/admin/users/${userId}`, icon: UserRound })
+  if (hasAny(['users.manage', 'roles.assign', 'config.manage', 'tenant.manage', 'platform.manage'])) {
+    items.push({ label: 'Administration', to: '/workspace/admin', icon: Settings })
+  }
+  return [{ title: 'Go to', items }]
 }
 
 export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar' }) {
@@ -41,10 +99,9 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
     isImpersonating,
     stopImpersonation,
   } = useAuth()
-  const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [pageTipsOff, setPageTipsOff] = useState(() => arePageTipsDisabled(user.id))
-  const [menuPos, setMenuPos] = useState({ top: 0, right: 0, maxHeight: 384 })
+  const [menuPos, setMenuPos] = useState({ top: 0, right: 0, maxHeight: 560 })
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -58,7 +115,7 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
     const spaceBelow = vh - box.bottom - MENU_GAP_PX - VIEWPORT_PAD_PX
     const spaceAbove = box.top - MENU_GAP_PX - VIEWPORT_PAD_PX
     const preferBelow = spaceBelow >= 160 || spaceBelow >= spaceAbove
-    const maxHeight = Math.min(384, Math.max(160, preferBelow ? spaceBelow : spaceAbove))
+    const maxHeight = Math.min(560, Math.max(160, preferBelow ? spaceBelow : spaceAbove))
     const top = preferBelow
       ? box.bottom + MENU_GAP_PX
       : Math.max(VIEWPORT_PAD_PX, box.top - MENU_GAP_PX - maxHeight)
@@ -98,88 +155,74 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
     return [...map.entries()]
   }, [usersForSwitcher])
 
-  const menuItems = useMemo((): MenuItem[] => {
-    const items: MenuItem[] = [{ kind: 'link', label: 'Dashboard', to: '/workspace', icon: LayoutDashboard }]
-
-    const portal = portalPath(user.role, has)
-    if (portal) {
-      items.push({ kind: 'link', label: 'My portal', to: portal, icon: UserRound })
-    } else if (has('roles.assign')) {
-      items.push({
-        kind: 'link',
-        label: 'My profile',
-        to: `/workspace/admin/users/${user.id}`,
-        icon: UserRound,
-      })
+  const { state } = useStore()
+  const tenantCounts = useMemo(() => {
+    if (!open || user.role !== 'tenant') return undefined
+    const email = user.email?.toLowerCase()
+    const today = new Date().toISOString().slice(0, 10)
+    const mine = (e?: string | null) => Boolean(email) && e?.toLowerCase() === email
+    return {
+      applications: state.applications.filter(
+        (a) =>
+          (a.applicantUserId === user.id || mine(a.email)) &&
+          !ENDED_APPLICATION_STATUSES.has(resolveWorkflowStatus(a)),
+      ).length,
+      viewings: state.viewings.filter(
+        (v) => v.status === 'Scheduled' && v.date >= today && (mine(v.applicantEmail) || v.applicantName === user.name),
+      ).length,
+      paymentsDue: state.payments.filter(
+        (p) => p.partyUserId === user.id && (p.status === 'Due' || p.status === 'Overdue'),
+      ).length,
     }
+  }, [open, user.role, user.id, user.email, user.name, state.applications, state.viewings, state.payments])
 
-    items.push({ kind: 'link', label: 'My signature', to: ACCOUNT_SIGNATURE_PATH, icon: PenLine })
+  const sections = useMemo(
+    () => shortcutSections({ role: user.role, userId: user.id, has, hasAny, counts: tenantCounts }),
+    [user.role, user.id, has, hasAny, tenantCounts],
+  )
 
-    if (
-      hasAny([
-        'users.manage',
-        'roles.assign',
-        'config.manage',
-        'tenant.manage',
-        'platform.manage',
-      ])
-    ) {
-      items.push({ kind: 'link', label: 'Administration', to: '/workspace/admin', icon: LayoutDashboard })
-    }
-
-    if (!isImpersonating) {
-      items.push({
-        kind: 'action',
-        label: pageTipsOff ? 'Show page tips' : 'Turn off page tips',
-        icon: HelpCircle,
-        onClick: () => {
-          if (pageTipsOff) {
-            resetPageTipsForUser(user.id)
-            setPageTipsOff(false)
-          } else {
-            setPageTipsPreference(user.id, true)
-            setPageTipsOff(true)
-          }
-          setOpen(false)
-        },
-      })
-    }
-
+  const accountLinks: MenuLink[] = [
+    { label: 'My signature', to: ACCOUNT_SIGNATURE_PATH, icon: PenLine },
     // D3: own password change (API mode; the route needs a server session).
-    if (isApiEnabled && !isImpersonating) {
-      items.push({ kind: 'link', label: 'Change password', to: ACCOUNT_PASSWORD_PATH, icon: KeyRound })
-    }
+    ...(isApiEnabled && !isImpersonating
+      ? [{ label: 'Change password', to: ACCOUNT_PASSWORD_PATH, icon: KeyRound }]
+      : []),
+    { label: 'Help & support', to: '/workspace/help', icon: HelpCircle },
+  ]
 
-    items.push(
-      { kind: 'link', label: 'Browse homes', to: '/browse', icon: Home },
-      { kind: 'link', label: 'Help & support', to: '/workspace/help', icon: HelpCircle },
+  const togglePageTips = () => {
+    if (pageTipsOff) {
+      resetPageTipsForUser(user.id)
+      setPageTipsOff(false)
+    } else {
+      setPageTipsPreference(user.id, true)
+      setPageTipsOff(true)
+    }
+  }
+
+  const linkClass =
+    'flex min-h-10 cursor-pointer items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm font-medium text-ink transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary'
+
+  const renderLink = (item: MenuLink) => {
+    const Icon = item.icon
+    return (
+      <Link
+        key={item.to + item.label}
+        to={item.to}
+        role="menuitem"
+        onClick={() => setOpen(false)}
+        className={linkClass}
+      >
+        <Icon className="h-4 w-4 shrink-0 text-ink-400" strokeWidth={ICON_STROKE} aria-hidden />
+        <span className="flex-1">{item.label}</span>
+        {item.count ? (
+          <span className="tabular min-w-5 rounded-full bg-primary px-1.5 text-center text-[11px] font-semibold leading-5 text-white">
+            {item.count}
+          </span>
+        ) : null}
+      </Link>
     )
-
-    if (isImpersonating) {
-      items.push({
-        kind: 'action',
-        label: 'Stop impersonating',
-        icon: UserRound,
-        onClick: () => {
-          stopImpersonation()
-          setOpen(false)
-        },
-      })
-    }
-
-    items.push({
-      kind: 'action',
-      label: 'Sign out',
-      icon: LogOut,
-      destructive: true,
-      onClick: () => {
-        setOpen(false)
-        void signOutAndRedirect(logout)
-      },
-    })
-
-    return items
-  }, [user.id, user.role, has, hasAny, isImpersonating, stopImpersonation, logout, navigate, pageTipsOff])
+  }
 
   const initials =
     user.name
@@ -197,7 +240,7 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
           ref={menuRef}
           role="menu"
           aria-label="Account menu"
-          className="fixed z-[100] overflow-y-auto rounded-2xl border border-primary-100 bg-white py-2 shadow-xl shadow-ink/15 animate-fade-in"
+          className="fixed z-[100] flex flex-col overflow-hidden rounded-2xl border border-primary-100 bg-white shadow-xl shadow-ink/15 animate-fade-in"
           style={{
             top: menuPos.top,
             right: menuPos.right,
@@ -206,53 +249,57 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
             maxHeight: menuPos.maxHeight,
           }}
         >
-          <div className="border-b border-primary-100 px-3 pb-2">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-ink-400">Signed in</p>
-            <p className="mt-0.5 text-sm font-semibold text-ink">{user.name}</p>
-            <p className="text-[11px] text-ink-500">{roleLabel}</p>
-            {user.email ? <p className="mt-0.5 truncate text-[11px] text-ink-400">{user.email}</p> : null}
-            {demoSwitcherEnabled ? (
-              <p className="mt-2 text-[11px] text-ink-500">{roleBlurb}</p>
-            ) : null}
+          <div className="flex items-center gap-3 border-b border-primary-100 px-4 py-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary text-sm font-bold text-white">
+              {user.avatar ? <img src={user.avatar} alt="" className="h-full w-full object-cover" /> : initials}
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-ink">{user.name}</p>
+              <p className="truncate text-xs text-primary">{roleLabel}</p>
+              {user.email ? <p className="truncate text-xs text-ink-400">{user.email}</p> : null}
+            </div>
           </div>
+          <div className="min-h-0 flex-1 overflow-y-auto pb-2">
+          {demoSwitcherEnabled ? <p className="px-4 pt-2 text-[11px] text-ink-500">{roleBlurb}</p> : null}
 
-          <div className="py-1">
-            {menuItems.map((item) => {
-              const Icon = item.icon
-              if (item.kind === 'link') {
-                return (
-                  <Link
-                    key={item.to + item.label}
-                    to={item.to}
-                    role="menuitem"
-                    onClick={() => setOpen(false)}
-                    className="flex min-h-11 cursor-pointer items-center gap-2.5 px-3 py-2 text-sm font-medium text-ink transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
-                  >
-                    <Icon className="h-4 w-4 shrink-0 text-ink-400" strokeWidth={ICON_STROKE} aria-hidden />
-                    {item.label}
-                  </Link>
-                )
-              }
-              return (
-                <button
-                  key={item.label}
-                  type="button"
-                  role="menuitem"
-                  onClick={item.onClick}
+          {sections.map((section) => (
+            <div key={section.title} className="px-2 pt-2">
+              <p className="px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-400">
+                {section.title}
+              </p>
+              {section.items.map(renderLink)}
+            </div>
+          ))}
+
+          <div className="mx-2 mt-2 border-t border-primary-100 pt-2">
+            <p className="px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-400">Account</p>
+            {accountLinks.map(renderLink)}
+            {!isImpersonating ? (
+              <button
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked={!pageTipsOff}
+                onClick={togglePageTips}
+                className={cn(linkClass, 'w-full text-left')}
+              >
+                <Lightbulb className="h-4 w-4 shrink-0 text-ink-400" strokeWidth={ICON_STROKE} aria-hidden />
+                <span className="flex-1">Page tips</span>
+                <span
+                  aria-hidden
                   className={cn(
-                    'flex min-h-11 w-full cursor-pointer items-center gap-2.5 px-3 py-2 text-left text-sm font-medium transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary',
-                    item.destructive ? 'text-accent-600 hover:bg-accent-50' : 'text-ink',
+                    'relative h-5 w-9 shrink-0 rounded-full transition-colors duration-200',
+                    pageTipsOff ? 'bg-ink-200' : 'bg-primary',
                   )}
                 >
-                  <Icon
-                    className={cn('h-4 w-4 shrink-0', item.destructive ? 'text-accent-500' : 'text-ink-400')}
-                    strokeWidth={ICON_STROKE}
-                    aria-hidden
+                  <span
+                    className={cn(
+                      'absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all duration-200',
+                      pageTipsOff ? 'left-0.5' : 'left-[18px]',
+                    )}
                   />
-                  {item.label}
-                </button>
-              )
-            })}
+                </span>
+              </button>
+            ) : null}
           </div>
 
           {demoSwitcherEnabled ? (
@@ -290,6 +337,35 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
               ))}
             </>
           ) : null}
+          </div>
+          <div className="border-t border-primary-100 p-2">
+            {isImpersonating ? (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  stopImpersonation()
+                  setOpen(false)
+                }}
+                className={cn(linkClass, 'w-full text-left')}
+              >
+                <UserRound className="h-4 w-4 shrink-0 text-ink-400" strokeWidth={ICON_STROKE} aria-hidden />
+                Stop impersonating
+              </button>
+            ) : null}
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false)
+                void signOutAndRedirect(logout)
+              }}
+              className={cn(linkClass, 'w-full text-left text-accent-600 hover:bg-accent-50')}
+            >
+              <LogOut className="h-4 w-4 shrink-0 text-accent-500" strokeWidth={ICON_STROKE} aria-hidden />
+              Sign out
+            </button>
+          </div>
         </div>,
         document.body,
       )
