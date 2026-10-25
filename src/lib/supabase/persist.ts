@@ -100,6 +100,14 @@ async function clientUuid(agencyId: unknown): Promise<string | null> {
   return resolveUuid('agency', feId)
 }
 
+/** Agency for a listing write; falls back to the unit's existing agency when the payload has none. */
+async function listingClientUuid(agencyId: unknown, unitUuid: string | null): Promise<string | null> {
+  const fromPayload = await clientUuid(agencyId)
+  if (fromPayload || !unitUuid) return fromPayload
+  const { data } = await createClient().from('units').select('client_id').eq('id', unitUuid).maybeSingle()
+  return (data?.client_id as string | undefined) ?? null
+}
+
 async function userUuid(feId: unknown): Promise<string | null> {
   if (!feId) return null
   return resolveUuid('user', String(feId))
@@ -869,7 +877,7 @@ async function upsertUnit(id: string, data: Record<string, unknown>): Promise<vo
       : 'RENT'
   const unitRow: Record<string, unknown> = {
     id: uuid,
-    client_id: await clientUuid(data.clientId ?? data.agencyId),
+    client_id: await listingClientUuid(data.clientId ?? data.agencyId, uuid),
     building_id: buildingUuid,
     unit_number: str(data.unitNumber, 'MAIN'),
     title: str(data.title),
@@ -926,7 +934,7 @@ async function upsertProperty(id: string, data: Record<string, unknown>): Promis
   const unitFe = str(data.unitId)
   const unitUuidVal =
     (unitFe ? await resolveUuid('unit', unitFe) : null) ?? (await ensureUuid('property', id))
-  const clientId = await clientUuid(data.agencyId)
+  const clientId = await listingClientUuid(data.agencyId, unitUuidVal)
   const buildingFe = str(data.buildingId)
   const buildingUuid = buildingFe ? await resolveUuid('building', buildingFe) : null
 

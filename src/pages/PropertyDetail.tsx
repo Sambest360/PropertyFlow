@@ -48,6 +48,7 @@ import {
   isPropertyDeleted,
 } from '../lib/propertyDeletion'
 import { sweetConfirm, sweetSuccess, sweetWarning } from '../lib/sweetAlert'
+import { publishRequestMessage, requestListingPublish } from '../lib/publishRequest'
 
 export default function PropertyDetail() {
   const { id } = useParams()
@@ -83,6 +84,7 @@ export default function PropertyDetail() {
     sendMessage,
     addPropertyEvent,
     addPropertyDocument,
+    notify,
   } = useStore()
   const { has, user, agencyId } = useAuth()
   const { inPropertyScope } = usePropertyScope()
@@ -302,6 +304,13 @@ export default function PropertyDetail() {
 
   const publishBlockedReason = validatePropertyReadyToPublish(p)
 
+  // Staff without "Publish listings" ask their agency admins instead.
+  const handleRequestPublish = async () => {
+    const count = requestListingPublish({ property: p, requester: user, users: state.users, notify })
+    const msg = publishRequestMessage(count)
+    await sweetSuccess(msg.title, msg.body)
+  }
+
   const handleMakeLive = async () => {
     const blockReason = validatePropertyReadyToPublish(p)
     if (blockReason) {
@@ -428,6 +437,7 @@ export default function PropertyDetail() {
         siblingUnits={siblingUnits}
         canManage={canManage}
         canPublish={canPublishListing}
+        onRequestPublish={!has('listings.publish') ? () => void handleRequestPublish() : undefined}
         publishBlockedReason={publishBlockedReason}
         onPublish={handleMakeLive}
         publishBusy={publishBusy}

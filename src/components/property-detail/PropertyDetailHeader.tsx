@@ -22,6 +22,7 @@ export function PropertyDetailHeader({
   siblingUnits = [],
   canManage,
   canPublish,
+  onRequestPublish,
   publishBlockedReason,
   onPublish,
   onToggleFeatured,
@@ -45,6 +46,8 @@ export function PropertyDetailHeader({
   siblingUnits?: Array<Pick<PropertyAsset, 'id' | 'title'>>
   canManage: boolean
   canPublish?: boolean
+  /** Shown instead of "Make live" for staff without publish permission. */
+  onRequestPublish?: () => void
   publishBlockedReason?: string | null
   onPublish?: () => void
   onToggleFeatured: () => void
@@ -244,7 +247,14 @@ export function PropertyDetailHeader({
                 </Button>
               </Link>
               </ActionButtonRow>
-            ) : canPublish ? null : (
+            ) : canPublish ? null : onRequestPublish ? (
+              <ActionButtonRow className="shrink-0 sm:w-auto">
+                <Button variant="secondary" className="min-h-11 shrink-0 cursor-pointer" onClick={onRequestPublish}>
+                  <Globe className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                  Request to publish
+                </Button>
+              </ActionButtonRow>
+            ) : (
               <p className="text-xs font-medium text-amber-900/80">
                 You need listing publish permission to make this live.
               </p>

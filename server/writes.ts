@@ -235,6 +235,21 @@ async function clientId(agencyId: unknown): Promise<string> {
   return id
 }
 
+/**
+ * Agency for a listing write. A listing created in the same session can reach
+ * the server without its agencyId (field agents' scoped data loads no agency
+ * list), so fall back to the agency the unit row already belongs to instead
+ * of failing with "Unknown agency: undefined".
+ */
+async function listingClientId(agencyId: unknown, unitUuid: string | null): Promise<string> {
+  if (str(agencyId)) return clientId(agencyId)
+  if (unitUuid) {
+    const rows = await query<{ client_id: string | null }>('SELECT client_id::text AS client_id FROM units WHERE id = $1::uuid', [unitUuid])
+    if (rows[0]?.client_id) return rows[0].client_id
+  }
+  throw Object.assign(new Error('This listing is not linked to an agency yet. Ask your agency admin to assign it.'), { status: 400 })
+}
+
 async function clientIdOptional(agencyId: unknown): Promise<string | null> {
   if (agencyId == null || agencyId === '') return null
   return clientId(agencyId)
@@ -982,7 +997,7 @@ async function upsertProperty(
   const uuid = await ensureListingUnitUuid(feId)
 
   let buildingUuid = d.buildingId ? await resolveUuid('building', str(d.buildingId)) : null
-  const client = await clientId(d.agencyId ?? d.clientId)
+  const client = await listingClientId(d.agencyId ?? d.clientId, uuid)
 
   if (!buildingUuid) {
     // Create a lightweight building shell for orphan property creates
@@ -2444,8 +2459,8 @@ async function upsertActivity(feId: string, d: Record<string, unknown>): Promise
 
 async function upsertPropertyEvent(feId: string, d: Record<string, unknown>): Promise<string> {
   const uuid = await ensureUuid('property_event', feId)
-  const client = await clientId(d.agencyId)
   const unit = await unitIdFromProperty(d.propertyId)
+  const client = await listingClientId(d.agencyId, unit)
   const actor = await userId(d.actorUserId)
   const payload = {
     actorName: str(d.actorName, 'System'),

@@ -81,6 +81,7 @@ import { propertyIdFromCreateError } from '../../lib/createPropertyBundleError'
 import { sweetError, sweetSuccess, sweetWarning } from '../../lib/sweetAlert'
 import { PropertyLoader } from '../../components/loading/PropertyLoader'
 import { isLoadSheddingFreeListing, withLoadSheddingFree } from '../../lib/loadShedding'
+import { publishRequestMessage, requestListingPublish } from '../../lib/publishRequest'
 
 const DRAFT_KEY = 'propertyflow:property-create'
 
@@ -163,7 +164,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   const returnTo = readReturnTo(searchParams) ?? editReturnTo
   const queryAgencyId = searchParams.get('agencyId') ?? ''
 
-  const { state, createPropertyBundle, publishProperty, updateProperty, setPropertyRooms, createUser } = useStore()
+  const { state, createPropertyBundle, publishProperty, updateProperty, setPropertyRooms, createUser, notify } = useStore()
   const { user, agencyId, has, role } = useAuth()
   const { scopeAgency } = useAgencyScope()
   const isLandlord = role === 'landlord'
@@ -185,7 +186,9 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     (b) => has('platform.manage') || b.clientId === (queryAgencyId || agencyId),
   )
 
-  const defaultAgencyId = queryAgencyId || (isLandlord ? user.agencyId ?? '' : agencyId ?? agencies[0]?.id ?? '')
+  // Staff default to their own agency — a field agent's scoped data may load no agency list.
+  const defaultAgencyId =
+    queryAgencyId || (isLandlord ? user.agencyId ?? '' : agencyId || user.agencyId || agencies[0]?.id || '')
 
   const propertyTypes = useLookupOptions('PROPERTY_TYPE', agencyId)
   const listingModes = useLookupOptions('LISTING_MODE', agencyId)
@@ -649,7 +652,8 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   }
 
   function buildSubmitContext() {
-    const resolvedAgencyId = isLandlord ? user.agencyId ?? draft.agencyId : draft.agencyId
+    const resolvedAgencyId =
+      (isLandlord ? user.agencyId ?? draft.agencyId : draft.agencyId) || user.agencyId || agencyId || ''
     const resolvedLandlordId = resolveLandlordAssignment(landlordDraftFrom(draft), {
       isLandlordUser: isLandlord,
       currentUserId: user.id,
@@ -1067,6 +1071,19 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       state.properties.some((p) => p.id === propertyId) || Boolean(createdProperty)
     const detailPath = `/workspace/properties/${propertyId}`
     const detailTarget = targetInStore ? detailPath : returnTo
+    if (!isEdit && !shouldPublish && !isLandlord && !has('listings.publish')) {
+      // No publish permission: the draft is saved and the agency admins are asked to publish it.
+      const count = requestListingPublish({
+        property: { id: propertyId, title: draft.title, agencyId: draft.agencyId || user.agencyId || '' },
+        requester: user,
+        users: state.users,
+        notify,
+      })
+      const msg = publishRequestMessage(count)
+      await sweetSuccess(msg.title, msg.body)
+      navigate(detailTarget)
+      return
+    }
     const successTitle = shouldPublish
       ? 'Listing published'
       : isEdit
