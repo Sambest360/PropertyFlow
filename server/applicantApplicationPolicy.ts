@@ -7,7 +7,8 @@
  * workflowStatus, stage, progress and the DB status for every allowed move):
  *   create                           -> application_submitted (rental) or
  *                                       offer_submitted (purchase); never null
- *   documents_requested              -> documents_uploaded (all docs uploaded)
+ *   documents_requested /
+ *   application_submitted            -> documents_uploaded (all docs uploaded)
  *   offer_started                    -> offer_submitted
  *   any OPEN state                   -> withdrawn
  *   eSign mirror                     -> lease_generated / lease_sent /
@@ -135,7 +136,7 @@ export function applicantOpenStatuses(type: AppType): ReadonlySet<WorkflowStatus
 
 /** Allowed applicant (from -> to) for an existing application, excluding the eSign mirror. */
 export function applicantMoveAllowed(type: AppType, from: WorkflowStatusKey, to: WorkflowStatusKey): boolean {
-  if (from === 'documents_requested' && to === 'documents_uploaded') return true
+  if ((from === 'documents_requested' || from === 'application_submitted') && to === 'documents_uploaded') return true
   if (from === 'offer_started' && to === 'offer_submitted') return true
   if (to === 'withdrawn') return applicantOpenStatuses(type).has(from)
   return false

@@ -183,3 +183,26 @@ describe('application lifecycle walk', () => {
     expect(resolveWorkflowStatus(app)).toBe('completed')
   })
 })
+
+describe('tenant documents before the agency asks', () => {
+  it('lets the tenant send a full upload for review straight from Application submitted', () => {
+    let app = newApp('Rental')
+    expect(resolveWorkflowStatus(app)).toBe('application_submitted')
+    // Nothing to send until every document is uploaded.
+    expect(
+      buildApplicantApplicationActions({ application: app, permissions: TENANT_PERMS }).some(
+        (a) => a.payload_hint?.workflowStatus === 'documents_uploaded',
+      ),
+    ).toBe(false)
+    app = { ...app, documents: app.documents.map((d) => ({ ...d, status: 'uploaded' as const })) }
+    const send = buildApplicantApplicationActions({ application: app, permissions: TENANT_PERMS }).find(
+      (a) => a.payload_hint?.workflowStatus === 'documents_uploaded',
+    )
+    expect(send?.label).toBe('Send documents for review')
+    expect(resolveWorkflowStatus(applyWorkflowTransition(app, 'documents_uploaded'))).toBe('documents_uploaded')
+    // Not an agent action.
+    expect(
+      buildApplicationActions({ application: app, actor: STAFF }).some((a) => a.key === 'UPLOAD_DOCS'),
+    ).toBe(false)
+  })
+})

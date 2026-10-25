@@ -373,7 +373,19 @@ export const RENTAL_WORKFLOW: WorkflowTemplate = {
       from: 'documents_requested',
       to: 'documents_uploaded',
       actionKey: 'UPLOAD_DOCS',
-      label: 'Confirm documents uploaded',
+      label: 'Send documents for review',
+      hint: 'Submit uploaded documents for agency review',
+      tone: 'primary',
+      requires: ['portal.tenant'],
+      guard: (app) => allDocsUploaded(app.documents) || 'Upload all required documents first',
+    },
+    // A tenant who uploads everything before the agency asks need not wait
+    // for Request documents.
+    {
+      from: 'application_submitted',
+      to: 'documents_uploaded',
+      actionKey: 'UPLOAD_DOCS',
+      label: 'Send documents for review',
       hint: 'Submit uploaded documents for agency review',
       tone: 'primary',
       requires: ['portal.tenant'],

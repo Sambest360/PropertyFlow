@@ -32,3 +32,12 @@ describe('approval landing stage vs the lease-signing gate', () => {
     ).rejects.toMatchObject({ status: 409 })
   })
 })
+
+describe('applicant document hand-in', () => {
+  it('allows Send documents for review from Application submitted as well as Documents requested', async () => {
+    const { applicantMoveAllowed } = await import('./applicantApplicationPolicy.js')
+    expect(applicantMoveAllowed('Rental', 'application_submitted', 'documents_uploaded')).toBe(true)
+    expect(applicantMoveAllowed('Rental', 'documents_requested', 'documents_uploaded')).toBe(true)
+    expect(applicantMoveAllowed('Rental', 'application_submitted', 'fica_verification')).toBe(false)
+  })
+})

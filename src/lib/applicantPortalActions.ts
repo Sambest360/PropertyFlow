@@ -87,8 +87,18 @@ const APPLICANT_TRANSITIONS: WorkflowTransition[] = [
     from: 'documents_requested',
     to: 'documents_uploaded',
     actionKey: 'UPLOAD_DOCS',
-    label: 'Confirm documents uploaded',
+    label: 'Send documents for review',
     hint: 'All required files are on file — submit for agency review',
+    tone: 'primary',
+    requires: ['portal.tenant'],
+    guard: (app) => allDocsUploaded(app.documents) || 'Upload all required documents first',
+  },
+  {
+    from: 'application_submitted',
+    to: 'documents_uploaded',
+    actionKey: 'UPLOAD_DOCS',
+    label: 'Send documents for review',
+    hint: 'All required files are on file — send them to the agency now',
     tone: 'primary',
     requires: ['portal.tenant'],
     guard: (app) => allDocsUploaded(app.documents) || 'Upload all required documents first',
@@ -188,13 +198,27 @@ export function getApplicantTasks(
     })
   }
 
-  if (status === 'documents_requested' && !allDocsUploaded(application.documents)) {
+  if ((status === 'documents_requested' || status === 'application_submitted') && !allDocsUploaded(application.documents)) {
     tasks.push({
       id: 'documents',
       label: 'Upload required documents',
       detail: 'FICA, ID, and income documents are needed before screening can start.',
       tone: 'primary',
       section: 'documents',
+    })
+  }
+
+  if (
+    (status === 'documents_requested' || status === 'application_submitted') &&
+    application.documents.length > 0 &&
+    allDocsUploaded(application.documents)
+  ) {
+    tasks.push({
+      id: 'send-documents',
+      label: 'Send your documents for review',
+      detail: 'Everything is uploaded — press "Send documents for review" so the agency can start checking.',
+      tone: 'primary',
+      section: 'application',
     })
   }
 
