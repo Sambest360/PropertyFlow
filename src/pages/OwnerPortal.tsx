@@ -1,25 +1,13 @@
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import {
-  Banknote,
-  Building,
-  ClipboardList,
-  FileText,
-  Home,
-  TrendingUp,
-  Wrench,
-} from 'lucide-react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { FileText } from 'lucide-react'
 import { useStore } from '../context/AppStore'
 import { ViewingEvidenceBadge } from '../components/applications/ViewingEvidenceBadge'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
-import {
-  AttentionHero,
-  DashboardBreadcrumb,
-  DashboardPage,
-  SectionBanner,
-} from '../components/dashboard'
-import { Badge, Button, Card, StatCard, statusTone } from '../components/ui'
+import { AttentionHero, DashboardBreadcrumb, DashboardPage } from '../components/dashboard'
+import { DashboardTabs } from '../components/dashboard/DashboardTabs'
+import { Badge, Button, Card, statusTone } from '../components/ui'
 import { formatZAR } from '../data/seed'
 import { useAgentDisplay } from '../hooks/useAgentDisplay'
 import {
@@ -50,6 +38,7 @@ function OwnerPortalContent() {
   const { listedBy } = useAgentDisplay()
   const { allowedPropertyIds, paymentVisible, ticketVisible } = usePropertyScope()
   const [busyAppId, setBusyAppId] = useState<string | null>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const scoped = useMemo(() => {
     return state.properties.filter((p) => allowedPropertyIds.has(p.id))
@@ -134,78 +123,84 @@ function OwnerPortalContent() {
     }
   }
 
+  const overdueCount = payments.filter((p) => p.status === 'Overdue').length
+  const dueCount = payments.filter((p) => p.status === 'Due' || p.status === 'Overdue').length
+
+  type OwnerTab = 'review' | 'properties' | 'payments' | 'maintenance' | 'messages'
+  const tabs = [
+    ...(pendingReviews.length ? [{ id: 'review', label: 'To review', count: pendingReviews.length }] : []),
+    { id: 'properties', label: 'Properties', count: scoped.length || undefined },
+    { id: 'payments', label: 'Payments', count: dueCount || undefined },
+    { id: 'maintenance', label: 'Maintenance', count: tickets.length || undefined },
+    { id: 'messages', label: 'Messages' },
+  ]
+  const asked = searchParams.get('tab') as OwnerTab | null
+  const tab: OwnerTab =
+    asked && tabs.some((t) => t.id === asked) ? asked : pendingReviews.length ? 'review' : 'properties'
+  const setTab = (next: string) => {
+    const sp = new URLSearchParams(searchParams)
+    sp.set('tab', next)
+    setSearchParams(sp, { replace: true })
+  }
+
+  // One hero: the decision waiting on the owner, else their portfolio.
+  const hero = pendingReviews.length
+    ? {
+        image: propertyById[pendingReviews[0].propertyId]?.images[0],
+        eyebrow: 'Needs your decision',
+        title: `${pendingReviews.length} applicant${pendingReviews.length === 1 ? '' : 's'} waiting for your approval`,
+        detail: 'The agency sent these applicants to you. Approve or decline — the agency handles the lease.',
+        badge: 'Action needed',
+        badgeTone: 'warning' as const,
+        cta: { label: 'Review applicants', to: '/workspace/portals/owner?tab=review' },
+      }
+    : {
+        image: featured?.images[0],
+        eyebrow: 'Landlord portal',
+        title: `Welcome, ${user.name.split(' ')[0]}`,
+        detail: 'Your properties, rent received and maintenance, managed by your agency.',
+        badge: overdueCount ? `${overdueCount} overdue` : 'All up to date',
+        badgeTone: overdueCount ? ('danger' as const) : ('success' as const),
+        cta: {
+          label: 'Documents',
+          to: '/workspace/operations/documents',
+          icon: <FileText className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />,
+        },
+      }
+
+  const emptyRow = (text: string) => <li className="py-8 text-center text-sm text-ink-500">{text}</li>
+  const sectionHead = (title: string, to: string, linkLabel: string, note?: string) => (
+    <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+      <div>
+        <h2 className="font-display text-lg font-semibold text-ink">{title}</h2>
+        {note ? <p className="mt-0.5 text-sm text-ink-500">{note}</p> : null}
+      </div>
+      <Link to={to} className="text-sm font-semibold text-primary hover:underline">
+        {linkLabel}
+      </Link>
+    </div>
+  )
+
   return (
     <RequirePermission permission="portal.owner">
       <DashboardPage>
-        <DashboardBreadcrumb
-          items={[
-            { label: 'Dashboard', to: '/workspace' },
-            { label: 'Owner portal' },
-          ]}
-        />
+        <DashboardBreadcrumb items={[{ label: 'Dashboard', to: '/workspace' }, { label: 'Owner portal' }]} />
 
         <AttentionHero
-          image={featured?.images[0]}
-          eyebrow="Landlord portal"
-          title={featured?.title ?? `Welcome, ${user.name.split(' ')[0]}`}
-          detail="Your assets, rent receipts, open works, and in-app messages with tenants."
-          badge={featured?.status ?? 'Owner'}
-          badgeTone="brand"
-          secondaryBadge={featured?.type}
+          {...hero}
           stats={[
-            { label: 'Assets', value: String(scoped.length) },
+            { label: 'Properties', value: String(scoped.length) },
             { label: 'Occupancy', value: `${occupancy}%` },
-            { label: 'Collected', value: formatZAR(collected) },
+            { label: 'Rent received', value: formatZAR(collected) },
+            { label: 'Outstanding', value: formatZAR(due) },
           ]}
-          cta={{
-            label: 'Documents',
-            to: '/workspace/operations/documents',
-            icon: <FileText className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />,
-          }}
-          secondaryCta={
-            featured ? { label: 'Open property', to: `/workspace/properties/${featured.id}` } : undefined
-          }
-          propertyLink={
-            featured
-              ? { to: `/workspace/properties/${featured.id}/edit`, label: 'Edit property' }
-              : undefined
-          }
         />
 
-        {pendingReviews.length > 0 && (
-          <SectionBanner
-            tone="warning"
-            text={`${pendingReviews.length} applicant${pendingReviews.length === 1 ? '' : 's'} awaiting your landlord review.`}
-          />
-        )}
+        <DashboardTabs tabs={tabs} value={tab} onChange={setTab} />
 
-        {tickets.length > 0 && pendingReviews.length === 0 && (
-          <SectionBanner
-            tone="warning"
-            text={`${tickets.length} open maintenance item${tickets.length === 1 ? '' : 's'} on your assets — agency-managed.`}
-          />
-        )}
-
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard label="Your units" value={scoped.length} icon={<Building className="h-5 w-5" />} />
-          <StatCard label="Occupancy" value={`${occupancy}%`} icon={<TrendingUp className="h-5 w-5" />} />
-          <StatCard label="Collected" value={formatZAR(collected)} icon={<Banknote className="h-5 w-5" />} />
-          <StatCard label="Open works" value={tickets.length} icon={<Wrench className="h-5 w-5" />} />
-        </div>
-
-        <OwnerMessagesPanel />
-
-        {pendingReviews.length > 0 && (
+        {tab === 'review' ? (
           <Card className="p-5">
-            <div className="flex items-center gap-2">
-              <ClipboardList className="h-5 w-5 text-primary" strokeWidth={ICON_STROKE} aria-hidden />
-              <h2 className="font-display text-lg font-semibold text-ink">Awaiting your review</h2>
-            </div>
-            <p className="mt-1 text-sm text-ink-500">
-              Agency sent these applicants for owner approval. Approve or decline — lease generation stays
-              with the agency.
-            </p>
-            <ul className="mt-4 space-y-3">
+            <ul className="divide-y divide-primary-50">
               {pendingReviews.map((app) => {
                 const prop = propertyById[app.propertyId]
                 const busy = busyAppId === app.id
@@ -213,21 +208,18 @@ function OwnerPortalContent() {
                 const canApprove = actions.some((t) => t.to === 'conditionally_approved')
                 const canReject = actions.some((t) => t.to === 'rejected')
                 return (
-                  <li
-                    key={app.id}
-                    className="flex flex-col gap-3 rounded-2xl border border-primary-100 bg-primary-50/40 p-4 sm:flex-row sm:items-center sm:justify-between"
-                  >
+                  <li key={app.id} className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
                       <p className="font-semibold text-ink">{app.applicantName}</p>
-                      <p className="text-xs text-ink-500">
-                        {prop?.title ?? propertyRefLabel(app.propertyId)} · {workflowStageLabel(app.type, resolveWorkflowStatus(app))}
+                      <p className="text-sm text-ink-500">
+                        {prop?.title ?? propertyRefLabel(app.propertyId)} ·{' '}
+                        {workflowStageLabel(app.type, resolveWorkflowStatus(app))}
                       </p>
-                      {app.email ? <p className="mt-0.5 text-xs text-ink-400">{app.email}</p> : null}
                       <div className="mt-2">
                         <ViewingEvidenceBadge evidence={app.viewingEvidence} />
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       {canApprove ? (
                         <Button
                           className="min-h-11 cursor-pointer"
@@ -249,9 +241,9 @@ function OwnerPortalContent() {
                       ) : null}
                       <Link
                         to={`/workspace/properties/${app.propertyId}?tab=applicants`}
-                        className="inline-flex min-h-11 items-center text-sm font-semibold text-primary hover:underline"
+                        className="inline-flex min-h-11 items-center px-2 text-sm font-semibold text-primary hover:underline"
                       >
-                        View property
+                        Details
                       </Link>
                     </div>
                   </li>
@@ -259,120 +251,91 @@ function OwnerPortalContent() {
               })}
             </ul>
           </Card>
-        )}
+        ) : null}
 
-        <div className="grid gap-4 lg:grid-cols-2">
+        {tab === 'properties' ? (
           <Card className="p-5">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Building className="h-5 w-5 text-ink-500" strokeWidth={ICON_STROKE} aria-hidden />
-                <h2 className="font-display text-lg font-semibold text-ink">Your properties</h2>
-              </div>
-              <Link
-                to="/workspace/properties"
-                className="text-sm font-semibold text-primary hover:underline"
-              >
-                View all
-              </Link>
-            </div>
-            <div className="mt-4 space-y-5">
-              {complexes.map((group) => (
-                <div key={group.key}>
-                  {(group.building || group.unitCount > 1) && (
-                    <div className="mb-2 flex flex-wrap items-baseline gap-2">
-                      <h3 className="text-sm font-semibold text-ink">{group.label}</h3>
-                      {group.building?.grading ? (
-                        <Badge tone="brand">{gradingLabel(group.building.grading)}</Badge>
-                      ) : null}
-                      <p className="text-xs font-medium text-ink-400">
-                        {group.unitCount} unit{group.unitCount === 1 ? '' : 's'}
-                        {group.suburbCity ? ` · ${group.suburbCity}` : ''}
-                      </p>
-                    </div>
-                  )}
-                  <div className="space-y-3">
-                    {group.items.map(({ property: p }) => {
-                      const agent = state.users.find((u) => u.id === p.agentId)
-                      const managedBy = listedBy(p.agentId, agent?.name, 'agency')
-                      const propPay = payments.filter((x) => x.propertyId === p.id)
-                      const monthRent = propPay
-                        .filter((x) => x.type === 'Rent' && x.status === 'Paid')
-                        .reduce((n, x) => n + x.amount, 0)
-                      return (
-                        <div key={p.id} className="flex gap-4 rounded-2xl border border-primary-50 p-3">
-                          <img src={p.images[0]} alt="" className="h-20 w-28 rounded-xl object-cover" />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <Link
-                                to={`/workspace/properties/${p.id}`}
-                                className="truncate font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                              >
-                                {p.title}
-                              </Link>
-                              <Badge tone={statusTone(p.status)}>{p.status}</Badge>
-                            </div>
-                            <p className="mt-1 text-xs text-ink-500">
-                              {group.building && group.unitCount > 1 ? `${group.label} · ` : ''}
-                              {p.suburb}
-                              {managedBy ? ` · Managed by ${managedBy}` : null}
-                            </p>
-                            <p className="mt-2 tabular text-sm font-semibold text-ink">
-                              {p.rent ? `${formatZAR(p.rent)}/mo` : formatZAR(p.price)}
-                            </p>
-                            <p className="mt-1 text-xs text-ink-400">
-                              Receipts: {formatZAR(monthRent)}
-                              {due > 0 ? ` · Outstanding (book): ${formatZAR(due)}` : null}
-                            </p>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              ))}
-              {scoped.length === 0 && (
-                <div className="rounded-2xl bg-primary-50/50 p-6 text-center">
-                  <p className="font-semibold text-ink">No properties yet</p>
-                  <p className="mt-2 text-sm text-ink-500">
-                    Add a property to your portfolio and publish it so applicants can find it on the
-                    marketplace.
-                  </p>
-                  <Link
-                    to="/workspace/properties/new"
-                    className="mt-4 inline-flex min-h-11 cursor-pointer items-center justify-center rounded-2xl bg-primary px-4 text-sm font-semibold text-white transition-colors duration-200 hover:bg-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  >
-                    Add property
-                  </Link>
-                </div>
-              )}
-            </div>
-          </Card>
-
-          <Card className="p-5">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Banknote className="h-5 w-5 text-ink-500" strokeWidth={ICON_STROKE} aria-hidden />
-                <h2 className="font-display text-lg font-semibold text-ink">Payment ledger</h2>
-              </div>
-              <Link
-                to="/workspace/operations/payments"
-                className="text-sm font-semibold text-primary hover:underline"
-              >
-                Payments
-              </Link>
-            </div>
-            <p className="mt-1 text-xs text-ink-500">
-              Landlord-visible receipts only. Owner↔tenant messaging is in-app.
-              {overdueAmt > 0
-                ? ` Outstanding overdue (book): ${formatZAR(overdueAmt)}.`
-                : ''}
-            </p>
-            <ul className="mt-4 space-y-2">
-              {payments.slice(0, 8).map((p) => (
-                <li
-                  key={p.id}
-                  className="flex items-center justify-between gap-3 rounded-xl bg-primary-50 px-3 py-2 text-sm"
+            {sectionHead('Your properties', '/workspace/properties', 'View all')}
+            {scoped.length === 0 ? (
+              <div className="rounded-2xl bg-primary-50/50 p-6 text-center">
+                <p className="font-semibold text-ink">No properties yet</p>
+                <p className="mt-2 text-sm text-ink-500">Add a property so your agency can list it.</p>
+                <Link
+                  to="/workspace/properties/new"
+                  className="mt-4 inline-flex min-h-11 items-center justify-center rounded-2xl bg-primary px-4 text-sm font-semibold text-white hover:bg-primary-600"
                 >
+                  Add property
+                </Link>
+              </div>
+            ) : (
+              <div className="space-y-5">
+                {complexes.map((group) => (
+                  <div key={group.key}>
+                    {group.building || group.unitCount > 1 ? (
+                      <div className="mb-2 flex flex-wrap items-baseline gap-2">
+                        <h3 className="text-sm font-semibold text-ink">{group.label}</h3>
+                        {group.building?.grading ? <Badge tone="brand">{gradingLabel(group.building.grading)}</Badge> : null}
+                        <p className="text-xs text-ink-400">
+                          {group.unitCount} unit{group.unitCount === 1 ? '' : 's'}
+                          {group.suburbCity ? ` · ${group.suburbCity}` : ''}
+                        </p>
+                      </div>
+                    ) : null}
+                    <ul className="divide-y divide-primary-50">
+                      {group.items.map(({ property: p }) => {
+                        const agent = state.users.find((u) => u.id === p.agentId)
+                        const managedBy = listedBy(p.agentId, agent?.name, 'agency')
+                        const propOutstanding = payments
+                          .filter((x) => x.propertyId === p.id && (x.status === 'Due' || x.status === 'Overdue'))
+                          .reduce((n, x) => n + x.amount, 0)
+                        return (
+                          <li key={p.id}>
+                            <Link
+                              to={`/workspace/properties/${p.id}`}
+                              className="flex items-center gap-4 rounded-xl py-3 hover:bg-primary-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                            >
+                              {p.images[0] ? (
+                                <img src={p.images[0]} alt="" className="h-14 w-20 shrink-0 rounded-lg object-cover" />
+                              ) : null}
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate font-medium text-ink">{p.title}</p>
+                                <p className="truncate text-xs text-ink-500">
+                                  {p.suburb}
+                                  {managedBy ? ` · ${managedBy}` : ''}
+                                </p>
+                              </div>
+                              <div className="shrink-0 text-right">
+                                <p className="tabular text-sm font-semibold text-ink">
+                                  {p.rent ? `${formatZAR(p.rent)}/mo` : formatZAR(p.price)}
+                                </p>
+                                {propOutstanding > 0 ? (
+                                  <p className="tabular text-xs text-accent-700">{formatZAR(propOutstanding)} due</p>
+                                ) : null}
+                              </div>
+                              <Badge tone={statusTone(p.status)}>{p.status}</Badge>
+                            </Link>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        ) : null}
+
+        {tab === 'payments' ? (
+          <Card className="p-5">
+            {sectionHead(
+              'Payments',
+              '/workspace/operations/payments',
+              'All payments',
+              overdueAmt > 0 ? `${formatZAR(overdueAmt)} overdue` : 'Rent and deposits on your properties.',
+            )}
+            <ul className="divide-y divide-primary-50">
+              {payments.slice(0, 10).map((p) => (
+                <li key={p.id} className="flex items-center justify-between gap-3 py-3 text-sm">
                   <div className="min-w-0">
                     <p className="truncate font-medium text-ink">
                       {p.type} · {propertyById[p.propertyId]?.title ?? propertyRefLabel(p.propertyId)}
@@ -381,70 +344,38 @@ function OwnerPortalContent() {
                       {p.partyName} · Due {p.dueDate ?? '—'}
                     </p>
                   </div>
-                  <div className="shrink-0 text-right">
+                  <div className="flex shrink-0 items-center gap-3">
                     <p className="tabular font-semibold text-ink">{formatZAR(p.amount)}</p>
                     <Badge tone={statusTone(p.status)}>{p.status}</Badge>
                   </div>
                 </li>
               ))}
-              {payments.length === 0 && (
-                <li className="py-6 text-center text-sm text-ink-500">No landlord-visible payments yet.</li>
-              )}
+              {payments.length === 0 ? emptyRow('No payments on your properties yet.') : null}
             </ul>
           </Card>
-        </div>
+        ) : null}
 
-        <Card className="p-5">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Wrench className="h-5 w-5 text-ink-500" strokeWidth={ICON_STROKE} aria-hidden />
-              <h2 className="font-display text-lg font-semibold text-ink">Open maintenance</h2>
-            </div>
-            <Link
-              to="/workspace/operations/maintenance"
-              className="text-sm font-semibold text-primary hover:underline"
-            >
-              View all
-            </Link>
-          </div>
-          <p className="mt-1 text-xs text-ink-500">Read-only on your assets — the agency assigns contractors.</p>
-          <ul className="mt-4 space-y-2">
-            {tickets.slice(0, 6).map((t) => (
-              <li
-                key={t.id}
-                className="flex items-center justify-between gap-3 rounded-xl border border-primary-50 px-3 py-2 text-sm"
-              >
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-ink">{t.title}</p>
-                  <p className="text-xs text-ink-400">
-                    {propertyById[t.propertyId]?.title ?? propertyRefLabel(t.propertyId)} · {t.priority}
-                  </p>
-                </div>
-                <Badge tone={statusTone(t.status)}>{t.status}</Badge>
-              </li>
-            ))}
-            {tickets.length === 0 && (
-              <li className="py-6 text-center text-sm text-ink-500">No open maintenance on your assets.</li>
-            )}
-          </ul>
-        </Card>
+        {tab === 'maintenance' ? (
+          <Card className="p-5">
+            {sectionHead('Open maintenance', '/workspace/operations/maintenance', 'View all', 'Your agency assigns contractors.')}
+            <ul className="divide-y divide-primary-50">
+              {tickets.slice(0, 10).map((t) => (
+                <li key={t.id} className="flex items-center justify-between gap-3 py-3 text-sm">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-ink">{t.title}</p>
+                    <p className="text-xs text-ink-400">
+                      {propertyById[t.propertyId]?.title ?? propertyRefLabel(t.propertyId)} · {t.priority}
+                    </p>
+                  </div>
+                  <Badge tone={statusTone(t.status)}>{t.status}</Badge>
+                </li>
+              ))}
+              {tickets.length === 0 ? emptyRow('No open maintenance on your properties.') : null}
+            </ul>
+          </Card>
+        ) : null}
 
-        <div className="flex flex-wrap gap-3">
-          <Link
-            to="/workspace/operations/documents"
-            className="inline-flex min-h-11 items-center gap-2 rounded-2xl border border-primary-100 bg-white px-4 text-sm font-semibold text-primary hover:bg-primary-50"
-          >
-            <FileText className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-            Documents
-          </Link>
-          <Link
-            to="/workspace"
-            className="inline-flex min-h-11 items-center gap-2 rounded-2xl border border-primary-100 bg-white px-4 text-sm font-semibold text-ink-600 hover:bg-primary-50"
-          >
-            <Home className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-            Workspace overview
-          </Link>
-        </div>
+        {tab === 'messages' ? <OwnerMessagesPanel /> : null}
       </DashboardPage>
     </RequirePermission>
   )
