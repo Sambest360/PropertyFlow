@@ -147,6 +147,12 @@ import {
   type SubmitApplicationResult,
 } from '../lib/applicationApi'
 import { initialWorkflowForCreate } from '../lib/createApplicationInitialStatus'
+import {
+  allocationSaveFailedMessage,
+  csvImportSaveFailedMessage,
+  persistInOrder,
+  TRUST_SAVE_FAILED,
+} from '../lib/trust/commitTrustWrites'
 import { formatEmploymentSummary } from '../lib/employmentDisplay'
 import {
   patchApplicationStatus,
@@ -999,7 +1005,7 @@ type StoreContextValue = {
     lines: Array<{ occupancyId: string; bucketCode: string; amountCents: number }>
   }) => Promise<{ ok: boolean; error?: string }>
   /** P0-7: park a matched-but-unassignable receipt in suspense (aged + alerted). */
-  markTrustSuspense: (params: { transactionId: string; actorUserId: string }) => Promise<void>
+  markTrustSuspense: (params: { transactionId: string; actorUserId: string }) => Promise<{ ok: boolean; error?: string }>
   /** DQ-M1 Mode A: template CSV → unallocated TrustTransactions + CsvImportBatch. */
   importTrustTemplateCsv: (params: {
     agencyId: string
@@ -2232,14 +2238,31 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             : t,
         ),
       }))
-      // Persist txn first so trust_allocation id-map / FK resolve succeeds
-      await persistUpsert(
+      const undo = () =>
+        patch((s) => ({
+          ...s,
+          trustAllocations: s.trustAllocations.filter((a) => !newAllocations.some((n) => n.id === a.id)),
+          trustTransactions: s.trustTransactions.map((t) => (t.id === txn.id ? txn : t)),
+        }))
+      // Lines first, then the status: a refused line leaves the receipt unallocated.
+      const { saved, failed } = await persistInOrder(newAllocations, (a) =>
+        persistUpsert('trust_allocation', a.id, a as unknown as Record<string, unknown>),
+      )
+      if (failed) {
+        undo()
+        return { ok: false, error: allocationSaveFailedMessage(saved.length, newAllocations.length) }
+      }
+      const statusSaved = await persistUpsert(
         'trust_transaction',
         txn.id,
         { ...txn, status: nextStatus, updatedAt: now } as unknown as Record<string, unknown>,
       )
-      for (const a of newAllocations) {
-        await persistUpsert('trust_allocation', a.id, a as unknown as Record<string, unknown>)
+      if (!statusSaved) {
+        undo()
+        return {
+          ok: false,
+          error: 'The allocation lines were saved but the receipt status was not. Refresh the page before allocating again.',
+        }
       }
       addActivity(
         `Allocated ${txn.description || txn.id} (${(total / 100).toFixed(2)} ZAR) to ${params.lines.length} bucket${params.lines.length === 1 ? '' : 's'}`,
@@ -2255,7 +2278,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     async (params: { transactionId: string; actorUserId: string }) => {
       const txn = stateRef.current.trustTransactions.find((t) => t.id === params.transactionId)
       const actor = stateRef.current.users.find((u) => u.id === params.actorUserId)
-      if (!txn || !actor) return
+      if (!txn || !actor) return { ok: false, error: 'Transaction or actor not found' }
       const now = new Date().toISOString()
       const allocation: TrustAllocation = {
         id: uid('ta'),
@@ -2275,21 +2298,39 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           t.id === txn.id ? { ...t, status: 'recognised' as const, updatedAt: now } : t,
         ),
       }))
-      await persistUpsert(
-        'trust_transaction',
-        txn.id,
-        { ...txn, status: 'recognised', updatedAt: now } as unknown as Record<string, unknown>,
-      )
-      await persistUpsert(
+      const undo = () =>
+        patch((s) => ({
+          ...s,
+          trustAllocations: s.trustAllocations.filter((a) => a.id !== allocation.id),
+          trustTransactions: s.trustTransactions.map((t) => (t.id === txn.id ? txn : t)),
+        }))
+      const lineSaved = await persistUpsert(
         'trust_allocation',
         allocation.id,
         allocation as unknown as Record<string, unknown>,
       )
+      if (!lineSaved) {
+        undo()
+        return { ok: false, error: `Receipt was not moved to suspense. ${TRUST_SAVE_FAILED}` }
+      }
+      const statusSaved = await persistUpsert(
+        'trust_transaction',
+        txn.id,
+        { ...txn, status: 'recognised', updatedAt: now } as unknown as Record<string, unknown>,
+      )
+      if (!statusSaved) {
+        undo()
+        return {
+          ok: false,
+          error: 'The suspense line was saved but the receipt status was not. Refresh the page before trying again.',
+        }
+      }
       addActivity(
         `Moved receipt to suspense (aged + alerted): ${txn.description || txn.id}`,
         actor.name,
         txn.agencyId,
       )
+      return { ok: true }
     },
     [patch, addActivity, persistUpsert],
   )
@@ -2380,17 +2421,51 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         csvImportBatches: [batch, ...s.csvImportBatches],
         trustTransactions: [...newTxns, ...s.trustTransactions],
       }))
-      await persistUpsert(
+      const batchSaved = await persistUpsert(
         'csv_import_batch',
         batch.id,
         batch as unknown as Record<string, unknown>,
       )
-      for (const txn of newTxns) {
-        await persistUpsert(
-          'trust_transaction',
-          txn.id,
-          txn as unknown as Record<string, unknown>,
-        )
+      if (!batchSaved) {
+        patch((s) => ({
+          ...s,
+          csvImportBatches: s.csvImportBatches.filter((b) => b.id !== batch.id),
+          trustTransactions: s.trustTransactions.filter((t) => !newTxns.some((n) => n.id === t.id)),
+        }))
+        return {
+          ok: false,
+          error: `Import was not saved. ${TRUST_SAVE_FAILED}`,
+          imported: 0,
+          duplicates: duplicateCount,
+          parseErrors: parsed.errors,
+        }
+      }
+      // Receipts that saved stay (re-importing the file skips them as duplicates).
+      const { saved, failed } = await persistInOrder(newTxns, (txn) =>
+        persistUpsert('trust_transaction', txn.id, txn as unknown as Record<string, unknown>),
+      )
+      if (failed) {
+        patch((s) => ({
+          ...s,
+          trustTransactions: s.trustTransactions.filter(
+            (t) => !newTxns.some((n) => n.id === t.id) || saved.some((ok) => ok.id === t.id),
+          ),
+        }))
+        if (saved.length > 0) {
+          addActivity(
+            `Template CSV import: ${saved.length} of ${newTxns.length} receipt(s) saved from ${batch.filename}`,
+            actor.name,
+            params.agencyId,
+          )
+        }
+        return {
+          ok: false,
+          error: csvImportSaveFailedMessage(saved.length, newTxns.length),
+          imported: saved.length,
+          duplicates: duplicateCount,
+          parseErrors: parsed.errors,
+          batchId,
+        }
       }
       addActivity(
         `Template CSV import: ${fresh.length} unallocated receipt(s) from ${batch.filename} (recorded in Lekaya, not yet matched to the bank)`,
@@ -2442,7 +2517,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           ? s.depositHoldings.map((d) => (d.id === row.id ? row : d))
           : [row, ...s.depositHoldings],
       }))
-      await persistUpsert('deposit_holding', row.id, row as unknown as Record<string, unknown>)
+      const saved = await persistUpsert('deposit_holding', row.id, row as unknown as Record<string, unknown>)
+      if (!saved) {
+        patch((s) => ({
+          ...s,
+          depositHoldings: existing
+            ? s.depositHoldings.map((d) => (d.id === row.id ? existing : d))
+            : s.depositHoldings.filter((d) => d.id !== row.id),
+        }))
+        return { ok: false, error: `Deposit was not saved. ${TRUST_SAVE_FAILED}` }
+      }
       addActivity(
         `Deposit held ${(row.heldCents / 100).toFixed(2)} ZAR for occupancy ${row.occupancyId}`,
         actor.name,

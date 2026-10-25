@@ -118,8 +118,12 @@ export default function TrustUnallocated() {
   async function handleMarkSuspense() {
     if (!selectedTxn || !user) return
     setBusy(true)
-    await markTrustSuspense({ transactionId: selectedTxn, actorUserId: user.id })
+    const result = await markTrustSuspense({ transactionId: selectedTxn, actorUserId: user.id })
     setBusy(false)
+    if (!result.ok) {
+      await sweetError('Cannot move to suspense', result.error ?? 'Not saved')
+      return
+    }
     await sweetSuccess(
       'Moved to suspense',
       'Matched to the agency but not to an occupancy — it will age and alert until resolved.'

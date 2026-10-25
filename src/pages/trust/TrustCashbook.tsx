@@ -143,7 +143,7 @@ export default function TrustCashbook() {
       })
       if (!result.ok) {
         await sweetError(
-          'Import failed',
+          result.imported > 0 ? 'Import partly saved' : 'Import failed',
           [result.error, ...result.parseErrors].filter(Boolean).join('\n') || 'Parse error',
         )
         return
