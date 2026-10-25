@@ -4746,10 +4746,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           httpStatus: 422,
         } as SubmitApplicationResult
       }
-      const initialWorkflow = initialWorkflowForCreate({
-        skipGuards: input.skipGuards,
-        uploadedDocs: input.uploadedDocs,
-      })
+      const initialWorkflow = initialWorkflowForCreate()
       const agencyRow = state.agencies.find((a) => a.id === agencyId)
       const journeySnapshot = defaultRentalJourneyForAgency(agencyRow?.settings)
       const employmentLine =
