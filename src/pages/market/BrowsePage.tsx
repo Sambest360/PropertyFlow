@@ -136,6 +136,9 @@ function cardMatchesBrowseMode(
   return matchesBrowseMode(property, mode)
 }
 
+/** Listings per set on the browse grid; Show more adds another set. */
+export const BROWSE_PAGE_SIZE = 12
+
 export default function BrowsePage() {
   const publicProperties = usePublicProperties()
   const { state, refreshMarketplaceListings } = useStore()
@@ -167,7 +170,8 @@ export default function BrowsePage() {
   const [panelOpen, setPanelOpen] = useState(false)
   const [showMap, setShowMap] = useState(!savedOnly)
   const [mobileView, setMobileView] = useState<'list' | 'map'>('list')
-  const [cursor, setCursor] = useState<string | null>(null)
+  // Show a set of listings, then "Show more" adds the next set below.
+  const [visibleCount, setVisibleCount] = useState(BROWSE_PAGE_SIZE)
   const [expandedWishlistId, setExpandedWishlistId] = useState<string | null>(null)
   const reducedMotion = usePrefersReducedMotion()
 
@@ -203,7 +207,7 @@ export default function BrowsePage() {
     return sortProperties(list, filters.sort, mode)
   }, [properties, q, mode, filters, areaPlaces])
 
-  /** Prefer infra units feed when units exist — cursor-paginated, card-ready. */
+  /** Prefer infra units feed when units exist — card-ready (all matches; the grid shows a set at a time). */
   const unitsFeed = useMemo(() => {
     if (savedOnly) return null
     if (mode === 'commercial') return null
@@ -233,11 +237,11 @@ export default function BrowsePage() {
         min_solar_kw: filters.minSolarKw ? Number(filters.minSolarKw) : undefined,
         grading: filters.grading.length ? filters.grading : undefined,
         sort: browseSortToApi(filters.sort, mode),
-        cursor,
-        limit: 24,
+        cursor: null,
+        limit: 5000,
       },
     })
-  }, [state.units, state.buildings, state.users, visibleStoreProperties, q, mode, filters, cursor, savedOnly, areaPlaces])
+  }, [state.units, state.buildings, state.users, visibleStoreProperties, q, mode, filters, savedOnly, areaPlaces])
 
   const cards: UnitCardPayload[] = useMemo(() => {
     const raw =
@@ -263,6 +267,13 @@ export default function BrowsePage() {
         return true
       })
   }, [unitsFeed, filtered, state.buildings, state.properties, blockedIds, mode, properties])
+
+  // A new search starts again from the first set.
+  useEffect(() => {
+    setVisibleCount(BROWSE_PAGE_SIZE)
+  }, [q, mode, filters, areaPlaces, savedOnly])
+  const shownCards = cards.slice(0, visibleCount)
+  const moreToShow = cards.length - shownCards.length
 
   const getCount = useCallback(
     (draft: BrowseFilterState) =>
@@ -340,21 +351,9 @@ export default function BrowsePage() {
               <p className="text-sm text-ink-500">
                 {savedOnly
                   ? `${cards.length} saved home${cards.length === 1 ? '' : 's'}`
-                  : mode === 'commercial' || !unitsFeed
-                    ? `${cards.length} place${cards.length === 1 ? '' : 's'}`
-                    : (() => {
-                        // P1 (R4): the header previously showed the full
-                        // filtered total while the grid renders 24 per page —
-                        // QA read it as a count mismatch. Say what's shown.
-                        // The feed's total can include listings another section owns
-                        // (e.g. a sale-or-rent office), so only quote "of N" while
-                        // more pages are still loading.
-                        if (!unitsFeed.pagination.has_more) {
-                          return `${cards.length} place${cards.length === 1 ? '' : 's'}`
-                        }
-                        const total = Math.max(unitsFeed.pagination.total_estimate ?? cards.length, cards.length)
-                        return `Showing ${cards.length} of ${total} places · scroll for more`
-                      })()}
+                  : moreToShow > 0
+                    ? `Showing ${shownCards.length} of ${cards.length} places`
+                    : `${cards.length} place${cards.length === 1 ? '' : 's'}`}
               </p>
               {savedOnly && cards.length === 0 && (
                 <p className="mt-2 flex items-center gap-1.5 text-sm text-ink-500">
@@ -409,7 +408,6 @@ export default function BrowsePage() {
             onOpen={() => setPanelOpen(true)}
             onClear={() => {
               setFilters(defaultBrowseFilters())
-              setCursor(null)
             }}
             onRemoveType={(t) => setFilters((f) => ({ ...f, types: f.types.filter((x) => x !== t) }))}
             onRemoveAmenity={(a) =>
@@ -470,7 +468,6 @@ export default function BrowsePage() {
                   type="button"
                   onClick={() => {
                     setFilters(defaultBrowseFilters())
-                    setCursor(null)
                   }}
                   className="mt-4 min-h-11 cursor-pointer text-sm font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
@@ -488,7 +485,7 @@ export default function BrowsePage() {
           ) : (
             <>
               <div className={`grid gap-5 ${showMap ? 'sm:grid-cols-2' : 'sm:grid-cols-2 lg:grid-cols-3'}`}>
-                {cards.map((card) => {
+                {shownCards.map((card) => {
                   const property =
                     properties.find((p) => p.id === card.property_id || p.unitId === card.id) ??
                     state.properties.find((p) => p.id === card.property_id)
@@ -507,14 +504,17 @@ export default function BrowsePage() {
                   )
                 })}
               </div>
-              {unitsFeed?.pagination.has_more && (
-                <div className="mt-6 flex justify-center">
+              {moreToShow > 0 && (
+                <div className="mt-8 flex flex-col items-center gap-2">
+                  <p className="text-xs text-ink-500">
+                    Showing {shownCards.length} of {cards.length}
+                  </p>
                   <button
                     type="button"
-                    className="min-h-11 cursor-pointer rounded-full bg-primary px-5 text-sm font-semibold text-white transition-colors duration-200 hover:bg-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                    onClick={() => setCursor(unitsFeed.pagination.next_cursor)}
+                    className="min-h-11 cursor-pointer rounded-full border border-primary-200 bg-white px-6 text-sm font-semibold text-primary shadow-sm transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    onClick={() => setVisibleCount((n) => n + BROWSE_PAGE_SIZE)}
                   >
-                    Load more listings
+                    Show more ({Math.min(moreToShow, BROWSE_PAGE_SIZE)})
                   </button>
                 </div>
               )}
@@ -572,7 +572,6 @@ export default function BrowsePage() {
         value={filters}
         onApply={(next) => {
           setFilters(next)
-          setCursor(null)
         }}
         resultCount={getCount(filters)}
         getCount={getCount}
