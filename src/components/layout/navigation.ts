@@ -705,6 +705,7 @@ function buildLandlordOwnerNav(
     portalHome,
     '/workspace',
     '/workspace/applications',
+    '/workspace/portals/owner/applications',
     '/workspace/operations/documents',
     '/workspace/operations/payments',
     '/workspace/operations/maintenance',
@@ -719,7 +720,7 @@ function buildLandlordOwnerNav(
     {
       type: 'link',
       item: {
-        to: '/workspace/applications',
+        to: '/workspace/portals/owner/applications',
         label: 'Applications',
         permission: 'portal.owner',
         icon: ClipboardList,

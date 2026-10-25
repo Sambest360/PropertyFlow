@@ -43,7 +43,7 @@ describe('resolveWorkspaceBottomNavTabs', () => {
     const tabs = resolveWorkspaceBottomNavTabs(
       mockAuth(['portal.owner', 'applications.view', 'assets.view'], 'landlord'),
     )
-    expect(tabs.find((t) => t.id === 'applications')?.to).toBe('/workspace/portals/owner')
+    expect(tabs.find((t) => t.id === 'applications')?.to).toBe('/workspace/portals/owner/applications')
   })
 
   it('sends tenants with payments.manage to the tenant portal payments page', () => {

@@ -276,7 +276,8 @@ describe('buildWorkspaceNavForActor portal dedupe', () => {
     expect(labels.filter((l) => l === 'Dashboard')).toHaveLength(1)
     expect(paths.filter((p) => p === '/workspace/portals/owner')).toHaveLength(1)
     expect(labels).toContain('Applications')
-    expect(paths).toContain('/workspace/applications')
+    // Its own page — not the dashboard again.
+    expect(paths).toContain('/workspace/portals/owner/applications')
     expect(labels).toContain('Documents')
     expect(labels).toContain('My properties')
     expect(labels).toContain('Payments')

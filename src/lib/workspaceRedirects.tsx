@@ -8,7 +8,7 @@ export function resolveWorkspaceApplicationsPath(
   role?: Role | null,
 ): string {
   // Landlord portfolio packs include applications.view — owner portal is the right surface.
-  if (has('portal.owner')) return '/workspace/portals/owner'
+  if (has('portal.owner')) return '/workspace/portals/owner/applications'
   if (has('applications.view')) return '/workspace/sales/applications'
   if (has('portal.tenant')) return '/workspace/portals/tenant/applications'
   if (role === 'landlord') return '/workspace/portals/owner'

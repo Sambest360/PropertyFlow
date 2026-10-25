@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { FileText } from 'lucide-react'
 import { useStore } from '../context/AppStore'
+import { useLandlordDecision } from '../hooks/useLandlordDecision'
 import { ViewingEvidenceBadge } from '../components/applications/ViewingEvidenceBadge'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
@@ -11,13 +12,11 @@ import { Badge, Button, Card, statusTone } from '../components/ui'
 import { formatZAR } from '../data/seed'
 import { useAgentDisplay } from '../hooks/useAgentDisplay'
 import {
-  getAvailableTransitions,
   resolveWorkflowStatus,
   workflowStageLabel,
 } from '../lib/applicationWorkflow'
 import { groupPortfolioByBuilding } from '../lib/buildingHierarchy'
 import { gradingLabel } from '../lib/buildingGrading'
-import { rolePermissions } from '../lib/permissions'
 import { OwnerMessagesPanel } from '../components/messaging/OwnerMessagesPanel'
 import { PortalHydrationGate } from '../components/PortalHydrationGate'
 import { propertyRefLabel } from '../lib/propertyRefs'
@@ -33,11 +32,11 @@ export default function OwnerPortal() {
 }
 
 function OwnerPortalContent() {
-  const { state, advanceApplicationWorkflow } = useStore()
+  const { state } = useStore()
   const { user, has } = useAuth()
   const { listedBy } = useAgentDisplay()
   const { allowedPropertyIds, paymentVisible, ticketVisible } = usePropertyScope()
-  const [busyAppId, setBusyAppId] = useState<string | null>(null)
+  const { busyAppId, options: decisionOptions, decide: runLandlordDecision } = useLandlordDecision()
   const [searchParams, setSearchParams] = useSearchParams()
 
   const scoped = useMemo(() => {
@@ -85,7 +84,6 @@ function OwnerPortalContent() {
     [state.tickets, ticketVisible],
   )
 
-  const landlordPerms = useMemo(() => rolePermissions.landlord, [])
   const pendingReviews = useMemo(() => {
     if (!has('portal.owner')) return []
     return state.applications
@@ -99,29 +97,6 @@ function OwnerPortalContent() {
   const rented = scoped.filter((p) => p.status === 'Rented').length
   const occupancy = scoped.length ? Math.round((rented / scoped.length) * 100) : 0
   const featured = scoped[0]
-
-  async function runLandlordDecision(
-    applicationId: string,
-    targetStatus: 'conditionally_approved' | 'rejected',
-  ) {
-    const app = state.applications.find((a) => a.id === applicationId)
-    if (!app) return
-    const transition = getAvailableTransitions(app, landlordPerms).find((t) => t.to === targetStatus)
-    if (!transition) return
-    if (transition.confirm && typeof window !== 'undefined' && !window.confirm(transition.confirm)) {
-      return
-    }
-    setBusyAppId(applicationId)
-    try {
-      await advanceApplicationWorkflow({
-        applicationId,
-        actorUserId: user.id,
-        targetStatus,
-      })
-    } finally {
-      setBusyAppId(null)
-    }
-  }
 
   const overdueCount = payments.filter((p) => p.status === 'Overdue').length
   const dueCount = payments.filter((p) => p.status === 'Due' || p.status === 'Overdue').length
@@ -204,9 +179,7 @@ function OwnerPortalContent() {
               {pendingReviews.map((app) => {
                 const prop = propertyById[app.propertyId]
                 const busy = busyAppId === app.id
-                const actions = getAvailableTransitions(app, landlordPerms)
-                const canApprove = actions.some((t) => t.to === 'conditionally_approved')
-                const canReject = actions.some((t) => t.to === 'rejected')
+                const { canApprove, canReject } = decisionOptions(app)
                 return (
                   <li key={app.id} className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">

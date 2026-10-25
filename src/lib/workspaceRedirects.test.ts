@@ -18,14 +18,14 @@ describe('resolveWorkspaceApplicationsPath', () => {
     )
   })
 
-  it('prefers owner portal when landlord pack includes applications.view', () => {
+  it("prefers the owner's applications page when landlord pack includes applications.view", () => {
     expect(
       resolveWorkspaceApplicationsPath(hasOnly('applications.view', 'portal.owner'), 'landlord'),
-    ).toBe('/workspace/portals/owner')
+    ).toBe('/workspace/portals/owner/applications')
   })
 
-  it('sends landlords to owner portal', () => {
-    expect(resolveWorkspaceApplicationsPath(hasOnly('portal.owner'))).toBe('/workspace/portals/owner')
+  it("sends landlords to their applications page, not the dashboard", () => {
+    expect(resolveWorkspaceApplicationsPath(hasOnly('portal.owner'))).toBe('/workspace/portals/owner/applications')
   })
 
   it('falls back to owner portal for landlord role without explicit portal perm', () => {

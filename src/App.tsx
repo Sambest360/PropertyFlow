@@ -60,6 +60,7 @@ const Payments = lazy(() => import('./pages/Payments'))
 const PaymentDetail = lazy(() => import('./pages/PaymentDetail'))
 const Reports = lazy(() => import('./pages/Reports'))
 const OwnerPortal = lazy(() => import('./pages/OwnerPortal'))
+const OwnerApplicationsPage = lazy(() => import('./pages/owner/OwnerApplicationsPage'))
 const TenantPortal = lazy(() => import('./pages/TenantPortal'))
 const AccountWishlistPage = lazy(() => import('./pages/account/AccountWishlistPage'))
 const AccountSignaturePage = lazy(() => import('./pages/account/AccountSignaturePage'))
@@ -412,6 +413,7 @@ export default function App() {
 
                 {/* Portals */}
                 <Route path="portals/owner" element={<Guard permission="portal.owner"><OwnerPortal /></Guard>} />
+                <Route path="portals/owner/applications" element={<Guard permission="portal.owner"><OwnerApplicationsPage /></Guard>} />
                 <Route path="portals/tenant" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
                 <Route path="portals/tenant/applications" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
                 <Route
