@@ -37,31 +37,34 @@ export function PasswordField({
   const strength = showStrength ? passwordStrength(value) : null
   return (
     <div>
-      <Input
-        id={id}
-        type={show ? 'text' : 'password'}
-        className="min-h-11 pr-12"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        autoComplete={autoComplete}
-        required={required}
-        minLength={minLength}
-        placeholder={placeholder}
-      />
-      <button
-        type="button"
-        className={cn(
-          'absolute right-1.5 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-xl text-ink-400 transition-colors duration-200 hover:bg-primary-50 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-        )}
-        onClick={() => setShow((s) => !s)}
-        aria-label={show ? 'Hide password' : 'Show password'}
-      >
-        {show ? (
-          <EyeOff className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-        ) : (
-          <Eye className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-        )}
-      </button>
+      {/* The eye button is positioned against this wrapper, not the page. */}
+      <div className="relative">
+        <Input
+          id={id}
+          type={show ? 'text' : 'password'}
+          className="min-h-11 pr-12"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          autoComplete={autoComplete}
+          required={required}
+          minLength={minLength}
+          placeholder={placeholder}
+        />
+        <button
+          type="button"
+          className={cn(
+            'absolute right-1.5 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-xl text-ink-400 transition-colors duration-200 hover:bg-primary-50 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+          )}
+          onClick={() => setShow((s) => !s)}
+          aria-label={show ? 'Hide password' : 'Show password'}
+        >
+          {show ? (
+            <EyeOff className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+          ) : (
+            <Eye className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+          )}
+        </button>
+      </div>
       {strength && value.length > 0 && (
         <div className="mt-1.5 flex items-center gap-2" aria-live="polite">
           <div className="flex flex-1 gap-1" aria-hidden>
