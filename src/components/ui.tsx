@@ -290,7 +290,7 @@ export function Modal({
         aria-modal="true"
         aria-labelledby="modal-title"
         className={cn(
-          'relative z-10 flex max-h-[90vh] w-full flex-col overflow-hidden rounded-[1.25rem] border border-primary-100 bg-white shadow-[0_24px_48px_-20px_rgba(15,39,68,0.35)]',
+          'relative z-10 flex max-h-[90vh] max-h-[90dvh] w-full flex-col overflow-hidden rounded-[1.25rem] border border-primary-100 bg-white shadow-[0_24px_48px_-20px_rgba(15,39,68,0.35)]',
           widths[size],
         )}
       >

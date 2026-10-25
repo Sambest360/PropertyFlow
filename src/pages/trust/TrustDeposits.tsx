@@ -444,7 +444,7 @@ export default function TrustDeposits() {
           </div>
         ) : (
           <div className="divide-y divide-primary-100">
-            <div className="grid grid-cols-12 gap-4 bg-primary-50/50 px-4 py-3 text-xs font-medium text-ink-500">
+            <div className="hidden grid-cols-12 gap-4 bg-primary-50/50 px-4 py-3 text-xs font-medium text-ink-500 md:grid">
               <div className="col-span-2">Occupancy</div>
               <div className="col-span-2">Expected</div>
               <div className="col-span-2">Held</div>
@@ -462,7 +462,7 @@ export default function TrustDeposits() {
               return (
                 <div
                   key={deposit.id}
-                  className="grid grid-cols-12 gap-4 px-4 py-3 hover:bg-primary-50/30 transition-colors items-center"
+                  className="grid grid-cols-2 items-center gap-x-4 gap-y-2 px-4 py-3 transition-colors hover:bg-primary-50/30 md:grid-cols-12 md:gap-4"
                 >
                   <div className="col-span-2">
                     {(() => {
@@ -475,21 +475,21 @@ export default function TrustDeposits() {
                       )
                     })()}
                   </div>
-                  <div className="col-span-2 text-sm text-ink">
+                  <div className="stack-cell text-sm text-ink md:col-span-2" data-label="Expected">
                     {formatCents(deposit.expectedCents)}
                   </div>
-                  <div className="col-span-2 text-sm font-medium text-ink">
+                  <div className="stack-cell text-sm font-medium text-ink md:col-span-2" data-label="Held">
                     {formatCents(deposit.heldCents)}
                   </div>
-                  <div className="col-span-1 text-sm text-ink-500">
+                  <div className="stack-cell text-sm text-ink-500 md:col-span-1" data-label="Interest">
                     {formatCents(deposit.interestAccruedCents)}
                   </div>
-                  <div className="col-span-2">
+                  <div className="stack-cell md:col-span-2" data-label="Status">
                     <Badge tone={statusTone(deposit.status)}>
                       {deposit.status === 'refunded' ? 'Refund recorded' : deposit.status.replace(/_/g, ' ')}
                     </Badge>
                   </div>
-                  <div className="col-span-1 text-sm">
+                  <div className="stack-cell text-sm md:col-span-1" data-label="Deadline">
                     {deposit.statutoryDeadlineOn ? (
                       <span className={days !== null && days <= 7 ? 'text-red-600 font-medium' : 'text-ink'}>
                         {formatDate(deposit.statutoryDeadlineOn)}
@@ -498,7 +498,7 @@ export default function TrustDeposits() {
                       '—'
                     )}
                   </div>
-                  <div className="col-span-2 flex flex-col gap-1">
+                  <div className="col-span-2 flex flex-col gap-1 sm:flex-row sm:flex-wrap md:flex-col">
                     {deposit.status === 'held' && (
                       <Button
                         variant="primary"

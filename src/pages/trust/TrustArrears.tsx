@@ -131,7 +131,7 @@ export default function TrustArrears() {
         <Card>
           <div className="divide-y divide-primary-100">
             {/* Table Header */}
-            <div className="grid grid-cols-8 gap-4 bg-primary-50/50 px-4 py-3 text-xs font-medium text-ink-500">
+            <div className="hidden grid-cols-8 gap-4 bg-primary-50/50 px-4 py-3 text-xs font-medium text-ink-500 md:grid">
               <div className="col-span-2">Occupancy</div>
               <div className="col-span-1 text-right">1–30 days</div>
               <div className="col-span-1 text-right">31–60 days</div>
@@ -150,7 +150,7 @@ export default function TrustArrears() {
               return (
                 <div
                   key={snapshot.id}
-                  className={`grid grid-cols-8 gap-4 px-4 py-3 transition-colors ${
+                  className={`grid grid-cols-2 gap-x-4 gap-y-2 px-4 py-3 transition-colors md:grid-cols-8 md:gap-4 ${
                     hasSevere ? 'bg-red-50/50 hover:bg-red-50' : 'hover:bg-primary-50/30'
                   }`}
                 >
@@ -160,38 +160,38 @@ export default function TrustArrears() {
                     </p>
                     <p className="text-xs text-ink-400">As of {formatDate(snapshot.asOf)}</p>
                   </div>
-                  <div className="col-span-1 text-right text-sm">
+                  <div className="stack-cell text-sm md:col-span-1 md:text-right" data-label="1–30 days">
                     {snapshot.d30 > 0 ? (
                       <span className="text-amber-600">{formatCents(snapshot.d30)}</span>
                     ) : (
                       <span className="text-ink-400">—</span>
                     )}
                   </div>
-                  <div className="col-span-1 text-right text-sm">
+                  <div className="stack-cell text-sm md:col-span-1 md:text-right" data-label="31–60 days">
                     {snapshot.d60 > 0 ? (
                       <span className="text-orange-600">{formatCents(snapshot.d60)}</span>
                     ) : (
                       <span className="text-ink-400">—</span>
                     )}
                   </div>
-                  <div className="col-span-1 text-right text-sm">
+                  <div className="stack-cell text-sm md:col-span-1 md:text-right" data-label="61–90 days">
                     {snapshot.d90 > 0 ? (
                       <span className="text-red-600">{formatCents(snapshot.d90)}</span>
                     ) : (
                       <span className="text-ink-400">—</span>
                     )}
                   </div>
-                  <div className="col-span-1 text-right text-sm">
+                  <div className="stack-cell text-sm md:col-span-1 md:text-right" data-label="90+ days">
                     {snapshot.d90plus > 0 ? (
                       <span className="text-red-700 font-semibold">{formatCents(snapshot.d90plus)}</span>
                     ) : (
                       <span className="text-ink-400">—</span>
                     )}
                   </div>
-                  <div className="col-span-1 text-right text-sm font-semibold text-ink">
+                  <div className="stack-cell text-sm font-semibold text-ink md:col-span-1 md:text-right" data-label="Total">
                     {formatCents(total)}
                   </div>
-                  <div className="col-span-1">
+                  <div className="self-end md:col-span-1 md:self-auto">
                     <Button
                       variant="ghost"
                       size="sm"

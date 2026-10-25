@@ -177,8 +177,15 @@ export default function ListingDetail() {
     ? `${p.type} in ${p.suburb}, ${p.city}. ${p.description.trim().slice(0, 155)}${p.description.length > 155 ? '…' : ''}`
     : undefined
 
+  // Same wait as the loading skeleton below: the tab title must not say
+  // "not found" while the listing is still on its way.
+  const listingStillLoading =
+    !p &&
+    (awaitingSignedInHydration ||
+      (liveDataMode && Boolean(id) && !listingFetchDone) ||
+      (!(state.properties.length > 0 || state.units.length > 0) && !retryWindowOver))
   usePageMeta({
-    title: p?.title ?? 'Listing not found',
+    title: p?.title ?? (listingStillLoading ? 'Loading listing…' : 'Listing not found'),
     description: listingDescription,
     image: p?.images[0],
     path: id ? `/listing/${id}` : undefined,

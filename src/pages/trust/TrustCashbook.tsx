@@ -289,7 +289,7 @@ export default function TrustCashbook() {
           />
         ) : (
           <div className="divide-y divide-primary-100">
-            <div className="grid grid-cols-12 gap-4 bg-primary-50/50 px-4 py-3 text-xs font-medium text-ink-500">
+            <div className="hidden grid-cols-12 gap-4 bg-primary-50/50 px-4 py-3 text-xs font-medium text-ink-500 md:grid">
               <div className="col-span-1">Type</div>
               <div className="col-span-2">Date</div>
               <div className="col-span-4">Description</div>
@@ -301,26 +301,26 @@ export default function TrustCashbook() {
             {transactions.map((txn) => (
               <div
                 key={txn.id}
-                className="grid grid-cols-12 gap-4 px-4 py-3 transition-colors hover:bg-primary-50/30"
+                className="grid grid-cols-2 items-start gap-x-3 gap-y-2 px-4 py-3 transition-colors hover:bg-primary-50/30 md:grid-cols-12 md:gap-4"
               >
-                <div className="col-span-1">
+                <div className="hidden md:col-span-1 md:block">
                   {txn.direction === 'in' ? (
                     <ArrowDownLeft className="h-5 w-5 text-emerald-500" />
                   ) : (
                     <ArrowUpRight className="h-5 w-5 text-red-500" />
                   )}
                 </div>
-                <div className="col-span-2 text-sm text-ink-600">{formatDate(txn.valueDate)}</div>
-                <div className="col-span-4 text-sm text-ink">
+                <div className="stack-cell order-3 text-sm text-ink-600 md:order-none md:col-span-2" data-label="Date">{formatDate(txn.valueDate)}</div>
+                <div className="order-1 min-w-0 text-sm text-ink md:order-none md:col-span-4">
                   <p className="font-medium">{txn.description}</p>
                   <p className="text-xs text-ink-400">{txn.partnerTxnId}</p>
                 </div>
-                <div className="col-span-2 font-mono text-sm text-ink-500">{txn.bankRef || '—'}</div>
-                <div className="col-span-1">
+                <div className="stack-cell order-4 min-w-0 truncate font-mono text-sm text-ink-500 md:order-none md:col-span-2" data-label="Reference">{txn.bankRef || '—'}</div>
+                <div className="stack-cell order-5 md:order-none md:col-span-1" data-label="Status">
                   <Badge tone={statusTone(txn.status)}>{txn.status.replace('_', ' ')}</Badge>
                 </div>
                 <div
-                  className={`col-span-2 text-right font-semibold tabular ${
+                  className={`order-2 text-right font-semibold tabular md:order-none md:col-span-2 ${
                     txn.direction === 'in' ? 'text-emerald-600' : 'text-red-600'
                   }`}
                 >
