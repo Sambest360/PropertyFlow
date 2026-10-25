@@ -204,6 +204,7 @@ export function ApplicationLifecycleHub({
   actor,
   canReview,
   applicantMode,
+  compact,
   tasks = [],
   onRunAction,
   onSetDocument,
@@ -221,6 +222,8 @@ export function ApplicationLifecycleHub({
   }
   canReview: boolean
   applicantMode?: boolean
+  /** Step tracker only (no header, summary figures or task list) — the page shows those. */
+  compact?: boolean
   tasks?: ApplicantTask[]
   onRunAction: (action: HateoasAction, capture?: WorkflowActionCapture) => void
   onSetDocument?: (key: string, status: ApplicationDocument['status'], note?: string) => void
@@ -337,6 +340,7 @@ export function ApplicationLifecycleHub({
       ) : null}
 
       <Card className="overflow-hidden border-primary-100 p-0">
+        {compact ? null : (
         <div className="border-b border-primary-100 bg-gradient-to-r from-primary-50/70 via-white to-brand-50/40 px-5 py-4">
           <h2 className="font-display text-lg font-semibold text-ink">
             {applicantMode ? 'Application progress' : 'Lifecycle'}
@@ -348,16 +352,19 @@ export function ApplicationLifecycleHub({
             {property ? ` for ${property.title}` : ''}.
           </p>
         </div>
+        )}
 
         <div className="space-y-5 p-5">
+          {compact ? null : (
           <dl className="grid gap-4 rounded-2xl border border-primary-100 bg-white p-4 sm:grid-cols-4">
             <Meta label="Current status" value={workflowStageLabel(application.type, workflowStatus)} />
             <Meta label="Progress" value={`${progress}%`} tabular />
             {assignedAgent ? <Meta label="Agent" value={assignedAgent} /> : null}
             <Meta label="Type" value={application.type} />
           </dl>
+          )}
 
-          {tasks.length > 0 ? (
+          {!compact && tasks.length > 0 ? (
             <div className="rounded-2xl border border-primary-200 bg-primary-50/60 p-4">
               <p className="text-sm font-semibold text-ink">Actions required</p>
               <ul className="mt-2 space-y-1">
@@ -371,7 +378,9 @@ export function ApplicationLifecycleHub({
           ) : null}
 
           <section>
-            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">Your journey</h3>
+            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">
+              {compact ? 'Steps — tap one to see what happens there' : 'Your journey'}
+            </h3>
             <ol className="mt-3 flex gap-1 overflow-x-auto pb-2 [scrollbar-width:thin]">
               {milestones.map((m) => {
                 const visual = milestoneVisualState(application.type, workflowStatus, m.key, application)
@@ -420,9 +429,11 @@ export function ApplicationLifecycleHub({
             </ol>
           </section>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge tone={statusTone(application.stage)}>{application.stage}</Badge>
-          </div>
+          {compact ? null : (
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone={statusTone(application.stage)}>{application.stage}</Badge>
+            </div>
+          )}
         </div>
       </Card>
 
