@@ -398,6 +398,7 @@ export default function TenantApplicationDetailPage() {
                 canReview={false}
                 applicantMode
                 compact
+                onOpenDocuments={() => setTab('documents')}
                 tasks={tasks}
                 onRunAction={runAction}
                 onSetDocument={(key, next, note) => setDocumentStatus(application.id, key, next, note)}

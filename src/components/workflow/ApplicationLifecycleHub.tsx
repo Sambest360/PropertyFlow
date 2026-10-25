@@ -46,6 +46,12 @@ import { useAgentDisplay } from '../../hooks/useAgentDisplay'
 import { useSuiteAlert } from '../alerts/SuiteAlert'
 import { ICON_STROKE } from '../applicant-detail/types'
 
+/** Steps whose work happens on the Documents tab (purchases collect FICA documents at the FICA step). */
+const DOCUMENT_STEPS = new Set<string>(['documents_requested', 'documents_uploaded'])
+function isDocumentStep(type: Application['type'], key: string): boolean {
+  return DOCUMENT_STEPS.has(key) || (type === 'Purchase' && key === 'fica_verification')
+}
+
 function resolveTone(action: HateoasAction): NonNullable<HateoasAction['tone']> {
   if (action.tone) return action.tone
   if (
@@ -205,6 +211,7 @@ export function ApplicationLifecycleHub({
   canReview,
   applicantMode,
   compact,
+  onOpenDocuments,
   tasks = [],
   onRunAction,
   onSetDocument,
@@ -224,6 +231,8 @@ export function ApplicationLifecycleHub({
   applicantMode?: boolean
   /** Step tracker only (no header, summary figures or task list) — the page shows those. */
   compact?: boolean
+  /** When set, the Documents step opens the page's Documents tab instead of the step detail. */
+  onOpenDocuments?: () => void
   tasks?: ApplicantTask[]
   onRunAction: (action: HateoasAction, capture?: WorkflowActionCapture) => void
   onSetDocument?: (key: string, status: ApplicationDocument['status'], note?: string) => void
@@ -392,7 +401,9 @@ export function ApplicationLifecycleHub({
                   <li key={m.key} className="min-w-[7.5rem] flex-1">
                     <button
                       type="button"
-                      onClick={() => setSelectedStage(m.key)}
+                      onClick={() =>
+                        onOpenDocuments && isDocumentStep(application.type, m.key) ? onOpenDocuments() : setSelectedStage(m.key)
+                      }
                       className={cn(
                         'flex w-full cursor-pointer flex-col items-center rounded-xl border px-2 py-2.5 text-center transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
                         selected && 'border-primary bg-primary-50 ring-2 ring-primary/20',
