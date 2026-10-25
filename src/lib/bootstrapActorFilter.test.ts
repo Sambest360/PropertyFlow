@@ -57,3 +57,23 @@ describe('bootstrapActorFilter (shared)', () => {
     expect(out.properties.map((p) => p.id)).not.toContain('p-a3')
   })
 })
+
+describe('tenant viewings', () => {
+  it("includes the tenant's own booking on a listing they have not applied to, and nobody else's", () => {
+    const actor = { userId: 'u-t', role: 'tenant', agencyId: null }
+    const data = {
+      ...raw,
+      users: [{ id: 'u-t', email: 'Tenant@Example.com', name: 'Thandi Tenant' }],
+      viewings: [
+        { id: 'v-mine', propertyId: 'p-b1', agencyId: 'ag-b', agentId: 'u-x', applicantName: 'Thandi Tenant', applicantEmail: 'tenant@example.com' },
+        { id: 'v-other', propertyId: 'p-b1', agencyId: 'ag-b', agentId: 'u-x', applicantName: 'Someone Else', applicantEmail: 'else@example.com' },
+      ],
+    }
+    const scope = buildPropertyScope(
+      { role: 'tenant', userId: actor.userId, agencyId: null, agencySuspended: false },
+      { properties: data.properties },
+    )
+    const out = filterBootstrapForActor(data as never, actor as never, scope)
+    expect(out.viewings.map((v) => (v as { id: string }).id)).toEqual(['v-mine'])
+  })
+})

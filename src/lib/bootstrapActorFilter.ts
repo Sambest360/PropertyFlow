@@ -680,9 +680,15 @@ function filterBootstrapEntitiesForActor(
       agencyId: x.agencyId,
     })
   })
-  const viewings = raw.viewings.filter((x) =>
-    dealInScope(scope, { propertyId: x.propertyId, agentId: x.agentId, agencyId: x.agencyId }),
-  )
+  // Tenants book viewings on listings before applying, so those properties are
+  // not in their scope yet; narrowPortalCollections keeps only their own
+  // bookings (by email, or name when the booking has no email).
+  const viewings =
+    actor.role === 'tenant'
+      ? raw.viewings
+      : raw.viewings.filter((x) =>
+          dealInScope(scope, { propertyId: x.propertyId, agentId: x.agentId, agencyId: x.agencyId }),
+        )
   const viewingSlots = (raw.viewingSlots ?? []).filter((x) =>
     dealInScope(scope, { propertyId: x.propertyId, agentId: x.agentId, agencyId: x.agencyId }),
   )
