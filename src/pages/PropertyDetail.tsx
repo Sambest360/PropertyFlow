@@ -448,6 +448,7 @@ export default function PropertyDetail() {
         deleteBusy={deleteBusy}
         restoreBusy={restoreBusy}
         onToggleFeatured={() => updateProperty(p.id, { featured: !p.featured })}
+        canFeature={user.role === 'super_admin'}
         guestMarketplaceBlock={guestMarketplaceBlock}
       />
 

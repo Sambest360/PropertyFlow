@@ -26,6 +26,7 @@ export function PropertyDetailHeader({
   publishBlockedReason,
   onPublish,
   onToggleFeatured,
+  canFeature = false,
   publishBusy,
   canDelete,
   deleteBlockedReason,
@@ -51,6 +52,8 @@ export function PropertyDetailHeader({
   publishBlockedReason?: string | null
   onPublish?: () => void
   onToggleFeatured: () => void
+  /** Featuring is a paid platform service — super admins only. */
+  canFeature?: boolean
   publishBusy?: boolean
   canDelete?: boolean
   deleteBlockedReason?: string | null
@@ -83,6 +86,7 @@ export function PropertyDetailHeader({
               {property.title}
             </h1>
             <Badge tone={resolved.tone}>{resolved.label}</Badge>
+            {property.featured && !deleted ? <Badge tone="brand">Featured</Badge> : null}
           </div>
           <p className="mt-1 text-sm text-ink-500">
             {property.id}
@@ -130,7 +134,7 @@ export function PropertyDetailHeader({
                 </Button>
               </Link>
             )}
-            {canManage && !isDraft && !deleted ? (
+            {canFeature && !isDraft && !deleted ? (
               <Button
                 variant="secondary"
                 className="min-h-11"

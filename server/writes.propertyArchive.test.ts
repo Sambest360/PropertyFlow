@@ -52,7 +52,7 @@ describe('upsertProperty archive', () => {
 
   it('archive keeps listing_type and stored agent_id when agentId omitted', async () => {
     query.mockImplementation(async (sql: string) => {
-      if (sql.includes('SELECT status_config_key, listing_type, agent_id FROM units')) {
+      if (sql.includes('SELECT status_config_key, listing_type, agent_id, featured FROM units')) {
         return [
           {
             status_config_key: 'PUBLISHED',
@@ -93,7 +93,7 @@ describe('upsertProperty archive', () => {
 
   it('DELETED row without restore is a no-op upsert', async () => {
     query.mockImplementation(async (sql: string) => {
-      if (sql.includes('SELECT status_config_key, listing_type, agent_id FROM units')) {
+      if (sql.includes('SELECT status_config_key, listing_type, agent_id, featured FROM units')) {
         return [
           {
             status_config_key: 'DELETED',
@@ -124,5 +124,50 @@ describe('upsertProperty archive', () => {
     expect(result.ok).toBe(true)
     const unitInsert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO units'))
     expect(unitInsert).toBeUndefined()
+  })
+})
+
+describe('upsertProperty featured (paid, super admin only)', () => {
+  beforeEach(() => {
+    query.mockReset()
+    resolveUuid.mockReset()
+    ensureUuid.mockReset()
+    resolveUuid.mockImplementation(async (et: string) => (et === 'agency' ? AGENCY_UUID : et === 'building' ? BUILDING_UUID : null))
+    ensureUuid.mockImplementation(async (et: string, _fe: string, preferred?: string) => preferred ?? (et === 'building' ? BUILDING_UUID : UNIT_UUID))
+  })
+  afterEach(() => vi.resetModules())
+
+  async function saveFeatured(storedFeatured: boolean, sent: boolean, role: string | null) {
+    query.mockClear()
+    query.mockImplementation(async (sql: string) =>
+      sql.includes('SELECT status_config_key, listing_type, agent_id, featured FROM units')
+        ? [{ status_config_key: 'PUBLISHED', listing_type: 'rent', agent_id: STORED_AGENT_UUID, featured: storedFeatured }]
+        : [],
+    )
+    const { handlePersist } = await import('./writes.js')
+    await handlePersist(
+      {
+        resource: 'property',
+        action: 'upsert',
+        id: 'unt-feature',
+        data: { agencyId: 'ag-fixture', buildingId: 'bld-fixture', title: 'Flat', statusKey: 'PUBLISHED', rent: 9000, featured: sent },
+      },
+      'u-1',
+      role,
+    )
+    const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO units'))!
+    return (insert[1] as unknown[])[18]
+  }
+
+  it('an agency save cannot feature or unfeature a listing', async () => {
+    expect(await saveFeatured(false, true, 'agent_admin')).toBe(false)
+    vi.resetModules()
+    expect(await saveFeatured(true, false, 'client_admin')).toBe(true)
+  })
+
+  it('a super admin can', async () => {
+    expect(await saveFeatured(false, true, 'super_admin')).toBe(true)
+    vi.resetModules()
+    expect(await saveFeatured(true, false, 'super_admin')).toBe(false)
   })
 })

@@ -1063,7 +1063,8 @@ async function upsertProperty(
     status_config_key: string
     listing_type: string
     agent_id: string | null
-  }>(`SELECT status_config_key, listing_type, agent_id FROM units WHERE id = $1::uuid`, [uuid])
+    featured: boolean | null
+  }>(`SELECT status_config_key, listing_type, agent_id, featured FROM units WHERE id = $1::uuid`, [uuid])
   const existingUnit = existingRows[0]
   const storedStatus = (existingUnit?.status_config_key ?? '').toUpperCase()
   const isRestore = d.restore === true
@@ -1169,7 +1170,13 @@ async function upsertProperty(
       str(d.description),
       JSON.stringify(Array.isArray(d.amenities) ? d.amenities : []),
       JSON.stringify(Array.isArray(d.images) ? d.images : []),
-      isArchive ? false : bool(d.featured) || str(d.status) === 'Featured',
+      // Featuring is a paid platform service: only a super admin sets it;
+      // anyone else's save keeps the stored value (new listings start off).
+      isArchive
+        ? false
+        : actorRole === 'super_admin'
+          ? bool(d.featured) || str(d.status) === 'Featured'
+          : Boolean(existingUnit?.featured),
       num(d.lat),
       num(d.lng),
       d.placeId ? str(d.placeId) : null,
