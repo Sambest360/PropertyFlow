@@ -259,7 +259,7 @@ export async function actOnSupportTicket(
     if (refusal) throw httpError(403, `Forbidden: ${refusal}`, 'SUPPORT_FORBIDDEN')
 
     const now = new Date().toISOString()
-    const p = { ...(row.payload ?? {}) } as Record<string, unknown>
+    const p = { ...row.payload } as Record<string, unknown>
     const replies = [...(before.replies ?? [])]
     const add = (body: string, extra: Partial<SupportReply> = {}) =>
       replies.push({
