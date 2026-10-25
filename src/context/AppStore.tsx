@@ -89,6 +89,8 @@ import {
   getAvailableTransitions,
   normalizeApplication,
   resolveWorkflowStatus,
+  workflowProgress,
+  workflowStageLabel,
   type WorkflowStatusKey,
   type WorkflowTransition,
 } from '../lib/applicationWorkflow'
@@ -4830,7 +4832,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           httpStatus: 422,
         } as SubmitApplicationResult
       }
-      const initialWorkflow = initialWorkflowForCreate()
+      const initialWorkflow = initialWorkflowForCreate(input.type)
       const agencyRow = state.agencies.find((a) => a.id === agencyId)
       const journeySnapshot = defaultRentalJourneyForAgency(agencyRow?.settings)
       const employmentLine =
@@ -5345,7 +5347,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         // defaulted write left on the row. No SQL needed; normal writes heal it.
         const approvedApp: Application = {
           ...ok.application,
-          workflowStatus: 'deposit_invoice_sent',
+          ...approvedApplicationFields(ok.application.type),
           agentId: stateRef.current.properties.find((p) => p.id === ok.application.propertyId)
             ?.agentId?.trim()
             ? (stateRef.current.properties.find((p) => p.id === ok.application.propertyId)
@@ -5629,7 +5631,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      if (transition.effect === 'approve') {
+      // Approving through Agent review / Landlord review only moves the stage,
+      // so a file can reach Generate lease with no lease to sign. Generate
+      // lease then creates it through the approve path (lease, deposit and
+      // first-rent invoices) but stays on the lease steps.
+      const generatesMissingLease =
+        transition.actionKey === 'GENERATE_LEASE' &&
+        app.type === 'Rental' &&
+        !stateRef.current.tenancies.some((t) => t.applicationId === applicationId)
+      const approvedStage: WorkflowStatusKey =
+        transition.effect === 'approve' ? approvedApplicationFields(app.type).workflowStatus : targetStatus
+      if (transition.effect === 'approve' || generatesMissingLease) {
         // P0-approve (R8): same pre-approve snapshot + revert contract as
         // approveApplication — a failed durable write must not leave the
         // optimistic 71% stage behind.
@@ -5673,7 +5685,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
           const normalized = normalizeApplication({
             ...result.application,
-            workflowStatus: 'deposit_invoice_sent',
+            workflowStatus: approvedStage,
           })
 
           return {
@@ -5691,7 +5703,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           const ok = result
           const normalized = normalizeApplication({
             ...ok.application,
-            workflowStatus: 'deposit_invoice_sent',
+            workflowStatus: approvedStage,
           })
           // P0-approve (R7): shared durable transition — direct mirror writes
           // (application + lease with lease_reference + payments) gate success
@@ -5731,7 +5743,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             } as PatchApplicationStatusResult
           }
           // API mode: the server writes these notices (server/acceptedElsewhere.ts).
-          if (!isApiEnabled && isApplicantAcceptanceStatus('deposit_invoice_sent')) {
+          if (!isApiEnabled && isApplicantAcceptanceStatus(approvedStage)) {
             notifyAcceptedElsewhere({
               accepted: normalized,
               property: state.properties.find((p) => p.id === normalized.propertyId),
@@ -6010,7 +6022,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               ?.agentId?.trim() || null
           const approvedApp: Application = {
             ...ok.application,
-            workflowStatus: 'deposit_invoice_sent',
+            ...approvedApplicationFields(ok.application.type),
             agentId: approvedListingAgentId,
           }
           const approvedRemotely = await persistApprovedApplication({
@@ -8071,6 +8083,17 @@ function actorNameFromState(s: AppState | { users: AppUser[] }, userId: string |
 
 function formatClient(clientId: string) {
   return clientId
+}
+
+/**
+ * Where an approval lands: the lease is created and issued for signing, so the
+ * file continues Lease generated -> sent -> tenant / landlord signed ->
+ * deposit invoice. (Jumping to Deposit invoice issued skipped signing, and the
+ * server refuses any stage past landlord_signed without the signed lease.)
+ */
+function approvedApplicationFields(type: Application['type']): { workflowStatus: WorkflowStatusKey; stage: string; progress: number } {
+  const status: WorkflowStatusKey = type === 'Purchase' ? 'deposit_requested' : 'lease_generated'
+  return { workflowStatus: status, stage: workflowStageLabel(type, status), progress: workflowProgress(type, status) }
 }
 
 export function useStore() {

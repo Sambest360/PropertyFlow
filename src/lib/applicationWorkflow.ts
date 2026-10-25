@@ -623,7 +623,9 @@ export function getAvailableTransitions(
 ): WorkflowTransition[] {
   const status = resolveWorkflowStatus(app)
   const template = getWorkflowTemplate(app.type)
-  if (isTerminalWorkflowStatus(app.type, status)) return []
+  // A closing stage normally ends the file; one with a defined next step
+  // (Deposit refunded -> Closed) still offers it.
+  if (isTerminalWorkflowStatus(app.type, status) && !template.transitions.some((t) => t.from === status)) return []
 
   return template.transitions.filter((t) => {
     if (t.from !== status) return false
