@@ -77,3 +77,23 @@ describe('tenant viewings', () => {
     expect(out.viewings.map((v) => (v as { id: string }).id)).toEqual(['v-mine'])
   })
 })
+
+describe('tenant enquiries', () => {
+  it("includes the tenant's own enquiry on any listing, and nobody else's", () => {
+    const actor = { userId: 'u-t', role: 'tenant', agencyId: null }
+    const data = {
+      ...raw,
+      users: [{ id: 'u-t', email: 'tenant@example.com', name: 'Thandi Tenant' }],
+      leads: [
+        { id: 'l-mine', propertyId: 'p-b1', agencyId: 'ag-b', agentId: 'u-x', email: 'Tenant@example.com' },
+        { id: 'l-other', propertyId: 'p-b1', agencyId: 'ag-b', agentId: 'u-x', email: 'else@example.com' },
+      ],
+    }
+    const scope = buildPropertyScope(
+      { role: 'tenant', userId: actor.userId, agencyId: null, agencySuspended: false },
+      { properties: data.properties },
+    )
+    const out = filterBootstrapForActor(data as never, actor as never, scope)
+    expect(out.leads.map((l) => (l as { id: string }).id)).toEqual(['l-mine'])
+  })
+})

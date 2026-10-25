@@ -225,12 +225,16 @@ export default function ListingDetail() {
   }, [existingApplication, isAuthenticated, p, user.id])
 
   useEffect(() => {
-    if (searchParams.get('apply') !== '1' || !p || !isListed) return
+    const wantsViewing = searchParams.get('viewing') === '1'
+    if ((searchParams.get('apply') !== '1' && !wantsViewing) || !p || !isListed) return
     const sp = new URLSearchParams(searchParams)
     sp.delete('apply')
+    sp.delete('viewing')
     setSearchParams(sp, { replace: true })
+    // ?viewing=1 (e.g. from My enquiries) opens the form on Book a viewing.
+    if (wantsViewing) setIntent('viewing')
 
-    if (existingApplication) {
+    if (!wantsViewing && existingApplication) {
       navigate(
         `/workspace/portals/tenant/applications/${encodeURIComponent(existingApplication.id)}`,
         { replace: true },

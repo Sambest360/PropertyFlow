@@ -428,6 +428,7 @@ export default function App() {
                 <Route path="portals/tenant/messages" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
                 <Route path="portals/tenant/complaints" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
                 <Route path="portals/tenant/viewings" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
+                <Route path="portals/tenant/enquiries" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
                 <Route path="portals/tenant/leases" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
                 <Route path="portals/tenant/payments" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
                 <Route path="account/wishlist" element={<AccountWishlistPage />} />

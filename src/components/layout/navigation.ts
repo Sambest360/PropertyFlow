@@ -2,6 +2,7 @@ import type { LucideIcon } from 'lucide-react'
 import {
   Banknote,
   BookOpen,
+  MessageSquareText,
   Building2,
   Clock,
   Inbox,
@@ -293,6 +294,12 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
             icon: CalendarDays,
           },
           {
+            to: '/workspace/portals/tenant/enquiries',
+            label: 'My enquiries',
+            permission: 'portal.tenant',
+            icon: MessageSquareText,
+          },
+          {
             to: ACCOUNT_WISHLIST_PATH,
             label: 'Wishlist',
             permission: 'portal.tenant',
@@ -440,6 +447,7 @@ export const TENANT_PORTAL_PATHS = new Set([
   '/workspace/portals/tenant',
   '/workspace/portals/tenant/applications',
   '/workspace/portals/tenant/viewings',
+  '/workspace/portals/tenant/enquiries',
   ACCOUNT_WISHLIST_PATH,
   '/workspace/portals/tenant/maintenance',
   '/workspace/portals/tenant/messages',
@@ -572,6 +580,7 @@ function buildTenantApplicantNav(
     portalHome,
     '/workspace/portals/tenant/applications',
     '/workspace/portals/tenant/viewings',
+    '/workspace/portals/tenant/enquiries',
     ACCOUNT_WISHLIST_PATH,
     '/workspace',
     ...CONTRACTOR_PORTAL_PATHS,
@@ -653,6 +662,15 @@ function buildTenantApplicantNav(
         label: 'Viewings',
         permission: 'portal.tenant',
         icon: CalendarDays,
+      },
+    },
+    {
+      type: 'link',
+      item: {
+        to: '/workspace/portals/tenant/enquiries',
+        label: 'My enquiries',
+        permission: 'portal.tenant',
+        icon: MessageSquareText,
       },
     },
     {

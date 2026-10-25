@@ -7,6 +7,7 @@ function resolveTenantView(pathname: string): string {
   if (pathname.includes('/messages')) return 'messages'
   if (pathname.includes('/complaints')) return 'complaints'
   if (pathname.includes('/viewings')) return 'viewings'
+  if (pathname.includes('/enquiries')) return 'enquiries'
   if (pathname.includes('/leases')) return 'leases'
   if (pathname.includes('/payments')) return 'payments'
   return 'home'

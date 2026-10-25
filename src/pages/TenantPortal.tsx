@@ -31,6 +31,7 @@ import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
 import type { Application, PropertyAsset } from '../types/domain'
 import { TenantComplaintsView } from './tenant/TenantComplaintsView'
 import { TenantViewingsView } from './tenant/TenantViewingsView'
+import { TenantEnquiriesView } from './tenant/TenantEnquiriesView'
 import { TenantMaintenanceView } from './tenant/TenantMaintenanceView'
 import { TenantMessagesView } from './tenant/TenantMessagesView'
 import { PortalHydrationGate } from '../components/PortalHydrationGate'
@@ -46,6 +47,7 @@ type TenantView =
   | 'messages'
   | 'complaints'
   | 'viewings'
+  | 'enquiries'
   | 'leases'
   | 'payments'
 
@@ -55,6 +57,7 @@ function resolveTenantView(pathname: string): TenantView {
   if (pathname.includes('/messages')) return 'messages'
   if (pathname.includes('/complaints')) return 'complaints'
   if (pathname.includes('/viewings')) return 'viewings'
+  if (pathname.includes('/enquiries')) return 'enquiries'
   if (pathname.includes('/leases')) return 'leases'
   if (pathname.includes('/payments')) return 'payments'
   return 'home'
@@ -121,6 +124,8 @@ function TenantPortalContent() {
             ? 'Complaints'
             : view === 'viewings'
               ? 'Viewings'
+              : view === 'enquiries'
+                ? 'My enquiries'
               : view === 'leases'
                 ? 'My lease'
                 : view === 'payments'
@@ -151,6 +156,8 @@ function TenantPortalContent() {
           <TenantComplaintsView portal={portal} />
         ) : view === 'viewings' ? (
           <TenantViewingsView portal={portal} />
+        ) : view === 'enquiries' ? (
+          <TenantEnquiriesView />
         ) : view === 'leases' ? (
           <div data-tip-target="tenant-leases" className="space-y-5">
             {portal.tenancy ? (

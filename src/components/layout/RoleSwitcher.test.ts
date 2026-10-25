@@ -19,6 +19,7 @@ describe('account menu shortcuts', () => {
       'Overview',
       'Applications',
       'Viewings',
+      'Enquiries',
       'Payments',
       'Maintenance',
       'Messages',

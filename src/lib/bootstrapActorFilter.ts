@@ -658,9 +658,14 @@ function filterBootstrapEntitiesForActor(
     props.map((p) => p.buildingId).filter((id): id is string => Boolean(id)),
   )
 
-  const leads = raw.leads.filter((x) =>
-    dealInScope(scope, { propertyId: x.propertyId, agentId: x.agentId, agencyId: x.agencyId }),
-  )
+  // Tenants enquire about listings outside their scope; narrowPortalCollections
+  // keeps only their own (by email).
+  const leads =
+    actor.role === 'tenant'
+      ? raw.leads
+      : raw.leads.filter((x) =>
+          dealInScope(scope, { propertyId: x.propertyId, agentId: x.agentId, agencyId: x.agencyId }),
+        )
   // Tenants keep own apps by applicant identity (no canSeeAgency) — mirrors client
   // Applications / TenantPortal filters. Null-agency public applicants must retain APP
   // after LiveSync bootstrap or the portal hangs empty after apply.
