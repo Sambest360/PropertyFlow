@@ -119,8 +119,8 @@ export function LiveListingPreview({
     title?.trim() ||
     (type && (suburb || city) ? `${type} in ${suburb || city}` : 'Property title')
 
-  const locationParts = [buildingName, address, suburb, city].filter(Boolean)
-  const location = locationParts.length ? locationParts.join(', ') : 'Address not set'
+  // Match the public listing: suburb and city only (street address is never shown to guests).
+  const location = [suburb, city].filter(Boolean).join(', ') || 'Suburb and city not set'
 
   const priceLine = resolvePriceLine(listingMode, rent, price)
   const entryFees = resolveEntryFees(listingMode, rent, price)
@@ -204,7 +204,12 @@ export function LiveListingPreview({
 
         <p className="flex items-start gap-1.5 text-sm text-ink-500">
           <MapPin className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.6} aria-hidden />
-          <span className="line-clamp-2">{location}</span>
+          <span className="line-clamp-2">
+            {location}
+            {address || buildingName ? (
+              <span className="block text-xs text-ink-400">Street address is not shown on the public listing</span>
+            ) : null}
+          </span>
         </p>
 
         {description?.trim() ? (

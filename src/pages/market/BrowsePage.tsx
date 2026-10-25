@@ -29,6 +29,7 @@ import { ListingCardGridSkeleton } from '../../components/loading/PageSkeleton'
 import { parseAreasParam, propertyMatchesAreas } from '../../lib/placeCatalog'
 import { isLoadSheddingFreeListing } from '../../lib/loadShedding'
 import { matchesBrowseMode } from '../../lib/browseMode'
+import { toPublicListing } from '../../lib/publicLocation'
 
 function listingAmount(p: PropertyAsset, mode: string): number | null {
   if (mode === 'rent') return p.rent
@@ -534,7 +535,7 @@ export default function BrowsePage() {
               </div>
               <div className="min-h-0 flex-1 p-2">
                 <PropertyMap
-                  properties={mapProperties.length ? mapProperties : filtered}
+                  properties={(mapProperties.length ? mapProperties : filtered).map(toPublicListing)}
                   mode={mode}
                   className="h-full"
                   cardsByPropertyId={cardsByPropertyId}
@@ -556,7 +557,7 @@ export default function BrowsePage() {
           </p>
           <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-primary-100">
             <PropertyMap
-              properties={mapProperties.length ? mapProperties : filtered}
+              properties={(mapProperties.length ? mapProperties : filtered).map(toPublicListing)}
               mode={mode}
               className="h-full"
               cardsByPropertyId={cardsByPropertyId}

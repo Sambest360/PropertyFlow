@@ -37,6 +37,20 @@ function unionPreferPrimary<T extends { id: string }>(primary: T[], secondary: T
   return Array.from(map.values())
 }
 
+/**
+ * The public feed carries no street address and rounded coordinates
+ * (server/guestMarketplace.ts). When a public row wins a merge, keep the
+ * signed-in user's own location fields so staff never lose an address.
+ */
+function keepSessionLocation<T extends object>(pubRow: T, sessionRow: T): T {
+  const s = sessionRow as Record<string, unknown>
+  const out = { ...pubRow } as Record<string, unknown>
+  for (const key of ['address', 'addressLine1', 'unitNumber', 'formattedAddress', 'placeId', 'lat', 'lng']) {
+    if (key in s) out[key] = s[key]
+  }
+  return out as T
+}
+
 function propertyForUnit(
   unitId: string,
   sessionProps: PropertyAsset[],
@@ -74,7 +88,7 @@ function mergeUnitsForBrowse(
     const sessionOk = isPublicMarketplaceUnit(sessionRow, sessionProp ?? pubProp, { users })
     const pubOk = isPublicMarketplaceUnit(pubRow, pubProp ?? sessionProp, { users })
     if (sessionOk) merged.push(sessionRow)
-    else if (pubOk) merged.push(pubRow)
+    else if (pubOk) merged.push(keepSessionLocation(pubRow, sessionRow))
     else merged.push(sessionRow)
   }
   return merged
@@ -106,7 +120,7 @@ function mergePropertiesForBrowse(
     const sessionOk = isPubliclyListed(sessionRow, { units, users })
     const pubOk = isPubliclyListed(pubRow, { units, users })
     if (sessionOk) merged.push(sessionRow)
-    else if (pubOk) merged.push(pubRow)
+    else if (pubOk) merged.push(keepSessionLocation(pubRow, sessionRow))
     else merged.push(sessionRow)
   }
   return dedupePropertyAssets(merged, units)

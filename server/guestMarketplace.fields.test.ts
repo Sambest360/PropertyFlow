@@ -64,3 +64,52 @@ describe('guest marketplace: no contact / profile / settings fields (bootstrap.t
     })
   }
 })
+
+describe('guest slice: location privacy', () => {
+  const located = {
+    agencies: [{ id: 'ag-1', name: 'A', slug: 'a', city: 'CT', status: 'active', createdAt: '2026-01-01' }],
+    users: [],
+    buildings: [
+      {
+        id: 'b-1', clientId: 'ag-1', landlordId: null, name: 'B',
+        addressLine1: '26 Buckland Ave', formattedAddress: '26 Buckland Ave, Richmond Hill, Gqeberha',
+        placeId: 'ChIJsecret', suburb: 'Richmond Hill', city: 'Gqeberha', lat: -33.958123, lng: 25.611987,
+      },
+    ],
+    units: [
+      {
+        id: 'unt-1', buildingId: 'b-1', statusKey: 'PUBLISHED', listingType: 'rent', unitNumber: '7',
+        formattedAddress: '7, 26 Buckland Ave', placeId: 'ChIJsecret', lat: -33.958123, lng: 25.611987,
+      },
+    ],
+    properties: [
+      {
+        id: 'P-1', agencyId: 'ag-1', landlordId: '', agentId: null, buildingId: 'b-1', unitId: 'unt-1',
+        status: 'Published', deletedAt: null, address: '26 Buckland Ave, 7',
+        formattedAddress: '7, 26 Buckland Ave, Richmond Hill', placeId: 'ChIJsecret',
+        suburb: 'Richmond Hill', city: 'Gqeberha', lat: -33.958123, lng: 25.611987,
+      },
+    ],
+    viewingSlots: [],
+  }
+
+  it('never sends a street address, unit number or place id to guests', () => {
+    for (const listingId of [undefined, 'P-1']) {
+      const out = filterBootstrapForGuest(located, { listingId })
+      const json = JSON.stringify(out)
+      expect(json).not.toMatch(/Buckland|ChIJsecret/)
+      const prop = (out.properties as Array<Record<string, unknown>>)[0]
+      expect(prop.address).toBe('Richmond Hill, Gqeberha')
+      expect((out.units as Array<Record<string, unknown>>)[0].unitNumber).toBe('')
+    }
+  })
+
+  it('rounds coordinates to about 1 km', () => {
+    const out = filterBootstrapForGuest(located)
+    for (const key of ['properties', 'units', 'buildings'] as const) {
+      const row = (out[key] as Array<Record<string, unknown>>)[0]
+      expect(row.lat).toBe(-33.96)
+      expect(row.lng).toBe(25.61)
+    }
+  })
+})

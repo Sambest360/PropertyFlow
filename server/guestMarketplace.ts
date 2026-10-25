@@ -8,6 +8,9 @@
  * tenancies, payments, tickets, threads, messages, notifications, trust books,
  * users or contact details.
  *
+ * Street addresses never leave the server either: properties, units and
+ * buildings carry suburb and city only, with coordinates rounded to ~1 km.
+ *
  * Landlord identity never leaves the server: no landlord name, landlord user
  * id, landlordId or verification status. Agent user ids are dropped too
  * (agentId on properties, units and slots). The listing page already shows
@@ -66,6 +69,38 @@ export function isGuestVisibleProperty(property: Row, units: Row[], users: Row[]
 }
 
 /** List cards get one image per listing; the single-listing (?id=) read gets them all. */
+/** ~1.1 km: guests see the area on a map, never the house. */
+function roundCoord(v: unknown): number {
+  const n = typeof v === 'number' ? v : Number(v)
+  if (!Number.isFinite(n)) return 0
+  return Math.round(n * 100) / 100
+}
+
+/** "Suburb, City" — the only location text that leaves the server for guests. */
+function areaLabel(r: Row, fallback?: Row): string {
+  const suburb = str(r.suburb) ?? str(fallback?.suburb)
+  const city = str(r.city) ?? str(fallback?.city)
+  return [suburb, city].filter(Boolean).join(', ')
+}
+
+/**
+ * Location privacy: no street address, unit number, formatted address or
+ * Google place id, and coordinates rounded to ~1 km.
+ */
+function redactLocation(r: Row, fallback?: Row): Row {
+  const out: Row = {
+    ...r,
+    formattedAddress: null,
+    placeId: null,
+    lat: roundCoord(r.lat),
+    lng: roundCoord(r.lng),
+  }
+  if ('address' in r) out.address = areaLabel(r, fallback)
+  if ('addressLine1' in r) out.addressLine1 = ''
+  if ('unitNumber' in r) out.unitNumber = ''
+  return out
+}
+
 function firstImageOnly<T extends Row>(r: T): T {
   return Array.isArray(r.images) ? { ...r, images: (r.images as unknown[]).slice(0, 1) } : r
 }
@@ -115,7 +150,7 @@ function filterBootstrapForGuestAll(raw: Row, listingId?: string): Row {
     const { landlordId: _l, agentId, ...rest } = p
     void _l
     const agentName = str(agentId) ? (agentNames.get(agentId as string) ?? null) : null
-    return { ...rest, landlordId: '', agentId: null, agentName }
+    return redactLocation({ ...rest, landlordId: '', agentId: null, agentName })
   })
   const agencies = rows(raw.agencies)
     .filter((a) => agencyIds.has(String(a.id)))
@@ -165,8 +200,8 @@ function filterBootstrapForGuestAll(raw: Row, listingId?: string): Row {
     users: [],
     buildings: rows(raw.buildings)
       .filter((b) => buildingIds.has(String(b.id)))
-      .map((b): Row => ({ ...b, landlordId: null })),
-    units: publicUnits.map((u): Row => ({ ...u, agentId: null })),
+      .map((b): Row => redactLocation({ ...b, landlordId: null })),
+    units: publicUnits.map((u): Row => redactLocation({ ...u, agentId: null })),
     properties: publicProperties,
     leads: [],
     applications: [],
