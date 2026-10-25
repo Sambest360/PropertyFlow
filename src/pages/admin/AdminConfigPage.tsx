@@ -6,7 +6,6 @@ import {
   ArrowUp,
   ChevronRight,
   Plus,
-  Search,
 } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
 import { useAgencyScope, useAuth } from '../../context/AuthContext'
@@ -19,15 +18,12 @@ import {
   isRequiredLookupKey,
   GLOBAL_CLIENT_ID,
   slugifyLookupKey,
-  type ConfigGroupId,
   type ConfigTypeDef,
 } from '../../data/platformLookups'
 import { getLookups } from '../../lib/lookups'
 import { usePrefersReducedMotion } from '../../hooks/useScrollMotion'
 
 const ICON_STROKE = 1.6
-
-type GroupFilter = 'all' | ConfigGroupId
 
 export default function AdminConfigPage() {
   const navigate = useNavigate()
@@ -39,8 +35,6 @@ export default function AdminConfigPage() {
 
   const [viewAgencyId, setViewAgencyId] = useState(agencyId ?? state.agencies[0]?.id ?? '')
   const [selectedType, setSelectedType] = useState<string | null>(null)
-  const [groupFilter, setGroupFilter] = useState<GroupFilter>('all')
-  const [query, setQuery] = useState('')
   const [newLabel, setNewLabel] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [showInactive, setShowInactive] = useState(false)
@@ -55,19 +49,6 @@ export default function AdminConfigPage() {
       return { def, active: merged.filter((r) => r.isActive).length, total: merged.length }
     })
   }, [state.lookups, effectiveAgencyId])
-
-  const filteredCatalogues = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return catalogueStats.filter(({ def }) => {
-      if (groupFilter !== 'all' && def.group !== groupFilter) return false
-      if (!q) return true
-      return (
-        def.label.toLowerCase().includes(q) ||
-        def.description.toLowerCase().includes(q) ||
-        def.type.toLowerCase().includes(q)
-      )
-    })
-  }, [catalogueStats, groupFilter, query])
 
   const rows = useMemo(() => {
     if (!selectedType || !effectiveAgencyId) return []
@@ -192,11 +173,7 @@ export default function AdminConfigPage() {
           />
         ) : (
           <CatalogueBrowser
-            groupFilter={groupFilter}
-            onGroupFilter={setGroupFilter}
-            query={query}
-            onQuery={setQuery}
-            items={filteredCatalogues}
+            items={catalogueStats}
             onOpen={openCatalogue}
             reducedMotion={reducedMotion}
           />
@@ -207,119 +184,53 @@ export default function AdminConfigPage() {
 }
 
 function CatalogueBrowser({
-  groupFilter,
-  onGroupFilter,
-  query,
-  onQuery,
   items,
   onOpen,
   reducedMotion,
 }: {
-  groupFilter: GroupFilter
-  onGroupFilter: (g: GroupFilter) => void
-  query: string
-  onQuery: (q: string) => void
   items: Array<{ def: ConfigTypeDef; active: number; total: number }>
   onOpen: (type: string) => void
   reducedMotion?: boolean
 }) {
-  const chips: Array<{ id: GroupFilter; label: string }> = [
-    { id: 'all', label: 'All' },
-    ...CONFIG_GROUPS.map((g) => ({ id: g.id as GroupFilter, label: g.label })),
-  ]
-
   return (
     <div className="space-y-4">
-      <div className="rounded-[1.25rem] border border-primary-100/80 bg-white p-3 shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)] sm:p-4">
-        <div className="relative" role="search" aria-label="Search catalogues">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400"
-            strokeWidth={ICON_STROKE}
-            aria-hidden
-          />
-          <Input
-            className="min-h-11 pl-9"
-            placeholder="Search catalogues…"
-            value={query}
-            onChange={(e) => onQuery(e.target.value)}
-            aria-label="Search catalogues"
-          />
-        </div>
-        <div
-          className="mt-3 flex gap-2 overflow-x-auto pb-0.5 scrollbar-thin"
-          role="tablist"
-          aria-label="Catalogue groups"
-        >
-          {chips.map((chip) => {
-            const active = groupFilter === chip.id
+      <Card className="overflow-hidden p-0">
+        <ul className="divide-y divide-primary-50" role="list">
+          {items.map(({ def, active, total }) => {
+            const groupLabel = CONFIG_GROUPS.find((g) => g.id === def.group)?.label
             return (
-              <button
-                key={chip.id}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => onGroupFilter(chip.id)}
-                className={cn(
-                  'inline-flex min-h-11 shrink-0 cursor-pointer items-center rounded-full px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-                  active
-                    ? 'bg-primary text-white'
-                    : 'bg-primary-50 text-ink-600 hover:bg-primary-100',
-                  !reducedMotion && 'transition-colors duration-200',
-                )}
-              >
-                {chip.label}
-              </button>
+              <li key={def.type}>
+                <button
+                  type="button"
+                  onClick={() => onOpen(def.type)}
+                  className={cn(
+                    'flex min-h-14 w-full cursor-pointer items-center gap-3 px-4 py-3 text-left hover:bg-primary-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary sm:px-5',
+                    !reducedMotion && 'transition-colors duration-200',
+                  )}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-ink">{def.label}</p>
+                    {groupLabel ? (
+                      <p className="text-xs text-ink-400">{groupLabel}</p>
+                    ) : null}
+                  </div>
+                  <span className="tabular shrink-0 text-sm text-ink-500">
+                    <span className="font-semibold text-ink">{active}</span>
+                    {total !== active ? (
+                      <span className="text-ink-400"> / {total}</span>
+                    ) : null}
+                  </span>
+                  <ChevronRight
+                    className="h-4 w-4 shrink-0 text-ink-400"
+                    strokeWidth={ICON_STROKE}
+                    aria-hidden
+                  />
+                </button>
+              </li>
             )
           })}
-        </div>
-      </div>
-
-      <Card className="overflow-hidden p-0">
-        {items.length === 0 ? (
-          <p className="px-5 py-10 text-center text-sm text-ink-500">No catalogues match.</p>
-        ) : (
-          <ul className="divide-y divide-primary-50" role="list">
-            {items.map(({ def, active, total }) => {
-              const groupLabel = CONFIG_GROUPS.find((g) => g.id === def.group)?.label
-              return (
-                <li key={def.type}>
-                  <button
-                    type="button"
-                    onClick={() => onOpen(def.type)}
-                    className={cn(
-                      'flex min-h-14 w-full cursor-pointer items-center gap-3 px-4 py-3 text-left hover:bg-primary-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary sm:px-5',
-                      !reducedMotion && 'transition-colors duration-200',
-                    )}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-ink">{def.label}</p>
-                      {groupFilter === 'all' && groupLabel ? (
-                        <p className="text-xs text-ink-400">{groupLabel}</p>
-                      ) : null}
-                    </div>
-                    <span className="tabular shrink-0 text-sm text-ink-500">
-                      <span className="font-semibold text-ink">{active}</span>
-                      {total !== active ? (
-                        <span className="text-ink-400"> / {total}</span>
-                      ) : null}
-                    </span>
-                    <ChevronRight
-                      className="h-4 w-4 shrink-0 text-ink-400"
-                      strokeWidth={ICON_STROKE}
-                      aria-hidden
-                    />
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
-        )}
+        </ul>
       </Card>
-
-      <p className="text-xs text-ink-400">
-        <span className="tabular font-medium text-ink-500">{items.length}</span>{' '}
-        {items.length === 1 ? 'catalogue' : 'catalogues'}
-      </p>
     </div>
   )
 }
