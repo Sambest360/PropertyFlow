@@ -15,8 +15,7 @@ import {
   generatePcrPdf,
   downloadPcrPdf,
   inspectionStatusLabel,
-  markInspectionCompleted,
-  recordNoShowOrAdminOverride,
+    recordNoShowOrAdminOverride,
   setGeneralNotes,
   softSignStaff,
   softSignTenant,
@@ -29,6 +28,8 @@ import {
 import { readDocumentFile } from '../../lib/applicationDocDownscale'
 import { storePhotoDataUrl } from '../../lib/photoStorage'
 import { PcrGateStatus } from './PcrGateStatus'
+import { useAgencyLookups } from '../../hooks/useLookupOptions'
+import { templateFromConfiguredRooms } from '../../lib/pcr/templates'
 import { FieldHelp } from '../onboarding/FieldHelp'
 import { Loader2 } from 'lucide-react'
 import { Badge, Button, Card } from '../ui'
@@ -72,11 +73,24 @@ export function InspectionPcrPanel({
   const [uploadingItemId, setUploadingItemId] = useState<string | null>(null)
 
   const inspection = findInspection(application, kind)
+  // New inspections use the agency's "PCR rooms & items" list (Configuration).
+  const roomRows = useAgencyLookups('PCR_ROOM', application.agencyId)
+  const configuredRooms = useMemo(
+    () =>
+      templateFromConfiguredRooms(
+        roomRows.map((r) => ({
+          name: r.displayLabel,
+          items: Array.isArray(r.meta?.items) ? (r.meta!.items as unknown[]).map(String) : [],
+        })),
+      ),
+    [roomRows],
+  )
 
   const counts = useMemo(
     () => (inspection ? countCheckedItems(inspection) : null),
     [inspection],
   )
+  const allChecked = Boolean(counts && counts.total > 0 && counts.checked === counts.total)
   const handoffs = useMemo(
     () => (inspection ? collectMaintenanceHandoffDrafts(inspection) : []),
     [inspection],
@@ -97,10 +111,10 @@ export function InspectionPcrPanel({
     const now = nowIso()
     const result =
       kind === 'incoming'
-        ? ensureIngoingInspection(application, now, application.moveInDate ?? null)
-        : ensureOutgoingInspection(application, now)
+        ? ensureIngoingInspection(application, now, application.moveInDate ?? null, configuredRooms)
+        : ensureOutgoingInspection(application, now, null, configuredRooms)
     onSave({ pcrInspections: result.application.pcrInspections })
-    setFlash(result.created ? `${kind} inspection created from lite template.` : `${kind} inspection already on file.`)
+    setFlash(result.created ? `${kind === 'incoming' ? 'Move-in' : 'Move-out'} inspection created.` : 'Inspection already on file.')
   }
 
   const patchItem = (
@@ -193,11 +207,6 @@ export function InspectionPcrPanel({
     }
     persist(res.inspection, 'Audited override recorded — ingoing_pcr_signed set.')
     setOverrideReason('')
-  }
-
-  const onComplete = () => {
-    if (!inspection || !canReview) return
-    persist(markInspectionCompleted(inspection, nowIso()), 'Inspection marked completed (unsigned until soft-sign / override).')
   }
 
   const onDownloadPdf = async () => {
@@ -422,19 +431,33 @@ export function InspectionPcrPanel({
             </div>
 
             {canReview ? (
-              <div className="flex flex-wrap gap-2 border-t border-primary-100 pt-3">
-                <Button type="button" variant="secondary" onClick={onStaffSign}>
-                  Staff soft-sign
-                </Button>
-                <Button type="button" variant="secondary" onClick={onTenantAck}>
-                  Record tenant ack
-                </Button>
-                <Button type="button" variant="secondary" onClick={onComplete}>
-                  Mark completed
-                </Button>
-                <Button type="button" variant="primary" disabled={busy} onClick={() => void onDownloadPdf()}>
-                  {busy ? 'Building PDF…' : 'Download PCR PDF'}
-                </Button>
+              <div className="space-y-2 border-t border-primary-100 pt-3">
+                {!allChecked ? (
+                  <p className="text-sm text-ink-500" role="status">
+                    Check every item ({counts?.checked ?? 0} of {counts?.total ?? 0} done) before signing off.
+                  </p>
+                ) : null}
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={!allChecked || Boolean(inspection.staffSignature)}
+                    onClick={onStaffSign}
+                  >
+                    {inspection.staffSignature ? 'Agent signed off ✓' : 'Agent sign-off'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={!allChecked || Boolean(inspection.tenantSignature)}
+                    onClick={onTenantAck}
+                  >
+                    {inspection.tenantSignature ? 'Tenant signed off ✓' : 'Tenant sign-off'}
+                  </Button>
+                  <Button type="button" variant="primary" disabled={busy} onClick={() => void onDownloadPdf()}>
+                    {busy ? 'Building PDF…' : 'Download PCR PDF'}
+                  </Button>
+                </div>
               </div>
             ) : null}
 
@@ -481,7 +504,7 @@ export function InspectionPcrPanel({
                   checked={claimDamage}
                   onChange={(e) => setClaimDamage(e.target.checked)}
                 />
-                <span>Theater check: claiming deposit damage / deduction</span>
+                <span>Claiming deposit damage / deductions</span>
               </label>
               {damageWarn ? (
                 <p className="mt-2 text-ink-700" data-testid="deposit-damage-soft-warn">

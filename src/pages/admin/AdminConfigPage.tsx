@@ -276,7 +276,7 @@ function CatalogueEditor({
   }) => void
   onOpenPipeline: () => void
   onOpenApplicationJourney: () => void
-  onUpdate: (id: string, patch: { displayLabel?: string; isActive?: boolean }) => void
+  onUpdate: (id: string, patch: { displayLabel?: string; isActive?: boolean; meta?: Record<string, unknown> }) => void
   onDeactivate: (id: string) => void
   onMove: (id: string, dir: -1 | 1) => void
   reducedMotion?: boolean
@@ -460,6 +460,14 @@ function CatalogueEditor({
                     {row.isActive ? 'Deactivate' : 'Activate'}
                   </button>
                 </div>
+                {typeDef.type === 'PCR_ROOM' ? (
+                  <RoomItemsEditor
+                    key={`${row.id}:${JSON.stringify(row.meta?.items ?? [])}`}
+                    items={Array.isArray(row.meta?.items) ? (row.meta!.items as unknown[]).map(String) : []}
+                    onCommit={(items) => onUpdate(row.id, { meta: { ...(row.meta ?? {}), items } })}
+                    roomName={row.displayLabel}
+                  />
+                ) : null}
               </li>
             )
           })
@@ -499,5 +507,43 @@ function LabelInput({
       }}
       aria-label={ariaLabel}
     />
+  )
+}
+
+/** The checklist items of one PCR room — one per line, saved on blur. */
+function RoomItemsEditor({
+  items,
+  onCommit,
+  roomName,
+}: {
+  items: string[]
+  onCommit: (items: string[]) => void
+  roomName: string
+}) {
+  const [draft, setDraft] = useState(items.join('\n'))
+  const commit = () => {
+    const next = draft
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+    if (next.join('\n') !== items.join('\n')) onCommit(next)
+  }
+  return (
+    <div className="w-full pl-0.5">
+      <label className="block text-xs font-medium text-ink-500">
+        Items checked in {roomName || 'this room'} — one per line
+        <textarea
+          className="mt-1 w-full rounded-xl border border-primary-100 bg-white px-3 py-2 text-sm text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          rows={Math.min(8, Math.max(3, items.length + 1))}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          placeholder={'Walls & paint\nFlooring\nLights / plugs'}
+        />
+      </label>
+      {!items.length ? (
+        <p className="mt-1 text-xs text-accent-700">No items yet — this room is left off new reports until it has one.</p>
+      ) : null}
+    </div>
   )
 }

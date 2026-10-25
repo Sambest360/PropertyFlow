@@ -1,4 +1,5 @@
 import type { LookupConfig } from './infrastructure'
+import { defaultResidentialTemplate } from '../lib/pcr/templates'
 
 export const GLOBAL_CLIENT_ID = 'global'
 
@@ -20,6 +21,7 @@ export type ConfigGroupId =
   | 'maintenance'
   | 'payments'
   | 'inventory'
+  | 'inspections'
 
 export const CONFIG_GROUPS: Array<{ id: ConfigGroupId; label: string; blurb: string }> = [
   { id: 'property', label: 'Property', blurb: 'Property types and extra features' },
@@ -29,6 +31,7 @@ export const CONFIG_GROUPS: Array<{ id: ConfigGroupId; label: string; blurb: str
   { id: 'maintenance', label: 'Maintenance', blurb: 'Fault categories' },
   { id: 'payments', label: 'Payments', blurb: 'How payments are received' },
   { id: 'inventory', label: 'Inventory', blurb: 'In-unit item types' },
+  { id: 'inspections', label: 'Inspections', blurb: 'Condition report (PCR) checklist' },
 ]
 
 /**
@@ -95,9 +98,17 @@ export const CONFIG_TYPE_DEFS: ConfigTypeDef[] = [
     group: 'inventory',
     requiredKeys: ['APPLIANCE', 'FURNITURE'],
   },
+  {
+    type: 'PCR_ROOM',
+    label: 'PCR rooms & items',
+    description:
+      'The rooms on a new move-in / move-out condition report (PCR), and the items checked in each. Inspections already started keep their rooms.',
+    group: 'inspections',
+    requiredKeys: [],
+  },
 ]
 
-type SeedItem = { key: string; label: string }
+type SeedItem = { key: string; label: string; meta?: Record<string, unknown> }
 
 export const PLATFORM_CATALOGUE: Record<string, SeedItem[]> = {
   PROPERTY_TYPE: [
@@ -177,6 +188,12 @@ export const PLATFORM_CATALOGUE: Record<string, SeedItem[]> = {
     { key: 'Technician', label: 'Technician' },
     { key: 'Unemployed', label: 'Unemployed' },
   ],
+  // Rooms of the built-in PCR template, each with its checklist items.
+  PCR_ROOM: defaultResidentialTemplate('pcr').map((r) => ({
+    key: r.id.replace(/^pcr-/, '').toUpperCase(),
+    label: r.name,
+    meta: { items: r.items.map((i) => i.label) },
+  })),
   // Agencies add their own extras; built-in features live in src/lib/propertyFeatures.ts.
   AMENITY: [],
 }
@@ -194,6 +211,7 @@ function buildLookupsForClient(clientId: string, idPrefix: string): LookupConfig
         displayLabel: item.label,
         isActive: true,
         sortOrder: i,
+        ...(item.meta ? { meta: item.meta } : {}),
       })
     })
   }

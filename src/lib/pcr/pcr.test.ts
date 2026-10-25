@@ -28,6 +28,14 @@ import {
   addItemPhoto,
 } from './index'
 
+/** Give every item a condition (sign-off needs a fully checked report). */
+function checkAll<T extends { rooms: Array<{ items: Array<{ condition: string }> }> }>(insp: T): T {
+  return {
+    ...insp,
+    rooms: insp.rooms.map((r) => ({ ...r, items: r.items.map((it) => ({ ...it, condition: 'good' })) })),
+  }
+}
+
 function rentalApp(overrides: Partial<Application> = {}): Application {
   return {
     id: 'APP-PCR-1',
@@ -148,6 +156,11 @@ describe('soft sign / no-show override → ingoing_pcr_signed', () => {
       kind: 'incoming',
       now,
     })
+    expect(softSignStaff(insp, { userId: 'u-staff', name: 'Lerato' }, now)).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/Check every item/),
+    })
+    insp = checkAll(insp)
     const staff = softSignStaff(insp, { userId: 'u-staff', name: 'Lerato' }, now)
     expect(staff.ok).toBe(true)
     if (!staff.ok) return
@@ -333,6 +346,7 @@ describe('downloadable PCR PDF pack', () => {
       now,
       scheduledOn: '2026-10-01',
     })
+    insp = checkAll(insp)
     const signed = softSignStaff(insp, { userId: 'u-s', name: 'Staff' }, now)
     expect(signed.ok).toBe(true)
     if (!signed.ok) return

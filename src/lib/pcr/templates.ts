@@ -80,3 +80,23 @@ export function cloneTemplateRooms(
     })),
   }))
 }
+
+/**
+ * Rooms from an agency's "PCR rooms & items" list (Admin → Configuration).
+ * Rooms without items are skipped; an empty result means "use the default".
+ */
+export function templateFromConfiguredRooms(
+  rooms: Array<{ name: string; items: string[] }>,
+  prefix = 'cfg',
+): PcrInspectionRoom[] {
+  return rooms
+    .map((r) => ({ name: r.name.trim(), items: r.items.map((i) => i.trim()).filter(Boolean) }))
+    .filter((r) => r.name && r.items.length)
+    .map((r, ri) =>
+      room(
+        `${prefix}-r${ri}`,
+        r.name,
+        r.items.map((label, ii) => item(`${prefix}-r${ri}-i${ii}`, label)),
+      ),
+    )
+}

@@ -50,9 +50,10 @@ export function createInspection(params: {
   now: string
   rooms?: PcrInspectionRoom[]
 }): PropertyConditionInspection {
-  const rooms =
-    params.rooms ??
-    cloneTemplateRooms(defaultResidentialTemplate(), params.id)
+  const rooms = cloneTemplateRooms(
+    params.rooms?.length ? params.rooms : defaultResidentialTemplate(),
+    params.id,
+  )
   return {
     id: params.id,
     agencyId: params.agencyId,
@@ -80,6 +81,8 @@ export function ensureIngoingInspection(
   app: Application,
   now: string,
   scheduledOn?: string | null,
+  /** The agency's configured rooms (default template when empty). */
+  rooms?: PcrInspectionRoom[],
 ): { application: Application; inspection: PropertyConditionInspection; created: boolean } {
   const existing = findInspection(app, 'incoming')
   if (existing) {
@@ -107,6 +110,7 @@ export function ensureIngoingInspection(
     kind: 'incoming',
     scheduledOn: scheduledOn ?? app.moveInDate ?? null,
     now,
+    rooms,
   })
   return {
     application: upsertInspectionOnApplication(app, inspection),
@@ -120,6 +124,8 @@ export function ensureOutgoingInspection(
   app: Application,
   now: string,
   scheduledOn?: string | null,
+  /** The agency's configured rooms (default template when empty). */
+  rooms?: PcrInspectionRoom[],
 ): { application: Application; inspection: PropertyConditionInspection; created: boolean } {
   const existing = findInspection(app, 'outgoing')
   if (existing) {
@@ -134,6 +140,7 @@ export function ensureOutgoingInspection(
     kind: 'outgoing',
     scheduledOn: scheduledOn ?? null,
     now,
+    rooms,
   })
   return {
     application: upsertInspectionOnApplication(app, inspection),
@@ -236,6 +243,15 @@ export function markInspectionCompleted(
   }
 }
 
+/** Sign-off needs a condition on every item. */
+function uncheckedItemsError(inspection: PropertyConditionInspection): string | null {
+  const left = inspection.rooms.reduce(
+    (n, r) => n + r.items.filter((i) => i.condition === 'not_checked').length,
+    0,
+  )
+  return left ? `Check every item before signing off (${left} still to check).` : null
+}
+
 function recomputeIngoingSigned(inspection: PropertyConditionInspection): boolean {
   if (inspection.kind !== 'incoming') return false
   if (inspection.noShowOverride) return true
@@ -252,6 +268,8 @@ export function softSignStaff(
   if (!actor.userId || !actor.name.trim()) {
     return { ok: false, error: 'Staff actor required for soft sign' }
   }
+  const unchecked = uncheckedItemsError(inspection)
+  if (unchecked) return { ok: false, error: unchecked }
   const sig: PcrSoftSignature = {
     role: 'staff',
     signedByUserId: actor.userId,
@@ -288,6 +306,8 @@ export function softSignTenant(
   if (!actor.name.trim()) {
     return { ok: false, error: 'Tenant name required for soft ack' }
   }
+  const unchecked = uncheckedItemsError(inspection)
+  if (unchecked) return { ok: false, error: unchecked }
   const sig: PcrSoftSignature = {
     role: 'tenant',
     signedByUserId: actor.userId,

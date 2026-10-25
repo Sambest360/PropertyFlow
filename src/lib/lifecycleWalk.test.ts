@@ -76,6 +76,11 @@ function prepare(app: Application, status: WorkflowStatusKey): Application {
     // Agent runs the incoming PCR and both sides sign off.
     const created = ensureIngoingInspection(a, new Date().toISOString(), null).application
     let insp = created.pcrInspections!.find((i) => i.kind === 'incoming')!
+    // The agent checks every item first (sign-off needs a full report).
+    insp = {
+      ...insp,
+      rooms: insp.rooms.map((r) => ({ ...r, items: r.items.map((it) => ({ ...it, condition: 'good' as const })) })),
+    }
     const s1 = softSignStaff(insp, { userId: 'u-agent', name: 'Agent' }, new Date().toISOString())
     expect(s1.ok).toBe(true)
     if (s1.ok) insp = s1.inspection
