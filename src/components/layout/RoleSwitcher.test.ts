@@ -21,7 +21,7 @@ describe('account menu shortcuts', () => {
       'Viewings',
       'Enquiries',
       'Payments',
-      'Maintenance',
+      'Faults',
       'Messages',
       'Saved homes',
       'Browse homes',

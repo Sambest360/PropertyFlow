@@ -35,6 +35,7 @@ import type { Lead } from '../src/types/domain.js'
 import { hydrateDocumentsFromUploadedJson } from '../src/lib/hydrateApplicationDocs.js'
 import { normalizeApplication } from '../src/lib/applicationWorkflow.js'
 import { mapAgencyStatusFromDb } from '../src/lib/agencyStatus.js'
+import { supportTicketFromRow } from '../src/lib/supportTickets.js'
 import {
   mapDbAssetsToInternalAssets,
   mapDbRoomsToInfraRooms,
@@ -292,6 +293,7 @@ export async function buildBootstrap(opts?: {
     lookupRows,
     leaseSignedRows,
     supportTicketRows,
+    faultFeedbackRows,
   ] = await mapPool(
     [
       () =>
@@ -512,6 +514,15 @@ export async function buildBootstrap(opts?: {
       () =>
         query(
           `SELECT * FROM event_log WHERE event_type = 'support_ticket' ORDER BY created_at DESC LIMIT 300`,
+        ),
+      // Faults: the tenant's latest confirm-fixed / reopen per ticket.
+      () =>
+        query<Record<string, unknown>>(
+          `SELECT DISTINCT ON (subject_id) subject_id::text AS subject_id, payload, created_at
+             FROM event_log
+            WHERE event_type = 'fault_thread' AND payload->>'kind' IN ('confirmed', 'reopened')
+            ORDER BY subject_id, created_at DESC
+            LIMIT 2000`,
         ),
     ] as const,
     process.env.VERCEL ? 3 : 8,
@@ -1145,23 +1156,15 @@ export async function buildBootstrap(opts?: {
   const mappedSupportTickets = (supportTicketRows as Array<Record<string, unknown>>).map((e) => {
     const payload = (e.payload as Record<string, unknown>) ?? {}
     const uuid = e.id as string
-    const text = (v: unknown) => (typeof v === 'string' ? v : '')
-    return {
-      id: text(payload.frontendId) || mappedFe('support_ticket', uuid, uuid),
-      agencyId: agencyFe(e.client_id as string | null),
-      submittedByUserId:
-        text(payload.submittedByUserId) || mapUser(e.actor_user_id as string | null) || '',
-      submitterName: text(payload.submitterName),
-      submitterRole: text(payload.submitterRole),
-      subject: text(payload.subject),
-      body: text(payload.body),
-      status: payload.status === 'resolved' ? 'resolved' : 'open',
-      createdAt: iso(e.created_at as Date)!,
-      resolvedByUserId: text(payload.resolvedByUserId) || null,
-      resolvedByName: text(payload.resolvedByName) || null,
-      resolvedAt: text(payload.resolvedAt) || null,
-      resolutionNote: text(payload.resolutionNote) || null,
-    }
+    const fe = typeof payload.frontendId === 'string' && payload.frontendId ? payload.frontendId : mappedFe('support_ticket', uuid, uuid)
+    return supportTicketFromRow(
+      { id: uuid, payload, created_at: e.created_at as Date },
+      {
+        id: fe,
+        agencyId: agencyFe(e.client_id as string | null),
+        fallbackSubmitter: mapUser(e.actor_user_id as string | null) || '',
+      },
+    )
   })
 
   const mappedInvoices = (invoices as Array<Record<string, unknown>>).map((inv) => ({
@@ -1379,6 +1382,15 @@ export async function buildBootstrap(opts?: {
     applicantName: (d.applicant_name as string) ?? undefined,
   }))
 
+  const faultFeedback = new Map<string, { kind: 'confirmed' | 'reopened'; rating: number | null; at: string }>()
+  for (const r of faultFeedbackRows as Array<Record<string, unknown>>) {
+    const p = (r.payload as Record<string, unknown>) ?? {}
+    faultFeedback.set(String(r.subject_id), {
+      kind: p.kind === 'reopened' ? 'reopened' : 'confirmed',
+      rating: typeof p.rating === 'number' ? p.rating : null,
+      at: iso(r.created_at as Date)!,
+    })
+  }
   const mappedTickets = (tickets as Array<Record<string, unknown>>).map((t) => ({
     id: mappedFe('ticket', t.id as string, TICKET_IDS[t.id as string] ?? (t.id as string)),
     agencyId: agencyFe(t.client_id as string)!,
@@ -1416,6 +1428,7 @@ export async function buildBootstrap(opts?: {
     ruleItemId: (t.rule_item_id as string | null | undefined) ?? null,
     isSafetyFlag: Boolean(t.is_safety_flag),
     overrideReason: (t.override_reason as string | null | undefined) ?? null,
+    tenantFeedback: faultFeedback.get(t.id as string) ?? null,
   }))
 
   for (const t of mappedTickets) {

@@ -137,6 +137,29 @@ async function rowFor(feId: string): Promise<EventRow | undefined> {
   return hit ? db.events.get(hit.backend_id) : undefined
 }
 
+/** A CR7-era tenant ticket routed to an agency desk (new tickets go to the platform). */
+function seedLegacyAgencyTicket(fe: string, uuidSuffix: string, payload: Record<string, unknown> = {}) {
+  const uuid = `e1000001-0001-4000-8000-0000000001${uuidSuffix}`
+  db.map.push({ entity_type: 'support_ticket', frontend_id: fe, backend_id: uuid })
+  db.events.set(uuid, {
+    id: uuid,
+    client_id: HORIZON,
+    event_type: 'support_ticket',
+    subject_type: 'support_ticket',
+    actor_user_id: null,
+    payload: {
+      subject: 'Original subject',
+      body: 'Original body',
+      status: 'open',
+      submittedByUserId: 'u-tenant-h',
+      submitterName: 'Tina Tenant',
+      submitterRole: 'tenant',
+      ...payload,
+    },
+  })
+  return uuid
+}
+
 const tenant: DemoActor = { userId: 'u-tenant-h', role: 'tenant', agencyId: 'ag-horizon' }
 const horizonAdmin: DemoActor = { userId: 'u-admin-h', role: 'agent_admin', agencyId: 'ag-horizon' }
 const capeAdmin: DemoActor = { userId: 'u-admin-c', role: 'client_admin', agencyId: 'ag-cape' }
@@ -181,14 +204,14 @@ describe('CR7 support tickets — scope gate + writer', () => {
     expect((await rowFor('HD-writer-only'))?.payload.status).toBe('open')
   })
 
-  it('routes a tenant ticket to their agency and an agency staff ticket to the platform', async () => {
+  it('routes every new ticket to the platform desk (super admins), whatever the payload says', async () => {
     await gateAndPersist(tenant, {
       action: 'upsert',
       id: 'HD-route-tenant',
       // A forged agency in the payload is ignored — the server derives it.
       data: { subject: 's', body: 'b', submittedByUserId: 'u-tenant-h', agencyId: 'ag-cape' },
     })
-    expect((await rowFor('HD-route-tenant'))?.client_id).toBe(HORIZON)
+    expect((await rowFor('HD-route-tenant'))?.client_id).toBeNull()
 
     await gateAndPersist(horizonAdmin, {
       action: 'upsert',
@@ -252,16 +275,7 @@ describe('CR7 support tickets — scope gate + writer', () => {
   })
 
   it('leaves subject and body unchanged on resolve, and the row read-only after', async () => {
-    await gateAndPersist(tenant, {
-      action: 'upsert',
-      id: 'HD-resolve',
-      data: {
-        subject: 'Original subject',
-        body: 'Original body',
-        submittedByUserId: 'u-tenant-h',
-        submitterName: 'Tina Tenant',
-      },
-    })
+    const uuid = seedLegacyAgencyTicket('HD-resolve', '01')
     await gateAndPersist(horizonAdmin, {
       action: 'upsert',
       id: 'HD-resolve',
@@ -275,7 +289,7 @@ describe('CR7 support tickets — scope gate + writer', () => {
         agencyId: 'ag-cape',
       },
     })
-    const row = await rowFor('HD-resolve')
+    const row = db.events.get(uuid)
     expect(row?.payload).toMatchObject({
       subject: 'Original subject',
       body: 'Original body',
@@ -327,11 +341,7 @@ describe('CR7 support tickets — scope gate + writer', () => {
   })
 
   it('gives 403 when the agency has users.manage turned off (effectiveCan)', async () => {
-    await gateAndPersist(tenant, {
-      action: 'upsert',
-      id: 'HD-pack-off',
-      data: { subject: 's', body: 'b', submittedByUserId: 'u-tenant-h' },
-    })
+    const uuid = seedLegacyAgencyTicket('HD-pack-off', '02')
     db.clientPerms.set(HORIZON, ['assets.view', 'maintenance.view', 'messages.manage'])
     const { resolveActorUsersManage } = await import('./scopeGate.js')
     expect(await resolveActorUsersManage(horizonAdmin)).toBe(false)
@@ -342,7 +352,7 @@ describe('CR7 support tickets — scope gate + writer', () => {
         data: { status: 'resolved', resolutionNote: 'blocked' },
       }),
     ).rejects.toMatchObject({ status: 403 })
-    expect((await rowFor('HD-pack-off'))?.payload.status).toBe('open')
+    expect(db.events.get(uuid)?.payload.status).toBe('open')
 
     // Pack back on → the same admin may resolve.
     db.clientPerms.set(HORIZON, ['users.manage', 'assets.view'])
@@ -352,7 +362,7 @@ describe('CR7 support tickets — scope gate + writer', () => {
       id: 'HD-pack-off',
       data: { status: 'resolved', resolutionNote: 'ok' },
     })
-    expect((await rowFor('HD-pack-off'))?.payload.status).toBe('resolved')
+    expect(db.events.get(uuid)?.payload.status).toBe('resolved')
   })
 
   it('allows delete for super admin only', async () => {
@@ -388,14 +398,14 @@ describe('CR7 support tickets — scope gate + writer', () => {
     expect((await rowFor('HD-tenant-resolve'))?.payload.status).toBe('open')
   })
 
-  it('lets a landlord and a contractor raise a ticket to their agency', async () => {
+  it('lets a landlord and a contractor raise a ticket to platform support', async () => {
     for (const actor of [
       { userId: 'u-ll-h', role: 'landlord', agencyId: 'ag-horizon' },
       { userId: 'u-co-h', role: 'contractor', agencyId: 'ag-horizon' },
     ] as DemoActor[]) {
       const id = `HD-portal-${actor.role}`
       await gateAndPersist(actor, { action: 'upsert', id, data: { subject: 's', body: 'b', submittedByUserId: actor.userId } })
-      expect((await rowFor(id))?.client_id).toBe(HORIZON)
+      expect((await rowFor(id))?.client_id).toBeNull()
     }
   })
 

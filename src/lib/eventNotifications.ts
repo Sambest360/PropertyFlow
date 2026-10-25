@@ -102,6 +102,7 @@ export function notifyMaintenanceOpened(
   ticket: MaintenanceTicket,
   property: PropertyAsset | null | undefined,
   actorUserId: string | null,
+  opts?: { reporterOnly?: boolean },
 ) {
   const propertyLabel = property?.title ?? 'a property'
   const link = `/workspace/operations/maintenance/${encodeURIComponent(ticket.id)}`
@@ -112,8 +113,10 @@ export function notifyMaintenanceOpened(
   ) {
     notifyUserOnce(notify, ticket.reportedByUserId, {
       agencyId: ticket.agencyId,
-      title: 'Maintenance request received',
-      body: `We logged “${ticket.title}” for ${propertyLabel}.`,
+      title: opts?.reporterOnly ? 'Fault reported' : 'Maintenance request received',
+      body: opts?.reporterOnly
+        ? `We sent “${ticket.title}” at ${propertyLabel} to the person responsible for your home.`
+        : `We logged “${ticket.title}” for ${propertyLabel}.`,
       link:
         users.find((u) => u.id === ticket.reportedByUserId)?.role === 'tenant'
           ? '/workspace/portals/tenant/maintenance'
@@ -122,6 +125,8 @@ export function notifyMaintenanceOpened(
       action: 'created',
     })
   }
+
+  if (opts?.reporterOnly) return
 
   const landlordId = property?.landlordId
   if (landlordId && landlordId !== actorUserId) {

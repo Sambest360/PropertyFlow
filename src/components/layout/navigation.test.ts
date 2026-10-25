@@ -194,6 +194,7 @@ describe('buildWorkspaceNavForActor portal dedupe', () => {
     expect(labels).not.toContain('My lease')
     expect(labels).not.toContain('Payments')
     expect(labels).not.toContain('Maintenance')
+    expect(labels).not.toContain('Faults')
     expect(labels).not.toContain('Complaints')
     expect(labels).not.toContain('Documents')
     expect(hasUniquePaths(entries)).toBe(true)
@@ -224,7 +225,7 @@ describe('buildWorkspaceNavForActor portal dedupe', () => {
 
     expect(labels).toContain('My lease')
     expect(labels).toContain('Payments')
-    expect(labels).toContain('Maintenance')
+    expect(labels).toContain('Faults')
     expect(labels).toContain('Messages')
     expect(labels).toContain('Complaints')
     expect(labels).toContain('Documents')

@@ -102,7 +102,7 @@ export function TenantComplaintsView({ portal }: { portal: TenantPortalState }) 
         <p className="mt-1 text-sm text-ink-500">
           Escalate service or conduct issues to your managing agency. For urgent repairs, use{' '}
           <Link className="font-semibold text-primary" to="/workspace/portals/tenant/maintenance">
-            Maintenance
+            Faults
           </Link>{' '}
           instead.
         </p>

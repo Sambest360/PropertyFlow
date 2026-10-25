@@ -251,7 +251,20 @@ async function gatedPersistInner(c: Parameters<typeof parseDemoActor>[0], body: 
   const { actor, handled } = await requireActorAndGate(c, body)
   if (handled) return handled
   const { handlePersist } = await loadWritesModule()
-  return handlePersist(body, actor.userId, actor.role)
+  // A tenant's new fault goes to the property's responsible person: the
+  // server writes those notifications (a tenant may only notify themselves).
+  const newTenantFault =
+    body.resource === 'ticket' && body.action === 'upsert' && actor.role === 'tenant' && !(await resolveUuid('ticket', body.id))
+  const result = await handlePersist(body, actor.userId, actor.role)
+  if (newTenantFault) {
+    try {
+      const { notifyFaultReported } = await import('./faultDesk.js')
+      await notifyFaultReported(actor, result.uuid, body.id)
+    } catch (err) {
+      console.error('[fault notify]', err instanceof Error ? err.message : String(err))
+    }
+  }
+  return result
 }
 
 /**
@@ -1132,6 +1145,55 @@ app.post('/api/admin/photo-migration', async (c) => {
 
 /** Lease inventory, move-in / move-out inspections and deposit deductions. */
 registerInspectionRoutes(app)
+
+/** Help desk: system tickets to the super admins (server/supportDesk.ts). */
+app.post('/api/support-tickets', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const { createSupportTicket } = await import('./supportDesk.js')
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+    return c.json({ ok: true, ticket: await createSupportTicket(actor, body, c.req.header('user-agent') ?? null) }, 201)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'support_ticket_failed', message, ...errCode(err) }, errStatus(err))
+  }
+})
+
+app.post('/api/support-tickets/:id/actions', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const { actOnSupportTicket } = await import('./supportDesk.js')
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+    return c.json({ ok: true, ticket: await actOnSupportTicket(actor, c.req.param('id'), body) })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'support_ticket_failed', message, ...errCode(err) }, errStatus(err))
+  }
+})
+
+/** Tenant faults: conversation, confirm fixed, reopen (server/faultDesk.ts). */
+app.get('/api/tickets/:id/thread', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const { getFaultThread } = await import('./faultDesk.js')
+    return c.json({ ok: true, ...(await getFaultThread(actor, c.req.param('id'))) })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'fault_thread_failed', message, ...errCode(err) }, errStatus(err))
+  }
+})
+
+app.post('/api/tickets/:id/thread', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const { postFaultThread } = await import('./faultDesk.js')
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+    return c.json({ ok: true, ...(await postFaultThread(actor, c.req.param('id'), body)) })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'fault_thread_failed', message, ...errCode(err) }, errStatus(err))
+  }
+})
 
 /** Generic domain persist (RPC). AppStore fire-and-forgets here. */
 app.post('/api/persist', async (c) => {

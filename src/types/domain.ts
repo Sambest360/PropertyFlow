@@ -830,6 +830,8 @@ export type MaintenanceTicket = {
   /** Gas, electrical, flooding, security, sewage or structural hazard reported. */
   isSafetyFlag?: boolean
   overrideReason?: string | null
+  /** Tenant's latest answer once fixed: confirmed (with optional 1–5 rating) or reopened. */
+  tenantFeedback?: { kind: 'confirmed' | 'reopened'; rating: number | null; at: string } | null
   /** Create only: tenant acknowledged a TENANT-responsible repair may be charged to them. */
   costNoticeAcknowledged?: boolean
 }

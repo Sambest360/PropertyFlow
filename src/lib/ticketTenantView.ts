@@ -62,6 +62,7 @@ const TENANT_TICKET_FIELDS = [
   'locationDetail',
   'preferredSchedule',
   'issueTags',
+  'tenantFeedback',
 ] as const
 
 /** Kept on the tenant's own reports only. */

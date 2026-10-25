@@ -13,13 +13,14 @@ import {
   MessageSquareText,
   PenLine,
   Settings,
+  LifeBuoy,
   UserRound,
   Wallet,
   Wrench,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { useStore } from '../../context/AppStore'
 import { signOutAndRedirect } from '../../lib/auth/signOut'
@@ -65,7 +66,7 @@ export function shortcutSections(input: {
           { label: 'Viewings', to: `${TENANT_PORTAL}/viewings`, icon: CalendarDays, count: counts?.viewings },
           { label: 'Enquiries', to: `${TENANT_PORTAL}/enquiries`, icon: MessageSquareText },
           { label: 'Payments', to: `${TENANT_PORTAL}/payments`, icon: Wallet, count: counts?.paymentsDue },
-          { label: 'Maintenance', to: `${TENANT_PORTAL}/maintenance`, icon: Wrench },
+          { label: 'Faults', to: `${TENANT_PORTAL}/maintenance`, icon: Wrench },
           { label: 'Messages', to: `${TENANT_PORTAL}/messages`, icon: MessageSquare },
           { label: 'Saved homes', to: ACCOUNT_WISHLIST_PATH, icon: Heart },
           { label: 'Browse homes', to: '/browse', icon: Home },
@@ -88,6 +89,7 @@ export function shortcutSections(input: {
 }
 
 export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar' }) {
+  const location = useLocation()
   const {
     user,
     roleLabel,
@@ -189,6 +191,13 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
     ...(isApiEnabled && !isImpersonating
       ? [{ label: 'Change password', to: ACCOUNT_PASSWORD_PATH, icon: KeyRound }]
       : []),
+    // Any signed-in user can raise a system ticket to platform support; the
+    // page they were on goes with it.
+    {
+      label: 'Report a problem',
+      to: `/workspace/help?from=${encodeURIComponent(location.pathname + location.search)}#report`,
+      icon: LifeBuoy,
+    },
     { label: 'Help & support', to: '/workspace/help', icon: HelpCircle },
   ]
 

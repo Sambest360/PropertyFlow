@@ -5,7 +5,7 @@ import { agencyIdInFeSpace } from "./agencyScope.js"
 import { dealInScope, isAgencyWideRole, ticketInScope, type PropertyScope } from "./scope.js"
 import { effectiveCan, isAgencyStaff } from "./permissions.js"
 import type { Permission, Role } from "../types/domain.js"
-import { filterSupportTicketsForViewer } from "./supportTickets.js"
+import { filterSupportTicketsForViewer, redactSupportTicketForReporter, type SupportReply } from "./supportTickets.js"
 import { tenantSeesTicket, tenantTicketTenancyIds, tenantTicketView } from "./ticketTenantView.js"
 
 export type BootstrapActor = {
@@ -84,7 +84,7 @@ export type BootstrapPayload = {
   depositHoldings?: Array<{ agencyId?: string | null }>
   arrearsSnapshots?: Array<{ agencyId?: string | null }>
   csvImportBatches?: Array<{ agencyId?: string | null }>
-  supportTickets?: Array<{ agencyId: string | null; submittedByUserId: string; submitterRole?: string | null }>
+  supportTickets?: Array<{ agencyId: string | null; submittedByUserId: string; submitterRole?: string | null; replies?: SupportReply[] }>
   [key: string]: unknown
 }
 
@@ -851,7 +851,9 @@ function filterBootstrapEntitiesForActor(
     csvImportBatches: trustRows(raw.csvImportBatches),
     // CR7: property-locked roles never hold the desk — own submissions only,
     // matched through the round-trip actorIds (never email).
-    supportTickets: (raw.supportTickets ?? []).filter((t) => actorIds.has(t.submittedByUserId)),
+    supportTickets: (raw.supportTickets ?? [])
+      .filter((t) => actorIds.has(t.submittedByUserId))
+      .map((t) => redactSupportTicketForReporter(t)),
   }
 }
 

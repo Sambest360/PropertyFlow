@@ -617,7 +617,7 @@ function buildTenantApplicantNav(
       type: 'link',
       item: {
         to: '/workspace/portals/tenant/maintenance',
-        label: 'Maintenance',
+        label: 'Faults',
         permission: 'portal.tenant',
         icon: Wrench,
       },

@@ -13,6 +13,8 @@ import { CompleteTicketModal } from '../components/maintenance/CompleteTicketMod
 import { maintenanceEditHref } from './maintenance/MaintenanceEditPage'
 import { MaintenanceDetailHeader } from '../components/maintenance-detail/MaintenanceDetailHeader'
 import { MaintenanceOverviewPanel } from '../components/maintenance-detail/MaintenanceOverviewPanel'
+import { FaultConversation } from '../components/faults/FaultConversation'
+import { Card } from '../components/ui'
 import { ContractorMaintenancePreview } from '../components/maintenance-detail/ContractorMaintenancePreview'
 import {
   resolveUserName,
@@ -286,6 +288,20 @@ export default function MaintenanceDetail() {
                 : undefined
             }
           />
+          <Card className="mt-4 p-4 sm:p-5" data-testid="maintenance-conversation">
+            <h2 className="font-display text-lg font-semibold text-ink">
+              Conversation{ticket.reportedByUserId ? ' with the tenant' : ''}
+            </h2>
+            <p className="mb-3 mt-1 text-sm text-ink-500">
+              Replies reach the tenant who reported it (and the landlord / contractor on the job). Internal notes stay with staff.
+              {ticket.tenantFeedback?.kind === 'confirmed'
+                ? ` Tenant confirmed fixed${ticket.tenantFeedback.rating ? ` · ${ticket.tenantFeedback.rating}/5` : ''}.`
+                : ticket.tenantFeedback?.kind === 'reopened'
+                  ? ' Tenant reopened this — not fixed.'
+                  : ''}
+            </p>
+            <FaultConversation ticketId={ticket.id} done={false} />
+          </Card>
           </>
         )}
 

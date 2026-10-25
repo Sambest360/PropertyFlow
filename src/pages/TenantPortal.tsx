@@ -117,7 +117,7 @@ function TenantPortalContent() {
     view === 'applications'
       ? 'My applications'
       : view === 'maintenance'
-        ? 'Maintenance'
+        ? 'Faults'
         : view === 'messages'
           ? 'Messages'
           : view === 'complaints'
@@ -236,7 +236,7 @@ function TenantPortalContent() {
                   }
                   detail={
                     portal.occupancyReady
-                      ? 'Pay deposits, report maintenance, message your agency, and lodge complaints — never the landlord.'
+                      ? 'Pay deposits, report faults, message your agency, and lodge complaints — never the landlord.'
                       : 'Track every place you’ve applied for, and keep a wishlist of homes you want to revisit. Tenant tools unlock once you’re approved.'
                   }
                   badge={
@@ -254,7 +254,7 @@ function TenantPortalContent() {
                             value: dashboardPending ? '…' : String(portal.apps.length),
                           },
                           { label: 'Due', value: String(duePayments.length) },
-                          { label: 'Open tickets', value: String(openMaintenance) },
+                          { label: 'Open faults', value: String(openMaintenance) },
                         ]
                       : [
                           {
@@ -422,7 +422,7 @@ function OccupancyQuickLinks({
   const links = [
     {
       to: '/workspace/portals/tenant/maintenance',
-      label: 'Maintenance',
+      label: 'Faults',
       detail: 'Report repairs and track open requests',
       icon: Wrench,
       stat: `${openMaintenance} open`,

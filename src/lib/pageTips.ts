@@ -1003,19 +1003,19 @@ const WALKTHROUGH_RULES: Array<{
       id: 'tour-portal-tenant-maintenance',
       steps: [
         {
-          title: 'Report an issue',
-          body: 'Log maintenance requests with photos and urgency. Status updates appear here as your agency progresses the job.',
+          title: 'Report a fault',
+          body: 'Report anything broken with photos and urgency. Updates and replies appear here as the person responsible for your home works on it.',
           placement: 'center',
         },
         {
-          title: 'Maintenance form',
-          body: 'Describe what is broken and submit — requests go to your agency, not the landlord.',
+          title: 'Fault form',
+          body: 'Describe what is broken and submit — it goes to the agent responsible for your property, and your landlord is told.',
           target: '[data-tip-target="tenant-maintenance"]',
           placement: 'below',
         },
         {
           title: 'Sidebar',
-          body: 'Messages and complaints appear alongside maintenance once your tenancy is active.',
+          body: 'Messages and complaints appear alongside faults once your tenancy is active.',
           target: '[data-tip-target="workspace-nav"]',
           placement: 'below',
         },
@@ -1351,8 +1351,8 @@ const RULES: TipRule[] = [
     roles: ['tenant'],
     content: () => ({
       id: 'portal-tenant-maintenance',
-      title: 'Report an issue',
-      body: 'Log maintenance requests with photos and urgency. You will see status updates here as your agency or contractor progresses the job.',
+      title: 'Report a fault',
+      body: 'Report anything broken with photos and urgency. You will see updates and replies here, and can confirm when it is fixed.',
     }),
   },
   {
