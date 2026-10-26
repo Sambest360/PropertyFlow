@@ -8,7 +8,7 @@
  *      X-Agency-Id headers (headers only, not body fields).
  *    - Any other session ignores actor headers and body actor fields.
  * 2. No session: demo actor headers / body fields, only when
- *    demoActorHeadersAllowed() (VERCEL unset or ALLOW_DEMO_ACTOR=1).
+ *    demoActorHeadersAllowed() (NODE_ENV test/development or ALLOW_DEMO_ACTOR=1, never production).
  * 3. Otherwise null — callers answer 401.
  */
 import type { Context } from 'hono'

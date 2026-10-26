@@ -189,6 +189,15 @@ describe('demo actor headers in production', () => {
   it('ALLOW_DEMO_ACTOR still opts in on a plain local host', () => {
     expect(demoActorHeadersAllowed({ ALLOW_DEMO_ACTOR: '1' } as NodeJS.ProcessEnv)).toBe(true)
   })
+  it('a self-hosted server with NODE_ENV unset does not trust them', () => {
+    expect(demoActorHeadersAllowed({} as NodeJS.ProcessEnv)).toBe(false)
+    expect(demoActorHeadersAllowed({ NODE_ENV: '' } as NodeJS.ProcessEnv)).toBe(false)
+    expect(demoActorHeadersAllowed({ NODE_ENV: 'staging' } as NodeJS.ProcessEnv)).toBe(false)
+  })
+  it('tests and NODE_ENV=development do', () => {
+    expect(demoActorHeadersAllowed({ NODE_ENV: 'test' } as NodeJS.ProcessEnv)).toBe(true)
+    expect(demoActorHeadersAllowed({ NODE_ENV: 'development' } as NodeJS.ProcessEnv)).toBe(true)
+  })
 })
 
 describe('actor-required error text', () => {
@@ -199,7 +208,10 @@ describe('actor-required error text', () => {
     expect(err.status).toBe(401)
   })
   it('local dev keeps the header hint', () => {
-    expect(actorRequiredError({} as NodeJS.ProcessEnv).message).toMatch(/X-User-Id/)
+    expect(actorRequiredError({ NODE_ENV: 'development' } as NodeJS.ProcessEnv).message).toMatch(/X-User-Id/)
+  })
+  it('a server with NODE_ENV unset says sign-in is required', () => {
+    expect(actorRequiredError({} as NodeJS.ProcessEnv).message).toBe(SIGN_IN_REQUIRED_MESSAGE)
   })
 })
 

@@ -99,22 +99,17 @@ export function forbiddenError(message = 'Outside property scope'): Error & { st
 }
 
 /**
- * Demo actor headers / body fields are trusted only outside production:
- * VERCEL, VERCEL_ENV and NODE_ENV=production all unset (local dev, tests), or
- * an explicit ALLOW_DEMO_ACTOR=1 opt-in (ignored on any production-like host:
- * NODE_ENV=production, VERCEL or any VERCEL_ENV). Otherwise (Vercel production/preview,
- * any production Node) identity comes from the verified session.
+ * Demo actor headers / body fields (X-User-Id, X-Role, X-Agency-Id) let a
+ * request claim any identity, so they are trusted only when a developer asks:
+ * NODE_ENV=test or development, or an explicit ALLOW_DEMO_ACTOR=1 opt-in.
+ * Never on a production-like host (NODE_ENV=production, VERCEL or any
+ * VERCEL_ENV), even with the opt-in. An unset NODE_ENV means off: a
+ * self-hosted server started without NODE_ENV used to accept them, which let
+ * anyone read the bootstrap as any user.
  */
 export function demoActorHeadersAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
-  // Never on a production-like host, even with the opt-in set: any
-  // VERCEL_ENV (production or preview) or NODE_ENV=production.
-  if (env.VERCEL_ENV?.trim()) return false
-  // VERCEL=1 counts too, so `vercel dev` also turns demo headers off.
-  if (env.VERCEL?.trim()) return false
-  if (env.NODE_ENV?.trim() === 'production') return false
+  const nodeEnv = env.NODE_ENV?.trim()
+  if (env.VERCEL_ENV?.trim() || env.VERCEL?.trim() || nodeEnv === 'production') return false
   if (env.ALLOW_DEMO_ACTOR?.trim() === '1') return true
-  if (env.VERCEL?.trim()) return false
-  if (env.VERCEL_ENV?.trim()) return false
-  if (env.NODE_ENV?.trim() === 'production') return false
-  return true
+  return nodeEnv === 'test' || nodeEnv === 'development'
 }
