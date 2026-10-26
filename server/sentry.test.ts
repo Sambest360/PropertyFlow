@@ -20,4 +20,32 @@ describe('server sentry', () => {
     await flushServerSentry()
     expect(true).toBe(true)
   })
+
+  it('reports a logged route error (caught and answered 500, never thrown)', async () => {
+    const { createServer } = await import('node:http')
+    const bodies: string[] = []
+    const server = createServer((req, res) => {
+      let body = ''
+      req.on('data', (d) => (body += d))
+      req.on('end', () => {
+        bodies.push(body)
+        res.end('{}')
+      })
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+    const { port } = server.address() as { port: number }
+    process.env.SENTRY_DSN = `http://publickey@127.0.0.1:${port}/1`
+    const quiet = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    try {
+      const { initServerSentry } = await import('./sentry.js')
+      const Sentry = await import('@sentry/node')
+      initServerSentry()
+      console.error('[api/public/marketplace]', 'function unit_listing_limit_snapshot(uuid) does not exist')
+      await Sentry.flush(2000)
+    } finally {
+      quiet.mockRestore()
+      server.close()
+    }
+    expect(bodies.join('\n')).toContain('unit_listing_limit_snapshot(uuid) does not exist')
+  })
 })

@@ -82,8 +82,12 @@ import { runningCommitSha } from './appConfig.js'
 import { dbHostFingerprint, serverAuthMode } from './authMode.js'
 import { errStatus } from './errStatus.js'
 import { registerViewingApplyRoutes } from './viewingApplyRoutes.js'
-import { captureServerError } from './sentry.js'
+import { captureServerError, initServerSentry } from './sentry.js'
 import { registerInspectionRoutes } from './inspectionRoutes.js'
+
+// Self-hosted (PM2 runs this file directly, not api/index.ts): error reporting
+// starts here. No-op without SENTRY_DSN; idempotent when api/index.ts ran it.
+initServerSentry()
 
 // Log resolved auth mode once at boot (mode only — never env values).
 serverAuthMode()

@@ -32,7 +32,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     define: {
-      'import.meta.env.VITE_SENTRY_RELEASE': JSON.stringify(env.VERCEL_GIT_COMMIT_SHA || ''),
+      'import.meta.env.VITE_SENTRY_RELEASE': JSON.stringify(env.VERCEL_GIT_COMMIT_SHA || env.APP_COMMIT_SHA || ''),
       'import.meta.env.VITE_SENTRY_ENVIRONMENT': JSON.stringify(env.VERCEL_ENV || mode),
     },
     plugins: [

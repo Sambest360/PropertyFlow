@@ -13,6 +13,10 @@ export function initServerSentry(): void {
     environment: process.env.VERCEL_ENV || process.env.NODE_ENV || 'development',
     sendDefaultPii: false,
     tracesSampleRate: 0,
+    // Routes catch most failures, log `[route] message` and answer 500 without
+    // rethrowing (the guest marketplace outage never reached onError). Report
+    // every console.error so those surface too.
+    integrations: [Sentry.captureConsoleIntegration({ levels: ['error'] })],
     beforeSend: scrubEvent,
     beforeBreadcrumb: (b) => scrubEvent(b),
   })
