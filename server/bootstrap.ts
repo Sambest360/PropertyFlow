@@ -245,6 +245,27 @@ export function unitIdsAsUuids(ids: string[]): string[] {
   return ids.filter((id) => UUID_RE.test(id))
 }
 
+const warnedMissingTables = new Set<string>()
+
+/**
+ * Rows from a module table the database may not have yet (undefined_table,
+ * 42P01): empty, with one warning per table, so a missing module never takes
+ * the whole bootstrap down. Any other error still fails.
+ */
+async function optionalTable<T>(rows: Promise<T[]>): Promise<T[]> {
+  try {
+    return await rows
+  } catch (err) {
+    if ((err as { code?: unknown } | null)?.code !== '42P01') throw err
+    const message = err instanceof Error ? err.message : String(err)
+    if (!warnedMissingTables.has(message)) {
+      warnedMissingTables.add(message)
+      console.warn(`[bootstrap] ${message} — reading it as empty; apply the migration that creates it`)
+    }
+    return []
+  }
+}
+
 export async function buildBootstrap(opts?: {
   limits?: BootstrapLimits
   lite?: boolean
@@ -494,15 +515,14 @@ export async function buildBootstrap(opts?: {
           ? Promise.resolve([] as Array<Record<string, unknown>>)
           : query('SELECT * FROM invoices ORDER BY created_at DESC'),
       // Trust & Banking books (P0-7) — small tables, fetch on both lite/full.
-      () => query('SELECT * FROM trust_transactions ORDER BY value_date DESC LIMIT 400'),
-      () => query('SELECT * FROM trust_allocations LIMIT 800'),
-      () => query('SELECT * FROM payout_instructions ORDER BY created_at DESC LIMIT 200'),
-      () => query('SELECT * FROM deposit_holdings ORDER BY created_at DESC LIMIT 200'),
-      () =>
-        query(
-          'SELECT * FROM arrears_snapshots ORDER BY as_of DESC LIMIT 60',
-        ),
-      () => query('SELECT * FROM csv_import_batches ORDER BY imported_at DESC LIMIT 100'),
+      // Optional: a database without migration 007 reads them as empty
+      // instead of failing every signed-in load and the public marketplace.
+      () => optionalTable(query('SELECT * FROM trust_transactions ORDER BY value_date DESC LIMIT 400')),
+      () => optionalTable(query('SELECT * FROM trust_allocations LIMIT 800')),
+      () => optionalTable(query('SELECT * FROM payout_instructions ORDER BY created_at DESC LIMIT 200')),
+      () => optionalTable(query('SELECT * FROM deposit_holdings ORDER BY created_at DESC LIMIT 200')),
+      () => optionalTable(query('SELECT * FROM arrears_snapshots ORDER BY as_of DESC LIMIT 60')),
+      () => optionalTable(query('SELECT * FROM csv_import_batches ORDER BY imported_at DESC LIMIT 100')),
       () =>
         query<{
           id: string
