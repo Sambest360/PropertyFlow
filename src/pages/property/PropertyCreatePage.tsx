@@ -861,53 +861,6 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     }
   }
 
-  /** Assets step: finish the listing as a Draft now, add inventory on the detail page. */
-  async function handleAddAssetsLater() {
-    if (!canSyncServerDraft()) {
-      void sweetWarning(
-        'Location required',
-        'Add a building name or street address first so the listing can be saved.',
-      )
-      goTo(1)
-      return
-    }
-    if (!acquireSubmitLock(submitLockRef)) return
-    setBusyMessage('Saving draft…')
-    setBusy(true)
-    try {
-      const id = await syncServerDraft()
-      setDraft((d) => ({
-        ...d,
-        draftPropertyId: id,
-        resumeDraftPropertyId: id,
-        pendingCreateIds: pendingCreateIdsRef.current ?? d.pendingCreateIds,
-      }))
-      sessionDraftPropertyIdRef.current = id
-      clearDraft()
-      try {
-        sessionStorage.removeItem(`${wizardStorageKey}:step`)
-      } catch {
-        /* ignore */
-      }
-      await sweetSuccess('Draft saved', 'Add inventory from the property detail page.')
-      navigate(`/workspace/properties/${id}?tab=inventory`)
-    } catch (err) {
-      const recoveredId = propertyIdFromCreateError(err)
-      if (recoveredId) {
-        sessionDraftPropertyIdRef.current = recoveredId
-        setDraft((d) => ({
-          ...d,
-          draftPropertyId: recoveredId,
-          pendingCreateIds: pendingCreateIdsRef.current ?? d.pendingCreateIds,
-        }))
-      }
-      await sweetError('Could not save listing', 'Try again in a moment.')
-    } finally {
-      setBusy(false)
-      releaseSubmitLock(submitLockRef)
-    }
-  }
-
   async function submitProperty(status: 'Draft' | 'Published', fromReview: boolean) {
     if (!acquireSubmitLock(submitLockRef)) return
     const willPublish =
@@ -1812,25 +1765,6 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                   <Plus className="h-4 w-4" strokeWidth={1.6} aria-hidden />
                   Add asset
                 </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="cursor-pointer"
-                  onClick={() => goTo(stepIndex + 1)}
-                >
-                  Skip for now
-                </Button>
-                {!isEdit ? (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="cursor-pointer"
-                    disabled={busy}
-                    onClick={handleAddAssetsLater}
-                  >
-                    Add assets later in property detail
-                  </Button>
-                ) : null}
               </div>
             </div>
           </WizardSectionCard>
