@@ -266,6 +266,30 @@ async function optionalTable<T>(rows: Promise<T[]>): Promise<T[]> {
   }
 }
 
+let warnedMissingLimitSnapshot = false
+
+/**
+ * Listing-limit badges (fully booked / remaining) come from
+ * unit_listing_limit_snapshot(), created by migration 024. A database without
+ * it (undefined_function 42883, or undefined_column 42703 from a partial
+ * migration) shows listings without the badges instead of failing every
+ * bootstrap and the public marketplace once the first unit exists.
+ */
+async function optionalLimitSnapshots<T>(rows: Promise<T[]>): Promise<T[]> {
+  try {
+    return await rows
+  } catch (err) {
+    const code = (err as { code?: unknown } | null)?.code
+    if (code !== '42883' && code !== '42703') throw err
+    if (!warnedMissingLimitSnapshot) {
+      warnedMissingLimitSnapshot = true
+      const message = err instanceof Error ? err.message : String(err)
+      console.warn(`[bootstrap] ${message} — listing limits skipped; apply migration 024_listing_lead_viewing_limits.sql`)
+    }
+    return []
+  }
+}
+
 export async function buildBootstrap(opts?: {
   limits?: BootstrapLimits
   lite?: boolean
@@ -790,10 +814,12 @@ export async function buildBootstrap(opts?: {
 
   const limitByUnit = new Map<string, ReturnType<typeof fieldsFromLimitSnapshot>>()
   if (units.length > 0) {
-    const snapRows = await query<{ id: string; snap: unknown }>(
-      `SELECT id::text AS id, unit_listing_limit_snapshot(id) AS snap
-         FROM units WHERE id = ANY($1::uuid[])`,
-      [units.map((u) => u.id)],
+    const snapRows = await optionalLimitSnapshots(
+      query<{ id: string; snap: unknown }>(
+        `SELECT id::text AS id, unit_listing_limit_snapshot(id) AS snap
+           FROM units WHERE id = ANY($1::uuid[])`,
+        [units.map((u) => u.id)],
+      ),
     )
     for (const row of snapRows) limitByUnit.set(row.id, fieldsFromLimitSnapshot(row.snap))
   }
