@@ -1335,11 +1335,11 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
               <span>
                 {draft.listingMode === 'sale'
                   ? 'No bedrooms (open plan)'
-                  : 'Unfurnished (no bedrooms)'}
+                  : 'Unfurnished'}
                 <span className="mt-0.5 block text-xs font-normal text-ink-500">
                   {draft.listingMode === 'sale'
                     ? 'Uses an open-plan room layout with 0 bedrooms on the listing.'
-                    : 'Sets the Unfurnished feature, clears starter inventory, and uses 0 bedrooms.'}
+                    : 'Sets the Unfurnished feature and clears starter furniture. Bedrooms, beds and bathrooms stay as entered below.'}
                 </span>
               </span>
             </label>

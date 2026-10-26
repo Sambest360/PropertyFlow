@@ -55,32 +55,44 @@ function baseDraft(overrides: Partial<PropertyWizardDraft> = {}): PropertyWizard
   }
 }
 
-describe('unfurnished listing preset', () => {
-  it('applyUnfurnishedListingPreset sets 0 bedrooms and Unfurnished amenity', () => {
-    const next = applyUnfurnishedListingPreset(baseDraft(), 'rent')
-    expect(unfurnishedBedroomCount(next.rooms)).toBe(0)
+describe('unfurnished listing', () => {
+  const beds = (rooms: PropertyWizardDraft['rooms']) => rooms.reduce((n, r) => n + (r.kind === 'bedroom' ? r.beds : 0), 0)
+
+  it('rent: Unfurnished keeps bedrooms and beds, sets the feature, clears starter furniture', () => {
+    const draft = baseDraft()
+    const next = applyUnfurnishedListingPreset(draft, 'rent')
+    expect(next.rooms).toEqual(draft.rooms)
+    expect(unfurnishedBedroomCount(next.rooms)).toBe(1)
+    expect(beds(next.rooms)).toBe(1)
     expect(next.amenities).toContain(UNFURNISHED_AMENITY_LABEL)
     expect(next.starterAssets).toEqual([])
     expect(next.listingUnfurnished).toBe(true)
-    expect(next.roomsBeforeUnfurnished?.length).toBeGreaterThan(0)
+    expect(next.roomsBeforeUnfurnished).toBeUndefined()
   })
 
-  it('defaultUnfurnishedWizardRooms has no bedroom kind', () => {
-    expect(defaultUnfurnishedWizardRooms().every((r) => r.kind !== 'bedroom')).toBe(true)
-  })
-
-  it('clearUnfurnishedListingPreset restores prior rooms', () => {
+  it('rent: unticking Unfurnished keeps the rooms and removes the feature', () => {
     const applied = applyUnfurnishedListingPreset(baseDraft(), 'rent')
-    const cleared = clearUnfurnishedListingPreset(applied)
+    const edited = { ...applied, rooms: [...applied.rooms, { ...applied.rooms[0]!, id: 'r-2', name: 'Bedroom 2' }] }
+    const cleared = clearUnfurnishedListingPreset(edited)
     expect(cleared.listingUnfurnished).toBe(false)
-    expect(unfurnishedBedroomCount(cleared.rooms)).toBeGreaterThan(0)
+    expect(cleared.rooms).toEqual(edited.rooms)
     expect(cleared.amenities).not.toContain(UNFURNISHED_AMENITY_LABEL)
   })
 
-  it('draftAfterAmenitiesChange applies preset when Unfurnished selected', () => {
+  it('choosing Unfurnished on the features step keeps it selected and keeps bedrooms', () => {
     const next = draftAfterAmenitiesChange(baseDraft(), ['Fibre', UNFURNISHED_AMENITY_LABEL])
     expect(next.listingUnfurnished).toBe(true)
-    expect(unfurnishedBedroomCount(next.rooms)).toBe(0)
+    expect(next.amenities).toContain(UNFURNISHED_AMENITY_LABEL)
+    expect(unfurnishedBedroomCount(next.rooms)).toBe(1)
+  })
+
+  it('sale: "No bedrooms (open plan)" swaps in the open-plan layout and restores it', () => {
+    const draft = baseDraft({ listingMode: 'sale' })
+    const applied = applyUnfurnishedListingPreset(draft, 'sale')
+    expect(unfurnishedBedroomCount(applied.rooms)).toBe(0)
+    expect(defaultUnfurnishedWizardRooms().every((r) => r.kind !== 'bedroom')).toBe(true)
+    const cleared = clearUnfurnishedListingPreset(applied)
+    expect(cleared.rooms).toEqual(draft.rooms)
   })
 })
 

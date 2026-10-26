@@ -61,10 +61,10 @@ export type PropertyWizardDraft = {
   createIdempotencyKey?: string
   /** In-unit inventory captured at the Assets step (P1-2); matched to rooms on save. */
   starterAssets: WizardAssetDraft[]
-  /** When true, rooms use the no-bedroom open-plan preset (0 beds on listings). */
+  /** Rent: listed as Unfurnished (rooms unchanged). Sale: no-bedroom open-plan preset. */
   listingUnfurnished?: boolean
   requireViewingToApply?: 'inherit' | 'on' | 'off'
-  /** Restored when turning off unfurnished / no-bedroom mode. */
+  /** Rooms the sale open-plan preset replaced; restored when it is turned off. */
   roomsBeforeUnfurnished?: WizardRoomDraft[]
 }
 
@@ -104,21 +104,32 @@ export function unfurnishedBedroomCount(rooms: WizardRoomDraft[]): number {
   return summarizeRooms(rooms.map((r) => ({ kind: r.kind, beds: r.beds, baths: r.baths }))).bedrooms
 }
 
+/**
+ * Rent listings: Unfurnished means no furniture, not no bedrooms — set the
+ * Unfurnished feature and drop the starter (furniture) inventory, but keep the
+ * rooms, bedrooms and beds exactly as entered. Sale listings have no furnishing
+ * feature; there the same switch is "No bedrooms (open plan)" and swaps in the
+ * open-plan room layout.
+ */
 export function applyUnfurnishedListingPreset(
   draft: PropertyWizardDraft,
   listingMode: ListingMode | PropertyWizardDraft['listingMode'],
 ): PropertyWizardDraft {
-  const snapshot = draft.roomsBeforeUnfurnished ?? draft.rooms
-  let amenities = draft.amenities
   if (listingMode === 'rent' || listingMode === 'both') {
-    amenities = togglePropertyFeature(amenities, UNFURNISHED_AMENITY_LABEL, listingMode)
+    return {
+      ...draft,
+      listingUnfurnished: true,
+      amenities: draft.amenities.includes(UNFURNISHED_AMENITY_LABEL)
+        ? draft.amenities
+        : togglePropertyFeature(draft.amenities, UNFURNISHED_AMENITY_LABEL, listingMode),
+      starterAssets: [],
+    }
   }
   return {
     ...draft,
     listingUnfurnished: true,
-    roomsBeforeUnfurnished: snapshot,
+    roomsBeforeUnfurnished: draft.roomsBeforeUnfurnished ?? draft.rooms,
     rooms: defaultUnfurnishedWizardRooms(),
-    amenities,
     starterAssets: [],
   }
 }
@@ -128,13 +139,15 @@ export function clearUnfurnishedListingPreset(draft: PropertyWizardDraft): Prope
   return {
     ...draft,
     listingUnfurnished: false,
-    rooms: draft.roomsBeforeUnfurnished?.length ? draft.roomsBeforeUnfurnished : defaultWizardRooms(),
+    // Only the sale open-plan preset swapped the rooms out; put those back.
+    // Otherwise the rooms were never touched, so keep them.
+    rooms: draft.roomsBeforeUnfurnished?.length ? draft.roomsBeforeUnfurnished : draft.rooms,
     roomsBeforeUnfurnished: undefined,
     amenities: draft.amenities.filter((a) => !furnishingLabels.has(a)),
   }
 }
 
-/** Amenities step: selecting Unfurnished applies the room preset; clearing it restores bedrooms. */
+/** Amenities step: selecting Unfurnished marks the listing unfurnished; clearing it unmarks it. */
 export function draftAfterAmenitiesChange(
   draft: PropertyWizardDraft,
   amenities: string[],
