@@ -30,6 +30,27 @@ const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''
 export const LOCAL_API_REQUIRED_MESSAGE =
   'Local API is not running. Stop Vite and run `npm run dev:full`, then try again.'
 
+/** Production: no dev hint (it sent an admin to run `npm run dev:full` on the live server). */
+const SERVER_UNREACHABLE_MESSAGE = 'Could not reach the server. Check your connection and try again.'
+
+/** A reverse proxy (nginx) refused the request body as too large. */
+export const UPLOAD_TOO_LARGE_MESSAGE =
+  'The server refused this save because it is too large (photos or attachments). Remove some photos and try again, or ask your administrator to raise the upload limit.'
+
+function apiUnreachableMessage(): string {
+  return import.meta.env.DEV ? LOCAL_API_REQUIRED_MESSAGE : SERVER_UNREACHABLE_MESSAGE
+}
+
+/** HTML instead of API JSON: nginx error pages live, the Vite SPA shell in dev. */
+function htmlFailureMessage(status: number): string {
+  if (status === 413) return UPLOAD_TOO_LARGE_MESSAGE
+  if (import.meta.env.DEV) return LOCAL_API_REQUIRED_MESSAGE
+  if (status === 502 || status === 503 || status === 504) {
+    return 'Server is temporarily unavailable. Try again shortly.'
+  }
+  return status >= 400 ? `Could not save (${status}). Try again shortly.` : SERVER_UNREACHABLE_MESSAGE
+}
+
 function isSpaHtmlResponse(contentType: string | null | undefined, bodyText: string): boolean {
   const ct = (contentType ?? '').toLowerCase()
   if (ct.includes('text/html')) return true
@@ -45,7 +66,7 @@ function messageFromPersistFailure(
 ): string {
   const finish = (msg: string) => sanitizeUserFacingMessage(msg)
   if (refusalMessage) return finish(refusalMessage)
-  if (isSpaHtmlResponse(contentType, bodyText)) return LOCAL_API_REQUIRED_MESSAGE
+  if (isSpaHtmlResponse(contentType, bodyText)) return htmlFailureMessage(status)
   if (bodyText) {
     try {
       const parsed = JSON.parse(bodyText) as { message?: string; error?: string }
@@ -219,7 +240,7 @@ export async function persistViaServerApiDetailed(op: PersistOp): Promise<Persis
     return uuid ? { ok: true, uuid } : { ok: true }
   } catch (err) {
     console.warn('[persist] offline / failed', op.resource, op.id, err)
-    return { ok: false, error: LOCAL_API_REQUIRED_MESSAGE }
+    return { ok: false, error: apiUnreachableMessage() }
   }
 }
 
@@ -263,7 +284,7 @@ export async function persistUserCreateViaServer(
       : { ok: true }
   } catch {
     console.warn('[persist] user create failed', op.id)
-    return { ok: false, error: LOCAL_API_REQUIRED_MESSAGE }
+    return { ok: false, error: apiUnreachableMessage() }
   }
 }
 
@@ -363,7 +384,7 @@ export async function persistToApiDetailed(op: PersistOp): Promise<PersistApiRes
     return ok ? { ok: true } : { ok: false, error: GENERIC_PERSIST_FAILURE }
   }
   if (!apiConfigured()) {
-    return { ok: false, error: LOCAL_API_REQUIRED_MESSAGE }
+    return { ok: false, error: apiUnreachableMessage() }
   }
   return persistViaServerApiDetailed(op)
 }

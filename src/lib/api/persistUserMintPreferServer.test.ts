@@ -241,6 +241,46 @@ describe('persistUserCreateViaServer error messages', () => {
     })
   })
 
+  it('names an nginx 413 (body too large) instead of the dev:full hint', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response('<html><head><title>413 Request Entity Too Large</title></head></html>', {
+            status: 413,
+            headers: { 'content-type': 'text/html' },
+          }),
+      ),
+    )
+    const { persistUserCreateViaServer, UPLOAD_TOO_LARGE_MESSAGE } = await import('./persist')
+    const res = await persistUserCreateViaServer(userMintOp)
+    expect(res).toEqual({ ok: false, error: UPLOAD_TOO_LARGE_MESSAGE })
+  })
+
+  it('never shows the dev:full hint in a production build', async () => {
+    vi.stubEnv('DEV', false)
+    try {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          async () =>
+            new Response('<html><body>502 Bad Gateway</body></html>', {
+              status: 502,
+              headers: { 'content-type': 'text/html' },
+            }),
+        ),
+      )
+      const { persistUserCreateViaServer } = await import('./persist')
+      const bad = await persistUserCreateViaServer(userMintOp)
+      expect(bad).toEqual({ ok: false, error: 'Server is temporarily unavailable. Try again shortly.' })
+      vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new TypeError('Failed to fetch'))))
+      const offline = await persistUserCreateViaServer(userMintOp)
+      expect(offline.ok === false && offline.error).not.toMatch(/dev:full/i)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('returns dev:full guidance when fetch fails (API not running)', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new TypeError('Failed to fetch'))))
     const { persistUserCreateViaServer, LOCAL_API_REQUIRED_MESSAGE } = await import('./persist')
