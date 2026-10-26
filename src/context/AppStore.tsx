@@ -275,7 +275,7 @@ import {
   issueLeaseOnTenancyCreate,
   recordLeaseSignature,
   workflowStatusFromESign,
-} from '../lib/lease'
+} from '../lib/lease/pipeline'
 import {
   appendDunningNotes,
   buildDunningNotice,
@@ -396,8 +396,8 @@ function preservePortalFeLinks(base: AppState, boot: PostgresBootstrap): Postgre
   return { ...boot, applications, tenancies }
 }
 
-/** When Postgres bootstrap succeeds, merge server rows with recent local writes. */
-function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppState {
+/** When Postgres bootstrap succeeds, merge server rows with recent local writes (exported for tests). */
+export function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppState {
   const liveActor = resolveBootstrapActor(base.users)
   boot = ensureBootstrapScopedForActor(
     boot,
@@ -424,7 +424,12 @@ function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppSta
     collectionKey: string,
   ): T[] => mergeEntityLists(baseList, bootList, collectionKey, mergeOpts)
 
-  let agencies = pick(
+  // A super admin's bootstrap carries every clients row (no row window), so
+  // cached agencies it no longer returns (deleted, re-keyed) are dropped
+  // rather than lingering on the Agencies page. Recent local writes still win
+  // (mergeEntityLists TTL). Other roles keep the merge: their list is their
+  // own agency plus marketplace agencies merged in elsewhere.
+  let agencies = mergeEntityLists(
     base.agencies,
     ((boot.agencies as Agency[]) ?? []).map((a) => ({
       ...a,
@@ -434,6 +439,10 @@ function applyPostgresBootstrap(base: AppState, boot: PostgresBootstrap): AppSta
           : [...DEFAULT_AGENCY_PERMISSIONS],
     })),
     'agencies',
+    {
+      replaceWhenMissing:
+        replaceLinked || (boot.actor?.role === 'super_admin' && Array.isArray(boot.agencies)),
+    },
   )
   let users = pick(base.users, (boot.users as AppUser[]) ?? [], 'users')
   let properties = pick(base.properties, boot.properties as PropertyAsset[], 'properties')
@@ -1393,6 +1402,39 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  /**
+   * After a lite bootstrap lands: fetch the full one when the browser is idle
+   * and merge it in (heavy collections the lite payload leaves out).
+   */
+  const scheduleFullBootstrapMerge = useCallback((isCancelled: () => boolean = () => false) => {
+    scheduleDeferredFullBootstrap(() => {
+      if (isCancelled()) return
+      // Re-resolve at run time — do not close over a mount-time null actor.
+      const deferredActor = resolveBootstrapActor(stateRef.current.users)
+      const deferredKey = bootstrapActorKey(deferredActor)
+      void dedupeBootstrapFetch(
+        false,
+        () => fetchBootstrapFromApi(false, deferredActor, 25_000),
+        { actorKey: deferredKey },
+      ).then((full) => {
+        if (isCancelled() || !full) return
+        if (!bootstrapMatchesSession(deferredActor?.userId, readStoredAuthUserId())) return
+        setState((prev) => {
+          const next = settleMarketplace(ensurePublicMarketplace(applyPostgresBootstrap(prev, full)))
+          const uid = deferredActor?.userId ?? readStoredAuthUserId()
+          if (uid) {
+            writePortfolioSnapshotFromState(
+              uid,
+              next,
+              portfolioSnapshotActor(full.actor ?? deferredActor ?? getApiActor()),
+            )
+          }
+          return next
+        })
+      })
+    })
+  }, [])
+
   const refreshBootstrap = useCallback(
     async (
       actor?: DemoActor | null,
@@ -1500,60 +1542,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     } catch {
       /* ignore */
     }
-    if (!opts?.full && isSupabaseMode) {
-      scheduleDeferredFullBootstrap(() => {
-        // Re-resolve at run time — do not close over mount-time null actor.
-        const deferredActor = resolveBootstrapActor(stateRef.current.users)
-        const deferredKey = bootstrapActorKey(deferredActor)
-        void dedupeBootstrapFetch(
-          false,
-          () => fetchBootstrapFromApi(false, deferredActor, 25_000),
-          { actorKey: deferredKey },
-        ).then((full) => {
-          if (!full) return
-          if (!bootstrapMatchesSession(deferredActor?.userId, readStoredAuthUserId())) return
-          setState((prev) => {
-            const next = settleMarketplace(ensurePublicMarketplace(applyPostgresBootstrap(prev, full)))
-            const uid = deferredActor?.userId ?? readStoredAuthUserId()
-            if (uid) {
-              writePortfolioSnapshotFromState(
-                uid,
-                next,
-                portfolioSnapshotActor(full.actor ?? deferredActor ?? getApiActor()),
-              )
-            }
-            return next
-          })
-        })
-      })
-    } else if (!opts?.full && isApiEnabled) {
-      scheduleDeferredFullBootstrap(() => {
-        const deferredActor = resolveBootstrapActor(stateRef.current.users)
-        const deferredKey = bootstrapActorKey(deferredActor)
-        void dedupeBootstrapFetch(
-          false,
-          () => fetchBootstrapFromApi(false, deferredActor, 25_000),
-          { actorKey: deferredKey },
-        ).then((full) => {
-          if (!full) return
-          if (!bootstrapMatchesSession(deferredActor?.userId, readStoredAuthUserId())) return
-          setState((prev) => {
-            const next = settleMarketplace(ensurePublicMarketplace(applyPostgresBootstrap(prev, full)))
-            const uid = deferredActor?.userId ?? readStoredAuthUserId()
-            if (uid) {
-              writePortfolioSnapshotFromState(
-                uid,
-                next,
-                portfolioSnapshotActor(full.actor ?? deferredActor ?? getApiActor()),
-              )
-            }
-            return next
-          })
-        })
-      })
-    }
+    if (!opts?.full && (isSupabaseMode || isApiEnabled)) scheduleFullBootstrapMerge()
   },
-  [],
+  [scheduleFullBootstrapMerge],
 )
 
   useEffect(() => {
@@ -1647,32 +1638,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         boot.fetchedAt,
         boot.scoped ? `(scoped ${boot.actor?.userId})` : '(full/agency)',
       )
-      scheduleDeferredFullBootstrap(() => {
-        if (cancelled) return
-        // Re-resolve at run time — mount may have closed over null before Auth hydrate.
-        const deferredActor = resolveBootstrapActor(stateRef.current.users)
-        const deferredKey = bootstrapActorKey(deferredActor)
-        void dedupeBootstrapFetch(
-          false,
-          () => fetchBootstrapFromApi(false, deferredActor, 25_000),
-          { actorKey: deferredKey },
-        ).then((full) => {
-          if (cancelled || !full) return
-          if (!bootstrapMatchesSession(deferredActor?.userId, readStoredAuthUserId())) return
-          setState((prev) => {
-            const next = settleMarketplace(ensurePublicMarketplace(applyPostgresBootstrap(prev, full)))
-            const uid = deferredActor?.userId ?? readStoredAuthUserId()
-            if (uid) {
-              writePortfolioSnapshotFromState(
-                uid,
-                next,
-                portfolioSnapshotActor(full.actor ?? deferredActor ?? getApiActor()),
-              )
-            }
-            return next
-          })
-        })
-      })
+      scheduleFullBootstrapMerge(() => cancelled)
     }
 
     if (hasCachedHydration) {

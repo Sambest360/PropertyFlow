@@ -11,7 +11,6 @@ import {
   isLoginInFlight,
   isRegisterInFlight,
 } from '../auth/sessionArtifacts'
-import type { AuthUserDto } from '../api/authClient'
 import { mustChangePasswordFromMetadata } from '../auth/mustChangePassword'
 
 export function supabaseAuthEnabled(): boolean {
@@ -109,25 +108,7 @@ function rowToAppUser(row: {
   }
 }
 
-export function appUserToDto(user: AppUser): AuthUserDto {
-  return {
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    role: user.role,
-    agencyId: user.agencyId,
-    phone: user.phone,
-    active: user.active,
-    enabledPermissions: user.enabledPermissions,
-    licenseStatus: user.licenseStatus ?? null,
-    mentorId: user.mentorId ?? null,
-    commissionSharePct: user.commissionSharePct ?? null,
-    company: user.company,
-    idNumberOrPassport: user.idNumberOrPassport,
-    verification: user.verification,
-    mustChangePassword: user.mustChangePassword === true ? true : undefined,
-  }
-}
+export { appUserToDto } from '../auth/appUserDto'
 
 export async function loadProfileForSession(authUserId: string): Promise<AppUser | null> {
   const supabase = createClient()

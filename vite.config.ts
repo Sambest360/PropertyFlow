@@ -112,13 +112,14 @@ export default defineConfig(({ mode }) => {
               return 'vendor'
             }
             if (isChartsChunk(id)) return 'charts'
-            if (
-              id.includes('node_modules/leaflet') ||
-              id.includes('node_modules/react-leaflet') ||
-              id.includes('node_modules/@react-google-maps')
-            ) {
+            // PDF writer (pdf-lib + fonts + pako): leases, inspections, owner statements only.
+            if (/node_modules\/(@pdf-lib|pdf-lib|pako)\//.test(id)) return 'pdf'
+            // Leaflet only loads with map pages; the app shell's Maps JS loader
+            // (@react-google-maps) gets its own chunk so it does not drag Leaflet in.
+            if (id.includes('node_modules/leaflet') || id.includes('node_modules/react-leaflet')) {
               return 'maps'
             }
+            if (id.includes('node_modules/@react-google-maps')) return 'gmaps'
             return undefined
           },
         },

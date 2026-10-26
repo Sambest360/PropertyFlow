@@ -1651,11 +1651,15 @@ export function arePageTipsDisabled(userId: string): boolean {
   return readPrefsMap()[userId]?.disabled === true
 }
 
-export function setPageTipsPreference(userId: string, disabled: boolean): void {
-  if (!userId || userId === 'anon') return
+function writePageTipsPreference(userId: string, disabled: boolean): void {
   const map = readPrefsMap()
   map[userId] = { disabled, decidedAt: new Date().toISOString() }
   writePrefsMap(map)
+}
+
+export function setPageTipsPreference(userId: string, disabled: boolean): void {
+  if (!userId || userId === 'anon') return
+  writePageTipsPreference(userId, disabled)
   emitPageTipsChange()
 }
 
@@ -1724,7 +1728,11 @@ export function ensurePageTipsPreferenceForFirstVisit(
 ): void {
   if (!userId || userId === 'guest' || userId === 'anon') return
   if (!hasTourOnPage || hasPageTipsPreference(userId)) return
-  setPageTipsPreference(userId, true)
+  // Runs during PageTipsPreferenceDialog's render: write now (the sibling
+  // walkthrough reads storage as it renders) but notify subscribers after the
+  // render — their setState inside another component's render is a React error.
+  writePageTipsPreference(userId, true)
+  queueMicrotask(emitPageTipsChange)
 }
 
 /** Re-enable tips for a user and clear seen marks so walkthroughs replay immediately. */

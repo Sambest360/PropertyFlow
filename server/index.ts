@@ -74,6 +74,8 @@ import {
   sendWelcomeEmail,
 } from './mailtrap.js'
 import { ensureUuid, resolveFrontendId, resolveUuid } from './entityMap.js'
+import { isAgencyWideRole } from '../src/lib/scope.js'
+import type { Role } from '../src/types/domain.js'
 import { docIdFromEnvelopeId } from './signiflow.js'
 import { registerSupabaseUserDirect } from './supabase/registerUser.js'
 import { runningCommitSha } from './appConfig.js'
@@ -835,11 +837,23 @@ app.get('/api/bootstrap', async (c) => {
       ? 60
       : Math.min(Math.max(Number(c.req.query('limit') || 250), 1), 500)
     const actor = await enrichActor(rawActor)
-    const { agencyFeId } = await loadScopeGateModule()
+    const { agencyFeId, buildActorPropertyScope, filterBootstrapForActor, actorIdAliases, resolveActorUsersManage } =
+      await loadScopeGateModule()
     const { buildBootstrap } = await loadBootstrapModule()
     const bootstrapStarted = Date.now()
+    const aliases = await actorIdAliases(actor)
     const data = await buildBootstrap({
       lite,
+      notificationsFor:
+        actor.role === 'super_admin'
+          ? undefined
+          : {
+              userUuids: [...aliases],
+              clientUuid:
+                isAgencyWideRole(actor.role as Role) && actor.agencyId
+                  ? await resolveUuid('agency', actor.agencyId)
+                  : null,
+            },
       refundAgencyFe:
         actor.role === 'super_admin' ? undefined : actor.agencyId ? await agencyFeId(actor.agencyId) : null,
       limits: {
@@ -854,8 +868,6 @@ app.get('/api/bootstrap', async (c) => {
       },
     })
     // actor already enriched above (D2 refundAgencyFe); main's CR7 adds resolveActorUsersManage.
-    const { buildActorPropertyScope, filterBootstrapForActor, actorIdAliases, resolveActorUsersManage } =
-      await loadScopeGateModule()
     const scope = await buildActorPropertyScope(actor)
     // CR7: agency desk tickets only when users.manage is effective (agency pack applied).
     const usersManage =
@@ -866,7 +878,7 @@ app.get('/api/bootstrap', async (c) => {
       data as Parameters<typeof filterBootstrapForActor>[0],
       actor,
       scope,
-      await actorIdAliases(actor),
+      aliases,
       { usersManage },
     )
     const bootstrapMs = Date.now() - bootstrapStarted

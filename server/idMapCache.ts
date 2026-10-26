@@ -4,12 +4,16 @@
  */
 import { query } from './db.js'
 import { EMAIL_TO_USER, UNIT_TO_PROPERTY, mapAgency, mapProperty } from './idMap.js'
-import { ensureEntityMapTable, resolveUuid } from './entityMap.js'
+import { ensureEntityMapTable, staticUuidFor } from './entityMap.js'
 
 export type IdMapCache = {
   userBackendToFe: Map<string, string>
   unitBackendToPropertyFe: Map<string, string>
   agencyBackendToFe: Map<string, string>
+  /** Every entity_id_map row as `${entity_type}:${backend_id}` → frontend_id. */
+  aliasByTypeBackend: Map<string, string>
+  /** The entity_id_map rows this cache was built from. */
+  rows: Array<{ entity_type: string; frontend_id: string; backend_id: string }>
 }
 
 let cached: IdMapCache | null = null
@@ -28,6 +32,8 @@ export async function loadIdMapCache(force = false): Promise<IdMapCache> {
   const userBackendToFe = new Map<string, string>()
   const unitBackendToPropertyFe = new Map<string, string>()
   const agencyBackendToFe = new Map<string, string>()
+  const aliasByTypeBackend = new Map<string, string>()
+  const userFeToBackend = new Map<string, string>()
 
   await ensureEntityMapTable()
 
@@ -39,8 +45,10 @@ export async function loadIdMapCache(force = false): Promise<IdMapCache> {
   ])
 
   for (const row of idRows) {
+    aliasByTypeBackend.set(`${row.entity_type}:${row.backend_id}`, row.frontend_id)
     if (row.entity_type === 'user') {
       userBackendToFe.set(row.backend_id, row.frontend_id)
+      userFeToBackend.set(row.frontend_id, row.backend_id)
     }
     if (row.entity_type === 'agency') {
       agencyBackendToFe.set(row.backend_id, row.frontend_id)
@@ -57,13 +65,15 @@ export async function loadIdMapCache(force = false): Promise<IdMapCache> {
   // must resolve back to this very row. A user who registers with a seed
   // email gets a new uuid, fails the check, and never inherits the seed id
   // (or its trust rows, payouts and bank account).
+  // Same answer as resolveUuid('user', fe) — static seed map, then the
+  // entity_id_map rows read above — without one query per seed email.
   for (const u of userRows) {
     const fe = u.email ? EMAIL_TO_USER[u.email.toLowerCase()] : undefined
     if (!fe) continue
-    if ((await resolveUuid('user', fe)) === u.id) userBackendToFe.set(u.id, fe)
+    if ((staticUuidFor('user', fe) ?? userFeToBackend.get(fe)) === u.id) userBackendToFe.set(u.id, fe)
   }
 
-  cached = { userBackendToFe, unitBackendToPropertyFe, agencyBackendToFe }
+  cached = { userBackendToFe, unitBackendToPropertyFe, agencyBackendToFe, aliasByTypeBackend, rows: idRows }
   cachedAt = now
   return cached
 }

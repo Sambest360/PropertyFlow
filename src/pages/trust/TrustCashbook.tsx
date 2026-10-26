@@ -170,7 +170,6 @@ export default function TrustCashbook() {
             <div className="flex flex-wrap justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={handleDownloadTemplate} title="Download template CSV">
                 <FileDown className="h-4 w-4" />
-      <div className="mb-2"><FieldHelp title="Trust cashbook" body={TRUST_MODE_A_COPY} /></div>
                 Template
               </Button>
               <Button
@@ -209,6 +208,7 @@ export default function TrustCashbook() {
           </div>
         }
       />
+      <div className="mb-2"><FieldHelp title="Trust cashbook" body={TRUST_MODE_A_COPY} /></div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card className="p-4">

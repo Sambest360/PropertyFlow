@@ -256,7 +256,14 @@ export async function buildBootstrap(opts?: {
   refundAgencyFe?: string | null
   /** P3a: read only these units by id (no row window). */
   unitIds?: string[]
+  /**
+   * Read only the notifications the actor filter can keep: the actor's own
+   * (any of their user uuids) plus, for agency-wide staff, their agency's.
+   * Undefined (super admin) reads the newest across the platform.
+   */
+  notificationsFor?: { userUuids: string[]; clientUuid: string | null }
 }) {
+  const notificationsFor = opts?.notificationsFor
   const unitIds = opts?.unitIds
   const lite = Boolean(opts?.lite)
   const baseLimits = lite ? LITE_BOOTSTRAP_LIMITS : DEFAULT_BOOTSTRAP_LIMITS
@@ -456,9 +463,16 @@ export async function buildBootstrap(opts?: {
       ]),
       () => query('SELECT * FROM messages ORDER BY created_at DESC LIMIT $1', [limits.messages]),
       () =>
-        query('SELECT * FROM notifications ORDER BY created_at DESC LIMIT $1', [
-          limits.notifications,
-        ]),
+        notificationsFor
+          ? query(
+              `SELECT * FROM notifications
+                WHERE user_id = ANY($2::uuid[]) OR ($3::uuid IS NOT NULL AND client_id = $3::uuid)
+                ORDER BY created_at DESC LIMIT $1`,
+              [limits.notifications, unitIdsAsUuids(notificationsFor.userUuids), notificationsFor.clientUuid],
+            )
+          : query('SELECT * FROM notifications ORDER BY created_at DESC LIMIT $1', [
+              limits.notifications,
+            ]),
       () =>
         skipHeavy
           ? Promise.resolve([] as Array<Record<string, unknown>>)
@@ -589,18 +603,11 @@ export async function buildBootstrap(opts?: {
       'lookup',
       'notification',
     ] as const
-    const trustRows = await query<{
-      entity_type: string
-      frontend_id: string
-      backend_id: string
-    }>(
-      `SELECT entity_type, frontend_id, backend_id::text AS backend_id
-       FROM entity_id_map
-       WHERE entity_type = ANY($1::text[])`,
-      [[...trustTypes]],
-    )
-    for (const row of trustRows) {
-      mapCache.set(`${row.entity_type}:${row.backend_id}`, row.frontend_id)
+    // Rows come from the entity_id_map read loadIdMapCache just made — no
+    // second pass over the same table.
+    const wanted = new Set<string>(trustTypes)
+    for (const [key, fe] of idCache.aliasByTypeBackend ?? []) {
+      if (wanted.has(key.slice(0, key.indexOf(':')))) mapCache.set(key, fe)
     }
   }
   const mappedFe = (entityType: string, uuid: string, fallback: string) =>
@@ -1532,11 +1539,8 @@ export async function buildBootstrap(opts?: {
   )
   const unitsScoped = unitsOut.filter((u) => keptUnitIds.has(u.id))
 
-  const idMapRows = await query<{
-    entity_type: string
-    frontend_id: string
-    backend_id: string
-  }>(`SELECT entity_type, frontend_id, backend_id::text AS backend_id FROM entity_id_map`)
+  // Same rows loadIdMapCache(true) read at the top of this bootstrap.
+  const idMapRows = idCache.rows ?? []
 
   return {
     source: 'postgres',

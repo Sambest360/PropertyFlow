@@ -49,14 +49,7 @@ import {
   type PropertyScope,
 } from '../lib/scope'
 import { useStore } from './AppStore'
-import {
-  appUserToDto,
-  onSupabaseAuthChange,
-  supabaseGetSessionUser,
-  supabaseSignIn,
-  supabaseSignOut,
-  supabaseSignUp,
-} from '../lib/supabase/auth'
+import { appUserToDto } from '../lib/auth/appUserDto'
 import {
   beginGuestPurge,
   clearSessionArtifacts,
@@ -114,6 +107,9 @@ function mergeAuthUser(session: AppUser, fromStore: AppUser | null | undefined):
     enabledPermissions: session.enabledPermissions ?? fromStore.enabledPermissions,
   }
 }
+
+/** Supabase auth (and its SDK) loads only in Supabase mode, not with the API-mode shell. */
+const loadSupabaseAuth = () => import('../lib/supabase/auth')
 
 function applySessionUser(
   profile: AppUser,
@@ -251,7 +247,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // loginInFlight is up. #60's sign-out credit does not cover this caller.
         const probeHoldGen = loginHoldGen.current
         const probeGen = sessionProbeGenRef.current
-        const profile = await supabaseGetSessionUser()
+        const profile = await (await loadSupabaseAuth()).supabaseGetSessionUser()
         if (cancelled) return
         clearTimeout(readyTimeout)
         clearTimeout(hardReadyTimeout)
@@ -317,34 +313,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!isSupabaseMode) return
-    const { unsubscribe } = onSupabaseAuthChange((profile) => {
-      // P0-register (R8): while a registration is in flight, a previous
-      // user's live session can fire auth-change events (token refresh,
-      // INITIAL_SESSION on a late subscribe). Never hydrate that old identity
-      // into the shell mid-registration — the register flow owns the session.
-      // P0 empty-DB SA: same for login — a late null from auth-change must not
-      // clear the Super Admin session that login() just applied.
-      if (profile) {
-        // Mid-login the login() apply already owns the shell; ignore echoes.
-        if (isRegisterInFlight() || isLoginInFlight()) return
-        setMustChangePassword(profile.mustChangePassword === true)
-        applySessionUser(profile, setSessionUser, setUserId, setRealUserId)
-        return
-      }
-      // remint58: a guest-mount signOut can resolve after login() and emit
-      // signed-out. Ignore that null while the hold is up, and once more if
-      // it was armed as a stale pre-login purge (even after the hold drops).
-      // remint59 grace3: do NOT spend the one post-hold credit while the hold
-      // is still up — that credit is only for a null that arrives at the
-      // check below, after releaseLoginHold.
-      if (isRegisterInFlight()) return
-      if (isLoginInFlight()) return
-      if (consumeStaleSignOutIgnore()) return
-      setSessionUser(null)
-      setUserId('')
-      setRealUserId(null)
+    let unsubscribe: (() => void) | null = null
+    let disposed = false
+    void loadSupabaseAuth().then(({ onSupabaseAuthChange }) => {
+      if (disposed) return
+      unsubscribe = onSupabaseAuthChange((profile) => {
+        // P0-register (R8): while a registration is in flight, a previous
+        // user's live session can fire auth-change events (token refresh,
+        // INITIAL_SESSION on a late subscribe). Never hydrate that old identity
+        // into the shell mid-registration — the register flow owns the session.
+        // P0 empty-DB SA: same for login — a late null from auth-change must not
+        // clear the Super Admin session that login() just applied.
+        if (profile) {
+          // Mid-login the login() apply already owns the shell; ignore echoes.
+          if (isRegisterInFlight() || isLoginInFlight()) return
+          setMustChangePassword(profile.mustChangePassword === true)
+          applySessionUser(profile, setSessionUser, setUserId, setRealUserId)
+          return
+        }
+        // remint58: a guest-mount signOut can resolve after login() and emit
+        // signed-out. Ignore that null while the hold is up, and once more if
+        // it was armed as a stale pre-login purge (even after the hold drops).
+        // remint59 grace3: do NOT spend the one post-hold credit while the hold
+        // is still up — that credit is only for a null that arrives at the
+        // check below, after releaseLoginHold.
+        if (isRegisterInFlight()) return
+        if (isLoginInFlight()) return
+        if (consumeStaleSignOutIgnore()) return
+        setSessionUser(null)
+        setUserId('')
+        setRealUserId(null)
+      }).unsubscribe
     })
-    return unsubscribe
+    return () => {
+      disposed = true
+      unsubscribe?.()
+    }
   }, [])
 
   useEffect(() => {
@@ -575,7 +579,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         sessionProbeGenRef.current += 1
         try {
           if (isSupabaseMode) {
-            const appUser = await supabaseSignIn(email, password)
+            const appUser = await (await loadSupabaseAuth()).supabaseSignIn(email, password)
             const { writeAuthToken } = await import('../lib/api/authClient')
             writeAuthToken(null)
             const mustChange = appUser.mustChangePassword === true
@@ -651,7 +655,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           let result: { user: AppUser; bootstrap: boolean }
           if (isSupabaseMode) {
-            const res = await supabaseSignUp(input)
+            const res = await (await loadSupabaseAuth()).supabaseSignUp(input)
             setSessionUser(res.user)
             setUserId(res.user.id)
             setRealUserId(null)
@@ -700,7 +704,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // propertyflow-auth-* + sb-*auth*), so leftover Super Admin cannot
         // resurrect from localStorage alone after a soft logout.
         try {
-          if (isSupabaseMode) await supabaseSignOut()
+          if (isSupabaseMode) await (await loadSupabaseAuth()).supabaseSignOut()
           else await apiLogout()
         } catch {
           /* fall through — session artifacts cleared below regardless */
@@ -726,7 +730,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               // Once shieldGuestPurgeForLogin invalidates this purge, skip
               // GoTrue _removeSession. A generation check after this await
               // cannot put the JWT back.
-              await supabaseSignOut({ skipRemoveSession: guestSignOutRemoveSuppressed })
+              await (await loadSupabaseAuth()).supabaseSignOut({ skipRemoveSession: guestSignOutRemoveSuppressed })
             } else await apiLogout()
           } catch {
             /* fall through — artifacts cleared below regardless */

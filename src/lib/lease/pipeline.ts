@@ -4,7 +4,6 @@
  */
 
 import type { AppUser, PropertyAsset, PropertyDocument, Tenancy } from '../../types/domain'
-import { generateLeasePdf } from './generateLeasePdf'
 import { eSignProviderFromEnv } from './providers'
 import type {
   ESignProvider,
@@ -156,6 +155,8 @@ export async function issueLeaseOnTenancyCreate(
 
   let pdf
   try {
+    // pdf-lib (~400 kB) loads only when a lease is issued, not with the app shell.
+    const { generateLeasePdf } = await import('./generateLeasePdf')
     pdf = await generateLeasePdf({
       tenancyId: tenancy.id,
       leaseReference: tenancy.id,

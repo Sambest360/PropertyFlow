@@ -3,7 +3,6 @@ import { useAuth } from '../context/AuthContext'
 import { useStore } from '../context/AppStore'
 import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
 import { LIVE_SYNC_DEBOUNCE_MS, LIVE_SYNC_POLL_MS, LIVE_SYNC_TABLES } from '../lib/liveSync'
-import { createClient } from '../utils/supabase/client'
 
 /**
  * Keeps workspace data fresh: Supabase Realtime on operational tables,
@@ -38,23 +37,28 @@ export function useLiveSync() {
       scheduleRefresh()
     }, LIVE_SYNC_POLL_MS)
 
-    let channel: ReturnType<ReturnType<typeof createClient>['channel']> | null = null
+    // Realtime (and the Supabase SDK) only in Supabase mode — API mode polls.
+    let removeChannel: (() => void) | null = null
+    let disposed = false
     if (isSupabaseMode) {
       realtimeOkRef.current = false
-      const supabase = createClient()
-      let ch = supabase.channel(`propertyflow-live-${user.id}`)
-      for (const table of LIVE_SYNC_TABLES) {
-        ch = ch.on('postgres_changes', { event: '*', schema: 'public', table }, scheduleRefresh)
-      }
-      channel = ch
-      void ch.subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          realtimeOkRef.current = true
+      void import('../utils/supabase/client').then(({ createClient }) => {
+        if (disposed) return
+        const supabase = createClient()
+        let ch = supabase.channel(`propertyflow-live-${user.id}`)
+        for (const table of LIVE_SYNC_TABLES) {
+          ch = ch.on('postgres_changes', { event: '*', schema: 'public', table }, scheduleRefresh)
         }
-        if (status === 'CHANNEL_ERROR') {
-          realtimeOkRef.current = false
-          console.warn('[liveSync] Realtime channel error — using focus/poll/nav refresh')
-        }
+        removeChannel = () => void supabase.removeChannel(ch)
+        void ch.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            realtimeOkRef.current = true
+          }
+          if (status === 'CHANNEL_ERROR') {
+            realtimeOkRef.current = false
+            console.warn('[liveSync] Realtime channel error — using focus/poll/nav refresh')
+          }
+        })
       })
     }
 
@@ -62,7 +66,8 @@ export function useLiveSync() {
       window.removeEventListener('focus', onFocus)
       window.clearInterval(poll)
       if (debounceRef.current != null) window.clearTimeout(debounceRef.current)
-      if (channel) void createClient().removeChannel(channel)
+      disposed = true
+      removeChannel?.()
     }
   }, [isAuthenticated, user.id, user.role, user.agencyId, refreshSessionData])
 }

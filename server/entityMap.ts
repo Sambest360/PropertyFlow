@@ -206,6 +206,11 @@ export async function ensureEntityMapTable(): Promise<void> {
   }
 }
 
+/** Seed (static) backend uuid for a front-end id, without touching the database. */
+export function staticUuidFor(entityType: EntityType, frontendId: string): string | null {
+  return STATIC_FE_TO_UUID[entityType]?.[frontendId] ?? null
+}
+
 export async function resolveUuid(
   entityType: EntityType,
   frontendId: string | null | undefined,

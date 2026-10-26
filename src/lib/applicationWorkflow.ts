@@ -7,7 +7,7 @@ import {
   markScreeningInProgressOnWorkflow,
   screeningSoftGate,
 } from './screening/index.js'
-import { pcrSoftGate } from './pcr/index.js'
+import { pcrSoftGate } from './pcr/softGate.js'
 import { canTransition as journeyCanTransition } from './journey/journeyGates.js'
 
 /** DQ-C2 + DQ-C3: FICA pack then screening soft-gate for approve / lease / move-in. */
