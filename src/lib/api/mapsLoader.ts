@@ -32,8 +32,11 @@ export function mapsLoaderConfig() {
 export const SA_MAP_CENTER = { lat: -33.96, lng: 25.6 } as const
 export const SA_MAP_DEFAULT_ZOOM = 12
 
-/** Carto Positron-style soft canvas tiles (used when Google key is absent). */
-export const LEAFLET_BASEMAP_URL =
-  'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+/**
+ * OpenStreetMap standard tiles (used when the Google key is absent or fails).
+ * CARTO's basemaps now answer every keyless request with an "API KEY
+ * REQUIRED" placeholder tile; OSM needs no key, only this attribution.
+ */
+export const LEAFLET_BASEMAP_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 export const LEAFLET_BASEMAP_ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>'
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'

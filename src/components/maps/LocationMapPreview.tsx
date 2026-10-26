@@ -42,7 +42,7 @@ type Props = {
 
 /**
  * Small map for create/edit location steps — Google when configured and healthy,
- * otherwise Carto/Leaflet (no Google error modal).
+ * otherwise OpenStreetMap via Leaflet (no Google error modal).
  */
 export function LocationMapPreview({ lat, lng, className }: Props) {
   const { enabled, isLoaded, loadError } = useGoogleMaps()
@@ -122,9 +122,12 @@ export function LocationMapPreview({ lat, lng, className }: Props) {
         ) : null}
       </MapContainer>
       <p className="border-t border-primary-100 bg-white px-3 py-2 text-xs text-ink-500">
+        {/* Env-var setup hints are for developers; users get plain wording. */}
         {enabled && loadError
-          ? 'Google Maps could not load (check VITE_GOOGLE_MAPS_API_KEY and referrer restrictions). Showing OpenStreetMap instead.'
-          : !enabled
+          ? import.meta.env.DEV
+            ? 'Google Maps could not load (check VITE_GOOGLE_MAPS_API_KEY and referrer restrictions). Showing OpenStreetMap instead.'
+            : 'Google Maps could not load, so this is an OpenStreetMap preview.'
+          : !enabled && import.meta.env.DEV
             ? 'Add VITE_GOOGLE_MAPS_API_KEY in .env.local for Google Maps and Places autocomplete.'
             : 'Pin updates when an address is geocoded.'}
       </p>
