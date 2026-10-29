@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { HardHat, Mail, Phone, Plus, Star, Wrench } from 'lucide-react'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
@@ -7,6 +7,8 @@ import { RequirePermission } from '../components/RequirePermission'
 import { DirectoryStatCard } from '../components/directory/DirectoryStats'
 import { CONTRACTOR_TRADES, listAgencyContractorRoster, tradeLabel } from '../lib/contractors'
 import { AddContractorToRosterModal } from '../components/contractors/AddContractorToRosterModal'
+import { BookContractorModal, BookingsPanel } from '../components/contractors/BookingsPanel'
+import { Input } from '../components/ui'
 import { currentReturnPath } from '../lib/returnTo'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
 import { Badge, Button, Card, PageHeader, Select } from '../components/ui'
@@ -15,7 +17,14 @@ const ICON_STROKE = 1.6
 
 export default function ContractorsDirectory() {
   const { state, addAgencyContractor, updateAgencyContractor } = useStore()
-  const { user, has, agencyId } = useAuth()
+  const { user, has, agencyId, role } = useAuth()
+  const [params, setParams] = useSearchParams()
+  const tab = (params.get('tab') as 'find' | 'roster' | 'bookings' | null) ?? 'roster'
+  const setTab = (t: 'find' | 'roster' | 'bookings') => setParams((p) => { p.set('tab', t); return p }, { replace: true })
+  const canBook = ['super_admin', 'client_admin', 'agent_admin', 'ground_agent'].includes(role)
+  const [bookFor, setBookFor] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [area, setArea] = useState('')
   const { ticketVisible } = usePropertyScope()
   const location = useLocation()
   const alert = useSuiteAlert()
@@ -60,6 +69,37 @@ export default function ContractorsDirectory() {
     }
   }, [state.agencyContractors, state.users, state.tickets, agencyId, ticketVisible])
 
+  const rosterIds = useMemo(
+    () => new Set(state.agencyContractors.filter((r) => r.agencyId === agencyId).map((r) => r.contractorUserId)),
+    [state.agencyContractors, agencyId],
+  )
+  /** Lifecycle step 1: every active contractor on Lekaya, searchable by name, trade and area. */
+  const marketplace = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const a = area.trim().toLowerCase()
+    return state.users
+      .filter((u) => u.role === 'contractor' && u.active !== false)
+      .map((u) => {
+        const profile = (u.verification?.profile ?? {}) as Record<string, unknown>
+        const areas = Array.isArray(profile.serviceAreas) ? (profile.serviceAreas as string[]) : []
+        const rosterRow = state.agencyContractors.find((r) => r.contractorUserId === u.id && r.agencyId === agencyId)
+        const trades = rosterRow?.trades ?? (Array.isArray(profile.trades) ? (profile.trades as string[]) : [])
+        const rating = state.agencyContractors.filter((r) => r.contractorUserId === u.id && r.rating != null).map((r) => r.rating as number)
+        return {
+          user: u,
+          areas,
+          trades,
+          verified: !u.verification || u.verification.status === 'approved' || u.verification.status === 'not_required',
+          rating: rating.length ? rating.reduce((x, y) => x + y, 0) / rating.length : null,
+          onRoster: rosterIds.has(u.id),
+        }
+      })
+      .filter((c) => !q || c.user.name.toLowerCase().includes(q) || (c.user.company ?? '').toLowerCase().includes(q))
+      .filter((c) => trade === 'all' || c.trades.some((t) => t.toLowerCase() === trade.toLowerCase()) || c.trades.includes('GENERAL'))
+      .filter((c) => !a || c.areas.some((x) => x.toLowerCase().includes(a)))
+      .sort((x, y) => Number(y.verified) - Number(x.verified) || (y.rating ?? 0) - (x.rating ?? 0) || x.user.name.localeCompare(y.user.name))
+  }, [state.users, state.agencyContractors, agencyId, rosterIds, search, area, trade])
+
   const canManage = has('contractors.manage')
   const canCreateUser = has('users.manage') || has('roles.assign')
   const returnTo = currentReturnPath(location.pathname, location.search)
@@ -90,7 +130,7 @@ export default function ContractorsDirectory() {
       <div className="animate-fade-in space-y-5">
         <PageHeader
           title="Contractors"
-          subtitle="Agency-approved vendors for maintenance — book or link them when logging faults."
+          subtitle="Find contractors, book them for a date, and assign them to faults and maintenance jobs."
           actions={
             canManage ? (
               <Button className="min-h-11" onClick={() => setAddOpen(true)}>
@@ -126,6 +166,94 @@ export default function ContractorsDirectory() {
           />
         </section>
 
+        <div className="flex flex-wrap gap-2 border-b border-primary-100">
+          {(
+            [
+              ['find', 'Find contractors'],
+              ['roster', 'Your roster'],
+              ['bookings', 'Bookings'],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTab(id)}
+              className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium ${tab === id ? 'border-primary text-primary' : 'border-transparent text-ink-500 hover:text-ink'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="text-sm text-ink-500">
+          1. Find a contractor → 2. Book them for a date → 3. Assign the booking to a fault or maintenance job.
+        </p>
+
+        {tab === 'bookings' ? <BookingsPanel mode="agency" /> : null}
+
+        {tab === 'find' ? (
+          <>
+            <Card className="grid gap-3 p-4 sm:grid-cols-3">
+              <Input placeholder="Search name or company" value={search} onChange={(e) => setSearch(e.target.value)} />
+              <Input placeholder="Area, e.g. Walmer" value={area} onChange={(e) => setArea(e.target.value)} />
+              <Select value={trade} onChange={(e) => setTrade(e.target.value)} aria-label="Trade">
+                <option value="all">All trades</option>
+                {CONTRACTOR_TRADES.map((t) => (
+                  <option key={t.key} value={t.key}>
+                    {t.label}
+                  </option>
+                ))}
+              </Select>
+            </Card>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {marketplace.map((c) => (
+                <Card key={c.user.id} className="flex flex-col gap-2 p-5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="font-semibold text-ink">{c.user.name}</h3>
+                    {c.verified ? <Badge tone="success">Verified</Badge> : <Badge tone="warning">Being checked</Badge>}
+                    {c.onRoster ? <Badge tone="info">On your roster</Badge> : null}
+                  </div>
+                  {c.user.company ? <p className="text-sm text-ink-500">{c.user.company}</p> : null}
+                  <p className="text-xs text-ink-500">
+                    {c.trades.length ? c.trades.map(tradeLabel).join(', ') : 'General'}
+                    {c.areas.length ? ` · ${c.areas.join(', ')}` : ''}
+                  </p>
+                  {c.rating != null ? (
+                    <p className="inline-flex items-center gap-1 text-sm">
+                      <Star className="h-4 w-4 text-accent" aria-hidden /> {c.rating.toFixed(1)}
+                    </p>
+                  ) : null}
+                  <div className="mt-auto flex flex-wrap gap-2 pt-2">
+                    {canBook && c.verified ? (
+                      <Button size="sm" onClick={() => setBookFor(c.user.id)}>
+                        Book
+                      </Button>
+                    ) : null}
+                    {canManage && !c.onRoster && agencyId ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() =>
+                          submitAdd({ contractorUserId: c.user.id, trades: c.trades.length ? c.trades : ['GENERAL'], notes: '' })
+                        }
+                      >
+                        Add to roster
+                      </Button>
+                    ) : null}
+                    <Link to={`/profile/${encodeURIComponent(c.user.id)}`}>
+                      <Button size="sm" variant="ghost">
+                        Profile & reviews
+                      </Button>
+                    </Link>
+                  </div>
+                </Card>
+              ))}
+            </div>
+            {marketplace.length === 0 ? <Card className="p-8 text-center text-sm text-ink-500">No contractors match. Try another trade or area.</Card> : null}
+          </>
+        ) : null}
+
+        {tab === 'roster' ? (
+        <>
         <Card className="p-4">
           <label className="block text-xs font-medium text-ink-500">
             Filter by trade
@@ -198,6 +326,11 @@ export default function ContractorsDirectory() {
                 {row.notes ? <p className="mt-3 text-xs text-ink-500">{row.notes}</p> : null}
 
                 <div className="mt-4 flex flex-wrap gap-2 border-t border-primary-50 pt-4">
+                  {canBook && row.status === 'approved' ? (
+                    <Button size="sm" className="min-h-10" onClick={() => setBookFor(contractor.id)}>
+                      Book
+                    </Button>
+                  ) : null}
                   <Link to={`/workspace/operations/maintenance?contractor=${contractor.id}`}>
                     <Button variant="secondary" size="sm" className="min-h-10">
                       View jobs
@@ -235,6 +368,18 @@ export default function ContractorsDirectory() {
               : 'No contractors on the roster yet. Add approved vendors so agents and landlords can assign them to faults.'}
           </Card>
         )}
+
+        </>
+        ) : null}
+
+        {bookFor ? (
+          <BookContractorModal
+            open
+            contractorId={bookFor}
+            onClose={() => setBookFor(null)}
+            onBooked={() => setTab('bookings')}
+          />
+        ) : null}
 
         <AddContractorToRosterModal
           open={addOpen}
