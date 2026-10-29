@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react'
 import {
   Banknote,
+  HardDrive,
   BookOpen,
   MessageSquareText,
   Building2,
@@ -259,6 +260,15 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
         label: 'Agencies',
         permission: 'platform.manage',
         icon: Landmark,
+      },
+    },
+    {
+      type: 'link',
+      item: {
+        to: '/workspace/admin/storage',
+        label: 'Storage',
+        permission: 'platform.manage',
+        icon: HardDrive,
       },
     },
     {
