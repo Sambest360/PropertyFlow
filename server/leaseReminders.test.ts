@@ -333,8 +333,8 @@ describe('cron auth', () => {
     const route = block.slice(0, block.indexOf('\n})') + 3)
     expect(route).toContain('process.env.CRON_SECRET')
     expect(route).not.toMatch(/resolveRequestActor|x-demo|X-Role/i)
-    const setup = readFileSync(new URL('../deploy/setup.sh', import.meta.url), 'utf8')
-    expect(setup).toContain('/api/cron/lease-reminders')
+    const crons = readFileSync(new URL('../deploy/crons.sh', import.meta.url), 'utf8')
+    expect(crons).toContain('lease-reminders')
   })
 })
 

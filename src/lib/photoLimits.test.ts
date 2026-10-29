@@ -27,4 +27,14 @@ describe('photoLimits', () => {
     expect(isSafePhotoUrl('data:image/png;base64,AAAA')).toBe(true)
     expect(isSafePhotoUrl('https://x.example/a.jpg')).toBe(true)
   })
+  it("this site's own stored photos (self-hosted disk) are kept; other paths are not", () => {
+    const own = '/api/files/agency/9f1c2b7e-1d2a-4c3b-8e9f-0a1b2c3d4e5f/listings/2026-10/3f2b.webp'
+    expect(isSafePhotoUrl(own)).toBe(true)
+    expect(isSafePhotoUrl('/api/files/../../etc/passwd.png')).toBe(false)
+    expect(isSafePhotoUrl('/api/files/a/b.svg')).toBe(false)
+    expect(isSafePhotoUrl('/api/files/listings/2026-10/a.jpg')).toBe(true)
+    expect(isSafePhotoUrl('/api/bootstrap')).toBe(false)
+    expect(isSafePhotoUrl('//evil.example/a.jpg')).toBe(false)
+    expect(checkPhotos([own, '/etc/passwd', 'javascript:x'], { maxCount: 8 })).toEqual({ ok: true, urls: [own] })
+  })
 })
