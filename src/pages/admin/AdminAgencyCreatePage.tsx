@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useFreshCreateDraft } from '../../hooks/useFreshCreateDraft'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../../context/AppStore'
 import { RequirePermission } from '../../components/RequirePermission'
@@ -41,6 +42,7 @@ type AgencyDraft = {
 }
 
 export default function AdminAgencyCreatePage() {
+  useFreshCreateDraft(DRAFT_KEY)
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const returnTo = readReturnTo(searchParams) ?? '/workspace/admin/agencies'

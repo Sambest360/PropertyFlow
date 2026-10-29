@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useFreshCreateDraft } from '../../hooks/useFreshCreateDraft'
 import { acquireSubmitLock, releaseSubmitLock } from '../../lib/wizardSubmitGuard'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../../context/AppStore'
@@ -95,6 +96,7 @@ function fullDisplayName(first: string, last: string): string {
 }
 
 export default function AdminUserCreatePage() {
+  useFreshCreateDraft(USER_DRAFT_KEY)
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { state, createUserDurable, updateProperty, updateTenancy, notify } = useStore()
