@@ -726,6 +726,11 @@ type StoreContextValue = {
     idempotencyKey?: string
   }) => Promise<PropertyAsset>
   updateProperty: (id: string, patch: Partial<PropertyAsset>) => void
+  /**
+   * Assign (or clear) a property's agent and wait for the server. On a refusal
+   * the local change is undone and the reason is returned.
+   */
+  assignPropertyAgent: (id: string, agentId: string | null) => Promise<{ ok: true } | { ok: false; reason: string }>
   setPropertyRooms: (id: string, rooms: Room[]) => void
   /** P0-publish: returns whether the listing actually flipped to a public state.
    *  P0-publish (R7): `created` lets the wizard pass the just-created property
@@ -3582,11 +3587,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         unit.agentId &&
         (unitErr?.includes('agent not resolved') || unitErr?.toLowerCase().includes('agent'))
       ) {
+        // Save the listing without the agent, but tell the wizard why (it used
+        // to drop the agent silently, so "assigned" listings showed Unassigned).
         unitPersistData = { ...unitPersistBase, agentId: null }
         unitResult = await persistUpsertResult('unit', unit.id, unitPersistData)
         if (unitResult.ok) {
           unit.agentId = null
           property.agentId = null
+          ;(property as PropertyAsset & { agentAssignError?: string }).agentAssignError =
+            unitErr ?? 'The agent could not be assigned.'
         }
       }
       if (!unitResult.ok) {
@@ -3738,6 +3747,44 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }
       if (pe) persistUpsert('property_event', pe.id, pe as unknown as Record<string, unknown>)
       scheduleBootstrapRefreshAfterMutation()
+    },
+    assignPropertyAgent: async (id, agentId) => {
+      const prev = stateRef.current.properties.find((x) => x.id === id)
+      if (!prev) return { ok: false, reason: 'Property not found. Refresh and try again.' }
+      const before = prev.agentId ?? null
+      const next = agentId || null
+      if (before === next) return { ok: true }
+      const unitId = prev.unitId
+      const apply = (value: string | null) =>
+        patch((s) => ({
+          ...s,
+          properties: s.properties.map((x) => (x.id === id ? { ...x, agentId: value } : x)),
+          units: s.units.map((u) => (u.id === unitId ? { ...u, agentId: value } : u)),
+        }))
+      apply(next)
+      const result = await persistUpsertResult('property', id, { ...prev, agentId: next, id } as Record<string, unknown>)
+      if (!result.ok) {
+        apply(before)
+        const { persistErrorMessage } = await import('../lib/api/persist')
+        return { ok: false, reason: persistErrorMessage(result) ?? 'The agent could not be assigned.' }
+      }
+      const s = stateRef.current
+      const fromName = s.users.find((u) => u.id === before)?.name ?? (before ? 'Assigned' : 'Unassigned')
+      const toName = s.users.find((u) => u.id === next)?.name ?? (next ? 'Assigned' : 'Unassigned')
+      const pe: PropertyEvent = {
+        id: uid('pe'),
+        agencyId: prev.agencyId,
+        propertyId: id,
+        actorUserId: null,
+        actorName: 'System',
+        action: 'changed the Agent',
+        at: new Date().toISOString(),
+        changes: [{ field: 'Agent', from: fromName, to: toName }],
+      }
+      patch((st) => ({ ...st, propertyEvents: [pe, ...st.propertyEvents].slice(0, 400) }))
+      persistUpsert('property_event', pe.id, pe as unknown as Record<string, unknown>)
+      scheduleBootstrapRefreshAfterMutation()
+      return { ok: true }
     },
     setPropertyRooms: (id, rooms) => {
       const beds = rooms.reduce((n, r) => n + r.beds, 0)

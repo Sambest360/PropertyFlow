@@ -164,7 +164,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   const returnTo = readReturnTo(searchParams) ?? editReturnTo
   const queryAgencyId = searchParams.get('agencyId') ?? ''
 
-  const { state, createPropertyBundle, publishProperty, updateProperty, setPropertyRooms, createUser, notify } = useStore()
+  const { state, createPropertyBundle, publishProperty, updateProperty, assignPropertyAgent, setPropertyRooms, createUser, notify } = useStore()
   const { user, agencyId, has, role } = useAuth()
   const { scopeAgency } = useAgencyScope()
   const isLandlord = role === 'landlord'
@@ -918,8 +918,21 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     // lets publishProperty resolve it before React re-renders.
     let createdProperty: PropertyAsset | undefined
     if (existingDraftId) {
-      const { rooms, ...rest } = patch
+      const { rooms, ...restWithAgent } = patch
+      const previousAgent = state.properties.find((p) => p.id === existingDraftId)?.agentId ?? null
+      const agentChanged = (restWithAgent.agentId ?? null) !== previousAgent
+      const { agentId: newAgentId, ...restNoAgent } = restWithAgent
+      const rest = agentChanged ? restNoAgent : restWithAgent
       updateProperty(existingDraftId, rest)
+      if (agentChanged) {
+        // Wait for the server: a refused agent must not look assigned.
+        const assigned = await assignPropertyAgent(existingDraftId, newAgentId ?? null)
+        if (assigned.ok === false) {
+          await sweetWarning('Agent not assigned', assigned.reason)
+          goTo(6)
+          return
+        }
+      }
       if (rooms?.length) {
         setPropertyRooms(
           existingDraftId,
@@ -999,6 +1012,10 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       // committed state.
       createdProperty = created
       propertyId = created.id
+      const agentError = (created as PropertyAsset & { agentAssignError?: string }).agentAssignError
+      if (agentError) {
+        await sweetWarning('Saved without an agent', `The listing was saved, but the agent could not be assigned: ${agentError}`)
+      }
       // P0-collision (R10): this mount now owns a real listing id — later
       // saves in the same session update THIS listing, not a new one.
       sessionDraftPropertyIdRef.current = created.id
