@@ -1,47 +1,75 @@
 import { useCallback, useEffect, useState } from 'react'
 
-const STORAGE_PREFIX = 'pf-ops-seen-v1'
+/**
+ * Dashboard items this person has opened, per browser. Each entry keeps the
+ * item's "signature" (status, date…) at the time it was opened: when the item
+ * changes again it counts as new, so it comes back to the overview.
+ */
+const STORAGE_PREFIX = 'pf-ops-seen-v2'
+const LEGACY_PREFIX = 'pf-ops-seen-v1'
+/** Opened before signatures were kept: seen whatever it looks like now. */
+const ANY = '*'
 
-function storageKey(userId: string) {
-  return `${STORAGE_PREFIX}:${userId || 'guest'}`
+type SeenMap = Record<string, string>
+
+function storageKey(prefix: string, userId: string) {
+  return `${prefix}:${userId || 'guest'}`
 }
 
-function readSeen(userId: string): Set<string> {
-  if (typeof localStorage === 'undefined') return new Set()
+function readSeen(userId: string): SeenMap {
+  if (typeof localStorage === 'undefined') return {}
   try {
-    const raw = localStorage.getItem(storageKey(userId))
-    if (!raw) return new Set()
-    const parsed = JSON.parse(raw) as string[]
-    return new Set(Array.isArray(parsed) ? parsed : [])
+    const raw = localStorage.getItem(storageKey(STORAGE_PREFIX, userId))
+    if (raw) {
+      const parsed = JSON.parse(raw) as SeenMap
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+    }
+    const legacy = localStorage.getItem(storageKey(LEGACY_PREFIX, userId))
+    if (legacy) {
+      const ids = JSON.parse(legacy) as string[]
+      return Array.isArray(ids) ? Object.fromEntries(ids.map((id) => [id, ANY])) : {}
+    }
   } catch {
-    return new Set()
+    /* ignore */
   }
+  return {}
 }
 
-function writeSeen(userId: string, seen: Set<string>) {
+function writeSeen(userId: string, seen: SeenMap) {
   if (typeof localStorage === 'undefined') return
   try {
-    localStorage.setItem(storageKey(userId), JSON.stringify([...seen]))
+    const entries = Object.entries(seen)
+    // Keep the newest 2 000 entries so the store stays small.
+    const trimmed = entries.length > 2000 ? Object.fromEntries(entries.slice(-2000)) : seen
+    localStorage.setItem(storageKey(STORAGE_PREFIX, userId), JSON.stringify(trimmed))
   } catch {
     /* ignore quota */
   }
 }
 
 export function useSeenOpsItems(userId: string) {
-  const [seen, setSeen] = useState<Set<string>>(() => readSeen(userId))
+  const [seen, setSeen] = useState<SeenMap>(() => readSeen(userId))
 
   useEffect(() => {
     setSeen(readSeen(userId))
   }, [userId])
 
-  const isSeen = useCallback((compositeId: string) => seen.has(compositeId), [seen])
+  /** True when the item was opened and has not changed since (signature omitted = opened at all). */
+  const isSeen = useCallback(
+    (compositeId: string, signature?: string) => {
+      const stored = seen[compositeId]
+      if (stored === undefined) return false
+      return signature === undefined || stored === ANY || stored === signature
+    },
+    [seen],
+  )
 
   const markSeen = useCallback(
-    (compositeId: string) => {
+    (compositeId: string, signature?: string) => {
       setSeen((prev) => {
-        if (prev.has(compositeId)) return prev
-        const next = new Set(prev)
-        next.add(compositeId)
+        const value = signature ?? ANY
+        if (prev[compositeId] === value) return prev
+        const next = { ...prev, [compositeId]: value }
         writeSeen(userId, next)
         return next
       })
@@ -50,4 +78,9 @@ export function useSeenOpsItems(userId: string) {
   )
 
   return { isSeen, markSeen }
+}
+
+/** Signature of a dashboard item: when any of these change it is new again. */
+export function opsSignature(item: { status?: string; date?: string; priority?: string; meta?: string }): string {
+  return [item.status ?? '', item.date ?? '', item.priority ?? '', item.meta ?? ''].join('|')
 }

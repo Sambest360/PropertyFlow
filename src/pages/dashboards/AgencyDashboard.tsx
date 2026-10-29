@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
 import { useAuth, usePropertyScope } from '../../context/AuthContext'
-import { useSeenOpsItems } from '../../hooks/useSeenOpsItems'
+import { opsSignature, useSeenOpsItems } from '../../hooks/useSeenOpsItems'
 import { priorityTone, statusTone } from '../../components/ui'
 import { OpsPreviewModal, type PreviewTarget } from '../../components/admin/OpsPreviewModal'
 import { maintenanceCreateHref } from '../maintenance/MaintenanceCreatePage'
@@ -60,6 +60,9 @@ type OpsItem =
   | { kind: 'ticket'; id: string; title: string; meta: string; status: string; date: string; propertyId: string; photos: number; agentIds: string[]; priority: string }
   | { kind: 'application'; id: string; title: string; meta: string; status: string; date: string; propertyId: string; photos: number; agentIds: string[] }
   | { kind: 'property'; id: string; title: string; meta: string; status: string; date: string; propertyId: string; photos: number; agentIds: string[] }
+
+/** Property states that need no action, so they stay off the overview to-do list. */
+const SETTLED_PROPERTY_STATUSES = new Set(['Published', 'Featured', 'Occupied', 'Let', 'Rented', 'Sold', 'Archived'])
 
 const FILTERS: { id: ListFilter; label: string; tabs?: DashTab[] }[] = [
   { id: 'all', label: 'All items' },
@@ -225,11 +228,12 @@ export function AgencyDashboard() {
     else if (tab === 'applications') list = appItems
     else if (tab === 'properties') list = propertyItems
     else {
+      // Overview is a to-do list: live listings are not work, so only listings that need something show.
       list = [
         ...ticketItems,
         ...viewingItems.filter((v) => v.status === 'Scheduled'),
         ...appItems,
-        ...propertyItems,
+        ...propertyItems.filter((p) => !SETTLED_PROPERTY_STATUSES.has(p.status)),
       ]
     }
 
@@ -422,7 +426,7 @@ export function AgencyDashboard() {
   }, [opsItems, selectedKey])
 
   const openPreview = (item: OpsItem) => {
-    markSeen(listKey(item.kind, item.id))
+    markSeen(listKey(item.kind, item.id), opsSignature(item))
     setSelectedKey(listKey(item.kind, item.id))
     const prop = properties.find((p) => p.id === item.propertyId)
     if (item.kind === 'ticket') {
@@ -629,14 +633,18 @@ export function AgencyDashboard() {
           ? ClipboardList
           : ArrowRight
 
-  const listItems = useMemo(
-    () =>
-      opsItems.map((item) => {
-        const id = listKey(item.kind, item.id)
-        return { ...toListItem(item, users), unread: !isSeen(id) }
-      }),
-    [opsItems, users, isSeen],
-  )
+  // Opened, unchanged items leave the overview; they come back when something changes.
+  const [showHandled, setShowHandled] = useState(false)
+  const hidesHandled = tab === 'overview' && listFilter === 'all' && !query.trim()
+  const { listItems, handledCount } = useMemo(() => {
+    const all = opsItems.map((item) => {
+      const id = listKey(item.kind, item.id)
+      return { ...toListItem(item, users), unread: !isSeen(id, opsSignature(item)) }
+    })
+    if (!hidesHandled) return { listItems: all, handledCount: 0 }
+    const open = all.filter((i) => i.unread || i.id === selectedKey)
+    return { listItems: showHandled ? all : open, handledCount: all.length - open.length }
+  }, [opsItems, users, isSeen, hidesHandled, showHandled, selectedKey])
 
   return (
     <DashboardPage>
@@ -748,6 +756,15 @@ export function AgencyDashboard() {
                 }
                 showMoreLabel="Show more"
               />
+              {handledCount > 0 ? (
+              <button
+                type="button"
+                className="mt-2 w-full cursor-pointer text-center text-xs font-semibold text-ink-500 hover:text-primary"
+                onClick={() => setShowHandled((v) => !v)}
+              >
+                {showHandled ? 'Hide items you have already opened' : `Show ${handledCount} item${handledCount === 1 ? '' : 's'} you have already opened`}
+              </button>
+            ) : null}
             </div>
           </div>
         }
