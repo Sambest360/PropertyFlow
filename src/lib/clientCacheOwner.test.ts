@@ -18,7 +18,6 @@ function fakeStorage() {
 vi.mock('./api/config', async (orig) => ({
   ...(await orig<typeof import('./api/config')>()),
   isApiEnabled: true,
-  isSupabaseMode: false,
 }))
 
 let ls: ReturnType<typeof fakeStorage>

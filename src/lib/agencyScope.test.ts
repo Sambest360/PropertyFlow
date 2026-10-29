@@ -10,7 +10,7 @@ import {
   reconcileAgencyIdSpace,
   resolveViewerAgencyId,
 } from './agencyScope'
-import { CLIENT_TO_AGENCY } from './supabase/idMap'
+import { CLIENT_TO_AGENCY } from './idMap'
 
 const propA = {
   agencyId: 'ag-a',

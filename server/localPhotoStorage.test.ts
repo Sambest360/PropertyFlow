@@ -15,9 +15,6 @@ describe('local photo storage (self-hosted)', () => {
   it('writes the photo to the uploads folder and returns an /api/files URL', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pf-up-'))
     process.env.UPLOADS_DIR = dir
-    delete process.env.VERCEL
-    delete process.env.SUPABASE_SECRET_KEY
-    delete process.env.SUPABASE_SERVICE_ROLE_KEY
     expect(photoStorageConfigured()).toBe(true)
     const url = await uploadPhotoDataUrl(PNG, 'agency/test/listings')
     expect(url.startsWith('/api/files/agency/test/listings/')).toBe(true)

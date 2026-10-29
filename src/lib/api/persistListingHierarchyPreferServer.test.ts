@@ -1,17 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { preferServerPersistForListingHierarchy } from './persist'
 
-const persistToSupabase = vi.fn(async () => true)
 
 vi.mock('./config', () => ({
-  isApiEnabled: false,
-  isSupabaseMode: true,
-}))
-
-vi.mock('../supabase/persist', () => ({
-  persistToSupabase: (...args: unknown[]) => persistToSupabase(...args),
-  persistBatchToSupabase: vi.fn(async () => true),
-  supabaseMarkNotificationsRead: vi.fn(async () => true),
+  isApiEnabled: true,
 }))
 
 vi.mock('./actorAuth', () => ({
@@ -42,14 +34,13 @@ describe('preferServerPersistForListingHierarchy', () => {
   })
 })
 
-describe('persistToApi listing hierarchy fail-closed (supabase mode)', () => {
+describe('persistToApi listing hierarchy fail-closed (API)', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
-    persistToSupabase.mockClear()
   })
 
-  it('does not soft-true via browser supabase when /api/persist is false-ok HTML', async () => {
+  it('does not report success when /api/persist is false-ok HTML', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(
@@ -73,7 +64,6 @@ describe('persistToApi listing hierarchy fail-closed (supabase mode)', () => {
       },
     })
     expect(ok).toBe(false)
-    expect(persistToSupabase).not.toHaveBeenCalled()
   })
 
   it('returns true only when /api/persist returns JSON { ok: true }', async () => {
@@ -95,6 +85,5 @@ describe('persistToApi listing hierarchy fail-closed (supabase mode)', () => {
       data: { id: 'unt-ezas24', buildingId: 'bld-r14d', agentId: 'u-fa-r14' },
     })
     expect(ok).toBe(true)
-    expect(persistToSupabase).not.toHaveBeenCalled()
   })
 })

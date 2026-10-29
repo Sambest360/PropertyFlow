@@ -1,8 +1,7 @@
 /**
  * PR #69: guest full application on /listing/PR-1011 (Postgres-API mode).
  *
- * Production is the Postgres-API build: the live bundle has no
- * VITE_SUPABASE_URL, so persistToApi takes the API branch. That branch ran
+ * Production is the Postgres-API build. persistToApi
  * quickHealth() first, which aborts GET /api/health after 800 ms. Live
  * /api/health pings the database and answered in 1.3-2.3 s, so persistToApi
  * returned false without ever POSTing /api/persist, and createApplication
@@ -22,7 +21,7 @@ import type { Application } from '../../types/domain'
 
 process.env.PF_SKIP_SERVE = '1'
 
-vi.mock('./config', () => ({ isApiEnabled: true, isSupabaseMode: false }))
+vi.mock('./config', () => ({ isApiEnabled: true }))
 
 const HORIZON_CLIENT = 'a1000001-0001-4000-8000-000000000001'
 const BAYVIEW_CLIENT = 'a1000001-0001-4000-8000-000000000003'

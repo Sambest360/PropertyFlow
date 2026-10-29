@@ -8,7 +8,7 @@ const ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,image/heic,image/*'
 
 /**
  * Photos are downscaled and re-encoded first (the size cap is measured on the
- * compressed data URL), then uploaded to Supabase Storage so rows carry a
+ * compressed data URL), then uploaded to the server so rows carry a
  * short public URL. Without Storage they stay inline as data URLs, which
  * bloats every DB row and payload that carries them.
  */
@@ -87,7 +87,7 @@ export type ImageDropzoneProps = {
 }
 
 /**
- * Click or drag-and-drop image picker. Stores compressed images in Supabase Storage (public URLs),
+ * Click or drag-and-drop image picker. Stores compressed images on the server (short /api/files links),
  * falling back to inline data URLs when Storage is unavailable.
  */
 export function ImageDropzone({

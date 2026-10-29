@@ -6,19 +6,9 @@ import { PasswordField } from '../../components/auth/PasswordField'
 import { Button, Input } from '../../components/ui'
 import { useAuth } from '../../context/AuthContext'
 import { apiAuthBootstrapNeeded, readAuthToken } from '../../lib/api/authClient'
-import {
-  supabaseAttachPendingRegistrationDocs,
-  supabaseBootstrapNeeded,
-} from '../../lib/supabase/auth.js'
-import { isSupabaseMode } from '../../lib/api/config'
-import {
-  clearPendingRegistrationDocs,
-  readPendingRegistrationDocs,
-} from '../../lib/auth/registrationDocs'
 import { showAuthError } from '../../lib/sweetAlert'
 import { shouldPurgeGuestOnLoginMount } from '../../lib/auth/loginMountPurge'
 import { resolvePostLoginPath } from '../../lib/workspaceRoutes'
-import { createClient } from '../../utils/supabase/client'
 import { PropertyLoader } from '../../components/loading/PropertyLoader'
 
 const ICON_STROKE = 1.6
@@ -39,7 +29,7 @@ export default function LoginPage() {
   const registered = params.get('registered')
 
   // P0-session (R8): auth pages are anonymous zones. A previous user's live
-  // Supabase session (shared browser / stale tab) must never hydrate here —
+  // session (shared browser / stale tab) must never hydrate here —
   // otherwise /login silently redirects into that user's workspace (the
   // sticky "Riaan / Samuel" symptom). Purge intentional /login visits early
   // while still a guest.
@@ -68,7 +58,7 @@ export default function LoginPage() {
   }, [authReady, isAuthenticated, loginInFlight, nextParam, purgeLocalIdentity])
 
   useEffect(() => {
-    void (isSupabaseMode ? supabaseBootstrapNeeded() : apiAuthBootstrapNeeded()).then(setBootstrapNeeded)
+    void apiAuthBootstrapNeeded().then(setBootstrapNeeded)
   }, [])
 
   useEffect(() => {
@@ -100,26 +90,6 @@ export default function LoginPage() {
     try {
       const trimmedEmail = email.trim()
       const appUser = await login(trimmedEmail, password)
-
-      if (isSupabaseMode) {
-        const pending = readPendingRegistrationDocs(trimmedEmail)
-        if (pending?.documents.length) {
-          const { data: { session } } = await createClient().auth.getSession()
-          if (session?.user?.id) {
-            try {
-              await supabaseAttachPendingRegistrationDocs({
-                authUserId: session.user.id,
-                role: pending.role,
-                profile: pending.profile,
-                documents: pending.documents,
-              })
-            } catch {
-              /* docs can be re-submitted from profile later */
-            }
-            clearPendingRegistrationDocs()
-          }
-        }
-      }
 
       navigate(resolvePostLoginPath(appUser.role, next), { replace: true })
     } catch (err) {

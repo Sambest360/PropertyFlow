@@ -10,7 +10,7 @@ export function initServerSentry(): void {
   Sentry.init({
     dsn: process.env.SENTRY_DSN,
     release: runningCommitSha() ?? undefined,
-    environment: process.env.VERCEL_ENV || process.env.NODE_ENV || 'development',
+    environment: process.env.NODE_ENV || 'development',
     sendDefaultPii: false,
     tracesSampleRate: 0,
     // Routes catch most failures, log `[route] message` and answer 500 without

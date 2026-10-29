@@ -1,8 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('./supabase/env.js', () => ({
-  supabaseAuthConfigured: () => false,
-}))
 
 /**
  * A redacted bootstrap user (no email / phone) written back through
@@ -29,7 +26,6 @@ vi.mock('./entityMap.js', () => ({
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v),
 }))
 
-vi.mock('./supabase/registerUser.js', () => ({ linkStaffAuthUser: vi.fn() }))
 
 /** Tiny model of the users row so the ON CONFLICT branch can be checked. */
 type Stored = { email: string; phone: string | null }

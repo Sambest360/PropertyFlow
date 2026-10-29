@@ -1,6 +1,6 @@
 /**
- * API-mode only: on a REAL auth failure (401 from our API), drop the stale
- * propertyflow token and any sb-* auth leftovers (storage + cookies) so they
+ * On a REAL auth failure (401 from our API), drop the stale propertyflow
+ * token and any sb-* leftovers from the old hosted auth (storage + cookies) so they
  * cannot pile up into 494 REQUEST_HEADER_TOO_LARGE. Never touches app state /
  * persist save-queue keys — only the explicit keys below.
  */
@@ -13,9 +13,9 @@ export function isRealAuthFailure(err: unknown): boolean {
 
 export function clearStaleAuthOnFailure(
   err: unknown,
-  opts: { supabaseMode: boolean; doc?: Pick<Document, 'cookie'> | null },
+  opts: { doc?: Pick<Document, 'cookie'> | null } = {},
 ): boolean {
-  if (opts.supabaseMode || !isRealAuthFailure(err)) return false
+  if (!isRealAuthFailure(err)) return false
   try {
     localStorage.removeItem(API_AUTH_TOKEN_KEY)
     for (const store of [localStorage, sessionStorage]) {

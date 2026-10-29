@@ -1,7 +1,7 @@
 import type { InfraRoom, InternalAsset, RoomKind, Unit } from '../data/infrastructure'
 import type { PropertyAsset, Room } from '../types/domain'
-import type { IdMapCache } from './supabase/idMap'
-import { feFromCache } from './supabase/idMap.js'
+import type { IdMapCache } from './idMap'
+import { feFromCache } from './idMap.js'
 
 export type DbRoomRow = {
   id: string

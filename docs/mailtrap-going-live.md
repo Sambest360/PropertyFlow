@@ -9,7 +9,7 @@ credentials.
 
 | Event | Recipient | Category |
 | --- | --- | --- |
-| Registration completed (Supabase mode) | New user | `welcome` |
+| Registration completed | New user | `welcome` |
 | Guest enquiry / viewing request — confirmation | Guest | `listing-enquiry` |
 | Guest enquiry / viewing request — agent + landlord alert | Agent, Landlord | `listing-lead-alert` |
 | Application submitted — confirmation | Applicant | `application-received` |
@@ -38,7 +38,7 @@ WhatsApp, SMS, or carrier delivery confirmation. Failures never fail the UI.
    your production inbox → SMTP Settings shows a **different host/user/pass**
    than the sandbox one (e.g. `send.smtp.mailtrap.io` vs
    `sandbox.smtp.mailtrap.io`).
-3. **Update `.env.local`** (and Vercel env vars for production):
+3. **Update `.env.local`** (and the server `.env` for production):
 
    ```sh
    MAILTRAP_SMTP_HOST=send.smtp.mailtrap.io   # production host from step 2
@@ -56,7 +56,7 @@ WhatsApp, SMS, or carrier delivery confirmation. Failures never fail the UI.
    https://mailtrap.io/sending/email_logs (category + status per message).
 5. **Watch the logs** after go-live: every send logs
    `[mailtrap] sent (smtp) to <addr> msg=<id>` — grep `/tmp/pf-api.log` (local)
-   or Vercel logs.
+   or the server logs (`pm2 logs propertyflow-api`).
 
 ## Sandbox vs live — what the code does
 
@@ -65,7 +65,7 @@ WhatsApp, SMS, or carrier delivery confirmation. Failures never fail the UI.
 - The code has **no sandbox/live logic beyond transport choice** — whichever
   SMTP host you configure is the one it uses. Accidental live blasts can't
   happen from a stale sandbox credential; they could only happen if someone
-  pastes production credentials into a dev environment, so keep them in Vercel
+  pastes production credentials into a dev environment, so keep them in the server `.env`
   only.
 - `hello@demomailtrap.co` is only valid in sandbox — live sending requires the
   verified-domain address above (the default changes automatically once

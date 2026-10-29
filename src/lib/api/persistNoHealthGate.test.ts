@@ -7,12 +7,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('./config', () => ({ isApiEnabled: true, isSupabaseMode: false }))
-vi.mock('../supabase/persist', () => ({
-  persistToSupabase: vi.fn(async () => true),
-  persistBatchToSupabase: vi.fn(async () => true),
-  supabaseMarkNotificationsRead: vi.fn(async () => true),
-}))
+vi.mock('./config', () => ({ isApiEnabled: true }))
 vi.mock('./actorAuth', () => ({ actorHeaders: () => ({}) }))
 vi.mock('./authClient', () => ({
   authHeaders: () => ({}),

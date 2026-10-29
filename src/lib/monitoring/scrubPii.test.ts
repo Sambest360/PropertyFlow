@@ -34,7 +34,6 @@ describe('scrubEvent', () => {
         headers: {
           authorization: 'Bearer x',
           cookie: 'a=b',
-          'x-supabase-auth': '1',
           apikey: 'k',
           'content-type': 'application/json',
         },

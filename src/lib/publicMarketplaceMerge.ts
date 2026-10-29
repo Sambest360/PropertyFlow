@@ -195,11 +195,7 @@ export async function fetchPublicMarketplaceSlice(
   lite: boolean,
   timeoutMs: number,
 ): Promise<PostgresBootstrap | null> {
-  const { isApiEnabled, isSupabaseMode } = await import('./api/config')
-  if (isSupabaseMode) {
-    const { fetchPublicMarketplaceBootstrap } = await import('./supabase/publicMarketplace')
-    return fetchPublicMarketplaceBootstrap(lite)
-  }
+  const { isApiEnabled } = await import('./api/config')
   if (isApiEnabled) {
     const { fetchPublicMarketplaceFromApi } = await import('./api/postgresClient')
     return fetchPublicMarketplaceFromApi(timeoutMs, lite)

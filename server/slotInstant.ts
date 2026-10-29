@@ -5,7 +5,7 @@
  * STORAGE (Michael ruling 2): bookings.starts_at keeps the app convention of
  * SAST wall time labelled Z (a 10:00 slot is stored as 10:00+00), exactly like
  * writes.ts upsertViewing, migration 024 and the live RPC; the read paths
- * (server/bootstrap.ts, src/lib/supabase/data.ts) take the time back with
+ * (server/bootstrap.ts) take the time back with
  * toISOString(). Use slotStoredStart() for anything written to starts_at.
  *
  * NOTICE ONLY: slotStartSast() builds the real Africa/Johannesburg instant

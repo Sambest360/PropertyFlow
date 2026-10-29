@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { Navigate, useLocation, useParams } from 'react-router-dom'
 import { isBackendUuid } from '../../lib/displayIds'
 import { findByListingId } from '../../lib/listingIds'
-import { resolveFrontendRouteId } from '../../lib/supabase/idMap'
+import { resolveFrontendRouteId } from '../../lib/idMap'
 import { useStore } from '../../context/AppStore'
 
 function swapPathSegment(pathname: string, from: string, to: string): string {

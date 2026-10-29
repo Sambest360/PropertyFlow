@@ -8,7 +8,7 @@ import { useCallback, useState, type ReactNode } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useStore } from '../context/AppStore'
 import { bootstrapActorKey, isBootstrapFetchInFlight } from '../lib/bootstrapCoord'
-import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
+import { isApiEnabled } from '../lib/api/config'
 import { portalHydrationUserId } from '../lib/clientCache'
 import { hasPortfolioSnapshotForUser } from '../lib/portfolioSnapshot'
 import { PageSkeleton } from './loading/PageSkeleton'
@@ -34,7 +34,7 @@ export function usePortalHydrating(): boolean {
   const { hydratedForUserId } = useStore()
   return isPortalHydrating({
     isAuthenticated,
-    liveMode: isApiEnabled || isSupabaseMode,
+    liveMode: isApiEnabled,
     userId: user?.id,
     hydratedForUserId,
   })

@@ -174,17 +174,8 @@ describe('suite alerts: no null-agency pass-through', () => {
 })
 
 describe('demo actor headers in production', () => {
-  it('ALLOW_DEMO_ACTOR is ignored when VERCEL_ENV=production', () => {
-    expect(demoActorHeadersAllowed({ ALLOW_DEMO_ACTOR: '1', VERCEL_ENV: 'production', VERCEL: '1' } as NodeJS.ProcessEnv)).toBe(false)
-  })
-  it('ALLOW_DEMO_ACTOR is ignored on preview (any VERCEL_ENV)', () => {
-    expect(demoActorHeadersAllowed({ ALLOW_DEMO_ACTOR: '1', VERCEL_ENV: 'preview', VERCEL: '1' } as NodeJS.ProcessEnv)).toBe(false)
-  })
   it('ALLOW_DEMO_ACTOR is ignored when NODE_ENV=production', () => {
     expect(demoActorHeadersAllowed({ ALLOW_DEMO_ACTOR: '1', NODE_ENV: 'production' } as NodeJS.ProcessEnv)).toBe(false)
-  })
-  it('ALLOW_DEMO_ACTOR is ignored with VERCEL=1 (vercel dev)', () => {
-    expect(demoActorHeadersAllowed({ ALLOW_DEMO_ACTOR: '1', VERCEL: '1' } as NodeJS.ProcessEnv)).toBe(false)
   })
   it('ALLOW_DEMO_ACTOR still opts in on a plain local host', () => {
     expect(demoActorHeadersAllowed({ ALLOW_DEMO_ACTOR: '1' } as NodeJS.ProcessEnv)).toBe(true)
@@ -202,7 +193,7 @@ describe('demo actor headers in production', () => {
 
 describe('actor-required error text', () => {
   it('production says sign-in is required', () => {
-    const err = actorRequiredError({ VERCEL_ENV: 'production', VERCEL: '1' } as NodeJS.ProcessEnv)
+    const err = actorRequiredError({ NODE_ENV: 'production' } as NodeJS.ProcessEnv)
     expect(err.message).toBe(SIGN_IN_REQUIRED_MESSAGE)
     expect(err.message).not.toMatch(/X-User-Id/)
     expect(err.status).toBe(401)

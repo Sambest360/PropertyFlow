@@ -1,38 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import {
   connectionStringForPool,
-  connectionTimeoutMsForRuntime,
   isRemoteDatabaseUrl,
-  poolMaxForRuntime,
+  poolMaxFromEnv,
   resolveDatabaseUrl,
 } from './dbConfig'
 
 describe('isRemoteDatabaseUrl', () => {
   it('treats local URLs without ssl as local', () => {
-    expect(
-      isRemoteDatabaseUrl('postgresql://user@127.0.0.1:5432/propertyflow', undefined),
-    ).toBe(false)
-  })
-
-  it('treats Supabase hostnames as remote', () => {
-    expect(
-      isRemoteDatabaseUrl(
-        'postgresql://postgres.abc@aws-0-eu-west-1.pooler.supabase.com:6543/postgres',
-        undefined,
-      ),
-    ).toBe(true)
-    expect(
-      isRemoteDatabaseUrl('postgresql://x@db.abc.supabase.co:5432/postgres', undefined),
-    ).toBe(true)
+    expect(isRemoteDatabaseUrl('postgresql://user@127.0.0.1:5432/propertyflow', undefined)).toBe(false)
   })
 
   it('treats sslmode query or DATABASE_SSL=1 as remote', () => {
-    expect(
-      isRemoteDatabaseUrl('postgresql://user@127.0.0.1:5432/db?sslmode=require', undefined),
-    ).toBe(true)
-    expect(
-      isRemoteDatabaseUrl('postgresql://user@127.0.0.1:5432/db', '1'),
-    ).toBe(true)
+    expect(isRemoteDatabaseUrl('postgresql://user@127.0.0.1:5432/db?sslmode=require', undefined)).toBe(true)
+    expect(isRemoteDatabaseUrl('postgresql://user@127.0.0.1:5432/db', '1')).toBe(true)
   })
 })
 
@@ -43,15 +24,10 @@ describe('connectionStringForPool', () => {
   })
 
   it('forces libpq-compat require for remote URLs', () => {
-    const out = connectionStringForPool(
-      'postgresql://u:p@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?sslmode=verify-full',
-      true,
-    )
-    const parsed = new URL(out)
+    const parsed = new URL(connectionStringForPool('postgresql://u:p@db.example.com:5432/pf?sslmode=verify-full', true))
     expect(parsed.searchParams.get('sslmode')).toBe('require')
     expect(parsed.searchParams.get('uselibpqcompat')).toBe('true')
     expect(parsed.searchParams.get('connect_timeout')).toBe('5')
-    expect(parsed.searchParams.get('pgbouncer')).toBe('true')
   })
 
   it('returns the raw string when URL parsing fails', () => {
@@ -59,56 +35,20 @@ describe('connectionStringForPool', () => {
   })
 })
 
-describe('poolMaxForRuntime', () => {
-  it('uses a tiny pool on Vercel or Lambda', () => {
-    expect(poolMaxForRuntime({ vercel: '1' })).toBe(1)
-    expect(poolMaxForRuntime({ lambda: 'fn' })).toBe(1)
-  })
-
-  it('uses a larger pool for local Node', () => {
-    expect(poolMaxForRuntime({})).toBe(8)
-  })
-})
-
-describe('connectionTimeoutMsForRuntime', () => {
-  it('fails faster on serverless, tolerates pooler spikes locally', () => {
-    expect(connectionTimeoutMsForRuntime({ vercel: '1' })).toBe(5_000)
-    // Local dev: the Supabase transaction pooler routinely shows 5–7s connects;
-    // a 3s timeout wedged the whole dev API (observed 2026-09-19).
-    expect(connectionTimeoutMsForRuntime({})).toBe(10_000)
+describe('poolMaxFromEnv', () => {
+  it('defaults to 10 and honours DB_POOL_MAX', () => {
+    expect(poolMaxFromEnv(undefined)).toBe(10)
+    expect(poolMaxFromEnv('4')).toBe(4)
+    expect(poolMaxFromEnv('nope')).toBe(10)
   })
 })
 
 describe('resolveDatabaseUrl', () => {
-  it('requires DATABASE_URL on Vercel', () => {
-    const r = resolveDatabaseUrl({ vercel: '1' })
-    expect(r.configured).toBe(false)
-    expect(r.error).toMatch(/DATABASE_URL/)
+  it('uses DATABASE_URL when set', () => {
+    expect(resolveDatabaseUrl({ envUrl: ' postgresql://a@h/db ' })).toEqual({ url: 'postgresql://a@h/db', configured: true })
   })
 
-  it('rejects localhost URLs on Vercel', () => {
-    const r = resolveDatabaseUrl({
-      vercel: '1',
-      envUrl: 'postgresql://u@127.0.0.1:5432/db',
-    })
-    expect(r.configured).toBe(false)
-    expect(r.error).toMatch(/localhost/)
-  })
-
-  it('accepts a pooler URI', () => {
-    const r = resolveDatabaseUrl({
-      vercel: '1',
-      envUrl:
-        'postgresql://postgres.abc:pass@aws-0-eu-west-1.pooler.supabase.com:6543/postgres',
-    })
-    expect(r.configured).toBe(true)
-  })
-
-  it('uses the local fallback when DATABASE_URL is unset on a dev machine', () => {
-    const r = resolveDatabaseUrl({
-      localFallback: 'postgresql://dev@127.0.0.1:5432/propertyflow',
-    })
-    expect(r.configured).toBe(true)
-    expect(r.url).toBe('postgresql://dev@127.0.0.1:5432/propertyflow')
+  it('falls back to the local database', () => {
+    expect(resolveDatabaseUrl({}).url).toBe('postgresql://127.0.0.1:5432/propertyflow')
   })
 })

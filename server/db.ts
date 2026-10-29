@@ -3,48 +3,31 @@ import { resolve } from 'node:path'
 import pg from 'pg'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import {
+  CONNECTION_TIMEOUT_MS,
   connectionStringForPool,
-  connectionTimeoutMsForRuntime,
-  databaseUrlRuntimeWarning,
   isRemoteDatabaseUrl,
-  poolMaxForRuntime,
+  poolMaxFromEnv,
   resolveDatabaseUrl,
 } from './dbConfig.js'
 
-// Local only — Vercel injects env vars; loading .env.local there is a no-op / noise.
-if (!process.env.VERCEL) {
-  loadEnv({ path: resolve(process.cwd(), '.env.local') })
-  loadEnv({ path: resolve(process.cwd(), '.env') })
-}
+// pm2 passes --env-file=.env; loading here also covers `npm run dev:api`.
+loadEnv({ path: resolve(process.cwd(), '.env.local') })
+loadEnv({ path: resolve(process.cwd(), '.env') })
 
 const { Pool } = pg
 
-const resolved = resolveDatabaseUrl({
-  envUrl: process.env.DATABASE_URL,
-  vercel: process.env.VERCEL,
-  lambda: process.env.AWS_LAMBDA_FUNCTION_NAME,
-  localFallback: undefined,
-})
+const resolved = resolveDatabaseUrl({ envUrl: process.env.DATABASE_URL, localFallback: undefined })
 
 export const databaseConfigured = resolved.configured
 export const databaseConfigError = resolved.error
-export const databaseConfigWarning =
-  resolved.configured && (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME)
-    ? databaseUrlRuntimeWarning(resolved.url)
-    : undefined
+export const databaseConfigWarning: string | undefined = undefined
 
 const isRemote = resolved.configured && isRemoteDatabaseUrl(resolved.url)
 const DATABASE_URL = resolved.configured
   ? connectionStringForPool(resolved.url, isRemote)
   : resolved.url
-const poolMax = poolMaxForRuntime({
-  vercel: process.env.VERCEL,
-  lambda: process.env.AWS_LAMBDA_FUNCTION_NAME,
-})
-const connectionTimeoutMillis = connectionTimeoutMsForRuntime({
-  vercel: process.env.VERCEL,
-  lambda: process.env.AWS_LAMBDA_FUNCTION_NAME,
-})
+const poolMax = poolMaxFromEnv()
+const connectionTimeoutMillis = CONNECTION_TIMEOUT_MS
 
 export const pool = resolved.configured
   ? new Pool({

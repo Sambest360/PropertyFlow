@@ -4,12 +4,7 @@ import * as Sentry from '@sentry/react'
 import './index.css'
 import App from './App.tsx'
 import CrashFallback from './components/CrashFallback.tsx'
-import { purgeStaleSupabaseAuthCookiesFromEnv } from './lib/auth/supabaseCookieHygiene'
 import { scrubEvent } from './lib/monitoring/scrubPii'
-
-if (typeof window !== 'undefined') {
-  purgeStaleSupabaseAuthCookiesFromEnv()
-}
 
 const sentryDsn = import.meta.env.VITE_SENTRY_DSN as string | undefined
 if (sentryDsn) {

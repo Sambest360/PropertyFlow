@@ -59,25 +59,22 @@ curl http://127.0.0.1:8787/api/bootstrap | head
 
 Vite proxies `/api` → `:8787`. AppStore merges bootstrap entities into state when the API is reachable; otherwise local seed/localStorage is used.
 
-### Supabase (hosted Postgres) + Vercel
+### Production (self-hosted server)
 
-**Primary PMS database is Postgres** (local or Supabase). Do not use Firebase/Firestore or the Supabase JS Data API as the app’s system of record.
+**The database is Postgres on the server.** The API (`server/index.ts`, Hono) runs under pm2 and nginx proxies `/api/` to it (see `deploy/`).
 
-1. Create a Supabase project → run `database/postgres/schema.sql` then `seed.sql` (SQL editor or `psql`).
-2. Enable RLS on public tables and revoke `anon` / `authenticated` table grants so only the server role can read/write. Do **not** use `FORCE ROW LEVEL SECURITY` if the API connects as `postgres` (FORCE would lock the server out).
-3. Set `DATABASE_URL` to the **Transaction pooler** URI (`…pooler.supabase.com:6543`, user `postgres.<project-ref>`), not the direct `db.*.supabase.co:5432` URL, for serverless. Prefer **Session** pooler (`:5432` on the pooler host) for long local bootstrap sessions if transaction mode stalls.
-4. Local / Vercel env checklist:
-   - `DATABASE_URL` — pooler URI with `sslmode=require` (server rewrites to libpq-compat)
+1. Create the database, then run `database/postgres/schema.sql` and the numbered migrations in `database/postgres/migrations/` that the server uses (`node --env-file=.env scripts/db-check-migrations.cjs` lists what is missing). One-off updates for the server live in `database/postgres/selfhosted/` and are applied with `scripts/db-apply-selfhosted.cjs`.
+2. Server `.env` checklist:
+   - `DATABASE_URL` — the local Postgres URL
    - `AUTH_SECRET` — long random string
-   - `NODEJS_HELPERS=0` — on Vercel (Hono POST body compatibility)
-   - Optional: `CORS_ORIGINS`, `DATABASE_SSL=1`
-5. Deploy: Vite SPA + `api/index.ts` (Hono via `hono/vercel`). `vercel.json` rewrites `/api/*` to the function and SPA routes to `/index.html`.
-6. Verify:
+   - `CRON_SECRET` — used by the crontab from `deploy/setup.sh`
+   - Optional: `CORS_ORIGINS`, `DATABASE_SSL=1`, `DB_POOL_MAX`, `UPLOADS_DIR`
+3. Deploy with `deploy/update.sh` (pull, `npm ci`, build, `pm2 restart propertyflow-api`).
+4. Verify:
 
 ```bash
 npm test                              # unit + scoped bootstrap filters
-PF_API_SMOKE=1 npm test               # live health / bootstrap / persist (API must be up)
-curl -sS "$PREVIEW_URL/api/health"
+curl -sS https://lekayarentals.site/api/health
 ```
 
 **Writes:** AppStore mutations call `POST /api/persist` (also REST: `POST|PATCH|DELETE /api/{agencies|users|buildings|properties|leads|applications|payments|tickets|viewing-slots|suite-alerts|activities|property-events|invoices|…}`). Frontend demo IDs (`ag-horizon`, `PR-1001`, …) are mapped to UUIDs via `entity_id_map` + seed aliases in `server/idMap.ts`. On API failure the UI keeps optimistic state + localStorage (degraded mode). Application approve uses `POST /api/applications/:id/approve` (transaction: application + lease + unit OCCUPIED).

@@ -36,7 +36,6 @@ function shouldDropHeader(key: string): boolean {
     lower === 'authorization' ||
     lower === 'cookie' ||
     lower === 'set-cookie' ||
-    lower === 'x-supabase-auth' ||
     lower === 'apikey'
   ) {
     return true

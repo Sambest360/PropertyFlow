@@ -16,7 +16,6 @@ vi.mock('./entityMap.js', () => ({
   forgetId: vi.fn(),
   isUuid: () => false,
 }))
-vi.mock('./supabase/registerUser.js', () => ({ linkStaffAuthUser: vi.fn() }))
 
 describe('lookup saves', () => {
   it('refuses built-in (global) rows instead of filing them under a stand-in agency', async () => {

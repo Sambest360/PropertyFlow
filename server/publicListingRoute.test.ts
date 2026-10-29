@@ -8,7 +8,6 @@ vi.hoisted(() => {
   process.env.PF_SKIP_SERVE = '1'
   process.env.DATABASE_URL = 'postgres://pf:pf@127.0.0.1:5432/pf_test'
   process.env.AUTH_SECRET = 'test-secret-public-listing'
-  delete process.env.VERCEL
 })
 
 const calls = vi.hoisted(() => ({ build: [] as Array<Record<string, unknown>> }))

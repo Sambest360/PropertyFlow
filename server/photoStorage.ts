@@ -1,42 +1,31 @@
 /**
- * Listing photos in Supabase Storage (bucket `listing-photos`, migration 030),
- * uploaded by the server with SUPABASE_SECRET_KEY so it works in API auth
- * mode (production), where browsers have no Supabase session.
+ * Listing photos on the server's own disk. Files are written under UPLOADS_DIR
+ * (default ./uploads) and served by the API at /api/files/<path>.
  *
- * Inline base64 photos in units.images / buildings.images made every
- * bootstrap ship megabytes; rows should carry public URLs instead.
+ * Rows should carry those short links, not inline base64 photos (which made
+ * every bootstrap ship megabytes) or links into the old Supabase bucket.
+ * moveOldPhotosToDisk() copies both kinds onto this server, in the background.
  */
 import { randomUUID } from 'node:crypto'
 import { mkdir, readdir, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { query } from './db.js'
-import { createAdminClient } from './supabase/admin.js'
-import { getSupabaseSecretKey } from './supabase/env.js'
 
-export const LISTING_PHOTOS_BUCKET = 'listing-photos'
 const DATA_URL_RE = /^data:(image\/(?:jpeg|png|webp|gif));base64,([A-Za-z0-9+/=]+)$/i
 const EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' }
-/** Matches the bucket's file_size_limit. */
 export const MAX_PHOTO_BYTES = 5 * 1024 * 1024
 
-function supabaseStorageConfigured(): boolean {
-  return Boolean(getSupabaseSecretKey() && (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL))
-}
+/** Photos left in the old Supabase Storage bucket (public object links). */
+export const OLD_BUCKET_URL_RE = /^https:\/\/[a-z0-9-]+\.supabase\.co\/storage\/v1\/object\/public\//i
 
-/**
- * Self-hosted server (no Supabase): photos are written to UPLOADS_DIR on the
- * server's disk and served by the API at /api/files/<path>. Off on Vercel,
- * whose disk does not keep files.
- */
 export const LOCAL_FILES_PREFIX = '/api/files/'
 export function localUploadsDir(): string | null {
-  if (process.env.VERCEL) return null
   if (process.env.UPLOADS_DIR === 'off') return null
   return resolve(process.env.UPLOADS_DIR || 'uploads')
 }
 
 export function photoStorageConfigured(): boolean {
-  return supabaseStorageConfigured() || localUploadsDir() != null
+  return localUploadsDir() != null
 }
 
 /** Absolute path of a stored file, or null when the path tries to leave the uploads folder. */
@@ -73,75 +62,102 @@ function coded(status: number, code: string, message: string): Error {
   return Object.assign(new Error(message), { status, code })
 }
 
-/** Upload one data-URL photo; returns its public URL. */
+async function saveBytes(bytes: Buffer, mime: string, folder: string): Promise<string> {
+  if (bytes.length > MAX_PHOTO_BYTES) throw coded(413, 'PHOTO_TOO_LARGE', 'Photo is larger than 5 MB')
+  const path = `${folder}/${new Date().toISOString().slice(0, 7)}/${randomUUID()}.${EXT[mime] ?? 'jpg'}`
+  const full = localFilePath(path)
+  if (!full) throw coded(503, 'STORAGE_NOT_CONFIGURED', 'Photo storage is not configured')
+  await mkdir(dirname(full), { recursive: true })
+  await writeFile(full, bytes)
+  return `${LOCAL_FILES_PREFIX}${path}`
+}
+
+/** Save one data-URL photo; returns its /api/files link. */
 export async function uploadPhotoDataUrl(dataUrl: string, folder: string): Promise<string> {
   if (!photoStorageConfigured()) throw coded(503, 'STORAGE_NOT_CONFIGURED', 'Photo storage is not configured')
   const m = DATA_URL_RE.exec(dataUrl.trim())
   if (!m) throw coded(400, 'BAD_PHOTO', 'Only JPEG, PNG, WebP or GIF photos can be uploaded')
-  const mime = m[1].toLowerCase()
-  const bytes = Buffer.from(m[2], 'base64')
-  if (bytes.length > MAX_PHOTO_BYTES) throw coded(413, 'PHOTO_TOO_LARGE', 'Photo is larger than 5 MB')
-  const path = `${folder}/${new Date().toISOString().slice(0, 7)}/${randomUUID()}.${EXT[mime]}`
-  if (!supabaseStorageConfigured()) {
-    const full = localFilePath(path)
-    if (!full) throw coded(503, 'STORAGE_NOT_CONFIGURED', 'Photo storage is not configured')
-    await mkdir(dirname(full), { recursive: true })
-    await writeFile(full, bytes)
-    return `${LOCAL_FILES_PREFIX}${path}`
-  }
-  const storage = createAdminClient().storage.from(LISTING_PHOTOS_BUCKET)
-  const { error } = await storage.upload(path, bytes, { contentType: mime, cacheControl: '31536000', upsert: false })
-  if (error) throw coded(502, 'UPLOAD_FAILED', `Photo upload failed: ${error.message}`)
-  return storage.getPublicUrl(path).data.publicUrl
+  return saveBytes(Buffer.from(m[2], 'base64'), m[1].toLowerCase(), folder)
+}
+
+/** Copy one photo from the old Supabase bucket onto this server. */
+export async function copyRemotePhoto(url: string, folder: string): Promise<string> {
+  const res = await fetch(url)
+  if (!res.ok) throw coded(502, 'DOWNLOAD_FAILED', `Could not download ${url} (${res.status})`)
+  const mime = (res.headers.get('content-type') || 'image/jpeg').split(';')[0].trim().toLowerCase()
+  if (!EXT[mime]) throw coded(400, 'BAD_PHOTO', `Not an image: ${mime}`)
+  return saveBytes(Buffer.from(await res.arrayBuffer()), mime, folder)
 }
 
 const TABLES = ['units', 'buildings'] as const
+const OLD_PHOTO_SQL = `images::text LIKE '%data:image%' OR images::text LIKE '%.supabase.co/storage/%'`
 
-/** Rows still holding inline photos (for the admin status card). */
-export async function inlinePhotoCounts(): Promise<{ units: number; buildings: number }> {
+/** Rows whose photos are still inline or in the old bucket. */
+export async function oldPhotoCounts(): Promise<{ units: number; buildings: number }> {
   const out = { units: 0, buildings: 0 }
   for (const table of TABLES) {
-    const rows = await query<{ n: string }>(
-      `SELECT count(*)::text AS n FROM ${table} WHERE images::text LIKE '%data:image%'`,
-    )
+    const rows = await query<{ n: string }>(`SELECT count(*)::text AS n FROM ${table} WHERE ${OLD_PHOTO_SQL}`)
     out[table] = Number(rows[0]?.n ?? 0)
   }
   return out
 }
 
 /**
- * Move inline photos of up to `maxRows` rows to Storage (Vercel functions stop
- * at 30 s, so the admin button calls this repeatedly until nothing is left).
- * Each row is rewritten only after all its photos uploaded.
+ * Move the photos of up to `maxRows` rows onto this server's disk. A row is
+ * rewritten only after all its photos were saved, so nothing is lost.
  */
-export async function migrateInlinePhotosBatch(maxRows = 3): Promise<{
+export async function migrateOldPhotosBatch(maxRows = 10): Promise<{
   movedRows: number
   movedPhotos: number
-  remaining: { units: number; buildings: number }
+  failedRows: string[]
 }> {
   if (!photoStorageConfigured()) throw coded(503, 'STORAGE_NOT_CONFIGURED', 'Photo storage is not configured')
   let movedRows = 0
   let movedPhotos = 0
+  const failedRows: string[] = []
   for (const table of TABLES) {
     if (movedRows >= maxRows) break
     const rows = await query<{ id: string; images: unknown }>(
-      `SELECT id::text AS id, images FROM ${table} WHERE images::text LIKE '%data:image%' ORDER BY id LIMIT $1`,
+      `SELECT id::text AS id, images FROM ${table} WHERE ${OLD_PHOTO_SQL} ORDER BY id LIMIT $1`,
       [maxRows - movedRows],
     )
     for (const row of rows) {
       const images = Array.isArray(row.images) ? row.images : []
       const next: unknown[] = []
-      for (const img of images) {
-        if (typeof img === 'string' && img.startsWith('data:image')) {
-          next.push(await uploadPhotoDataUrl(img, `migrated/${table}`))
-          movedPhotos++
-        } else {
-          next.push(img)
+      try {
+        for (const img of images) {
+          if (typeof img === 'string' && img.startsWith('data:image')) {
+            next.push(await uploadPhotoDataUrl(img, `migrated/${table}`))
+            movedPhotos++
+          } else if (typeof img === 'string' && OLD_BUCKET_URL_RE.test(img)) {
+            next.push(await copyRemotePhoto(img, `migrated/${table}`))
+            movedPhotos++
+          } else {
+            next.push(img)
+          }
         }
+      } catch (err) {
+        failedRows.push(`${table}:${row.id}`)
+        console.warn('[photos] could not move photos for', table, row.id, err instanceof Error ? err.message : err)
+        continue
       }
       await query(`UPDATE ${table} SET images = $2::jsonb WHERE id = $1::uuid`, [row.id, JSON.stringify(next)])
       movedRows++
     }
   }
-  return { movedRows, movedPhotos, remaining: await inlinePhotoCounts() }
+  return { movedRows, movedPhotos, failedRows }
+}
+
+/** Background job at start-up: keep moving batches until none are left (or all left failed). */
+export async function moveOldPhotosToDisk(): Promise<void> {
+  if (!photoStorageConfigured()) return
+  try {
+    for (let i = 0; i < 1000; i++) {
+      const r = await migrateOldPhotosBatch(10)
+      if (r.movedRows === 0) break
+      console.info(`[photos] moved ${r.movedPhotos} photo(s) from ${r.movedRows} row(s) onto this server`)
+    }
+  } catch (err) {
+    console.warn('[photos] background move stopped:', err instanceof Error ? err.message : err)
+  }
 }

@@ -3,7 +3,6 @@ import { persistToApiDetailed } from './persist'
 
 vi.mock('./config', () => ({
   isApiEnabled: true,
-  isSupabaseMode: false,
 }))
 
 describe('persistToApiDetailed', () => {

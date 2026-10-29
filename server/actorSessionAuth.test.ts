@@ -22,7 +22,6 @@ const env = vi.hoisted(() => {
   process.env.PF_SKIP_SERVE = '1'
   process.env.DATABASE_URL = 'postgres://pf:pf@127.0.0.1:5432/pf_test'
   process.env.AUTH_SECRET = 'test-secret-actor-session-auth'
-  delete process.env.VERCEL
   delete process.env.ALLOW_DEMO_ACTOR
   return {}
 })
@@ -416,7 +415,7 @@ afterEach(() => {
 })
 
 function production() {
-  vi.stubEnv('VERCEL', '1')
+  vi.stubEnv('NODE_ENV', 'production')
   vi.stubEnv('ALLOW_DEMO_ACTOR', '')
 }
 
@@ -592,24 +591,7 @@ describe('actor identity: session first, demo headers only outside production', 
     expect(body.actor).toEqual({ userId: 'u-tenant', role: 'tenant', agencyId: 'ag-horizon' })
   })
 
-  it('ALLOW_DEMO_ACTOR=1 is ignored with VERCEL=1 (vercel dev)', async () => {
-    vi.stubEnv('VERCEL', '1')
-    vi.stubEnv('VERCEL_ENV', '')
-    vi.stubEnv('ALLOW_DEMO_ACTOR', '1')
-    const res = await bootstrap({ 'X-User-Id': 'u-tenant', 'X-Role': 'tenant' })
-    expect(res.status).toBe(401)
-  })
-
-  it('VERCEL_ENV alone (no VERCEL) refuses demo headers', async () => {
-    vi.stubEnv('VERCEL', '')
-    vi.stubEnv('ALLOW_DEMO_ACTOR', '')
-    vi.stubEnv('VERCEL_ENV', 'preview')
-    const res = await bootstrap(SA_HEADERS)
-    expect(res.status).toBe(401)
-  })
-
   it('NODE_ENV=production alone refuses demo headers on bootstrap and persist', async () => {
-    vi.stubEnv('VERCEL', '')
     vi.stubEnv('ALLOW_DEMO_ACTOR', '')
     vi.stubEnv('NODE_ENV', 'production')
     const res = await bootstrap(SA_HEADERS)
@@ -623,18 +605,14 @@ describe('actor identity: session first, demo headers only outside production', 
     expect(db.writes).toEqual([])
   })
 
-  it('ALLOW_DEMO_ACTOR=1 is ignored on preview and on NODE_ENV=production', async () => {
-    vi.stubEnv('VERCEL_ENV', 'preview')
+  it('ALLOW_DEMO_ACTOR=1 is ignored on NODE_ENV=production', async () => {
     vi.stubEnv('ALLOW_DEMO_ACTOR', '1')
-    expect((await bootstrap({ 'X-User-Id': 'u-tenant', 'X-Role': 'tenant' })).status).toBe(401)
-    vi.stubEnv('VERCEL_ENV', '')
     vi.stubEnv('NODE_ENV', 'production')
     expect((await bootstrap({ 'X-User-Id': 'u-tenant', 'X-Role': 'tenant' })).status).toBe(401)
   })
 
-  it('ALLOW_DEMO_ACTOR=1 is ignored when VERCEL_ENV=production (sign-in required)', async () => {
+  it('ALLOW_DEMO_ACTOR=1 is ignored in production (sign-in required)', async () => {
     vi.stubEnv('NODE_ENV', 'production')
-    vi.stubEnv('VERCEL_ENV', 'production')
     vi.stubEnv('ALLOW_DEMO_ACTOR', '1')
     const res = await bootstrap({ 'X-User-Id': 'u-tenant', 'X-Role': 'tenant' })
     expect(res.status).toBe(401)

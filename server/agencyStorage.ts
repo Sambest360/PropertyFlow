@@ -78,34 +78,6 @@ async function dbBytesByClient(): Promise<Map<string, number>> {
   return out
 }
 
-/** Bytes of Storage files per client uuid (0 when the storage schema is absent, e.g. local Docker). */
-async function fileBytesByClient(): Promise<Map<string, number>> {
-  const out = new Map<string, number>()
-  try {
-    const rows = await query<{ client_id: string; bytes: string }>(
-      `WITH objs AS (
-         SELECT o.id, o.name, COALESCE((o.metadata->>'size')::bigint, 0) AS size
-           FROM storage.objects o WHERE o.bucket_id = 'listing-photos'
-       ),
-       owned AS (
-         SELECT c.id AS client_id, objs.id, objs.size FROM objs
-           JOIN clients c ON objs.name LIKE 'agency/' || c.id::text || '/%'
-         UNION
-         SELECT b.client_id, objs.id, objs.size FROM objs
-           JOIN buildings b ON b.images::text LIKE '%' || objs.name || '%'
-         UNION
-         SELECT u.client_id, objs.id, objs.size FROM objs
-           JOIN units u ON u.images::text LIKE '%' || objs.name || '%'
-       )
-       SELECT client_id::text AS client_id, SUM(size)::text AS bytes FROM owned GROUP BY client_id`,
-    )
-    for (const r of rows) out.set(r.client_id, Number(r.bytes))
-  } catch {
-    /* no Supabase storage schema here */
-  }
-  return out
-}
-
 /** Bytes of photos on the server's own disk (self-hosted), per client uuid. */
 async function localFileBytesByClient(): Promise<Map<string, number>> {
   const out = new Map<string, number>()
@@ -130,11 +102,11 @@ export async function listAgencyStorage(): Promise<AgencyStorageRow[]> {
     `SELECT id::text AS id, COALESCE(settings->>'frontend_id', id::text) AS fe, company_name AS name, settings
        FROM clients WHERE status <> 'cancelled' ORDER BY company_name`,
   )
-  const [db, files, local] = await Promise.all([dbBytesByClient(), fileBytesByClient(), localFileBytesByClient()])
+  const [db, local] = await Promise.all([dbBytesByClient(), localFileBytesByClient()])
   return clients.map((c) => {
     const s = readSettings(c.settings)
     const dbBytes = db.get(c.id) ?? 0
-    const fileBytes = (files.get(c.id) ?? 0) + (local.get(c.id) ?? 0)
+    const fileBytes = local.get(c.id) ?? 0
     const usedBytes = dbBytes + fileBytes
     const quotaMb = typeof s.quotaMb === 'number' && s.quotaMb > 0 ? s.quotaMb : null
     const warnPct = typeof s.warnPct === 'number' && s.warnPct > 0 && s.warnPct <= 100 ? s.warnPct : DEFAULT_WARN_PCT

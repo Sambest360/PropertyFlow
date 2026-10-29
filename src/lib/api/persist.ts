@@ -1,15 +1,10 @@
 /**
- * Fire-and-forget persistence — Supabase in production, Hono API locally.
+ * Fire-and-forget persistence through the server API (/api/persist).
  */
 import { actorHeaders } from './actorAuth'
 import { resolveApiAuthorizationHeader } from './authClient'
-import { isApiEnabled, isSupabaseMode } from './config'
+import { isApiEnabled } from './config'
 import type { EntityType } from './persistTypes'
-import {
-  persistBatchToSupabase,
-  persistToSupabase,
-  supabaseMarkNotificationsRead,
-} from '../supabase/persist'
 import { markLocalPersistWrite } from '../bootstrapMerge'
 import { sanitizeUserFacingMessage } from '../displayIds'
 
@@ -296,11 +291,7 @@ export function preferServerPersistForApplication(
   return resource === 'application' && action === 'upsert'
 }
 
-/**
- * P0-sa-mint: user upserts that carry a temp/plain password must hit the server
- * path (upsertUser → linkStaffAuthUser). Browser Supabase persist only writes
- * public.users and leaves auth_user_id NULL — toast-only agents that cannot sign in.
- */
+/** User upserts that carry a temp/plain password must hit the server (it hashes them). */
 /** CR10 fix 4: user writes carrying `signature` go to /api/persist (own-row, PNG, 150 KB). */
 export function preferServerPersistForSignature(
   resource: PersistOp['resource'],
@@ -352,37 +343,7 @@ export function preferServerPersistForTenancy(
   return resource === 'tenancy' && action === 'upsert'
 }
 
-const GENERIC_PERSIST_FAILURE = 'Could not save. Try again.'
-
 export async function persistToApiDetailed(op: PersistOp): Promise<PersistApiResult> {
-  if (isSupabaseMode) {
-    if (op.resource === 'support_ticket') {
-      return persistViaServerApiDetailed(op)
-    }
-    if (preferServerPersistForApplication(op.resource, op.action)) {
-      return persistViaServerApiDetailed(op)
-    }
-    if (preferServerPersistForUserMint(op.resource, op.action, op.data)) {
-      console.info('[persist] path=server user-mint', { id: op.id })
-      return persistViaServerApiDetailed(op)
-    }
-    if (preferServerPersistForSignature(op.resource, op.action, op.data)) {
-      return persistViaServerApiDetailed(op)
-    }
-    if (preferServerPersistForListingHierarchy(op.resource, op.action)) {
-      console.info('[persist] path=server listing-hierarchy', {
-        resource: op.resource,
-        id: op.id,
-      })
-      return persistViaServerApiDetailed(op)
-    }
-    if (preferServerPersistForTenancy(op.resource, op.action)) {
-      console.info('[persist] path=server tenancy', { id: op.id })
-      return persistViaServerApiDetailed(op)
-    }
-    const ok = await persistToSupabase(op)
-    return ok ? { ok: true } : { ok: false, error: GENERIC_PERSIST_FAILURE }
-  }
   if (!apiConfigured()) {
     return { ok: false, error: apiUnreachableMessage() }
   }
@@ -396,17 +357,6 @@ export async function persistToApi(op: PersistOp): Promise<boolean> {
 
 export async function persistBatchToApi(ops: PersistOp[]): Promise<boolean> {
   if (!ops.length) return true
-  if (isSupabaseMode) {
-    // CR10 fix 4: signature writes in a batch also go through /api/persist.
-    const sig = ops.filter((o) => preferServerPersistForSignature(o.resource, o.action, o.data))
-    if (!sig.length) return persistBatchToSupabase(ops)
-    const rest = ops.filter((o) => !sig.includes(o))
-    const results = await Promise.all([
-      ...sig.map((o) => persistViaServerApi(o)),
-      rest.length ? persistBatchToSupabase(rest) : Promise.resolve(true),
-    ])
-    return results.every(Boolean)
-  }
   if (!apiConfigured()) return false
   try {
     const res = await fetch(`${API_BASE}/api/persist/batch`, {
@@ -425,33 +375,11 @@ export async function persistBatchToApi(ops: PersistOp[]): Promise<boolean> {
   }
 }
 
-function useApproveApplicationRpc(): boolean {
-  const raw = String(
-    import.meta.env.VITE_USE_APPROVE_APPLICATION_RPC ??
-      import.meta.env.USE_APPROVE_APPLICATION_RPC ??
-      '',
-  )
-    .trim()
-    .toLowerCase()
-  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
-}
-
 export async function persistApproveApplication(params: {
   applicationId: string
   actorUserId?: string
   tenancy?: Record<string, unknown>
 }): Promise<boolean> {
-  if (isSupabaseMode) {
-    if (useApproveApplicationRpc()) {
-      const { supabaseApproveApplication } = await import('../supabase/persist')
-      return supabaseApproveApplication({
-        applicationId: params.applicationId,
-        tenancy: params.tenancy,
-      })
-    }
-    // Default: direct mirror writes in the store gate success (RPC optional after migration 020).
-    return true
-  }
   if (!apiConfigured()) return false
   try {
     const res = await fetch(
@@ -476,7 +404,6 @@ export async function persistMarkNotificationsRead(params: {
   userId?: string
   all?: boolean
 }): Promise<boolean> {
-  if (isSupabaseMode) return supabaseMarkNotificationsRead(params)
   if (!apiConfigured()) return false
   try {
     const res = await fetch(`${API_BASE}/api/notifications/mark-read`, {

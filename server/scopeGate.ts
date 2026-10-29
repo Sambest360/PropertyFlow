@@ -44,7 +44,7 @@ import {
   canResolveSupportTicket,
   supportTicketRoutingAgency,
 } from '../src/lib/supportTickets.js'
-import { isReservedSuperAdminEmail, resolveFrontendRole } from '../src/lib/supabase/idMap.js'
+import { isReservedSuperAdminEmail, resolveFrontendRole } from '../src/lib/idMap.js'
 import {
   enforcePortalWritePolicy,
   landlordApplicationDecision,

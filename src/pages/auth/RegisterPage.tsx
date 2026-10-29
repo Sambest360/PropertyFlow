@@ -9,13 +9,10 @@ import { PasswordField } from '../../components/auth/PasswordField'
 import { Button, Input, cn } from '../../components/ui'
 import { useAuth } from '../../context/AuthContext'
 import { apiAuthBootstrapNeeded } from '../../lib/api/authClient'
-import { supabaseBootstrapNeeded, supabaseSignOut } from '../../lib/supabase/auth.js'
-import { isSupabaseMode } from '../../lib/api/config'
 import { isRegistrationRedirectError } from '../../lib/auth/registrationErrors'
 import { postRegisterPath, resolvePostLoginPath } from '../../lib/workspaceRoutes'
 import {
   stashPendingRegistrationDocs,
-  validateRegistrationDocSizes,
 } from '../../lib/auth/registrationDocs'
 import {
   redirectToLogin,
@@ -119,7 +116,7 @@ export default function RegisterPage() {
   const [busy, setBusy] = useState(false)
 
   // P0-session (R8): auth pages are anonymous zones. A previous user's live
-  // Supabase session (shared browser / stale tab) must never hydrate here —
+  // session (shared browser / stale tab) must never hydrate here —
   // otherwise the register wizard can complete "as" that user (the "Ayanda →
   // Samuel Bampo" bleed). Purge on mount, before the session probe resolves.
   useEffect(() => {
@@ -131,7 +128,7 @@ export default function RegisterPage() {
   }, [isAuthenticated])
 
   useEffect(() => {
-    void (isSupabaseMode ? supabaseBootstrapNeeded() : apiAuthBootstrapNeeded()).then(setBootstrapNeeded)
+    void apiAuthBootstrapNeeded().then(setBootstrapNeeded)
   }, [])
 
   const documents = useMemo(() => Object.values(docsByKey), [docsByKey])
@@ -209,9 +206,6 @@ export default function RegisterPage() {
     }
     const missing = missingRequiredDocs(role, documents)
     if (missing.length) return `Upload required documents: ${missing.join(', ')}`
-    if (isSupabaseMode && (role === 'landlord' || role === 'contractor')) {
-      return validateRegistrationDocSizes(documents)
-    }
     return null
   }
 
@@ -238,7 +232,6 @@ export default function RegisterPage() {
   const handleRegistrationRedirect = async (err: unknown) => {
     if (!isRegistrationRedirectError(err)) return false
     try {
-      if (isSupabaseMode) await supabaseSignOut()
       sessionStorage.setItem('pf-register-email', err.email)
       if (role !== 'tenant' && documents.length > 0) {
         stashPendingRegistrationDocs({

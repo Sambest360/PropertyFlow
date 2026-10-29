@@ -236,7 +236,7 @@ export function buildCheckoutBridge(params: {
   const appOrigin =
     typeof window !== 'undefined' && window.location.origin.startsWith('http')
       ? window.location.origin
-      : 'https://property-flow-jet.vercel.app'
+      : 'https://lekayarentals.site'
   const returnUrl = `${appOrigin}/payfast/return?ref=${encodeURIComponent(params.paymentId)}`
   const cancelUrl = `${appOrigin}/payfast/cancel?ref=${encodeURIComponent(params.paymentId)}`
   const notifyUrl = `${appOrigin}/api/payfast/itn`

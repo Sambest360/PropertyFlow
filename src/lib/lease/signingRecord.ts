@@ -1,8 +1,7 @@
 /**
  * CR10 part 5: the "Signing record" rows for a lease. Prefers the server
  * lease_signed rows; falls back to the server-set stamp on the stored eSign
- * party blocks (e.g. Supabase browser mode, where the audit rows are not
- * loaded). Pure, unit-tested.
+ * party blocks when the audit rows are not loaded. Pure, unit-tested.
  */
 import type { LeaseSignEvent, Tenancy } from '../../types/domain'
 import { SIGN_METHOD_LABELS, type SignMethod } from './signaturePrefill'

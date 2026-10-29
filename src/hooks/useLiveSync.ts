@@ -1,24 +1,22 @@
 import { useEffect, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useStore } from '../context/AppStore'
-import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
-import { LIVE_SYNC_DEBOUNCE_MS, LIVE_SYNC_POLL_MS, LIVE_SYNC_TABLES } from '../lib/liveSync'
+import { isApiEnabled } from '../lib/api/config'
+import { LIVE_SYNC_DEBOUNCE_MS, LIVE_SYNC_POLL_MS } from '../lib/liveSync'
 
 /**
- * Keeps workspace data fresh: Supabase Realtime on operational tables,
- * plus focus/poll fallback for API mode or when Realtime is unavailable.
+ * Keeps workspace data fresh: refresh on focus and on a short poll.
  */
 export function useLiveSync() {
   const { isAuthenticated, user } = useAuth()
   const { refreshSessionData } = useStore()
   const debounceRef = useRef<number | null>(null)
-  const realtimeOkRef = useRef(!isSupabaseMode)
   const actorRef = useRef({ userId: user.id, role: user.role, agencyId: user.agencyId })
   actorRef.current = { userId: user.id, role: user.role, agencyId: user.agencyId }
 
   useEffect(() => {
     if (!isAuthenticated || user.id === 'guest') return
-    if (!isApiEnabled && !isSupabaseMode) return
+    if (!isApiEnabled) return
 
     const scheduleRefresh = () => {
       if (debounceRef.current != null) window.clearTimeout(debounceRef.current)
@@ -33,41 +31,13 @@ export function useLiveSync() {
 
     const poll = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return
-      if (isSupabaseMode && realtimeOkRef.current) return
       scheduleRefresh()
     }, LIVE_SYNC_POLL_MS)
-
-    // Realtime (and the Supabase SDK) only in Supabase mode — API mode polls.
-    let removeChannel: (() => void) | null = null
-    let disposed = false
-    if (isSupabaseMode) {
-      realtimeOkRef.current = false
-      void import('../utils/supabase/client').then(({ createClient }) => {
-        if (disposed) return
-        const supabase = createClient()
-        let ch = supabase.channel(`propertyflow-live-${user.id}`)
-        for (const table of LIVE_SYNC_TABLES) {
-          ch = ch.on('postgres_changes', { event: '*', schema: 'public', table }, scheduleRefresh)
-        }
-        removeChannel = () => void supabase.removeChannel(ch)
-        void ch.subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
-            realtimeOkRef.current = true
-          }
-          if (status === 'CHANNEL_ERROR') {
-            realtimeOkRef.current = false
-            console.warn('[liveSync] Realtime channel error — using focus/poll/nav refresh')
-          }
-        })
-      })
-    }
 
     return () => {
       window.removeEventListener('focus', onFocus)
       window.clearInterval(poll)
       if (debounceRef.current != null) window.clearTimeout(debounceRef.current)
-      disposed = true
-      removeChannel?.()
     }
   }, [isAuthenticated, user.id, user.role, user.agencyId, refreshSessionData])
 }
