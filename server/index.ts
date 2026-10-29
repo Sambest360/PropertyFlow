@@ -1329,6 +1329,89 @@ app.get('/api/admin/reviews', async (c) => {
   }
 })
 
+/** Complaints, warnings and public profiles (server/conduct.ts). */
+app.get('/api/conduct/complaints', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const { listComplaints } = await import('./conduct.js')
+    return c.json(await listComplaints(actor))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'conduct_failed', message }, errStatus(err))
+  }
+})
+
+app.post('/api/conduct/complaints', async (c) => {
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+    const actor = await requireActor(c)
+    const { fileComplaint } = await import('./conduct.js')
+    return c.json(await fileComplaint(actor, body))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'conduct_failed', message }, errStatus(err))
+  }
+})
+
+app.post('/api/conduct/complaints/:id', async (c) => {
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+    const actor = await requireActor(c)
+    const { handleComplaint } = await import('./conduct.js')
+    return c.json(await handleComplaint(actor, c.req.param('id'), body))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'conduct_failed', message }, errStatus(err))
+  }
+})
+
+app.get('/api/conduct/warnings', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const { listWarnings } = await import('./conduct.js')
+    return c.json(await listWarnings(actor))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'conduct_failed', message }, errStatus(err))
+  }
+})
+
+app.post('/api/conduct/warnings', async (c) => {
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+    const actor = await requireActor(c)
+    const { issueWarning } = await import('./conduct.js')
+    return c.json(await issueWarning(actor, body))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'conduct_failed', message }, errStatus(err))
+  }
+})
+
+app.post('/api/conduct/warnings/:id', async (c) => {
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+    const actor = await requireActor(c)
+    const { actOnWarning } = await import('./conduct.js')
+    return c.json(await actOnWarning(actor, c.req.param('id'), String(body.action ?? '')))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'conduct_failed', message }, errStatus(err))
+  }
+})
+
+app.get('/api/profiles/:id', async (c) => {
+  try {
+    const raw = await resolveRequestActor(c, null).catch(() => null)
+    const actor = raw ? await enrichActor(raw) : null
+    const { publicProfile } = await import('./conduct.js')
+    return c.json(await publicProfile(actor, c.req.param('id')))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'profile_failed', message }, errStatus(err))
+  }
+})
+
 /** Lease inventory, move-in / move-out inspections and deposit deductions. */
 registerInspectionRoutes(app)
 

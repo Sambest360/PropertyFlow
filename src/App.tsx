@@ -80,6 +80,8 @@ const AdminAgenciesPage = lazy(() => import('./pages/admin/AdminAgenciesPage'))
 const AdminStoragePage = lazy(() => import('./pages/admin/AdminStoragePage'))
 const EscalationsPage = lazy(() => import('./pages/EscalationsPage'))
 const ReviewModerationPage = lazy(() => import('./pages/admin/ReviewModerationPage'))
+const ConductPage = lazy(() => import('./pages/ConductPage'))
+const PublicProfilePage = lazy(() => import('./pages/market/PublicProfilePage'))
 const AdminAgencyCreatePage = lazy(() => import('./pages/admin/AdminAgencyCreatePage'))
 const AgencyDetailPage = lazy(() => import('./pages/admin/AgencyDetailPage'))
 const AdminConfigPage = lazy(() => import('./pages/admin/AdminConfigPage'))
@@ -216,6 +218,14 @@ export default function App() {
                         <ListingDetail />
                       </Suspense>
                     </CanonicalIdRedirect>
+                  }
+                />
+                <Route
+                  path="profile/:id"
+                  element={
+                    <Suspense fallback={<PageFallback />}>
+                      <PublicProfilePage />
+                    </Suspense>
                   }
                 />
                 <Route
@@ -470,6 +480,7 @@ export default function App() {
 
                 <Route path="insights/reports" element={<AgencyOpsGuard permission="reports.view"><Reports /></AgencyOpsGuard>} />
                 <Route path="help" element={<HelpPage />} />
+                <Route path="conduct" element={<ConductPage />} />
                 <Route path="admin" element={<AgencyOpsGuard anyOf={['users.manage', 'roles.assign', 'tenant.manage', 'config.manage', 'platform.manage']}><AdminHub /></AgencyOpsGuard>} />
                 <Route path="admin/users" element={<AgencyOpsGuard anyOf={['users.manage', 'roles.assign']}><AdminUsersPage /></AgencyOpsGuard>} />
                 <Route path="admin/users/new" element={<AgencyOpsGuard anyOf={['users.manage', 'roles.assign']}><AdminUserCreatePage /></AgencyOpsGuard>} />

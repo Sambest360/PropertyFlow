@@ -891,6 +891,11 @@ export default function ListingDetail() {
               <p className="text-lg font-semibold text-ink">
                 {listingHeadline(p.type, viewerId, p.agentId, agent?.name)}
               </p>
+              {p.agentId && agent?.name && p.agentId !== viewerId ? (
+                <Link to={`/profile/${encodeURIComponent(p.agentId)}`} className="text-sm font-semibold text-primary hover:underline">
+                  View {agent.name.split(/\s+/)[0]}'s profile and reviews
+                </Link>
+              ) : null}
               <p className="text-sm text-ink-500">
                 {[p.beds > 0 && `${p.beds} bedrooms`, p.baths > 0 && `${p.baths} bathrooms`, `${p.parking} parking`, `${p.area} m²`, `${p.rooms.length} configured rooms`]
                   .filter(Boolean)

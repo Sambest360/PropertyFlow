@@ -3,6 +3,7 @@ import {
   ChevronDown,
   FileText,
   Heart,
+  Flag,
   HelpCircle,
   Home,
   KeyRound,
@@ -199,6 +200,7 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
       icon: LifeBuoy,
     },
     { label: 'Help & support', to: '/workspace/help', icon: HelpCircle },
+    { label: 'Complaints & warnings', to: '/workspace/conduct', icon: Flag },
   ]
 
   const togglePageTips = () => {
