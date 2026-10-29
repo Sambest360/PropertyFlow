@@ -40,7 +40,8 @@ import { canSetUnitViewingOverride } from '../../lib/applyEligibility'
 import { Button, Input, Select } from '../../components/ui'
 import { FormLabel, FieldHelp } from '../../components/onboarding/FieldHelp'
 import { uid } from '../../data/seed'
-import { roomKindLabel, type RoomKind } from '../../data/infrastructure'
+import { type RoomKind } from '../../data/infrastructure'
+import { LAND_ROOM_NAME, ZONING_OPTIONS, kindLabelFor, propertyTypeLayout, roomsLookUntouched } from '../../lib/propertyTypeLayout'
 import { isFieldAgent } from '../../lib/permissions'
 import { pruneAmenitiesForMode } from '../../lib/propertyFeatures'
 import { readReturnTo } from '../../lib/returnTo'
@@ -558,6 +559,21 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     [draft.rooms],
   )
   const totalAreaSqm = useMemo(() => totalAreaFromRooms(draft.rooms), [draft.rooms])
+  const typeLayout = useMemo(() => propertyTypeLayout(draft.propertyType), [draft.propertyType])
+  // A new type brings its own starter rooms, unless rooms were already filled in.
+  const lastTypeRef = useRef(draft.propertyType)
+  useEffect(() => {
+    if (lastTypeRef.current === draft.propertyType) return
+    const prevFamily = propertyTypeLayout(lastTypeRef.current).family
+    lastTypeRef.current = draft.propertyType
+    if (prevFamily === typeLayout.family) return
+    setDraft((d) =>
+      typeLayout.landOnly || roomsLookUntouched(d.rooms)
+        ? { ...d, rooms: typeLayout.starterRooms(), ...(typeLayout.landOnly ? { parking: 0 } : {}) }
+        : d,
+    )
+  }, [draft.propertyType, typeLayout, setDraft])
+  const zoning = (draft.amenities.find((a) => a.startsWith('Zoning: ')) ?? '').replace('Zoning: ', '')
 
   const listingDescriptionContext = useMemo(
     () => ({
@@ -636,6 +652,9 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
         }
         return null
       case 3: {
+        if (propertyTypeLayout(draft.propertyType).landOnly) {
+          return totalAreaFromRooms(draft.rooms) > 0 ? null : 'Enter the erf size in m².'
+        }
         if (draft.rooms.length === 0) return 'Add at least one room.'
         const unnamed = draft.rooms.find((room) => !room.name.trim())
         if (unnamed) return 'Every room needs a name.'
@@ -1324,19 +1343,23 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
         )
       case 3:
         return (
-          <WizardSectionCard
-            title="Unit & rooms"
-            description="Add each room by name and kind. Bedrooms, bathrooms, and garages are counted automatically for listing features."
-          >
+          <WizardSectionCard title={typeLayout.title} description={typeLayout.description}>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {[
-                { icon: BedDouble, label: 'Bedrooms', value: roomSummary.bedrooms },
-                { icon: Bath, label: 'Bathrooms', value: roomSummary.bathrooms },
-                { icon: Warehouse, label: 'Garages', value: roomSummary.garages },
-                { icon: Car, label: 'Parking bays', value: draft.parking },
-              ].map((item) => (
+              {typeLayout.stats.map((stat) => {
+                const totalBeds = draft.rooms.reduce((n, r) => n + (r.kind === 'bedroom' ? r.beds : 0), 0)
+                const defs = {
+                  bedrooms: { icon: BedDouble, label: typeLayout.family === 'student' ? 'Rooms to let' : 'Bedrooms', value: roomSummary.bedrooms },
+                  beds: { icon: BedDouble, label: 'Beds', value: totalBeds },
+                  bathrooms: { icon: Bath, label: typeLayout.family === 'commercial' ? 'Restrooms' : 'Bathrooms', value: roomSummary.bathrooms },
+                  garages: { icon: Warehouse, label: 'Garages', value: roomSummary.garages },
+                  parking: { icon: Car, label: 'Parking bays', value: draft.parking },
+                  spaces: { icon: Warehouse, label: 'Spaces', value: draft.rooms.length },
+                  area: { icon: Warehouse, label: typeLayout.landOnly ? 'Erf size (m²)' : 'Floor area (m²)', value: totalAreaSqm || 0 },
+                } as const
+                return { key: stat, ...defs[stat] }
+              }).map((item) => (
                 <div
-                  key={item.label}
+                  key={item.key}
                   className="rounded-xl border border-primary-100 bg-primary-50/50 px-4 py-3"
                 >
                   <item.icon className="h-4 w-4 text-primary" strokeWidth={1.6} aria-hidden />
@@ -1345,9 +1368,55 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                 </div>
               ))}
             </div>
+            {typeLayout.landOnly ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block text-sm">
+                  <span className="font-medium text-ink">Erf size (m²)</span>
+                  <Input
+                    className="mt-1 min-h-11"
+                    type="number"
+                    min={1}
+                    placeholder="e.g. 800"
+                    value={draft.rooms.find((r) => r.name === LAND_ROOM_NAME)?.areaSqm ?? draft.rooms[0]?.areaSqm ?? ''}
+                    onChange={(e) =>
+                      setDraft((d) => ({
+                        ...d,
+                        rooms: [{ ...(d.rooms[0] ?? { id: uid('r'), kind: 'other' as RoomKind, beds: 0, baths: 0 }), name: LAND_ROOM_NAME, kind: 'other', beds: 0, baths: 0, areaSqm: e.target.value }],
+                      }))
+                    }
+                  />
+                </label>
+                <label className="block text-sm">
+                  <span className="font-medium text-ink">Zoning</span>
+                  <Select
+                    className="mt-1 min-h-11 w-full"
+                    value={zoning}
+                    onChange={(e) =>
+                      setDraft((d) => ({
+                        ...d,
+                        amenities: [
+                          ...d.amenities.filter((a) => !a.startsWith('Zoning: ')),
+                          ...(e.target.value ? [`Zoning: ${e.target.value}`] : []),
+                        ],
+                      }))
+                    }
+                  >
+                    <option value="">Not sure / not set</option>
+                    {ZONING_OPTIONS.map((z) => (
+                      <option key={z} value={z}>
+                        {z}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+              </div>
+            ) : null}
+            {!typeLayout.landOnly && typeLayout.family !== 'commercial' ? (
             <p className="text-xs text-ink-400">
               Add bedroom, bathroom, and garage rooms below — other room kinds (kitchen, lounge, etc.) do not affect these counts.
             </p>
+            ) : null}
+            {typeLayout.showFurnished ? (
             <label className="flex min-h-11 cursor-pointer items-start gap-2 rounded-xl border border-primary-100 bg-primary-50/40 px-3 py-3 text-sm text-ink-700">
               <input
                 type="checkbox"
@@ -1373,16 +1442,21 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                 </span>
               </span>
             </label>
-            <CounterPillRow label="Open parking bays" value={draft.parking} onChange={(parking) => setDraft((d) => ({ ...d, parking }))} />
+            ) : null}
+            {!typeLayout.landOnly ? (
+              <CounterPillRow label="Open parking bays" value={draft.parking} onChange={(parking) => setDraft((d) => ({ ...d, parking }))} />
+            ) : null}
+            {!typeLayout.landOnly ? (
+            <>
             <div className="overflow-x-auto rounded-lg border border-primary-100">
               <table className="min-w-full text-sm">
                 <thead className="bg-primary-50/60 text-left text-xs uppercase tracking-wide text-ink-500">
                   <tr>
-                    <th className="px-3 py-2">Room name</th>
+                    <th className="px-3 py-2">{typeLayout.family === 'commercial' ? 'Space' : 'Room name'}</th>
                     <th className="px-3 py-2">Kind</th>
-                    <th className="px-3 py-2">Beds</th>
-                    <th className="px-3 py-2">Baths</th>
-                    <th className="px-3 py-2">m² (optional)</th>
+                    {typeLayout.showBeds ? <th className="px-3 py-2">Beds</th> : null}
+                    {typeLayout.showBaths ? <th className="px-3 py-2">{typeLayout.family === 'commercial' ? 'Toilets' : 'Baths'}</th> : null}
+                    <th className="px-3 py-2">{typeLayout.family === 'commercial' ? 'm²' : 'm² (optional)'}</th>
                     <th className="px-3 py-2" />
                   </tr>
                 </thead>
@@ -1418,15 +1492,17 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                             }))
                           }}
                         >
-                          {(['bedroom', 'bathroom', 'kitchen', 'living', 'dining', 'study', 'garage', 'other'] as RoomKind[]).map(
-                            (k) => (
-                              <option key={k} value={k}>
-                                {roomKindLabel(k)}
-                              </option>
-                            ),
-                          )}
+                          {(typeLayout.kinds.some((k) => k.kind === room.kind)
+                            ? typeLayout.kinds
+                            : [...typeLayout.kinds, { kind: room.kind, label: kindLabelFor(typeLayout, room.kind) }]
+                          ).map((k) => (
+                            <option key={k.kind} value={k.kind}>
+                              {k.label}
+                            </option>
+                          ))}
                         </Select>
                       </td>
+                      {typeLayout.showBeds ? (
                       <td className="px-2 py-2">
                         {room.kind === 'bedroom' ? (
                           <Input
@@ -1450,6 +1526,8 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                           </span>
                         )}
                       </td>
+                      ) : null}
+                      {typeLayout.showBaths ? (
                       <td className="px-2 py-2">
                         {room.kind === 'bathroom' ? (
                           <Input
@@ -1474,12 +1552,13 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                           </span>
                         )}
                       </td>
+                      ) : null}
                       <td className="px-2 py-2">
                         <Input
                           className="min-h-10 w-20"
                           type="number"
                           min={0}
-                          placeholder="Optional"
+                          placeholder={typeLayout.family === 'commercial' ? 'm²' : 'Optional'}
                           value={room.areaSqm}
                           aria-label={`Size of ${room.name || 'room'} in square metres`}
                           onChange={(e) =>
@@ -1516,13 +1595,22 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                   ...d,
                   rooms: [
                     ...d.rooms,
-                    { id: uid('r'), name: `Room ${d.rooms.length + 1}`, kind: 'other', beds: 0, baths: 0, areaSqm: '' },
+                    {
+                      id: uid('r'),
+                      name: `${typeLayout.family === 'commercial' ? 'Space' : 'Room'} ${d.rooms.length + 1}`,
+                      kind: typeLayout.family === 'student' ? 'bedroom' : 'other',
+                      beds: typeLayout.family === 'student' ? 1 : 0,
+                      baths: 0,
+                      areaSqm: '',
+                    },
                   ],
                 }))
               }
             >
-              Add room
+              Add {typeLayout.roomWord}
             </Button>
+            </>
+            ) : null}
           </WizardSectionCard>
         )
       case 4:
