@@ -10,6 +10,7 @@ import { WORKSPACE_CONTENT_TOP, WORKSPACE_INSET } from './layout/workspaceInset'
 import { NotificationToastHost } from './notifications/NotificationBell'
 import { ImpersonationBanner } from './admin/ImpersonationBanner'
 import { OnboardingLayer } from './onboarding/OnboardingLayer'
+import { IdleSessionGuard } from './auth/IdleSessionGuard'
 import { WorkspaceBottomNav } from './layout/mobile/WorkspaceBottomNav'
 import { useNavCollapsed } from '../hooks/useNavCollapsed'
 import { useScrollChrome } from '../hooks/useScrollChrome'
@@ -49,6 +50,7 @@ export function WorkspaceShell() {
   return (
     <div className="relative flex min-h-screen bg-white text-ink">
       <OnboardingLayer />
+      <IdleSessionGuard />
       <NotificationToastHost />
       <WorkspaceSidebar items={nav} brandMuted={chromeCompact} />
 
