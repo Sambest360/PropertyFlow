@@ -378,7 +378,8 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const { stepIndex, maxReachableIndex, goNext, goBack, goTo, markReachable, isFirst, isLast } =
-    useWizardSteps({ totalSteps: STEPS.length, storageKey: wizardStorageKey })
+    // Editing a property that already exists: every step is an open quick link.
+    useWizardSteps({ totalSteps: STEPS.length, storageKey: wizardStorageKey, allUnlocked: isEdit })
 
   const [busy, setBusy] = useState(false)
   const [busyMessage, setBusyMessage] = useState('Saving…')
@@ -1877,7 +1878,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
           title={isEdit ? 'Edit property' : isLandlord ? 'List a property' : 'Add property'}
           subtitle={
             isEdit
-              ? 'Update listing details across the same steps as create. Progress is saved until you finish.'
+              ? 'Jump straight to any section below. Save changes from any step.'
               : 'Multi-step wizard — save and continue later at any time. Your progress is kept until you finish.'
           }
           steps={STEPS}
@@ -1915,13 +1916,14 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
             <WizardFooter
               showBack={!isFirst}
               onBack={goBack}
-              showSaveAndContinueLater
+              showSaveAndContinueLater={!isEdit}
               onSaveAndContinueLater={handleSaveAndContinueLater}
               showContinue={!isLast}
               onContinue={handleContinue}
+              continueLabel={isEdit ? 'Next section' : undefined}
               showSaveDraft={isLast && !isEdit && !(draft.publishAfterSave && canPublish)}
               onSaveDraft={saveDraftOnly}
-              showSubmit={isLast && (isEdit || (draft.publishAfterSave && canPublish))}
+              showSubmit={isEdit || (isLast && draft.publishAfterSave && canPublish)}
               submitLabel={
                 isEdit
                   ? draft.publishAfterSave && canPublish
@@ -1931,12 +1933,19 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                     ? 'Publish listing'
                     : 'Save as draft'
               }
-              onSubmit={() =>
+              onSubmit={() => {
+                if (isEdit) {
+                  const err = validateStep(stepIndex)
+                  if (err) {
+                    void sweetWarning('Check this section', err)
+                    return
+                  }
+                }
                 void submitProperty(
                   !isEdit && draft.publishAfterSave && canPublish ? 'Published' : 'Draft',
                   true,
                 )
-              }
+              }}
               busy={busy}
               submitBusyLabel={
                 isEdit
@@ -1953,7 +1962,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
           }
         >
           <div className="relative">
-            {(stepIndex > 0 || draft.draftPropertyId) && (
+            {!isEdit && (stepIndex > 0 || draft.draftPropertyId) && (
               <p className="mb-4 rounded-lg border border-primary-100 bg-primary-50/60 px-3 py-2 text-sm text-ink-600">
                 Progress is saved automatically. Use <strong>Save</strong> to exit and pick up where you left off.
               </p>

@@ -4,10 +4,13 @@ export function useWizardSteps(opts: {
   totalSteps: number
   storageKey?: string
   initialStep?: number
+  /** Every step is open (editing something that was already set up). */
+  allUnlocked?: boolean
 }) {
-  const { totalSteps, storageKey, initialStep = 0 } = opts
+  const { totalSteps, storageKey, initialStep = 0, allUnlocked = false } = opts
   const [stepIndex, setStepIndex] = useState(initialStep)
-  const [maxReachableIndex, setMaxReachableIndex] = useState(initialStep)
+  const [reachedIndex, setMaxReachableIndex] = useState(initialStep)
+  const maxReachableIndex = allUnlocked ? totalSteps - 1 : reachedIndex
 
   useEffect(() => {
     if (!storageKey) return
