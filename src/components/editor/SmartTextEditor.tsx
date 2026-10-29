@@ -67,8 +67,11 @@ export function SmartTextEditor({
   useEffect(() => {
     const el = ref.current
     if (!el) return
+    // Grow with the text up to a cap, then scroll inside the box.
+    const max = Math.max(minHeightPx, Math.min(420, Math.round(window.innerHeight * 0.5)))
     el.style.height = 'auto'
-    el.style.height = `${Math.max(el.scrollHeight, minHeightPx)}px`
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, minHeightPx), max)}px`
+    el.style.overflowY = el.scrollHeight > max ? 'auto' : 'hidden'
   }, [value, minHeightPx])
 
   const getSelection = (): TextSelection => {
@@ -178,7 +181,7 @@ export function SmartTextEditor({
           onChange={(e) => onChange(e.target.value)}
           placeholder={copy.placeholder}
           aria-describedby={`${hintId} ${metaId}`}
-          className="min-h-40 w-full resize-y border-0 bg-transparent px-3 py-2 text-base leading-relaxed text-ink placeholder:text-ink-400 focus:outline-none sm:text-sm"
+          className="scrollbar-thin min-h-40 w-full resize-y overscroll-contain border-0 bg-transparent px-3 py-2 text-base leading-relaxed text-ink placeholder:text-ink-400 focus:outline-none sm:text-sm"
         />
       </div>
 
