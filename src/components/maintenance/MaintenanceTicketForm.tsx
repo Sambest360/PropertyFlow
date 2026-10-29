@@ -70,6 +70,7 @@ export function MaintenanceTicketForm({
   categories,
   agencyId,
   initialPropertyId,
+  initialContractorId,
   lockProperty,
   ticket,
   formId,
@@ -84,6 +85,8 @@ export function MaintenanceTicketForm({
   categories: LookupConfig[]
   agencyId: string | null
   initialPropertyId?: string
+  /** Pre-select a contractor (e.g. from a booking). */
+  initialContractorId?: string
   lockProperty?: boolean
   ticket?: MaintenanceTicket
   formId: string
@@ -99,7 +102,7 @@ export function MaintenanceTicketForm({
   const [priority, setPriority] = useState<Priority>(ticket?.priority ?? 'Medium')
   const [category, setCategory] = useState(ticket?.categoryKey ?? 'GENERAL')
   const [assetId, setAssetId] = useState(ticket?.internalAssetId ?? '')
-  const [contractorId, setContractorId] = useState(ticket?.contractorId ?? '')
+  const [contractorId, setContractorId] = useState(ticket?.contractorId ?? initialContractorId ?? '')
   const [locationDetail, setLocationDetail] = useState(ticket?.locationDetail ?? '')
   const [accessNotes, setAccessNotes] = useState(ticket?.accessNotes ?? '')
   const accessNotesField = accessNotesFieldState(useTicketAccessNotesSupported())

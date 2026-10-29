@@ -114,6 +114,7 @@ export default function MaintenanceCreatePage() {
               categories={categories}
               agencyId={agencyId}
               initialPropertyId={initialPropertyId}
+              initialContractorId={searchParams.get('contractor') ?? undefined}
               lockProperty={lockProperty}
               onSubmitCreate={handleSubmit}
               error={error}
