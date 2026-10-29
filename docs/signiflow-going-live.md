@@ -57,6 +57,6 @@ calls `/api/esign/create-envelope` instead of mock. **Do not** set
 ## Checklist before flipping live
 
 1. Obtain SigniFlow API token + confirm instance URL (SA / EU / etc.).
-2. Set server env on the API host (Vercel/server) — redeploy so `process.env` picks them up.
+2. Set server env in the server `.env` — restart the API so `process.env` picks them up.
 3. Keep demo / staging on `ESIGN_PROVIDER=mock` until a real CreateWorkflow/InitiateFlow succeeds in a non-prod tenant.
 4. Confirm webhook persistence (still PARTIAL) before relying on partner callbacks for workflow stages.

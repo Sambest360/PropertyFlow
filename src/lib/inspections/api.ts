@@ -1,14 +1,13 @@
 /**
  * Client for the lease inspection routes (server/inspectionRoutes.ts). Uses the
- * same auth as other /api calls: the Supabase access token in Supabase mode,
- * the API session token otherwise.
+ * same auth as other /api calls (the API session token).
  */
 import { actorHeaders } from '../api/actorAuth'
 import { resolveApiAuthorizationHeader } from '../api/authClient'
-import { isApiEnabled, isSupabaseMode } from '../api/config'
+import { isApiEnabled } from '../api/config'
 
 /** Inspections live on the server only; the offline demo store has no copy. */
-export const inspectionsAvailable = isSupabaseMode || isApiEnabled
+export const inspectionsAvailable = isApiEnabled
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''
 

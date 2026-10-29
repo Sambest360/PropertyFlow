@@ -4,9 +4,9 @@ import {
   sessionFrontendUserId,
   EMAIL_TO_USER,
   mapUser,
+  buildIdMapCache,
 } from './idMap'
-import { buildIdMapCache } from './data'
-import { canAccessProperty } from '../agencyScope'
+import { canAccessProperty } from './agencyScope'
 
 describe('idMap helpers', () => {
   describe('sessionFrontendUserId', () => {

@@ -174,7 +174,7 @@ import {
 } from '../lib/blockedApplicants'
 import { roomsToInfraRooms } from '../lib/infraRoomsFromBootstrap'
 import type { PostgresBootstrap } from '../lib/api/postgresClient'
-import { isApiEnabled, isSupabaseMode } from '../lib/api/config'
+import { isApiEnabled } from '../lib/api/config'
 import { ensureLeaseEnvelopeForSign, leaseSignatureSaved } from '../lib/leaseSignatureOrdering'
 import { persistRefusalMessage } from '../lib/api/persistRefusal'
 import {
@@ -187,7 +187,6 @@ import {
 } from '../lib/bootstrapCoord'
 import {
   APP_STATE_STORAGE_KEY,
-  AUTH_USER_STORAGE_KEY,
   PG_SOURCE_STORAGE_KEY,
   readOwnedClientCache,
   serializeClientCache,
@@ -219,11 +218,6 @@ function portfolioSnapshotActor(
     agencyId: actor.agencyId ?? null,
   }
 }
-import {
-  shouldAcceptSupabaseBootstrap,
-  shouldSoftMissEmptyApplicationsBootstrap,
-  shouldWipeAuthAfterBootstrapMiss,
-} from '../lib/emptyBootstrapAuth'
 import { authHeaders } from '../lib/api/authClient'
 import { emptyPublicMarketplaceBootstrapWithReason } from '../lib/publicMarketplaceDemo'
 import {
@@ -266,7 +260,7 @@ import {
 } from '../lib/eventNotifications'
 import { mergeEntityLists } from '../lib/bootstrapMerge'
 import { reconcileAgencyIdSpace } from '../lib/agencyScope'
-import { buildIdMapCacheFromRows, type IdMapCache } from '../lib/supabase/idMap'
+import { buildIdMapCacheFromRows, type IdMapCache } from '../lib/idMap'
 import {
   canDeleteStoredProperty,
   getPropertyDeleteBlockReason,
@@ -568,7 +562,7 @@ export type AppState = {
   activities: Activity[]
   propertyDocuments: PropertyDocument[]
   propertyEvents: PropertyEvent[]
-  /** CR10: lease_signed audit rows from the server bootstrap (absent offline / Supabase browser mode). */
+  /** CR10: lease_signed audit rows from the server bootstrap (absent offline). */
   leaseSignEvents?: LeaseSignEvent[]
   reviews: Review[]
   billingPlans: BillingPlan[]
@@ -1112,8 +1106,8 @@ type StoreContextValue = {
   toasts: NotificationToast[]
 }
 
-/** API/Supabase mode never starts from seed trust/charge books (spec-portal-first-load). */
-const LIVE_DATA_MODE = isApiEnabled || isSupabaseMode
+/** API mode never starts from seed trust/charge books (spec-portal-first-load). */
+const LIVE_DATA_MODE = isApiEnabled
 
 export const defaultStateFor = (_liveDataMode: boolean): AppState => ({
   agencies: [],
@@ -1238,12 +1232,6 @@ async function fetchGuestMarketplaceBootstrap(
   lite: boolean,
   fullTimeoutMs: number,
 ): Promise<import('../lib/api/postgresClient').PostgresBootstrap> {
-  if (isSupabaseMode) {
-    const { fetchPublicMarketplaceBootstrap } = await import('../lib/supabase/publicMarketplace')
-    const pub = await fetchPublicMarketplaceBootstrap(lite)
-    if (bootstrapHasPublicMarketplaceRows(pub)) return pub!
-    return emptyPublicMarketplaceBootstrapWithReason(pub === null)
-  }
   const { fetchPublicMarketplaceFromApi } = await import('../lib/api/postgresClient')
   const pub = await fetchPublicMarketplaceFromApi(fullTimeoutMs, lite)
   if (bootstrapHasPublicMarketplaceRows(pub)) return pub!
@@ -1254,7 +1242,7 @@ async function fetchBootstrapFromApi(
   lite: boolean,
   actor: DemoActor | null,
   fullTimeoutMs = 10_000,
-  hydrateOpts?: { priorTenantApplicationCount?: number },
+  _hydrateOpts?: { priorTenantApplicationCount?: number },
 ) {
   // Prefer live Auth actor when callers still pass mount-time null.
   const apiActor = getApiActor()
@@ -1265,69 +1253,6 @@ async function fetchBootstrapFromApi(
         ? apiActor
         : actor
   const guest = !effective?.userId && !readStoredAuthUserId()
-
-  if (isSupabaseMode && guest) {
-    return fetchGuestMarketplaceBootstrap(lite, fullTimeoutMs)
-  }
-
-  if (isSupabaseMode) {
-    const { fetchSupabaseBootstrap } = await import('../lib/supabase/data')
-    const sessionProof = {
-      actorUserId: effective?.userId ?? apiActor?.userId ?? null,
-      storedAuthUserId: readStoredAuthUserId(),
-      actorRole: effective?.role ?? apiActor?.role ?? null,
-    }
-    let boot: Awaited<ReturnType<typeof fetchSupabaseBootstrap>> | null = null
-    let sessionRole: string | null = sessionProof.actorRole ?? null
-    try {
-      boot = await fetchSupabaseBootstrap(lite, {
-        actorRole: sessionProof.actorRole ?? effective?.role ?? apiActor?.role ?? null,
-        actorUserId: effective?.userId ?? apiActor?.userId ?? sessionProof.actorUserId ?? readStoredAuthUserId(),
-        actorAgencyId: effective?.agencyId ?? apiActor?.agencyId ?? null,
-      })
-      // P0-2: stale auth ids used to yield EMPTY arrays — requiring units
-      // caught that. P0 empty-DB SA: 0 units / 0 agencies with a live session
-      // is valid empty-start, NOT stale-auth (do not wipe propertyflow-auth-user).
-      // Mode A Sipho: END_USER/tenant + applications:[] under live session is
-      // NOT remint success — data.ts already awaited session + retried apps.
-      // remint56: null actorRole + AUTH_KEY + empty apps also fail-closed.
-      sessionRole = sessionProof.actorRole ?? boot?.actor?.role ?? null
-      if (
-        boot &&
-        shouldAcceptSupabaseBootstrap({ boot, ...sessionProof, actorRole: sessionRole })
-      ) {
-        return enrichBootstrapWithPublicMarketplace(boot, lite, fullTimeoutMs)
-      }
-    } catch {
-      // Hard failure (network/expired token).
-      boot = null
-    }
-    if (!shouldWipeAuthAfterBootstrapMiss({ boot, ...sessionProof })) {
-      // Live SA/session: keep auth. SA empty-start may still accept above.
-      // Tenant / null-actor empty-apps after retries: soft hydrate-miss — do NOT
-      // lock applications:[] as success (refreshBootstrap keeps prior state).
-      if (
-        shouldSoftMissEmptyApplicationsBootstrap(
-          {
-            boot,
-            ...sessionProof,
-            actorRole: sessionRole,
-          },
-          hydrateOpts,
-        )
-      ) {
-        return null
-      }
-      if (!boot) return null
-      return enrichBootstrapWithPublicMarketplace(boot, lite, fullTimeoutMs)
-    }
-    try {
-      localStorage.removeItem(AUTH_USER_STORAGE_KEY)
-    } catch {
-      /* ignore */
-    }
-    return fetchGuestMarketplaceBootstrap(lite, fullTimeoutMs)
-  }
 
   const { fetchPostgresBootstrap } = await import('../lib/api/postgresClient')
   if (guest) {
@@ -1466,7 +1391,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     const prevSuiteAlerts = stateRef.current.suiteAlerts
     const ingestUserId = opts?.ingestNotifications ? resolved?.userId : undefined
 
-    if (!isApiEnabled && !isSupabaseMode) {
+    if (!isApiEnabled) {
       setState((prev) => settleMarketplace(ensurePublicMarketplace(prev)))
       return
     }
@@ -1547,13 +1472,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     } catch {
       /* ignore */
     }
-    if (!opts?.full && (isSupabaseMode || isApiEnabled)) scheduleFullBootstrapMerge()
+    if (!opts?.full && isApiEnabled) scheduleFullBootstrapMerge()
   },
   [scheduleFullBootstrapMerge],
 )
 
   useEffect(() => {
-    if (!isApiEnabled && !isSupabaseMode) {
+    if (!isApiEnabled) {
       setState((prev) => settleMarketplace(ensurePublicMarketplace(prev)))
       return
     }
@@ -1866,7 +1791,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
   /** Durable persist for mutation paths that must gate success UI on a
    *  committed write. Marks the local write (so a concurrent bootstrap refresh
-   *  keeps the optimistic row) and performs ONE Supabase write — not a queued
+   *  keeps the optimistic row) and performs ONE server write — not a queued
    *  duplicate plus an awaited one. Resolves false when the write rejected
    *  (RLS, constraint, network) so callers can surface the real error. */
   const persistUpsertResult = useCallback(
@@ -2521,7 +2446,6 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const now = new Date().toISOString()
       const result = proposeDepositRelease(dep, actor.id, now)
       if (result.ok === false) return { ok: false, error: result.error }
-      if (!isApiEnabled && isSupabaseMode) return { ok: false, error: DEPOSIT_NEEDS_SERVER_COPY }
       let updated = result.value
       if (isApiEnabled) {
         // Dual control is enforced server-side; generic persist never moves status.
@@ -2558,7 +2482,6 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const now = new Date().toISOString()
       const result = approveDepositRelease(dep, approver.id, now)
       if (result.ok === false) return { ok: false, error: result.error }
-      if (!isApiEnabled && isSupabaseMode) return { ok: false, error: DEPOSIT_NEEDS_SERVER_COPY }
       let updated = result.value
       if (isApiEnabled) {
         // Two-person rule is enforced server-side (approver ≠ proposer).
@@ -2734,9 +2657,6 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           ...s,
           payoutInstructions: s.payoutInstructions.map((p) => (p.id === inst.id ? updated : p)),
         }))
-        if (isSupabaseMode) {
-          await persistUpsert('payout_instruction', inst.id, updated as unknown as Record<string, unknown>)
-        }
       }
       addActivity(
         `Payout approved (${(inst.amountCents / 100).toFixed(2)} ZAR) by ${approver.name}`,
@@ -2772,9 +2692,6 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           ...s,
           payoutInstructions: s.payoutInstructions.map((p) => (p.id === inst.id ? updated : p)),
         }))
-        if (isSupabaseMode) {
-          await persistUpsert('payout_instruction', inst.id, updated as unknown as Record<string, unknown>)
-        }
       }
       addActivity(
         `Payout submitted (in-app only — not settled) (${(inst.amountCents / 100).toFixed(2)} ZAR)`,
@@ -2920,7 +2837,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       setState(defaultState())
       setToasts([])
       const actor = resolveBootstrapActor(defaultState().users)
-      if (!isApiEnabled && !isSupabaseMode) return
+      if (!isApiEnabled) return
       void fetchBootstrapFromApi(false, actor).then((boot) => {
         if (!boot) {
           setTicketAccessNotesSupported(false)
@@ -3059,7 +2976,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }
       patch((s) => ({ ...s, users: [...s.users, user] }))
       // Always the server path: it generates the temp password when none was
-      // typed and links Supabase Auth with it.
+      // typed.
       const { markLocalPersistWrite } = await import('../lib/bootstrapMerge')
       markLocalPersistWrite('user', user.id)
       const { persistUserCreateViaServer } = await import('../lib/api/persist')
@@ -4946,8 +4863,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         } as SubmitApplicationResult
       }
 
-      // Additive: email confirmation to the applicant (works in both API and
-      // Supabase modes since it rides the same origin). Fire-and-forget — a
+      // Additive: email confirmation to the applicant. Fire-and-forget — a
       // mail hiccup must never block or fail the application.
       void (async () => {
         const { resolveApiAuthorizationHeader } = await import('../lib/api/authClient')

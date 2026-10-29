@@ -1,4 +1,4 @@
-import { isListingUuid } from '../listingIds.js'
+import { isListingUuid } from './listingIds.js'
 
 /** Frontend ↔ backend ID maps (mirrors server/idMap.ts seed aliases). */
 export const CLIENT_TO_AGENCY: Record<string, string> = {

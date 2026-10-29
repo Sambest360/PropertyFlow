@@ -29,7 +29,7 @@ import { NO_PHOTOS_YET, normalizeListingImages } from '../../lib/listingPhotos'
 import { isPubliclyListed } from '../../lib/publicListings'
 import { availableFromLabel } from '../../lib/availableFromLabel'
 import { findByListingId } from '../../lib/listingIds'
-import { isApiEnabled, isSupabaseMode } from '../../lib/api/config'
+import { isApiEnabled } from '../../lib/api/config'
 import {
   fetchPublicListingSlice,
   mergeListingLookupState,
@@ -121,7 +121,7 @@ export default function ListingDetail() {
     return () => window.clearTimeout(t)
   }, [])
 
-  const liveDataMode = isApiEnabled || isSupabaseMode
+  const liveDataMode = isApiEnabled
   const awaitingSignedInHydration =
     liveDataMode &&
     isAuthenticated &&

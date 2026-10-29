@@ -3,7 +3,7 @@ import { readTicketAccessNotes, ticketAccessNotesColumnExists } from './ticketAc
 import { isSafePhotoUrl } from '../src/lib/photoLimits.js'
 import { fieldsFromLimitSnapshot, listingLimitsFromSettings } from '../src/lib/listingLimitCopy.js'
 import { agencyViewingSettingsFromJson, readViewingEvidence } from '../src/lib/applyEligibility.js'
-import { resolveFrontendRole } from '../src/lib/supabase/idMap.js'
+import { resolveFrontendRole } from '../src/lib/idMap.js'
 import { mapPool } from './mapPool.js'
 import { loadIdMapCache } from './idMapCache.js'
 import { USER_TO_UUID } from './entityMap.js'
@@ -592,7 +592,7 @@ export async function buildBootstrap(opts?: {
             LIMIT 2000`,
         ),
     ] as const,
-    process.env.VERCEL ? 3 : 8,
+    8,
     (load) => load(),
   )
 

@@ -6,5 +6,6 @@ module.exports = {
     args: '--env-file=.env server/index.ts',
     max_memory_restart: '500M',
     autorestart: true,
+    env: { NODE_ENV: 'production' },
   }],
 }

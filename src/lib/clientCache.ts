@@ -19,7 +19,7 @@ export const PG_SOURCE_STORAGE_KEY = 'propertyflow-pg-source'
 export const CLIENT_CACHE_KEYS = [APP_STATE_STORAGE_KEY, PG_SOURCE_STORAGE_KEY] as const
 
 /**
- * Collections never written to localStorage in live modes — API or Supabase (PII / money books).
+ * Collections never written to localStorage in live (API) mode (PII / money books).
  * They are always refetched from /api/bootstrap for the signed-in user.
  */
 export const LIVE_MODE_UNPERSISTED_KEYS = [
@@ -45,7 +45,7 @@ export const LIVE_MODE_UNPERSISTED_KEYS = [
 
 export type CacheEnvelope<S> = { ownerUserId: string | null; state: Partial<S> }
 
-/** Build the persisted envelope. In live modes (API or Supabase), PII/trust collections are dropped. */
+/** Build the persisted envelope. In live (API) mode, PII/trust collections are dropped. */
 export function serializeClientCache<S extends object>(
   state: S,
   ownerUserId: string | null,
@@ -115,7 +115,7 @@ export function shouldDeferMountBootstrap(params: {
 /**
  * Debounced cache writer. The owner is the user whose data is IN MEMORY
  * (hydratedForUserId), captured when the write is scheduled — never the shared
- * auth key, which another tab can change. In live modes (API/Supabase) a write
+ * auth key, which another tab can change. In live (API) mode a write
  * happens only when that owner is set AND still equals the stored auth user
  * when the timer fires. Demo mode writes as on main. cancel() on switch/sign-out.
  */

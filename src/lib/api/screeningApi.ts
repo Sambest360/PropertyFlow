@@ -1,6 +1,6 @@
 /**
  * Client for the server-side screening API (server/screeningRoutes.ts).
- * Needs the API (isApiEnabled); there is no Supabase-direct path for checks.
+ * Needs the API (isApiEnabled).
  */
 import { authHeaders } from './authClient'
 import { isApiEnabled } from './config'

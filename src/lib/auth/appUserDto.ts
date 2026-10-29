@@ -1,7 +1,7 @@
 import type { AppUser } from '../../types/domain'
 import type { AuthUserDto } from '../api/authClient'
 
-/** Session DTO for an app user (no Supabase SDK, so the app shell can use it). */
+/** Session DTO for an app user. */
 export function appUserToDto(user: AppUser): AuthUserDto {
   return {
     id: user.id,

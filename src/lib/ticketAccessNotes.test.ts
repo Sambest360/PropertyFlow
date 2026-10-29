@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./api/config', () => ({
   isApiEnabled: false,
-  isSupabaseMode: false,
 }))
 
 describe('access-notes UI helper', () => {
@@ -43,14 +42,10 @@ describe('access-notes UI helper', () => {
 describe('initial flag by mode', () => {
   it('API mode starts false until bootstrap lands', async () => {
     const { initialTicketAccessNotesSupported } = await import('./ticketAccessNotes')
-    expect(initialTicketAccessNotesSupported({ apiEnabled: true, supabaseMode: false })).toBe(false)
-  })
-  it('Supabase mode is always false', async () => {
-    const { initialTicketAccessNotesSupported } = await import('./ticketAccessNotes')
-    expect(initialTicketAccessNotesSupported({ apiEnabled: false, supabaseMode: true })).toBe(false)
+    expect(initialTicketAccessNotesSupported({ apiEnabled: true })).toBe(false)
   })
   it('local / demo mode is true', async () => {
     const { initialTicketAccessNotesSupported } = await import('./ticketAccessNotes')
-    expect(initialTicketAccessNotesSupported({ apiEnabled: false, supabaseMode: false })).toBe(true)
+    expect(initialTicketAccessNotesSupported({ apiEnabled: false })).toBe(true)
   })
 })

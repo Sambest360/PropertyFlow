@@ -7,7 +7,6 @@ import { marketplaceCategories } from './navigation'
 import { useAuth } from '../../context/AuthContext'
 import { readAuthToken } from '../../lib/api/authClient'
 import { readStoredAuthUserId } from '../../lib/api/actorAuth'
-import { hasSupabaseSessionCookie, parseSupabaseProjectRef } from '../../lib/auth/supabaseSessionHint'
 import { signOutAndRedirect } from '../../lib/auth/signOut'
 import { ACCOUNT_WISHLIST_PATH, PUBLIC_SAVED_PATH } from '../../lib/accountRoutes'
 import { initials } from '../dashboard/formatShortDate'
@@ -31,12 +30,8 @@ export function MarketplaceHeader() {
   const navigate = useNavigate()
   const location = useLocation()
   const { user, isAuthenticated, logout, authReady } = useAuth()
-  const supabaseRef = parseSupabaseProjectRef(import.meta.env.VITE_SUPABASE_URL ?? '')
   const sessionPending =
-    !authReady &&
-    (Boolean(readAuthToken()) ||
-      Boolean(readStoredAuthUserId()) ||
-      hasSupabaseSessionCookie(supabaseRef))
+    !authReady && (Boolean(readAuthToken()) || Boolean(readStoredAuthUserId()))
   const showSignedInChrome = isAuthenticated || sessionPending
 
   const submitSearch = (e: FormEvent) => {

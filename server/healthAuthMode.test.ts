@@ -5,8 +5,6 @@ vi.hoisted(() => {
   process.env.PF_SKIP_SERVE = '1'
   process.env.DATABASE_URL = 'postgres://user:pass@example.invalid/db'
   process.env.AUTH_SECRET = 'test-secret-health'
-  process.env.SUPABASE_URL = 'https://abcdefghijklmnopqrst.supabase.co'
-  delete process.env.AUTH_MODE
 })
 
 import app from './index'
@@ -18,7 +16,7 @@ describe('/api/health auth mode + db fingerprint', () => {
     const body = JSON.parse(text)
     expect(body.authMode).toBe('api')
     expect(body.dbHost).toMatch(/^[0-9a-f]{8}$/)
-    for (const leak of [HOST, 'neon.tech', 'pfuser', 'pfpass', 'pfdbname', 'supabase.co']) {
+    for (const leak of [HOST, 'pfuser', 'pfpass', 'pfdbname']) {
       expect(text).not.toContain(leak)
     }
   })

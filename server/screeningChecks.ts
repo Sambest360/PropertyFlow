@@ -125,10 +125,10 @@ function mockOutcome(status: ScreeningCheckStatus, checkType: ScreeningCheckType
 /**
  * Deterministic test provider, keyed on the last digit of the ID number:
  * 0 PASS, 1 FAIL, 2 REFER, 3 async (completes by webhook), 9 ERROR, else PASS.
- * Disabled on VERCEL_ENV=production unless SCREENING_ALLOW_MOCK=1.
+ * Disabled in production (NODE_ENV=production) unless SCREENING_ALLOW_MOCK=1.
  */
 export function createMockProvider(env: Env, now: () => Date = () => new Date()): ScreeningProvider {
-  const productionLocked = env.VERCEL_ENV?.trim() === 'production' && env.SCREENING_ALLOW_MOCK?.trim() !== '1'
+  const productionLocked = env.NODE_ENV?.trim() === 'production' && env.SCREENING_ALLOW_MOCK?.trim() !== '1'
   return {
     id: 'mock',
     supports: SCREENING_CHECK_TYPES,

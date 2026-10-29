@@ -40,9 +40,6 @@ vi.mock('./entityMap.js', () => ({
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v),
 }))
 
-vi.mock('./supabase/registerUser.js', () => ({
-  linkStaffAuthUser: (...args: unknown[]) => linkStaffAuthUser(...args),
-}))
 
 describe('upsertUser Full Agent create without Supabase Auth', () => {
   const savedEnv: Record<string, string | undefined> = {}

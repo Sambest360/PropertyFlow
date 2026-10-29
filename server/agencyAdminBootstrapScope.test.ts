@@ -21,7 +21,6 @@ vi.hoisted(() => {
   process.env.PF_SKIP_SERVE = '1'
   process.env.DATABASE_URL = 'postgres://pf:pf@127.0.0.1:5432/pf_test'
   process.env.AUTH_SECRET = 'test-secret-agency-admin-bootstrap'
-  delete process.env.VERCEL
   delete process.env.ALLOW_DEMO_ACTOR
 })
 

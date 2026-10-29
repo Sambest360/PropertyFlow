@@ -1,4 +1,4 @@
-# Google Maps setup (local + Vercel)
+# Google Maps setup (local + server)
 
 Lekaya reads a single browser key via Vite:
 
@@ -26,14 +26,14 @@ Add every origin that will load the map (trailing `/*` is recommended):
 ```text
 http://localhost:5173/*
 http://127.0.0.1:5173/*
-https://*.vercel.app/*
+https://lekayarentals.site/*
 https://YOUR_CUSTOM_DOMAIN/*
 ```
 
 Notes:
 
 - Vite default dev ports: `5173` (and `5174+` if in use — add those too).
-- Preview deployments use `*.vercel.app`; production may use a custom domain — list both.
+- Production runs on `lekayarentals.site` — list it alongside localhost.
 - After changing referrers, wait a few minutes for Google’s cache.
 
 ### API restrictions
@@ -65,59 +65,20 @@ Without a key, map features that depend on Google degrade gracefully (Leaflet/OS
 
 With a key that has **Places API** enabled, address fields on create/edit property use Google Places Autocomplete (ZA). Without Places (or without a key), the same fields remain normal text inputs and geocode-on-save still works via Geocoding API or the local mock.
 
-## 3. Vercel environment variables
+## 3. Server build
 
-`VITE_*` values are **baked in at build time**. Set the var, then **redeploy** (a new build) so the client bundle picks it up.
+`VITE_*` values are **baked in at build time**. Add `VITE_GOOGLE_MAPS_API_KEY` to the server `.env` in `/var/www/propertyflow`, then rebuild with `deploy/update.sh` so the client bundle picks it up.
 
-### If the project is linked (`vercel link`)
-
-```bash
-# Interactive (paste key when prompted) — Preview + Production
-npx vercel env add VITE_GOOGLE_MAPS_API_KEY preview
-npx vercel env add VITE_GOOGLE_MAPS_API_KEY production
-
-# Or non-interactive from a local file / secret store (do not echo into shell history):
-printf '%s' "$GOOGLE_MAPS_KEY" | npx vercel env add VITE_GOOGLE_MAPS_API_KEY preview
-printf '%s' "$GOOGLE_MAPS_KEY" | npx vercel env add VITE_GOOGLE_MAPS_API_KEY production
-
-# Optional: Development target for `vercel env pull`
-printf '%s' "$GOOGLE_MAPS_KEY" | npx vercel env add VITE_GOOGLE_MAPS_API_KEY development
-
-npx vercel env ls
-npx vercel --prod   # or push to the production branch to trigger a rebuild
-```
-
-Dashboard alternative: Project → Settings → Environment Variables → add `VITE_GOOGLE_MAPS_API_KEY` for Preview and Production → Redeploy.
-
-### First-time link (project not on Vercel yet)
-
-```bash
-npx vercel link
-npx vercel env add VITE_GOOGLE_MAPS_API_KEY preview
-npx vercel env add VITE_GOOGLE_MAPS_API_KEY production
-npx vercel --prod
-```
-
-Ensure Google key referrers include `https://*.vercel.app/*` and any custom production domain before testing preview/prod URLs.
+Ensure the Google key referrers include `https://lekayarentals.site/*`.
 
 ## 4. CSP / headers
 
-Current `vercel.json` does **not** set a Content-Security-Policy. No change is required for Maps today.
-
-If you add CSP later, allow Google Maps script and tile hosts, for example:
-
-- `script-src`: `https://maps.googleapis.com` `https://maps.gstatic.com`
-- `img-src`: `https://maps.gstatic.com` `https://*.googleapis.com` `https://*.ggpht.com` `data:` `blob:`
-- `connect-src`: `https://maps.googleapis.com` `https://maps.gstatic.com`
-- `style-src`: include `'unsafe-inline'` if the Maps JS injects inline styles (common), or test thoroughly
-- `font-src`: `https://fonts.gstatic.com` (if using Google fonts with Maps UI)
-
-`vite.config.ts` has no headers that block Maps. Keep it that way unless you intentionally add CSP in Vite’s `server.headers` / `preview.headers`.
+The Content-Security-Policy lives in `deploy/nginx-security-headers.conf` and already allows the Google Maps script, image and connect hosts.
 
 ## 5. Security checklist
 
-- [ ] Key restricted by HTTP referrer (localhost + Vercel + prod domain)
+- [ ] Key restricted by HTTP referrer (localhost + prod domain)
 - [ ] Key restricted to Maps JavaScript + Geocoding (+ Places only if needed)
-- [ ] Real key only in `.env.local` and Vercel env — never in git
-- [ ] Redeployed after setting `VITE_GOOGLE_MAPS_API_KEY` on Vercel
+- [ ] Real key only in `.env.local` and the server `.env` — never in git
+- [ ] Rebuilt after setting `VITE_GOOGLE_MAPS_API_KEY` on the server
 - [ ] Billing alerts set in Google Cloud for unexpected usage

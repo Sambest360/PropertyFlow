@@ -1,17 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { preferServerPersistForSignature, preferServerPersistForUserMint } from './persist'
 
-const persistToSupabase = vi.fn(async () => true)
 
 vi.mock('./config', () => ({
-  isApiEnabled: false,
-  isSupabaseMode: true,
-}))
-
-vi.mock('../supabase/persist', () => ({
-  persistToSupabase: (...args: unknown[]) => persistToSupabase(...args),
-  persistBatchToSupabase: vi.fn(async () => true),
-  supabaseMarkNotificationsRead: vi.fn(async () => true),
+  isApiEnabled: true,
 }))
 
 vi.mock('./actorAuth', () => ({
@@ -47,14 +39,13 @@ describe('preferServerPersistForUserMint', () => {
   })
 })
 
-describe('persistToApi user mint fail-closed (supabase mode)', () => {
+describe('persistToApi user mint fail-closed (API)', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
-    persistToSupabase.mockClear()
   })
 
-  it('does not toast-path via supabase when /api/persist is false-ok HTML', async () => {
+  it('does not report success when /api/persist is false-ok HTML', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(
@@ -78,7 +69,6 @@ describe('persistToApi user mint fail-closed (supabase mode)', () => {
       },
     })
     expect(ok).toBe(false)
-    expect(persistToSupabase).not.toHaveBeenCalled()
   })
 
   it('returns true only when /api/persist returns JSON { ok: true }', async () => {
@@ -105,7 +95,6 @@ describe('persistToApi user mint fail-closed (supabase mode)', () => {
       },
     })
     expect(ok).toBe(true)
-    expect(persistToSupabase).not.toHaveBeenCalled()
   })
 
   it('returns false when Auth link fails on the server (HTTP 502 JSON error)', async () => {
@@ -138,7 +127,6 @@ describe('persistToApi user mint fail-closed (supabase mode)', () => {
       },
     })
     expect(ok).toBe(false)
-    expect(persistToSupabase).not.toHaveBeenCalled()
   })
 })
 
@@ -289,10 +277,9 @@ describe('persistUserCreateViaServer error messages', () => {
   })
 })
 
-describe('CR10 fix 4: signature writes go to /api/persist in supabase mode', () => {
+describe('CR10 fix 4: signature writes go to /api/persist', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
-    persistToSupabase.mockClear()
   })
   it('flags user upserts that carry signature', () => {
     expect(preferServerPersistForSignature('user', 'upsert', { signature: 'x' })).toBe(true)
@@ -306,7 +293,6 @@ describe('CR10 fix 4: signature writes go to /api/persist in supabase mode', () 
     const op = { resource: 'user' as const, action: 'upsert' as const, id: 'u-t', data: { id: 'u-t', signature: 'data:image/png;base64,AAAA' } }
     expect(await persistToApi(op)).toBe(true)
     expect(await persistBatchToApi([op])).toBe(true)
-    expect(persistToSupabase).not.toHaveBeenCalled()
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(String((fetchMock.mock.calls[1] as unknown[])[0])).toContain('/api/persist')
   })

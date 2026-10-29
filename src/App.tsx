@@ -1,6 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { lazy, Suspense, type ReactNode } from 'react'
-import { SpeedInsights } from '@vercel/speed-insights/react'
 import { ThemeProvider } from './context/ThemeContext'
 import { AppStoreProvider } from './context/AppStore'
 import { AuthProvider } from './context/AuthContext'
@@ -173,7 +172,6 @@ export default function App() {
           <SuiteAlertProvider>
           <BrowserRouter>
             <ScrollToTop />
-            <SpeedInsights />
             <Routes>
               <Route
                 path="login"

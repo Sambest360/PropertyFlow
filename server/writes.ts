@@ -40,7 +40,6 @@ import { mapAgencyStatusToDb } from '../src/lib/agencyStatus.js'
 import { resolveLiveListing } from './listingResolve.js'
 import { canonicalListingId } from '../src/lib/listingIds.js'
 import { ensureListingUnitUuid, resolveListingUnitUuid } from './listingUuid.js'
-import { supabaseAuthConfigured } from './supabase/env.js'
 import { isValidSignatureDataUrl, signatureInvalidError } from '../src/lib/signature/signatureImage.js'
 import {
   SUPPORT_BODY_MAX,
@@ -874,78 +873,7 @@ async function upsertUser(feId: string, uuid: string, d: Record<string, unknown>
     throw err
   }
 
-  // P0-sa-mint: when Supabase Auth is configured, public.users + password_hash
-  // alone is not a sign-in. Create auth.users (+ identity), link auth_user_id
-  // on THIS profileId, and verify a password grant before OK.
-  // Residual (r13d): profile INSERT then link is non-atomic — on Auth failure
-  // delete the orphan so FE error cannot leave a sign-in-dead public.users row.
-  // API-mode Neon has no Supabase Auth and no auth_user_id column. The bcrypt
-  // password_hash written above is what POST /api/auth/login already checks,
-  // so skip the link unless GoTrue is actually configured.
-  const plainPassword =
-    typeof d.tempPassword === 'string' && d.tempPassword
-      ? d.tempPassword
-      : typeof d.password === 'string' && d.password
-        ? d.password
-        : null
-  if (plainPassword && supabaseAuthConfigured()) {
-    console.info('[upsertUser] path=server linkStaffAuthUser=run', {
-      feId,
-      profileId: uuid,
-      email,
-    })
-    try {
-      const { linkStaffAuthUser } = await import('./supabase/registerUser.js')
-      await linkStaffAuthUser({
-        email,
-        password: plainPassword,
-        firstName: first,
-        lastName: last || first,
-        phone: d.phone ? str(d.phone) : undefined,
-        roleFe: feRole,
-        profileId: uuid,
-      })
-      const linkedRows = await query<{ auth_user_id: string | null }>(
-        `SELECT auth_user_id::text AS auth_user_id FROM public.users WHERE id = $1::uuid`,
-        [uuid],
-      )
-      if (!linkedRows[0]?.auth_user_id) {
-        throw Object.assign(
-          new Error('Auth link did not set auth_user_id on mint profileId'),
-          { status: 500 },
-        )
-      }
-    } catch (err) {
-      try {
-        await query(
-          `DELETE FROM public.users WHERE id = $1::uuid AND auth_user_id IS NULL`,
-          [uuid],
-        )
-        await forgetId('user', feId)
-        console.info('[upsertUser] Auth fail — rolled back orphan profile', {
-          feId,
-          profileId: uuid,
-          email,
-        })
-      } catch (rollbackErr) {
-        console.error('[upsertUser] orphan rollback failed', rollbackErr)
-      }
-      throw err
-    }
-  } else if (plainPassword) {
-    console.info('[upsertUser] path=server linkStaffAuthUser=skipped', {
-      feId,
-      profileId: uuid,
-      email,
-      reason: 'supabase-auth-not-configured',
-    })
-  } else {
-    console.info('[upsertUser] path=server linkStaffAuthUser=skipped', {
-      feId,
-      profileId: uuid,
-      email,
-    })
-  }
+  // The bcrypt password_hash written above is what POST /api/auth/login checks.
   return uuid
 }
 

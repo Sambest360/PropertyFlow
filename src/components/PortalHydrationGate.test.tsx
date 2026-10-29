@@ -22,7 +22,7 @@ const auth = {
 const store = { hydratedForUserId: null as string | null, hydrationFailed: false, refreshBootstrap: vi.fn() }
 vi.mock('../context/AuthContext', () => ({ useAuth: () => auth }))
 vi.mock('../context/AppStore', () => ({ useStore: () => store }))
-vi.mock('../lib/api/config', () => ({ isApiEnabled: true, isSupabaseMode: false }))
+vi.mock('../lib/api/config', () => ({ isApiEnabled: true }))
 
 import { AUTH_USER_STORAGE_KEY } from '../lib/clientCache'
 import { writePortfolioSnapshot } from '../lib/portfolioSnapshot'

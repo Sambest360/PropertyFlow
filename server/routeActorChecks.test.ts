@@ -12,7 +12,6 @@ vi.hoisted(() => {
   process.env.PF_SKIP_SERVE = '1'
   process.env.DATABASE_URL = 'postgres://pf:pf@127.0.0.1:5432/pf_test'
   process.env.AUTH_SECRET = 'test-secret-route-actor-checks'
-  delete process.env.VERCEL
   delete process.env.ALLOW_DEMO_ACTOR
 })
 
@@ -214,7 +213,7 @@ beforeEach(async () => {
   resetImpersonationLogDedupe()
   db.writes = []
   db.sql = []
-  vi.stubEnv('VERCEL', '1')
+  vi.stubEnv('NODE_ENV', 'production')
   vi.stubEnv('ALLOW_DEMO_ACTOR', '')
   vi.stubEnv('PAYFAST_MERCHANT_ID', '10000100')
   vi.stubEnv('PAYFAST_MERCHANT_KEY', '46f0cd694581a')

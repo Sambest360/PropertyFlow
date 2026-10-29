@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveFrontendRole } from '../src/lib/supabase/idMap.js'
+import { resolveFrontendRole } from '../src/lib/idMap.js'
 
 describe('resolveFrontendRole heal (P0 r20 optional #3)', () => {
   it('GROUND_AGENT overrides stale metadata frontend_role: tenant', () => {

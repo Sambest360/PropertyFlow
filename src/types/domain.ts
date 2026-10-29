@@ -215,7 +215,7 @@ export type InternalAssetItem = {
 
 export type PropertyAsset = {
   id: string
-  /** Postgres units.id when hydrated from Supabase */
+  /** Postgres units.id when hydrated from the server */
   backendId?: string
   /** Postgres units.updated_at (ISO) — last edit, used for "Recent activity" order. */
   updatedAt?: string | null

@@ -1,5 +1,5 @@
 import type { Agency, AppUser, Role } from '../types/domain.js'
-import { CLIENT_TO_AGENCY } from './supabase/idMap.js'
+import { CLIENT_TO_AGENCY } from './idMap.js'
 
 const CLIENT_UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i

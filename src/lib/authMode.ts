@@ -1,17 +1,7 @@
-/**
- * Client auth mode — build-time `VITE_AUTH_MODE`. Exactly 'supabase' enables
- * Supabase mode; any other value or missing = API mode. Supabase URL/key being
- * present is NOT enough on its own.
- */
-export type AuthMode = 'api' | 'supabase'
+/** Client auth: always the API's own session (there is no other mode). */
+export type AuthMode = 'api'
 
-export function resolveClientAuthMode(raw: string | undefined): AuthMode {
-  return raw === 'supabase' ? 'supabase' : 'api'
-}
-
-export const clientAuthMode: AuthMode = resolveClientAuthMode(
-  import.meta.env.VITE_AUTH_MODE as string | undefined,
-)
+export const clientAuthMode: AuthMode = 'api'
 
 let logged = false
 export function logClientAuthModeOnce(): void {

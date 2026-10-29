@@ -1,5 +1,4 @@
-import { isApiEnabled, isSupabaseMode } from './config'
-import { createClient } from '../../utils/supabase/client'
+import { isApiEnabled } from './config'
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''
 
@@ -32,7 +31,6 @@ export type ListingEnquiryResult =
   | { ok: false; error: string; waitlist?: boolean }
 
 const ENQUIRY_TIMEOUT_MS = 20_000
-const SUPABASE_ENQUIRY_TIMEOUT_MS = 15_000
 
 const ENQUIRY_UNAVAILABLE =
   'We could not save your enquiry. Try again in a moment.'
@@ -72,12 +70,6 @@ export function formatListingEnquiryError(raw: string): string {
     return 'The server took too long to respond. Check your connection and try again.'
   }
   return raw
-}
-
-function enquiryTimeout(ms: number): Promise<never> {
-  return new Promise((_, reject) => {
-    setTimeout(() => reject(new Error('timeout')), ms)
-  })
 }
 
 async function submitViaApi(input: ListingEnquiryInput): Promise<ListingEnquiryResult | null> {
@@ -129,57 +121,12 @@ async function submitViaApi(input: ListingEnquiryInput): Promise<ListingEnquiryR
   }
 }
 
-async function submitViaSupabase(input: ListingEnquiryInput): Promise<ListingEnquiryResult | null> {
-  if (!isSupabaseMode) return null
-  try {
-    const supabase = createClient()
-    const rpcPromise = supabase.rpc('submit_public_listing_enquiry', {
-      p_property_fe_id: input.propertyId,
-      p_action: input.action,
-      p_first_name: input.firstName,
-      p_last_name: input.lastName,
-      p_email: input.email,
-      p_phone: input.phone ?? null,
-      p_notes: input.notes ?? null,
-      p_slot_fe_id: input.slotId ?? null,
-      p_monthly_income: input.monthlyIncome ?? null,
-      p_id_number: input.idNumber ?? null,
-      p_interest_type: input.interestType === 'Buy' ? 'BUY' : 'RENT',
-    })
-    const { data, error } = await Promise.race([rpcPromise, enquiryTimeout(SUPABASE_ENQUIRY_TIMEOUT_MS)])
-    if (error) {
-      return { ok: false, error: formatListingEnquiryError(error.message) }
-    }
-    const row = (data ?? {}) as Record<string, unknown>
-    if (row.ok === false || row.code === 'LISTING_FULL') {
-      return {
-        ok: false,
-        error: formatListingEnquiryError(String(row.code ?? row.message ?? 'LISTING_FULL')),
-        waitlist: row.waitlist === true,
-      }
-    }
-    return {
-      ok: true,
-      leadId: String(row.lead_id ?? row.leadId ?? `LD-guest-${Date.now()}`),
-      bookingId: (row.booking_id ?? row.bookingId ?? null) as string | null,
-      stage: String(row.stage ?? 'New Lead'),
-      availableFrom: (row.available_from ?? row.availableFrom ?? null) as string | null,
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    return { ok: false, error: formatListingEnquiryError(msg) }
-  }
-}
-
-/** Guest enquiry — persists via API/Supabase when available; errors when unavailable. */
+/** Guest enquiry — persists via the API when available; errors when unavailable. */
 export async function submitListingEnquiry(
   input: ListingEnquiryInput,
 ): Promise<ListingEnquiryResult> {
   const viaApi = await submitViaApi(input)
   if (viaApi) return viaApi
-
-  const viaSupabase = await submitViaSupabase(input)
-  if (viaSupabase) return viaSupabase
 
   return { ok: false, error: ENQUIRY_UNAVAILABLE }
 }

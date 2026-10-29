@@ -76,7 +76,7 @@ export type InfraRoom = {
 
 export type Unit = {
   id: string
-  /** Postgres units.id when hydrated from Supabase */
+  /** Postgres units.id when hydrated from the server */
   backendId?: string
   clientId: string
   buildingId: string

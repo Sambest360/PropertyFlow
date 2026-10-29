@@ -32,7 +32,7 @@ function mockContext(headers: Record<string, string>): Context {
 describe('resolveRequestActor', () => {
   it('ignores spoofed X-User-Id when a non–super-admin session is present', async () => {
     const prev = { ...process.env }
-    process.env.VERCEL = '1'
+    process.env.NODE_ENV = 'production'
     process.env.ALLOW_DEMO_ACTOR = '1'
     const { resolveRequestActor } = await import('./requestActor.js')
     const actor = await resolveRequestActor(

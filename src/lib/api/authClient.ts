@@ -2,7 +2,7 @@
  * Client auth API (login / register / session).
  */
 import { setApiActor, type DemoActor } from './actorAuth'
-import { isApiEnabled, isSupabaseMode } from './config'
+import { isApiEnabled } from './config'
 import type { UserVerification, VerificationDocument, VerificationProfile } from '../verification'
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''
@@ -63,27 +63,9 @@ export function authHeaders(): Record<string, string> {
   return { Authorization: `Bearer ${token}` }
 }
 
-/**
- * Authorization for same-origin /api/* calls. Supabase mode must send the GoTrue
- * access token — never a stale propertyflow-auth-token from API-mode Neon.
- */
+/** Authorization for same-origin /api/* calls (the API session token). */
 export async function resolveApiAuthorizationHeader(): Promise<Record<string, string>> {
-  if (!isSupabaseMode) return authHeaders()
-  try {
-    const { createClient } = await import('../../utils/supabase/client')
-    const supabase = createClient()
-    let session = (await supabase.auth.getSession()).data.session
-    if (!session?.access_token) {
-      const refreshed = await supabase.auth.refreshSession()
-      session = refreshed.data.session ?? session
-    }
-    if (session?.access_token) {
-      return { Authorization: `Bearer ${session.access_token}` }
-    }
-  } catch {
-    /* ignore */
-  }
-  return {}
+  return authHeaders()
 }
 
 async function parseJson<T>(res: Response): Promise<T> {
@@ -169,11 +151,6 @@ async function patchUserVerificationOnServer(
     'Content-Type': 'application/json',
     ...authHeaders(),
   }
-  if (isSupabaseMode) {
-    const { createClient } = await import('../../utils/supabase/client')
-    const { data } = await createClient().auth.getSession()
-    if (data.session?.access_token) headers.Authorization = `Bearer ${data.session.access_token}`
-  }
   const res = await fetch(
     `${API_BASE}/api/admin/users/${encodeURIComponent(input.userId)}/verification`,
     {
@@ -194,26 +171,9 @@ export async function apiUpdateUserVerification(input: {
   userId: string
   status: 'approved' | 'rejected'
   rejectNote?: string
-  /** When set (e.g. from AppStore), fills AuthUserDto fields after Supabase RPC. */
+  /** Kept for callers that pass the subject; the server returns the full user. */
   subject?: Pick<AuthUserDto, 'name' | 'email' | 'role' | 'agencyId' | 'active'>
 }): Promise<AuthUserDto> {
-  if (isSupabaseMode) {
-    const { supabaseUpdateUserVerification } = await import('../supabase/auth')
-    const updated = await supabaseUpdateUserVerification(input)
-    void patchUserVerificationOnServer(input).catch(() => {
-      /* email/notification side effects; RPC already persisted */
-    })
-    const subject = input.subject
-    return {
-      id: input.userId,
-      email: subject?.email ?? updated.email ?? '',
-      name: subject?.name ?? updated.name ?? '',
-      role: subject?.role ?? updated.role ?? 'landlord',
-      agencyId: subject?.agencyId ?? updated.agencyId ?? null,
-      active: subject?.active ?? updated.active ?? true,
-      verification: updated.verification,
-    }
-  }
   return patchUserVerificationOnServer(input)
 }
 

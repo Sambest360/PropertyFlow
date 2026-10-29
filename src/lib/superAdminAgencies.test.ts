@@ -9,7 +9,6 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('./api/config', async (orig) => ({
   ...(await orig<typeof import('./api/config')>()),
   isApiEnabled: true,
-  isSupabaseMode: false,
 }))
 
 const agency = (id: string, name: string) => ({

@@ -1,5 +1,5 @@
 /**
- * Actor-scoped bootstrap filtering (shared by API server and Supabase client hydration).
+ * Actor-scoped bootstrap filtering (shared by the API server and the client).
  */
 import { agencyIdInFeSpace } from "./agencyScope.js"
 import { dealInScope, isAgencyWideRole, ticketInScope, type PropertyScope } from "./scope.js"

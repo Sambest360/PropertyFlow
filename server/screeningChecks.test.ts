@@ -586,9 +586,9 @@ describe('providers', () => {
     expect(orderedProviders(reg, parseScreeningSettings({}), 'CREDIT').map((p) => p.id)).toEqual(['tpn', 'mock'])
   })
 
-  it('mock is off on Vercel production unless allowed', () => {
-    expect(createProviderRegistry({ VERCEL_ENV: 'production' }).get('mock')!.configured).toBe(false)
-    expect(createProviderRegistry({ VERCEL_ENV: 'production', SCREENING_ALLOW_MOCK: '1' }).get('mock')!.configured).toBe(true)
+  it('mock is off in production unless allowed', () => {
+    expect(createProviderRegistry({ NODE_ENV: 'production' }).get('mock')!.configured).toBe(false)
+    expect(createProviderRegistry({ NODE_ENV: 'production', SCREENING_ALLOW_MOCK: '1' }).get('mock')!.configured).toBe(true)
   })
 })
 

@@ -1,9 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { clearSupabaseAuthEnv, restoreSupabaseAuthEnv, snapshotSupabaseAuthEnv } from './test/supabaseAuthTestEnv.js'
 
-vi.mock('./supabase/env.js', () => ({
-  supabaseAuthConfigured: () => false,
-}))
 
 /** Test-only password fixtures, built at runtime (not credentials). */
 const TEST_FIXTURE_TEMP_PW = ['test', 'fixture', 'temp', 'pw'].join('-')
@@ -38,7 +34,6 @@ vi.mock('./entityMap.js', () => ({
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v),
 }))
 
-vi.mock('./supabase/registerUser.js', () => ({ linkStaffAuthUser: vi.fn() }))
 
 /** Listing → unit for applications (p-1 public, p-2 landlord u-o's, p-draft not listed). */
 vi.mock('./listingResolve.js', async () => {
@@ -245,11 +240,7 @@ function answer(sqlRaw: string, params: unknown[] = []): unknown[] {
   return []
 }
 
-let savedSupabaseEnv: Record<string, string | undefined>
-
 beforeEach(() => {
-  savedSupabaseEnv = snapshotSupabaseAuthEnv()
-  clearSupabaseAuthEnv()
   query.mockReset()
   query.mockImplementation(async (sql: string, params?: unknown[]) => answer(sql, params))
   resolveUuid.mockReset()
@@ -270,7 +261,6 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  restoreSupabaseAuthEnv(savedSupabaseEnv)
   vi.resetModules()
 })
 
@@ -757,7 +747,7 @@ describe('Jim B8: designated super-admin emails are reserved and never grant the
   })
 
   it('resolveFrontendRole honours the list only when the DB role is already SUPER_ADMIN', async () => {
-    const { resolveFrontendRole } = await import('../src/lib/supabase/idMap.js')
+    const { resolveFrontendRole } = await import('../src/lib/idMap.js')
     expect(resolveFrontendRole('END_USER', { frontend_role: 'tenant' }, 'sambampo200@gmail.com')).toBe('tenant')
     expect(resolveFrontendRole('END_USER', null, 'super@propertyflow.app')).toBe('tenant')
     expect(resolveFrontendRole('GROUND_AGENT', null, 'super@propertyflow.app')).toBe('ground_agent')
@@ -765,7 +755,7 @@ describe('Jim B8: designated super-admin emails are reserved and never grant the
   })
 
   it('metadata frontend_role super_admin never grants the role on a non-SUPER_ADMIN row', async () => {
-    const { resolveFrontendRole } = await import('../src/lib/supabase/idMap.js')
+    const { resolveFrontendRole } = await import('../src/lib/idMap.js')
     expect(resolveFrontendRole('END_USER', { frontend_role: 'super_admin' }, 'x@y.test')).toBe('tenant')
     expect(resolveFrontendRole('LANDLORD', { frontend_role: ' Super_Admin ' }, 'x@y.test')).toBe('landlord')
   })

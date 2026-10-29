@@ -47,7 +47,7 @@ describe('clearStaleAuthOnFailure', () => {
   it('API mode + 401 clears token, sb-* storage and sb-* cookies only', () => {
     const doc = fakeDoc(['sb-ref-auth-token.0=a', 'sb-ref-auth-token.1=b', 'other=keep'])
     const err = Object.assign(new Error('Invalid email or password'), { status: 401 })
-    expect(clearStaleAuthOnFailure(err, { supabaseMode: false, doc })).toBe(true)
+    expect(clearStaleAuthOnFailure(err, { doc })).toBe(true)
     expect(localStorage.getItem('propertyflow-auth-token')).toBeNull()
     expect(localStorage.getItem('sb-ref-auth-token')).toBeNull()
     expect(sessionStorage.getItem('sb-ref-auth-token-code-verifier')).toBeNull()
@@ -61,15 +61,10 @@ describe('clearStaleAuthOnFailure', () => {
     const doc = fakeDoc(['sb-ref-auth-token=a'])
     for (const status of [undefined, 500, 429, 503]) {
       const err = Object.assign(new Error('x'), { status })
-      expect(clearStaleAuthOnFailure(err, { supabaseMode: false, doc })).toBe(false)
+      expect(clearStaleAuthOnFailure(err, { doc })).toBe(false)
     }
     expect(localStorage.getItem('propertyflow-auth-token')).toBe('t')
     expect(doc.cookie).toBe('sb-ref-auth-token=a')
   })
 
-  it('Supabase mode clears nothing', () => {
-    const err = Object.assign(new Error('x'), { status: 401 })
-    expect(clearStaleAuthOnFailure(err, { supabaseMode: true, doc: fakeDoc([]) })).toBe(false)
-    expect(localStorage.getItem('propertyflow-auth-token')).toBe('t')
-  })
 })

@@ -7,10 +7,9 @@ import bcrypt from 'bcryptjs'
 import type { Context } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { query } from './db.js'
-import { isServerSupabaseMode } from './authMode.js'
 import { USER_TO_UUID, ensureUuid, resolveUuid } from './entityMap.js'
 import { feAgencyFromCache, loadIdMapCache } from './idMapCache.js'
-import { isReservedSuperAdminEmail, resolveFrontendRole } from '../src/lib/supabase/idMap.js'
+import { isReservedSuperAdminEmail, resolveFrontendRole } from '../src/lib/idMap.js'
 import { applyVerificationDecision } from '../src/lib/verification.js'
 import { ACTOR_AGENCY_HEADER, ACTOR_ROLE_HEADER, ACTOR_USER_HEADER } from './actor.js'
 
@@ -314,44 +313,6 @@ export async function findUserById(id: string): Promise<UserRow | null> {
   return rows[0] ?? null
 }
 
-export async function findUserByAuthUserId(authUserId: string): Promise<UserRow | null> {
-  const rows = await query<UserRow>(
-    `SELECT u.id, u.email, u.password_hash, u.first_name, u.last_name, u.phone, u.role,
-            u.active, u.client_id, u.metadata,
-            COALESCE(c.settings->>'frontend_id', c.id::text) AS agency_fe
-     FROM users u
-     LEFT JOIN clients c ON c.id = u.client_id
-     WHERE u.auth_user_id = $1::uuid
-     LIMIT 1`,
-    [authUserId],
-  )
-  return rows[0] ?? null
-}
-
-/** Validate a Supabase access token (GoTrue) and load the linked public.users session. */
-export async function resolveSessionFromSupabaseAccessToken(
-  accessToken: string,
-): Promise<SessionUser | null> {
-  const {
-    resolveSupabasePublishableKeyForGoTrue,
-    resolveSupabaseUrlForGoTrue,
-    supabaseAuthConfigured,
-  } = await import('./supabase/env.js')
-  if (!isServerSupabaseMode() || !supabaseAuthConfigured()) return null
-  const base = resolveSupabaseUrlForGoTrue()
-  const key = resolveSupabasePublishableKeyForGoTrue()
-  if (!base || !key) return null
-  const goTrue = await fetch(`${base}/auth/v1/user`, {
-    headers: { apikey: key, Authorization: `Bearer ${accessToken}` },
-  }).catch(() => null)
-  if (!goTrue?.ok) return null
-  const goTrueUser = (await goTrue.json().catch(() => ({}))) as { id?: string }
-  if (!goTrueUser.id) return null
-  const row = await findUserByAuthUserId(goTrueUser.id)
-  if (!row || !row.active) return null
-  return rowToSession(row)
-}
-
 async function countUsers(): Promise<number> {
   const rows = await query<{ n: string }>('SELECT COUNT(*)::text AS n FROM users')
   return Number(rows[0]?.n ?? 0)
@@ -409,10 +370,8 @@ async function resolveSessionUserUncached(c: Context): Promise<SessionUser | nul
     if (tokenRevokedByPasswordChange(payload.iat, row.metadata)) return null
     return rowToSession(row)
   }
-  // API mode: a token that is not our JWT is simply unauthenticated — no
-  // GoTrue call, no auth_user_id query (column may not exist on Neon).
-  if (!isServerSupabaseMode()) return null
-  return resolveSessionFromSupabaseAccessToken(token)
+  // A token that is not our JWT is simply unauthenticated.
+  return null
 }
 
 /** Attach session actor headers for downstream persist gates when Authorization cookie present. */

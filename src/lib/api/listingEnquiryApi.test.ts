@@ -1,14 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('./config', () => ({
   isApiEnabled: false,
-  isSupabaseMode: true,
-}))
-
-const rpc = vi.fn()
-
-vi.mock('../../utils/supabase/client', () => ({
-  createClient: () => ({ rpc }),
 }))
 
 import { formatListingEnquiryError, submitListingEnquiry } from './listingEnquiryApi'
@@ -38,33 +31,9 @@ describe('formatListingEnquiryError', () => {
 })
 
 describe('submitListingEnquiry', () => {
-  beforeEach(() => {
-    rpc.mockReset()
-  })
-
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
-  it('returns ok: false on RPC error (no fake guest lead)', async () => {
-    rpc.mockResolvedValue({ data: null, error: { message: 'enquiry_failed' } })
+  it('returns ok: false when the API is unavailable (no fake guest lead)', async () => {
     const result = await submitListingEnquiry(baseInput)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error).toBeTruthy()
-  })
-
-  it('returns ok: false when RPC hangs past timeout', async () => {
-    vi.useFakeTimers()
-    rpc.mockImplementation(
-      () =>
-        new Promise(() => {
-          /* never resolves */
-        }),
-    )
-    const pending = submitListingEnquiry(baseInput)
-    await vi.advanceTimersByTimeAsync(15_001)
-    const result = await pending
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.error).toMatch(/too long/i)
   })
 })

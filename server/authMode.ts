@@ -1,27 +1,12 @@
 /**
- * Server auth mode. Reads ONLY the non-VITE `AUTH_MODE` env var.
- * Exactly 'supabase' enables Supabase/GoTrue; anything else (or unset) = API mode.
+ * Server auth: the API's own sessions (bcrypt passwords, signed token cookie).
  */
 import { createHash } from 'node:crypto'
 
-export type AuthMode = 'api' | 'supabase'
+export type AuthMode = 'api'
 
-export function resolveServerAuthMode(env: Record<string, string | undefined> = process.env): AuthMode {
-  return env.AUTH_MODE === 'supabase' ? 'supabase' : 'api'
-}
-
-let logged = false
 export function serverAuthMode(): AuthMode {
-  const mode = resolveServerAuthMode()
-  if (!logged) {
-    logged = true
-    console.info(`[auth] resolved server auth mode: ${mode}`)
-  }
-  return mode
-}
-
-export function isServerSupabaseMode(): boolean {
-  return serverAuthMode() === 'supabase'
+  return 'api'
 }
 
 /** First 8 hex chars of sha256(host). Never returns or logs the host itself. */

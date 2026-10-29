@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildIdMapCache } from './supabase/idMap'
+import { buildIdMapCache } from './idMap'
 import {
   mapDbRoomRowToInfraRoom,
   mapDbRoomsToInfraRooms,

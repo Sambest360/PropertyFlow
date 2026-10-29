@@ -119,7 +119,7 @@ function landlordVerificationBlock(
   return null
 }
 
-/** Mirrors Supabase get_public_marketplace_bootstrap* building landlord filter. */
+/** Building landlord filter for the public marketplace. */
 export function buildingBlocksGuestMarketplace(
   property: PropertyAsset,
   buildings: Building[] | undefined,

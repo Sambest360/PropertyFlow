@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Button, Card, Input } from '../ui'
-import { isApiEnabled, isSupabaseMode } from '../../lib/api/config'
+import { isApiEnabled } from '../../lib/api/config'
 import { authHeaders } from '../../lib/api/authClient'
-import { createClient } from '../../utils/supabase/client'
-import { LISTING_LIMITS_READ_ONLY_NOTE, waitlistStaffOnlyNote } from '../../lib/waitlistAccess'
+import { LISTING_LIMITS_READ_ONLY_NOTE } from '../../lib/waitlistAccess'
 
 type Person = { id: string; name: string; email: string; phone?: string | null }
 
@@ -76,47 +75,7 @@ export function ListingLimitsPanel({
       apply(json)
       return
     }
-    if (!isSupabaseMode) {
-      setError('Listing limits need the API or Supabase connection.')
-      return
-    }
-    const supabase = createClient()
-    const [{ data: unit, error: unitError }, snapRes, waitRes, leadRes] = await Promise.all([
-      supabase
-        .from('units')
-        .select('max_enquiries, max_viewings, limit_action, show_remaining, client_id')
-        .eq('id', unitId)
-        .maybeSingle(),
-      supabase.rpc('unit_listing_limit_snapshot', { p_unit_id: unitId }),
-      supabase
-        .from('viewing_waitlist')
-        .select('id, name, email, phone')
-        .eq('unit_id', unitId)
-        .is('promoted_at', null)
-        .order('created_at', { ascending: true }),
-      supabase
-        .from('leads')
-        .select('id, name, email, phone')
-        .eq('unit_id', unitId)
-        .eq('is_waitlisted', true)
-        .order('created_at', { ascending: true }),
-    ])
-    if (unitError || !unit) {
-      setError('Could not load listing limits.')
-      return
-    }
-    const snap = (snapRes.data ?? {}) as Record<string, unknown>
-    apply({
-      enquiryCount: Number(snap.enquiry_count ?? 0),
-      viewingCount: Number(snap.viewing_count ?? 0),
-      maxEnquiries: unit.max_enquiries,
-      maxViewings: unit.max_viewings,
-      limitAction: unit.limit_action === 'CLOSE' ? 'CLOSE' : 'WAITLIST',
-      showRemaining: Boolean(unit.show_remaining),
-      // RLS hides waitlist rows from non-staff; an error or an empty read is just an empty list.
-      waitlist: (waitRes.error ? [] : (waitRes.data ?? [])) as Person[],
-      waitlistedLeads: (leadRes.data ?? []) as Person[],
-    })
+    setError('Listing limits need the server connection.')
   }, [apply, unitId, unitRef])
 
   useEffect(() => {
@@ -144,21 +103,6 @@ export function ListingLimitsPanel({
           setError(json.message || 'Could not save limits.')
           return
         }
-      } else if (isSupabaseMode) {
-        const supabase = createClient()
-        const { error: updateError } = await supabase
-          .from('units')
-          .update({
-            max_enquiries: body.maxEnquiries,
-            max_viewings: body.maxViewings,
-            limit_action: body.limitAction,
-            show_remaining: body.showRemaining,
-          })
-          .eq('id', unitId)
-        if (updateError) {
-          setError(updateError.message)
-          return
-        }
       }
       await load()
     } finally {
@@ -180,26 +124,6 @@ export function ListingLimitsPanel({
           setError(json.message || 'Could not reset counters.')
           return
         }
-      } else if (isSupabaseMode) {
-        const supabase = createClient()
-        const { data: unit } = await supabase.from('units').select('client_id').eq('id', unitId).maybeSingle()
-        const { error: updateError } = await supabase
-          .from('units')
-          .update({ limits_round_started_at: new Date().toISOString() })
-          .eq('id', unitId)
-        if (updateError) {
-          setError(updateError.message)
-          return
-        }
-        if (unit?.client_id) {
-          await supabase.from('event_log').insert({
-            client_id: unit.client_id,
-            event_type: 'listing_limits_reset',
-            subject_type: 'unit',
-            subject_id: unitId,
-            payload: { reopened: true },
-          })
-        }
       }
       await load()
     } finally {
@@ -217,21 +141,6 @@ export function ListingLimitsPanel({
         if (!res.ok) {
           const json = (await res.json()) as { message?: string; error?: string }
           setError(json.error === 'LISTING_FULL' ? 'This listing is still full.' : json.message || 'Could not promote.')
-          return
-        }
-      } else if (isSupabaseMode && kind === 'viewing') {
-        const supabase = createClient()
-        const { data, error: rpcError } = await supabase.rpc('promote_viewing_waitlist', { p_id: id })
-        const row = (data ?? {}) as { ok?: boolean; code?: string }
-        if (rpcError || row.ok === false) {
-          setError(row.code === 'LISTING_FULL' ? 'This listing is still full.' : rpcError?.message || row.code || 'Could not promote.')
-          return
-        }
-      } else if (isSupabaseMode) {
-        const supabase = createClient()
-        const { error: updateError } = await supabase.from('leads').update({ is_waitlisted: false }).eq('id', id)
-        if (updateError) {
-          setError(updateError.message)
           return
         }
       }
@@ -299,10 +208,6 @@ export function ListingLimitsPanel({
           ) : (
             <p className="text-sm text-ink-500">{LISTING_LIMITS_READ_ONLY_NOTE}</p>
           )}
-          {(() => {
-            const note = waitlistStaffOnlyNote({ supabaseMode: !isApiEnabled && isSupabaseMode, viewerIsStaff })
-            return note ? <p className="text-sm text-ink-500">{note}</p> : null
-          })()}
           <WaitlistList title="Viewing waitlist" people={view.waitlist} busy={busy} onPromote={viewerIsStaff ? (id) => void promote('viewing', id) : undefined} />
           <WaitlistList title="Enquiry waitlist" people={view.waitlistedLeads} busy={busy} onPromote={viewerIsStaff ? (id) => void promote('lead', id) : undefined} />
         </>

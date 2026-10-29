@@ -12,8 +12,8 @@ function serverFiles(dir: string, out: string[] = []): string[] {
   return out
 }
 
-describe('no DELETE of lease_signed rows anywhere in server/ and api/', () => {
-  const files = [...serverFiles('server'), ...serverFiles('api')]
+describe('no DELETE of lease_signed rows anywhere in server/', () => {
+  const files = serverFiles('server')
   it('every DELETE on event_log is scoped to support_ticket rows only', () => {
     const hits: string[] = []
     for (const f of files) {

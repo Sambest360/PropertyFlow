@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  * Item 10 (Michael's ruling), API mode. An occupied unit that is advertised
  * takes enquiries and the lead says when it is free. Occupied units that are
  * not advertised, and unlisted units, stay closed with property_not_public.
- * The Supabase RPC gets the same cases in occupiedListing.rpc.test.ts.
  */
 const query = vi.hoisted(() => vi.fn())
 const unitRow = vi.hoisted(() => ({ current: {} as Record<string, unknown> }))

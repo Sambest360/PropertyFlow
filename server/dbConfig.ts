@@ -1,23 +1,19 @@
 /**
  * Pure helpers for Postgres pool configuration (unit-testable).
- * Used by server/db.ts when creating the pg Pool.
+ * Used by server/db.ts when creating the pg Pool on the self-hosted server.
  */
 
+/** A remote database that needs TLS (sslmode in the URL, or DATABASE_SSL=1). */
 export function isRemoteDatabaseUrl(
   url: string,
   sslEnv: string | undefined = process.env.DATABASE_SSL,
 ): boolean {
-  return (
-    /supabase\.(co|com)/i.test(url) ||
-    /pooler\.supabase\.com/i.test(url) ||
-    /sslmode=/i.test(url) ||
-    sslEnv === '1'
-  )
+  return /sslmode=/i.test(url) || sslEnv === '1'
 }
 
 /**
- * Newer `pg` treats sslmode=require as verify-full. For Supabase pooler we need
- * libpq-compat require + rejectUnauthorized false (managed CA chain).
+ * Newer `pg` treats sslmode=require as verify-full. Use libpq-compatible
+ * require so a remote database with its own CA chain still connects.
  */
 export function connectionStringForPool(url: string, remote: boolean): string {
   if (!remote) return url
@@ -29,49 +25,19 @@ export function connectionStringForPool(url: string, remote: boolean): string {
     if (!u.searchParams.has('connect_timeout')) {
       u.searchParams.set('connect_timeout', '5')
     }
-    // Transaction pooler (6543) — required for serverless; tells drivers not to use prepared statements.
-    if (u.port === '6543' && !u.searchParams.has('pgbouncer')) {
-      u.searchParams.set('pgbouncer', 'true')
-    }
     return u.toString()
   } catch {
     return url
   }
 }
 
-/** Transaction pooler (6543) is required for Vercel/serverless runtime. */
-export function databaseUrlRuntimeWarning(url: string): string | undefined {
-  try {
-    const port = new URL(url).port
-    if (port === '5432') {
-      return 'DATABASE_URL uses port 5432 (session/direct). On Vercel use the Transaction pooler on port 6543.'
-    }
-  } catch {
-    /* ignore */
-  }
-  return undefined
+/** Pool size for the API process (DB_POOL_MAX overrides). */
+export function poolMaxFromEnv(raw: string | undefined = process.env.DB_POOL_MAX): number {
+  const n = Number(raw)
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 10
 }
 
-/** Serverless (Vercel / Lambda) should use a tiny pool; local Node can use more. */
-export function poolMaxForRuntime(opts: {
-  vercel?: string | undefined
-  lambda?: string | undefined
-}): number {
-  return opts.vercel || opts.lambda ? 1 : 8
-}
-
-/**
- * Fail fast on cold starts — never wait the full function budget for a dead host.
- * Local dev gets 10s: the Supabase transaction pooler routinely shows 5–7s
- * connect spikes, and a 3s local timeout wedges the whole dev API whenever the
- * pooler hiccups (observed 2026-09-19). Serverless budgets stay tight.
- */
-export function connectionTimeoutMsForRuntime(opts: {
-  vercel?: string | undefined
-  lambda?: string | undefined
-}): number {
-  return opts.vercel || opts.lambda ? 5_000 : 10_000
-}
+export const CONNECTION_TIMEOUT_MS = 10_000
 
 export function isLocalhostDatabaseUrl(url: string): boolean {
   try {
@@ -82,37 +48,13 @@ export function isLocalhostDatabaseUrl(url: string): boolean {
   }
 }
 
-/**
- * Resolve the connection string for this process.
- * On Vercel/Lambda, never fall back to a developer machine localhost URL —
- * that hangs until the function times out (504).
- */
+/** DATABASE_URL from the environment, else the local development database. */
 export function resolveDatabaseUrl(opts: {
   envUrl?: string | undefined
-  vercel?: string | undefined
-  lambda?: string | undefined
   localFallback?: string
 }): { url: string; configured: boolean; error?: string } {
   const trimmed = opts.envUrl?.trim() || ''
-  if (trimmed) {
-    if ((opts.vercel || opts.lambda) && isLocalhostDatabaseUrl(trimmed)) {
-      return {
-        url: trimmed,
-        configured: false,
-        error:
-          'DATABASE_URL points at localhost on a serverless host. Use the Supabase Transaction pooler URI.',
-      }
-    }
-    return { url: trimmed, configured: true }
-  }
-  if (opts.vercel || opts.lambda) {
-    return {
-      url: '',
-      configured: false,
-      error:
-        'DATABASE_URL is not set. Add the Supabase Transaction pooler URI in Vercel → Settings → Environment Variables, then redeploy.',
-    }
-  }
+  if (trimmed) return { url: trimmed, configured: true }
   const url = opts.localFallback || 'postgresql://127.0.0.1:5432/propertyflow'
   return { url, configured: true }
 }

@@ -13,7 +13,7 @@ cp deploy/nginx-propertyflow.conf /etc/nginx/sites-available/propertyflow
 ln -sf /etc/nginx/sites-available/propertyflow /etc/nginx/sites-enabled/propertyflow
 rm -f /etc/nginx/sites-enabled/default
 nginx -t && systemctl reload nginx
-# Daily lease reminders at 07:00 SAST (replaces the Vercel cron)
+# Daily lease reminders at 07:00 SAST
 CS=$(grep '^CRON_SECRET=' .env | cut -d= -f2)
 ( crontab -l 2>/dev/null | grep -v lease-reminders; echo "0 5 * * * curl -s -H 'Authorization: Bearer $CS' http://127.0.0.1:8787/api/cron/lease-reminders >/dev/null" ) | crontab -
 # Hourly escalations: overdue faults / tickets, rent increase notices and increases

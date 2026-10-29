@@ -37,7 +37,6 @@ import {
   enrichActor,
   normalizedActorAgency,
 } from './scopeGate.js'
-import { supabaseSessionMiddleware } from './supabase/middleware.js'
 import type { PersistBody } from './writes.js'
 import { payfastCreate, payfastItn, type LoadedPayment } from './payfastRoutes.js'
 import { registerScreeningRoutes, screeningProviderInfo, screeningWebhook } from './screeningRoutes.js'
@@ -77,7 +76,6 @@ import { ensureUuid, resolveFrontendId, resolveUuid } from './entityMap.js'
 import { isAgencyWideRole } from '../src/lib/scope.js'
 import type { Role } from '../src/types/domain.js'
 import { docIdFromEnvelopeId } from './signiflow.js'
-import { registerSupabaseUserDirect } from './supabase/registerUser.js'
 import { runningCommitSha } from './appConfig.js'
 import { dbHostFingerprint, serverAuthMode } from './authMode.js'
 import { errStatus } from './errStatus.js'
@@ -128,7 +126,6 @@ const LOCAL_ORIGINS = [
 function corsOrigin(origin: string): string | undefined {
   if (!origin) return undefined
   if (LOCAL_ORIGINS.includes(origin)) return origin
-  if (/^https:\/\/([\w-]+\.)?vercel\.app$/i.test(origin)) return origin
   const allowed = (process.env.CORS_ORIGINS || '')
     .split(',')
     .map((s) => s.trim())
@@ -156,7 +153,6 @@ app.use(
   }),
 )
 
-app.use('*', supabaseSessionMiddleware)
 
 /**
  * D3: while a session user has mustChangePassword (after a staff reset), only
@@ -275,8 +271,8 @@ async function gatedPersistInner(c: Parameters<typeof parseDemoActor>[0], body: 
 }
 
 /**
- * Daily lease end-date reminders (vercel.json cron "0 5 * * *" = 07:00 SAST).
- * Authorization: Bearer CRON_SECRET only (Vercel adds it). No session/demo actor.
+ * Daily lease end-date reminders (server crontab, 07:00 SAST).
+ * Authorization: Bearer CRON_SECRET only (the crontab sends it). No session/demo actor.
  * CRON_SECRET unset -> 503 and does nothing.
  */
 app.get('/api/cron/lease-reminders', async (c) => {
@@ -350,7 +346,7 @@ app.get('/api/health', async (c) => {
         database: 'down',
         error: message,
         warning: databaseConfigWarning,
-        hint: 'Use the Supabase Transaction pooler URI (port 6543) and redeploy after setting DATABASE_URL.',
+        hint: 'Check DATABASE_URL in the server .env and that Postgres is running, then restart the API.',
         authMode: serverAuthMode(),
       dbHost: dbHostFingerprint(process.env.DATABASE_URL),
       commit: runningCommitSha(),
@@ -388,7 +384,7 @@ app.post('/api/auth/register', async (c) => {
     return c.json(
       {
         error: 'auth_secret_missing',
-        message: 'Set AUTH_SECRET in Vercel environment variables, then redeploy.',
+        message: 'Set AUTH_SECRET in the server .env, then restart the API (pm2 restart propertyflow-api).',
       },
       503,
     )
@@ -450,72 +446,8 @@ app.post('/api/auth/register', async (c) => {
   }
 })
 
-/**
- * Supabase-mode registration: creates the auth user directly (pre-confirmed)
- * instead of calling GoTrue /auth/v1/signup, whose confirmation-email quota
- * (429 over_email_send_rate_limit) and email validator (400
- * email_address_invalid on plus-addresses) were locking new users out.
- * The client then signs in on the normal password-grant path.
- */
-app.post('/api/auth/register-supabase', async (c) => {
-  if (!databaseConfigured) {
-    return c.json(
-      { error: 'database_unconfigured', message: databaseConfigError || 'DATABASE_URL is not set' },
-      503,
-    )
-  }
-  const ip = authIpKey(c.req.raw.headers)
-  const ipGate = authIpRateLimit(ip)
-  if (!ipGate.ok) {
-    const rl = tooManyRequests(ipGate.retryAfterSec)
-    return c.json(rl.body, rl.status, rl.headers)
-  }
-  try {
-    const body = (await c.req.json()) as {
-      email?: string
-      password?: string
-      firstName?: string
-      lastName?: string
-      phone?: string
-      role?: string
-      profile?: Record<string, unknown>
-      documents?: unknown[]
-    }
-    // Per-mailbox guard (bot loops on one address), checked after parsing the body.
-    const emailGate = authEmailRateLimit(String(body.email ?? ''))
-    if (!emailGate.ok) {
-      const rl = tooManyRequests(emailGate.retryAfterSec)
-      return c.json(rl.body, rl.status, rl.headers)
-    }
-    const result = await registerSupabaseUserDirect({
-      email: String(body.email ?? ''),
-      password: String(body.password ?? ''),
-      firstName: String(body.firstName ?? ''),
-      lastName: String(body.lastName ?? ''),
-      phone: body.phone ? String(body.phone) : undefined,
-      role: body.role ? String(body.role) : undefined,
-      profile: body.profile,
-      documents: body.documents,
-    })
-    // Fire-and-forget welcome email — registration must never depend on it.
-    void sendWelcomeEmail({
-      email: result.email,
-      firstName: String(body.firstName ?? '').trim() || 'there',
-      role: result.roleFe,
-    })
-    return c.json({ ok: true, authUserId: result.authUserId, bootstrap: result.bootstrap }, 201)
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    return c.json({ error: 'register_failed', message }, errStatus(err))
-  }
-})
-
 app.patch('/api/admin/users/:userId/verification', async (c) => {
   try {
-    // 1) API-mode session (HMAC cookie/bearer). 2) Supabase-mode session:
-    //    the browser keeps its session in localStorage, so it passes the
-    //    supabase JWT as a Bearer header — validate it with GoTrue, then load
-    //    the local profile and require super admin.
     let reviewerFeId: string | null = null
     let reviewerRole: string | null = null
     let reviewerAgencyId: string | null = null
@@ -526,71 +458,7 @@ app.patch('/api/admin/users/:userId/verification', async (c) => {
       reviewerRole = session.role
       reviewerAgencyId = session.agencyId
     } else {
-      const authHeader = c.req.header('authorization') ?? ''
-      const token = authHeader.toLowerCase().startsWith('bearer ')
-        ? authHeader.slice(7).trim()
-        : ''
-      if (!token) {
-        return c.json({ error: 'unauthorized', message: 'Sign in required' }, 401)
-      }
-      const { resolveSupabasePublishableKeyForGoTrue, resolveSupabaseUrlForGoTrue } =
-        await import('./supabase/env.js')
-      const sbBase = resolveSupabaseUrlForGoTrue()
-      const sbKey = resolveSupabasePublishableKeyForGoTrue()
-      if (!sbBase || !sbKey) {
-        return c.json({ error: 'forbidden', message: 'Super admin required' }, 403)
-      }
-      const goTrue = await fetch(`${sbBase}/auth/v1/user`, {
-        headers: { apikey: sbKey, Authorization: `Bearer ${token}` },
-      }).catch(() => null)
-      if (!goTrue || !goTrue.ok) {
-        return c.json({ error: 'forbidden', message: 'Invalid or expired session' }, 403)
-      }
-      const goTrueUser = (await goTrue.json().catch(() => ({}))) as { id?: string }
-      if (!goTrueUser.id) {
-        return c.json({ error: 'forbidden', message: 'Super admin required' }, 403)
-      }
-      const profRows = await query<{
-        id: string
-        role: string
-        metadata: Record<string, unknown> | null
-      }>('SELECT id, role, metadata FROM users WHERE auth_user_id = $1::uuid LIMIT 1', [
-        goTrueUser.id,
-      ])
-      const profile = profRows[0]
-      const feRole = String(profile?.metadata?.frontend_role ?? '')
-      const dbRole = String(profile?.role ?? '')
-      const allowedBearer =
-        profile &&
-        (dbRole === 'SUPER_ADMIN' ||
-          feRole === 'super_admin' ||
-          dbRole === 'AGENCY_ADMIN' ||
-          feRole === 'client_admin' ||
-          dbRole === 'AGENT_ADMIN' ||
-          feRole === 'agent_admin')
-      if (!allowedBearer) {
-        return c.json({ error: 'forbidden', message: 'Staff access required' }, 403)
-      }
-      reviewerFeId =
-        typeof profile.metadata?.frontend_id === 'string'
-          ? (profile.metadata.frontend_id as string)
-          : profile.id
-      reviewerRole =
-        feRole ||
-        (dbRole === 'SUPER_ADMIN'
-          ? 'super_admin'
-          : dbRole === 'AGENCY_ADMIN'
-            ? 'client_admin'
-            : dbRole === 'AGENT_ADMIN'
-              ? 'agent_admin'
-              : null)
-      const clientRows = await query<{ agency_fe: string | null }>(
-        `SELECT COALESCE(c.settings->>'frontend_id', c.id::text) AS agency_fe
-         FROM users u LEFT JOIN clients c ON c.id = u.client_id
-         WHERE u.id = $1::uuid LIMIT 1`,
-        [profile.id],
-      )
-      reviewerAgencyId = clientRows[0]?.agency_fe ?? null
+      return c.json({ error: 'unauthorized', message: 'Sign in required' }, 401)
     }
 
     // Landlord / contractor documents are approved by the platform team only.
@@ -671,7 +539,7 @@ app.post('/api/auth/login', async (c) => {
     return c.json(
       {
         error: 'auth_secret_missing',
-        message: 'Set AUTH_SECRET in Vercel environment variables, then redeploy.',
+        message: 'Set AUTH_SECRET in the server .env, then restart the API (pm2 restart propertyflow-api).',
       },
       503,
     )
@@ -1121,7 +989,7 @@ app.get('/api/trust/deposits/:id/inspection-deductions', async (c) => {
 })
 
 /**
- * Listing / ticket photos → Supabase Storage (server/photoStorage.ts). Any
+ * Listing / ticket photos → this server's disk (server/photoStorage.ts). Any
  * signed-in user may upload one compressed photo and gets its public URL; 503
  * STORAGE_NOT_CONFIGURED tells the client to keep the photo inline for now.
  */
@@ -1157,33 +1025,6 @@ app.get('/api/files/*', async (c) => {
     return new Response(data, { headers: { 'Content-Type': type, 'Cache-Control': 'public, max-age=31536000, immutable' } })
   } catch {
     return c.json({ error: 'not_found' }, 404)
-  }
-})
-
-/** Super admin: how many rows still hold inline photos, and whether Storage is configured. */
-app.get('/api/admin/photo-migration', async (c) => {
-  try {
-    const actor = await requireActor(c)
-    if (actor.role !== 'super_admin') return c.json({ error: 'forbidden', message: 'Super admin only' }, 403)
-    const { inlinePhotoCounts, photoStorageConfigured } = await import('./photoStorage.js')
-    return c.json({ configured: photoStorageConfigured(), remaining: await inlinePhotoCounts() })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    return c.json({ error: 'photo_migration_status_failed', message }, errStatus(err))
-  }
-})
-
-/** Super admin: move the next few rows' inline photos to Storage (call until remaining is 0). */
-app.post('/api/admin/photo-migration', async (c) => {
-  try {
-    const actor = await requireActor(c)
-    if (actor.role !== 'super_admin') return c.json({ error: 'forbidden', message: 'Super admin only' }, 403)
-    const { migrateInlinePhotosBatch } = await import('./photoStorage.js')
-    return c.json(await migrateInlinePhotosBatch(3))
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    const code = (err as { code?: string }).code ?? 'photo_migration_failed'
-    return c.json({ error: code, message }, errStatus(err))
   }
 })
 
@@ -2062,7 +1903,7 @@ app.post('/api/applications/:id/approve', async (c) => {
 })
 
 /**
- * Email notify endpoint for client-side persistence paths (Supabase mode): when
+ * Email notify endpoint for client-side store flows: when
  * an application is created the store calls this once, fire-and-forget from the
  * user flow. Rate-limited per email; never returns the send outcome.
  */
@@ -2372,14 +2213,15 @@ app.post('/api/notifications/mark-read', async (c) => {
   }
 })
 
-const shouldListen =
-  !process.env.VERCEL && process.env.PF_SKIP_SERVE !== '1'
+const shouldListen = process.env.PF_SKIP_SERVE !== '1'
 
 if (shouldListen) {
   void import('@hono/node-server').then(({ serve }) => {
     console.log(`[propertyflow-api] listening on http://127.0.0.1:${PORT}`)
     console.log(`[propertyflow-api] DATABASE_URL host from env or default local trust auth`)
     serve({ fetch: app.fetch, port: PORT, hostname: '127.0.0.1' })
+    // Copy any inline or old-bucket listing photos onto this server's disk.
+    void import('./photoStorage.js').then(({ moveOldPhotosToDisk }) => moveOldPhotosToDisk())
   })
 
   process.on('SIGINT', async () => {

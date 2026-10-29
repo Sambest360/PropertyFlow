@@ -33,7 +33,6 @@ vi.mock('./entityMap.js', () => ({
   forgetId: vi.fn(),
   isUuid: (v: string) => /^[0-9a-f-]{36}$/i.test(v),
 }))
-vi.mock('./supabase/registerUser.js', () => ({ linkStaffAuthUser: vi.fn() }))
 
 let storedPhotos: string[] = []
 function answer(sqlRaw: string, params: unknown[] = []): unknown[] {

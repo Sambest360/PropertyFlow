@@ -26,7 +26,6 @@ vi.mock('./entityMap.js', () => ({
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v),
 }))
 
-vi.mock('./supabase/registerUser.js', () => ({ linkStaffAuthUser: vi.fn() }))
 
 const loadIdMapCache = vi.fn()
 vi.mock('./idMapCache.js', async () => {
@@ -862,9 +861,6 @@ describe('#83 (Angela 7f151bb / Michael): tickets from the staff /new form, prio
     const status = ticketStatus(String(written[11])) as 'Requested'
     expect(priority).toBe('Emergency')
     expect(status).toBe('Requested')
-    const { ticketPriority: sbPriority, ticketStatus: sbStatus } = await import('../src/lib/supabase/data.js')
-    expect(sbPriority('EMERGENCY')).toBe('Emergency')
-    expect(sbStatus('OPEN')).toBe('Requested')
 
     // Escalation keys on priority === 'Emergency' and status === 'Requested'.
     const { needsEmergencyEscalationPrecise } = await import('../src/lib/maintenanceApi.js')

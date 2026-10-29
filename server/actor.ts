@@ -102,14 +102,13 @@ export function forbiddenError(message = 'Outside property scope'): Error & { st
  * Demo actor headers / body fields (X-User-Id, X-Role, X-Agency-Id) let a
  * request claim any identity, so they are trusted only when a developer asks:
  * NODE_ENV=test or development, or an explicit ALLOW_DEMO_ACTOR=1 opt-in.
- * Never on a production-like host (NODE_ENV=production, VERCEL or any
- * VERCEL_ENV), even with the opt-in. An unset NODE_ENV means off: a
+ * Never in production (NODE_ENV=production), even with the opt-in. An unset NODE_ENV means off: a
  * self-hosted server started without NODE_ENV used to accept them, which let
  * anyone read the bootstrap as any user.
  */
 export function demoActorHeadersAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
   const nodeEnv = env.NODE_ENV?.trim()
-  if (env.VERCEL_ENV?.trim() || env.VERCEL?.trim() || nodeEnv === 'production') return false
+  if (nodeEnv === 'production') return false
   if (env.ALLOW_DEMO_ACTOR?.trim() === '1') return true
   return nodeEnv === 'test' || nodeEnv === 'development'
 }
