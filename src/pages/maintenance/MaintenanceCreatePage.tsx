@@ -18,8 +18,11 @@ const FORM_ID = 'maintenance-create-form'
 const ICON_STROKE = 1.6
 
 export default function MaintenanceCreatePage() {
-  const { state, createMaintenanceTicket, updateMaintenanceTicketDetails, assignContractorToTicket } =
+  const { state, createMaintenanceTicket, updateMaintenanceTicketDetails, assignContractorToTicket, addAgencyContractor } =
     useStore()
+  // Always call the latest store functions (a roster add below re-renders the store).
+  const assignRef = useRef(assignContractorToTicket)
+  assignRef.current = assignContractorToTicket
   const { user, has, agencyId } = useAuth()
   const { allowedPropertyIds, canMutate } = usePropertyScope()
   const navigate = useNavigate()
@@ -52,13 +55,33 @@ export default function MaintenanceCreatePage() {
     if (!acquireSubmitLock(submitLockRef)) return
     setBusy(true)
     try {
+    // A verified contractor who is not on this agency's roster yet joins it, so they can be assigned.
+    const listingAgency = state.properties.find((p) => p.id === input.propertyId)?.agencyId ?? agencyId
+    if (
+      input.contractorId &&
+      listingAgency &&
+      has('contractors.manage') &&
+      !state.agencyContractors.some(
+        (r) => r.agencyId === listingAgency && r.contractorUserId === input.contractorId && r.status === 'approved',
+      )
+    ) {
+      addAgencyContractor({
+        agencyId: listingAgency,
+        contractorUserId: input.contractorId,
+        status: 'approved',
+        trades: [input.categoryKey || 'GENERAL'],
+        addedAt: new Date().toISOString().slice(0, 10),
+        addedByUserId: user.id,
+      })
+      await new Promise((r) => setTimeout(r, 0))
+    }
     const result = await createMaintenanceFromInput(input, {
       properties,
       internalAssets: state.internalAssets,
       canMutate,
       createMaintenanceTicket,
       updateMaintenanceTicketDetails,
-      assignContractorToTicket,
+      assignContractorToTicket: (p) => assignRef.current(p),
       actorUserId: user.id,
       actorRole: user.role,
     })
@@ -116,6 +139,7 @@ export default function MaintenanceCreatePage() {
               agencyId={agencyId}
               initialPropertyId={initialPropertyId}
               initialContractorId={searchParams.get('contractor') ?? undefined}
+              canAddToRoster={has('contractors.manage')}
               lockProperty={lockProperty}
               onSubmitCreate={handleSubmit}
               error={error}
