@@ -81,6 +81,7 @@ const AdminStoragePage = lazy(() => import('./pages/admin/AdminStoragePage'))
 const EscalationsPage = lazy(() => import('./pages/EscalationsPage'))
 const ReviewModerationPage = lazy(() => import('./pages/admin/ReviewModerationPage'))
 const ConductPage = lazy(() => import('./pages/ConductPage'))
+const AccountSettingsPage = lazy(() => import('./pages/account/AccountSettingsPage'))
 const PublicProfilePage = lazy(() => import('./pages/market/PublicProfilePage'))
 const AdminAgencyCreatePage = lazy(() => import('./pages/admin/AdminAgencyCreatePage'))
 const AgencyDetailPage = lazy(() => import('./pages/admin/AgencyDetailPage'))
@@ -450,6 +451,7 @@ export default function App() {
                 <Route path="account/wishlist" element={<AccountWishlistPage />} />
                 <Route path="account/signature" element={<AccountSignaturePage />} />
                 <Route path="account/password" element={<ChangePasswordPage />} />
+                <Route path="account/settings" element={<AccountSettingsPage />} />
                 <Route path="portals/contractor" element={<Guard permission="portal.contractor"><ContractorPortal /></Guard>} />
 
                 {/* People */}
