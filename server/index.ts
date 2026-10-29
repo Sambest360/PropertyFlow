@@ -1138,6 +1138,23 @@ app.post('/api/photos', async (c) => {
   }
 })
 
+/** Photos stored on this server's disk (self-hosted, see server/photoStorage.ts). Public, cached. */
+app.get('/api/files/*', async (c) => {
+  const { localFilePath } = await import('./photoStorage.js')
+  const rel = decodeURIComponent(c.req.path.replace(/^\/api\/files\//, ''))
+  const full = localFilePath(rel)
+  if (!full) return c.json({ error: 'not_found' }, 404)
+  try {
+    const { readFile } = await import('node:fs/promises')
+    const data = await readFile(full)
+    const ext = rel.split('.').pop()?.toLowerCase()
+    const type = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : ext === 'gif' ? 'image/gif' : 'image/jpeg'
+    return new Response(data, { headers: { 'Content-Type': type, 'Cache-Control': 'public, max-age=31536000, immutable' } })
+  } catch {
+    return c.json({ error: 'not_found' }, 404)
+  }
+})
+
 /** Super admin: how many rows still hold inline photos, and whether Storage is configured. */
 app.get('/api/admin/photo-migration', async (c) => {
   try {
@@ -1280,6 +1297,19 @@ app.get('/api/cron/escalations', async (c) => {
 })
 
 /** Reviews (server/reviews.ts). Reading is public; writing needs a signed-in user. */
+
+/**
+ * Reviews errors: 4xx keep their message ("Listing not found", "Sign in to
+ * leave a review"); a 5xx is a database or server fault, so the visitor gets
+ * a generic message and the detail goes to the log (and Sentry via errStatus).
+ */
+function reviewError(c: Context, code: string, err: unknown) {
+  const status = errStatus(err)
+  const message = err instanceof Error ? err.message : String(err)
+  if (status < 500) return c.json({ error: code, message }, status)
+  console.error(`[api/reviews] ${code}:`, message)
+  return c.json({ error: code, message: 'Reviews are unavailable right now. Try again shortly.' }, status)
+}
 app.get('/api/reviews', async (c) => {
   try {
     const raw = await resolveRequestActor(c, null).catch(() => null)
@@ -1289,8 +1319,7 @@ app.get('/api/reviews', async (c) => {
       await listReviews(actor, c.req.query('listingId') ?? '', { sort: c.req.query('sort'), target: c.req.query('target') }),
     )
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    return c.json({ error: 'reviews_failed', message }, errStatus(err))
+    return reviewError(c, 'reviews_failed', err)
   }
 })
 
@@ -1301,8 +1330,7 @@ app.post('/api/reviews', async (c) => {
     const { upsertReview } = await import('./reviews.js')
     return c.json({ review: await upsertReview(actor, body) }, 201)
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    return c.json({ error: 'review_failed', message }, errStatus(err))
+    return reviewError(c, 'review_failed', err)
   }
 })
 
@@ -1313,8 +1341,7 @@ app.post('/api/reviews/:id/actions', async (c) => {
     const { actOnReview } = await import('./reviews.js')
     return c.json(await actOnReview(actor, c.req.param('id'), body))
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    return c.json({ error: 'review_action_failed', message }, errStatus(err))
+    return reviewError(c, 'review_action_failed', err)
   }
 })
 
@@ -1324,8 +1351,7 @@ app.get('/api/admin/reviews', async (c) => {
     const { moderationQueue } = await import('./reviews.js')
     return c.json({ reviews: await moderationQueue(actor) })
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    return c.json({ error: 'review_queue_failed', message }, errStatus(err))
+    return reviewError(c, 'review_queue_failed', err)
   }
 })
 

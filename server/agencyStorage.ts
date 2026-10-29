@@ -106,16 +106,35 @@ async function fileBytesByClient(): Promise<Map<string, number>> {
   return out
 }
 
+/** Bytes of photos on the server's own disk (self-hosted), per client uuid. */
+async function localFileBytesByClient(): Promise<Map<string, number>> {
+  const out = new Map<string, number>()
+  const { listLocalFiles } = await import('./photoStorage.js')
+  const files = await listLocalFiles().catch(() => [])
+  if (!files.length) return out
+  const owners = await query<{ client_id: string; images: string }>(
+    `SELECT client_id::text AS client_id, images::text AS images FROM units WHERE images::text LIKE '%/api/files/%'
+     UNION ALL
+     SELECT client_id::text, images::text FROM buildings WHERE images::text LIKE '%/api/files/%'`,
+  ).catch(() => [])
+  for (const f of files) {
+    const m = /^agency\/([0-9a-f-]{36})\//i.exec(f.path)
+    const client = m?.[1] ?? owners.find((o) => o.images.includes(f.path))?.client_id
+    if (client) out.set(client, (out.get(client) ?? 0) + f.size)
+  }
+  return out
+}
+
 export async function listAgencyStorage(): Promise<AgencyStorageRow[]> {
   const clients = await query<{ id: string; fe: string; name: string; settings: unknown }>(
     `SELECT id::text AS id, COALESCE(settings->>'frontend_id', id::text) AS fe, company_name AS name, settings
        FROM clients WHERE status <> 'cancelled' ORDER BY company_name`,
   )
-  const [db, files] = await Promise.all([dbBytesByClient(), fileBytesByClient()])
+  const [db, files, local] = await Promise.all([dbBytesByClient(), fileBytesByClient(), localFileBytesByClient()])
   return clients.map((c) => {
     const s = readSettings(c.settings)
     const dbBytes = db.get(c.id) ?? 0
-    const fileBytes = files.get(c.id) ?? 0
+    const fileBytes = (files.get(c.id) ?? 0) + (local.get(c.id) ?? 0)
     const usedBytes = dbBytes + fileBytes
     const quotaMb = typeof s.quotaMb === 'number' && s.quotaMb > 0 ? s.quotaMb : null
     const warnPct = typeof s.warnPct === 'number' && s.warnPct > 0 && s.warnPct <= 100 ? s.warnPct : DEFAULT_WARN_PCT

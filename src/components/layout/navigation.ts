@@ -347,7 +347,8 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
           {
             to: '/workspace/admin/reviews',
             label: 'Reviews',
-            anyOf: ['platform.manage', 'users.manage'],
+            // Moderation (hide / unhide) is super admin only.
+            anyOf: ['platform.manage'],
             icon: Star,
           },
           {

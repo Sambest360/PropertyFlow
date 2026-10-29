@@ -75,8 +75,8 @@ export function PhotoStorageCard() {
           ) : null}
           {status && !status.configured ? (
             <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              File storage isn&apos;t connected yet. Add <strong>SUPABASE_SECRET_KEY</strong> in Vercel → Project →
-              Settings → Environment Variables (Production), then redeploy.
+              File storage is switched off on this server. Remove <strong>UPLOADS_DIR=off</strong> from the server&apos;s .env (or set a
+              folder path) and restart the API.
             </p>
           ) : null}
           {error ? (

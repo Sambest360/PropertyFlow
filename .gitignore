@@ -37,3 +37,6 @@ pnpm-debug.log*
 .firebase
 .vercel
 .env*
+
+# Photos stored on the self-hosted server's disk
+uploads/
