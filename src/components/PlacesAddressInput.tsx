@@ -7,6 +7,7 @@ export type PlacesAddressValue = {
   address: string
   suburb?: string
   city?: string
+  province?: string
   lat?: number
   lng?: number
   placeId?: string
@@ -78,6 +79,7 @@ function GooglePlacesAddressInput(props: Props) {
       const get = (type: string) =>
         components.find((c) => c.types.includes(type))?.long_name ?? ''
 
+      const province = get('administrative_area_level_1')
       const suburb = get('sublocality_level_1') || get('sublocality') || get('neighborhood')
       const city = get('locality') || get('administrative_area_level_2')
       const route = get('route')
@@ -93,6 +95,7 @@ function GooglePlacesAddressInput(props: Props) {
         address,
         suburb: suburb || undefined,
         city: city || undefined,
+        province: province || undefined,
         lat: loc ? loc.lat() : undefined,
         lng: loc ? loc.lng() : undefined,
         placeId: place.place_id,

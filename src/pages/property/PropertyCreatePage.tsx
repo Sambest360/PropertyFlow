@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MAX_LISTING_PHOTOS, MAX_LISTING_PHOTO_BYTES, listingPhotosLabel } from '../../lib/listingPhotos'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
@@ -35,7 +35,7 @@ import { ExpandableDescription } from '../../components/listing/ExpandableDescri
 import { PropertyFeaturePicker } from '../../components/property-features/PropertyFeaturePicker'
 import { PlacesAddressInput } from '../../components/PlacesAddressInput'
 import { LocationMapPreview } from '../../components/maps/LocationMapPreview'
-import { geocodeAddress } from '../../lib/api/geocoding'
+import { geocodeAddress, reverseGeocode } from '../../lib/api/geocoding'
 import { canSetUnitViewingOverride } from '../../lib/applyEligibility'
 import { Button, Input, Select } from '../../components/ui'
 import { FormLabel, FieldHelp } from '../../components/onboarding/FieldHelp'
@@ -400,6 +400,37 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     draft.lng,
   ])
 
+  // Address set from a dropped pin: keep the pin where it was put.
+  const pinnedKeyRef = useRef('')
+
+  const onMapPick = useCallback(
+    (lat: number, lng: number) => {
+      setDraft((d) => ({ ...d, lat, lng }))
+      setGeocoding(true)
+      void reverseGeocode(lat, lng)
+        .then((found) => {
+          if (!found) return
+          setDraft((d) => {
+            const next = {
+              ...d,
+              lat,
+              lng,
+              address: found.address || d.address,
+              suburb: found.suburb || d.suburb,
+              city: found.city || d.city,
+              province: found.province || d.province,
+              placeId: found.placeId ?? d.placeId,
+              formattedAddress: found.formattedAddress || d.formattedAddress,
+            }
+            pinnedKeyRef.current = `${next.address.trim()}|${next.suburb.trim()}|${next.city.trim()}`
+            return next
+          })
+        })
+        .finally(() => setGeocoding(false))
+    },
+    [setDraft],
+  )
+
   useEffect(() => {
     if (stepIndex !== 1) return
     const address = draft.address.trim()
@@ -408,18 +439,25 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     if (!address && !suburb && !city) return
 
     const key = `${address}|${suburb}|${city}`
+    if (key === pinnedKeyRef.current) return
     const timer = window.setTimeout(() => {
       setGeocoding(true)
       void geocodeAddress({ address, suburb, city })
         .then((result) => {
           setDraft((d) => {
             if (`${d.address.trim()}|${d.suburb.trim()}|${d.city.trim()}` !== key) return d
+            // Fill suburb / city / province from the address when still empty;
+            // what the user typed is never overwritten.
+            const parts = result.parts
             return {
               ...d,
               lat: result.lat,
               lng: result.lng,
               placeId: result.placeId ?? d.placeId,
               formattedAddress: result.formattedAddress || d.formattedAddress,
+              suburb: d.suburb.trim() ? d.suburb : parts?.suburb || d.suburb,
+              city: d.city.trim() ? d.city : parts?.city || d.city,
+              province: parts?.province && (!d.province.trim() || d.province === 'Eastern Cape') ? parts.province : d.province,
             }
           })
         })
@@ -1199,6 +1237,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                   address: place.address,
                   suburb: place.suburb ?? d.suburb,
                   city: place.city ?? d.city,
+                  province: place.province ?? d.province,
                   lat: place.lat ?? d.lat,
                   lng: place.lng ?? d.lng,
                   placeId: place.placeId ?? d.placeId,
@@ -1236,6 +1275,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
               lat={locationPreviewCoords.lat}
               lng={locationPreviewCoords.lng}
               className="mt-1"
+              onPick={onMapPick}
             />
           </WizardSectionCard>
         )

@@ -14,7 +14,96 @@ export type GeocodeResult = {
   placeId: string | null
   formattedAddress: string
   geocodedAt: string
-  source: 'google' | 'mock'
+  source: 'google' | 'mock' | 'osm'
+  /** Address parts pulled from the result (empty when unknown). */
+  parts?: AddressParts
+}
+
+export type AddressParts = { address: string; suburb: string; city: string; province: string }
+
+type Component = { long_name: string; types: string[] }
+
+/** Street, suburb, city and province from Google address components. */
+export function partsFromComponents(components: readonly Component[], fallbackAddress = ''): AddressParts {
+  const get = (...types: string[]) => {
+    for (const t of types) {
+      const hit = components.find((c) => c.types.includes(t))?.long_name
+      if (hit) return hit
+    }
+    return ''
+  }
+  const street = [get('street_number'), get('route')].filter(Boolean).join(' ')
+  return {
+    address: street || get('premise', 'point_of_interest') || fallbackAddress,
+    suburb: get('sublocality_level_1', 'sublocality', 'neighborhood'),
+    city: get('locality', 'administrative_area_level_2'),
+    province: get('administrative_area_level_1'),
+  }
+}
+
+/**
+ * Address at a map point (dropped / dragged pin). Google when a key is set,
+ * otherwise OpenStreetMap; null when nothing is found.
+ */
+export async function reverseGeocode(lat: number, lng: number): Promise<(AddressParts & { formattedAddress: string; placeId: string | null }) | null> {
+  const g = typeof window !== 'undefined' ? window.google : undefined
+  if (hasGoogleMapsKey() && g?.maps?.Geocoder) {
+    try {
+      const { results } = await new g.maps.Geocoder().geocode({ location: { lat, lng } })
+      const top = results?.find((r) => r.types.includes('street_address') || r.types.includes('premise')) ?? results?.[0]
+      if (top) {
+        return {
+          ...partsFromComponents(top.address_components as Component[], top.formatted_address ?? ''),
+          formattedAddress: top.formatted_address ?? '',
+          placeId: top.place_id ?? null,
+        }
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+  if (hasGoogleMapsKey()) {
+    try {
+      const url = new URL('https://maps.googleapis.com/maps/api/geocode/json')
+      url.searchParams.set('latlng', `${lat},${lng}`)
+      url.searchParams.set('key', GOOGLE_MAPS_API_KEY)
+      const res = await fetch(url.toString())
+      if (res.ok) {
+        const data = (await res.json()) as { status: string; results?: Array<{ place_id?: string; formatted_address?: string; address_components?: Component[] }> }
+        const top = data.results?.[0]
+        if (data.status === 'OK' && top) {
+          return {
+            ...partsFromComponents(top.address_components ?? [], top.formatted_address ?? ''),
+            formattedAddress: top.formatted_address ?? '',
+            placeId: top.place_id ?? null,
+          }
+        }
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+  try {
+    const url = new URL('https://nominatim.openstreetmap.org/reverse')
+    url.searchParams.set('format', 'jsonv2')
+    url.searchParams.set('lat', String(lat))
+    url.searchParams.set('lon', String(lng))
+    url.searchParams.set('addressdetails', '1')
+    const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } })
+    if (!res.ok) return null
+    const data = (await res.json()) as { display_name?: string; address?: Record<string, string> }
+    const a = data.address ?? {}
+    return {
+      address: [a.house_number, a.road].filter(Boolean).join(' '),
+      suburb: a.suburb || a.neighbourhood || a.quarter || '',
+      city: a.city || a.town || a.village || a.municipality || '',
+      province: a.state || '',
+      formattedAddress: data.display_name ?? '',
+      placeId: null,
+    }
+  } catch {
+    return null
+  }
 }
 
 const SA_CITY_COORDS: Record<string, { lat: number; lng: number }> = {
@@ -122,6 +211,7 @@ export async function geocodeAddress(input: GeocodeAddressInput): Promise<Geocod
           formattedAddress: top.formatted_address ?? query,
           geocodedAt: new Date().toISOString(),
           source: 'google',
+          parts: partsFromComponents(top.address_components as Component[]),
         }
       }
     } catch {
@@ -143,6 +233,7 @@ export async function geocodeAddress(input: GeocodeAddressInput): Promise<Geocod
           place_id?: string
           formatted_address?: string
           geometry?: { location?: { lat: number; lng: number } }
+          address_components?: Component[]
         }>
       }
       const top = data.results?.[0]
@@ -154,6 +245,7 @@ export async function geocodeAddress(input: GeocodeAddressInput): Promise<Geocod
           formattedAddress: top.formatted_address ?? query,
           geocodedAt: new Date().toISOString(),
           source: 'google',
+          parts: partsFromComponents(top.address_components ?? []),
         }
       }
     }
