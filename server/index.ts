@@ -81,6 +81,7 @@ import { registerSupabaseUserDirect } from './supabase/registerUser.js'
 import { runningCommitSha } from './appConfig.js'
 import { dbHostFingerprint, serverAuthMode } from './authMode.js'
 import { errStatus } from './errStatus.js'
+import { reviewError } from './reviewError.js'
 import { registerViewingApplyRoutes } from './viewingApplyRoutes.js'
 import { captureServerError, initServerSentry } from './sentry.js'
 import { registerInspectionRoutes } from './inspectionRoutes.js'
@@ -1298,18 +1299,6 @@ app.get('/api/cron/escalations', async (c) => {
 
 /** Reviews (server/reviews.ts). Reading is public; writing needs a signed-in user. */
 
-/**
- * Reviews errors: 4xx keep their message ("Listing not found", "Sign in to
- * leave a review"); a 5xx is a database or server fault, so the visitor gets
- * a generic message and the detail goes to the log (and Sentry via errStatus).
- */
-function reviewError(c: Context, code: string, err: unknown) {
-  const status = errStatus(err)
-  const message = err instanceof Error ? err.message : String(err)
-  if (status < 500) return c.json({ error: code, message }, status)
-  console.error(`[api/reviews] ${code}:`, message)
-  return c.json({ error: code, message: 'Reviews are unavailable right now. Try again shortly.' }, status)
-}
 app.get('/api/reviews', async (c) => {
   try {
     const raw = await resolveRequestActor(c, null).catch(() => null)
