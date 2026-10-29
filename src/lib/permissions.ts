@@ -377,6 +377,59 @@ export function canAny(role: Role, permissions: Permission[]) {
 }
 
 /** Permissions for a user before agency intersection. */
+/** Office-management permissions only principals and agency administrators may hold. */
+const ADMIN_ONLY: Permission[] = [
+  'tenant.manage',
+  'users.manage',
+  'roles.assign',
+  'users.impersonate',
+  'config.manage',
+  'notifications.broadcast',
+  'trust.approve_payout',
+]
+/** Self-service portal permissions — never granted to staff. */
+const PORTAL_ONLY: Permission[] = [
+  'portal.owner',
+  'portal.tenant',
+  'portal.contractor',
+  'trust.view_own_statement',
+  'trust.view_own_invoices',
+]
+
+/** The most a user of this role can ever be given. */
+export function roleCeiling(role: Role): Permission[] {
+  const all = rolePermissions.super_admin
+  if (role === 'super_admin') return [...all]
+  if (role === 'client_admin' || role === 'agent_admin') {
+    return all.filter((p) => p !== 'platform.manage' && !PORTAL_ONLY.includes(p))
+  }
+  if (role === 'ground_agent' || role === 'agent') {
+    return all.filter((p) => p !== 'platform.manage' && !PORTAL_ONLY.includes(p) && !ADMIN_ONLY.includes(p))
+  }
+  return [...(rolePermissions[role] ?? [])]
+}
+
+/**
+ * Permissions that may be ticked for a user: the role's ceiling, limited to the
+ * agency's enabled modules and — unless the person granting is a super admin —
+ * to what the granter holds themselves.
+ */
+export function grantablePermissions(
+  role: Role,
+  opts: { agencyEnabled?: Permission[] | null; granterRole?: Role; granterPermissions?: Permission[] } = {},
+): Permission[] {
+  let out = roleCeiling(role)
+  if (role !== 'super_admin' && opts.agencyEnabled?.length) {
+    const agency = new Set(opts.agencyEnabled)
+    out = out.filter((p) => agency.has(p))
+  }
+  if (opts.granterRole && opts.granterRole !== 'super_admin' && opts.granterPermissions) {
+    const mine = new Set(opts.granterPermissions)
+    out = out.filter((p) => mine.has(p))
+  }
+  return out
+}
+
 export function userBasePermissions(role: Role, enabledPermissions?: Permission[] | null) {
   if (role === 'super_admin') return rolePermissions.super_admin
   if (enabledPermissions?.length) return enabledPermissions

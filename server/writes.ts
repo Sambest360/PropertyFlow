@@ -3,6 +3,7 @@
  * Accepts frontend demo IDs; resolves/registers UUIDs via entity_id_map.
  */
 import { query, withTransaction, clientQuery } from './db.js'
+import { slotStartSast, slotStoredStart } from './slotInstant.js'
 import {
   assertNoLeaseOverlap,
   assertOccupiedBookingAllowed,
@@ -1867,7 +1868,10 @@ async function upsertViewing(
   const slot = d.slotId ? await resolveUuid('viewing_slot', str(d.slotId)) : null
   const date = str(d.date, new Date().toISOString().slice(0, 10))
   const time = str(d.time, '10:00')
-  const starts = `${date}T${time}:00`
+  // SAST wall time labelled Z (app convention), explicit so the "moved" test
+  // below does not depend on the server's TZ.
+  const stored = slotStoredStart(date, time)
+  const starts = Number.isNaN(stored.getTime()) ? `${date}T${time}:00` : stored.toISOString()
   const status = VIEW_STATUS_TO_DB[str(d.status, 'Scheduled')] ?? 'SCHEDULED'
   const prevBooking = await query<{ status: string; unit_id: string; starts_at: string }>(
     `SELECT status, unit_id::text AS unit_id, starts_at FROM bookings WHERE id = $1::uuid`,
@@ -1880,7 +1884,8 @@ async function upsertViewing(
   const bookedOrMoved = !prevBooking[0] || prevStart !== new Date(starts).getTime()
   const consent =
     bookedOrMoved && status === 'SCHEDULED'
-      ? await assertOccupiedBookingAllowed(unit, { date, time, startsAt: new Date(starts) })
+      ? // Notice is measured from the real SAST instant, whatever the server TZ.
+        await assertOccupiedBookingAllowed(unit, { date, time, startsAt: slotStartSast(date, time) })
       : 'NOT_REQUIRED'
 
   await query(

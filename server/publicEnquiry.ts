@@ -1,5 +1,7 @@
 import { query, withTransaction } from './db.js'
 import { isOccupiedAdvert } from '../src/lib/occupiedAdvert.js'
+import { availableFromLabel } from '../src/lib/availableFromLabel.js'
+import { slotStartSast, slotStoredStart } from './slotInstant.js'
 import { assertOccupiedBookingAllowed, markBookingTenantPending } from './occupiedListing.js'
 import { ensureUuid, resolveUuid } from './entityMap.js'
 import { resolveLiveListing } from './listingResolve.js'
@@ -31,10 +33,17 @@ export type PublicEnquiryResult = {
   stage: string
   /** Unit UUID — used by the route for additive fire-and-forget hooks (agent email alert). */
   unitId: string
+  /** Occupied advert: the date the home comes free (YYYY-MM-DD); null otherwise. Same as the 027 RPC. */
+  availableFrom: string | null
 }
 
 function str(v: unknown, fallback = ''): string {
   return v == null ? fallback : String(v).trim()
+}
+
+/** Lead note on an occupied advert; same text as submit_public_listing_enquiry (027). */
+export function occupiedInterestNote(availableFromIso: string): string {
+  return `Interested, ${availableFromLabel(availableFromIso).replace(/^Available/, 'available')}`
 }
 
 async function resolvePublicUnit(propertyFeId: string): Promise<{
@@ -42,7 +51,9 @@ async function resolvePublicUnit(propertyFeId: string): Promise<{
   clientId: string
   agentId: string | null
   statusKey: string
+  listingType: string | null
   occupiedAdvert: boolean
+  availableFrom: string | null
   value: number
 } | null> {
   // query() returns the row array, not { rows }. Destructuring { rows }
@@ -80,6 +91,8 @@ async function resolvePublicUnit(propertyFeId: string): Promise<{
     clientId: listing.clientId || row.client_id,
     agentId: row.agent_id,
     statusKey: row.status_config_key,
+    listingType: row.listing_type ?? null,
+    availableFrom: row.available_from ? String(row.available_from).slice(0, 10) : null,
     occupiedAdvert: isOccupiedAdvert({
       statusKey: row.status_config_key,
       listingType: row.listing_type ?? null,
@@ -114,9 +127,12 @@ export async function submitPublicListingEnquiry(
     throw err
   }
 
+  // Michael's ruling: an advertised occupied listing takes enquiries. Unlisted
+  // units, and occupied units that are not advertised, stay closed.
   if (
-    !unit.occupiedAdvert &&
-    !['PUBLISHED', 'FEATURED', 'VACANT', 'UNDER_OFFER', 'AVAILABLE'].includes(unit.statusKey)
+    String(unit.listingType ?? 'rent').toLowerCase() === 'not_listed' ||
+    (!unit.occupiedAdvert &&
+      !['PUBLISHED', 'FEATURED', 'VACANT', 'UNDER_OFFER', 'AVAILABLE'].includes(unit.statusKey))
   ) {
     const err = new Error('property_not_public') as Error & { status?: number }
     err.status = 422
@@ -131,6 +147,9 @@ export async function submitPublicListingEnquiry(
   }
   if (input.idNumber) {
     extraNotes = [extraNotes, `ID/Passport: ${input.idNumber}`].filter(Boolean).join('\n')
+  }
+  if (unit.occupiedAdvert && unit.availableFrom) {
+    extraNotes = [occupiedInterestNote(unit.availableFrom), extraNotes].filter(Boolean).join('\n')
   }
 
   let stage = 'New Lead'
@@ -251,9 +270,9 @@ export async function submitPublicListingEnquiry(
         err.status = 409
         throw err
       }
-      const timeNorm = String(slot.slot_time).length === 5 ? `${slot.slot_time}:00` : slot.slot_time
-      const slotStart = new Date(`${slot.slot_date}T${timeNorm}`)
-      if (!Number.isNaN(slotStart.getTime()) && slotStart.getTime() <= Date.now()) {
+      // Slot date/time are SAST wall-clock; a real instant whatever the server TZ.
+      const slotStart = slotStartSast(String(slot.slot_date), String(slot.slot_time))
+      if (Number.isNaN(slotStart.getTime()) || slotStart.getTime() <= Date.now()) {
         const err = new Error('slot_not_found') as Error & { status?: number }
         err.status = 404
         throw err
@@ -267,7 +286,9 @@ export async function submitPublicListingEnquiry(
       const viewingFeId = `VW-guest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       bookingFeId = viewingFeId
       const bookingUuid = await ensureUuid('viewing', viewingFeId)
-      const startsAt = `${slot.slot_date}T${slot.slot_time}:00`
+      // Stored as the slot's wall time labelled Z (app convention); slotStart
+      // (the real SAST instant) is only for the notice / past checks above.
+      const startsAt = slotStoredStart(String(slot.slot_date), String(slot.slot_time)).toISOString()
 
       await query(
         `INSERT INTO bookings (
@@ -317,5 +338,6 @@ export async function submitPublicListingEnquiry(
     bookingId: saved.bookingId,
     stage: saved.stage,
     unitId: unit.unitId,
+    availableFrom: unit.occupiedAdvert ? unit.availableFrom : null,
   }
 }

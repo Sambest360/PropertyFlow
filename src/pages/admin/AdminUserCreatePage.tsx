@@ -19,6 +19,7 @@ import {
   mentorsForAgency,
   roleBlurbs,
   roleLabels,
+  grantablePermissions,
   rolePermissions,
   roleScopes,
   rolesVisibleInAdminUi,
@@ -97,7 +98,7 @@ export default function AdminUserCreatePage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { state, createUserDurable, updateProperty, updateTenancy, notify } = useStore()
-  const { has, user: authUser } = useAuth()
+  const { has, user: authUser, role: granterRole } = useAuth()
   const { agencyId: scopeAgencyId } = useAgencyScope()
   const isPlatform = has('platform.manage')
   /** Agency admins can add team members only — not full Users/portal create. */
@@ -275,17 +276,27 @@ export default function AdminUserCreatePage() {
     wizardSteps.findIndex((s) => s.id === stepId),
   )
 
+  // Only what this role may hold, the agency has switched on, and (for agency
+  // admins) what the person creating the user holds themselves.
   const allowedForChecklist = useMemo(() => {
     if (role === 'super_admin') return rolePermissions.super_admin
-    return selectedAgency?.enabledPermissions?.length
-      ? selectedAgency.enabledPermissions
-      : undefined
-  }, [role, selectedAgency])
+    return grantablePermissions(role, {
+      agencyEnabled: selectedAgency?.enabledPermissions,
+      granterRole,
+      granterPermissions: rolePermissions.super_admin.filter((p) => has(p)),
+    })
+  }, [role, selectedAgency, granterRole, has])
+
+  const roleDefaults = useMemo(() => {
+    const allowed = new Set(allowedForChecklist)
+    return clampToAgency(role, selectedAgency).filter((p) => allowed.has(p))
+  }, [role, selectedAgency, allowedForChecklist])
 
   const effectivePerms = useMemo(() => {
     if (role === 'super_admin') return rolePermissions.super_admin
-    return perms.length ? perms : clampToAgency(role, selectedAgency)
-  }, [role, perms, selectedAgency])
+    const allowed = new Set(allowedForChecklist)
+    return (perms.length ? perms : roleDefaults).filter((p) => allowed.has(p))
+  }, [role, perms, roleDefaults, allowedForChecklist])
 
   const sidebarPreview = useMemo(() => previewNavLabels(effectivePerms), [effectivePerms])
 
@@ -426,13 +437,7 @@ export default function AdminUserCreatePage() {
       releaseSubmitLock(submitLockRef)
       return
     }
-    const agency = state.agencies.find((a) => a.id === selectedAgencyId)
-    const allowed = agency?.enabledPermissions?.length
-      ? new Set(agency.enabledPermissions)
-      : null
-    const enabledPermissions = allowed
-      ? effectivePerms.filter((p) => allowed.has(p))
-      : effectivePerms
+    const enabledPermissions = effectivePerms
     const commission =
       needsCommission && commissionSharePct
         ? Math.min(100, Math.max(0, Number(commissionSharePct) || 0))
@@ -1069,16 +1074,16 @@ export default function AdminUserCreatePage() {
                     <div>
                       <h3 className="text-sm font-semibold text-ink">Permissions</h3>
                       <p className="mt-1 text-xs text-ink-500">
-                        Pre-filled from {roleLabels[role]}
-                        {selectedAgency ? ` · clamped to ${selectedAgency.name}` : ''}. Edit now —
-                        you can still change them later on Access.
+                        Pre-filled for a {roleLabels[role]}. Only permissions this role can have
+                        {selectedAgency ? ` and ${selectedAgency.name} has switched on` : ''} are shown. You can
+                        change them later on Access.
                       </p>
                     </div>
                     <AgencyCapabilityChecklist
                       value={perms}
                       onChange={setPerms}
                       allowed={allowedForChecklist}
-                      resetTo={clampToAgency(role, selectedAgency)}
+                      resetTo={roleDefaults}
                     />
                     <div className="rounded-lg border border-primary-100 bg-primary-50/40 p-3">
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">

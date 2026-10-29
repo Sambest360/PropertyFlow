@@ -3,6 +3,7 @@ import {
   agentAssigneeLabel,
   agentMetaRow,
   agentsForProperty,
+  listingHeadline,
   isSelfAgent,
   listedByAgentPhrase,
   resolveApplicationAgentName,
@@ -78,5 +79,20 @@ describe('agentDisplay', () => {
   it('locks property agent field for the linked agent', () => {
     expect(shouldLockPropertyAgentField('u-james', 'u-james')).toBe(true)
     expect(shouldLockPropertyAgentField('u-lerato', 'u-james')).toBe(false)
+  })
+})
+
+describe('listingHeadline (027 listed_by NULL hides the line)', () => {
+  it('shows "listed by <name>" for a public name', () => {
+    expect(listingHeadline('Apartment', 'viewer', 'agent-1', 'Staff Agent')).toBe('Apartment · listed by Staff Agent')
+  })
+  it('hides the listed-by part when the name is NULL, blank or missing (no placeholder)', () => {
+    for (const name of [null, undefined, '', '   ']) {
+      expect(listingHeadline('Apartment', 'viewer', null, name)).toBe('Apartment')
+      expect(listingHeadline('Apartment', null, 'agent-1', name)).toBe('Apartment')
+    }
+  })
+  it('hides it for the listing agent themself', () => {
+    expect(listingHeadline('Apartment', 'agent-1', 'agent-1', 'Staff Agent')).toBe('Apartment')
   })
 })

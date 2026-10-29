@@ -29,4 +29,11 @@ describe('GET /api/v1/units (no auth) only reads publicly listed units', () => {
     expect(calls[1].sql).toMatch(/AND u\.client_id = \$1::uuid/)
     expect(calls[1].sql).toMatch(/LIMIT \$2/)
   })
+
+  it('also lists an occupied home that is advertised with an available-from date', async () => {
+    await fetchUnitsPage({ limit: 10 })
+    expect(calls[0].sql).toMatch(
+      /u\.advertise_while_occupied = true\s+AND u\.available_from IS NOT NULL\s+AND upper\(u\.status_config_key\) = 'OCCUPIED'/,
+    )
+  })
 })

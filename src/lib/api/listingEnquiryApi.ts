@@ -21,7 +21,14 @@ export type ListingEnquiryInput = {
 }
 
 export type ListingEnquiryResult =
-  | { ok: true; leadId: string; bookingId?: string | null; stage: string }
+  | {
+      ok: true
+      leadId: string
+      bookingId?: string | null
+      stage: string
+      /** Occupied advert: the date the home comes free (YYYY-MM-DD); null otherwise. */
+      availableFrom?: string | null
+    }
   | { ok: false; error: string; waitlist?: boolean }
 
 const ENQUIRY_TIMEOUT_MS = 20_000
@@ -44,6 +51,16 @@ export function formatListingEnquiryError(raw: string): string {
   }
   if (code === 'slot_unavailable' || code.includes('slot_unavailable')) {
     return 'That slot just filled up. Choose another time or request a viewing without a slot.'
+  }
+  // Occupied adverts (027 RPC raises these lower-case; the API sends upper-case codes).
+  if (code.includes('notice_too_short')) {
+    return 'Someone still lives here, so viewings need more notice. Pick a later time.'
+  }
+  if (code.includes('outside_viewing_window')) {
+    return 'Someone still lives here and that time is outside their viewing hours. Pick another slot.'
+  }
+  if (code.includes('property_not_public')) {
+    return 'This listing is not taking enquiries right now.'
   }
   if (code === 'listing_full' || code.includes('listing_full')) {
     return 'This listing is fully booked.'
@@ -100,6 +117,7 @@ async function submitViaApi(input: ListingEnquiryInput): Promise<ListingEnquiryR
       leadId: String(json.leadId ?? json.lead_id ?? `LD-guest-${Date.now()}`),
       bookingId: (json.bookingId ?? json.booking_id ?? null) as string | null,
       stage: String(json.stage ?? 'New Lead'),
+      availableFrom: (json.availableFrom ?? json.available_from ?? null) as string | null,
     }
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
@@ -145,6 +163,7 @@ async function submitViaSupabase(input: ListingEnquiryInput): Promise<ListingEnq
       leadId: String(row.lead_id ?? row.leadId ?? `LD-guest-${Date.now()}`),
       bookingId: (row.booking_id ?? row.bookingId ?? null) as string | null,
       stage: String(row.stage ?? 'New Lead'),
+      availableFrom: (row.available_from ?? row.availableFrom ?? null) as string | null,
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)

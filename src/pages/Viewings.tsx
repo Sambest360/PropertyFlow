@@ -32,6 +32,7 @@ import { patchBookingAttendance } from '../lib/api/viewingApply'
 import { sweetError } from '../lib/sweetAlert'
 import { usePortalHydrating } from '../components/PortalHydrationGate'
 import { DataTableSkeleton } from '../components/loading/PageSkeleton'
+import { tenantConsentLabel } from '../lib/viewingConsent'
 
 const ICON_STROKE = 1.6
 
@@ -183,7 +184,13 @@ export default function Viewings() {
               item.kind === 'booking'
                 ? `Viewing · ${time}`
                 : `Open slot · ${time}`,
-            meta: `${item.property.title} · ${viewingPrimaryLabel(item)}`,
+            meta: [
+              item.property.title,
+              viewingPrimaryLabel(item),
+              item.kind === 'booking' ? tenantConsentLabel(item.viewing)?.label : null,
+            ]
+              .filter(Boolean)
+              .join(' · '),
             status: st,
             date,
             propertyId: item.property.id,
