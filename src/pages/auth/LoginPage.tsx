@@ -174,6 +174,11 @@ export default function LoginPage() {
         ) : null
       }
     >
+      {params.get('reason') === 'idle' ? (
+        <p className="mb-4 rounded-xl border border-primary-100 bg-primary-50 px-3 py-2 text-sm text-ink-700" role="status">
+          You were signed out because you were inactive for a while. Sign in again to carry on.
+        </p>
+      ) : null}
       <form onSubmit={onSubmit} className="space-y-4">
         <AuthField label="Email address" htmlFor="login-email">
           <Input
