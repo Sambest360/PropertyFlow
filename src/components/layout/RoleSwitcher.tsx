@@ -116,7 +116,11 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
     const box = el.getBoundingClientRect()
     const vw = window.innerWidth
     const vh = window.innerHeight
-    const right = Math.max(VIEWPORT_PAD_PX, vw - box.right)
+    // Keep the whole menu on screen: line its right edge up with the button,
+    // but never let it run off the left (the button can sit in a left drawer).
+    const width = Math.min(MENU_WIDTH_PX, vw - VIEWPORT_PAD_PX * 2)
+    const left = Math.min(Math.max(VIEWPORT_PAD_PX, box.right - width), vw - width - VIEWPORT_PAD_PX)
+    const right = vw - left - width
     const spaceBelow = vh - box.bottom - MENU_GAP_PX - VIEWPORT_PAD_PX
     const spaceAbove = box.top - MENU_GAP_PX - VIEWPORT_PAD_PX
     const preferBelow = spaceBelow >= 160 || spaceBelow >= spaceAbove
