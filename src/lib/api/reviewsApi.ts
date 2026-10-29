@@ -68,6 +68,8 @@ export type ReviewList = {
   reviews: ApiReview[]
   summary: ReviewSummary
   canManage: boolean
+  /** Hide / unhide: super admin only. */
+  canModerate?: boolean
   myReviewTargets: ReviewTarget[]
   verified: ApiReview['verified']
 }

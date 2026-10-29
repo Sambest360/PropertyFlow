@@ -7,6 +7,8 @@
  * bootstrap ship megabytes; rows should carry public URLs instead.
  */
 import { randomUUID } from 'node:crypto'
+import { mkdir, readdir, stat, writeFile } from 'node:fs/promises'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { query } from './db.js'
 import { createAdminClient } from './supabase/admin.js'
 import { getSupabaseSecretKey } from './supabase/env.js'
@@ -17,8 +19,54 @@ const EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', '
 /** Matches the bucket's file_size_limit. */
 export const MAX_PHOTO_BYTES = 5 * 1024 * 1024
 
-export function photoStorageConfigured(): boolean {
+function supabaseStorageConfigured(): boolean {
   return Boolean(getSupabaseSecretKey() && (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL))
+}
+
+/**
+ * Self-hosted server (no Supabase): photos are written to UPLOADS_DIR on the
+ * server's disk and served by the API at /api/files/<path>. Off on Vercel,
+ * whose disk does not keep files.
+ */
+export const LOCAL_FILES_PREFIX = '/api/files/'
+export function localUploadsDir(): string | null {
+  if (process.env.VERCEL) return null
+  if (process.env.UPLOADS_DIR === 'off') return null
+  return resolve(process.env.UPLOADS_DIR || 'uploads')
+}
+
+export function photoStorageConfigured(): boolean {
+  return supabaseStorageConfigured() || localUploadsDir() != null
+}
+
+/** Absolute path of a stored file, or null when the path tries to leave the uploads folder. */
+export function localFilePath(rel: string): string | null {
+  const dir = localUploadsDir()
+  if (!dir || !rel || rel.includes('\0')) return null
+  const full = resolve(dir, rel)
+  return full.startsWith(dir + sep) ? full : null
+}
+
+/** Every stored file under the uploads folder: relative path and size. */
+export async function listLocalFiles(): Promise<Array<{ path: string; size: number }>> {
+  const dir = localUploadsDir()
+  if (!dir) return []
+  const out: Array<{ path: string; size: number }> = []
+  const walk = async (d: string) => {
+    let entries: import('node:fs').Dirent[]
+    try {
+      entries = await readdir(d, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const e of entries) {
+      const p = join(d, e.name)
+      if (e.isDirectory()) await walk(p)
+      else if (e.isFile()) out.push({ path: relative(dir, p).split(sep).join('/'), size: (await stat(p)).size })
+    }
+  }
+  await walk(dir)
+  return out
 }
 
 function coded(status: number, code: string, message: string): Error {
@@ -34,6 +82,13 @@ export async function uploadPhotoDataUrl(dataUrl: string, folder: string): Promi
   const bytes = Buffer.from(m[2], 'base64')
   if (bytes.length > MAX_PHOTO_BYTES) throw coded(413, 'PHOTO_TOO_LARGE', 'Photo is larger than 5 MB')
   const path = `${folder}/${new Date().toISOString().slice(0, 7)}/${randomUUID()}.${EXT[mime]}`
+  if (!supabaseStorageConfigured()) {
+    const full = localFilePath(path)
+    if (!full) throw coded(503, 'STORAGE_NOT_CONFIGURED', 'Photo storage is not configured')
+    await mkdir(dirname(full), { recursive: true })
+    await writeFile(full, bytes)
+    return `${LOCAL_FILES_PREFIX}${path}`
+  }
   const storage = createAdminClient().storage.from(LISTING_PHOTOS_BUCKET)
   const { error } = await storage.upload(path, bytes, { contentType: mime, cacheControl: '31536000', upsert: false })
   if (error) throw coded(502, 'UPLOAD_FAILED', `Photo upload failed: ${error.message}`)

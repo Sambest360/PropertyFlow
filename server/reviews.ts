@@ -148,7 +148,16 @@ async function unitFor(listingId: string): Promise<{ id: string; client_id: stri
   return rows[0] ?? null
 }
 
-/** Staff of the listing's agency (or a super admin) may reply and moderate. */
+/**
+ * Staff of the listing's agency (or a super admin) may reply. Hiding and
+ * unhiding is super admin only (canModerate): agency staff could otherwise
+ * remove bad reviews of their own listings, or of themselves.
+ */
+function canModerate(actor: DemoActor | null): boolean {
+  return actor?.role === 'super_admin'
+}
+
+/** Staff of the listing's agency (or a super admin) may reply. */
 async function canManage(actor: DemoActor | null, clientId: string, uuid: string | null): Promise<boolean> {
   if (!actor || !uuid) return false
   if (actor.role === 'super_admin') return true
@@ -254,7 +263,14 @@ export async function listReviews(
   actor: DemoActor | null,
   listingId: string,
   opts: { sort?: string; target?: string } = {},
-): Promise<{ reviews: PublicReview[]; summary: ReviewSummary; canManage: boolean; myReviewTargets: ReviewTarget[]; verified: PublicReview['verified'] }> {
+): Promise<{
+  reviews: PublicReview[]
+  summary: ReviewSummary
+  canManage: boolean
+  canModerate: boolean
+  myReviewTargets: ReviewTarget[]
+  verified: PublicReview['verified']
+}> {
   await ensureReviewTables()
   const unit = await unitFor(listingId)
   if (!unit) throw httpError(404, 'Listing not found')
@@ -280,6 +296,7 @@ export async function listReviews(
     reviews: rows.map((r) => toPublic(r, me)),
     summary: summarize(published),
     canManage: manage,
+    canModerate: canModerate(actor),
     myReviewTargets: mine,
     verified: me ? await verifiedAs(unit.id, me) : null,
   }
@@ -407,6 +424,17 @@ export async function actOnReview(actor: DemoActor, id: string, body: Record<str
     await query(`DELETE FROM reviews WHERE id = $1::uuid`, [id])
     return { ok: true }
   }
+  if (action === 'moderate') {
+    if (!canModerate(actor)) throw httpError(403, 'Only the platform admin can hide or unhide reviews')
+    const status = ['published', 'pending', 'hidden'].includes(String(body.status)) ? String(body.status) : null
+    if (!status) throw httpError(400, 'Choose published, pending or hidden')
+    await query(`UPDATE reviews SET status = $2, moderation_note = $3, updated_at = NOW() WHERE id = $1::uuid`, [
+      id,
+      status,
+      typeof body.note === 'string' ? body.note.slice(0, 500) : null,
+    ])
+    return { ok: true, status }
+  }
   const manage = await canManage(actor, review.client_id, me)
   if (!manage) throw httpError(403, 'Only the agency for this listing can do that')
   if (action === 'respond') {
@@ -429,40 +457,23 @@ export async function actOnReview(actor: DemoActor, id: string, body: Record<str
     }
     return { ok: true }
   }
-  if (action === 'moderate') {
-    const status = ['published', 'pending', 'hidden'].includes(String(body.status)) ? String(body.status) : null
-    if (!status) throw httpError(400, 'Choose published, pending or hidden')
-    await query(`UPDATE reviews SET status = $2, moderation_note = $3, updated_at = NOW() WHERE id = $1::uuid`, [
-      id,
-      status,
-      typeof body.note === 'string' ? body.note.slice(0, 500) : null,
-    ])
-    return { ok: true, status }
-  }
   throw httpError(400, 'Unknown action')
 }
 
-/** Reviews waiting for moderation (agency staff see their agency, super admins everything). */
+/** Reviews waiting for moderation, across every agency (super admin only). */
 export async function moderationQueue(actor: DemoActor): Promise<Array<PublicReview & { listingTitle: string; reportCount: number }>> {
   await ensureReviewTables()
   const me = await actorUuid(actor)
   if (!me) throw httpError(401, 'Sign in first')
-  let clientId: string | null = null
-  if (actor.role !== 'super_admin') {
-    if (!['client_admin', 'agent_admin'].includes(actor.role)) throw httpError(403, 'Not allowed')
-    const rows = await query<{ client_id: string | null }>(`SELECT client_id::text AS client_id FROM users WHERE id = $1::uuid`, [me])
-    clientId = rows[0]?.client_id ?? null
-    if (!clientId) return []
-  }
+  if (!canModerate(actor)) throw httpError(403, 'Only the platform admin moderates reviews')
   const rows = await query<Row & { listing_title: string; report_count: number }>(
     `SELECT r.id::text AS id, r.target_type, r.author_user_id::text AS author_user_id, r.author_name, r.rating, r.sub_ratings,
             r.title, r.body, r.verified, r.status, r.helpful_count, r.response_body, r.response_name, r.response_at,
             r.created_at, r.updated_at, FALSE AS voted, r.report_count,
             COALESCE(u.title, u.unit_number, 'Listing') AS listing_title
        FROM reviews r JOIN units u ON u.id = r.unit_id
-      WHERE (r.status <> 'published' OR r.report_count > 0) AND ($1::uuid IS NULL OR r.client_id = $1::uuid)
+      WHERE r.status <> 'published' OR r.report_count > 0
       ORDER BY r.updated_at DESC LIMIT 200`,
-    [clientId],
   )
   return rows.map((r) => ({ ...toPublic(r, me), listingTitle: r.listing_title, reportCount: r.report_count }))
 }

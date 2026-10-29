@@ -87,7 +87,19 @@ function Summary({ data, filterStars, onFilterStars }: { data: ReviewList; filte
   )
 }
 
-function ReviewCard({ r, canManage, onChanged, onEdit }: { r: ApiReview; canManage: boolean; onChanged: () => void; onEdit: () => void }) {
+function ReviewCard({
+  r,
+  canManage,
+  canModerate,
+  onChanged,
+  onEdit,
+}: {
+  r: ApiReview
+  canManage: boolean
+  canModerate: boolean
+  onChanged: () => void
+  onEdit: () => void
+}) {
   const { isAuthenticated } = useAuth()
   const [helpful, setHelpful] = useState({ count: r.helpfulCount, voted: r.votedHelpful })
   const [reporting, setReporting] = useState(false)
@@ -214,7 +226,7 @@ function ReviewCard({ r, canManage, onChanged, onEdit }: { r: ApiReview; canMana
             <button type="button" onClick={() => setReplying((x) => !x)} className="inline-flex items-center gap-1 font-semibold text-primary">
               <Reply className="h-3.5 w-3.5" aria-hidden /> {r.response ? 'Edit reply' : 'Reply'}
             </button>
-            {r.status === 'published' ? (
+            {!canModerate ? null : r.status === 'published' ? (
               <button type="button" onClick={() => void act({ action: 'moderate', status: 'hidden' }, 'Review hidden')} className="text-ink-500 hover:text-rose-700">
                 Hide
               </button>
@@ -418,7 +430,14 @@ export function ApiReviewsSection({ listingId, hasAgent }: { listingId: string; 
 
       <ul className="mt-4 space-y-3">
         {shown.map((r) => (
-          <ReviewCard key={r.id} r={r} canManage={Boolean(data?.canManage)} onChanged={load} onEdit={() => setEditing(r)} />
+          <ReviewCard
+            key={r.id}
+            r={r}
+            canManage={Boolean(data?.canManage)}
+            canModerate={Boolean(data?.canModerate)}
+            onChanged={load}
+            onEdit={() => setEditing(r)}
+          />
         ))}
       </ul>
 

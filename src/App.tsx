@@ -498,7 +498,7 @@ export default function App() {
                 />
                 <Route path="admin/agencies" element={<Guard permission="platform.manage"><AdminAgenciesPage /></Guard>} />
                 <Route path="admin/storage" element={<Guard permission="platform.manage"><AdminStoragePage /></Guard>} />
-                <Route path="admin/reviews" element={<Guard anyOf={['platform.manage', 'users.manage']}><ReviewModerationPage /></Guard>} />
+                <Route path="admin/reviews" element={<Guard anyOf={['platform.manage']}><ReviewModerationPage /></Guard>} />
                 <Route path="admin/agencies/new" element={<Guard permission="platform.manage"><AdminAgencyCreatePage /></Guard>} />
                 <Route
                   path="admin/agencies/:id"
