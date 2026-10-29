@@ -65,21 +65,53 @@ describe('resolvePageTour', () => {
     expect(resolvePageTour('/workspace/operations/payments', 'ground_agent')?.id).toBe(
       'tour-ops-payments',
     )
-    expect(resolvePageTour('/workspace/operations/payments', 'agent')).toBeNull()
-    expect(resolvePageTour('/workspace/trust/unallocated', 'ground_agent')).toBeNull()
+    // Roles outside a hand-written tour still get a guide for the page.
+    expect(resolvePageTour('/workspace/operations/payments', 'agent')?.id).toBe(
+      'guide-generic-operations-payments',
+    )
+    expect(resolvePageTour('/workspace/trust/unallocated', 'ground_agent')?.id).not.toBe(
+      'tour-trust-unallocated',
+    )
     expect(resolvePageTour('/workspace/trust/unallocated', 'agent_admin')?.id).toBe(
       'tour-trust-unallocated',
     )
   })
 
 
-  it('excludes landlord from staff list walkthroughs', () => {
-    expect(resolvePageTour('/workspace/properties', 'landlord')).toBeNull()
-    expect(resolvePageTour('/workspace/operations/maintenance', 'landlord')).toBeNull()
-    expect(resolvePageTour('/workspace/operations/payments', 'landlord')).toBeNull()
-    expect(resolvePageTour('/workspace/operations/documents', 'landlord')).toBeNull()
-    expect(resolvePageTour('/workspace/people/landlords', 'landlord')).toBeNull()
-    expect(resolvePageTour('/workspace/portals/owner', 'landlord')).toBeNull()
+  it('gives landlords their own guides instead of the staff walkthroughs', () => {
+    expect(resolvePageTour('/workspace/properties', 'landlord')?.id).toBe('guide-landlord-properties')
+    expect(resolvePageTour('/workspace/operations/maintenance', 'landlord')?.id).toBe(
+      'guide-landlord-maintenance',
+    )
+    expect(resolvePageTour('/workspace/operations/payments', 'landlord')?.id).toBe('guide-landlord-payments')
+    expect(resolvePageTour('/workspace/operations/documents', 'landlord')?.id).toBe(
+      'guide-landlord-documents',
+    )
+    expect(resolvePageTour('/workspace/portals/owner', 'landlord')?.id).toBe('guide-landlord-home')
+  })
+
+  it('has a tour on every workspace page for every role', () => {
+    const roles = ['super_admin', 'agent_admin', 'ground_agent', 'landlord', 'tenant', 'contractor'] as const
+    const paths = [
+      '/workspace/portals/contractor',
+      '/workspace/portals/contractor/bookings',
+      '/workspace/operations/maintenance',
+      '/workspace/operations/maintenance/abc123def456ghi',
+      '/workspace/conduct',
+      '/workspace/account/settings',
+      '/workspace/help',
+      '/workspace/admin/users',
+      '/workspace/platform/billing',
+    ]
+    for (const path of paths) {
+      for (const role of roles) {
+        const tour = resolvePageTour(path, role, { tenantOccupancyReady: true })
+        expect(tour, `${role} ${path}`).not.toBeNull()
+        expect(tour!.steps.length, `${role} ${path}`).toBeGreaterThan(1)
+      }
+    }
+    expect(resolvePageTour('/workspace/operations/maintenance', 'contractor')?.id).toBe('guide-contractor-jobs')
+    expect(resolvePageTour('/workspace/conduct', 'contractor')?.id).toBe('guide-contractor-conduct')
   })
 
   it('adds super-admin and tenant portal walkthroughs', () => {
@@ -127,20 +159,23 @@ describe('resolvePageTour', () => {
     expect(resolvePageTour('/workspace/properties/p-1', 'agent_admin')?.id).toBe('tour-property-detail')
   })
 
-  it('shows nothing on other record pages', () => {
-    expect(resolvePageTour('/workspace/properties/p-1/edit', 'agent_admin')).toBeNull()
+  it('gives record pages their own guides', () => {
+    expect(resolvePageTour('/workspace/properties/p-1/edit', 'agent_admin')?.id).toBe('guide-staff-property-edit')
     expect(resolvePageTour('/listing/abc', null)).toBeNull()
-    expect(resolvePageTour('/workspace/sales/crm/lead-1', 'agent_admin')).toBeNull()
-    expect(resolvePageTour('/workspace/sales/applications/app-1', 'agent_admin')).toBeNull()
-    expect(resolvePageTour('/workspace/operations/payments/pay-1', 'agent_admin')).toBeNull()
-    expect(
-      resolvePageTour('/workspace/portals/tenant/applications/app-1', 'tenant'),
-    ).toBeNull()
+    expect(resolvePageTour('/workspace/sales/crm/lead-1', 'agent_admin')?.id).toBe('guide-staff-crm-detail')
+    expect(resolvePageTour('/workspace/sales/applications/app-1', 'agent_admin')?.id).toBe(
+      'guide-staff-application-detail',
+    )
+    expect(resolvePageTour('/workspace/operations/payments/pay-1', 'agent_admin')?.id).toBe(
+      'guide-staff-payment-detail',
+    )
+    expect(resolvePageTour('/workspace/portals/tenant/applications/app-1', 'tenant')?.id).toBe(
+      'guide-tenant-application-detail',
+    )
   })
 
-  it('does not fall back to single-step tips on routes without a walkthrough', () => {
-    // Help has no walkthrough; single-step RULES catalog stays unused for walkthroughs.
-    expect(resolvePageTour('/workspace/help', 'agent_admin')).toBeNull()
+  it('gives shared pages such as help a guide', () => {
+    expect(resolvePageTour('/workspace/help', 'agent_admin')?.id).toBe('guide-help')
   })
 
   it('tracks seen tours per user so skip stays dismissed for that page', () => {
