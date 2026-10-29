@@ -29,7 +29,7 @@ export function shouldStartFreshWizard(params: {
 }): boolean {
   const { storedDraft, entryKey, lastEntryKey } = params
   if (!storedDraft) return false
-  const resumeId = storedDraft.resumeDraftPropertyId?.trim()
-  if (resumeId && resumeId === storedDraft.draftPropertyId?.trim()) return false
+  // A saved draft lives on the server and reopens from the Properties list;
+  // a new visit to "Add property" always starts empty.
   return entryKey !== lastEntryKey
 }

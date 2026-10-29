@@ -56,9 +56,9 @@ describe('shouldStartFreshWizard', () => {
     expect(shouldStartFreshWizard({ storedDraft: unsaved, entryKey: 'k1', lastEntryKey: 'k1' })).toBe(false)
   })
 
-  it('keeps an explicitly saved draft', () => {
+  it('starts empty after a saved draft too (the draft reopens from the list)', () => {
     const saved = { draftPropertyId: 'unt-1', resumeDraftPropertyId: 'unt-1' }
-    expect(shouldStartFreshWizard({ storedDraft: saved, entryKey: 'k2', lastEntryKey: 'k1' })).toBe(false)
+    expect(shouldStartFreshWizard({ storedDraft: saved, entryKey: 'k2', lastEntryKey: 'k1' })).toBe(true)
   })
 
   it('has nothing to clear without a stored draft', () => {
