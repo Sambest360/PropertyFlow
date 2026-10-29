@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo } from 'react'
 import { GoogleMap, MarkerF } from '@react-google-maps/api'
-import { MapContainer, Marker, TileLayer, useMap } from 'react-leaflet'
+import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
 import { useGoogleMaps } from '../../context/GoogleMapsProvider'
 import {
@@ -27,6 +27,18 @@ function LeafletRecenter({ lat, lng }: { lat: number; lng: number }) {
   return null
 }
 
+/** Leaflet: a click on the map drops the pin there. */
+function LeafletPicker({ onPick }: { onPick: (lat: number, lng: number) => void }) {
+  useMapEvents({
+    click(e) {
+      onPick(e.latlng.lat, e.latlng.lng)
+    },
+  })
+  return null
+}
+
+const PICK_HINT = 'Click the map or drag the pin to set the exact spot — the address fills in for you.'
+
 const defaultPin = L.divIcon({
   className: 'pf-map-marker',
   html: '<span class="pf-price-pill is-active">●</span>',
@@ -38,13 +50,15 @@ type Props = {
   lat?: number | null
   lng?: number | null
   className?: string
+  /** When set, clicking the map or dragging the pin chooses the location. */
+  onPick?: (lat: number, lng: number) => void
 }
 
 /**
  * Small map for create/edit location steps — Google when configured and healthy,
  * otherwise OpenStreetMap via Leaflet (no Google error modal).
  */
-export function LocationMapPreview({ lat, lng, className }: Props) {
+export function LocationMapPreview({ lat, lng, className, onPick }: Props) {
   const { enabled, isLoaded, loadError } = useGoogleMaps()
   const positioned = hasCoords(lat, lng)
   const center = useMemo(
@@ -88,11 +102,35 @@ export function LocationMapPreview({ lat, lng, className }: Props) {
             clickableIcons: false,
             styles: PROPERTYFLOW_GOOGLE_MAP_STYLES,
             gestureHandling: 'cooperative',
+            draggableCursor: onPick ? 'crosshair' : undefined,
           }}
+          onClick={
+            onPick
+              ? (e) => {
+                  const p = e.latLng
+                  if (p) onPick(p.lat(), p.lng())
+                }
+              : undefined
+          }
         >
-          {positioned ? <MarkerF position={{ lat: lat!, lng: lng! }} /> : null}
+          {positioned ? (
+            <MarkerF
+              position={{ lat: lat!, lng: lng! }}
+              draggable={Boolean(onPick)}
+              onDragEnd={
+                onPick
+                  ? (e) => {
+                      const p = e.latLng
+                      if (p) onPick(p.lat(), p.lng())
+                    }
+                  : undefined
+              }
+            />
+          ) : null}
         </GoogleMap>
-        {!positioned ? (
+        {onPick ? (
+          <p className="border-t border-primary-100 bg-white px-3 py-2 text-xs text-ink-500">{PICK_HINT}</p>
+        ) : !positioned ? (
           <p className="border-t border-primary-100 bg-white px-3 py-2 text-xs text-ink-500">
             Pick an address from suggestions or complete suburb and city — we will place the pin when
             coordinates are known.
@@ -114,16 +152,33 @@ export function LocationMapPreview({ lat, lng, className }: Props) {
         scrollWheelZoom={false}
       >
         <TileLayer url={LEAFLET_BASEMAP_URL} attribution={LEAFLET_BASEMAP_ATTRIBUTION} />
+        {onPick ? <LeafletPicker onPick={onPick} /> : null}
         {positioned ? (
           <>
             <LeafletRecenter lat={lat!} lng={lng!} />
-            <Marker position={[lat!, lng!]} icon={defaultPin} />
+            <Marker
+              position={[lat!, lng!]}
+              icon={defaultPin}
+              draggable={Boolean(onPick)}
+              eventHandlers={
+                onPick
+                  ? {
+                      dragend: (e) => {
+                        const p = (e.target as L.Marker).getLatLng()
+                        onPick(p.lat, p.lng)
+                      },
+                    }
+                  : undefined
+              }
+            />
           </>
         ) : null}
       </MapContainer>
       <p className="border-t border-primary-100 bg-white px-3 py-2 text-xs text-ink-500">
         {/* Env-var setup hints are for developers; users get plain wording. */}
-        {enabled && loadError
+        {onPick
+          ? PICK_HINT
+          : enabled && loadError
           ? import.meta.env.DEV
             ? 'Google Maps could not load (check VITE_GOOGLE_MAPS_API_KEY and referrer restrictions). Showing OpenStreetMap instead.'
             : 'Google Maps could not load, so this is an OpenStreetMap preview.'
