@@ -281,7 +281,38 @@ export async function stampLeaseSignature(input: StampInput): Promise<StampResul
 }
 
 /** Part 8: "signed by all parties" email to the tenant and the landlord (or the lease's agent). */
+/** In-app notice to the tenant, landlord and agent that every party has signed (also emailed by the mailer). */
+async function notifyLeaseCompletedInApp(lease: LeaseSignRow, tenancyFeId: string): Promise<void> {
+  try {
+    const rows = await query<{ client_id: string | null; tenant_id: string | null; landlord_id: string | null; agent_id: string | null; title: string | null }>(
+      `SELECT l.client_id::text AS client_id, l.tenant_id::text AS tenant_id, l.landlord_id::text AS landlord_id,
+              l.agent_id::text AS agent_id, COALESCE(un.title, un.unit_number::text) AS title
+         FROM leases l LEFT JOIN units un ON un.id = l.unit_id WHERE l.id = $1::uuid`,
+      [lease.id],
+    )
+    const r = rows[0]
+    if (!r) return
+    const { notifyUsers } = await import('./supportDesk.js')
+    const title = 'Lease signed by everyone'
+    const body = `The lease for ${r.title || 'the property'} is now signed by all parties. You can view and download it.`
+    if (r.tenant_id) {
+      await notifyUsers([r.tenant_id], { clientId: r.client_id, title, body, link: '/workspace/portals/tenant/leases', resource: 'lease', action: 'updated' })
+    }
+    await notifyUsers([r.landlord_id, r.agent_id], {
+      clientId: r.client_id,
+      title,
+      body,
+      link: `/workspace/people/leases?lease=${encodeURIComponent(tenancyFeId)}`,
+      resource: 'lease',
+      action: 'updated',
+    }, r.tenant_id)
+  } catch (err) {
+    console.warn('[lease-signed] in-app notice failed:', err instanceof Error ? err.message : err)
+  }
+}
+
 export async function notifyLeaseCompleted(lease: LeaseSignRow, tenancyFeId: string): Promise<number> {
+  await notifyLeaseCompletedInApp(lease, tenancyFeId)
   const { isEmailLeaseSignedEnabled, sendLeaseSignedEmail } = await import('./mailtrap.js')
   if (!isEmailLeaseSignedEnabled()) return 0
   try {

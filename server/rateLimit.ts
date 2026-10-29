@@ -151,3 +151,13 @@ export function resetPasswordResetRateLimitsForTests(): void {
   resetActorWindows.clear()
   resetTargetWindows.clear()
 }
+
+/** Per-actor guard for notifications sent from the app (default 200 per 10 minutes). */
+export function notificationDispatchRateLimit(actorKey: string, count: number): { ok: boolean; retryAfterSec: number } {
+  let last = { ok: true, retryAfterSec: 0 }
+  for (let i = 0; i < Math.max(1, count); i++) {
+    last = slidingWindowHit(requestWindows, `notif:${actorKey}`, numEnv('NOTIFICATION_DISPATCH_MAX', 200), 10 * 60_000)
+    if (!last.ok) return last
+  }
+  return last
+}

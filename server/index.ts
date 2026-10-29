@@ -2197,6 +2197,27 @@ app.post('/api/esign/status', async (c) => {
 })
 app.post('/api/esign/webhook', (c) => esignWebhook(c))
 
+/** Notifications the app raises for other people (server/notificationDispatch.ts). */
+app.post('/api/notifications/dispatch', async (c) => {
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as { items?: unknown }
+    const actor = await resolveRequestActor(c, body as Record<string, unknown>)
+    if (!actor) throw actorRequiredError()
+    const items = Array.isArray(body.items) ? (body.items as Record<string, unknown>[]) : []
+    const { notificationDispatchRateLimit } = await import('./rateLimit.js')
+    const gate = notificationDispatchRateLimit(actor.userId, items.length)
+    if (!gate.ok) {
+      const rl = tooManyRequests(gate.retryAfterSec)
+      return c.json(rl.body, rl.status, rl.headers)
+    }
+    const { dispatchNotifications } = await import('./notificationDispatch.js')
+    return c.json({ ok: true, ...(await dispatchNotifications(actor, items)) })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'dispatch_failed', message }, errStatus(err))
+  }
+})
+
 app.post('/api/notifications/mark-read', async (c) => {
   try {
     const body = (await c.req.json()) as {
