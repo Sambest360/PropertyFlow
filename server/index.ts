@@ -1427,6 +1427,42 @@ app.get('/api/profiles/:id', async (c) => {
   }
 })
 
+/** Contractor bookings (server/contractorBookings.ts). */
+app.get('/api/contractor-bookings', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const { listBookings } = await import('./contractorBookings.js')
+    return c.json(await listBookings(actor))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'booking_failed', message }, errStatus(err))
+  }
+})
+
+app.post('/api/contractor-bookings', async (c) => {
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+    const actor = await requireActor(c)
+    const { createBooking } = await import('./contractorBookings.js')
+    return c.json(await createBooking(actor, body))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'booking_failed', message }, errStatus(err))
+  }
+})
+
+app.post('/api/contractor-bookings/:id', async (c) => {
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+    const actor = await requireActor(c)
+    const { actOnBooking } = await import('./contractorBookings.js')
+    return c.json(await actOnBooking(actor, c.req.param('id'), body))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'booking_failed', message }, errStatus(err))
+  }
+})
+
 /** Lease inventory, move-in / move-out inspections and deposit deductions. */
 registerInspectionRoutes(app)
 
