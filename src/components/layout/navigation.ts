@@ -2,6 +2,7 @@ import type { LucideIcon } from 'lucide-react'
 import {
   Banknote,
   Siren,
+  Star,
   HardDrive,
   BookOpen,
   MessageSquareText,
@@ -342,6 +343,12 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
             label: 'Configuration',
             anyOf: ['config.manage', 'tenant.manage', 'platform.manage'],
             icon: Settings,
+          },
+          {
+            to: '/workspace/admin/reviews',
+            label: 'Reviews',
+            anyOf: ['platform.manage', 'users.manage'],
+            icon: Star,
           },
           {
             to: '/workspace/admin/pipeline',
