@@ -199,6 +199,7 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
       to: `/workspace/help?from=${encodeURIComponent(location.pathname + location.search)}#report`,
       icon: LifeBuoy,
     },
+    { label: 'Settings', to: '/workspace/account/settings', icon: Settings },
     { label: 'Help & support', to: '/workspace/help', icon: HelpCircle },
     { label: 'Complaints & warnings', to: '/workspace/conduct', icon: Flag },
   ]

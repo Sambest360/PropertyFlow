@@ -36,6 +36,18 @@ export default function HelpPage() {
 
       <HelpDesk />
 
+      <Card className="flex flex-wrap items-center justify-between gap-3 p-5">
+        <div>
+          <h2 className="font-display text-lg font-semibold text-ink">Complaint about someone?</h2>
+          <p className="text-sm text-ink-500">
+            Complain about an agent, landlord, tenant or contractor, and follow it up. Warnings on your account show there too.
+          </p>
+        </div>
+        <Link to="/workspace/conduct?tab=complain">
+          <Button variant="secondary">Complaints & warnings</Button>
+        </Link>
+      </Card>
+
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="space-y-3 p-5">
           <div className="flex items-center gap-2">
