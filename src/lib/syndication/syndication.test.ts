@@ -86,7 +86,7 @@ describe('canonical listing + completeness soft-gate', () => {
   it('soft-warns when mandate incomplete without hard-blocking readiness errors', () => {
     const p = baseProperty({ mandateActive: false })
     const ready = assessPropertySyndicationReadiness(p)
-    expect(ready.mandateSoftWarn).toMatch(/soft warning only/i)
+    expect(ready.mandateSoftWarn).toMatch(/mandate/i)
     expect(ready.issues.some((i) => i.code === 'mandate' && i.severity === 'warn')).toBe(true)
     // title/images etc still ok → ready true (mandate is warn only)
     expect(ready.ready).toBe(true)
@@ -148,7 +148,7 @@ describe('manual export pack + live_manual mark', () => {
     expect(out.ok).toBe(true)
     if (!out.ok) return
     expect(out.publication.status).toBe('exported_manual')
-    expect(out.mandateSoftWarn).toMatch(/soft warning/i)
+    expect(out.mandateSoftWarn).toMatch(/mandate/i)
     expect(out.property.syndicationPublications?.[0]?.portalCode).toBe('property24')
 
     const live = markPublicationLiveManual(out.property, 'property24', {

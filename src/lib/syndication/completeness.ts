@@ -30,7 +30,7 @@ export function mandateSoftWarnMessage(
   property: Pick<PropertyAsset, 'mandateActive'> | { mandateActive?: boolean | null },
 ): string | null {
   if (isMandateActiveSoft(property)) return null
-  return 'Mandate not marked active — soft warning only. Export pack still allowed; live partner push is refuse-closed anyway.'
+  return 'No signed mandate recorded yet. You can still download the listing pack.'
 }
 
 export function buildCanonicalListing(
@@ -86,7 +86,7 @@ export function assessSyndicationCompleteness(
     0,
     'headline_length',
     'warn',
-    'Headline should stay under 100 characters for portal packs.',
+    'Keep the title under 100 characters.',
   )
   // headline length failure shouldn't remove the headline point — only warn
   if (listing.headline.length > 100) {
@@ -124,23 +124,23 @@ export function assessSyndicationCompleteness(
   check(listing.floorSizeSqm != null && listing.floorSizeSqm > 0, 1, 'size', 'warn', 'Add floor / erf size (sqm).')
   check(Boolean(listing.suburb), 1, 'suburb', 'error', 'Add suburb.')
   check(Boolean(listing.city), 1, 'city', 'error', 'Add city.')
-  check(listing.lat != null && listing.lng != null, 1, 'geo', 'warn', 'Map lat/lng missing — geocode before portal upload.')
+  check(listing.lat != null && listing.lng != null, 1, 'geo', 'warn', 'Pin the property on the map so portals can show its location.')
   check(listing.images.length >= 1, 1, 'images_min', 'error', 'Add at least one listing photo.')
   if (listing.images.length > 0 && listing.images.length < 8) {
     issues.push({
       code: 'images_count',
       severity: 'warn',
-      message: `Only ${listing.images.length} image(s) — portal packs usually want 8+ (warn under 16).`,
+      message: `Only ${listing.images.length} photo(s). Portals show listings with 8 or more photos higher.`,
     })
   } else if (listing.images.length >= 8) {
     score += 1
   }
 
-  check(listing.listingId.length > 0, 1, 'listing_id', 'error', 'Canonical listing id is required.')
+  check(listing.listingId.length > 0, 1, 'listing_id', 'error', 'The listing needs a reference number.')
 
   const mandateSoftWarn = listing.mandateActive
     ? null
-    : 'Mandate not marked active — soft warning only. Export pack still allowed; live partner push is refuse-closed anyway.'
+    : 'No signed mandate recorded yet. You can still download the listing pack.'
   if (mandateSoftWarn) {
     issues.push({ code: 'mandate', severity: 'warn', message: mandateSoftWarn })
   } else {
