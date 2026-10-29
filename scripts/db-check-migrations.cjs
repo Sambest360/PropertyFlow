@@ -69,7 +69,15 @@ async function main() {
       ...[...o.functions].filter((f) => !functions.has(f)).map((f) => ({ kind: 'function', name: f, api: usedByApi(f) })),
     ]
     if (!missing.length) {
-      console.log(`ok       ${file}`)
+      // A data fix (UPDATE/DELETE/INSERT/DO block) leaves nothing this script can
+      // look up, so "ok" would only mean "nothing to check" - say so instead.
+      const objects = o.tables.size + o.functions.size + o.columns.size
+      const sqlText = stripComments(fs.readFileSync(path.join(dir, file), 'utf8'))
+      if (!objects && /\bUPDATE\s+[a-z_.]+\s+SET\b|\bDELETE\s+FROM\b/i.test(sqlText)) {
+        console.log(`DATA     ${file}  (changes existing rows; cannot tell if it ran - check by hand)`)
+      } else {
+        console.log(`ok       ${file}`)
+      }
       continue
     }
     console.log(`MISSING  ${file}`)
