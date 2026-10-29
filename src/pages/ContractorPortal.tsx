@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { BookingsPanel } from '../components/contractors/BookingsPanel'
 import { Link } from 'react-router-dom'
 import {
   Calendar,
@@ -352,6 +353,12 @@ function ContractorPortalContent() {
           <StatCard label="Completed" value={completed.length} icon={<Star className="h-5 w-5" />} />
           <StatCard label="Earnings" value={formatZAR(earnings)} icon={<Star className="h-5 w-5" />} />
         </div>
+
+        <section className="space-y-3" id="bookings">
+          <h2 className="font-display text-lg font-semibold text-ink">Booking requests</h2>
+          <p className="text-sm text-ink-500">Agencies book you for a date. Accept or decline, and mark the visit done afterwards.</p>
+          <BookingsPanel mode="contractor" />
+        </section>
 
         {openAssigned.length > 0 && (
           <section className="space-y-3">
