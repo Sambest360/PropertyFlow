@@ -26,7 +26,8 @@ import { usePageMeta } from '../../hooks/usePageMeta'
 import { FullScreenSheet } from '../../components/layout/mobile/FullScreenSheet'
 import { DataRefreshBanner } from '../../components/loading/DataRefreshBanner'
 import { ListingCardGridSkeleton } from '../../components/loading/PageSkeleton'
-import { parseAreasParam, propertyMatchesAreas } from '../../lib/placeCatalog'
+import { haversineKm, parseAreasParam, propertyMatchesAreas, searchPlaces } from '../../lib/placeCatalog'
+import { geocodeAddress } from '../../lib/api/geocoding'
 import { isLoadSheddingFreeListing } from '../../lib/loadShedding'
 import { matchesBrowseMode } from '../../lib/browseMode'
 import { toPublicListing } from '../../lib/publicLocation'
@@ -166,6 +167,35 @@ export default function BrowsePage() {
   const q = params.get('q') ?? ''
   const mode = params.get('mode') ?? 'all'
   const areaPlaces = useMemo(() => parseAreasParam(params.get('areas')), [params])
+  // Address search: a typed address (or ?near=lat,lng) shows homes around that
+  // spot, closest first, instead of only listings whose text matches.
+  const [near, setNear] = useState<{ lat: number; lng: number; label: string } | null>(null)
+  const [radiusKm, setRadiusKm] = useState(5)
+  useEffect(() => {
+    const raw = params.get('near')
+    if (raw) {
+      const [lat, lng] = raw.split(',').map(Number)
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        setNear({ lat, lng, label: params.get('nearLabel') || 'the selected address' })
+        return
+      }
+    }
+    const text = q.trim()
+    const knownPlace = text && searchPlaces(text, 1)[0]?.label.toLowerCase() === text.toLowerCase()
+    const looksLikeAddress = /\d/.test(text) || text.includes(',') || text.split(/\s+/).length >= 3
+    if (!text || knownPlace || areaPlaces.length || !looksLikeAddress) {
+      setNear(null)
+      return
+    }
+    let cancelled = false
+    void geocodeAddress({ address: text }).then((g) => {
+      if (!cancelled && g.source !== 'mock') setNear({ lat: g.lat, lng: g.lng, label: g.formattedAddress || text })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [params, q, areaPlaces.length])
+  const textQ = near ? '' : q
   const [filters, setFilters] = useState<BrowseFilterState>(defaultBrowseFilters)
   const [panelOpen, setPanelOpen] = useState(false)
   const [showMap, setShowMap] = useState(!savedOnly)
@@ -203,9 +233,9 @@ export default function BrowsePage() {
   )
 
   const filtered = useMemo(() => {
-    const list = properties.filter((p) => matchesFilters(p, q, mode, filters, areaPlaces))
+    const list = properties.filter((p) => matchesFilters(p, textQ, mode, filters, areaPlaces))
     return sortProperties(list, filters.sort, mode)
-  }, [properties, q, mode, filters, areaPlaces])
+  }, [properties, textQ, mode, filters, areaPlaces])
 
   /** Prefer infra units feed when units exist — card-ready (all matches; the grid shows a set at a time). */
   const unitsFeed = useMemo(() => {
@@ -218,7 +248,7 @@ export default function BrowsePage() {
       properties: visibleStoreProperties,
       users: state.users,
       filters: {
-        q: q || undefined,
+        q: textQ || undefined,
         area_places: areaPlaces.length ? areaPlaces : undefined,
         listing_type: mode === 'rent' ? 'rent' : mode === 'buy' ? 'sale' : 'all',
         marketplace_public: true,
@@ -241,7 +271,7 @@ export default function BrowsePage() {
         limit: 5000,
       },
     })
-  }, [state.units, state.buildings, state.users, visibleStoreProperties, q, mode, filters, savedOnly, areaPlaces])
+  }, [state.units, state.buildings, state.users, visibleStoreProperties, textQ, mode, filters, savedOnly, areaPlaces])
 
   const cards: UnitCardPayload[] = useMemo(() => {
     const raw =
@@ -268,17 +298,35 @@ export default function BrowsePage() {
       })
   }, [unitsFeed, filtered, state.buildings, state.properties, blockedIds, mode, properties])
 
+  /** Cards near the searched address, closest first (radius widens until something is found). */
+  const nearResult = useMemo(() => {
+    if (!near) return null
+    const withKm = cards
+      .filter((c) => c.lat != null && c.lng != null)
+      .map((c) => ({ c, km: haversineKm(near, { lat: c.lat!, lng: c.lng! }) }))
+      .sort((a, b) => a.km - b.km)
+    let used = radiusKm
+    let hits = withKm.filter((x) => x.km <= used)
+    for (const wider of [10, 25, 50]) {
+      if (hits.length || wider <= used) continue
+      used = wider
+      hits = withKm.filter((x) => x.km <= used)
+    }
+    return { cards: hits.map((x) => x.c), radius: used, widened: used !== radiusKm }
+  }, [near, cards, radiusKm])
+  const listCards = nearResult ? nearResult.cards : cards
+
   // A new search starts again from the first set.
   useEffect(() => {
     setVisibleCount(BROWSE_PAGE_SIZE)
-  }, [q, mode, filters, areaPlaces, savedOnly])
-  const shownCards = cards.slice(0, visibleCount)
-  const moreToShow = cards.length - shownCards.length
+  }, [q, mode, filters, areaPlaces, savedOnly, near, radiusKm])
+  const shownCards = listCards.slice(0, visibleCount)
+  const moreToShow = listCards.length - shownCards.length
 
   const getCount = useCallback(
     (draft: BrowseFilterState) =>
-      properties.filter((p) => matchesFilters(p, q, mode, draft, areaPlaces)).length,
-    [properties, q, mode, areaPlaces],
+      properties.filter((p) => matchesFilters(p, textQ, mode, draft, areaPlaces)).length,
+    [properties, textQ, mode, areaPlaces],
   )
 
   const priceHint =
@@ -296,8 +344,8 @@ export default function BrowsePage() {
   )
 
   const mapProperties = useMemo(() => {
-    return cards.map((c) => resolveCardProperty(c)).filter(Boolean) as PropertyAsset[]
-  }, [cards, resolveCardProperty])
+    return listCards.map((c) => resolveCardProperty(c)).filter(Boolean) as PropertyAsset[]
+  }, [listCards, resolveCardProperty])
 
   const cardsByPropertyId = useMemo(() => {
     const map: Record<string, UnitCardPayload> = {}
@@ -352,9 +400,28 @@ export default function BrowsePage() {
                 {savedOnly
                   ? `${cards.length} saved home${cards.length === 1 ? '' : 's'}`
                   : moreToShow > 0
-                    ? `Showing ${shownCards.length} of ${cards.length} places`
-                    : `${cards.length} place${cards.length === 1 ? '' : 's'}`}
+                    ? `Showing ${shownCards.length} of ${listCards.length} places`
+                    : `${listCards.length} place${listCards.length === 1 ? '' : 's'}`}
               </p>
+              {near && nearResult ? (
+                <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-ink-600">
+                  Homes within
+                  <select
+                    className="rounded-lg border border-primary-100 bg-white px-2 py-0.5 text-sm"
+                    value={radiusKm}
+                    onChange={(e) => setRadiusKm(Number(e.target.value))}
+                    aria-label="Distance"
+                  >
+                    {[2, 5, 10, 25, 50].map((km) => (
+                      <option key={km} value={km}>
+                        {km} km
+                      </option>
+                    ))}
+                  </select>
+                  of <span className="font-medium text-ink">{near.label}</span>, closest first
+                  {nearResult.widened ? <span className="text-xs text-ink-500">(nothing closer, so we looked {nearResult.radius} km out)</span> : null}
+                </p>
+              ) : null}
               {savedOnly && cards.length === 0 && (
                 <p className="mt-2 flex items-center gap-1.5 text-sm text-ink-500">
                   <Heart className="h-4 w-4 text-accent" /> Tap the heart on any listing to save it here.
@@ -441,7 +508,7 @@ export default function BrowsePage() {
           />
           {showFullMarketplaceLoader ? (
             <ListingCardGridSkeleton count={6} className={showMap ? 'lg:grid-cols-2 xl:grid-cols-2' : undefined} />
-          ) : cards.length === 0 ? (
+          ) : listCards.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-primary-100 bg-white p-10 text-center">
               <Filter className="mx-auto h-8 w-8 text-ink-400" />
               <p className="mt-3 font-semibold">
@@ -507,7 +574,7 @@ export default function BrowsePage() {
               {moreToShow > 0 && (
                 <div className="mt-8 flex flex-col items-center gap-2">
                   <p className="text-xs text-ink-500">
-                    Showing {shownCards.length} of {cards.length}
+                    Showing {shownCards.length} of {listCards.length}
                   </p>
                   <button
                     type="button"
