@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { GradeBreakdownCard } from '../../components/property-features/GradeBreakdownCard'
 import { MAX_LISTING_PHOTOS, MAX_LISTING_PHOTO_BYTES, listingPhotosLabel } from '../../lib/listingPhotos'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
@@ -51,7 +52,7 @@ import { useLookupOptions } from '../../hooks/useLookupOptions'
 import { formatZAR } from '../../data/seed'
 import {
   gradingLabel,
-  resolveBuildingGrading,
+  gradeBreakdown,
 } from '../../lib/buildingGrading'
 import { sanitizeRoomCounts, summarizeRooms } from '../../lib/roomSummary'
 import {
@@ -595,15 +596,21 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     [draft, roomSummary, totalAreaSqm],
   )
 
-  const computedGrading = useMemo(
+  const gradeInfo = useMemo(
     () =>
-      resolveBuildingGrading({
+      gradeBreakdown({
         hasBorehole: draft.hasBorehole,
         amenities: draft.amenities,
         propertyType: draft.propertyType,
+        bedrooms: roomSummary.bedrooms,
+        bathrooms: roomSummary.bathrooms,
+        garages: roomSummary.garages,
+        parking: draft.parking,
+        solarCapacityKw: Number(draft.solarCapacityKw) || 0,
       }),
-    [draft.hasBorehole, draft.amenities, draft.propertyType],
+    [draft.hasBorehole, draft.amenities, draft.propertyType, roomSummary, draft.parking, draft.solarCapacityKw],
   )
+  const computedGrading = gradeInfo.grade
 
   // Solar kW is the building's stored figure (0 for a new building) — never
   // guessed from amenities like "Solar", which used to invent 5 kW.
@@ -1622,6 +1629,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
               agencyFeatures={agencyFeatures}
               onChange={(amenities) => setDraft((d) => draftAfterAmenitiesChange(d, amenities))}
             />
+            <GradeBreakdownCard breakdown={gradeInfo} />
           </WizardSectionCard>
         )
       case 5:
