@@ -81,7 +81,7 @@ export async function exportManualPackForPortal(
   }
   const mandateSoftWarn = canonical.mandateActive
     ? null
-    : 'Mandate not marked active — soft warning only. Export pack still allowed; live partner push is refuse-closed anyway.'
+    : 'No signed mandate recorded yet. You can still download the listing pack.'
   return { ok: true, property: next, publication, exportPack: result.exportPack, mandateSoftWarn }
 }
 
@@ -152,9 +152,9 @@ export function publicationStatusLabel(status: ListingPublicationStatus): string
     case 'ready':
       return 'Ready'
     case 'exported_manual':
-      return 'Exported (manual pack)'
+      return 'Pack downloaded'
     case 'live_manual':
-      return 'Live (manual on portal)'
+      return 'Listed on portal'
     case 'error':
       return 'Error'
     case 'unpublished':
