@@ -1279,6 +1279,56 @@ app.get('/api/cron/escalations', async (c) => {
   return c.json(await runEscalations())
 })
 
+/** Reviews (server/reviews.ts). Reading is public; writing needs a signed-in user. */
+app.get('/api/reviews', async (c) => {
+  try {
+    const raw = await resolveRequestActor(c, null).catch(() => null)
+    const actor = raw ? await enrichActor(raw) : null
+    const { listReviews } = await import('./reviews.js')
+    return c.json(
+      await listReviews(actor, c.req.query('listingId') ?? '', { sort: c.req.query('sort'), target: c.req.query('target') }),
+    )
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'reviews_failed', message }, errStatus(err))
+  }
+})
+
+app.post('/api/reviews', async (c) => {
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+    const actor = await requireActor(c)
+    const { upsertReview } = await import('./reviews.js')
+    return c.json({ review: await upsertReview(actor, body) }, 201)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'review_failed', message }, errStatus(err))
+  }
+})
+
+app.post('/api/reviews/:id/actions', async (c) => {
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+    const actor = await requireActor(c)
+    const { actOnReview } = await import('./reviews.js')
+    return c.json(await actOnReview(actor, c.req.param('id'), body))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'review_action_failed', message }, errStatus(err))
+  }
+})
+
+app.get('/api/admin/reviews', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const { moderationQueue } = await import('./reviews.js')
+    return c.json({ reviews: await moderationQueue(actor) })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'review_queue_failed', message }, errStatus(err))
+  }
+})
+
 /** Lease inventory, move-in / move-out inspections and deposit deductions. */
 registerInspectionRoutes(app)
 

@@ -79,6 +79,7 @@ const AdminUserCreatePage = lazy(() => import('./pages/admin/AdminUserCreatePage
 const AdminAgenciesPage = lazy(() => import('./pages/admin/AdminAgenciesPage'))
 const AdminStoragePage = lazy(() => import('./pages/admin/AdminStoragePage'))
 const EscalationsPage = lazy(() => import('./pages/EscalationsPage'))
+const ReviewModerationPage = lazy(() => import('./pages/admin/ReviewModerationPage'))
 const AdminAgencyCreatePage = lazy(() => import('./pages/admin/AdminAgencyCreatePage'))
 const AgencyDetailPage = lazy(() => import('./pages/admin/AgencyDetailPage'))
 const AdminConfigPage = lazy(() => import('./pages/admin/AdminConfigPage'))
@@ -484,6 +485,7 @@ export default function App() {
                 />
                 <Route path="admin/agencies" element={<Guard permission="platform.manage"><AdminAgenciesPage /></Guard>} />
                 <Route path="admin/storage" element={<Guard permission="platform.manage"><AdminStoragePage /></Guard>} />
+                <Route path="admin/reviews" element={<Guard anyOf={['platform.manage', 'users.manage']}><ReviewModerationPage /></Guard>} />
                 <Route path="admin/agencies/new" element={<Guard permission="platform.manage"><AdminAgencyCreatePage /></Guard>} />
                 <Route
                   path="admin/agencies/:id"

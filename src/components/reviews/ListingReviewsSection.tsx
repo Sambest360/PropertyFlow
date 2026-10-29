@@ -7,6 +7,8 @@ import type { Application, Review, ReviewTargetType } from '../../types/domain'
 import { StarRating, averageRating } from './StarRating'
 import { Link } from 'react-router-dom'
 import { useAgentDisplay } from '../../hooks/useAgentDisplay'
+import { isApiEnabled } from '../../lib/api/config'
+import { ApiReviewsSection } from './ApiReviewsSection'
 
 function formatReviewDate(iso: string) {
   try {
@@ -26,7 +28,18 @@ function targetLabel(r: Review) {
   return 'Agent'
 }
 
-export function ListingReviewsSection({
+export function ListingReviewsSection(props: {
+  propertyId: string
+  agencyId: string
+  agentId: string | null
+  agentName?: string | null
+}) {
+  // Live server: real, shared reviews. Demo mode keeps the in-browser version.
+  if (isApiEnabled) return <ApiReviewsSection listingId={props.propertyId} hasAgent={Boolean(props.agentId || props.agentName)} />
+  return <LocalReviewsSection {...props} />
+}
+
+function LocalReviewsSection({
   propertyId,
   agencyId,
   agentId,
