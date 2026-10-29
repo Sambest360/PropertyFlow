@@ -1006,6 +1006,28 @@ async function upsertBuilding(feId: string, d: Record<string, unknown>): Promise
   return uuid
 }
 
+/**
+ * A listing's display address is "<building address>, <unit number>". When that
+ * comes back on a save, strip the unit suffix(es) before it is stored as the
+ * building address — otherwise every save appended the unit name again.
+ */
+export function buildingAddressFromListing(address: string, unitLabels: Array<string | null | undefined>): string {
+  let out = address.trim()
+  const labels = [...new Set(unitLabels.map((l) => (l ?? '').trim()).filter((l) => l && l !== 'HOUSE' && l !== 'MAIN'))]
+  let changed = true
+  while (changed && labels.length) {
+    changed = false
+    for (const label of labels) {
+      const suffix = `, ${label}`
+      if (out.toLowerCase().endsWith(suffix.toLowerCase())) {
+        out = out.slice(0, out.length - suffix.length).trimEnd()
+        changed = true
+      }
+    }
+  }
+  return out
+}
+
 async function upsertProperty(
   feId: string,
   d: Record<string, unknown>,
@@ -1021,6 +1043,14 @@ async function upsertProperty(
 
   let buildingUuid = d.buildingId ? await resolveUuid('building', str(d.buildingId)) : null
   const client = await listingClientId(d.agencyId ?? d.clientId, uuid)
+  const storedUnit = await query<{ unit_number: string | null }>(
+    `SELECT unit_number FROM units WHERE id = $1::uuid`,
+    [uuid],
+  ).catch(() => [] as Array<{ unit_number: string | null }>)
+  const listingAddress = buildingAddressFromListing(str(d.address), [
+    storedUnit[0]?.unit_number,
+    str(d.unitNumber ?? d.title).slice(0, 40),
+  ])
 
   if (!buildingUuid) {
     // Create a lightweight building shell for orphan property creates
@@ -1042,7 +1072,7 @@ async function upsertProperty(
         buildingUuid,
         client,
         str(d.title, slug),
-        str(d.address, 'Address TBD'),
+        listingAddress || 'Address TBD',
         str(d.city, 'City'),
         'GP',
         str(d.suburb) || null,
@@ -1070,7 +1100,7 @@ async function upsertProperty(
        WHERE id = $1::uuid`,
       [
         buildingUuid,
-        str(d.address),
+        listingAddress,
         str(d.city),
         str(d.suburb),
         num(d.lat),
