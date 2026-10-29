@@ -323,7 +323,7 @@ export default function EscalationsPage() {
       />
       {!isApiEnabled ? <Card className="p-4 text-sm text-ink-600">Escalations need the live server and are not available in demo mode.</Card> : null}
       {error ? <Card className="p-4 text-sm text-rose-700">{error}</Card> : null}
-      <div className="flex flex-wrap gap-2 border-b border-primary-100">
+      <div className="flex flex-wrap gap-2 border-b border-primary-100" data-tip-target="escalation-tabs">
         {tabs.map((t) => (
           <button
             key={t.id}
