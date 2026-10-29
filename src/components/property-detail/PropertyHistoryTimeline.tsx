@@ -1,4 +1,5 @@
 import { ArrowRight, Download } from 'lucide-react'
+import { dedupePropertyEvents } from '../../lib/history/dedupeEvents'
 import type { PropertyEvent } from '../../types/domain'
 import { Badge, Button, Card } from '../ui'
 import { ICON_STROKE } from './types'
@@ -24,7 +25,7 @@ function formatWhen(iso: string) {
 
 /** P1-7: exportable audit history — "prove this let" for demos and audits. */
 function exportHistoryCsv(events: PropertyEvent[], propertyTitle: string): void {
-  const sorted = [...events].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
+  const sorted = dedupePropertyEvents(events)
   const esc = (v: string) => `"${v.replace(/"/g, '""')}"`
   const rows: string[] = [
     ['timestamp', 'actor', 'action', 'field', 'from', 'to'].join(','),
@@ -57,7 +58,7 @@ export function PropertyHistoryTimeline({
   events: PropertyEvent[]
   propertyTitle?: string
 }) {
-  const sorted = [...events].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))
+  const sorted = dedupePropertyEvents(events).sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))
 
   return (
     <Card className="p-5 sm:p-6">

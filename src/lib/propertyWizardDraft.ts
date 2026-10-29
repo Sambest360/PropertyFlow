@@ -231,7 +231,8 @@ export function draftFromProperty(
     propertyType: property.type,
     buildingName: building?.name ?? '',
     existingBuildingId: property.buildingId ?? '',
-    address: property.address,
+    // The listing address carries a ", <unit>" suffix; edit the building's own address.
+    address: building?.addressLine1 || property.address,
     suburb: property.suburb,
     city: property.city,
     province: building?.province ?? 'Eastern Cape',
