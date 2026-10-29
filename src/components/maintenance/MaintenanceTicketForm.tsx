@@ -71,6 +71,7 @@ export function MaintenanceTicketForm({
   agencyId,
   initialPropertyId,
   initialContractorId,
+  canAddToRoster = false,
   lockProperty,
   ticket,
   formId,
@@ -87,6 +88,8 @@ export function MaintenanceTicketForm({
   initialPropertyId?: string
   /** Pre-select a contractor (e.g. from a booking). */
   initialContractorId?: string
+  /** Offer verified contractors who are not on the roster yet (added on save). */
+  canAddToRoster?: boolean
   lockProperty?: boolean
   ticket?: MaintenanceTicket
   formId: string
@@ -333,18 +336,22 @@ export function MaintenanceTicketForm({
         </Select>
       </label>
 
-      <label className="block text-sm font-medium text-ink">
-        Contractor (optional)
-        <div className="mt-1.5">
+      <div className="rounded-xl border border-primary-100 bg-primary-50/40 p-4 text-sm sm:col-span-2">
+        <p className="font-medium text-ink">Assign a contractor</p>
+        <p className="mt-0.5 text-xs text-ink-500">
+          They are notified straight away and the job appears in their portal. You can also leave it and assign later.
+        </p>
+        <div className="mt-2">
           <ContractorPicker
-            agencyId={agencyId}
+            agencyId={selected?.agencyId ?? agencyId}
             categoryKey={category}
             value={contractorId}
             onChange={setContractorId}
-            placeholder="Assign later…"
+            placeholder="Assign later"
+            includeOthers={canAddToRoster}
           />
         </div>
-      </label>
+      </div>
 
       <label className="block text-sm font-medium text-ink">
         Estimated cost (ZAR)
