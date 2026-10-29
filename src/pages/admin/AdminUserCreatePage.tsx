@@ -915,7 +915,7 @@ export default function AdminUserCreatePage() {
                   </RoleGroup>
                 ) : null}
 
-                {role !== 'super_admin' ? (
+                {role !== 'super_admin' && lockAgency ? null : role !== 'super_admin' ? (
                   <Field label="Agency" htmlFor="user-agency">
                     <Select
                       id="user-agency"
