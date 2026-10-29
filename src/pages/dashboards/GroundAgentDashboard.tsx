@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react'
 import { CalendarDays, ClipboardList, FileCheck2, Wrench } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
 import { useAuth, usePropertyScope } from '../../context/AuthContext'
-import { useSeenOpsItems } from '../../hooks/useSeenOpsItems'
+import { opsSignature, useSeenOpsItems } from '../../hooks/useSeenOpsItems'
 import { Button, priorityTone, statusTone } from '../../components/ui'
 import { OpsPreviewModal, type PreviewTarget } from '../../components/admin/OpsPreviewModal'
 import { maintenanceCreateHref } from '../maintenance/MaintenanceCreatePage'
@@ -235,7 +235,7 @@ export function GroundAgentDashboard() {
   }, [opsItems, selectedKey])
 
   const openPreview = (item: AgentOpsItem) => {
-    markSeen(listKey(item.kind, item.id))
+    markSeen(listKey(item.kind, item.id), opsSignature(item))
     setSelectedKey(listKey(item.kind, item.id))
     const prop = state.properties.find((p) => p.id === item.propertyId)
     if (item.kind === 'ticket') {
@@ -420,20 +420,24 @@ export function GroundAgentDashboard() {
           ? ClipboardList
           : CalendarDays
 
-  const listItems = useMemo(
-    () =>
-      opsItems.map((item) => {
-        const id = listKey(item.kind, item.id)
-        return {
-          ...agentToListItem(
-            item,
-            item.kind === 'viewing' ? [{ id: user.id, name: user.name }] : [],
-          ),
-          unread: !isSeen(id),
-        }
-      }),
-    [opsItems, user.id, user.name, isSeen],
-  )
+  // Opened, unchanged items leave the overview; they come back when something changes.
+  const [showHandled, setShowHandled] = useState(false)
+  const hidesHandled = tab === 'overview' && listFilter === 'all' && !query.trim()
+  const { listItems, handledCount } = useMemo(() => {
+    const all = opsItems.map((item) => {
+      const id = listKey(item.kind, item.id)
+      return {
+        ...agentToListItem(
+          item,
+          item.kind === 'viewing' ? [{ id: user.id, name: user.name }] : [],
+        ),
+        unread: !isSeen(id, opsSignature(item)),
+      }
+    })
+    if (!hidesHandled) return { listItems: all, handledCount: 0 }
+    const open = all.filter((i) => i.unread || i.id === selectedKey)
+    return { listItems: showHandled ? all : open, handledCount: all.length - open.length }
+  }, [opsItems, user.id, user.name, isSeen, hidesHandled, showHandled, selectedKey])
 
   return (
     <DashboardPage>
@@ -564,6 +568,15 @@ export function GroundAgentDashboard() {
                 }
                 showMoreLabel="Show more"
               />
+              {handledCount > 0 ? (
+              <button
+                type="button"
+                className="mt-2 w-full cursor-pointer text-center text-xs font-semibold text-ink-500 hover:text-primary"
+                onClick={() => setShowHandled((v) => !v)}
+              >
+                {showHandled ? 'Hide items you have already opened' : `Show ${handledCount} item${handledCount === 1 ? '' : 's'} you have already opened`}
+              </button>
+            ) : null}
             </div>
           </div>
         }
