@@ -1,4 +1,5 @@
 import { MIN_PASSWORD_LENGTH } from '../../lib/auth/passwordPolicy'
+import { PlacesAddressInput } from '../../components/PlacesAddressInput'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Building2, Check, HardHat, Home } from 'lucide-react'
@@ -600,13 +601,13 @@ export default function RegisterPage() {
               ) : null}
             </fieldset>
             <AuthField label="Service address" htmlFor="reg-service-address">
-              <Input
+              <PlacesAddressInput
                 id="reg-service-address"
                 className="min-h-11"
+                placeholder="Start typing your business address"
                 value={serviceAddress}
-                onChange={(e) => setServiceAddress(e.target.value)}
-                required
-                autoComplete="street-address"
+                onChange={setServiceAddress}
+                onPlaceSelect={(place) => setServiceAddress(place.formattedAddress || place.address)}
               />
             </AuthField>
             <AuthField
