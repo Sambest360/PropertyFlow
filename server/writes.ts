@@ -734,15 +734,19 @@ async function upsertUserWithResult(
   const hasCredential = ['passwordHash', 'tempPassword', 'password'].some(
     (k) => typeof input[k] === 'string' && input[k] !== '',
   )
-  if (!hasCredential) {
-    const existingRow = await query<{ ok: number }>(`SELECT 1 AS ok FROM users WHERE id = $1::uuid`, [uuid])
-    if (existingRow.length === 0) {
-      const { generateTempPassword } = await import('./tempPassword.js')
-      generatedTempPassword = generateTempPassword()
-      d = { ...input, tempPassword: generatedTempPassword }
-    }
+  const existed = (await query<{ ok: number }>(`SELECT 1 AS ok FROM users WHERE id = $1::uuid`, [uuid])).length > 0
+  if (!hasCredential && !existed) {
+    const { generateTempPassword } = await import('./tempPassword.js')
+    generatedTempPassword = generateTempPassword()
+    d = { ...input, tempPassword: generatedTempPassword }
   }
   const resultUuid = await upsertUser(feId, uuid, d)
+  if (!existed && typeof input.email === 'string' && input.email.includes('@') && !input.email.endsWith('@propertyflow.local')) {
+    // New account made by staff: email a link to choose a password (never the password).
+    void import('./accountEmails.js')
+      .then(({ sendAccountSetupEmail }) => sendAccountSetupEmail(resultUuid))
+      .catch((err) => console.warn('[account-setup email] failed:', err instanceof Error ? err.message : err))
+  }
   return generatedTempPassword ? { uuid: resultUuid, generatedTempPassword } : { uuid: resultUuid }
 }
 

@@ -146,6 +146,7 @@ function dtoToAppUser(dto: AuthUserDto): AppUser {
     idNumberOrPassport: dto.idNumberOrPassport,
     verification: dto.verification,
     mustChangePassword: dto.mustChangePassword === true ? true : undefined,
+    emailVerified: dto.emailVerified === false ? false : undefined,
   }
 }
 
@@ -189,6 +190,8 @@ type AuthContextValue = {
   mustChangePassword: boolean
   /** D3: call after a successful change-password; loads the workspace. */
   completePasswordChange: (user?: AuthUserDto) => void
+  /** False while the signed-in account has not confirmed its email address. */
+  emailVerified: boolean
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -656,6 +659,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       roleLabel: isAuthenticated ? roleLabels[user.role] : 'Guest',
       roleBlurb: isAuthenticated ? roleBlurbs[user.role] : 'Sign in to manage properties',
       mustChangePassword,
+      emailVerified: sessionUser?.emailVerified !== false,
       completePasswordChange: (confirmedUser?: AuthUserDto) => {
         sessionProbeGenRef.current += 1
         setMustChangePassword(confirmedUser?.mustChangePassword === true ? true : false)
@@ -695,6 +699,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshBootstrap,
     releaseLoginHold,
     mustChangePassword,
+    sessionUser?.emailVerified,
   ])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

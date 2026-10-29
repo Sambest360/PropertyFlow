@@ -70,8 +70,8 @@ import {
   sendLeaseEndReminder,
   isEmailLeaseReminderEnabled,
   sendVerificationDecision,
-  sendWelcomeEmail,
 } from './mailtrap.js'
+import { registerEmailRoutes } from './emailRoutes.js'
 import { ensureUuid, resolveFrontendId, resolveUuid } from './entityMap.js'
 import { isAgencyWideRole } from '../src/lib/scope.js'
 import type { Role } from '../src/types/domain.js'
@@ -431,6 +431,10 @@ app.post('/api/auth/register', async (c) => {
       documents: body.documents,
     })
     const token = issueSession(c, result.user)
+    // Welcome email + confirm-your-email link; registration never waits on email.
+    void import('./accountEmails.js')
+      .then(({ sendSignupEmails }) => sendSignupEmails(result.user.id))
+      .catch((err) => console.warn('[signup emails] failed:', err instanceof Error ? err.message : err))
     return c.json(
       {
         ok: true,
@@ -635,6 +639,7 @@ app.post('/api/auth/change-password', async (c) => {
       newPassword: String(body.newPassword ?? ''),
     })
     clearAuthFailures(ip, email)
+    void import('./accountEmails.js').then(({ sendPasswordChangedEmail }) => sendPasswordChangedEmail(updated.id)).catch(() => {})
     // passwordChangedAt now revokes every older token, this one included:
     // reissue the caller's own session.
     const token = issueSession(c, updated)
@@ -680,6 +685,10 @@ app.post('/api/auth/reset-password', async (c) => {
       if (imp && imp.userId !== actor.frontendId) impersonatedUserId = imp.userId
     }
     const result = await resetUserPassword(actor, userId, { impersonatedUserId })
+    // Also email the person a link to choose their own password.
+    void import('./accountEmails.js')
+      .then(({ sendStaffResetEmail }) => sendStaffResetEmail(result.target.uuid, actor.name))
+      .catch(() => {})
     return c.json({ ok: true, userId: result.target.id, tempPassword: result.tempPassword })
   } catch (err) {
     const status = errStatus(err)
@@ -689,6 +698,8 @@ app.post('/api/auth/reset-password', async (c) => {
     return c.json({ error: 'reset_password_failed', message }, status)
   }
 })
+
+registerEmailRoutes(app)
 
 app.get('/api/bootstrap', async (c) => {
   if (!databaseConfigured) {
@@ -2220,6 +2231,8 @@ if (shouldListen) {
     console.log(`[propertyflow-api] listening on http://127.0.0.1:${PORT}`)
     console.log(`[propertyflow-api] DATABASE_URL host from env or default local trust auth`)
     serve({ fetch: app.fetch, port: PORT, hostname: '127.0.0.1' })
+    // Email new notifications every minute (people can switch this off in Settings).
+    void import('./notificationMailer.js').then(({ startNotificationMailer }) => startNotificationMailer())
     // Copy any inline or old-bucket listing photos onto this server's disk.
     void import('./photoStorage.js').then(({ moveOldPhotosToDisk }) => moveOldPhotosToDisk())
   })

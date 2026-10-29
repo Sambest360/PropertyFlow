@@ -1,5 +1,5 @@
 /**
- * Settings: your details, appearance, page tips, security and account links.
+ * Settings: your details, notifications, appearance, page tips, security and account links.
  * Every role has this page.
  */
 import { useEffect, useState } from 'react'
@@ -12,6 +12,7 @@ import { roleLabels } from '../../lib/permissions'
 import { arePageTipsDisabled, resetPageTipsForUser, setPageTipsPreference } from '../../lib/pageTips'
 import { Button, Card, Input, PageHeader } from '../../components/ui'
 import { sweetSuccess, sweetWarning } from '../../lib/sweetAlert'
+import { NotificationSettingsCard } from '../../components/notifications/NotificationSettingsCard'
 
 const ICON = 'h-5 w-5 text-primary'
 
@@ -52,7 +53,7 @@ export default function AccountSettingsPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Settings" subtitle="Your details, how Lekaya looks for you, and account security." />
+      <PageHeader title="Settings" subtitle="Your details, notifications, how Lekaya looks for you, and account security." />
 
       <Card className="space-y-4 p-5">
         <h2 className="inline-flex items-center gap-2 font-semibold text-ink">
@@ -81,6 +82,8 @@ export default function AccountSettingsPage() {
         </div>
         <Button onClick={() => void saveProfile()}>Save details</Button>
       </Card>
+
+      <NotificationSettingsCard />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="space-y-3 p-5">

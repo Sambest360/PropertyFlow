@@ -54,6 +54,8 @@ export type SessionUser = {
   verification?: VerificationMeta | null
   /** Set after a staff reset (temp password); cleared by change-password. */
   mustChangePassword?: boolean
+  /** False only for self-registered accounts that have not confirmed their email yet. */
+  emailVerified?: boolean
 }
 
 export type VerificationDocMeta = {
@@ -282,6 +284,7 @@ export async function rowToSession(row: UserRow): Promise<SessionUser> {
           : undefined,
     verification,
     mustChangePassword: meta.mustChangePassword === true,
+    emailVerified: meta.emailVerification !== 'pending',
   }
 }
 
@@ -545,6 +548,7 @@ function buildRegisterMetadata(
     frontend_id: feId,
     frontend_role: roleFe,
     mustChangePassword: false,
+    emailVerification: 'pending',
   }
   if (roleFe === 'landlord' || roleFe === 'contractor') {
     const docs = Array.isArray(input.documents) ? input.documents : []
@@ -702,6 +706,7 @@ export function sessionToPublic(user: SessionUser) {
     idNumberOrPassport: user.idNumberOrPassport,
     verification: user.verification ?? undefined,
     mustChangePassword: user.mustChangePassword === true,
+    emailVerified: user.emailVerified !== false,
   }
 }
 

@@ -30,6 +30,9 @@ const SavedPage = lazy(() => import('./pages/market/SavedPage'))
 const ListingDetail = lazy(() => import('./pages/market/ListingDetail'))
 const CalculatorsPage = lazy(() => import('./pages/market/CalculatorsPage'))
 const LoginPage = lazy(() => import('./pages/auth/LoginPage'))
+const ForgotPasswordPage = lazy(() => import('./pages/auth/ForgotPasswordPage'))
+const SetPasswordPage = lazy(() => import('./pages/auth/SetPasswordPage'))
+const VerifyEmailPage = lazy(() => import('./pages/auth/VerifyEmailPage'))
 const RegisterPage = lazy(() => import('./pages/auth/RegisterPage'))
 const PayfastResultPage = lazy(() => import('./pages/payfast/PayfastResultPage'))
 
@@ -77,6 +80,7 @@ const AdminUserDetailPage = lazy(() => import('./pages/admin/AdminUserDetailPage
 const AdminUserCreatePage = lazy(() => import('./pages/admin/AdminUserCreatePage'))
 const AdminAgenciesPage = lazy(() => import('./pages/admin/AdminAgenciesPage'))
 const AdminStoragePage = lazy(() => import('./pages/admin/AdminStoragePage'))
+const AdminEmailsPage = lazy(() => import('./pages/admin/AdminEmailsPage'))
 const EscalationsPage = lazy(() => import('./pages/EscalationsPage'))
 const ReviewModerationPage = lazy(() => import('./pages/admin/ReviewModerationPage'))
 const ConductPage = lazy(() => import('./pages/ConductPage'))
@@ -189,6 +193,11 @@ export default function App() {
                   </Suspense>
                 }
               />
+
+              <Route path="forgot-password" element={<Suspense fallback={<PageFallback />}><ForgotPasswordPage /></Suspense>} />
+              <Route path="reset-password" element={<Suspense fallback={<PageFallback />}><SetPasswordPage mode="reset" /></Suspense>} />
+              <Route path="set-password" element={<Suspense fallback={<PageFallback />}><SetPasswordPage mode="setup" /></Suspense>} />
+              <Route path="verify-email" element={<Suspense fallback={<PageFallback />}><VerifyEmailPage /></Suspense>} />
 
               <Route path="payfast/return" element={<Suspense fallback={<PageFallback />}><PayfastResultPage /></Suspense>} />
               <Route path="payfast/cancel" element={<Suspense fallback={<PageFallback />}><PayfastResultPage cancelled /></Suspense>} />
@@ -498,6 +507,7 @@ export default function App() {
                 />
                 <Route path="admin/agencies" element={<Guard permission="platform.manage"><AdminAgenciesPage /></Guard>} />
                 <Route path="admin/storage" element={<Guard permission="platform.manage"><AdminStoragePage /></Guard>} />
+                <Route path="admin/emails" element={<Guard permission="platform.manage"><AdminEmailsPage /></Guard>} />
                 <Route path="admin/reviews" element={<Guard anyOf={['platform.manage']}><ReviewModerationPage /></Guard>} />
                 <Route path="admin/agencies/new" element={<Guard permission="platform.manage"><AdminAgencyCreatePage /></Guard>} />
                 <Route
