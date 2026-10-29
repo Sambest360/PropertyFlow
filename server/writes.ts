@@ -450,8 +450,11 @@ async function requireAgentId(fe: unknown): Promise<string | null> {
     if (live[0]?.id) return uuid
     // Orphan map row (no users row) — fall through to metadata repair.
   }
+  // A users.id uuid sent as-is (users without an entity map row are shown by uuid).
   const rows = await query<{ id: string }>(
-    `SELECT id::text AS id FROM users WHERE metadata->>'frontend_id' = $1 LIMIT 1`,
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(feStr)
+      ? `SELECT id::text AS id FROM users WHERE id = $1::uuid OR metadata->>'frontend_id' = $1 LIMIT 1`
+      : `SELECT id::text AS id FROM users WHERE metadata->>'frontend_id' = $1 LIMIT 1`,
     [feStr],
   )
   const hit = rows[0]?.id

@@ -17,6 +17,7 @@ import { useStore } from '../../context/AppStore'
 import { ActionButtonRow } from '../ActionButtonRow'
 import { Badge, Button, cn } from '../ui'
 import { AgentAssigneeText } from '../detail/FlatFields'
+import { QuickAssignAgent, useCanAssignAgents } from './QuickAssignAgent'
 import { formatZAR } from '../../data/seed'
 import { appendAgentMetaRow } from '../../lib/agentDisplay'
 import { useAgentDisplay, useHideAgentColumn } from '../../hooks/useAgentDisplay'
@@ -352,6 +353,7 @@ export function PropertyListView({
   rowLinksToDetail?: boolean
 }) {
   const hideAgentColumn = useHideAgentColumn()
+  const canAssign = useCanAssignAgents()
   const colSpan = (hideAgentColumn ? 5 : 6) - (rowLinksToDetail ? 1 : 0)
   const toggle = (item: PortfolioProperty) => onToggle?.(item)
   const detailHref = (item: PortfolioProperty) =>
@@ -480,6 +482,9 @@ export function PropertyListView({
                       </td>
                       {!hideAgentColumn ? (
                         <td className="px-4 py-3">
+                          {!p.agentId && canAssign ? (
+                            <QuickAssignAgent property={p} />
+                          ) : (
                           <RowCellAction
                             linkTo={linkTo}
                             onClick={() => toggle(item)}
@@ -491,6 +496,7 @@ export function PropertyListView({
                               className="font-medium text-ink-600"
                             />
                           </RowCellAction>
+                          )}
                         </td>
                       ) : null}
                     </tr>
@@ -600,6 +606,11 @@ export function PropertyListView({
                   ) : null}
                 </div>
               </RowCellAction>
+              {!hideAgentColumn && !p.agentId && canAssign ? (
+                <div className="px-4 pb-3">
+                  <QuickAssignAgent property={p} />
+                </div>
+              ) : null}
               {!rowLinksToDetail && !segment ? (
               <div
                 className={cn(
