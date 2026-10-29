@@ -467,7 +467,7 @@ export default function PropertyDetail() {
         />
       )}
 
-      <div className="sticky top-0 z-20 -mx-1 mb-5 bg-white/95 px-1 backdrop-blur-md">
+      <div className="sticky top-0 z-20 -mx-1 mb-5 bg-white/95 px-1 backdrop-blur-md" data-tip-target="property-tabs">
         <DashboardTabs tabs={tabs} value={tab} onChange={setTab} />
       </div>
 

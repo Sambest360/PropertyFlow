@@ -26,6 +26,7 @@ export function usePageTour(): {
   isFirst: boolean
   isLast: boolean
   next: () => void
+  back: () => void
   skipAll: () => void
   disableAllTips: () => void
 } {
@@ -99,6 +100,10 @@ export function usePageTour(): {
     setStepIndex((i) => i + 1)
   }, [activeTour, stepIndex, finish])
 
+  const back = useCallback(() => {
+    setStepIndex((i) => Math.max(0, i - 1))
+  }, [])
+
   const skipAll = useCallback(() => {
     finish()
   }, [finish])
@@ -120,6 +125,7 @@ export function usePageTour(): {
     isFirst,
     isLast,
     next,
+    back,
     skipAll,
     disableAllTips,
   }

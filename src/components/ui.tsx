@@ -39,9 +39,9 @@ export function PageHeader({
       </div>
       {actions ? (
         <>
-          <ActionButtonRow className={cn(collapseMobile && 'hidden sm:flex', 'sm:w-auto')}>
-            {actionItems}
-          </ActionButtonRow>
+          <div data-tip-target="page-actions" className={cn(collapseMobile && 'hidden sm:block')}>
+            <ActionButtonRow className="sm:w-auto">{actionItems}</ActionButtonRow>
+          </div>
           {collapseMobile ? (
             <div className="relative sm:hidden">
               <ActionButtonRow>

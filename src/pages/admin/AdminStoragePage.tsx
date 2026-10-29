@@ -218,7 +218,7 @@ export default function AdminStoragePage() {
         <Card className="border-rose-200 p-4 text-sm text-rose-700">{error}</Card>
       ) : null}
       {summary ? (
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-3" data-tip-target="storage-summary">
           <Card className="p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">Total used</p>
             <p className="mt-1 inline-flex items-center gap-2 text-xl font-semibold text-ink-900">
@@ -236,7 +236,7 @@ export default function AdminStoragePage() {
         </div>
       ) : null}
       {loading && !rows ? <p className="text-sm text-ink-500">Measuring storage…</p> : null}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2" data-tip-target="storage-agencies">
         {sorted.map((r) => (
           <AgencyStorageCard key={r.clientId} row={r} onSaved={() => void load()} />
         ))}

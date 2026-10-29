@@ -115,6 +115,7 @@ export function PropertyDetailHeader({
           </p>
         </div>
 
+        <div data-tip-target="page-actions">
         <ActionButtonRow className="sm:w-auto">
             {canManage && showMakeLive ? (
               <Button
@@ -183,6 +184,7 @@ export function PropertyDetailHeader({
             ) : null}
             <BackButton to={backTo} label={backLabel} />
         </ActionButtonRow>
+        </div>
       </div>
 
       {deleted ? (

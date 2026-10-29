@@ -89,7 +89,8 @@ describe('resolvePageTour', () => {
     expect(resolvePageTour('/workspace/admin/all-users', 'super_admin')?.id).toBe(
       'tour-admin-all-users',
     )
-    expect(resolvePageTour('/workspace', 'super_admin')).toBeNull()
+    expect(resolvePageTour('/workspace', 'super_admin')?.id).toBe('tour-workspace-home-super')
+    expect(resolvePageTour('/workspace/admin/storage', 'super_admin')?.id).toBe('tour-admin-storage')
 
     expect(resolvePageTour('/workspace/portals/tenant', 'tenant')?.id).toBe(
       'tour-portal-tenant-home',
@@ -122,8 +123,11 @@ describe('resolvePageTour', () => {
     ).toBeNull()
   })
 
-  it('shows nothing on record pages', () => {
-    expect(resolvePageTour('/workspace/properties/p-1', 'agent_admin')).toBeNull()
+  it('gives the property page its own tour', () => {
+    expect(resolvePageTour('/workspace/properties/p-1', 'agent_admin')?.id).toBe('tour-property-detail')
+  })
+
+  it('shows nothing on other record pages', () => {
     expect(resolvePageTour('/workspace/properties/p-1/edit', 'agent_admin')).toBeNull()
     expect(resolvePageTour('/listing/abc', null)).toBeNull()
     expect(resolvePageTour('/workspace/sales/crm/lead-1', 'agent_admin')).toBeNull()
@@ -165,22 +169,22 @@ describe('page tip preferences', () => {
     expect(hasPageTipsPreference('u-test')).toBe(false)
   })
 
-  it('ensurePageTipsPreferenceForFirstVisit records opt-out when a tour exists (FW-05)', () => {
+  it('ensurePageTipsPreferenceForFirstVisit turns tips on when a tour exists', () => {
     const tour = resolvePageTour('/workspace/portals/tenant', 'tenant')
     expect(tour).not.toBeNull()
     ensurePageTipsPreferenceForFirstVisit('u-test', true)
     expect(hasPageTipsPreference('u-test')).toBe(true)
-    expect(arePageTipsDisabled('u-test')).toBe(true)
-  })
-
-  it('ensurePageTipsPreferenceForFirstVisit is idempotent', () => {
-    ensurePageTipsPreferenceForFirstVisit('u-test', true)
-    setPageTipsPreference('u-test', false)
-    ensurePageTipsPreferenceForFirstVisit('u-test', true)
     expect(arePageTipsDisabled('u-test')).toBe(false)
   })
 
-  it('tenant portal first visit records opt-out so revisits do not re-prompt (FW-27 P13)', () => {
+  it('ensurePageTipsPreferenceForFirstVisit keeps a user who turned tips off', () => {
+    ensurePageTipsPreferenceForFirstVisit('u-test', true)
+    setPageTipsPreference('u-test', true)
+    ensurePageTipsPreferenceForFirstVisit('u-test', true)
+    expect(arePageTipsDisabled('u-test')).toBe(true)
+  })
+
+  it('tenant portal first visit records tips on, and revisits keep that decision (FW-27 P13)', () => {
     const path = '/workspace/portals/tenant'
     const tour = resolvePageTour(path, 'tenant')
     expect(tour).not.toBeNull()
@@ -188,11 +192,11 @@ describe('page tip preferences', () => {
 
     ensurePageTipsPreferenceForFirstVisit('u-test', Boolean(tour))
     expect(hasPageTipsPreference('u-test')).toBe(true)
-    expect(arePageTipsDisabled('u-test')).toBe(true)
+    expect(arePageTipsDisabled('u-test')).toBe(false)
 
     // Simulate navigate away and back — preference must stay decided.
     ensurePageTipsPreferenceForFirstVisit('u-test', Boolean(resolvePageTour(path, 'tenant')))
-    expect(arePageTipsDisabled('u-test')).toBe(true)
+    expect(arePageTipsDisabled('u-test')).toBe(false)
   })
 })
 

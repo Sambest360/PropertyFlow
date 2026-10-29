@@ -125,6 +125,7 @@ function NavItemLink({
     <Link
       ref={itemRef}
       to={item.to}
+      data-tip-nav={item.to}
       onClick={onNavigate}
       onMouseEnter={() => prefetchWorkspaceRoute(item.to)}
       onFocus={() => prefetchWorkspaceRoute(item.to)}

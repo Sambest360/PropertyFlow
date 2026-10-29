@@ -10,9 +10,34 @@ export type PageTipContent = {
 export type PageTourStep = {
   title: string
   body: string
-  /** CSS selector for spotlight + anchor; omit for centered welcome step */
+  /** Short extra points shown under the body. */
+  bullets?: string[]
+  /**
+   * CSS selector for the highlighted element; omit for a centred step.
+   * Several selectors joined with " || " are tried in order (most specific first).
+   */
   target?: string
   placement?: 'center' | 'above' | 'below'
+  /** Shows a "New" badge — for recently added features. */
+  isNew?: boolean
+}
+
+/** First visible element for a step target ("a || b" tries a, then b). */
+export function findTipTarget(target: string | undefined): Element | null {
+  if (!target || typeof document === 'undefined') return null
+  for (const sel of target.split('||').map((t) => t.trim()).filter(Boolean)) {
+    let nodes: NodeListOf<Element>
+    try {
+      nodes = document.querySelectorAll(sel)
+    } catch {
+      continue
+    }
+    for (const el of Array.from(nodes)) {
+      const r = el.getBoundingClientRect()
+      if (r.width >= 2 && r.height >= 2) return el
+    }
+  }
+  return null
 }
 
 export type PageTour = {
@@ -169,8 +194,65 @@ const WALKTHROUGH_RULES: Array<{
         {
           title: 'Quick search',
           body: 'Use spotlight search to jump to a property, lead, tenant, or page anywhere in the workspace.',
+          bullets: ['Type a street, tenant name or reference number', 'Switch between this agency and Global results'],
           target: '[data-tip-target="workspace-search"]',
           placement: 'below',
+        },
+        {
+          title: 'Properties',
+          body: 'Every building and unit you manage. Unassigned listings can be assigned to an agent straight from the list.',
+          target: '[data-tip-nav="/workspace/properties"] || [data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+        {
+          title: 'Escalations',
+          body: 'Faults and help-desk tickets that waited too long move up automatically: first to the agent, then the agency admin, then the platform team. Upcoming yearly rent increases are listed here too.',
+          bullets: ['Acknowledge or resolve an escalation from its card', 'Agency admins set response and fix times under Rules'],
+          target: '[data-tip-nav="/workspace/operations/escalations"] || [data-tip-target="workspace-nav"]',
+          placement: 'below',
+          isNew: true,
+        },
+        {
+          title: 'Reports',
+          body: 'Owner statements, the rent roll and portfolio reports now live together under one Reports link.',
+          target: '[data-tip-nav="/workspace/insights/reports"] || [data-tip-target="workspace-nav"]',
+          placement: 'below',
+          isNew: true,
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace'),
+    roles: ['super_admin'],
+    tour: () => ({
+      id: 'tour-workspace-home-super',
+      steps: [
+        {
+          title: 'Platform overview',
+          body: 'You see every agency on Lekaya. Use the sidebar to manage agencies, users, storage and the help desk.',
+          placement: 'center',
+        },
+        {
+          title: 'Agencies',
+          body: 'Create agencies, switch modules on or off for each one, and open an agency to see its team and listings.',
+          target: '[data-tip-nav="/workspace/admin/agencies"] || [data-tip-target="workspace-nav"]',
+          placement: 'below',
+        },
+        {
+          title: 'Storage',
+          body: 'See how much space each agency uses, give each one an allowance, and get a notification when an agency nears or passes it.',
+          bullets: ['Use +1 GB / -1 GB for quick changes', 'Set the warning level per agency (80% by default)'],
+          target: '[data-tip-nav="/workspace/admin/storage"] || [data-tip-target="workspace-nav"]',
+          placement: 'below',
+          isNew: true,
+        },
+        {
+          title: 'Escalations',
+          body: 'Faults and tickets that sat too long at any agency reach you here at the last level.',
+          target: '[data-tip-nav="/workspace/operations/escalations"] || [data-tip-target="workspace-nav"]',
+          placement: 'below',
+          isNew: true,
         },
       ],
     }),
@@ -227,7 +309,7 @@ const WALKTHROUGH_RULES: Array<{
         {
           title: 'Page tools',
           body: 'Use the header actions to add a property or open the archive when your role allows it.',
-          target: '[data-tip-target="page-header"]',
+          target: '[data-tip-target="page-actions"] || [data-tip-target="page-header"]',
           placement: 'below',
         },
         {
@@ -253,7 +335,7 @@ const WALKTHROUGH_RULES: Array<{
         {
           title: 'Schedule tools',
           body: 'Create a viewing from the header, then pick a day to scan the agenda by time.',
-          target: '[data-tip-target="page-header"]',
+          target: '[data-tip-target="page-actions"] || [data-tip-target="page-header"]',
           placement: 'below',
         },
         {
@@ -279,7 +361,7 @@ const WALKTHROUGH_RULES: Array<{
         {
           title: 'Pipeline tools',
           body: 'Filter, sort, or create a walk-in lead from the page header.',
-          target: '[data-tip-target="page-header"]',
+          target: '[data-tip-target="page-actions"] || [data-tip-target="page-header"]',
           placement: 'below',
         },
         {
@@ -305,7 +387,7 @@ const WALKTHROUGH_RULES: Array<{
         {
           title: 'Applicant list',
           body: 'Use filters in the header area to narrow by stage or property before opening a record.',
-          target: '[data-tip-target="page-header"]',
+          target: '[data-tip-target="page-actions"] || [data-tip-target="page-header"]',
           placement: 'below',
         },
         {
@@ -325,19 +407,99 @@ const WALKTHROUGH_RULES: Array<{
       steps: [
         {
           title: 'Maintenance queue',
-          body: 'Filter by priority or status to triage open tickets. Assign a contractor and track photos until the job is complete.',
+          body: 'Every fault reported by tenants, landlords and staff. Filter by priority or status to see what needs you first.',
+          bullets: ['Emergency and Urgent faults sit at the top', 'Open a fault to assign a contractor, add photos and close it'],
           placement: 'center',
         },
         {
-          title: 'Ticket tools',
-          body: 'Create a ticket or switch views from the page header.',
-          target: '[data-tip-target="page-header"]',
+          title: 'Log or switch views',
+          body: 'Log a new fault, or switch between the board and list views.',
+          target: '[data-tip-target="page-actions"] || [data-tip-target="page-header"]',
           placement: 'below',
         },
         {
-          title: 'Sidebar',
-          body: 'Payments, documents, and messages live under Operations when your role includes them.',
-          target: '[data-tip-target="workspace-nav"]',
+          title: 'Faults escalate on their own',
+          body: 'If nobody responds in time, the fault is escalated to the agency admin and then the platform team. You can also press Escalate on any open fault.',
+          target: '[data-tip-nav="/workspace/operations/escalations"] || [data-tip-target="workspace-nav"]',
+          placement: 'below',
+          isNew: true,
+        },
+      ]
+    }),
+  },
+  {
+    match: exact('/workspace/operations/escalations'),
+    tour: () => ({
+      id: 'tour-ops-escalations',
+      steps: [
+        {
+          title: 'Escalations',
+          body: 'Anything that waited too long lands here, highest level first. Level 1 goes to the agent and agency admin, level 2 to the agency admin again, level 3 to the platform team.',
+          placement: 'center',
+          isNew: true,
+        },
+        {
+          title: 'Issues, rent increases and rules',
+          body: 'Issues lists overdue faults and help-desk tickets. Rent increases shows each lease\u2019s next yearly increase. Rules sets the response and fix times per priority.',
+          bullets: ['Tenants, landlords and agents are told before a rent increase', 'Rent can be raised automatically on the date'],
+          target: '[data-tip-target="escalation-tabs"]',
+          placement: 'below',
+        },
+        {
+          title: 'Refresh',
+          body: 'Escalations are checked every hour. Refresh runs the check now.',
+          target: '[data-tip-target="page-actions"] || [data-tip-target="page-header"]',
+          placement: 'below',
+        },
+      ],
+    }),
+  },
+  {
+    match: exact('/workspace/admin/storage'),
+    roles: ['super_admin'],
+    tour: () => ({
+      id: 'tour-admin-storage',
+      steps: [
+        {
+          title: 'Storage per agency',
+          body: 'Total space used across the platform, and how many agencies are nearly full or over their allowance.',
+          target: '[data-tip-target="storage-summary"]',
+          placement: 'below',
+          isNew: true,
+        },
+        {
+          title: 'Set allowances',
+          body: 'Each card shows what the agency uses (photos and records). Change the allowance with +1 GB / -1 GB or type a size, and choose when you want to be warned.',
+          bullets: ['Leave the allowance empty for unlimited', 'You get a notification when an agency reaches the warning level, and daily while it is over'],
+          target: '[data-tip-target="storage-agencies"]',
+          placement: 'above',
+        },
+      ],
+    }),
+  },
+  {
+    match: detailSegment('/workspace/properties', 'id'),
+    roles: ['super_admin', 'client_admin', 'agent_admin', 'ground_agent', 'agent'],
+    tour: () => ({
+      id: 'tour-property-detail',
+      steps: [
+        {
+          title: 'Everything about this property',
+          body: 'Each tab covers one part of the property: its map and floor plan, applicants and viewings, maintenance, payments and documents.',
+          target: '[data-tip-target="property-tabs"]',
+          placement: 'below',
+        },
+        {
+          title: 'List it on property portals',
+          body: 'The Portals tab gives you a listing pack for Property24 and Private Property, a checklist of what is missing, and a way to mark where it is listed.',
+          target: '[data-tip-target="property-tabs"]',
+          placement: 'below',
+          isNew: true,
+        },
+        {
+          title: 'Edit or go back',
+          body: 'Edit the property, delete it, or return to all properties from here.',
+          target: '[data-tip-target="page-actions"] || [data-tip-target="page-header"]',
           placement: 'below',
         },
       ],
@@ -357,7 +519,7 @@ const WALKTHROUGH_RULES: Array<{
         {
           title: 'Payment tools',
           body: 'Filter the ledger and jump to overdue items from the page header.',
-          target: '[data-tip-target="page-header"]',
+          target: '[data-tip-target="page-actions"] || [data-tip-target="page-header"]',
           placement: 'below',
         },
         {
@@ -383,7 +545,7 @@ const WALKTHROUGH_RULES: Array<{
         {
           title: 'Library tools',
           body: 'Upload or filter documents from the page header.',
-          target: '[data-tip-target="page-header"]',
+          target: '[data-tip-target="page-actions"] || [data-tip-target="page-header"]',
           placement: 'below',
         },
         {
@@ -409,7 +571,7 @@ const WALKTHROUGH_RULES: Array<{
         {
           title: 'Compose tools',
           body: 'Start a message or pick a template from the page header.',
-          target: '[data-tip-target="page-header"]',
+          target: '[data-tip-target="page-actions"] || [data-tip-target="page-header"]',
           placement: 'below',
         },
         {
@@ -435,7 +597,7 @@ const WALKTHROUGH_RULES: Array<{
         {
           title: 'Trust overview',
           body: 'Use the header and cards to drill into cashbook, deposits, or arrears.',
-          target: '[data-tip-target="page-header"]',
+          target: '[data-tip-target="page-actions"] || [data-tip-target="page-header"]',
           placement: 'below',
         },
         {
@@ -461,7 +623,7 @@ const WALKTHROUGH_RULES: Array<{
         {
           title: 'Cashbook tools',
           body: 'Filter or export entries from the page header.',
-          target: '[data-tip-target="page-header"]',
+          target: '[data-tip-target="page-actions"] || [data-tip-target="page-header"]',
           placement: 'below',
         },
         {
@@ -539,7 +701,7 @@ const WALKTHROUGH_RULES: Array<{
         {
           title: 'Deposit tools',
           body: 'Filter deposits and open a row for full detail from this page.',
-          target: '[data-tip-target="page-header"]',
+          target: '[data-tip-target="page-actions"] || [data-tip-target="page-header"]',
           placement: 'below',
         },
         {
@@ -591,7 +753,7 @@ const WALKTHROUGH_RULES: Array<{
         {
           title: 'Compliance tools',
           body: 'Filter open items and drill into a property from the page header.',
-          target: '[data-tip-target="page-header"]',
+          target: '[data-tip-target="page-actions"] || [data-tip-target="page-header"]',
           placement: 'below',
         },
         {
@@ -617,7 +779,7 @@ const WALKTHROUGH_RULES: Array<{
         {
           title: 'Team tools',
           body: 'Invite or filter staff from the page header.',
-          target: '[data-tip-target="page-header"]',
+          target: '[data-tip-target="page-actions"] || [data-tip-target="page-header"]',
           placement: 'below',
         },
         {
@@ -643,7 +805,7 @@ const WALKTHROUGH_RULES: Array<{
         {
           title: 'Directory tools',
           body: 'Search and filter tenants from the page header.',
-          target: '[data-tip-target="page-header"]',
+          target: '[data-tip-target="page-actions"] || [data-tip-target="page-header"]',
           placement: 'below',
         },
         {
@@ -669,7 +831,7 @@ const WALKTHROUGH_RULES: Array<{
         {
           title: 'Lease tools',
           body: 'Filter by status or property from the page header.',
-          target: '[data-tip-target="page-header"]',
+          target: '[data-tip-target="page-actions"] || [data-tip-target="page-header"]',
           placement: 'below',
         },
         {
@@ -695,7 +857,7 @@ const WALKTHROUGH_RULES: Array<{
         {
           title: 'Landlord tools',
           body: 'Search or invite landlords from the page header.',
-          target: '[data-tip-target="page-header"]',
+          target: '[data-tip-target="page-actions"] || [data-tip-target="page-header"]',
           placement: 'below',
         },
         {
@@ -721,7 +883,7 @@ const WALKTHROUGH_RULES: Array<{
         {
           title: 'Contractor tools',
           body: 'Add or filter contractors from the page header.',
-          target: '[data-tip-target="page-header"]',
+          target: '[data-tip-target="page-actions"] || [data-tip-target="page-header"]',
           placement: 'below',
         },
         {
@@ -747,7 +909,7 @@ const WALKTHROUGH_RULES: Array<{
         {
           title: 'Config tools',
           body: 'Switch sections and save changes from the page header.',
-          target: '[data-tip-target="page-header"]',
+          target: '[data-tip-target="page-actions"] || [data-tip-target="page-header"]',
           placement: 'below',
         },
         {
@@ -773,7 +935,7 @@ const WALKTHROUGH_RULES: Array<{
         {
           title: 'Pipeline tools',
           body: 'Add or reorder stages from the page header.',
-          target: '[data-tip-target="page-header"]',
+          target: '[data-tip-target="page-actions"] || [data-tip-target="page-header"]',
           placement: 'below',
         },
         {
@@ -799,7 +961,7 @@ const WALKTHROUGH_RULES: Array<{
         {
           title: 'Broadcast tools',
           body: 'Compose and schedule broadcasts from the page header.',
-          target: '[data-tip-target="page-header"]',
+          target: '[data-tip-target="page-actions"] || [data-tip-target="page-header"]',
           placement: 'below',
         },
         {
@@ -852,7 +1014,7 @@ const WALKTHROUGH_RULES: Array<{
         {
           title: 'Agency tools',
           body: 'Onboard a new agency or search existing ones from the page header.',
-          target: '[data-tip-target="page-header"]',
+          target: '[data-tip-target="page-actions"] || [data-tip-target="page-header"]',
           placement: 'below',
         },
         {
@@ -878,7 +1040,7 @@ const WALKTHROUGH_RULES: Array<{
         {
           title: 'User directory',
           body: 'Search and filter accounts from the page header. Directory details stay on this page.',
-          target: '[data-tip-target="page-header"]',
+          target: '[data-tip-target="page-actions"] || [data-tip-target="page-header"]',
           placement: 'below',
         },
         {
@@ -1538,7 +1700,8 @@ export function resolvePageTip(pathname: string, role: Role | null): PageTipCont
 }
 
 const STORAGE_KEY = 'pf-page-tips-v2'
-const PREFS_KEY = 'pf-page-tips-prefs-v1'
+// v2: tips are on by default (v1 auto-recorded "off" for everyone on first visit).
+const PREFS_KEY = 'pf-page-tips-prefs-v2'
 const SESSION_COOLDOWN_KEY = 'pf-page-tips-cooldown'
 /** Minimum gap between walkthroughs in the same browser session. */
 export const TOUR_SESSION_COOLDOWN_MS = 20 * 60 * 1000
@@ -1719,8 +1882,8 @@ export function clearTourSessionCooldown(): void {
 }
 
 /**
- * Record a first-visit preference without the legacy blocking modal (FW-05 / E2E P13).
- * Tips stay off until the user opts in from Help or the role menu.
+ * Record a first-visit preference without a blocking modal (FW-05 / E2E P13).
+ * Tips are ON by default; the user can skip a tour or turn tips off from the tip itself.
  */
 export function ensurePageTipsPreferenceForFirstVisit(
   userId: string,
@@ -1731,7 +1894,7 @@ export function ensurePageTipsPreferenceForFirstVisit(
   // Runs during PageTipsPreferenceDialog's render: write now (the sibling
   // walkthrough reads storage as it renders) but notify subscribers after the
   // render — their setState inside another component's render is a React error.
-  writePageTipsPreference(userId, true)
+  writePageTipsPreference(userId, false)
   queueMicrotask(emitPageTipsChange)
 }
 
