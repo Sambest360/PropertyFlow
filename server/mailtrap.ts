@@ -1,121 +1,13 @@
 /**
- * Mailtrap transactional email (official `mailtrap` SDK).
+ * Business emails (enquiries, applications, payments, leases, dunning).
  *
- * Config pattern mirrors server/payfast.ts: env-driven config that resolves to
- * null when unset, so every send site degrades to a no-op in environments
- * without credentials instead of throwing at import time.
- *
- * Secrets come from env only (never hardcode): MAILTRAP_API_KEY.
- * Setup values: MAILTRAP_USE_SANDBOX, MAILTRAP_INBOX_ID, MAILTRAP_FROM_*.
- *
- * Check delivery at https://mailtrap.io/sending/email_logs
- * Docs: https://docs.mailtrap.io/
+ * Every email goes out through server/email/send.ts (Brevo API, SMTP relay,
+ * Mailtrap or log-only, chosen from the server .env) in the shared branded
+ * layout from server/email/layout.ts. The file keeps its old name so existing
+ * imports keep working.
  */
-import { MailtrapClient, type MailtrapClientConfig } from 'mailtrap'
-import nodemailer from 'nodemailer'
-
-/**
- * Two transports, selected by MAILTRAP_TRANSPORT:
- *  - 'smtp'  — classic SMTP credentials (host sandbox.smtp.mailtrap.io + user/pass)
- *  - 'api'   — Mailtrap Email API via the official SDK (MAILTRAP_API_KEY)
- * Defaults to whichever is configured; explicit MAILTRAP_TRANSPORT wins.
- */
-export type MailtrapTransport = 'smtp' | 'api'
-
-type SmtpCreds = { host: string; port: number; user: string; pass: string }
-type ApiCreds = { token: string; sandbox: boolean; testInboxId: number | null }
-
-export type MailtrapConfig = {
-  transport: MailtrapTransport
-  smtp: SmtpCreds | null
-  api: ApiCreds | null
-  fromEmail: string
-  fromName: string
-}
-
-function smtpCredsFromEnv(): SmtpCreds | null {
-  const user = process.env.MAILTRAP_SMTP_USER?.trim()
-  const pass = process.env.MAILTRAP_SMTP_PASS?.trim()
-  if (!user || !pass) return null
-  const port = Number(process.env.MAILTRAP_SMTP_PORT?.trim() || 587)
-  return {
-    host: process.env.MAILTRAP_SMTP_HOST?.trim() || 'sandbox.smtp.mailtrap.io',
-    port: Number.isFinite(port) ? port : 587,
-    user,
-    pass,
-  }
-}
-
-function apiCredsFromEnv(): ApiCreds | null {
-  const token = process.env.MAILTRAP_API_KEY?.trim()
-  if (!token) return null
-  const sandbox = (process.env.MAILTRAP_USE_SANDBOX ?? 'true').trim().toLowerCase() === 'true'
-  const rawInbox = process.env.MAILTRAP_INBOX_ID?.trim()
-  const testInboxId = sandbox && rawInbox ? Number(rawInbox) : null
-  return {
-    token,
-    sandbox,
-    testInboxId: testInboxId != null && Number.isFinite(testInboxId) ? testInboxId : null,
-  }
-}
-
-/** Resolves null when neither transport is configured — callers must no-op then. */
-export function mailtrapConfigFromEnv(): MailtrapConfig | null {
-  const smtp = smtpCredsFromEnv()
-  const api = apiCredsFromEnv()
-  if (!smtp && !api) return null
-  const requested = process.env.MAILTRAP_TRANSPORT?.trim().toLowerCase()
-  const transport: MailtrapTransport =
-    requested === 'smtp' || requested === 'api'
-      ? requested
-      : smtp
-        ? 'smtp'
-        : 'api'
-  return {
-    transport,
-    smtp,
-    api,
-    fromEmail: process.env.MAILTRAP_FROM_EMAIL?.trim() || 'hello@demomailtrap.co',
-    fromName: process.env.MAILTRAP_FROM_NAME?.trim() || 'Lekaya Rentals',
-  }
-}
-
-export function isMailtrapConfigured(): boolean {
-  return mailtrapConfigFromEnv() != null
-}
-
-let cachedApi: { client: MailtrapClient; key: string } | null = null
-let cachedSmtp: { transporter: ReturnType<typeof nodemailer.createTransport>; key: string } | null = null
-
-function getApiClient(config: MailtrapConfig): MailtrapClient {
-  const api = config.api
-  if (!api) throw new Error('API transport not configured')
-  const key = `${api.token}:${api.sandbox}:${api.testInboxId ?? ''}`
-  if (!cachedApi || cachedApi.key !== key) {
-    const opts: MailtrapClientConfig = { token: api.token, sandbox: api.sandbox }
-    if (api.testInboxId != null) opts.testInboxId = api.testInboxId
-    cachedApi = { client: new MailtrapClient(opts), key }
-  }
-  return cachedApi.client
-}
-
-function getSmtpTransporter(config: MailtrapConfig): ReturnType<typeof nodemailer.createTransport> {
-  const smtp = config.smtp
-  if (!smtp) throw new Error('SMTP transport not configured')
-  const key = `${smtp.host}:${smtp.port}:${smtp.user}`
-  if (!cachedSmtp || cachedSmtp.key !== key) {
-    cachedSmtp = {
-      key,
-      transporter: nodemailer.createTransport({
-        host: smtp.host,
-        port: smtp.port,
-        secure: smtp.port === 465,
-        auth: { user: smtp.user, pass: smtp.pass },
-      }),
-    }
-  }
-  return cachedSmtp.transporter
-}
+import { deliverEmail, emailProvider, redactEmailForLog as redact, type SendResult } from './email/send.js'
+import { layout, para, escapeHtml as esc } from './email/layout.js'
 
 export type MailtrapSendInput = {
   to: string
@@ -124,122 +16,42 @@ export type MailtrapSendInput = {
   text: string
   html?: string
   category?: string
+  userId?: string | null
 }
 
-export type MailtrapSendResult =
-  | { sent: true; messageId?: string }
-  | { sent: false; reason: string }
+export type MailtrapSendResult = SendResult
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+/** True when a real email provider is configured (not log-only). */
+export function isMailtrapConfigured(): boolean {
+  return emailProvider() !== 'log'
+}
 
-/**
- * Quiet send — resolves { sent: false } instead of throwing so email problems
- * never break the API route that triggered it. Await it when you need the
- * outcome, or `void sendMailtrapEmail(...)` for fire-and-forget.
- */
+/** Kept for scripts/sendTestEmail.ts: the provider in use, or null when log-only. */
+export function mailtrapConfigFromEnv(): { transport: string } | null {
+  const provider = emailProvider()
+  return provider === 'log' ? null : { transport: provider }
+}
+
+/** Quiet send — never throws; see server/email/send.ts. */
 export async function sendMailtrapEmail(input: MailtrapSendInput): Promise<MailtrapSendResult> {
-  const config = mailtrapConfigFromEnv()
-  if (!config) return { sent: false, reason: 'MAILTRAP_SMTP_USER/PASS or MAILTRAP_API_KEY not set' }
-  const to = input.to.trim()
-  if (!EMAIL_RE.test(to)) return { sent: false, reason: 'invalid recipient' }
-  if (config.transport === 'api' && config.api?.sandbox && config.api.testInboxId == null) {
-    return { sent: false, reason: 'API sandbox mode requires MAILTRAP_INBOX_ID' }
-  }
-
-  try {
-    let messageId: string | undefined
-    if (config.transport === 'smtp') {
-      const info = await getSmtpTransporter(config).sendMail({
-        from: `"${config.fromName}" <${config.fromEmail}>`,
-        to: input.toName ? `${input.toName} <${to}>` : to,
-        subject: input.subject,
-        text: input.text,
-        ...(input.html ? { html: input.html } : {}),
-        headers: input.category ? { 'X-Mailtrap-Category': input.category } : undefined,
-      })
-      messageId = info.messageId
-    } else {
-      const client = getApiClient(config)
-      const response = await client.send({
-        from: { email: config.fromEmail, name: config.fromName },
-        to: [{ email: to, ...(input.toName ? { name: input.toName } : {}) }],
-        subject: input.subject,
-        text: input.text,
-        ...(input.html ? { html: input.html } : {}),
-        ...(input.category ? { category: input.category } : {}),
-      })
-      messageId = (response as { message_ids?: string[] }).message_ids?.[0]
-    }
-    console.log(
-      `[mailtrap] sent (${config.transport}${config.transport === 'api' && config.api?.sandbox ? '/sandbox' : ''}) to ${redactEmailForLog(to)}${messageId ? ` msg=${messageId}` : ''}`,
-    )
-    return { sent: true, messageId }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    console.error('[mailtrap] send failed:', message.replace(/[^\s@]+@[^\s@]+\.[^\s@]+/g, '***@redacted'))
-    return { sent: false, reason: message }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Branded HTML shell + business emails
-// ---------------------------------------------------------------------------
-
-function publicAppUrlBase(): string {
-  return (process.env.PUBLIC_APP_URL || process.env.PAYFAST_PUBLIC_URL || '').replace(/\/+$/, '')
-}
-
-function emailHeaderLogoHtml(): string {
-  const base = publicAppUrlBase()
-  if (base) {
-    return `<img src="${base}/brand/lekaya-logo-mono-white-1024.png" alt="Lekaya Rentals" width="160" style="display:block;border:0;height:auto" />`
-  }
-  return '<span style="color:#ffffff;font-size:18px;font-weight:bold;">Lekaya Rentals</span>'
+  return deliverEmail(input)
 }
 
 function shell(title: string, bodyHtml: string): string {
-  return `<!doctype html>
-<html><body style="margin:0;padding:0;background:#f4f6fb;font-family:Arial,Helvetica,sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6fb;padding:24px 12px;">
-    <tr><td align="center">
-      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;">
-        <tr><td style="background:#1d4ed8;padding:18px 28px;">
-          ${emailHeaderLogoHtml()}
-        </td></tr>
-        <tr><td style="padding:28px;">
-          <h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;">${escapeHtml(title)}</h1>
-          ${bodyHtml}
-        </td></tr>
-        <tr><td style="padding:16px 28px;background:#f8fafc;color:#64748b;font-size:12px;">
-          Sent by Lekaya Rentals · This is an automated message.
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body></html>`
+  return layout(title, bodyHtml)
 }
 
 function p(text: string): string {
-  return `<p style="margin:0 0 12px;color:#334155;font-size:14px;line-height:1.6;">${text}</p>`
+  return para(text)
 }
 
 /** CR10 N8: HTML-escape user-supplied text for email bodies. */
 export function escapeHtml(v: string): string {
-  return v
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
+  return esc(v)
 }
 
 export function redactEmailForLog(email: string): string {
-  const at = email.indexOf('@')
-  if (at <= 0) return '***'
-  const local = email.slice(0, at)
-  const domain = email.slice(at + 1)
-  const head = local.length ? `${local[0]}***` : '***'
-  return `${head}@${domain}`
+  return redact(email)
 }
 
 export async function sendListingEnquiryConfirmation(input: {
@@ -354,27 +166,8 @@ export async function sendWelcomeEmail(input: {
   firstName: string
   role?: string
 }): Promise<MailtrapSendResult> {
-  const subject = 'Welcome to Lekaya Rentals 🏡'
-  const roleLine =
-    input.role === 'landlord'
-      ? 'Your documents are with our verification team — you will be notified once your account is approved and you can publish listings.'
-      : input.role === 'contractor'
-        ? 'Your documents are with our verification team — you will be notified once your account is approved and jobs can be assigned to you.'
-        : 'You can now browse listings, book viewings, and track applications from your dashboard.'
-  return sendMailtrapEmail({
-    to: input.email,
-    toName: input.firstName,
-    subject,
-    category: 'welcome',
-    text: `Hi ${input.firstName}, welcome to Lekaya Rentals! ${roleLine}`,
-    html: shell(
-      subject,
-      p(`Hi <strong>${escapeHtml(input.firstName)}</strong>,`) +
-        p('Welcome to <strong>Lekaya Rentals</strong> — your account has been created.') +
-        p(escapeHtml(roleLine)) +
-        p('Keep this email for your records — no reply is needed.'),
-    ),
-  })
+  const { sendTemplateEmail } = await import('./email/templates.js')
+  return sendTemplateEmail('welcome', { to: input.email, name: input.firstName, role: input.role })
 }
 
 /**

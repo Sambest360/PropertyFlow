@@ -538,6 +538,36 @@ export const PAGE_GUIDES: PageGuide[] = [
     list: 'Each invoice shows the month, amount and status.',
   },
 
+  {
+    id: 'guide-admin-emails',
+    match: exactPath('/workspace/admin/emails'),
+    roles: ['super_admin'],
+    title: 'Emails',
+    intro: 'Every email Lekaya sends, how each one looks, and what went out recently.',
+    bullets: [
+      'Account emails: welcome, confirm email, set your password, reset password',
+      'Every notification is also emailed unless the person switched it off',
+      'Nothing ever contains a password',
+    ],
+    extra: [
+      {
+        title: 'Is email switched on?',
+        body: 'This shows which email service is in use and the no-reply sender. If it says "Not sending", add the Brevo key to the server settings.',
+        target: '[data-tip-target="email-provider"]',
+        placement: 'below',
+      },
+      {
+        title: 'Preview and test',
+        body: 'Pick an email to see exactly how it looks, then send yourself a test copy.',
+        target: '[data-tip-target="email-templates"]',
+        placement: 'below',
+      },
+    ],
+    list: 'The last 100 emails and whether each was sent, failed or only recorded.',
+    nav: '/workspace/admin/emails',
+    isNew: true,
+  },
+
   // ——— Shared pages ———
   {
     id: 'guide-account-settings',
@@ -550,7 +580,15 @@ export const PAGE_GUIDES: PageGuide[] = [
       'Turn page tips on or off',
       'Change your password',
     ],
-    form: 'Change what you need and save.',
+    extra: [
+      {
+        title: 'Notifications',
+        body: 'Switch app alerts and emails on or off, or turn off single topics such as payments or viewings.',
+        target: '[data-tip-target="notification-settings"]',
+        placement: 'below',
+        isNew: true,
+      },
+    ],
     nav: '/workspace/account/settings',
   },
   {

@@ -33,6 +33,7 @@ import {
   Landmark,
   GitBranch,
   Bell,
+  Mail,
   MessageSquare,
   AlertTriangle,
   MessageCircle,
@@ -371,6 +372,12 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
             label: 'Notifications',
             anyOf: ['notifications.broadcast', 'platform.manage'],
             icon: Bell,
+          },
+          {
+            to: '/workspace/admin/emails',
+            label: 'Emails',
+            permission: 'platform.manage',
+            icon: Mail,
           },
           {
             to: '/workspace/admin/all-users',

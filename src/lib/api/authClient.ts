@@ -31,6 +31,8 @@ export type AuthUserDto = {
   verification?: UserVerification
   /** D3: set after a staff reset; the server allows only me / change-password / logout. */
   mustChangePassword?: boolean
+  /** False until a self-registered account confirms its email. */
+  emailVerified?: boolean
 }
 
 export type AuthResponse = {

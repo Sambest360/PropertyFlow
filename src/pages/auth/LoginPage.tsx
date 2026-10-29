@@ -170,6 +170,11 @@ export default function LoginPage() {
             required
           />
         </AuthField>
+        <div className="-mt-2 text-right">
+          <Link to="/forgot-password" className="text-sm font-semibold text-primary hover:underline">
+            Forgot password?
+          </Link>
+        </div>
         <Button type="submit" className="min-h-11 w-full cursor-pointer" disabled={busy}>
           {busy ? 'Signing in…' : 'Sign in'}
         </Button>

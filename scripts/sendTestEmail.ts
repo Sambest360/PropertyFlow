@@ -1,13 +1,10 @@
 /**
- * Send a test email through the configured Mailtrap transport.
+ * Send a test email through the configured provider (Brevo, SMTP or Mailtrap).
  *
- * Usage:
- *   npx tsx scripts/sendTestEmail.ts                    # to MAILTRAP_TEST_TO or the logged-in user's own address
- *   npx tsx scripts/sendTestEmail.ts someone@email.com  # explicit recipient
+ * Usage (on the server, from /var/www/propertyflow):
+ *   npx tsx scripts/sendTestEmail.ts someone@email.com
  *
- * Requires MAILTRAP_API_KEY in .env.local (see .env.example MAILTRAP_* block).
- * Sandbox mode also requires MAILTRAP_INBOX_ID.
- * Check delivery: https://mailtrap.io/sending/email_logs
+ * Provider settings live in .env — see the EMAIL block in .env.example.
  */
 import { config as loadEnv } from 'dotenv'
 import { resolve } from 'node:path'
@@ -15,41 +12,25 @@ import { resolve } from 'node:path'
 loadEnv({ path: resolve(process.cwd(), '.env.local') })
 loadEnv({ path: resolve(process.cwd(), '.env') })
 
-const to = process.argv[2]?.trim() || process.env.MAILTRAP_TEST_TO?.trim()
+const to = process.argv[2]?.trim() || process.env.EMAIL_TEST_TO?.trim()
 if (!to) {
-  console.error(
-    'Usage: npx tsx scripts/sendTestEmail.ts <recipient@email.com>\n' +
-      '(or set MAILTRAP_TEST_TO in .env.local)',
-  )
+  console.error('Usage: npx tsx scripts/sendTestEmail.ts <recipient@email.com>')
   process.exit(1)
 }
 
-const { sendMailtrapEmail, mailtrapConfigFromEnv } = await import('../server/mailtrap.js')
+const { emailProvider, emailSender } = await import('../server/email/send.js')
+const { sendTemplateEmail } = await import('../server/email/templates.js')
 
-const cfg = mailtrapConfigFromEnv()
-if (!cfg) {
-  console.error('No Mailtrap transport configured — set MAILTRAP_SMTP_USER/MAILTRAP_SMTP_PASS or MAILTRAP_API_KEY in .env.local (see .env.example).')
+const provider = emailProvider()
+if (provider === 'log') {
+  console.error('No email provider configured — set BREVO_API_KEY or SMTP_HOST/SMTP_USER/SMTP_PASS in .env.')
   process.exit(1)
 }
-const mode =
-  cfg.transport === 'smtp'
-    ? `SMTP ${cfg.smtp?.host}:${cfg.smtp?.port}`
-    : `API ${cfg.api?.sandbox ? `SANDBOX (inbox ${cfg.api?.testInboxId})` : 'LIVE'}`
-console.log(`transport: ${mode} · from ${cfg.fromEmail}`)
+console.log(`provider: ${provider} · from ${emailSender().email}`)
 
-const result = await sendMailtrapEmail({
-  to,
-  subject: 'Lekaya · Mailtrap integration test',
-  text: 'Congrats — Lekaya sent this test email through Mailtrap.',
-  html:
-    '<h2 style="font-family:Arial,sans-serif;">It works 🎉</h2>' +
-    '<p style="font-family:Arial,sans-serif;">Lekaya sent this test email through the Mailtrap API.</p>',
-  category: 'Integration Test',
-})
-
+const result = await sendTemplateEmail('test', { to, name: 'there' })
 if (result.sent) {
   console.log(`sent ✓  message id: ${result.messageId ?? 'n/a'}`)
-  console.log('Check delivery at https://mailtrap.io/sending/email_logs')
 } else {
   console.error(`failed ✗  ${result.reason}`)
   process.exit(1)

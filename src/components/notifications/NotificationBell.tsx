@@ -14,12 +14,15 @@ import { useStore } from '../../context/AppStore'
 import { formatRelativeTime } from '../../lib/suiteAlerts'
 import type { NotificationToast } from '../../lib/suiteAlerts'
 import { Button, cn } from '../ui'
+import { useNotificationPrefs } from '../../hooks/useNotificationPrefs'
+import { showsInApp } from '../../lib/notificationCategories'
 
 const ICON_STROKE = 1.6
 
 export function NotificationBell({ className }: { className?: string }) {
   const { user } = useAuth()
   const { state, markNotificationRead, markAllNotificationsRead } = useStore()
+  const { prefs } = useNotificationPrefs()
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
@@ -27,9 +30,9 @@ export function NotificationBell({ className }: { className?: string }) {
   const mine = useMemo(
     () =>
       state.notifications
-        .filter((n) => n.userId === user.id)
+        .filter((n) => n.userId === user.id && showsInApp(prefs, n.resource))
         .sort((a, b) => b.at.localeCompare(a.at)),
-    [state.notifications, user.id],
+    [state.notifications, user.id, prefs],
   )
   const unread = mine.filter((n) => !n.read).length
 
@@ -142,9 +145,14 @@ export function NotificationBell({ className }: { className?: string }) {
 /** Live event strip — distinct from centered Suite Alert (SweetAlert) dialogs. */
 export function NotificationToastHost() {
   const { user } = useAuth()
-  const { toasts, dismissToast, markNotificationRead } = useStore()
+  const { state, toasts, dismissToast, markNotificationRead } = useStore()
+  const { prefs } = useNotificationPrefs()
   const navigate = useNavigate()
-  const mine = toasts.filter((t) => t.userId === user.id)
+  const mine = toasts.filter((t) => {
+    if (t.userId !== user.id) return false
+    const source = state.notifications.find((n) => n.id === t.notificationId)
+    return showsInApp(prefs, source?.resource)
+  })
 
   return (
     <div

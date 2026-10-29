@@ -11,6 +11,7 @@ import { NotificationToastHost } from './notifications/NotificationBell'
 import { ImpersonationBanner } from './admin/ImpersonationBanner'
 import { OnboardingLayer } from './onboarding/OnboardingLayer'
 import { IdleSessionGuard } from './auth/IdleSessionGuard'
+import { EmailVerifyBanner } from './auth/EmailVerifyBanner'
 import { WorkspaceBottomNav } from './layout/mobile/WorkspaceBottomNav'
 import { useNavCollapsed } from '../hooks/useNavCollapsed'
 import { useScrollChrome } from '../hooks/useScrollChrome'
@@ -84,6 +85,7 @@ export function WorkspaceShell() {
             key={pathname}
             className={reducedMotion ? 'w-full' : 'w-full animate-workspace-page'}
           >
+            <EmailVerifyBanner />
             {/* Page chunks load inside the shell so the header and sidebar stay put. */}
             <Suspense fallback={<PageSkeleton variant={skeletonVariantForPath(pathname)} />}>
               <Outlet />

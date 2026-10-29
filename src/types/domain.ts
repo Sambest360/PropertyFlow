@@ -158,6 +158,8 @@ export type AppUser = {
   active: boolean
   /** Session-only: true when users.metadata.mustChangePassword is set (temp password). */
   mustChangePassword?: boolean
+  /** Session-only: false while a self-registered account has not confirmed its email. */
+  emailVerified?: boolean
   avatar?: string
   /**
    * When set, replaces the role’s default permission pack for this user
