@@ -1,4 +1,5 @@
 import type { Role } from '../types/domain'
+import { resolveGuideTour } from './pageTourCatalog'
 
 export type PageTipContent = {
   /** Stable id for per-user dismissal storage */
@@ -1255,11 +1256,13 @@ export function resolvePageTour(
   for (const rule of WALKTHROUGH_RULES) {
     if (!rule.match(normalized)) continue
     if (rule.roles && (!role || !rule.roles.includes(role))) continue
-    if (rule.requireTenantOccupancy && !options?.tenantOccupancyReady) continue
+    // Hidden from the tenant until the occupancy is approved: no tour either.
+    if (rule.requireTenantOccupancy && !options?.tenantOccupancyReady) return null
     return rule.tour(role)
   }
 
-  return null
+  // Every other signed-in page gets a guide (or a generic tour) for its role.
+  return resolveGuideTour(normalized, role)
 }
 
 type TipRule = {
