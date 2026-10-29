@@ -1120,11 +1120,15 @@ app.get('/api/trust/deposits/:id/inspection-deductions', async (c) => {
  */
 app.post('/api/photos', async (c) => {
   try {
-    await requireActor(c)
+    const actor = await requireActor(c)
     const body = (await c.req.json().catch(() => ({}))) as { dataUrl?: unknown }
     if (typeof body.dataUrl !== 'string') return c.json({ error: 'bad_request', message: 'dataUrl is required' }, 400)
     const { uploadPhotoDataUrl } = await import('./photoStorage.js')
-    return c.json({ url: await uploadPhotoDataUrl(body.dataUrl, 'listings') })
+    // Files go under agency/<client uuid>/ so the storage page can count them per agency.
+    const { clientUuidForAgency } = await import('./agencyStorage.js')
+    const clientUuid = await clientUuidForAgency(actor.agencyId).catch(() => null)
+    const folder = clientUuid ? `agency/${clientUuid}/listings` : 'listings'
+    return c.json({ url: await uploadPhotoDataUrl(body.dataUrl, folder) })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     const code = (err as { code?: string }).code ?? 'photo_upload_failed'
@@ -1156,6 +1160,52 @@ app.post('/api/admin/photo-migration', async (c) => {
     const message = err instanceof Error ? err.message : String(err)
     const code = (err as { code?: string }).code ?? 'photo_migration_failed'
     return c.json({ error: code, message }, errStatus(err))
+  }
+})
+
+/** Super admin: storage used per agency, with allowances (server/agencyStorage.ts). */
+app.get('/api/admin/storage', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    if (actor.role !== 'super_admin') return c.json({ error: 'forbidden', message: 'Super admin only' }, 403)
+    const { listAgencyStorage, sendStorageAlerts } = await import('./agencyStorage.js')
+    const agencies = await listAgencyStorage()
+    await sendStorageAlerts(agencies).catch((err) =>
+      console.error('[storage alerts]', err instanceof Error ? err.message : String(err)),
+    )
+    return c.json({ agencies })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'storage_usage_failed', message }, errStatus(err))
+  }
+})
+
+/** Super admin: set an agency's storage allowance (MB, null = unlimited) and warning %. */
+app.put('/api/admin/storage/:agencyId', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    if (actor.role !== 'super_admin') return c.json({ error: 'forbidden', message: 'Super admin only' }, 403)
+    const body = (await c.req.json().catch(() => ({}))) as { quotaMb?: unknown; warnPct?: unknown }
+    const { setAgencyStorageQuota } = await import('./agencyStorage.js')
+    await setAgencyStorageQuota(c.req.param('agencyId'), body)
+    return c.json({ ok: true })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'storage_quota_failed', message }, errStatus(err))
+  }
+})
+
+/** Daily storage check: notify super admins about agencies near or over their allowance. */
+app.get('/api/cron/storage-alerts', async (c) => {
+  const secret = process.env.CRON_SECRET
+  if (!secret) return c.json({ error: 'cron_disabled' }, 503)
+  if (c.req.header('authorization') !== `Bearer ${secret}`) return c.json({ error: 'unauthorized' }, 401)
+  try {
+    const { listAgencyStorage, sendStorageAlerts } = await import('./agencyStorage.js')
+    return c.json({ alerts: await sendStorageAlerts(await listAgencyStorage()) })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'storage_alerts_failed', message }, 500)
   }
 })
 
