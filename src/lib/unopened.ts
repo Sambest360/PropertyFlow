@@ -6,7 +6,9 @@
  * that stays unopened until the user opens it.
  */
 
-export const UNOPENED_KINDS = ['lead', 'application', 'viewing', 'payment', 'ticket'] as const
+export const UNOPENED_KINDS = ['lead', 'application', 'viewing', 'payment', 'ticket', 'compliance'] as const
+/** Kinds whose existing items stay unopened on first load (a review queue: everything waiting counts). */
+const NOT_SEEDED: readonly UnopenedKind[] = ['compliance']
 export type UnopenedKind = (typeof UNOPENED_KINDS)[number]
 
 export type OpenedStore = {
@@ -42,7 +44,7 @@ export function seedOpened(store: OpenedStore, idsByKind: Record<UnopenedKind, s
   for (const kind of UNOPENED_KINDS) {
     if (store.init[kind]) continue
     next ??= { v: 1, init: { ...store.init }, seen: { ...store.seen } }
-    for (const id of idsByKind[kind]) next.seen[`${kind}:${id}`] = 1
+    if (!NOT_SEEDED.includes(kind)) for (const id of idsByKind[kind] ?? []) next.seen[`${kind}:${id}`] = 1
     next.init[kind] = true
   }
   return next ?? store

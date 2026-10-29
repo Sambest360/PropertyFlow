@@ -70,6 +70,7 @@ const UNOPENED_KIND_BY_PATH: Record<string, UnopenedKind> = {
   '/workspace/sales/viewings': 'viewing',
   '/workspace/operations/maintenance': 'ticket',
   '/workspace/operations/payments': 'payment',
+  '/workspace/compliance': 'compliance',
 }
 
 function useUnopenedCount(to: string): number {

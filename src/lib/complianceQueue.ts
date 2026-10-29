@@ -74,3 +74,13 @@ export function buildComplianceRejectedVerifications(
       return a.name.localeCompare(b.name)
     })
 }
+
+/** Applications with uploaded documents that still need checking (agency compliance). */
+export function applicationsNeedingDocCheck(
+  apps: ReadonlyArray<{ id: string; stage: string; documents?: Array<{ status: string }> }>,
+): string[] {
+  return apps
+    .filter((a) => a.stage !== 'Rejected' && a.stage !== 'Active Tenancy')
+    .filter((a) => (a.documents ?? []).some((d) => d.status === 'uploaded'))
+    .map((a) => a.id)
+}
