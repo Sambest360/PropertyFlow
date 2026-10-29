@@ -31,8 +31,14 @@ describe('photoStorage', () => {
 
   it('refuses with 503 when Storage is not configured', async () => {
     delete process.env.SUPABASE_SECRET_KEY
-    const { uploadPhotoDataUrl } = await import('./photoStorage.js')
-    await expect(uploadPhotoDataUrl(PNG, 'listings')).rejects.toMatchObject({ status: 503 })
+    // No Supabase and disk storage switched off (it is on by default when self-hosted).
+    process.env.UPLOADS_DIR = 'off'
+    try {
+      const { uploadPhotoDataUrl } = await import('./photoStorage.js')
+      await expect(uploadPhotoDataUrl(PNG, 'listings')).rejects.toMatchObject({ status: 503 })
+    } finally {
+      delete process.env.UPLOADS_DIR
+    }
   })
 
   it('uploads an image and returns its public URL; rejects non-images', async () => {

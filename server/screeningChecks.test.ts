@@ -590,6 +590,11 @@ describe('providers', () => {
     expect(createProviderRegistry({ VERCEL_ENV: 'production' }).get('mock')!.configured).toBe(false)
     expect(createProviderRegistry({ VERCEL_ENV: 'production', SCREENING_ALLOW_MOCK: '1' }).get('mock')!.configured).toBe(true)
   })
+
+  it('mock is off on a self-hosted production server (NODE_ENV=production)', () => {
+    expect(createProviderRegistry({ NODE_ENV: 'production' }).get('mock')!.configured).toBe(false)
+    expect(createProviderRegistry({ NODE_ENV: 'production', SCREENING_ALLOW_MOCK: '1' }).get('mock')!.configured).toBe(true)
+  })
 })
 
 describe('webhook', () => {

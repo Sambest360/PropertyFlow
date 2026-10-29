@@ -1,7 +1,8 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { runningCommitSha } from './appConfig'
+import { gitHeadSha, runningCommitSha } from './appConfig'
 
 const KEYS = ['APP_COMMIT_SHA', 'VERCEL_GIT_COMMIT_SHA'] as const
 
@@ -33,10 +34,37 @@ describe('runningCommitSha', () => {
     expect(runningCommitSha()).toBe('from-host')
   })
 
-  it('returns null when neither commit variable is set', () => {
+  it('returns null when neither commit variable is set and there is no checkout', () => {
     setEnv('APP_COMMIT_SHA', undefined)
     setEnv('VERCEL_GIT_COMMIT_SHA', undefined)
-    expect(runningCommitSha()).toBeNull()
+    expect(runningCommitSha({ gitDir: join(tmpdir(), 'pf-no-such-git-dir') })).toBeNull()
+  })
+
+  it('self-hosted: reads the checkout HEAD when no commit variable is set', () => {
+    setEnv('APP_COMMIT_SHA', undefined)
+    setEnv('VERCEL_GIT_COMMIT_SHA', undefined)
+    const sha = 'a'.repeat(40)
+    const dir = mkdtempSync(join(tmpdir(), 'pf-git-'))
+    mkdirSync(join(dir, 'refs/heads'), { recursive: true })
+    writeFileSync(join(dir, 'HEAD'), 'ref: refs/heads/main\n')
+    writeFileSync(join(dir, 'refs/heads/main'), `${sha}\n`)
+    expect(runningCommitSha({ gitDir: dir })).toBe(sha)
+  })
+})
+
+describe('gitHeadSha', () => {
+  it('reads detached, loose and packed refs', () => {
+    const sha = 'b'.repeat(40)
+    const detached = mkdtempSync(join(tmpdir(), 'pf-git-'))
+    writeFileSync(join(detached, 'HEAD'), `${sha}\n`)
+    expect(gitHeadSha(detached)).toBe(sha)
+
+    const packed = mkdtempSync(join(tmpdir(), 'pf-git-'))
+    writeFileSync(join(packed, 'HEAD'), 'ref: refs/heads/main\n')
+    writeFileSync(join(packed, 'packed-refs'), `# pack-refs with: peeled\n${sha} refs/heads/main\n`)
+    expect(gitHeadSha(packed)).toBe(sha)
+
+    expect(gitHeadSha(join(tmpdir(), 'pf-no-such-git-dir'))).toBeNull()
   })
 })
 

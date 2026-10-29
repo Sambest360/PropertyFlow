@@ -11,6 +11,17 @@ export const ALLOWED_PHOTO_MIME = ['image/jpeg', 'image/png', 'image/webp'] as c
 
 const DATA_URL_RE = /^data:([a-z0-9.+-]+\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/]*={0,2})$/i
 const HTTP_URL_RE = /^https?:\/\/[^\s]+$/i
+/**
+ * A photo this site stored on its own disk (self-hosted server: see
+ * server/photoStorage.ts, served at /api/files/<folder>/.../<id>.<ext>).
+ * Site-relative, so it is not http(s); only plain image files qualify.
+ */
+const OWN_STORED_PHOTO_RE = /^\/api\/files\/(?:[A-Za-z0-9][A-Za-z0-9._-]*\/)*[A-Za-z0-9][A-Za-z0-9._-]*\.(?:jpe?g|png|webp|gif)$/i
+
+/** http(s) URL or one of this site's own stored photos (never `..`). */
+function isPhotoLink(u: string): boolean {
+  return HTTP_URL_RE.test(u) || (OWN_STORED_PHOTO_RE.test(u) && !u.includes('..'))
+}
 
 /** Decoded byte size of a base64 data URL (null when it is not one). */
 export function dataUrlDecodedBytes(url: string): number | null {
@@ -40,12 +51,12 @@ export type PhotoCheckLimits = {
   maxTotalBytes?: number
 }
 
-/** True for a URL that is safe to store and render (data:image of an allowed type, or http(s)). */
+/** True for a URL that is safe to store and render (data:image of an allowed type, http(s), or this site's stored photo). */
 export function isSafePhotoUrl(u: unknown): u is string {
   if (typeof u !== 'string') return false
   const m = DATA_URL_RE.exec(u)
   if (m) return (ALLOWED_PHOTO_MIME as readonly string[]).includes(m[1].toLowerCase())
-  return HTTP_URL_RE.test(u)
+  return isPhotoLink(u)
 }
 
 /**
@@ -78,7 +89,7 @@ export function checkPhotos(input: unknown[], limits: PhotoCheckLimits): PhotoCh
       urls.push(u)
       continue
     }
-    if (HTTP_URL_RE.test(u)) urls.push(u)
+    if (isPhotoLink(u)) urls.push(u)
     // anything else: junk, dropped
   }
   if (urls.length > limits.maxCount) return { ok: false, reason: `more than ${limits.maxCount} photos` }
