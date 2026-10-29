@@ -34,19 +34,15 @@ export function VerificationPendingBanner({ user }: { user: AppUser }) {
   return (
     <div
       role="status"
-      className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+      className="flex items-start gap-3 rounded-2xl border border-primary-100 bg-primary-50 px-4 py-3 text-sm text-ink"
     >
-      <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" strokeWidth={ICON_STROKE} aria-hidden />
+      <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-primary" strokeWidth={ICON_STROKE} aria-hidden />
       <div>
-        <p className="font-semibold">
+        <p className="font-semibold">Welcome to Lekaya! We’re checking your documents</p>
+        <p className="mt-0.5 text-ink-600">
           {user.role === 'landlord'
-            ? 'Landlord verification pending'
-            : 'Contractor verification pending'}
-        </p>
-        <p className="mt-0.5 text-amber-900/90">
-          {user.role === 'landlord'
-            ? 'You can draft properties, but they won’t appear on the marketplace until a Super Admin approves your documents.'
-            : 'You can sign in, but you won’t receive assigned jobs until a Super Admin approves your documents.'}
+            ? 'Go ahead and set up your properties. They go live on the marketplace as soon as our team has checked your documents, usually within one working day.'
+            : 'Have a look around and finish your profile. Jobs start coming your way as soon as our team has checked your documents, usually within one working day.'}
         </p>
       </div>
     </div>
