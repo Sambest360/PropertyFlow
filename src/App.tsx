@@ -78,6 +78,7 @@ const AdminUserDetailPage = lazy(() => import('./pages/admin/AdminUserDetailPage
 const AdminUserCreatePage = lazy(() => import('./pages/admin/AdminUserCreatePage'))
 const AdminAgenciesPage = lazy(() => import('./pages/admin/AdminAgenciesPage'))
 const AdminStoragePage = lazy(() => import('./pages/admin/AdminStoragePage'))
+const EscalationsPage = lazy(() => import('./pages/EscalationsPage'))
 const AdminAgencyCreatePage = lazy(() => import('./pages/admin/AdminAgencyCreatePage'))
 const AgencyDetailPage = lazy(() => import('./pages/admin/AgencyDetailPage'))
 const AdminConfigPage = lazy(() => import('./pages/admin/AdminConfigPage'))
@@ -386,6 +387,7 @@ export default function App() {
                     </CanonicalIdRedirect>
                   }
                 />
+                <Route path="operations/escalations" element={<Guard anyOf={['leads.view', 'occupants.view']}><EscalationsPage /></Guard>} />
                 <Route path="operations/contractors" element={<Guard permission="contractors.view"><ContractorsDirectory /></Guard>} />
                 <Route path="operations/documents" element={<Guard permission="documents.view"><Documents /></Guard>} />
                 <Route path="operations/communications" element={<Guard permission="messages.manage"><Communications /></Guard>} />

@@ -1209,6 +1209,74 @@ app.get('/api/cron/storage-alerts', async (c) => {
   }
 })
 
+/** Escalations: overdue faults / help-desk tickets and yearly rent increases (server/escalations.ts). */
+app.get('/api/escalations', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const { listEscalations } = await import('./escalations.js')
+    return c.json(await listEscalations(actor))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'escalations_failed', message }, errStatus(err))
+  }
+})
+
+app.post('/api/escalations', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+    const { escalateManually } = await import('./escalations.js')
+    return c.json(await escalateManually(actor, body), 201)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'escalate_failed', message }, errStatus(err))
+  }
+})
+
+app.get('/api/escalations/settings', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const { getEscalationSettings } = await import('./escalations.js')
+    return c.json({ settings: await getEscalationSettings(actor, c.req.query('agencyId') ?? null) })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'escalation_settings_failed', message }, errStatus(err))
+  }
+})
+
+app.put('/api/escalations/settings', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const body = (await c.req.json().catch(() => ({}))) as { agencyId?: string | null; settings?: unknown }
+    const { saveEscalationSettings } = await import('./escalations.js')
+    return c.json({ settings: await saveEscalationSettings(actor, body.agencyId ?? null, body.settings) })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'escalation_settings_failed', message }, errStatus(err))
+  }
+})
+
+app.post('/api/escalations/:id/actions', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+    const { actOnEscalation } = await import('./escalations.js')
+    return c.json({ escalation: await actOnEscalation(actor, c.req.param('id'), body) })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'escalation_action_failed', message }, errStatus(err))
+  }
+})
+
+/** Hourly: escalate overdue faults and tickets, send rent-increase notices, apply due increases. */
+app.get('/api/cron/escalations', async (c) => {
+  const secret = process.env.CRON_SECRET
+  if (!secret) return c.json({ error: 'cron_disabled' }, 503)
+  if (c.req.header('authorization') !== `Bearer ${secret}`) return c.json({ error: 'unauthorized' }, 401)
+  const { runEscalations } = await import('./escalations.js')
+  return c.json(await runEscalations())
+})
+
 /** Lease inventory, move-in / move-out inspections and deposit deductions. */
 registerInspectionRoutes(app)
 

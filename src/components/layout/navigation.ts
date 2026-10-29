@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react'
 import {
   Banknote,
+  Siren,
   HardDrive,
   BookOpen,
   MessageSquareText,
@@ -133,6 +134,12 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
             label: 'Maintenance',
             permission: 'maintenance.view',
             icon: Wrench,
+          },
+          {
+            to: '/workspace/operations/escalations',
+            label: 'Escalations',
+            anyOf: ['leads.view', 'occupants.view'],
+            icon: Siren,
           },
           {
             to: '/workspace/operations/payments',
