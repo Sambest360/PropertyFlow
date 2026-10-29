@@ -187,8 +187,15 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   )
 
   // Staff default to their own agency — a field agent's scoped data may load no agency list.
+  // Platform admins pick one: defaulting to their own agency created listings on
+  // the super admin's account while the picker showed another agency.
   const defaultAgencyId =
-    queryAgencyId || (isLandlord ? user.agencyId ?? '' : agencyId || user.agencyId || agencies[0]?.id || '')
+    queryAgencyId ||
+    (isLandlord
+      ? user.agencyId ?? ''
+      : showAgencyPicker
+        ? ''
+        : agencyId || user.agencyId || agencies[0]?.id || '')
 
   const propertyTypes = useLookupOptions('PROPERTY_TYPE', agencyId)
 
@@ -458,25 +465,33 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     setDraft,
   ])
 
-  const listingAgencyId = draft.agencyId || queryAgencyId || agencyId || ''
+  /** The picker's agency only when it is a real option (a stale or own-agency id is not). */
+  const pickedAgencyId = agencies.some((a) => a.id === draft.agencyId) ? draft.agencyId : ''
+  const listingAgencyId = showAgencyPicker
+    ? pickedAgencyId
+    : draft.agencyId || queryAgencyId || agencyId || ''
+  // Only the listing agency's people, platform admins included: an agent from
+  // another agency would manage a listing their agency cannot see.
   const landlordsForAgency = useMemo(
     () =>
-      state.users.filter(
-        (u) =>
-          u.role === 'landlord' &&
-          (isPlatformAdmin || u.agencyId === listingAgencyId),
-      ),
-    [state.users, listingAgencyId, isPlatformAdmin],
+      listingAgencyId
+        ? state.users.filter((u) => u.role === 'landlord' && u.agencyId === listingAgencyId)
+        : [],
+    [state.users, listingAgencyId],
   )
   const agentsForAgency = useMemo(
     () =>
-      state.users.filter(
-        (u) =>
-          (u.role === 'ground_agent' || u.role === 'agent_admin' || u.role === 'agent') &&
-          (isPlatformAdmin || u.agencyId === listingAgencyId),
-      ),
-    [state.users, listingAgencyId, isPlatformAdmin],
+      listingAgencyId
+        ? state.users.filter(
+            (u) =>
+              (u.role === 'ground_agent' || u.role === 'agent_admin' || u.role === 'agent') &&
+              u.agencyId === listingAgencyId,
+          )
+        : [],
+    [state.users, listingAgencyId],
   )
+  /** Draft agent only while they belong to the listing agency (an agency switch clears it). */
+  const assignedAgentId = agentsForAgency.some((u) => u.id === draft.agentId) ? draft.agentId : ''
   const assetTypeOptions = useLookupOptions('ASSET_TYPE', listingAgencyId || null)
   const assetTypes = assetTypeOptions.length ? assetTypeOptions : ASSET_TYPES
   const agencyFeatures = useLookupOptions('AMENITY', listingAgencyId || null).map((o) => o.label)
@@ -592,6 +607,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
         if (draft.listingMode !== 'rent' && !draft.price.trim()) return 'Sale price is required for sale listings.'
         return null
       case 6: {
+        if (showAgencyPicker && !pickedAgencyId) return 'Choose the agency this listing belongs to.'
         const resolvedAgency = isLandlord ? user.agencyId ?? draft.agencyId : draft.agencyId
         if (!resolvedAgency) return 'Agency is required.'
         const landlordErr = validateLandlordAssignment(landlordDraftFrom(draft), isLandlord)
@@ -621,7 +637,9 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   function canSyncServerDraft(): boolean {
     return Boolean(
       draft.propertyType &&
-        (draft.existingBuildingId || draft.buildingName.trim() || draft.address.trim()),
+        (draft.existingBuildingId || draft.buildingName.trim() || draft.address.trim()) &&
+        // Until a platform admin picks the agency the draft stays in this browser.
+        (!showAgencyPicker || pickedAgencyId),
     )
   }
 
@@ -641,8 +659,9 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   }
 
   function buildSubmitContext() {
-    const resolvedAgencyId =
-      (isLandlord ? user.agencyId ?? draft.agencyId : draft.agencyId) || user.agencyId || agencyId || ''
+    const resolvedAgencyId = showAgencyPicker
+      ? pickedAgencyId
+      : (isLandlord ? user.agencyId ?? draft.agencyId : draft.agencyId) || user.agencyId || agencyId || ''
     const resolvedLandlordId = resolveLandlordAssignment(landlordDraftFrom(draft), {
       isLandlordUser: isLandlord,
       currentUserId: user.id,
@@ -678,7 +697,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
         ? null
         : isAgentCreator
           ? draft.agentId || user.id
-          : draft.agentId || null,
+          : assignedAgentId || null,
       title,
       type: draft.propertyType,
       listingMode: draft.listingMode,
@@ -794,7 +813,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
           ? null
           : isAgentCreator
             ? draft.agentId || user.id
-            : draft.agentId || null,
+            : assignedAgentId || null,
         squareMeters: totalAreaSqm,
         bedrooms: roomSummary.bedrooms,
         bathrooms: roomSummary.bathrooms,
@@ -949,7 +968,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
           ? null
           : isAgentCreator
             ? draft.agentId || user.id
-            : draft.agentId || null,
+            : assignedAgentId || null,
           squareMeters: totalAreaSqm,
           bedrooms: roomSummary.bedrooms,
           bathrooms: roomSummary.bathrooms,
@@ -1608,7 +1627,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                     <FormLabel className="mb-1.5">Agency</FormLabel>
                     <Select
                       className="min-h-11"
-                      value={draft.agencyId}
+                      value={pickedAgencyId}
                       onChange={(e) =>
                         setDraft((d) => ({
                           ...d,
@@ -1622,6 +1641,9 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                         }))
                       }
                     >
+                      <option value="" disabled>
+                        Select an agency
+                      </option>
                       {agencies.map((a) => (
                         <option key={a.id} value={a.id}>
                           {a.name}
@@ -1653,10 +1675,17 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                     <FormLabel className="mb-1.5">Field agent</FormLabel>
                     <Select
                       className="min-h-11"
-                      value={draft.agentId}
+                      value={assignedAgentId}
+                      disabled={!listingAgencyId}
                       onChange={(e) => setDraft((d) => ({ ...d, agentId: e.target.value }))}
                     >
-                      <option value="">Unassigned agent</option>
+                      <option value="">
+                        {listingAgencyId
+                          ? agentsForAgency.length
+                            ? 'Unassigned agent'
+                            : 'No agents in this agency yet'
+                          : 'Choose an agency first'}
+                      </option>
                       {agentsForAgency.map((u) => (
                         <option key={u.id} value={u.id}>
                           {u.name}

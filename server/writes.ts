@@ -462,6 +462,25 @@ async function requireAgentId(fe: unknown): Promise<string | null> {
   throw Object.assign(new Error(`agent not resolved: ${feStr}`), { status: 400 })
 }
 
+/**
+ * A listing's agent must work for the listing's agency: the wizard let a
+ * super admin pick any agency's agent, so the listing landed where that agent
+ * (and their agency) could not see it. Staff without an agency are exempt.
+ */
+async function assertAgentInListingAgency(agentUuid: string, clientUuid: string): Promise<void> {
+  const rows = await query<{ client_id: string | null }>(
+    `SELECT client_id::text AS client_id FROM users WHERE id = $1::uuid LIMIT 1`,
+    [agentUuid],
+  )
+  const agentClient = rows[0]?.client_id
+  if (agentClient && agentClient !== clientUuid) {
+    throw Object.assign(
+      new Error("That agent works for a different agency. Choose an agent from this listing's agency."),
+      { status: 400 },
+    )
+  }
+}
+
 async function unitIdFromProperty(propertyId: unknown): Promise<string | null> {
   if (!propertyId) return null
   return (
@@ -1089,6 +1108,8 @@ async function upsertProperty(
     }
   } else {
     agent = await requireAgentId(d.agentId)
+    // Only a newly assigned agent: rows saved before this check keep saving.
+    if (agent && agent !== existingUnit?.agent_id) await assertAgentInListingAgency(agent, client)
   }
 
   const unitNumber = str(d.unitNumber ?? d.title, slug).slice(0, 40)

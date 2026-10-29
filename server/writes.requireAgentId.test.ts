@@ -68,6 +68,8 @@ describe('requireAgentId orphan-map verify + metadata repair (P0-5 r17)', () => 
     })
     query.mockImplementation(async (sql: string, params?: unknown[]) => {
       if (sql.includes('SELECT backend_id::text FROM entity_id_map')) return [{ backend_id: ORPHAN_UUID }]
+      // Agent-in-agency check (same agency).
+      if (sql.includes('SELECT client_id::text AS client_id FROM users')) return [{ client_id: AGENCY_UUID }]
       if (sql.includes('FROM users WHERE id =')) {
         expect(params?.[0]).toBe(ORPHAN_UUID)
         return []
@@ -296,5 +298,53 @@ describe('requireAgentId orphan-map verify + metadata repair (P0-5 r17)', () => 
     expect(result.ok).toBe(true)
     const unitInsert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO units'))
     expect(unitInsert![1][13]).toBe(null)
+  })
+
+  describe('agent must work for the listing agency', () => {
+    const OTHER_AGENCY = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+    const mapped = () =>
+      resolveUuid.mockImplementation(async (et: string) => {
+        if (et === 'agency') return AGENCY_UUID
+        if (et === 'building') return BUILDING_UUID
+        if (et === 'user') return AGENT_UUID
+        return null
+      })
+    const db = (agentClient: string | null, storedAgent: string | null = null) =>
+      query.mockImplementation(async (sql: string) => {
+        if (sql.includes('SELECT client_id::text AS client_id FROM users')) return [{ client_id: agentClient }]
+        if (sql.includes('FROM users WHERE id =')) return [{ id: AGENT_UUID }]
+        if (sql.includes('SELECT status_config_key, listing_type, agent_id, featured FROM units')) {
+          return storedAgent ? [{ status_config_key: 'DRAFT', listing_type: 'RENT', agent_id: storedAgent, featured: false }] : []
+        }
+        return []
+      })
+    const save = async () => {
+      const { handlePersist } = await import('./writes.js')
+      return handlePersist({
+        resource: 'property',
+        action: 'upsert',
+        id: 'fixture-agency-match',
+        data: { agencyId: 'ag-fixture', buildingId: 'bld-fixture', agentId: 'u-fa', title: 'Agency match', rent: 1000 },
+      })
+    }
+
+    it('refuses an agent from another agency, before writing the unit', async () => {
+      mapped()
+      db(OTHER_AGENCY)
+      await expect(save()).rejects.toMatchObject({ status: 400, message: expect.stringContaining('different agency') })
+      expect(query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO units'))).toBeFalsy()
+    })
+
+    it('accepts an agent from the listing agency', async () => {
+      mapped()
+      db(AGENCY_UUID)
+      expect((await save()).ok).toBe(true)
+    })
+
+    it('keeps saving a listing whose stored agent predates the check', async () => {
+      mapped()
+      db(OTHER_AGENCY, AGENT_UUID)
+      expect((await save()).ok).toBe(true)
+    })
   })
 })
