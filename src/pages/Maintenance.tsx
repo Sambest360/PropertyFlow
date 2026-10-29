@@ -326,11 +326,15 @@ export default function Maintenance() {
   return (
     <div className="animate-fade-in">
       <PageHeader
-        title="Maintenance"
-        subtitle="Scan maintenance, spot what needs attention, and open one for full detail."
+        title={user.role === 'contractor' ? 'My jobs' : 'Maintenance'}
+        subtitle={
+          user.role === 'contractor'
+            ? 'Jobs agencies assigned to you. Open one to see access notes, photos and to complete it.'
+            : 'Scan maintenance, spot what needs attention, and open one for full detail.'
+        }
         actions={
           <ActionButtonRow className="sm:w-auto">
-            {has('maintenance.manage') && (
+            {has('maintenance.manage') && user.role !== 'contractor' && (
               <Link to={createHref}>
                 <Button className="min-h-11 cursor-pointer">
                   <Plus className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
@@ -338,7 +342,7 @@ export default function Maintenance() {
                 </Button>
               </Link>
             )}
-            {has('maintenance.manage') && (
+            {has('maintenance.manage') && user.role !== 'contractor' && (
               <Button
                 variant="secondary"
                 className="min-h-11"
