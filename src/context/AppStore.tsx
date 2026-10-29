@@ -261,6 +261,7 @@ import {
 import { mergeEntityLists } from '../lib/bootstrapMerge'
 import { reconcileAgencyIdSpace } from '../lib/agencyScope'
 import { buildIdMapCacheFromRows, type IdMapCache } from '../lib/idMap'
+import { dispatchNotificationsToServer } from '../lib/api/notificationDispatchApi'
 import {
   canDeleteStoredProperty,
   getPropertyDeleteBlockReason,
@@ -2720,7 +2721,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         read: input.read ?? false,
       }
       patch((s) => ({ ...s, notifications: [n, ...s.notifications].slice(0, 300) }))
-      queueUpsert('notification', n.id, n as unknown as Record<string, unknown>)
+      // Someone else's notification goes through the server's checked route.
+      if (n.userId && n.userId !== getApiActor()?.userId) dispatchNotificationsToServer([n])
+      else queueUpsert('notification', n.id, n as unknown as Record<string, unknown>)
       if (!silent) {
         pushToast({
           id: uid('toast'),
@@ -2758,63 +2761,44 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         input.actorUserId,
         includeActor,
       )
-      setState((s) => {
-        const rule = resolveSuiteAlert(s.suiteAlerts, input.agencyId, input.resource, input.action)
-        if (!rule || !scopedIds.length) return s
+      const s0 = stateRef.current
+      const rule = resolveSuiteAlert(s0.suiteAlerts, input.agencyId, input.resource, input.action)
+      if (!rule || !scopedIds.length) return
+      const recipients = applySuiteAlertFilter(s0.users, scopedIds, rule, input.agencyId)
+      if (!recipients.length) return
 
-        const recipients = applySuiteAlertFilter(
-          s.users,
-          scopedIds,
-          rule,
-          input.agencyId,
-        )
-        if (!recipients.length) return s
-
-        const at = new Date().toISOString()
-        const created: AppNotification[] = []
-        const nextToasts: NotificationToast[] = []
-
-        for (const user of recipients) {
-          const n: AppNotification = {
-            id: uid('N'),
-            userId: user.id,
-            agencyId: input.agencyId,
-            title: input.title,
-            body: input.body,
-            at,
-            read: false,
-            link: input.link,
-            resource: input.resource,
+      const at = new Date().toISOString()
+      const created: AppNotification[] = recipients.map((user) => ({
+        id: uid('N'),
+        userId: user.id,
+        agencyId: input.agencyId,
+        title: input.title,
+        body: input.body,
+        at,
+        read: false,
+        link: input.link,
+        resource: input.resource,
+        action: input.action,
+      }))
+      const nextToasts: NotificationToast[] = rule.popupEnabled
+        ? created.map((n) => ({
+            id: uid('toast'),
+            notificationId: n.id,
+            userId: n.userId,
+            title: n.title,
+            body: n.body,
+            link: n.link,
+            durationMs: rule.popupDurationMs || DEFAULT_POPUP_DURATION_MS,
+            createdAt: Date.now(),
             action: input.action,
-          }
-          created.push(n)
-          if (rule.popupEnabled) {
-            nextToasts.push({
-              id: uid('toast'),
-              notificationId: n.id,
-              userId: user.id,
-              title: n.title,
-              body: n.body,
-              link: n.link,
-              durationMs: rule.popupDurationMs || DEFAULT_POPUP_DURATION_MS,
-              createdAt: Date.now(),
-              action: input.action,
-              tone: toastToneForAction(input.action),
-            })
-          }
-        }
+            tone: toastToneForAction(input.action),
+          }))
+        : []
 
-        if (nextToasts.length) {
-          queueMicrotask(() => {
-            setToasts((prev) => [...nextToasts, ...prev].slice(0, 6))
-          })
-        }
-
-        return {
-          ...s,
-          notifications: [...created, ...s.notifications].slice(0, 300),
-        }
-      })
+      setState((s) => ({ ...s, notifications: [...created, ...s.notifications].slice(0, 300) }))
+      if (nextToasts.length) setToasts((prev) => [...nextToasts, ...prev].slice(0, 6))
+      // Save on the server so each person sees it on their own device and gets the email.
+      dispatchNotificationsToServer(created)
     },
     [],
   )

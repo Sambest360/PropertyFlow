@@ -4,7 +4,8 @@
  * pop-ups) so both read the same choice.
  */
 export const NOTIFICATION_CATEGORIES = [
-  { id: 'applications', label: 'Applications', resources: ['application'] },
+  { id: 'applications', label: 'Applications', resources: ['application', 'applicant'] },
+  { id: 'properties', label: 'Properties & listings', resources: ['property', 'room', 'inventory', 'unit', 'building', 'listing'] },
   { id: 'viewings', label: 'Viewings & enquiries', resources: ['viewing', 'lead', 'booking', 'enquiry'] },
   { id: 'leases', label: 'Leases & signing', resources: ['lease', 'tenancy', 'inspection'] },
   { id: 'payments', label: 'Payments & billing', resources: ['payment', 'invoice', 'deposit', 'payout', 'trust', 'billing', 'arrears'] },
