@@ -75,6 +75,8 @@ export default function ApplicantDetail() {
 
   const application = state.applications.find((a) => a.id === id)
   useMarkOpened('application', application?.id)
+  // Opening the application counts as opening its compliance (document check) item.
+  useMarkOpened('compliance', application?.id)
 
   const tabParam = params.get('tab')
   const tab: ApplicantDetailTab = isApplicantDetailTab(tabParam)

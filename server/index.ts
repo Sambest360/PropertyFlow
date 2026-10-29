@@ -593,6 +593,10 @@ app.patch('/api/admin/users/:userId/verification', async (c) => {
       reviewerAgencyId = clientRows[0]?.agency_fe ?? null
     }
 
+    // Landlord / contractor documents are approved by the platform team only.
+    if (reviewerRole !== 'super_admin') {
+      return c.json({ error: 'forbidden', message: 'Only the platform team approves landlord and contractor documents' }, 403)
+    }
     const userId = c.req.param('userId')
     const body = (await c.req.json()) as { status?: string; rejectNote?: string }
     const status = body.status === 'rejected' ? 'rejected' : body.status === 'approved' ? 'approved' : null

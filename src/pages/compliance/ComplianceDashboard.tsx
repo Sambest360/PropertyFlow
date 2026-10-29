@@ -27,6 +27,9 @@ import {
 } from '../../components/ui'
 import { DashboardPage } from '../../components/dashboard'
 import { DeclineVerificationModal } from '../../components/compliance/DeclineVerificationModal'
+import { VerificationDetailModal } from '../../components/compliance/VerificationDetailModal'
+import { TenantVerificationQueue } from '../../components/compliance/TenantVerificationQueue'
+import { UnopenedDot, useUnopened } from '../../context/UnopenedContext'
 import { apiUpdateUserVerification } from '../../lib/api/authClient'
 import { usePortalHydrating } from '../../components/PortalHydrationGate'
 import { DataTableSkeleton } from '../../components/loading/PageSkeleton'
@@ -75,7 +78,18 @@ export default function ComplianceDashboard() {
   const [busyAction, setBusyAction] = useState<'approve' | 'reject' | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const isPrincipal = user?.role === 'super_admin' || user?.role === 'client_admin'
+  // Only the platform team approves landlord / contractor documents; agency
+  // admins verify their own applicants' documents instead.
+  const isSuper = user?.role === 'super_admin'
+  // Property compliance documents: agency admins and the platform team check them.
+  const canVerifyDocs = isSuper || user?.role === 'client_admin' || user?.role === 'agent_admin'
+  const [detailId, setDetailId] = useState<string | null>(null)
+  const { markOpened } = useUnopened()
+  const openDetail = (id: string) => {
+    setDetailId(id)
+    markOpened('compliance', id)
+  }
+  const detailUser = detailId ? users.find((u) => u.id === detailId) : undefined
   const verificationQueue: ComplianceVerificationRow[] = useMemo(
     () => buildComplianceVerificationQueue(users, (u) => scopeAgency(u.agencyId)),
     [users, scopeAgency],
@@ -176,6 +190,7 @@ export default function ComplianceDashboard() {
 
   return (
     <DashboardPage>
+      {isSuper ? (
       <nav
         className="mb-5 flex gap-1 overflow-x-auto border-b border-primary-100 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         aria-label="Verification views"
@@ -201,9 +216,10 @@ export default function ComplianceDashboard() {
           </button>
         ))}
       </nav>
+      ) : null}
       <PageHeader
         title="Compliance"
-        subtitle="Verification queue and property compliance documents"
+        subtitle={isSuper ? 'Check landlords and contractors, and property compliance documents' : 'Verify your applicants’ documents and keep property compliance documents current'}
         actions={null}
       />
 
@@ -238,7 +254,10 @@ export default function ComplianceDashboard() {
         </Card>
       ) : null}
 
-      {/* Verification queue / rejected history */}
+      {!isSuper ? <TenantVerificationQueue /> : null}
+
+      {/* Verification queue / rejected history (platform team) */}
+      {isSuper ? (
       <Card>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-base font-semibold text-ink">
@@ -272,6 +291,7 @@ export default function ComplianceDashboard() {
                 <li key={row.userId} className="flex flex-col gap-3 py-4 lg:flex-row lg:items-center">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
+                      <UnopenedDot kind="compliance" id={row.userId} />
                       <p className="truncate text-sm font-semibold text-ink">{row.name}</p>
                       <Badge tone={row.role === 'landlord' ? 'info' : 'neutral'}>{row.role}</Badge>
                     </div>
@@ -287,8 +307,11 @@ export default function ComplianceDashboard() {
                       </p>
                     ) : null}
                   </div>
-                  <div className="flex shrink-0 gap-2">
-                    {isPrincipal ? (
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    <Button type="button" variant="ghost" className="min-h-11" onClick={() => openDetail(row.userId)}>
+                      Profile & documents
+                    </Button>
+                    {isSuper ? (
                       <>
                         <Button
                           type="button"
@@ -312,7 +335,7 @@ export default function ComplianceDashboard() {
                         </Button>
                       </>
                     ) : (
-                      <Badge tone="warning">Principal approval required</Badge>
+                      <Badge tone="neutral">Checked by the platform team</Badge>
                     )}
                   </div>
                 </li>
@@ -354,6 +377,27 @@ export default function ComplianceDashboard() {
           </ul>
         )}
       </Card>
+      ) : null}
+
+      {detailUser ? (
+        <VerificationDetailModal
+          user={detailUser}
+          canDecide={isSuper && detailUser.verification?.status === 'pending'}
+          busy={busyId === detailUser.id}
+          onClose={() => setDetailId(null)}
+          onApprove={() => {
+            const row = verificationQueue.find((r) => r.userId === detailUser.id)
+            if (row) void decideVerification(row, 'approved').then(() => setDetailId(null))
+          }}
+          onReject={() => {
+            const row = verificationQueue.find((r) => r.userId === detailUser.id)
+            if (row) {
+              setDetailId(null)
+              setDeclineTarget(row)
+            }
+          }}
+        />
+      ) : null}
 
       {/* Property compliance documents */}
       <Card>
@@ -428,7 +472,7 @@ export default function ComplianceDashboard() {
                           >
                             Open document
                           </a>
-                        ) : d.status === 'uploaded' && isPrincipal ? (
+                        ) : d.status === 'uploaded' && canVerifyDocs ? (
                           <span className="inline-flex items-center gap-3">
                             <button
                               type="button"

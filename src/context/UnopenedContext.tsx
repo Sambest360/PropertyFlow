@@ -6,6 +6,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useAuth, usePropertyScope } from './AuthContext'
 import { useStore } from './AppStore'
+import { isVerificationPending } from '../lib/verification'
+import { applicationsNeedingDocCheck } from '../lib/complianceQueue'
 import {
   UNOPENED_KINDS,
   countUnopened,
@@ -25,7 +27,7 @@ type UnopenedContextValue = {
   counts: Record<UnopenedKind, number>
 }
 
-const ZERO: Record<UnopenedKind, number> = { lead: 0, application: 0, viewing: 0, payment: 0, ticket: 0 }
+const ZERO: Record<UnopenedKind, number> = { lead: 0, application: 0, viewing: 0, payment: 0, ticket: 0, compliance: 0 }
 
 const UnopenedContext = createContext<UnopenedContextValue>({
   isUnopened: () => false,
@@ -75,9 +77,15 @@ export function UnopenedProvider({ children }: { children: ReactNode }) {
       viewing: state.viewings.filter((v) => dealVisible(v)).map((v) => v.id),
       payment: state.payments.filter((p) => paymentVisible(p)).map((p) => p.id),
       ticket: state.tickets.filter((t) => ticketVisible(t)).map((t) => t.id),
+      // Super admin: landlords / contractors waiting for document checks.
+      // Agency staff: applications whose uploaded documents need checking.
+      compliance:
+        user.role === 'super_admin'
+          ? state.users.filter((u) => isVerificationPending(u.verification, u.role)).map((u) => u.id)
+          : applicationsNeedingDocCheck(state.applications.filter((a) => dealVisible(a))),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.leads, state.applications, state.viewings, state.payments, state.tickets, userId],
+    [state.leads, state.applications, state.viewings, state.payments, state.tickets, state.users, userId, user.role],
   )
 
   // First load of this user's own data: everything already there counts as opened.
