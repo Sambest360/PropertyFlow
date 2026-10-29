@@ -43,7 +43,8 @@ export default function MaintenanceCreatePage() {
     [state.lookups, agencyId],
   )
 
-  if (!has('maintenance.manage')) {
+  // Contractors are assigned jobs; they never log maintenance themselves.
+  if (!has('maintenance.manage') || (user.role as string) === 'contractor') {
     return <Navigate to={returnTo} replace />
   }
 

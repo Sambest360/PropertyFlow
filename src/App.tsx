@@ -82,6 +82,7 @@ const EscalationsPage = lazy(() => import('./pages/EscalationsPage'))
 const ReviewModerationPage = lazy(() => import('./pages/admin/ReviewModerationPage'))
 const ConductPage = lazy(() => import('./pages/ConductPage'))
 const AccountSettingsPage = lazy(() => import('./pages/account/AccountSettingsPage'))
+const ContractorBookingsPage = lazy(() => import('./pages/ContractorBookingsPage'))
 const PublicProfilePage = lazy(() => import('./pages/market/PublicProfilePage'))
 const AdminAgencyCreatePage = lazy(() => import('./pages/admin/AdminAgencyCreatePage'))
 const AgencyDetailPage = lazy(() => import('./pages/admin/AgencyDetailPage'))
@@ -453,6 +454,7 @@ export default function App() {
                 <Route path="account/password" element={<ChangePasswordPage />} />
                 <Route path="account/settings" element={<AccountSettingsPage />} />
                 <Route path="portals/contractor" element={<Guard permission="portal.contractor"><ContractorPortal /></Guard>} />
+                <Route path="portals/contractor/bookings" element={<Guard permission="portal.contractor"><ContractorBookingsPage /></Guard>} />
 
                 {/* People */}
                 <Route path="people/staff" element={<AgencyOpsGuard permission="users.manage"><StaffDirectory /></AgencyOpsGuard>} />

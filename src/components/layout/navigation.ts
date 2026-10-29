@@ -1,6 +1,9 @@
 import type { LucideIcon } from 'lucide-react'
 import {
   Banknote,
+  CalendarClock,
+  Flag,
+  LifeBuoy,
   Siren,
   Star,
   HardDrive,
@@ -829,6 +832,22 @@ function buildPortalActorNav(
   return dedupeNavEntries([portalDashboardLink(portalHome), ...rest])
 }
 
+/** Contractor: their dashboard, jobs, bookings, conduct, help and settings. */
+function buildContractorNav(portalHome: string): WorkspaceNavEntry[] {
+  const link = (to: string, label: string, icon: LucideIcon, end?: boolean): WorkspaceNavEntry => ({
+    type: 'link',
+    item: { to, label, icon, ...(end ? { end } : {}) },
+  })
+  return [
+    portalDashboardLink(portalHome),
+    link('/workspace/operations/maintenance', 'My jobs', Wrench),
+    link('/workspace/portals/contractor/bookings', 'Bookings', CalendarClock),
+    link('/workspace/conduct', 'Complaints & warnings', Flag),
+    link('/workspace/account/settings', 'Settings', Settings),
+    link('/workspace/help', 'Help & support', LifeBuoy),
+  ]
+}
+
 export type WorkspaceNavActorInput = {
   role: string
   has: (p: Permission) => boolean
@@ -858,6 +877,10 @@ export function buildWorkspaceNavForActor(input: WorkspaceNavActorInput): Worksp
 
   if (input.role === 'landlord' && input.has('portal.owner')) {
     return buildLandlordOwnerNav(filtered, portalHome)
+  }
+
+  if (input.role === 'contractor' && input.has('portal.contractor')) {
+    return buildContractorNav(portalHome)
   }
 
   return buildPortalActorNav(filtered, portalHome, input.role)
