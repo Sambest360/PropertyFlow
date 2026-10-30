@@ -48,8 +48,19 @@ export type RequiredLegalField = (typeof LEGAL_REQUIRED_FIELDS)[number]
 
 export const EMAIL_FIELDS: ReadonlySet<string> = new Set(['privacyEmail', 'supportEmail'])
 
-/** Stand-in text someone might type instead of a real value. Counts as missing. */
-const PLACEHOLDER = /^\[.*\]$|\bto be confirmed\b|\btb[cd]\b|\btodo\b|placeholder|^e\.g\.|^x{3,}$/i
+/**
+ * Stand-in text someone might type instead of a real value. Counts as missing.
+ * Includes N/A, NA, dashes, "none", "pending" and "not applicable" (Angela #118 C5).
+ */
+const PLACEHOLDER =
+  /^\[.*\]$|\bto be confirmed\b|\btb[cd]\b|\btodo\b|placeholder|^e\.g\.|^x{3,}$|^n\/?a$|^[-\u2013\u2014\s]+$|^none$|\bpending\b|^not applicable$/i
+
+/**
+ * A sole proprietor has no CIPC number, so registrationNumber may say exactly
+ * "not applicable" (Jim #118 C10). Nowhere else, and "N/A" is never accepted.
+ */
+const NOT_APPLICABLE = /^not applicable$/i
+const NOT_APPLICABLE_FIELDS: ReadonlySet<string> = new Set(['registrationNumber'])
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -58,16 +69,22 @@ export function isLegalEmail(value: string): boolean {
   return EMAIL.test(value.trim())
 }
 
-function fieldFilled(field: string, raw: string | undefined): boolean {
+/**
+ * True when a legal detail counts as filled in. The completeness check and the
+ * pages' "to be confirmed" marker both use this, so they always agree (Angela #118 F7).
+ */
+export function legalValueFilled(field: string, raw: string | undefined): boolean {
   const value = raw?.trim() ?? ''
-  if (!value || PLACEHOLDER.test(value)) return false
+  if (!value) return false
+  if (NOT_APPLICABLE_FIELDS.has(field) && NOT_APPLICABLE.test(value)) return true
+  if (PLACEHOLDER.test(value)) return false
   if (EMAIL_FIELDS.has(field) && !isLegalEmail(value)) return false
   return true
 }
 
 /** The required company details that are blank, a placeholder, or (for emails) not an address. */
 export function legalEntityMissing(entity: Record<string, string> = LEGAL_ENTITY): RequiredLegalField[] {
-  return LEGAL_REQUIRED_FIELDS.filter((k) => !fieldFilled(k, entity[k]))
+  return LEGAL_REQUIRED_FIELDS.filter((k) => !legalValueFilled(k, entity[k]))
 }
 
 /** True once every company detail the legal pages name has been filled in. */

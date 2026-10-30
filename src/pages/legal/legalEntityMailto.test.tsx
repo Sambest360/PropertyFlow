@@ -52,9 +52,30 @@ describe('T6 C5: a filled-in email renders as a mailto: link', () => {
     expect(privacy + terms).not.toContain('mailto:')
   })
 
-  it('a value that is not an email address is shown as text, never linked', async () => {
+  it('a value that is not an email address is never linked, and shows the marker (Angela #118 F7)', async () => {
     const { privacy } = await render({ ...FULL, privacyEmail: 'privacy at lekaya' })
-    expect(privacy).toContain('privacy at lekaya')
+    expect(privacy).toContain('data-testid="legal-missing-privacyEmail"')
+    expect(privacy).not.toContain('privacy at lekaya')
     expect(privacy).not.toContain('mailto:')
+  })
+})
+
+describe('Angela #118 C5 / F7: the pages mark every value the completeness check rejects', () => {
+  it.each([
+    ['legalName', 'TBC'],
+    ['legalName', '[Company name]'],
+    ['informationOfficer', 'N/A'],
+    ['address', 'pending'],
+    ['privacyEmail', 'privacy@lekaya'],
+  ])('%s = %j shows the "to be confirmed" marker, not the text', async (field, value) => {
+    const { privacy } = await render({ ...FULL, [field]: value })
+    expect(privacy).toContain(`data-testid="legal-missing-${field}"`)
+    expect(privacy).not.toContain(`>${value}<`)
+  })
+
+  it('registrationNumber "not applicable" is shown as written (a sole proprietor has none)', async () => {
+    const { privacy } = await render({ ...FULL, registrationNumber: 'not applicable' })
+    expect(privacy).toContain('(not applicable)')
+    expect(privacy).not.toContain('legal-missing-registrationNumber')
   })
 })

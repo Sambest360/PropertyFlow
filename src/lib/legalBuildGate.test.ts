@@ -27,7 +27,7 @@ describe('T6 legal completeness check', () => {
   })
 
   it('treats a placeholder value as missing, not as filled in', () => {
-    for (const placeholder of ['TBC', 'tbd', 'TODO', '[company name to be confirmed]', 'to be confirmed', 'placeholder', 'e.g. Lekaya Rentals (Pty) Ltd', 'XXX']) {
+    for (const placeholder of ['TBC', 'tbd', 'TODO', '[company name to be confirmed]', '[Company name]', 'to be confirmed', 'placeholder', 'e.g. Lekaya Rentals (Pty) Ltd', 'XXX', 'N/A', 'n/a', 'NA', '-', '—', 'none', 'Pending', 'pending CIPC', 'not applicable']) {
       expect(legalEntityMissing({ ...FULL, legalName: placeholder }), placeholder).toEqual(['legalName'])
     }
   })
@@ -35,6 +35,8 @@ describe('T6 legal completeness check', () => {
   it('treats an email field that is not an email address as missing', () => {
     expect(legalEntityMissing({ ...FULL, privacyEmail: 'privacy at lekaya' })).toEqual(['privacyEmail'])
     expect(legalEntityMissing({ ...FULL, supportEmail: 'support@' })).toEqual(['supportEmail'])
+    // Angela #118 A07: an address needs a dot in its domain.
+    expect(legalEntityMissing({ ...FULL, privacyEmail: 'privacy@lekaya' })).toEqual(['privacyEmail'])
   })
 
   it('lists every blank field in a stable order', () => {
@@ -156,6 +158,24 @@ describe('T6 (Jim #118 C10): a sole proprietor can complete the details', () => 
       expect(legalEntityComplete({ ...FULL, registrationNumber: value }), value).toBe(true)
     }
     expect(legalEntityComplete({ ...FULL, registrationNumber: 'not applicable', supportEmail: '' })).toBe(false)
+  })
+})
+
+describe('Angela #118 C4/C5: N/A and the live gate; "not applicable" only for registrationNumber', () => {
+  it('N/A, -, none and pending stop a live build in any required field', () => {
+    for (const field of LEGAL_REQUIRED_FIELDS) {
+      for (const value of ['N/A', '-', 'none', 'pending']) {
+        const r = legalBuildGate({ mode: 'production', env: { PF_LIVE_BUILD: '1' }, entity: { ...FULL, [field]: value } })
+        expect(r.action, `${field}=${value}`).toBe('fail')
+        expect(r.missing, `${field}=${value}`).toEqual([field])
+      }
+    }
+  })
+
+  it('"not applicable" is accepted for registrationNumber only; "N/A" is not', () => {
+    expect(legalEntityMissing({ ...FULL, registrationNumber: 'not applicable' })).toEqual([])
+    expect(legalEntityMissing({ ...FULL, registrationNumber: 'N/A' })).toEqual(['registrationNumber'])
+    expect(legalEntityMissing({ ...FULL, informationOfficer: 'not applicable' })).toEqual(['informationOfficer'])
   })
 })
 
