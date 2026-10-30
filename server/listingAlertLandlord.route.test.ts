@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
  * PR #124 (Jim C5, mutant J8): the public listing-enquiry route must pass the
@@ -65,8 +65,19 @@ beforeAll(async () => {
   app = (await import('./index.js')).default as unknown as App
 }, 60_000)
 
+// Landlord copies are sent only with ALERT_LANDLORDS=1 (gated in
+// sendListingLeadAlert, mocked here). Run with the flag on so this file pins
+// the route contract for the state where the landlord email is used; the
+// end-to-end recipients for both flag states are in
+// listingAlertLandlordFlag.route.test.ts.
+const savedFlag = process.env.ALERT_LANDLORDS
 let ipN = 0
+afterEach(() => {
+  if (savedFlag === undefined) delete process.env.ALERT_LANDLORDS
+  else process.env.ALERT_LANDLORDS = savedFlag
+})
 beforeEach(async () => {
+  process.env.ALERT_LANDLORDS = '1'
   const rl = (await import('./rateLimit.js')) as { resetRateLimitsForTests?: () => void }
   rl.resetRateLimitsForTests?.()
   alerts.length = 0
