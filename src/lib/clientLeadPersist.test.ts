@@ -1,17 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { clientMayPersistLead } from './clientLeadPersist'
+import { clientMayCreateLead } from './clientLeadPersist'
 
 /**
- * T3 (spec r4): a guest or tenant (or any portal user) never sends a lead to
- * /api/persist from the listing page. The server refuses it (403 "not on the
- * portal allow-list" / "enquiries are create-only"), which toasted
- * "Change not saved" and reloaded the page under the user.
+ * T3 B1 (Angela, Michael's ruling): who may send a NEW lead (a fresh
+ * uid('LD'), e.g. the apply path) to /api/persist from the listing page.
+ * Matches the real portal policy (server/portalWritePolicy.ts 'lead' case,
+ * pinned in server/portalWritePolicy.test.ts "T3 B1"): staff yes; a tenant
+ * creating a new lead yes; a landlord / contractor is refused ("not on the
+ * portal allow-list"); a guest has no actor (401). Re-saving an EXISTING lead
+ * (the enquiry the public route already created) is never done from the page.
  */
-describe('T3 clientMayPersistLead', () => {
-  it.each([null, undefined, '', 'guest', 'tenant', 'landlord', 'contractor'])('%s may not', (role) => {
-    expect(clientMayPersistLead(role)).toBe(false)
+describe('T3 clientMayCreateLead', () => {
+  it.each([null, undefined, '', 'guest', 'landlord', 'contractor'])('%s may not', (role) => {
+    expect(clientMayCreateLead(role)).toBe(false)
   })
-  it.each(['super_admin', 'client_admin', 'agent_admin', 'ground_agent', 'agent'])('%s may', (role) => {
-    expect(clientMayPersistLead(role)).toBe(true)
+  it.each(['tenant', 'super_admin', 'client_admin', 'agent_admin', 'ground_agent', 'agent'])('%s may', (role) => {
+    expect(clientMayCreateLead(role)).toBe(true)
   })
 })

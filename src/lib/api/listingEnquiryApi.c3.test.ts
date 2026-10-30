@@ -43,7 +43,9 @@ describe('T3 C3 formatListingEnquiryError', () => {
   it('keeps the existing mapped copy', () => {
     expect(formatListingEnquiryError('slot_unavailable')).toMatch(/filled up/i)
     expect(formatListingEnquiryError('NOTICE_TOO_SHORT')).toMatch(/more notice/i)
-    expect(formatListingEnquiryError('timeout')).toMatch(/too long/i)
+    expect(formatListingEnquiryError('timeout')).toBe(
+      'The server took too long. Your enquiry may have been received. Try again and we will tell you if it is already registered.',
+    )
   })
 })
 
@@ -57,7 +59,7 @@ describe('T3 C3 submitListingEnquiry', () => {
     )
     const r = await submitListingEnquiry(input)
     expect(r.ok).toBe(false)
-    if (!r.ok) {
+    if (r.ok === false) {
       expect(r.error).toBe(GENERIC)
       expect(r.error).not.toMatch(/relation|column/)
     }

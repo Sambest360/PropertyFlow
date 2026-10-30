@@ -1041,3 +1041,60 @@ describe('staff ticket photos: a tenant save cannot change them', () => {
     }
   })
 })
+
+/**
+ * T3 B1 (Angela, Michael's ruling): which client lead saves the REAL portal
+ * policy refuses. The body is the shape AppStore.persistUpsert('lead', …)
+ * sends. A server-created enquiry lead already has an entity_id_map row, so a
+ * second save of it is an update; an apply lead from createLead has a fresh
+ * uid('LD') the server has never seen.
+ */
+describe('T3 B1: tenant lead saves through the real portal policy', () => {
+  const ENQUIRY_LEAD = 'LD-guest-1700000000000-abc123' // created by POST /api/public/listing-enquiry
+  const APPLY_LEAD = 'LD-mq3k9x-7f2a' // fresh uid('LD') from createLead, unknown to the server
+  const leadData = (id: string) => ({
+    id,
+    agencyId: 'ag-a',
+    propertyId: 'p-1',
+    agentId: 'u-agent',
+    name: 'Tess Tenant',
+    email: 'tess@x.test',
+    phone: '0820000000',
+    channel: 'Web Form',
+    type: 'Rent',
+    value: 6500,
+    stage: 'Application Submitted',
+    notes: '',
+  })
+  const leadBody = (id: string): Body => ({ resource: 'lead', action: 'upsert', id, data: leadData(id) })
+
+  beforeEach(() => {
+    resolveUuid.mockImplementation(async (_t: string, fe: string) =>
+      fe === ENQUIRY_LEAD ? id(91) : (UUID[fe] ?? null),
+    )
+  })
+
+  it("a tenant's NEW lead (the apply path) is allowed", async () => {
+    await expect(gate(TENANT, leadBody(APPLY_LEAD))).resolves.toBeDefined()
+    // A self-registered tenant has no agency yet; still allowed.
+    await expect(gate({ ...TENANT, agencyId: null }, leadBody(APPLY_LEAD))).resolves.toBeDefined()
+  })
+
+  it('a tenant re-saving the EXISTING enquiry lead is refused: 403 "enquiries are create-only" (the original bug)', async () => {
+    await expect(gate(TENANT, leadBody(ENQUIRY_LEAD))).rejects.toMatchObject({
+      status: 403,
+      message: expect.stringContaining('enquiries are create-only'),
+    })
+  })
+
+  it('a landlord or contractor lead is refused, new or not ("not on the portal allow-list")', async () => {
+    for (const actor of [LANDLORD, CONTRACTOR]) {
+      for (const lid of [APPLY_LEAD, ENQUIRY_LEAD]) {
+        await expect(gate(actor, leadBody(lid))).rejects.toMatchObject({
+          status: 403,
+          message: expect.stringContaining('not on the portal allow-list'),
+        })
+      }
+    }
+  })
+})

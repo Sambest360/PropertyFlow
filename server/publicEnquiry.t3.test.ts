@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
- * T3 (spec r4): the server answer is the only save of a public enquiry.
- * A repeat email+unit says so (duplicate: true) and gives back the ORIGINAL
- * lead reference (its front-end id), so the form can show "already registered"
- * with a real reference instead of a raw database id.
+ * T3 (spec r4/r5): the server answer is the only save of a public enquiry.
+ * A repeat email/phone + unit says so (duplicate: true). F4 (Michael): it
+ * never gives back the existing lead's reference (nor its raw uuid), because
+ * whoever typed the email or phone may not be the person who registered.
+ * A fresh save returns its own front-end reference (LD-…), never a uuid.
  */
 const query = vi.hoisted(() => vi.fn())
 const dupRow = vi.hoisted(() => ({ current: null as { id: string } | null }))
@@ -69,6 +70,8 @@ describe('T3: public enquiry result', () => {
         ]
       if (sql.includes('listing_limit_count')) return [{ n: 1 }]
       if (sql.includes('listing_limit_duplicate')) return dupRow.current ? [dupRow.current] : []
+      if (sql.includes('FROM viewing_slots') && sql.includes('FOR UPDATE'))
+        return [{ slot_date: '2026-10-20', slot_time: '10:00:00', capacity: 5, booked_count: 0, status: 'OPEN' }]
       return []
     })
   })
@@ -82,21 +85,48 @@ describe('T3: public enquiry result', () => {
     expect(insertsInto('leads')).toHaveLength(1)
   })
 
-  it('a repeat email+unit returns duplicate: true with the original reference, and inserts nothing', async () => {
+  const leaksExisting = (res: unknown) => /LD-guest-1700000000000-abc123|uuid-existing/.test(JSON.stringify(res))
+
+  it('a repeat email/phone + unit returns duplicate: true with NO reference (F4), and inserts nothing', async () => {
     dupRow.current = { id: 'uuid-existing' }
     const { submitPublicListingEnquiry } = await import('./publicEnquiry.js')
     const res = await submitPublicListingEnquiry({ ...base, action: 'lead' })
     expect(res.ok).toBe(true)
     expect(res.duplicate).toBe(true)
-    expect(res.leadId).toBe('LD-guest-1700000000000-abc123')
+    expect(res.leadId).toBeNull()
+    expect(leaksExisting(res)).toBe(false)
     expect(insertsInto('leads')).toHaveLength(0)
   })
 
-  it('a repeat viewing request without a slot is also a duplicate', async () => {
+  it('a repeat viewing request without a slot is also a duplicate, with no reference', async () => {
     dupRow.current = { id: 'uuid-existing' }
     const { submitPublicListingEnquiry } = await import('./publicEnquiry.js')
     const res = await submitPublicListingEnquiry({ ...base, action: 'viewing' })
     expect(res.duplicate).toBe(true)
-    expect(res.leadId).toBe('LD-guest-1700000000000-abc123')
+    expect(res.leadId).toBeNull()
+    expect(leaksExisting(res)).toBe(false)
+  })
+
+  it('a slot booking on a NEW lead is not a duplicate and returns its front-end references (M11, M13)', async () => {
+    const { submitPublicListingEnquiry } = await import('./publicEnquiry.js')
+    const res = await submitPublicListingEnquiry({ ...base, action: 'viewing', slotId: 'VS-1' })
+    expect(res.duplicate).not.toBe(true)
+    expect(res.leadId).toMatch(/^LD-guest-\d+-[a-z0-9]+$/)
+    expect(res.bookingId).toMatch(/^VW-guest-\d+-[a-z0-9]+$/)
+    expect(res.stage).toBe('Viewing Scheduled')
+    expect(insertsInto('leads')).toHaveLength(1)
+    expect(insertsInto('bookings')).toHaveLength(1)
+  })
+
+  it('a slot booking by a matching email/phone books the viewing, is not a duplicate, and does not reveal the existing lead (F4, M11, M13)', async () => {
+    dupRow.current = { id: 'uuid-existing' }
+    const { submitPublicListingEnquiry } = await import('./publicEnquiry.js')
+    const res = await submitPublicListingEnquiry({ ...base, action: 'viewing', slotId: 'VS-1' })
+    expect(res.duplicate).not.toBe(true)
+    expect(res.leadId).toBeNull()
+    expect(res.bookingId).toMatch(/^VW-guest-\d+-[a-z0-9]+$/)
+    expect(leaksExisting(res)).toBe(false)
+    expect(insertsInto('leads')).toHaveLength(0)
+    expect(insertsInto('bookings')).toHaveLength(1)
   })
 })

@@ -13,12 +13,22 @@ describe('T3 enquiryOutcome', () => {
     expect(o.body).toContain('Thandi')
   })
 
-  it('a repeat shows a friendly "already registered" with the original reference', () => {
-    const o = enquiryOutcome({ ok: true, leadId: 'LD-guest-old', stage: 'New Lead', duplicate: true }, ctx)
+  it('a repeat shows plain "already registered" copy with NO reference (F4)', () => {
+    const o = enquiryOutcome({ ok: true, duplicate: true }, ctx)
     expect(o.tone).toBe('info')
-    expect(o.title).toMatch(/already registered/i)
-    expect(o.body).not.toMatch(/error|failed|not saved/i)
-    expect(o.reference).toBe('LD-guest-old')
+    expect(o.title).toBe('Already registered')
+    expect(o.body).toBe("You're already registered; the agent will be in touch.")
+    expect(o.reference).toBeNull()
+    expect(JSON.stringify(o)).not.toMatch(/LD-/)
+  })
+
+  it('a slot booking that matched an existing lead shows the booking reference, never a lead one', () => {
+    const o = enquiryOutcome(
+      { ok: true, leadId: null, bookingId: 'VW-guest-9', stage: 'Viewing Scheduled' },
+      { action: 'viewing', slot: { date: '2026-11-02', time: '10:00' }, agentName: 'Thandi' },
+    )
+    expect(o.title).toBe('Viewing booked')
+    expect(o.reference).toBe('VW-guest-9')
   })
 
   it('a booked viewing names the slot and keeps the reference', () => {
@@ -53,7 +63,9 @@ describe('T3 enquiryOutcome', () => {
 
   it('only a fresh saved enquiry is added to local state (never a duplicate or an error)', () => {
     expect(shouldRecordEnquiryLocally({ ok: true, leadId: 'LD-1', stage: 'New Lead' })).toBe(true)
-    expect(shouldRecordEnquiryLocally({ ok: true, leadId: 'LD-1', stage: 'New Lead', duplicate: true })).toBe(false)
+    expect(shouldRecordEnquiryLocally({ ok: true, duplicate: true })).toBe(false)
+    // No lead id (a slot booking on an existing lead): nothing to mirror as a lead.
+    expect(shouldRecordEnquiryLocally({ ok: true, leadId: null, bookingId: 'VW-1', stage: 'Viewing Scheduled' })).toBe(false)
     expect(shouldRecordEnquiryLocally({ ok: false, error: 'x' })).toBe(false)
   })
 })
