@@ -94,12 +94,18 @@ export function buildConsentText(input: ConsentTermsInput): string {
   return lines.join('\n')
 }
 
-/** Show only the last 4 digits of an ID / passport number. */
+/**
+ * Show only the last 4 characters of an ID / passport number, and only when
+ * that is at most half of it (8+ characters). A shorter value shows its last
+ * character (4-7 characters) or nothing (under 4), so a short ID never reveals
+ * most of itself. Always at least four '•'.
+ */
 export function maskIdNumber(value: string | null | undefined): string {
   const v = (value ?? '').replace(/\s+/g, '')
   if (!v) return ''
-  const last4 = v.slice(-4)
-  return `${'•'.repeat(Math.max(v.length - 4, 4))}${last4}`
+  if (v.includes('\u2022')) return v // already masked
+  const shown = v.length >= 8 ? 4 : v.length >= 4 ? 1 : 0
+  return `${'•'.repeat(Math.max(v.length - shown, 4))}${shown ? v.slice(-shown) : ''}`
 }
 
 /** Mask from a stored last-4 value. */
