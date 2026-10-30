@@ -47,6 +47,7 @@ import { propertyRefLabel } from '../lib/propertyRefs'
 import { usePortalHydrating } from '../components/PortalHydrationGate'
 import { DataTableSkeleton } from '../components/loading/PageSkeleton'
 import { UnopenedDot } from '../context/UnopenedContext'
+import { LEAD_SCREEN_WALK_IN_HELP } from '../lib/leadScreenCopy'
 
 const ICON_STROKE = 1.6
 const VIEW_KEY = 'propertyflow-crm-view'
@@ -341,7 +342,7 @@ export default function CRM() {
       <div className="animate-fade-in space-y-5">
         <PageHeader
           title="Leads"
-          subtitle="Early enquiries before they become applicants — filter, sort, or use the board."
+          subtitle={`Early enquiries before they become applicants — filter, sort, or use the board. ${LEAD_SCREEN_WALK_IN_HELP}`}
           actions={
             has('leads.manage') ? (
               <Button className="min-h-11" disabled={walkInBusy} onClick={createWalkIn}>
@@ -527,7 +528,7 @@ export default function CRM() {
         ) : portfolio.length === 0 ? (
           <DirectoryEmpty
             title="No leads in your scope yet"
-            hint="Create a walk-in lead or capture one from a listing enquiry."
+            hint={`Create a walk-in lead or capture one from a listing enquiry. ${LEAD_SCREEN_WALK_IN_HELP}`}
             action={
               has('leads.manage') ? (
                 <Button className="min-h-11" disabled={walkInBusy} onClick={createWalkIn}>
