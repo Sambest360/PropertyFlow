@@ -5,12 +5,9 @@ import { LEGAL_REQUIRED_FIELDS } from '../lib/legalEntity'
 
 /**
  * T6 / Jim's T5 review C2: /contact shows no placeholder marker once every
- * detail is set. ContactPage.tsx arrives with PR #117 (T5, harden/t5), which is
- * not on main yet, so these tests SKIP until #117 merges and then run on their
- * own. Once both are on main, drop the skipIf guard (follow-up noted in the PR).
+ * detail is set. ContactPage is imported directly (no skip guard): if it goes
+ * missing, this file fails loudly instead of skipping.
  */
-const contactLoaders = import.meta.glob('./ContactPage.tsx')
-const loadContact = contactLoaders['./ContactPage.tsx']
 
 // Test-only fixture, NOT Lekaya's real details (Samuel supplies those).
 const FULL = {
@@ -32,8 +29,7 @@ async function renderContact(entity: Record<string, string>) {
     ...(await orig<typeof import('../lib/legalEntity')>()),
     LEGAL_ENTITY: entity,
   }))
-  const mod = (await loadContact()) as { default: () => React.ReactElement }
-  const ContactPage = mod.default
+  const { default: ContactPage } = await import('./ContactPage')
   return renderToStaticMarkup(
     <MemoryRouter>
       <ContactPage />
@@ -46,7 +42,7 @@ afterEach(() => {
   vi.resetModules()
 })
 
-describe.skipIf(!loadContact)('T6 /contact legal details (needs PR #117 merged first)', () => {
+describe('T6 /contact legal details', () => {
   it('shows no "to be confirmed" marker once every detail is set, and links the emails', async () => {
     const out = await renderContact(FULL)
     expect(out).not.toContain('legal-missing-')

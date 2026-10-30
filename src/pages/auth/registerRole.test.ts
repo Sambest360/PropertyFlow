@@ -29,14 +29,13 @@ describe('T6 (Jim T5 C6): /register?role= preselects a public role', () => {
   })
 })
 
-// The footer "List with us" link arrives with PR #117 (T5). Until it is on main
-// this skips; once #117 merges it pins the link to LIST_WITH_US_PATH.
-const listWithUs = marketplaceFooter
-  .flatMap((g) => g.links as ReadonlyArray<readonly [string, string]>)
-  .find(([label]) => label === 'List with us')
-
-describe.skipIf(!listWithUs)('T6 C6 footer "List with us" (needs PR #117 merged first)', () => {
+// No skip guard: if the footer link goes missing, this fails loudly.
+describe('T6 C6 footer "List with us"', () => {
   it('links to /register with Landlord preselected', () => {
+    const listWithUs = marketplaceFooter
+      .flatMap((g) => g.links as ReadonlyArray<readonly [string, string]>)
+      .find(([label]) => label === 'List with us')
+    expect(listWithUs, 'footer has a "List with us" link').toBeDefined()
     expect(listWithUs?.[1]).toBe(LIST_WITH_US_PATH)
   })
 })
