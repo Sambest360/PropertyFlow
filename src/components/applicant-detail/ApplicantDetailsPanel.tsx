@@ -18,6 +18,9 @@ import { SCREENING_MODE_A_COPY } from '../../lib/screening'
 import { maskIdNumber } from '../../lib/screening/consentTerms'
 import { ICON_STROKE } from './types'
 
+/** T1: an empty applicant field reads "Not provided", not a dash. */
+const NOT_PROVIDED = 'Not provided'
+
 /** Personal / screening details — flat text, no nested cards. */
 export function ApplicantDetailsPanel({
   application,
@@ -84,14 +87,21 @@ export function ApplicantDetailsPanel({
         <FlatFieldGrid>
           <FlatField label="Full name" value={application.applicantName} />
           <FlatField label="Email" value={application.email} />
-          <FlatField label="Phone" value={application.phone || '—'} />
+          <FlatField label="Phone" value={application.phone?.trim() || NOT_PROVIDED} />
           <FlatField
             icon={IdCard}
             label="ID / passport"
-            value={maskIdNumber(application.idNumberOrPassport) || '—'}
+            value={maskIdNumber(application.idNumberOrPassport) || NOT_PROVIDED}
             tabular
           />
-          <FlatField icon={Briefcase} label="Employment" value={application.employment || '—'} />
+          <FlatField icon={Briefcase} label="Employer" value={application.employerName?.trim() || NOT_PROVIDED} />
+          <FlatField label="Job title" value={application.jobTitle?.trim() || NOT_PROVIDED} />
+          {!application.employerName?.trim() &&
+          !application.jobTitle?.trim() &&
+          application.employment?.trim() &&
+          application.employment.trim() !== 'To be completed' ? (
+            <FlatField label="Employment" value={application.employment.trim()} />
+          ) : null}
           <FlatField
             label="Declared income"
             value={application.income ? formatZAR(application.income) : '—'}

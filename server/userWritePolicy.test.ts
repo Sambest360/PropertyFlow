@@ -934,7 +934,7 @@ describe('Angela #80 (330a350): a redacted application row never blanks the stor
     workflow_status: 'agent_review',
   }
 
-  it('file-less documents keep the stored files; a staff write of blank email / phone clears them (Jim nit)', async () => {
+  it('file-less documents keep the stored files; a staff write of blank email clears it, a blank phone keeps the stored one (T1 C5)', async () => {
     applications[UUID['A-t']].docsJson = STORED_DOCS
     applications[UUID['A-t']].metadata = STORED_META
     try {
@@ -964,8 +964,11 @@ describe('Angela #80 (330a350): a redacted application row never blanks the stor
       expect(docs.creditCheck).toBe('Passed')
       expect(docs.screening).toEqual({ status: 'passed' })
       const meta = JSON.parse(String(params[13])) as Record<string, unknown>
-      // Staff cleared the contact details: written as null, not kept.
-      expect(meta).toMatchObject({ email: null, applicant_email: null, phone: null })
+      // Staff cleared the email: written as null. T1 C5 supersedes the Jim nit
+      // for phone: a blank phone on UPDATE keeps the stored one for every writer.
+      // The key is left out, so the metadata || EXCLUDED.metadata merge keeps it.
+      expect(meta).toMatchObject({ email: null, applicant_email: null })
+      expect(meta).not.toHaveProperty('phone')
       expect(meta.keyCollection).toEqual({ contactPhone: '', emailSentAt: '2026-10-04' })
     } finally {
       delete applications[UUID['A-t']].docsJson
