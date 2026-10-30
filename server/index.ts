@@ -19,6 +19,7 @@ import {
 } from './actor.js'
 import { isStaffRole, resolveRequestActor } from './requestActor.js'
 import { filterBootstrapForGuest } from './guestMarketplace.js'
+import { loadListingAlertStaff } from './listingAlertStaff.js'
 import {
   changeUserPassword,
   clearSession,
@@ -1707,7 +1708,6 @@ app.post('/api/public/listing-enquiry', async (c) => {
     // Agent (+ landlord when resolvable) alert — same fire-and-forget contract.
     if (!repeat || noteAppended) void (async () => {
       try {
-        const { loadListingAlertStaff } = await import('./listingAlertStaff.js')
         const s = await loadListingAlertStaff(result.unitId ?? null)
         if (s?.agent_email) {
           void sendListingLeadAlert({
