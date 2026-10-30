@@ -157,7 +157,10 @@ describe('legal pages', () => {
     const terms = html(<TermsPage />)
     expect(textOf(terms)).not.toMatch(/published\s+process/i)
     const s8 = sectionText(terms, '8. Reviews and reports')
-    expect(s8).toContain('We review reports about reviews and conduct, and we may moderate or remove reviews or act under section 7.')
+    expect(s8).toContain('We may moderate or remove reviews or act under section 7.')
+    // Michael Ruling 9: no promise that reports are reviewed; nobody has committed to that.
+    expect(s8).not.toMatch(/we review reports/i)
+    expect(s8).not.toMatch(/\b(review|investigate|respond to|answer)s?\b[^.<]{0,30}\breports?\b/i)
     expect(s8).not.toMatch(/\bprocess\b/i)
   })
 
