@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildPropertyScope } from './scope'
-import { filterBootstrapForActor } from './bootstrapActorFilter'
+import { filterBootstrapForActor, scopeApplicationIdNumbers } from './bootstrapActorFilter'
 import { maskIdNumber } from './screening/consentTerms'
 
 /**
@@ -134,5 +134,31 @@ describe('T1 C6/O5: application ID numbers in the server bootstrap filter', () =
 
   it("another tenant never gets the applicant's ID", () => {
     expect(fullIdsAnywhere(appsFor({ userId: 'u-t2', role: 'tenant', agencyId: null }))).toEqual([])
+  })
+
+  it('pin (M8): scopeApplicationIdNumbers masks a row a tenant holds that is not their own application', () => {
+    const foreign = { ...app, id: 'APP-2', applicantUserId: 'u-t', email: 'tenant@example.com' }
+    const entities = { ...raw, applications: [foreign] }
+    const out = scopeApplicationIdNumbers(
+      entities as never,
+      raw as never,
+      { userId: 'u-t2', role: 'tenant', agencyId: null } as never,
+      new Set(['u-t2']),
+    )
+    const rows = out.applications as Array<Record<string, unknown>>
+    expect(rows).toHaveLength(1)
+    expect(fullIdsAnywhere(rows)).toEqual([])
+    expect(idsOf(rows[0])).toEqual({
+      main: maskIdNumber(MAIN_ID),
+      adults: [maskIdNumber(MAIN_ID), maskIdNumber(CO_ID), maskIdNumber(GUARANTOR_ID)],
+    })
+    // The same row stays full for its own applicant.
+    const own = scopeApplicationIdNumbers(
+      entities as never,
+      raw as never,
+      { userId: 'u-t', role: 'tenant', agencyId: null } as never,
+      new Set(['u-t']),
+    )
+    expect(idsOf((own.applications as Array<Record<string, unknown>>)[0]).main).toBe(MAIN_ID)
   })
 })

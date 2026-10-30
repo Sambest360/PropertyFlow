@@ -584,6 +584,22 @@ describe('guest full application on PR-1011 reaches /api/persist (API mode)', ()
     expect(own?.phone).toBe(DETAILS.phone)
   })
 
+  it('pin (M12): a CREATE that sends a masked ID stores null, never the masked value', async () => {
+    addRoundTripPeople()
+    const appRow = await guestApplication()
+    expect(db.applications.size).toBe(0)
+    expect(
+      await persistAs(TENANT, {
+        ...(appRow as unknown as Record<string, unknown>),
+        ...DETAILS,
+        idNumberOrPassport: maskIdNumber(DETAILS.idNumberOrPassport),
+      }),
+    ).toBe(true)
+    expect(db.applications.size).toBe(1)
+    expect(storedMeta().idNumberOrPassport).toBeNull()
+    expect(storedMeta().phone).toBe(DETAILS.phone)
+  })
+
   it('T1 contract: tenant apply -> bootstrap as the tenant and as the listing agency staff returns phone, employer, job title and ID', async () => {
     addRoundTripPeople()
     const appRow = await guestApplication()
