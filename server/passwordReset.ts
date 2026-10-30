@@ -1,5 +1,5 @@
 /**
- * D3 staff password reset: POST /api/auth/reset-password { userId }.
+ * D3 staff password reset: POST /api/auth/reset-password { userId, password? }.
  *
  * Who can reset whom (the server is the gate; the UI only hides the button):
  * - Nobody resets themselves (use change-password).
@@ -16,7 +16,8 @@
  * The requested id must round-trip: resolveUuid('user', id) has to load a row
  * whose own session front-end id (or uuid) is the id that was sent.
  *
- * Effect: a random 12-character temp password is hashed and stored,
+ * Effect: the password the admin typed (at least MIN_PASSWORD_LENGTH), or a
+ * random 12-character temp password, is hashed and stored,
  * metadata.mustChangePassword = true and metadata.passwordChangedAt = now
  * (which revokes every existing session of the target). The temp password is
  * returned once and never logged. event_log gets a password_reset row with the
@@ -30,6 +31,7 @@ import {
   actorFromSession,
   findUserById,
   hashPassword,
+  MIN_PASSWORD_LENGTH,
   rowToSession,
   type SessionUser,
 } from './auth.js'
@@ -101,11 +103,17 @@ export type ResetResult = {
   target: { id: string; uuid: string; clientId: string | null }
 }
 
-export async function resetUserPassword(
+type UserRow = NonNullable<Awaited<ReturnType<typeof findUserById>>>
+
+/**
+ * The user `requestedId` names, if `actor` may manage that account's sign-in
+ * (password, email): the rules at the top of this file. Throws 400 / 404 / 403.
+ */
+export async function assertCanManageUserCredentials(
   actor: SessionUser,
   requestedId: string,
-  opts: { impersonatedUserId?: string | null } = {},
-): Promise<ResetResult> {
+  what = 'password',
+): Promise<{ row: UserRow; target: SessionUser }> {
   const wanted = String(requestedId ?? '').trim()
   if (!wanted) throw fail(400, 'userId is required')
   let targetUuid: string | null = null
@@ -120,9 +128,9 @@ export async function resetUserPassword(
   // Round trip: the id sent must be this row's own id (front-end or uuid).
   if (wanted !== target.frontendId && wanted !== row.id) throw fail(404, 'User not found')
 
-  if (row.id === actor.id) throw fail(403, 'Use change password for your own account')
+  if (row.id === actor.id) throw fail(403, `Change your own ${what} from your account settings`)
   if (row.role === 'SUPER_ADMIN' || target.role === 'super_admin') {
-    throw fail(403, 'A super admin password cannot be reset here')
+    throw fail(403, `A super admin\u2019s ${what} cannot be changed here`)
   }
 
   let allowed = false
@@ -141,9 +149,22 @@ export async function resetUserPassword(
       if (allowed && (await hasForeignAgencyLink(row.id, clientUuid))) allowed = false
     }
   }
-  if (!allowed) throw fail(403, 'You cannot reset this user\u2019s password')
+  if (!allowed) throw fail(403, `You cannot change this user\u2019s ${what}`)
+  return { row, target }
+}
 
-  const tempPassword = generateTempPassword()
+export async function resetUserPassword(
+  actor: SessionUser,
+  requestedId: string,
+  opts: { impersonatedUserId?: string | null; newPassword?: string | null } = {},
+): Promise<ResetResult> {
+  const chosen = typeof opts.newPassword === 'string' ? opts.newPassword : ''
+  if (chosen && chosen.length < MIN_PASSWORD_LENGTH) {
+    throw fail(400, `The password needs at least ${MIN_PASSWORD_LENGTH} characters`, 'PASSWORD_TOO_SHORT')
+  }
+  const { row, target } = await assertCanManageUserCredentials(actor, requestedId)
+
+  const tempPassword = chosen || generateTempPassword()
   const hash = await hashPassword(tempPassword)
   await query(
     `UPDATE users

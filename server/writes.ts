@@ -742,9 +742,12 @@ async function upsertUserWithResult(
   }
   const resultUuid = await upsertUser(feId, uuid, d)
   if (!existed && typeof input.email === 'string' && input.email.includes('@') && !input.email.endsWith('@propertyflow.local')) {
-    // New account made by staff: email a link to choose a password (never the password).
+    // New account made by staff: email the sign-in details with the temporary
+    // password (generated here or set by the admin). upsertUser flags it
+    // mustChangePassword, so the account must pick its own at first sign-in.
+    const tempPassword = typeof d.tempPassword === 'string' && d.tempPassword ? d.tempPassword : undefined
     void import('./accountEmails.js')
-      .then(({ sendAccountSetupEmail }) => sendAccountSetupEmail(resultUuid))
+      .then(({ sendAccountSetupEmail }) => sendAccountSetupEmail(resultUuid, { tempPassword }))
       .catch((err) => console.warn('[account-setup email] failed:', err instanceof Error ? err.message : err))
   }
   return generatedTempPassword ? { uuid: resultUuid, generatedTempPassword } : { uuid: resultUuid }

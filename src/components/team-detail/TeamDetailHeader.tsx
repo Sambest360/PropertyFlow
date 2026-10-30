@@ -5,6 +5,7 @@ import { BackButton } from '../BackButton'
 import { Button } from '../ui'
 import { ImpersonateUserButton } from '../admin/ImpersonateUserButton'
 import { ResetPasswordButton } from '../admin/ResetPasswordButton'
+import { ChangeEmailButton } from '../admin/ChangeEmailButton'
 import { useAuth } from '../../context/AuthContext'
 import { isApiEnabled } from '../../lib/api/config'
 import { showPasswordResetEntry } from '../../lib/auth/passwordResetUi'
@@ -58,7 +59,12 @@ export function TeamDetailHeader({ user, mutable, onToggleActive }: TeamDetailHe
             </Button>
           ) : null}
           <ImpersonateUserButton target={user} />
-          {canReset ? <ResetPasswordButton userId={user.id} userName={user.name} /> : null}
+          {canReset ? (
+            <>
+              <ResetPasswordButton userId={user.id} userName={user.name} />
+              <ChangeEmailButton userId={user.id} userName={user.name} currentEmail={user.email} />
+            </>
+          ) : null}
           <Button
             variant="secondary"
             className="min-h-11"

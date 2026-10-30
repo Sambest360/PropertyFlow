@@ -1,9 +1,14 @@
 import { useState } from 'react'
 import { Button, Modal } from '../ui'
 import { apiResetPassword } from '../../lib/api/authClient'
+import { MIN_PASSWORD_LENGTH } from '../../lib/auth/passwordPolicy'
 
 export const TEMP_PASSWORD_HANDOFF_NOTE =
   'Send this password to the user privately (a direct call or message). Don\u2019t post it in a group chat.'
+
+/** New accounts: the welcome email already carries the temporary password. */
+export const TEMP_PASSWORD_EMAILED_NOTE =
+  'We\u2019ve emailed this temporary password to the user with their sign-in details. Keep it only as a backup in case the email doesn\u2019t arrive.'
 
 /**
  * One-time temp password view (reset and staff create). The password lives only
@@ -13,10 +18,13 @@ export function TempPasswordModal({
   tempPassword,
   onClose,
   title = 'Temporary password',
+  emailed = false,
 }: {
   tempPassword: string | null
   onClose: () => void
   title?: string
+  /** True for a new account: its welcome email already carries this password. */
+  emailed?: boolean
 }) {
   const [copied, setCopied] = useState(false)
   const close = () => {
@@ -43,15 +51,29 @@ export function TempPasswordModal({
         </Button>
       }
     >
-      <TempPasswordBody tempPassword={tempPassword ?? ''} copied={copied} onCopy={() => void copy()} />
+      <TempPasswordBody tempPassword={tempPassword ?? ''} copied={copied} onCopy={() => void copy()} emailed={emailed} />
     </Modal>
   )
 }
 
-function TempPasswordBody({ tempPassword, copied, onCopy }: { tempPassword: string; copied: boolean; onCopy: () => void }) {
+function TempPasswordBody({
+  tempPassword,
+  copied,
+  onCopy,
+  emailed,
+}: {
+  tempPassword: string
+  copied: boolean
+  onCopy: () => void
+  emailed?: boolean
+}) {
   return (
     <div className="space-y-3 text-sm text-ink-700">
-      <p>Give this temporary password to the user. They must change it at next sign-in.</p>
+      <p>
+        {emailed
+          ? 'The user must change this temporary password at first sign-in.'
+          : 'Give this temporary password to the user. They must change it at next sign-in.'}
+      </p>
       <div className="flex items-center gap-2">
         <code
           data-testid="temp-password"
@@ -63,7 +85,7 @@ function TempPasswordBody({ tempPassword, copied, onCopy }: { tempPassword: stri
           {copied ? 'Copied' : 'Copy'}
         </Button>
       </div>
-      <p className="font-medium">{TEMP_PASSWORD_HANDOFF_NOTE}</p>
+      <p className="font-medium">{emailed ? TEMP_PASSWORD_EMAILED_NOTE : TEMP_PASSWORD_HANDOFF_NOTE}</p>
       <p className="text-ink-500">It won&rsquo;t be shown again.</p>
     </div>
   )
@@ -87,20 +109,27 @@ export function ResetPasswordButton({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [tempPassword, setTempPassword] = useState<string | null>(null)
+  const [chosen, setChosen] = useState('')
   const [copied, setCopied] = useState(false)
 
   const close = () => {
     setTempPassword(null)
+    setChosen('')
     setConfirming(false)
     setCopied(false)
     setError(null)
   }
 
   const run = async () => {
+    const typed = chosen.trim()
+    if (typed && typed.length < MIN_PASSWORD_LENGTH) {
+      setError(`A temporary password needs at least ${MIN_PASSWORD_LENGTH} characters, or leave it blank to generate one.`)
+      return
+    }
     setBusy(true)
     setError(null)
     try {
-      const res = await apiResetPassword(userId)
+      const res = await apiResetPassword(userId, typed || undefined)
       setTempPassword(res.tempPassword)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'The password could not be reset.')
@@ -122,12 +151,12 @@ export function ResetPasswordButton({
   return (
     <>
       <Button type="button" variant="secondary" size={size} onClick={() => setConfirming(true)}>
-        Reset password
+        Change password
       </Button>
       <Modal
         open={confirming}
         onClose={close}
-        title={tempPassword ? 'Temporary password' : `Reset ${userName}\u2019s password?`}
+        title={tempPassword ? 'Temporary password' : `Change ${userName}\u2019s password`}
         footer={
           tempPassword ? (
             <Button type="button" onClick={close}>
@@ -139,7 +168,7 @@ export function ResetPasswordButton({
                 Cancel
               </Button>
               <Button type="button" variant="danger" onClick={() => void run()} disabled={busy}>
-                {busy ? 'Resetting…' : 'Reset password'}
+                {busy ? 'Saving…' : 'Set temporary password'}
               </Button>
             </>
           )
@@ -147,15 +176,27 @@ export function ResetPasswordButton({
       >
         {tempPassword ? (
           <div className="space-y-2">
-            <TempPasswordBody tempPassword={tempPassword} copied={copied} onCopy={() => void copy()} />
+            <TempPasswordBody tempPassword={tempPassword} copied={copied} onCopy={() => void copy()} emailed />
             <p className="text-sm text-ink-500">Their other sign-ins have been ended.</p>
           </div>
         ) : (
           <div className="space-y-3 text-sm text-ink-700">
             <p>
-              This signs {userName} out everywhere and gives you a temporary password to pass on. They
-              will have to choose a new password when they sign in.
+              This signs {userName} out everywhere and emails them a temporary password. They will have
+              to choose their own password when they next sign in.
             </p>
+            <label className="block space-y-1">
+              <span className="text-xs font-semibold text-ink-600">Temporary password (optional)</span>
+              <input
+                type="text"
+                autoComplete="off"
+                value={chosen}
+                onChange={(e) => setChosen(e.target.value)}
+                placeholder="Leave blank to generate one"
+                className="min-h-11 w-full rounded-lg border border-primary-100 px-3 text-sm"
+              />
+              <span className="block text-xs text-ink-500">At least {MIN_PASSWORD_LENGTH} characters.</span>
+            </label>
             {error ? (
               <p role="alert" className="text-red-600">
                 {error}

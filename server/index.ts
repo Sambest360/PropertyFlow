@@ -162,6 +162,7 @@ app.use(
  */
 const PASSWORD_CHANGE_ALLOWED_PATHS = new Set([
   '/api/auth/me',
+  '/api/auth/confirm-email-change',
   '/api/auth/change-password',
   '/api/auth/logout',
   '/api/auth/login',
@@ -670,9 +671,11 @@ app.post('/api/auth/reset-password', async (c) => {
   try {
     const actor = await resolveSessionUser(c)
     if (!actor) return c.json({ error: 'unauthorized', message: 'Not signed in' }, 401)
-    const body = (await c.req.json().catch(() => ({}))) as { userId?: unknown }
+    const body = (await c.req.json().catch(() => ({}))) as { userId?: unknown; password?: unknown }
     const userId = typeof body.userId === 'string' ? body.userId.trim() : ''
     if (!userId) return c.json({ error: 'bad_request', message: 'userId is required' }, 400)
+    // Optional: the admin's own choice of temporary password (else generated).
+    const newPassword = typeof body.password === 'string' && body.password !== '' ? body.password : null
     const gate = passwordResetRateLimit(actor.id, userId)
     if (!gate.ok) {
       const rl = tooManyRequests(gate.retryAfterSec)
@@ -685,18 +688,77 @@ app.post('/api/auth/reset-password', async (c) => {
       const imp = parseDemoActor(c, null)
       if (imp && imp.userId !== actor.frontendId) impersonatedUserId = imp.userId
     }
-    const result = await resetUserPassword(actor, userId, { impersonatedUserId })
-    // Also email the person a link to choose their own password.
+    const result = await resetUserPassword(actor, userId, { impersonatedUserId, newPassword })
+    // Email the person the temporary password; they must change it at sign-in.
     void import('./accountEmails.js')
-      .then(({ sendStaffResetEmail }) => sendStaffResetEmail(result.target.uuid, actor.name))
+      .then(({ sendStaffResetEmail }) => sendStaffResetEmail(result.target.uuid, actor.name, result.tempPassword))
       .catch(() => {})
     return c.json({ ok: true, userId: result.target.id, tempPassword: result.tempPassword })
   } catch (err) {
     const status = errStatus(err)
-    // Message only (never the request body, which cannot hold a password here anyway).
+    // Message only, never the request body (it can hold the chosen password).
     const message = status >= 500 ? 'Password reset failed' : err instanceof Error ? err.message : String(err)
     if (status >= 500) console.error('[reset-password] failed:', err instanceof Error ? err.message : 'unknown')
     return c.json({ error: 'reset_password_failed', message }, status)
+  }
+})
+
+/**
+ * Staff change a user's sign-in email (server/emailChange.ts). Nothing changes
+ * until the person confirms from the new address.
+ */
+app.post('/api/admin/users/email', async (c) => {
+  c.header('Cache-Control', 'no-store')
+  try {
+    const actor = await resolveSessionUser(c)
+    if (!actor) return c.json({ error: 'unauthorized', message: 'Not signed in' }, 401)
+    const body = (await c.req.json().catch(() => ({}))) as { userId?: unknown; email?: unknown }
+    const userId = typeof body.userId === 'string' ? body.userId.trim() : ''
+    if (!userId) return c.json({ error: 'bad_request', message: 'userId is required' }, 400)
+    const gate = passwordResetRateLimit(actor.id, userId)
+    if (!gate.ok) {
+      const rl = tooManyRequests(gate.retryAfterSec)
+      return c.json(rl.body, rl.status, { ...rl.headers, 'Cache-Control': 'no-store' })
+    }
+    const { requestEmailChange } = await import('./emailChange.js')
+    return c.json({ ok: true, ...(await requestEmailChange(actor, userId, body.email)) })
+  } catch (err) {
+    const status = errStatus(err)
+    const message = status >= 500 ? 'The email could not be changed' : err instanceof Error ? err.message : String(err)
+    if (status >= 500) console.error('[email-change] failed:', err instanceof Error ? err.message : 'unknown')
+    return c.json({ error: 'email_change_failed', message, ...errCode(err) }, status)
+  }
+})
+
+/** The link from the email-change message: switch the account to the new address. */
+app.post('/api/auth/confirm-email-change', async (c) => {
+  c.header('Cache-Control', 'no-store')
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as { token?: unknown }
+    const { confirmEmailChange } = await import('./emailChange.js')
+    return c.json({ ok: true, ...(await confirmEmailChange(body.token)) })
+  } catch (err) {
+    const status = errStatus(err)
+    const message = status >= 500 ? 'The email could not be confirmed' : err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'email_change_confirm_failed', message, ...errCode(err) }, status)
+  }
+})
+
+/** Super admin deletes (or, when records point at the user, anonymises) a user: server/userDelete.ts. */
+app.post('/api/admin/users/delete', async (c) => {
+  try {
+    const actor = await resolveSessionUser(c)
+    if (!actor) return c.json({ error: 'unauthorized', message: 'Not signed in' }, 401)
+    const body = (await c.req.json().catch(() => ({}))) as { userId?: unknown }
+    const userId = typeof body.userId === 'string' ? body.userId.trim() : ''
+    if (!userId) return c.json({ error: 'bad_request', message: 'userId is required' }, 400)
+    const { deleteUser } = await import('./userDelete.js')
+    return c.json({ ok: true, ...(await deleteUser(actor, userId)) })
+  } catch (err) {
+    const status = errStatus(err)
+    const message = status >= 500 ? 'The user could not be deleted' : err instanceof Error ? err.message : String(err)
+    if (status >= 500) console.error('[user-delete] failed:', err instanceof Error ? err.message : 'unknown')
+    return c.json({ error: 'user_delete_failed', message, ...errCode(err) }, status)
   }
 })
 

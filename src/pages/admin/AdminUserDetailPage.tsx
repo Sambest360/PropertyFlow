@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react'
-import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   Building2,
   ClipboardList,
@@ -16,6 +16,8 @@ import { BackButton } from '../../components/BackButton'
 import { ActionButtonRow } from '../../components/ActionButtonRow'
 import { ImpersonateUserButton } from '../../components/admin/ImpersonateUserButton'
 import { ResetPasswordButton } from '../../components/admin/ResetPasswordButton'
+import { ChangeEmailButton } from '../../components/admin/ChangeEmailButton'
+import { DeleteUserButton } from '../../components/admin/DeleteUserButton'
 import { showPasswordResetEntry } from '../../lib/auth/passwordResetUi'
 import { isApiEnabled } from '../../lib/api/config'
 import { AgencyCapabilityChecklist } from '../../components/admin/AgencyCapabilityChecklist'
@@ -78,8 +80,9 @@ function isDetailTab(v: string | null): v is DetailTab {
 export default function AdminUserDetailPage() {
   const { id } = useParams()
   const [params, setParams] = useSearchParams()
-  const { state, assignRole, updateUser } = useStore()
+  const { state, assignRole, updateUser, removeUserLocally, refreshSessionData } = useStore()
   const { has, realUser } = useAuth()
+  const navigate = useNavigate()
   const { scopeAgency } = useAgencyScope()
   const reducedMotion = usePrefersReducedMotion()
 
@@ -214,7 +217,21 @@ export default function AdminUserDetailPage() {
                 viewerId: realUser.id,
                 target: user,
               }) ? (
-                <ResetPasswordButton userId={user.id} userName={user.name} />
+                <>
+                  <ResetPasswordButton userId={user.id} userName={user.name} />
+                  <ChangeEmailButton userId={user.id} userName={user.name} currentEmail={user.email} />
+                </>
+              ) : null}
+              {realUser.role === 'super_admin' && user.role !== 'super_admin' && user.id !== realUser.id && isApiEnabled ? (
+                <DeleteUserButton
+                  userId={user.id}
+                  userName={user.name}
+                  onDeleted={(mode) => {
+                    if (mode === 'deleted') removeUserLocally(user.id)
+                    else void refreshSessionData({ force: true })
+                    navigate('/workspace/admin/users')
+                  }}
+                />
               ) : null}
               {mutable && user.active ? (
                 <Button

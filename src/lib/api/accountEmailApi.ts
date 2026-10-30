@@ -26,6 +26,27 @@ export function confirmEmail(token: string) {
   return call<{ ok: true; email: string }>('/api/auth/verify-email', { method: 'POST', body: JSON.stringify({ token }) })
 }
 
+/** Staff: change a user's sign-in email. It applies once confirmed from the new address. */
+export function requestUserEmailChange(userId: string, email: string) {
+  return call<{ ok: true; userId: string; pendingEmail: string; emailSent: boolean }>('/api/admin/users/email', {
+    method: 'POST',
+    body: JSON.stringify({ userId, email }),
+  })
+}
+
+/** The link sent to the new address. */
+export function confirmEmailChange(token: string) {
+  return call<{ ok: true; email: string }>('/api/auth/confirm-email-change', { method: 'POST', body: JSON.stringify({ token }) })
+}
+
+/** Super admin: delete a user (anonymised instead when records point at them). */
+export function deleteUserAccount(userId: string) {
+  return call<{ ok: true; userId: string; mode: 'deleted' | 'anonymised' }>('/api/admin/users/delete', {
+    method: 'POST',
+    body: JSON.stringify({ userId }),
+  })
+}
+
 export function resendVerificationEmail() {
   return call<{ ok: true; alreadyVerified: boolean }>('/api/auth/resend-verification', { method: 'POST', body: '{}' })
 }

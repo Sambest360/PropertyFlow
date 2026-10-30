@@ -17,15 +17,27 @@ beforeEach(() => {
 })
 
 describe('email templates', () => {
-  it('render every catalog template in the branded layout without any password', async () => {
+  it('render every catalog template in the branded layout; only staff-set temp passwords are ever emailed', async () => {
     const { TEMPLATE_CATALOG, renderTemplate } = await import('./email/templates.js')
+    // A new account and a staff reset email the temporary password (it must be
+    // changed at the next sign-in); no other template may carry a password,
+    // and no subject line ever does (subjects are what the email log keeps).
+    const CARRY_TEMP = new Set(['account_setup', 'password_reset_by_staff'])
     for (const t of TEMPLATE_CATALOG) {
       const r = renderTemplate(t.id, t.sample as never)
       expect(r.subject.length, t.id).toBeGreaterThan(3)
       expect(r.html, t.id).toContain('lekaya-logo-1024.png')
       expect(r.html, t.id).toContain('no-reply')
-      expect(r.html, t.id).not.toMatch(/temporary password|your password is/i)
       expect(r.text.length, t.id).toBeGreaterThan(10)
+      const temp = (t.sample as { tempPassword?: string }).tempPassword
+      if (CARRY_TEMP.has(t.id)) {
+        expect(temp, t.id).toBeTruthy()
+        expect(r.html, t.id).toContain(temp)
+        expect(r.subject, t.id).not.toContain(temp)
+      } else {
+        expect(temp, t.id).toBeUndefined()
+        expect(r.html, t.id).not.toMatch(/temporary password|your password is/i)
+      }
     }
   })
 

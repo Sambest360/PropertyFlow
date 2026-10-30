@@ -18,9 +18,15 @@ export type TemplateData = {
   test: Base
   welcome: Base & { role?: string }
   verify_email: Base & { link: string }
-  account_setup: Base & { link: string; agencyName?: string; role?: string; invitedBy?: string }
+  /** With tempPassword: sign in with it (a change is forced on first sign-in); else: choose-password link. */
+  account_setup: Base & { link: string; agencyName?: string; role?: string; invitedBy?: string; tempPassword?: string }
   password_reset: Base & { link: string }
-  password_reset_by_staff: Base & { link: string; resetBy?: string }
+  /** With tempPassword: sign in with it, then choose a new one (forced). */
+  /** To the NEW address: confirm it before the account switches to it. */
+  email_change_confirm: Base & { link: string; changedBy?: string; oldEmail?: string }
+  /** To the OLD address: a change to newEmail is waiting for confirmation. */
+  email_change_notice: Base & { newEmail: string; changedBy?: string }
+  password_reset_by_staff: Base & { link: string; resetBy?: string; tempPassword?: string }
   password_changed: Base
   notification: Base & { title: string; body: string; link?: string | null }
   notification_digest: Base & { items: Array<{ title: string; body: string; link?: string | null }> }
@@ -87,6 +93,27 @@ const render: { [K in TemplateId]: (d: TemplateData[K]) => Rendered } = {
 
   account_setup: (d) => {
     const who = d.agencyName ? ` at ${d.agencyName}` : ''
+    if (d.tempPassword) {
+      return {
+        subject: 'Your Lekaya Rentals account is ready',
+        text: `Hi ${d.name ?? 'there'}, an account was created for you${who}. Sign in at ${appLink('/login')} with your email ${d.to} and this temporary password: ${d.tempPassword} — you will be asked to choose your own password when you first sign in.`,
+        html: layout(
+          'Your account is ready',
+          hi(d.name) +
+            para(`An account has been created for you on <strong>Lekaya Rentals</strong>${escapeHtml(who)}.`) +
+            details([
+              ['Sign-in email', d.to],
+              ['Temporary password', d.tempPassword],
+              ['Role', d.role ? (ROLE_NAMES[d.role] ?? d.role) : null],
+              ['Set up by', d.invitedBy],
+            ]) +
+            para('Sign in with the temporary password above. You will be asked to choose your own password straight away; the temporary one stops working once you do.') +
+            button('Sign in', '/login') +
+            note('Keep this email private, and delete it once you have changed your password.'),
+          { preheader: 'Your sign-in details for Lekaya Rentals.' },
+        ),
+      }
+    }
     return {
       subject: 'Your Lekaya Rentals account is ready',
       text: `Hi ${d.name ?? 'there'}, an account was created for you${who}. Choose your password here: ${appLink(d.link)} (the link expires in 72 hours). Sign-in email: ${d.to}`,
@@ -99,7 +126,7 @@ const render: { [K in TemplateId]: (d: TemplateData[K]) => Rendered } = {
             ['Role', d.role ? (ROLE_NAMES[d.role] ?? d.role) : null],
             ['Set up by', d.invitedBy],
           ]) +
-          para('Choose your own password to finish setting up. We never send passwords by email.') +
+          para('Choose your own password to finish setting up.') +
           button('Choose my password', d.link) +
           note('This link works once and expires in 72 hours. If it has expired, use "Forgot password" on the sign-in page.'),
         { preheader: 'Choose your password to start using Lekaya Rentals.' },
@@ -120,18 +147,69 @@ const render: { [K in TemplateId]: (d: TemplateData[K]) => Rendered } = {
     ),
   }),
 
-  password_reset_by_staff: (d) => ({
-    subject: 'Your password was reset',
-    text: `Hi ${d.name ?? 'there'}, ${d.resetBy ?? 'your agency'} reset your Lekaya Rentals password. Choose a new password here: ${appLink(d.link)} (the link expires in 72 hours).`,
+  email_change_confirm: (d) => ({
+    subject: 'Confirm your new email address',
+    text: `Hi ${d.name ?? 'there'}, ${d.changedBy ?? 'An administrator'} asked to change the sign-in email of your Lekaya Rentals account to this address. Confirm it here: ${appLink(d.link)} (the link expires in 72 hours). Until you confirm, the account keeps its current email.`,
     html: layout(
-      'Your password was reset',
+      'Confirm your new email address',
       hi(d.name) +
-        para(`${escapeHtml(d.resetBy ?? 'Your agency')} reset the password for your Lekaya Rentals account.`) +
-        para('Choose your own new password with the button below.') +
-        button('Choose a new password', d.link) +
-        note('This link works once and expires in 72 hours. If you did not expect this, contact your agency.'),
+        para(`${escapeHtml(d.changedBy ?? 'An administrator')} asked to change the sign-in email of your Lekaya Rentals account to this address.`) +
+        details([
+          ['New sign-in email', d.to],
+          ['Current sign-in email', d.oldEmail],
+        ]) +
+        para('Confirm it with the button below. Until you do, the account keeps its current email.') +
+        button('Confirm this email', d.link) +
+        note('This link works once and expires in 72 hours. If you did not expect this, ignore this email and contact your agency.'),
+      { preheader: 'Confirm this address to use it to sign in to Lekaya Rentals.' },
     ),
   }),
+
+  email_change_notice: (d) => ({
+    subject: 'A change to your sign-in email was requested',
+    text: `Hi ${d.name ?? 'there'}, ${d.changedBy ?? 'An administrator'} asked to change the sign-in email of your Lekaya Rentals account to ${d.newEmail}. It only changes once that address is confirmed. If you did not expect this, contact your agency.`,
+    html: layout(
+      'Sign-in email change requested',
+      hi(d.name) +
+        para(`${escapeHtml(d.changedBy ?? 'An administrator')} asked to change the sign-in email of your Lekaya Rentals account.`) +
+        details([['New sign-in email', d.newEmail]]) +
+        para('Nothing changes until the new address is confirmed from that inbox. Until then, keep signing in with this email.') +
+        note('If you did not expect this, contact your agency.'),
+    ),
+  }),
+
+  password_reset_by_staff: (d) => {
+    if (d.tempPassword) {
+      return {
+        subject: 'Your password was reset',
+        text: `Hi ${d.name ?? 'there'}, ${d.resetBy ?? 'your agency'} reset your Lekaya Rentals password. Sign in at ${appLink('/login')} with your email ${d.to} and this temporary password: ${d.tempPassword} — you will be asked to choose a new password straight away.`,
+        html: layout(
+          'Your password was reset',
+          hi(d.name) +
+            para(`${escapeHtml(d.resetBy ?? 'Your agency')} reset the password for your Lekaya Rentals account.`) +
+            details([
+              ['Sign-in email', d.to],
+              ['Temporary password', d.tempPassword],
+            ]) +
+            para('Sign in with the temporary password above. You will be asked to choose your own password straight away; the temporary one stops working once you do.') +
+            button('Sign in', '/login') +
+            note('Keep this email private, and delete it once you have changed your password. If you did not expect this, contact your agency.'),
+        ),
+      }
+    }
+    return {
+      subject: 'Your password was reset',
+      text: `Hi ${d.name ?? 'there'}, ${d.resetBy ?? 'your agency'} reset your Lekaya Rentals password. Choose a new password here: ${appLink(d.link)} (the link expires in 72 hours).`,
+      html: layout(
+        'Your password was reset',
+        hi(d.name) +
+          para(`${escapeHtml(d.resetBy ?? 'Your agency')} reset the password for your Lekaya Rentals account.`) +
+          para('Choose your own new password with the button below.') +
+          button('Choose a new password', d.link) +
+          note('This link works once and expires in 72 hours. If you did not expect this, contact your agency.'),
+      ),
+    }
+  },
 
   password_changed: (d) => ({
     subject: 'Your password was changed',
@@ -194,9 +272,11 @@ export async function sendTemplateEmail<K extends TemplateId>(id: K, data: Templ
 export const TEMPLATE_CATALOG: Array<{ [K in TemplateId]: { id: K; name: string; group: string; description: string; sample: TemplateData[K] } }[TemplateId]> = [
   { id: 'welcome', name: 'Welcome', group: 'Account', description: 'Sent when someone creates an account.', sample: { to: 'thandi@example.com', name: 'Thandi', role: 'tenant' } },
   { id: 'verify_email', name: 'Confirm email', group: 'Account', description: 'Sent after sign-up, and when someone asks for a new link.', sample: { to: 'thandi@example.com', name: 'Thandi', link: '/verify-email?token=sample' } },
-  { id: 'account_setup', name: 'Account created for you', group: 'Account', description: 'Sent when staff create an account. Has a link to choose a password — never the password itself.', sample: { to: 'sipho@example.com', name: 'Sipho', link: '/set-password?token=sample', agencyName: 'Horizon Realty', role: 'ground_agent', invitedBy: 'Lerato Nkosi' } },
+  { id: 'account_setup', name: 'Account created for you', group: 'Account', description: 'Sent when staff create an account: the sign-in email and a temporary password, which must be changed at first sign-in.', sample: { to: 'sipho@example.com', name: 'Sipho', link: '/login', tempPassword: 'Sample-Temp-9241', agencyName: 'Horizon Realty', role: 'ground_agent', invitedBy: 'Lerato Nkosi' } },
   { id: 'password_reset', name: 'Reset password', group: 'Security', description: 'Sent from "Forgot password" on the sign-in page.', sample: { to: 'thandi@example.com', name: 'Thandi', link: '/reset-password?token=sample' } },
-  { id: 'password_reset_by_staff', name: 'Password reset by staff', group: 'Security', description: 'Sent when an admin resets someone’s password.', sample: { to: 'sipho@example.com', name: 'Sipho', link: '/set-password?token=sample', resetBy: 'Horizon Realty' } },
+  { id: 'email_change_confirm', name: 'Confirm new email', group: 'Security', description: 'Sent to the new address when an admin changes someone’s sign-in email. The change only applies once this link is used.', sample: { to: 'sipho.new@example.com', name: 'Sipho', link: '/confirm-email-change?token=sample', changedBy: 'Lerato Nkosi', oldEmail: 'sipho@example.com' } },
+  { id: 'email_change_notice', name: 'Email change requested', group: 'Security', description: 'Sent to the current address when an admin asks to change it.', sample: { to: 'sipho@example.com', name: 'Sipho', newEmail: 'sipho.new@example.com', changedBy: 'Lerato Nkosi' } },
+  { id: 'password_reset_by_staff', name: 'Password reset by staff', group: 'Security', description: 'Sent when an admin resets someone’s password: a temporary password that must be changed at the next sign-in.', sample: { to: 'sipho@example.com', name: 'Sipho', link: '/login', tempPassword: 'Sample-Temp-9241', resetBy: 'Horizon Realty' } },
   { id: 'password_changed', name: 'Password changed', group: 'Security', description: 'Security notice after any password change.', sample: { to: 'thandi@example.com', name: 'Thandi' } },
   { id: 'notification', name: 'Notification', group: 'Notifications', description: 'Every in-app notification is also emailed with this template (people can turn this off).', sample: { to: 'thandi@example.com', name: 'Thandi', title: 'Your viewing is confirmed', body: 'Your viewing at Humewood Beach Apartment B14 is booked for Saturday at 10:00.', link: '/workspace/portals/tenant/viewings' } },
   { id: 'notification_digest', name: 'Notification summary', group: 'Notifications', description: 'When several notifications arrive together, one summary email is sent instead.', sample: { to: 'thandi@example.com', name: 'Thandi', items: [ { title: 'Application received', body: 'Your application for Humewood B14 was received.' }, { title: 'Document needed', body: 'Please upload your latest payslip.' }, { title: 'Viewing confirmed', body: 'Saturday at 10:00.' } ] } },

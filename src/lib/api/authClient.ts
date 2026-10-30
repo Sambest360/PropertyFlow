@@ -220,13 +220,14 @@ export async function apiChangePassword(input: {
  * D3 staff password reset. Returns the temp password once; callers must show
  * it and never store it (no state beyond the open modal, no localStorage).
  */
-export async function apiResetPassword(userId: string): Promise<{ tempPassword: string }> {
+/** Staff reset: `password` is the admin's own choice of temporary password (else generated). */
+export async function apiResetPassword(userId: string, password?: string): Promise<{ tempPassword: string }> {
   const res = await fetchWithTimeout(`${API_BASE}/api/auth/reset-password`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     credentials: 'include',
     cache: 'no-store',
-    body: JSON.stringify({ userId }),
+    body: JSON.stringify(password ? { userId, password } : { userId }),
   })
   const data = await parseJson<{ ok: boolean; tempPassword: string }>(res)
   return { tempPassword: data.tempPassword }

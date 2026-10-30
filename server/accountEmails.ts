@@ -4,19 +4,22 @@
  * notice after a password change. Also each person's notification settings.
  *
  * Links carry a random token; only its SHA-256 is stored (auth_tokens), it
- * works once and expires. Passwords are never emailed.
+ * works once and expires. The only passwords emailed are temporary ones set
+ * by staff (new account, staff reset); those must be changed at the next
+ * sign-in (metadata.mustChangePassword).
  */
 import { createHash, randomBytes } from 'node:crypto'
 import { query } from './db.js'
 import { hashPassword, MIN_PASSWORD_LENGTH } from './auth.js'
 import { sendTemplateEmail } from './email/templates.js'
 
-export type TokenPurpose = 'verify_email' | 'reset_password' | 'setup_account'
+export type TokenPurpose = 'verify_email' | 'reset_password' | 'setup_account' | 'change_email'
 
 const TTL_MS: Record<TokenPurpose, number> = {
   verify_email: 48 * 3600_000,
   reset_password: 3600_000,
   setup_account: 72 * 3600_000,
+  change_email: 72 * 3600_000,
 }
 
 const SCHEMA_SQL = `
@@ -146,26 +149,45 @@ export async function verifyEmailToken(raw: string): Promise<{ email: string }> 
   return { email: u?.email ?? '' }
 }
 
-/** Staff created this account: email a link to choose a password (never the password). */
-export async function sendAccountSetupEmail(userUuid: string, opts: { invitedBy?: string } = {}): Promise<void> {
+/**
+ * Staff created this account. With the account's temporary password: email it
+ * (the account must change it at first sign-in, see writes.ts upsertUser).
+ * Without one: email a one-time link to choose a password.
+ */
+export async function sendAccountSetupEmail(
+  userUuid: string,
+  opts: { invitedBy?: string; tempPassword?: string } = {},
+): Promise<void> {
   const u = await userById(userUuid)
   if (!u || !u.active) return
-  const token = await issueToken(u.id, 'setup_account')
-  await sendTemplateEmail('account_setup', {
+  const base = {
     to: u.email,
     name: firstName(u),
-    link: `/set-password?token=${token}`,
     agencyName: u.agency_name ?? undefined,
     role: feRole(u),
     invitedBy: opts.invitedBy,
     userId: u.id,
-  })
+  }
+  if (opts.tempPassword) {
+    await sendTemplateEmail('account_setup', { ...base, link: '/login', tempPassword: opts.tempPassword })
+    return
+  }
+  const token = await issueToken(u.id, 'setup_account')
+  await sendTemplateEmail('account_setup', { ...base, link: `/set-password?token=${token}` })
 }
 
-/** A staff member reset this person's password: let them choose their own. */
-export async function sendStaffResetEmail(userUuid: string, resetBy?: string): Promise<void> {
+/**
+ * A staff member reset this person's password. With the temporary password:
+ * email it (they must choose their own at the next sign-in). Without: a
+ * one-time link to choose a new one.
+ */
+export async function sendStaffResetEmail(userUuid: string, resetBy?: string, tempPassword?: string): Promise<void> {
   const u = await userById(userUuid)
   if (!u || !u.active) return
+  if (tempPassword) {
+    await sendTemplateEmail('password_reset_by_staff', { to: u.email, name: firstName(u), link: '/login', tempPassword, resetBy, userId: u.id })
+    return
+  }
   const token = await issueToken(u.id, 'setup_account')
   await sendTemplateEmail('password_reset_by_staff', { to: u.email, name: firstName(u), link: `/set-password?token=${token}`, resetBy, userId: u.id })
 }

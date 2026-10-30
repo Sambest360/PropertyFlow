@@ -43,7 +43,8 @@ describe('D3 temp password modal', () => {
     expect(TEMP_PASSWORD_HANDOFF_NOTE).toBe(
       'Send this password to the user privately (a direct call or message). Don\u2019t post it in a group chat.',
     )
-    expect(src).toContain('{TEMP_PASSWORD_HANDOFF_NOTE}')
+    // A reset/creation email carries it too; the pop-up then says so instead.
+    expect(src).toContain('{emailed ? TEMP_PASSWORD_EMAILED_NOTE : TEMP_PASSWORD_HANDOFF_NOTE}')
     expect(src).toContain('navigator.clipboard.writeText(tempPassword)')
   })
   it('never stores or logs the temp password client-side', () => {

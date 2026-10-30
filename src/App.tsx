@@ -35,6 +35,7 @@ const LoginPage = lazy(() => import('./pages/auth/LoginPage'))
 const ForgotPasswordPage = lazy(() => import('./pages/auth/ForgotPasswordPage'))
 const SetPasswordPage = lazy(() => import('./pages/auth/SetPasswordPage'))
 const VerifyEmailPage = lazy(() => import('./pages/auth/VerifyEmailPage'))
+const ConfirmEmailChangePage = lazy(() => import('./pages/auth/ConfirmEmailChangePage'))
 const RegisterPage = lazy(() => import('./pages/auth/RegisterPage'))
 const PayfastResultPage = lazy(() => import('./pages/payfast/PayfastResultPage'))
 
@@ -202,6 +203,7 @@ export default function App() {
               <Route path="reset-password" element={<Suspense fallback={<PageFallback />}><SetPasswordPage mode="reset" /></Suspense>} />
               <Route path="set-password" element={<Suspense fallback={<PageFallback />}><SetPasswordPage mode="setup" /></Suspense>} />
               <Route path="verify-email" element={<Suspense fallback={<PageFallback />}><VerifyEmailPage /></Suspense>} />
+              <Route path="confirm-email-change" element={<Suspense fallback={<PageFallback />}><ConfirmEmailChangePage /></Suspense>} />
 
               <Route path="payfast/return" element={<Suspense fallback={<PageFallback />}><PayfastResultPage /></Suspense>} />
               <Route path="payfast/cancel" element={<Suspense fallback={<PageFallback />}><PayfastResultPage cancelled /></Suspense>} />

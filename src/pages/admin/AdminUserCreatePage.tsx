@@ -1200,7 +1200,7 @@ export default function AdminUserCreatePage() {
                     autoComplete="off"
                   />
                   <p className="mt-1 text-xs text-ink-500">
-                    Leave blank to generate a random one, shown to you once after the user is created. A typed password needs at least {MIN_PASSWORD_LENGTH} characters. The user must change it at first sign-in.
+                    Leave blank to generate a random one. It is emailed to the user with their sign-in details and shown to you once as a backup. A typed password needs at least {MIN_PASSWORD_LENGTH} characters. The user must change it at first sign-in.
                   </p>
                 </Field>
 
@@ -1216,7 +1216,7 @@ export default function AdminUserCreatePage() {
                       Send the user an in-app invite
                     </span>
                     <span className="mt-0.5 block text-xs text-ink-500">
-                      Sends the new user an in-app invite to sign in. The temporary password is never put in a notification: a generated one is shown to you once, in a pop-up, after the user is created. Email delivery is deferred.
+                      Also adds an in-app invite to sign in. The welcome email with the temporary password is sent either way; the in-app invite never contains the password.
                     </span>
                   </span>
                 </label>
@@ -1225,6 +1225,7 @@ export default function AdminUserCreatePage() {
           </form>
         </CreateWizardShell>
         <TempPasswordModal
+          emailed
           title="User created: temporary password"
           tempPassword={shownTempPassword}
           onClose={() => {

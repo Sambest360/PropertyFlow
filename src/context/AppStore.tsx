@@ -640,6 +640,8 @@ type StoreContextValue = {
     | { ok: false; error: string; user?: AppUser }
   >
   updateUser: (id: string, patch: Partial<AppUser>) => void
+  /** Drop a user the server deleted from this browser's lists (no server write). */
+  removeUserLocally: (id: string) => void
   /**
    * CR10: save (or clear with null) the session user's own signature
    * (users.metadata.signature via the user upsert). Resolves false when the
@@ -2986,6 +2988,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       return res.ok && res.tempPassword
         ? { ok: true as const, user, generatedTempPassword: res.tempPassword }
         : { ok: true as const, user }
+    },
+    removeUserLocally: (id) => {
+      patch((s) => ({ ...s, users: s.users.filter((u) => u.id !== id) }))
     },
     updateUser: (id, p) => {
       patch((s) => ({ ...s, users: s.users.map((u) => (u.id === id ? { ...u, ...p } : u)) }))
