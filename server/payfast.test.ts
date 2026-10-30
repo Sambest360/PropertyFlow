@@ -7,6 +7,8 @@ import {
   amountToCents,
   buildCheckoutFields,
   verifyItn,
+  PAYFAST_LIVE_PROCESS_URL,
+  PAYFAST_PROCESS_URL,
 } from './payfast'
 
 /**
@@ -87,8 +89,8 @@ describe('payfast core', () => {
     const signed = payfastSignature(itn, PASSPHRASE)
     const verdict = verifyItn(
       { ...itn, signature: signed },
-      { merchantId: '10047719', merchantKey: 'wkq8dmfysau1q', passphrase: PASSPHRASE },
-      { sourceIp: '197.97.145.140', expectedPaymentId: 'PAY-1', expectedAmountCents: 185000 },
+      { merchantId: '10047719', merchantKey: 'wkq8dmfysau1q', passphrase: PASSPHRASE, processUrl: PAYFAST_LIVE_PROCESS_URL },
+      { sourceIp: '197.97.145.150', expectedPaymentId: 'PAY-1', expectedAmountCents: 185000 },
     )
     expect(verdict.ok).toBe(true)
   })
@@ -100,8 +102,8 @@ describe('payfast core', () => {
     const signed = payfastSignature(tampered, PASSPHRASE)
     const verdict = verifyItn(
       { ...tampered, signature: signed },
-      { merchantId: '10047719', merchantKey: 'wkq8dmfysau1q', passphrase: PASSPHRASE },
-      { sourceIp: null, expectedPaymentId: 'PAY-1', expectedAmountCents: 185000 },
+      { merchantId: '10047719', merchantKey: 'wkq8dmfysau1q', passphrase: PASSPHRASE, processUrl: PAYFAST_LIVE_PROCESS_URL },
+      { sourceIp: '197.97.145.150', expectedPaymentId: 'PAY-1', expectedAmountCents: 185000 },
     )
     expect(verdict.ok).toBe(false)
     expect((verdict as { reason: string }).reason).toMatch(/amount/i)
@@ -121,15 +123,38 @@ describe('payfast core', () => {
     expect((verdict as { reason: string }).reason).toMatch(/source IP/i)
   })
 
-  it('ITN: sandbox mode relaxes the IP allowlist but keeps signature checks', () => {
+  it('ITN (H1): sandbox has no IP skip; a non-range IP passes only as a resolved sandbox address', () => {
     const itn = { ...VECTOR_FIELDS, payment_status: 'COMPLETE', amount_gross: '1850.00' }
-    const signed = payfastSignature(itn, PASSPHRASE)
+    const body = { ...itn, signature: payfastSignature(itn, PASSPHRASE) }
+    const sandbox = { merchantId: '10047719', merchantKey: 'wkq8dmfysau1q', passphrase: PASSPHRASE, processUrl: PAYFAST_PROCESS_URL }
+    const exp = { expectedPaymentId: 'PAY-1', expectedAmountCents: 185000 }
+    expect(verifyItn(body, sandbox, { sourceIp: '203.0.113.9', sandboxAddresses: new Set(['198.18.0.10']), ...exp }).ok).toBe(false)
+    expect(verifyItn(body, sandbox, { sourceIp: '198.18.0.10', sandboxAddresses: new Set(['198.18.0.10']), ...exp }).ok).toBe(true)
+    expect(verifyItn(body, sandbox, { sourceIp: '197.97.145.150', sandboxAddresses: new Set(), ...exp }).ok).toBe(true)
+    // No lookup result (failed or never made): fail closed.
+    expect(verifyItn(body, sandbox, { sourceIp: '198.18.0.10', sandboxAddresses: null, ...exp }).ok).toBe(false)
+    expect(verifyItn(body, sandbox, { sourceIp: '197.97.145.150', ...exp }).ok).toBe(false)
+  })
+
+  it('ITN (H1): live mode ignores sandbox addresses, and rejects a missing or unknown source IP', () => {
+    const itn = { ...VECTOR_FIELDS, payment_status: 'COMPLETE', amount_gross: '1850.00' }
+    const body = { ...itn, signature: payfastSignature(itn, PASSPHRASE) }
+    const live = { merchantId: '10047719', merchantKey: 'wkq8dmfysau1q', passphrase: PASSPHRASE, processUrl: PAYFAST_LIVE_PROCESS_URL }
+    expect(verifyItn(body, live, { sourceIp: '198.18.0.10', sandboxAddresses: new Set(['198.18.0.10']) }).ok).toBe(false)
+    expect(verifyItn(body, live, { sourceIp: 'unknown' }).ok).toBe(false)
+    expect(verifyItn(body, live, { sourceIp: '' }).ok).toBe(false)
+    expect(verifyItn(body, live, { sourceIp: '::ffff:197.97.145.150' }).ok).toBe(true)
+  })
+
+  it('ITN (H1): merchant_id must equal the configured merchant id', () => {
+    const itn = { ...VECTOR_FIELDS, merchant_id: 'FAKE-OTHER-MERCHANT', payment_status: 'COMPLETE', amount_gross: '1850.00' }
     const verdict = verifyItn(
-      { ...itn, signature: signed },
-      { merchantId: '10047719', merchantKey: 'wkq8dmfysau1q', passphrase: PASSPHRASE },
-      { sourceIp: '203.0.113.9', expectedPaymentId: 'PAY-1', expectedAmountCents: 185000 },
+      { ...itn, signature: payfastSignature(itn, PASSPHRASE) },
+      { merchantId: '10047719', merchantKey: 'wkq8dmfysau1q', passphrase: PASSPHRASE, processUrl: PAYFAST_LIVE_PROCESS_URL },
+      { sourceIp: '197.97.145.150' },
     )
-    expect(verdict.ok).toBe(true)
+    expect(verdict.ok).toBe(false)
+    expect((verdict as { reason: string }).reason).toMatch(/merchant_id/)
   })
 
   it('ITN: CANCELLED accepted but amount check skipped', () => {
@@ -137,8 +162,8 @@ describe('payfast core', () => {
     const signed = payfastSignature(itn, PASSPHRASE)
     const verdict = verifyItn(
       { ...itn, signature: signed },
-      { merchantId: '10047719', merchantKey: 'wkq8dmfysau1q', passphrase: PASSPHRASE },
-      { sourceIp: null, expectedPaymentId: 'PAY-1', expectedAmountCents: 185000 },
+      { merchantId: '10047719', merchantKey: 'wkq8dmfysau1q', passphrase: PASSPHRASE, processUrl: PAYFAST_LIVE_PROCESS_URL },
+      { sourceIp: '197.97.145.150', expectedPaymentId: 'PAY-1', expectedAmountCents: 185000 },
     )
     expect(verdict.ok).toBe(true)
     expect((verdict as { status: string }).status).toBe('CANCELLED')

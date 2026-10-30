@@ -20,23 +20,45 @@
  */
 
 import { createHash } from 'node:crypto'
+import { BlockList, isIPv4 } from 'node:net'
 
 export const PAYFAST_PROCESS_URL = 'https://sandbox.payfast.co.za/eng/process'
 export const PAYFAST_LIVE_PROCESS_URL = 'https://www.payfast.io/eng/process'
 export const PAYFAST_VALIDATE_URL = 'https://sandbox.payfast.co.za/eng/query/validate'
 
 /**
- * PayFast ITN source IPs (developer docs: sandbox + live nets). ITN requests
- * must originate from one of these (or the sandbox host names resolved).
+ * PayFast ITN source ranges (H1, spec r5 :45-50). Re-read from the PayFast
+ * developer docs ("Confirm the source IP" / ITN security checks) on
+ * 30 Oct 2026. Re-check these against the docs before each PayFast change;
+ * PayFast announces range changes to merchants by email.
  */
-export const PAYFAST_ITN_IPS = new Set([
-  '197.97.145.140',
-  '197.97.145.143',
-  '41.72.144.4',
-  '41.72.144.5',
-  '196.33.227.100',
-  '196.33.227.101',
-])
+export const PAYFAST_ITN_RANGES: ReadonlyArray<{ net: string; prefix: number }> = [
+  { net: '197.97.145.144', prefix: 28 },
+  { net: '41.74.179.192', prefix: 27 },
+  { net: '102.216.36.0', prefix: 28 },
+  { net: '102.216.36.128', prefix: 28 },
+  { net: '144.126.193.139', prefix: 32 },
+]
+
+const PAYFAST_ITN_BLOCKLIST = (() => {
+  const list = new BlockList()
+  for (const r of PAYFAST_ITN_RANGES) list.addSubnet(r.net, r.prefix, 'ipv4')
+  return list
+})()
+
+/** Host PayFast's sandbox ITNs come from; resolved by DNS in sandbox mode only. */
+export const PAYFAST_SANDBOX_HOST = 'sandbox.payfast.co.za'
+
+function plainIp(ip: string | null | undefined): string {
+  const v = String(ip ?? '').trim().toLowerCase()
+  return v.startsWith('::ffff:') && isIPv4(v.slice(7)) ? v.slice(7) : v
+}
+
+/** True when `ip` (IPv4, or IPv4-mapped IPv6) is inside a documented PayFast range. */
+export function isPayfastItnIp(ip: string | null | undefined): boolean {
+  const v = plainIp(ip)
+  return isIPv4(v) && PAYFAST_ITN_BLOCKLIST.check(v, 'ipv4')
+}
 
 /** PayFast env config, resolved from the server environment. */
 export type PayfastConfig = {
@@ -164,25 +186,57 @@ export function buildCheckoutFields(
   return out
 }
 
+/** Live means the live process URL; anything else (including unset) is sandbox. */
+export function payfastIsLive(config: PayfastConfig): boolean {
+  return Boolean(config.processUrl) && config.processUrl !== PAYFAST_PROCESS_URL
+}
+
+/**
+ * H1 R2: on a production box PayFast must be in live mode. Returns the boot
+ * error to log, or null. Sandbox ITNs on production would trust DNS for
+ * money, so this is loud (it does not stop the server: rent pages must stay up).
+ */
+export function payfastProductionModeError(env: NodeJS.ProcessEnv = process.env): string | null {
+  if (env.NODE_ENV !== 'production') return null
+  if (!env.PAYFAST_MERCHANT_ID?.trim() || !env.PAYFAST_MERCHANT_KEY?.trim()) return null
+  if (env.PAYFAST_MODE?.trim().toLowerCase() === 'live') return null
+  return '[payfast] payfast_mode_not_live: NODE_ENV=production but PAYFAST_MODE is not "live"; sandbox ITNs are accepted from DNS-resolved addresses. Set PAYFAST_MODE=live.'
+}
+
 export type ItnVerdict =
   | { ok: true; paymentId: string; amountCents: number; status: string; raw: Record<string, string> }
   | { ok: false; reason: string }
 
 /**
  * Validate an ITN body against our ledger expectations.
- * `sourceIp` — must be a PayFast IP (pass null only when the request came
- * through a trusted path, e.g. local sandbox testing or a known proxy).
+ *
+ * `sourceIp` is the client IP from clientIp(c). There is no bypass: a
+ * missing or unknown IP is rejected in both modes (H1).
+ * Live: the IP must be inside PAYFAST_ITN_RANGES; DNS is never consulted.
+ * Sandbox: the IP must be inside the ranges or in `sandboxAddresses` (the
+ * resolved sandbox host). `sandboxAddresses` null/undefined means the lookup
+ * failed, and the ITN is rejected (fail closed).
  */
 export function verifyItn(
   body: Record<string, string>,
   config: PayfastConfig,
-  opts: { sourceIp?: string | null; expectedPaymentId?: string; expectedAmountCents?: number },
+  opts: {
+    sourceIp?: string | null
+    sandboxAddresses?: ReadonlySet<string> | null
+    expectedPaymentId?: string
+    expectedAmountCents?: number
+  },
 ): ItnVerdict {
-  const sandbox = !config.processUrl || config.processUrl === PAYFAST_PROCESS_URL
-  // In sandbox mode the IP allowlist is relaxed — local testing and the
-  // sandbox simulator do not always come from documented ITN ranges.
-  if (!sandbox && opts.sourceIp !== null && (opts.sourceIp == null || !PAYFAST_ITN_IPS.has(opts.sourceIp))) {
-    return { ok: false, reason: 'ITN source IP is not a PayFast endpoint' }
+  const ip = plainIp(opts.sourceIp)
+  if (payfastIsLive(config)) {
+    if (!isPayfastItnIp(ip)) return { ok: false, reason: 'ITN source IP is not a PayFast endpoint' }
+  } else {
+    if (!opts.sandboxAddresses) {
+      return { ok: false, reason: 'ITN source IP could not be checked: sandbox host lookup failed' }
+    }
+    if (!isPayfastItnIp(ip) && !opts.sandboxAddresses.has(ip)) {
+      return { ok: false, reason: 'ITN source IP is not a PayFast sandbox endpoint' }
+    }
   }
   const signature = body.signature
   if (!signature) return { ok: false, reason: 'ITN missing signature' }
@@ -190,6 +244,10 @@ export function verifyItn(
   const computed = payfastSignature(rest, config.passphrase)
   if (computed !== signature) {
     return { ok: false, reason: 'ITN signature mismatch' }
+  }
+  // H1 (spec r5 :55): a validly signed ITN for another merchant is not ours.
+  if ((body.merchant_id ?? '').trim() !== config.merchantId) {
+    return { ok: false, reason: 'ITN merchant_id does not match this merchant' }
   }
   const paymentId = body.m_payment_id
   if (!paymentId) return { ok: false, reason: 'ITN missing m_payment_id' }

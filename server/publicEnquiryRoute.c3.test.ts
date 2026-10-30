@@ -56,7 +56,12 @@ const throwing = (err: Error) => async () => {
   throw err
 }
 
-beforeEach(() => submit.fn.mockReset())
+// H1: the enquiry route now has a 3 per (email + listing) per hour limit; these
+// tests reuse one contact, so reset the in-memory buckets between them.
+beforeEach(async () => {
+  submit.fn.mockReset()
+  ;(await import('./rateLimit.js')).resetRateLimitsForTests()
+})
 
 describe('T3 C3: public enquiry route errors', () => {
   it('an unknown error (raw Postgres text) is sent as the generic enquiry_failed, not echoed', async () => {

@@ -64,7 +64,7 @@ const { payfastItn } = await import('./payfastRoutes.js')
 
 function app() {
   const a = new Hono()
-  a.post('/api/payfast/itn', payfastItn)
+  a.post('/api/payfast/itn', (c) => payfastItn(c))
   return a
 }
 
