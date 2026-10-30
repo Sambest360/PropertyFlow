@@ -49,7 +49,7 @@ function type(id: string, value: string) {
 }
 
 function button(label: string): HTMLButtonElement {
-  const b = [...document.querySelectorAll('button')].find((x) => x.textContent?.trim() === label)
+  const b = Array.from(document.querySelectorAll('button')).find((x) => x.textContent?.trim() === label)
   if (!b) throw new Error(`missing button "${label}"`)
   return b as HTMLButtonElement
 }
@@ -81,7 +81,7 @@ async function pressedRolesOnStep2(url: string): Promise<string[]> {
   })
   const picker = host.querySelector('fieldset')
   if (!picker) throw new Error('step 2 role picker not shown')
-  return [...picker.querySelectorAll('button[aria-pressed="true"]')].map(
+  return Array.from(picker.querySelectorAll('button[aria-pressed="true"]')).map(
     (b) => b.querySelector('.font-semibold')?.textContent ?? '',
   )
 }
@@ -102,10 +102,10 @@ describe('T6 C6: /register?role= preselects the role on step 2 (render test)', (
   it('the user can still change the role on step 2', async () => {
     await pressedRolesOnStep2(LIST_WITH_US_PATH)
     await act(async () => {
-      const contractor = [...host!.querySelectorAll('fieldset button')].find((b) => b.querySelector('.font-semibold')?.textContent === 'Contractor')
+      const contractor = Array.from(host!.querySelectorAll('fieldset button')).find((b) => b.querySelector('.font-semibold')?.textContent === 'Contractor')
       ;(contractor as HTMLButtonElement).click()
     })
-    const pressed = [...host!.querySelectorAll('fieldset button[aria-pressed="true"]')].map((b) => b.querySelector('.font-semibold')?.textContent)
+    const pressed = Array.from(host!.querySelectorAll('fieldset button[aria-pressed="true"]')).map((b) => b.querySelector('.font-semibold')?.textContent)
     expect(pressed).toEqual(['Contractor'])
   })
 })

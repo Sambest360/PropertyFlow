@@ -49,6 +49,14 @@ describe('legal pages', () => {
     for (const field of markers) if (!NOT_GATED.includes(field)) expect(LEGAL_REQUIRED_FIELDS, field).toContain(field)
   })
 
+  it('Angela #118 v2 (B08): an unset detail shows its label and the words "to be confirmed", not just the test id', () => {
+    for (const out of [html(<PrivacyPage />), html(<TermsPage />), html(<ContactPage />)]) {
+      const markers = out.match(/<span[^>]*data-testid="legal-missing-[A-Za-z]+"[^>]*>[^<]*<\/span>/g) ?? []
+      expect(markers.length).toBeGreaterThan(0)
+      for (const m of markers) expect(m, m).toMatch(/\[[^\]]+ to be confirmed\]/)
+    }
+  })
+
   it('Michael #118 ruling 5: the effective date is pending, shown "to be confirmed", never a made-up date', () => {
     expect(LEGAL_ENTITY.effectiveDate).toBe('')
     for (const out of [html(<PrivacyPage />), html(<TermsPage />)]) {
@@ -85,6 +93,12 @@ describe('legal pages', () => {
     expect(section).not.toMatch(/jointly/i)
     expect(section).not.toMatch(/public marketplace/i)
     expect(section).not.toMatch(/(?:<p>|\.\s)Lekaya Rentals is (also )?(a|the) responsible party for (the |your )?(personal information submitted|enquir|rental application|application|lease)/i)
+    // Angela #118 v2 (B19, B20): no sentence in this section may make Lekaya "also" the responsible party for agency data,
+    // or say it "decides why and how" that data is processed, whatever the opening words are.
+    expect(section).not.toMatch(/\balso\b[^.<]{0,60}responsible party/i)
+    expect(section).not.toMatch(/responsible party[^.<]{0,40}\balso\b/i)
+    expect(section).not.toMatch(/decides? why and how/i)
+    expect(section).not.toMatch(/(?:<p[^>]*>|[.;]\s+)(we are|we're|lekaya rentals is|lekaya is)\b[^.<]{0,40}responsible party for (the |your |all )?(personal information|enquir|rental|application|lease|agency)/i)
     expect(section).toContain('data-testid="legal-missing-informationOfficer"')
     expect(section).toContain('data-testid="legal-missing-privacyEmail"')
     // Jim #118 C3: the public listing shows only "listed by <agent>", no agency name,

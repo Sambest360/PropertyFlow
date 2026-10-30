@@ -35,6 +35,10 @@ describe('T6 legal completeness check', () => {
   it('treats an email field that is not an email address as missing', () => {
     expect(legalEntityMissing({ ...FULL, privacyEmail: 'privacy at lekaya' })).toEqual(['privacyEmail'])
     expect(legalEntityMissing({ ...FULL, supportEmail: 'support@' })).toEqual(['supportEmail'])
+    // Angela #118 v2 (B14): a space anywhere in the address (not only at the ends) makes it invalid.
+    expect(legalEntityMissing({ ...FULL, privacyEmail: 'priv acy@lekaya.test' })).toEqual(['privacyEmail'])
+    expect(legalEntityMissing({ ...FULL, supportEmail: 'support@lekaya .test' })).toEqual(['supportEmail'])
+    expect(legalEntityMissing({ ...FULL, supportEmail: 'sup port@lekaya.test' })).toEqual(['supportEmail'])
     // Angela #118 A07: an address needs a dot in its domain.
     expect(legalEntityMissing({ ...FULL, privacyEmail: 'privacy@lekaya' })).toEqual(['privacyEmail'])
   })
