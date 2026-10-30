@@ -2400,6 +2400,11 @@ if (shouldListen) {
     console.log(`[propertyflow-api] listening on http://127.0.0.1:${PORT}`)
     console.log(`[propertyflow-api] DATABASE_URL host from env or default local trust auth`)
     serve({ fetch: app.fetch, port: PORT, hostname: '127.0.0.1' })
+    // H1 R2: production must take PayFast ITNs in live mode only.
+    void import('./payfast.js').then(({ payfastProductionModeError }) => {
+      const r2 = payfastProductionModeError()
+      if (r2) console.error(r2)
+    })
     // Email new notifications every minute (people can switch this off in Settings).
     void import('./notificationMailer.js').then(({ startNotificationMailer }) => startNotificationMailer())
     // Copy any inline or old-bucket listing photos onto this server's disk.
