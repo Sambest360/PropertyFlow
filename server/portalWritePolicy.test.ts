@@ -79,6 +79,8 @@ const EMAIL: Record<string, string> = {
 type Lease = { tenant: string; landlord: string; metadata: Record<string, unknown> }
 let leases: Record<string, Lease>
 let writes: Array<{ sql: string; params: unknown[] }>
+/** Rows for loadScopeLinks' applications query (T3 B1); empty by default. */
+let appRows: Array<Record<string, unknown>> = []
 
 function resetModel() {
   leases = {
@@ -97,6 +99,7 @@ function resetModel() {
     },
   }
   writes = []
+  appRows = []
 }
 
 function answer(sqlRaw: string, params: unknown[] = []): unknown[] {
@@ -120,7 +123,7 @@ function answer(sqlRaw: string, params: unknown[] = []): unknown[] {
     const unit = params[0]
     return [{ client_id: CA, agent_id: UUID['u-agent'], landlord_id: unit === UN2 ? UUID['u-ll2'] : UUID['u-ll'] }]
   }
-  if (sql.includes('FROM applications a LEFT JOIN users u')) return []
+  if (sql.includes('FROM applications a LEFT JOIN users u')) return appRows
   if (sql === 'SELECT tenant_id, unit_id FROM leases') {
     return [{ tenant_id: UUID['u-t'], unit_id: UN1 }, { tenant_id: UUID['u-t2'], unit_id: UN1 }]
   }
@@ -1038,6 +1041,99 @@ describe('staff ticket photos: a tenant save cannot change them', () => {
       await expect(gate(TENANT, body)).resolves.toEqual({})
       expect(body.data).not.toHaveProperty('photoUrls')
       expect(body.data).not.toHaveProperty('photos')
+    }
+  })
+})
+
+/**
+ * T3 B1 (Angela, Michael's ruling; Jim's real-server probes S1/S2b/S3 in
+ * jim-pr116-proofs/tenant-lead-dispute/): which client lead saves the REAL
+ * gate refuses. Runs the real assertPersistAllowed, i.e. the portal policy
+ * (portalWritePolicy.ts case 'lead') and then the scope check
+ * (canWriteEntity over the tenant's book from loadScopeLinks). Only the table
+ * rows are in-memory. The body is the shape AppStore.persistUpsert('lead', …)
+ * sends. p-2 is a listing tenant u-t has no lease on, so the book holds it
+ * only through an application row.
+ */
+describe('T3 B1: tenant lead saves through the real scope gate', () => {
+  const ENQUIRY_LEAD = 'LD-guest-1700000000000-abc123' // created by POST /api/public/listing-enquiry
+  const APPLY_LEAD = 'LD-mq3k9x-7f2a' // fresh uid('LD') from createLead, unknown to the server
+  const leadData = (lid: string, propertyId = 'p-2') => ({
+    id: lid,
+    agencyId: 'ag-a',
+    propertyId,
+    agentId: 'u-agent',
+    name: 'Tess Tenant',
+    email: 'tess@x.test',
+    phone: '0820000000',
+    channel: 'Web Form',
+    type: 'Rent',
+    value: 6500,
+    stage: 'Application Submitted',
+    notes: '',
+  })
+  const leadBody = (lid: string, propertyId?: string): Body => ({
+    resource: 'lead',
+    action: 'upsert',
+    id: lid,
+    data: leadData(lid, propertyId),
+  })
+  const ownApplication = (status = 'PENDING', stage: string | null = null) => ({
+    applicant_id: UUID['u-t'],
+    email: 'tess@x.test',
+    unit_id: UN2,
+    status,
+    reference_code: 'APP-ref-1',
+    metadata: stage ? { stage } : {},
+  })
+
+  beforeEach(() => {
+    resolveUuid.mockImplementation(async (_t: string, fe: string) =>
+      fe === ENQUIRY_LEAD ? id(91) : (UUID[fe] ?? null),
+    )
+  })
+
+  it("a tenant's NEW lead right after their own application (the apply path) is allowed", async () => {
+    appRows = [ownApplication()]
+    await expect(gate(TENANT, leadBody(APPLY_LEAD))).resolves.toBeDefined()
+    // A self-registered tenant has no agency yet; still allowed.
+    await expect(gate({ ...TENANT, agencyId: null }, leadBody(APPLY_LEAD))).resolves.toBeDefined()
+  })
+
+  it("a tenant's NEW lead on a listing with no application (or lease) of theirs is 403", async () => {
+    appRows = []
+    await expect(gate(TENANT, leadBody(APPLY_LEAD))).rejects.toMatchObject({
+      status: 403,
+      message: expect.stringContaining('cannot upsert lead'),
+    })
+    // Someone else's application does not put it in this tenant's book.
+    appRows = [{ ...ownApplication(), applicant_id: UUID['u-t2'] }]
+    await expect403(gate(TENANT, leadBody(APPLY_LEAD)))
+  })
+
+  it("a blocked application does not open the tenant's book (403)", async () => {
+    appRows = [ownApplication('REJECTED')]
+    await expect403(gate(TENANT, leadBody(APPLY_LEAD)))
+  })
+
+  it('a tenant re-saving the EXISTING enquiry lead is refused: 403 "enquiries are create-only" (the original bug)', async () => {
+    appRows = [ownApplication()]
+    for (const prop of ['p-1', 'p-2']) {
+      await expect(gate(TENANT, leadBody(ENQUIRY_LEAD, prop))).rejects.toMatchObject({
+        status: 403,
+        message: expect.stringContaining('enquiries are create-only'),
+      })
+    }
+  })
+
+  it('a landlord or contractor lead is refused, new or not ("not on the portal allow-list")', async () => {
+    for (const actor of [LANDLORD, CONTRACTOR]) {
+      for (const lid of [APPLY_LEAD, ENQUIRY_LEAD]) {
+        await expect(gate(actor, leadBody(lid))).rejects.toMatchObject({
+          status: 403,
+          message: expect.stringContaining('not on the portal allow-list'),
+        })
+      }
     }
   })
 })

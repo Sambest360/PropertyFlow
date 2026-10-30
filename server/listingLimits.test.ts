@@ -53,6 +53,8 @@ vi.mock('./entityMap.js', () => ({
     if (type === 'unit' || type === 'property') return 'unit-1'
     return fe
   }),
+  // T3: publicEnquiry now maps a duplicate's uuid back to its FE ref; no map here.
+  resolveFrontendId: vi.fn(async () => null),
 }))
 
 function unitRow() {
@@ -245,7 +247,9 @@ describe('listing limit rules', () => {
       lastName: 'TEST',
       email: 'e2e-dup@example.com',
     })
-    expect(second.leadId).toBe('lead-existing')
+    // T3 F4 (Michael): a repeat returns no reference, not the existing lead's.
+    expect(second.leadId).toBeNull()
+    expect(second.duplicate).toBe(true)
     expect(state.leads.filter((l) => !l.waitlisted)).toHaveLength(1)
   })
 
