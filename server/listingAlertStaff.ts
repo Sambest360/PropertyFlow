@@ -11,7 +11,11 @@ export type ListingAlertStaff = {
 /**
  * The agent (+ landlord when resolvable) lookup behind the
  * POST /api/public/listing-enquiry agent alert. Moved out of server/index.ts
- * unchanged so a real-Postgres test can run the exact SQL the route sends.
+ * so a real-Postgres test can run the exact SQL the route sends.
+ *
+ * The landlord comes from the unit's building: `units` has no landlord_id
+ * column in schema.sql (it is on buildings), and units.building_id is NOT NULL,
+ * so the join still yields at most one row per unit.
  */
 export async function loadListingAlertStaff(unitId: string | null): Promise<ListingAlertStaff | undefined> {
   const staff = await query<ListingAlertStaff>(
@@ -22,7 +26,8 @@ export async function loadListingAlertStaff(unitId: string | null): Promise<List
        un.title AS unit_title
      FROM units un
      LEFT JOIN users ag ON ag.id = un.agent_id
-     LEFT JOIN users ld ON ld.id = un.landlord_id
+     LEFT JOIN buildings b ON b.id = un.building_id
+     LEFT JOIN users ld ON ld.id = b.landlord_id
      WHERE un.id = $1::uuid
      LIMIT 1`,
     [unitId],
