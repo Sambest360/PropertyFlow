@@ -78,8 +78,8 @@ export default function TermsPage() {
 
       <Section title="8. Reviews and reports">
         <p>
-          Reviews must be honest and based on your own experience. We may moderate or remove reviews and act on
-          conduct reports in line with our published process.
+          Reviews must be honest and based on your own experience. We review reports about reviews and conduct, and
+          we may moderate or remove reviews or act under section 7.
         </p>
       </Section>
 
