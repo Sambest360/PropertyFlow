@@ -247,7 +247,9 @@ describe('listing limit rules', () => {
       lastName: 'TEST',
       email: 'e2e-dup@example.com',
     })
-    expect(second.leadId).toBe('lead-existing')
+    // T3 F4 (Michael): a repeat returns no reference, not the existing lead's.
+    expect(second.leadId).toBeNull()
+    expect(second.duplicate).toBe(true)
     expect(state.leads.filter((l) => !l.waitlisted)).toHaveLength(1)
   })
 

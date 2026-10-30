@@ -3,7 +3,7 @@ import { isOccupiedAdvert } from '../src/lib/occupiedAdvert.js'
 import { availableFromLabel } from '../src/lib/availableFromLabel.js'
 import { slotStartSast, slotStoredStart } from './slotInstant.js'
 import { assertOccupiedBookingAllowed, markBookingTenantPending } from './occupiedListing.js'
-import { ensureUuid, resolveFrontendId, resolveUuid } from './entityMap.js'
+import { ensureUuid, resolveUuid } from './entityMap.js'
 import { resolveLiveListing } from './listingResolve.js'
 import {
   capacityDecision,
@@ -29,14 +29,19 @@ export type PublicEnquiryInput = {
 
 export type PublicEnquiryResult = {
   ok: true
-  leadId: string
+  /**
+   * The new lead's front-end reference (LD-…). null when the email/phone
+   * matched an existing lead on this listing (T3 F4, Michael): that lead's
+   * reference is never handed to whoever typed the email or phone.
+   */
+  leadId: string | null
   bookingId?: string | null
   stage: string
   /** Unit UUID — used by the route for additive fire-and-forget hooks (agent email alert). */
   unitId: string
   /** Occupied advert: the date the home comes free (YYYY-MM-DD); null otherwise. Same as the 027 RPC. */
   availableFrom: string | null
-  /** T3: the same email/phone already has a lead on this listing; leadId is that lead's reference and nothing new was saved. */
+  /** T3: the same email/phone already has a lead on this listing; nothing new was saved and no reference is returned (F4). */
   duplicate?: boolean
 }
 
@@ -161,15 +166,13 @@ export async function submitPublicListingEnquiry(
   const saved = await withTransaction(async () => {
     const snap = await lockAndCount(unit.unitId)
     const duplicateLeadId = await findDuplicateLead(unit.unitId, snap.roundStartedAt, email, phone)
-    // T3: the reference the public sees is the lead's front-end id (LD-…), never the raw UUID.
-    const duplicateRef = duplicateLeadId
-      ? ((await resolveFrontendId('lead', duplicateLeadId)) ?? duplicateLeadId)
-      : null
+    // T3 F4 (Michael): a match on email OR phone may be someone else, so the
+    // existing lead's reference (or uuid) is never returned to the caller.
     const booksSlot = action === 'viewing' && Boolean(input.slotId)
     if (!booksSlot && duplicateLeadId) {
       return {
         full: false as const,
-        leadId: duplicateRef ?? duplicateLeadId,
+        leadId: null as string | null,
         bookingId: null as string | null,
         stage,
         duplicate: true,
@@ -329,7 +332,9 @@ export async function submitPublicListingEnquiry(
 
     return {
       full: false as const,
-      leadId: duplicateRef ?? leadFeId,
+      // A fresh lead returns its own front-end id; a booking on an existing
+      // lead returns only the new booking's id (F4).
+      leadId: duplicateLeadId ? null : leadFeId,
       bookingId: bookingFeId,
       stage,
       duplicate: false,

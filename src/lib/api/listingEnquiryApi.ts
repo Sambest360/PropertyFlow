@@ -21,15 +21,28 @@ export type ListingEnquiryInput = {
 export type ListingEnquiryResult =
   | {
       ok: true
-      leadId: string
+      duplicate?: false
+      /**
+       * The new lead's reference (LD-…). null only for a slot booking that
+       * matched an existing lead: the booking is new (bookingId), the lead is
+       * not, and its reference is never shown (T3 F4).
+       */
+      leadId: string | null
       bookingId?: string | null
       stage: string
       /** Occupied advert: the date the home comes free (YYYY-MM-DD); null otherwise. */
       availableFrom?: string | null
-      /** T3: already registered on this listing; leadId is the original reference. */
-      duplicate?: boolean
     }
+  /**
+   * T3 F4 (Michael): already registered on this listing. Nothing new was
+   * saved and no reference is carried, even if a server sent one.
+   */
+  | { ok: true; duplicate: true }
   | { ok: false; error: string; waitlist?: boolean }
+
+/** T3 (spec r5): the timeout copy. The request may have reached the server. */
+export const ENQUIRY_TIMEOUT_COPY =
+  'The server took too long. Your enquiry may have been received. Try again and we will tell you if it is already registered.'
 
 const ENQUIRY_TIMEOUT_MS = 20_000
 
@@ -75,10 +88,14 @@ export function formatListingEnquiryError(raw: string): string {
     return ENQUIRY_UNAVAILABLE
   }
   if (raw.toLowerCase().includes('abort') || raw.toLowerCase().includes('timeout')) {
-    return 'The server took too long to respond. Check your connection and try again.'
+    return ENQUIRY_TIMEOUT_COPY
   }
   // T3 C3: never show unknown server or database text to the public.
   return ENQUIRY_UNAVAILABLE
+}
+
+function nonBlank(v: unknown): string | null {
+  return typeof v === 'string' && v.trim() ? v : null
 }
 
 async function submitViaApi(input: ListingEnquiryInput): Promise<ListingEnquiryResult | null> {
@@ -112,18 +129,21 @@ async function submitViaApi(input: ListingEnquiryInput): Promise<ListingEnquiryR
         waitlist: json.waitlist === true,
       }
     }
-    // T3: no fake reference. A 2xx without the server's lead id is not a saved enquiry.
-    const leadId = json.leadId ?? json.lead_id
-    if (typeof leadId !== 'string' || !leadId.trim()) {
+    // T3 F4: a repeat carries no reference, whatever the server sent.
+    if (json.duplicate === true) return { ok: true, duplicate: true }
+    // T3: no fake reference. A 2xx is a saved enquiry only with the server's
+    // new lead id or (slot booking on an existing lead) its new booking id.
+    const leadId = nonBlank(json.leadId ?? json.lead_id)
+    const bookingId = nonBlank(json.bookingId ?? json.booking_id)
+    if (!leadId && !bookingId) {
       return { ok: false, error: ENQUIRY_UNAVAILABLE }
     }
     return {
       ok: true,
       leadId,
-      bookingId: (json.bookingId ?? json.booking_id ?? null) as string | null,
+      bookingId,
       stage: String(json.stage ?? 'New Lead'),
       availableFrom: (json.availableFrom ?? json.available_from ?? null) as string | null,
-      ...(json.duplicate === true ? { duplicate: true } : {}),
     }
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {

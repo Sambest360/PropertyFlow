@@ -38,8 +38,8 @@ import type { PostgresBootstrap } from '../../lib/api/postgresClient'
 import { submitListingEnquiry } from '../../lib/api/listingEnquiryApi'
 import { listingAvailabilityCopy } from '../../lib/listingLimitCopy'
 import { sweetError, sweetSuccess, sweetWarning } from '../../lib/sweetAlert'
-import { enquiryOutcome, shouldRecordEnquiryLocally, type EnquiryOutcome } from '../../lib/listingEnquiryOutcome'
-import { clientMayPersistLead } from '../../lib/clientLeadPersist'
+import type { EnquiryOutcome } from '../../lib/listingEnquiryOutcome'
+import { applyLeadInput, enquirySubmitPlan } from '../../lib/listingEnquirySubmit'
 import { EnquiryConfirmation } from '../../components/listing/EnquiryConfirmation'
 import { usePageMeta } from '../../hooks/usePageMeta'
 import { useAgentDisplay } from '../../hooks/useAgentDisplay'
@@ -352,6 +352,14 @@ export default function ListingDetail() {
   const fullName = `${firstName.trim()} ${lastName.trim()}`.trim()
 
   const listingReviewAvg = propertyListingRating(state.reviews, p.id)
+  const enquiryListing = {
+    id: p.id,
+    agencyId: p.agencyId,
+    agentId: p.agentId,
+    listingMode: p.listingMode,
+    value: p.price ?? p.rent ?? 0,
+  }
+  const enquiryContact = { name: fullName, email: email.trim(), phone: phone.trim(), notes: note.trim() }
 
   if (isBlockedForUser) {
     return <Navigate to="/browse" replace />
@@ -413,45 +421,18 @@ export default function ListingDetail() {
       })
 
       // T3: the server's answer is the only save. Show it inline and keep the
-      // sheet open (no modal to dismiss, no reset); a repeat says so kindly.
-      if (shouldRecordEnquiryLocally(result)) {
-        recordGuestEnquiry({
-          lead: {
-            id: result.leadId,
-            agencyId: p.agencyId,
-            propertyId: p.id,
-            agentId: p.agentId,
-            name: fullName,
-            email: email.trim(),
-            phone: phone.trim(),
-            channel: 'Web Form',
-            type: p.listingMode === 'sale' ? 'Buy' : 'Rent',
-            value: p.price ?? p.rent ?? 0,
-            stage: result.stage,
-            notes: note.trim(),
-          },
-          viewing:
-            action === 'viewing' && selectedSlot
-              ? {
-                  id: result.bookingId ?? undefined,
-                  agencyId: p.agencyId,
-                  propertyId: p.id,
-                  agentId: p.agentId,
-                  slotId: selectedSlot.id,
-                  applicantName: fullName,
-                  applicantEmail: email.trim(),
-                  date: selectedSlot.date,
-                  time: selectedSlot.time,
-                }
-              : null,
-        })
-      }
-      setEnquiryOutcome(enquiryOutcome(result, {
+      // sheet open (no modal, no reset). What a result does is the pure plan
+      // in listingEnquirySubmit.ts (F3); a repeat shows no reference (F4).
+      const plan = enquirySubmitPlan(result, {
+        listing: enquiryListing,
+        contact: enquiryContact,
         action,
-        slot: selectedSlot ? { date: selectedSlot.date, time: selectedSlot.time } : null,
+        slot: selectedSlot ? { id: selectedSlot.id, date: selectedSlot.date, time: selectedSlot.time } : null,
         agentName: agent?.name ?? null,
-      }))
-      if (result.ok || ('waitlist' in result && result.waitlist)) setNote('')
+      })
+      if (plan.record) recordGuestEnquiry(plan.record)
+      setEnquiryOutcome(plan.outcome)
+      if (plan.clearNote) setNote('')
       return result.ok
     } finally {
       setSubmitting(false)
@@ -505,22 +486,11 @@ export default function ListingDetail() {
       return
     }
 
-    createLead({
-      agencyId: p.agencyId,
-      propertyId: p.id,
-      agentId: p.agentId,
-      name: fullName,
-      email: email.trim(),
-      phone: phone.trim(),
-      channel: 'Web Form',
-      type: isRent ? 'Rent' : 'Buy',
-      value: p.price ?? p.rent ?? 0,
-      stage: 'Application Submitted',
-      notes: note.trim(),
-      // T3: a guest / tenant / portal applicant never persists a lead (the
-      // server refuses it: 403). The application itself is the agency's record.
-      persist: clientMayPersistLead(user.role),
-    })
+    // T3 B1: the application's lead is a NEW lead. A tenant's is saved to the
+    // server (the portal policy allows a new lead; it refuses only re-saving
+    // an existing one). A guest's (401), landlord's or contractor's (403) stays
+    // local. The Register-interest lead is never re-saved by the client.
+    createLead(applyLeadInput({ listing: enquiryListing, contact: enquiryContact, role: user.role }))
 
     // P1-2: the applicant gets their reference number immediately.
     const appRef =

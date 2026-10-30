@@ -5,7 +5,7 @@ export type EnquiryOutcome = {
   tone: 'success' | 'info' | 'error'
   title: string
   body: string
-  /** The lead reference (LD-…) the server returned; null when nothing was saved. */
+  /** The new lead (LD-…) or booking (VW-…) reference the server returned; null when nothing new was saved. */
   reference: string | null
 }
 
@@ -28,20 +28,22 @@ export function enquiryOutcome(result: ListingEnquiryResult, ctx: EnquiryOutcome
     }
     return { tone: 'error', title: 'Could not save enquiry', body: result.error || 'Please try again.', reference: null }
   }
-  if (result.duplicate) {
+  if (result.duplicate === true) {
+    // T3 F4 (Michael): plain text, no reference.
     return {
       tone: 'info',
-      title: "You're already registered",
-      body: `You've already registered interest in this listing. ${who} has your details and will follow up.`,
-      reference: result.leadId,
+      title: 'Already registered',
+      body: "You're already registered; the agent will be in touch.",
+      reference: null,
     }
   }
+  const reference = result.leadId ?? result.bookingId ?? null
   if (ctx.action === 'viewing' && ctx.slot) {
     return {
       tone: 'success',
       title: 'Viewing booked',
       body: `Your slot is ${ctx.slot.date} at ${ctx.slot.time}. ${who} will confirm shortly.`,
-      reference: result.leadId,
+      reference,
     }
   }
   if (ctx.action === 'viewing') {
@@ -49,7 +51,7 @@ export function enquiryOutcome(result: ListingEnquiryResult, ctx: EnquiryOutcome
       tone: 'info',
       title: 'Viewing request sent',
       body: 'No open slots right now. An agent will contact you to schedule a time.',
-      reference: result.leadId,
+      reference,
     }
   }
   return {
@@ -60,9 +62,12 @@ export function enquiryOutcome(result: ListingEnquiryResult, ctx: EnquiryOutcome
   }
 }
 
-/** Only a freshly saved enquiry is mirrored into local state; a repeat is already there (server-side). */
+/**
+ * Only a freshly saved lead is mirrored into local state. A repeat (or a
+ * booking on an existing lead, leadId null) has no new lead to mirror.
+ */
 export function shouldRecordEnquiryLocally(
   result: ListingEnquiryResult,
-): result is Extract<ListingEnquiryResult, { ok: true }> {
-  return result.ok === true && result.duplicate !== true
+): result is Extract<ListingEnquiryResult, { ok: true; leadId: string | null }> & { leadId: string } {
+  return result.ok === true && result.duplicate !== true && typeof result.leadId === 'string'
 }

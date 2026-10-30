@@ -4466,8 +4466,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       return review
     },
     createLead: (input) => {
+      // T3 B1: `persist` is a client-only switch, not lead data.
+      const { persist, ...fields } = input
       const lead: Lead = {
-        ...input,
+        ...fields,
         id: input.id ?? uid('LD'),
         stage: input.stage ?? 'New Lead',
         notes: input.notes ?? '',
@@ -4475,7 +4477,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         updatedAt: new Date().toISOString().slice(0, 10),
       }
       patch((s) => ({ ...s, leads: [lead, ...s.leads] }))
-      if (input.persist !== false) {
+      if (persist !== false) {
         persistUpsert('lead', lead.id, lead as unknown as Record<string, unknown>)
       }
       const property = state.properties.find((p) => p.id === lead.propertyId)
@@ -4558,9 +4560,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           recipientUserIds: viewingDeskStakeholderIds(state.users, input.viewing, property),
         })
       }
-      // T3: no persist. POST /api/public/listing-enquiry already saved this lead
-      // (and its booking); a second save from a guest / tenant is refused (403),
-      // which toasted "Change not saved" and reloaded the form away.
+      // T3: no persist. POST /api/public/listing-enquiry already created this
+      // lead (and its booking). Re-saving it is refused: a guest has no actor
+      // (401); a tenant gets 403 "enquiries are create-only" (an EXISTING
+      // lead), which toasted "Change not saved" and reloaded the form away.
     },
     updateLeadStage: (id, stage) => {
       const updatedAt = new Date().toISOString().slice(0, 10)
