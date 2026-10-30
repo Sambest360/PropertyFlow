@@ -481,6 +481,28 @@ export function stripOtherUsersSignatures(users: BootstrapUser[], selfId: string
   })
 }
 
+/**
+ * T1 (Michael ruling (a), no exemption): another user's registration ID, on
+ * the user row and on its verification profile, as maskIdNumber. Used for the
+ * super admin's users[] and the super-admin verification decision response.
+ */
+export function maskUserIdNumbers<T extends Record<string, unknown>>(u: T): T {
+  if (!u || typeof u !== 'object') return u
+  let out: Record<string, unknown> = u
+  if (typeof u.idNumberOrPassport === 'string' && u.idNumberOrPassport) {
+    out = { ...out, idNumberOrPassport: maskIdNumber(u.idNumberOrPassport) }
+  }
+  const v = u.verification as Record<string, unknown> | null | undefined
+  const profile = v && typeof v === 'object' ? (v.profile as Record<string, unknown> | null | undefined) : undefined
+  if (profile && typeof profile === 'object' && typeof profile.idNumberOrPassport === 'string' && profile.idNumberOrPassport) {
+    out = {
+      ...out,
+      verification: { ...v, profile: { ...profile, idNumberOrPassport: maskIdNumber(profile.idNumberOrPassport) } },
+    }
+  }
+  return out as T
+}
+
 /** Roles that never see the signer IP address or user agent (CR10: staff only). */
 const NO_SIGN_DEVICE_ROLES: ReadonlySet<string> = new Set(['tenant', 'landlord', 'contractor'])
 
@@ -605,8 +627,14 @@ export function filterBootstrapForActor(
     ids,
   )
   if (actor.role === 'super_admin') {
+    // T1 ruling (a): other users' ID numbers masked for super admin; own row full.
     return Array.isArray(entities.users)
-      ? { ...entities, users: stripOtherUsersSignatures(entities.users as BootstrapUser[], actor.userId) }
+      ? {
+          ...entities,
+          users: stripOtherUsersSignatures(entities.users as BootstrapUser[], actor.userId).map((u) =>
+            u && !ids.has(u.id) ? maskUserIdNumbers(u) : u,
+          ),
+        }
       : entities
   }
   const roster = Array.isArray(raw.agencyContractors)

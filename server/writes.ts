@@ -803,9 +803,22 @@ async function upsertUser(feId: string, uuid: string, d: Record<string, unknown>
   }
   // A list saved now is taken exactly as saved (no implied newer permissions).
   if (has('enabledPermissions')) meta.permissionsVersion = PERMISSIONS_VERSION
-  if (d.verification && typeof d.verification === 'object') meta.verification = d.verification
+  if (d.verification && typeof d.verification === 'object') {
+    // T1 ruling (a): super admin holds other users' IDs masked. A verification
+    // profile echoed back with a masked ID is dropped, so the stored profile
+    // survives (verification merges by key).
+    const v = { ...(d.verification as Record<string, unknown>) }
+    const vp = v.profile as Record<string, unknown> | null | undefined
+    if (vp && typeof vp === 'object' && typeof vp.idNumberOrPassport === 'string' && vp.idNumberOrPassport.includes('\u2022')) {
+      delete v.profile
+    }
+    meta.verification = v
+  }
   if (d.company) meta.company = d.company
-  if (d.idNumberOrPassport) meta.idNumberOrPassport = d.idNumberOrPassport
+  // A masked ID ('•', maskIdNumber) never overwrites the stored one.
+  if (d.idNumberOrPassport && !(typeof d.idNumberOrPassport === 'string' && d.idNumberOrPassport.includes('\u2022'))) {
+    meta.idNumberOrPassport = d.idNumberOrPassport
+  }
   // CR10: the user's own signature (the user write policy strips it from every
   // non-self write). Absent keeps the stored value; null clears it; anything
   // other than a PNG data URL within the cap is 400 SIGNATURE_INVALID.

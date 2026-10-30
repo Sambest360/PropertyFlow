@@ -184,3 +184,67 @@ describe('T1 C6/O5: application ID numbers in the server bootstrap filter', () =
     expect(idsOf((own.applications as Array<Record<string, unknown>>)[0]).main).toBe(MAIN_ID)
   })
 })
+
+describe('T1 ruling (a): users[] ID numbers for super admin (no exemption)', () => {
+  const USER_ID = '8001015009087'
+  const LL_ID = '7505055009081'
+  const withIds = {
+    ...raw,
+    users: [
+      {
+        id: 'u-t',
+        email: 'Tenant@Example.com',
+        name: 'Thandi Tenant',
+        role: 'tenant',
+        idNumberOrPassport: USER_ID,
+      },
+      {
+        id: 'u-ll',
+        email: 'll@example.com',
+        name: 'Lerato Landlord',
+        role: 'landlord',
+        idNumberOrPassport: LL_ID,
+        verification: { status: 'pending', profile: { company: 'LL Pty', idNumberOrPassport: LL_ID }, documents: [] },
+      },
+      { id: 'u-sa', email: 'sa@example.com', name: 'Platform', role: 'super_admin', idNumberOrPassport: 'SA1234567' },
+      { id: 'u-admin-a', email: 'admin@a.example', name: 'Admin A', role: 'client_admin', agencyId: 'ag-a' },
+    ],
+  }
+  function outFor(actor: Actor) {
+    const scope = buildPropertyScope(
+      { role: actor.role as never, userId: actor.userId, agencyId: actor.agencyId, agencySuspended: false },
+      { properties: withIds.properties },
+    )
+    return filterBootstrapForActor(withIds as never, actor as never, scope) as unknown as {
+      users: Array<Record<string, unknown>>
+      applications: Array<Record<string, unknown>>
+    }
+  }
+  const userRow = (o: { users: Array<Record<string, unknown>> }, id: string) => o.users.find((u) => u.id === id)
+
+  it('pin (SA): super admin gets a masked users[] ID, a masked verification profile ID and a masked application ID', () => {
+    const o = outFor({ userId: 'u-sa', role: 'super_admin', agencyId: null })
+    expect(userRow(o, 'u-t')?.idNumberOrPassport).toBe(maskIdNumber(USER_ID))
+    expect(userRow(o, 'u-ll')?.idNumberOrPassport).toBe(maskIdNumber(LL_ID))
+    const vp = (userRow(o, 'u-ll')?.verification as { profile?: Record<string, unknown> }).profile
+    expect(vp).toEqual({ company: 'LL Pty', idNumberOrPassport: maskIdNumber(LL_ID) })
+    expect(o.applications[0].idNumberOrPassport).toBe(maskIdNumber(MAIN_ID))
+    expect(JSON.stringify(o)).not.toContain(USER_ID)
+    expect(JSON.stringify(o)).not.toContain(LL_ID)
+    // Their own row stays full.
+    expect(userRow(o, 'u-sa')?.idNumberOrPassport).toBe('SA1234567')
+  })
+
+  it('the applicant still gets their own users[] row and application in full', () => {
+    const o = outFor({ userId: 'u-t', role: 'tenant', agencyId: null })
+    expect(userRow(o, 'u-t')?.idNumberOrPassport).toBe(USER_ID)
+    expect(o.applications[0].idNumberOrPassport).toBe(MAIN_ID)
+  })
+
+  it("the listing agency's staff keep what they get today for users[] (no ID for the applicant)", () => {
+    const o = outFor({ userId: 'u-admin-a', role: 'client_admin', agencyId: 'ag-a' })
+    expect(userRow(o, 'u-t')?.idNumberOrPassport).toBeUndefined()
+    expect(JSON.stringify(o.users)).not.toContain(USER_ID)
+    expect(o.applications[0].idNumberOrPassport).toBe(MAIN_ID)
+  })
+})
