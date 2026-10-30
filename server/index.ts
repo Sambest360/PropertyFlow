@@ -49,7 +49,6 @@ import {
   esignWebhook,
 } from './esignRoutes.js'
 import {
-  authIpKey,
   authIpRateLimit,
   authEmailRateLimit,
   notifyEmailRateLimit,
@@ -57,8 +56,14 @@ import {
   recordAuthFailure,
   clearAuthFailures,
   tooManyRequests,
+  loginTooManyRequests,
   passwordResetRateLimit,
+  listingEnquiryIpRateLimit,
+  listingEnquiryContactRateLimit,
+  reviewRateLimit,
 } from './rateLimit.js'
+import { clientIp, clientIpOrNull } from './clientIp.js'
+import { ENQUIRY_RATE_LIMITED_COPY } from '../src/lib/leadScreenCopy.js'
 import { resetUserPassword } from './passwordReset.js'
 import {
   sendListingEnquiryConfirmation,
@@ -232,7 +237,7 @@ async function requireActorAndGate(c: Parameters<typeof parseDemoActor>[0], body
   // CR10: request facts for the sign stamp are always set here, never taken
   // from the client body.
   body.requestMeta = {
-    ip: (c.req.header('x-forwarded-for') ?? '').split(',')[0]?.trim() || c.req.header('x-real-ip') || null,
+    ip: clientIpOrNull(c),
     userAgent: c.req.header('user-agent') ?? null,
   }
   const actor = await enrichActor(raw)
@@ -392,7 +397,7 @@ app.post('/api/auth/register', async (c) => {
       503,
     )
   }
-  const ip = authIpKey(c.req.raw.headers)
+  const ip = clientIp(c)
   const ipGate = authIpRateLimit(ip)
   if (!ipGate.ok) {
     const rl = tooManyRequests(ipGate.retryAfterSec)
@@ -553,10 +558,10 @@ app.post('/api/auth/login', async (c) => {
       503,
     )
   }
-  const ip = authIpKey(c.req.raw.headers)
+  const ip = clientIp(c)
   const ipGate = authIpRateLimit(ip)
   if (!ipGate.ok) {
-    const rl = tooManyRequests(ipGate.retryAfterSec)
+    const rl = loginTooManyRequests(ipGate.retryAfterSec)
     return c.json(rl.body, rl.status, rl.headers)
   }
   let email = ''
@@ -567,7 +572,7 @@ app.post('/api/auth/login', async (c) => {
     // even when the attacker rotates IPs.
     const accountGate = authFailureBlocked(ip, email)
     if (!accountGate.ok) {
-      const rl = tooManyRequests(accountGate.retryAfterSec)
+      const rl = loginTooManyRequests(accountGate.retryAfterSec)
       return c.json(rl.body, rl.status, rl.headers)
     }
     const user = await loginUser(email, String(body.password ?? ''))
@@ -581,7 +586,7 @@ app.post('/api/auth/login', async (c) => {
     if (email && (status === 401 || status === 400)) {
       const failGate = recordAuthFailure(ip, email)
       if (!failGate.ok) {
-        const rl = tooManyRequests(failGate.retryAfterSec)
+        const rl = loginTooManyRequests(failGate.retryAfterSec)
         return c.json(rl.body, rl.status, rl.headers)
       }
     }
@@ -618,7 +623,7 @@ app.post('/api/auth/change-password', async (c) => {
       503,
     )
   }
-  const ip = authIpKey(c.req.raw.headers)
+  const ip = clientIp(c)
   const ipGate = authIpRateLimit(ip)
   if (!ipGate.ok) {
     const rl = tooManyRequests(ipGate.retryAfterSec)
@@ -1296,6 +1301,12 @@ app.post('/api/reviews', async (c) => {
   try {
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
     const actor = await requireActor(c)
+    // H1 (spec r5 :67): 20 per IP per hour, 5 per actor per hour.
+    const gate = reviewRateLimit(actor.userId, clientIp(c))
+    if (!gate.ok) {
+      const rl = tooManyRequests(gate.retryAfterSec)
+      return c.json(rl.body, rl.status, rl.headers)
+    }
     const { upsertReview } = await import('./reviews.js')
     return c.json({ review: await upsertReview(actor, body) }, 201)
   } catch (err) {
@@ -1650,9 +1661,22 @@ for (const plural of restResources) {
   })
 }
 
+/** H1 (Oscar A5): the public 429 is neutral; the form shows its own copy for any 429. */
+function publicEnquiryTooMany(c: Context, retryAfterSec: number) {
+  return c.json({ error: 'rate_limited', message: ENQUIRY_RATE_LIMITED_COPY }, 429, { 'Retry-After': String(retryAfterSec) })
+}
+
 app.post('/api/public/listing-enquiry', async (c) => {
+  // H1 (spec r5 :65): 20 per IP per 15 min, then 3 per (email + listing) per hour.
+  const ipGate = listingEnquiryIpRateLimit(clientIp(c))
+  if (!ipGate.ok) return publicEnquiryTooMany(c, ipGate.retryAfterSec)
   try {
     const body = (await c.req.json()) as Record<string, unknown>
+    const contactEmail = String(body.email ?? '').trim()
+    if (contactEmail) {
+      const contactGate = listingEnquiryContactRateLimit(contactEmail, String(body.propertyId ?? ''))
+      if (!contactGate.ok) return publicEnquiryTooMany(c, contactGate.retryAfterSec)
+    }
     const { submitPublicListingEnquiry } = await import('./publicEnquiry.js')
     const result = await submitPublicListingEnquiry({
       propertyId: String(body.propertyId ?? ''),

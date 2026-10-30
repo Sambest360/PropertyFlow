@@ -4,7 +4,14 @@
  */
 import type { Context, Hono } from 'hono'
 import { resolveSessionUser } from './auth.js'
-import { authIpKey, authIpRateLimit, notifyEmailRateLimit, tooManyRequests } from './rateLimit.js'
+import {
+  clearAuthFailuresForEmail,
+  notifyEmailRateLimit,
+  passwordFlowIpRateLimit,
+  tooManyRequests,
+  verifyEmailIpRateLimit,
+} from './rateLimit.js'
+import { clientIp } from './clientIp.js'
 import { query } from './db.js'
 
 type Status = 400 | 401 | 403 | 404 | 409 | 429 | 500 | 503
@@ -20,8 +27,8 @@ function message(err: unknown): string {
 export function registerEmailRoutes(app: Hono): void {
   /** "Forgot password": always 200 so the answer never reveals which emails have accounts. */
   app.post('/api/auth/forgot-password', async (c) => {
-    const ip = authIpKey(c.req.raw.headers)
-    const ipGate = authIpRateLimit(ip)
+    // H1 (spec r5 :63): its own per-IP bucket, so a login cap or lockout never blocks a reset.
+    const ipGate = passwordFlowIpRateLimit(clientIp(c))
     if (!ipGate.ok) {
       const rl = tooManyRequests(ipGate.retryAfterSec)
       return c.json(rl.body, rl.status, rl.headers)
@@ -38,7 +45,7 @@ export function registerEmailRoutes(app: Hono): void {
   /** Choose a password from a reset or account set-up link. */
   app.post('/api/auth/set-password', async (c) => {
     c.header('Cache-Control', 'no-store')
-    const ipGate = authIpRateLimit(authIpKey(c.req.raw.headers))
+    const ipGate = passwordFlowIpRateLimit(clientIp(c))
     if (!ipGate.ok) {
       const rl = tooManyRequests(ipGate.retryAfterSec)
       return c.json(rl.body, rl.status, rl.headers)
@@ -47,6 +54,8 @@ export function registerEmailRoutes(app: Hono): void {
       const body = (await c.req.json().catch(() => ({}))) as { token?: unknown; password?: unknown }
       const { setPasswordWithToken } = await import('./accountEmails.js')
       const r = await setPasswordWithToken(String(body.token ?? ''), String(body.password ?? ''))
+      // H1: the new password unlocks the account from every IP at once.
+      clearAuthFailuresForEmail(r.email)
       return c.json({ ok: true, email: r.email })
     } catch (err) {
       return c.json({ error: (err as { code?: string }).code ?? 'set_password_failed', message: message(err) }, statusOf(err))
@@ -54,6 +63,12 @@ export function registerEmailRoutes(app: Hono): void {
   })
 
   app.post('/api/auth/verify-email', async (c) => {
+    // H1 (spec r5 :66): 10 per IP per 15 min (defence in depth; tokens are long).
+    const ipGate = verifyEmailIpRateLimit(clientIp(c))
+    if (!ipGate.ok) {
+      const rl = tooManyRequests(ipGate.retryAfterSec)
+      return c.json(rl.body, rl.status, rl.headers)
+    }
     try {
       const body = (await c.req.json().catch(() => ({}))) as { token?: unknown }
       const { verifyEmailToken } = await import('./accountEmails.js')
