@@ -203,11 +203,10 @@ describe('T7 TLS template (deploy/nginx-propertyflow.tls.conf.example)', () => {
 })
 
 describe('T7 header snippet (deploy/nginx-security-headers.conf)', () => {
-  it('is the only HSTS source and has no preload (A5)', () => {
+  it('is the only HSTS source, unchanged from main, with no preload (A5)', () => {
     const code = stripComments(read('nginx-security-headers.conf'))
-    const hsts = code.match(/add_header\s+Strict-Transport-Security[^;]*;/g) ?? []
-    expect(hsts).toHaveLength(1)
-    expect(hsts[0]).not.toMatch(/preload/)
+    const hsts = code.match(/add_header\s+Strict-Transport-Security\s+"[^"]*"[^;]*;/g) ?? []
+    expect(hsts).toEqual(['add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;'])
   })
 })
 
