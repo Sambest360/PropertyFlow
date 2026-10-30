@@ -76,12 +76,18 @@ beforeEach(async () => {
   txQuery.mockClear()
   process.env.PAYFAST_MODE = 'live'
   errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+  // F1: after the source/signature checks the handler asks PayFast's
+  // /eng/query/validate; these H1 tests are about the source check, so it answers VALID.
+  vi.stubGlobal('fetch', vi.fn(async () => new Response('VALID', { status: 200 })))
   vi.spyOn(console, 'warn').mockImplementation(() => {})
   // Optional call so the tests-first run at base fails on behaviour, not on the missing hook.
   const routes = (await import('./payfastRoutes.js')) as { resetItnRejectLogForTests?: () => void }
   routes.resetItnRejectLogForTests?.()
 })
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
 afterAll(() => {
   for (const k of ['PAYFAST_MERCHANT_ID', 'PAYFAST_MERCHANT_KEY', 'PAYFAST_PASSPHRASE', 'PAYFAST_MODE']) delete process.env[k]
 })

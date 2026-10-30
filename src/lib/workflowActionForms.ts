@@ -122,7 +122,7 @@ export function getActionFormSpec(actionKey: string, application: Application): 
   if (REJECT_ACTIONS.has(actionKey)) {
     const bureauTemplate =
       actionKey === 'DECLINE_CREDIT'
-        ? 'Credit outcome: application not approved based on bureau assessment. You may dispute inaccurate information with TransUnion (0861 482 482), Experian (0861 10 5665), or XDS (0860 937 000) under PAIA/ NCA. Agency note: '
+        ? 'Credit outcome: application not approved based on the affordability and screening outcome the agency recorded. If a credit report was used, you may dispute inaccurate information with the credit bureau that issued it: TransUnion (0861 482 482), Experian (0861 10 5665), or XDS (0860 937 000) under PAIA/ NCA. Agency note: '
         : undefined
     return {
       kind: 'reject',
