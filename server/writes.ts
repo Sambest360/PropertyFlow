@@ -1408,11 +1408,32 @@ function asRow(v: unknown): JsonRow | null {
 }
 
 /**
- * Application fields on update. email / phone / keyCollection: written as
- * sent (staff may clear a phone to blank), kept when absent. Redacted rows
- * only reach landlords, whose writes are the narrow decision UPDATE, and a
- * portal applicant's blank email / phone is dropped by the portal policy
- * before it gets here, so the keep-stored rule is not needed for blanks.
+ * T1 (C5): applicant details that a blank or null on UPDATE never clears, for
+ * every writer (applicant, agency staff, super admin). There is no explicit
+ * "clear" in this build. A masked ID (maskIdNumber, '•') counts as blank, so
+ * a writer who only received the masked value cannot overwrite the real one.
+ */
+export const KEEP_STORED_WHEN_BLANK = ['phone', 'idNumberOrPassport', 'employerName', 'jobTitle'] as const
+
+/** Blank, null, or a masked ID number ('•••••••••9087'). */
+export function blankApplicantDetail(v: unknown): boolean {
+  return blank(v) || (typeof v === 'string' && v.includes('\u2022'))
+}
+
+/** creditCheckConsents whose adults carry a masked ('•') ID number. */
+export function consentsCarryMaskedId(v: unknown): boolean {
+  const adults = asRow(v)?.adults
+  return Array.isArray(adults) && adults.some((a) => {
+    const id = asRow(a)?.idNumber
+    return typeof id === 'string' && id.includes('\u2022')
+  })
+}
+
+/**
+ * Application fields on update. email / keyCollection: written as sent, kept
+ * when absent. phone: a blank or null keeps the stored phone for every writer
+ * (T1 C5; KEEP_STORED_WHEN_BLANK). Redacted rows only reach landlords, whose
+ * writes are the narrow decision UPDATE.
  * Documents: merged by key over the stored document, a document sent without
  * a file keeps the stored file, and the stored list is kept when the payload
  * has none.
@@ -1431,7 +1452,8 @@ export function mergeRedactedApplicationFields(
     contact.email = email
     contact.applicant_email = email
   }
-  if (d.phone !== undefined || !stored) contact.phone = blank(d.phone) ? null : d.phone
+  if (!stored) contact.phone = blank(d.phone) ? null : d.phone
+  else if (!blankApplicantDetail(d.phone)) contact.phone = d.phone
 
   const sentDocs = (d.documents ?? d.docs) as unknown
   let documents: unknown[]
@@ -1543,6 +1565,11 @@ async function upsertApplication(
   for (const k of ['creditCheck', 'creditConsent', 'creditCheckConsents', 'screening']) {
     docsJson[k] = has(k) ? d[k] : (kept.storedDocsJson[k] ?? null)
   }
+  // T1 O5: a roster echoed back with masked co-applicant / guarantor ID
+  // numbers (super admin, other-agency views) never replaces the stored one.
+  if (stored && has('creditCheckConsents') && consentsCarryMaskedId(d.creditCheckConsents)) {
+    docsJson.creditCheckConsents = kept.storedDocsJson.creditCheckConsents ?? null
+  }
   // Metadata merges over the stored object: on update an absent field is left
   // out so the stored key survives.
   const meta: Record<string, unknown> = {
@@ -1566,8 +1593,16 @@ async function upsertApplication(
     ['employerName', 'employerName'],
     ['jobTitle', 'jobTitle'],
   ]
+  const keepWhenBlank: ReadonlySet<string> = new Set(KEEP_STORED_WHEN_BLANK)
   for (const [key, field] of metaFields) {
-    if (has(field) || !stored) meta[key] = d[field] ?? null
+    if (!stored) {
+      meta[key] = keepWhenBlank.has(field) && blankApplicantDetail(d[field]) ? null : (d[field] ?? null)
+      continue
+    }
+    if (!has(field)) continue
+    // T1 C5: a blank / null / masked value on update keeps the stored one.
+    if (keepWhenBlank.has(field) && blankApplicantDetail(d[field])) continue
+    meta[key] = d[field] ?? null
   }
   if (has('declineReason')) meta.decline_reason = d.declineReason ?? null
 

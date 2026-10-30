@@ -1007,7 +1007,10 @@ export async function buildBootstrap(opts?: {
       if (u) {
         a.applicantName = `${u.first_name} ${u.last_name}`.trim()
         a.email = u.email
-        a.phone = u.phone ?? ''
+        // T1: the phone typed on the application (metadata.phone) wins; the
+        // account phone only fills a blank. An account row without a phone
+        // used to blank the application's phone on every reload.
+        a.phone = a.phone || (u.phone ?? '')
       }
     }
     delete (a as { _applicantUuid?: string })._applicantUuid
