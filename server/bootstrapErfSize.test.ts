@@ -84,4 +84,18 @@ describe('bootstrap erf size (T2)', () => {
     const { p } = await boot()
     expect(p.typeInferred).toBeUndefined()
   })
+
+  it('H04: a whitespace-only stored property_type is also only a bedroom guess (no Office chip)', async () => {
+    columnPresent = true
+    for (const blank of ['', '   ', '\t\n']) {
+      storedType = blank
+      try {
+        const { p } = await boot()
+        expect(p.type).toBe('Office')
+        expect(p.typeInferred).toBe(true)
+      } finally {
+        storedType = 'industrial'
+      }
+    }
+  })
 })
