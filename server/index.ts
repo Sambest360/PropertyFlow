@@ -19,6 +19,7 @@ import {
 } from './actor.js'
 import { isStaffRole, resolveRequestActor } from './requestActor.js'
 import { filterBootstrapForGuest } from './guestMarketplace.js'
+import { loadListingAlertStaff } from './listingAlertStaff.js'
 import {
   changeUserPassword,
   clearSession,
@@ -1707,25 +1708,7 @@ app.post('/api/public/listing-enquiry', async (c) => {
     // Agent (+ landlord when resolvable) alert — same fire-and-forget contract.
     if (!repeat || noteAppended) void (async () => {
       try {
-        const staff = await query<{
-          agent_email: string | null
-          agent_first: string | null
-          landlord_email: string | null
-          unit_title: string | null
-        }>(
-          `SELECT
-             ag.email AS agent_email,
-             ag.first_name AS agent_first,
-             ld.email AS landlord_email,
-             un.title AS unit_title
-           FROM units un
-           LEFT JOIN users ag ON ag.id = un.agent_id
-           LEFT JOIN users ld ON ld.id = un.landlord_id
-           WHERE un.id = $1::uuid
-           LIMIT 1`,
-          [result.unitId ?? null],
-        )
-        const s = staff[0]
+        const s = await loadListingAlertStaff(result.unitId ?? null)
         if (s?.agent_email) {
           void sendListingLeadAlert({
             agentEmail: s.agent_email,
