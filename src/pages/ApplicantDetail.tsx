@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react'
 import { Navigate, useParams, useSearchParams } from 'react-router-dom'
-import { CreditCard, Wallet } from 'lucide-react'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { resolveApplicationAgentName } from '../lib/agentDisplay'
@@ -9,7 +8,7 @@ import { rolePermissions } from '../lib/permissions'
 import { RequirePermission } from '../components/RequirePermission'
 import { BackButton } from '../components/BackButton'
 import { DashboardTabs } from '../components/dashboard/DashboardTabs'
-import { Badge, Button, Card } from '../components/ui'
+import { Badge, Card } from '../components/ui'
 import { ApplicantDetailHeader } from '../components/applicant-detail/ApplicantDetailHeader'
 import { ApplicantOverviewPanel } from '../components/applicant-detail/ApplicantOverviewPanel'
 import { ApplicantDetailsPanel } from '../components/applicant-detail/ApplicantDetailsPanel'
@@ -31,15 +30,14 @@ import {
   isApplicantDetailTab,
   type ApplicantDetailTab,
 } from '../components/applicant-detail/types'
-import { buildCheckoutBridge, guidedTransitionError, type PatchApplicationStatusResult } from '../lib/api/applicationStatusApi'
+import { guidedTransitionError, type PatchApplicationStatusResult } from '../lib/api/applicationStatusApi'
+import { ApplicationCheckoutCard } from '../components/payments/ApplicationCheckoutCard'
+import { AGENT_NO_ROWS_COPY, applicationLedgerRows } from '../lib/payfast/applicationCheckout'
 import type { HateoasAction } from '../lib/api/contracts'
 import type { WorkflowActionCapture } from '../lib/workflowActionForms'
 import type { PropertyEvent } from '../types/domain'
-import { formatZAR } from '../data/seed'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
 import { useMarkOpened } from '../context/UnopenedContext'
-
-const ICON_STROKE = 1.6
 
 function isApplicantRelatedEvent(ev: PropertyEvent, applicantName: string, applicationId: string) {
   const hay = `${ev.action} ${(ev.changes ?? []).map((c) => `${c.field} ${c.from} ${c.to}`).join(' ')}`.toLowerCase()
@@ -72,6 +70,9 @@ export default function ApplicantDetail() {
 
   const [blockOpen, setBlockOpen] = useState(false)
   const [flash, setFlash] = useState<PatchApplicationStatusResult | null>(null)
+  // open-checkout-real: OPEN_CHECKOUT only reveals the pay card over the LIVE
+  // ledger rows; nothing is invented (no fallback id, no fallback amount).
+  const [checkoutOpen, setCheckoutOpen] = useState(false)
 
   const application = state.applications.find((a) => a.id === id)
   useMarkOpened('application', application?.id)
@@ -248,6 +249,7 @@ export default function ApplicantDetail() {
     const workflowTarget = action.payload_hint?.workflowStatus as string | undefined
     const effect = action.payload_hint?.effect as string | undefined
     const status = action.payload_hint?.status
+    if (action.key !== 'OPEN_CHECKOUT' && effect !== 'open_checkout') setCheckoutOpen(false)
 
     if (action.key === 'SCHEDULE_MOVE_IN' && capture?.moveInDate) {
       const prev = application.stage
@@ -320,53 +322,8 @@ export default function ApplicantDetail() {
     }
 
     if (action.key === 'OPEN_CHECKOUT' || effect === 'open_checkout') {
-      const duePayments = state.payments.filter(
-        (p) => p.applicationId === application.id && p.status === 'Due',
-      )
-      const amount = duePayments.reduce((sum, p) => sum + p.amount, 0) || (property?.rent ?? 0) * 3
-      const checkout = buildCheckoutBridge({
-        application,
-        propertyTitle: property?.title ?? 'Property',
-        amountZar: amount,
-        paymentId: duePayments[0]?.id ?? `PAY-checkout-${application.id}`,
-        provider: 'payfast',
-      })
-      setFlash({
-        status: 'SUCCESS',
-        httpStatus: 200,
-        application,
-        previous_status: application.stage,
-        api_status: 'APPROVED',
-        display_metadata: {
-          updated_relative: 'Checkout ready',
-          status_label: 'Awaiting Payment',
-          primary_amount_label: formatZAR(amount),
-          timezone: 'Africa/Johannesburg',
-        },
-        actions: [],
-        side_effects: {
-          lease: null,
-          payments: [],
-          unit_id: null,
-          unit_status: null,
-          cancelled_viewing_ids: [],
-          cancelled_slot_ids: [],
-          booking_collisions: [],
-        },
-        checkout,
-        invoice: {
-          id: checkout.payment_id,
-          total_zar: amount,
-          line_items: duePayments.map((p) => ({ label: p.type, amount: p.amount })),
-          due_date: duePayments[0]?.dueDate ?? new Date().toISOString().slice(0, 10),
-        },
-        layout: {
-          headline: 'PayFast checkout bridge',
-          success_state: 'APPROVED_CHECKOUT',
-          badges: ['Awaiting Payment'],
-          next_step_copy: 'Complete payment to unlock lease signing and move-in.',
-        },
-      })
+      setFlash(null)
+      setCheckoutOpen(true)
       return
     }
     if (!status) return
@@ -387,6 +344,13 @@ export default function ApplicantDetail() {
     }
     setFlash(result)
   }
+
+  // C2: staff see this application's rows of the application's own agency.
+  const agencyPayments = state.payments.filter((p) => p.agencyId === application.agencyId)
+  const checkoutRows = applicationLedgerRows(agencyPayments, {
+    applicationId: application.id,
+    viewer: { mode: 'agent' },
+  })
 
   const tabs = [
     { id: 'overview', label: 'Overview' },
@@ -421,26 +385,32 @@ export default function ApplicantDetail() {
                   ))}
                 </div>
               </div>
-              {flash.checkout && (
-                <div className="min-w-[240px] rounded-xl border border-primary-100 bg-white p-3 text-sm">
-                  <p className="flex items-center gap-1.5 font-semibold text-ink">
-                    <CreditCard className="h-4 w-4 text-primary" strokeWidth={ICON_STROKE} aria-hidden />
-                    Checkout
-                  </p>
-                  <p className="mt-2 tabular text-lg font-bold">
-                    {formatZAR(flash.checkout.amount_zar)}
-                  </p>
-                  <Button
-                    className="mt-3 min-h-11 w-full"
-                    onClick={() => window.open(flash.checkout!.checkout_url, '_blank', 'noopener')}
-                  >
-                    <Wallet className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} aria-hidden />
-                    Open checkout
-                  </Button>
-                </div>
-              )}
             </div>
+            {flash.checkout && (
+              <div className="mt-4">
+                {/* C1: only the rows this approval durably saved (payment_ids), read live from the store. */}
+                <ApplicationCheckoutCard
+                  mode="agent"
+                  canPay={has('payments.manage')}
+                  rows={applicationLedgerRows(agencyPayments, {
+                    applicationId: application.id,
+                    viewer: { mode: 'agent' },
+                    persistedDueIds: flash.checkout.payment_ids,
+                  })}
+                />
+              </div>
+            )}
           </Card>
+        )}
+
+        {checkoutOpen && !(flash?.status === 'SUCCESS' && flash.checkout) && (
+          <div className="mb-5" data-testid="applicant-checkout">
+            {checkoutRows.length > 0 ? (
+              <ApplicationCheckoutCard mode="agent" canPay={has('payments.manage')} rows={checkoutRows} />
+            ) : (
+              <p className="rounded-xl bg-primary-50 px-3 py-2 text-sm text-ink-600">{AGENT_NO_ROWS_COPY}</p>
+            )}
+          </div>
         )}
 
         {flash?.status === 'ERROR' && (
