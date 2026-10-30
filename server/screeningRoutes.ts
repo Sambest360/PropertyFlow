@@ -33,6 +33,7 @@ import {
   withdrawConsent,
   type ScreeningDeps,
 } from './screeningChecks.js'
+import { clientIpOrNull } from './clientIp.js'
 
 function readEnv(): Record<string, string | undefined> {
   return process.env as Record<string, string | undefined>
@@ -177,7 +178,7 @@ function errBody(err: unknown): { status: number; body: Record<string, unknown> 
 
 function requestMeta(c: Context) {
   return {
-    ip: (c.req.header('x-forwarded-for') ?? '').split(',')[0]?.trim() || c.req.header('x-real-ip') || null,
+    ip: clientIpOrNull(c),
     userAgent: c.req.header('user-agent') ?? null,
   }
 }

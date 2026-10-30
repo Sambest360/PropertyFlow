@@ -291,7 +291,10 @@ describe('payfast/create', () => {
       body: 'm_payment_id=PAY-mine&payment_status=COMPLETE&amount_gross=1000.00&signature=bad',
     })
     expect(res.status).toBe(400)
-    expect(db.writes).toEqual([])
+    // H1 (Q5): a rejected ITN naming one of our payments leaves exactly one
+    // audit row (event_log payfast_itn_rejected); nothing touches the ledger.
+    expect(db.writes.map((w) => w.sql.trim().split(/\s+/).slice(0, 3).join(' '))).toEqual(['INSERT INTO event_log'])
+    expect(db.writes[0]?.params).toContain('payfast_itn_rejected')
   })
 })
 
