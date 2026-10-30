@@ -973,20 +973,16 @@ export const marketplaceFooter = [
       ['Bond & transfer', '/calculators/bond-transfer'],
     ],
   },
+  // T5: the public footer carries no staff or portal links. Sign in routes each
+  // role to its own portal (resolvePostLoginPath, src/lib/workspaceRoutes.ts).
   {
-    title: 'For agents',
+    title: 'Company',
     links: [
-      ['Workspace', '/workspace'],
-      ['Leads', '/workspace/sales/crm'],
-      ['Operations', '/workspace/operations/maintenance'],
-    ],
-  },
-  {
-    title: 'Portals',
-    links: [
-      ['Owners', '/workspace/portals/owner'],
-      ['Tenants', '/workspace/portals/tenant'],
-      ['Contractors', '/workspace/portals/contractor'],
+      ['Sign in', '/login'],
+      ['List with us', '/register'],
+      ['Contact', '/contact'],
+      ['Privacy', '/privacy'],
+      ['Terms', '/terms'],
     ],
   },
 ] as const

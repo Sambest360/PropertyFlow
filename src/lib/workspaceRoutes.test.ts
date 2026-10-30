@@ -26,3 +26,20 @@ describe('defaultWorkspacePath / resolvePostLoginPath', () => {
     expect(resolvePostLoginPath('tenant', '/workspace')).toBe('/workspace/portals/tenant')
   })
 })
+
+describe('T5: sign in lands each portal role in its own portal', () => {
+  // LoginPage defaults next to '/workspace' (LoginPage.tsx:23) and calls resolvePostLoginPath (:84, :94).
+  it.each([
+    ['landlord', '/workspace/portals/owner'],
+    ['tenant', '/workspace/portals/tenant'],
+    ['contractor', '/workspace/portals/contractor'],
+  ] as const)('%s → %s', (role, path) => {
+    expect(resolvePostLoginPath(role, '/workspace')).toBe(path)
+    expect(resolvePostLoginPath(role, '/workspace/')).toBe(path)
+    expect(resolvePostLoginPath(role, null)).toBe(path)
+  })
+
+  it('staff roles still land on the workspace home', () => {
+    expect(resolvePostLoginPath('client_admin', '/workspace')).toBe('/workspace')
+  })
+})
