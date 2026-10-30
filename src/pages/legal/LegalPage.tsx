@@ -72,7 +72,7 @@ export function LegalPage({
       <header className="space-y-2 border-b border-primary-100 pb-6">
         <h1 className="font-display text-3xl font-semibold text-ink">{title}</h1>
         <p className="text-sm text-ink-500">
-          Effective {LEGAL_ENTITY.effectiveDate}. {LEGAL_ENTITY.brand} is operated by <Entity field="legalName" />{' '}
+          Effective <Entity field="effectiveDate" />. {LEGAL_ENTITY.brand} is operated by <Entity field="legalName" />{' '}
           (<Entity field="registrationNumber" />), <Entity field="address" />.
         </p>
       </header>

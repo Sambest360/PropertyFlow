@@ -18,8 +18,12 @@ export const LEGAL_ENTITY = {
   privacyEmail: '',
   /** General support address. */
   supportEmail: '',
-  /** Date these documents took effect (YYYY-MM-DD). */
-  effectiveDate: '2026-10-30',
+  /**
+   * Date these documents take effect (YYYY-MM-DD). Pending: the values PR sets it to the
+   * publish date of the final reviewed text (Jim #118 C5). Blank shows "to be confirmed".
+   * Not one of the gate's 6 required fields (Michael #118 ruling 5 keeps the spec's 6).
+   */
+  effectiveDate: '',
   website: 'https://lekayarentals.site',
 } as const
 
@@ -28,7 +32,8 @@ export type LegalField = Exclude<keyof typeof LEGAL_ENTITY, 'website'>
 /**
  * Every company detail the legal pages show with a "to be confirmed" marker
  * while blank (LegalPage.tsx Entity). supportEmail is shown on /terms.
- * brand, effectiveDate and website always carry a value and are not checked.
+ * brand and website always carry a value; effectiveDate is pending and shows a marker
+ * but is not gated (see its comment).
  */
 export const LEGAL_REQUIRED_FIELDS = [
   'legalName',

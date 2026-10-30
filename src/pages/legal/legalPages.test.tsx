@@ -1,7 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
-import { LEGAL_REQUIRED_FIELDS, legalEntityComplete } from '../../lib/legalEntity'
+import { LEGAL_ENTITY, LEGAL_REQUIRED_FIELDS, legalEntityComplete } from '../../lib/legalEntity'
+import ContactPage from '../ContactPage'
 import PrivacyPage from './PrivacyPage'
 import TermsPage from './TermsPage'
 
@@ -42,7 +43,28 @@ describe('legal pages', () => {
       for (const m of out.matchAll(/data-testid="legal-missing-([A-Za-z]+)"/g)) markers.add(m[1])
     }
     expect(markers.size).toBeGreaterThan(0)
-    for (const field of markers) expect(LEGAL_REQUIRED_FIELDS, field).toContain(field)
+    // effectiveDate shows a marker too but is deliberately not one of the gate's 6 fields
+    // (Michael #118 ruling 5 keeps the spec's 6); the values PR sets it (Jim C5).
+    const NOT_GATED = ['effectiveDate']
+    for (const field of markers) if (!NOT_GATED.includes(field)) expect(LEGAL_REQUIRED_FIELDS, field).toContain(field)
+  })
+
+  it('Michael #118 ruling 5: the effective date is pending, shown "to be confirmed", never a made-up date', () => {
+    expect(LEGAL_ENTITY.effectiveDate).toBe('')
+    for (const out of [html(<PrivacyPage />), html(<TermsPage />)]) {
+      expect(out).toContain('data-testid="legal-missing-effectiveDate"')
+      expect(out).not.toContain('2026-10-30')
+    }
+  })
+
+  it('Michael #118 ruling 5: no unproven security, hosting, transfer or deletion claims, and no retired hosts', () => {
+    const privacy = html(<PrivacyPage />)
+    for (const claim of [/backed up daily/i, /HTTPS/, /encrypted/i, /hosting provider in South Africa/i, /binding agreements/i, /deleted automatically/i]) {
+      expect(privacy, String(claim)).not.toMatch(claim)
+    }
+    for (const out of [privacy, html(<TermsPage />), html(<ContactPage />)]) {
+      expect(out).not.toMatch(/vercel|supabase/i)
+    }
   })
 
   it('privacy policy has a "Who is responsible" section splitting agency (responsible party) from Lekaya (operator)', () => {
