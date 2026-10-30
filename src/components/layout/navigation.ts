@@ -979,7 +979,7 @@ export const marketplaceFooter = [
     title: 'Company',
     links: [
       ['Sign in', '/login'],
-      ['List with us', '/register'],
+      ['List with us', '/register?role=landlord'],
       ['Contact', '/contact'],
       ['Privacy', '/privacy'],
       ['Terms', '/terms'],
