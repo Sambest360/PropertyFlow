@@ -635,6 +635,25 @@ describe.skipIf(!url)('Slice A (ours): payment write guard via the real app, ses
     }
   })
 
+  it('TA8-sametx (kills MA9): the payment_marked_paid row is written on the same connection as the PAID write (a scratch trigger only lets it in when that connection already sees the row PAID)', async () => {
+    // Scratch-DB-only probe: outside the payment transaction the uncommitted PAID is invisible, so the insert is refused.
+    await q(`CREATE OR REPLACE FUNCTION sla_audit_sees_paid() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM payments WHERE id = NEW.subject_id AND status = 'PAID') THEN
+          RAISE EXCEPTION 'sla test: audit written outside the payment transaction';
+        END IF;
+        RETURN NEW;
+      END $$`)
+    await q(`CREATE TRIGGER sla_audit_sees_paid BEFORE INSERT ON event_log FOR EACH ROW WHEN (NEW.event_type = 'payment_marked_paid') EXECUTE FUNCTION sla_audit_sees_paid()`)
+    try {
+      const res = await persist('adminA', { resource: 'payment', action: 'upsert', id: PAY.a.fe, data: staffCopy(PAY.a, UNIT.a1.fe, { status: 'Paid', method: 'EFT', reference: 'EFT-SLA-15' }) })
+      expect({ status: res.status, rowStatus: (await row(PAY.a.id))?.status, audit: (await events('payment_marked_paid', PAY.a.id)).length }).toEqual({ status: 200, rowStatus: 'PAID', audit: 1 })
+    } finally {
+      await q(`DROP TRIGGER IF EXISTS sla_audit_sees_paid ON event_log`)
+      await q(`DROP FUNCTION IF EXISTS sla_audit_sees_paid()`)
+    }
+  })
+
   it('CANCEL-audit RED (refused write): a ground_agent cancel is 403 PAYMENT_PERMISSION_REQUIRED and writes no audit row', async () => {
     const res = await persist('groundA', { resource: 'payment', action: 'upsert', id: PAY.a.fe, data: staffCopy(PAY.a, UNIT.a1.fe, { status: 'Cancelled' }) })
     expect({ status: res.status, code: res.code, row: await row(PAY.a.id), audit: await paymentAuditCount(PAY.a.id) }).toEqual({
