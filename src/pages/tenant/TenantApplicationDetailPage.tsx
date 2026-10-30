@@ -560,7 +560,8 @@ export default function TenantApplicationDetailPage() {
             payments={payments}
             onSubmitProof={(paymentId, input) =>
               updatePayment(paymentId, {
-                reference: input.reference,
+                reference: input.reference || undefined,
+                attachments: [...(payments.find((x) => x.id === paymentId)?.attachments ?? []), ...input.attachments],
                 notes: input.notes ?? 'Proof submitted by applicant — pending agency verification',
                 recordedByUserId: user.id,
                 recordedByName: user.name,

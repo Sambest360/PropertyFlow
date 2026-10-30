@@ -1,8 +1,10 @@
-import { useState, type FormEvent } from 'react'
+import { useState } from 'react'
 import { CreditCard, Upload } from 'lucide-react'
 import type { PaymentRecord } from '../../types/domain'
 import { formatZAR } from '../../data/seed'
-import { Badge, Button, Card, Input, Textarea, statusTone } from '../ui'
+import { Badge, Button, Card, statusTone } from '../ui'
+import { ProofOfPaymentForm, type ProofInput } from '../payments/ProofOfPaymentForm'
+import { PaymentAttachmentsList } from '../payments/PaymentAttachmentsField'
 
 const ICON_STROKE = 1.6
 
@@ -12,15 +14,10 @@ export function TenantApplicationPaymentsPanel({
   onOpenCheckout,
 }: {
   payments: PaymentRecord[]
-  onSubmitProof: (
-    paymentId: string,
-    input: { reference: string; notes?: string },
-  ) => void
+  onSubmitProof: (paymentId: string, input: ProofInput) => void
   onOpenCheckout?: () => void
 }) {
   const [activeId, setActiveId] = useState<string | null>(null)
-  const [reference, setReference] = useState('')
-  const [notes, setNotes] = useState('')
 
   if (!payments.length) {
     return (
@@ -29,15 +26,6 @@ export function TenantApplicationPaymentsPanel({
         <p className="mt-2 text-sm text-ink-500">No payments have been issued for this application yet.</p>
       </Card>
     )
-  }
-
-  const submit = (e: FormEvent, paymentId: string) => {
-    e.preventDefault()
-    if (!reference.trim()) return
-    onSubmitProof(paymentId, { reference: reference.trim(), notes: notes.trim() || undefined })
-    setActiveId(null)
-    setReference('')
-    setNotes('')
   }
 
   return (
@@ -81,45 +69,22 @@ export function TenantApplicationPaymentsPanel({
                 </p>
               ) : null}
               {p.notes ? <p className="mt-1 text-xs text-ink-500">{p.notes}</p> : null}
+              {p.attachments?.length ? (
+                <div className="mt-2">
+                  <PaymentAttachmentsList attachments={p.attachments} />
+                </div>
+              ) : null}
 
               {p.status !== 'Paid' && !proofSubmitted && (
                 <div className="mt-3">
                   {isOpen ? (
-                    <form onSubmit={(e) => submit(e, p.id)} className="space-y-3 rounded-xl bg-primary-50/60 p-3">
-                      <label className="block text-sm">
-                        <span className="font-medium text-ink">Payment reference</span>
-                        <Input
-                          className="mt-1"
-                          value={reference}
-                          onChange={(e) => setReference(e.target.value)}
-                          placeholder="EFT reference or receipt number"
-                          required
-                        />
-                      </label>
-                      <label className="block text-sm">
-                        <span className="font-medium text-ink">Notes (optional)</span>
-                        <Textarea
-                          className="mt-1"
-                          rows={2}
-                          value={notes}
-                          onChange={(e) => setNotes(e.target.value)}
-                          placeholder="Bank used, date paid, any extra detail…"
-                        />
-                      </label>
-                      <div className="flex flex-wrap gap-2">
-                        <Button type="submit" className="min-h-10 cursor-pointer">
-                          Submit proof
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          className="min-h-10 cursor-pointer"
-                          onClick={() => setActiveId(null)}
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    </form>
+                    <ProofOfPaymentForm
+                      onSubmit={(input) => {
+                        onSubmitProof(p.id, input)
+                        setActiveId(null)
+                      }}
+                      onCancel={() => setActiveId(null)}
+                    />
                   ) : (
                     <Button
                       type="button"
@@ -128,12 +93,10 @@ export function TenantApplicationPaymentsPanel({
                       className="mt-2 min-h-10 cursor-pointer"
                       onClick={() => {
                         setActiveId(p.id)
-                        setReference('')
-                        setNotes('')
                       }}
                     >
                       <Upload className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} aria-hidden />
-                      Record payment
+                      Upload proof of payment
                     </Button>
                   )}
                 </div>

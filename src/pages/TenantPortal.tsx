@@ -21,6 +21,8 @@ import {
   SectionBanner,
 } from '../components/dashboard'
 import { Badge, Button, Card, statusTone } from '../components/ui'
+import { ProofOfPaymentForm } from '../components/payments/ProofOfPaymentForm'
+import { PaymentAttachmentsList } from '../components/payments/PaymentAttachmentsField'
 import { WishlistListView } from '../components/wishlist/WishlistListView'
 import { formatZAR } from '../data/seed'
 import { ACCOUNT_WISHLIST_PATH } from '../lib/accountRoutes'
@@ -72,7 +74,7 @@ export default function TenantPortal() {
 }
 
 function TenantPortalContent() {
-  const { state, setDocumentStatus, hydratedForUserId } = useStore()
+  const { state, setDocumentStatus, hydratedForUserId, updatePayment } = useStore()
   const publicProperties = usePublicProperties()
   const { user, has, authReady } = useAuth()
   const dashboardPending =
@@ -205,6 +207,15 @@ function TenantPortalContent() {
               canPay={has('payments.manage')}
               payBusyId={payBusyId}
               expanded
+              onSubmitProof={(paymentId, input) => {
+                const cur = portal.payments.find((x) => x.id === paymentId)
+                updatePayment(paymentId, {
+                  reference: input.reference || undefined,
+                  notes: input.notes ?? 'Proof of payment uploaded by tenant — waiting for the agency to confirm',
+                  attachments: [...(cur?.attachments ?? []), ...input.attachments],
+                })
+              }}
+              uploaderName={user.name}
             />
           </div>
         ) : (
@@ -492,28 +503,39 @@ function PaymentsPanel({
   canPay,
   payBusyId,
   expanded,
+  onSubmitProof,
+  uploaderName,
 }: {
   payments: ReturnType<typeof useTenantPortalState>['payments']
   onPay: (id: string) => void
   canPay: boolean
   payBusyId: string | null
   expanded?: boolean
+  onSubmitProof?: (paymentId: string, input: import('../components/payments/ProofOfPaymentForm').ProofInput) => void
+  uploaderName?: string
 }) {
   const list = expanded ? payments : payments.slice(0, 5)
+  const [proofFor, setProofFor] = useState<string | null>(null)
   return (
     <Card className="p-5">
       <h2 className="font-display text-lg font-semibold">{expanded ? 'Payments' : 'Payments due'}</h2>
       <ul className="mt-3 space-y-2">
         {list.map((p) => (
-          <li
-            key={p.id}
-            className="flex items-center justify-between rounded-xl bg-primary-50 px-3 py-2 text-sm"
-          >
+          <li key={p.id} className="rounded-xl bg-primary-50 px-3 py-2 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <p className="font-medium">{p.type}</p>
               <p className="text-xs text-ink-400">Due {p.dueDate}</p>
+              {p.attachments?.length && p.status !== 'Paid' ? (
+                <p className="text-xs text-amber-700">Proof uploaded — waiting for the agency to confirm</p>
+              ) : null}
             </div>
             <div className="flex items-center gap-2">
+              {expanded && onSubmitProof && p.status !== 'Paid' ? (
+                <Button size="sm" variant="secondary" className="cursor-pointer" onClick={() => setProofFor(proofFor === p.id ? null : p.id)}>
+                  Upload proof
+                </Button>
+              ) : null}
               <span className="tabular font-semibold">{formatZAR(p.amount)}</span>
               {p.status === 'Paid' ? (
                 <Badge tone="success">Paid</Badge>
@@ -530,6 +552,22 @@ function PaymentsPanel({
                 <Badge tone="warning">{p.status}</Badge>
               )}
             </div>
+          </div>
+          {expanded && p.attachments?.length ? (
+            <div className="mt-2"><PaymentAttachmentsList attachments={p.attachments} /></div>
+          ) : null}
+          {proofFor === p.id && onSubmitProof ? (
+            <div className="mt-2">
+              <ProofOfPaymentForm
+                uploadedByName={uploaderName}
+                onSubmit={(input) => {
+                  onSubmitProof(p.id, input)
+                  setProofFor(null)
+                }}
+                onCancel={() => setProofFor(null)}
+              />
+            </div>
+          ) : null}
           </li>
         ))}
         {payments.length === 0 && <li className="text-sm text-ink-400">No payments yet.</li>}

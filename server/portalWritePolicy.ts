@@ -701,13 +701,23 @@ export async function enforcePortalWritePolicy(
       )
       if (!rows[0] || !me || rows[0].party_user_id !== me) throw deny('not their payment')
       // Proof of payment only: status, amount, dates stay the agency's.
+      // Uploaded proof (images / PDFs) is added to what is already stored (matched by id).
+      const proof = tenantProofAttachments(data.attachments)
+      let merged: unknown[] | null = null
+      if (proof.length) {
+        const cur = await query<{ attachments: unknown }>(`SELECT attachments FROM payments WHERE id = $1::uuid`, [uuid])
+        const existingAtts = Array.isArray(cur[0]?.attachments) ? (cur[0]!.attachments as Array<Record<string, unknown>>) : []
+        const ids = new Set(existingAtts.map((x) => String(x?.id ?? '')))
+        merged = [...existingAtts, ...proof.filter((x) => !ids.has(String(x.id)))].slice(0, 12)
+      }
       await query(
         `UPDATE payments
             SET reference = COALESCE($2, reference),
                 notes = COALESCE($3, notes),
+                attachments = COALESCE($5::jsonb, attachments),
                 updated_at = NOW()
           WHERE id = $1::uuid AND party_user_id = $4::uuid`,
-        [uuid, str(data.reference), str(data.notes), me],
+        [uuid, str(data.reference), str(data.notes), me, merged ? JSON.stringify(merged) : null],
       )
       return { handled: { ok: true, id: body.id, uuid } }
     }
@@ -767,4 +777,29 @@ export async function enforcePortalWritePolicy(
     default:
       throw deny('not on the portal allow-list')
   }
+}
+
+const PROOF_MAX_BYTES = 2.5 * 1024 * 1024
+const PROOF_DATA_URL = /^data:(image\/(?:jpeg|png|webp|gif)|application\/pdf);base64,[A-Za-z0-9+/=]+$/
+
+/** Proof-of-payment files a tenant may attach: images or PDFs, at most 6, 2.5 MB each. */
+export function tenantProofAttachments(raw: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(raw)) return []
+  const out: Array<Record<string, unknown>> = []
+  for (const a of raw.slice(0, 6)) {
+    if (!a || typeof a !== 'object') continue
+    const att = a as Record<string, unknown>
+    const dataUrl = typeof att.dataUrl === 'string' ? att.dataUrl : ''
+    if (!PROOF_DATA_URL.test(dataUrl) || dataUrl.length * 0.75 > PROOF_MAX_BYTES) continue
+    out.push({
+      id: String(att.id ?? '').slice(0, 40) || `att-${out.length}`,
+      name: String(att.name ?? 'proof').slice(0, 120),
+      kind: dataUrl.startsWith('data:application/pdf') ? 'document' : 'image',
+      mimeType: dataUrl.slice(5, dataUrl.indexOf(';')),
+      dataUrl,
+      uploadedAt: new Date().toISOString(),
+      uploadedByName: typeof att.uploadedByName === 'string' ? att.uploadedByName.slice(0, 80) : null,
+    })
+  }
+  return out
 }

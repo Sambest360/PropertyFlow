@@ -24,6 +24,13 @@ import { sweetSuccess, sweetWarning } from '../lib/sweetAlert'
 
 type Tab = 'issues' | 'rent' | 'rules'
 
+const SUBJECT_LABEL: Record<string, string> = {
+  maintenance_ticket: 'Maintenance fault',
+  support_ticket: 'Help desk ticket',
+  saas_invoice: 'Lekaya subscription invoice',
+  rent_payment: 'Unpaid rent',
+}
+
 const LEVEL_TONE: Record<number, 'warning' | 'danger' | 'accent'> = { 1: 'warning', 2: 'danger', 3: 'accent' }
 const LEVEL_WHO: Record<number, string> = {
   1: 'Agent and agency admin',
@@ -72,7 +79,7 @@ function IssueCard({ e, onChanged }: { e: Escalation; onChanged: () => void }) {
         </div>
       </div>
       <p className="text-xs text-ink-500">
-        {e.subjectType === 'support_ticket' ? 'Help desk ticket' : 'Maintenance fault'} · Escalated to{' '}
+        {SUBJECT_LABEL[e.subjectType] ?? 'Maintenance fault'} · Escalated to{' '}
         {LEVEL_WHO[e.level] ?? 'admins'} · {when(e.updatedAt)}
         {e.manual ? ' · raised by staff' : ''}
       </p>

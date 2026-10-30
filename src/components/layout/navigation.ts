@@ -374,6 +374,12 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
             icon: Bell,
           },
           {
+            to: '/workspace/admin/subscription',
+            label: 'Subscription & billing',
+            anyOf: ['users.manage'],
+            icon: CreditCard,
+          },
+          {
             to: '/workspace/admin/emails',
             label: 'Emails',
             permission: 'platform.manage',
