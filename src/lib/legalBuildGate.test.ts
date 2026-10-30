@@ -95,15 +95,30 @@ describe('T6 gate wiring in vite.config.ts', () => {
     else process.env.PF_LIVE_BUILD = saved
     vi.restoreAllMocks()
     vi.doUnmock('./legalEntity')
+    vi.doUnmock('vite')
     vi.resetModules()
   })
 
-  async function loadConfig(entity: Record<string, string>) {
+  async function loadConfig(entity: Record<string, string>, dotEnv?: Record<string, string>) {
     vi.resetModules()
     vi.doMock('./legalEntity', async (orig) => ({ ...(await orig<typeof import('./legalEntity')>()), LEGAL_ENTITY: entity }))
+    if (dotEnv) {
+      // Stand-in for .env / .env.production contents: what loadEnv would return from files.
+      vi.doMock('vite', async (orig) => ({ ...(await orig<typeof import('vite')>()), loadEnv: () => ({ ...dotEnv }) }))
+    } else {
+      vi.doUnmock('vite')
+    }
     const mod = await import('../../vite.config')
     return mod.default as unknown as (env: { mode: string; command: 'build' | 'serve' }) => unknown
   }
+
+  it('Angela #118 A09: PF_LIVE_BUILD=1 in a .env file (loadEnv) does not make a live build', async () => {
+    delete process.env.PF_LIVE_BUILD
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const config = await loadConfig(BLANK, { PF_LIVE_BUILD: '1' })
+    expect(() => config({ mode: 'production', command: 'build' })).not.toThrow()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('PF_LIVE_BUILD is not "1"'))
+  })
 
   it('a live production build with blank details throws, naming the fields', async () => {
     process.env.PF_LIVE_BUILD = '1'

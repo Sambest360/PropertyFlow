@@ -10,7 +10,8 @@ describe('T6 (Jim T5 C6): /register?role= preselects a public role', () => {
   })
 
   it('no role, or anything that is not a public role, keeps the Applicant / Tenant default', () => {
-    for (const raw of [null, '', 'tenant', 'applicant', 'agency', 'agency_admin', 'super_admin', 'admin', 'staff', 'landlord;x']) {
+    // Real staff role ids from src/types/domain.ts (Angela #118 F3), plus junk.
+    for (const raw of [null, '', 'tenant', 'applicant', 'super_admin', 'client_admin', 'agent_admin', 'ground_agent', 'agent', 'Client_Admin', ' agent ', 'landlord;x']) {
       expect(initialRegisterRole(raw), String(raw)).toBe('tenant')
     }
   })
