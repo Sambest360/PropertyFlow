@@ -23,7 +23,7 @@ import { createHash } from 'node:crypto'
 import { BlockList, isIPv4 } from 'node:net'
 
 export const PAYFAST_PROCESS_URL = 'https://sandbox.payfast.co.za/eng/process'
-export const PAYFAST_LIVE_PROCESS_URL = 'https://www.payfast.io/eng/process'
+export const PAYFAST_LIVE_PROCESS_URL = 'https://www.payfast.co.za/eng/process'
 export const PAYFAST_VALIDATE_URL = 'https://sandbox.payfast.co.za/eng/query/validate'
 
 /**
