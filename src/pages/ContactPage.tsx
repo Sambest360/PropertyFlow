@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { usePageMeta } from '../hooks/usePageMeta'
 import { LEGAL_ENTITY } from '../lib/legalEntity'
 import { Entity, Section } from './legal/LegalPage'
+import { LIST_WITH_US_PATH } from './auth/registerRole'
 
 /**
  * Public contact page (T5 footer). The addresses come from src/lib/legalEntity.ts,
@@ -39,7 +40,7 @@ export default function ContactPage() {
       <Section title="List with us">
         <p>
           Landlords can{' '}
-          <Link className="text-primary underline" to="/register">
+          <Link className="text-primary underline" to={LIST_WITH_US_PATH}>
             create an account
           </Link>{' '}
           and list their own properties. Agencies, email <Entity field="supportEmail" />.

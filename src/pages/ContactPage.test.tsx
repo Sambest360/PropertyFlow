@@ -24,5 +24,8 @@ describe('T5 contact page', () => {
     expect(out).toContain('Contact the agency (or landlord) that listed the property; the listing agent can put you in touch.')
     expect(out).not.toMatch(/named on the listing/)
     expect(out).toContain('href="/privacy"')
+    // Angela #118 C2 / Jim T5 C6: landlords land on Landlord, not the Applicant/Tenant default.
+    expect(out).toContain('href="/register?role=landlord"')
+    expect(out).not.toContain('href="/register"')
   })
 })
