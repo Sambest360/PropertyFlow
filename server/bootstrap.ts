@@ -1502,6 +1502,8 @@ export async function buildBootstrap(opts?: {
     attachments: Array.isArray(p.attachments) ? p.attachments : [],
     recordedByUserId: mapUser(p.recorded_by as string | null),
     recordedByName: null as string | null,
+    // Admin reversal (spec-admin-reversal S5): the client sends this back as expectedUpdatedAt.
+    updatedAt: iso(p.updated_at as Date | null),
   }))
 
   for (const p of mappedPayments) {

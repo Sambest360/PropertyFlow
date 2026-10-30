@@ -46,6 +46,8 @@ export type TemplateData = {
   notification_digest: Base & { items: DigestItem[] }
   /** Agency admins: once a day, the routine updates that were not emailed one by one. */
   admin_daily_digest: Base & { items: DigestItem[]; agencyName?: string | null }
+  /** Admin reversal / reopen (spec-admin-reversal 10A): statementMonth set when the received date was in an earlier month. */
+  payment_record_changed: Base & { body: string; statementMonth?: string | null; link?: string | null }
 }
 
 export type DigestItem = { title: string; body: string; link?: string | null; card?: PropertyCard | null; action?: { label: string; href: string } | null }
@@ -296,6 +298,21 @@ const render: { [K in TemplateId]: (d: TemplateData[K]) => Rendered } = {
     }
   },
 
+  payment_record_changed: (d) => {
+    const subject = d.statementMonth ? 'A payment in an earlier month was changed' : 'A payment record was changed'
+    const statement = d.statementMonth
+      ? `The owner statement for ${d.statementMonth} no longer matches what may have been sent.`
+      : ''
+    return {
+      subject,
+      text: `Hi ${d.name ?? 'there'}, ${d.body}${statement ? ` ${statement}` : ''}${d.link ? ` Open: ${appLink(d.link)}` : ''}`,
+      html: layout(
+        subject,
+        hi(d.name) + para(escapeHtml(d.body)) + (statement ? para(escapeHtml(statement)) : '') + button('Open the payment', d.link || '/workspace'),
+      ),
+    }
+  },
+
   notification_digest: (d) => {
     const items = d.items.slice(0, 10)
     const more = d.items.length - items.length
@@ -374,5 +391,6 @@ export const TEMPLATE_CATALOG: Array<{ [K in TemplateId]: { id: K; name: string;
   { id: 'notification', name: 'Notification', group: 'Notifications', description: 'Every in-app notification is also emailed with this template (people can turn this off): the property it is about and a button straight to the item. Agency admins only get the important ones; the rest go into their daily summary.', sample: { to: 'thandi@example.com', name: 'Thandi', title: 'Your viewing is confirmed', body: 'Your viewing at Humewood Beach Apartment B14 is booked for Saturday at 10:00.', link: '/workspace/portals/tenant/viewings', card: SAMPLE_CARD, action: { label: 'See my viewing', href: '/workspace/portals/tenant/viewings' } } },
   { id: 'notification_digest', name: 'Notification summary', group: 'Notifications', description: 'When several notifications arrive together, one summary email is sent instead.', sample: { to: 'thandi@example.com', name: 'Thandi', items: [ { title: 'Application received', body: 'Your application for Humewood B14 was received.', card: SAMPLE_CARD, action: { label: 'Open my application', href: '/workspace/portals/tenant/applications/APP-1042' } }, { title: 'Document needed', body: 'Please upload your latest payslip.', card: SAMPLE_CARD, action: { label: 'Upload documents', href: '/workspace/portals/tenant/applications/APP-1042?tab=documents' } }, { title: 'Viewing confirmed', body: 'Saturday at 10:00.', action: { label: 'See my viewing', href: '/workspace/portals/tenant/viewings' } } ] } },
   { id: 'admin_daily_digest', name: 'Daily summary (agency admins)', group: 'Notifications', description: 'Once a day (07:30 SAST cron) to agency admins: the routine updates that were not emailed one by one. Important items are still emailed straight away.', sample: { to: 'lerato@example.com', name: 'Lerato', agencyName: 'Horizon Realty', items: [ { title: 'New application', body: 'Thandi Mokoena applied for Humewood Beach Apartment B14 (Rent).', card: SAMPLE_CARD, action: { label: 'Review the application', href: '/workspace/sales/applications/APP-1042' } }, { title: 'Viewing booked', body: 'Saturday 10:00 with Sipho Dlamini.', card: SAMPLE_CARD, action: { label: 'Open the viewing', href: '/workspace/sales/viewings/property/PR-1011' } }, { title: 'Maintenance job updated', body: 'Leaking geyser: contractor on site.', action: { label: 'Open the job', href: '/workspace/operations/maintenance/TCK-88' } } ] } },
+  { id: 'payment_record_changed', name: 'Payment record changed', group: 'Notifications', description: 'Sent to the agency principals when an admin reverses or reopens a payment whose received date was in an earlier month, and always when the platform team does it.', sample: { to: 'lerato@example.com', name: 'Lerato', body: 'Sipho Dlamini reversed the rent payment of R 8500.00 (due 2026-09-01) for Unit 4: Payment bounced.', statementMonth: 'September 2026', link: '/workspace/operations/payments/sample' } },
   { id: 'test', name: 'Test email', group: 'System', description: 'Used to check that email is set up.', sample: { to: 'you@example.com', name: 'there' } },
 ]
