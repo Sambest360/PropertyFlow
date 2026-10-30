@@ -29,6 +29,7 @@ import {
   signInspection,
   storeInspectionPdf,
 } from './inspectionInventory.js'
+import { clientIpOrNull } from './clientIp.js'
 
 function fail(err: unknown): { status: number; body: Record<string, unknown> } {
   const status = errStatus(err)
@@ -196,7 +197,7 @@ export function registerInspectionRoutes(app: Hono) {
     try {
       const actor = await actorOf(c)
       const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
-      const ip = (c.req.header('x-forwarded-for') ?? '').split(',')[0]?.trim() || null
+      const ip = clientIpOrNull(c)
       return c.json({ ok: true, ...(await signInspection(actor, c.req.param('id'), body, ip)) })
     } catch (err) {
       const f = fail(err)
