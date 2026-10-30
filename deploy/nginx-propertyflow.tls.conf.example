@@ -46,6 +46,10 @@ server {
     # H5 owns this block (gzip, Cache-Control): change it there, in both files,
     # so they do not diverge. Its own add_header means the security headers
     # must be re-included here.
+    # After `certbot --nginx` edits the INSTALLED file, its 443 /assets/ block
+    # has no such include: the operator must add
+    # `include conf.d/propertyflow-security-headers.conf;` there by hand
+    # (see deploy/README.md).
     location /assets/ {
         expires 1y;
         add_header Cache-Control "public, immutable";

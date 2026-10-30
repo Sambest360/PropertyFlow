@@ -28,14 +28,28 @@
 
 ### Certificate renewal (UNVERIFIED on the live server)
 
-- Renewal must use the **nginx** authenticator (`certbot --nginx`), which
-  answers the HTTP-01 challenge by temporarily editing nginx itself, so it keeps
-  working with the 301-only :80 block.
-- A **webroot** authenticator is not safe with this shape: it writes challenge
-  files under a webroot directory, and the 301-only :80 block serves no files.
-  It would only pass if the https side happened to serve that same directory at
-  `/.well-known/acme-challenge/`, which nothing here sets up.
-- Which authenticator the live box renews with is UNVERIFIED. Check (names only):
-  `grep authenticator /etc/letsencrypt/renewal/lekayarentals.site.conf` and
-  `certbot renew --dry-run`. This, the live nginx edit and the outside
+- Two authenticators work with this shape. Neither has been checked on the live
+  server.
+- **nginx plugin** (`certbot --nginx`): answers the HTTP-01 challenge by
+  temporarily editing nginx itself, so the 301-only :80 block is no problem.
+- **webroot** works only with `-w /var/www/propertyflow/dist`. Let's Encrypt
+  follows the :80 301 to https, and the 443 block serves that folder (`root
+  /var/www/propertyflow/dist;`), so the challenge file certbot writes under
+  `/var/www/propertyflow/dist/.well-known/acme-challenge/` is reachable. Any
+  other `-w` folder is not served by nginx here.
+- Which authenticator the live box renews with is UNVERIFIED. Suggested check for
+  Stanley (names only, no file contents): run `certbot renew --dry-run` and name
+  the authenticator it uses (for example from
+  `grep authenticator /etc/letsencrypt/renewal/lekayarentals.site.conf`; for
+  webroot, also the `webroot_path` name). This, the live nginx edit and the outside
   `curl -I http://...` / `https://...` checks are for the server owner, not the repo.
+
+### After `certbot --nginx` edits the installed file (UNVERIFIED live)
+
+- `certbot --nginx` edits the installed `nginx-propertyflow.conf` in place. That
+  file's `location /assets/` has its own `add_header Cache-Control` and no
+  include, so the live 443 `/assets/` responses would carry no security headers
+  (nginx inheritance rule). Only the template has the include there.
+- After certbot's edit, the operator must add
+  `include conf.d/propertyflow-security-headers.conf;` inside the live 443
+  `location /assets/` block (as in the template), then run `nginx -t` and reload.
