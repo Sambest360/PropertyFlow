@@ -45,6 +45,19 @@ describe('workflowActionForms', () => {
     expect(spec.fields?.[0]?.placeholder).toMatch(/TransUnion/i)
   })
 
+  // Jim G7 / Michael's ruling: no live bureau integration, so the decline
+  // template must not say the decision was a bureau assessment or promise a turnaround.
+  it('DECLINE_CREDIT template cites the recorded outcome, not a bureau assessment', () => {
+    const text = getActionFormSpec('DECLINE_CREDIT', app()).fields?.[0]?.placeholder ?? ''
+    expect(text).not.toMatch(/bureau assessment/i)
+    expect(text).not.toMatch(/based on (a |the )?(credit )?bureau/i)
+    expect(text).not.toMatch(/business day/i)
+    expect(text).toMatch(/outcome the agency recorded/i)
+    // Dispute contacts stay, but only for a case where a credit report was used.
+    expect(text).toMatch(/if a credit report was used/i)
+    expect(text).toMatch(/Agency note: $/)
+  })
+
   it('requires signature data for signature forms', () => {
     const spec = getActionFormSpec('TENANT_SIGNED', app())
     expect(spec.kind).toBe('signature')

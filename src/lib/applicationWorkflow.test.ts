@@ -18,6 +18,7 @@ import {
   PURCHASE_WORKFLOW,
 } from './applicationWorkflow'
 import { buildDocumentChecklist, ensureApplicationDocuments } from './workflow'
+import { DEFAULT_RENTAL_JOURNEY } from './journey/defaultRentalJourney'
 
 function rentalApp(overrides: Partial<Application> = {}): Application {
   return {
@@ -386,5 +387,38 @@ describe('P0 Approve→occupancy from document stages', () => {
     })
     const transitions = getAvailableTransitions(app, ['applications.review'])
     expect(transitions.some((t) => t.actionKey === 'AGENT_APPROVE')).toBe(false)
+  })
+})
+
+// Michael's ruling (30 Oct 2026): no live bureau integration exists, so the
+// applicant-facing credit step must not claim a bureau check or a turnaround.
+describe('credit_check step copy makes no bureau or turnaround claim', () => {
+  const NO_CLAIM = (text: string) => {
+    expect(text).not.toMatch(/bureau/i)
+    expect(text).not.toMatch(/business day/i)
+    expect(text).not.toMatch(/\d\s*[–-]\s*\d/)
+    expect(text).not.toMatch(/\b\d+\s*(business\s*)?days?\b/i)
+  }
+
+  it('milestone description keeps the affordability step and drops the bureau and 1–2 business days claim', () => {
+    const paths = [
+      getLifecycleMilestones('Rental'),
+      getLifecycleMilestones('Rental', rentalApp({ journeySnapshot: DEFAULT_RENTAL_JOURNEY })),
+    ]
+    for (const milestones of paths) {
+      const credit = milestones.find((m) => m.key === 'credit_check')
+      expect(credit).toBeDefined()
+      expect(credit!.label).toBe('Credit check')
+      NO_CLAIM(credit!.label)
+      NO_CLAIM(credit!.description)
+      expect(credit!.description).toMatch(/affordability assessment/i)
+    }
+  })
+
+  it('credit_check stage panel promises no turnaround estimate', () => {
+    const req = getStageRequirements('credit_check')
+    expect(req).not.toBeNull()
+    expect(req!.etaDays).toBeUndefined()
+    NO_CLAIM(req!.waitingLabel)
   })
 })
