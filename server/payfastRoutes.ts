@@ -24,6 +24,7 @@ import {
   verifyItn,
   type PayfastConfig,
 } from './payfast.js'
+import { confirmItnWithPayfast } from './payfastValidate.js'
 
 /** Server-side failure log — never leaks internals to the HTTP response. */
 function logPayfastFailure(kind: string, err: unknown): void {
@@ -217,6 +218,16 @@ export async function payfastItn(c: Context) {
       // Valid signature for an unknown payment — accept but do nothing.
       logPayfastFailure('payfast_itn_unknown_payment', new Error(body.m_payment_id ?? ''))
       return c.text('ITN accepted', 200)
+    }
+    // F1: PayFast must confirm this ITN (/eng/query/validate) before any write.
+    // INVALID → 400; error/timeout/odd reply → 503. Both non-200, so PayFast re-sends.
+    const confirmed = await confirmItnWithPayfast(body, cfg)
+    if (!confirmed.ok) {
+      const ids = (v: unknown) => String(v ?? '').replace(/[\r\n]+/g, ' ').slice(0, 200)
+      console.error(
+        `[payfast] payfast_itn_validate_failed: ${confirmed.reason} · m_payment_id=${ids(body.m_payment_id)} · pf_payment_id=${ids(body.pf_payment_id)}`,
+      )
+      return confirmed.retryable ? c.text('ITN validation unavailable', 503) : c.text('ITN rejected', 400)
     }
     const paid = verdict.status === 'COMPLETE'
     await withTransaction(async (client) => {
