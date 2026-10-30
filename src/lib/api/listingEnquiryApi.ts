@@ -1,4 +1,7 @@
 import { isApiEnabled } from './config'
+import { ENQUIRY_RATE_LIMITED_COPY } from '../leadScreenCopy'
+
+export { ENQUIRY_RATE_LIMITED_COPY }
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) || ''
 
@@ -120,6 +123,9 @@ async function submitViaApi(input: ListingEnquiryInput): Promise<ListingEnquiryR
         interestType: input.interestType,
       }),
     })
+    // H1 (Oscar A5): any 429 shows the neutral copy; the server's text (and
+    // any count, time or IP in it) is never shown on the public form.
+    if (res.status === 429) return { ok: false, error: ENQUIRY_RATE_LIMITED_COPY, waitlist: false }
     const json = (await res.json()) as Record<string, unknown>
     if (!res.ok) {
       const raw = String(json.message ?? json.error ?? 'enquiry_failed')

@@ -13,14 +13,25 @@
  *   signature, and ledger amount, then marks the payment PAID (idempotent)
  *   and emits a notification row. Always answers 200 once verified so PayFast
  *   stops retrying; non-verified requests get 400.
+ *   H1: the source IP comes from clientIp(c) (loopback-only header trust);
+ *   live mode checks the documented ranges only; sandbox adds the resolved
+ *   sandbox host (5 min cache, fails closed). Every rejection is logged loudly
+ *   (rate-capped when it names no payment); a rejection naming one of our
+ *   payments also writes an event_log row (deduped per payment + reason).
+ *   No per-IP cap on this route.
  */
+import { randomUUID } from 'node:crypto'
+import { promises as dnsPromises } from 'node:dns'
 import type { Context } from 'hono'
+import { clientIp } from './clientIp.js'
 import { query, withTransaction } from './db.js'
 import { resolveUuid } from './entityMap.js'
 import { sendPaymentReceipt } from './mailtrap.js'
 import {
   buildCheckoutFields,
   payfastConfigFromEnv,
+  payfastIsLive,
+  PAYFAST_SANDBOX_HOST,
   verifyItn,
   type PayfastConfig,
 } from './payfast.js'
@@ -32,6 +43,125 @@ function logPayfastFailure(kind: string, err: unknown): void {
 }
 
 type Json = Record<string, unknown>
+
+/* ---------------------------------------------------------------- H1 ITN */
+
+/** Sandbox source addresses: resolved on demand, cached for `ttlMs`, never cached on failure. */
+export type SandboxSourceCache = { get(): Promise<ReadonlySet<string> | null> }
+
+export function createSandboxSourceCache(
+  lookup: () => Promise<string[]>,
+  ttlMs = 5 * 60_000,
+): SandboxSourceCache {
+  let cached: { at: number; addrs: ReadonlySet<string> } | null = null
+  return {
+    async get() {
+      const now = Date.now()
+      if (cached && now - cached.at < ttlMs) return cached.addrs
+      try {
+        const list = await lookup()
+        const addrs = new Set(list.map((a) => a.trim().toLowerCase()).filter(Boolean))
+        cached = { at: now, addrs }
+        return addrs
+      } catch (err) {
+        logPayfastFailure('payfast_sandbox_dns_failed', err)
+        return null
+      }
+    },
+  }
+}
+
+async function lookupSandboxHost(): Promise<string[]> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`DNS lookup of ${PAYFAST_SANDBOX_HOST} timed out`)), 3000)
+  })
+  try {
+    const rows = await Promise.race([dnsPromises.lookup(PAYFAST_SANDBOX_HOST, { all: true }), timeout])
+    return rows.map((r) => r.address)
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+const defaultSandboxSources = createSandboxSourceCache(lookupSandboxHost)
+
+export type PayfastItnDeps = { sandboxSources?: SandboxSourceCache }
+
+/** One line, no newlines, at most 200 chars: safe for logs and event_log. */
+function clip(v: unknown): string {
+  return String(v ?? '').replace(/[\r\n]+/g, ' ').slice(0, 200)
+}
+
+const ITN_ALERT_DEDUPE_MS = 15 * 60_000
+const UNMATCHED_LOG_WINDOW_MS = 60_000
+const UNMATCHED_LOG_MAX = 30
+const matchedRejectSeen = new Map<string, number>()
+let unmatchedWindow = { start: 0, logged: 0, suppressed: 0 }
+
+/** Test hook: forget dedupe and cap state. */
+export function resetItnRejectLogForTests(): void {
+  matchedRejectSeen.clear()
+  unmatchedWindow = { start: 0, logged: 0, suppressed: 0 }
+}
+
+/**
+ * Loud logging for a rejected ITN (Q5). Never logs the signature, passphrase
+ * or merchant key. Matched (names one of our payments): console + event_log,
+ * once per (m_payment_id, reason) per 15 min. Unmatched: console only, at most
+ * ~30 lines per minute, then one summary line.
+ */
+async function reportItnRejection(
+  body: Record<string, string>,
+  reason: string,
+  sourceIp: string,
+  payment: { uuid: string; clientUuid: string | null } | null,
+): Promise<void> {
+  const fields = {
+    m_payment_id: clip(body.m_payment_id),
+    pf_payment_id: clip(body.pf_payment_id),
+    source_ip: clip(sourceIp),
+    amount_gross: clip(body.amount_gross),
+    reason: clip(reason),
+  }
+  const line = `[payfast] payfast_itn_rejected: ${fields.reason} · m_payment_id=${fields.m_payment_id} · pf_payment_id=${fields.pf_payment_id} · source_ip=${fields.source_ip} · amount_gross=${fields.amount_gross}`
+  const now = Date.now()
+  if (payment) {
+    const key = `${fields.m_payment_id}\u0000${fields.reason}`
+    const seen = matchedRejectSeen.get(key)
+    if (seen != null && now - seen < ITN_ALERT_DEDUPE_MS) return
+    matchedRejectSeen.set(key, now)
+    if (matchedRejectSeen.size > 1000) {
+      for (const [k, t] of matchedRejectSeen) if (now - t >= ITN_ALERT_DEDUPE_MS) matchedRejectSeen.delete(k)
+    }
+    console.error(line)
+    try {
+      await query(
+        `INSERT INTO event_log (id, client_id, event_type, subject_type, subject_id, actor_user_id, payload, created_at)
+         VALUES ($1::uuid, $2::uuid, $3, $4, $5::uuid, $6::uuid, $7::jsonb, NOW())`,
+        [randomUUID(), payment.clientUuid, 'payfast_itn_rejected', 'payment', payment.uuid, null, JSON.stringify(fields)],
+      )
+    } catch (err) {
+      logPayfastFailure('payfast_itn_reject_audit_failed', err)
+    }
+    return
+  }
+  if (now - unmatchedWindow.start >= UNMATCHED_LOG_WINDOW_MS) {
+    if (unmatchedWindow.suppressed > 0) {
+      console.error(`[payfast] payfast_itn_rejected: ${unmatchedWindow.suppressed} more rejected ITNs naming no known payment were not logged in the last minute`)
+    }
+    unmatchedWindow = { start: now, logged: 0, suppressed: 0 }
+  }
+  if (unmatchedWindow.logged < UNMATCHED_LOG_MAX) {
+    unmatchedWindow.logged++
+    console.error(line)
+    if (unmatchedWindow.logged === UNMATCHED_LOG_MAX) {
+      console.error('[payfast] payfast_itn_rejected: log cap reached; further rejections naming no known payment are counted, not logged, for the rest of this minute')
+    }
+  } else {
+    unmatchedWindow.suppressed++
+  }
+}
 
 function config(): PayfastConfig | null {
   return payfastConfigFromEnv()
@@ -184,7 +314,8 @@ export async function payfastCreate(c: Context, authorize?: PayfastCreateAuthori
   }
 }
 
-export async function payfastItn(c: Context) {
+/** `deps` is a test-only seam (the DNS cache); production passes nothing. */
+export async function payfastItn(c: Context, deps: PayfastItnDeps = {}) {
   try {
     const cfg = config()
     if (!cfg) return c.text('PayFast not configured', 503)
@@ -200,17 +331,20 @@ export async function payfastItn(c: Context) {
       }
     }
     const expected = await loadPayment(body.m_payment_id ?? '')
+    const sourceIp = clientIp(c)
+    // Live never touches DNS; sandbox resolves the sandbox host (cached, fail closed).
+    const sandboxAddresses = payfastIsLive(cfg)
+      ? null
+      : // A bare `app.post(path, payfastItn)` passes Hono's next() here; only a plain object counts.
+        await ((typeof deps === 'object' && deps?.sandboxSources) || defaultSandboxSources).get()
     const verdict = verifyItn(body, cfg, {
-      sourceIp:
-        c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ??
-        c.req.header('x-real-ip') ??
-        // Hono/node: connection info not standardized; sandbox testing uses null.
-        null,
+      sourceIp,
+      sandboxAddresses,
       expectedPaymentId: expected?.id,
       expectedAmountCents: expected ? Math.round(expected.amount * 100) : undefined,
     })
     if (!verdict.ok) {
-      logPayfastFailure('payfast_itn_rejected', new Error(verdict.reason))
+      await reportItnRejection(body, verdict.reason, sourceIp, expected ? { uuid: expected.uuid, clientUuid: expected.clientUuid } : null)
       return c.text('ITN rejected', 400)
     }
     if (!expected) {

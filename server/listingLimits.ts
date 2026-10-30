@@ -167,25 +167,42 @@ export async function lockAndCount(unitId: string): Promise<EffectiveLimits & { 
   }
 }
 
+/**
+ * H1 item 8: a repeat is the same email on the same unit (this round). Phone
+ * is used only when no email was given: two people can share a phone (a
+ * couple, an office line), so a phone match never folds two emails into one
+ * lead. With neither, nothing matches.
+ */
 export async function findDuplicateLead(
   unitId: string,
   roundStartedAt: string | null,
   email: string,
   phone: string,
 ): Promise<string | null> {
-  const rows = await query<{ id: string }>(
-    `SELECT id::text AS id
-       FROM leads
-      WHERE unit_id = $1::uuid
-        AND COALESCE(is_waitlisted, false) = false
-        AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)
-        AND (
-          lower(email) = lower($3)
-          OR ($4 <> '' AND phone IS NOT NULL AND phone = $4)
-        ) -- listing_limit_duplicate
-      LIMIT 1`,
-    [unitId, roundStartedAt, email, phone],
-  )
+  const e = email.trim()
+  const ph = phone.trim()
+  if (!e && !ph) return null
+  const rows = e
+    ? await query<{ id: string }>(
+        `SELECT id::text AS id
+           FROM leads
+          WHERE unit_id = $1::uuid
+            AND COALESCE(is_waitlisted, false) = false
+            AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)
+            AND lower(email) = lower($3) -- listing_limit_duplicate (email)
+          LIMIT 1`,
+        [unitId, roundStartedAt, e],
+      )
+    : await query<{ id: string }>(
+        `SELECT id::text AS id
+           FROM leads
+          WHERE unit_id = $1::uuid
+            AND COALESCE(is_waitlisted, false) = false
+            AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)
+            AND phone IS NOT NULL AND phone = $3 -- listing_limit_duplicate (phone, no email given)
+          LIMIT 1`,
+        [unitId, roundStartedAt, ph],
+      )
   return rows[0]?.id ?? null
 }
 
