@@ -546,11 +546,15 @@ export async function handlePersist(
   return { ok: true, id, uuid }
 }
 
-/** R7: the one event_type each client-writable event_log resource owns (positive allow-list). */
-const EVENT_LOG_TYPE_BY_RESOURCE: Partial<Record<EntityType, string>> = {
-  activity: 'activity',
-  property_event: 'property_event',
-  support_ticket: 'support_ticket',
+/**
+ * R7: each client-writable event_log resource deletes only rows of its own
+ * event_type (positive allow-list, literal SQL so leaseSignedNoDelete can
+ * grep every event_log DELETE).
+ */
+const EVENT_LOG_DELETE_SQL: Partial<Record<EntityType, string>> = {
+  activity: `DELETE FROM "event_log" WHERE id = $1::uuid AND event_type = 'activity'`,
+  property_event: `DELETE FROM "event_log" WHERE id = $1::uuid AND event_type = 'property_event'`,
+  support_ticket: `DELETE FROM "event_log" WHERE id = $1::uuid AND event_type = 'support_ticket'`,
 }
 
 /** R7: an upsert hit an id that is already another event_log row (the ON CONFLICT WHERE skipped it). */
@@ -610,13 +614,12 @@ async function deleteEntity(resource: EntityType, frontendId: string): Promise<v
   }
   
   // Use quoted identifier to prevent SQL injection (even though table name is from whitelist)
-  const eventType = EVENT_LOG_TYPE_BY_RESOURCE[resource]
-  if (eventType) {
+  const eventLogDelete = EVENT_LOG_DELETE_SQL[resource]
+  if (eventLogDelete) {
     // CR7 / R7: an event_log resource only ever deletes rows of its own type,
     // never a server-written audit row (payfast_itn_rejected, impersonation,
     // lease_signed, ...) that shares the table.
-    // eventType is a literal from the constant allow-list above, never request data.
-    await query(`DELETE FROM "event_log" WHERE id = $1::uuid AND event_type = '${eventType}'`, [uuid])
+    await query(eventLogDelete, [uuid])
   } else {
     await query(`DELETE FROM "${table}" WHERE id = $1::uuid`, [uuid])
   }
