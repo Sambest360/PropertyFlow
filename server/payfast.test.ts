@@ -115,7 +115,7 @@ describe('payfast core', () => {
       {
         merchantId: '10047719',
         merchantKey: 'wkq8dmfysau1q',
-        processUrl: 'https://www.payfast.io/eng/process',
+        processUrl: 'https://www.payfast.co.za/eng/process',
       },
       { sourceIp: '203.0.113.9' },
     )
