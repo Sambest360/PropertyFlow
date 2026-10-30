@@ -807,7 +807,7 @@ const RENTAL_MILESTONES: LifecycleMilestone[] = [
   { key: 'application_submitted', label: 'Submitted', description: 'Agency receives your application for review.' },
   { key: 'documents_requested', label: 'Documents', description: 'Upload FICA, ID, and income documents.' },
   { key: 'fica_verification', label: 'Identity', description: 'Agency verifies your identity documents.' },
-  { key: 'credit_check', label: 'Credit check', description: 'Credit bureau and affordability assessment (1–2 business days).' },
+  { key: 'credit_check', label: 'Credit check', description: 'Affordability assessment. Your agency may also run a credit check through a screening provider or record a credit score by hand.' },
   { key: 'agent_review', label: 'Agent review', description: 'Agent reviews your full application file.' },
   { key: 'conditionally_approved', label: 'Approved', description: 'Application approved — deposit and lease next.' },
   { key: 'deposit_invoice_sent', label: 'Deposit', description: 'Pay deposit and first month rent.' },
@@ -879,7 +879,6 @@ const STAGE_REQUIREMENTS: Partial<Record<WorkflowStatusKey, StageRequirements>> 
   credit_check: {
     actor: 'system',
     waitingLabel: 'Credit and affordability check running.',
-    etaDays: 2,
   },
   affordability_assessment: {
     actor: 'system',
