@@ -187,7 +187,7 @@ export function PropertyCard({
           </p>
 
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {property.type && (
+            {property.type && !property.typeInferred && (
               <span className="rounded-full bg-ink-50 px-2 py-0.5 text-[10px] font-semibold text-ink-600">
                 {property.type}
               </span>

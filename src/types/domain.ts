@@ -258,6 +258,8 @@ export type PropertyAsset = {
   area: number
   /** Erf / stand size m² (units.erf_size_sqm, migration 037). Separate from area; null/absent = not set (sectional title). */
   erfSizeSqm?: number | null
+  /** True when units.property_type was never stored and `type` is the legacy bedroom guess (0 beds → 'Office'). The card then shows no type chip. */
+  typeInferred?: boolean
   city: string
   suburb: string
   address: string

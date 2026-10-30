@@ -864,6 +864,8 @@ export async function buildBootstrap(opts?: {
       unitId: u.id,
       title: u.title,
       type: resolvePropertyType({ stored: u.propertyType, bedrooms: u.bedrooms }),
+      // T2: no stored type → the type is a bedroom guess; the card hides its type chip.
+      ...(u.propertyType?.trim() ? {} : { typeInferred: true }),
       status,
       deletedAt,
       listingMode: u.listingType === 'sale' || u.listingType === 'rent' || u.listingType === 'both'

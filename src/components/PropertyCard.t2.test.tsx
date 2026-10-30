@@ -66,6 +66,10 @@ describe('T2 card (spec r4): type, sizes, Bachelor/Studio', () => {
     expect(t).not.toContain('Bachelor/Studio')
     expect(t).not.toMatch(/\d+ bed\b/)
   })
+  it('shows a stored type chip, but none for a legacy row whose type is only a bedroom guess', () => {
+    expect(html({ type: 'Office', beds: 0, area: 90 })).toMatch(/>Office</)
+    expect(html({ type: 'Office', beds: 0, area: 90, typeInferred: true })).not.toMatch(/>Office</)
+  })
   it('hides a size that is not set (no "0 m²")', () => {
     const t = text({ type: 'Apartment', area: 0, erfSizeSqm: null })
     expect(t).not.toContain('0 m²')

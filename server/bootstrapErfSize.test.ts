@@ -9,12 +9,13 @@ const C21 = 'f2a29694-8440-4dab-93a7-ed1bb917b2c5'
 const BLD = '7d1c6a52-6f0e-4b8e-9a51-2f3b0c6d9e11'
 const UNIT = '3b9f2e44-1c7a-4d2e-8f60-5a4b3c2d1e0f'
 let columnPresent = true
+let storedType: string | null = 'industrial'
 
 const unitRow = () => ({
   id: UNIT, building_id: BLD, client_id: C21, unit_number: '1', listing_type: 'sale', price: '2500000',
   status_config_key: 'PUBLISHED', agent_id: null, title: 'Struandale works', amenities: [], images: [],
   featured: false, created_at: new Date('2026-10-26'), updated_at: new Date('2026-10-26'),
-  property_type: 'industrial', square_meters: '250.00', bedrooms: 0,
+  property_type: storedType, square_meters: '250.00', bedrooms: 0,
   ...(columnPresent ? { erf_size_sqm: '600.00' } : {}),
 })
 
@@ -68,5 +69,19 @@ describe('bootstrap erf size (T2)', () => {
     expect(p.area).toBe(250)
     expect(p.erfSizeSqm).toBeNull()
     expect(data.unitErfSizeSupported).toBe(false)
+  })
+
+  it('flags a type that is only the legacy bedroom guess (no stored property_type)', async () => {
+    columnPresent = true
+    storedType = null
+    try {
+      const { p } = await boot()
+      expect(p.type).toBe('Office')
+      expect(p.typeInferred).toBe(true)
+    } finally {
+      storedType = 'industrial'
+    }
+    const { p } = await boot()
+    expect(p.typeInferred).toBeUndefined()
   })
 })
