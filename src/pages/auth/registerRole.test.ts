@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { marketplaceFooter } from '../../components/layout/navigation'
 import { initialRegisterRole, LIST_WITH_US_PATH } from './registerRole'
@@ -22,11 +21,8 @@ describe('T6 (Jim T5 C6): /register?role= preselects a public role', () => {
     expect(initialRegisterRole(role)).toBe('landlord')
   })
 
-  it('RegisterPage seeds its role state from ?role= through initialRegisterRole', () => {
-    const src = readFileSync(new URL('./RegisterPage.tsx', import.meta.url), 'utf8')
-    expect(src).toMatch(/useState<PublicRole>\(\(\) => initialRegisterRole\(params\.get\('role'\)\)\)/)
-    expect(src).not.toMatch(/useState<PublicRole>\('tenant'\)/)
-  })
+  // The RegisterPage wiring is proven by behaviour in RegisterPage.role.test.tsx (Angela #118 C3),
+  // which replaced a source-text pin that missed real breakage and failed harmless refactors.
 })
 
 // No skip guard: if the footer link goes missing, this fails loudly.
