@@ -34,6 +34,7 @@ import { AppStoreProvider, useStore } from './AppStore'
 import { submitListingEnquiry } from '../lib/api/listingEnquiryApi'
 import { clientMayCreateLead } from '../lib/clientLeadPersist'
 import { applyLeadInput } from '../lib/listingEnquirySubmit'
+import { shouldRecordEnquiryLocally } from '../lib/listingEnquiryOutcome'
 
 type Store = ReturnType<typeof useStore>
 const calls: string[] = []
@@ -131,7 +132,7 @@ describe('T3 C6: 0 /api/persist calls (behavioural)', () => {
         phone: '0820000000',
       })
       expect(result.ok).toBe(true)
-      if (!result.ok) return
+      if (!shouldRecordEnquiryLocally(result)) throw new Error('enquiry not saved')
       store.recordGuestEnquiry({
         lead: { ...leadBase, id: result.leadId, stage: result.stage, notes: '' },
         viewing: null,
