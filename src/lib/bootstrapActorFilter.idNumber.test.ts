@@ -136,6 +136,28 @@ describe('T1 C6/O5: application ID numbers in the server bootstrap filter', () =
     expect(fullIdsAnywhere(appsFor({ userId: 'u-t2', role: 'tenant', agencyId: null }))).toEqual([])
   })
 
+  it('pin (B5): a tenant whose application has no applicantUserId (matched by email) keeps their full ID', () => {
+    const byEmail = { ...app, applicantUserId: undefined, email: 'TENANT@example.com' }
+    const entities = { ...raw, applications: [byEmail] }
+    const out = scopeApplicationIdNumbers(
+      entities as never,
+      raw as never,
+      { userId: 'u-t', role: 'tenant', agencyId: null } as never,
+      new Set(['u-t']),
+    )
+    const rows = out.applications as Array<Record<string, unknown>>
+    expect(rows).toHaveLength(1)
+    expect(idsOf(rows[0])).toEqual({ main: MAIN_ID, adults: [MAIN_ID, CO_ID, GUARANTOR_ID] })
+    // Another tenant holding the same row still gets it masked.
+    const other = scopeApplicationIdNumbers(
+      entities as never,
+      raw as never,
+      { userId: 'u-t2', role: 'tenant', agencyId: null } as never,
+      new Set(['u-t2']),
+    )
+    expect(fullIdsAnywhere(other.applications as Array<Record<string, unknown>>)).toEqual([])
+  })
+
   it('pin (M8): scopeApplicationIdNumbers masks a row a tenant holds that is not their own application', () => {
     const foreign = { ...app, id: 'APP-2', applicantUserId: 'u-t', email: 'tenant@example.com' }
     const entities = { ...raw, applications: [foreign] }

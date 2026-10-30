@@ -671,7 +671,9 @@ describe('guest full application on PR-1011 reaches /api/persist (API mode)', ()
     const landlord = await bootstrapApp({ userId: LL_FE, role: 'landlord', agencyId: 'ag-horizon' })
     expect(landlord?.idNumberOrPassport ?? undefined).toBeUndefined()
     const other = await bootstrapApp({ userId: OTHER_ADMIN_FE, role: 'client_admin', agencyId: 'ag-garden' })
-    if (other) expect(other.idNumberOrPassport).not.toBe(DETAILS.idNumberOrPassport)
+    // Unconditional: whether or not the row reaches them, the full ID never does.
+    expect(other?.idNumberOrPassport ?? null).not.toBe(DETAILS.idNumberOrPassport)
+    expect(JSON.stringify(other ?? null)).not.toContain(DETAILS.idNumberOrPassport)
     // Super admin is not exempt: masked.
     const sa = await bootstrapApp(SUPER)
     expect(sa).toBeTruthy()
@@ -704,6 +706,41 @@ describe('guest full application on PR-1011 reaches /api/persist (API mode)', ()
     const saCopy = await bootstrapApp(SUPER)
     expect(adultIds(saCopy)).toEqual(roster.adults.map((x) => maskIdNumber(x.idNumber)))
     expect(await persistAs(SUPER, { ...(saCopy as Record<string, unknown>), status: 'reviewing' })).toBe(true)
+    expect(storedRoster()).toEqual(roster)
+  })
+
+  it('pin (A1): a whitespace-only value counts as blank and keeps the stored details', async () => {
+    addRoundTripPeople()
+    const appRow = await guestApplication()
+    expect(await persistAs(TENANT, { ...(appRow as unknown as Record<string, unknown>), ...DETAILS })).toBe(true)
+    const ws = { phone: '   ', employerName: ' \t ', jobTitle: '  ', idNumberOrPassport: ' \n ' }
+    expect(await persistAs(TENANT, { ...(await bootstrapApp(TENANT))!, ...ws })).toBe(true)
+    expect(storedMeta()).toMatchObject(DETAILS)
+    expect(await persistAs(STAFF, { ...(await bootstrapApp(STAFF))!, ...ws, status: 'reviewing' })).toBe(true)
+    expect(storedMeta()).toMatchObject(DETAILS)
+  })
+
+  it('pin (C2): the roster guard checks every adult (a masked ID in the second adult only)', async () => {
+    addRoundTripPeople()
+    const appRow = await guestApplication()
+    const roster = {
+      adults: [
+        { id: 'main', name: 'Naledi Dlamini', idNumber: DETAILS.idNumberOrPassport, consented: false },
+        { id: 'co', name: 'Co Applicant', idNumber: '9202024800081', consented: false },
+        { id: 'g', name: 'Guarantor', idNumber: 'A12345678', consented: false },
+      ],
+    }
+    expect(
+      await persistAs(TENANT, { ...(appRow as unknown as Record<string, unknown>), ...DETAILS, creditCheckConsents: roster }),
+    ).toBe(true)
+    const storedRoster = () =>
+      (JSON.parse(String([...db.applications.values()][0]!.params[11])) as { creditCheckConsents?: typeof roster })
+        .creditCheckConsents
+    const echoed = {
+      adults: roster.adults.map((a, i) => (i === 1 ? { ...a, idNumber: maskIdNumber(a.idNumber) } : a)),
+    }
+    const saCopy = await bootstrapApp(SUPER)
+    expect(await persistAs(SUPER, { ...(saCopy as Record<string, unknown>), creditCheckConsents: echoed })).toBe(true)
     expect(storedRoster()).toEqual(roster)
   })
 
