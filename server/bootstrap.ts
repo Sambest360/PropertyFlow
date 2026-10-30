@@ -6,6 +6,7 @@ import { fieldsFromLimitSnapshot, listingLimitsFromSettings } from '../src/lib/l
 import { agencyViewingSettingsFromJson, readViewingEvidence } from '../src/lib/applyEligibility.js'
 import { resolveFrontendRole } from '../src/lib/idMap.js'
 import { mapPool } from './mapPool.js'
+import { stripIdPassportLines } from './enquiryNotes.js'
 import { loadIdMapCache } from './idMapCache.js'
 import { USER_TO_UUID } from './entityMap.js'
 import {
@@ -928,7 +929,7 @@ export async function buildBootstrap(opts?: {
     stage: l.stage as string,
     type: (l.interest_type as string) === 'BUY' ? 'Buy' : 'Rent',
     value: l.value_amount != null ? Number(l.value_amount) : 0,
-    notes: (l.notes as string) ?? '',
+    notes: stripIdPassportLines((l.notes as string) ?? ''),
     metadata: (l.metadata as Lead['metadata'] | null) ?? undefined,
     createdAt: dateOnly(l.created_at as Date),
     updatedAt: dateOnly(l.updated_at as Date),
@@ -1118,7 +1119,7 @@ export async function buildBootstrap(opts?: {
             ? 'No-show'
             : '—',
       feedback: (b.feedback as string) ?? undefined,
-      notes: (b.notes as string) ?? undefined,
+      notes: stripIdPassportLines((b.notes as string) ?? undefined),
       tenantConsentStatus: consentStatus(b.tenant_consent_status),
       tenantProposedStartsAt: b.tenant_proposed_starts_at
         ? new Date(b.tenant_proposed_starts_at as string).toISOString()
