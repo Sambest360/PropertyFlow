@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import * as rl from './rateLimit'
+import * as rl from './rateLimit.js'
 
 /**
  * H1 (spec r5 :60-68) limiter numbers, and Jim C2: buckets with different

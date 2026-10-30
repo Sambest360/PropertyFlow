@@ -335,7 +335,8 @@ export async function payfastItn(c: Context, deps: PayfastItnDeps = {}) {
     // Live never touches DNS; sandbox resolves the sandbox host (cached, fail closed).
     const sandboxAddresses = payfastIsLive(cfg)
       ? null
-      : await (deps.sandboxSources ?? defaultSandboxSources).get()
+      : // A bare `app.post(path, payfastItn)` passes Hono's next() here; only a plain object counts.
+        await ((typeof deps === 'object' && deps?.sandboxSources) || defaultSandboxSources).get()
     const verdict = verifyItn(body, cfg, {
       sourceIp,
       sandboxAddresses,

@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { clientIp, clientIpOrNull, resetClientIpWarningForTests } from './clientIp'
+import { clientIp, clientIpOrNull, resetClientIpWarningForTests } from './clientIp.js'
 
 /**
  * H1 (spec r5 :49, Jim C3): clientIp(c) trusts forwarding headers only from

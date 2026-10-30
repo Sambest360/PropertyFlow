@@ -86,7 +86,7 @@ afterAll(() => {
   for (const k of ['PAYFAST_MERCHANT_ID', 'PAYFAST_MERCHANT_KEY', 'PAYFAST_PASSPHRASE', 'PAYFAST_MODE']) delete process.env[k]
 })
 
-async function signedItn(over: Record<string, string> = {}) {
+async function signedItn(over: Record<string, string> = {}): Promise<Record<string, string>> {
   const { payfastSignature } = await import('./payfast.js')
   const fields: Record<string, string> = {
     m_payment_id: 'PAY-1',
