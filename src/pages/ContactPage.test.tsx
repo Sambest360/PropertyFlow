@@ -20,7 +20,9 @@ describe('T5 contact page', () => {
     // Angela #117 C4: every email shown is a stored LEGAL_ENTITY value; nothing hard-coded.
     const stored = [LEGAL_ENTITY.supportEmail, LEGAL_ENTITY.privacyEmail].map((e) => e.trim()).filter(Boolean)
     for (const [shown] of out.matchAll(/[\w.+-]+@[\w-]+\.[\w.]+/g)) expect(stored, shown).toContain(shown)
-    expect(out).toContain('agency or landlord named on the listing')
+    // Jim #118 C3: the listing names the agent, not the agency, so do not claim it does.
+    expect(out).toContain('agent, agency or landlord that listed the property')
+    expect(out).not.toMatch(/named on the listing/)
     expect(out).toContain('href="/privacy"')
   })
 })

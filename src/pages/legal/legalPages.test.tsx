@@ -56,6 +56,9 @@ describe('legal pages', () => {
     expect(section).toContain('responsible party only for platform accounts and our own billing')
     expect(section).toContain('data-testid="legal-missing-informationOfficer"')
     expect(section).toContain('data-testid="legal-missing-privacyEmail"')
-    expect(section).toMatch(/contact that agency directly/)
+    // Jim #118 C3: the public listing shows only "listed by <agent>", no agency name,
+    // so the page must not promise that the agency is named there.
+    expect(section).toContain('contact the agent or agency that listed the property')
+    expect(section).not.toMatch(/named on the listing/)
   })
 })

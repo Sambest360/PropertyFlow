@@ -33,7 +33,7 @@ export default function PrivacyPage() {
         <p>
           Our Information Officer is <Entity field="informationOfficer" />, reachable at{' '}
           <Entity field="privacyEmail" />. For information an agency holds about you (for example your enquiry,
-          application or lease), contact that agency directly; it is named on the listing.
+          application or lease), contact the agent or agency that listed the property.
         </p>
       </Section>
 
