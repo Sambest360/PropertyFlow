@@ -149,3 +149,13 @@ describe('T6 (Jim #118 C8): the warning says why the build is not live, accurate
   })
 })
 
+describe('T6 (Jim #118 C10): a sole proprietor can complete the details', () => {
+  it('registrationNumber "not applicable" passes legalEntityComplete when every other field is filled', () => {
+    for (const value of ['not applicable', 'Not applicable']) {
+      expect(legalEntityMissing({ ...FULL, registrationNumber: value }), value).toEqual([])
+      expect(legalEntityComplete({ ...FULL, registrationNumber: value }), value).toBe(true)
+    }
+    expect(legalEntityComplete({ ...FULL, registrationNumber: 'not applicable', supportEmail: '' })).toBe(false)
+  })
+})
+
