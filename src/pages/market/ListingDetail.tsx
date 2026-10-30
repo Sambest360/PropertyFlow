@@ -37,7 +37,10 @@ import {
 import type { PostgresBootstrap } from '../../lib/api/postgresClient'
 import { submitListingEnquiry } from '../../lib/api/listingEnquiryApi'
 import { listingAvailabilityCopy } from '../../lib/listingLimitCopy'
-import { sweetError, sweetInfo, sweetSuccess, sweetWarning } from '../../lib/sweetAlert'
+import { sweetError, sweetSuccess, sweetWarning } from '../../lib/sweetAlert'
+import type { EnquiryOutcome } from '../../lib/listingEnquiryOutcome'
+import { applyLeadInput, enquirySubmitPlan } from '../../lib/listingEnquirySubmit'
+import { EnquiryConfirmation } from '../../components/listing/EnquiryConfirmation'
 import { usePageMeta } from '../../hooks/usePageMeta'
 import { useAgentDisplay } from '../../hooks/useAgentDisplay'
 import { listingHeadline } from '../../lib/agentDisplay'
@@ -101,6 +104,8 @@ export default function ListingDetail() {
   const [jobTitle, setJobTitle] = useState('')
   const [intent, setIntent] = useState<EnquiryIntent>('lead')
   const [submitting, setSubmitting] = useState(false)
+  // T3: the last enquiry outcome, shown inline until the next submit.
+  const [enquiryOutcome_, setEnquiryOutcome] = useState<EnquiryOutcome | null>(null)
   const [appSubmitting, setAppSubmitting] = useState(false)
   // Pre-apply warning: applicants confirm they understand they should view the home first.
   const [viewWarningOpen, setViewWarningOpen] = useState(false)
@@ -347,6 +352,14 @@ export default function ListingDetail() {
   const fullName = `${firstName.trim()} ${lastName.trim()}`.trim()
 
   const listingReviewAvg = propertyListingRating(state.reviews, p.id)
+  const enquiryListing = {
+    id: p.id,
+    agencyId: p.agencyId,
+    agentId: p.agentId,
+    listingMode: p.listingMode,
+    value: p.price ?? p.rent ?? 0,
+  }
+  const enquiryContact = { name: fullName, email: email.trim(), phone: phone.trim(), notes: note.trim() }
 
   if (isBlockedForUser) {
     return <Navigate to="/browse" replace />
@@ -389,6 +402,7 @@ export default function ListingDetail() {
 
     if (!acquireSubmitLock(enquiryLockRef)) return
     setSubmitting(true)
+    setEnquiryOutcome(null)
     try {
       const result = await submitListingEnquiry({
         propertyId: p.id,
@@ -406,70 +420,20 @@ export default function ListingDetail() {
         value: p.price ?? p.rent ?? 0,
       })
 
-      if (result.ok === false) {
-        if (result.waitlist) {
-          await sweetSuccess(
-            'You are on the waitlist',
-            'We will contact you if a spot opens.',
-          )
-          setNote('')
-          setEnquirySheetOpen(false)
-          return
-        }
-        await sweetError('Could not save enquiry', 'error' in result ? result.error : 'Unknown error')
-        return
-      }
-
-      recordGuestEnquiry({
-        lead: {
-          id: result.leadId,
-          agencyId: p.agencyId,
-          propertyId: p.id,
-          agentId: p.agentId,
-          name: fullName,
-          email: email.trim(),
-          phone: phone.trim(),
-          channel: 'Web Form',
-          type: p.listingMode === 'sale' ? 'Buy' : 'Rent',
-          value: p.price ?? p.rent ?? 0,
-          stage: result.stage,
-          notes: note.trim(),
-        },
-        viewing:
-          action === 'viewing' && selectedSlot
-            ? {
-                id: result.bookingId ?? undefined,
-                agencyId: p.agencyId,
-                propertyId: p.id,
-                agentId: p.agentId,
-                slotId: selectedSlot.id,
-                applicantName: fullName,
-                applicantEmail: email.trim(),
-                date: selectedSlot.date,
-                time: selectedSlot.time,
-              }
-            : null,
+      // T3: the server's answer is the only save. Show it inline and keep the
+      // sheet open (no modal, no reset). What a result does is the pure plan
+      // in listingEnquirySubmit.ts (F3); a repeat shows no reference (F4).
+      const plan = enquirySubmitPlan(result, {
+        listing: enquiryListing,
+        contact: enquiryContact,
+        action,
+        slot: selectedSlot ? { id: selectedSlot.id, date: selectedSlot.date, time: selectedSlot.time } : null,
+        agentName: agent?.name ?? null,
       })
-
-      if (action === 'viewing' && selectedSlot) {
-        await sweetSuccess(
-          'Viewing booked',
-          `Your slot is ${selectedSlot.date} at ${selectedSlot.time}. ${agent?.name ?? 'The agency'} will confirm shortly.`,
-        )
-      } else if (action === 'viewing') {
-        await sweetInfo(
-          'Viewing request sent',
-          'No open slots right now — an agent will contact you to schedule a time.',
-        )
-      } else {
-        await sweetSuccess(
-          'Interest registered',
-          `${agent?.name ?? 'The agency'} will follow up on this property. No account needed.`,
-        )
-      }
-      setNote('')
-      setEnquirySheetOpen(false)
-      return true
+      if (plan.record) recordGuestEnquiry(plan.record)
+      setEnquiryOutcome(plan.outcome)
+      if (plan.clearNote) setNote('')
+      return result.ok
     } finally {
       setSubmitting(false)
       releaseSubmitLock(enquiryLockRef)
@@ -522,19 +486,11 @@ export default function ListingDetail() {
       return
     }
 
-    createLead({
-      agencyId: p.agencyId,
-      propertyId: p.id,
-      agentId: p.agentId,
-      name: fullName,
-      email: email.trim(),
-      phone: phone.trim(),
-      channel: 'Web Form',
-      type: isRent ? 'Rent' : 'Buy',
-      value: p.price ?? p.rent ?? 0,
-      stage: 'Application Submitted',
-      notes: note.trim(),
-    })
+    // T3 B1: the application's lead is a NEW lead. A tenant's is saved to the
+    // server (the portal policy allows a new lead; it refuses only re-saving
+    // an existing one). A guest's (401), landlord's or contractor's (403) stays
+    // local. The Register-interest lead is never re-saved by the client.
+    createLead(applyLeadInput({ listing: enquiryListing, contact: enquiryContact, role: user.role }))
 
     // P1-2: the applicant gets their reference number immediately.
     const appRef =
@@ -708,6 +664,7 @@ export default function ListingDetail() {
           value={note}
           onChange={(e) => setNote(e.target.value)}
         />
+        <EnquiryConfirmation outcome={enquiryOutcome_} />
         <Button type="submit" className="w-full min-h-11" disabled={submitting}>
           {submitting
             ? 'Saving…'

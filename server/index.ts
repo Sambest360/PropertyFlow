@@ -80,6 +80,7 @@ import { docIdFromEnvelopeId } from './signiflow.js'
 import { runningCommitSha } from './appConfig.js'
 import { dbHostFingerprint, serverAuthMode } from './authMode.js'
 import { errStatus } from './errStatus.js'
+import { publicEnquiryErrorResponse } from './publicEnquiryError.js'
 import { reviewError } from './reviewError.js'
 import { registerViewingApplyRoutes } from './viewingApplyRoutes.js'
 import { captureServerError, initServerSentry } from './sentry.js'
@@ -1712,12 +1713,10 @@ app.post('/api/public/listing-enquiry', async (c) => {
     })()
     return c.json(result, 201)
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    const waitlist =
-      err && typeof err === 'object' && 'waitlist' in err ? Boolean((err as { waitlist: unknown }).waitlist) : undefined
-    console.error('[api/public/listing-enquiry]', message)
-    const error = message === 'LISTING_FULL' ? 'LISTING_FULL' : 'enquiry_failed'
-    return c.json({ error, message, ...errCode(err), ...(waitlist != null ? { waitlist } : {}) }, errStatus(err))
+    // T3 C3: log the raw message; the public only gets an allow-listed code.
+    console.error('[api/public/listing-enquiry]', err instanceof Error ? err.message : String(err))
+    const { status, body } = publicEnquiryErrorResponse(err)
+    return c.json(body, status)
   }
 })
 
