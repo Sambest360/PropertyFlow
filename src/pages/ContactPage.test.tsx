@@ -15,6 +15,8 @@ describe('T5 contact page', () => {
     expect(out).toContain('data-testid="legal-missing-supportEmail"')
     expect(out).toContain('data-testid="legal-missing-privacyEmail"')
     expect(out).toContain('data-testid="legal-missing-informationOfficer"')
+    // No address may be hard-coded on the page while LEGAL_ENTITY's emails are blank.
+    expect(out).not.toMatch(/[\w.+-]+@[\w-]+\.[\w.]+/)
     expect(out).toContain('agency or landlord named on the listing')
     expect(out).toContain('href="/privacy"')
   })
