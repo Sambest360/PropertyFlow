@@ -32,7 +32,7 @@ export type EscalationSettings = {
 export type Escalation = {
   id: string
   agencyId: string | null
-  subjectType: 'maintenance_ticket' | 'support_ticket'
+  subjectType: 'maintenance_ticket' | 'support_ticket' | 'saas_invoice' | 'rent_payment'
   subjectId: string
   title: string
   reason: string

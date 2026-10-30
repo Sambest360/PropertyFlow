@@ -72,6 +72,7 @@ import {
   sendVerificationDecision,
 } from './mailtrap.js'
 import { registerEmailRoutes } from './emailRoutes.js'
+import { registerBillingRoutes } from './billingRoutes.js'
 import { ensureUuid, resolveFrontendId, resolveUuid } from './entityMap.js'
 import { isAgencyWideRole } from '../src/lib/scope.js'
 import type { Role } from '../src/types/domain.js'
@@ -700,6 +701,7 @@ app.post('/api/auth/reset-password', async (c) => {
 })
 
 registerEmailRoutes(app)
+registerBillingRoutes(app)
 
 app.get('/api/bootstrap', async (c) => {
   if (!databaseConfigured) {

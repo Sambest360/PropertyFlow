@@ -81,6 +81,8 @@ const AdminUserCreatePage = lazy(() => import('./pages/admin/AdminUserCreatePage
 const AdminAgenciesPage = lazy(() => import('./pages/admin/AdminAgenciesPage'))
 const AdminStoragePage = lazy(() => import('./pages/admin/AdminStoragePage'))
 const AdminEmailsPage = lazy(() => import('./pages/admin/AdminEmailsPage'))
+const AgencySubscriptionPage = lazy(() => import('./pages/admin/AgencySubscriptionPage'))
+const InvoicePage = lazy(() => import('./pages/billing/InvoicePage'))
 const EscalationsPage = lazy(() => import('./pages/EscalationsPage'))
 const ReviewModerationPage = lazy(() => import('./pages/admin/ReviewModerationPage'))
 const ConductPage = lazy(() => import('./pages/ConductPage'))
@@ -508,6 +510,8 @@ export default function App() {
                 <Route path="admin/agencies" element={<Guard permission="platform.manage"><AdminAgenciesPage /></Guard>} />
                 <Route path="admin/storage" element={<Guard permission="platform.manage"><AdminStoragePage /></Guard>} />
                 <Route path="admin/emails" element={<Guard permission="platform.manage"><AdminEmailsPage /></Guard>} />
+                <Route path="admin/subscription" element={<AgencySubscriptionPage />} />
+                <Route path="billing/invoices/:id" element={<InvoicePage />} />
                 <Route path="admin/reviews" element={<Guard anyOf={['platform.manage']}><ReviewModerationPage /></Guard>} />
                 <Route path="admin/agencies/new" element={<Guard permission="platform.manage"><AdminAgencyCreatePage /></Guard>} />
                 <Route

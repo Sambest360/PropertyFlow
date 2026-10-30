@@ -111,7 +111,7 @@ function hrs(ms: number): string {
 export type EscalationRecord = {
   id: string
   agencyId: string | null
-  subjectType: 'maintenance_ticket' | 'support_ticket'
+  subjectType: 'maintenance_ticket' | 'support_ticket' | 'saas_invoice' | 'rent_payment'
   subjectId: string
   title: string
   reason: string
@@ -530,6 +530,106 @@ async function saveLease(
 let lastRunAt = 0
 
 /** Run every sweep. Each sweep fails on its own without stopping the others. */
+/**
+ * Lekaya subscription invoices not paid by the due date: agency admins on
+ * day 1, again at 7 days (marked overdue), the platform team at 14 days.
+ */
+async function billingSweep(now: Date): Promise<number> {
+  const { overdueInvoices, agencyAdminUuids: admins } = await import('./saasBilling.js')
+  let changed = 0
+  for (const inv of await overdueInvoices()) {
+    const level = inv.daysOverdue >= 14 ? 3 : inv.daysOverdue >= 7 ? 2 : 1
+    const did = await raise({
+      clientId: inv.clientId,
+      subjectType: 'saas_invoice',
+      subjectId: inv.id,
+      subjectRef: inv.number,
+      title: `Lekaya invoice ${inv.number} unpaid`,
+      reason: `R ${inv.balance.toFixed(2)} was due on ${inv.dueDate} (${inv.daysOverdue} day${inv.daysOverdue === 1 ? '' : 's'} ago). Pay and upload the proof of payment under Admin → Subscription & billing.`,
+      level,
+      link: '/workspace/admin/subscription',
+      levelRecipients: async (l) => (l >= 3 ? superAdminUuids() : (await admins(inv.clientId)).length ? admins(inv.clientId) : superAdminUuids()),
+      now,
+    })
+    if (did) changed++
+  }
+  return changed
+}
+
+/**
+ * Rent, first-month rent and deposits not paid by the due date: the
+ * landlord and agency admins are told (and the tenant reminded) after a day,
+ * again at 7 days when the payment is marked overdue.
+ */
+async function arrearsSweep(now: Date): Promise<number> {
+  const rows = await query<{
+    id: string
+    client_id: string
+    party_user_id: string | null
+    party_name: string
+    balance: string
+    due_date: Date | string
+    days: string
+    landlord_id: string | null
+    agent_id: string | null
+    title: string | null
+    payment_type: string
+  }>(
+    `SELECT p.id::text AS id, p.client_id::text AS client_id, p.party_user_id::text AS party_user_id, p.party_name,
+            (p.amount - COALESCE(p.paid_amount, 0))::text AS balance, p.due_date, (CURRENT_DATE - p.due_date)::text AS days,
+            COALESCE(l.landlord_id, b.landlord_id)::text AS landlord_id, COALESCE(l.agent_id, un.agent_id)::text AS agent_id,
+            COALESCE(un.title, un.unit_number::text) AS title, p.payment_type
+       FROM payments p
+       LEFT JOIN leases l ON l.id = p.lease_id
+       LEFT JOIN units un ON un.id = COALESCE(p.unit_id, l.unit_id)
+       LEFT JOIN buildings b ON b.id = un.building_id
+      WHERE p.status IN ('DUE', 'OVERDUE') AND p.due_date < CURRENT_DATE AND p.due_date > CURRENT_DATE - 180
+        AND p.payment_type IN ('RENT', 'FIRST_MONTH_RENT', 'DEPOSIT')
+        AND p.amount > COALESCE(p.paid_amount, 0)`,
+  )
+  let changed = 0
+  for (const r of rows) {
+    const days = Number(r.days)
+    const level = days >= 7 ? 2 : 1
+    if (level === 2) await query(`UPDATE payments SET status = 'OVERDUE', updated_at = NOW() WHERE id = $1::uuid AND status = 'DUE'`, [r.id])
+    const fe = (await resolveFrontendId('payment', r.id).catch(() => null)) ?? r.id
+    const what = r.payment_type === 'DEPOSIT' ? 'Deposit' : 'Rent'
+    const balance = Number(r.balance).toFixed(2)
+    const due = r.due_date instanceof Date ? r.due_date.toISOString().slice(0, 10) : String(r.due_date).slice(0, 10)
+    const did = await raise({
+      clientId: r.client_id,
+      subjectType: 'rent_payment',
+      subjectId: r.id,
+      subjectRef: fe,
+      title: `${what} unpaid: ${r.party_name}${r.title ? ` · ${r.title}` : ''}`,
+      reason: `R ${balance} was due on ${due} (${days} day${days === 1 ? '' : 's'} ago). Follow up with the tenant or record the payment.`,
+      level,
+      link: `/workspace/operations/payments/${encodeURIComponent(fe)}`,
+      levelRecipients: async () => {
+        const list = [...(await agencyAdminUuids(r.client_id))]
+        if (r.landlord_id) list.push(r.landlord_id)
+        if (r.agent_id) list.push(r.agent_id)
+        return list
+      },
+      now,
+    })
+    if (did) {
+      changed++
+      if (r.party_user_id) {
+        await notifyUsers([r.party_user_id], {
+          clientId: r.client_id,
+          title: `${what} payment overdue`,
+          body: `R ${balance} was due on ${due}. Please pay, then upload your proof of payment under Payments.`,
+          link: '/workspace/portals/tenant/payments',
+          resource: 'payment',
+          action: 'alert',
+        })
+      }
+    }
+  }
+  return changed
+}
+
 export async function runEscalations(now = new Date()): Promise<Record<string, unknown>> {
   lastRunAt = now.getTime()
   const result: Record<string, unknown> = {}
@@ -537,6 +637,8 @@ export async function runEscalations(now = new Date()): Promise<Record<string, u
     ['maintenance', () => maintenanceSweep(now)],
     ['support', () => supportSweep(now)],
     ['rent', () => rentSweep(now)],
+    ['billing', () => billingSweep(now)],
+    ['arrears', () => arrearsSweep(now)],
   ] as const) {
     try {
       result[name] = await fn()

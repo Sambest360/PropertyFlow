@@ -1,230 +1,187 @@
-import { useMemo, useState } from 'react'
-import { Calculator, CreditCard, RefreshCw } from 'lucide-react'
-import { useStore } from '../context/AppStore'
+/**
+ * Platform team: Lekaya subscription billing. Each agency is billed monthly
+ * by portfolio size (price sheet) plus front-page advertising; invoices are
+ * created on the 1st, payments are recorded here with proof, and unpaid
+ * invoices escalate to the agency admins and then the platform team.
+ */
+import { useEffect, useMemo, useState } from 'react'
+import { AlertTriangle, CreditCard, FileText, RefreshCw, Settings2 } from 'lucide-react'
+import { useAuth } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
-import { Badge, Button, Card, PageHeader, statusTone } from '../components/ui'
-import { formatZAR } from '../data/seed'
-import { calculateUsage, type PlatformInvoice } from '../lib/billingEngine'
-import {
-  ScreeningPricingCard,
-  ScreeningUsageCard,
-  currentMonth,
-  markScreeningInvoiced,
-  screeningInvoiceLineItem,
-} from '../components/screening/ScreeningBillingCards'
+import { Badge, Button, Card, Input, Modal, PageHeader } from '../components/ui'
+import { InvoiceList, PricingCard, RecordPaymentModal } from '../components/billing/BillingParts'
+import { ScreeningPricingCard, ScreeningUsageCard } from '../components/screening/ScreeningBillingCards'
+import { billingApi, formatRand, type AgencyBillingRow, type SaasInvoice } from '../lib/api/billingApi'
+import type { AgencyBillingSettings } from '../lib/saasPricing'
 
 export default function PlatformBilling() {
-  const { state, runClientBillingCycle, markInvoicePaid } = useStore()
-  const [selectedClient, setSelectedClient] = useState(state.agencies[0]?.id ?? '')
-  const [billingNote, setBillingNote] = useState<string | null>(null)
-  const [usageRefresh, setUsageRefresh] = useState(0)
+  const { user } = useAuth()
+  const [agencies, setAgencies] = useState<AgencyBillingRow[]>([])
+  const [invoices, setInvoices] = useState<SaasInvoice[]>([])
+  const [error, setError] = useState('')
+  const [flash, setFlash] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [paying, setPaying] = useState<SaasInvoice | null>(null)
+  const [editing, setEditing] = useState<AgencyBillingRow | null>(null)
+  const [filter, setFilter] = useState<'open' | 'all'>('open')
 
-  const runCycle = async () => {
-    setBillingNote(null)
-    const month = currentMonth()
-    let screening = null
+  const load = async () => {
+    setError('')
     try {
-      screening = await screeningInvoiceLineItem(selectedClient, month)
+      const [a, i] = await Promise.all([billingApi.agencies(), billingApi.invoices()])
+      setAgencies(a)
+      setInvoices(i)
     } catch (err) {
-      setBillingNote(`Screening charges not added: ${err instanceof Error ? err.message : 'usage unavailable'}`)
+      setError(err instanceof Error ? err.message : 'Could not load billing')
     }
-    const inv = runClientBillingCycle(selectedClient, undefined, undefined, screening ? [screening] : undefined)
-    if (!inv || !screening) return
+  }
+  useEffect(() => {
+    void load()
+  }, [])
+
+  const runNow = async () => {
+    setBusy(true)
+    setFlash('')
     try {
-      await markScreeningInvoiced(selectedClient, month, inv.id)
-      setUsageRefresh((n) => n + 1)
+      const r = await billingApi.run()
+      setFlash(r.created ? `${r.created} invoice${r.created === 1 ? '' : 's'} created for this month.` : 'Every agency already has this month’s invoice.')
+      await load()
     } catch (err) {
-      setBillingNote(`Invoice created, but screening charges were not marked invoiced: ${err instanceof Error ? err.message : 'error'}`)
+      setError(err instanceof Error ? err.message : 'Could not create invoices')
+    } finally {
+      setBusy(false)
     }
   }
 
-  const planById = useMemo(
-    () => Object.fromEntries(state.billingPlans.map((p) => [p.id, p])),
-    [state.billingPlans],
-  )
-  const agencyName = useMemo(
-    () => Object.fromEntries(state.agencies.map((a) => [a.id, a.name])),
-    [state.agencies],
-  )
-
-  const preview = useMemo(() => {
-    const sub = state.clientSubscriptions.find((s) => s.clientId === selectedClient)
-    const plan = sub ? planById[sub.planId] : undefined
-    if (!sub || !plan) return null
-    return {
-      sub,
-      plan,
-      usage: calculateUsage(
-        {
-          clientId: selectedClient,
-          buildings: state.buildings,
-          units: state.units,
-          rooms: state.infraRooms,
-        },
-        plan,
-      ),
-    }
-  }, [selectedClient, state, planById])
-
-  const invoices = useMemo(
-    () =>
-      [...state.invoices].sort((a, b) => b.billingPeriodEnd.localeCompare(a.billingPeriodEnd)),
-    [state.invoices],
-  )
+  const shown = useMemo(() => (filter === 'open' ? invoices.filter((i) => i.status !== 'PAID' && i.status !== 'VOID') : invoices), [invoices, filter])
+  const owed = invoices.filter((i) => i.status !== 'PAID' && i.status !== 'VOID').reduce((a, i) => a + i.balance, 0)
+  const overdue = invoices.filter((i) => i.status === 'OVERDUE' || (i.status !== 'PAID' && i.status !== 'VOID' && i.dueDate < new Date().toISOString().slice(0, 10))).length
 
   return (
     <RequirePermission permission="platform.manage">
-      <div className="animate-fade-in">
+      <div className="space-y-5">
         <PageHeader
-          title="Platform · SaaS billing"
-          subtitle="Charge agencies by asset footprint — base fee + GLA + units/rooms + Grade P premium + 15% VAT."
+          title="Billing"
+          subtitle="Monthly Lekaya subscriptions: invoices go out on the 1st, payments are recorded here, and unpaid ones are escalated."
+          actions={
+            <Button onClick={() => void runNow()} disabled={busy}>
+              <RefreshCw className="h-4 w-4" aria-hidden /> {busy ? 'Creating…' : 'Create this month’s invoices'}
+            </Button>
+          }
         />
+        {error ? <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">{error}</p> : null}
+        {flash ? <p className="rounded-xl border border-primary-100 bg-primary-50 px-3 py-2 text-sm text-ink-700" role="status">{flash}</p> : null}
 
-        <div className="mb-6 grid gap-4 lg:grid-cols-3">
-          {state.billingPlans.map((p) => (
-            <Card key={p.id} className="p-5">
-              <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Plan</p>
-              <h2 className="mt-1 font-display text-xl font-semibold text-ink">{p.planName}</h2>
-              <p className="mt-2 tabular text-2xl font-bold text-ink">{formatZAR(p.baseMonthlyFee)}</p>
-              <p className="text-xs text-ink-500">base / month</p>
-              <ul className="mt-4 space-y-1 text-sm text-ink-600">
-                <li>R{p.perSqmRate.toFixed(4)} / m² GLA</li>
-                <li>R{p.perUnitRate.toFixed(2)} / unit</li>
-                <li>R{p.perRoomRate.toFixed(2)} / room</li>
-                <li>R{p.gradePPremiumFee.toLocaleString()} Grade P premium / building</li>
-              </ul>
-            </Card>
-          ))}
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Card className="p-4"><p className="text-xs text-ink-500">Owed to Lekaya</p><p className="text-2xl font-bold tabular text-ink">{formatRand(owed)}</p></Card>
+          <Card className="p-4"><p className="text-xs text-ink-500">Overdue invoices</p><p className={`text-2xl font-bold tabular ${overdue ? 'text-accent' : 'text-ink'}`}>{overdue}</p></Card>
+          <Card className="p-4"><p className="text-xs text-ink-500">Agencies billed</p><p className="text-2xl font-bold tabular text-ink">{agencies.filter((a) => a.status === 'active' && !a.settings.exempt).length}</p></Card>
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-2">
-          <Card className="p-5">
-            <div className="mb-4 flex items-center gap-2">
-              <Calculator className="h-5 w-5 text-ink-500" />
-              <h2 className="font-semibold text-ink">Usage calculator</h2>
-            </div>
-            <label className="mb-2 block text-xs font-medium text-ink-500">Client (agency)</label>
-            <select
-              className="mb-4 h-10 w-full rounded-xl border border-primary-100 bg-white px-3 text-sm"
-              value={selectedClient}
-              onChange={(e) => setSelectedClient(e.target.value)}
-            >
-              {state.agencies.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
+        <Card className="overflow-hidden p-0">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-primary-50 px-5 py-3">
+            <h2 className="inline-flex items-center gap-2 font-semibold text-ink"><CreditCard className="h-5 w-5 text-primary" aria-hidden /> Invoices</h2>
+            <div className="flex gap-1 text-sm" role="tablist">
+              {(['open', 'all'] as const).map((f) => (
+                <button key={f} role="tab" aria-selected={filter === f} type="button" onClick={() => setFilter(f)}
+                  className={`cursor-pointer rounded-lg px-3 py-1.5 font-semibold ${filter === f ? 'bg-primary-50 text-primary' : 'text-ink-500 hover:text-ink'}`}>
+                  {f === 'open' ? 'Not paid yet' : 'All'}
+                </button>
               ))}
-            </select>
-
-            {preview ? (
-              <>
-                <p className="mb-3 text-sm text-ink-600">
-                  On <strong>{preview.plan.planName}</strong> · anchor day{' '}
-                  {preview.sub.billingCycleAnchorDay} ·{' '}
-                  <Badge tone={statusTone(preview.sub.status)}>{preview.sub.status}</Badge>
-                </p>
-                <dl className="grid grid-cols-2 gap-3 text-sm">
-                  <div>
-                    <dt className="text-ink-500">Units</dt>
-                    <dd className="tabular font-semibold">{preview.usage.unitCount}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-ink-500">Rooms</dt>
-                    <dd className="tabular font-semibold">{preview.usage.roomCount}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-ink-500">Total GLA</dt>
-                    <dd className="tabular font-semibold">{preview.usage.totalGlaSqm} m²</dd>
-                  </div>
-                  <div>
-                    <dt className="text-ink-500">Grade P buildings</dt>
-                    <dd className="tabular font-semibold">{preview.usage.gradePBuildingCount}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-ink-500">Asset usage</dt>
-                    <dd className="tabular font-semibold">{formatZAR(preview.usage.assetUsageAmount)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-ink-500">Est. total (ex VAT)</dt>
-                    <dd className="tabular font-semibold">
-                      {formatZAR(preview.plan.baseMonthlyFee + preview.usage.assetUsageAmount)}
-                    </dd>
-                  </div>
-                </dl>
-                <Button className="mt-5" onClick={() => void runCycle()}>
-                  <RefreshCw className="h-4 w-4" />
-                  Run billing cycle (midnight worker)
-                </Button>
-                {billingNote ? <p className="mt-2 text-xs text-accent-700">{billingNote}</p> : null}
-              </>
-            ) : (
-              <p className="text-sm text-ink-500">No active subscription for this client.</p>
-            )}
-          </Card>
-
-          <Card className="p-5">
-            <div className="mb-4 flex items-center gap-2">
-              <CreditCard className="h-5 w-5 text-ink-500" />
-              <h2 className="font-semibold text-ink">Invoices</h2>
             </div>
-            <ul className="divide-y divide-primary-100">
-              {invoices.length === 0 && (
-                <li className="py-6 text-sm text-ink-500">No invoices yet — run a billing cycle.</li>
-              )}
-              {invoices.map((inv: PlatformInvoice) => (
-                <li key={inv.id} className="flex flex-col gap-2 py-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="font-medium text-ink">
-                      {agencyName[inv.clientId] ?? inv.clientId}{' '}
-                      <Badge tone={statusTone(inv.paymentStatus)}>{inv.paymentStatus}</Badge>
-                    </p>
-                    <p className="text-xs text-ink-500">
-                      {inv.billingPeriodStart} → {inv.billingPeriodEnd} · Base{' '}
-                      {formatZAR(inv.baseAmount)} · Usage {formatZAR(inv.assetUsageAmount)} · VAT{' '}
-                      {formatZAR(inv.vatAmount)}
-                    </p>
-                    {inv.lineItems
-                      .filter((li) => li.kind === 'screening')
-                      .map((li) => (
-                        <p key={li.label} className="text-xs text-ink-500">
-                          {li.label} · {formatZAR(li.amount)}
-                        </p>
-                      ))}
-                    <p className="tabular mt-1 text-sm font-semibold text-ink">
-                      {formatZAR(inv.totalAmountDue)} due
-                    </p>
-                  </div>
-                  {inv.paymentStatus === 'UNPAID' && (
-                    <Button size="sm" variant="secondary" onClick={() => markInvoicePaid(inv.id)}>
-                      Mark paid
-                    </Button>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </Card>
-        </div>
+          </div>
+          <InvoiceList invoices={shown} showAgency onRecordPayment={setPaying} />
+        </Card>
 
-        <ScreeningUsageCard refreshKey={usageRefresh} />
+        <Card className="overflow-x-auto p-0" data-tip-target="billing-agencies">
+          <div className="border-b border-primary-50 px-5 py-3">
+            <h2 className="inline-flex items-center gap-2 font-semibold text-ink"><FileText className="h-5 w-5 text-primary" aria-hidden /> Agencies</h2>
+            <p className="text-sm text-ink-500">Next invoice is worked out from the number of properties and featured listings today.</p>
+          </div>
+          <table className="w-full min-w-[46rem] text-left text-sm">
+            <thead className="bg-primary-50/50 text-xs text-ink-500">
+              <tr>
+                <th className="px-5 py-2 font-semibold">Agency</th>
+                <th className="px-5 py-2 font-semibold">Properties</th>
+                <th className="px-5 py-2 font-semibold">Plan</th>
+                <th className="px-5 py-2 font-semibold">Next invoice</th>
+                <th className="px-5 py-2 font-semibold">Owes</th>
+                <th className="px-5 py-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {agencies.map((a) => (
+                <tr key={a.agencyId} className="border-t border-primary-50">
+                  <td className="px-5 py-2.5">
+                    <p className="font-semibold text-ink">{a.name}</p>
+                    <p className="text-xs text-ink-500">{a.status}{a.settings.exempt ? ' · not billed' : ''}</p>
+                  </td>
+                  <td className="px-5 py-2.5 tabular">{a.draft.propertyCount}<span className="text-xs text-ink-500"> · {a.draft.advertisedCount} advertised</span></td>
+                  <td className="px-5 py-2.5">{a.draft.tierLabel}{a.settings.customMonthlyFee != null ? <Badge tone="info">Agreed fee</Badge> : null}</td>
+                  <td className="px-5 py-2.5 tabular">
+                    {a.draft.needsAgreedFee ? (
+                      <span className="inline-flex items-center gap-1 text-accent"><AlertTriangle className="h-4 w-4" aria-hidden /> Set agreed fee</span>
+                    ) : (
+                      <>{formatRand(a.draft.total)}<span className="text-xs text-ink-500"> incl. VAT{a.draft.lines.some((l) => l.label.startsWith('Once-off')) ? ' + sign-up' : ''}</span></>
+                    )}
+                  </td>
+                  <td className={`px-5 py-2.5 tabular ${a.overdueCount ? 'font-semibold text-accent' : ''}`}>{a.balance ? formatRand(a.balance) : '—'}</td>
+                  <td className="px-5 py-2.5 text-right">
+                    <Button size="sm" variant="secondary" onClick={() => setEditing(a)}><Settings2 className="h-4 w-4" aria-hidden /> Settings</Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+
+        <PricingCard />
+        <ScreeningUsageCard refreshKey={0} />
         <ScreeningPricingCard />
 
-        <Card className="mt-6 p-5">
-          <h2 className="font-semibold text-ink">Subscriptions</h2>
-          <ul className="mt-3 divide-y divide-primary-100">
-            {state.clientSubscriptions.map((s) => (
-              <li key={s.id} className="flex items-center justify-between gap-3 py-3 text-sm">
-                <div>
-                  <p className="font-medium">{agencyName[s.clientId] ?? s.clientId}</p>
-                  <p className="text-xs text-ink-500">
-                    {planById[s.planId]?.planName ?? s.planId} · billed on day {s.billingCycleAnchorDay}
-                  </p>
-                </div>
-                <Badge tone={statusTone(s.status)}>{s.status}</Badge>
-              </li>
-            ))}
-          </ul>
-        </Card>
+        <RecordPaymentModal invoice={paying} onClose={() => setPaying(null)} actorName={user.name}
+          onSaved={(inv) => { setPaying(null); setFlash(`Payment recorded on ${inv.number}.`); void load() }} />
+        {editing ? <AgencySettingsModal row={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void load() }} /> : null}
       </div>
     </RequirePermission>
+  )
+}
+
+function AgencySettingsModal({ row, onClose, onSaved }: { row: AgencyBillingRow; onClose: () => void; onSaved: () => void }) {
+  const [s, setS] = useState<AgencyBillingSettings>({ dueDay: 7, ...row.settings })
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const num = (v: string) => (v.trim() === '' ? null : Number(v))
+  const save = async () => {
+    setBusy(true)
+    try {
+      await billingApi.saveSettings(row.agencyId, s)
+      onSaved()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Modal open onClose={onClose} title={`Billing · ${row.name}`} description={`${row.draft.propertyCount} properties — ${row.draft.tierLabel}.`}
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={() => void save()} disabled={busy}>Save</Button></>}>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="text-sm"><span className="font-medium text-ink">Agreed monthly fee (R, excl. VAT)</span>
+          <Input className="mt-1" type="number" min="0" placeholder="Use the price sheet" value={s.customMonthlyFee ?? ''} onChange={(e) => setS({ ...s, customMonthlyFee: num(e.target.value) })} />
+        </label>
+        <label className="text-sm"><span className="font-medium text-ink">Agreed sign-up fee (R)</span>
+          <Input className="mt-1" type="number" min="0" placeholder="Use the price sheet" value={s.customSignUpFee ?? ''} onChange={(e) => setS({ ...s, customSignUpFee: num(e.target.value) })} />
+        </label>
+        <label className="text-sm"><span className="font-medium text-ink">Invoices due on day</span>
+          <Input className="mt-1" type="number" min="1" max="28" value={s.dueDay ?? 7} onChange={(e) => setS({ ...s, dueDay: Number(e.target.value) })} />
+        </label>
+        <div className="space-y-2 pt-6 text-sm">
+          <label className="flex items-center gap-2"><input type="checkbox" checked={s.signUpBilled === true} onChange={(e) => setS({ ...s, signUpBilled: e.target.checked })} /> Sign-up fee already billed or waived</label>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={s.exempt === true} onChange={(e) => setS({ ...s, exempt: e.target.checked })} /> Do not bill this agency</label>
+        </div>
+      </div>
+      {error ? <p className="mt-2 text-sm text-red-700" role="alert">{error}</p> : null}
+    </Modal>
   )
 }
