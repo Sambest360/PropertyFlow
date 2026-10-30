@@ -48,9 +48,9 @@ async function mount(payment: PaymentRecord, onConfirm = vi.fn()) {
   })
   return onConfirm
 }
-const saveButton = () => [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Mark paid') as HTMLButtonElement
+const saveButton = () => Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Mark paid') as HTMLButtonElement
 const field = (labelText: string) => {
-  const label = [...document.querySelectorAll('label')].find((l) => l.textContent?.includes(labelText))
+  const label = Array.from(document.querySelectorAll('label')).find((l) => l.textContent?.includes(labelText))
   return label?.querySelector('input, textarea') as HTMLInputElement | HTMLTextAreaElement | undefined
 }
 async function type(el: HTMLInputElement | HTMLTextAreaElement, value: string) {
