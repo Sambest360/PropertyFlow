@@ -1,7 +1,6 @@
-import { MAX_LISTING_PHOTOS, MAX_PHOTO_BYTES } from './photoLimits'
+import { MAX_PHOTO_BYTES } from './photoLimits'
 
-/** P3a: listing photo limits come from photoLimits.ts (one place to raise them). */
-export { MAX_LISTING_PHOTOS }
+/** P3a: listing photo size limit comes from photoLimits.ts; there is no photo-count cap. */
 /** Refuse a photo still over this size after downscaling (data URL length). */
 export const MAX_LISTING_PHOTO_BYTES = MAX_PHOTO_BYTES
 export const LISTING_PHOTO_TOO_LARGE =
@@ -9,9 +8,7 @@ export const LISTING_PHOTO_TOO_LARGE =
 export const NO_PHOTOS_YET = 'No photos yet'
 
 export function listingPhotosLabel(count: number): string {
-  const label = `Photos (${count}/${MAX_LISTING_PHOTOS})`
-  const extra = count - MAX_LISTING_PHOTOS
-  return extra > 0 ? `${label}: remove ${extra} photo${extra === 1 ? '' : 's'} to keep ${MAX_LISTING_PHOTOS}` : label
+  return `Photos (${count})`
 }
 
 /** Split compressed photos into accepted and refused (over the size cap). */

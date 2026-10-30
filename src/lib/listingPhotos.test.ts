@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import {
   LISTING_PHOTO_TOO_LARGE,
-  MAX_LISTING_PHOTOS,
   MAX_LISTING_PHOTO_BYTES,
   listingPhotosLabel,
   normalizeListingImages,
@@ -10,12 +9,11 @@ import {
 } from './listingPhotos'
 
 describe('listing photo limits (P3a)', () => {
-  it('8 photos, one named constant, "Photos (n/8)" counter', () => {
-    expect(MAX_LISTING_PHOTOS).toBe(8)
-    expect(listingPhotosLabel(3)).toBe('Photos (3/8)')
-    expect(listingPhotosLabel(11)).toBe('Photos (11/8): remove 3 photos to keep 8')
+  it('no photo-count cap: "Photos (n)" counter, no max on the wizard dropzone', () => {
+    expect(listingPhotosLabel(3)).toBe('Photos (3)')
+    expect(listingPhotosLabel(40)).toBe('Photos (40)')
     const create = readFileSync('src/pages/property/PropertyCreatePage.tsx', 'utf8')
-    expect(create).toContain('max={MAX_LISTING_PHOTOS}')
+    expect(create).not.toMatch(/max=\{MAX_LISTING_PHOTOS\}/)
   })
   it('normalizeListingImages trims, drops empties, dedupes in order', () => {
     expect(normalizeListingImages([' https://a/x ', '', 'https://a/x', 'https://b/y'])).toEqual([
