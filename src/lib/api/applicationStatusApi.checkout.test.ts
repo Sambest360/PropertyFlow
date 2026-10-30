@@ -5,7 +5,8 @@
  * no client-side sandbox URL, merchant key or signature.
  */
 import { describe, expect, it } from 'vitest'
-import type { Application, PropertyAsset, Unit } from '../../types/domain'
+import type { Application, PropertyAsset } from '../../types/domain'
+import type { Unit } from '../../data/infrastructure'
 import { buildDocumentChecklist } from '../workflow'
 import { patchApplicationStatus } from './applicationStatusApi'
 
