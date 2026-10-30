@@ -1258,6 +1258,13 @@ export async function assertPersistAllowed(
   // never the payload; and the writer is pinned to the stored values so a save
   // can't move the row into another agency or onto another property.
   const storedEventRow = isEventLogResource(body.resource) && existing ? existing : null
+  // C1: a stored row with no agency (client_id NULL: a platform row such as the
+  // super-admin "Agency created / cancelled" activities) belongs to no agency, so
+  // only super_admin may change or delete it; never fall back to the payload or
+  // actor agency.
+  if (storedEventRow && !storedEventRow.agencyId && actor.role !== 'super_admin') {
+    throw eventLogError(403, 'EVENT_LOG_AGENCY_MISMATCH', `Forbidden: ${actor.role} ${actor.userId} cannot ${body.action} ${body.resource} ${body.id} (platform row)`)
+  }
   if (storedEventRow && body.action === 'upsert') {
     const pinned: Record<string, unknown> = { ...(body.data ?? {}) }
     pinned.agencyId = storedEventRow.agencyId
