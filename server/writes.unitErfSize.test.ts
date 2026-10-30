@@ -142,6 +142,14 @@ describe('T2 upsertProperty erf size', () => {
     expect(sqls().some((x) => /INSERT INTO (units|buildings)|UPDATE (units|buildings)/.test(x))).toBe(false)
   })
 
+  it("V2-1: a hex, exponent, signed, negative or comma floor size is a 400 before anything is written", async () => {
+    for (const data of [{ area: '0x10' }, { area: '1e3' }, { area: '+5' }, { area: '-1' }, { area: -1 }, { squareMeters: '12,5' }]) {
+      query.mockClear()
+      await expect(persist(data)).rejects.toMatchObject({ status: 400, code: 'UNIT_FLOOR_SIZE_INVALID' })
+      expect(sqls().some((x) => /INSERT INTO (units|buildings)|UPDATE (units|buildings)/.test(x))).toBe(false)
+    }
+  })
+
   it('C-2: the largest floor size the column holds still saves', async () => {
     const res = await persist({ area: 99_999_999.99 })
     expect(res.ok).toBe(true)
