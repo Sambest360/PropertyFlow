@@ -219,7 +219,7 @@ describe('T7 setup.sh', () => {
   })
 })
 
-// Jim's #125 review SHOULD (3), mutants J04 and J09: the template must not drift
+// Jim's #125 review SHOULD 2, mutants J04 and J09: the template must not drift
 // from the installed file on the proxy target or the /assets caching. Both are
 // read from the files, so a change to one file alone fails here.
 describe('T7 template pins against the installed file (J04, J09)', () => {
@@ -259,7 +259,7 @@ describe('T7 template pins against the installed file (J04, J09)', () => {
   })
 })
 
-// Michael's ruling: PayFast's live payment page may sit on payment.<io host>, and
+// Michael's Ruling 16: PayFast's live payment page may sit on payment.<io host>, and
 // a redirect from /eng/process would be blocked by form-action without it
 // (UNVERIFIED). The old www.<io host> entry stays until the first live payment
 // is verified. Host names are built in parts: #127's guard test fails on the

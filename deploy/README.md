@@ -28,15 +28,16 @@
 
 ### Certificate renewal (UNVERIFIED on the live server)
 
-- Two authenticators work with this shape. Neither has been checked on the live
-  server.
-- **nginx plugin** (`certbot --nginx`): answers the HTTP-01 challenge by
-  temporarily editing nginx itself, so the 301-only :80 block is no problem.
-- **webroot** works only with `-w /var/www/propertyflow/dist`. Let's Encrypt
-  follows the :80 301 to https, and the 443 block serves that folder (`root
-  /var/www/propertyflow/dist;`), so the challenge file certbot writes under
-  `/var/www/propertyflow/dist/.well-known/acme-challenge/` is reachable. Any
-  other `-w` folder is not served by nginx here.
+- Use the **nginx plugin** (`certbot --nginx`); it is the recommended
+  authenticator. It answers the HTTP-01 challenge by temporarily editing nginx
+  itself, so the 301-only :80 block is no problem.
+- **webroot** also works, but only with `-w /var/www/propertyflow/dist` (Let's
+  Encrypt follows the :80 301 to https, and the 443 block serves that folder:
+  `root /var/www/propertyflow/dist;` in the 443 block of the live site file
+  `/etc/nginx/sites-available/propertyflow` after certbot's edit). It is
+  fragile: `deploy/update.sh` line 7 runs `vite build`, which empties and
+  rebuilds `dist/`, so a renewal that runs during a deploy can lose its
+  challenge file. Any other `-w` folder is not served by nginx here.
 - Which authenticator the live box renews with is UNVERIFIED. Suggested check for
   Stanley (names only, no file contents): run `certbot renew --dry-run` and name
   the authenticator it uses (for example from
@@ -46,10 +47,13 @@
 
 ### After `certbot --nginx` edits the installed file (UNVERIFIED live)
 
-- `certbot --nginx` edits the installed `nginx-propertyflow.conf` in place. That
-  file's `location /assets/` has its own `add_header Cache-Control` and no
-  include, so the live 443 `/assets/` responses would carry no security headers
-  (nginx inheritance rule). Only the template has the include there.
+- `certbot --nginx` edits the live site file
+  `/etc/nginx/sites-available/propertyflow` (the copy of
+  `nginx-propertyflow.conf` that `setup.sh` installs) in place. That file's
+  `location /assets/` has its own `add_header Cache-Control` and no include, so
+  the live 443 `/assets/` responses would carry no security headers (nginx
+  inheritance rule). Only the template has the include there.
 - After certbot's edit, the operator must add
-  `include conf.d/propertyflow-security-headers.conf;` inside the live 443
-  `location /assets/` block (as in the template), then run `nginx -t` and reload.
+  `include conf.d/propertyflow-security-headers.conf;` inside the 443
+  `location /assets/` block of `/etc/nginx/sites-available/propertyflow` (as in
+  the template), then run `nginx -t` and reload.
