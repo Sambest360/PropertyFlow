@@ -59,7 +59,8 @@ export type UnitSearchFilters = {
   area_places?: Place[]
   cursor?: string | null
   limit?: number
-  sort?: 'featured' | 'rent_asc' | 'rent_desc' | 'price_asc' | 'price_desc' | 'newest' | 'beds_desc'
+  /** amount_* = price ?? rent (T4: 'all' mode mixes sales and rentals). */
+  sort?: 'featured' | 'rent_asc' | 'rent_desc' | 'price_asc' | 'price_desc' | 'amount_asc' | 'amount_desc' | 'newest' | 'beds_desc'
 }
 
 export type UnitCardPayload = {
@@ -386,6 +387,14 @@ export function searchUnitsFeed(params: {
 
   const sort = filters.sort ?? 'featured'
   rows = [...rows].sort((a, b) => {
+    if (sort === 'amount_asc' || sort === 'amount_desc') {
+      // T4: price ?? rent; no amount goes last both ways; id breaks ties so desc is the exact reverse.
+      const av = a.price ?? a.rent
+      const bv = b.price ?? b.rent
+      if (av == null || bv == null) return av == null && bv == null ? a.id.localeCompare(b.id) : av == null ? 1 : -1
+      const dir = sort === 'amount_asc' ? 1 : -1
+      return dir * (av - bv || a.id.localeCompare(b.id))
+    }
     if (sort === 'rent_asc') return (a.rent ?? 1e15) - (b.rent ?? 1e15)
     if (sort === 'rent_desc') return (b.rent ?? 0) - (a.rent ?? 0)
     if (sort === 'price_asc') return (a.price ?? 1e15) - (b.price ?? 1e15)
