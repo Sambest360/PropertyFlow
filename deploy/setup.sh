@@ -16,4 +16,6 @@ nginx -t && systemctl reload nginx
 # Scheduled jobs (lease reminders, escalations, storage alerts, screening purge)
 bash deploy/crons.sh
 sleep 2; curl -s -o /dev/null -w "API status: %{http_code}\n" http://127.0.0.1:8787/api/auth/me
-echo "Done. Next: point DNS to $(curl -s -4 ifconfig.me), then run certbot."
+# TLS is not automated here. After DNS points at this box, run the certbot nginx
+# plugin with --redirect (it edits the installed file); see deploy/README.md.
+echo "Done. Next: point DNS to $(curl -s -4 ifconfig.me), then run: certbot --nginx --redirect -d lekayarentals.site -d www.lekayarentals.site (see deploy/README.md)"
