@@ -22,6 +22,7 @@ import {
 } from '../components/dashboard'
 import { Badge, Button, Card, statusTone } from '../components/ui'
 import { ProofOfPaymentForm } from '../components/payments/ProofOfPaymentForm'
+import { LeaseSignCard } from '../components/lease/LeaseSignCard'
 import { PaymentAttachmentsList } from '../components/payments/PaymentAttachmentsField'
 import { WishlistListView } from '../components/wishlist/WishlistListView'
 import { formatZAR } from '../data/seed'
@@ -165,6 +166,7 @@ function TenantPortalContent() {
             {portal.tenancy ? (
               <>
                 <LinkedTenancyCard tenancy={portal.tenancy} />
+                <LeaseSignCard tenancy={portal.tenancy} party="tenant" title="My lease agreement" />
                 {inspectionsAvailable && <LeaseInspectionsPanel leaseId={portal.tenancy.id} mode="tenant" />}
               </>
             ) : (

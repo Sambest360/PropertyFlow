@@ -56,6 +56,8 @@ export type LeaseSignCapture = {
   signatureDataUrl?: string
   method?: SignMethod
   onBehalfConfirmation?: string
+  /** ECTA 25 of 2002: "I agree" statements, typed name and lease fingerprint. */
+  ectaConsent?: import('./types').EctaConsent
 }
 
 /** Client-side check before Sign is allowed (null = ok). */
@@ -68,6 +70,7 @@ export function leaseSignCaptureError(
     return "Tick the confirmation that you are signing under the agency's mandate."
   }
   if (opts.paper) return null
+  if (!capture.ectaConsent) return 'Read the lease, tick each "I agree" statement and type your full name.'
   if (!capture.signatureDataUrl) return 'Draw a signature before continuing.'
   return null
 }

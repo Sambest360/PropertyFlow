@@ -1,7 +1,8 @@
+import { LeaseDocumentActions } from '../components/lease/LeaseDocument'
 import { useMemo, useRef, useState } from 'react'
 import { acquireSubmitLock, releaseSubmitLock } from '../lib/wizardSubmitGuard'
 import { Link, useSearchParams } from 'react-router-dom'
-import { ArrowRight, FileSignature, FileText, PenLine, RefreshCw, TrendingUp } from 'lucide-react'
+import { ArrowRight, Eye, FileSignature, FileText, PenLine, RefreshCw, TrendingUp } from 'lucide-react'
 import { useStore } from '../context/AppStore'
 import { usePropertyScope, useAuth } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
@@ -247,6 +248,7 @@ export default function LeasesDirectory() {
         signatureDataUrl: capture.signatureDataUrl,
         method: capture.method,
         onBehalfConfirmation: capture.onBehalfConfirmation,
+        ectaConsent: capture.method === 'paper_mark' ? undefined : capture.ectaConsent,
         actorUserId: user?.id,
       })
       if (!res.ok)
@@ -909,6 +911,25 @@ function LeaseActions({
           Sign for landlord
         </Button>
       ) : null}
+      <LeaseViewDownload tenancy={row.tenancy} />
     </div>
+  )
+}
+
+/** View the full lease text and download the PDF (signed copy once signed). */
+function LeaseViewDownload({ tenancy }: { tenancy: Tenancy }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(true)}>
+        <Eye className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} /> View / download
+      </Button>
+      {open ? (
+        <Modal open onClose={() => setOpen(false)} title={`Lease · ${tenancy.tenantName}`} size="lg"
+          footer={<Button variant="secondary" onClick={() => setOpen(false)}>Close</Button>}>
+          <LeaseDocumentActions tenancy={tenancy} />
+        </Modal>
+      ) : null}
+    </>
   )
 }

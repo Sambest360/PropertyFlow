@@ -661,6 +661,7 @@ type StoreContextValue = {
     /** CR10: drawn | saved_image | paper_mark (re-checked by the server). */
     method?: 'drawn' | 'saved_image' | 'paper_mark'
     onBehalfConfirmation?: string
+    ectaConsent?: import('../lib/lease/types').EctaConsent
     actorUserId?: string | null
   }) => Promise<{ ok: boolean; error?: string }>
   assignRole: (userId: string, role: Role, agencyId?: string | null) => void
@@ -3030,6 +3031,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       signatureDataUrl,
       method,
       onBehalfConfirmation,
+      ectaConsent,
       actorUserId,
     }) => {
       const lease = stateRef.current.tenancies.find((t) => t.id === tenancyId)
@@ -3064,6 +3066,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         signatureDataUrl: await sendableSignature(signatureDataUrl),
         method,
         onBehalfConfirmation,
+        ectaConsent,
         actorUserId,
       })
       if (!signed.ok) return { ok: false, error: signed.error }
@@ -5466,6 +5469,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             signatureDataUrl: paper ? undefined : await sendableSignature(signature?.signatureDataUrl),
             method: paper ? 'paper_mark' : signature?.method ?? 'drawn',
             onBehalfConfirmation: signature?.onBehalfConfirmation,
+            ectaConsent: paper ? undefined : signature?.ectaConsent,
             actorUserId,
           })
           if (signed.ok) {

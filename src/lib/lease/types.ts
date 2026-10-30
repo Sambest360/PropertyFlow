@@ -24,6 +24,8 @@ export type LeaseESignParty = {
   method?: 'drawn' | 'saved_image' | 'paper_mark'
   /** CR10: the mandate line staff ticked when signing for the landlord. */
   onBehalfConfirmation?: string
+  /** ECTA 25 of 2002: the "I agree" statements ticked, the typed name and the lease fingerprint. */
+  ectaConsent?: EctaConsent
   /** CR10 server-set stamp fields (never trusted from the client). */
   signerUserId?: string
   signerRole?: string
@@ -31,6 +33,14 @@ export type LeaseESignParty = {
   imageSha256?: string | null
   ip?: string
   userAgent?: string
+}
+
+export type EctaConsent = {
+  statements: string[]
+  typedName: string
+  documentHash: string
+  templateVersion: string
+  acceptedAt?: string
 }
 
 export type LeaseESignEvent = {
@@ -75,6 +85,28 @@ export type LeasePdfInput = {
   rent: number
   deposit: number
   generatedAt?: string
+  /** Extra lease terms (see leaseContract.ts). */
+  agencyContact?: string | null
+  rentDueDay?: number | null
+  escalationPct?: number | null
+  parkingBays?: number | null
+  /** Signed copy: each signature and its electronic-signing record. */
+  signatures?: LeasePdfSignature[]
+}
+
+export type LeasePdfSignature = {
+  role: 'Tenant' | 'Landlord'
+  name: string
+  signedAt: string
+  method: string
+  onBehalf?: boolean
+  signedBy?: string | null
+  imageDataUrl?: string | null
+  ip?: string | null
+  userAgent?: string | null
+  typedName?: string | null
+  documentHash?: string | null
+  statements?: string[]
 }
 
 export type LeasePdfResult = {

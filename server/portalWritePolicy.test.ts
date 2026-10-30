@@ -301,7 +301,7 @@ describe('tenant allow-list: the real tenant flows still work, narrowly', () => 
         eSign: {
           status: 'completed',
           envelopeId: 'ENV-1',
-          tenant: { status: 'signed', signedAt: '2026-10-09T10:00:00Z', signerName: 'Tess', signatureDataUrl: PNG_SIG, method: 'drawn' },
+          tenant: { status: 'signed', signedAt: '2026-10-09T10:00:00Z', signerName: 'Tess', signatureDataUrl: PNG_SIG, method: 'drawn', ectaConsent: { statements: ['I have read and understood the whole lease.', 'I agree to sign this lease electronically.', 'I confirm I am the person named.'], typedName: 'Test Signer', documentHash: 'a'.repeat(64), templateVersion: 't' } },
           landlord: { status: 'signed', signedAt: '2026-10-09T10:00:00Z', signerName: 'Forged' },
         },
       },
@@ -339,7 +339,7 @@ describe('tenant allow-list: the real tenant flows still work, narrowly', () => 
       resource: 'tenancy',
       action: 'upsert',
       id: 'L-1',
-      data: { eSign: { envelopeId: 'ENV-1', tenant: { status: 'signed' }, landlord: { status: 'signed', signerName: 'Lan', method: 'drawn', signatureDataUrl: PNG_SIG } } },
+      data: { eSign: { envelopeId: 'ENV-1', tenant: { status: 'signed' }, landlord: { status: 'signed', signerName: 'Lan', method: 'drawn', signatureDataUrl: PNG_SIG, ectaConsent: { statements: ['I have read and understood the whole lease.', 'I agree to sign this lease electronically.', 'I confirm I am the person named.'], typedName: 'Test Signer', documentHash: 'a'.repeat(64), templateVersion: 't' } } } },
     })
     const eSign = JSON.parse(String(writes.find((w) => w.sql.startsWith('UPDATE leases'))!.params[1]))
     expect(eSign.landlord).toMatchObject({ status: 'signed', signerName: 'Lan', onBehalf: false, signerUserId: 'u-ll' })

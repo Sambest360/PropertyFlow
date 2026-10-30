@@ -1,3 +1,4 @@
+import { LeaseSignCard } from '../../components/lease/LeaseSignCard'
 import { useMemo, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowRight, CheckCircle2, CreditCard, FileText, Home, KeyRound, MapPin, MessageSquare, Wallet } from 'lucide-react'
@@ -165,6 +166,7 @@ export default function TenantApplicationDetailPage() {
               signatureDataUrl: capture.signatureDataUrl,
               method: capture.signatureMethod,
               onBehalfConfirmation: capture.onBehalfConfirmation,
+              ectaConsent: capture.ectaConsent,
               signerName: capture.signerName,
             }
           : undefined,
@@ -453,6 +455,9 @@ export default function TenantApplicationDetailPage() {
           </>
         )}
 
+        {tab === 'tenancy' && linkedTenancy ? (
+          <LeaseSignCard tenancy={linkedTenancy} party="tenant" title="Your lease agreement" />
+        ) : null}
         {tab === 'tenancy' && linkedTenancy ? (
           <Card className="p-5" data-testid="tenant-app-linked-tenancy">
             <div className="flex flex-wrap items-start justify-between gap-3">

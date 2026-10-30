@@ -46,6 +46,8 @@ export type RecordLeaseSignInput = {
   /** CR10: signing method and on-behalf confirmation, re-checked by the server. */
   method?: 'drawn' | 'saved_image' | 'paper_mark'
   onBehalfConfirmation?: string
+  /** ECTA 25 of 2002 consent (statements, typed name, lease fingerprint). */
+  ectaConsent?: import('./types').EctaConsent
   actorUserId?: string | null
   provider?: ESignProvider
   env?: Record<string, string | undefined>
@@ -170,6 +172,9 @@ export async function issueLeaseOnTenancyCreate(
       endDate: tenancy.endDate,
       rent: tenancy.rent,
       deposit: tenancy.deposit,
+      rentDueDay: tenancy.rentDueDay ?? 1,
+      escalationPct: tenancy.billingSchedule?.escalationPct ?? null,
+      parkingBays: property?.parking ?? null,
       generatedAt: now,
     })
   } catch (err) {
@@ -370,6 +375,7 @@ export async function recordLeaseSignature(
             signatureDataUrl: input.signatureDataUrl,
             ...(input.method ? { method: input.method } : {}),
             ...(input.onBehalfConfirmation ? { onBehalfConfirmation: input.onBehalfConfirmation } : {}),
+            ...(input.ectaConsent ? { ectaConsent: input.ectaConsent } : {}),
           }
         : prev.tenant,
     landlord:
@@ -381,6 +387,7 @@ export async function recordLeaseSignature(
             signatureDataUrl: input.signatureDataUrl,
             ...(input.method ? { method: input.method } : {}),
             ...(input.onBehalfConfirmation ? { onBehalfConfirmation: input.onBehalfConfirmation } : {}),
+            ...(input.ectaConsent ? { ectaConsent: input.ectaConsent } : {}),
           }
         : prev.landlord,
     events: [

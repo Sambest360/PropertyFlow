@@ -77,6 +77,17 @@ export const PNG2 = 'data:image/png;base64,' + 'AAAABBBB'.repeat(8)
 let leaseESign: Record<string, unknown>
 const storedSig: Record<string, string> = {}
 
+const ECTA = {
+  statements: [
+    'I have read and understood the whole lease and agree to be bound by it.',
+    'I agree to sign this lease electronically (ECTA 25 of 2002, section 13).',
+    'I confirm I am the person named and the signature is my own.',
+  ],
+  typedName: 'Test Signer',
+  documentHash: 'a'.repeat(64),
+  templateVersion: 'test',
+}
+
 function baseESign(): Record<string, unknown> {
   return {
     status: 'sent',
@@ -160,7 +171,7 @@ describe('stampLeaseSignature: who may sign which block', () => {
   it('the tenant signs their own block: server time, signer, method, hash, IP and user agent', async () => {
     const res = await stamp(TENANT, 'tenant', {
       status: 'signed',
-      method: 'drawn',
+      method: 'drawn', ectaConsent: ECTA,
       signatureDataUrl: PNG,
       signedAt: '1999-01-01T00:00:00.000Z',
       signerUserId: 'u-someone-else',
@@ -169,13 +180,13 @@ describe('stampLeaseSignature: who may sign which block', () => {
     const t = storedAfter().tenant
     expect(t.signedAt).not.toBe('1999-01-01T00:00:00.000Z')
     expect(Math.abs(Date.parse(String(t.signedAt)) - Date.now())).toBeLessThan(10_000)
-    expect(t).toMatchObject({ signerUserId: 'u-t', method: 'drawn', onBehalf: false, ip: '10.0.0.1', userAgent: 'test-agent' })
+    expect(t).toMatchObject({ signerUserId: 'u-t', method: 'drawn', ectaConsent: ECTA, onBehalf: false, ip: '10.0.0.1', userAgent: 'test-agent' })
     expect(t.imageSha256).toMatch(/^[0-9a-f]{64}$/)
     expect(storedAfter().status).toBe('partially_signed')
   })
 
   it('staff signing the tenant block gets 403 SIGNATURE_NOT_SIGNER, and nothing is written', async () => {
-    await expect(stamp(STAFF, 'tenant', { status: 'signed', method: 'drawn', signatureDataUrl: PNG })).rejects.toMatchObject({
+    await expect(stamp(STAFF, 'tenant', { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG })).rejects.toMatchObject({
       status: 403,
       code: 'SIGNATURE_NOT_SIGNER',
     })
@@ -183,16 +194,16 @@ describe('stampLeaseSignature: who may sign which block', () => {
   })
 
   it('another tenant, or staff of another agency, gets 403 SIGNATURE_NOT_SIGNER', async () => {
-    await expect(stamp(OTHER_TENANT, 'tenant', { status: 'signed', method: 'drawn', signatureDataUrl: PNG })).rejects.toMatchObject({
+    await expect(stamp(OTHER_TENANT, 'tenant', { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG })).rejects.toMatchObject({
       code: 'SIGNATURE_NOT_SIGNER',
     })
     await expect(
-      stamp(OTHER_AGENCY_STAFF, 'landlord', { status: 'signed', method: 'drawn', signatureDataUrl: PNG, onBehalfConfirmation: 'x' }),
+      stamp(OTHER_AGENCY_STAFF, 'landlord', { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG, onBehalfConfirmation: 'x' }),
     ).rejects.toMatchObject({ code: 'SIGNATURE_NOT_SIGNER' })
   })
 
   it('staff on behalf of the landlord: refused without the mandate tick', async () => {
-    await expect(stamp(STAFF, 'landlord', { status: 'signed', method: 'drawn', signatureDataUrl: PNG })).rejects.toMatchObject({
+    await expect(stamp(STAFF, 'landlord', { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG })).rejects.toMatchObject({
       status: 403,
       code: 'SIGNATURE_ON_BEHALF_UNCONFIRMED',
     })
@@ -202,7 +213,7 @@ describe('stampLeaseSignature: who may sign which block', () => {
   it('staff on behalf of the landlord with the tick: stored with on_behalf, the staff uuid and the confirmation', async () => {
     const { onBehalfConfirmationText } = await import('./leaseSign.js')
     const confirmation = onBehalfConfirmationText('Lerato Landlord')
-    await stamp(STAFF, 'landlord', { status: 'signed', method: 'drawn', signatureDataUrl: PNG, onBehalfConfirmation: confirmation })
+    await stamp(STAFF, 'landlord', { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG, onBehalfConfirmation: confirmation })
     expect(storedAfter().landlord).toMatchObject({
       signerUserId: 'u-staff',
       onBehalf: true,
@@ -212,29 +223,29 @@ describe('stampLeaseSignature: who may sign which block', () => {
 
   it("staff can't sign on behalf with a saved image (must draw)", async () => {
     await expect(
-      stamp(STAFF, 'landlord', { status: 'signed', method: 'saved_image', signatureDataUrl: PNG, onBehalfConfirmation: 'x' }),
+      stamp(STAFF, 'landlord', { status: 'signed', method: 'saved_image', ectaConsent: ECTA, signatureDataUrl: PNG, onBehalfConfirmation: 'x' }),
     ).rejects.toMatchObject({ code: 'SIGNATURE_NOT_OWN' })
   })
 
   it("saved_image must match the actor's own stored signature (403 SIGNATURE_NOT_OWN otherwise)", async () => {
     storedSig['uuid-t'] = PNG2
-    await expect(stamp(TENANT, 'tenant', { status: 'signed', method: 'saved_image', signatureDataUrl: PNG })).rejects.toMatchObject({
+    await expect(stamp(TENANT, 'tenant', { status: 'signed', method: 'saved_image', ectaConsent: ECTA, signatureDataUrl: PNG })).rejects.toMatchObject({
       status: 403,
       code: 'SIGNATURE_NOT_OWN',
     })
     storedSig['uuid-t'] = PNG
-    await stamp(TENANT, 'tenant', { status: 'signed', method: 'saved_image', signatureDataUrl: PNG })
+    await stamp(TENANT, 'tenant', { status: 'signed', method: 'saved_image', ectaConsent: ECTA, signatureDataUrl: PNG })
     expect(storedAfter().tenant.method).toBe('saved_image')
   })
 
   it('a non-PNG or oversize image is 400 SIGNATURE_INVALID', async () => {
     await expect(
-      stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', signatureDataUrl: 'data:image/jpeg;base64,AAAA' }),
+      stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: 'data:image/jpeg;base64,AAAA' }),
     ).rejects.toMatchObject({ status: 400, code: 'SIGNATURE_INVALID' })
     await expect(
-      stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', signatureDataUrl: 'data:image/png;base64,' + 'A'.repeat(160_000) }),
+      stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: 'data:image/png;base64,' + 'A'.repeat(160_000) }),
     ).rejects.toMatchObject({ status: 400, code: 'SIGNATURE_INVALID' })
-    await expect(stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn' })).rejects.toMatchObject({ code: 'SIGNATURE_INVALID' })
+    await expect(stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', ectaConsent: ECTA })).rejects.toMatchObject({ code: 'SIGNATURE_INVALID' })
   })
 
   it('paper mark-signed: staff only, no image stored', async () => {
@@ -249,7 +260,7 @@ describe('stampLeaseSignature: who may sign which block', () => {
 
   it('a signed block is never replaced (forward only)', async () => {
     leaseESign = { ...baseESign(), tenant: { status: 'signed', signatureDataUrl: PNG, signerUserId: 'u-t' } }
-    const res = await stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', signatureDataUrl: PNG2 })
+    const res = await stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG2 })
     expect(res.signed).toBe(false)
     expect(clientCalls).toHaveLength(0)
   })
@@ -265,13 +276,13 @@ describe('hole 2: staff lease saves no longer store eSign whole', () => {
 
   it("staff overwriting the tenant's block with their own image is 403 SIGNATURE_NOT_SIGNER", async () => {
     await expect(
-      staffSave(STAFF, { ...baseESign(), tenant: { status: 'signed', method: 'drawn', signatureDataUrl: PNG } }),
+      staffSave(STAFF, { ...baseESign(), tenant: { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG } }),
     ).rejects.toMatchObject({ status: 403, code: 'SIGNATURE_NOT_SIGNER' })
     expect(clientCalls).toHaveLength(0)
   })
 
   it("an already signed tenant block can't be replaced or wiped by a staff save", async () => {
-    const signedTenant = { status: 'signed', signatureDataUrl: PNG, signerUserId: 'u-t', method: 'drawn' }
+    const signedTenant = { status: 'signed', signatureDataUrl: PNG, signerUserId: 'u-t', method: 'drawn', ectaConsent: ECTA }
     leaseESign = { ...baseESign(), status: 'partially_signed', tenant: signedTenant }
     const data = await staffSave(STAFF, { ...baseESign(), tenant: { status: 'signed', signatureDataUrl: PNG2 } })
     expect((data.eSign as Record<string, unknown>).tenant).toEqual(signedTenant)
@@ -295,7 +306,7 @@ describe('hole 2: staff lease saves no longer store eSign whole', () => {
   })
 
   it('CR10 fix 1: a new envelope is refused while any block is signed; the signed tenant block stays signed', async () => {
-    const signedTenant = { status: 'signed', signatureDataUrl: PNG, signerUserId: 'u-t', method: 'drawn' }
+    const signedTenant = { status: 'signed', signatureDataUrl: PNG, signerUserId: 'u-t', method: 'drawn', ectaConsent: ECTA }
     leaseESign = { ...baseESign(), status: 'partially_signed', tenant: signedTenant }
     await expect(staffSave(STAFF, { ...baseESign(), envelopeId: 'ENV-2' })).rejects.toMatchObject({
       status: 403,
@@ -310,7 +321,7 @@ describe('hole 2: staff lease saves no longer store eSign whole', () => {
   it('a staff on-behalf landlord signing through a lease save goes through the stamp', async () => {
     const data = await staffSave(STAFF, {
       ...baseESign(),
-      landlord: { status: 'signed', method: 'drawn', signatureDataUrl: PNG, onBehalfConfirmation: 'I am signing for L.' },
+      landlord: { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG, onBehalfConfirmation: 'I am signing for L.' },
     })
     expect((data.eSign as Record<string, Record<string, unknown>>).landlord).toMatchObject({ onBehalf: true, signerUserId: 'u-staff' })
     expect(updates()).toHaveLength(1)
@@ -324,7 +335,7 @@ describe('hole 1: portal signing goes through the same stamp', () => {
       resource: 'tenancy',
       action: 'upsert',
       id: 'L-1',
-      data: { eSign: { ...baseESign(), tenant: { status: 'signed', method: 'drawn', signatureDataUrl: 'data:image/svg+xml;base64,AAAA' } } },
+      data: { eSign: { ...baseESign(), tenant: { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: 'data:image/svg+xml;base64,AAAA' } } },
     }
     await expect(enforcePortalWritePolicy(TENANT as never, bad as never, null as never)).rejects.toMatchObject({
       status: 400,
@@ -337,7 +348,7 @@ describe('hole 1: portal signing goes through the same stamp', () => {
       data: {
         eSign: {
           ...baseESign(),
-          tenant: { status: 'signed', method: 'drawn', signatureDataUrl: PNG, signedAt: '2000-01-01T00:00:00.000Z' },
+          tenant: { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG, signedAt: '2000-01-01T00:00:00.000Z' },
         },
       },
       requestMeta: { ip: '1.2.3.4', userAgent: 'ua' },
@@ -352,7 +363,7 @@ describe('hole 1: portal signing goes through the same stamp', () => {
     const { enforcePortalWritePolicy } = await import('./portalWritePolicy.js')
     await enforcePortalWritePolicy(
       LANDLORD as never,
-      { resource: 'tenancy', action: 'upsert', id: 'L-1', data: { eSign: { ...baseESign(), landlord: { status: 'signed', method: 'drawn', signatureDataUrl: PNG } } } } as never,
+      { resource: 'tenancy', action: 'upsert', id: 'L-1', data: { eSign: { ...baseESign(), landlord: { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG } } } } as never,
       null as never,
     )
     expect(storedAfter().landlord).toMatchObject({ onBehalf: false, signerUserId: 'u-ll' })
@@ -369,7 +380,7 @@ describe('CR10 part 4: exactly one lease_signed row per signing, same transactio
     const body = {
       id: 'L-1',
       action: 'upsert',
-      data: { eSign: { ...baseESign(), landlord: { status: 'signed', method: 'drawn', signatureDataUrl: PNG, onBehalfConfirmation: "I am signing for L under the agency's mandate." } } },
+      data: { eSign: { ...baseESign(), landlord: { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG, onBehalfConfirmation: "I am signing for L under the agency's mandate." } } },
       requestMeta: { ip: '9.9.9.9', userAgent: 'ua' },
     }
     await enforceStaffTenancyESign(STAFF as never, body)
@@ -400,7 +411,7 @@ describe('CR10 part 4: exactly one lease_signed row per signing, same transactio
     const { enforcePortalWritePolicy } = await import('./portalWritePolicy.js')
     await enforcePortalWritePolicy(
       TENANT as never,
-      { resource: 'tenancy', action: 'upsert', id: 'L-1', data: { eSign: { ...baseESign(), tenant: { status: 'signed', method: 'drawn', signatureDataUrl: PNG } } } } as never,
+      { resource: 'tenancy', action: 'upsert', id: 'L-1', data: { eSign: { ...baseESign(), tenant: { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG } } } } as never,
       null as never,
     )
     expect(events()).toHaveLength(1)
@@ -411,7 +422,7 @@ describe('CR10 part 4: exactly one lease_signed row per signing, same transactio
     const { enforcePortalWritePolicy } = await import('./portalWritePolicy.js')
     await enforcePortalWritePolicy(
       LANDLORD as never,
-      { resource: 'tenancy', action: 'upsert', id: 'L-1', data: { eSign: { ...baseESign(), landlord: { status: 'signed', method: 'drawn', signatureDataUrl: PNG } } } } as never,
+      { resource: 'tenancy', action: 'upsert', id: 'L-1', data: { eSign: { ...baseESign(), landlord: { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG } } } } as never,
       null as never,
     )
     expect(events()).toHaveLength(1)
@@ -425,17 +436,17 @@ describe('CR10 part 4: exactly one lease_signed row per signing, same transactio
   })
 
   it('a refused signing writes nothing; a failed lease UPDATE rolls back (no row)', async () => {
-    await expect(stamp(STAFF, 'tenant', { status: 'signed', method: 'drawn', signatureDataUrl: PNG })).rejects.toBeTruthy()
+    await expect(stamp(STAFF, 'tenant', { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG })).rejects.toBeTruthy()
     expect(events()).toHaveLength(0)
     failOnUpdate = true
-    await expect(stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', signatureDataUrl: PNG })).rejects.toThrow('update failed')
+    await expect(stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG })).rejects.toThrow('update failed')
     expect(clientCalls).toHaveLength(0)
   })
 
   it('re-sending an already signed block writes no second row', async () => {
-    await stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', signatureDataUrl: PNG })
+    await stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG })
     leaseESign = storedAfter() as Record<string, unknown>
-    await stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', signatureDataUrl: PNG })
+    await stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG })
     expect(events()).toHaveLength(1)
   })
 
@@ -454,7 +465,7 @@ describe('CR10 part 4: exactly one lease_signed row per signing, same transactio
 
 describe('CR10 part 6: sign after reload (mock) writes exactly one lease_signed row', () => {
   it('a reloaded client sends the stored envelope plus its new landlord block: one row', async () => {
-    leaseESign = { ...baseESign(), status: 'partially_signed', tenant: { status: 'signed', signerUserId: 'u-t', method: 'drawn' } }
+    leaseESign = { ...baseESign(), status: 'partially_signed', tenant: { status: 'signed', signerUserId: 'u-t', method: 'drawn', ectaConsent: ECTA } }
     const { enforceStaffTenancyESign } = await import('./leaseSign.js')
     const body = {
       id: 'L-1',
@@ -463,7 +474,7 @@ describe('CR10 part 6: sign after reload (mock) writes exactly one lease_signed 
         eSign: {
           ...leaseESign,
           status: 'completed',
-          landlord: { status: 'signed', method: 'drawn', signatureDataUrl: PNG, signerName: 'Owner', onBehalfConfirmation: "I am signing for Owner under the agency's mandate." },
+          landlord: { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG, signerName: 'Owner', onBehalfConfirmation: "I am signing for Owner under the agency's mandate." },
           events: [{ at: 'x', type: 'party_signed', party: 'landlord', summary: 'Signature recorded for Owner (test provider).' }],
         },
       },
@@ -478,7 +489,7 @@ describe('CR10 part 8: lease-signed email', () => {
   const flush = () => new Promise((r) => setTimeout(r, 0))
   const signLandlordToComplete = async () => {
     leaseESign = { ...baseESign(), status: 'partially_signed', tenant: { status: 'signed', signerUserId: 'u-t' } }
-    return stamp(LANDLORD, 'landlord', { status: 'signed', method: 'drawn', signatureDataUrl: PNG })
+    return stamp(LANDLORD, 'landlord', { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG })
   }
 
   it('goes once on completed, to the tenant and the landlord, with plain copy inputs', async () => {
@@ -509,7 +520,7 @@ describe('CR10 part 8: lease-signed email', () => {
 
   it('never on a partial signing', async () => {
     emailFlag = true
-    await stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', signatureDataUrl: PNG })
+    await stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG })
     await flush()
     expect(sendLeaseSignedEmail).not.toHaveBeenCalled()
   })
@@ -517,7 +528,7 @@ describe('CR10 part 8: lease-signed email', () => {
   it('not again once the sent flag is set', async () => {
     emailFlag = true
     leaseESign = { ...baseESign(), status: 'partially_signed', completedEmailSentAt: '2026-10-10T00:00:00Z', tenant: { status: 'signed' } }
-    await stamp(LANDLORD, 'landlord', { status: 'signed', method: 'drawn', signatureDataUrl: PNG })
+    await stamp(LANDLORD, 'landlord', { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG })
     await flush()
     expect(sendLeaseSignedEmail).not.toHaveBeenCalled()
   })
@@ -563,7 +574,7 @@ describe('CR10 fix 6 / B3: staff modal sign with no envelope = issue, then serve
         id: 'L-1',
         eSign: {
           ...leaseESign,
-          landlord: { status: 'signed', method: 'drawn', signatureDataUrl: PNG, signerName: 'Owner', onBehalfConfirmation: "I am signing for Owner under the agency's mandate." },
+          landlord: { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG, signerName: 'Owner', onBehalfConfirmation: "I am signing for Owner under the agency's mandate." },
         },
       } as Record<string, unknown>,
     }
@@ -579,7 +590,7 @@ describe('CR10 B1: enforceStaffTenancyESign gates every non-delete action', () =
       enforceStaffTenancyESign(STAFF as never, {
         id: 'L-1',
         action: 'patch',
-        data: { eSign: { ...baseESign(), tenant: { status: 'signed', method: 'drawn', signatureDataUrl: PNG } } },
+        data: { eSign: { ...baseESign(), tenant: { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG } } },
       }),
     ).rejects.toMatchObject({ status: 403, code: 'SIGNATURE_NOT_SIGNER' })
     expect(updates()).toHaveLength(0)
@@ -609,25 +620,25 @@ describe('CR10 B2b: a party match needs the party role too', () => {
   it('staff or super admin whose uuid sits in tenant_id cannot sign the tenant block', async () => {
     for (const role of ['agent', 'super_admin']) {
       await expect(
-        stamp({ userId: 'u-t', role, agencyId: 'ag-a' }, 'tenant', { status: 'signed', method: 'drawn', signatureDataUrl: PNG }),
+        stamp({ userId: 'u-t', role, agencyId: 'ag-a' }, 'tenant', { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG }),
       ).rejects.toMatchObject({ status: 403, code: 'SIGNATURE_NOT_SIGNER' })
     }
     expect(updates()).toHaveLength(0)
   })
   it('a staff uuid in landlord_id still signs only on behalf (needs the confirmation)', async () => {
     await expect(
-      stamp({ userId: 'u-ll', role: 'agent', agencyId: 'ag-a' }, 'landlord', { status: 'signed', method: 'drawn', signatureDataUrl: PNG }),
+      stamp({ userId: 'u-ll', role: 'agent', agencyId: 'ag-a' }, 'landlord', { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG }),
     ).rejects.toMatchObject({ status: 403 })
   })
 })
 
 describe('CR10 N1: the sign transaction locks the lease row', () => {
   it('runs SELECT ... FOR UPDATE and refuses if the block was signed meanwhile (409, nothing committed)', async () => {
-    await stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', signatureDataUrl: PNG })
+    await stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG })
     expect(lockCalls.some((q) => /FROM leases WHERE id = \$1::uuid FOR UPDATE/.test(q))).toBe(true)
     clientCalls.length = 0
     lockedOverride = { ...baseESign(), tenant: { status: 'signed', signerUserId: 'u-t' } }
-    await expect(stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', signatureDataUrl: PNG })).rejects.toMatchObject({
+    await expect(stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG })).rejects.toMatchObject({
       status: 409,
       code: 'SIGNATURE_CONFLICT',
     })
@@ -638,7 +649,7 @@ describe('CR10 N1: the sign transaction locks the lease row', () => {
 describe('CR10 N2: audit INSERT failure rolls the signing back', () => {
   it('no UPDATE is committed and no lease_signed row exists when the INSERT fails', async () => {
     failOnInsert = true
-    await expect(stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', signatureDataUrl: PNG })).rejects.toThrow('insert failed')
+    await expect(stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG })).rejects.toThrow('insert failed')
     expect(updates()).toHaveLength(0)
     expect(clientCalls.filter((c) => c.sql.includes("'lease_signed'"))).toHaveLength(0)
     expect(clientCalls).toHaveLength(0)
@@ -653,14 +664,14 @@ describe('CR10 N3 (option a): stamp and main upsert in one transaction', () => {
     data: {
       eSign: {
         ...leaseESign,
-        landlord: { status: 'signed', method: 'drawn', signatureDataUrl: PNG, signerName: 'Owner', onBehalfConfirmation: "I am signing for Owner under the agency's mandate." },
+        landlord: { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG, signerName: 'Owner', onBehalfConfirmation: "I am signing for Owner under the agency's mandate." },
       },
     } as Record<string, unknown>,
   })
   it('a failed upsert after the stamp: lease_signed count unchanged, no email, no DELETE', async () => {
     emailFlag = true
     vi.stubEnv('PUBLIC_APP_URL', 'https://app.example.test')
-    leaseESign = { ...baseESign(), status: 'partially_signed', tenant: { status: 'signed', signerUserId: 'u-t', method: 'drawn' } }
+    leaseESign = { ...baseESign(), status: 'partially_signed', tenant: { status: 'signed', signerUserId: 'u-t', method: 'drawn', ectaConsent: ECTA } }
     const db = await import('./db.js')
     const { enforceStaffTenancyESign } = await import('./leaseSign.js')
     const before = clientCalls.filter((c) => c.sql.includes("'lease_signed'")).length
@@ -680,7 +691,7 @@ describe('CR10 N3 (option a): stamp and main upsert in one transaction', () => {
   it('a successful upsert: one lease_signed row, and the email goes only after the outer commit', async () => {
     emailFlag = true
     vi.stubEnv('PUBLIC_APP_URL', 'https://app.example.test')
-    leaseESign = { ...baseESign(), status: 'partially_signed', tenant: { status: 'signed', signerUserId: 'u-t', method: 'drawn' } }
+    leaseESign = { ...baseESign(), status: 'partially_signed', tenant: { status: 'signed', signerUserId: 'u-t', method: 'drawn', ectaConsent: ECTA } }
     const db = await import('./db.js')
     const { enforceStaffTenancyESign } = await import('./leaseSign.js')
     await db.withTransaction(async () => {
@@ -731,11 +742,11 @@ describe('CR10 gate blocker 1: merge rebuilt from the locked eSign', () => {
   it('tenant signs at the same time as staff: the locked signed tenant block survives the staff landlord sign', async () => {
     // Pre-lock read: tenant pending. Under the lock: the tenant just signed.
     leaseESign = { ...baseESign() }
-    const signedTenant = { status: 'signed', signerUserId: 'u-t', method: 'drawn', imageSha256: 'h' }
+    const signedTenant = { status: 'signed', signerUserId: 'u-t', method: 'drawn', ectaConsent: ECTA, imageSha256: 'h' }
     lockedOverride = { ...baseESign(), status: 'partially_signed', tenant: signedTenant }
     const res = await stamp(STAFF, 'landlord', {
       status: 'signed',
-      method: 'drawn',
+      method: 'drawn', ectaConsent: ECTA,
       signatureDataUrl: PNG,
       onBehalfConfirmation: "I am signing for Owner under the agency's mandate.",
     })
@@ -744,5 +755,18 @@ describe('CR10 gate blocker 1: merge rebuilt from the locked eSign', () => {
     expect(written.landlord).toMatchObject({ status: 'signed', onBehalf: true })
     expect(String(written.status)).toBe('completed')
     expect(res.completedNow).toBe(true)
+  })
+})
+
+describe('ECTA 25 of 2002 consent', () => {
+  it('an electronic signature without the "I agree" statements, typed name and fingerprint is refused', async () => {
+    await expect(stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', signatureDataUrl: PNG })).rejects.toMatchObject({
+      status: 400,
+      code: 'SIGNATURE_CONSENT_REQUIRED',
+    })
+  })
+  it('the consent is stored with the signature and in the audit row', async () => {
+    await stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG })
+    expect(storedAfter().tenant!.ectaConsent).toMatchObject({ typedName: 'Test Signer', documentHash: 'a'.repeat(64) })
   })
 })
