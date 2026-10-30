@@ -1,3 +1,4 @@
+import { LeaseSignCard } from '../components/lease/LeaseSignCard'
 import { useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { FileText } from 'lucide-react'
@@ -42,6 +43,12 @@ function OwnerPortalContent() {
   const scoped = useMemo(() => {
     return state.properties.filter((p) => allowedPropertyIds.has(p.id))
   }, [state.properties, allowedPropertyIds])
+
+  /** Leases waiting for this landlord's signature. */
+  const leasesToSign = useMemo(
+    () => state.tenancies.filter((t) => t.landlordId === user.id && t.eSign?.envelopeId && t.eSign.landlord?.status === 'pending'),
+    [state.tenancies, user.id],
+  )
 
   const propertyById = useMemo(
     () => Object.fromEntries(state.properties.map((p) => [p.id, p])),
@@ -170,6 +177,14 @@ function OwnerPortalContent() {
             { label: 'Outstanding', value: formatZAR(due) },
           ]}
         />
+
+        {leasesToSign.length ? (
+          <div className="mb-6 space-y-3" data-tip-target="owner-leases-to-sign">
+            {leasesToSign.map((t) => (
+              <LeaseSignCard key={t.id} tenancy={t} party="landlord" title={`Lease to sign · ${t.tenantName}`} />
+            ))}
+          </div>
+        ) : null}
 
         <DashboardTabs tabs={tabs} value={tab} onChange={setTab} />
 

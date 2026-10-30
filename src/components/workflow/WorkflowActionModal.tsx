@@ -62,7 +62,7 @@ export function WorkflowActionModal({
     const validationError =
       (leaseSign
         ? leaseSignCaptureError(
-            { signatureDataUrl: capture.signatureDataUrl, onBehalfConfirmation: capture.onBehalfConfirmation },
+            { signatureDataUrl: capture.signatureDataUrl, onBehalfConfirmation: capture.onBehalfConfirmation, ectaConsent: capture.ectaConsent },
             signContext,
           )
         : null) ?? validateActionCapture(spec, capture)
@@ -160,10 +160,12 @@ export function WorkflowActionModal({
         {spec.kind === 'signature' && leaseSign ? (
           <LeaseSignPanel
             context={signContext}
+            tenancy={tenancy}
             value={{
               signatureDataUrl: capture.signatureDataUrl,
               method: capture.signatureMethod,
               onBehalfConfirmation: capture.onBehalfConfirmation,
+              ectaConsent: capture.ectaConsent,
             }}
             onChange={(next) =>
               setCapture((prev) => ({
@@ -171,6 +173,7 @@ export function WorkflowActionModal({
                 signatureDataUrl: next.signatureDataUrl,
                 signatureMethod: next.method,
                 onBehalfConfirmation: next.onBehalfConfirmation,
+                ectaConsent: next.ectaConsent,
               }))
             }
           />

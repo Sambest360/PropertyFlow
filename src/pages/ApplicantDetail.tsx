@@ -300,6 +300,7 @@ export default function ApplicantDetail() {
               signatureDataUrl: capture.signatureDataUrl,
               method: capture.signatureMethod,
               onBehalfConfirmation: capture.onBehalfConfirmation,
+              ectaConsent: capture.ectaConsent,
               signerName: capture.signerName,
             }
           : undefined,

@@ -13,6 +13,8 @@ export type WorkflowActionCapture = {
   /** CR10: lease sign dialog capture (TENANT_SIGNED / LANDLORD_SIGNED / MARK_LEASE_SIGNED). */
   signatureMethod?: 'drawn' | 'saved_image' | 'paper_mark'
   onBehalfConfirmation?: string
+  /** ECTA 25 of 2002 consent for an electronic lease signature. */
+  ectaConsent?: import('./lease/types').EctaConsent
 }
 
 /** CR10: workflow actions that sign the lease through the lease sign dialog. */

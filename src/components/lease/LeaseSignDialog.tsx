@@ -62,7 +62,7 @@ export function LeaseSignDialog({
         </>
       }
     >
-      <LeaseSignPanel context={context} value={capture} onChange={setCapture} />
+      <LeaseSignPanel context={context} value={capture} onChange={setCapture} tenancy={tenancy} />
       {error ? (
         <p role="alert" className="mt-3 rounded-xl bg-accent-50 px-3 py-2 text-sm text-accent-900">
           {error}

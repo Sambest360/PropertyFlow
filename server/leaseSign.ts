@@ -176,6 +176,22 @@ export async function stampLeaseSignature(input: StampInput): Promise<StampResul
     confirmation = c.slice(0, 300)
   }
 
+  // ECTA 25 of 2002: an electronic signature needs the signer's agreement to
+  // sign electronically, their confirmation of identity and that they read the
+  // lease (the "I agree" statements), their typed name and the fingerprint of
+  // the lease text they saw. Paper marks and declines do not.
+  let ecta: EctaConsentRecord | null = null
+  if (status === 'signed' && method !== 'paper_mark') {
+    ecta = parseEctaConsent(sent.ectaConsent)
+    if (!ecta) {
+      throw signError(
+        400,
+        'SIGNATURE_CONSENT_REQUIRED',
+        'Read the lease, tick each "I agree" statement and type your full name before signing.',
+      )
+    }
+  }
+
   let image: string | null = null
   let imageSha256: string | null = null
   if (status === 'signed' && method !== 'paper_mark') {
@@ -205,6 +221,7 @@ export async function stampLeaseSignature(input: StampInput): Promise<StampResul
     onBehalf,
     imageSha256,
     ...(confirmation ? { onBehalfConfirmation: confirmation } : {}),
+    ...(ecta ? { ectaConsent: { ...ecta, acceptedAt: at } } : {}),
     ...(ip ? { ip } : {}),
     ...(userAgent ? { userAgent } : {}),
   }
@@ -269,6 +286,7 @@ export async function stampLeaseSignature(input: StampInput): Promise<StampResul
         at,
         ip,
         userAgent,
+        ecta,
       })
     }
   })
@@ -382,6 +400,28 @@ export type LeaseSignedPayload = {
   user_agent: string | null
   /** CR10 N7: 'signed' (default) or 'declined' (paper decline, still audited). */
   outcome?: 'signed' | 'declined'
+  /** ECTA 25 of 2002 record for electronic signatures. */
+  ecta_statements?: string[]
+  ecta_typed_name?: string
+  document_sha256?: string
+  template_version?: string
+}
+
+export type EctaConsentRecord = { statements: string[]; typedName: string; documentHash: string; templateVersion: string }
+
+/** The signer's ECTA consent as sent by the app, or null when incomplete. */
+export function parseEctaConsent(raw: unknown): EctaConsentRecord | null {
+  if (!raw || typeof raw !== 'object') return null
+  const c = raw as Record<string, unknown>
+  const statements = Array.isArray(c.statements) ? c.statements.filter((x): x is string => typeof x === 'string' && x.trim().length > 10).map((x) => x.slice(0, 400)) : []
+  const typedName = typeof c.typedName === 'string' ? c.typedName.trim().replace(/\s+/g, ' ').slice(0, 120) : ''
+  const documentHash = typeof c.documentHash === 'string' ? c.documentHash.trim().toLowerCase() : ''
+  const templateVersion = typeof c.templateVersion === 'string' ? c.templateVersion.slice(0, 80) : ''
+  if (statements.length < 3) return null
+  if (!/electronic/i.test(statements.join(' '))) return null
+  if (typedName.split(' ').length < 2) return null
+  if (!/^[0-9a-f]{64}$/.test(documentHash)) return null
+  return { statements, typedName, documentHash, templateVersion }
 }
 
 /** Event type of the server-written signing audit row. Clients can never persist it. */
@@ -416,6 +456,7 @@ async function insertLeaseSignedEvent(
     ip: string | null
     userAgent: string | null
     outcome?: 'signed' | 'declined'
+    ecta?: EctaConsentRecord | null
   },
 ): Promise<string> {
   const payload: LeaseSignedPayload = {
@@ -433,6 +474,14 @@ async function insertLeaseSignedEvent(
     ip: e.ip,
     user_agent: e.userAgent,
     outcome: e.outcome ?? 'signed',
+    ...(e.ecta
+      ? {
+          ecta_statements: e.ecta.statements,
+          ecta_typed_name: e.ecta.typedName,
+          document_sha256: e.ecta.documentHash,
+          template_version: e.ecta.templateVersion,
+        }
+      : {}),
   }
   const eventId = randomUUID()
   await clientQuery(

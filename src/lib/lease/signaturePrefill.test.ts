@@ -45,10 +45,12 @@ describe('CR10 method and checks', () => {
     })
   })
   it('Sign is blocked on an empty pad, without the on-behalf tick, and for staff on the tenant block', () => {
-    expect(leaseSignCaptureError({}, {})).toMatch(/Draw a signature/)
+    const ECTA = { statements: ['a', 'b', 'c'], typedName: 'Thandi Mokoena', documentHash: 'f'.repeat(64), templateVersion: 'v' }
+    expect(leaseSignCaptureError({}, {})).toMatch(/I agree/)
+    expect(leaseSignCaptureError({ ectaConsent: ECTA }, {})).toMatch(/Draw a signature/)
     expect(leaseSignCaptureError({ signatureDataUrl: SIG }, { onBehalfLandlord: true })).toMatch(/mandate/)
     expect(
-      leaseSignCaptureError({ signatureDataUrl: SIG, onBehalfConfirmation: onBehalfConfirmationText('L') }, { onBehalfLandlord: true }),
+      leaseSignCaptureError({ signatureDataUrl: SIG, ectaConsent: ECTA, onBehalfConfirmation: onBehalfConfirmationText('L') }, { onBehalfLandlord: true }),
     ).toBeNull()
     expect(leaseSignCaptureError({ signatureDataUrl: SIG }, { staffOnTenant: true })).toMatch(/Only the tenant/)
     expect(leaseSignCaptureError({}, { staffOnTenant: true, paper: true })).toBeNull()
