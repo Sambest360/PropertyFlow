@@ -2,6 +2,7 @@ import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { sentryVitePlugin } from '@sentry/vite-plugin'
+import { legalBuildGate } from './src/lib/legalBuildGate.ts'
 
 function isChartsChunk(id: string): boolean {
   return (
@@ -21,6 +22,11 @@ function isLocalSupabaseConfigured(env: Record<string, string>): boolean {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
+  // T6 legal gate: fails only a live deploy build (production + PF_LIVE_BUILD=1
+  // exported by the deploy shell, never read from .env files); otherwise warns.
+  const legal = legalBuildGate({ mode, env: process.env })
+  if (legal.action === 'fail') throw new Error(legal.message)
+  if (legal.action === 'warn') console.warn(legal.message)
   const uploadMaps = Boolean(
     env.SENTRY_AUTH_TOKEN && env.SENTRY_ORG && env.SENTRY_PROJECT,
   )

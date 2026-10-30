@@ -1,7 +1,7 @@
 import { LeaseSignCard } from '../../components/lease/LeaseSignCard'
 import { useMemo, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowRight, CheckCircle2, CreditCard, FileText, Home, KeyRound, MapPin, MessageSquare, Wallet } from 'lucide-react'
+import { ArrowRight, CheckCircle2, FileText, Home, KeyRound, MapPin, MessageSquare } from 'lucide-react'
 import { useStore, usePublicProperties } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
 import { resolveApplicationAgentName } from '../../lib/agentDisplay'
@@ -29,7 +29,9 @@ import {
   workflowProgress,
   workflowStageLabel,
 } from '../../lib/applicationWorkflow'
-import { buildCheckoutBridge, guidedTransitionError, type PatchApplicationStatusResult } from '../../lib/api/applicationStatusApi'
+import { guidedTransitionError } from '../../lib/api/applicationStatusApi'
+import { ApplicationCheckoutCard } from '../../components/payments/ApplicationCheckoutCard'
+import { TENANT_NO_ROWS_COPY, applicationLedgerRows } from '../../lib/payfast/applicationCheckout'
 import { sweetError } from '../../lib/sweetAlert'
 import { hideBackendUuid, labelOrReference } from '../../lib/displayIds'
 import type { HateoasAction } from '../../lib/api/contracts'
@@ -109,7 +111,9 @@ export default function TenantApplicationDetailPage() {
     [application, payments],
   )
 
-  const [flash, setFlash] = useState<PatchApplicationStatusResult | null>(null)
+  // open-checkout-real: OPEN_CHECKOUT only reveals the pay card over the LIVE
+  // ledger rows (own rows only); nothing is invented.
+  const [checkoutOpen, setCheckoutOpen] = useState(false)
 
   const actor = useMemo(
     () => ({
@@ -172,7 +176,7 @@ export default function TenantApplicationDetailPage() {
           : undefined,
       })
       if ('application' in result && result.status === 'SUCCESS') {
-        setFlash(null)
+        setCheckoutOpen(false)
       } else if ('error' in result && result.error) {
         // P0-1 (R4): actionable copy instead of a raw engine error alert.
         void sweetError('Action not available', guidedTransitionError(result))
@@ -181,54 +185,16 @@ export default function TenantApplicationDetailPage() {
     }
 
     if (action.key === 'OPEN_CHECKOUT' || effect === 'open_checkout') {
-      const duePayments = payments.filter((p) => p.status === 'Due' || p.status === 'Overdue')
-      const amount = duePayments.reduce((sum, p) => sum + p.amount, 0) || (property?.rent ?? 0) * 3
-      const checkout = buildCheckoutBridge({
-        application,
-        propertyTitle: property?.title ?? 'Property',
-        amountZar: amount,
-        paymentId: duePayments[0]?.id ?? `PAY-checkout-${application.id}`,
-        provider: 'payfast',
-      })
-      setFlash({
-        status: 'SUCCESS',
-        httpStatus: 200,
-        application,
-        previous_status: application.stage,
-        api_status: 'APPROVED',
-        display_metadata: {
-          updated_relative: 'Checkout ready',
-          status_label: 'Awaiting Payment',
-          primary_amount_label: formatZAR(amount),
-          timezone: 'Africa/Johannesburg',
-        },
-        actions: [],
-        side_effects: {
-          lease: null,
-          payments: [],
-          unit_id: null,
-          unit_status: null,
-          cancelled_viewing_ids: [],
-          cancelled_slot_ids: [],
-          booking_collisions: [],
-        },
-        checkout,
-        invoice: {
-          id: checkout.payment_id,
-          total_zar: amount,
-          line_items: duePayments.map((p) => ({ label: p.type, amount: p.amount })),
-          due_date: duePayments[0]?.dueDate ?? new Date().toISOString().slice(0, 10),
-        },
-        layout: {
-          headline: 'PayFast checkout',
-          success_state: 'APPROVED_CHECKOUT',
-          badges: ['Awaiting Payment'],
-          next_step_copy: 'Complete payment, then record your reference on the Payments tab if paying by EFT.',
-        },
-      })
+      setCheckoutOpen(true)
       setTab('payments')
     }
   }
+
+  // C2: the applicant only sees (and can only pay) rows raised against them.
+  const checkoutRows = applicationLedgerRows(state.payments, {
+    applicationId: application.id,
+    viewer: { mode: 'tenant', userId: user.id },
+  })
 
   const milestones = getLifecycleMilestones(application.type, application)
   const stepIndex = Math.max(0, milestones.findIndex((m) => m.key === workflowStatus))
@@ -536,28 +502,14 @@ export default function TenantApplicationDetailPage() {
           </div>
         )}
 
-        {tab === 'payments' && flash?.status === 'SUCCESS' && flash.checkout && (
-          <Card className="mb-5 border-primary-100 bg-primary-50/80 p-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="font-display text-lg font-semibold text-ink">{flash.layout.headline}</p>
-                <p className="mt-1 text-sm text-ink-600">{flash.layout.next_step_copy}</p>
-              </div>
-              <div className="min-w-[240px] rounded-xl border border-primary-100 bg-white p-3 text-sm">
-                <p className="flex items-center gap-1.5 font-semibold text-ink">
-                  <CreditCard className="h-4 w-4 text-primary" strokeWidth={ICON_STROKE} aria-hidden />
-                  {formatZAR(flash.checkout.amount_zar)}
-                </p>
-                <Button
-                  className="mt-3 min-h-11 w-full cursor-pointer"
-                  onClick={() => window.open(flash.checkout!.checkout_url, '_blank', 'noopener')}
-                >
-                  <Wallet className="h-3.5 w-3.5" strokeWidth={ICON_STROKE} aria-hidden />
-                  Open checkout
-                </Button>
-              </div>
-            </div>
-          </Card>
+        {tab === 'payments' && checkoutOpen && (
+          <div className="mb-5" data-testid="tenant-checkout">
+            {checkoutRows.length > 0 ? (
+              <ApplicationCheckoutCard mode="tenant" canPay rows={checkoutRows} />
+            ) : (
+              <p className="rounded-xl bg-primary-50 px-3 py-2 text-sm text-ink-600">{TENANT_NO_ROWS_COPY}</p>
+            )}
+          </div>
         )}
 
         {tab === 'payments' && (

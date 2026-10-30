@@ -29,13 +29,68 @@ export type PublicEnquiryInput = {
 
 export type PublicEnquiryResult = {
   ok: true
-  leadId: string
+  /**
+   * The new lead's front-end reference (LD-…). null when the email/phone
+   * matched an existing lead on this listing (T3 F4, Michael): that lead's
+   * reference is never handed to whoever typed the email or phone.
+   */
+  leadId: string | null
   bookingId?: string | null
   stage: string
   /** Unit UUID — used by the route for additive fire-and-forget hooks (agent email alert). */
   unitId: string
   /** Occupied advert: the date the home comes free (YYYY-MM-DD); null otherwise. Same as the 027 RPC. */
   availableFrom: string | null
+  /** T3: the same email/phone already has a lead on this listing; nothing new was saved and no reference is returned (F4). */
+  duplicate?: boolean
+  /**
+   * H1 item 7 (server-internal; the route strips it): a repeat carried a NEW
+   * note, which was appended to the existing lead. The route alerts the agent
+   * once for it; the caller never sees this flag.
+   */
+  noteAppended?: string
+}
+
+/** Lower-case, whitespace collapsed: "  Is parking   included? " equals "is parking included?". */
+function normaliseNote(v: string): string {
+  return v.toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+const REPEAT_PREFIX_RE = /^repeat enquiry(?: \([^)]*\))?:\s*/i
+
+/** Every line already on the lead, normalised, with the repeat prefix removed. */
+function noteLines(notes: string): Set<string> {
+  const out = new Set<string>()
+  for (const line of notes.split('\n')) {
+    const n = normaliseNote(line.replace(REPEAT_PREFIX_RE, ''))
+    if (n) out.add(n)
+  }
+  return out
+}
+
+/**
+ * H1 item 7: append a repeat enquiry's note to the existing lead, once. The
+ * note is new unless every one of its lines is already a line on the lead
+ * (case and spacing ignored), so a re-send is never appended twice, while a
+ * short fragment of an earlier note ("pets?") still counts as new. Existing
+ * notes are never overwritten. Returns true when it appended.
+ */
+export async function appendRepeatNote(leadId: string, note: string): Promise<boolean> {
+  const lines = note.split('\n').map((l) => normaliseNote(l)).filter(Boolean)
+  if (lines.length === 0) return false
+  const rows = await query<{ notes: string | null }>(
+    `SELECT notes FROM leads WHERE id = $1::uuid FOR UPDATE -- repeat_note_lock`,
+    [leadId],
+  )
+  if (rows.length === 0) return false
+  const existing = rows[0]?.notes ?? ''
+  const have = noteLines(existing)
+  if (lines.every((l) => have.has(l))) return false
+  const day = new Intl.DateTimeFormat('en-ZA', { timeZone: 'Africa/Johannesburg', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date())
+  const appended = `Repeat enquiry (${day}): ${note.trim()}`
+  const next = existing ? `${existing}\n${appended}` : appended
+  await query(`UPDATE leads SET notes = $2, updated_at = NOW() WHERE id = $1::uuid -- repeat_note_append`, [leadId, next])
+  return true
 }
 
 function str(v: unknown, fallback = ''): string {
@@ -159,14 +214,20 @@ export async function submitPublicListingEnquiry(
   const saved = await withTransaction(async () => {
     const snap = await lockAndCount(unit.unitId)
     const duplicateLeadId = await findDuplicateLead(unit.unitId, snap.roundStartedAt, email, phone)
+    // T3 F4 (Michael): a match on email OR phone may be someone else, so the
+    // existing lead's reference (or uuid) is never returned to the caller.
     const booksSlot = action === 'viewing' && Boolean(input.slotId)
     if (!booksSlot && duplicateLeadId) {
+      // H1 item 7: no new lead and no confirmation; a NEW note is appended
+      // once (the user's own words only, not the income/occupied lines).
+      const appended = notes ? await appendRepeatNote(duplicateLeadId, notes) : false
       return {
         full: false as const,
-        leadId: duplicateLeadId,
+        leadId: null as string | null,
         bookingId: null as string | null,
         stage,
         duplicate: true,
+        noteAppended: appended ? notes : undefined,
       }
     }
     const decision = booksSlot
@@ -323,9 +384,13 @@ export async function submitPublicListingEnquiry(
 
     return {
       full: false as const,
-      leadId: duplicateLeadId ? duplicateLeadId : leadFeId,
+      // A fresh lead returns its own front-end id; a booking on an existing
+      // lead returns only the new booking's id (F4).
+      leadId: duplicateLeadId ? null : leadFeId,
       bookingId: bookingFeId,
       stage,
+      duplicate: false,
+      noteAppended: undefined as string | undefined,
     }
   })
 
@@ -338,5 +403,7 @@ export async function submitPublicListingEnquiry(
     stage: saved.stage,
     unitId: unit.unitId,
     availableFrom: unit.occupiedAdvert ? unit.availableFrom : null,
+    ...(saved.duplicate ? { duplicate: true } : {}),
+    ...(saved.noteAppended ? { noteAppended: saved.noteAppended } : {}),
   }
 }

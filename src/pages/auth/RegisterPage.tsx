@@ -1,6 +1,7 @@
 import { MIN_PASSWORD_LENGTH } from '../../lib/auth/passwordPolicy'
 import { PlacesAddressInput } from '../../components/PlacesAddressInput'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
+import { initialRegisterRole } from './registerRole'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Building2, Check, HardHat, Home } from 'lucide-react'
 import { AuthField, AuthShell } from '../../components/auth/AuthShell'
@@ -101,7 +102,7 @@ export default function RegisterPage() {
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [role, setRole] = useState<PublicRole>('tenant')
+  const [role, setRole] = useState<PublicRole>(() => initialRegisterRole(params.get('role')))
 
   const [company, setCompany] = useState('')
   const [idNumber, setIdNumber] = useState('')

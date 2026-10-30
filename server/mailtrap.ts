@@ -85,8 +85,19 @@ export async function sendListingEnquiryConfirmation(input: {
 }
 
 /**
- * Notify the listing agent (and landlord, when resolvable) that a guest lead or
- * viewing request came in. Fire-and-forget from the route — never blocks it.
+ * Landlord copies of enquiry alerts are OFF unless ALERT_LANDLORDS=1 (exactly).
+ * Until a data processing agreement and sender verification are in place, only
+ * the agent receives the enquirer's name, email, phone and note. Read at call
+ * time so the setting follows the server's env (and tests can toggle it).
+ */
+export function landlordAlertsEnabled(): boolean {
+  return process.env.ALERT_LANDLORDS === '1'
+}
+
+/**
+ * Notify the listing agent (and the landlord, only when ALERT_LANDLORDS=1 and
+ * one is resolvable) that a guest lead or viewing request came in.
+ * Fire-and-forget from the route — never blocks it.
  */
 export async function sendListingLeadAlert(input: {
   agentEmail: string
@@ -97,9 +108,14 @@ export async function sendListingLeadAlert(input: {
   leadEmail: string
   leadPhone?: string
   action: 'lead' | 'viewing'
+  /** H1 item 7: a repeat enquiry's new note (already appended to the existing lead). */
+  repeatNote?: string
 }): Promise<MailtrapSendResult> {
-  const kind = input.action === 'viewing' ? 'viewing request' : 'new enquiry'
-  const subject = `${input.action === 'viewing' ? 'Viewing request' : 'New enquiry'}: ${input.leadName}`
+  const repeat = Boolean(input.repeatNote)
+  const kind = repeat ? 'follow-up message' : input.action === 'viewing' ? 'viewing request' : 'new enquiry'
+  const subject = repeat
+    ? `Follow-up from ${input.leadName}`
+    : `${input.action === 'viewing' ? 'Viewing request' : 'New enquiry'}: ${input.leadName}`
   const propertyLine = input.propertyTitle
     ? ` for <strong>${escapeHtml(input.propertyTitle)}</strong>`
     : ''
@@ -110,11 +126,13 @@ export async function sendListingLeadAlert(input: {
     p(`Hi${input.agentName ? ` <strong>${escapeHtml(input.agentName)}</strong>` : ''},`) +
     p(`<strong>${escapeHtml(input.leadName)}</strong> sent a ${kind}${propertyLine} from the marketplace.`) +
     contactRows +
+    (repeat ? p(`Message: <strong>${escapeHtml(input.repeatNote ?? '')}</strong>`) + p('It was added to the notes on their existing lead.') : '') +
     p('Open your Lekaya workspace leads board to follow up.')
   const text =
     `${input.leadName} sent a ${kind}${input.propertyTitle ? ` for ${input.propertyTitle}` : ''}.` +
     (input.leadEmail ? ` Email: ${input.leadEmail}.` : '') +
-    (input.leadPhone ? ` Phone: ${input.leadPhone}.` : '')
+    (input.leadPhone ? ` Phone: ${input.leadPhone}.` : '') +
+    (repeat ? ` Message: ${input.repeatNote}. It was added to the notes on their existing lead.` : '')
   const result = await sendMailtrapEmail({
     to: input.agentEmail,
     toName: input.agentName,
@@ -123,8 +141,9 @@ export async function sendListingLeadAlert(input: {
     text,
     html: shell(subject, bodyHtml),
   })
-  // Landlord gets the same alert when we can resolve one — quiet-fail on each.
-  if (input.landlordEmail && input.landlordEmail !== input.agentEmail) {
+  // Landlord gets the same alert only when ALERT_LANDLORDS=1 and we can resolve
+  // one — quiet-fail on each.
+  if (landlordAlertsEnabled() && input.landlordEmail && input.landlordEmail !== input.agentEmail) {
     void sendMailtrapEmail({
       to: input.landlordEmail,
       subject,

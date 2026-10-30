@@ -19,6 +19,7 @@ import {
 } from './actor.js'
 import { isStaffRole, resolveRequestActor } from './requestActor.js'
 import { filterBootstrapForGuest } from './guestMarketplace.js'
+import { loadListingAlertStaff } from './listingAlertStaff.js'
 import {
   changeUserPassword,
   clearSession,
@@ -49,7 +50,6 @@ import {
   esignWebhook,
 } from './esignRoutes.js'
 import {
-  authIpKey,
   authIpRateLimit,
   authEmailRateLimit,
   notifyEmailRateLimit,
@@ -57,8 +57,14 @@ import {
   recordAuthFailure,
   clearAuthFailures,
   tooManyRequests,
+  loginTooManyRequests,
   passwordResetRateLimit,
+  listingEnquiryIpRateLimit,
+  listingEnquiryContactRateLimit,
+  reviewRateLimit,
 } from './rateLimit.js'
+import { clientIp, clientIpOrNull } from './clientIp.js'
+import { ENQUIRY_RATE_LIMITED_COPY } from '../src/lib/leadScreenCopy.js'
 import { resetUserPassword } from './passwordReset.js'
 import {
   sendListingEnquiryConfirmation,
@@ -80,6 +86,7 @@ import { docIdFromEnvelopeId } from './signiflow.js'
 import { runningCommitSha } from './appConfig.js'
 import { dbHostFingerprint, serverAuthMode } from './authMode.js'
 import { errStatus } from './errStatus.js'
+import { publicEnquiryErrorResponse } from './publicEnquiryError.js'
 import { reviewError } from './reviewError.js'
 import { registerViewingApplyRoutes } from './viewingApplyRoutes.js'
 import { captureServerError, initServerSentry } from './sentry.js'
@@ -231,7 +238,7 @@ async function requireActorAndGate(c: Parameters<typeof parseDemoActor>[0], body
   // CR10: request facts for the sign stamp are always set here, never taken
   // from the client body.
   body.requestMeta = {
-    ip: (c.req.header('x-forwarded-for') ?? '').split(',')[0]?.trim() || c.req.header('x-real-ip') || null,
+    ip: clientIpOrNull(c),
     userAgent: c.req.header('user-agent') ?? null,
   }
   const actor = await enrichActor(raw)
@@ -391,7 +398,7 @@ app.post('/api/auth/register', async (c) => {
       503,
     )
   }
-  const ip = authIpKey(c.req.raw.headers)
+  const ip = clientIp(c)
   const ipGate = authIpRateLimit(ip)
   if (!ipGate.ok) {
     const rl = tooManyRequests(ipGate.retryAfterSec)
@@ -552,10 +559,10 @@ app.post('/api/auth/login', async (c) => {
       503,
     )
   }
-  const ip = authIpKey(c.req.raw.headers)
+  const ip = clientIp(c)
   const ipGate = authIpRateLimit(ip)
   if (!ipGate.ok) {
-    const rl = tooManyRequests(ipGate.retryAfterSec)
+    const rl = loginTooManyRequests(ipGate.retryAfterSec)
     return c.json(rl.body, rl.status, rl.headers)
   }
   let email = ''
@@ -566,7 +573,7 @@ app.post('/api/auth/login', async (c) => {
     // even when the attacker rotates IPs.
     const accountGate = authFailureBlocked(ip, email)
     if (!accountGate.ok) {
-      const rl = tooManyRequests(accountGate.retryAfterSec)
+      const rl = loginTooManyRequests(accountGate.retryAfterSec)
       return c.json(rl.body, rl.status, rl.headers)
     }
     const user = await loginUser(email, String(body.password ?? ''))
@@ -580,7 +587,7 @@ app.post('/api/auth/login', async (c) => {
     if (email && (status === 401 || status === 400)) {
       const failGate = recordAuthFailure(ip, email)
       if (!failGate.ok) {
-        const rl = tooManyRequests(failGate.retryAfterSec)
+        const rl = loginTooManyRequests(failGate.retryAfterSec)
         return c.json(rl.body, rl.status, rl.headers)
       }
     }
@@ -617,7 +624,7 @@ app.post('/api/auth/change-password', async (c) => {
       503,
     )
   }
-  const ip = authIpKey(c.req.raw.headers)
+  const ip = clientIp(c)
   const ipGate = authIpRateLimit(ip)
   if (!ipGate.ok) {
     const rl = tooManyRequests(ipGate.retryAfterSec)
@@ -1295,6 +1302,12 @@ app.post('/api/reviews', async (c) => {
   try {
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
     const actor = await requireActor(c)
+    // H1 (spec r5 :67): 20 per IP per hour, 5 per actor per hour.
+    const gate = reviewRateLimit(actor.userId, clientIp(c))
+    if (!gate.ok) {
+      const rl = tooManyRequests(gate.retryAfterSec)
+      return c.json(rl.body, rl.status, rl.headers)
+    }
     const { upsertReview } = await import('./reviews.js')
     return c.json({ review: await upsertReview(actor, body) }, 201)
   } catch (err) {
@@ -1649,9 +1662,22 @@ for (const plural of restResources) {
   })
 }
 
+/** H1 (Oscar A5): the public 429 is neutral; the form shows its own copy for any 429. */
+function publicEnquiryTooMany(c: Context, retryAfterSec: number) {
+  return c.json({ error: 'rate_limited', message: ENQUIRY_RATE_LIMITED_COPY }, 429, { 'Retry-After': String(retryAfterSec) })
+}
+
 app.post('/api/public/listing-enquiry', async (c) => {
+  // H1 (spec r5 :65): 20 per IP per 15 min, then 3 per (email + listing) per hour.
+  const ipGate = listingEnquiryIpRateLimit(clientIp(c))
+  if (!ipGate.ok) return publicEnquiryTooMany(c, ipGate.retryAfterSec)
   try {
     const body = (await c.req.json()) as Record<string, unknown>
+    const contactEmail = String(body.email ?? '').trim()
+    if (contactEmail) {
+      const contactGate = listingEnquiryContactRateLimit(contactEmail, String(body.propertyId ?? ''))
+      if (!contactGate.ok) return publicEnquiryTooMany(c, contactGate.retryAfterSec)
+    }
     const { submitPublicListingEnquiry } = await import('./publicEnquiry.js')
     const result = await submitPublicListingEnquiry({
       propertyId: String(body.propertyId ?? ''),
@@ -1666,34 +1692,23 @@ app.post('/api/public/listing-enquiry', async (c) => {
       idNumber: body.idNumber ? String(body.idNumber) : null,
       interestType: body.interestType === 'Buy' ? 'Buy' : 'Rent',
     })
+    // H1 item 7: a repeat (duplicate) gets no confirmation, and the agent is
+    // alerted only when it carried a NEW note (appended once). noteAppended
+    // is server-internal and never sent back.
+    const { noteAppended, ...publicResult } = result
+    const repeat = result.duplicate === true
     // Confirmation email — never blocks or fails the enquiry itself.
-    void sendListingEnquiryConfirmation({
-      email: String(body.email ?? ''),
-      firstName: String(body.firstName ?? '').trim(),
-      action: body.action === 'viewing' ? 'viewing' : 'lead',
-    })
+    if (!repeat) {
+      void sendListingEnquiryConfirmation({
+        email: String(body.email ?? ''),
+        firstName: String(body.firstName ?? '').trim(),
+        action: body.action === 'viewing' ? 'viewing' : 'lead',
+      })
+    }
     // Agent (+ landlord when resolvable) alert — same fire-and-forget contract.
-    void (async () => {
+    if (!repeat || noteAppended) void (async () => {
       try {
-        const staff = await query<{
-          agent_email: string | null
-          agent_first: string | null
-          landlord_email: string | null
-          unit_title: string | null
-        }>(
-          `SELECT
-             ag.email AS agent_email,
-             ag.first_name AS agent_first,
-             ld.email AS landlord_email,
-             un.title AS unit_title
-           FROM units un
-           LEFT JOIN users ag ON ag.id = un.agent_id
-           LEFT JOIN users ld ON ld.id = un.landlord_id
-           WHERE un.id = $1::uuid
-           LIMIT 1`,
-          [result.unitId ?? null],
-        )
-        const s = staff[0]
+        const s = await loadListingAlertStaff(result.unitId ?? null)
         if (s?.agent_email) {
           void sendListingLeadAlert({
             agentEmail: s.agent_email,
@@ -1704,20 +1719,19 @@ app.post('/api/public/listing-enquiry', async (c) => {
             leadEmail: String(body.email ?? '').trim(),
             leadPhone: body.phone ? String(body.phone).trim() : undefined,
             action: body.action === 'viewing' ? 'viewing' : 'lead',
+            ...(noteAppended ? { repeatNote: noteAppended } : {}),
           })
         }
       } catch (alertErr) {
         console.error('[listing-enquiry] agent alert failed:', alertErr instanceof Error ? alertErr.message : alertErr)
       }
     })()
-    return c.json(result, 201)
+    return c.json(publicResult, 201)
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    const waitlist =
-      err && typeof err === 'object' && 'waitlist' in err ? Boolean((err as { waitlist: unknown }).waitlist) : undefined
-    console.error('[api/public/listing-enquiry]', message)
-    const error = message === 'LISTING_FULL' ? 'LISTING_FULL' : 'enquiry_failed'
-    return c.json({ error, message, ...errCode(err), ...(waitlist != null ? { waitlist } : {}) }, errStatus(err))
+    // T3 C3: log the raw message; the public only gets an allow-listed code.
+    console.error('[api/public/listing-enquiry]', err instanceof Error ? err.message : String(err))
+    const { status, body } = publicEnquiryErrorResponse(err)
+    return c.json(body, status)
   }
 })
 
@@ -2377,6 +2391,11 @@ if (shouldListen) {
     console.log(`[propertyflow-api] listening on http://127.0.0.1:${PORT}`)
     console.log(`[propertyflow-api] DATABASE_URL host from env or default local trust auth`)
     serve({ fetch: app.fetch, port: PORT, hostname: '127.0.0.1' })
+    // H1 R2: production must take PayFast ITNs in live mode only.
+    void import('./payfast.js').then(({ payfastProductionModeError }) => {
+      const r2 = payfastProductionModeError()
+      if (r2) console.error(r2)
+    })
     // Email new notifications every minute (people can switch this off in Settings).
     void import('./notificationMailer.js').then(({ startNotificationMailer }) => startNotificationMailer())
     // Copy any inline or old-bucket listing photos onto this server's disk.

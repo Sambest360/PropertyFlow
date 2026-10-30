@@ -47,25 +47,21 @@ export type PatchApplicationStatusRequest = {
   payment_provider?: 'payfast' | 'peach' | 'auto'
 }
 
-export type CheckoutBridgeConfig = {
+/**
+ * What the approve step hands the UI to start a checkout (open-checkout-real).
+ * Only the persisted ledger row ids and their ledger total: no PayFast host,
+ * merchant key, signature or url ever lives in the browser. The Pay button
+ * sends one of these ids to POST /api/payfast/create, which signs server-side
+ * and reads the amount from the ledger row.
+ */
+export type CheckoutTarget = {
   provider: 'payfast' | 'peach'
-  /** Frontend posts to this URL / opens hosted checkout */
-  checkout_url: string
-  merchant_id: string
-  merchant_key?: string
+  /** First Due row (the deposit). Same id as `invoice.id`. */
   payment_id: string
-  amount_cents: number
+  /** Every Due row this approval created, deposit first. */
+  payment_ids: string[]
+  /** Sum of those rows (display only; the server charges the ledger amount). */
   amount_zar: number
-  item_name: string
-  return_url: string
-  cancel_url: string
-  notify_url: string
-  /** Signed fields for PayFast / Peach */
-  signature_fields: Record<string, string>
-  /** Demo: signature is a deterministic placeholder, not a live HMAC */
-  signature: string
-  currency: 'ZAR'
-  expires_at: string
 }
 
 export type ApprovalSideEffects = {
@@ -88,7 +84,7 @@ export type PatchApplicationStatusSuccess = {
   actions: HateoasAction[]
   building?: BuildingStructuralContext | null
   side_effects: ApprovalSideEffects
-  checkout: CheckoutBridgeConfig | null
+  checkout: CheckoutTarget | null
   invoice: {
     id: string
     total_zar: number
@@ -213,70 +209,6 @@ export function guidedTransitionError(result: PatchApplicationStatusError): stri
 
 function uid(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`
-}
-
-function demoSignature(fields: Record<string, string>): string {
-  const payload = Object.keys(fields)
-    .sort()
-    .map((k) => `${k}=${fields[k]}`)
-    .join('&')
-  let hash = 0
-  for (let i = 0; i < payload.length; i += 1) hash = (hash * 31 + payload.charCodeAt(i)) >>> 0
-  return `demo_${hash.toString(16)}`
-}
-
-export function buildCheckoutBridge(params: {
-  application: Application
-  propertyTitle: string
-  amountZar: number
-  paymentId: string
-  provider: 'payfast' | 'peach'
-}): CheckoutBridgeConfig {
-  const amountCents = Math.round(params.amountZar * 100)
-  const appOrigin =
-    typeof window !== 'undefined' && window.location.origin.startsWith('http')
-      ? window.location.origin
-      : 'https://lekayarentals.site'
-  const returnUrl = `${appOrigin}/payfast/return?ref=${encodeURIComponent(params.paymentId)}`
-  const cancelUrl = `${appOrigin}/payfast/cancel?ref=${encodeURIComponent(params.paymentId)}`
-  const notifyUrl = `${appOrigin}/api/payfast/itn`
-  const fields: Record<string, string> = {
-    merchant_id: params.provider === 'payfast' ? '10047719' : 'peach_demo_merchant',
-    amount: (amountCents / 100).toFixed(2),
-    item_name: `Lekaya · ${params.propertyTitle}`.slice(0, 100),
-    m_payment_id: params.paymentId,
-    return_url: returnUrl,
-    cancel_url: cancelUrl,
-    notify_url: notifyUrl,
-    email_address: params.application.email,
-    name_first: params.application.applicantName.split(' ')[0] ?? 'Applicant',
-  }
-  const expires = new Date()
-  expires.setHours(expires.getHours() + 6)
-
-  return {
-    provider: params.provider,
-    checkout_url:
-      params.provider === 'payfast'
-        ? 'https://sandbox.payfast.co.za/eng/process'
-        : 'https://test.oppwa.com/v1/paymentWidgets.js',
-    merchant_id: fields.merchant_id,
-    merchant_key: params.provider === 'payfast' ? 'wkq8dmfysau1q' : undefined,
-    payment_id: params.paymentId,
-    amount_cents: amountCents,
-    amount_zar: params.amountZar,
-    item_name: fields.item_name,
-    return_url: returnUrl,
-    cancel_url: cancelUrl,
-    notify_url: notifyUrl,
-    signature_fields: fields,
-    // NOTE: display-only demo hash. The authoritative signature is computed
-    // server-side by /api/payfast/create (server/payfast.ts) when checkout is
-    // actually launched — see startPayfastCheckout().
-    signature: demoSignature(fields),
-    currency: 'ZAR',
-    expires_at: expires.toISOString(),
-  }
 }
 
 export function findBookingCollisions(params: {
@@ -596,22 +528,18 @@ export function patchApplicationStatus(params: {
     .filter((s) => s.propertyId === application.propertyId && s.status === 'Open')
     .map((s) => s.id)
 
-  const invoiceId = uid('INV')
   const lineItems = payments.map((p) => ({ label: p.type, amount: p.amount }))
-  const provider =
-    request.payment_provider === 'peach'
-      ? 'peach'
-      : request.payment_provider === 'payfast'
-        ? 'payfast'
-        : 'payfast'
+  const provider: CheckoutTarget['provider'] = request.payment_provider === 'peach' ? 'peach' : 'payfast'
 
-  const checkout = buildCheckoutBridge({
-    application,
-    propertyTitle: property?.title ?? unit?.title ?? 'Property',
-    amountZar: totalEntry ?? deposit,
-    paymentId: invoiceId,
+  // open-checkout-real: the checkout points at the real ledger rows created
+  // above (persisted by the store before it reports SUCCESS), never at an
+  // invented invoice id, and carries no gateway url, key or signature.
+  const checkout: CheckoutTarget = {
     provider,
-  })
+    payment_id: payments[0].id,
+    payment_ids: payments.map((p) => p.id),
+    amount_zar: payments.reduce((sum, p) => sum + p.amount, 0),
+  }
 
   // Invent-kill: approve must not invent a credit pass — screening status stays as-is.
   // DQ-C2 Mode A: do not invent verified FICA pack (id/address/fica) either —
@@ -666,8 +594,8 @@ export function patchApplicationStatus(params: {
     },
     checkout,
     invoice: {
-      id: invoiceId,
-      total_zar: totalEntry ?? deposit,
+      id: payments[0].id,
+      total_zar: checkout.amount_zar,
       line_items: lineItems,
       due_date: dueDate,
     },
@@ -676,7 +604,7 @@ export function patchApplicationStatus(params: {
       success_state: 'APPROVED_CHECKOUT',
       badges,
       next_step_copy:
-        'Lease draft created and unit reserved. Share the PayFast/Peach checkout link with the applicant.',
+        'Lease draft created and unit reserved. The applicant pays the deposit from their portal (PayFast).',
     },
   }
 }

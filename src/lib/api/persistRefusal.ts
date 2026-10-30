@@ -22,5 +22,14 @@ export function persistRefusalMessage(r: PersistRefusal, role?: string | null): 
   if (r.code === 'APPLICATION_FIELD_LOCKED') {
     return 'Your application could not be updated: that detail is managed by the agency. Your page has been refreshed with the saved version.'
   }
+  if (r.code === 'EVENT_LOG_TYPE_MISMATCH') {
+    return "This record can't be changed from here. Your page has been refreshed with the saved version."
+  }
+  if (r.code === 'EVENT_LOG_ID_TAKEN') {
+    return "This change wasn't saved because the record already exists. Your page has been refreshed."
+  }
+  if (r.code === 'EVENT_LOG_AGENCY_MISMATCH') {
+    return "This record belongs to another agency and can't be changed. Your page has been refreshed."
+  }
   return `This change was refused (${r.code}). Your page has been refreshed with the saved version.`
 }

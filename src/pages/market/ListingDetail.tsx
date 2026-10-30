@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { JobTitleSelect } from '../../components/JobTitleSelect'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { Bath, BedDouble, Car, Heart, MapPin, Share2, Star } from 'lucide-react'
-import { roomKindLabel } from '../../data/infrastructure'
+import { Heart, MapPin, Share2, Star } from 'lucide-react'
 import { usePublicProperties, useStore } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
 import { ActionButtonRow } from '../../components/ActionButtonRow'
@@ -11,6 +10,7 @@ import { Badge, Button, Input, Modal, cn } from '../../components/ui'
 import { PageSkeleton } from '../../components/loading/PageSkeleton'
 import { PropertyFeaturesDisplay } from '../../components/property-features/PropertyFeaturesDisplay'
 import { ExpandableDescription } from '../../components/listing/ExpandableDescription'
+import { RoomsAndFeatures } from '../../components/listing/RoomsAndFeatures'
 import { formatZAR } from '../../data/seed'
 import { PropertyCard } from '../../components/PropertyCard'
 import { PropertyMap } from '../../components/PropertyMap'
@@ -37,7 +37,10 @@ import {
 import type { PostgresBootstrap } from '../../lib/api/postgresClient'
 import { submitListingEnquiry } from '../../lib/api/listingEnquiryApi'
 import { listingAvailabilityCopy } from '../../lib/listingLimitCopy'
-import { sweetError, sweetInfo, sweetSuccess, sweetWarning } from '../../lib/sweetAlert'
+import { sweetError, sweetSuccess, sweetWarning } from '../../lib/sweetAlert'
+import type { EnquiryOutcome } from '../../lib/listingEnquiryOutcome'
+import { applyLeadInput, enquirySubmitPlan } from '../../lib/listingEnquirySubmit'
+import { EnquiryConfirmation } from '../../components/listing/EnquiryConfirmation'
 import { usePageMeta } from '../../hooks/usePageMeta'
 import { useAgentDisplay } from '../../hooks/useAgentDisplay'
 import { listingHeadline } from '../../lib/agentDisplay'
@@ -102,6 +105,8 @@ export default function ListingDetail() {
   const [jobTitle, setJobTitle] = useState('')
   const [intent, setIntent] = useState<EnquiryIntent>('lead')
   const [submitting, setSubmitting] = useState(false)
+  // T3: the last enquiry outcome, shown inline until the next submit.
+  const [enquiryOutcome_, setEnquiryOutcome] = useState<EnquiryOutcome | null>(null)
   const [appSubmitting, setAppSubmitting] = useState(false)
   // Pre-apply warning: applicants confirm they understand they should view the home first.
   const [viewWarningOpen, setViewWarningOpen] = useState(false)
@@ -348,6 +353,14 @@ export default function ListingDetail() {
   const fullName = `${firstName.trim()} ${lastName.trim()}`.trim()
 
   const listingReviewAvg = propertyListingRating(state.reviews, p.id)
+  const enquiryListing = {
+    id: p.id,
+    agencyId: p.agencyId,
+    agentId: p.agentId,
+    listingMode: p.listingMode,
+    value: p.price ?? p.rent ?? 0,
+  }
+  const enquiryContact = { name: fullName, email: email.trim(), phone: phone.trim(), notes: note.trim() }
 
   if (isBlockedForUser) {
     return <Navigate to="/browse" replace />
@@ -390,6 +403,7 @@ export default function ListingDetail() {
 
     if (!acquireSubmitLock(enquiryLockRef)) return
     setSubmitting(true)
+    setEnquiryOutcome(null)
     try {
       const result = await submitListingEnquiry({
         propertyId: p.id,
@@ -407,70 +421,20 @@ export default function ListingDetail() {
         value: p.price ?? p.rent ?? 0,
       })
 
-      if (result.ok === false) {
-        if (result.waitlist) {
-          await sweetSuccess(
-            'You are on the waitlist',
-            'We will contact you if a spot opens.',
-          )
-          setNote('')
-          setEnquirySheetOpen(false)
-          return
-        }
-        await sweetError('Could not save enquiry', 'error' in result ? result.error : 'Unknown error')
-        return
-      }
-
-      recordGuestEnquiry({
-        lead: {
-          id: result.leadId,
-          agencyId: p.agencyId,
-          propertyId: p.id,
-          agentId: p.agentId,
-          name: fullName,
-          email: email.trim(),
-          phone: phone.trim(),
-          channel: 'Web Form',
-          type: p.listingMode === 'sale' ? 'Buy' : 'Rent',
-          value: p.price ?? p.rent ?? 0,
-          stage: result.stage,
-          notes: note.trim(),
-        },
-        viewing:
-          action === 'viewing' && selectedSlot
-            ? {
-                id: result.bookingId ?? undefined,
-                agencyId: p.agencyId,
-                propertyId: p.id,
-                agentId: p.agentId,
-                slotId: selectedSlot.id,
-                applicantName: fullName,
-                applicantEmail: email.trim(),
-                date: selectedSlot.date,
-                time: selectedSlot.time,
-              }
-            : null,
+      // T3: the server's answer is the only save. Show it inline and keep the
+      // sheet open (no modal, no reset). What a result does is the pure plan
+      // in listingEnquirySubmit.ts (F3); a repeat shows no reference (F4).
+      const plan = enquirySubmitPlan(result, {
+        listing: enquiryListing,
+        contact: enquiryContact,
+        action,
+        slot: selectedSlot ? { id: selectedSlot.id, date: selectedSlot.date, time: selectedSlot.time } : null,
+        agentName: agent?.name ?? null,
       })
-
-      if (action === 'viewing' && selectedSlot) {
-        await sweetSuccess(
-          'Viewing booked',
-          `Your slot is ${selectedSlot.date} at ${selectedSlot.time}. ${agent?.name ?? 'The agency'} will confirm shortly.`,
-        )
-      } else if (action === 'viewing') {
-        await sweetInfo(
-          'Viewing request sent',
-          'No open slots right now — an agent will contact you to schedule a time.',
-        )
-      } else {
-        await sweetSuccess(
-          'Interest registered',
-          `${agent?.name ?? 'The agency'} will follow up on this property. No account needed.`,
-        )
-      }
-      setNote('')
-      setEnquirySheetOpen(false)
-      return true
+      if (plan.record) recordGuestEnquiry(plan.record)
+      setEnquiryOutcome(plan.outcome)
+      if (plan.clearNote) setNote('')
+      return result.ok
     } finally {
       setSubmitting(false)
       releaseSubmitLock(enquiryLockRef)
@@ -523,19 +487,11 @@ export default function ListingDetail() {
       return
     }
 
-    createLead({
-      agencyId: p.agencyId,
-      propertyId: p.id,
-      agentId: p.agentId,
-      name: fullName,
-      email: email.trim(),
-      phone: phone.trim(),
-      channel: 'Web Form',
-      type: isRent ? 'Rent' : 'Buy',
-      value: p.price ?? p.rent ?? 0,
-      stage: 'Application Submitted',
-      notes: note.trim(),
-    })
+    // T3 B1: the application's lead is a NEW lead. A tenant's is saved to the
+    // server (the portal policy allows a new lead; it refuses only re-saving
+    // an existing one). A guest's (401), landlord's or contractor's (403) stays
+    // local. The Register-interest lead is never re-saved by the client.
+    createLead(applyLeadInput({ listing: enquiryListing, contact: enquiryContact, role: user.role }))
 
     // P1-2: the applicant gets their reference number immediately.
     const appRef =
@@ -709,6 +665,7 @@ export default function ListingDetail() {
           value={note}
           onChange={(e) => setNote(e.target.value)}
         />
+        <EnquiryConfirmation outcome={enquiryOutcome_} />
         <Button type="submit" className="w-full min-h-11" disabled={submitting}>
           {submitting
             ? 'Saving…'
@@ -894,22 +851,7 @@ export default function ListingDetail() {
               </p>
             </div>
 
-            <div className="grid gap-4 border-b border-primary-100 py-6 sm:grid-cols-2 lg:grid-cols-4">
-              {[
-                { icon: BedDouble, label: 'Bedrooms', value: listingDetailFacts(p).bedroomsValue },
-                { icon: Bath, label: 'Bathrooms', value: p.baths || '—' },
-                ...(p.garages != null && p.garages > 0
-                  ? [{ icon: Car, label: 'Garages', value: p.garages }]
-                  : []),
-                { icon: Car, label: 'Parking', value: p.parking },
-              ].map((s) => (
-                <div key={s.label} className="rounded-2xl bg-primary-50 p-4">
-                  <s.icon className="h-5 w-5 text-ink-500" />
-                  <p className="mt-2 text-xs text-ink-500">{s.label}</p>
-                  <p className="tabular text-lg font-semibold">{s.value}</p>
-                </div>
-              ))}
-            </div>
+            <RoomsAndFeatures beds={p.beds} baths={p.baths} parking={p.parking} garages={p.garages} area={p.area} rooms={p.rooms} />
 
             <div className="border-b border-primary-100 py-6">
               <h2 className="text-lg font-semibold">About this property</h2>
@@ -920,27 +862,6 @@ export default function ListingDetail() {
                 expandedMaxHeightClass="max-h-[min(18rem,40vh)]"
               />
             </div>
-
-            {p.rooms.length > 0 && (
-              <div className="border-b border-primary-100 py-6">
-                <h2 className="text-lg font-semibold">Room configuration</h2>
-                <ul className="mt-3 space-y-2">
-                  {p.rooms.map((r) => (
-                    <li key={r.id} className="flex justify-between rounded-xl bg-primary-50 px-3 py-2 text-sm">
-                      <span>{r.name}</span>
-                      <span className="text-ink-500">
-                        {r.kind === 'bedroom' && `${r.beds} bed${r.beds === 1 ? '' : 's'}`}
-                        {r.kind === 'bathroom' && `${r.baths} bath${r.baths === 1 ? '' : 's'}`}
-                        {r.kind === 'garage' && 'Garage'}
-                        {r.kind && !['bedroom', 'bathroom', 'garage'].includes(r.kind) &&
-                          roomKindLabel(r.kind as Parameters<typeof roomKindLabel>[0])}
-                        {!r.kind && (r.beds > 0 || r.baths > 0) && `${r.beds} bed · ${r.baths} bath`}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
 
             <div className="border-b border-primary-100 py-6">
               <h2 className="text-lg font-semibold">What this place offers</h2>

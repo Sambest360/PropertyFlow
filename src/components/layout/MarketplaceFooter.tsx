@@ -5,7 +5,7 @@ import { marketplaceFooter } from './navigation'
 export function MarketplaceFooter() {
   return (
     <footer className="border-t border-primary-100 bg-primary-50">
-      <div className="mx-auto grid max-w-7xl gap-8 px-4 py-12 sm:px-6 md:grid-cols-2 lg:grid-cols-5 lg:px-8">
+      <div className="mx-auto grid max-w-7xl gap-8 px-4 py-12 sm:px-6 md:grid-cols-2 lg:grid-cols-4 lg:px-8">
         <div>
           <BrandWordmark />
           <p className="mt-2 text-sm text-ink-500">Buy, rent, and manage property — marketplace + agency workspace.</p>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type MouseEvent, type TouchEvent } from 'react'
 import { ChevronLeft, ChevronRight, Images, X } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { cn } from '../ui'
@@ -153,8 +153,40 @@ function PhotoLightbox({
     onIndexChange((safeIndex + delta + photos.length) % photos.length)
   }
 
+  // Swipe left/right on the photo area to change photo; a swipe never closes.
+  const touchStart = useRef<{ x: number; y: number } | null>(null)
+  const swipedAt = useRef(0)
+  const onTouchStart = (e: TouchEvent) => {
+    const t = e.touches[0]
+    touchStart.current = e.touches.length === 1 && t ? { x: t.clientX, y: t.clientY } : null
+  }
+  const onTouchEnd = (e: TouchEvent) => {
+    const start = touchStart.current
+    touchStart.current = null
+    const t = e.changedTouches[0]
+    if (!start || !t) return
+    const dx = t.clientX - start.x
+    const dy = t.clientY - start.y
+    if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return
+    swipedAt.current = Date.now()
+    if (photos.length > 1 && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) go(dx < 0 ? 1 : -1)
+  }
+
+  // A click on the backdrop (anything but the photo, a button or a thumbnail) closes.
+  const onBackdropClick = (e: MouseEvent) => {
+    if (Date.now() - swipedAt.current < 400) return
+    if ((e.target as HTMLElement).closest('img, button')) return
+    onClose()
+  }
+
   return createPortal(
-    <div className="fixed inset-0 z-[90] flex flex-col bg-ink/90">
+    <div
+      className="fixed inset-0 z-[90] flex flex-col bg-ink/90"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${title} photos`}
+      onClick={onBackdropClick}
+    >
       <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-6">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-white">{title}</p>
@@ -172,7 +204,11 @@ function PhotoLightbox({
         </button>
       </div>
 
-      <div className="relative flex min-h-0 flex-1 items-center justify-center px-12 sm:px-16">
+      <div
+        className="relative flex min-h-0 flex-1 items-center justify-center px-12 sm:px-16"
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+      >
         {photos.length > 1 && (
           <>
             <button

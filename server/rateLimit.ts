@@ -1,26 +1,50 @@
 /**
- * In-memory sliding-window rate limiting for the auth endpoints
- * (SECURITY_FIXES.md backlog: brute-force protection on /api/auth/login and
- * /api/auth/register). No new dependencies; state lives per process, which
- * still blunts simple brute force on single-instance deploys and serverless
- * functions (each instance keeps its own buckets).
+ * In-memory sliding-window rate limiting (SECURITY_FIXES.md backlog, H1).
+ * No new dependencies; state lives per process and resets on pm2 restart
+ * (accepted for one box, spec r5 :83).
  *
- * Two layers:
- *  1. Per-IP request limit on both endpoints (default 10 / 15 min).
- *  2. Per (IP + email) failure limit on login (default 8 failed attempts),
- *     cleared on success — so one victim account can't be ground down by
- *     rotating IPs.
+ * Auth layers:
+ *  1. Per-IP request limit on register / login / change-password
+ *     (default 30 / 15 min, spec r5 :61).
+ *  2. Per (IP + email) failure limit on login (default 8 failed attempts per
+ *     15 min, sliding), cleared on a successful login or set-password.
+ *  3. forgot-password / set-password have their own per-IP bucket `pw:<ip>`
+ *     (30 / 15 min) so an office that hit the login cap can still reset.
+ *
+ * Callers pass the IP from clientIp(c) (server/clientIp.ts). Never derive it
+ * from forwarding headers here.
  *
  * Env knobs:
- *   AUTH_RATE_LIMIT_MAX          — per-IP requests per window (default 10)
- *   AUTH_RATE_LIMIT_WINDOW_MIN   — window length in minutes (default 15)
+ *   AUTH_RATE_LIMIT_MAX          — per-IP auth requests per window (default 30)
+ *   AUTH_RATE_LIMIT_WINDOW_MIN   — auth window length in minutes (default 15)
  *   AUTH_RATE_LIMIT_LOGIN_MAX    — failed logins per (ip + email) window (default 8)
+ *   AUTH_RATE_LIMIT_PW_MAX       — forgot/set-password per IP per window (default 30)
+ *
+ * Jim C2: pruning drops hits older than the bucket's window, so every window
+ * length gets its own Map (bucketsFor). A 15-minute prune never touches a
+ * 1-hour bucket.
  */
 
 type Window = { hits: number[] }
 
-const requestWindows = new Map<string, Window>()
-const failureWindows = new Map<string, Window>()
+const windowMaps = new Map<number, Map<string, Window>>()
+/** Failure (lockout) buckets: their own maps, keyed `${ip}:${email}`. */
+const failureMaps = new Map<number, Map<string, Window>>()
+
+/** One Map per window length (Jim C2). */
+function mapFor(family: Map<number, Map<string, Window>>, windowMs: number): Map<string, Window> {
+  let map = family.get(windowMs)
+  if (!map) {
+    map = new Map()
+    family.set(windowMs, map)
+  }
+  return map
+}
+const bucketsFor = (windowMs: number) => mapFor(windowMaps, windowMs)
+const failuresFor = (windowMs: number) => mapFor(failureMaps, windowMs)
+
+const MIN15 = 15 * 60_000
+const HOUR = 60 * 60_000
 
 function pruneWindows(map: Map<string, Window>, now: number, windowMs: number) {
   if (map.size < 512) return
@@ -30,10 +54,9 @@ function pruneWindows(map: Map<string, Window>, now: number, windowMs: number) {
   }
 }
 
-function slidingWindowHit(map: Map<string, Window>, key: string, limit: number, windowMs: number): {
-  ok: boolean
-  retryAfterSec: number
-} {
+type Gate = { ok: boolean; retryAfterSec: number }
+
+function slidingWindowHit(map: Map<string, Window>, key: string, limit: number, windowMs: number): Gate {
   const now = Date.now()
   const win = map.get(key) ?? { hits: [] }
   win.hits = win.hits.filter((t) => now - t < windowMs)
@@ -48,13 +71,14 @@ function slidingWindowHit(map: Map<string, Window>, key: string, limit: number, 
   return { ok: true, retryAfterSec: 0 }
 }
 
-export function authIpKey(headers: Headers): string {
-  const fwd = headers.get('x-forwarded-for')
-  if (fwd) {
-    const first = fwd.split(',')[0]?.trim()
-    if (first) return first
-  }
-  return headers.get('x-real-ip')?.trim() || 'unknown'
+function hit(key: string, limit: number, windowMs: number): Gate {
+  return slidingWindowHit(bucketsFor(windowMs), key, limit, windowMs)
+}
+
+/** Test hook: clear every bucket. */
+export function resetRateLimitsForTests(): void {
+  windowMaps.clear()
+  failureMaps.clear()
 }
 
 function numEnv(name: string, fallback: number): number {
@@ -66,20 +90,37 @@ function windowMs(): number {
   return numEnv('AUTH_RATE_LIMIT_WINDOW_MIN', 15) * 60_000
 }
 
-/** Per-IP guard for register / login. Call before doing any work. */
+/** Per-IP guard for register / login / change-password. Call before doing any work. */
 export function authIpRateLimit(ip: string): { ok: boolean; retryAfterSec: number } {
-  return slidingWindowHit(requestWindows, ip, numEnv('AUTH_RATE_LIMIT_MAX', 10), windowMs())
+  return hit(ip, numEnv('AUTH_RATE_LIMIT_MAX', 30), windowMs())
 }
 
 /** Must be called on a failed login attempt only. */
 export function recordAuthFailure(ip: string, email: string): { ok: boolean; retryAfterSec: number } {
   const key = `${ip}:${email.trim().toLowerCase()}`
-  return slidingWindowHit(failureWindows, key, numEnv('AUTH_RATE_LIMIT_LOGIN_MAX', 8), windowMs())
+  return slidingWindowHit(failuresFor(windowMs()), key, numEnv('AUTH_RATE_LIMIT_LOGIN_MAX', 8), windowMs())
 }
 
 /** Called after a successful login so legitimate users self-heal. */
 export function clearAuthFailures(ip: string, email: string) {
-  failureWindows.delete(`${ip}:${email.trim().toLowerCase()}`)
+  for (const map of failureMaps.values()) map.delete(`${ip}:${email.trim().toLowerCase()}`)
+}
+
+/**
+ * H1 (spec r5 :63): a successful set-password (reset or account set-up link)
+ * unlocks the account from every IP: deletes every failure key ending in
+ * `:${email}`.
+ */
+export function clearAuthFailuresForEmail(email: string) {
+  const suffix = `:${email.trim().toLowerCase()}`
+  for (const map of failureMaps.values()) {
+    for (const key of [...map.keys()]) if (key.endsWith(suffix)) map.delete(key)
+  }
+}
+
+/** H1: forgot-password / set-password per-IP bucket `pw:<ip>`, separate from the login bucket. */
+export function passwordFlowIpRateLimit(ip: string): Gate {
+  return hit(`pw:${ip}`, numEnv('AUTH_RATE_LIMIT_PW_MAX', 30), windowMs())
 }
 
 /**
@@ -91,7 +132,7 @@ export function clearAuthFailures(ip: string, email: string) {
  */
 export function authEmailRateLimit(email: string): { ok: boolean; retryAfterSec: number } {
   const key = `reg:${email.trim().toLowerCase()}`
-  return slidingWindowHit(requestWindows, key, numEnv('AUTH_RATE_LIMIT_EMAIL_MAX', 4), windowMs())
+  return hit(key, numEnv('AUTH_RATE_LIMIT_EMAIL_MAX', 4), windowMs())
 }
 
 /**
@@ -101,14 +142,14 @@ export function authEmailRateLimit(email: string): { ok: boolean; retryAfterSec:
  */
 export function notifyEmailRateLimit(email: string): { ok: boolean; retryAfterSec: number } {
   const key = `notify:${email.trim().toLowerCase()}`
-  return slidingWindowHit(requestWindows, key, numEnv('AUTH_RATE_LIMIT_NOTIFY_MAX', 6), windowMs())
+  return hit(key, numEnv('AUTH_RATE_LIMIT_NOTIFY_MAX', 6), windowMs())
 }
 
 /** Check (without recording) whether an account+IP is currently locked out. */
 export function authFailureBlocked(ip: string, email: string): { ok: boolean; retryAfterSec: number } {
   const key = `${ip}:${email.trim().toLowerCase()}`
   const now = Date.now()
-  const win = failureWindows.get(key)
+  const win = failuresFor(windowMs()).get(key)
   if (!win) return { ok: true, retryAfterSec: 0 }
   const hits = win.hits.filter((t) => now - t < windowMs())
   if (hits.length >= numEnv('AUTH_RATE_LIMIT_LOGIN_MAX', 8)) {
@@ -131,6 +172,37 @@ export function tooManyRequests(retryAfterSec: number): {
     status: 429,
     headers: { 'Retry-After': String(retryAfterSec) },
   }
+}
+
+/** Login 429 (spec r5 :62): "Try again in N min or reset your password". */
+export function loginTooManyRequests(retryAfterSec: number): ReturnType<typeof tooManyRequests> {
+  const min = Math.max(1, Math.ceil(retryAfterSec / 60))
+  return {
+    body: { error: 'rate_limited', message: `Too many attempts. Try again in ${min} min or reset your password.` },
+    status: 429,
+    headers: { 'Retry-After': String(retryAfterSec) },
+  }
+}
+
+/** H1 new limits (spec r5 :65-67): fixed numbers, each in its window's own map. */
+export function listingEnquiryIpRateLimit(ip: string): Gate {
+  return hit(`enq-ip:${ip}`, 20, MIN15)
+}
+
+/** 3 per (email + listing) per hour. The listing is the id the form sent, lower-cased. */
+export function listingEnquiryContactRateLimit(email: string, propertyId: string): Gate {
+  return hit(`enq:${email.trim().toLowerCase()}:${propertyId.trim().toLowerCase()}`, 3, HOUR)
+}
+
+export function verifyEmailIpRateLimit(ip: string): Gate {
+  return hit(`verify-ip:${ip}`, 10, MIN15)
+}
+
+/** Reviews: 20 per IP per hour, then 5 per actor per hour. */
+export function reviewRateLimit(actorKey: string, ip: string): Gate {
+  const byIp = hit(`review-ip:${ip}`, 20, HOUR)
+  if (!byIp.ok) return byIp
+  return hit(`review-actor:${actorKey}`, 5, HOUR)
 }
 
 const resetActorWindows = new Map<string, Window>()
@@ -156,7 +228,7 @@ export function resetPasswordResetRateLimitsForTests(): void {
 export function notificationDispatchRateLimit(actorKey: string, count: number): { ok: boolean; retryAfterSec: number } {
   let last = { ok: true, retryAfterSec: 0 }
   for (let i = 0; i < Math.max(1, count); i++) {
-    last = slidingWindowHit(requestWindows, `notif:${actorKey}`, numEnv('NOTIFICATION_DISPATCH_MAX', 200), 10 * 60_000)
+    last = hit(`notif:${actorKey}`, numEnv('NOTIFICATION_DISPATCH_MAX', 200), 10 * 60_000)
     if (!last.ok) return last
   }
   return last

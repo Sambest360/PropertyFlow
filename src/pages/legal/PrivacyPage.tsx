@@ -21,12 +21,23 @@ export default function PrivacyPage() {
         </p>
       </Section>
 
-      <Section title="2. Our role and the agencies' role">
+      <Section title="2. Who is responsible">
         <p>
-          When an estate agency or landlord uses {brand} to manage its listings, applicants, tenants and trust
-          records, that agency or landlord decides why and how that information is used and is the responsible party
-          for it; we process it on their behalf. For your own account, the public marketplace and our platform
-          services, we are the responsible party.
+          Each estate agency (or landlord) listed on {brand} is the responsible party for the personal information
+          submitted to it through the platform: enquiries, rental applications and leases. {brand} is the operator
+          that runs the platform for those agencies and processes that information on their behalf.
+        </p>
+        <p>
+          {brand} is the responsible party for what it processes for its own purposes, as this policy and our Terms
+          of Service describe: platform accounts and sign-in; our own billing; log records, device and browser details
+          and other technical information; keeping the platform secure, preventing fraud and fixing problems;
+          moderating listings, reviews and conduct reports; and the browser storage described in section 9.
+        </p>
+        <p>
+          Our Information Officer is <Entity field="informationOfficer" />, reachable at{' '}
+          <Entity field="privacyEmail" />. For information an agency holds about you (for example your enquiry,
+          application or lease), contact the agency (or landlord) that manages the listing; the listing agent can put
+          you in touch.
         </p>
       </Section>
 
@@ -35,7 +46,7 @@ export default function PrivacyPage() {
           items={[
             'Account details: name, email address, phone number, password (stored only as a one-way hash) and your role.',
             'Identity and application details you submit: ID or passport number, employment and income, references, supporting documents, and the property you apply for.',
-            'Background and credit check results, only with your separate, explicit consent for each check.',
+            'Background and credit check results, if an agency runs a check through a provider, and only with your separate, explicit consent for each check.',
             'Lease, payment, deposit and maintenance records linked to a tenancy, including photos you upload of a fault or inspection.',
             'Listing details and photos added by agencies and landlords.',
             'Messages, reviews and reports you send through the platform.',
@@ -62,34 +73,33 @@ export default function PrivacyPage() {
         <List
           items={[
             'The agency, landlord or contractor involved in your enquiry, application, tenancy or maintenance job, limited to what they need.',
-            'Credit bureaus and screening providers, only for checks you consented to.',
+            'A screening or credit check provider, if an agency runs a check through a provider, and only for checks you consented to.',
             'PayFast, to process payments (we do not store full card details).',
             'Our email provider, to deliver messages, and Google Maps, to show maps and look up addresses.',
-            'Our hosting provider in South Africa, which stores the platform and its database.',
+            'Our hosting provider, which stores the platform and its database.',
             'Authorities, when the law requires it.',
           ]}
         />
         <p>
-          Some of these providers (email and maps) may process information outside South Africa. We use them only
-          where the law allows it, for example under binding agreements that give protection comparable to POPIA.
+          Some of these providers may process information outside South Africa.
         </p>
       </Section>
 
       <Section title="6. How long we keep it">
         <p>
           We keep information only as long as needed for the purpose it was collected for, or as long as the law
-          requires (for example, trust account and financial records must be kept for a minimum period). Detailed
-          background check results are deleted automatically once their retention period ends; a summary of the
-          outcome may remain on the application. When information is no longer needed we delete it or make it
-          anonymous.
+          requires (for example, trust account and financial records must be kept for a minimum period). Agencies and
+          landlords decide how long to keep the records they are responsible for, within the law. When information we
+          are responsible for is no longer needed, we delete it or make it anonymous.
         </p>
       </Section>
 
       <Section title="7. How we protect it">
         <p>
-          Access is limited by role so each user sees only what they need; connections are encrypted (HTTPS);
-          passwords are hashed; and the database is backed up daily. If a security compromise affects your
-          information, we will notify you and the Information Regulator as POPIA requires.
+          Access is limited by role so each user sees only what they need, and passwords are stored only as a
+          one-way hash. If a security compromise affects information an agency or landlord is responsible for, we
+          will tell them immediately. For information we are responsible for, we will notify you and the Information
+          Regulator as POPIA requires.
         </p>
       </Section>
 
@@ -112,7 +122,7 @@ export default function PrivacyPage() {
       <Section title="9. Cookies and local storage">
         <p>
           We use your browser's storage to keep you signed in, remember preferences and make pages load faster. We do
-          not use advertising or cross-site tracking cookies.
+          not set advertising or tracking cookies ourselves. Embedded Google Maps may set its own.
         </p>
       </Section>
 

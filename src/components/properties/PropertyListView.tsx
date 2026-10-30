@@ -88,7 +88,7 @@ export function PropertyExpansion({
   const openTickets = openTicketsList.length
   const waitingApps = waitingAppsList.length
   const scheduledViewings = scheduledViewingsList.length
-  const photos = p.images.length > 0 ? p.images.slice(0, 8) : []
+  const photos = p.images
   const detailId = `/workspace/properties/${p.id}`
   const current = photos[Math.min(activePhoto, Math.max(photos.length - 1, 0))]
   const resolved = resolvePortfolioStatus(p.status, item.occupancy)

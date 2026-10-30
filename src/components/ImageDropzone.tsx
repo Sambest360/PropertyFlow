@@ -66,6 +66,17 @@ function reorderList<T>(items: T[], from: number, to: number): T[] {
   return next
 }
 
+/** Photos uploaded at once: one photo per request, a few in flight, so a large pick never floods the server. */
+const UPLOAD_CONCURRENCY = 4
+
+async function storePhotosInBatches(urls: string[]): Promise<string[]> {
+  const out: string[] = []
+  for (let i = 0; i < urls.length; i += UPLOAD_CONCURRENCY) {
+    out.push(...(await Promise.all(urls.slice(i, i + UPLOAD_CONCURRENCY).map(storePhotoDataUrl))))
+  }
+  return out
+}
+
 export type ImageDropzoneProps = {
   /** Current image data URLs / sources */
   value: string[]
@@ -129,7 +140,7 @@ export function ImageDropzone({
         if (urls.length === 0) return
         const room = multiple ? (max == null ? urls.length : Math.max(0, max - value.length)) : 1
         setUploading(true)
-        const stored = await Promise.all(urls.slice(0, room).map(storePhotoDataUrl))
+        const stored = await storePhotosInBatches(urls.slice(0, room))
         onChange(multiple ? [...value, ...stored] : [stored[0]])
       } catch {
         setError('Could not read that file. Try another image.')

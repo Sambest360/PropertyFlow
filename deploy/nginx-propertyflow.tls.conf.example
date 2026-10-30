@@ -1,0 +1,63 @@
+# TEMPLATE ONLY (T7). deploy/setup.sh does NOT install this file; it installs
+# deploy/nginx-propertyflow.conf (:80 only) so `nginx -t` passes before any
+# certificate exists. This is the target shape once certbot has issued the
+# certificate (certbot --nginx --redirect produces the same :80 301). Compare
+# the live file against it by hand; see deploy/README.md.
+#
+# Security headers: deploy/nginx-security-headers.conf, installed as
+# /etc/nginx/conf.d/propertyflow-security-headers.conf (its own install line),
+# is included below with a path relative to /etc/nginx. nginx only inherits
+# add_header from the outer level when a block has none of its own, so the
+# snippet is included in the 443 server block AND in every location that adds
+# its own header (/assets/). The snippet owns HSTS; this file never sets it,
+# so it is sent once per response.
+
+# :80 is only the redirect (both names). Nothing else belongs here.
+server {
+    listen 80;
+    server_name lekayarentals.site www.lekayarentals.site;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name lekayarentals.site www.lekayarentals.site;
+
+    # certbot's standard layout for this certificate name.
+    ssl_certificate /etc/letsencrypt/live/lekayarentals.site/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/lekayarentals.site/privkey.pem;
+
+    include conf.d/propertyflow-security-headers.conf;
+
+    root /var/www/propertyflow/dist;
+    index index.html;
+    client_max_body_size 25M;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+    }
+
+    # H5 owns this block (gzip, Cache-Control): change it there, in both files,
+    # so they do not diverge. Its own add_header means the security headers
+    # must be re-included here.
+    # After `certbot --nginx` edits the INSTALLED file, its 443 /assets/ block
+    # has no such include: the operator must add
+    # `include conf.d/propertyflow-security-headers.conf;` there by hand
+    # (see deploy/README.md).
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        include conf.d/propertyflow-security-headers.conf;
+        try_files $uri =404;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

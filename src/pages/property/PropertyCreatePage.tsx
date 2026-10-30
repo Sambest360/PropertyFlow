@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GradeBreakdownCard } from '../../components/property-features/GradeBreakdownCard'
-import { MAX_LISTING_PHOTOS, MAX_LISTING_PHOTO_BYTES, listingPhotosLabel } from '../../lib/listingPhotos'
+import { MAX_LISTING_PHOTO_BYTES, listingPhotosLabel } from '../../lib/listingPhotos'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Building2,
@@ -1362,7 +1362,6 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
               label={listingPhotosLabel(draft.buildingImages.length)}
               value={draft.buildingImages}
               onChange={(buildingImages) => setDraft((d) => ({ ...d, buildingImages }))}
-              max={MAX_LISTING_PHOTOS}
               maxBytes={MAX_LISTING_PHOTO_BYTES}
               reorderable
             />

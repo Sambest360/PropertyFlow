@@ -548,6 +548,22 @@ export async function handlePersist(
   return { ok: true, id, uuid }
 }
 
+/**
+ * R7: each client-writable event_log resource deletes only rows of its own
+ * event_type (positive allow-list, literal SQL so leaseSignedNoDelete can
+ * grep every event_log DELETE).
+ */
+const EVENT_LOG_DELETE_SQL: Partial<Record<EntityType, string>> = {
+  activity: `DELETE FROM "event_log" WHERE id = $1::uuid AND event_type = 'activity'`,
+  property_event: `DELETE FROM "event_log" WHERE id = $1::uuid AND event_type = 'property_event'`,
+  support_ticket: `DELETE FROM "event_log" WHERE id = $1::uuid AND event_type = 'support_ticket'`,
+}
+
+/** R7: an upsert hit an id that is already another event_log row (the ON CONFLICT WHERE skipped it). */
+function eventLogIdTakenError(): Error & { status: number; code: string } {
+  return Object.assign(new Error('This id already belongs to another record'), { status: 409, code: 'EVENT_LOG_ID_TAKEN' })
+}
+
 async function deleteEntity(resource: EntityType, frontendId: string): Promise<void> {
   const uuid = await resolveUuid(resource, frontendId)
   if (!uuid) {
@@ -600,9 +616,12 @@ async function deleteEntity(resource: EntityType, frontendId: string): Promise<v
   }
   
   // Use quoted identifier to prevent SQL injection (even though table name is from whitelist)
-  if (resource === 'support_ticket') {
-    // CR7: only ever a ticket row — never another event_log audit row.
-    await query(`DELETE FROM "event_log" WHERE id = $1::uuid AND event_type = 'support_ticket'`, [uuid])
+  const eventLogDelete = EVENT_LOG_DELETE_SQL[resource]
+  if (eventLogDelete) {
+    // CR7 / R7: an event_log resource only ever deletes rows of its own type,
+    // never a server-written audit row (payfast_itn_rejected, impersonation,
+    // lease_signed, ...) that shares the table.
+    await query(eventLogDelete, [uuid])
   } else {
     await query(`DELETE FROM "${table}" WHERE id = $1::uuid`, [uuid])
   }
@@ -2520,14 +2539,18 @@ async function upsertActivity(feId: string, d: Record<string, unknown>): Promise
     user: str(d.user, 'System'),
   }
 
-  await query(
+  const written = await query<{ id: string }>(
     `INSERT INTO event_log (id, client_id, event_type, subject_type, subject_id, actor_user_id, payload, created_at)
      VALUES ($1::uuid, $2::uuid, 'activity', 'agency', NULL, NULL, $3::jsonb, COALESCE($4::timestamptz, NOW()))
      ON CONFLICT (id) DO UPDATE SET
        client_id = EXCLUDED.client_id,
-       payload = EXCLUDED.payload`,
+       payload = EXCLUDED.payload
+     WHERE event_log.event_type = 'activity'
+     RETURNING id`,
     [uuid, client, JSON.stringify(payload), d.at ? str(d.at) : null],
   )
+  // R7: no row back = the id is another event_log row (audit / other type); never overwrite it.
+  if (written.length === 0) throw eventLogIdTakenError()
   return uuid
 }
 
@@ -2543,7 +2566,7 @@ async function upsertPropertyEvent(feId: string, d: Record<string, unknown>): Pr
     propertyId: str(d.propertyId, ''),
   }
 
-  await query(
+  const written = await query<{ id: string }>(
     `INSERT INTO event_log (
        id, client_id, event_type, subject_type, subject_id, actor_user_id, payload, created_at
      ) VALUES (
@@ -2553,9 +2576,13 @@ async function upsertPropertyEvent(feId: string, d: Record<string, unknown>): Pr
      ON CONFLICT (id) DO UPDATE SET
        payload = EXCLUDED.payload,
        actor_user_id = EXCLUDED.actor_user_id,
-       subject_id = EXCLUDED.subject_id`,
+       subject_id = EXCLUDED.subject_id
+     WHERE event_log.event_type = 'property_event'
+     RETURNING id`,
     [uuid, client, unit, actor, JSON.stringify(payload), d.at ? str(d.at) : null],
   )
+  // R7: no row back = the id is another event_log row (audit / other type); never overwrite it.
+  if (written.length === 0) throw eventLogIdTakenError()
   return uuid
 }
 

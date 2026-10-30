@@ -2,8 +2,8 @@
  * Shared photo limits (client + server). One place to raise them.
  *
  * Ticket photos and P3a listing photos (src/lib/listingPhotos.ts) both take
- * their limits from here. Listings still measure the 600 KB cap on data-URL
- * length (unchanged behaviour).
+ * their limits from here. Listings have no photo-count cap; they still measure
+ * the 600 KB per-photo cap on data-URL length (unchanged behaviour).
  */
 export const MAX_PHOTO_BYTES = 600 * 1024
 export const MAX_TICKET_PHOTOS_TOTAL_BYTES = 3 * 1024 * 1024
@@ -33,8 +33,6 @@ export function dataUrlDecodedBytes(url: string): number | null {
 }
 
 export const MAX_TICKET_PHOTOS = 10
-/** P3a listing photos per listing. */
-export const MAX_LISTING_PHOTOS = 8
 
 export type PhotoCheck =
   | { ok: true; urls: string[] }
@@ -60,7 +58,7 @@ export function isSafePhotoUrl(u: unknown): u is string {
 }
 
 /**
- * Generic photo check (tickets: 10; P3a listings can pass 8):
+ * Generic photo check (tickets: 10):
  * data:image/(jpeg|png|webp);base64 up to maxBytes decoded each, http(s)
  * URLs, maxTotalBytes over data URLs, at most maxCount. Any other data: URL is
  * invalid (never silently dropped); non-string items and non-URL junk strings

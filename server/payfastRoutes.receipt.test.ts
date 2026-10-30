@@ -47,6 +47,10 @@ vi.mock('./entityMap.js', () => ({
   resolveUuid: vi.fn(async () => PAYMENT_UUID),
 }))
 
+// F1: the ITN handler confirms with PayFast's /eng/query/validate before any
+// write. This file tests the receipt, so PayFast's reply is a stubbed VALID.
+vi.stubGlobal('fetch', vi.fn(async () => new Response('VALID', { status: 200 })))
+
 vi.mock('./payfast.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./payfast.js')>()
   return {
@@ -64,7 +68,7 @@ const { payfastItn } = await import('./payfastRoutes.js')
 
 function app() {
   const a = new Hono()
-  a.post('/api/payfast/itn', payfastItn)
+  a.post('/api/payfast/itn', (c) => payfastItn(c))
   return a
 }
 
