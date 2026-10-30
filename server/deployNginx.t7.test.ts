@@ -258,3 +258,48 @@ describe('T7 template pins against the installed file (J04, J09)', () => {
     expect(caching(tls())).toEqual(want)
   })
 })
+
+// Michael's ruling: PayFast's live payment page may sit on payment.<io host>, and
+// a redirect from /eng/process would be blocked by form-action without it
+// (UNVERIFIED). The old www.<io host> entry stays until the first live payment
+// is verified. Host names are built in parts: #127's guard test fails on the
+// io domain literal anywhere in server/ or src/.
+describe('T7 CSP form-action (deploy/nginx-security-headers.conf)', () => {
+  const IO = 'payfast' + '.io'
+  const formAction = () => {
+    const code = stripComments(read('nginx-security-headers.conf'))
+    const csp = code.match(/add_header\s+Content-Security-Policy\s+"([^"]*)"/g) ?? []
+    expect(csp).toHaveLength(1)
+    const value = csp[0].match(/"([^"]*)"/)![1]
+    const fa = value
+      .split(';')
+      .map(norm)
+      .filter((d) => d.startsWith('form-action '))
+    expect(fa).toHaveLength(1)
+    return fa[0].split(' ').slice(1)
+  }
+
+  it('allows the PayFast payment host and keeps the three existing PayFast hosts', () => {
+    const src = formAction()
+    for (const h of [
+      `https://payment.${IO}`,
+      'https://www.payfast.co.za',
+      'https://sandbox.payfast.co.za',
+      `https://www.${IO}`,
+    ])
+      expect(src, h).toContain(h)
+  })
+
+  it("is exactly 'self', those PayFast hosts and the existing OPPWA entry (no new wildcard)", () => {
+    expect([...formAction()].sort()).toEqual(
+      [
+        "'self'",
+        'https://sandbox.payfast.co.za',
+        'https://www.payfast.co.za',
+        `https://www.${IO}`,
+        `https://payment.${IO}`,
+        'https://*.oppwa.com',
+      ].sort(),
+    )
+  })
+})
