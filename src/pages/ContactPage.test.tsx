@@ -21,7 +21,7 @@ describe('T5 contact page', () => {
     const stored = [LEGAL_ENTITY.supportEmail, LEGAL_ENTITY.privacyEmail].map((e) => e.trim()).filter(Boolean)
     for (const [shown] of out.matchAll(/[\w.+-]+@[\w-]+\.[\w.]+/g)) expect(stored, shown).toContain(shown)
     // Jim #118 C3: the listing names the agent, not the agency, so do not claim it does.
-    expect(out).toContain('Contact the agency (or landlord) that listed the property; the listing agent can put you in touch.')
+    expect(out).toContain('Contact the agency (or landlord) that manages the listing; the listing agent can put you in touch.')
     expect(out).not.toMatch(/named on the listing/)
     expect(out).toContain('href="/privacy"')
     // Angela #118 C2 / Jim T5 C6: landlords land on Landlord, not the Applicant/Tenant default.
