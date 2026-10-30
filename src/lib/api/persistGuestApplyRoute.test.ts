@@ -18,6 +18,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Application } from '../../types/domain'
+import { maskIdNumber } from '../screening/consentTerms'
 
 process.env.PF_SKIP_SERVE = '1'
 
@@ -36,7 +37,14 @@ const GUEST_UUID = 'b9000001-0001-4000-8000-000000000042'
 const JAMES_UUID = 'a2000001-0001-4000-8000-000000000004'
 
 type MapRow = { entity_type: string; frontend_id: string; backend_id: string }
-type UserRow = { id: string; client_id: string | null; email: string; frontend_id: string | null }
+type UserRow = {
+  id: string
+  client_id: string | null
+  email: string
+  frontend_id: string | null
+  /** users.role (bootstrap read); END_USER when absent. */
+  role?: string
+}
 type AppRow = { id: string; params: unknown[] }
 
 const db = vi.hoisted(() => ({
@@ -47,6 +55,8 @@ const db = vi.hoisted(() => ({
   buildings: new Map<string, { id: string; client_id: string | null; landlord_id: string | null }>(),
   applications: new Map<string, AppRow>(),
   sql: [] as string[],
+  /** T1 round trip: GET /api/bootstrap reads many tables; unknown reads answer []. */
+  lenient: false,
 }))
 
 vi.mock('../../../server/db.js', () => {
@@ -218,6 +228,63 @@ vi.mock('../../../server/db.js', () => {
       }
       return []
     }
+    // --- T1 round trip: the bootstrap reads (server/bootstrap.ts buildBootstrap) ---
+    if (/^SELECT \* FROM applications ORDER BY/.test(sql.trim())) {
+      const json = (v: unknown) => (typeof v === 'string' ? JSON.parse(v) : v ?? null)
+      return [...db.applications.values()].map((a) => ({
+        id: a.id,
+        client_id: a.params[1],
+        unit_id: a.params[2],
+        applicant_id: a.params[3],
+        agent_id: a.params[4],
+        reference_code: a.params[5],
+        application_type: a.params[6],
+        status: a.params[7],
+        monthly_income: a.params[8],
+        employment_summary: a.params[9],
+        message: a.params[10],
+        uploaded_docs_json: json(a.params[11]),
+        move_in_date: null,
+        metadata: json(a.params[13]),
+        submitted_at: new Date('2026-10-30T08:00:00Z'),
+        created_at: new Date('2026-10-30T08:00:00Z'),
+        updated_at: new Date('2026-10-30T08:00:00Z'),
+      }))
+    }
+    if (sql.includes('FROM users ORDER BY email')) {
+      return [...db.users.values()].map((u) => ({
+        id: u.id,
+        client_id: u.client_id,
+        email: u.email,
+        first_name: u.email.split('@')[0],
+        last_name: '',
+        // The account row has no phone: the applicant typed it on the application.
+        phone: null,
+        role: u.role ?? 'END_USER',
+        active: true,
+        metadata: u.frontend_id ? { frontend_id: u.frontend_id } : {},
+      }))
+    }
+    if (sql.includes('FROM clients ORDER BY company_name')) {
+      return [...db.clients].map((id) => ({ id, company_name: id, subdomain: id, status: 'active', city: null, created_at: new Date(), settings: {} }))
+    }
+    if (/^SELECT \* FROM buildings ORDER BY name/.test(sql.trim())) {
+      return [...db.buildings.values()].map((b) => ({ ...b, name: b.id, created_at: new Date() }))
+    }
+    if (/^SELECT \* FROM units ORDER BY created_at/.test(sql.trim())) {
+      return [...db.units.values()].map((u) => ({ ...u, status: 'AVAILABLE', listing_type: 'RENT', created_at: new Date() }))
+    }
+    // Staff write: the permission gate reads the actor's stored list (none: role defaults).
+    if (sql.includes("SELECT metadata->'enabledPermissions' AS enabled")) {
+      return db.users.has(String(params[0])) ? [{ enabled: null, version: null }] : []
+    }
+    // listingResolve: a full-row save resends propertyId PR-1011 (seed collision fallback by title).
+    if (sql.includes("u.title ILIKE '%Humewood Beach Apartment B14%'")) {
+      return [...db.units.values()]
+        .filter((u) => u.title.includes('Humewood Beach Apartment B14'))
+        .map((u) => ({ id: u.id, backend_id: u.id, unit_client: u.client_id, building_client: db.buildings.get(u.building_id)?.client_id ?? null }))
+    }
+    if (db.lenient) return []
     throw new Error(`unexpected sql in guest apply route test: ${sql.slice(0, 160)}`)
   }
   return {
@@ -443,6 +510,249 @@ describe('guest full application on PR-1011 reaches /api/persist (API mode)', ()
     expect(db.sql.some((s) => /FROM units u\s+JOIN buildings b ON b\.id = u\.building_id/.test(s))).toBe(true)
     expect(db.sql.some((s) => s.includes('INSERT INTO applications'))).toBe(false)
     expect(db.applications.size).toBe(0)
+  })
+
+  // ---------------------------------------------------------------------------
+  // Hardening T1: the applicant's details survive the round trip and later
+  // writes, through the real /api/persist and /api/bootstrap routes.
+  // ---------------------------------------------------------------------------
+  const DETAILS = {
+    phone: '0821234567',
+    employerName: 'Algoa Logistics',
+    jobTitle: 'Dispatcher',
+    idNumberOrPassport: '9001015009087',
+  }
+  const LL_FE = 'u-ll-humewood'
+  const LL_UUID = 'b9000001-0001-4000-8000-0000000000a1'
+  const OTHER_ADMIN_FE = 'u-garden-admin'
+  const OTHER_ADMIN_UUID = 'b9000001-0001-4000-8000-0000000000a2'
+  const STAFF = { userId: 'u-james', role: 'ground_agent', agencyId: 'ag-horizon' } as const
+  const TENANT = { userId: GUEST_FE, role: 'tenant', agencyId: null } as const
+  const SUPER = { userId: 'u-super', role: 'super_admin', agencyId: null } as const
+
+  function addRoundTripPeople() {
+    db.users.set(JAMES_UUID, { ...db.users.get(JAMES_UUID)!, role: 'GROUND_AGENT' })
+    db.users.set(LL_UUID, { id: LL_UUID, client_id: HORIZON_CLIENT, email: 'owner.humewood@example.com', frontend_id: LL_FE, role: 'LANDLORD' })
+    db.users.set(OTHER_ADMIN_UUID, { id: OTHER_ADMIN_UUID, client_id: BAYVIEW_CLIENT, email: 'admin@garden.example', frontend_id: OTHER_ADMIN_FE, role: 'CLIENT_ADMIN' })
+    db.map.push({ entity_type: 'user', frontend_id: LL_FE, backend_id: LL_UUID })
+    db.map.push({ entity_type: 'user', frontend_id: OTHER_ADMIN_FE, backend_id: OTHER_ADMIN_UUID })
+    db.buildings.set(HUMEWOOD_BUILDING, { ...db.buildings.get(HUMEWOOD_BUILDING)!, landlord_id: LL_UUID })
+  }
+
+  async function bootstrapApp(actor: { userId: string; role: string; agencyId: string | null }) {
+    const { actorHeaders } = await import('./actorAuth')
+    db.lenient = true
+    try {
+      const res = await fetch('/api/bootstrap', { headers: actorHeaders(actor as never) })
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as { applications: Array<Record<string, unknown>> }
+      return body.applications.find((a) => a.id === 'APP-guest-pr1011')
+    } finally {
+      db.lenient = false
+    }
+  }
+
+  async function persistAs(
+    actor: { userId: string; role: string; agencyId: string | null },
+    data: Record<string, unknown>,
+  ) {
+    const { setApiActor } = await import('./actorAuth')
+    const { persistToApi } = await import('./persist')
+    setApiActor(actor as never)
+    return persistToApi({ resource: 'application', action: 'upsert', id: 'APP-guest-pr1011', data: { ...data, id: 'APP-guest-pr1011' } })
+  }
+
+  const pick = (a: Record<string, unknown> | undefined) => ({
+    phone: a?.phone,
+    employerName: a?.employerName,
+    jobTitle: a?.jobTitle,
+    idNumberOrPassport: a?.idNumberOrPassport,
+  })
+  const storedMeta = () => JSON.parse(String([...db.applications.values()][0]!.params[13])) as Record<string, unknown>
+
+  it('T1: an application with no employer is accepted (employer is optional)', async () => {
+    addRoundTripPeople()
+    const appRow = await guestApplication()
+    const { employerName: _e, jobTitle: _j, ...noEmployer } = DETAILS
+    expect(
+      await persistAs(TENANT, { ...(appRow as unknown as Record<string, unknown>), ...noEmployer, employerName: undefined, jobTitle: undefined }),
+    ).toBe(true)
+    expect(storedMeta()).toMatchObject({ phone: DETAILS.phone, idNumberOrPassport: DETAILS.idNumberOrPassport })
+    expect(storedMeta().employerName ?? null).toBeNull()
+    const own = await bootstrapApp(TENANT)
+    expect(own?.employerName ?? null).toBeNull()
+    expect(own?.phone).toBe(DETAILS.phone)
+  })
+
+  it('pin (M12): a CREATE that sends a masked ID stores null, never the masked value', async () => {
+    addRoundTripPeople()
+    const appRow = await guestApplication()
+    expect(db.applications.size).toBe(0)
+    expect(
+      await persistAs(TENANT, {
+        ...(appRow as unknown as Record<string, unknown>),
+        ...DETAILS,
+        idNumberOrPassport: maskIdNumber(DETAILS.idNumberOrPassport),
+      }),
+    ).toBe(true)
+    expect(db.applications.size).toBe(1)
+    expect(storedMeta().idNumberOrPassport).toBeNull()
+    expect(storedMeta().phone).toBe(DETAILS.phone)
+  })
+
+  it('T1 contract: tenant apply -> bootstrap as the tenant and as the listing agency staff returns phone, employer, job title and ID', async () => {
+    addRoundTripPeople()
+    const appRow = await guestApplication()
+    expect(await persistAs(TENANT, { ...(appRow as unknown as Record<string, unknown>), ...DETAILS })).toBe(true)
+    expect(storedMeta()).toMatchObject(DETAILS)
+
+    expect(pick(await bootstrapApp(TENANT))).toEqual(DETAILS)
+    expect(pick(await bootstrapApp(STAFF))).toEqual(DETAILS)
+  })
+
+  it('T1 C5: a second applicant write and a staff full-row save that send blank or null keep the stored details', async () => {
+    addRoundTripPeople()
+    const appRow = await guestApplication()
+    expect(await persistAs(TENANT, { ...(appRow as unknown as Record<string, unknown>), ...DETAILS })).toBe(true)
+
+    // Applicant: a later write (e.g. document upload) that carries blanks.
+    const mine = (await bootstrapApp(TENANT))!
+    expect(
+      await persistAs(TENANT, { ...mine, phone: '', employerName: '', jobTitle: null, idNumberOrPassport: '' }),
+    ).toBe(true)
+    expect(storedMeta()).toMatchObject(DETAILS)
+
+    // Applicant: a narrow write with the keys MISSING from the payload.
+    const { phone: _p, employerName: _e, jobTitle: _j, idNumberOrPassport: _i, ...narrow } = mine
+    void _p; void _e; void _j; void _i
+    expect(await persistAs(TENANT, narrow)).toBe(true)
+    expect(storedMeta()).toMatchObject(DETAILS)
+
+    // Agency staff: a full-row save with blank / null details.
+    const staffCopy = (await bootstrapApp(STAFF))!
+    expect(
+      await persistAs(STAFF, { ...staffCopy, phone: '', employerName: null, jobTitle: '', idNumberOrPassport: null }),
+    ).toBe(true)
+    expect(storedMeta()).toMatchObject(DETAILS)
+    expect(pick(await bootstrapApp(STAFF))).toEqual(DETAILS)
+    expect(pick(await bootstrapApp(TENANT))).toEqual(DETAILS)
+  })
+
+  it('T1 C5(i): a stored row whose metadata LACKS the keys loads without them, and the applicant can re-enter them', async () => {
+    addRoundTripPeople()
+    const appRow = await guestApplication()
+    const { phone: _p, idNumberOrPassport: _i, ...withoutDetails } = appRow as unknown as Record<string, unknown>
+    void _p; void _i
+    expect(await persistAs(TENANT, withoutDetails)).toBe(true)
+    // Simulate the live row: metadata has none of the four keys.
+    const saved = [...db.applications.values()][0]!
+    const meta = storedMeta()
+    for (const k of Object.keys(DETAILS)) delete meta[k]
+    saved.params[13] = JSON.stringify(meta)
+
+    const before = (await bootstrapApp(TENANT))!
+    expect(before.employerName).toBeUndefined()
+    expect(before.jobTitle).toBeUndefined()
+    expect(before.idNumberOrPassport).toBeUndefined()
+    expect(before.phone ?? '').toBe('')
+
+    // Your details: the applicant re-enters them; the round trip persists.
+    expect(await persistAs(TENANT, { ...before, ...DETAILS })).toBe(true)
+    expect(storedMeta()).toMatchObject(DETAILS)
+    expect(pick(await bootstrapApp(TENANT))).toEqual(DETAILS)
+    expect(pick(await bootstrapApp(STAFF))).toEqual(DETAILS)
+  })
+
+  it('T1 C6: the landlord and another agency\'s staff never receive the ID number', async () => {
+    addRoundTripPeople()
+    const appRow = await guestApplication()
+    expect(await persistAs(TENANT, { ...(appRow as unknown as Record<string, unknown>), ...DETAILS })).toBe(true)
+
+    const landlord = await bootstrapApp({ userId: LL_FE, role: 'landlord', agencyId: 'ag-horizon' })
+    expect(landlord?.idNumberOrPassport ?? undefined).toBeUndefined()
+    const other = await bootstrapApp({ userId: OTHER_ADMIN_FE, role: 'client_admin', agencyId: 'ag-garden' })
+    // Unconditional: whether or not the row reaches them, the full ID never does.
+    expect(other?.idNumberOrPassport ?? null).not.toBe(DETAILS.idNumberOrPassport)
+    expect(JSON.stringify(other ?? null)).not.toContain(DETAILS.idNumberOrPassport)
+    // Super admin is not exempt: masked.
+    const sa = await bootstrapApp(SUPER)
+    expect(sa).toBeTruthy()
+    expect(sa?.idNumberOrPassport).toBe(maskIdNumber(DETAILS.idNumberOrPassport))
+    // The listing agency's staff and the applicant still get it in full.
+    expect((await bootstrapApp(STAFF))?.idNumberOrPassport).toBe(DETAILS.idNumberOrPassport)
+    expect((await bootstrapApp(TENANT))?.idNumberOrPassport).toBe(DETAILS.idNumberOrPassport)
+  })
+
+  it('T1 O5: co-applicant / guarantor IDs are masked for super admin, and a masked roster never replaces the stored one', async () => {
+    addRoundTripPeople()
+    const appRow = await guestApplication()
+    const roster = {
+      adults: [
+        { id: 'main', name: 'Naledi Dlamini', idNumber: DETAILS.idNumberOrPassport, consented: false },
+        { id: 'co', name: 'Co Applicant', idNumber: '9202024800081', consented: false },
+        { id: 'g', name: 'Guarantor', idNumber: 'A12345678', consented: false },
+      ],
+    }
+    expect(
+      await persistAs(TENANT, { ...(appRow as unknown as Record<string, unknown>), ...DETAILS, creditCheckConsents: roster }),
+    ).toBe(true)
+    const storedRoster = () =>
+      (JSON.parse(String([...db.applications.values()][0]!.params[11])) as { creditCheckConsents?: typeof roster })
+        .creditCheckConsents
+    expect(storedRoster()).toEqual(roster)
+    const adultIds = (a: Record<string, unknown> | undefined) =>
+      ((a?.creditCheckConsents as typeof roster | undefined)?.adults ?? []).map((x) => x.idNumber)
+    expect(adultIds(await bootstrapApp(STAFF))).toEqual(roster.adults.map((x) => x.idNumber))
+    const saCopy = await bootstrapApp(SUPER)
+    expect(adultIds(saCopy)).toEqual(roster.adults.map((x) => maskIdNumber(x.idNumber)))
+    expect(await persistAs(SUPER, { ...(saCopy as Record<string, unknown>), status: 'reviewing' })).toBe(true)
+    expect(storedRoster()).toEqual(roster)
+  })
+
+  it('pin (A1): a whitespace-only value counts as blank and keeps the stored details', async () => {
+    addRoundTripPeople()
+    const appRow = await guestApplication()
+    expect(await persistAs(TENANT, { ...(appRow as unknown as Record<string, unknown>), ...DETAILS })).toBe(true)
+    const ws = { phone: '   ', employerName: ' \t ', jobTitle: '  ', idNumberOrPassport: ' \n ' }
+    expect(await persistAs(TENANT, { ...(await bootstrapApp(TENANT))!, ...ws })).toBe(true)
+    expect(storedMeta()).toMatchObject(DETAILS)
+    expect(await persistAs(STAFF, { ...(await bootstrapApp(STAFF))!, ...ws, status: 'reviewing' })).toBe(true)
+    expect(storedMeta()).toMatchObject(DETAILS)
+  })
+
+  it('pin (C2): the roster guard checks every adult (a masked ID in the second adult only)', async () => {
+    addRoundTripPeople()
+    const appRow = await guestApplication()
+    const roster = {
+      adults: [
+        { id: 'main', name: 'Naledi Dlamini', idNumber: DETAILS.idNumberOrPassport, consented: false },
+        { id: 'co', name: 'Co Applicant', idNumber: '9202024800081', consented: false },
+        { id: 'g', name: 'Guarantor', idNumber: 'A12345678', consented: false },
+      ],
+    }
+    expect(
+      await persistAs(TENANT, { ...(appRow as unknown as Record<string, unknown>), ...DETAILS, creditCheckConsents: roster }),
+    ).toBe(true)
+    const storedRoster = () =>
+      (JSON.parse(String([...db.applications.values()][0]!.params[11])) as { creditCheckConsents?: typeof roster })
+        .creditCheckConsents
+    const echoed = {
+      adults: roster.adults.map((a, i) => (i === 1 ? { ...a, idNumber: maskIdNumber(a.idNumber) } : a)),
+    }
+    const saCopy = await bootstrapApp(SUPER)
+    expect(await persistAs(SUPER, { ...(saCopy as Record<string, unknown>), creditCheckConsents: echoed })).toBe(true)
+    expect(storedRoster()).toEqual(roster)
+  })
+
+  it('T1 C6: a super admin saving the masked row never overwrites the stored ID', async () => {
+    addRoundTripPeople()
+    const appRow = await guestApplication()
+    expect(await persistAs(TENANT, { ...(appRow as unknown as Record<string, unknown>), ...DETAILS })).toBe(true)
+    const saCopy = await bootstrapApp(SUPER)
+    expect(saCopy?.idNumberOrPassport).toBe(maskIdNumber(DETAILS.idNumberOrPassport))
+    expect(await persistAs(SUPER, { ...(saCopy as Record<string, unknown>), status: 'reviewing' })).toBe(true)
+    expect(storedMeta().idNumberOrPassport).toBe(DETAILS.idNumberOrPassport)
+    expect((await bootstrapApp(STAFF))?.idNumberOrPassport).toBe(DETAILS.idNumberOrPassport)
   })
 
   it('still answers false when the route refuses an unauthenticated write', async () => {

@@ -1465,6 +1465,7 @@ export {
   redactTenancyContact,
   redactViewingContact,
   referencedUserIds,
+  scopeApplicationIdNumbers,
   scopeLeaseSignReads,
   staffTicketAccessNotes,
   stripOtherUsersSignatures,

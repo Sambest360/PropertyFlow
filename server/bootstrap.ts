@@ -6,6 +6,7 @@ import { fieldsFromLimitSnapshot, listingLimitsFromSettings } from '../src/lib/l
 import { agencyViewingSettingsFromJson, readViewingEvidence } from '../src/lib/applyEligibility.js'
 import { resolveFrontendRole } from '../src/lib/idMap.js'
 import { mapPool } from './mapPool.js'
+import { stripIdPassportLines } from './enquiryNotes.js'
 import { loadIdMapCache } from './idMapCache.js'
 import { USER_TO_UUID } from './entityMap.js'
 import {
@@ -928,7 +929,7 @@ export async function buildBootstrap(opts?: {
     stage: l.stage as string,
     type: (l.interest_type as string) === 'BUY' ? 'Buy' : 'Rent',
     value: l.value_amount != null ? Number(l.value_amount) : 0,
-    notes: (l.notes as string) ?? '',
+    notes: stripIdPassportLines((l.notes as string) ?? ''),
     metadata: (l.metadata as Lead['metadata'] | null) ?? undefined,
     createdAt: dateOnly(l.created_at as Date),
     updatedAt: dateOnly(l.updated_at as Date),
@@ -1007,7 +1008,10 @@ export async function buildBootstrap(opts?: {
       if (u) {
         a.applicantName = `${u.first_name} ${u.last_name}`.trim()
         a.email = u.email
-        a.phone = u.phone ?? ''
+        // T1: the phone typed on the application (metadata.phone) wins; the
+        // account phone only fills a blank. An account row without a phone
+        // used to blank the application's phone on every reload.
+        a.phone = a.phone || (u.phone ?? '')
       }
     }
     delete (a as { _applicantUuid?: string })._applicantUuid
@@ -1115,7 +1119,7 @@ export async function buildBootstrap(opts?: {
             ? 'No-show'
             : '—',
       feedback: (b.feedback as string) ?? undefined,
-      notes: (b.notes as string) ?? undefined,
+      notes: stripIdPassportLines((b.notes as string) ?? undefined),
       tenantConsentStatus: consentStatus(b.tenant_consent_status),
       tenantProposedStartsAt: b.tenant_proposed_starts_at
         ? new Date(b.tenant_proposed_starts_at as string).toISOString()
