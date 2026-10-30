@@ -68,6 +68,8 @@ const EV = {
   peA: { id: 'c6170000-0000-4000-8000-000000000012', client: A, type: 'property_event', subjectType: 'property', subject: UNIT_A, fe: 'r7-pe-a', payload: { actorName: 'Admin A', action: 'updated', changes: [], propertyId: P_A } },
   actB: { id: 'd6170000-0000-4000-8000-000000000011', client: B, type: 'activity', subjectType: 'agency', subject: null, fe: 'r7-act-b', payload: { text: 'B genuine activity', user: 'Admin B' } },
   peB: { id: 'd6170000-0000-4000-8000-000000000012', client: B, type: 'property_event', subjectType: 'property', subject: UNIT_B, fe: 'r7-pe-b', payload: { actorName: 'Admin B', action: 'updated', changes: [], propertyId: P_B } },
+  /** A platform row (client_id NULL), like the super-admin "Agency created / cancelled" activities. */
+  actNull: { id: 'c6170000-0000-4000-8000-0000000000f1', client: null, type: 'activity', subjectType: 'agency', subject: null, fe: null, payload: { text: 'platform note', user: 'System' } },
 } as const
 type EvKey = keyof typeof EV
 const EV_IDS = Object.values(EV).map((e) => e.id)
@@ -333,6 +335,31 @@ describe.skipIf(!url)('R7 audit-row integrity: event_log writes via the real app
     expect({ peDelete: o1, restPatch: await outcome(r2, EV.actB.id) }).toEqual({
       peDelete: refusedUnchanged('EVENT_LOG_AGENCY_MISMATCH', 'peB'),
       restPatch: refusedUnchanged('EVENT_LOG_AGENCY_MISMATCH', 'actB'),
+    })
+  })
+
+  it('R7-16 RED (C1): an activity with client_id NULL (platform row) is refused to agency staff: agent_admin A upsert with agencyId A, ground_agent A delete with agencyId A and agent_admin A delete with no data are all 403 EVENT_LOG_AGENCY_MISMATCH, row unchanged; super_admin upsert is 200 and client_id stays NULL', async () => {
+    const a = await persist('adminA', { resource: 'activity', action: 'upsert', id: EV.actNull.id, data: { id: EV.actNull.id, agencyId: AG_A, text: 'hijacked-null', user: 'x' } })
+    const oa = await outcome(a, EV.actNull.id)
+    await resetEvents() // each probe starts from the seeded row
+    const b = await persist('groundA', { resource: 'activity', action: 'delete', id: EV.actNull.id, data: { agencyId: AG_A } })
+    const ob = await outcome(b, EV.actNull.id)
+    await resetEvents()
+    const c = await persist('adminA', { resource: 'activity', action: 'delete', id: EV.actNull.id })
+    const oc = await outcome(c, EV.actNull.id)
+    await resetEvents()
+    const d = await persist('superAdmin', { resource: 'activity', action: 'upsert', id: EV.actNull.id, data: { id: EV.actNull.id, text: 'platform note (edited)', user: 'System' } })
+    const dRow = await ev(EV.actNull.id)
+    expect({
+      adminUpsert: oa,
+      groundDelete: ob,
+      adminDeleteNoData: oc,
+      superAdmin: { status: d.status, client: dRow ? dRow.client_id : 'row missing', type: dRow?.event_type },
+    }).toEqual({
+      adminUpsert: refusedUnchanged('EVENT_LOG_AGENCY_MISMATCH', 'actNull'),
+      groundDelete: refusedUnchanged('EVENT_LOG_AGENCY_MISMATCH', 'actNull'),
+      adminDeleteNoData: refusedUnchanged('EVENT_LOG_AGENCY_MISMATCH', 'actNull'),
+      superAdmin: { status: 200, client: null, type: 'activity' },
     })
   })
 
