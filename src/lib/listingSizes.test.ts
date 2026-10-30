@@ -52,7 +52,7 @@ describe('size maximums follow the column types (C-2)', () => {
     expect(parseSizeSqm(9_999_999_999.99)).toBe(9_999_999_999.99)
     expect(parseSizeSqm('9999999999.99')).toBe(9_999_999_999.99)
     expect(parseSizeSqm(1e10)).toBe('invalid')
-    expect(parseSizeSqm('9999999999.995')).toBe('invalid') // rounds to 10 000 000 000.00 in the column
+    expect(parseSizeSqm('9999999999.995')).toBe('invalid')
   })
   it('floor: NUMERIC(10,2) → 99 999 999.99', () => {
     expect(MAX_FLOOR_SIZE_SQM).toBe(99_999_999.99)

@@ -18,9 +18,6 @@ export const MAX_FLOOR_SIZE_SQM = 99_999_999.99
 /** Plain decimal digits only: "600", "250.5", ".5". No sign, hex, exponent, spaces or commas. */
 const PLAIN_DECIMAL = /^(?:\d+(?:\.\d*)?|\.\d+)$/
 
-/** What the column stores after NUMERIC(p,2) rounding, so 99 999 999.995 counts as 100 000 000.00. */
-const roundedTo2 = (n: number) => Math.round(n * 100) / 100
-
 /**
  * '' / null → null (not set); a finite number 0 … max → that number; anything
  * else → 'invalid'. `max` defaults to the erf maximum; pass MAX_FLOOR_SIZE_SQM
@@ -39,7 +36,7 @@ export function parseSizeSqm(
     if (!PLAIN_DECIMAL.test(t)) return 'invalid'
     n = Number(t)
   }
-  if (!Number.isFinite(n) || n < 0 || roundedTo2(n) > max) return 'invalid'
+  if (!Number.isFinite(n) || n < 0 || n > max) return 'invalid'
   return n
 }
 
