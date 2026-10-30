@@ -28,7 +28,10 @@ export default function PrivacyPage() {
           that runs the platform for those agencies and processes that information on their behalf.
         </p>
         <p>
-          {brand} is the responsible party only for platform accounts and our own billing.
+          {brand} is the responsible party for what it processes for its own purposes, as this policy and our Terms
+          of Service describe: platform accounts and sign-in; our own billing; log records, device and browser details
+          and other technical information; keeping the platform secure, preventing fraud and fixing problems;
+          moderating listings, reviews and conduct reports; and the browser storage described in section 9.
         </p>
         <p>
           Our Information Officer is <Entity field="informationOfficer" />, reachable at{' '}

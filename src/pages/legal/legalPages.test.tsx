@@ -53,7 +53,16 @@ describe('legal pages', () => {
     expect(section).toMatch(/Each estate agency[^<]*is the responsible party for the personal information submitted to it/)
     expect(section).toContain('enquiries, rental applications and leases')
     expect(section).toContain('is the operator')
-    expect(section).toContain('responsible party only for platform accounts and our own billing')
+    // Michael #118 ruling 4: no narrower than what the rest of the page says Lekaya does for itself.
+    expect(section).toContain('is the responsible party for what it processes for its own purposes')
+    for (const own of ['platform accounts', 'our own billing', 'log records, device and browser details', 'preventing fraud', 'moderating listings, reviews and conduct reports', 'section 9']) {
+      expect(section, own).toContain(own)
+    }
+    expect(section).not.toContain('responsible party only for')
+    // Angela #118 C4 (A10, A11): Lekaya is never the responsible party for agency data or "the marketplace", nor jointly.
+    expect(section).not.toMatch(/jointly/i)
+    expect(section).not.toMatch(/public marketplace/i)
+    expect(section).not.toMatch(/(?:<p>|\.\s)Lekaya Rentals is (also )?(a|the) responsible party for (the |your )?(personal information submitted|enquir|rental application|application|lease)/i)
     expect(section).toContain('data-testid="legal-missing-informationOfficer"')
     expect(section).toContain('data-testid="legal-missing-privacyEmail"')
     // Jim #118 C3: the public listing shows only "listed by <agent>", no agency name,
