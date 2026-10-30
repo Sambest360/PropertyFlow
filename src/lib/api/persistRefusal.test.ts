@@ -30,6 +30,20 @@ describe('persist refusals', () => {
     }
   })
 
+  it('R7: event_log refusals are plain sentences, never the raw code, and surface as a toast', () => {
+    for (const [status, code, text] of [
+      [403, 'EVENT_LOG_TYPE_MISMATCH', "This record can't be changed from here."],
+      [409, 'EVENT_LOG_ID_TAKEN', "This change wasn't saved because the record already exists."],
+      [403, 'EVENT_LOG_AGENCY_MISMATCH', "This record belongs to another agency and can't be changed."],
+    ] as const) {
+      const r = parsePersistRefusal({ resource: 'activity', id: 'act-1', action: 'upsert' }, status, JSON.stringify({ error: 'persist_failed', code, message: 'Forbidden: x' }))
+      expect(r).toMatchObject({ status, code })
+      const msg = persistRefusalMessage(r!)
+      expect(msg.startsWith(text)).toBe(true)
+      expect(msg).not.toContain(code)
+    }
+  })
+
   it('ignores responses without a code, other statuses and non-JSON bodies', () => {
     expect(parsePersistRefusal(op, 403, JSON.stringify({ error: 'forbidden' }))).toBeNull()
     expect(parsePersistRefusal(op, 400, JSON.stringify({ error: 'bad' }))).toBeNull()
