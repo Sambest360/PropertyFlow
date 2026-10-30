@@ -223,11 +223,13 @@ export async function payfastItn(c: Context) {
     // INVALID → 400; error/timeout/odd reply → 503. Both non-200, so PayFast re-sends.
     const confirmed = await confirmItnWithPayfast(body, cfg)
     if (!confirmed.ok) {
+      // Cast: tsconfig.node/app.json lack strictNullChecks, so !ok does not narrow there.
+      const failed = confirmed as { reason: string; retryable: boolean }
       const ids = (v: unknown) => String(v ?? '').replace(/[\r\n]+/g, ' ').slice(0, 200)
       console.error(
-        `[payfast] payfast_itn_validate_failed: ${confirmed.reason} · m_payment_id=${ids(body.m_payment_id)} · pf_payment_id=${ids(body.pf_payment_id)}`,
+        `[payfast] payfast_itn_validate_failed: ${failed.reason} · m_payment_id=${ids(body.m_payment_id)} · pf_payment_id=${ids(body.pf_payment_id)}`,
       )
-      return confirmed.retryable ? c.text('ITN validation unavailable', 503) : c.text('ITN rejected', 400)
+      return failed.retryable ? c.text('ITN validation unavailable', 503) : c.text('ITN rejected', 400)
     }
     const paid = verdict.status === 'COMPLETE'
     await withTransaction(async (client) => {
