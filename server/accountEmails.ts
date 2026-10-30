@@ -124,13 +124,20 @@ export async function sendSignupEmails(userUuid: string): Promise<void> {
   await sendVerificationEmail(userUuid)
 }
 
-export async function sendVerificationEmail(userUuid: string): Promise<{ alreadyVerified: boolean }> {
+/**
+ * Send the confirm-your-email link. Normally skipped once the address is
+ * confirmed; `force` (a super admin's "Resend confirmation") sends it anyway.
+ */
+export async function sendVerificationEmail(
+  userUuid: string,
+  opts: { force?: boolean } = {},
+): Promise<{ alreadyVerified: boolean; sent?: boolean }> {
   const u = await userById(userUuid)
   if (!u) throw fail(404, 'User not found')
-  if (isEmailVerified(u.metadata)) return { alreadyVerified: true }
+  if (!opts.force && isEmailVerified(u.metadata)) return { alreadyVerified: true }
   const token = await issueToken(u.id, 'verify_email')
-  await sendTemplateEmail('verify_email', { to: u.email, name: firstName(u), link: `/verify-email?token=${token}`, userId: u.id })
-  return { alreadyVerified: false }
+  const r = await sendTemplateEmail('verify_email', { to: u.email, name: firstName(u), link: `/verify-email?token=${token}`, userId: u.id })
+  return { alreadyVerified: isEmailVerified(u.metadata), sent: r.sent }
 }
 
 async function markVerified(userUuid: string): Promise<void> {

@@ -2,6 +2,7 @@
  * Email/password auth for the Hono API.
  * Uses bcryptjs hashes in users.password_hash and HMAC-signed JWT cookies/Bearer tokens.
  */
+import { normalizeStoredPermissions } from '../src/lib/permissions.js'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import bcrypt from 'bcryptjs'
 import type { Context } from 'hono'
@@ -263,9 +264,9 @@ export async function rowToSession(row: UserRow): Promise<SessionUser> {
     agencyId,
     phone: row.phone ?? undefined,
     active: row.active,
-    enabledPermissions: Array.isArray(meta.enabledPermissions)
-      ? (meta.enabledPermissions as string[])
-      : undefined,
+    // Read at the current catalogue version (lists saved before a permission
+    // existed gain it when they held what used to grant the same access).
+    enabledPermissions: normalizeStoredPermissions(meta.enabledPermissions, meta.permissionsVersion) ?? undefined,
     licenseStatus: (meta.licenseStatus as string | null | undefined) ?? null,
     mentorId: (meta.mentorId as string | null | undefined) ?? null,
     commissionSharePct:

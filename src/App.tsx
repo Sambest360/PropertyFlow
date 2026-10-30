@@ -429,7 +429,7 @@ export default function App() {
                     </CanonicalIdRedirect>
                   }
                 />
-                <Route path="operations/escalations" element={<Guard anyOf={['leads.view', 'occupants.view']}><EscalationsPage /></Guard>} />
+                <Route path="operations/escalations" element={<Guard permission="escalations.view"><EscalationsPage /></Guard>} />
                 <Route path="operations/contractors" element={<Guard permission="contractors.view"><ContractorsDirectory /></Guard>} />
                 <Route path="operations/documents" element={<Guard permission="documents.view"><Documents /></Guard>} />
                 <Route path="operations/communications" element={<Guard permission="messages.manage"><Communications /></Guard>} />
@@ -530,8 +530,8 @@ export default function App() {
                 <Route path="admin/agencies" element={<Guard permission="platform.manage"><AdminAgenciesPage /></Guard>} />
                 <Route path="admin/storage" element={<Guard permission="platform.manage"><AdminStoragePage /></Guard>} />
                 <Route path="admin/emails" element={<Guard permission="platform.manage"><AdminEmailsPage /></Guard>} />
-                <Route path="admin/subscription" element={<AgencySubscriptionPage />} />
-                <Route path="billing/invoices/:id" element={<InvoicePage />} />
+                <Route path="admin/subscription" element={<Guard permission="billing.view"><AgencySubscriptionPage /></Guard>} />
+                <Route path="billing/invoices/:id" element={<Guard permission="billing.view"><InvoicePage /></Guard>} />
                 <Route path="admin/reviews" element={<Guard anyOf={['platform.manage']}><ReviewModerationPage /></Guard>} />
                 <Route path="admin/agencies/new" element={<Guard permission="platform.manage"><AdminAgencyCreatePage /></Guard>} />
                 <Route

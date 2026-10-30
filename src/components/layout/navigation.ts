@@ -143,7 +143,7 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
           {
             to: '/workspace/operations/escalations',
             label: 'Escalations',
-            anyOf: ['leads.view', 'occupants.view'],
+            permission: 'escalations.view',
             icon: Siren,
           },
           {
@@ -376,7 +376,7 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
           {
             to: '/workspace/admin/subscription',
             label: 'Subscription & billing',
-            anyOf: ['users.manage'],
+            permission: 'billing.view',
             icon: CreditCard,
           },
           {

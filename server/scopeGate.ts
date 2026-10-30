@@ -39,7 +39,7 @@ import {
 } from './propertyDeletePolicy.js'
 import type { PropertyAccessSubject } from '../src/lib/agencyScope.js'
 import type { Permission, Role } from '../src/types/domain.js'
-import { effectiveCan } from '../src/lib/permissions.js'
+import { effectiveCan, normalizeStoredPermissions } from '../src/lib/permissions.js'
 import {
   canResolveSupportTicket,
   supportTicketRoutingAgency,
@@ -691,8 +691,8 @@ export async function actorStoredCan(actor: DemoActor, perms: readonly Permissio
       `SELECT metadata FROM users WHERE id = $1::uuid`,
       [uuid],
     )
-    const p = rows[0]?.metadata?.enabledPermissions
-    if (Array.isArray(p)) enabled = p as Permission[]
+    const meta = rows[0]?.metadata
+    enabled = normalizeStoredPermissions(meta?.enabledPermissions, meta?.permissionsVersion) ?? undefined
   }
   return perms.some((perm) => effectiveCan(actor.role as Role, perm, undefined, enabled))
 }
@@ -1090,21 +1090,23 @@ export async function resolveActorUsersManage(actor: DemoActor): Promise<boolean
   if (agency) {
     const clientUuid = await resolveUuid('agency', agency)
     if (clientUuid) {
-      const rows = await query<{ enabled: unknown }>(
-        `SELECT settings->'enabledPermissions' AS enabled FROM clients WHERE id = $1::uuid LIMIT 1`,
+      const rows = await query<{ enabled: unknown; version: unknown }>(
+        `SELECT settings->'enabledPermissions' AS enabled, settings->'permissionsVersion' AS version
+           FROM clients WHERE id = $1::uuid LIMIT 1`,
         [clientUuid],
       )
-      agencyEnabled = permissionList(rows[0]?.enabled)
+      agencyEnabled = normalizeStoredPermissions(permissionList(rows[0]?.enabled), rows[0]?.version)
     }
   }
   let userEnabled: Permission[] | null = null
   const userUuid = await resolveUuid('user', actor.userId)
   if (userUuid) {
-    const rows = await query<{ enabled: unknown }>(
-      `SELECT metadata->'enabledPermissions' AS enabled FROM users WHERE id = $1::uuid LIMIT 1`,
+    const rows = await query<{ enabled: unknown; version: unknown }>(
+      `SELECT metadata->'enabledPermissions' AS enabled, metadata->'permissionsVersion' AS version
+         FROM users WHERE id = $1::uuid LIMIT 1`,
       [userUuid],
     )
-    userEnabled = permissionList(rows[0]?.enabled)
+    userEnabled = normalizeStoredPermissions(permissionList(rows[0]?.enabled), rows[0]?.version)
   }
   return effectiveCan(actor.role, 'users.manage', agencyEnabled, userEnabled)
 }
@@ -1185,6 +1187,8 @@ export async function assertPersistAllowed(
 ): Promise<PortalOutcome> {
   // CR10: lease_signed audit rows are server-written only (generic policy).
   if (isClientLeaseSignedWrite(body)) throw leaseSignedRefusedError()
+  // A permission an admin switched off for this user blocks its writes too.
+  await (await import('./permissionGate.js')).assertWriteNotRestricted(actor, body.resource)
   if (body.resource === 'support_ticket') {
     // Portal users (tenant / landlord / contractor) pass the portal allow-list
     // first: submit only, never resolve.

@@ -34,6 +34,9 @@ const STAFF: Permission[] = [
   'trust.approve_payout',
   'trust.import_csv',
   'trust.view_arrears',
+  'escalations.view',
+  'billing.view',
+  'screening.run',
 ]
 
 const ALL: Permission[] = ['platform.manage', ...STAFF]
@@ -83,6 +86,9 @@ const AGENCY_ADMIN: Permission[] = [
   'trust.approve_payout',
   'trust.import_csv',
   'trust.view_arrears',
+  'escalations.view',
+  'billing.view',
+  'screening.run',
 ]
 
 /**
@@ -104,6 +110,8 @@ const FULL_AGENT: Permission[] = [
   'documents.view',
   'payments.view',
   'messages.manage',
+  'escalations.view',
+  'screening.run',
 ]
 
 /**
@@ -118,6 +126,8 @@ const CANDIDATE_AGENT: Permission[] = [
   'maintenance.view',
   'documents.view',
   'messages.manage',
+  'escalations.view',
+  'screening.run',
 ]
 
 export const rolePermissions: Record<Role, Permission[]> = {
@@ -269,14 +279,35 @@ export const AGENCY_CAPABILITY_GROUPS: Array<{
     ],
   },
   {
+    id: 'contractors',
+    label: 'Contractors',
+    permissions: ['contractors.view', 'contractors.manage'],
+  },
+  {
+    id: 'screening',
+    label: 'Escalations & checks',
+    permissions: ['escalations.view', 'screening.run'],
+  },
+  {
+    id: 'trust',
+    label: 'Trust & banking',
+    permissions: ['trust.view', 'trust.view_arrears', 'trust.allocate', 'trust.import_csv', 'trust.approve_payout'],
+  },
+  {
     id: 'insights',
-    label: 'Reports',
-    permissions: ['reports.view'],
+    label: 'Reports, compliance & billing',
+    permissions: ['reports.view', 'compliance.view', 'billing.view'],
   },
   {
     id: 'portals',
     label: 'External portals',
-    permissions: ['portal.owner', 'portal.tenant', 'portal.contractor'],
+    permissions: [
+      'portal.owner',
+      'portal.tenant',
+      'portal.contractor',
+      'trust.view_own_statement',
+      'trust.view_own_invoices',
+    ],
   },
 ]
 
@@ -366,6 +397,9 @@ export const permissionLabels: Partial<Record<Permission, string>> = {
   'portal.owner': 'Owner portal',
   'portal.tenant': 'Tenant portal',
   'portal.contractor': 'Contractor portal',
+  'escalations.view': 'View escalations',
+  'billing.view': 'Subscription & billing',
+  'screening.run': 'Run background / credit checks',
 }
 
 export function can(role: Role, permission: Permission) {
@@ -386,6 +420,7 @@ const ADMIN_ONLY: Permission[] = [
   'config.manage',
   'notifications.broadcast',
   'trust.approve_payout',
+  'billing.view',
 ]
 /** Self-service portal permissions — never granted to staff. */
 const PORTAL_ONLY: Permission[] = [
@@ -483,3 +518,63 @@ export function mentorsForAgency<T extends { role: Role; agencyId: string | null
       (u.role === 'client_admin' || u.role === 'ground_agent'),
   )
 }
+
+/**
+ * Version of the permission catalogue. Stored next to a saved permission list
+ * (users.metadata.permissionsVersion, clients.settings.permissionsVersion) so
+ * lists saved before a permission existed can be read correctly.
+ */
+export const PERMISSIONS_VERSION = 2
+
+/**
+ * Permissions added in version 2, and the older permissions that gave the
+ * same access before they existed. A list saved earlier gets the new
+ * permission when it holds any of these, so nobody loses access when the
+ * catalogue grows; a list saved at version 2 is taken exactly as saved.
+ */
+export const IMPLIED_BEFORE_V2: Readonly<Partial<Record<Permission, readonly Permission[]>>> = {
+  'escalations.view': ['leads.view', 'occupants.view'],
+  'billing.view': ['users.manage'],
+  'screening.run': ['applications.view', 'applications.review'],
+}
+
+/** A stored permission list read at the current catalogue version (null when none is stored). */
+export function normalizeStoredPermissions(list: unknown, version?: unknown): Permission[] | null {
+  if (!Array.isArray(list) || list.length === 0) return null
+  const out = list.filter((p): p is Permission => typeof p === 'string')
+  if (Number(version) >= PERMISSIONS_VERSION) return out
+  const set = new Set<Permission>(out)
+  for (const [perm, parents] of Object.entries(IMPLIED_BEFORE_V2) as Array<[Permission, readonly Permission[]]>) {
+    if (!set.has(perm) && parents.some((p) => set.has(p))) set.add(perm)
+  }
+  return [...set]
+}
+
+/**
+ * True when this user's own saved list switches off a permission their role
+ * has by default — an explicit restriction by an admin. Users on role
+ * defaults (no list) and super admins are never restricted.
+ */
+export function isRestrictedPermission(
+  role: Role,
+  permission: Permission,
+  userEnabled: Permission[] | null | undefined,
+): boolean {
+  if (role === 'super_admin' || !userEnabled?.length) return false
+  return (rolePermissions[role] ?? []).includes(permission) && !userEnabled.includes(permission)
+}
+
+/**
+ * True when every one of `permissions` the role holds by default has been
+ * switched off for this user (and the role holds at least one of them).
+ */
+export function allRestricted(
+  role: Role,
+  permissions: readonly Permission[],
+  userEnabled: Permission[] | null | undefined,
+): boolean {
+  if (role === 'super_admin' || !userEnabled?.length) return false
+  const defaults = rolePermissions[role] ?? []
+  return permissions.some((p) => defaults.includes(p)) && permissions.every((p) => !userEnabled.includes(p))
+}
+

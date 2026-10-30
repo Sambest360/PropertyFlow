@@ -744,6 +744,26 @@ app.post('/api/auth/confirm-email-change', async (c) => {
   }
 })
 
+/** Super admin: send a user the confirm-your-email link again, with one click. */
+app.post('/api/admin/users/send-confirmation', async (c) => {
+  try {
+    const actor = await resolveSessionUser(c)
+    if (!actor) return c.json({ error: 'unauthorized', message: 'Not signed in' }, 401)
+    if (actor.role !== 'super_admin') return c.json({ error: 'forbidden', message: 'Only a super admin can do this' }, 403)
+    const body = (await c.req.json().catch(() => ({}))) as { userId?: unknown }
+    const userId = typeof body.userId === 'string' ? body.userId.trim() : ''
+    const uuid = userId ? await resolveUuid('user', userId) : null
+    if (!uuid) return c.json({ error: 'not_found', message: 'User not found' }, 404)
+    const { sendVerificationEmail } = await import('./accountEmails.js')
+    const r = await sendVerificationEmail(uuid, { force: true })
+    return c.json({ ok: true, sent: r.sent === true, alreadyVerified: r.alreadyVerified })
+  } catch (err) {
+    const status = errStatus(err)
+    const message = status >= 500 ? 'The email could not be sent' : err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'send_confirmation_failed', message }, status)
+  }
+})
+
 /** Super admin deletes (or, when records point at the user, anonymises) a user: server/userDelete.ts. */
 app.post('/api/admin/users/delete', async (c) => {
   try {
@@ -826,12 +846,18 @@ app.get('/api/bootstrap', async (c) => {
       actor.role === 'client_admin' || actor.role === 'agent_admin'
         ? await resolveActorUsersManage(actor)
         : undefined
-    const filtered = filterBootstrapForActor(
-      data as Parameters<typeof filterBootstrapForActor>[0],
-      actor,
-      scope,
-      aliases,
-      { usersManage },
+    const { loadActorPermissionList, stripRestrictedCollections } = await import('./permissionGate.js')
+    // Collections an admin switched off for this user never reach the browser.
+    const filtered = stripRestrictedCollections(
+      filterBootstrapForActor(
+        data as Parameters<typeof filterBootstrapForActor>[0],
+        actor,
+        scope,
+        aliases,
+        { usersManage },
+      ) as unknown as Record<string, unknown>,
+      actor.role,
+      await loadActorPermissionList(actor),
     )
     const bootstrapMs = Date.now() - bootstrapStarted
     c.header('Server-Timing', `bootstrap;dur=${bootstrapMs}`)
@@ -1180,6 +1206,7 @@ app.get('/api/cron/storage-alerts', async (c) => {
 app.get('/api/escalations', async (c) => {
   try {
     const actor = await requireActor(c)
+    await (await import('./permissionGate.js')).assertNotRestricted(actor, 'escalations.view')
     const { listEscalations } = await import('./escalations.js')
     return c.json(await listEscalations(actor))
   } catch (err) {
@@ -1191,6 +1218,7 @@ app.get('/api/escalations', async (c) => {
 app.post('/api/escalations', async (c) => {
   try {
     const actor = await requireActor(c)
+    await (await import('./permissionGate.js')).assertNotRestricted(actor, 'escalations.view')
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
     const { escalateManually } = await import('./escalations.js')
     return c.json(await escalateManually(actor, body), 201)
@@ -1203,6 +1231,7 @@ app.post('/api/escalations', async (c) => {
 app.get('/api/escalations/settings', async (c) => {
   try {
     const actor = await requireActor(c)
+    await (await import('./permissionGate.js')).assertNotRestricted(actor, 'escalations.view')
     const { getEscalationSettings } = await import('./escalations.js')
     return c.json({ settings: await getEscalationSettings(actor, c.req.query('agencyId') ?? null) })
   } catch (err) {
@@ -1226,6 +1255,7 @@ app.put('/api/escalations/settings', async (c) => {
 app.post('/api/escalations/:id/actions', async (c) => {
   try {
     const actor = await requireActor(c)
+    await (await import('./permissionGate.js')).assertNotRestricted(actor, 'escalations.view')
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
     const { actOnEscalation } = await import('./escalations.js')
     return c.json({ escalation: await actOnEscalation(actor, c.req.param('id'), body) })
@@ -2224,6 +2254,8 @@ app.post('/api/payfast/itn', (c) => payfastItn(c))
 app.get('/api/screening/provider', (c) => screeningProviderInfo(c))
 app.post('/api/screening/webhook', (c) => screeningWebhook(c))
 registerScreeningRoutes(app, {
+  assertNotRestricted: async (actor, permission) =>
+    (await import('./permissionGate.js')).assertNotRestricted(actor, permission),
   store: pgScreeningStore,
   registry: createProviderRegistry(process.env),
   env: process.env,

@@ -2,6 +2,7 @@
  * Postgres write handlers for AppStore domain mutations.
  * Accepts frontend demo IDs; resolves/registers UUIDs via entity_id_map.
  */
+import { PERMISSIONS_VERSION } from '../src/lib/permissions.js'
 import { query, withTransaction, clientQuery } from './db.js'
 import { slotStartSast, slotStoredStart } from './slotInstant.js'
 import {
@@ -699,6 +700,7 @@ async function upsertAgency(feId: string, d: Record<string, unknown>): Promise<s
       JSON.stringify({
         frontend_id: feId,
         enabledPermissions: d.enabledPermissions ?? [],
+        permissionsVersion: PERMISSIONS_VERSION,
         ...(d.settings && typeof d.settings === 'object' && !Array.isArray(d.settings)
           ? {
               ...(typeof (d.settings as { listingLimits?: unknown }).listingLimits === 'object' &&
@@ -799,6 +801,8 @@ async function upsertUser(feId: string, uuid: string, d: Record<string, unknown>
   for (const k of ['enabledPermissions', 'licenseStatus', 'mentorId', 'commissionSharePct']) {
     if (has(k)) meta[k] = d[k] ?? null
   }
+  // A list saved now is taken exactly as saved (no implied newer permissions).
+  if (has('enabledPermissions')) meta.permissionsVersion = PERMISSIONS_VERSION
   if (d.verification && typeof d.verification === 'object') meta.verification = d.verification
   if (d.company) meta.company = d.company
   if (d.idNumberOrPassport) meta.idNumberOrPassport = d.idNumberOrPassport

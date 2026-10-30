@@ -5,6 +5,7 @@ import { useStore } from '../../context/AppStore'
 import { useAgencyScope, useAuth } from '../../context/AuthContext'
 import { VerificationStatusBadge } from '../auth/VerificationBanner'
 import { ImpersonateUserButton } from '../admin/ImpersonateUserButton'
+import { SuperAdminQuickActions } from '../admin/SuperAdminQuickActions'
 import {
   ClearFiltersButton,
   DirectoryEmpty,
@@ -53,7 +54,7 @@ export function AllAccountsDirectory({
   showLandlordWaitingList?: boolean
 }) {
   const { state } = useStore()
-  const { has, role } = useAuth()
+  const { has, role, realUser } = useAuth()
   const { scopeAgency } = useAgencyScope()
   const reducedMotion = usePrefersReducedMotion()
   const isPlatform = has('platform.manage')
@@ -394,6 +395,9 @@ export function AllAccountsDirectory({
                       aria-hidden
                     />
                   </Link>
+                  {isPlatform && realUser ? (
+                    <SuperAdminQuickActions user={item.user} viewerId={realUser.id} compact />
+                  ) : null}
                   <ImpersonateUserButton
                     target={item.user}
                     variant="compact"

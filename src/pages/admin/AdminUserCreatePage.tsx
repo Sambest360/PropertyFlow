@@ -1072,12 +1072,16 @@ export default function AdminUserCreatePage() {
                   </div>
                 ) : null}
 
+                {/* Only a super admin tailors a new user's permissions; anyone else
+                    creating a user gives them the role's standard set. */}
+                {isPlatform ? (
                 <div className="space-y-3 border-t border-primary-100 pt-5">
                     <div>
                       <h3 className="text-sm font-semibold text-ink">Permissions</h3>
                       <p className="mt-1 text-xs text-ink-500">
-                        Pre-filled for a {roleLabels[role]}. Only permissions this role can have
-                        {selectedAgency ? ` and ${selectedAgency.name} has switched on` : ''} are shown. You can
+                        Pre-filled for a {roleLabels[role]}. Untick anything this person should not have:
+                        it disappears from their menu and the server refuses it too. Only permissions this role
+                        can have{selectedAgency ? ` and ${selectedAgency.name} has switched on` : ''} are shown. You can
                         change them later on Access.
                       </p>
                     </div>
@@ -1104,6 +1108,7 @@ export default function AdminUserCreatePage() {
                       )}
                     </div>
                   </div>
+                ) : null}
               </section>
             ) : null}
 

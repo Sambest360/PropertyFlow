@@ -18,6 +18,7 @@ import { ImpersonateUserButton } from '../../components/admin/ImpersonateUserBut
 import { ResetPasswordButton } from '../../components/admin/ResetPasswordButton'
 import { ChangeEmailButton } from '../../components/admin/ChangeEmailButton'
 import { DeleteUserButton } from '../../components/admin/DeleteUserButton'
+import { SuperAdminQuickActions } from '../../components/admin/SuperAdminQuickActions'
 import { showPasswordResetEntry } from '../../lib/auth/passwordResetUi'
 import { isApiEnabled } from '../../lib/api/config'
 import { AgencyCapabilityChecklist } from '../../components/admin/AgencyCapabilityChecklist'
@@ -221,6 +222,9 @@ export default function AdminUserDetailPage() {
                   <ResetPasswordButton userId={user.id} userName={user.name} />
                   <ChangeEmailButton userId={user.id} userName={user.name} currentEmail={user.email} />
                 </>
+              ) : null}
+              {realUser.role === 'super_admin' && isApiEnabled ? (
+                <SuperAdminQuickActions user={user} viewerId={realUser.id} showReset={false} />
               ) : null}
               {realUser.role === 'super_admin' && user.role !== 'super_admin' && user.id !== realUser.id && isApiEnabled ? (
                 <DeleteUserButton

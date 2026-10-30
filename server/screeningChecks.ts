@@ -438,6 +438,8 @@ export type ScreeningDeps = {
   registry: ProviderRegistry
   env: Env
   now: () => Date
+  /** Per-user permission switch-off check (server/permissionGate.ts); tests inject a stub. */
+  assertNotRestricted?: (actor: DemoActor, permission: 'screening.run') => Promise<void>
 }
 
 // ---------------------------------------------------------------------------

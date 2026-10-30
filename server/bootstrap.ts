@@ -1,3 +1,4 @@
+import { normalizeStoredPermissions } from '../src/lib/permissions.js'
 import { query } from './db.js'
 import { readTicketAccessNotes, ticketAccessNotesColumnExists } from './ticketAccessNotes.js'
 import { isSafePhotoUrl } from '../src/lib/photoLimits.js'
@@ -730,9 +731,8 @@ export async function buildBootstrap(opts?: {
       agencyId: agencyFe(u.client_id),
       phone: u.phone ?? undefined,
       active: u.active,
-      enabledPermissions: Array.isArray(meta.enabledPermissions)
-        ? meta.enabledPermissions
-        : undefined,
+      enabledPermissions:
+        normalizeStoredPermissions(meta.enabledPermissions, meta.permissionsVersion) ?? undefined,
       licenseStatus: meta.licenseStatus ?? undefined,
       mentorId: meta.mentorId ?? undefined,
       commissionSharePct:

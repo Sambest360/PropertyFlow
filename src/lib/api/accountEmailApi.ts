@@ -39,6 +39,14 @@ export function confirmEmailChange(token: string) {
   return call<{ ok: true; email: string }>('/api/auth/confirm-email-change', { method: 'POST', body: JSON.stringify({ token }) })
 }
 
+/** Super admin: send a user the confirm-your-email link again. */
+export function sendUserConfirmation(userId: string) {
+  return call<{ ok: true; sent: boolean; alreadyVerified: boolean }>('/api/admin/users/send-confirmation', {
+    method: 'POST',
+    body: JSON.stringify({ userId }),
+  })
+}
+
 /** Super admin: delete a user (anonymised instead when records point at them). */
 export function deleteUserAccount(userId: string) {
   return call<{ ok: true; userId: string; mode: 'deleted' | 'anonymised' }>('/api/admin/users/delete', {

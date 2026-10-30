@@ -50,6 +50,10 @@ export type Permission =
   | 'trust.view_arrears'
   | 'trust.view_own_statement'
   | 'trust.view_own_invoices'
+  // Added in permissions version 2 (see PERMISSIONS_VERSION in lib/permissions)
+  | 'escalations.view'
+  | 'billing.view'
+  | 'screening.run'
 
 /** End-to-end application → move-in lifecycle */
 export type ApplicationStage =

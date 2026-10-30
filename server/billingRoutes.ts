@@ -27,6 +27,13 @@ function needActor(a: Awaited<ReturnType<typeof actorOf>>) {
   if (!a) throw Object.assign(new Error('Sign in first'), { status: 401 })
   return a
 }
+/** Signed in, and not switched off from Subscription & billing (server/permissionGate.ts). */
+async function needBilling(a: Awaited<ReturnType<typeof actorOf>>) {
+  const actor = needActor(a)
+  const { assertNotRestricted } = await import('./permissionGate.js')
+  await assertNotRestricted(actor, 'billing.view')
+  return actor
+}
 function needPlatform(a: Awaited<ReturnType<typeof actorOf>>) {
   const actor = needActor(a)
   if (actor.role !== 'super_admin') throw Object.assign(new Error('Platform team only'), { status: 403 })
@@ -36,11 +43,11 @@ function needPlatform(a: Awaited<ReturnType<typeof actorOf>>) {
 export function registerBillingRoutes(app: Hono): void {
   app.get('/api/billing/invoices', handle(async (c) => {
     const { listInvoices } = await import('./saasBilling.js')
-    return { invoices: await listInvoices(needActor(await actorOf(c))) }
+    return { invoices: await listInvoices(await needBilling(await actorOf(c))) }
   }))
   app.get('/api/billing/invoices/:id', handle(async (c) => {
     const { getInvoice } = await import('./saasBilling.js')
-    return { invoice: await getInvoice(needActor(await actorOf(c)), c.req.param('id')!) }
+    return { invoice: await getInvoice(await needBilling(await actorOf(c)), c.req.param('id')!) }
   }))
   app.post('/api/billing/invoices/:id/payments', handle(async (c) => {
     const { recordInvoicePayment } = await import('./saasBilling.js')
@@ -50,7 +57,7 @@ export function registerBillingRoutes(app: Hono): void {
   app.post('/api/billing/invoices/:id/proof', handle(async (c) => {
     const { submitInvoiceProof } = await import('./saasBilling.js')
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
-    return { invoice: await submitInvoiceProof(needActor(await actorOf(c)), c.req.param('id')!, body) }
+    return { invoice: await submitInvoiceProof(await needBilling(await actorOf(c)), c.req.param('id')!, body) }
   }))
   app.post('/api/billing/invoices/:id/void', handle(async (c) => {
     const { voidInvoice } = await import('./saasBilling.js')

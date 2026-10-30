@@ -210,7 +210,12 @@ export function registerScreeningRoutes(app: Hono, deps: ScreeningRouteDeps) {
     run(async (c, actor) => giveConsent(deps, actor, await jsonBody(c), requestMeta(c))),
   )
   app.post('/api/screening/consents/:id/withdraw', run((c, actor) => withdrawConsent(deps, actor, c.req.param('id') ?? '')))
-  app.post('/api/screening/checks', run(async (c, actor) => requestCheck(deps, actor, await jsonBody(c))))
+  app.post('/api/screening/checks', run(async (c, actor) => {
+    // Refused when an admin switched off screening.run for this user (the
+    // server wires deps.assertNotRestricted to server/permissionGate.ts).
+    await deps.assertNotRestricted?.(actor, 'screening.run')
+    return requestCheck(deps, actor, await jsonBody(c))
+  }))
   app.get('/api/screening/checks', run((c, actor) => listChecks(deps, actor, c.req.query('applicationId'))))
   app.get('/api/screening/checks/:id/full', run((c, actor) => getCheckFull(deps, actor, c.req.param('id') ?? '')))
   app.get('/api/screening/checks/:id', run((c, actor) => getCheckSummary(deps, actor, c.req.param('id') ?? '')))
