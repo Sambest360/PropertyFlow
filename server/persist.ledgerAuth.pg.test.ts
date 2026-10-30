@@ -25,6 +25,22 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
  * Contract pinned by these tests where the spec names no field: the A4 reason
  * is `data.amountChangeReason` (string). Rename here if Slice A picks another.
  *
+ * Follow-up commit (Angela, Jim's Slice A sign-off 20:17 SAST, Q12 / MUST 1 / MUST 2 / MUST 9 / MUST 10):
+ * A3 RED and A4 RED now pin HTTP 400 PAYMENT_PAID_REFERENCE_REQUIRED and 400
+ * PAYMENT_AMOUNT_REASON_REQUIRED (P4 stays 409 PAYMENT_TERMINAL, TA8 stays >= 400);
+ * J-U1 (B's payment with unit_id NULL rewritten by A, by PAY- id and by uuid);
+ * J-U2/J-U2a/J-U2b/J-U2c (create whose propertyId the gate does not resolve,
+ * incl. B's unit by raw uuid); MUST 9 (stale
+ * dunning notes do not count as a reference); each with a green control.
+ *
+ * RUN THIS FILE ON ITS OWN (one Postgres test file at a time, or one scratch DB
+ * per file): P1, P1b, P1-BATCH, J-U1 and J-U2 compare GLOBAL counts
+ * (count(*) FROM payments / event_log over the whole database), and every test
+ * re-seeds fixed uuids. Any other file writing payments or event_log in the same
+ * DB at the same time breaks them. Use
+ *   PF_TEST_PG_URL=... npx vitest run server/persist.ledgerAuth.pg.test.ts
+ * or, for several pg files, `npx vitest run --no-file-parallelism <files>`.
+ *
  * "RED on main" tests fail today because the write is allowed and the row
  * changes; each asserts the HTTP status AND the stored row in one object so the
  * failure diff shows both. "CONTROL" tests are green on main and must stay
@@ -404,13 +420,13 @@ describe.skipIf(!url)('Slice A red tests: /api/persist payment writes via the re
     })
   })
 
-  it('A3 RED (rule A3, TA8 family): agent_admin marks A\'s DUE payment Paid with NO reference and NO notes: must be refused (4xx) and the row unchanged', async () => {
+  it('A3 RED (rule A3, TA8 family; Jim Q12): agent_admin marks A\'s DUE payment Paid with NO reference and NO notes: 400 PAYMENT_PAID_REFERENCE_REQUIRED and the row unchanged', async () => {
     const res = await persist('adminA', {
       resource: 'payment', action: 'upsert', id: PAY.a.fe,
       data: { amount: 20000, status: 'Paid', type: 'Deposit', partyName: 'Tenant', dueDate: '2026-11-01', agencyId: AG_A, propertyId: P_A, partyUserId: USERS.tenA.fe, method: 'EFT' },
     })
-    expect({ refused4xx: res.status >= 400 && res.status < 500, status: res.status, row: await row(PAY.a.id), audit: await events('payment_marked_paid') }).toEqual({
-      refused4xx: true, status: res.status, row: seededRow(PAY.a), audit: [],
+    expect({ status: res.status, code: res.code, row: await row(PAY.a.id), audit: await events('payment_marked_paid') }).toEqual({
+      status: 400, code: 'PAYMENT_PAID_REFERENCE_REQUIRED', row: seededRow(PAY.a), audit: [],
     })
   })
 
@@ -444,13 +460,13 @@ describe.skipIf(!url)('Slice A red tests: /api/persist payment writes via the re
     }
   })
 
-  it('A4 RED (rule A4): agent_admin changes the amount R20 000 -> R18 000 with NO amountChangeReason: must be refused (4xx) and the row unchanged', async () => {
+  it('A4 RED (rule A4; Jim Q12): agent_admin changes the amount R20 000 -> R18 000 with NO amountChangeReason: 400 PAYMENT_AMOUNT_REASON_REQUIRED and the row unchanged', async () => {
     const res = await persist('adminA', {
       resource: 'payment', action: 'upsert', id: PAY.a.fe,
       data: { amount: 18000, status: 'Due', type: 'Deposit', partyName: 'Tenant', dueDate: '2026-11-01', agencyId: AG_A, propertyId: P_A, partyUserId: USERS.tenA.fe },
     })
-    expect({ refused4xx: res.status >= 400 && res.status < 500, status: res.status, row: await row(PAY.a.id), audit: await events('payment_amount_changed') }).toEqual({
-      refused4xx: true, status: res.status, row: seededRow(PAY.a), audit: [],
+    expect({ status: res.status, code: res.code, row: await row(PAY.a.id), audit: await events('payment_amount_changed') }).toEqual({
+      status: 400, code: 'PAYMENT_AMOUNT_REASON_REQUIRED', row: seededRow(PAY.a), audit: [],
     })
   })
 
@@ -524,6 +540,112 @@ describe.skipIf(!url)('Slice A red tests: /api/persist payment writes via the re
     })
     expect({ status: res.status, ok: res.json?.ok, row: await row(PAY.a.id) }).toEqual({
       status: 200, ok: true, row: { ...seededRow(PAY.a), due_date: '2026-11-20', notes: 'batch edit' },
+    })
+  })
+
+  // ---- Follow-up: Jim's J-U1 hole (sign-off MUST 1). payment loadExisting gives propertyId null when the
+  // stored unit_id is NULL (scopeGate.ts:610-623), so on main the gate falls through to the PAYLOAD propertyId
+  // (:1217) and canWriteEntity takes the property path (src/lib/scopeWrite.ts:119-142): A's own property passes.
+  for (const via of ['PAY- id', 'uuid'] as const) {
+    it(`J-U1 RED by ${via} (Jim MUST 1): agent_admin of A rewrites agency B's payment whose unit_id is NULL, with A's propertyId and agencyId, amount 1, Paid: 403 and B's row unchanged`, async () => {
+      await q(`UPDATE payments SET unit_id = NULL WHERE id = $1::uuid`, [PAY.b.id])
+      const before = await counts()
+      const id = via === 'uuid' ? PAY.b.id : PAY.b.fe
+      const res = await persist('adminA', {
+        resource: 'payment', action: 'upsert', id,
+        data: { id, amount: 1, status: 'Paid', type: 'Deposit', partyName: 'x', dueDate: '2026-11-01', agencyId: AG_A, propertyId: P_A, reference: 'J-U1' },
+      })
+      expect({ status: res.status, row: await row(PAY.b.id), counts: await counts() }).toEqual({
+        status: 403, row: { ...seededRow(PAY.b), unit_id: null }, counts: before,
+      })
+    })
+  }
+
+  it('J-U1 CONTROL (green on main, must stay green): agent_admin of A edits A\'s OWN unit-less payment (notes only, amount and status unchanged, no propertyId) and it is saved', async () => {
+    await q(`UPDATE payments SET unit_id = NULL WHERE id = $1::uuid`, [PAY.a2.id])
+    const res = await persist('adminA', {
+      resource: 'payment', action: 'upsert', id: PAY.a2.fe,
+      data: { amount: 20000, status: 'Due', type: 'Deposit', partyName: 'Tenant', dueDate: '2026-11-01', agencyId: AG_A, partyUserId: USERS.tenA.fe, notes: 'unit-less edit' },
+    })
+    expect({ status: res.status, row: await row(PAY.a2.id) }).toEqual({ status: 200, row: { ...seededRow(PAY.a2), unit_id: null, notes: 'unit-less edit' } })
+  })
+
+  // ---- Follow-up: Jim's MUST 2 (create check in uuid space, on what the writer writes). The gate's
+  // propertySubject resolves FE property ids only; when it does not resolve, scopeGate.ts:1354-1361 builds a
+  // subject from the PAYLOAD agency, while the writer's unitIdFromProperty (writes.ts:488-494) passes a raw uuid
+  // straight through. Probe on main (results-followup.txt): B's unit uuid + agencyId A -> 200, row in A on B's
+  // unit; 'p-does-not-exist' + agencyId A -> 200, unit_id NULL; a non-existent uuid -> 500 (FK); 'p-does-not-exist'
+  // + agencyId B -> 403 already.
+  const createdBy = async (fe: string) =>
+    q<{ client_id: string; unit_id: string | null; amount: string }>(
+      `SELECT p.client_id::text AS client_id, p.unit_id::text AS unit_id, p.amount::text AS amount
+         FROM payments p JOIN entity_id_map m ON m.backend_id = p.id AND m.entity_type = 'payment' WHERE m.frontend_id = $1`,
+      [fe],
+    )
+  const createPay = (fe: string, extra: Record<string, unknown>) =>
+    persist('adminA', {
+      resource: 'payment', action: 'upsert', id: fe,
+      data: { id: fe, amount: 777, status: 'Due', type: 'Other', partyName: 'x', dueDate: '2026-11-01', ...extra },
+    })
+
+  it('J-U2 GUARD (green on main, must stay green; Jim MUST 2 test as written): agent_admin of A creates with propertyId \'p-does-not-exist\' and agencyId B: 403 and nothing stored', async () => {
+    const before = await counts()
+    const res = await createPay('PAY-ldgNOPRb', { agencyId: AG_B, propertyId: 'p-does-not-exist' })
+    expect({ status: res.status, stored: await createdBy('PAY-ldgNOPRb'), counts: await counts() }).toEqual({ status: 403, stored: [], counts: before })
+  })
+
+  it('J-U2b RED (Jim MUST 2, uuid space): agent_admin of A creates in A\'s ledger naming agency B\'s unit by its raw uuid (the gate does not resolve it, the writer does): 403 and nothing stored', async () => {
+    const before = await counts()
+    const res = await createPay('PAY-ldgUUIDb', { agencyId: AG_A, propertyId: UNIT_B })
+    expect({ status: res.status, stored: await createdBy('PAY-ldgUUIDb'), pay_all: (await counts()).pay_all }).toEqual({ status: 403, stored: [], pay_all: before.pay_all })
+  })
+
+  it('J-U2a RED (task: "a create naming a property that does not resolve must be refused, not stored"; contract UNVERIFIED, see README): agent_admin of A creates with propertyId \'p-does-not-exist\' and agencyId A: refused 4xx and nothing stored', async () => {
+    const res = await createPay('PAY-ldgNOPRa', { agencyId: AG_A, propertyId: 'p-does-not-exist' })
+    expect({ refused4xx: res.status >= 400 && res.status < 500, status: res.status, stored: await createdBy('PAY-ldgNOPRa') }).toEqual({ refused4xx: true, status: res.status, stored: [] })
+  })
+
+  it('J-U2c RED (unresolvable uuid property): agent_admin of A creates naming a uuid that is no unit: refused 4xx (not a 500 from the FK) and nothing stored', async () => {
+    const res = await createPay('PAY-ldgNOUUa', { agencyId: AG_A, propertyId: 'c9170000-0000-4000-8000-0000000000ff' })
+    expect({ refused4xx: res.status >= 400 && res.status < 500, status: res.status, stored: await createdBy('PAY-ldgNOUUa') }).toEqual({ refused4xx: true, status: res.status, stored: [] })
+  })
+
+  it('J-U2 CONTROL (green on main, must stay green; plan A1 "create with no unit, agencyId = actor agency"): agent_admin of A creates a unit-less payment in A with no propertyId and it lands in A with unit_id NULL', async () => {
+    const res = await persist('adminA', {
+      resource: 'payment', action: 'upsert', id: 'PAY-ldgNOUNa',
+      data: { id: 'PAY-ldgNOUNa', amount: 500, status: 'Due', type: 'Other', partyName: 'Tenant', dueDate: '2026-11-01', agencyId: AG_A, partyUserId: USERS.tenA.fe },
+    })
+    expect({ status: res.status, stored: await createdBy('PAY-ldgNOUNa') }).toEqual({ status: 200, stored: [{ client_id: A, unit_id: null, amount: '500.00' }] })
+  })
+
+  it('J-U2b CONTROL (green on main, must stay green): agent_admin of A creates in A naming A\'s OWN unit by raw uuid and it lands on unit A', async () => {
+    const res = await createPay('PAY-ldgUUIDa', { agencyId: AG_A, propertyId: UNIT_A, partyUserId: USERS.tenA.fe })
+    expect({ status: res.status, stored: await createdBy('PAY-ldgUUIDa') }).toEqual({ status: 200, stored: [{ client_id: A, unit_id: UNIT_A, amount: '777.00' }] })
+  })
+
+  // ---- Follow-up: Jim's MUST 9. markPaymentPaid sends `notes: opts.notes ?? before.notes` (AppStore.tsx:6800-6811),
+  // so dunning notes already on the row must not count as the "reference OR notes" A3 asks for.
+  it('MUST9 RED (Jim MUST 9): a row with stored dunning notes, marked Paid with no reference and the SAME notes: 400 PAYMENT_PAID_REFERENCE_REQUIRED and the row unchanged', async () => {
+    const dunning = 'Dunning notice sent 2026-10-28'
+    await q(`UPDATE payments SET notes = $2 WHERE id = $1::uuid`, [PAY.a.id, dunning])
+    const res = await persist('adminA', {
+      resource: 'payment', action: 'upsert', id: PAY.a.fe,
+      data: { amount: 20000, status: 'Paid', type: 'Deposit', partyName: 'Tenant', dueDate: '2026-11-01', agencyId: AG_A, propertyId: P_A, partyUserId: USERS.tenA.fe, notes: dunning, method: 'EFT' },
+    })
+    expect({ status: res.status, code: res.code, row: await row(PAY.a.id) }).toEqual({
+      status: 400, code: 'PAYMENT_PAID_REFERENCE_REQUIRED', row: { ...seededRow(PAY.a), notes: dunning },
+    })
+  })
+
+  it('MUST9 CONTROL (green on main, must stay green): same row, marked Paid with no reference but NEW notes typed in this save: 200 and PAID', async () => {
+    await q(`UPDATE payments SET notes = 'Dunning notice sent 2026-10-28' WHERE id = $1::uuid`, [PAY.a.id])
+    const res = await persist('adminA', {
+      resource: 'payment', action: 'upsert', id: PAY.a.fe,
+      data: { amount: 20000, status: 'Paid', type: 'Deposit', partyName: 'Tenant', dueDate: '2026-11-01', agencyId: AG_A, propertyId: P_A, partyUserId: USERS.tenA.fe, notes: 'Cash received at office, receipt 0042', method: 'Cash' },
+    })
+    const r = await row(PAY.a.id)
+    expect({ status: res.status, rowStatus: r?.status, amount: r?.amount, notes: r?.notes }).toEqual({
+      status: 200, rowStatus: 'PAID', amount: SEEDED_AMOUNT, notes: 'Cash received at office, receipt 0042',
     })
   })
 })
