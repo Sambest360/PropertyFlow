@@ -40,6 +40,9 @@ describe('T6 C5: a filled-in email renders as a mailto: link', () => {
     // Only the email fields link; the officer's name and the address stay plain text.
     expect(privacy).not.toContain('mailto:Test Officer')
     expect(privacy).not.toMatch(/href="mailto:[^"@]*"/)
+    // Every filled-in address on both pages is a mailto: link, none is bare text.
+    const unlinked = (privacy + terms).replace(/<a [^>]*href="mailto:([^"]+)"[^>]*>\1<\/a>/g, '')
+    expect(unlinked).not.toContain('@example.test')
   })
 
   it('a blank email shows the marker and no mailto: link', async () => {

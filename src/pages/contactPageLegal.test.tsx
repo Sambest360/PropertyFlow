@@ -54,6 +54,9 @@ describe.skipIf(!loadContact)('T6 /contact legal details (needs PR #117 merged f
     expect(out).toContain('Test Officer')
     expect(out).toContain('href="mailto:support@example.test"')
     expect(out).toContain('href="mailto:privacy@example.test"')
+    // Every address on the page comes through Entity as a mailto: link, none as bare text.
+    const unlinked = out.replace(/<a [^>]*href="mailto:([^"]+)"[^>]*>\1<\/a>/g, '')
+    expect(unlinked).not.toContain('@example.test')
   })
 
   it('every marker /contact shows while blank is a field the completeness check requires', async () => {
