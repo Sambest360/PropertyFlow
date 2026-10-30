@@ -1691,14 +1691,21 @@ app.post('/api/public/listing-enquiry', async (c) => {
       idNumber: body.idNumber ? String(body.idNumber) : null,
       interestType: body.interestType === 'Buy' ? 'Buy' : 'Rent',
     })
+    // H1 item 7: a repeat (duplicate) gets no confirmation, and the agent is
+    // alerted only when it carried a NEW note (appended once). noteAppended
+    // is server-internal and never sent back.
+    const { noteAppended, ...publicResult } = result
+    const repeat = result.duplicate === true
     // Confirmation email — never blocks or fails the enquiry itself.
-    void sendListingEnquiryConfirmation({
-      email: String(body.email ?? ''),
-      firstName: String(body.firstName ?? '').trim(),
-      action: body.action === 'viewing' ? 'viewing' : 'lead',
-    })
+    if (!repeat) {
+      void sendListingEnquiryConfirmation({
+        email: String(body.email ?? ''),
+        firstName: String(body.firstName ?? '').trim(),
+        action: body.action === 'viewing' ? 'viewing' : 'lead',
+      })
+    }
     // Agent (+ landlord when resolvable) alert — same fire-and-forget contract.
-    void (async () => {
+    if (!repeat || noteAppended) void (async () => {
       try {
         const staff = await query<{
           agent_email: string | null
@@ -1729,13 +1736,14 @@ app.post('/api/public/listing-enquiry', async (c) => {
             leadEmail: String(body.email ?? '').trim(),
             leadPhone: body.phone ? String(body.phone).trim() : undefined,
             action: body.action === 'viewing' ? 'viewing' : 'lead',
+            ...(noteAppended ? { repeatNote: noteAppended } : {}),
           })
         }
       } catch (alertErr) {
         console.error('[listing-enquiry] agent alert failed:', alertErr instanceof Error ? alertErr.message : alertErr)
       }
     })()
-    return c.json(result, 201)
+    return c.json(publicResult, 201)
   } catch (err) {
     // T3 C3: log the raw message; the public only gets an allow-listed code.
     console.error('[api/public/listing-enquiry]', err instanceof Error ? err.message : String(err))

@@ -50,7 +50,7 @@ const query = vi.hoisted(() =>
       return hit ? [{ id: hit.id }] : []
     }
     if (sql.trimStart().startsWith('INSERT INTO leads')) {
-      store.leads.push({ id: String(params[0]), unit: String(params[2]), email: String(params[5]), phone: (params[6] as string | null) ?? null, notes: (params[11] as string | null) ?? null })
+      store.leads.push({ id: String(params[0]), unit: String(params[2]), email: String(params[5]), phone: (params[6] as string | null) ?? null, notes: (params[10] as string | null) ?? null })
       return []
     }
     if (sql.includes('repeat_note_lock')) {
