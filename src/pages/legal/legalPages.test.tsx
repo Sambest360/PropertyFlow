@@ -107,4 +107,93 @@ describe('legal pages', () => {
     expect(section).toMatch(/contact the agency \(or landlord\) that manages the listing; the listing agent can put\s+you in touch/)
     expect(section).not.toMatch(/named on the listing/)
   })
+
+  it('Angela #118 v3 (N2-N5) + Jim addendum 3: in "Who is responsible", only the two allowed sentences name a responsible party', () => {
+    const section = sectionText(html(<PrivacyPage />), '2. Who is responsible')
+    const brand = LEGAL_ENTITY.brand
+    // Every sentence that mentions "responsib..." must be one of these two, word for word.
+    const allowed = [
+      `Each estate agency (or landlord) listed on ${brand} is the responsible party for the personal information submitted to it through the platform: enquiries, rental applications and leases.`,
+      `${brand} is the responsible party for what it processes for its own purposes, as this policy and our Terms of Service describe: platform accounts and sign-in; our own billing; log records, device and browser details and other technical information; keeping the platform secure, preventing fraud and fixing problems; moderating listings, reviews and conduct reports; and the browser storage described in section 9.`,
+    ]
+    const mentions = sentences(section).filter((s) => /responsib/i.test(s))
+    expect(mentions.length).toBe(2)
+    for (const s of mentions) expect(allowed, s).toContain(s)
+    // Wording that makes Lekaya a responsible party without using the word.
+    expect(section).not.toMatch(/purposes?\s+and\s+(the\s+)?means/i)
+    expect(section).not.toMatch(/\b(decides?|determines?|deciding|determining)\b/i)
+    expect(section).not.toMatch(/\b(controller|controls?)\b/i)
+  })
+
+  it('Oscar W1: privacy s7 sends agency-held breaches to the agency, and only our own to you and the Regulator', () => {
+    const s7 = sectionText(html(<PrivacyPage />), '7. How we protect it')
+    expect(s7).toContain(
+      'If a security compromise affects information an agency or landlord is responsible for, we will tell them immediately. For information we are responsible for, we will notify you and the Information Regulator as POPIA requires.',
+    )
+    expect(s7).not.toMatch(/compromise affects your information/i)
+  })
+
+  it('Oscar W2: privacy s6 leaves retention of agency and landlord records to them, within the law', () => {
+    const s6 = sectionText(html(<PrivacyPage />), '6. How long we keep it')
+    expect(s6).toContain('Agencies and landlords decide how long to keep the records they are responsible for, within the law.')
+    expect(s6).toContain('When information we are responsible for is no longer needed, we delete it or make it anonymous.')
+    expect(s6).not.toMatch(/When information is no longer needed/)
+  })
+
+  it('Oscar W3: no credit bureau is integrated today, so privacy s3 and s5 say "if an agency runs a check through a provider"', () => {
+    const privacy = html(<PrivacyPage />)
+    expect(sectionText(privacy, '3. What we collect')).toContain('if an agency runs a check through a provider')
+    expect(sectionText(privacy, '5. Who we share it with')).toContain('if an agency runs a check through a provider')
+    expect(textOf(privacy)).not.toMatch(/credit bureau/i)
+  })
+
+  it('Oscar W5: privacy s9 says we set no advertising or tracking cookies, and Google Maps may set its own', () => {
+    const s9 = sectionText(html(<PrivacyPage />), '9. Cookies and local storage')
+    expect(s9).toContain('We do not set advertising or tracking cookies ourselves. Embedded Google Maps may set its own.')
+    expect(s9).not.toMatch(/cross-site tracking/i)
+  })
+
+  it('Oscar W4: terms s8 makes no claim about a published process', () => {
+    const terms = html(<TermsPage />)
+    expect(textOf(terms)).not.toMatch(/published\s+process/i)
+    const s8 = sectionText(terms, '8. Reviews and reports')
+    expect(s8).toContain('We may moderate or remove reviews or act under section 7.')
+    // Michael Ruling 9: no promise that reports are reviewed; nobody has committed to that.
+    expect(s8).not.toMatch(/we review reports/i)
+    expect(s8).not.toMatch(/\b(review|investigate|respond to|answer)s?\b[^.<]{0,30}\breports?\b/i)
+    expect(s8).not.toMatch(/\bprocess\b/i)
+  })
+
+  it('Oscar W7: a request about agency-held information is passed to the agency (inbox ownership is a human item)', () => {
+    const s8 = sectionText(html(<PrivacyPage />), '8. Your rights')
+    expect(s8).toContain('For information an agency or landlord controls, we will pass your request to them and help them answer it.')
+  })
 })
+
+/** Visible text of rendered markup, tags removed and whitespace collapsed. */
+function textOf(markup: string): string {
+  return markup
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;|&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .replace(/\s+([.,;:)])/g, '$1')
+    .replace(/\(\s+/g, '(')
+    .trim()
+}
+
+/** Body text (heading excluded) of the section whose heading starts with `heading`. */
+function sectionText(markup: string, heading: string): string {
+  const start = markup.indexOf(`>${heading}`)
+  expect(start, heading).toBeGreaterThan(-1)
+  const bodyStart = markup.indexOf('</h2>', start)
+  const end = markup.indexOf('</section>', start)
+  expect(bodyStart, heading).toBeGreaterThan(start)
+  expect(end, heading).toBeGreaterThan(bodyStart)
+  return textOf(markup.slice(bodyStart, end))
+}
+
+function sentences(text: string): string[] {
+  return text.split(/(?<=[.!?])\s+(?=[A-Z])/).map((s) => s.trim()).filter(Boolean)
+}

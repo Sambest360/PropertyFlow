@@ -46,7 +46,7 @@ export default function PrivacyPage() {
           items={[
             'Account details: name, email address, phone number, password (stored only as a one-way hash) and your role.',
             'Identity and application details you submit: ID or passport number, employment and income, references, supporting documents, and the property you apply for.',
-            'Background and credit check results, only with your separate, explicit consent for each check.',
+            'Background and credit check results, if an agency runs a check through a provider, and only with your separate, explicit consent for each check.',
             'Lease, payment, deposit and maintenance records linked to a tenancy, including photos you upload of a fault or inspection.',
             'Listing details and photos added by agencies and landlords.',
             'Messages, reviews and reports you send through the platform.',
@@ -73,7 +73,7 @@ export default function PrivacyPage() {
         <List
           items={[
             'The agency, landlord or contractor involved in your enquiry, application, tenancy or maintenance job, limited to what they need.',
-            'Credit bureaus and screening providers, only for checks you consented to.',
+            'A screening or credit check provider, if an agency runs a check through a provider, and only for checks you consented to.',
             'PayFast, to process payments (we do not store full card details).',
             'Our email provider, to deliver messages, and Google Maps, to show maps and look up addresses.',
             'Our hosting provider, which stores the platform and its database.',
@@ -88,16 +88,18 @@ export default function PrivacyPage() {
       <Section title="6. How long we keep it">
         <p>
           We keep information only as long as needed for the purpose it was collected for, or as long as the law
-          requires (for example, trust account and financial records must be kept for a minimum period). When information is no longer needed we delete it or make it
-          anonymous.
+          requires (for example, trust account and financial records must be kept for a minimum period). Agencies and
+          landlords decide how long to keep the records they are responsible for, within the law. When information we
+          are responsible for is no longer needed, we delete it or make it anonymous.
         </p>
       </Section>
 
       <Section title="7. How we protect it">
         <p>
           Access is limited by role so each user sees only what they need, and passwords are stored only as a
-          one-way hash. If a security compromise affects your
-          information, we will notify you and the Information Regulator as POPIA requires.
+          one-way hash. If a security compromise affects information an agency or landlord is responsible for, we
+          will tell them immediately. For information we are responsible for, we will notify you and the Information
+          Regulator as POPIA requires.
         </p>
       </Section>
 
@@ -120,7 +122,7 @@ export default function PrivacyPage() {
       <Section title="9. Cookies and local storage">
         <p>
           We use your browser's storage to keep you signed in, remember preferences and make pages load faster. We do
-          not use advertising or cross-site tracking cookies.
+          not set advertising or tracking cookies ourselves. Embedded Google Maps may set its own.
         </p>
       </Section>
 
