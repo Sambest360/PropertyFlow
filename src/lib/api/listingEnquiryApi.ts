@@ -14,7 +14,6 @@ export type ListingEnquiryInput = {
   notes?: string
   slotId?: string | null
   monthlyIncome?: number | null
-  idNumber?: string | null
   interestType?: 'Buy' | 'Rent'
   value?: number
 }
@@ -93,7 +92,6 @@ async function submitViaApi(input: ListingEnquiryInput): Promise<ListingEnquiryR
         notes: input.notes,
         slotId: input.slotId,
         monthlyIncome: input.monthlyIncome,
-        idNumber: input.idNumber,
         interestType: input.interestType,
       }),
     })

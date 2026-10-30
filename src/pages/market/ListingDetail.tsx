@@ -102,7 +102,6 @@ export default function ListingDetail() {
   const [moveInDate, setMoveInDate] = useState('')
   const [employerName, setEmployerName] = useState('')
   const [jobTitle, setJobTitle] = useState('')
-  const [idNumber, setIdNumber] = useState('')
   const [intent, setIntent] = useState<EnquiryIntent>('lead')
   const [submitting, setSubmitting] = useState(false)
   // T3: the last enquiry outcome, shown inline until the next submit.
@@ -409,7 +408,6 @@ export default function ListingDetail() {
         notes: note.trim() || undefined,
         slotId: selectedSlot?.id ?? null,
         monthlyIncome: isRent && income ? Number(income) : null,
-        idNumber: idNumber.trim() || undefined,
         interestType: p.listingMode === 'sale' ? 'Buy' : 'Rent',
         value: p.price ?? p.rent ?? 0,
       })
@@ -499,7 +497,6 @@ export default function ListingDetail() {
       employerName: employerName.trim() || undefined,
       jobTitle: jobTitle.trim() || undefined,
       employment: formatEmploymentSummary(employerName, jobTitle, ''),
-      idNumberOrPassport: idNumber.trim(),
       moveInDate: moveInDate || undefined,
     })
 
@@ -671,11 +668,6 @@ export default function ListingDetail() {
             <JobTitleSelect value={jobTitle} onChange={setJobTitle} agencyId={p.agencyId} />
           </>
         )}
-        <Input
-          placeholder="SA ID or passport (optional)"
-          value={idNumber}
-          onChange={(e) => setIdNumber(e.target.value)}
-        />
         {activeIntent === 'viewing' && openSlots.length > 0 && (
           <select
             className="h-11 w-full rounded-xl border border-primary-100 bg-white px-3 text-base sm:text-sm"

@@ -22,6 +22,7 @@ export type PublicEnquiryInput = {
   notes?: string
   slotId?: string | null
   monthlyIncome?: number | null
+  /** T1: ignored. Register interest no longer collects an ID; older clients may still send it. */
   idNumber?: string | null
   interestType?: 'Buy' | 'Rent'
 }
@@ -147,9 +148,7 @@ export async function submitPublicListingEnquiry(
   if (input.monthlyIncome != null && input.monthlyIncome > 0) {
     extraNotes = [extraNotes, `Monthly income: ${input.monthlyIncome}`].filter(Boolean).join('\n')
   }
-  if (input.idNumber) {
-    extraNotes = [extraNotes, `ID/Passport: ${input.idNumber}`].filter(Boolean).join('\n')
-  }
+  // T1: input.idNumber is ignored; an ID never goes into lead / booking notes.
   if (unit.occupiedAdvert && unit.availableFrom) {
     extraNotes = [occupiedInterestNote(unit.availableFrom), extraNotes].filter(Boolean).join('\n')
   }

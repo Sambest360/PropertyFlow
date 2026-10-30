@@ -524,7 +524,9 @@ app.patch('/api/admin/users/:userId/verification', async (c) => {
         console.error('[verification] notification insert failed:', notifErr instanceof Error ? notifErr.message : notifErr)
       }
     })()
-    return c.json({ ok: true, user: sessionToPublic(user) })
+    // T1 ruling (a): the reviewing super admin gets the subject's ID masked.
+    const { maskUserIdNumbers } = await import('../src/lib/bootstrapActorFilter.js')
+    return c.json({ ok: true, user: maskUserIdNumbers(sessionToPublic(user) as Record<string, unknown>) })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     return c.json({ error: 'verification_update_failed', message }, errStatus(err))

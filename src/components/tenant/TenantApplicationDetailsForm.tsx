@@ -5,6 +5,12 @@ import { formatEmploymentSummary } from '../../lib/employmentDisplay'
 import { Button, Card, Input } from '../ui'
 import { JobTitleSelect } from '../JobTitleSelect'
 
+/** T1: shown under a field the application has no value for. */
+function NotProvided({ value }: { value: string | null | undefined }) {
+  if (value?.trim()) return null
+  return <span className="mt-1 block text-xs text-ink-400">Not provided</span>
+}
+
 export function TenantApplicationDetailsForm({
   application,
   onSave,
@@ -96,6 +102,7 @@ export function TenantApplicationDetailsForm({
               placeholder="Mobile number"
               required
             />
+            <NotProvided value={application.phone} />
           </label>
           <label className="block text-sm">
             <span className="font-medium text-ink">ID / passport</span>
@@ -105,15 +112,17 @@ export function TenantApplicationDetailsForm({
               onChange={(e) => setIdNumber(e.target.value)}
               placeholder="SA ID or passport number"
             />
+            <NotProvided value={application.idNumberOrPassport} />
           </label>
           <label className="block text-sm">
-            <span className="font-medium text-ink">Employer</span>
+            <span className="font-medium text-ink">Employer (optional)</span>
             <Input
               className="mt-1"
               value={employerName}
               onChange={(e) => setEmployerName(e.target.value)}
               placeholder="Company or organisation"
             />
+            <NotProvided value={application.employerName} />
           </label>
           <label className="block text-sm">
             <span className="font-medium text-ink">Job title</span>
@@ -123,6 +132,7 @@ export function TenantApplicationDetailsForm({
               onChange={setJobTitle}
               agencyId={application.agencyId}
             />
+            <NotProvided value={application.jobTitle} />
           </label>
           <label className="block text-sm sm:col-span-2">
             <span className="font-medium text-ink">Monthly income (ZAR)</span>

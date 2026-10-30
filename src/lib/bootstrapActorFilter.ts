@@ -7,6 +7,7 @@ import { effectiveCan, isAgencyStaff } from "./permissions.js"
 import type { Permission, Role } from "../types/domain.js"
 import { filterSupportTicketsForViewer, redactSupportTicketForReporter, type SupportReply } from "./supportTickets.js"
 import { tenantSeesTicket, tenantTicketTenancyIds, tenantTicketView } from "./ticketTenantView.js"
+import { maskIdNumber } from "./screening/consentTerms.js"
 
 export type BootstrapActor = {
   userId: string
@@ -480,6 +481,28 @@ export function stripOtherUsersSignatures(users: BootstrapUser[], selfId: string
   })
 }
 
+/**
+ * T1 (Michael ruling (a), no exemption): another user's registration ID, on
+ * the user row and on its verification profile, as maskIdNumber. Used for the
+ * super admin's users[] and the super-admin verification decision response.
+ */
+export function maskUserIdNumbers<T extends Record<string, unknown>>(u: T): T {
+  if (!u || typeof u !== 'object') return u
+  let out: Record<string, unknown> = u
+  if (typeof u.idNumberOrPassport === 'string' && u.idNumberOrPassport) {
+    out = { ...out, idNumberOrPassport: maskIdNumber(u.idNumberOrPassport) }
+  }
+  const v = u.verification as Record<string, unknown> | null | undefined
+  const profile = v && typeof v === 'object' ? (v.profile as Record<string, unknown> | null | undefined) : undefined
+  if (profile && typeof profile === 'object' && typeof profile.idNumberOrPassport === 'string' && profile.idNumberOrPassport) {
+    out = {
+      ...out,
+      verification: { ...v, profile: { ...profile, idNumberOrPassport: maskIdNumber(profile.idNumberOrPassport) } },
+    }
+  }
+  return out as T
+}
+
 /** Roles that never see the signer IP address or user agent (CR10: staff only). */
 const NO_SIGN_DEVICE_ROLES: ReadonlySet<string> = new Set(['tenant', 'landlord', 'contractor'])
 
@@ -521,6 +544,69 @@ export function scopeLeaseSignReads(entities: BootstrapPayload, raw: BootstrapPa
   return out
 }
 
+/**
+ * T1 (C6, O5): an application's ID / passport numbers (the applicant's
+ * idNumberOrPassport and every adult on creditCheckConsents: co-applicants and
+ * guarantors) go in full only to
+ * - the applicant themselves (tenant actor, own application), and
+ * - staff of the agency that owns the listing (the property's agency, else
+ *   the application's).
+ * Everyone else that still holds the row (super admin, another agency's
+ * staff, any other role) gets maskIdNumber. Landlords already lose the
+ * fields in redactApplicationContact. Runs on the server-used filter, so the
+ * browser never receives the full number.
+ */
+export function scopeApplicationIdNumbers(
+  entities: BootstrapPayload,
+  raw: BootstrapPayload,
+  actor: BootstrapActor,
+  actorIds: ReadonlySet<string>,
+): BootstrapPayload {
+  const apps = Array.isArray(entities.applications) ? (entities.applications as Row[]) : []
+  if (!apps.length) return entities
+  const agencyCtx = { agencies: raw.agencies }
+  const actorAgency = actor.agencyId ? agencyIdInFeSpace(actor.agencyId, agencyCtx) : null
+  const staff = AGENCY_STAFF_ROLES.has(actor.role) && Boolean(actorAgency)
+  const propertyAgency = new Map<string, string | null | undefined>(
+    (Array.isArray(raw.properties) ? raw.properties : []).map((p) => [p.id, p.agencyId]),
+  )
+  const actorEmail =
+    actor.role === 'tenant'
+      ? lc((raw.users as Array<{ id?: string; email?: string }>).find((u) => u.id === actor.userId)?.email)
+      : ''
+  const fullFor = (a: Row): boolean => {
+    if (actor.role === 'tenant') {
+      if (typeof a.applicantUserId === 'string' && a.applicantUserId && actorIds.has(a.applicantUserId)) return true
+      return Boolean(actorEmail) && lc(a.email) === actorEmail
+    }
+    if (!staff) return false
+    const pid = typeof a.propertyId === 'string' ? a.propertyId : ''
+    const listingAgency = propertyAgency.get(pid) ?? (a.agencyId as string | null | undefined)
+    const rowAgency = agencyIdInFeSpace(listingAgency ?? null, agencyCtx)
+    return Boolean(rowAgency) && rowAgency === actorAgency
+  }
+  const maskedApps = apps.map((a) => {
+    if (!a || typeof a !== 'object' || fullFor(a)) return a
+    const out: Row = { ...a }
+    if (typeof a.idNumberOrPassport === 'string' && a.idNumberOrPassport) {
+      out.idNumberOrPassport = maskIdNumber(a.idNumberOrPassport)
+    }
+    const consents = a.creditCheckConsents as { adults?: unknown } | null | undefined
+    if (consents && typeof consents === 'object' && Array.isArray(consents.adults)) {
+      out.creditCheckConsents = {
+        ...(consents as Row),
+        adults: (consents.adults as Row[]).map((adult) =>
+          adult && typeof adult === 'object' && typeof adult.idNumber === 'string'
+            ? { ...adult, idNumber: maskIdNumber(adult.idNumber) }
+            : adult,
+        ),
+      }
+    }
+    return out
+  })
+  return { ...entities, applications: maskedApps as BootstrapPayload['applications'] }
+}
+
 export function filterBootstrapForActor(
   raw: BootstrapPayload,
   actorIn: BootstrapActor,
@@ -533,14 +619,22 @@ export function filterBootstrapForActor(
   const normalizedAgency = scope.viewer?.agencyId ?? actorIn.agencyId
   const actor =
     normalizedAgency !== actorIn.agencyId ? { ...actorIn, agencyId: normalizedAgency } : actorIn
-  const entities = scopeLeaseSignReads(
-    filterBootstrapEntitiesForActor(raw, actor, scope, actorIds ?? new Set([actor.userId]), opts),
+  const ids = actorIds ?? new Set([actor.userId])
+  const entities = scopeApplicationIdNumbers(
+    scopeLeaseSignReads(filterBootstrapEntitiesForActor(raw, actor, scope, ids, opts), raw, actor),
     raw,
     actor,
+    ids,
   )
   if (actor.role === 'super_admin') {
+    // T1 ruling (a): other users' ID numbers masked for super admin; own row full.
     return Array.isArray(entities.users)
-      ? { ...entities, users: stripOtherUsersSignatures(entities.users as BootstrapUser[], actor.userId) }
+      ? {
+          ...entities,
+          users: stripOtherUsersSignatures(entities.users as BootstrapUser[], actor.userId).map((u) =>
+            u && !ids.has(u.id) ? maskUserIdNumbers(u) : u,
+          ),
+        }
       : entities
   }
   const roster = Array.isArray(raw.agencyContractors)
