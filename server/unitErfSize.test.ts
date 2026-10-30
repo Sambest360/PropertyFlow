@@ -6,7 +6,7 @@ import {
   resetUnitErfSizeCache,
   unitErfSizeColumnExists,
   writeUnitErfSize,
-} from './unitErfSize'
+} from './unitErfSize.js'
 
 vi.mock('./db.js', () => ({ query: vi.fn(async () => []) }))
 
@@ -107,6 +107,15 @@ describe('T2 erf_size_sqm validation', () => {
     expect(() => assertUnitErfSize({ erfSizeSqm: 600 })).not.toThrow()
     expect(() => assertUnitErfSize({ erfSizeSqm: null })).not.toThrow()
     expect(() => assertUnitErfSize({})).not.toThrow()
+  })
+  it('400 for a value that is not a number, numeric string, null or blank (Number(true) would store 1)', () => {
+    for (const v of [true, false, {}, [], [600]]) {
+      expect(() => assertUnitErfSize({ erfSizeSqm: v })).toThrow(expect.objectContaining({ status: 400, code: 'UNIT_ERF_SIZE_INVALID' }))
+    }
+  })
+  it("400 for hex / exponent strings ('0x10', '1e3')", () => {
+    expect(() => assertUnitErfSize({ erfSizeSqm: '0x10' })).toThrow(expect.objectContaining({ status: 400 }))
+    expect(() => assertUnitErfSize({ erfSizeSqm: '1e3' })).toThrow(expect.objectContaining({ status: 400 }))
   })
 })
 

@@ -133,4 +133,18 @@ describe('T2 upsertProperty erf size', () => {
     await expect(persist({ area: 250, erfSizeSqm: -3 })).rejects.toMatchObject({ status: 400, code: 'UNIT_ERF_SIZE_INVALID' })
     expect(sqls().some((x) => /INSERT INTO (units|buildings)|UPDATE (units|buildings)/.test(x))).toBe(false)
   })
+
+  it('C-2: a floor size over NUMERIC(10,2) is a 400 before anything is written (not a 500 on insert)', async () => {
+    await expect(persist({ area: 1e8 })).rejects.toMatchObject({ status: 400, code: 'UNIT_FLOOR_SIZE_INVALID' })
+    expect(sqls().some((x) => /INSERT INTO (units|buildings)|UPDATE (units|buildings)/.test(x))).toBe(false)
+    query.mockClear()
+    await expect(persist({ squareMeters: '100000000' })).rejects.toMatchObject({ status: 400, code: 'UNIT_FLOOR_SIZE_INVALID' })
+    expect(sqls().some((x) => /INSERT INTO (units|buildings)|UPDATE (units|buildings)/.test(x))).toBe(false)
+  })
+
+  it('C-2: the largest floor size the column holds still saves', async () => {
+    const res = await persist({ area: 99_999_999.99 })
+    expect(res.ok).toBe(true)
+    expect(insertParams()[5]).toBe(99_999_999.99)
+  })
 })

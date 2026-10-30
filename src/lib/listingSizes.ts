@@ -10,16 +10,42 @@ export const ERF_SIZE_LABEL = 'Erf / stand size (m²)'
 export const ERF_SIZE_HINT = '1 ha = 10 000 m². Optional: leave blank for sectional-title units (flats and townhouses in a scheme).'
 export const BACHELOR_STUDIO = 'Bachelor/Studio'
 
-/** Largest value NUMERIC(12,2) holds. */
-export const MAX_SIZE_SQM = 9_999_999_999.99
+/** Largest erf size: units.erf_size_sqm is NUMERIC(12,2) (migration 037). */
+export const MAX_ERF_SIZE_SQM = 9_999_999_999.99
+/** Largest floor size: units.square_meters is NUMERIC(10,2). */
+export const MAX_FLOOR_SIZE_SQM = 99_999_999.99
 
-/** '' / null → null (not set); a finite number ≥ 0 → that number; anything else → 'invalid'. */
-export function parseSizeSqm(raw: string | number | null | undefined): number | null | 'invalid' {
+/** Plain decimal digits only: "600", "250.5", ".5". No sign, hex, exponent, spaces or commas. */
+const PLAIN_DECIMAL = /^(?:\d+(?:\.\d*)?|\.\d+)$/
+
+/** What the column stores after NUMERIC(p,2) rounding, so 99 999 999.995 counts as 100 000 000.00. */
+const roundedTo2 = (n: number) => Math.round(n * 100) / 100
+
+/**
+ * '' / null → null (not set); a finite number 0 … max → that number; anything
+ * else → 'invalid'. `max` defaults to the erf maximum; pass MAX_FLOOR_SIZE_SQM
+ * for a floor size. Strings must be plain decimals ('0x10', '1e3', '+5' are invalid).
+ */
+export function parseSizeSqm(
+  raw: string | number | null | undefined,
+  max: number = MAX_ERF_SIZE_SQM,
+): number | null | 'invalid' {
   if (raw == null) return null
   if (typeof raw === 'string' && raw.trim() === '') return null
-  const n = typeof raw === 'number' ? raw : Number(raw.trim())
-  if (!Number.isFinite(n) || n < 0 || n > MAX_SIZE_SQM) return 'invalid'
+  let n: number
+  if (typeof raw === 'number') n = raw
+  else {
+    const t = raw.trim()
+    if (!PLAIN_DECIMAL.test(t)) return 'invalid'
+    n = Number(t)
+  }
+  if (!Number.isFinite(n) || n < 0 || roundedTo2(n) > max) return 'invalid'
   return n
+}
+
+/** Floor size: parseSizeSqm capped at the units.square_meters maximum. */
+export function parseFloorSizeSqm(raw: string | number | null | undefined): number | null | 'invalid' {
+  return parseSizeSqm(raw, MAX_FLOOR_SIZE_SQM)
 }
 
 /** Floor size to store: an explicit entry > 0 wins, otherwise the sum of the room sizes. */
@@ -27,7 +53,7 @@ export function effectiveFloorSizeSqm(
   explicit: string | number | null | undefined,
   rooms: Array<{ areaSqm?: string | number | null }>,
 ): number {
-  const e = parseSizeSqm(explicit ?? null)
+  const e = parseFloorSizeSqm(explicit ?? null)
   if (typeof e === 'number' && e > 0) return e
   return rooms.reduce((sum, r) => sum + (Number(r.areaSqm) || 0), 0)
 }

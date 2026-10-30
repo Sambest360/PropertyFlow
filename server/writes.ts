@@ -15,6 +15,7 @@ import {
 import { invalidateIdMapCache } from './idMapCache.js'
 import { assertTicketAccessNotes, ensureTicketAccessNotesColumn, writeTicketAccessNotes } from './ticketAccessNotes.js'
 import { assertUnitErfSize, ensureUnitErfSizeColumn, writeUnitErfSize } from './unitErfSize.js'
+import { assertUnitFloorSize } from './unitFloorSize.js'
 import { isAcceptanceStatus, notifyAcceptedElsewhereServer } from './acceptedElsewhere.js'
 import {
   ensureEntityMapTable,
@@ -976,9 +977,10 @@ async function upsertProperty(
   // Flat PropertyAsset → units row (+ ensure building if provided)
   const canon = canonicalListingId(feId)
   const slug = canon.replace(/^unt-/i, '')
-  // T2: erf size (migration 037) is validated and its column checked before
-  // any write, so a bad value or a failed check changes nothing.
+  // T2: erf size (migration 037) and floor size are validated, and the erf
+  // column checked, before any write, so a bad value or a failed check changes nothing.
   assertUnitErfSize(d)
+  assertUnitFloorSize(d)
   if (d.erfSizeSqm !== undefined) await ensureUnitErfSizeColumn()
   // Only agency staff may set the per-unit viewing-gate override. Checked
   // before any write (id map included) so a refused write changes nothing.

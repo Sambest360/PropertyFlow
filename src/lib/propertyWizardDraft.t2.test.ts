@@ -141,3 +141,21 @@ describe('T2: erf / stand size is optional and separate from floor size', () => 
     expect(d.erfSizeSqm).toBe('')
   })
 })
+
+describe('T2 C-2: floor size fits units.square_meters NUMERIC(10,2)', () => {
+  const room = (areaSqm: string) => ({ id: 'r1', name: 'Hall', kind: 'living', beds: 0, baths: 0, areaSqm }) as never
+  it('blocks a floor size of 100 000 000 m² or more, allows 99 999 999.99', () => {
+    expect(wizardRoomsStepError({ propertyType: 'Industrial', rooms: [], erfSizeSqm: '', floorSizeSqm: '100000000' })).toMatch(/Floor size/)
+    expect(wizardRoomsStepError({ propertyType: 'Industrial', rooms: [], erfSizeSqm: '', floorSizeSqm: '99999999.99' })).toBeNull()
+  })
+  it('blocks a room sum over the maximum when the floor size is blank', () => {
+    expect(
+      wizardRoomsStepError({ propertyType: 'Industrial', rooms: [room('60000000'), room('60000000')], erfSizeSqm: '', floorSizeSqm: '' }),
+    ).toMatch(/room sizes add up/)
+  })
+  it('erf keeps its own, larger maximum (NUMERIC(12,2))', () => {
+    expect(wizardRoomsStepError({ propertyType: 'Farm', rooms: [], erfSizeSqm: '9999999999.99', floorSizeSqm: '' })).toBeNull()
+    expect(wizardRoomsStepError({ propertyType: 'Farm', rooms: [], erfSizeSqm: '10000000000', floorSizeSqm: '' })).toMatch(/Erf/)
+    expect(wizardRoomsStepError({ propertyType: 'Farm', rooms: [], erfSizeSqm: '1e3', floorSizeSqm: '' })).toMatch(/Erf/)
+  })
+})

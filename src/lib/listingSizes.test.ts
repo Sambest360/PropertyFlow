@@ -7,6 +7,9 @@ import {
   isResidentialType,
   listingDetailFacts,
   listingSizeFacts,
+  MAX_ERF_SIZE_SQM,
+  MAX_FLOOR_SIZE_SQM,
+  parseFloorSizeSqm,
   parseSizeSqm,
   titleTypeWarning,
 } from './listingSizes'
@@ -30,6 +33,37 @@ describe('parseSizeSqm', () => {
     expect(parseSizeSqm(250.5)).toBe(250.5)
     expect(parseSizeSqm('-1')).toBe('invalid')
     expect(parseSizeSqm('abc')).toBe('invalid')
+  })
+  it('strings must be plain decimals: hex, exponent, sign and commas are invalid', () => {
+    expect(parseSizeSqm('0x10')).toBe('invalid')
+    expect(parseSizeSqm('1e3')).toBe('invalid')
+    expect(parseSizeSqm('+5')).toBe('invalid')
+    expect(parseSizeSqm('12,5')).toBe('invalid')
+    expect(parseSizeSqm('Infinity')).toBe('invalid')
+    expect(parseSizeSqm(' 600.50 ')).toBe(600.5)
+    expect(parseSizeSqm('.5')).toBe(0.5)
+    expect(parseSizeSqm('12.')).toBe(12)
+  })
+})
+
+describe('size maximums follow the column types (C-2)', () => {
+  it('erf: NUMERIC(12,2) → 9 999 999 999.99', () => {
+    expect(MAX_ERF_SIZE_SQM).toBe(9_999_999_999.99)
+    expect(parseSizeSqm(9_999_999_999.99)).toBe(9_999_999_999.99)
+    expect(parseSizeSqm('9999999999.99')).toBe(9_999_999_999.99)
+    expect(parseSizeSqm(1e10)).toBe('invalid')
+    expect(parseSizeSqm('9999999999.995')).toBe('invalid') // rounds to 10 000 000 000.00 in the column
+  })
+  it('floor: NUMERIC(10,2) → 99 999 999.99', () => {
+    expect(MAX_FLOOR_SIZE_SQM).toBe(99_999_999.99)
+    expect(parseFloorSizeSqm('99999999.99')).toBe(99_999_999.99)
+    expect(parseFloorSizeSqm('100000000')).toBe('invalid')
+    expect(parseFloorSizeSqm(1e8)).toBe('invalid')
+    expect(parseFloorSizeSqm('99999999.995')).toBe('invalid')
+    expect(parseFloorSizeSqm('')).toBeNull()
+  })
+  it('an explicit floor size above the floor maximum does not win over the room sum', () => {
+    expect(effectiveFloorSizeSqm('100000000', [{ areaSqm: '40' }])).toBe(40)
   })
 })
 

@@ -3,7 +3,7 @@ import type { PropertyAsset, Room } from '../types/domain'
 import { uid } from '../data/seed'
 import { togglePropertyFeature, type ListingMode } from './propertyFeatures'
 import { summarizeRooms } from './roomSummary'
-import { effectiveFloorSizeSqm, parseSizeSqm } from './listingSizes'
+import { MAX_FLOOR_SIZE_SQM, effectiveFloorSizeSqm, parseFloorSizeSqm, parseSizeSqm } from './listingSizes'
 import { propertyTypeLayout } from './propertyTypeLayout'
 
 export const UNFURNISHED_AMENITY_LABEL = 'Unfurnished'
@@ -119,8 +119,16 @@ export function wizardTypeOptions(
 export function wizardRoomsStepError(
   d: Pick<PropertyWizardDraft, 'propertyType' | 'rooms' | 'floorSizeSqm' | 'erfSizeSqm'>,
 ): string | null {
-  if (parseSizeSqm(d.erfSizeSqm) === 'invalid') return 'Erf / stand size must be a number of m² (0 or more), or left blank.'
-  if (parseSizeSqm(d.floorSizeSqm) === 'invalid') return 'Floor size must be a number of m² (0 or more), or left blank.'
+  if (parseSizeSqm(d.erfSizeSqm) === 'invalid') {
+    return 'Erf / stand size must be a number of m² (0 to 9 999 999 999.99), or left blank.'
+  }
+  if (parseFloorSizeSqm(d.floorSizeSqm) === 'invalid') {
+    return 'Floor size must be a number of m² (0 to 99 999 999.99), or left blank.'
+  }
+  // A blank floor size saves the room sum, which has the same column maximum.
+  if (effectiveFloorSizeSqm(d.floorSizeSqm, d.rooms) > MAX_FLOOR_SIZE_SQM) {
+    return 'The room sizes add up to more than 99 999 999.99 m². Check the room sizes or enter the floor size.'
+  }
   if (!propertyTypeLayout(d.propertyType).landOnly && d.rooms.some((room) => !room.name.trim())) {
     return 'Every room needs a name.'
   }
