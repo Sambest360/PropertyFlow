@@ -58,7 +58,7 @@ describe('legal pages', () => {
     expect(section).toContain('data-testid="legal-missing-privacyEmail"')
     // Jim #118 C3: the public listing shows only "listed by <agent>", no agency name,
     // so the page must not promise that the agency is named there.
-    expect(section).toContain('contact the agent or agency that listed the property')
+    expect(section).toMatch(/contact the agency \(or landlord\) that listed the property; the listing agent can put\s+you in touch/)
     expect(section).not.toMatch(/named on the listing/)
   })
 })

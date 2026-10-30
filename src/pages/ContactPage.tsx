@@ -32,8 +32,8 @@ export default function ContactPage() {
       </Section>
       <Section title="A listing, enquiry, application or lease">
         <p>
-          Contact the agent, agency or landlord that listed the property. They manage that information, as the
-          Privacy Policy explains.
+          Contact the agency (or landlord) that listed the property; the listing agent can put you in touch. They
+          manage that information, as the Privacy Policy explains.
         </p>
       </Section>
       <Section title="List with us">
