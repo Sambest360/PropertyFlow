@@ -12,7 +12,7 @@
  *     (30 / 15 min) so an office that hit the login cap can still reset.
  *
  * Callers pass the IP from clientIp(c) (server/clientIp.ts). Never derive it
- * from X-Forwarded-For here.
+ * from forwarding headers here.
  *
  * Env knobs:
  *   AUTH_RATE_LIMIT_MAX          — per-IP auth requests per window (default 30)
