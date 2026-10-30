@@ -44,4 +44,18 @@ describe('legal pages', () => {
     expect(markers.size).toBeGreaterThan(0)
     for (const field of markers) expect(LEGAL_REQUIRED_FIELDS, field).toContain(field)
   })
+
+  it('privacy policy has a "Who is responsible" section splitting agency (responsible party) from Lekaya (operator)', () => {
+    const out = html(<PrivacyPage />)
+    const start = out.indexOf('Who is responsible</h2>')
+    expect(start).toBeGreaterThan(-1)
+    const section = out.slice(start, out.indexOf('</section>', start))
+    expect(section).toMatch(/Each estate agency[^<]*is the responsible party for the personal information submitted to it/)
+    expect(section).toContain('enquiries, rental applications and leases')
+    expect(section).toContain('is the operator')
+    expect(section).toContain('responsible party only for platform accounts and our own billing')
+    expect(section).toContain('data-testid="legal-missing-informationOfficer"')
+    expect(section).toContain('data-testid="legal-missing-privacyEmail"')
+    expect(section).toMatch(/contact that agency directly/)
+  })
 })

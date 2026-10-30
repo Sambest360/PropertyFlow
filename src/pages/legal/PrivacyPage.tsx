@@ -21,12 +21,19 @@ export default function PrivacyPage() {
         </p>
       </Section>
 
-      <Section title="2. Our role and the agencies' role">
+      <Section title="2. Who is responsible">
         <p>
-          When an estate agency or landlord uses {brand} to manage its listings, applicants, tenants and trust
-          records, that agency or landlord decides why and how that information is used and is the responsible party
-          for it; we process it on their behalf. For your own account, the public marketplace and our platform
-          services, we are the responsible party.
+          Each estate agency (or landlord) listed on {brand} is the responsible party for the personal information
+          submitted to it through the platform: enquiries, rental applications and leases. {brand} is the operator
+          that runs the platform for those agencies and processes that information on their behalf.
+        </p>
+        <p>
+          {brand} is the responsible party only for platform accounts and our own billing.
+        </p>
+        <p>
+          Our Information Officer is <Entity field="informationOfficer" />, reachable at{' '}
+          <Entity field="privacyEmail" />. For information an agency holds about you (for example your enquiry,
+          application or lease), contact that agency directly; it is named on the listing.
         </p>
       </Section>
 
