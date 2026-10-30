@@ -86,6 +86,24 @@ describe('H2 session cookie in production', () => {
   })
 })
 
+describe('H2 COOKIE_SECURE cannot turn Secure off in production (Jim J7)', () => {
+  // Six cases: COOKIE_SECURE '0', unset and '1', each on login set AND logout clear.
+  for (const flag of ['0', undefined, '1'] as const) {
+    for (const path of ['/login', '/logout'] as const) {
+      it(`NODE_ENV=production, COOKIE_SECURE=${flag ?? '(unset)'}: ${path} Set-Cookie carries Secure`, async () => {
+        vi.unstubAllEnvs()
+        vi.stubEnv('AUTH_SECRET', 'h2-test-secret-not-real')
+        vi.stubEnv('NODE_ENV', 'production')
+        vi.stubEnv('COOKIE_SECURE', flag) // undefined removes it (restored after each test)
+        expect(process.env.COOKIE_SECURE).toBe(flag)
+        const h = await setCookieHeader(path)
+        expect(h).toMatch(path === '/login' ? /^pf_session=[^;]+;/ : /^pf_session=;/)
+        expect(attrs(h)).toContain('Secure')
+      })
+    }
+  }
+})
+
 describe('H2 COOKIE_SECURE outside production', () => {
   it('NODE_ENV=development with COOKIE_SECURE=1 gives Secure on set and clear', async () => {
     vi.stubEnv('NODE_ENV', 'development')
