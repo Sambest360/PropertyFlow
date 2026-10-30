@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
-import { legalEntityComplete } from '../../lib/legalEntity'
+import { LEGAL_REQUIRED_FIELDS, legalEntityComplete } from '../../lib/legalEntity'
 import PrivacyPage from './PrivacyPage'
 import TermsPage from './TermsPage'
 
@@ -29,8 +29,19 @@ describe('legal pages', () => {
       address: '1 Main Rd, Gqeberha',
       informationOfficer: 'A Person',
       privacyEmail: 'privacy@lekayarentals.site',
+      supportEmail: 'support@lekayarentals.site',
     }
     expect(legalEntityComplete(full)).toBe(true)
     expect(legalEntityComplete({ ...full, informationOfficer: ' ' })).toBe(false)
+    expect(legalEntityComplete({ ...full, supportEmail: '' })).toBe(false)
+  })
+
+  it('every company detail a legal page marks as "to be confirmed" is one the completeness check requires', () => {
+    const markers = new Set<string>()
+    for (const out of [html(<PrivacyPage />), html(<TermsPage />)]) {
+      for (const m of out.matchAll(/data-testid="legal-missing-([A-Za-z]+)"/g)) markers.add(m[1])
+    }
+    expect(markers.size).toBeGreaterThan(0)
+    for (const field of markers) expect(LEGAL_REQUIRED_FIELDS, field).toContain(field)
   })
 })

@@ -25,9 +25,42 @@ export const LEGAL_ENTITY = {
 
 export type LegalField = Exclude<keyof typeof LEGAL_ENTITY, 'website'>
 
+/**
+ * Every company detail the legal pages show with a "to be confirmed" marker
+ * while blank (LegalPage.tsx Entity). supportEmail is shown on /terms.
+ * brand, effectiveDate and website always carry a value and are not checked.
+ */
+export const LEGAL_REQUIRED_FIELDS = [
+  'legalName',
+  'registrationNumber',
+  'address',
+  'informationOfficer',
+  'privacyEmail',
+  'supportEmail',
+] as const satisfies readonly LegalField[]
+
+export type RequiredLegalField = (typeof LEGAL_REQUIRED_FIELDS)[number]
+
+const EMAIL_FIELDS: ReadonlySet<string> = new Set(['privacyEmail', 'supportEmail'])
+
+/** Stand-in text someone might type instead of a real value. Counts as missing. */
+const PLACEHOLDER = /^\[.*\]$|\bto be confirmed\b|\btb[cd]\b|\btodo\b|placeholder|^e\.g\.|^x{3,}$/i
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+function fieldFilled(field: string, raw: string | undefined): boolean {
+  const value = raw?.trim() ?? ''
+  if (!value || PLACEHOLDER.test(value)) return false
+  if (EMAIL_FIELDS.has(field) && !EMAIL.test(value)) return false
+  return true
+}
+
+/** The required company details that are blank, a placeholder, or (for emails) not an address. */
+export function legalEntityMissing(entity: Record<string, string> = LEGAL_ENTITY): RequiredLegalField[] {
+  return LEGAL_REQUIRED_FIELDS.filter((k) => !fieldFilled(k, entity[k]))
+}
+
 /** True once every company detail the legal pages name has been filled in. */
 export function legalEntityComplete(entity: Record<string, string> = LEGAL_ENTITY): boolean {
-  return ['legalName', 'registrationNumber', 'address', 'informationOfficer', 'privacyEmail'].every(
-    (k) => Boolean(entity[k]?.trim()),
-  )
+  return legalEntityMissing(entity).length === 0
 }
