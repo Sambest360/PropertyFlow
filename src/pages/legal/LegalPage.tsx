@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { LEGAL_ENTITY, type LegalField } from '../../lib/legalEntity'
+import { EMAIL_FIELDS, LEGAL_ENTITY, legalValueFilled, type LegalField } from '../../lib/legalEntity'
 import { usePageMeta } from '../../hooks/usePageMeta'
 
 const FIELD_LABEL: Record<LegalField, string> = {
@@ -14,10 +14,23 @@ const FIELD_LABEL: Record<LegalField, string> = {
   effectiveDate: 'effective date',
 }
 
-/** A company detail from LEGAL_ENTITY, or a visible marker while it is blank. */
+/**
+ * A company detail from LEGAL_ENTITY, or a visible marker while it is blank or
+ * anything the completeness check rejects (placeholder text, a non-address in
+ * an email field: Angela #118 F7). A filled-in email renders as a mailto: link (T6 C5).
+ */
 export function Entity({ field }: { field: LegalField }) {
-  const value = LEGAL_ENTITY[field]?.trim()
-  if (value) return <>{value}</>
+  const value = LEGAL_ENTITY[field]?.trim() ?? ''
+  if (legalValueFilled(field, value)) {
+    if (EMAIL_FIELDS.has(field)) {
+      return (
+        <a className="text-primary underline" href={`mailto:${value}`}>
+          {value}
+        </a>
+      )
+    }
+    return <>{value}</>
+  }
   return (
     <span className="rounded bg-amber-100 px-1 text-amber-900" data-testid={`legal-missing-${field}`}>
       [{FIELD_LABEL[field]} to be confirmed]
@@ -61,7 +74,7 @@ export function LegalPage({
       <header className="space-y-2 border-b border-primary-100 pb-6">
         <h1 className="font-display text-3xl font-semibold text-ink">{title}</h1>
         <p className="text-sm text-ink-500">
-          Effective {LEGAL_ENTITY.effectiveDate}. {LEGAL_ENTITY.brand} is operated by <Entity field="legalName" />{' '}
+          Effective <Entity field="effectiveDate" />. {LEGAL_ENTITY.brand} is operated by <Entity field="legalName" />{' '}
           (<Entity field="registrationNumber" />), <Entity field="address" />.
         </p>
       </header>

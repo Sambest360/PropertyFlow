@@ -62,7 +62,7 @@ describe('T5 public footer', () => {
 
   it('adds Sign in, List with us, Contact, Privacy and Terms', () => {
     expect(linkTo('Sign in')).toBe('/login')
-    expect(linkTo('List with us')).toBe('/register')
+    expect(linkTo('List with us')).toBe('/register?role=landlord')
     expect(linkTo('Contact')).toBe('/contact')
     expect(linkTo('Privacy')).toBe('/privacy')
     expect(linkTo('Terms')).toBe('/terms')
