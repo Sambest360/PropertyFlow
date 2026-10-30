@@ -50,6 +50,7 @@ import { fetchApplyEligibility } from '../../lib/api/viewingApply'
 import { formatEmploymentSummary } from '../../lib/employmentDisplay'
 import { prefillEnquiryContact } from './listingEnquiryPrefill'
 import { publicAreaLabel, toPublicListing } from '../../lib/publicLocation'
+import { listingDetailFacts } from '../../lib/listingSizes'
 
 type EnquiryIntent = 'lead' | 'viewing'
 
@@ -897,15 +898,13 @@ export default function ListingDetail() {
                 </Link>
               ) : null}
               <p className="text-sm text-ink-500">
-                {[p.beds > 0 && `${p.beds} bedrooms`, p.baths > 0 && `${p.baths} bathrooms`, `${p.parking} parking`, `${p.area} m²`, `${p.rooms.length} configured rooms`]
-                  .filter(Boolean)
-                  .join(' · ')}
+                {listingDetailFacts(p).summary.join(' · ')}
               </p>
             </div>
 
             <div className="grid gap-4 border-b border-primary-100 py-6 sm:grid-cols-2 lg:grid-cols-4">
               {[
-                { icon: BedDouble, label: 'Bedrooms', value: p.beds || '—' },
+                { icon: BedDouble, label: 'Bedrooms', value: listingDetailFacts(p).bedroomsValue },
                 { icon: Bath, label: 'Bathrooms', value: p.baths || '—' },
                 ...(p.garages != null && p.garages > 0
                   ? [{ icon: Car, label: 'Garages', value: p.garages }]

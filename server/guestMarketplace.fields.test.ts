@@ -116,3 +116,25 @@ describe('guest slice: location privacy', () => {
     }
   })
 })
+
+describe('T2 (spec r4, C7): erf size reaches the public card', () => {
+  it('PUBLIC_UNIT_KEYS carries erf_size_sqm next to square_meters', async () => {
+    const { PUBLIC_UNIT_KEYS } = await import('./publicMarketplaceKeys.js')
+    expect(PUBLIC_UNIT_KEYS).toContain('erf_size_sqm')
+    expect(PUBLIC_UNIT_KEYS).toContain('square_meters')
+  })
+
+  it('the guest slice keeps erfSizeSqm and area as separate fields', () => {
+    const withSizes = {
+      ...raw,
+      properties: raw.properties.map((p) => ({ ...p, area: 250, erfSizeSqm: 600, type: 'Industrial' })),
+      units: raw.units.map((u) => ({ ...u, squareMeters: 250, erfSizeSqm: 600 })),
+    }
+    const out = filterBootstrapForGuest(withSizes, {})
+    const p = (out.properties as Array<Record<string, unknown>>)[0]
+    expect(p.area).toBe(250)
+    expect(p.erfSizeSqm).toBe(600)
+    expect(p.type).toBe('Industrial')
+    expect((out.units as Array<Record<string, unknown>>)[0].erfSizeSqm).toBe(600)
+  })
+})

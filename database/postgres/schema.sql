@@ -233,6 +233,9 @@ CREATE TABLE units (
   /** Wizard / portfolio type slug (house, apartment, …); NULL → bedroom heuristic on read */
   property_type     VARCHAR(40) NULL,
   square_meters     NUMERIC(10,2),
+  /** Erf / stand (land) size m², separate from square_meters (floor). NULL for sectional title (migration 037) */
+  erf_size_sqm      NUMERIC(12,2) NULL
+                      CONSTRAINT units_erf_size_sqm_nonneg CHECK (erf_size_sqm IS NULL OR erf_size_sqm >= 0),
   bedrooms          SMALLINT NOT NULL DEFAULT 0,
   bathrooms         NUMERIC(3,1) NOT NULL DEFAULT 0,
   parking           SMALLINT NOT NULL DEFAULT 0,

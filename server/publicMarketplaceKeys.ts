@@ -44,6 +44,7 @@ export const PUBLIC_UNIT_KEYS = [
   'unit_number',
   'property_type',
   'square_meters',
+  'erf_size_sqm',
   'bedrooms',
   'bathrooms',
   'parking',
@@ -68,6 +69,13 @@ export const PUBLIC_UNIT_KEYS = [
   'created_at',
   'updated_at',
 ] as const
+
+/**
+ * Unit keys added after migration 027 (which is applied and frozen), so its
+ * public_listing_unit_json body does not carry them: 037 erf_size_sqm (T2).
+ * The self-hosted guest path (guestMarketplace.ts) passes them through.
+ */
+export const PUBLIC_UNIT_KEYS_AFTER_027 = ['erf_size_sqm'] as const
 
 /** unit_listing_limit_snapshot (migration 024), merged onto each unit. */
 export const PUBLIC_UNIT_LIMIT_KEYS = [

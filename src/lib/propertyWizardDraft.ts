@@ -3,6 +3,8 @@ import type { PropertyAsset, Room } from '../types/domain'
 import { uid } from '../data/seed'
 import { togglePropertyFeature, type ListingMode } from './propertyFeatures'
 import { summarizeRooms } from './roomSummary'
+import { effectiveFloorSizeSqm, parseSizeSqm } from './listingSizes'
+import { propertyTypeLayout } from './propertyTypeLayout'
 
 export const UNFURNISHED_AMENITY_LABEL = 'Unfurnished'
 
@@ -36,6 +38,10 @@ export type PropertyWizardDraft = {
   title: string
   parking: number
   rooms: WizardRoomDraft[]
+  /** T2: explicit floor size m² (units.square_meters); blank = the room sum. */
+  floorSizeSqm?: string
+  /** T2: erf / stand size m² (units.erf_size_sqm); optional, blank for sectional title. */
+  erfSizeSqm?: string
   amenities: string[]
   price: string
   rent: string
@@ -80,6 +86,65 @@ export function wizardCreateIdempotencyKey(
   existing?: string,
 ): string {
   return existing && existing.endsWith(`:${propertyId}`) ? existing : `create:${storageKey}:${propertyId}`
+}
+
+/** T2 (spec r4): a new listing starts with NO property type; the agent must pick one. */
+export const INITIAL_WIZARD_PROPERTY_TYPE = ''
+
+export function wizardTypeError(propertyType: string | null | undefined): string | null {
+  return propertyType && propertyType.trim() ? null : 'Select a property type.'
+}
+
+/** Types the wizard always offers (T2), unless the agency hid them. */
+export const BUILT_IN_WIZARD_TYPES: ReadonlyArray<{ value: string; label: string }> = [
+  { value: 'Industrial', label: 'Industrial' },
+  { value: 'Commercial', label: 'Commercial' },
+  { value: 'Farm', label: 'Farm' },
+]
+
+/**
+ * The wizard's type list: the agency's lookup options, plus Industrial /
+ * Commercial / Farm when its stored list predates them. `knownKeys` is every
+ * PROPERTY_TYPE key the agency has, active or hidden; a hidden one stays hidden.
+ */
+export function wizardTypeOptions(
+  lookupOptions: Array<{ value: string; label: string }>,
+  knownKeys: ReadonlySet<string>,
+): Array<{ value: string; label: string }> {
+  const have = new Set([...knownKeys, ...lookupOptions.map((o) => o.value)].map((k) => k.toLowerCase()))
+  return [...lookupOptions, ...BUILT_IN_WIZARD_TYPES.filter((t) => !have.has(t.value.toLowerCase()))]
+}
+
+/** Rooms step: room names, and sizes ≥ 0. No room is required (beds = 0 is valid); erf is never required. */
+export function wizardRoomsStepError(
+  d: Pick<PropertyWizardDraft, 'propertyType' | 'rooms' | 'floorSizeSqm' | 'erfSizeSqm'>,
+): string | null {
+  if (parseSizeSqm(d.erfSizeSqm) === 'invalid') return 'Erf / stand size must be a number of m² (0 or more), or left blank.'
+  if (parseSizeSqm(d.floorSizeSqm) === 'invalid') return 'Floor size must be a number of m² (0 or more), or left blank.'
+  if (!propertyTypeLayout(d.propertyType).landOnly && d.rooms.some((room) => !room.name.trim())) {
+    return 'Every room needs a name.'
+  }
+  return null
+}
+
+/** Rooms to save: exactly what was entered. No default bedroom (an empty set means 0 beds). */
+export function wizardRoomRowsForSave<T>(rooms: T[]): T[] {
+  return rooms
+}
+
+/**
+ * Sizes for the save payload: area = floor (explicit wins over the room sum),
+ * erfSizeSqm separate and never summed. Without the erf column (037 not
+ * applied) erfSizeSqm is left out so the stored value is not touched.
+ */
+export function wizardSizesForSave(
+  d: Pick<PropertyWizardDraft, 'propertyType' | 'rooms' | 'floorSizeSqm' | 'erfSizeSqm'>,
+  opts: { erfSupported: boolean },
+): { area: number; erfSizeSqm?: number | null } {
+  const area = effectiveFloorSizeSqm(d.floorSizeSqm, d.rooms)
+  if (!opts.erfSupported) return { area }
+  const erf = parseSizeSqm(d.erfSizeSqm)
+  return { area, erfSizeSqm: erf === 'invalid' ? null : erf }
 }
 
 export function defaultWizardRooms(): WizardRoomDraft[] {
@@ -163,7 +228,7 @@ export function draftAfterAmenitiesChange(
   return { ...draft, amenities }
 }
 
-function roomsFromProperty(infraRooms: InfraRoom[], propertyRooms: Room[]): WizardRoomDraft[] {
+function roomsFromProperty(infraRooms: InfraRoom[], propertyRooms: Room[], beds: number): WizardRoomDraft[] {
   if (infraRooms.length > 0) {
     return infraRooms.map((r) => ({
       id: r.id,
@@ -184,7 +249,8 @@ function roomsFromProperty(infraRooms: InfraRoom[], propertyRooms: Room[]): Wiza
       areaSqm: r.area != null ? String(r.area) : '',
     }))
   }
-  return defaultWizardRooms()
+  // T2: a 0-bed listing with no rooms stays at 0 beds (no invented bedroom).
+  return beds > 0 ? defaultWizardRooms() : []
 }
 
 /** A single in-unit inventory item captured in the create wizard (Assets step). */
@@ -226,6 +292,8 @@ export function draftFromProperty(
   building: Building | undefined,
   infraRooms: InfraRoom[],
 ): PropertyWizardDraft {
+  const rooms = roomsFromProperty(infraRooms, property.rooms ?? [], Number(property.beds) || 0)
+  const roomSum = effectiveFloorSizeSqm('', rooms)
   return {
     listingMode: property.listingMode,
     propertyType: property.type,
@@ -247,7 +315,11 @@ export function draftFromProperty(
     buildingImages: building?.images?.length ? building.images : property.images,
     title: property.title,
     parking: property.parking,
-    rooms: roomsFromProperty(infraRooms, property.rooms ?? []),
+    rooms,
+    // Only an area that differs from the room sum was an explicit floor entry.
+    floorSizeSqm: property.area > 0 && property.area !== roomSum ? String(property.area) : '',
+    // Erf only from its own column, never from the floor size.
+    erfSizeSqm: property.erfSizeSqm != null ? String(property.erfSizeSqm) : '',
     amenities: property.amenities ?? [],
     price: property.price != null ? String(property.price) : '',
     rent: property.rent != null ? String(property.rent) : '',

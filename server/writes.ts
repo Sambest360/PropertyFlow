@@ -14,6 +14,7 @@ import {
 } from './occupiedListing.js'
 import { invalidateIdMapCache } from './idMapCache.js'
 import { assertTicketAccessNotes, ensureTicketAccessNotesColumn, writeTicketAccessNotes } from './ticketAccessNotes.js'
+import { assertUnitErfSize, ensureUnitErfSizeColumn, writeUnitErfSize } from './unitErfSize.js'
 import { isAcceptanceStatus, notifyAcceptedElsewhereServer } from './acceptedElsewhere.js'
 import {
   ensureEntityMapTable,
@@ -975,6 +976,10 @@ async function upsertProperty(
   // Flat PropertyAsset → units row (+ ensure building if provided)
   const canon = canonicalListingId(feId)
   const slug = canon.replace(/^unt-/i, '')
+  // T2: erf size (migration 037) is validated and its column checked before
+  // any write, so a bad value or a failed check changes nothing.
+  assertUnitErfSize(d)
+  if (d.erfSizeSqm !== undefined) await ensureUnitErfSizeColumn()
   // Only agency staff may set the per-unit viewing-gate override. Checked
   // before any write (id map included) so a refused write changes nothing.
   const viewingRule = await authorizedRequireViewingColumn(actorRole, d, await resolveListingUnitUuid(feId))
@@ -1181,6 +1186,8 @@ async function upsertProperty(
       viewingRule.sent,
     ],
   )
+  // Separate from square_meters (floor): never merged or summed. No-op while 037 is not applied.
+  await writeUnitErfSize(uuid, d)
   await revokeApplyOverridesForLetStatus(uuid, statusKey)
   return uuid
 }

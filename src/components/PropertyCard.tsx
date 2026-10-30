@@ -20,6 +20,7 @@ import { useWishlist } from '../hooks/useWishlist'
 import { canonicalListingId } from '../lib/listingIds'
 import { propertyListingRating } from './reviews/StarRating'
 import { isLoadSheddingFreeListing } from '../lib/loadShedding'
+import { bedsLabel, listingSizeFacts } from '../lib/listingSizes'
 
 export function PropertyCard({
   property,
@@ -113,6 +114,9 @@ export function PropertyCard({
   const solar = card?.building.solar_capacity_kw ?? property.solarCapacityKw ?? 0
   const borehole = card?.building.has_borehole ?? property.hasBorehole
   const highlightFeatures = property.amenities.slice(0, 3)
+  // T2: floor (square_meters) and erf are separate facts; unset sizes are hidden.
+  const sizes = listingSizeFacts({ floorSqm: area, erfSqm: property.erfSizeSqm })
+  const bedFact = bedsLabel(property.type, beds)
 
   return (
     <Link to={href} className={cn('group block animate-slide-up', className)}>
@@ -183,6 +187,11 @@ export function PropertyCard({
           </p>
 
           <div className="mt-2 flex flex-wrap gap-1.5">
+            {property.type && (
+              <span className="rounded-full bg-ink-50 px-2 py-0.5 text-[10px] font-semibold text-ink-600">
+                {property.type}
+              </span>
+            )}
             {loadFree && (
               <span className="inline-flex items-center gap-1 rounded-full bg-primary-50 px-2 py-0.5 text-[10px] font-semibold text-primary">
                 <Zap className="h-3 w-3" /> Load-shedding free
@@ -236,9 +245,9 @@ export function PropertyCard({
             <p className="mt-1 text-[11px] text-ink-400">{card.display_metadata.updated_relative}</p>
           )}
           <div className="mt-3 flex items-center gap-3 border-t border-primary-100 pt-3 text-xs text-ink-500">
-            {beds > 0 && (
+            {bedFact && (
               <span className="inline-flex items-center gap-1">
-                <BedDouble className="h-3.5 w-3.5" /> {beds} bed
+                <BedDouble className="h-3.5 w-3.5" /> {bedFact}
               </span>
             )}
             {baths > 0 && (
@@ -249,7 +258,12 @@ export function PropertyCard({
             <span className="inline-flex items-center gap-1">
               <Car className="h-3.5 w-3.5" /> {parking}
             </span>
-            <span className="ml-auto tabular">{area.toLocaleString()} m²</span>
+            {(sizes.floor || sizes.erf) && (
+              <span className="ml-auto flex items-center gap-2 tabular">
+                {sizes.floor && <span>{sizes.floor}</span>}
+                {sizes.erf && <span>{sizes.erf}</span>}
+              </span>
+            )}
           </div>
         </div>
       </article>

@@ -12,6 +12,8 @@ export type PostgresBootstrap = {
   fetchedAt: string
   /** False until maintenance_tickets.access_notes exists (migration 013). */
   ticketAccessNotesSupported?: boolean
+  /** False until units.erf_size_sqm exists (migration 037, T2). */
+  unitErfSizeSupported?: boolean
   /** True when payload was filtered for a property-locked actor. */
   scoped?: boolean
   actor?: { userId: string; role: string; agencyId: string | null } | null

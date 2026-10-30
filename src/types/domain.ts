@@ -254,7 +254,10 @@ export type PropertyAsset = {
   parking: number
   /** Enclosed garage bays (from garage rooms) */
   garages?: number
+  /** Floor size m² (units.square_meters): an explicit entry, else the room sum. */
   area: number
+  /** Erf / stand size m² (units.erf_size_sqm, migration 037). Separate from area; null/absent = not set (sectional title). */
+  erfSizeSqm?: number | null
   city: string
   suburb: string
   address: string
