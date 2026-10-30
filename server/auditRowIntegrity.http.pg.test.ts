@@ -56,8 +56,11 @@ const BLD_A = 'c2170000-0000-4000-8000-000000000001'
 const BLD_B = 'd2170000-0000-4000-8000-000000000001'
 const UNIT_A = 'c3170000-0000-4000-8000-000000000001'
 const UNIT_B = 'd3170000-0000-4000-8000-000000000001'
+/** A second unit in agency A with no agent: outside A's ground agent's scope (A8). */
+const UNIT_A2 = 'c3170000-0000-4000-8000-000000000002'
 const P_A = 'r7-p-a'
 const P_B = 'r7-p-b'
+const P_A2 = 'r7-p-a2'
 
 /** Seeded event_log rows, re-seeded before every test. */
 const EV = {
@@ -69,6 +72,7 @@ const EV = {
   actB: { id: 'd6170000-0000-4000-8000-000000000011', client: B, type: 'activity', subjectType: 'agency', subject: null, fe: 'r7-act-b', payload: { text: 'B genuine activity', user: 'Admin B' } },
   peB: { id: 'd6170000-0000-4000-8000-000000000012', client: B, type: 'property_event', subjectType: 'property', subject: UNIT_B, fe: 'r7-pe-b', payload: { actorName: 'Admin B', action: 'updated', changes: [], propertyId: P_B } },
   /** A platform row (client_id NULL), like the super-admin "Agency created / cancelled" activities. */
+  peA2: { id: 'c6170000-0000-4000-8000-000000000013', client: A, type: 'property_event', subjectType: 'property', subject: UNIT_A2, fe: 'r7-pe-a2', payload: { actorName: 'Admin A', action: 'updated', changes: [], propertyId: P_A2 } },
   actNull: { id: 'c6170000-0000-4000-8000-0000000000f1', client: null, type: 'activity', subjectType: 'agency', subject: null, fe: null, payload: { text: 'platform note', user: 'System' } },
 } as const
 type EvKey = keyof typeof EV
@@ -114,7 +118,7 @@ describe.skipIf(!url)('R7 audit-row integrity: event_log writes via the real app
     const clients = [A, B]
     await q(`DELETE FROM event_log WHERE client_id = ANY($1::uuid[]) OR id = ANY($2::uuid[])`, [clients, EV_IDS])
     await q(`DELETE FROM entity_id_map WHERE frontend_id LIKE 'r7-%'`)
-    await q(`DELETE FROM units WHERE id IN ($1::uuid, $2::uuid)`, [UNIT_A, UNIT_B])
+    await q(`DELETE FROM units WHERE id IN ($1::uuid, $2::uuid, $3::uuid)`, [UNIT_A, UNIT_B, UNIT_A2])
     await q(`DELETE FROM buildings WHERE id IN ($1::uuid, $2::uuid)`, [BLD_A, BLD_B])
     await q(`DELETE FROM users WHERE client_id = ANY($1::uuid[]) OR id = $2::uuid`, [clients, USERS.superAdmin.id])
     await q(`DELETE FROM clients WHERE id = ANY($1::uuid[])`, [clients])
@@ -185,6 +189,12 @@ describe.skipIf(!url)('R7 audit-row integrity: event_log writes via the real app
        VALUES ($1::uuid, $2::uuid, $3::uuid, '7', 'RENT', 10000, $4::uuid), ($5::uuid, $6::uuid, $7::uuid, '7', 'RENT', 10000, NULL)`,
       [UNIT_A, BLD_A, A, USERS.groundA.id, UNIT_B, BLD_B, B],
     )
+    await q(
+      `INSERT INTO units (id, building_id, client_id, unit_number, listing_type, rent, agent_id)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, '8', 'RENT', 10000, NULL)`,
+      [UNIT_A2, BLD_A, A],
+    )
+    await q(`INSERT INTO entity_id_map (entity_type, frontend_id, backend_id) VALUES ('property', $1, $2::uuid)`, [P_A2, UNIT_A2])
     await q(`INSERT INTO entity_id_map (entity_type, frontend_id, backend_id) VALUES ('property', $1, $2::uuid), ('property', $3, $4::uuid)`, [P_A, UNIT_A, P_B, UNIT_B])
     await resetEvents()
     app = (await import('./index.js')).default as unknown as App
@@ -360,6 +370,35 @@ describe.skipIf(!url)('R7 audit-row integrity: event_log writes via the real app
       groundDelete: refusedUnchanged('EVENT_LOG_AGENCY_MISMATCH', 'actNull'),
       adminDeleteNoData: refusedUnchanged('EVENT_LOG_AGENCY_MISMATCH', 'actNull'),
       superAdmin: { status: 200, client: null, type: 'activity' },
+    })
+  })
+
+  it('R7-17 (Angela A8): a refusal inside the actor\'s own agency stays the generic 403: ground_agent A upserts and deletes A\'s property_event on an A unit outside their scope: 403 with no EVENT_LOG_AGENCY_MISMATCH code, row unchanged', async () => {
+    const u = await persist('groundA', {
+      resource: 'property_event', action: 'upsert', id: EV.peA2.id,
+      data: { id: EV.peA2.id, propertyId: P_A2, agencyId: AG_A, actorName: 'x', action: 'edited', changes: [] },
+    })
+    const ou = await outcome(u, EV.peA2.id)
+    await resetEvents()
+    const d = await persist('groundA', { resource: 'property_event', action: 'delete', id: EV.peA2.id, data: { propertyId: P_A2, agencyId: AG_A } })
+    expect({ upsert: ou, del: await outcome(d, EV.peA2.id) }).toEqual({
+      upsert: { status: 403, code: null, row: seeded.peA2 },
+      del: { status: 403, code: null, row: seeded.peA2 },
+    })
+  })
+
+  it('R7-18 (Angela A13): a payload clientId never beats the stored agency: agent_admin A upserts and deletes B\'s activity sending only clientId A, and upserts the client_id NULL row sending clientId A: all 403 EVENT_LOG_AGENCY_MISMATCH, rows unchanged', async () => {
+    const u = await persist('adminA', { resource: 'activity', action: 'upsert', id: EV.actB.id, data: { id: EV.actB.id, clientId: AG_A, text: 'hijacked via clientId', user: 'x' } })
+    const ou = await outcome(u, EV.actB.id)
+    await resetEvents()
+    const d = await persist('adminA', { resource: 'activity', action: 'delete', id: EV.actB.id, data: { clientId: AG_A } })
+    const od = await outcome(d, EV.actB.id)
+    await resetEvents()
+    const n = await persist('adminA', { resource: 'activity', action: 'upsert', id: EV.actNull.id, data: { id: EV.actNull.id, clientId: AG_A, text: 'hijacked-null via clientId', user: 'x' } })
+    expect({ upsertB: ou, deleteB: od, upsertNull: await outcome(n, EV.actNull.id) }).toEqual({
+      upsertB: refusedUnchanged('EVENT_LOG_AGENCY_MISMATCH', 'actB'),
+      deleteB: refusedUnchanged('EVENT_LOG_AGENCY_MISMATCH', 'actB'),
+      upsertNull: refusedUnchanged('EVENT_LOG_AGENCY_MISMATCH', 'actNull'),
     })
   })
 
