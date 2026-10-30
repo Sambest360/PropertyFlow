@@ -125,3 +125,27 @@ describe('T6 gate wiring in vite.config.ts', () => {
     expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('legal'))
   })
 })
+
+describe('T6 (Jim #118 C8): the warning says why the build is not live, accurately', () => {
+  it('development with PF_LIVE_BUILD=1 does not claim the flag is unset', () => {
+    const { action, message } = legalBuildGate({ mode: 'development', env: { PF_LIVE_BUILD: '1' }, entity: {} })
+    expect(action).toBe('warn')
+    expect(message).not.toContain('PF_LIVE_BUILD!=1')
+    expect(message).toContain('mode is "development", not production')
+    expect(message).toContain('PF_LIVE_BUILD=1 only stops a production build')
+  })
+
+  it('production without the flag says the flag is not 1', () => {
+    const { action, message } = legalBuildGate({ mode: 'production', env: {}, entity: {} })
+    expect(action).toBe('warn')
+    expect(message).toContain('PF_LIVE_BUILD is not "1"')
+    expect(message).not.toContain('not production')
+  })
+
+  it('staging without the flag names only the mode', () => {
+    const { message } = legalBuildGate({ mode: 'staging', env: {}, entity: {} })
+    expect(message).toContain('mode is "staging", not production')
+    expect(message).not.toContain('PF_LIVE_BUILD=1 only stops')
+  })
+})
+

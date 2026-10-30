@@ -33,7 +33,12 @@ export function legalBuildGate({
   const what =
     `Legal company details missing or placeholder in src/lib/legalEntity.ts: ${missing.join(', ')}. ` +
     'The /privacy and /terms pages show "to be confirmed" for these. Samuel supplies the values.'
-  return live
-    ? { action: 'fail', missing, message: `${what} Live deploy build (PF_LIVE_BUILD=1) stopped.` }
-    : { action: 'warn', missing, message: `[legal] ${what} Warning only: not a live deploy build (mode=${mode}, PF_LIVE_BUILD!=1).` }
+  if (live) return { action: 'fail', missing, message: `${what} Live deploy build (PF_LIVE_BUILD=1) stopped.` }
+  // Say exactly why this build is not live (Jim #118 C8): the mode, the flag, or both.
+  const flagSet = env.PF_LIVE_BUILD === '1'
+  const why =
+    mode !== 'production'
+      ? `mode is "${mode}", not production${flagSet ? ' (PF_LIVE_BUILD=1 only stops a production build)' : ''}`
+      : 'PF_LIVE_BUILD is not "1"'
+  return { action: 'warn', missing, message: `[legal] ${what} Warning only, not a live deploy build: ${why}.` }
 }
