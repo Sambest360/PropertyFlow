@@ -41,17 +41,22 @@ export const LEGAL_REQUIRED_FIELDS = [
 
 export type RequiredLegalField = (typeof LEGAL_REQUIRED_FIELDS)[number]
 
-const EMAIL_FIELDS: ReadonlySet<string> = new Set(['privacyEmail', 'supportEmail'])
+export const EMAIL_FIELDS: ReadonlySet<string> = new Set(['privacyEmail', 'supportEmail'])
 
 /** Stand-in text someone might type instead of a real value. Counts as missing. */
 const PLACEHOLDER = /^\[.*\]$|\bto be confirmed\b|\btb[cd]\b|\btodo\b|placeholder|^e\.g\.|^x{3,}$/i
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
+/** True when the value looks like a single email address (used for mailto: links too). */
+export function isLegalEmail(value: string): boolean {
+  return EMAIL.test(value.trim())
+}
+
 function fieldFilled(field: string, raw: string | undefined): boolean {
   const value = raw?.trim() ?? ''
   if (!value || PLACEHOLDER.test(value)) return false
-  if (EMAIL_FIELDS.has(field) && !EMAIL.test(value)) return false
+  if (EMAIL_FIELDS.has(field) && !isLegalEmail(value)) return false
   return true
 }
 

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { LEGAL_ENTITY, type LegalField } from '../../lib/legalEntity'
+import { EMAIL_FIELDS, LEGAL_ENTITY, isLegalEmail, type LegalField } from '../../lib/legalEntity'
 import { usePageMeta } from '../../hooks/usePageMeta'
 
 const FIELD_LABEL: Record<LegalField, string> = {
@@ -14,9 +14,20 @@ const FIELD_LABEL: Record<LegalField, string> = {
   effectiveDate: 'effective date',
 }
 
-/** A company detail from LEGAL_ENTITY, or a visible marker while it is blank. */
+/**
+ * A company detail from LEGAL_ENTITY, or a visible marker while it is blank.
+ * A filled-in email field renders as a mailto: link (T6 C5); anything that is
+ * not an email address stays plain text.
+ */
 export function Entity({ field }: { field: LegalField }) {
   const value = LEGAL_ENTITY[field]?.trim()
+  if (value && EMAIL_FIELDS.has(field) && isLegalEmail(value)) {
+    return (
+      <a className="text-primary underline" href={`mailto:${value}`}>
+        {value}
+      </a>
+    )
+  }
   if (value) return <>{value}</>
   return (
     <span className="rounded bg-amber-100 px-1 text-amber-900" data-testid={`legal-missing-${field}`}>
