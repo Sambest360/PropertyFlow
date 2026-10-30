@@ -58,6 +58,13 @@ export function formatListingEnquiryError(raw: string): string {
   if (code.includes('outside_viewing_window')) {
     return 'Someone still lives here and that time is outside their viewing hours. Pick another slot.'
   }
+  // T3 C3: plain copy for the two server checks that had none.
+  if (code === 'contact_required') {
+    return 'Please add an email or phone number so the agency can reach you.'
+  }
+  if (code === 'property_not_found') {
+    return 'This listing is no longer listed. Browse other homes on the market page.'
+  }
   if (code.includes('property_not_public')) {
     return 'This listing is not taking enquiries right now.'
   }
@@ -70,7 +77,8 @@ export function formatListingEnquiryError(raw: string): string {
   if (raw.toLowerCase().includes('abort') || raw.toLowerCase().includes('timeout')) {
     return 'The server took too long to respond. Check your connection and try again.'
   }
-  return raw
+  // T3 C3: never show unknown server or database text to the public.
+  return ENQUIRY_UNAVAILABLE
 }
 
 async function submitViaApi(input: ListingEnquiryInput): Promise<ListingEnquiryResult | null> {
