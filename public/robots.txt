@@ -1,0 +1,11 @@
+# lekayarentals.site
+User-agent: *
+Allow: /
+Allow: /api/sitemap.xml
+Allow: /api/files/
+Disallow: /api/
+Disallow: /workspace
+Disallow: /account
+Disallow: /payfast/
+
+Sitemap: https://lekayarentals.site/api/sitemap.xml

@@ -28,7 +28,15 @@ export function MarketplaceFooter() {
           </div>
         ))}
       </div>
-      <div className="border-t border-primary-100 py-4 text-center text-xs text-ink-400">© 2026 Lekaya Rentals</div>
+      <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 border-t border-primary-100 py-4 text-center text-xs text-ink-400">
+        <span>© 2026 Lekaya Rentals</span>
+        <Link to="/privacy" className="inline-flex min-h-9 items-center hover:text-ink">
+          Privacy Policy
+        </Link>
+        <Link to="/terms" className="inline-flex min-h-9 items-center hover:text-ink">
+          Terms of Service
+        </Link>
+      </div>
     </footer>
   )
 }

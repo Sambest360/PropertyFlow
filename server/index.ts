@@ -840,6 +840,33 @@ app.get('/api/public/marketplace', async (c) => {
   }
 })
 
+/**
+ * sitemap.xml (named in public/robots.txt): public pages plus every published
+ * listing, built from the same guest marketplace rows as /api/public/marketplace.
+ */
+app.get('/api/sitemap.xml', async (c) => {
+  const { buildSitemapXml, sitemapListings } = await import('./sitemap.js')
+  const { appUrl } = await import('./email/layout.js')
+  let listings: Array<{ id: string; lastmod?: string }> = []
+  if (databaseConfigured) {
+    try {
+      const { buildBootstrap } = await loadBootstrapModule()
+      const data = await buildBootstrap({
+        lite: true,
+        limits: { units: 500, messages: 1, notifications: 1, leads: 1, applications: 1, tickets: 1, payments: 1, documents: 1 },
+      })
+      listings = sitemapListings(filterBootstrapForGuest(data as unknown as Record<string, unknown>))
+    } catch (err) {
+      // Still serve the static pages; search engines retry later.
+      console.error('[api/sitemap.xml]', err instanceof Error ? err.message : String(err))
+    }
+  }
+  return c.body(buildSitemapXml(appUrl(), listings), 200, {
+    'Content-Type': 'application/xml; charset=utf-8',
+    'Cache-Control': 'public, max-age=3600',
+  })
+})
+
 app.get('/api/v1/units', async (c) => {
   if (!databaseConfigured) {
     return c.json(
