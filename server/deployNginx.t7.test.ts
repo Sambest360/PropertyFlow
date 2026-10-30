@@ -218,3 +218,43 @@ describe('T7 setup.sh', () => {
     expect(sh).toContain('certbot --nginx --redirect -d lekayarentals.site -d www.lekayarentals.site')
   })
 })
+
+// Jim's #125 review SHOULD (3), mutants J04 and J09: the template must not drift
+// from the installed file on the proxy target or the /assets caching. Both are
+// read from the files, so a change to one file alone fails here.
+describe('T7 template pins against the installed file (J04, J09)', () => {
+  const tplServers = () => servers(read('nginx-propertyflow.tls.conf.example'))
+  const tls = () => tplServers().filter((b) => listensOn(b, '443 ssl'))[0]
+  const inst = () => servers(read('nginx-propertyflow.conf'))[0]
+  const proxied = (b: Block) =>
+    locations(b)
+      .map((l) => ({ head: l.head, pass: ownDirectives(l.body).filter((d) => d.startsWith('proxy_pass ')) }))
+      .filter((l) => l.pass.length > 0)
+
+  it('every proxied location has the same proxy_pass target (host and port) in both files (J04)', () => {
+    const want = proxied(inst())
+    expect(want.length).toBeGreaterThan(0)
+    // Same set of proxied locations, and for each one the exact same proxy_pass directive(s).
+    expect(proxied(tls())).toEqual(want)
+    for (const l of want) expect(l.pass, l.head).toEqual([expect.stringMatching(/^proxy_pass http:\/\/127\.0\.0\.1:\d+/)])
+  })
+
+  it('no proxy_pass outside a location, and none in the :80 redirect block', () => {
+    for (const s of [...tplServers(), inst()]) {
+      expect(ownDirectives(s.body).filter((d) => d.startsWith('proxy_pass '))).toEqual([])
+    }
+    const http = tplServers().filter((b) => listensOn(b, '80'))[0]
+    expect(proxied(http)).toEqual([])
+  })
+
+  it('/assets/ has the same Cache-Control (add_header Cache-Control and expires) in both files (J09)', () => {
+    const caching = (b: Block) => {
+      const a = locations(b).find((l) => l.head === 'location /assets/')
+      expect(a, 'location /assets/').toBeDefined()
+      return ownDirectives(a!.body).filter((d) => /^add_header Cache-Control /i.test(d) || d.startsWith('expires '))
+    }
+    const want = caching(inst())
+    expect(want.some((d) => /^add_header Cache-Control /i.test(d))).toBe(true)
+    expect(caching(tls())).toEqual(want)
+  })
+})
