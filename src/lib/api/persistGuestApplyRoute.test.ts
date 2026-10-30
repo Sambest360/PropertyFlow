@@ -665,6 +665,32 @@ describe('guest full application on PR-1011 reaches /api/persist (API mode)', ()
     expect((await bootstrapApp(TENANT))?.idNumberOrPassport).toBe(DETAILS.idNumberOrPassport)
   })
 
+  it('T1 O5: co-applicant / guarantor IDs are masked for super admin, and a masked roster never replaces the stored one', async () => {
+    addRoundTripPeople()
+    const appRow = await guestApplication()
+    const roster = {
+      adults: [
+        { id: 'main', name: 'Naledi Dlamini', idNumber: DETAILS.idNumberOrPassport, consented: false },
+        { id: 'co', name: 'Co Applicant', idNumber: '9202024800081', consented: false },
+        { id: 'g', name: 'Guarantor', idNumber: 'A12345678', consented: false },
+      ],
+    }
+    expect(
+      await persistAs(TENANT, { ...(appRow as unknown as Record<string, unknown>), ...DETAILS, creditCheckConsents: roster }),
+    ).toBe(true)
+    const storedRoster = () =>
+      (JSON.parse(String([...db.applications.values()][0]!.params[11])) as { creditCheckConsents?: typeof roster })
+        .creditCheckConsents
+    expect(storedRoster()).toEqual(roster)
+    const adultIds = (a: Record<string, unknown> | undefined) =>
+      ((a?.creditCheckConsents as typeof roster | undefined)?.adults ?? []).map((x) => x.idNumber)
+    expect(adultIds(await bootstrapApp(STAFF))).toEqual(roster.adults.map((x) => x.idNumber))
+    const saCopy = await bootstrapApp(SUPER)
+    expect(adultIds(saCopy)).toEqual(roster.adults.map((x) => maskIdNumber(x.idNumber)))
+    expect(await persistAs(SUPER, { ...(saCopy as Record<string, unknown>), status: 'reviewing' })).toBe(true)
+    expect(storedRoster()).toEqual(roster)
+  })
+
   it('T1 C6: a super admin saving the masked row never overwrites the stored ID', async () => {
     addRoundTripPeople()
     const appRow = await guestApplication()
