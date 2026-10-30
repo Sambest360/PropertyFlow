@@ -37,7 +37,10 @@ import {
 import type { PostgresBootstrap } from '../../lib/api/postgresClient'
 import { submitListingEnquiry } from '../../lib/api/listingEnquiryApi'
 import { listingAvailabilityCopy } from '../../lib/listingLimitCopy'
-import { sweetError, sweetInfo, sweetSuccess, sweetWarning } from '../../lib/sweetAlert'
+import { sweetError, sweetSuccess, sweetWarning } from '../../lib/sweetAlert'
+import { enquiryOutcome, shouldRecordEnquiryLocally, type EnquiryOutcome } from '../../lib/listingEnquiryOutcome'
+import { clientMayPersistLead } from '../../lib/clientLeadPersist'
+import { EnquiryConfirmation } from '../../components/listing/EnquiryConfirmation'
 import { usePageMeta } from '../../hooks/usePageMeta'
 import { useAgentDisplay } from '../../hooks/useAgentDisplay'
 import { listingHeadline } from '../../lib/agentDisplay'
@@ -102,6 +105,8 @@ export default function ListingDetail() {
   const [idNumber, setIdNumber] = useState('')
   const [intent, setIntent] = useState<EnquiryIntent>('lead')
   const [submitting, setSubmitting] = useState(false)
+  // T3: the last enquiry outcome, shown inline until the next submit.
+  const [enquiryOutcome_, setEnquiryOutcome] = useState<EnquiryOutcome | null>(null)
   const [appSubmitting, setAppSubmitting] = useState(false)
   // Pre-apply warning: applicants confirm they understand they should view the home first.
   const [viewWarningOpen, setViewWarningOpen] = useState(false)
@@ -390,6 +395,7 @@ export default function ListingDetail() {
 
     if (!acquireSubmitLock(enquiryLockRef)) return
     setSubmitting(true)
+    setEnquiryOutcome(null)
     try {
       const result = await submitListingEnquiry({
         propertyId: p.id,
@@ -408,70 +414,47 @@ export default function ListingDetail() {
         value: p.price ?? p.rent ?? 0,
       })
 
-      if (result.ok === false) {
-        if (result.waitlist) {
-          await sweetSuccess(
-            'You are on the waitlist',
-            'We will contact you if a spot opens.',
-          )
-          setNote('')
-          setEnquirySheetOpen(false)
-          return
-        }
-        await sweetError('Could not save enquiry', 'error' in result ? result.error : 'Unknown error')
-        return
+      // T3: the server's answer is the only save. Show it inline and keep the
+      // sheet open (no modal to dismiss, no reset); a repeat says so kindly.
+      if (shouldRecordEnquiryLocally(result)) {
+        recordGuestEnquiry({
+          lead: {
+            id: result.leadId,
+            agencyId: p.agencyId,
+            propertyId: p.id,
+            agentId: p.agentId,
+            name: fullName,
+            email: email.trim(),
+            phone: phone.trim(),
+            channel: 'Web Form',
+            type: p.listingMode === 'sale' ? 'Buy' : 'Rent',
+            value: p.price ?? p.rent ?? 0,
+            stage: result.stage,
+            notes: note.trim(),
+          },
+          viewing:
+            action === 'viewing' && selectedSlot
+              ? {
+                  id: result.bookingId ?? undefined,
+                  agencyId: p.agencyId,
+                  propertyId: p.id,
+                  agentId: p.agentId,
+                  slotId: selectedSlot.id,
+                  applicantName: fullName,
+                  applicantEmail: email.trim(),
+                  date: selectedSlot.date,
+                  time: selectedSlot.time,
+                }
+              : null,
+        })
       }
-
-      recordGuestEnquiry({
-        lead: {
-          id: result.leadId,
-          agencyId: p.agencyId,
-          propertyId: p.id,
-          agentId: p.agentId,
-          name: fullName,
-          email: email.trim(),
-          phone: phone.trim(),
-          channel: 'Web Form',
-          type: p.listingMode === 'sale' ? 'Buy' : 'Rent',
-          value: p.price ?? p.rent ?? 0,
-          stage: result.stage,
-          notes: note.trim(),
-        },
-        viewing:
-          action === 'viewing' && selectedSlot
-            ? {
-                id: result.bookingId ?? undefined,
-                agencyId: p.agencyId,
-                propertyId: p.id,
-                agentId: p.agentId,
-                slotId: selectedSlot.id,
-                applicantName: fullName,
-                applicantEmail: email.trim(),
-                date: selectedSlot.date,
-                time: selectedSlot.time,
-              }
-            : null,
-      })
-
-      if (action === 'viewing' && selectedSlot) {
-        await sweetSuccess(
-          'Viewing booked',
-          `Your slot is ${selectedSlot.date} at ${selectedSlot.time}. ${agent?.name ?? 'The agency'} will confirm shortly.`,
-        )
-      } else if (action === 'viewing') {
-        await sweetInfo(
-          'Viewing request sent',
-          'No open slots right now — an agent will contact you to schedule a time.',
-        )
-      } else {
-        await sweetSuccess(
-          'Interest registered',
-          `${agent?.name ?? 'The agency'} will follow up on this property. No account needed.`,
-        )
-      }
-      setNote('')
-      setEnquirySheetOpen(false)
-      return true
+      setEnquiryOutcome(enquiryOutcome(result, {
+        action,
+        slot: selectedSlot ? { date: selectedSlot.date, time: selectedSlot.time } : null,
+        agentName: agent?.name ?? null,
+      }))
+      if (result.ok || ('waitlist' in result && result.waitlist)) setNote('')
+      return result.ok
     } finally {
       setSubmitting(false)
       releaseSubmitLock(enquiryLockRef)
@@ -537,6 +520,9 @@ export default function ListingDetail() {
       value: p.price ?? p.rent ?? 0,
       stage: 'Application Submitted',
       notes: note.trim(),
+      // T3: a guest / tenant / portal applicant never persists a lead (the
+      // server refuses it: 403). The application itself is the agency's record.
+      persist: clientMayPersistLead(user.role),
     })
 
     // P1-2: the applicant gets their reference number immediately.
@@ -716,6 +702,7 @@ export default function ListingDetail() {
           value={note}
           onChange={(e) => setNote(e.target.value)}
         />
+        <EnquiryConfirmation outcome={enquiryOutcome_} />
         <Button type="submit" className="w-full min-h-11" disabled={submitting}>
           {submitting
             ? 'Saving…'

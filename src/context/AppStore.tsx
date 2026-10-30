@@ -4558,7 +4558,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           recipientUserIds: viewingDeskStakeholderIds(state.users, input.viewing, property),
         })
       }
-      persistUpsert('lead', lead.id, lead as unknown as Record<string, unknown>)
+      // T3: no persist. POST /api/public/listing-enquiry already saved this lead
+      // (and its booking); a second save from a guest / tenant is refused (403),
+      // which toasted "Change not saved" and reloaded the form away.
     },
     updateLeadStage: (id, stage) => {
       const updatedAt = new Date().toISOString().slice(0, 10)

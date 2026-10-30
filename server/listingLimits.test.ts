@@ -53,6 +53,8 @@ vi.mock('./entityMap.js', () => ({
     if (type === 'unit' || type === 'property') return 'unit-1'
     return fe
   }),
+  // T3: publicEnquiry now maps a duplicate's uuid back to its FE ref; no map here.
+  resolveFrontendId: vi.fn(async () => null),
 }))
 
 function unitRow() {

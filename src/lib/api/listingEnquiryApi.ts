@@ -27,6 +27,8 @@ export type ListingEnquiryResult =
       stage: string
       /** Occupied advert: the date the home comes free (YYYY-MM-DD); null otherwise. */
       availableFrom?: string | null
+      /** T3: already registered on this listing; leadId is the original reference. */
+      duplicate?: boolean
     }
   | { ok: false; error: string; waitlist?: boolean }
 
@@ -104,12 +106,18 @@ async function submitViaApi(input: ListingEnquiryInput): Promise<ListingEnquiryR
         waitlist: json.waitlist === true,
       }
     }
+    // T3: no fake reference. A 2xx without the server's lead id is not a saved enquiry.
+    const leadId = json.leadId ?? json.lead_id
+    if (typeof leadId !== 'string' || !leadId.trim()) {
+      return { ok: false, error: ENQUIRY_UNAVAILABLE }
+    }
     return {
       ok: true,
-      leadId: String(json.leadId ?? json.lead_id ?? `LD-guest-${Date.now()}`),
+      leadId,
       bookingId: (json.bookingId ?? json.booking_id ?? null) as string | null,
       stage: String(json.stage ?? 'New Lead'),
       availableFrom: (json.availableFrom ?? json.available_from ?? null) as string | null,
+      ...(json.duplicate === true ? { duplicate: true } : {}),
     }
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
