@@ -252,7 +252,9 @@ async function gatedPersist(c: Parameters<typeof parseDemoActor>[0], body: Persi
   // (stamp + lease_signed row) and the main upsert run in ONE transaction:
   // if the upsert fails nothing commits; the completion email (afterCommit)
   // goes only after this outer COMMIT, i.e. after handlePersist succeeded.
-  if (body.resource === 'tenancy' && body.action === 'upsert') {
+  // Slice A: every payment op (upsert and delete) runs gate + write in ONE
+  // transaction so the gate's FOR UPDATE read holds until the write commits.
+  if ((body.resource === 'tenancy' && body.action === 'upsert') || body.resource === 'payment') {
     const { withTransaction } = await import('./db.js')
     return withTransaction(() => gatedPersistInner(c, body))
   }

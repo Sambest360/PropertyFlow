@@ -4,6 +4,7 @@
  */
 import { PERMISSIONS_VERSION } from '../src/lib/permissions.js'
 import { query, withTransaction, clientQuery } from './db.js'
+import { terminalPaymentError } from './paymentWritePolicy.js'
 import { slotStartSast, slotStoredStart } from './slotInstant.js'
 import {
   assertNoLeaseOverlap,
@@ -620,6 +621,17 @@ async function deleteEntity(resource: EntityType, frontendId: string): Promise<v
     // never a server-written audit row (payfast_itn_rejected, impersonation,
     // lease_signed, ...) that shares the table.
     await query(eventLogDelete, [uuid])
+  } else if (resource === 'payment') {
+    // Slice A: a PAID or CANCELLED payment is never deleted here (409, and the
+    // id map is kept); a row that is already gone stays idempotent.
+    const deleted = await query(
+      `DELETE FROM "payments" WHERE id = $1::uuid AND status NOT IN ('PAID', 'CANCELLED') RETURNING id`,
+      [uuid],
+    )
+    if (!deleted.length) {
+      const still = (await query<{ status: string }>(`SELECT status FROM payments WHERE id = $1::uuid`, [uuid]))[0]
+      if (still) throw terminalPaymentError(still.status) ?? terminalPaymentError('PAID')!
+    }
   } else {
     await query(`DELETE FROM "${table}" WHERE id = $1::uuid`, [uuid])
   }
@@ -659,7 +671,7 @@ async function upsertEntity(
     case 'viewing_slot':
       return upsertViewingSlot(frontendId, data)
     case 'payment':
-      return upsertPayment(frontendId, data)
+      return upsertPayment(frontendId, data, actorUserId)
     case 'ticket':
       return upsertTicket(frontendId, data, actorUserId)
     case 'document':
@@ -2024,7 +2036,28 @@ async function upsertViewingSlot(feId: string, d: Record<string, unknown>): Prom
   return uuid
 }
 
-async function upsertPayment(feId: string, d: Record<string, unknown>): Promise<string> {
+/**
+ * Slice A: payments. An update keeps the stored amount / status / due date
+ * when the payload leaves them out (COALESCE); a PAID or CANCELLED row is
+ * never overwritten here (409); a create needs an amount (400, never 0).
+ * The staff audit rows (payment_marked_paid, payment_cancelled_by_staff,
+ * payment_amount_changed) are written in the same transaction, after the
+ * RETURNING check.
+ */
+async function upsertPayment(feId: string, d: Record<string, unknown>, actorUserId: string | null = null): Promise<string> {
+  const known = await resolveUuid('payment', feId)
+  const prior = known
+    ? (await query<{ status: string; amount: string }>(
+        `SELECT status, amount::text AS amount FROM payments WHERE id = $1::uuid FOR UPDATE`,
+        [known],
+      ))[0] ?? null
+    : null
+  const amount = num(d.amount)
+  if (!prior && amount === null) {
+    throw Object.assign(new Error('Bad request: a new payment needs an amount'), { status: 400, code: 'PAYMENT_AMOUNT_REQUIRED' })
+  }
+  const terminal = terminalPaymentError(prior?.status)
+  if (terminal) throw terminal
   const uuid = await ensureUuid('payment', feId)
   const client = await clientId(d.agencyId)
   const unit = await unitIdFromProperty(d.propertyId)
@@ -2033,30 +2066,33 @@ async function upsertPayment(feId: string, d: Record<string, unknown>): Promise<
   const party = await userId(d.partyUserId)
   const recorded = await userId(d.recordedByUserId)
   const payType = PAY_TYPE_TO_DB[str(d.type, 'Other')] ?? 'OTHER'
-  const status = PAY_STATUS_TO_DB[str(d.status, 'Due')] ?? 'DUE'
+  const status = d.status == null || d.status === '' ? null : (PAY_STATUS_TO_DB[str(d.status)] ?? 'DUE')
+  const dueDate = d.dueDate == null || d.dueDate === '' ? null : str(d.dueDate)
 
-  await query(
+  const rows = await query<{ status: string; amount: string; method: string | null; reference: string | null; client_id: string }>(
     `INSERT INTO payments (
        id, client_id, unit_id, lease_id, application_id, party_user_id, party_name,
        payment_type, amount, paid_amount, status, due_date, paid_at, method, reference,
        notes, landlord_visible, recorded_by, attachments, updated_at
      ) VALUES (
        $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7,
-       $8, $9, $10, $11, $12::date, $13::timestamptz, $14, $15,
+       $8, COALESCE($9::numeric, $21::numeric), $10, COALESCE($11, 'DUE'), COALESCE($12::date, $20::date), $13::timestamptz, $14, $15,
        $16, $17, $18::uuid, $19::jsonb, NOW()
      )
      ON CONFLICT (id) DO UPDATE SET
-       amount = EXCLUDED.amount,
+       amount = COALESCE($9::numeric, payments.amount),
        paid_amount = EXCLUDED.paid_amount,
-       status = EXCLUDED.status,
-       due_date = EXCLUDED.due_date,
+       status = COALESCE($11, payments.status),
+       due_date = COALESCE($12::date, payments.due_date),
        paid_at = EXCLUDED.paid_at,
        method = EXCLUDED.method,
        reference = EXCLUDED.reference,
        notes = EXCLUDED.notes,
        attachments = EXCLUDED.attachments,
        recorded_by = EXCLUDED.recorded_by,
-       updated_at = NOW()`,
+       updated_at = NOW()
+     WHERE payments.status NOT IN ('PAID', 'CANCELLED')
+     RETURNING status, amount::text AS amount, method, reference, client_id::text AS client_id`,
     [
       uuid,
       client,
@@ -2066,10 +2102,10 @@ async function upsertPayment(feId: string, d: Record<string, unknown>): Promise<
       party,
       str(d.partyName, 'Party'),
       payType,
-      num(d.amount) ?? 0,
+      amount,
       num(d.paidAmount),
       status,
-      str(d.dueDate, new Date().toISOString().slice(0, 10)),
+      dueDate,
       d.paidAt ? str(d.paidAt) : null,
       d.method ? str(d.method) : null,
       d.reference ? str(d.reference) : null,
@@ -2077,8 +2113,47 @@ async function upsertPayment(feId: string, d: Record<string, unknown>): Promise<
       bool(d.landlordVisible, true),
       recorded,
       JSON.stringify(Array.isArray(d.attachments) ? d.attachments : []),
+      new Date().toISOString().slice(0, 10),
+      // The proposed row must pass NOT NULL before ON CONFLICT: an update with
+      // no amount proposes the stored one (a create never gets here without one).
+      prior?.amount ?? null,
     ],
   )
+  const saved = rows[0]
+  if (!saved) {
+    const now = (await query<{ status: string }>(`SELECT status FROM payments WHERE id = $1::uuid`, [uuid]))[0]
+    throw terminalPaymentError(now?.status) ?? terminalPaymentError('PAID')!
+  }
+
+  const audits: Array<{ type: string; payload: Record<string, unknown> }> = []
+  const previousStatus = prior?.status ?? null
+  const cents = (v: string | null | undefined) => (v == null ? null : Math.round(Number(v) * 100))
+  if (saved.status === 'PAID' && previousStatus !== 'PAID') {
+    audits.push({
+      type: 'payment_marked_paid',
+      payload: { previousStatus, amountCents: cents(saved.amount), method: saved.method ?? null, reference: saved.reference ?? null },
+    })
+  }
+  if (prior && saved.status === 'CANCELLED' && previousStatus !== 'CANCELLED') {
+    audits.push({ type: 'payment_cancelled_by_staff', payload: { previousStatus, amountCents: cents(saved.amount) } })
+  }
+  if (prior && cents(prior.amount) !== cents(saved.amount)) {
+    const reason = d.amountChangeReason == null ? '' : String(d.amountChangeReason).trim()
+    audits.push({
+      type: 'payment_amount_changed',
+      payload: { fromCents: cents(prior.amount), toCents: cents(saved.amount), reason: reason || null },
+    })
+  }
+  if (audits.length) {
+    const actorUuid = actorUserId ? await resolveUuid('user', actorUserId) : null
+    for (const a of audits) {
+      await query(
+        `INSERT INTO event_log (client_id, event_type, subject_type, subject_id, actor_user_id, payload, created_at)
+         VALUES ($1::uuid, $2, 'payment', $3::uuid, $4::uuid, $5::jsonb, NOW())`,
+        [saved.client_id, a.type, uuid, actorUuid, JSON.stringify(a.payload)],
+      )
+    }
+  }
   return uuid
 }
 
