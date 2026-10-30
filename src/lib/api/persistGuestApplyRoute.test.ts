@@ -570,6 +570,20 @@ describe('guest full application on PR-1011 reaches /api/persist (API mode)', ()
   })
   const storedMeta = () => JSON.parse(String([...db.applications.values()][0]!.params[13])) as Record<string, unknown>
 
+  it('T1: an application with no employer is accepted (employer is optional)', async () => {
+    addRoundTripPeople()
+    const appRow = await guestApplication()
+    const { employerName: _e, jobTitle: _j, ...noEmployer } = DETAILS
+    expect(
+      await persistAs(TENANT, { ...(appRow as unknown as Record<string, unknown>), ...noEmployer, employerName: undefined, jobTitle: undefined }),
+    ).toBe(true)
+    expect(storedMeta()).toMatchObject({ phone: DETAILS.phone, idNumberOrPassport: DETAILS.idNumberOrPassport })
+    expect(storedMeta().employerName ?? null).toBeNull()
+    const own = await bootstrapApp(TENANT)
+    expect(own?.employerName ?? null).toBeNull()
+    expect(own?.phone).toBe(DETAILS.phone)
+  })
+
   it('T1 contract: tenant apply -> bootstrap as the tenant and as the listing agency staff returns phone, employer, job title and ID', async () => {
     addRoundTripPeople()
     const appRow = await guestApplication()
