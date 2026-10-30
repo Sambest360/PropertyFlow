@@ -44,5 +44,14 @@ export function unitErfSizeSupportedFromBootstrap(boot: { unitErfSizeSupported?:
 export function erfSizeFieldState(isSupported: boolean): { disabled: boolean; hint: string | null } {
   return isSupported
     ? { disabled: false, hint: null }
-    : { disabled: true, hint: 'Not saved yet: the database update for erf size (migration 037) is not applied.' }
+    : { disabled: true, hint: "Not saved yet: erf size can't be saved on this system yet." }
+}
+
+/**
+ * The erf part of the unit save payload (AppStore createProperty): the
+ * draft's erfSizeSqm when it has one (a number, or null to clear it), else
+ * nothing, so the server keeps the stored value (absent key = no change).
+ */
+export function erfSizeForUnitPersist(p: { erfSizeSqm?: number | null }): { erfSizeSqm?: number | null } {
+  return p.erfSizeSqm !== undefined ? { erfSizeSqm: p.erfSizeSqm } : {}
 }

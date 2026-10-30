@@ -15,5 +15,7 @@ describe('erf size support flag (T2, migration 037)', () => {
     expect(erfSizeFieldState(true)).toEqual({ disabled: false, hint: null })
     expect(erfSizeFieldState(false).disabled).toBe(true)
     expect(erfSizeFieldState(false).hint).toMatch(/Not saved yet/)
+    // agency wording, no developer terms in the UI (Jim C5)
+    expect(erfSizeFieldState(false).hint).not.toMatch(/migration|037|database/i)
   })
 })

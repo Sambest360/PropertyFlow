@@ -1,5 +1,5 @@
 import { setTicketAccessNotesSupported, ticketAccessNotesSupportedFromBootstrap } from '../lib/ticketAccessNotes'
-import { setUnitErfSizeSupported, unitErfSizeSupportedFromBootstrap } from '../lib/unitErfSizeSupport'
+import { erfSizeForUnitPersist, setUnitErfSizeSupported, unitErfSizeSupportedFromBootstrap } from '../lib/unitErfSizeSupport'
 import {
   createContext,
   useCallback,
@@ -3473,7 +3473,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         beds: property.beds,
         baths: property.baths,
         area: property.area,
-        ...(property.erfSizeSqm !== undefined ? { erfSizeSqm: property.erfSizeSqm } : {}),
+        ...erfSizeForUnitPersist(property),
         images: property.images,
         ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
       } as Record<string, unknown>
