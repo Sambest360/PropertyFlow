@@ -44,6 +44,30 @@ describe('persist refusals', () => {
     }
   })
 
+  it('Slice A: payment refusals are exact plain sentences, never a raw code', () => {
+    const cases = [
+      [409, 'PAYMENT_TERMINAL', "This payment is already marked paid and can't be edited here. Ask an admin to correct it."],
+      [409, 'PAYMENT_CANCELLED', "This payment was cancelled and can't be edited here. Ask an admin to reopen it."],
+      [400, 'PAYMENT_PAID_REFERENCE_REQUIRED', 'Add the EFT reference or a note (for cash, the receipt number) to mark this paid.'],
+      [400, 'PAYMENT_AMOUNT_REQUIRED', 'This lease has no rent amount set.'],
+      [403, 'PAYMENT_AGENCY_MISMATCH', "This payment belongs to another agency or property and can't be saved here. Your page has been refreshed."],
+      [403, 'PAYMENT_APPLICATION_MISMATCH', "This payment doesn't match its application or lease. Your page has been refreshed."],
+      [403, 'PAYMENT_PERMISSION_REQUIRED', "You don't have permission to change payments. Ask an agency admin."],
+      [400, 'PAYMENT_AMOUNT_REASON_REQUIRED', 'Give a reason for changing the amount, then save again.'],
+      [403, 'PAYMENT_PARTY_MISMATCH', "The payer isn't a tenant or applicant of this agency. Pick the payer again."],
+      [409, 'PAYMENT_AMOUNT_MISMATCH', "This payment's amount doesn't match what is due. Your page has been refreshed."],
+      [409, 'PAYMENT_ENTRY_EXISTS', 'This payment has already been added for this application. Your page has been refreshed.'],
+      [409, 'ENTRY_AMOUNT_UNKNOWN', "The amount due for this application isn't set yet. Ask an agency admin."],
+    ] as const
+    for (const [status, code, text] of cases) {
+      const r = parsePersistRefusal({ resource: 'payment', id: 'PAY-1', action: 'upsert' }, status, JSON.stringify({ error: 'persist_failed', code, message: 'x' }))
+      expect(r).toMatchObject({ status, code })
+      const msg = persistRefusalMessage(r!)
+      expect(msg).toBe(text)
+      expect(msg).not.toMatch(/[A-Z_]{6,}/)
+    }
+  })
+
   it('ignores responses without a code, other statuses and non-JSON bodies', () => {
     expect(parsePersistRefusal(op, 403, JSON.stringify({ error: 'forbidden' }))).toBeNull()
     expect(parsePersistRefusal(op, 400, JSON.stringify({ error: 'bad' }))).toBeNull()

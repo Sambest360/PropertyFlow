@@ -16,6 +16,7 @@ export const PROPERTY_TYPES = [
   'Apartment',
   'Townhouse',
   'Commercial',
+  'Industrial',
   'Office',
   'Vacant Land',
   'Farm',

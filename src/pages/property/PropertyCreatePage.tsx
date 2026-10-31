@@ -43,13 +43,21 @@ import { Button, Input, Select } from '../../components/ui'
 import { FormLabel, FieldHelp } from '../../components/onboarding/FieldHelp'
 import { uid } from '../../data/seed'
 import { type RoomKind } from '../../data/infrastructure'
-import { LAND_ROOM_NAME, ZONING_OPTIONS, kindLabelFor, propertyTypeLayout, roomsLookUntouched } from '../../lib/propertyTypeLayout'
+import { ZONING_OPTIONS, kindLabelFor, propertyTypeLayout, roomsLookUntouched } from '../../lib/propertyTypeLayout'
 import { isFieldAgent } from '../../lib/permissions'
 import { pruneAmenitiesForMode } from '../../lib/propertyFeatures'
 import { readReturnTo } from '../../lib/returnTo'
 import { isVerificationApproved } from '../../lib/verification'
 import { useWizardDraft, useWizardSteps } from '../../hooks/useWizardSteps'
-import { useLookupOptions } from '../../hooks/useLookupOptions'
+import { useAgencyLookups, useLookupOptions } from '../../hooks/useLookupOptions'
+import {
+  ERF_SIZE_HINT,
+  ERF_SIZE_LABEL,
+  FLOOR_SIZE_LABEL,
+  effectiveFloorSizeSqm,
+  titleTypeWarning,
+} from '../../lib/listingSizes'
+import { erfSizeFieldState, useUnitErfSizeSupported } from '../../lib/unitErfSizeSupport'
 import { formatZAR } from '../../data/seed'
 import {
   gradingLabel,
@@ -73,6 +81,12 @@ import {
   type WizardAssetDraft,
   type WizardRoomDraft as RoomDraft,
   wizardCreateIdempotencyKey,
+  INITIAL_WIZARD_PROPERTY_TYPE,
+  wizardRoomRowsForSave,
+  wizardRoomsStepError,
+  wizardSizesForSave,
+  wizardTypeError,
+  wizardTypeOptions,
 } from '../../lib/propertyWizardDraft'
 import type { AssetCondition } from '../../data/infrastructure'
 import type { PropertyAsset } from '../../types/domain'
@@ -127,7 +141,9 @@ const TYPE_OPTIONS = [
   { value: 'Townhouse', label: 'Townhouse', icon: Building },
   { value: 'Office', label: 'Office', icon: Briefcase },
   { value: 'Commercial', label: 'Commercial', icon: Building2 },
+  { value: 'Industrial', label: 'Industrial', icon: Warehouse },
   { value: 'Vacant Land', label: 'Vacant land', icon: LandPlot },
+  { value: 'Farm', label: 'Farm', icon: LandPlot },
   { value: 'Student Accommodation', label: 'Student', icon: GraduationCap },
 ]
 
@@ -136,10 +152,6 @@ function defaultUnitNumber(propertyType: string): string {
     return 'Main'
   }
   return '1'
-}
-
-function totalAreaFromRooms(rooms: RoomDraft[]): number {
-  return rooms.reduce((sum, room) => sum + (Number(room.areaSqm) || 0), 0)
 }
 
 function roomCountsForKind(
@@ -201,6 +213,10 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
         : agencyId || user.agencyId || agencies[0]?.id || '')
 
   const propertyTypes = useLookupOptions('PROPERTY_TYPE', agencyId)
+  // Every PROPERTY_TYPE key the agency has, hidden ones too, so a hidden built-in stays hidden.
+  const propertyTypeRowsAll = useAgencyLookups('PROPERTY_TYPE', agencyId)
+  const erfSupported = useUnitErfSizeSupported()
+  const erfField = erfSizeFieldState(erfSupported)
 
   const editProperty = isEdit
     ? state.properties.find((p) => p.id === editPropertyId)
@@ -216,7 +232,8 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   const createInitialDraft: PropertyDraft = {
     listingMode: 'rent',
     requireViewingToApply: 'inherit',
-    propertyType: 'Apartment',
+    // T2: no default type; the agent must choose one (step 0 blocks until then).
+    propertyType: INITIAL_WIZARD_PROPERTY_TYPE,
     buildingName: '',
     existingBuildingId: '',
     address: '',
@@ -565,7 +582,8 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     () => summarizeRooms(draft.rooms.map((r) => ({ kind: r.kind, beds: r.beds, baths: r.baths }))),
     [draft.rooms],
   )
-  const totalAreaSqm = useMemo(() => totalAreaFromRooms(draft.rooms), [draft.rooms])
+  // T2: floor size = an explicit entry, else the room sum. Erf is separate and never added in.
+  const totalAreaSqm = useMemo(() => effectiveFloorSizeSqm(draft.floorSizeSqm, draft.rooms), [draft.floorSizeSqm, draft.rooms])
   const typeLayout = useMemo(() => propertyTypeLayout(draft.propertyType), [draft.propertyType])
   // A new type brings its own starter rooms, unless rooms were already filled in.
   const lastTypeRef = useRef(draft.propertyType)
@@ -638,12 +656,14 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       acc[o.value] = o.icon
       return acc
     }, {})
-    return propertyTypes.map((t) => ({
+    // A stored type list from before T2 lacks Industrial / Farm: offer them anyway.
+    const knownKeys = new Set(propertyTypeRowsAll.flatMap((r) => [r.keyValue, r.displayLabel]))
+    return wizardTypeOptions(propertyTypes, knownKeys).map((t) => ({
       value: t.value,
       label: t.label,
       icon: icons[t.value] ?? Home,
     }))
-  }, [propertyTypes])
+  }, [propertyTypes, propertyTypeRowsAll])
 
   // Rent / sale / both are app rules (marketplace sections), not configurable.
   const listingOptions = LISTING_OPTIONS
@@ -651,8 +671,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   function validateStep(index: number): string | null {
     switch (index) {
       case 0:
-        if (!draft.propertyType) return 'Select a property type.'
-        return null
+        return wizardTypeError(draft.propertyType)
       case 1:
         if (!draft.buildingName.trim() && !draft.existingBuildingId) return 'Enter a building name or pick an existing building.'
         if (!draft.address.trim()) return 'Street address is required.'
@@ -664,15 +683,9 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
           return 'Add at least one listing photo.'
         }
         return null
-      case 3: {
-        if (propertyTypeLayout(draft.propertyType).landOnly) {
-          return totalAreaFromRooms(draft.rooms) > 0 ? null : 'Enter the erf size in m².'
-        }
-        if (draft.rooms.length === 0) return 'Add at least one room.'
-        const unnamed = draft.rooms.find((room) => !room.name.trim())
-        if (unnamed) return 'Every room needs a name.'
-        return null
-      }
+      case 3:
+        // T2: 0 rooms / 0 beds is valid (bachelor/studio); erf is never required.
+        return wizardRoomsStepError(draft)
       case 5:
         if (draft.listingMode !== 'sale' && !draft.rent.trim()) return 'Monthly rent is required for rental listings.'
         if (draft.listingMode !== 'rent' && !draft.price.trim()) return 'Sale price is required for sale listings.'
@@ -744,7 +757,8 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     const title = draft.title.trim() || `${draft.propertyType} in ${draft.suburb || draft.city || 'draft'}`
     const unitNumber = defaultUnitNumber(draft.propertyType)
     const listingImages = listingImagesForSubmit()
-    const roomRows = draft.rooms.length > 0 ? draft.rooms : defaultRooms()
+    // T2: save exactly the rooms entered; an empty set is 0 beds, not a default bedroom.
+    const roomRows = wizardRoomRowsForSave(draft.rooms)
     const starterAssets = draft.starterAssets
       .filter((a) => a.itemName.trim())
       .map((a) => ({
@@ -784,7 +798,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       price: draft.price ? Number(draft.price) : null,
       rent: draft.rent ? Number(draft.rent) : null,
       parking: draft.parking,
-      area: totalAreaSqm,
+      ...wizardSizesForSave(draft, { erfSupported }),
       city: draft.city.trim() || 'Port Elizabeth',
       suburb: draft.suburb.trim() || 'Central',
       address: draft.address.trim() || draft.suburb || 'Address pending',
@@ -965,6 +979,12 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     )
     setBusy(true)
     try {
+    const typeErr = validateStep(0) ?? validateStep(3)
+    if (typeErr) {
+      await sweetWarning('Check the listing', typeErr)
+      if (fromReview) goTo(validateStep(0) ? 0 : 3)
+      return
+    }
     const err = validateStep(6)
     if (err) {
       await sweetWarning('Check assignment & title', err)
@@ -1367,7 +1387,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                   garages: { icon: Warehouse, label: 'Garages', value: roomSummary.garages },
                   parking: { icon: Car, label: 'Parking bays', value: draft.parking },
                   spaces: { icon: Warehouse, label: 'Spaces', value: draft.rooms.length },
-                  area: { icon: Warehouse, label: typeLayout.landOnly ? 'Erf size (m²)' : 'Floor area (m²)', value: totalAreaSqm || 0 },
+                  area: { icon: Warehouse, label: 'Floor size (m²)', value: totalAreaSqm || 0 },
                 } as const
                 return { key: stat, ...defs[stat] }
               }).map((item) => (
@@ -1381,24 +1401,39 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                 </div>
               ))}
             </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-sm">
+                <span className="font-medium text-ink">{FLOOR_SIZE_LABEL}</span>
+                <Input
+                  className="mt-1 min-h-11"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  inputMode="decimal"
+                  placeholder={totalAreaSqm > 0 ? `Room sum: ${totalAreaSqm}` : 'e.g. 250'}
+                  value={draft.floorSizeSqm ?? ''}
+                  onChange={(e) => setDraft((d) => ({ ...d, floorSizeSqm: e.target.value }))}
+                />
+                <span className="mt-1 block text-xs text-ink-400">Optional. Blank uses the sum of the room sizes.</span>
+              </label>
+              <label className="block text-sm">
+                <span className="font-medium text-ink">{ERF_SIZE_LABEL}</span>
+                <Input
+                  className="mt-1 min-h-11"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  inputMode="decimal"
+                  placeholder="e.g. 600"
+                  disabled={erfField.disabled}
+                  value={draft.erfSizeSqm ?? ''}
+                  onChange={(e) => setDraft((d) => ({ ...d, erfSizeSqm: e.target.value }))}
+                />
+                <span className="mt-1 block text-xs text-ink-400">{erfField.hint ?? ERF_SIZE_HINT}</span>
+              </label>
+            </div>
             {typeLayout.landOnly ? (
               <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block text-sm">
-                  <span className="font-medium text-ink">Erf size (m²)</span>
-                  <Input
-                    className="mt-1 min-h-11"
-                    type="number"
-                    min={1}
-                    placeholder="e.g. 800"
-                    value={draft.rooms.find((r) => r.name === LAND_ROOM_NAME)?.areaSqm ?? draft.rooms[0]?.areaSqm ?? ''}
-                    onChange={(e) =>
-                      setDraft((d) => ({
-                        ...d,
-                        rooms: [{ ...(d.rooms[0] ?? { id: uid('r'), kind: 'other' as RoomKind, beds: 0, baths: 0 }), name: LAND_ROOM_NAME, kind: 'other', beds: 0, baths: 0, areaSqm: e.target.value }],
-                      }))
-                    }
-                  />
-                </label>
                 <label className="block text-sm">
                   <span className="font-medium text-ink">Zoning</span>
                   <Select
@@ -1777,6 +1812,11 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
               onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
               required
             />
+            {titleTypeWarning(draft.title, draft.propertyType) ? (
+              <p role="status" className="text-xs font-medium text-amber-700">
+                {titleTypeWarning(draft.title, draft.propertyType)}
+              </p>
+            ) : null}
             <ListingDescriptionEditor
               id="property-create-description"
               value={draft.description}
@@ -2001,9 +2041,15 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                 </dd>
               </div>
               <div>
-                <dt className="text-ink-400">Total size</dt>
+                <dt className="text-ink-400">Floor size</dt>
                 <dd className="font-medium text-ink">
                   {totalAreaSqm > 0 ? `${totalAreaSqm.toLocaleString()} m²` : '—'}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-ink-400">Erf / stand size</dt>
+                <dd className="font-medium text-ink">
+                  {draft.erfSizeSqm?.trim() ? `${Number(draft.erfSizeSqm).toLocaleString()} m²` : '—'}
                 </dd>
               </div>
               <div>

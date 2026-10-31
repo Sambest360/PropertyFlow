@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { browseSortToApi } from '../../lib/browseSort'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { Filter, Heart, List, Map as MapIcon } from 'lucide-react'
 import { usePublicProperties, useStore } from '../../context/AppStore'
@@ -108,15 +109,6 @@ function sortProperties(list: PropertyAsset[], sort: BrowseFilterState['sort'], 
     return b.createdAt.localeCompare(a.createdAt)
   })
   return next
-}
-
-function browseSortToApi(sort: BrowseFilterState['sort'], mode: string) {
-  if (sort === 'newest') return 'newest' as const
-  if (sort === 'beds-desc') return 'beds_desc' as const
-  if (sort === 'price-asc') return mode === 'rent' ? ('rent_asc' as const) : ('price_asc' as const)
-  if (sort === 'price-desc') return mode === 'rent' ? ('rent_desc' as const) : ('price_desc' as const)
-  // Recommended: featured listings are lifted per area after filtering.
-  return 'newest' as const
 }
 
 function browsePageHeading(mode: string, q: string, savedOnly: boolean): string {
