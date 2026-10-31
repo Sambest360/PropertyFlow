@@ -84,6 +84,8 @@ export type Unit = {
   unitNumber: string
   title: string
   squareMeters: number
+  /** Erf / stand size m² (migration 037); separate from squareMeters (floor). */
+  erfSizeSqm?: number | null
   bedrooms: number
   bathrooms: number
   parking: number

@@ -11,6 +11,7 @@ import { signOutAndRedirect } from '../../lib/auth/signOut'
 import { ACCOUNT_WISHLIST_PATH, PUBLIC_SAVED_PATH } from '../../lib/accountRoutes'
 import { initials } from '../dashboard/formatShortDate'
 import { cn } from '../ui'
+import { browseSearchUrlKeepingMode } from '../../lib/placeCatalog'
 
 function marketplaceCategoryActive(pathname: string, search: string, to: string): boolean {
   const target = new URL(to, 'https://propertyflow.local')
@@ -36,7 +37,7 @@ export function MarketplaceHeader() {
 
   const submitSearch = (e: FormEvent) => {
     e.preventDefault()
-    navigate(`/browse?q=${encodeURIComponent(q.trim())}`)
+    navigate(browseSearchUrlKeepingMode(location.search, q))
   }
 
   const handleSignOut = () => {

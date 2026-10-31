@@ -256,7 +256,12 @@ export type PropertyAsset = {
   parking: number
   /** Enclosed garage bays (from garage rooms) */
   garages?: number
+  /** Floor size m² (units.square_meters): an explicit entry, else the room sum. */
   area: number
+  /** Erf / stand size m² (units.erf_size_sqm, migration 037). Separate from area; null/absent = not set (sectional title). */
+  erfSizeSqm?: number | null
+  /** True when units.property_type was never stored and `type` is the legacy bedroom guess (0 beds → 'Office'). The card then shows no type chip. */
+  typeInferred?: boolean
   city: string
   suburb: string
   address: string

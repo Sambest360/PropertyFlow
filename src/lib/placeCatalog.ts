@@ -206,6 +206,12 @@ export function parseAreasParam(raw: string | null | undefined): Place[] {
   )
 }
 
+/** Header search (T4): keep the current ?mode (rent / buy) instead of dropping it. */
+export function browseSearchUrlKeepingMode(currentSearch: string, q: string): string {
+  const mode = new URLSearchParams(currentSearch).get('mode') ?? undefined
+  return buildBrowseSearchUrl({ mode, q })
+}
+
 export function buildBrowseSearchUrl(opts: {
   mode?: string
   areas?: readonly Place[]

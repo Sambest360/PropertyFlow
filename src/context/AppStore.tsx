@@ -1,4 +1,5 @@
 import { setTicketAccessNotesSupported, ticketAccessNotesSupportedFromBootstrap } from '../lib/ticketAccessNotes'
+import { erfSizeForUnitPersist, setUnitErfSizeSupported, unitErfSizeSupportedFromBootstrap } from '../lib/unitErfSizeSupport'
 import {
   createContext,
   useCallback,
@@ -1418,6 +1419,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     }
     if (!boot) {
       setTicketAccessNotesSupported(false)
+      setUnitErfSizeSupported(false)
       const stored = storedAuth
       if (stored && hydratedForUserIdRef.current === stored) {
         setState((prev) => settleMarketplace(ensurePublicMarketplace(prev)))
@@ -1451,6 +1453,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       return
     }
     setTicketAccessNotesSupported(ticketAccessNotesSupportedFromBootstrap(boot))
+    setUnitErfSizeSupported(unitErfSizeSupportedFromBootstrap(boot))
     setState((prev) => {
       const next = settleMarketplace(ensurePublicMarketplace(applyPostgresBootstrap(prev, boot)))
       if (sessionUserId) {
@@ -1524,6 +1527,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       if (cancelled) return
       if (!boot) {
         setTicketAccessNotesSupported(false)
+        setUnitErfSizeSupported(false)
         const stored = storedAuth
         if (stored && hydratedForUserIdRef.current === stored) {
           setState((prev) => settleMarketplace(ensurePublicMarketplace(prev)))
@@ -1555,6 +1559,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         return
       }
       setTicketAccessNotesSupported(ticketAccessNotesSupportedFromBootstrap(boot))
+      setUnitErfSizeSupported(unitErfSizeSupportedFromBootstrap(boot))
       setState((prev) => {
         const next = settleMarketplace(ensurePublicMarketplace(applyPostgresBootstrap(prev, boot)))
         if (sessionUserId) {
@@ -2895,9 +2900,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       void fetchBootstrapFromApi(false, actor).then((boot) => {
         if (!boot) {
           setTicketAccessNotesSupported(false)
+          setUnitErfSizeSupported(false)
           return
         }
         setTicketAccessNotesSupported(ticketAccessNotesSupportedFromBootstrap(boot))
+        setUnitErfSizeSupported(unitErfSizeSupportedFromBootstrap(boot))
         setState((prev) => applyPostgresBootstrap(prev, boot))
         localStorage.setItem(PG_HYDRATED_FLAG, 'postgres')
       })
@@ -3533,6 +3540,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         beds: property.beds,
         baths: property.baths,
         area: property.area,
+        ...erfSizeForUnitPersist(property),
         images: property.images,
         ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
       } as Record<string, unknown>

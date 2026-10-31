@@ -18,6 +18,7 @@ import {
   PUBLIC_ROOM_KEYS,
   PUBLIC_SLOT_KEYS,
   PUBLIC_UNIT_KEYS,
+  PUBLIC_UNIT_KEYS_AFTER_027,
 } from './publicMarketplaceKeys.js'
 
 const MIGRATION = readFileSync('database/postgres/migrations/027_advertise_while_occupied.sql', 'utf8')
@@ -277,7 +278,8 @@ describe('027 public_listing_unit_json', () => {
   const body = fnBody('public_listing_unit_json')
 
   it('has exactly the public unit keys, incl. listed_by (no agent_id key)', () => {
-    expect(objectKeys(body)).toEqual([...PUBLIC_UNIT_KEYS])
+    // 027 is applied and frozen; keys added by later migrations (037 erf size) are not in its RPC body.
+    expect(objectKeys(body)).toEqual(PUBLIC_UNIT_KEYS.filter((k) => !(PUBLIC_UNIT_KEYS_AFTER_027 as readonly string[]).includes(k)))
     expect(objectKeys(body)).toContain('listed_by')
     expect(objectKeys(body)).not.toContain('agent_id')
     // agent_id is read only as the display-name helper's argument.
