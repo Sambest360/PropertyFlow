@@ -178,6 +178,7 @@ import { isApiEnabled } from '../lib/api/config'
 import { ensureLeaseEnvelopeForSign, leaseSignatureSaved } from '../lib/leaseSignatureOrdering'
 import { persistRefusalMessage } from '../lib/api/persistRefusal'
 import { unitPersistPayload } from '../lib/unitPersistPayload'
+import { releaseRentCycleWrite, rentCycleRefusalHandling, trackRentCycleWrite } from '../lib/api/rentCycleRefusals'
 import {
   bootstrapActorKey,
   dedupeBootstrapFetch,
@@ -1957,7 +1958,22 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         )
         if (!leaseOk) return false
       }
-      for (const pay of input.payments) {
+      // Slice A: entry rows carry the (repaired) applicant as payer, so the
+      // server's application match sees partyUserId = the applicant.
+      const payerId = application.applicantUserId ?? null
+      const repairedIds = new Set<string>()
+      const payments = input.payments.map((pay) => {
+        if (pay.partyUserId || !payerId) return pay
+        repairedIds.add(pay.id)
+        return { ...pay, partyUserId: payerId }
+      })
+      if (repairedIds.size > 0) {
+        patch((s) => ({
+          ...s,
+          payments: s.payments.map((p) => (repairedIds.has(p.id) ? { ...p, partyUserId: payerId } : p)),
+        }))
+      }
+      for (const pay of payments) {
         const payOk = await persistUpsert('payment', pay.id, pay as unknown as Record<string, unknown>)
         if (!payOk) return false
       }
@@ -2064,12 +2080,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     const onRefused = (e: Event) => {
       const detail = (e as CustomEvent<PersistRefusal>).detail
       if (!detail) return
+      // Slice A (MA11): a rent-cycle row paid meanwhile is quiet; still refresh.
+      const rentCycle = rentCycleRefusalHandling(detail)
+      if (rentCycle.quiet) {
+        scheduleBootstrapRefreshAfterMutation()
+        return
+      }
       pushToast({
         id: uid('toast'),
         notificationId: `persist-refused-${detail.resource}-${detail.id}-${Date.now()}`,
         userId: '',
         title: 'Change not saved',
-        body: persistRefusalMessage(detail, getApiActor()?.role ?? null),
+        body: rentCycle.body ?? persistRefusalMessage(detail, getApiActor()?.role ?? null),
         durationMs: 8000,
         createdAt: Date.now(),
         tone: 'danger',
@@ -6963,8 +6985,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           return { ...s, payments }
         })
         for (const row of updatedRows) {
-          persistUpsert('payment', row.id, row as unknown as Record<string, unknown>)
           const paymentProperty = state.properties.find((p) => p.id === row.propertyId)
+          // Slice A (MA11): a row paid meanwhile refuses 409 quietly; released once settled.
+          trackRentCycleWrite(row.id, paymentProperty?.title ?? 'this unit')
+          void persistUpsert('payment', row.id, row as unknown as Record<string, unknown>).finally(() =>
+            releaseRentCycleWrite(row.id),
+          )
           emitSuiteEvent({
             agencyId: row.agencyId,
             resource: 'payment',
@@ -7018,7 +7044,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             action: 'created',
           })
         }
-        persistUpsert('payment', payment.id, payment as unknown as Record<string, unknown>)
+        trackRentCycleWrite(payment.id, paymentProperty?.title ?? 'this unit')
+        void persistUpsert('payment', payment.id, payment as unknown as Record<string, unknown>).finally(() =>
+          releaseRentCycleWrite(payment.id),
+        )
         created.push(payment)
       }
 
