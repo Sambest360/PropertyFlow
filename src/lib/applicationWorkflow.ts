@@ -146,6 +146,8 @@ export type WorkflowTransition = {
   /** Side-effect hooks consumed by AppStore */
   effect?: 'approve' | 'schedule_move_in' | 'key_handover' | 'open_checkout'
   guard?: (app: Application) => boolean | string
+  /** Requires a reason from the actor before applying. */
+  requiresReason?: boolean
 }
 
 export type WorkflowTemplate = {
@@ -397,9 +399,11 @@ export const RENTAL_WORKFLOW: WorkflowTemplate = {
     { from: 'income_verification', to: 'reference_checks', actionKey: 'RUN_REFERENCES', label: 'Run reference checks', hint: 'Contact previous landlord or agent', tone: 'secondary', requires: ['applications.review'] },
     { from: 'reference_checks', to: 'credit_check', actionKey: 'START_CREDIT_CHECK', label: 'Start credit check (mock/manual)', hint: 'Requires POPIA consent — starts in-app mock/manual screening (not live TPN / not live bureau)', tone: 'secondary', requires: ['applications.review'], guard: (app) => hasAllAdultCreditConsents(app) || 'Capture POPIA credit-check consent for every adult before starting screening (in-app mock/manual — not live TPN)' },
     { from: 'credit_check', to: 'affordability_assessment', actionKey: 'ASSESS_AFFORDABILITY', label: 'Assess affordability', hint: 'Rent-to-income and debt review', tone: 'secondary', requires: ['applications.review'] },
+    { from: 'credit_check', to: 'conditionally_approved', actionKey: 'AGENT_APPROVE', label: 'Approve (off-system check)', hint: 'Credit check run off-system — approve with reason', tone: 'primary', requires: ['applications.review'], requiresReason: true, effect: 'approve', guard: (app) => approveLeaseSoftGate(app) },
     { from: 'affordability_assessment', to: 'agent_review', actionKey: 'SUBMIT_AGENT_REVIEW', label: 'Submit for agent review', hint: 'Package file for manual decision', tone: 'primary', requires: ['applications.review'] },
     { from: 'agent_review', to: 'landlord_review', actionKey: 'SEND_LANDLORD_REVIEW', label: 'Send to landlord', hint: 'Owner approves or declines tenant', tone: 'secondary', requires: ['applications.review'] },
-    { from: 'landlord_review', to: 'conditionally_approved', actionKey: 'CONDITIONALLY_APPROVE', label: 'Conditionally approve', hint: 'Approve subject to lease and payments — requires verified FICA pack + screening passed or audited override', tone: 'primary', requiresAny: ['applications.review', 'portal.owner'], guard: (app) => approveLeaseSoftGate(app) },
+    { from: 'agent_review', to: 'conditionally_approved', actionKey: 'AGENT_APPROVE', label: 'Approve (agent authority)', hint: 'Skip landlord when mandated — requires verified FICA pack + screening passed or audited override', tone: 'primary', requires: ['applications.review'], requiresReason: true, guard: (app) => approveLeaseSoftGate(app) },
+    { from: 'landlord_review', to: 'conditionally_approved', actionKey: 'CONDITIONALLY_APPROVE', label: 'Conditionally approve', hint: 'Approve subject to lease and payments — requires verified FICA pack + screening passed or audited override', tone: 'primary', requiresAny: ['applications.review', 'portal.owner'], requiresReason: true, guard: (app) => approveLeaseSoftGate(app) },
     { from: 'agent_review', to: 'conditionally_approved', actionKey: 'AGENT_APPROVE', label: 'Approve (agent authority)', hint: 'Skip landlord when mandated — requires verified FICA pack + screening passed or audited override', tone: 'primary', requires: ['applications.review'], guard: (app) => approveLeaseSoftGate(app) },
     { from: 'conditionally_approved', to: 'lease_generated', actionKey: 'GENERATE_LEASE', label: 'Generate lease', hint: 'Create lease from agency template', tone: 'primary', requires: ['applications.review'], guard: (app) => approveLeaseSoftGate(app) },
     { from: 'lease_generated', to: 'lease_sent', actionKey: 'SEND_LEASE', label: 'Send lease for signing', hint: 'Email lease to tenant and landlord', tone: 'secondary', requires: ['applications.review'], guard: (app) => approveLeaseSoftGate(app) },
@@ -437,9 +441,9 @@ export const RENTAL_WORKFLOW: WorkflowTemplate = {
     // Branch / exit paths
     { from: 'documents_requested', to: 'withdrawn', actionKey: 'WITHDRAW', label: 'Applicant withdraws', hint: 'Applicant cancels application', tone: 'ghost', requires: ['applications.review'], confirm: 'Mark this application as withdrawn?' },
     { from: 'viewing_scheduled', to: 'cancelled', actionKey: 'CANCEL_VIEWING', label: 'Cancel viewing', hint: 'Viewing cancelled — reschedule or close', tone: 'ghost', requires: ['applications.review'] },
-    { from: 'credit_check', to: 'rejected', actionKey: 'DECLINE_CREDIT', label: 'Decline (credit)', hint: 'Credit declined — notify applicant', tone: 'danger', requires: ['applications.review'], confirm: 'Reject due to credit outcome?' },
-    { from: 'agent_review', to: 'rejected', actionKey: 'REJECT_APPLICATION', label: 'Reject application', hint: 'Decline after manual review', tone: 'danger', requires: ['applications.review'], confirm: 'Reject this application?' },
-    { from: 'landlord_review', to: 'rejected', actionKey: 'LANDLORD_REJECTED', label: 'Landlord rejected', hint: 'Owner declined this applicant', tone: 'danger', requiresAny: ['applications.review', 'portal.owner'], confirm: 'Record landlord rejection?' },
+    { from: 'credit_check', to: 'rejected', actionKey: 'DECLINE_CREDIT', label: 'Decline (credit)', hint: 'Credit declined — notify applicant', tone: 'danger', requires: ['applications.review'], requiresReason: true, confirm: 'Reject due to credit outcome?' },
+    { from: 'agent_review', to: 'rejected', actionKey: 'REJECT_APPLICATION', label: 'Reject application', hint: 'Decline after manual review', tone: 'danger', requires: ['applications.review'], requiresReason: true, confirm: 'Reject this application?' },
+    { from: 'landlord_review', to: 'rejected', actionKey: 'LANDLORD_REJECTED', label: 'Landlord rejected', hint: 'Owner declined this applicant', tone: 'danger', requiresAny: ['applications.review', 'portal.owner'], requiresReason: true, confirm: 'Record landlord rejection?' },
     { from: 'deposit_invoice_sent', to: 'cancelled', actionKey: 'CANCEL_NO_DEPOSIT', label: 'Cancel (no deposit)', hint: 'Deposit not received in time', tone: 'danger', requires: ['applications.review'], confirm: 'Cancel — deposit not received?' },
     // P0-approve (R10): recovery for applications already past approval but
     // WITHOUT a durable lease (the stuck 71% defect — the approve machine
