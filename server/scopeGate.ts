@@ -623,6 +623,26 @@ async function loadExisting(resource: EntityType, feId: string): Promise<Existin
     }
   }
 
+  if (resource === 'activity' || resource === 'property_event') {
+    // R7: only a row of this resource's own event_type is "existing"; a
+    // server-written audit row with the same id never becomes the scope
+    // subject. property_event keeps its unit in subject_id (upsertPropertyEvent).
+    const uuid = await resolveUuid(resource, feId)
+    if (!uuid) return null
+    const rows = await query<{ client_id: string | null; subject_id: string | null }>(
+      `SELECT client_id::text AS client_id, subject_id::text AS subject_id
+         FROM event_log WHERE id = $1::uuid AND event_type = $2 LIMIT 1`,
+      [uuid, EVENT_LOG_TYPE[resource]],
+    )
+    const r = rows[0]
+    if (!r) return null
+    return {
+      ...empty,
+      propertyId: resource === 'property_event' ? await fePropertyFromUnit(r.subject_id) : null,
+      agencyId: toAgencyFe(r.client_id),
+    }
+  }
+
   // Generic unit + client + agent
   const cols = ['id']
   if (spec.unitCol) cols.push(spec.unitCol)
@@ -1178,6 +1198,39 @@ export async function assertSupportTicketAllowed(
   }
 }
 
+/** R7: the one event_type each client-writable event_log resource owns. */
+const EVENT_LOG_TYPE = { activity: 'activity', property_event: 'property_event' } as const
+type EventLogResource = keyof typeof EVENT_LOG_TYPE
+function isEventLogResource(r: EntityType): r is EventLogResource {
+  return r === 'activity' || r === 'property_event'
+}
+
+function eventLogError(status: number, code: string, message: string): Error & { status: number; code: string } {
+  return Object.assign(new Error(message), { status, code })
+}
+
+/**
+ * R7: an activity / property_event op may only touch a row of its own
+ * event_type. If the id resolves to an event_log row of any other type
+ * (payfast_itn_rejected, impersonation, lease_signed, a property_event under
+ * the activity resource, ...) the op is refused for every role, super admin
+ * included. A new id (no row) passes.
+ */
+async function assertEventLogRowType(actor: DemoActor, body: PersistBody): Promise<void> {
+  if (!isEventLogResource(body.resource)) return
+  const uuid = await resolveUuid(body.resource, body.id)
+  if (!uuid) return
+  const rows = await query<{ event_type: string }>(`SELECT event_type FROM event_log WHERE id = $1::uuid LIMIT 1`, [uuid])
+  const type = rows[0]?.event_type
+  if (type !== undefined && type !== EVENT_LOG_TYPE[body.resource]) {
+    throw eventLogError(
+      403,
+      'EVENT_LOG_TYPE_MISMATCH',
+      `Forbidden: ${actor.role} ${actor.userId} cannot ${body.action} ${body.resource} ${body.id} (id belongs to another record)`,
+    )
+  }
+}
+
 /**
  * Enforce property / agency scope on a persist op. Throws 403/401-style errors.
  */
@@ -1199,6 +1252,26 @@ export async function assertPersistAllowed(
   const scope = await buildActorPropertyScope(actor)
   const data = body.data ?? {}
   const existing = await loadExisting(body.resource, body.id)
+  await assertEventLogRowType(actor, body)
+  // Ruling 19 (R7 MUST 1): an existing activity / property_event row is
+  // scoped by its STORED agency (and, for property_event, its stored property),
+  // never the payload; and the writer is pinned to the stored values so a save
+  // can't move the row into another agency or onto another property.
+  const storedEventRow = isEventLogResource(body.resource) && existing ? existing : null
+  // C1: a stored row with no agency (client_id NULL: a platform row such as the
+  // super-admin "Agency created / cancelled" activities) belongs to no agency, so
+  // only super_admin may change or delete it; never fall back to the payload or
+  // actor agency.
+  if (storedEventRow && !storedEventRow.agencyId && actor.role !== 'super_admin') {
+    throw eventLogError(403, 'EVENT_LOG_AGENCY_MISMATCH', `Forbidden: ${actor.role} ${actor.userId} cannot ${body.action} ${body.resource} ${body.id} (platform row)`)
+  }
+  if (storedEventRow && body.action === 'upsert') {
+    const pinned: Record<string, unknown> = { ...(body.data ?? {}) }
+    pinned.agencyId = storedEventRow.agencyId
+    delete pinned.clientId
+    if (body.resource === 'property_event') pinned.propertyId = storedEventRow.propertyId
+    body.data = pinned
+  }
 
   if (
     body.action === 'delete' &&
@@ -1210,14 +1283,17 @@ export async function assertPersistAllowed(
 
   // An existing application stays on its stored listing: a payload propertyId
   // must not move the scope check onto another property.
-  let propertyId =
-    ((body.resource === 'application' || body.resource === 'ticket') && existing?.propertyId
-      ? existing.propertyId
-      : null) ??
-    strField(data, 'propertyId') ??
-    (body.resource === 'property' || body.resource === 'unit' ? body.id : null) ??
-    existing?.propertyId ??
-    null
+  // R7: an existing activity / property_event uses its stored property only
+  // (none for activity), never a payload propertyId.
+  let propertyId = storedEventRow
+    ? (storedEventRow.propertyId ?? null)
+    : (((body.resource === 'application' || body.resource === 'ticket') && existing?.propertyId
+        ? existing.propertyId
+        : null) ??
+      strField(data, 'propertyId') ??
+      (body.resource === 'property' || body.resource === 'unit' ? body.id : null) ??
+      existing?.propertyId ??
+      null)
 
   // Rooms and assets carry their unit, not a property: derive the property
   // from the unit (a new one has no stored row yet), else the owner check
@@ -1250,7 +1326,8 @@ export async function assertPersistAllowed(
   const rawAgencyId =
     ticketAgency !== undefined
       ? ticketAgency
-      : (strField(data, 'agencyId') ??
+      : (storedEventRow?.agencyId ??
+        strField(data, 'agencyId') ??
         strField(data, 'clientId') ??
         existing?.agencyId ??
         actor.agencyId)
@@ -1399,6 +1476,17 @@ export async function assertPersistAllowed(
   })
 
   if (!allowed) {
+    if (storedEventRow?.agencyId) {
+      const actorAgency = (await agencyFe(actor.agencyId)) ?? actor.agencyId ?? null
+      const storedAgency = (await agencyFe(storedEventRow.agencyId)) ?? storedEventRow.agencyId
+      if (storedAgency !== actorAgency) {
+        throw eventLogError(
+          403,
+          'EVENT_LOG_AGENCY_MISMATCH',
+          `Forbidden: ${actor.role} ${actor.userId} cannot ${body.action} ${body.resource} ${body.id} (row belongs to another agency)`,
+        )
+      }
+    }
     throw forbiddenError(
       `Forbidden: ${actor.role} ${actor.userId} cannot ${body.action} ${body.resource} ${body.id}`,
     )

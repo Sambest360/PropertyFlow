@@ -14,7 +14,7 @@ function serverFiles(dir: string, out: string[] = []): string[] {
 
 describe('no DELETE of lease_signed rows anywhere in server/', () => {
   const files = serverFiles('server')
-  it('every DELETE on event_log is scoped to support_ticket rows only', () => {
+  it('every DELETE on event_log is scoped to a client-writable type (support_ticket, activity, property_event) only', () => {
     const hits: string[] = []
     for (const f of files) {
       readFileSync(f, 'utf8')
@@ -23,7 +23,10 @@ describe('no DELETE of lease_signed rows anywhere in server/', () => {
           if (/DELETE\s+FROM\s+"?event_log"?/i.test(line)) hits.push(`${f}:${i + 1}: ${line.trim()}`)
         })
     }
-    for (const h of hits) expect(h, h).toMatch(/event_type = 'support_ticket'/)
+    // R7 widened the allow-list from support_ticket to the three client-writable
+    // event_log types; audit types (lease_signed, payfast_itn_rejected, ...) stay out.
+    for (const h of hits) expect(h, h).toMatch(/event_type = '(support_ticket|activity|property_event)'/)
+    expect(hits.length).toBeGreaterThan(0)
     expect(hits.join('\n')).not.toMatch(/lease_signed/)
   })
   it('the sign code has no undo / DELETE path', () => {
