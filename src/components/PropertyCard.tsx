@@ -29,6 +29,7 @@ export function PropertyCard({
   card,
   className,
   browseMode,
+  distanceLabel,
 }: {
   property: PropertyAsset
   building?: Building
@@ -38,6 +39,8 @@ export function PropertyCard({
   className?: string
   /** Current marketplace tab ('rent' | 'buy' | 'all' | 'commercial') — contextualises dual listings. */
   browseMode?: string
+  /** "1.2 km away" from the visitor or the searched area, when known. */
+  distanceLabel?: string
 }) {
   const { user, isAuthenticated } = useAuth()
   const { state } = useStore()
@@ -182,8 +185,19 @@ export function PropertyCard({
             ) : null}
           </div>
           <p className="mt-1 flex items-center gap-1 text-sm text-ink-500">
-            <MapPin className="h-3.5 w-3.5" />
-            {suburb}, {city}
+            <MapPin className="h-3.5 w-3.5 shrink-0" />
+            <span className="line-clamp-1">
+              {suburb}, {city}
+            </span>
+            {distanceLabel ? (
+              <span
+                className="ml-auto shrink-0 tabular text-xs font-semibold text-primary"
+                title="Straight-line distance, approximate"
+                data-testid="card-distance"
+              >
+                {distanceLabel}
+              </span>
+            ) : null}
           </p>
 
           <div className="mt-2 flex flex-wrap gap-1.5">

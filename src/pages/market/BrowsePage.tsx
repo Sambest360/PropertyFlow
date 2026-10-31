@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { browseSortToApi } from '../../lib/browseSort'
 import { useLocation, useSearchParams } from 'react-router-dom'
-import { Filter, Heart, List, Map as MapIcon } from 'lucide-react'
+import { ArrowUpDown, Filter, Heart, List, LocateFixed, Map as MapIcon } from 'lucide-react'
 import { usePublicProperties, useStore } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
 import { PropertyCard } from '../../components/PropertyCard'
@@ -13,6 +13,7 @@ import {
   BrowseFiltersPanel,
   defaultBrowseFilters,
   type BrowseFilterState,
+  type SortOption,
 } from '../../components/BrowseFilters'
 import type { PropertyAsset } from '../../types/domain'
 import {
@@ -27,13 +28,33 @@ import { usePageMeta } from '../../hooks/usePageMeta'
 import { FullScreenSheet } from '../../components/layout/mobile/FullScreenSheet'
 import { DataRefreshBanner } from '../../components/loading/DataRefreshBanner'
 import { ListingCardGridSkeleton } from '../../components/loading/PageSkeleton'
-import { haversineKm, parseAreasParam, propertyMatchesAreas, searchPlaces } from '../../lib/placeCatalog'
+import {
+  haversineKm,
+  listingPlace,
+  nearestPlaces,
+  parseAreasParam,
+  propertyMatchesAreas,
+  searchPlaces,
+  type Place,
+} from '../../lib/placeCatalog'
 import { geocodeAddress } from '../../lib/api/geocoding'
 import { isLoadSheddingFreeListing } from '../../lib/loadShedding'
 import { matchesBrowseMode } from '../../lib/browseMode'
 import { hasModeFilters, matchesModeFilters, translateFiltersForMode } from '../../lib/browseFilterModes'
 import { toPublicListing } from '../../lib/publicLocation'
 import { rankFeaturedInArea, type FeaturedSearchArea } from '../../lib/featuredRanking'
+import {
+  NEAREST_FEATURED_RADIUS_KM,
+  areaOriginPoints,
+  distanceFromOrigin,
+  formatDistanceAway,
+  readNearestChoice,
+  sortByNearest,
+  writeNearestChoice,
+  type GeoPoint,
+  type NearestOrigin,
+  type NearestRankable,
+} from '../../lib/nearestSort'
 
 function listingAmount(p: PropertyAsset, mode: string): number | null {
   if (mode === 'rent') return p.rent
@@ -134,6 +155,29 @@ function cardMatchesBrowseMode(
   return matchesBrowseMode(property, mode)
 }
 
+/** The searched suburb / city when the typed text names one exactly (catalog, or a listing's suburb / city). */
+function exactPlaceForText(text: string, listings: readonly NearestRankable[]): Place | null {
+  const t = text.trim().toLowerCase()
+  if (!t) return null
+  const hit = searchPlaces(t, 1)[0]
+  if (hit && (hit.label.toLowerCase() === t || hit.aliases.some((a) => a.toLowerCase() === t))) return hit
+  const suburb = listings.find((l) => (l.suburb ?? '').trim().toLowerCase() === t)?.suburb
+  if (suburb) return listingPlace(suburb, 'suburb')
+  const city = listings.find((l) => (l.city ?? '').trim().toLowerCase() === t)?.city
+  return city ? listingPlace(city, 'city') : null
+}
+
+type LocationStatus = 'idle' | 'pending' | 'granted' | 'denied' | 'unavailable'
+
+const SORT_SELECT_OPTIONS: readonly (readonly [SortOption, string, string])[] = [
+  ['featured', 'Recommended', 'Recommended'],
+  ['nearest', 'Nearest', 'Nearest'],
+  ['newest', 'Newest', 'Newest'],
+  ['price-asc', 'Price: low to high', 'Rent: low to high'],
+  ['price-desc', 'Price: high to low', 'Rent: high to low'],
+  ['beds-desc', 'Most bedrooms', 'Most bedrooms'],
+]
+
 /** Listings per set on the browse grid; Show more adds another set. */
 export const BROWSE_PAGE_SIZE = 12
 
@@ -193,7 +237,47 @@ export default function BrowsePage() {
     }
   }, [params, q, areaPlaces.length])
   const textQ = near ? '' : q
-  const [filters, setFilters] = useState<BrowseFilterState>(defaultBrowseFilters)
+  // "Nearest" is remembered for the visit (the choice only, never the position).
+  const [filters, setFilters] = useState<BrowseFilterState>(() =>
+    readNearestChoice() ? { ...defaultBrowseFilters(), sort: 'nearest' } : defaultBrowseFilters(),
+  )
+  // The visitor's own position: memory only, never stored, logged or sent.
+  const [deviceLoc, setDeviceLoc] = useState<GeoPoint | null>(null)
+  const [locStatus, setLocStatus] = useState<LocationStatus>('idle')
+  const requestDeviceLocation = useCallback(() => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setLocStatus('unavailable')
+      return
+    }
+    setLocStatus('pending')
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setDeviceLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+        setLocStatus('granted')
+      },
+      (err) => setLocStatus(err.code === err.PERMISSION_DENIED ? 'denied' : 'unavailable'),
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 5 * 60 * 1000 },
+    )
+  }, [])
+  // Location already allowed for this site: use it without asking again.
+  useEffect(() => {
+    if (savedOnly || typeof navigator === 'undefined' || !navigator.permissions?.query) return
+    let cancelled = false
+    navigator.permissions
+      .query({ name: 'geolocation' as PermissionName })
+      .then((status) => {
+        if (!cancelled && status.state === 'granted') requestDeviceLocation()
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [savedOnly, requestDeviceLocation])
+  // Choosing Nearest asks for location (never blocks the page); any other sort forgets the choice.
+  useEffect(() => {
+    writeNearestChoice(filters.sort === 'nearest')
+    if (filters.sort === 'nearest' && !savedOnly && locStatus === 'idle') requestDeviceLocation()
+  }, [filters.sort, savedOnly, locStatus, requestDeviceLocation])
   // Buy and Rent have their own filters: switching sections drops what no
   // longer applies (an R8k/month budget is not a purchase price).
   const [filtersMode, setFiltersMode] = useState(mode)
@@ -309,13 +393,12 @@ export default function BrowsePage() {
       })
   }, [unitsFeed, filtered, state.buildings, state.properties, blockedIds, mode, properties, filters])
 
-  /** Cards near the searched address, closest first (radius widens until something is found). */
+  /** Cards near the searched address (radius widens until something is found); ordered below. */
   const nearResult = useMemo(() => {
     if (!near) return null
     const withKm = cards
       .filter((c) => c.lat != null && c.lng != null)
       .map((c) => ({ c, km: haversineKm(near, { lat: c.lat!, lng: c.lng! }) }))
-      .sort((a, b) => a.km - b.km)
     let used = radiusKm
     let hits = withKm.filter((x) => x.km <= used)
     for (const wider of [10, 25, 50]) {
@@ -332,18 +415,79 @@ export default function BrowsePage() {
     [state.properties, properties],
   )
 
-  /** Where the visitor is looking: featured listings there go first (Recommended sort only). */
+  const toNearestRankable = useCallback(
+    (c: UnitCardPayload): NearestRankable => {
+      const p = resolveCardProperty(c)
+      return {
+        lat: c.lat ?? p?.lat,
+        lng: c.lng ?? p?.lng,
+        suburb: c.building?.suburb ?? p?.suburb,
+        city: c.building?.city ?? p?.city,
+        createdAt: p?.createdAt,
+      }
+    },
+    [resolveCardProperty],
+  )
+
+  /**
+   * Where distance is measured from: a searched address, then the visitor's
+   * location when they chose Nearest, then the searched suburb / city centre,
+   * then the location the browser already allows. None = the usual order.
+   */
+  const nearestOrigin = useMemo((): NearestOrigin | null => {
+    if (savedOnly) return null
+    if (near) return { points: [near], source: 'address' }
+    const device: NearestOrigin | null = deviceLoc
+      ? {
+          points: [deviceLoc],
+          source: 'device',
+          suburbs: nearestPlaces(deviceLoc.lat, deviceLoc.lng, { limit: 1, maxKm: 5 }).map((p) => p.label),
+        }
+      : null
+    if (filters.sort === 'nearest' && device) return device
+    const rankables = cards.map(toNearestRankable)
+    const textPlace = areaPlaces.length ? null : exactPlaceForText(textQ, rankables)
+    const searched = areaPlaces.length ? areaPlaces : textPlace ? [textPlace] : []
+    if (searched.length) {
+      const points = areaOriginPoints(searched, rankables)
+      if (points.length) {
+        return {
+          points,
+          source: 'area',
+          suburbs: searched.filter((p) => p.kind === 'suburb').map((p) => p.label),
+          cities: searched.filter((p) => p.kind === 'city').map((p) => p.label),
+        }
+      }
+    }
+    return device
+  }, [savedOnly, near, deviceLoc, filters.sort, cards, toNearestRankable, areaPlaces, textQ])
+
+  /** Nearest first by default once we know where the visitor is; an explicit price / newest / beds sort wins. */
+  const nearestActive = Boolean(nearestOrigin) && (filters.sort === 'nearest' || filters.sort === 'featured')
+
+  /** Where the visitor is looking: featured listings there go first (Recommended / Nearest only). */
   const featuredArea = useMemo((): FeaturedSearchArea | null => {
-    if (savedOnly || filters.sort !== 'featured') return null
+    if (savedOnly || (filters.sort !== 'featured' && filters.sort !== 'nearest')) return null
     if (near) return { kind: 'near', lat: near.lat, lng: near.lng, radiusKm }
+    // Measuring from the visitor: only featured listings close to them may jump the queue.
+    if (nearestActive && nearestOrigin?.source === 'device') {
+      const [p] = nearestOrigin.points
+      return { kind: 'near', lat: p.lat, lng: p.lng, radiusKm: NEAREST_FEATURED_RADIUS_KM }
+    }
     if (areaPlaces.length) return { kind: 'places', places: areaPlaces }
     const text = textQ.trim()
     if (text && searchPlaces(text, 1).length) return { kind: 'place-text', text }
+    if (nearestActive && nearestOrigin) {
+      const [p] = nearestOrigin.points
+      return { kind: 'near', lat: p.lat, lng: p.lng, radiusKm: NEAREST_FEATURED_RADIUS_KM }
+    }
     return { kind: 'anywhere' }
-  }, [savedOnly, filters.sort, near, radiusKm, areaPlaces, textQ])
+  }, [savedOnly, filters.sort, near, radiusKm, nearestActive, nearestOrigin, areaPlaces, textQ])
 
   const listCards = useMemo(() => {
-    const base = nearResult ? nearResult.cards : cards
+    const filteredBase = nearResult ? nearResult.cards : cards
+    const base =
+      nearestActive && nearestOrigin ? sortByNearest(filteredBase, toNearestRankable, nearestOrigin) : filteredBase
     if (!featuredArea) return base
     return rankFeaturedInArea(
       base,
@@ -360,12 +504,30 @@ export default function BrowsePage() {
       },
       featuredArea,
     )
-  }, [nearResult, cards, featuredArea, resolveCardProperty])
+  }, [nearResult, cards, nearestActive, nearestOrigin, toNearestRankable, featuredArea, resolveCardProperty])
+
+  /** "1.2 km away" per card whenever we know where the visitor is, whatever the sort. */
+  const distanceLabels = useMemo(() => {
+    const out = new Map<string, string>()
+    if (!nearestOrigin) return out
+    for (const c of listCards) {
+      const km = distanceFromOrigin(nearestOrigin, toNearestRankable(c))
+      if (km != null) out.set(c.id, formatDistanceAway(km))
+    }
+    return out
+  }, [nearestOrigin, listCards, toNearestRankable])
+
+  const nearestFromLabel =
+    nearestOrigin?.source === 'device'
+      ? 'your location'
+      : nearestOrigin?.source === 'area'
+        ? [...(nearestOrigin.suburbs ?? []), ...(nearestOrigin.cities ?? [])].join(', ') || 'the searched area'
+        : near?.label ?? ''
 
   // A new search starts again from the first set.
   useEffect(() => {
     setVisibleCount(BROWSE_PAGE_SIZE)
-  }, [q, mode, filters, areaPlaces, savedOnly, near, radiusKm])
+  }, [q, mode, filters, areaPlaces, savedOnly, near, radiusKm, deviceLoc])
   const shownCards = listCards.slice(0, visibleCount)
   const moreToShow = listCards.length - shownCards.length
 
@@ -457,8 +619,33 @@ export default function BrowsePage() {
                       </option>
                     ))}
                   </select>
-                  of <span className="font-medium text-ink">{near.label}</span>, closest first
+                  of <span className="font-medium text-ink">{near.label}</span>{nearestActive ? ', closest first' : ''}
                   {nearResult.widened ? <span className="text-xs text-ink-500">(nothing closer, so we looked {nearResult.radius} km out)</span> : null}
+                </p>
+              ) : null}
+              {!savedOnly && !near && nearestActive ? (
+                <p className="mt-1 flex items-center gap-1.5 text-sm text-ink-600" data-testid="nearest-status">
+                  <LocateFixed className="h-3.5 w-3.5 text-primary" aria-hidden />
+                  Closest first to <span className="font-medium text-ink">{nearestFromLabel}</span>
+                </p>
+              ) : null}
+              {!savedOnly && filters.sort === 'nearest' && !nearestOrigin ? (
+                <p className="mt-1 flex flex-wrap items-center gap-1.5 text-sm text-ink-600" role="status" data-testid="nearest-status">
+                  <LocateFixed className="h-3.5 w-3.5 text-ink-400" aria-hidden />
+                  {locStatus === 'pending'
+                    ? 'Finding your location…'
+                    : locStatus === 'denied'
+                      ? 'Location is off, so these are in the usual order. Allow location for this site, or search a suburb.'
+                      : 'We could not get your location, so these are in the usual order. Search a suburb to sort by distance.'}
+                  {locStatus === 'unavailable' ? (
+                    <button
+                      type="button"
+                      onClick={requestDeviceLocation}
+                      className="cursor-pointer font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                      Try again
+                    </button>
+                  ) : null}
                 </p>
               ) : null}
               {savedOnly && cards.length === 0 && (
@@ -468,6 +655,24 @@ export default function BrowsePage() {
               )}
             </div>
             <div className="flex flex-wrap gap-2">
+              {!savedOnly && (
+                <label className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-primary-100 bg-white px-3.5 text-sm font-semibold text-ink">
+                  <ArrowUpDown className="h-3.5 w-3.5" aria-hidden />
+                  <span className="sr-only sm:not-sr-only">Sort</span>
+                  <select
+                    aria-label="Sort listings"
+                    value={filters.sort}
+                    onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value as SortOption }))}
+                    className="cursor-pointer bg-transparent py-1.5 pr-1 text-sm font-semibold focus-visible:outline-none"
+                  >
+                    {SORT_SELECT_OPTIONS.map(([id, label, rentLabel]) => (
+                      <option key={id} value={id}>
+                        {mode === 'rent' ? rentLabel : label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <button
                 type="button"
                 data-tip-target="browse-map"
@@ -608,6 +813,7 @@ export default function BrowsePage() {
                       unit={unit}
                       card={card}
                       browseMode={mode}
+                      distanceLabel={distanceLabels.get(card.id)}
                     />
                   )
                 })}
