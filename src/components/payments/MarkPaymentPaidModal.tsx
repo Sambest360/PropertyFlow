@@ -45,7 +45,13 @@ export function MarkPaymentPaidModal({
     setAttachments(payment.attachments ?? [])
   }, [open, payment])
 
+  // Slice A (server rule A3): a reference (typed, or the stored one shown
+  // here), or a typed note that is new, before this can be marked paid.
+  const canMarkPaid =
+    reference.trim() !== '' || (notes.trim() !== '' && notes.trim() !== (payment.notes ?? '').trim())
+
   const submit = () => {
+    if (!canMarkPaid) return
     const amount = Number.parseFloat(paidAmount)
     onConfirm({
       method,
@@ -69,7 +75,7 @@ export function MarkPaymentPaidModal({
           <Button variant="secondary" className="min-h-11" onClick={onClose}>
             Cancel
           </Button>
-          <Button className="min-h-11" onClick={submit}>
+          <Button className="min-h-11" onClick={submit} disabled={!canMarkPaid}>
             {confirmLabel}
           </Button>
         </>
@@ -99,13 +105,16 @@ export function MarkPaymentPaidModal({
         </div>
 
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-ink-500">Reference</span>
+          <span className="mb-1 block text-xs font-medium text-ink-500">EFT reference or note (required)</span>
           <Input
             className="min-h-11"
             placeholder="Bank reference, receipt no., etc."
             value={reference}
             onChange={(e) => setReference(e.target.value)}
           />
+          <span className="mt-1 block text-xs text-ink-500">
+            This stays on the payment record. For cash, type the receipt number as a note.
+          </span>
         </label>
 
         <label className="block">

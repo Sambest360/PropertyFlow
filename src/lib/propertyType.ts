@@ -10,7 +10,7 @@ const LABEL_BY_SLUG: Record<string, string> = {
   farm: 'Farm',
   student: 'Student Accommodation',
   student_accommodation: 'Student Accommodation',
-  industrial: 'Commercial',
+  industrial: 'Industrial',
   other: 'Apartment',
 }
 

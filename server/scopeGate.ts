@@ -25,6 +25,7 @@ import type { EntityType } from './entityMap.js'
 import type { PersistBody } from './writes.js'
 import type { DemoActor } from './actor.js'
 import { forbiddenError } from './actor.js'
+import { enforcePaymentCreateScope, enforcePaymentWritePolicy, paymentNotAllowedError } from './paymentWritePolicy.js'
 import {
   buildPropertyScope,
   isAgencyWideRole,
@@ -1099,11 +1100,18 @@ function permissionList(v: unknown): Permission[] | null {
 }
 
 /**
- * users.manage as the actor effectively holds it: user pack ∩ agency
+ * users.manage as the actor effectively holds it (see resolveActorEffectiveCan).
+ */
+export async function resolveActorUsersManage(actor: DemoActor): Promise<boolean> {
+  return resolveActorEffectiveCan(actor, 'users.manage')
+}
+
+/**
+ * A permission as the actor effectively holds it: user pack ∩ agency
  * enabledPermissions (clients.settings), via effectiveCan. Loads the agency
  * row the same way resolveAgencySuspended does.
  */
-export async function resolveActorUsersManage(actor: DemoActor): Promise<boolean> {
+export async function resolveActorEffectiveCan(actor: DemoActor, permission: Permission): Promise<boolean> {
   if (actor.role === 'super_admin') return true
   const agency = (await agencyFe(actor.agencyId)) ?? actor.agencyId
   let agencyEnabled: Permission[] | null = null
@@ -1128,7 +1136,7 @@ export async function resolveActorUsersManage(actor: DemoActor): Promise<boolean
     )
     userEnabled = normalizeStoredPermissions(permissionList(rows[0]?.enabled), rows[0]?.version)
   }
-  return effectiveCan(actor.role, 'users.manage', agencyEnabled, userEnabled)
+  return effectiveCan(actor.role, permission, agencyEnabled, userEnabled)
 }
 
 /** Cancelled agencies and status → Cancelled are super-admin only. */
@@ -1272,6 +1280,16 @@ export async function assertPersistAllowed(
     if (body.resource === 'property_event') pinned.propertyId = storedEventRow.propertyId
     body.data = pinned
   }
+  // Slice A (A1): an existing payment is scoped by its STORED agency and unit
+  // only (no fallback to the payload), and the writer is pinned to them.
+  const storedPaymentRow = body.resource === 'payment' && existing ? existing : null
+  if (storedPaymentRow && body.action === 'upsert') {
+    const pinned: Record<string, unknown> = { ...(body.data ?? {}) }
+    pinned.agencyId = storedPaymentRow.agencyId
+    delete pinned.clientId
+    pinned.propertyId = storedPaymentRow.propertyId
+    body.data = pinned
+  }
 
   if (
     body.action === 'delete' &&
@@ -1285,8 +1303,8 @@ export async function assertPersistAllowed(
   // must not move the scope check onto another property.
   // R7: an existing activity / property_event uses its stored property only
   // (none for activity), never a payload propertyId.
-  let propertyId = storedEventRow
-    ? (storedEventRow.propertyId ?? null)
+  let propertyId = storedEventRow || storedPaymentRow
+    ? ((storedEventRow ?? storedPaymentRow)!.propertyId ?? null)
     : (((body.resource === 'application' || body.resource === 'ticket') && existing?.propertyId
         ? existing.propertyId
         : null) ??
@@ -1327,6 +1345,7 @@ export async function assertPersistAllowed(
     ticketAgency !== undefined
       ? ticketAgency
       : (storedEventRow?.agencyId ??
+        storedPaymentRow?.agencyId ??
         strField(data, 'agencyId') ??
         strField(data, 'clientId') ??
         existing?.agencyId ??
@@ -1393,6 +1412,15 @@ export async function assertPersistAllowed(
   if (PORTAL_WRITE_ROLES.has(actor.role)) {
     const outcome = await enforcePortalWritePolicy(actor, body, existing)
     if (outcome.handled) return outcome
+  }
+
+  // Slice A (A1): a new payment is checked in uuid space against what the
+  // writer will write (unit, agency, application, lease), then scoped on the
+  // unit's real property.
+  const staffPayment = body.resource === 'payment' && !PORTAL_WRITE_ROLES.has(actor.role)
+  if (staffPayment && !existing && body.action === 'upsert') {
+    const facts = await enforcePaymentCreateScope(actor, data, { fePropertyFromUnit: fePropertyFromUnitFresh })
+    propertyId = facts.propertyId
   }
 
   // Tenants and contractors may only write their own application (existing
@@ -1476,6 +1504,9 @@ export async function assertPersistAllowed(
   })
 
   if (!allowed) {
+    if (staffPayment) {
+      throw await paymentNotAllowedError(actor, body, storedPaymentRow ? storedPaymentRow.agencyId : agencyId)
+    }
     if (storedEventRow?.agencyId) {
       const actorAgency = (await agencyFe(actor.agencyId)) ?? actor.agencyId ?? null
       const storedAgency = (await agencyFe(storedEventRow.agencyId)) ?? storedEventRow.agencyId
@@ -1490,6 +1521,25 @@ export async function assertPersistAllowed(
     throw forbiddenError(
       `Forbidden: ${actor.role} ${actor.userId} cannot ${body.action} ${body.resource} ${body.id}`,
     )
+  }
+  if (staffPayment) {
+    await enforcePaymentWritePolicy(actor, body, {
+      existing: !!existing,
+      canManage: () => resolveActorEffectiveCan(actor, 'payments.manage'),
+      canWriteApplication: async (applicationFe) => {
+        const app = await loadExisting('application', applicationFe)
+        if (!app) return false
+        return canWriteEntity(scope, {
+          resource: 'application',
+          propertyId: app.propertyId,
+          property: await propertySubject(app.propertyId),
+          agencyId: app.agencyId,
+          agentId: app.agentId,
+          ownerUserId: app.ownerUserId,
+          ticket: null,
+        })
+      },
+    })
   }
   if (actor.role === 'landlord' && body.resource === 'application') {
     // The decision belongs to the property's landlord only: canWriteEntity

@@ -1,6 +1,7 @@
 import { normalizeStoredPermissions } from '../src/lib/permissions.js'
 import { query } from './db.js'
 import { readTicketAccessNotes, ticketAccessNotesColumnExists } from './ticketAccessNotes.js'
+import { readUnitErfSize, unitErfSizeColumnExists } from './unitErfSize.js'
 import { isSafePhotoUrl } from '../src/lib/photoLimits.js'
 import { fieldsFromLimitSnapshot, listingLimitsFromSettings } from '../src/lib/listingLimitCopy.js'
 import { agencyViewingSettingsFromJson, readViewingEvidence } from '../src/lib/applyEligibility.js'
@@ -807,6 +808,8 @@ export async function buildBootstrap(opts?: {
       title: u.title ?? u.unit_number,
       propertyType: (u as { property_type?: string | null }).property_type ?? null,
       squareMeters: u.square_meters ? Number(u.square_meters) : 0,
+      /** units.erf_size_sqm (migration 037); null when unset or not migrated yet. */
+      erfSizeSqm: readUnitErfSize(u as unknown as Record<string, unknown>),
       bedrooms: u.bedrooms ?? 0,
       bathrooms: u.bathrooms ? Number(u.bathrooms) : 0,
       parking: u.parking ?? 0,
@@ -875,6 +878,8 @@ export async function buildBootstrap(opts?: {
       unitId: u.id,
       title: u.title,
       type: resolvePropertyType({ stored: u.propertyType, bedrooms: u.bedrooms }),
+      // T2: no stored type → the type is a bedroom guess; the card hides its type chip.
+      ...(u.propertyType?.trim() ? {} : { typeInferred: true }),
       status,
       deletedAt,
       listingMode: u.listingType === 'sale' || u.listingType === 'rent' || u.listingType === 'both'
@@ -887,6 +892,7 @@ export async function buildBootstrap(opts?: {
       baths: u.bathrooms,
       parking: u.parking,
       area: u.squareMeters,
+      erfSizeSqm: u.erfSizeSqm,
       city: b?.city ?? '',
       suburb: b?.suburb ?? '',
       address: b ? `${b.addressLine1}${u.unitNumber !== 'HOUSE' && u.unitNumber !== 'MAIN' ? `, ${u.unitNumber}` : ''}` : u.title,
@@ -1597,6 +1603,7 @@ export async function buildBootstrap(opts?: {
   })
 
   const ticketAccessNotesSupported = await ticketAccessNotesColumnExists()
+  const unitErfSizeSupported = await unitErfSizeColumnExists()
 
   const unitUuidToFeId = new Map(mappedUnits.map((u) => [u._unitUuid, u.id]))
   const roomUuidToFeId = new Map(roomRows.map((r) => [r.id, mappedFe('room', r.id, r.id)]))
@@ -1628,6 +1635,8 @@ export async function buildBootstrap(opts?: {
     idMapRows,
     /** False until migration 013 adds maintenance_tickets.access_notes. */
     ticketAccessNotesSupported,
+    /** False until migration 037 adds units.erf_size_sqm (T2). */
+    unitErfSizeSupported,
     agencies,
     users: appUsers,
     buildings: mappedBuildings,

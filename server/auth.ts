@@ -332,16 +332,29 @@ export function issueSession(c: Context, user: SessionUser): string {
     exp: Math.floor(Date.now() / 1000) + TOKEN_TTL_SEC,
   })
   setCookie(c, AUTH_COOKIE, token, {
-    httpOnly: true,
-    sameSite: 'Lax',
-    path: '/',
+    ...cookieOptions(),
     maxAge: TOKEN_TTL_SEC,
   })
   return token
 }
 
+/**
+ * H2: the one source of the pf_session attributes, for set AND clear (a browser
+ * only clears a cookie whose attributes match). Secure in production or with
+ * COOKIE_SECURE=1; plain http://localhost dev keeps working without it.
+ * Read per call. There is deliberately no switch to turn Secure off in production.
+ */
+export function cookieOptions(): { httpOnly: true; sameSite: 'Lax'; path: '/'; secure: boolean } {
+  return {
+    httpOnly: true,
+    sameSite: 'Lax',
+    path: '/',
+    secure: process.env.NODE_ENV === 'production' || process.env.COOKIE_SECURE === '1',
+  }
+}
+
 export function clearSession(c: Context): void {
-  deleteCookie(c, AUTH_COOKIE, { path: '/' })
+  deleteCookie(c, AUTH_COOKIE, cookieOptions())
 }
 
 export function readBearerOrCookie(c: Context): string | null {
