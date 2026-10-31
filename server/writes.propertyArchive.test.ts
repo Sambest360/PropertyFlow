@@ -127,7 +127,7 @@ describe('upsertProperty archive', () => {
   })
 })
 
-describe('upsertProperty featured (paid, super admin only)', () => {
+describe('upsertProperty featured (free toggle, agency staff only)', () => {
   beforeEach(() => {
     query.mockReset()
     resolveUuid.mockReset()
@@ -159,15 +159,25 @@ describe('upsertProperty featured (paid, super admin only)', () => {
     return (insert[1] as unknown[])[18]
   }
 
-  it('an agency save cannot feature or unfeature a listing', async () => {
-    expect(await saveFeatured(false, true, 'agent_admin')).toBe(false)
+  it('agency staff can feature and unfeature a listing', async () => {
+    expect(await saveFeatured(false, true, 'agent_admin')).toBe(true)
     vi.resetModules()
-    expect(await saveFeatured(true, false, 'client_admin')).toBe(true)
+    expect(await saveFeatured(true, false, 'client_admin')).toBe(false)
+    vi.resetModules()
+    expect(await saveFeatured(false, true, 'agent')).toBe(true)
   })
 
   it('a super admin can', async () => {
     expect(await saveFeatured(false, true, 'super_admin')).toBe(true)
     vi.resetModules()
     expect(await saveFeatured(true, false, 'super_admin')).toBe(false)
+  })
+
+  it('a landlord or tenant save keeps the stored value', async () => {
+    expect(await saveFeatured(false, true, 'landlord')).toBe(false)
+    vi.resetModules()
+    expect(await saveFeatured(true, false, 'landlord')).toBe(true)
+    vi.resetModules()
+    expect(await saveFeatured(false, true, 'tenant')).toBe(false)
   })
 })

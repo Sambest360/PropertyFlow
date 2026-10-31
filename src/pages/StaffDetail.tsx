@@ -8,6 +8,7 @@ import { HistoryTimeline } from '../components/history/HistoryTimeline'
 import { TeamDetailHeader } from '../components/team-detail/TeamDetailHeader'
 import { TeamOverviewPanel } from '../components/team-detail/TeamOverviewPanel'
 import { TeamDetailsPanel } from '../components/team-detail/TeamDetailsPanel'
+import { ProfilePhotoCard } from '../components/agency/ProfilePhotoCard'
 import { TeamWorkloadPanel } from '../components/team-detail/TeamWorkloadPanel'
 import { isTeamDetailTab, type TeamDetailTab } from '../components/team-detail/types'
 import type { PropertyEvent } from '../types/domain'
@@ -159,7 +160,12 @@ export default function StaffDetail() {
             assignedProperties={stats.properties.length}
           />
         )}
-        {tab === 'details' && <TeamDetailsPanel user={user} agencyName={agencyName} />}
+        {tab === 'details' && (
+          <div className="space-y-4">
+            <ProfilePhotoCard userId={user.id} name={user.name} />
+            <TeamDetailsPanel user={user} agencyName={agencyName} />
+          </div>
+        )}
         {tab === 'workload' && (
           <TeamWorkloadPanel openLeads={stats.openLeads} properties={stats.properties} />
         )}

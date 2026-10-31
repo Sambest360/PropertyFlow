@@ -139,6 +139,8 @@ export type Agency = {
 
 export type AppUser = {
   id: string
+  /** Set when a super admin deleted (anonymised) the account. Only super admins ever receive these users. */
+  deletedAt?: string
   name: string
   /** When set, persisted as separate columns — `name` remains the display label. */
   firstName?: string

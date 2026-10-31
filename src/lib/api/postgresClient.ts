@@ -129,6 +129,25 @@ export async function fetchPublicMarketplaceFromApi(
   }
 }
 
+/** Home hero: suburbs / cities with published listings (null when the API is off or fails). */
+export async function fetchPublicMarketplaceAreas(
+  timeoutMs = 8_000,
+): Promise<import('../listingAreas').ListingArea[] | null> {
+  if (!isApiEnabled) return null
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    const res = await fetch(`${API_BASE}/api/public/marketplace/areas`, { signal: ctrl.signal })
+    if (!res.ok) return null
+    const body = (await res.json()) as { areas?: unknown }
+    return Array.isArray(body.areas) ? (body.areas as import('../listingAreas').ListingArea[]) : null
+  } catch {
+    return null
+  } finally {
+    clearTimeout(t)
+  }
+}
+
 /** P3a / FW-04: one published listing bootstrap slice (works signed-in; no session required). */
 export async function fetchPublicListingBootstrapFromApi(
   id: string,

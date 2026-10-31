@@ -40,6 +40,7 @@ import { notifyWaitlistSpotOpen } from './listingLimits.js'
 import { mapAgencyStatusToDb } from '../src/lib/agencyStatus.js'
 import { resolveLiveListing } from './listingResolve.js'
 import { canonicalListingId } from '../src/lib/listingIds.js'
+import { canFeatureListing } from '../src/lib/featuredRanking.js'
 import { ensureListingUnitUuid, resolveListingUnitUuid } from './listingUuid.js'
 import { isValidSignatureDataUrl, signatureInvalidError } from '../src/lib/signature/signatureImage.js'
 import {
@@ -179,6 +180,8 @@ const CONDITION_TO_DB: Record<string, string> = {
   Fair: 'FAIR',
   Damaged: 'DAMAGED',
   'Needs Replacement': 'NEEDS_REPLACEMENT',
+  // The inventory form's value (AssetCondition); without it the save fell back to GOOD.
+  'Needs replacement': 'NEEDS_REPLACEMENT',
 }
 
 function str(v: unknown, fallback = ''): string {
@@ -682,14 +685,18 @@ async function upsertAgency(feId: string, d: Record<string, unknown>): Promise<s
   const uuid = await ensureUuid('agency', feId)
   const status = mapAgencyStatusToDb(str(d.status, 'Active') as 'Active' | 'Suspended' | 'Cancelled')
   await query(
-    `INSERT INTO clients (id, company_name, subdomain, status, city, settings, updated_at)
-     VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb, NOW())
+    `INSERT INTO clients (id, company_name, subdomain, status, city, settings, trading_as, email, phone, province, updated_at)
+     VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, NOW())
      ON CONFLICT (id) DO UPDATE SET
        company_name = EXCLUDED.company_name,
        subdomain = EXCLUDED.subdomain,
        status = EXCLUDED.status,
        city = EXCLUDED.city,
        settings = clients.settings || EXCLUDED.settings,
+       trading_as = COALESCE(EXCLUDED.trading_as, clients.trading_as),
+       email = COALESCE(EXCLUDED.email, clients.email),
+       phone = COALESCE(EXCLUDED.phone, clients.phone),
+       province = COALESCE(EXCLUDED.province, clients.province),
        updated_at = NOW()`,
     [
       uuid,
@@ -721,6 +728,11 @@ async function upsertAgency(feId: string, d: Record<string, unknown>): Promise<s
             }
           : {}),
       }),
+      // Collected on agency create; the lease PDF names and contacts the agency with them.
+      d.tradingAs ? str(d.tradingAs) : null,
+      d.email ? str(d.email) : null,
+      d.phone ? str(d.phone) : null,
+      d.province ? str(d.province) : null,
     ],
   )
   return uuid
@@ -1177,11 +1189,12 @@ async function upsertProperty(
       str(d.description),
       JSON.stringify(Array.isArray(d.amenities) ? d.amenities : []),
       JSON.stringify(Array.isArray(d.images) ? d.images : []),
-      // Featuring is a paid platform service: only a super admin sets it;
-      // anyone else's save keeps the stored value (new listings start off).
+      // Featured (free toggle): agency staff set it on listings they may
+      // write (the scope gate checks the agency); anyone else's save keeps the
+      // stored value (new listings start off).
       isArchive
         ? false
-        : actorRole === 'super_admin'
+        : canFeatureListing(actorRole)
           ? bool(d.featured) || str(d.status) === 'Featured'
           : Boolean(existingUnit?.featured),
       num(d.lat),
@@ -1304,7 +1317,12 @@ async function upsertAsset(feId: string, d: Record<string, unknown>): Promise<st
       num(d.purchaseValue),
       d.warrantyExpiresAt ? str(d.warrantyExpiresAt) : null,
       d.notes ? str(d.notes) : null,
-      JSON.stringify({ frontend_id: feId }),
+      // No columns for these; bootstrap reads them back from metadata.
+      JSON.stringify({
+        frontend_id: feId,
+        model: d.model ? str(d.model) : null,
+        purchaseDate: d.purchaseDate ? str(d.purchaseDate) : null,
+      }),
     ],
   )
   return uuid
@@ -1601,6 +1619,9 @@ async function upsertApplication(
     // Agency records kept on the application (staff-only; applicant writes drop them).
     ['pcrInspections', 'pcrInspections'],
     ['purchaseClosing', 'purchaseClosing'],
+    // Staff block (blockApplication); read back so the Blocks tab survives a reload.
+    ['blockReason', 'blockReason'],
+    ['blockedAt', 'blockedAt'],
     // The applicant's own details (Your details / consent forms).
     ['idNumberOrPassport', 'idNumberOrPassport'],
     ['employerName', 'employerName'],

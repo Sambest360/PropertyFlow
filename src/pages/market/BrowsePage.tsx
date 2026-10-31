@@ -30,7 +30,9 @@ import { haversineKm, parseAreasParam, propertyMatchesAreas, searchPlaces } from
 import { geocodeAddress } from '../../lib/api/geocoding'
 import { isLoadSheddingFreeListing } from '../../lib/loadShedding'
 import { matchesBrowseMode } from '../../lib/browseMode'
+import { hasModeFilters, matchesModeFilters, translateFiltersForMode } from '../../lib/browseFilterModes'
 import { toPublicListing } from '../../lib/publicLocation'
+import { rankFeaturedInArea, type FeaturedSearchArea } from '../../lib/featuredRanking'
 
 function listingAmount(p: PropertyAsset, mode: string): number | null {
   if (mode === 'rent') return p.rent
@@ -85,6 +87,8 @@ function matchesFilters(
     p.grading === 'P' || Boolean(p.solarCapacityKw && p.solarCapacityKw >= 20 && p.hasBorehole)
   if (f.premiumTier && !premium) return false
 
+  if (!matchesModeFilters(p, mode, f)) return false
+
   if (areaPlaces.length && !propertyMatchesAreas(p, areaPlaces)) return false
 
   return true
@@ -99,8 +103,8 @@ function sortProperties(list: PropertyAsset[], sort: BrowseFilterState['sort'], 
       return sort === 'price-asc' ? av - bv : bv - av
     }
     if (sort === 'beds-desc') return b.beds - a.beds
-    if (sort === 'newest') return b.createdAt.localeCompare(a.createdAt)
-    if (a.featured !== b.featured) return a.featured ? -1 : 1
+    // Recommended: newest first; featured listings in the searched area are
+    // lifted afterwards by rankFeaturedInArea (capped, never other areas).
     return b.createdAt.localeCompare(a.createdAt)
   })
   return next
@@ -111,7 +115,8 @@ function browseSortToApi(sort: BrowseFilterState['sort'], mode: string) {
   if (sort === 'beds-desc') return 'beds_desc' as const
   if (sort === 'price-asc') return mode === 'rent' ? ('rent_asc' as const) : ('price_asc' as const)
   if (sort === 'price-desc') return mode === 'rent' ? ('rent_desc' as const) : ('price_desc' as const)
-  return 'featured' as const
+  // Recommended: featured listings are lifted per area after filtering.
+  return 'newest' as const
 }
 
 function browsePageHeading(mode: string, q: string, savedOnly: boolean): string {
@@ -197,6 +202,13 @@ export default function BrowsePage() {
   }, [params, q, areaPlaces.length])
   const textQ = near ? '' : q
   const [filters, setFilters] = useState<BrowseFilterState>(defaultBrowseFilters)
+  // Buy and Rent have their own filters: switching sections drops what no
+  // longer applies (an R8k/month budget is not a purchase price).
+  const [filtersMode, setFiltersMode] = useState(mode)
+  if (filtersMode !== mode) {
+    setFiltersMode(mode)
+    setFilters((f) => translateFiltersForMode(f, filtersMode, mode))
+  }
   const [panelOpen, setPanelOpen] = useState(false)
   const [showMap, setShowMap] = useState(!savedOnly)
   const [mobileView, setMobileView] = useState<'list' | 'map'>('list')
@@ -290,13 +302,20 @@ export default function BrowsePage() {
       .filter((c) => !c.property_id || !blockedIds.has(c.property_id))
       .filter((c) => cardMatchesBrowseMode(c, mode, properties, state.properties))
       .filter((c) => {
+        if (!hasModeFilters(mode, filters)) return true
+        const p =
+          properties.find((x) => x.id === c.property_id || x.unitId === c.id) ??
+          state.properties.find((x) => x.id === c.property_id)
+        return p ? matchesModeFilters(p, mode, filters) : false
+      })
+      .filter((c) => {
         const key = canonicalListingId(c.property_id ?? c.id).toLowerCase()
         if (!key) return true
         if (seen.has(key)) return false
         seen.add(key)
         return true
       })
-  }, [unitsFeed, filtered, state.buildings, state.properties, blockedIds, mode, properties])
+  }, [unitsFeed, filtered, state.buildings, state.properties, blockedIds, mode, properties, filters])
 
   /** Cards near the searched address, closest first (radius widens until something is found). */
   const nearResult = useMemo(() => {
@@ -314,7 +333,42 @@ export default function BrowsePage() {
     }
     return { cards: hits.map((x) => x.c), radius: used, widened: used !== radiusKm }
   }, [near, cards, radiusKm])
-  const listCards = nearResult ? nearResult.cards : cards
+  const resolveCardProperty = useCallback(
+    (c: UnitCardPayload) =>
+      state.properties.find((p) => p.id === c.property_id) ??
+      properties.find((p) => p.id === c.property_id || p.unitId === c.id),
+    [state.properties, properties],
+  )
+
+  /** Where the visitor is looking: featured listings there go first (Recommended sort only). */
+  const featuredArea = useMemo((): FeaturedSearchArea | null => {
+    if (savedOnly || filters.sort !== 'featured') return null
+    if (near) return { kind: 'near', lat: near.lat, lng: near.lng, radiusKm }
+    if (areaPlaces.length) return { kind: 'places', places: areaPlaces }
+    const text = textQ.trim()
+    if (text && searchPlaces(text, 1).length) return { kind: 'place-text', text }
+    return { kind: 'anywhere' }
+  }, [savedOnly, filters.sort, near, radiusKm, areaPlaces, textQ])
+
+  const listCards = useMemo(() => {
+    const base = nearResult ? nearResult.cards : cards
+    if (!featuredArea) return base
+    return rankFeaturedInArea(
+      base,
+      (c) => {
+        const p = resolveCardProperty(c)
+        return {
+          id: c.property_id ?? c.id,
+          featured: c.featured || Boolean(p?.featured),
+          suburb: c.building?.suburb ?? p?.suburb,
+          city: c.building?.city ?? p?.city,
+          lat: c.lat ?? p?.lat,
+          lng: c.lng ?? p?.lng,
+        }
+      },
+      featuredArea,
+    )
+  }, [nearResult, cards, featuredArea, resolveCardProperty])
 
   // A new search starts again from the first set.
   useEffect(() => {
@@ -335,13 +389,6 @@ export default function BrowsePage() {
       : mode === 'buy'
         ? 'Sale price in ZAR'
         : 'Sale price or monthly rent in ZAR'
-
-  const resolveCardProperty = useCallback(
-    (c: UnitCardPayload) =>
-      state.properties.find((p) => p.id === c.property_id) ??
-      properties.find((p) => p.id === c.property_id || p.unitId === c.id),
-    [state.properties, properties],
-  )
 
   const mapProperties = useMemo(() => {
     return listCards.map((c) => resolveCardProperty(c)).filter(Boolean) as PropertyAsset[]
@@ -472,6 +519,8 @@ export default function BrowsePage() {
           <div data-tip-target="browse-filters">
             <BrowseFiltersBar
             filters={filters}
+            mode={mode}
+            onPatch={(patch) => setFilters((f) => ({ ...f, ...patch }))}
             onOpen={() => setPanelOpen(true)}
             onClear={() => {
               setFilters(defaultBrowseFilters())

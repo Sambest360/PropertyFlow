@@ -12,10 +12,11 @@ export type DbRoomRow = {
   beds: number
   baths: string | number | null
   area_sqm?: string | number | null
-  layout_x?: number | null
-  layout_y?: number | null
-  layout_w?: number | null
-  layout_h?: number | null
+  /** numeric columns: pg returns them as strings ('10.00') */
+  layout_x?: number | string | null
+  layout_y?: number | string | null
+  layout_w?: number | string | null
+  layout_h?: number | string | null
 }
 
 export type DbInternalAssetRow = {
@@ -28,6 +29,10 @@ export type DbInternalAssetRow = {
   asset_type_key: string
   condition_status: string
   brand?: string | null
+  purchase_value?: string | number | null
+  warranty_expires_at?: Date | string | null
+  notes?: string | null
+  metadata?: { model?: unknown; purchaseDate?: unknown } | null
 }
 
 function defaultLayout(index: number): InfraRoom['layout'] {
@@ -55,11 +60,20 @@ function parseRoomKind(kind: string): RoomKind {
   return 'other'
 }
 
+/** DB stores EXCELLENT / NEEDS_REPLACEMENT; every uppercase value used to read back as Good. */
 function titleCaseStatus(s: string): InternalAsset['condition'] {
-  const t = s.trim()
-  if (t === 'Excellent' || t === 'Good' || t === 'Fair' || t === 'Damaged') return t
-  if (t.toLowerCase() === 'needs replacement') return 'Needs replacement'
+  const t = s.trim().toLowerCase().replace(/_/g, ' ')
+  if (t === 'excellent') return 'Excellent'
+  if (t === 'fair') return 'Fair'
+  if (t === 'damaged') return 'Damaged'
+  if (t === 'needs replacement') return 'Needs replacement'
   return 'Good'
+}
+
+function isoDate(v: Date | string | null | undefined): string | undefined {
+  if (!v) return undefined
+  const iso = typeof v === 'string' ? v : v.toISOString()
+  return iso.slice(0, 10)
 }
 
 function resolveEntityFeId(
@@ -99,10 +113,10 @@ export function mapDbRoomRowToInfraRoom(
     areaSqm: row.area_sqm != null ? Number(row.area_sqm) : undefined,
     layout: hasLayout
       ? {
-          x: row.layout_x!,
-          y: row.layout_y!,
-          w: row.layout_w!,
-          h: row.layout_h!,
+          x: Number(row.layout_x),
+          y: Number(row.layout_y),
+          w: Number(row.layout_w),
+          h: Number(row.layout_h),
         }
       : defaultLayout(opts.layoutIndex),
   }
@@ -128,6 +142,7 @@ export function mapDbRoomsToInfraRooms(
     out.push(
       mapDbRoomRowToInfraRoom(row, {
         cache: opts.cache,
+        resolveFeId: opts.resolveFeId,
         unitFeId,
         clientFeId,
         layoutIndex: idx,
@@ -153,7 +168,8 @@ export function mapDbAssetsToInternalAssets(
       if (!unitFeId) return null
       const clientFeId = opts.mapAgencyFe(a.client_id) ?? ''
       return {
-        id: resolveEntityFeId(opts, 'internal_asset', a.id, a.id),
+        // Writes register the id map under 'asset' (writes.upsertAsset).
+        id: resolveEntityFeId(opts, 'asset', a.id, a.id),
         clientId: clientFeId,
         unitId: unitFeId,
         roomId: a.room_id ? opts.roomUuidToFeId.get(a.room_id) ?? null : null,
@@ -162,6 +178,11 @@ export function mapDbAssetsToInternalAssets(
         assetTypeKey: a.asset_type_key,
         condition: titleCaseStatus(a.condition_status),
         brand: a.brand ?? undefined,
+        model: typeof a.metadata?.model === 'string' ? a.metadata.model : undefined,
+        purchaseValue: a.purchase_value != null ? Number(a.purchase_value) : undefined,
+        purchaseDate: typeof a.metadata?.purchaseDate === 'string' ? a.metadata.purchaseDate : undefined,
+        warrantyExpiresAt: isoDate(a.warranty_expires_at),
+        notes: a.notes ?? undefined,
       }
     })
     .filter(Boolean) as InternalAsset[]

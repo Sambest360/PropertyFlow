@@ -712,6 +712,9 @@ export function normalizeApplication(app: Application): Application {
     docs: documents.filter((d) => d.status !== 'required').map((d) => d.label),
   }
   const workflowStatus = resolveWorkflowStatus(enriched)
+  // A staff block sits on top of the workflow (blockApplication leaves the
+  // workflow status as it was); re-deriving the label unblocked it on reload.
+  if (enriched.stage === 'Blocked') return { ...enriched, workflowStatus, stage: 'Blocked', progress: 0 }
   const stage = workflowStageLabel(enriched.type, workflowStatus)
   const progress = workflowProgress(enriched.type, workflowStatus)
   return { ...enriched, workflowStatus, stage, progress }

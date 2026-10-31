@@ -49,6 +49,7 @@ import {
 } from '../lib/propertyDeletion'
 import { sweetConfirm, sweetSuccess, sweetWarning } from '../lib/sweetAlert'
 import { publishRequestMessage, requestListingPublish } from '../lib/publishRequest'
+import { canFeatureListing } from '../lib/featuredRanking'
 
 export default function PropertyDetail() {
   const { id } = useParams()
@@ -448,7 +449,7 @@ export default function PropertyDetail() {
         deleteBusy={deleteBusy}
         restoreBusy={restoreBusy}
         onToggleFeatured={() => updateProperty(p.id, { featured: !p.featured })}
-        canFeature={user.role === 'super_admin'}
+        canFeature={canManage && canFeatureListing(user.role)}
         guestMarketplaceBlock={guestMarketplaceBlock}
       />
 

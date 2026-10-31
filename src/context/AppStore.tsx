@@ -177,6 +177,7 @@ import type { PostgresBootstrap } from '../lib/api/postgresClient'
 import { isApiEnabled } from '../lib/api/config'
 import { ensureLeaseEnvelopeForSign, leaseSignatureSaved } from '../lib/leaseSignatureOrdering'
 import { persistRefusalMessage } from '../lib/api/persistRefusal'
+import { unitPersistPayload } from '../lib/unitPersistPayload'
 import {
   bootstrapActorKey,
   dedupeBootstrapFetch,
@@ -230,9 +231,11 @@ import {
 } from '../lib/publicMarketplaceMerge'
 import { shouldApplyRefreshResult } from '../lib/refreshCoordination'
 import {
+  PERSIST_FAILED_EVENT,
   PERSIST_REFUSED_EVENT,
   persistApproveApplication,
   persistMarkNotificationsRead,
+  type PersistFailure,
   type PersistRefusal,
   queueDelete,
   queuePersistBatch,
@@ -594,7 +597,10 @@ export type AppState = {
 }
 
 type StoreContextValue = {
+  /** App state; `state.users` never includes deleted accounts (see deletedUsers). */
   state: AppState
+  /** Deleted (anonymised) accounts. Only filled for a super admin: the server never sends them to anyone else. */
+  deletedUsers: AppUser[]
   /** Session user whose bootstrap has landed in the store (null until then). */
   hydratedForUserId: string | null
   /** Session user changed: drop the previous user's in-memory state before their bootstrap. */
@@ -1843,13 +1849,21 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     [scheduleBootstrapRefreshAfterMutation],
   )
 
+  /** Most callers do not await this: a failed save is reported to the user
+   *  (toast + reload of the saved data) unless `quiet` — the caller shows its
+   *  own error. Callers that need the message use persistUpsertResult. */
   const persistUpsert = useCallback(
     async (
       resource: Parameters<typeof queueUpsert>[0],
       id: string,
       data: Record<string, unknown>,
+      opts?: { quiet?: boolean },
     ): Promise<boolean> => {
       const result = await persistUpsertResult(resource, id, data)
+      if (!opts?.quiet) {
+        const { reportPersistFailure } = await import('../lib/api/persist')
+        reportPersistFailure({ resource, id, action: 'upsert' }, result)
+      }
       return result.ok
     },
     [persistUpsertResult],
@@ -1866,6 +1880,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         'application',
         applicationId,
         nextApp as unknown as Record<string, unknown>,
+        { quiet: Boolean(userMessage) },
       )
       if (ok) return true
       if (previousApp) {
@@ -2061,8 +2076,29 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       })
       scheduleBootstrapRefreshAfterMutation()
     }
+    // Any other failed save (server error, network, uncoded 4xx): the edit is
+    // on screen but not stored, so say so and reload the saved version.
+    const onFailed = (e: Event) => {
+      const detail = (e as CustomEvent<PersistFailure>).detail
+      if (!detail) return
+      pushToast({
+        id: uid('toast'),
+        notificationId: `persist-failed-${detail.resource}-${detail.id}`,
+        userId: '',
+        title: 'Change not saved',
+        body: `${detail.message} Your page will show the last saved version.`,
+        durationMs: 8000,
+        createdAt: Date.now(),
+        tone: 'danger',
+      })
+      scheduleBootstrapRefreshAfterMutation()
+    }
     window.addEventListener(PERSIST_REFUSED_EVENT, onRefused)
-    return () => window.removeEventListener(PERSIST_REFUSED_EVENT, onRefused)
+    window.addEventListener(PERSIST_FAILED_EVENT, onFailed)
+    return () => {
+      window.removeEventListener(PERSIST_REFUSED_EVENT, onRefused)
+      window.removeEventListener(PERSIST_FAILED_EVENT, onFailed)
+    }
   }, [pushToast, scheduleBootstrapRefreshAfterMutation])
 
   const addActivity = useCallback(
@@ -2806,8 +2842,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     [],
   )
 
+  // Deleted users stay in the store (the server only sends them to a super
+  // admin) but are left out of state.users so no list, search or picker shows them.
+  const deletedUsers = useMemo(() => state.users.filter((u) => !!u.deletedAt), [state.users])
+  const visibleState = useMemo<AppState>(
+    () => (deletedUsers.length ? { ...state, users: state.users.filter((u) => !u.deletedAt) } : state),
+    [state, deletedUsers.length],
+  )
+
   const value = useMemo<StoreContextValue>(() => ({
-    state,
+    state: visibleState,
+    deletedUsers,
     hydratedForUserId,
     hydrationFailed,
     resetForUserSwitch: () => {
@@ -3575,6 +3620,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           ? stateRef.current.units.find((u) => u.id === targetUnitId)
           : undefined
         unitPatch = computeUnitPatchForPropertyStatus({ ...prev, ...p }, unit, p.status)
+        if (unitPatch) unitPatch = unitPersistPayload(unitPatch, { ...prev, ...p })
       }
       patch((s) => {
         const current = s.properties.find((x) => x.id === id)
@@ -3704,6 +3750,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const unit = stateRef.current.units.find((u) => u.id === unitId)
       const clientId = unit?.clientId ?? prev.agencyId
       const infraForUnit = roomsToInfraRooms(rooms, unitId, clientId)
+      // Rooms dropped in the wizard must go from the rooms table too, or the
+      // next bootstrap brings them back. The wizard edits these same ids; when
+      // none match (it was seeded from property.rooms, whose ids are raw uuids
+      // that may alias a kept room) nothing is deleted.
+      const keptRoomIds = new Set(rooms.map((r) => r.id))
+      const unitInfraRooms = stateRef.current.infraRooms.filter((r) => r.unitId === unitId)
+      const removedRoomIds = unitInfraRooms.some((r) => keptRoomIds.has(r.id))
+        ? unitInfraRooms.filter((r) => !keptRoomIds.has(r.id)).map((r) => r.id)
+        : []
       patch((s) => ({
         ...s,
         properties: s.properties.map((x) => (x.id === id ? { ...x, rooms, beds, baths } : x)),
@@ -3717,7 +3772,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       persistUpsert('property', id, { ...prev, rooms, beds, baths } as unknown as Record<string, unknown>)
       if (unit) {
         persistUpsert('unit', unit.id, {
-          ...unit,
+          ...unitPersistPayload(unit, { ...prev, rooms, beds, baths }),
           bedrooms: beds,
           bathrooms: baths,
         } as unknown as Record<string, unknown>)
@@ -3725,6 +3780,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       for (const room of infraForUnit) {
         persistUpsert('room', room.id, room as unknown as Record<string, unknown>)
       }
+      for (const roomId of removedRoomIds) persistDelete('room', roomId)
       scheduleBootstrapRefreshAfterMutation()
     },
     publishProperty: async (id, status = 'Published', created?: PropertyAsset) => {
@@ -3753,7 +3809,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const unit = targetUnitId
         ? stateRef.current.units.find((u) => u.id === targetUnitId)
         : undefined
-      const unitPatch = computeUnitPatchForPropertyStatus(prev, unit, status)
+      const statusPatch = computeUnitPatchForPropertyStatus(prev, unit, status)
+      const unitPatch = statusPatch ? unitPersistPayload(statusPatch, prev) : null
       const nextUnitStatus = unitPatch?.statusKey ?? 'DRAFT'
       const unitListingType = unitPatch?.listingType ?? unit?.listingType ?? 'rent'
       patch((s) => {
@@ -3806,7 +3863,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         // Same-tick create may leave unit out of stateRef; still stamp unit status.
         const fallbackUnit = stateRef.current.units.find((u) => u.id === targetUnitId)
         const unitPayload = fallbackUnit
-          ? { ...fallbackUnit, statusKey: nextUnitStatus, listingType: unitListingType }
+          ? { ...unitPersistPayload(fallbackUnit, prev), statusKey: nextUnitStatus, listingType: unitListingType }
           : {
               id: targetUnitId,
               buildingId: prev.buildingId,
@@ -4177,14 +4234,20 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       persistUpsert('property', property.id, property as unknown as Record<string, unknown>)
       return unit
     },
-    updateInternalAsset: (id, assetPatch) =>
+    updateInternalAsset: (id, assetPatch) => {
+      const prev = stateRef.current.internalAssets.find((a) => a.id === id)
       patch((s) => ({
         ...s,
         internalAssets: s.internalAssets.map((a) => (a.id === id ? { ...a, ...assetPatch } : a)),
-      })),
+      }))
+      if (prev) {
+        persistUpsert('asset', id, { ...prev, ...assetPatch, id } as unknown as Record<string, unknown>)
+      }
+    },
     addInternalAsset: (input) => {
       const row: InternalAsset = { ...input, id: uid('ia') }
       patch((s) => ({ ...s, internalAssets: [row, ...s.internalAssets] }))
+      persistUpsert('asset', row.id, row as unknown as Record<string, unknown>)
       emitSuiteEvent({
         agencyId: row.clientId,
         resource: 'inventory',
@@ -4202,11 +4265,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       })
       return row
     },
-    updateInfraRoom: (id, roomPatch) =>
+    updateInfraRoom: (id, roomPatch) => {
+      const prev = stateRef.current.infraRooms.find((r) => r.id === id)
       patch((s) => ({
         ...s,
         infraRooms: s.infraRooms.map((r) => (r.id === id ? { ...r, ...roomPatch } : r)),
-      })),
+      }))
+      if (prev) {
+        persistUpsert('room', id, { ...prev, ...roomPatch, id } as unknown as Record<string, unknown>)
+      }
+    },
     addInfraRoom: (input) => {
       const room: InfraRoom = {
         id: uid('rm'),
@@ -4221,6 +4289,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         layout: input.layout ?? { x: 10, y: 10, w: 28, h: 28 },
       }
       patch((s) => ({ ...s, infraRooms: [room, ...s.infraRooms] }))
+      persistUpsert('room', room.id, room as unknown as Record<string, unknown>)
       emitSuiteEvent({
         agencyId: room.clientId,
         resource: 'room',
@@ -4247,6 +4316,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           a.roomId === id ? { ...a, roomId: null } : a,
         ),
       }))
+      // internal_assets.room_id is ON DELETE SET NULL: the server unlinks them too.
+      persistDelete('room', id)
       if (room) {
         emitSuiteEvent({
           agencyId: room.clientId,
@@ -4271,6 +4342,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ...s,
         internalAssets: s.internalAssets.filter((a) => a.id !== id),
       }))
+      persistDelete('asset', id)
       if (asset) {
         emitSuiteEvent({
           agencyId: asset.clientId,
@@ -4294,60 +4366,63 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       if (!app) return
       const blockReason = (reason ?? '').trim() || 'Blocked by admin — no reason recorded.'
 
-      setState((s) => {
-        const current = s.applications.find((a) => a.id === id)
-        if (!current) return s
-
-        const cancelledIds = new Set(
-          s.viewings
-            .filter(
-              (v) =>
-                v.propertyId === current.propertyId &&
-                v.status !== 'Cancelled' &&
-                viewingBelongsToApplication(v, current),
-            )
-            .map((v) => v.id),
+      // Computed once from the latest state so the same rows are shown and saved.
+      const s0 = stateRef.current
+      const current = s0.applications.find((a) => a.id === id) ?? app
+      const now = new Date().toISOString().slice(0, 10)
+      const blockedApp: Application = {
+        ...current,
+        stage: 'Blocked' as ApplicationStage,
+        progress: 0,
+        blockReason,
+        blockedAt: now,
+        notes: current.notes ? `${current.notes}\nBlocked: ${blockReason}` : `Blocked: ${blockReason}`,
+        updatedAt: now,
+      }
+      const cancelledViewings = s0.viewings
+        .filter(
+          (v) =>
+            v.propertyId === current.propertyId &&
+            v.status !== 'Cancelled' &&
+            viewingBelongsToApplication(v, current),
         )
-
-        const slotDeltas = new Map<string, number>()
-        for (const v of s.viewings) {
-          if (!cancelledIds.has(v.id) || !v.slotId) continue
-          slotDeltas.set(v.slotId, (slotDeltas.get(v.slotId) ?? 0) + 1)
-        }
-
-        return {
-          ...s,
-          applications: s.applications.map((a) =>
-            a.id === id
-              ? {
-                  ...a,
-                  stage: 'Blocked' as ApplicationStage,
-                  progress: 0,
-                  blockReason,
-                  blockedAt: new Date().toISOString().slice(0, 10),
-                  notes: a.notes
-                    ? `${a.notes}\nBlocked: ${blockReason}`
-                    : `Blocked: ${blockReason}`,
-                  updatedAt: new Date().toISOString().slice(0, 10),
-                }
-              : a,
-          ),
-          viewings: s.viewings.map((v) =>
-            cancelledIds.has(v.id) ? { ...v, status: 'Cancelled' as const } : v,
-          ),
-          viewingSlots: s.viewingSlots.map((slot) => {
-            const freed = slotDeltas.get(slot.id) ?? 0
-            if (!freed) return slot
-            const booked = Math.max(0, slot.booked - freed)
-            return {
-              ...slot,
-              booked,
-              status:
-                slot.status === 'Full' && booked < slot.capacity ? ('Open' as const) : slot.status,
-            }
-          }),
-        }
+        .map((v) => ({ ...v, status: 'Cancelled' as const }))
+      const slotDeltas = new Map<string, number>()
+      for (const v of cancelledViewings) {
+        if (!v.slotId) continue
+        slotDeltas.set(v.slotId, (slotDeltas.get(v.slotId) ?? 0) + 1)
+      }
+      const freedSlots = s0.viewingSlots
+        .filter((slot) => slotDeltas.has(slot.id))
+        .map((slot) => {
+          const booked = Math.max(0, slot.booked - (slotDeltas.get(slot.id) ?? 0))
+          return {
+            ...slot,
+            booked,
+            status:
+              slot.status === 'Full' && booked < slot.capacity ? ('Open' as const) : slot.status,
+          }
+        })
+      const cancelledById = new Map(cancelledViewings.map((v) => [v.id, v]))
+      const freedById = new Map(freedSlots.map((slot) => [slot.id, slot]))
+      patch((s) => ({
+        ...s,
+        applications: s.applications.map((a) => (a.id === id ? blockedApp : a)),
+        viewings: s.viewings.map((v) => cancelledById.get(v.id) ?? v),
+        viewingSlots: s.viewingSlots.map((slot) => freedById.get(slot.id) ?? slot),
+      }))
+      // Durable: the block (and the viewings it cancels) used to live only in
+      // this tab and came back unblocked on the next load.
+      void persistApplicationOrRollback(id, blockedApp, current, {
+        title: 'Applicant not blocked',
+        text: 'The block could not be saved. Try again.',
       })
+      for (const v of cancelledViewings) {
+        persistUpsert('viewing', v.id, v as unknown as Record<string, unknown>)
+      }
+      for (const slot of freedSlots) {
+        persistUpsert('viewing_slot', slot.id, slot as unknown as Record<string, unknown>)
+      }
 
       emitSuiteEvent({
         agencyId: app.agencyId,
@@ -7949,7 +8024,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     proposePayoutInstruction,
     approvePayoutInstruction,
     submitPayoutInstruction,
-  }), [state, hydratedForUserId, hydrationFailed, resetToDefault, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, importTrustTemplateCsv, upsertHeldDeposit, proposeDepositReleaseAction, approveDepositReleaseAction, rejectDepositReleaseAction, cancelDepositReleaseAction, recordDepositRefundAction, proposePayoutInstruction, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistUpsertResult, writeLookupRows, persistDelete, refreshBootstrap, refreshSessionData, refreshMarketplaceListings, scheduleBootstrapRefreshAfterMutation, issueLeasePackageForTenancy])
+  }), [state, visibleState, deletedUsers, hydratedForUserId, hydrationFailed, resetToDefault, toasts, patch, addActivity, addPropertyEvent, notify, emitSuiteEvent, dismissToast, allocateTrustReceipt, markTrustSuspense, importTrustTemplateCsv, upsertHeldDeposit, proposeDepositReleaseAction, approveDepositReleaseAction, rejectDepositReleaseAction, cancelDepositReleaseAction, recordDepositRefundAction, proposePayoutInstruction, approvePayoutInstruction, submitPayoutInstruction, persistUpsert, persistUpsertResult, writeLookupRows, persistDelete, refreshBootstrap, refreshSessionData, refreshMarketplaceListings, scheduleBootstrapRefreshAfterMutation, issueLeasePackageForTenancy])
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }
