@@ -92,6 +92,7 @@ import { registerViewingApplyRoutes } from './viewingApplyRoutes.js'
 import { captureServerError, initServerSentry } from './sentry.js'
 import { registerInspectionRoutes } from './inspectionRoutes.js'
 import { registerAgencyProfileRoutes } from './agencyProfileRoutes.js'
+import { registerAdminDashboardRoutes } from './adminDashboardRoutes.js'
 
 // Self-hosted (PM2 runs this file directly, not api/index.ts): error reporting
 // starts here. No-op without SENTRY_DSN; idempotent when api/index.ts ran it.
@@ -1485,6 +1486,7 @@ app.post('/api/contractor-bookings/:id', async (c) => {
 /** Lease inventory, move-in / move-out inspections and deposit deductions. */
 registerInspectionRoutes(app)
 registerAgencyProfileRoutes(app)
+registerAdminDashboardRoutes(app, { commit: runningCommitSha, authMode: serverAuthMode })
 
 /** Help desk: system tickets to the super admins (server/supportDesk.ts). */
 app.post('/api/support-tickets', async (c) => {
