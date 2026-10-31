@@ -1,17 +1,20 @@
-import { Navigate } from 'react-router-dom'
+import { lazy, Suspense } from 'react'
 import { AgencyDashboard } from './dashboards/AgencyDashboard'
 import { GroundAgentDashboard } from './dashboards/GroundAgentDashboard'
 import { useAuth } from '../context/AuthContext'
-import { defaultWorkspacePath } from '../lib/workspaceRoutes'
+import { PageSkeleton } from '../components/loading/PageSkeleton'
 import { PortalHydrationGate } from '../components/PortalHydrationGate'
 import TenantPortal from './TenantPortal'
 import OwnerPortal from './OwnerPortal'
 import ContractorPortal from './ContractorPortal'
 
+const AdminDashboardPage = lazy(() => import('./admin/AdminDashboardPage'))
+
 /**
  * Workspace home — one purposeful surface per role.
  * Portal actors land on their portal; Principal / Agency Admin share AgencyDashboard
- * with role-specific copy; field agents get GroundAgentDashboard; Super Admin gets platform.
+ * with role-specific copy; field agents get GroundAgentDashboard; Super Admin gets the
+ * platform admin dashboard (agency admins open their agency's at /workspace/admin/overview).
  */
 export default function Dashboard() {
   return (
@@ -36,7 +39,11 @@ function DashboardContent() {
   }
 
   if (role === 'super_admin') {
-    return <Navigate to={defaultWorkspacePath('super_admin')} replace />
+    return (
+      <Suspense fallback={<PageSkeleton variant="dashboard" />}>
+        <AdminDashboardPage />
+      </Suspense>
+    )
   }
 
   if (role === 'ground_agent' || role === 'agent') {

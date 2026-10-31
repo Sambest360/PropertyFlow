@@ -103,6 +103,7 @@ const ApplicationJourneySettingsPage = lazy(
 const AdminNotificationsPage = lazy(() => import('./pages/admin/AdminNotificationsPage'))
 const AdminAllUsersPage = lazy(() => import('./pages/admin/AdminAllUsersPage'))
 const AdminDeletedUsersPage = lazy(() => import('./pages/admin/AdminDeletedUsersPage'))
+const AdminDashboardPage = lazy(() => import('./pages/admin/AdminDashboardPage'))
 const TenantApplicationDetailPage = lazy(() => import('./pages/tenant/TenantApplicationDetailPage'))
 const PlatformBilling = lazy(() => import('./pages/PlatformBilling'))
 const ComplianceDashboard = lazy(() => import('./pages/compliance/ComplianceDashboard'))
@@ -525,6 +526,8 @@ export default function App() {
                 <Route path="help" element={<HelpPage />} />
                 <Route path="conduct" element={<ConductPage />} />
                 <Route path="admin" element={<AgencyOpsGuard anyOf={['users.manage', 'roles.assign', 'tenant.manage', 'config.manage', 'platform.manage']}><AdminHub /></AgencyOpsGuard>} />
+                {/* Admin dashboard; the page and the API both refuse roles other than super / agency admins. */}
+                <Route path="admin/overview" element={<AgencyOpsGuard anyOf={['users.manage', 'platform.manage']}><AdminDashboardPage /></AgencyOpsGuard>} />
                 <Route path="admin/users" element={<AgencyOpsGuard anyOf={['users.manage', 'roles.assign']}><AdminUsersPage /></AgencyOpsGuard>} />
                 <Route path="admin/users/new" element={<AgencyOpsGuard anyOf={['users.manage', 'roles.assign']}><AdminUserCreatePage /></AgencyOpsGuard>} />
                 <Route

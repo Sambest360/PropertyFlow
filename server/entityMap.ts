@@ -234,6 +234,11 @@ export async function resolveUuid(
   return rows[0]?.backend_id ?? null
 }
 
+/** Frontend id for a seeded (static) UUID, without a database lookup. */
+export function staticFrontendId(entityType: EntityType, backendId: string): string | null {
+  return STATIC_UUID_TO_FE[entityType]?.[backendId] ?? null
+}
+
 export async function resolveFrontendId(
   entityType: EntityType,
   backendId: string | null | undefined,
