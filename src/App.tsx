@@ -102,6 +102,7 @@ const ApplicationJourneySettingsPage = lazy(
 )
 const AdminNotificationsPage = lazy(() => import('./pages/admin/AdminNotificationsPage'))
 const AdminAllUsersPage = lazy(() => import('./pages/admin/AdminAllUsersPage'))
+const AdminDeletedUsersPage = lazy(() => import('./pages/admin/AdminDeletedUsersPage'))
 const TenantApplicationDetailPage = lazy(() => import('./pages/tenant/TenantApplicationDetailPage'))
 const PlatformBilling = lazy(() => import('./pages/PlatformBilling'))
 const ComplianceDashboard = lazy(() => import('./pages/compliance/ComplianceDashboard'))
@@ -560,6 +561,7 @@ export default function App() {
                 <Route path="admin/roles" element={<Navigate to="/workspace/admin/users" replace />} />
                 <Route path="admin/notifications" element={<AgencyOpsGuard anyOf={['notifications.broadcast', 'platform.manage']}><AdminNotificationsPage /></AgencyOpsGuard>} />
                 <Route path="admin/all-users" element={<Guard permission="platform.manage"><AdminAllUsersPage /></Guard>} />
+                <Route path="admin/deleted-users" element={<Guard permission="platform.manage"><AdminDeletedUsersPage /></Guard>} />
                 <Route path="admin/suite-alerts" element={<Navigate to="/workspace/admin/notifications" replace />} />
                 <Route path="platform" element={<Navigate to="/workspace/admin/agencies" replace />} />
                 <Route path="platform/billing" element={<Guard permission="platform.manage"><PlatformBilling /></Guard>} />

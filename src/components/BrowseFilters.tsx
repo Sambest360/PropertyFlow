@@ -1,6 +1,14 @@
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { Minus, Plus, X, SlidersHorizontal } from 'lucide-react'
 import { AMENITY_FILTER_OPTIONS } from '../lib/propertyFeatures'
+import {
+  FURNISHING_OPTIONS,
+  LEASE_TERM_OPTIONS,
+  SALE_DETAIL_OPTIONS,
+  amenityOptionsForMode,
+  priceBoundsForMode,
+  propertyTypesForMode,
+} from '../lib/browseFilterModes'
 import { Button, cn } from './ui'
 
 export const PROPERTY_TYPES = [
@@ -33,6 +41,14 @@ export type BrowseFilterState = {
   hasBorehole: boolean
   minSolarKw: string
   grading: Array<'P' | 'A' | 'B' | 'C'>
+  /** Rent only (src/lib/browseFilterModes.ts) */
+  furnishing: string[]
+  petsAllowed: boolean
+  availableBy: string
+  leaseTerms: string[]
+  /** Buy only */
+  saleDetails: string[]
+  minFloorSize: string
 }
 
 export const defaultBrowseFilters = (): BrowseFilterState => ({
@@ -49,6 +65,12 @@ export const defaultBrowseFilters = (): BrowseFilterState => ({
   hasBorehole: false,
   minSolarKw: '',
   grading: [],
+  furnishing: [],
+  petsAllowed: false,
+  availableBy: '',
+  leaseTerms: [],
+  saleDetails: [],
+  minFloorSize: '',
 })
 
 export function countActiveFilters(f: BrowseFilterState): number {
@@ -65,6 +87,12 @@ export function countActiveFilters(f: BrowseFilterState): number {
   if (f.hasBorehole) n += 1
   if (f.minSolarKw) n += 1
   if (f.grading.length) n += 1
+  if (f.furnishing.length) n += 1
+  if (f.petsAllowed) n += 1
+  if (f.availableBy) n += 1
+  if (f.leaseTerms.length) n += 1
+  if (f.saleDetails.length) n += 1
+  if (f.minFloorSize) n += 1
   return n
 }
 
@@ -78,11 +106,9 @@ function formatCompactZAR(n: number): string {
   return `R${n.toLocaleString('en-ZA')}`
 }
 
-function priceBoundsForMode(mode: string) {
-  if (mode === 'rent') {
-    return { min: 0, max: 100_000, step: 500, presets: [5_000, 10_000, 15_000, 25_000, 40_000] }
-  }
-  return { min: 0, max: 15_000_000, step: 50_000, presets: [1_000_000, 2_000_000, 3_500_000, 5_000_000, 8_000_000] }
+function formatShortDate(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`)
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' })
 }
 
 function ChipToggle({
@@ -202,8 +228,9 @@ function PriceRangeSlider({
   const leftPct = ((minVal - bounds.min) / (bounds.max - bounds.min)) * 100
   const rightPct = ((maxVal - bounds.min) / (bounds.max - bounds.min)) * 100
 
-  const minLabel = minPrice ? formatCompactZAR(minVal) : 'Any'
-  const maxLabel = maxPrice ? formatCompactZAR(maxVal) : 'Any+'
+  const per = mode === 'rent' ? '/mo' : ''
+  const minLabel = minPrice ? `${formatCompactZAR(minVal)}${per}` : 'Any'
+  const maxLabel = maxPrice ? `${formatCompactZAR(maxVal)}${per}` : 'Any+'
 
   return (
     <div>
@@ -295,6 +322,7 @@ function PriceRangeSlider({
                 )}
               >
                 Up to {formatCompactZAR(p)}
+                {mode === 'rent' ? '/mo' : ''}
               </button>
             )
           })}
@@ -326,6 +354,13 @@ export function BrowseFiltersPanel({
   mode = 'all',
 }: Props) {
   const [draft, setDraft] = useState(value)
+  // Start from the applied filters on the opening render, so a draft left over
+  // from another section (e.g. a rent budget) never shows, even for a frame.
+  const [wasOpen, setWasOpen] = useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) setDraft(value)
+  }
 
   useEffect(() => {
     if (open) setDraft(value)
@@ -363,6 +398,16 @@ export function BrowseFiltersPanel({
     }))
   }
 
+  const toggleIn = (key: 'furnishing' | 'leaseTerms' | 'saleDetails', v: string) => {
+    setDraft((d) => ({
+      ...d,
+      [key]: d[key].includes(v) ? d[key].filter((x) => x !== v) : [...d[key], v],
+    }))
+  }
+
+  const isRent = mode === 'rent'
+  const isBuy = mode === 'buy'
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6">
       <button
@@ -379,7 +424,7 @@ export function BrowseFiltersPanel({
       >
         <div className="flex items-center justify-between border-b border-primary-100 px-5 py-4">
           <h2 id="browse-filters-title" className="font-display text-xl font-semibold text-ink">
-            Filters
+            {isRent ? 'Rental filters' : isBuy ? 'Filters for buyers' : 'Filters'}
           </h2>
           <button
             type="button"
@@ -394,13 +439,13 @@ export function BrowseFiltersPanel({
         <div className="flex-1 overflow-y-auto px-5">
           <Section title="Property type" hint="Select one or more">
             <div className="flex flex-wrap gap-2">
-              {PROPERTY_TYPES.map((t) => (
+              {propertyTypesForMode(mode).map((t) => (
                 <ChipToggle key={t} label={t} active={draft.types.includes(t)} onClick={() => toggleType(t)} />
               ))}
             </div>
           </Section>
 
-          <Section title="Price range">
+          <Section title={isRent ? 'Monthly rent' : isBuy ? 'Purchase price' : 'Price range'}>
             <PriceRangeSlider
               mode={mode}
               minPrice={draft.minPrice}
@@ -421,6 +466,88 @@ export function BrowseFiltersPanel({
               />
             </div>
           </Section>
+
+          {isBuy && (
+            <Section title="Floor size" hint="Minimum size of the home">
+              <div className="flex flex-wrap gap-2">
+                {(['', '80', '120', '200', '300', '500'] as const).map((m) => (
+                  <ChipToggle
+                    key={m || 'any'}
+                    label={m ? `${m}+ m²` : 'Any'}
+                    active={draft.minFloorSize === m}
+                    onClick={() => setDraft((d) => ({ ...d, minFloorSize: m }))}
+                  />
+                ))}
+              </div>
+            </Section>
+          )}
+
+          {isBuy && (
+            <Section title="Ownership & sale" hint="Must include all selected">
+              <div className="flex flex-wrap gap-2">
+                {SALE_DETAIL_OPTIONS.map((o) => (
+                  <ChipToggle
+                    key={o}
+                    label={o}
+                    active={draft.saleDetails.includes(o)}
+                    onClick={() => toggleIn('saleDetails', o)}
+                  />
+                ))}
+              </div>
+            </Section>
+          )}
+
+          {isRent && (
+            <Section title="Move-in date" hint="Homes available on or before this date">
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="date"
+                  aria-label="Available by"
+                  value={draft.availableBy}
+                  onChange={(e) => setDraft((d) => ({ ...d, availableBy: e.target.value }))}
+                  className="min-h-11 rounded-xl border border-primary-100 bg-white px-3 text-sm tabular outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                />
+                {draft.availableBy && (
+                  <ChipToggle label="Any date" active={false} onClick={() => setDraft((d) => ({ ...d, availableBy: '' }))} />
+                )}
+              </div>
+            </Section>
+          )}
+
+          {isRent && (
+            <Section title="Furnishing" hint="Any of the selected">
+              <div className="flex flex-wrap gap-2">
+                {FURNISHING_OPTIONS.map((o) => (
+                  <ChipToggle
+                    key={o}
+                    label={o}
+                    active={draft.furnishing.includes(o)}
+                    onClick={() => toggleIn('furnishing', o)}
+                  />
+                ))}
+              </div>
+            </Section>
+          )}
+
+          {isRent && (
+            <Section title="Lease & pets" hint="Must include all selected">
+              <div className="flex flex-wrap gap-2">
+                <ChipToggle
+                  label="Pets allowed"
+                  active={draft.petsAllowed}
+                  onClick={() => setDraft((d) => ({ ...d, petsAllowed: !d.petsAllowed }))}
+                />
+                {LEASE_TERM_OPTIONS.map((o) => (
+                  <ChipToggle
+                    key={o}
+                    label={o}
+                    active={draft.leaseTerms.includes(o)}
+                    onClick={() => toggleIn('leaseTerms', o)}
+                  />
+                ))}
+              </div>
+            </Section>
+          )}
 
           <Section
             title="Utility & structural tier"
@@ -474,7 +601,7 @@ export function BrowseFiltersPanel({
 
           <Section title="Amenities" hint="Must include all selected">
             <div className="flex flex-wrap gap-2">
-              {AMENITY_OPTIONS.map((a) => (
+              {amenityOptionsForMode(mode).map((a) => (
                 <ChipToggle key={a} label={a} active={draft.amenities.includes(a)} onClick={() => toggleAmenity(a)} />
               ))}
             </div>
@@ -486,8 +613,8 @@ export function BrowseFiltersPanel({
                 [
                   ['featured', 'Recommended'],
                   ['newest', 'Newest'],
-                  ['price-asc', 'Price: low to high'],
-                  ['price-desc', 'Price: high to low'],
+                  ['price-asc', isRent ? 'Rent: low to high' : 'Price: low to high'],
+                  ['price-desc', isRent ? 'Rent: high to low' : 'Price: high to low'],
                   ['beds-desc', 'Most bedrooms'],
                 ] as const
               ).map(([sid, label]) => (
@@ -538,6 +665,9 @@ type TriggerProps = {
   onClearParking: () => void
   onClearSort: () => void
   onClearUtility?: () => void
+  /** Clears a mode-only filter (furnishing, move-in date, floor size, …). */
+  onPatch?: (patch: Partial<BrowseFilterState>) => void
+  mode?: string
 }
 
 export function BrowseFiltersBar({
@@ -552,6 +682,8 @@ export function BrowseFiltersBar({
   onClearParking,
   onClearSort,
   onClearUtility,
+  onPatch,
+  mode = 'all',
 }: TriggerProps) {
   const active = countActiveFilters(filters)
 
@@ -561,12 +693,39 @@ export function BrowseFiltersBar({
     if (filters.minPrice || filters.maxPrice) {
       const min = filters.minPrice ? formatCompactZAR(Number(filters.minPrice)) : 'Any'
       const max = filters.maxPrice ? formatCompactZAR(Number(filters.maxPrice)) : 'Any+'
-      items.push({ key: 'price', label: `${min} – ${max}`, onRemove: onClearPrice })
+      const per = mode === 'rent' ? '/mo' : ''
+      items.push({ key: 'price', label: `${min} – ${max}${per}`, onRemove: onClearPrice })
     }
     if (filters.beds != null) items.push({ key: 'beds', label: `${filters.beds}+ beds`, onRemove: onClearBeds })
     if (filters.baths != null) items.push({ key: 'baths', label: `${filters.baths}+ baths`, onRemove: onClearBaths })
     if (filters.parking != null)
       items.push({ key: 'parking', label: `${filters.parking}+ parking`, onRemove: onClearParking })
+    const patch = onPatch ?? (() => undefined)
+    if (filters.minFloorSize)
+      items.push({ key: 'floor', label: `${filters.minFloorSize}+ m²`, onRemove: () => patch({ minFloorSize: '' }) })
+    filters.saleDetails.forEach((o) =>
+      items.push({
+        key: `sale-${o}`,
+        label: o,
+        onRemove: () => patch({ saleDetails: filters.saleDetails.filter((x) => x !== o) }),
+      }),
+    )
+    if (filters.availableBy)
+      items.push({
+        key: 'available',
+        label: `Available by ${formatShortDate(filters.availableBy)}`,
+        onRemove: () => patch({ availableBy: '' }),
+      })
+    if (filters.furnishing.length)
+      items.push({ key: 'furnishing', label: filters.furnishing.join(' / '), onRemove: () => patch({ furnishing: [] }) })
+    if (filters.petsAllowed) items.push({ key: 'pets', label: 'Pets allowed', onRemove: () => patch({ petsAllowed: false }) })
+    filters.leaseTerms.forEach((o) =>
+      items.push({
+        key: `lease-${o}`,
+        label: o,
+        onRemove: () => patch({ leaseTerms: filters.leaseTerms.filter((x) => x !== o) }),
+      }),
+    )
     filters.amenities.forEach((a) =>
       items.push({ key: `amenity-${a}`, label: a, onRemove: () => onRemoveAmenity(a) }),
     )
@@ -593,8 +752,8 @@ export function BrowseFiltersBar({
       const sortLabels: Record<SortOption, string> = {
         featured: 'Recommended',
         newest: 'Newest',
-        'price-asc': 'Price ↑',
-        'price-desc': 'Price ↓',
+        'price-asc': mode === 'rent' ? 'Rent ↑' : 'Price ↑',
+        'price-desc': mode === 'rent' ? 'Rent ↓' : 'Price ↓',
         'beds-desc': 'Most beds',
       }
       items.push({ key: 'sort', label: sortLabels[filters.sort], onRemove: onClearSort })
@@ -610,6 +769,8 @@ export function BrowseFiltersBar({
     onClearParking,
     onClearSort,
     onClearUtility,
+    onPatch,
+    mode,
   ])
 
   return (

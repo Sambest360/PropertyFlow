@@ -9,6 +9,7 @@ import {
 } from 'react'
 import { Loader2, LocateFixed, MapPin, Search, X } from 'lucide-react'
 import {
+  PLACE_CATALOG,
   nearestPlaces,
   searchPlaces,
   type Place,
@@ -28,6 +29,21 @@ type AreaSearchProps = {
   compact?: boolean
   /** Optional submit button label; omit to hide dedicated submit. */
   submitLabel?: string
+  /** Places to suggest and match (e.g. areas with published listings); defaults to the curated catalog. */
+  places?: readonly Place[]
+  /** Small note beside a suggestion, e.g. "12 listings". */
+  placeHint?: (place: Place) => string | undefined
+  /** Near me override: receives the visitor's position; return a message to show, or null. */
+  onNearMe?: (pos: { lat: number; lng: number }) => string | null
+}
+
+/** Plain-language reason a location lookup failed. */
+export function geolocationErrorMessage(code: number | undefined): string {
+  if (code === 1) {
+    return 'Location access is blocked. Allow location for this site in your browser settings, or search by suburb.'
+  }
+  if (code === 3) return 'Finding your location took too long. Try again, or search by suburb.'
+  return 'Could not read your location. Try again, or search by suburb.'
 }
 
 export function AreaSearch({
@@ -39,7 +55,11 @@ export function AreaSearch({
   showNearMe = true,
   compact = false,
   submitLabel,
+  places,
+  placeHint,
+  onNearMe,
 }: AreaSearchProps) {
+  const catalog = places ?? PLACE_CATALOG
   const listId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const [query, setQuery] = useState('')
@@ -50,8 +70,8 @@ export function AreaSearch({
 
   const suggestions = useMemo(() => {
     const selected = new Set(value.map((p) => p.id))
-    return searchPlaces(query, 8).filter((p) => !selected.has(p.id))
-  }, [query, value])
+    return searchPlaces(query, 8, catalog).filter((p) => !selected.has(p.id))
+  }, [query, value, catalog])
 
   useEffect(() => {
     setHighlight(0)
@@ -72,7 +92,8 @@ export function AreaSearch({
   const commitTyped = (): { areas: Place[]; keyword: string } => {
     const q = query.trim()
     if (!q) return { areas: value, keyword: '' }
-    const hit = searchPlaces(q, 1)[0]
+    // A known suburb typed in full still searches as an area, even with no listings in this section.
+    const hit = searchPlaces(q, 1, catalog)[0] ?? (catalog === PLACE_CATALOG ? undefined : searchPlaces(q, 1)[0])
     const qLower = q.toLowerCase()
     const strongHit =
       hit &&
@@ -135,6 +156,10 @@ export function AreaSearch({
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setGeoLoading(false)
+        if (onNearMe) {
+          setGeoError(onNearMe({ lat: pos.coords.latitude, lng: pos.coords.longitude }))
+          return
+        }
         const nearby = nearestPlaces(pos.coords.latitude, pos.coords.longitude, {
           limit: 4,
           maxKm: 25,
@@ -149,9 +174,9 @@ export function AreaSearch({
         }
         onChange(merged)
       },
-      () => {
+      (err) => {
         setGeoLoading(false)
-        setGeoError('Could not read your location. Allow location access or search by name.')
+        setGeoError(geolocationErrorMessage(err?.code))
       },
       { enableHighAccuracy: false, timeout: 10_000, maximumAge: 60_000 },
     )
@@ -242,6 +267,7 @@ export function AreaSearch({
                       <span className="font-medium">{place.label}</span>
                       <span className="text-xs text-ink-400">
                         {place.kind === 'city' ? 'City' : 'Suburb'}
+                        {placeHint?.(place) ? ` · ${placeHint(place)}` : ''}
                       </span>
                     </button>
                   </li>

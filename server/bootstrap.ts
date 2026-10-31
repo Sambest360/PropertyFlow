@@ -368,8 +368,12 @@ export async function buildBootstrap(opts?: {
           city: string | null
           created_at: Date
           settings: unknown
+          trading_as: string | null
+          email: string | null
+          phone: string | null
+          province: string | null
         }>(
-          'SELECT id, company_name, subdomain, status, city, created_at, settings FROM clients ORDER BY company_name',
+          'SELECT id, company_name, subdomain, status, city, created_at, settings, trading_as, email, phone, province FROM clients ORDER BY company_name',
         ),
       () =>
         query<{
@@ -657,6 +661,9 @@ export async function buildBootstrap(opts?: {
       'support_ticket',
       'lookup',
       'notification',
+      // Floor-plan rooms and inventory items keep their front-end ids too.
+      'room',
+      'asset',
     ] as const
     // Rows come from the entity_id_map read loadIdMapCache just made — no
     // second pass over the same table.
@@ -699,6 +706,10 @@ export async function buildBootstrap(opts?: {
     name: c.company_name,
     slug: c.subdomain,
     city: c.city ?? '',
+    tradingAs: c.trading_as ?? undefined,
+    email: c.email ?? undefined,
+    phone: c.phone ?? undefined,
+    province: c.province ?? undefined,
     status: mapAgencyStatusFromDb(c.status),
     createdAt: dateOnly(c.created_at),
     enabledPermissions: null as null, // AppStore fills defaults
@@ -753,6 +764,8 @@ export async function buildBootstrap(opts?: {
       verification,
       // CR10: own signature only; scopeGate strips it from every other user.
       signature: typeof meta.signature === 'string' ? meta.signature : undefined,
+      // Set by userDelete.ts when an account is anonymised; only super admins receive these users.
+      deletedAt: typeof meta.deletedAt === 'string' ? meta.deletedAt : undefined,
     }
   })
 
@@ -890,9 +903,15 @@ export async function buildBootstrap(opts?: {
         baths: r.baths ? Number(r.baths) : 0,
         area: r.area_sqm ? Number(r.area_sqm) : undefined,
         kind: r.room_kind,
+        // numeric columns come back as strings ('10.00'); the floor plan does arithmetic on them.
         layout:
           r.layout_x != null
-            ? { x: r.layout_x, y: r.layout_y ?? 0, w: r.layout_w ?? 20, h: r.layout_h ?? 20 }
+            ? {
+                x: Number(r.layout_x),
+                y: Number(r.layout_y ?? 0),
+                w: Number(r.layout_w ?? 20),
+                h: Number(r.layout_h ?? 20),
+              }
             : undefined,
       })),
       internalAssets: unitAssets.map((a) => ({
@@ -985,6 +1004,9 @@ export async function buildBootstrap(opts?: {
       idNumberOrPassport: typeof meta.idNumberOrPassport === 'string' ? meta.idNumberOrPassport : undefined,
       employerName: typeof meta.employerName === 'string' ? meta.employerName : undefined,
       jobTitle: typeof meta.jobTitle === 'string' ? meta.jobTitle : undefined,
+      blockReason: typeof meta.blockReason === 'string' ? meta.blockReason : undefined,
+      blockedAt: typeof meta.blockedAt === 'string' ? meta.blockedAt : undefined,
+      declineReason: typeof meta.decline_reason === 'string' ? meta.decline_reason : undefined,
       viewingSlotId: null,
       viewingEvidence: readViewingEvidence(meta),
       notes: (a.message as string) ?? '',

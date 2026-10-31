@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildIdMapCache } from './idMap'
 import {
+  mapDbAssetsToInternalAssets,
   mapDbRoomRowToInfraRoom,
   mapDbRoomsToInfraRooms,
   resolveInfraRoomsForUnit,
@@ -173,5 +174,87 @@ describe('roomsToInfraRooms', () => {
     )
     expect(out[0].layout.x).toBe(5)
     expect(out[1].layout.x).toBe(53)
+  })
+})
+
+describe('mapDbAssetsToInternalAssets', () => {
+  const base = {
+    id: 'asset-uuid-1',
+    unit_id: 'unit-uuid-1',
+    client_id: 'client-uuid',
+    room_id: null,
+    item_name: 'Fridge',
+    asset_type_key: 'APPLIANCE',
+    brand: 'Samsung',
+  }
+  const opts = (seen: string[] = []) => ({
+    resolveFeId: (type: string, backendId: string, fallback: string) => {
+      seen.push(type)
+      return type === 'asset' && backendId === 'asset-uuid-1' ? 'ia-fe-1' : fallback
+    },
+    unitUuidToFeId: new Map([['unit-uuid-1', 'unt-PR-1']]),
+    mapAgencyFe: () => 'ag-1',
+    roomUuidToFeId: new Map<string, string>(),
+  })
+
+  it('reads every stored condition back (DB values are uppercase)', () => {
+    const conditions = ['EXCELLENT', 'GOOD', 'FAIR', 'DAMAGED', 'NEEDS_REPLACEMENT']
+    const out = mapDbAssetsToInternalAssets(
+      conditions.map((c) => ({ ...base, condition_status: c })),
+      opts(),
+    )
+    expect(out.map((a) => a.condition)).toEqual(['Excellent', 'Good', 'Fair', 'Damaged', 'Needs replacement'])
+  })
+
+  it('resolves the front-end id under the entity type writes register (asset)', () => {
+    const seen: string[] = []
+    const [a] = mapDbAssetsToInternalAssets([{ ...base, condition_status: 'GOOD' }], opts(seen))
+    expect(seen).toEqual(['asset'])
+    expect(a.id).toBe('ia-fe-1')
+  })
+
+  it('reads back the saved value, warranty, notes, model and purchase date', () => {
+    const [a] = mapDbAssetsToInternalAssets(
+      [
+        {
+          ...base,
+          condition_status: 'GOOD',
+          purchase_value: '8999.00',
+          warranty_expires_at: new Date('2027-03-01T00:00:00Z'),
+          notes: 'Door seal worn',
+          metadata: { model: 'RF28', purchaseDate: '2025-02-01' },
+        },
+      ],
+      opts(),
+    )
+    expect(a).toMatchObject({
+      purchaseValue: 8999,
+      warrantyExpiresAt: '2027-03-01',
+      notes: 'Door seal worn',
+      model: 'RF28',
+      purchaseDate: '2025-02-01',
+    })
+  })
+})
+
+describe('mapDbRoomRowToInfraRoom numeric layout', () => {
+  it('turns pg numeric strings into numbers so the floor plan can do arithmetic', () => {
+    const room = mapDbRoomRowToInfraRoom(
+      {
+        id: 'r1',
+        unit_id: 'u1',
+        client_id: 'c1',
+        name: 'Study',
+        room_kind: 'study',
+        beds: 0,
+        baths: '0',
+        layout_x: '1.00',
+        layout_y: '2.50',
+        layout_w: '30.00',
+        layout_h: '20.00',
+      },
+      { cache: buildIdMapCache([], []), unitFeId: 'unt-1', clientFeId: 'ag-1', layoutIndex: 0 },
+    )
+    expect(room.layout).toEqual({ x: 1, y: 2.5, w: 30, h: 20 })
   })
 })

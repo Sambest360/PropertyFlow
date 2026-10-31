@@ -1,4 +1,5 @@
 import { PE_AREAS } from '../data/peAreas'
+import type { ListingArea } from './listingAreas'
 
 export type PlaceKind = 'suburb' | 'city'
 
@@ -61,23 +62,35 @@ export function getPlaceById(id: string): Place | undefined {
   return PLACE_CATALOG.find((p) => p.id === key || p.label.toLowerCase() === key)
 }
 
+/**
+ * A suburb or city from listing data that the curated catalog doesn't know
+ * (e.g. a listing outside Gqeberha). Matched by name against suburb or city.
+ */
+export function listingPlace(label: string, kind: PlaceKind = 'suburb', lat?: number | null, lng?: number | null): Place {
+  const clean = label.trim().replace(/\s+/g, ' ')
+  return { id: slugify(clean), label: clean, kind, aliases: [], lat: lat ?? 0, lng: lng ?? 0 }
+}
+
+/** Typeahead / chip place for a listing area: the catalog entry when there is one. */
+export function areaToPlace(area: Pick<ListingArea, 'label' | 'kind' | 'lat' | 'lng'>): Place {
+  const known = resolvePlaces([area.label])[0]
+  return known && getPlaceById(known.id) ? known : listingPlace(area.label, area.kind, area.lat, area.lng)
+}
+
 export function resolvePlaces(idsOrLabels: readonly string[]): Place[] {
   const out: Place[] = []
   const seen = new Set<string>()
   for (const raw of idsOrLabels) {
-    const place = getPlaceById(raw) ?? PLACE_CATALOG.find((p) => matchesQuery(p, raw.trim().toLowerCase()))
+    const q = raw.trim().toLowerCase()
+    const place =
+      getPlaceById(raw) ??
+      PLACE_CATALOG.find((p) => p.aliases.some((a) => a.toLowerCase() === q)) ??
+      (q ? listingPlace(raw) : undefined)
     if (!place || seen.has(place.id)) continue
     seen.add(place.id)
     out.push(place)
   }
   return out
-}
-
-function matchesQuery(place: Place, q: string): boolean {
-  if (!q) return true
-  if (place.label.toLowerCase().includes(q)) return true
-  if (place.id.includes(q)) return true
-  return place.aliases.some((a) => a.toLowerCase().includes(q))
 }
 
 function scorePlace(place: Place, q: string): number {
@@ -91,13 +104,13 @@ function scorePlace(place: Place, q: string): number {
   return 0
 }
 
-/** Ranked typeahead over the curated PE place catalog. */
-export function searchPlaces(query: string, limit = 8): Place[] {
+/** Ranked typeahead over the curated PE place catalog, or the given places (e.g. listing areas). */
+export function searchPlaces(query: string, limit = 8, catalog: readonly Place[] = PLACE_CATALOG): Place[] {
   const q = query.trim().toLowerCase()
   if (!q) {
-    return PLACE_CATALOG.slice(0, limit)
+    return catalog.slice(0, limit)
   }
-  return PLACE_CATALOG.map((p) => ({ place: p, score: scorePlace(p, q) }))
+  return catalog.map((p) => ({ place: p, score: scorePlace(p, q) }))
     .filter((x) => x.score > 0)
     .sort((a, b) => b.score - a.score || a.place.label.localeCompare(b.place.label))
     .slice(0, limit)
@@ -157,7 +170,7 @@ export function propertyMatchesAreas(
   const city = property.city.trim().toLowerCase()
 
   for (const place of selected) {
-    if (place.kind === 'city') {
+    if (place.id === 'gqeberha') {
       // City selection = whole PE metro (any known suburb or PE city name)
       if (PE_SUBURB_LABELS.has(suburb)) return true
       if (
@@ -169,7 +182,12 @@ export function propertyMatchesAreas(
       }
       continue
     }
-    if (suburb === place.label.toLowerCase()) return true
+    const label = place.label.toLowerCase()
+    if (suburb === label) return true
+    // Listing-derived cities (and suburbs named after their city) match on city.
+    if (place.kind === 'city' || !getPlaceById(place.id)) {
+      if (city === label) return true
+    }
   }
   return false
 }

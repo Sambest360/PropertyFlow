@@ -91,6 +91,7 @@ import { reviewError } from './reviewError.js'
 import { registerViewingApplyRoutes } from './viewingApplyRoutes.js'
 import { captureServerError, initServerSentry } from './sentry.js'
 import { registerInspectionRoutes } from './inspectionRoutes.js'
+import { registerAgencyProfileRoutes } from './agencyProfileRoutes.js'
 
 // Self-hosted (PM2 runs this file directly, not api/index.ts): error reporting
 // starts here. No-op without SENTRY_DSN; idempotent when api/index.ts ran it.
@@ -857,9 +858,10 @@ app.get('/api/bootstrap', async (c) => {
         : undefined
     const { loadActorPermissionList, stripRestrictedCollections } = await import('./permissionGate.js')
     // Collections an admin switched off for this user never reach the browser.
+    const { hideDeletedUsersForActor } = await import('./deletedUsers.js')
     const filtered = stripRestrictedCollections(
       filterBootstrapForActor(
-        data as Parameters<typeof filterBootstrapForActor>[0],
+        hideDeletedUsersForActor(data, actor.role) as Parameters<typeof filterBootstrapForActor>[0],
         actor,
         scope,
         aliases,
@@ -933,6 +935,29 @@ app.get('/api/public/marketplace', async (c) => {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[api/public/marketplace]', message)
     // Generic body only: never echo database / driver text to signed-out visitors.
+    return c.json({ error: 'marketplace_failed', message: 'Listings are unavailable right now.' }, 500)
+  }
+})
+
+/** Home hero: suburbs / cities with published listings and their Buy / Rent counts. */
+app.get('/api/public/marketplace/areas', async (c) => {
+  if (!databaseConfigured) {
+    return c.json({ error: 'database_unconfigured', message: 'Listings are unavailable right now.' }, 503)
+  }
+  try {
+    const { cachedMarketplaceAreas } = await import('./marketplaceAreas.js')
+    const body = await cachedMarketplaceAreas(async () => {
+      const { buildBootstrap } = await loadBootstrapModule()
+      const data = await buildBootstrap({
+        lite: true,
+        limits: { units: 500, messages: 1, notifications: 1, leads: 1, applications: 1, tickets: 1, payments: 1, documents: 1 },
+      })
+      return filterBootstrapForGuest(data as unknown as Record<string, unknown>)
+    })
+    c.header('Cache-Control', 'public, max-age=300')
+    return c.json(body)
+  } catch (err) {
+    console.error('[api/public/marketplace/areas]', err instanceof Error ? err.message : String(err))
     return c.json({ error: 'marketplace_failed', message: 'Listings are unavailable right now.' }, 500)
   }
 })
@@ -1457,6 +1482,7 @@ app.post('/api/contractor-bookings/:id', async (c) => {
 
 /** Lease inventory, move-in / move-out inspections and deposit deductions. */
 registerInspectionRoutes(app)
+registerAgencyProfileRoutes(app)
 
 /** Help desk: system tickets to the super admins (server/supportDesk.ts). */
 app.post('/api/support-tickets', async (c) => {

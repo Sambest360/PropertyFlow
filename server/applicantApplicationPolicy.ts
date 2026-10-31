@@ -267,7 +267,7 @@ async function assertOwnSlotBooking(actor: DemoActor, slotFe: string): Promise<v
 }
 
 /** Agency records on the application; an applicant's write never sets them. */
-const AGENCY_ONLY_FIELDS = ['pcrInspections', 'purchaseClosing'] as const
+const AGENCY_ONLY_FIELDS = ['pcrInspections', 'purchaseClosing', 'blockReason', 'blockedAt'] as const
 
 /** Locked non-workflow fields: unchanged -> dropped, changed -> 403. */
 async function enforceLockedFields(actor: DemoActor, data: Row, meta: Row | null): Promise<void> {

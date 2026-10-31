@@ -13,6 +13,8 @@ import { arePageTipsDisabled, resetPageTipsForUser, setPageTipsPreference } from
 import { Button, Card, Input, PageHeader } from '../../components/ui'
 import { sweetSuccess, sweetWarning } from '../../lib/sweetAlert'
 import { NotificationSettingsCard } from '../../components/notifications/NotificationSettingsCard'
+import { ProfilePhotoCard } from '../../components/agency/ProfilePhotoCard'
+import { AgencyPublicProfileCard } from '../../components/agency/AgencyPublicProfileCard'
 
 const ICON = 'h-5 w-5 text-primary'
 
@@ -82,6 +84,12 @@ export default function AccountSettingsPage() {
         </div>
         <Button onClick={() => void saveProfile()}>Save details</Button>
       </Card>
+
+      {/* Staff: photo on the listings they are the contact for; agency admins: their agency's public details. */}
+      {role !== 'landlord' && role !== 'tenant' && role !== 'contractor' ? (
+        <ProfilePhotoCard userId={user.id} name={user.name} own />
+      ) : null}
+      {(role === 'client_admin' || role === 'agent_admin') && user.agencyId ? <AgencyPublicProfileCard agencyId={user.agencyId} /> : null}
 
       <NotificationSettingsCard />
 

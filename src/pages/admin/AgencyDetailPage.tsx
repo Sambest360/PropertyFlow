@@ -22,6 +22,7 @@ import { AGENCY_HIERARCHY_ROLES_UI, roleLabels } from '../../lib/permissions'
 import { agencyStatusBadgeTone } from '../../lib/agencyStatus'
 import { sweetWarning } from '../../lib/sweetAlert'
 import { withReturnTo } from '../../lib/returnTo'
+import { AgencyPublicProfileCard } from '../../components/agency/AgencyPublicProfileCard'
 import type { Permission } from '../../types/domain'
 
 const ICON_STROKE = 1.6
@@ -180,6 +181,9 @@ export default function AgencyDetailPage() {
 
         {tab === 'overview' ? (
           <div className="grid gap-4 lg:grid-cols-2">
+            <div className="lg:col-span-2">
+              <AgencyPublicProfileCard agencyId={agency.id} />
+            </div>
             <Card className="p-5">
               <h2 className="font-semibold text-ink">Quick actions</h2>
               <p className="mt-1 text-sm text-ink-500">

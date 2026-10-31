@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { JobTitleSelect } from '../../components/JobTitleSelect'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { Heart, MapPin, Share2, Star } from 'lucide-react'
+import { Heart, MapPin, Star } from 'lucide-react'
 import { usePublicProperties, useStore } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
 import { ActionButtonRow } from '../../components/ActionButtonRow'
@@ -11,6 +11,8 @@ import { PageSkeleton } from '../../components/loading/PageSkeleton'
 import { PropertyFeaturesDisplay } from '../../components/property-features/PropertyFeaturesDisplay'
 import { ExpandableDescription } from '../../components/listing/ExpandableDescription'
 import { RoomsAndFeatures } from '../../components/listing/RoomsAndFeatures'
+import { ShareListingButton } from '../../components/listing/ShareListingButton'
+import { ListingContactCards, useListingContact } from '../../components/listing/ListingContactCards'
 import { formatZAR } from '../../data/seed'
 import { PropertyCard } from '../../components/PropertyCard'
 import { PropertyMap } from '../../components/PropertyMap'
@@ -91,6 +93,16 @@ export default function ListingDetail() {
   const p = findByListingId(lookup.properties, id)
   const { saved, toggle } = useWishlist(isAuthenticated ? user.id : 'guest')
   const wishlisted = p ? saved(p.id) : false
+  // Contact cards under the enquiry panel. Without the API (demo data): agency name/area and the agent from the store.
+  const contactAgency = p ? state.agencies.find((a) => a.id === p.agencyId) : undefined
+  const contactAgent = p?.agentId ? lookup.users.find((u) => u.id === p.agentId) : undefined
+  const contactName = contactAgent?.name ?? p?.agentName
+  const listingContact = useListingContact(p?.id, {
+    agency: contactAgency
+      ? { name: contactAgency.tradingAs || contactAgency.name, area: contactAgency.city || null, phone: null, email: null, website: null, address: null, description: null, logoUrl: null }
+      : null,
+    person: contactName ? { name: contactName, role: 'Agent', photoUrl: null, phone: contactAgent?.phone ?? null } : null,
+  })
 
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
@@ -805,9 +817,7 @@ export default function ListingDetail() {
             </p>
           </div>
           <ActionButtonRow className="sm:w-auto">
-            <button type="button" className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-full border border-primary-100 px-4 py-2 text-sm font-semibold hover:bg-primary-50">
-              <Share2 className="h-4 w-4" /> Share
-            </button>
+            <ShareListingButton title={p.title} />
             <button
               type="button"
               onClick={() => p && toggle(p.id)}
@@ -901,16 +911,17 @@ export default function ListingDetail() {
                 </div>
               )}
             </div>
+
+            <ListingContactCards className="lg:hidden" listingId={p.id} listingTitle={p.title} contact={listingContact} />
           </div>
 
-          <aside
-            ref={enquiryAsideRef}
-            className="hidden lg:block lg:sticky lg:top-24 lg:self-start"
-          >
+          {/* Not sticky: the agency and contact cards below the form make the column taller than the screen. */}
+          <aside ref={enquiryAsideRef} className="hidden space-y-4 lg:block">
             <form onSubmit={submitEnquiry} className="rounded-3xl border border-primary-100 bg-white p-5 shadow-lg shadow-ink/5">
               {priceBlock}
               {enquiryFormFields}
             </form>
+            <ListingContactCards listingId={p.id} listingTitle={p.title} contact={listingContact} />
           </aside>
         </div>
 

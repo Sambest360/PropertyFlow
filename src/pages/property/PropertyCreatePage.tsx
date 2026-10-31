@@ -38,6 +38,7 @@ import { PlacesAddressInput } from '../../components/PlacesAddressInput'
 import { LocationMapPreview } from '../../components/maps/LocationMapPreview'
 import { geocodeAddress, reverseGeocode } from '../../lib/api/geocoding'
 import { canSetUnitViewingOverride } from '../../lib/applyEligibility'
+import { canFeatureListing } from '../../lib/featuredRanking'
 import { Button, Input, Select } from '../../components/ui'
 import { FormLabel, FieldHelp } from '../../components/onboarding/FieldHelp'
 import { uid } from '../../data/seed'
@@ -258,6 +259,11 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     starterAssets: [],
     listingUnfurnished: false,
   }
+
+  // Featured: agency staff lift a published listing to the top of marketplace
+  // results in its area. Edit only — a new listing starts as a draft.
+  const canFeature = isEdit && canFeatureListing(role)
+  const [featured, setFeatured] = useState(Boolean(editProperty?.featured))
 
   const seedDraft =
     isEdit && editProperty
@@ -774,6 +780,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
               draft.requireViewingToApply === 'on' ? true : draft.requireViewingToApply === 'off' ? false : null,
           }
         : {}),
+      ...(canFeature ? { featured } : {}),
       price: draft.price ? Number(draft.price) : null,
       rent: draft.rent ? Number(draft.rent) : null,
       parking: draft.parking,
@@ -1635,6 +1642,22 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
         return (
           <WizardSectionCard title="Pricing & availability">
             <div className="grid gap-3 sm:grid-cols-2">
+              {canFeature && (
+                <label className="flex min-h-11 cursor-pointer items-start gap-2 rounded-xl border border-primary-100 bg-primary-50/40 px-3 py-3 text-sm text-ink-700 sm:col-span-2">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={featured}
+                    onChange={(e) => setFeatured(e.target.checked)}
+                  />
+                  <span>
+                    <span className="font-medium text-ink">Featured listing</span>
+                    <span className="block text-xs text-ink-500">
+                      Shows near the top of marketplace results for people searching in this area, with a Featured badge.
+                    </span>
+                  </span>
+                </label>
+              )}
               {canSetViewingOverride && (draft.listingMode === 'rent' || draft.listingMode === 'both') && (
                 <div className="sm:col-span-2">
                   <FormLabel className="mb-1.5">Viewing required before apply</FormLabel>

@@ -392,6 +392,12 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
             icon: Users,
           },
           {
+            to: '/workspace/admin/deleted-users',
+            label: 'Deleted users',
+            permission: 'platform.manage',
+            icon: Users,
+          },
+          {
             to: '/workspace/platform/billing',
             label: 'Billing',
             permission: 'platform.manage',

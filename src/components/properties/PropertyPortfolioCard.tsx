@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ClipboardList,
   MapPin,
+  Star,
   Wrench,
 } from 'lucide-react'
 import { Badge, Button, Card, cn } from '../ui'
@@ -16,6 +17,9 @@ import { formatZAR } from '../../data/seed'
 import { appendAgentMetaRow } from '../../lib/agentDisplay'
 import { useAgentDisplay, useHideAgentColumn } from '../../hooks/useAgentDisplay'
 import { resolvePortfolioStatus } from '../../lib/propertyStatus'
+import { canFeatureListing } from '../../lib/featuredRanking'
+import { useStore } from '../../context/AppStore'
+import { useAuth, usePropertyScope } from '../../context/AuthContext'
 import {
   listingModeLabel,
   priceLabel,
@@ -50,6 +54,15 @@ function PropertyCardExpansion({
   const p = item.property
   const detailId = `/workspace/properties/${p.id}`
   const { viewerId } = useAgentDisplay()
+  const { updateProperty } = useStore()
+  const { role, has } = useAuth()
+  const { canMutate } = usePropertyScope()
+  // Featured lifts a live listing to the top of marketplace results in its area.
+  const canFeature =
+    canFeatureListing(role) &&
+    has('assets.manage') &&
+    canMutate(p.id) &&
+    !['Draft', 'Archived'].includes(p.status)
 
   const facts: Array<{ label: string; value: string }> = appendAgentMetaRow(
     [
@@ -137,6 +150,22 @@ function PropertyCardExpansion({
               )}
             </Button>
           </Link>
+          {canFeature ? (
+            <Button
+              variant="secondary"
+              className="col-span-2 min-h-11 w-full justify-center rounded-2xl px-2 text-xs sm:text-sm"
+              onClick={() => updateProperty(p.id, { featured: !p.featured })}
+              aria-pressed={p.featured}
+            >
+              <Star
+                className="h-4 w-4 shrink-0"
+                strokeWidth={ICON_STROKE}
+                fill={p.featured ? 'currentColor' : 'none'}
+                aria-hidden
+              />
+              {p.featured ? 'Featured — tap to unfeature' : 'Feature in this area'}
+            </Button>
+          ) : null}
           <Link to={detailId} className="block">
             <Button className="min-h-11 w-full cursor-pointer justify-center gap-1.5 rounded-2xl px-2 text-xs sm:text-sm">
               Details
@@ -198,8 +227,9 @@ export function PropertyPortfolioCard({
                 reducedMotion && 'transition-none',
               )}
             />
-            <div className="absolute left-3 top-3">
+            <div className="absolute left-3 top-3 flex gap-1">
               <Badge tone={resolved.tone}>{resolved.label}</Badge>
+              {p.featured && resolved.label !== 'Featured' ? <Badge tone="brand">Featured</Badge> : null}
             </div>
           </div>
           <div className={cn('p-4', expanded && 'pb-3')}>

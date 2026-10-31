@@ -201,7 +201,33 @@ function reportPersistRefusal(refusal: PersistRefusal | null): void {
   globalThis.dispatchEvent(new CustomEvent<PersistRefusal>(PERSIST_REFUSED_EVENT, { detail: refusal }))
 }
 
-export type PersistApiResult = { ok: true; uuid?: string } | { ok: false; error?: string }
+/** `refused`: the server sent a coded refusal, already shown via PERSIST_REFUSED_EVENT. */
+export type PersistApiResult = { ok: true; uuid?: string } | { ok: false; error?: string; refused?: boolean }
+
+/** A save that failed without a coded refusal (5xx, network, uncoded 4xx). */
+export type PersistFailure = { resource: string; id: string; action: string; message: string }
+
+/** Window event the store listens to so a failed background save is never silent. */
+export const PERSIST_FAILED_EVENT = 'pf:persist-failed'
+
+export function reportPersistFailure(
+  op: Pick<PersistOp, 'resource' | 'id' | 'action'>,
+  result: PersistApiResult,
+): void {
+  if (result.ok !== false || result.refused) return
+  const target = (globalThis as { dispatchEvent?: (e: Event) => boolean }).dispatchEvent
+  if (typeof target !== 'function' || typeof CustomEvent === 'undefined') return
+  globalThis.dispatchEvent(
+    new CustomEvent<PersistFailure>(PERSIST_FAILED_EVENT, {
+      detail: {
+        resource: String(op.resource),
+        id: String(op.id),
+        action: String(op.action),
+        message: result.error || 'Could not save.',
+      },
+    }),
+  )
+}
 
 export function persistErrorMessage(result: PersistApiResult): string | undefined {
   if (result.ok === false) return result.error
@@ -223,7 +249,7 @@ export async function persistViaServerApiDetailed(op: PersistOp): Promise<Persis
       const refusal = parsePersistRefusal(op, res.status, text)
       reportPersistRefusal(refusal)
       const message = messageFromPersistFailure(res.status, contentType, text, refusal?.message)
-      return { ok: false, error: message }
+      return refusal ? { ok: false, error: message, refused: true } : { ok: false, error: message }
     }
     let uuid: string | undefined
     try {
@@ -417,13 +443,15 @@ export async function persistMarkNotificationsRead(params: {
   }
 }
 
-/** Queue a mutation without blocking the UI. */
+/** Queue a mutation without blocking the UI. A failure is reported, not dropped. */
 export function queuePersist(op: PersistOp): void {
-  void persistToApi(op)
+  void persistToApiDetailed(op).then((result) => reportPersistFailure(op, result))
 }
 
 export function queuePersistBatch(ops: PersistOp[]): void {
-  void persistBatchToApi(ops)
+  void persistBatchToApi(ops).then((ok) => {
+    if (!ok && ops[0]) reportPersistFailure(ops[0], { ok: false, error: 'Could not save.' })
+  })
 }
 
 /** Upsert helper — strips undefined keys lightly. */
