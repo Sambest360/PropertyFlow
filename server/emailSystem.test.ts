@@ -152,7 +152,7 @@ describe('notification mailer', () => {
     }
     const { emailPendingNotifications } = await import('./notificationMailer.js')
     const r = await emailPendingNotifications()
-    expect(r).toEqual({ sent: 3, skipped: 2, failed: 0 })
+    expect(r).toEqual({ sent: 3, skipped: 2, failed: 0, held: 0 })
     expect(sent.map((s) => s.to).sort()).toEqual(['a@x.co', 'b@x.co'])
     expect(sent.find((s) => s.to === 'b@x.co')!.subject).toMatch(/2 new updates/)
     expect(marked.filter((m) => m.status === 'off').flatMap((m) => m.ids).sort()).toEqual(['n4', 'n5'])

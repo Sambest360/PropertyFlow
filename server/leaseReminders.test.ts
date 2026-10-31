@@ -346,7 +346,7 @@ describe('runLeaseReminders', () => {
     expect(state.events).toHaveLength(1)
     expect(state.events[0].payload.dedup_key).toBe(`lease_end:${leaseId(1)}:${addBd(TODAY, 80)}:80bd`)
     expect(recipientsOf(state.notifications)).toEqual([AGENT, ADMIN, LANDLORD].sort())
-    expect(state.notifications.every((n) => n.link_path === `/leases?tenancy=ten-0001`)).toBe(true)
+    expect(state.notifications.every((n) => n.link_path === `/workspace/leases?tenancy=ten-0001`)).toBe(true)
     expect(state.notifications.every((n) => n.resource_type === 'lease' && n.action_type === 'reminder')).toBe(true)
     const r2 = await runLeaseReminders(deps)
     expect(r2.created).toBe(0)

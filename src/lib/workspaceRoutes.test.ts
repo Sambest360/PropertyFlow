@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { defaultWorkspacePath, postRegisterPath, resolvePostLoginPath } from './workspaceRoutes'
+import { defaultWorkspacePath, postRegisterPath, resolvePostLoginPath, safeNextPath } from './workspaceRoutes'
 
 describe('postRegisterPath', () => {
   it('routes tenants, landlords, and contractors to portal homes', () => {
@@ -41,5 +41,24 @@ describe('T5: sign in lands each portal role in its own portal', () => {
 
   it('staff roles still land on the workspace home', () => {
     expect(resolvePostLoginPath('client_admin', '/workspace')).toBe('/workspace')
+  })
+})
+
+describe('email deep links survive sign-in (RequireAuth → /login?next= → resolvePostLoginPath)', () => {
+  it('returns the signed-out visitor to the exact page the email linked', () => {
+    expect(resolvePostLoginPath('tenant', '/workspace/portals/tenant/applications/APP-1042?tab=documents')).toBe(
+      '/workspace/portals/tenant/applications/APP-1042?tab=documents',
+    )
+    expect(resolvePostLoginPath('agent', '/workspace/sales/viewings/property/PR-1011?booking=BK-1')).toBe(
+      '/workspace/sales/viewings/property/PR-1011?booking=BK-1',
+    )
+    expect(resolvePostLoginPath('landlord', '/workspace/portals/owner')).toBe('/workspace/portals/owner')
+  })
+
+  it('never leaves the site or loops back to sign-in', () => {
+    for (const bad of ['https://evil.example/x', '//evil.example/x', '/\\evil.example', 'javascript:alert(1)', '/login?next=/x', '/register']) {
+      expect(safeNextPath(bad), bad).toBeNull()
+      expect(resolvePostLoginPath('tenant', bad), bad).toBe('/workspace/portals/tenant')
+    }
   })
 })
