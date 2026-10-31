@@ -6,7 +6,8 @@ const WORKSPACE_HOME = '/workspace'
 export function defaultWorkspacePath(role: Role): string {
   switch (role) {
     case 'super_admin':
-      return '/workspace/admin/agencies'
+      // Platform dashboard (src/pages/admin/AdminDashboardPage.tsx).
+      return WORKSPACE_HOME
     case 'tenant':
       return '/workspace/portals/tenant'
     case 'landlord':

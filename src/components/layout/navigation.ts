@@ -40,6 +40,7 @@ import {
   ShieldCheck,
   Wallet,
   ScrollText,
+  Gauge,
 } from 'lucide-react'
 import type { Permission } from '../../types/domain'
 import { ACCOUNT_WISHLIST_PATH } from '../../lib/accountRoutes'
@@ -342,6 +343,12 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
         label: 'Admin',
         icon: Settings,
         children: [
+          {
+            to: '/workspace/admin/overview',
+            label: 'Overview & access',
+            anyOf: ['users.manage'],
+            icon: Gauge,
+          },
           {
             to: '/workspace/admin/config',
             label: 'Configuration',
