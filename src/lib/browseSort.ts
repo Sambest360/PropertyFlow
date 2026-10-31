@@ -11,6 +11,8 @@ export function browseSortToApi(sort: BrowseFilterState['sort'], mode: string) {
   if (sort === 'beds-desc') return 'beds_desc' as const
   if (sort === 'price-asc') return mode === 'rent' ? ('rent_asc' as const) : mode === 'buy' ? ('price_asc' as const) : ('amount_asc' as const)
   if (sort === 'price-desc') return mode === 'rent' ? ('rent_desc' as const) : mode === 'buy' ? ('price_desc' as const) : ('amount_desc' as const)
+  // Nearest: newest from the API, then ordered by distance on the client
+  // (nearestSort); the whole public marketplace is loaded, so paging stays correct.
   // Recommended: newest from the API; featured listings are then lifted per
   // area (featuredRanking), so a featured listing elsewhere never jumps the queue.
   return 'newest' as const

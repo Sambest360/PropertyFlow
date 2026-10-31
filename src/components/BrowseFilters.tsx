@@ -25,7 +25,7 @@ export const PROPERTY_TYPES = [
 
 export const AMENITY_OPTIONS = AMENITY_FILTER_OPTIONS
 
-export type SortOption = 'featured' | 'price-asc' | 'price-desc' | 'beds-desc' | 'newest'
+export type SortOption = 'featured' | 'nearest' | 'price-asc' | 'price-desc' | 'beds-desc' | 'newest'
 
 export type BrowseFilterState = {
   types: string[]
@@ -613,6 +613,7 @@ export function BrowseFiltersPanel({
               {(
                 [
                   ['featured', 'Recommended'],
+                  ['nearest', 'Nearest'],
                   ['newest', 'Newest'],
                   ['price-asc', isRent ? 'Rent: low to high' : 'Price: low to high'],
                   ['price-desc', isRent ? 'Rent: high to low' : 'Price: high to low'],
@@ -752,6 +753,7 @@ export function BrowseFiltersBar({
     if (filters.sort !== 'featured') {
       const sortLabels: Record<SortOption, string> = {
         featured: 'Recommended',
+        nearest: 'Nearest',
         newest: 'Newest',
         'price-asc': mode === 'rent' ? 'Rent ↑' : 'Price ↑',
         'price-desc': mode === 'rent' ? 'Rent ↓' : 'Price ↓',

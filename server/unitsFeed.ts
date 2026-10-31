@@ -47,18 +47,13 @@ function decodeCursor(cursor: string | null | undefined): { createdAt: string; i
   }
 }
 
-export async function fetchUnitsPage(opts: {
-  clientId?: string | null
-  cursor?: string | null
-  limit?: number
-}): Promise<UnitsFeedResult> {
-  const limit = Math.min(Math.max(opts.limit ?? 24, 1), 100)
-  const decoded = decodeCursor(opts.cursor)
-  const params: unknown[] = []
-  // Signed-out endpoint: publicly listed units only, the same rule as
-  // get_public_marketplace_bootstrap (027). Drafts, unlisted units, occupied
-  // units that are not advertised and units of unverified landlords stay out.
-  let where = `WHERE (
+/**
+ * Signed-out endpoints: publicly listed units only, the same rule as
+ * get_public_marketplace_bootstrap (027). Drafts, unlisted units, occupied
+ * units that are not advertised and units of unverified landlords stay out.
+ * Expects `units u`, `buildings b` and `LEFT JOIN users ll ON ll.id = b.landlord_id`.
+ */
+export const PUBLIC_UNITS_WHERE = `(
       (
         u.status_config_key IN ('PUBLISHED', 'FEATURED', 'VACANT', 'UNDER_OFFER', 'AVAILABLE')
         AND lower(coalesce(u.listing_type, 'rent')) <> 'not_listed'
@@ -71,6 +66,16 @@ export async function fetchUnitsPage(opts: {
       )
     )
     AND coalesce(ll.metadata->'verification'->>'status', 'approved') NOT IN ('pending', 'rejected')`
+
+export async function fetchUnitsPage(opts: {
+  clientId?: string | null
+  cursor?: string | null
+  limit?: number
+}): Promise<UnitsFeedResult> {
+  const limit = Math.min(Math.max(opts.limit ?? 24, 1), 100)
+  const decoded = decodeCursor(opts.cursor)
+  const params: unknown[] = []
+  let where = `WHERE ${PUBLIC_UNITS_WHERE}`
 
   if (opts.clientId) {
     params.push(opts.clientId)

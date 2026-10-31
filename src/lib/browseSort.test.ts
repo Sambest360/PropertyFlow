@@ -17,6 +17,8 @@ describe('T4 browse sort → feed sort', () => {
     expect(browseSortToApi('newest', 'all')).toBe('newest')
     expect(browseSortToApi('beds-desc', 'rent')).toBe('beds_desc')
     expect(browseSortToApi('featured', 'all')).toBe('newest')
+    // Nearest: newest base order, then distance on the client (nearestSort).
+    expect(browseSortToApi('nearest', 'rent')).toBe('newest')
   })
 })
 

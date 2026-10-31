@@ -108,6 +108,41 @@ export async function fetchPostgresBootstrap(
 }
 
 /**
+ * Nearest-first browse: the point the marketplace list is fetched around,
+ * rounded to 2 decimals (~1 km). Memory only (never stored), and sent in a
+ * header rather than the URL so it stays out of access logs.
+ */
+let marketplaceNear: { lat: number; lng: number; mode: 'rent' | 'buy' | null } | null = null
+
+/** Returns true when the point (or mode) changed, i.e. the list should be fetched again. */
+export function setMarketplaceNearPoint(
+  point: { lat: number; lng: number; mode?: string | null } | null,
+): boolean {
+  const next: typeof marketplaceNear = point
+    ? {
+        lat: Math.round(point.lat * 100) / 100,
+        lng: Math.round(point.lng * 100) / 100,
+        mode: point.mode === 'rent' || point.mode === 'buy' ? point.mode : null,
+      }
+    : null
+  const same =
+    next === marketplaceNear ||
+    (next != null &&
+      marketplaceNear != null &&
+      next.lat === marketplaceNear.lat &&
+      next.lng === marketplaceNear.lng &&
+      next.mode === marketplaceNear.mode)
+  marketplaceNear = next
+  return !same
+}
+
+export function marketplaceNearHeaders(): Record<string, string> {
+  if (!marketplaceNear) return {}
+  const { lat, lng, mode } = marketplaceNear
+  return { 'X-Browse-Near': [lat, lng, mode].filter((v) => v != null).join(',') }
+}
+
+/**
  * Signed-out marketplace slice (published listings only). /api/bootstrap
  * answers 401 without a session, so guests read this instead.
  */
@@ -121,6 +156,7 @@ export async function fetchPublicMarketplaceFromApi(
   try {
     const res = await fetch(`${API_BASE}/api/public/marketplace${lite ? '' : '?lite=0'}`, {
       signal: ctrl.signal,
+      ...(marketplaceNear ? { headers: marketplaceNearHeaders() } : {}),
     })
     if (!res.ok) return null
     return (await res.json()) as PostgresBootstrap
