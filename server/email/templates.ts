@@ -7,7 +7,20 @@
  * No template ever contains a password. New accounts get a one-time link to
  * choose their own password instead.
  */
-import { appLink, button, details, escapeHtml, layout, note, para } from './layout.js'
+import {
+  appLink,
+  button,
+  buttonText,
+  details,
+  escapeHtml,
+  layout,
+  note,
+  para,
+  propertyCard,
+  propertyCardCompact,
+  propertyCardText,
+  type PropertyCard,
+} from './layout.js'
 import { deliverEmail, type SendResult } from './send.js'
 
 export type Rendered = { subject: string; text: string; html: string }
@@ -28,8 +41,45 @@ export type TemplateData = {
   email_change_notice: Base & { newEmail: string; changedBy?: string }
   password_reset_by_staff: Base & { link: string; resetBy?: string; tempPassword?: string }
   password_changed: Base
-  notification: Base & { title: string; body: string; link?: string | null }
-  notification_digest: Base & { items: Array<{ title: string; body: string; link?: string | null }> }
+  /** card: the property it is about; action: the button (deep link), else link / the dashboard. */
+  notification: Base & { title: string; body: string; link?: string | null; card?: PropertyCard | null; action?: { label: string; href: string } | null }
+  notification_digest: Base & { items: DigestItem[] }
+  /** Agency admins: once a day, the routine updates that were not emailed one by one. */
+  admin_daily_digest: Base & { items: DigestItem[]; agencyName?: string | null }
+}
+
+export type DigestItem = { title: string; body: string; link?: string | null; card?: PropertyCard | null; action?: { label: string; href: string } | null }
+
+const LIST_FONT = `'Outfit', 'Segoe UI', Arial, Helvetica, sans-serif`
+
+/** One row per item: title, text, its property (small) and a link straight to it. */
+function digestRows(items: DigestItem[]): string {
+  return items
+    .map((i) => {
+      const href = i.action?.href ?? i.link ?? null
+      const label = i.action?.label ?? 'Open'
+      return `<tr><td style="padding:12px 0;border-bottom:1px solid #dceaf8;">
+<div style="font-family:${LIST_FONT};font-size:14px;font-weight:700;color:#0f2744;">${escapeHtml(i.title)}</div>
+<div style="font-family:${LIST_FONT};font-size:13px;color:#2f4a6a;line-height:1.5;margin-top:2px;">${escapeHtml(i.body)}</div>${
+        i.card ? propertyCardCompact(i.card) : ''
+      }${
+        href
+          ? `<div style="margin-top:6px;font-family:${LIST_FONT};font-size:13px;"><a href="${escapeHtml(appLink(href))}" target="_blank" style="color:#0B63C8;font-weight:600;text-decoration:underline;">${escapeHtml(label)} &rarr;</a></div>`
+          : ''
+      }</td></tr>`
+    })
+    .join('')
+}
+
+function digestText(items: DigestItem[]): string {
+  return items
+    .map((i) => {
+      const href = i.action?.href ?? i.link ?? null
+      return [`- ${i.title}: ${i.body}`, i.card ? `  ${i.card.title}${i.card.area ? ` (${i.card.area})` : ''}` : '', href ? `  ${i.action?.label ?? 'Open'}: ${appLink(href)}` : '']
+        .filter(Boolean)
+        .join('\n')
+    })
+    .join('\n')
 }
 
 export type TemplateId = keyof TemplateData
@@ -58,15 +108,15 @@ const ROLE_NAMES: Record<string, string> = {
 const render: { [K in TemplateId]: (d: TemplateData[K]) => Rendered } = {
   test: (d) => ({
     subject: 'Lekaya Rentals test email',
-    text: `Hi ${d.name ?? 'there'}, this is a test email from Lekaya Rentals. If you can read it, email is working.`,
-    html: layout('Email is working', hi(d.name) + para('This is a test email from Lekaya Rentals. If you can read it, email is set up correctly.')),
+    text: `Hi ${d.name ?? 'there'}, this is a test email from Lekaya Rentals. If you can read it, email is working.\n\n${buttonText('Open Lekaya Rentals', '/workspace')}`,
+    html: layout('Email is working', hi(d.name) + para('This is a test email from Lekaya Rentals. If you can read it, email is set up correctly.') + button('Open Lekaya Rentals', '/workspace')),
   }),
 
   welcome: (d) => {
     const line = ROLE_LINES[d.role ?? ''] ?? 'Your account is ready. Sign in any time to pick up where you left off.'
     return {
       subject: 'Welcome to Lekaya Rentals',
-      text: `Hi ${d.name ?? 'there'}, welcome to Lekaya Rentals! ${line} Sign in: ${appLink('/login')}`,
+      text: `Hi ${d.name ?? 'there'}, welcome to Lekaya Rentals! ${line}\n\n${buttonText('Go to my dashboard', '/workspace')}`,
       html: layout(
         'Welcome to Lekaya Rentals',
         hi(d.name) +
@@ -213,7 +263,7 @@ const render: { [K in TemplateId]: (d: TemplateData[K]) => Rendered } = {
 
   password_changed: (d) => ({
     subject: 'Your password was changed',
-    text: `Hi ${d.name ?? 'there'}, the password for your Lekaya Rentals account was just changed. If this was not you, reset your password now and contact support.`,
+    text: `Hi ${d.name ?? 'there'}, the password for your Lekaya Rentals account was just changed. If this was not you, reset your password now and contact support.\n\n${buttonText('Reset my password', '/forgot-password')}`,
     html: layout(
       'Your password was changed',
       hi(d.name) +
@@ -224,36 +274,70 @@ const render: { [K in TemplateId]: (d: TemplateData[K]) => Rendered } = {
     ),
   }),
 
-  notification: (d) => ({
-    subject: d.title,
-    text: `Hi ${d.name ?? 'there'}, ${d.title}: ${d.body}${d.link ? ` Open: ${appLink(d.link)}` : ''}`,
-    html: layout(
-      d.title,
-      hi(d.name) + para(escapeHtml(d.body).replace(/\n/g, '<br />')) + (d.link ? button('Open in Lekaya', d.link) : button('Open my dashboard', '/workspace')),
-      { preheader: d.body.slice(0, 120), manageNotifications: true },
-    ),
-  }),
+  notification: (d) => {
+    const action = d.action ?? (d.link ? { label: 'Open in Lekaya', href: d.link } : { label: 'Open my dashboard', href: '/workspace' })
+    return {
+      subject: d.title,
+      text: [
+        `Hi ${d.name ?? 'there'},`,
+        '',
+        `${d.title}: ${d.body}`,
+        d.card ? `\n${propertyCardText(d.card)}` : '',
+        '',
+        buttonText(action.label, action.href),
+      ]
+        .filter((l, i, all) => l !== '' || all[i - 1] !== '')
+        .join('\n'),
+      html: layout(
+        d.title,
+        hi(d.name) + para(escapeHtml(d.body).replace(/\n/g, '<br />')) + (d.card ? propertyCard(d.card) : '') + button(action.label, action.href),
+        { preheader: d.body.slice(0, 120), manageNotifications: true },
+      ),
+    }
+  },
 
   notification_digest: (d) => {
     const items = d.items.slice(0, 10)
     const more = d.items.length - items.length
-    const list = items
-      .map(
-        (i) =>
-          `<tr><td style="padding:10px 0;border-bottom:1px solid #dceaf8;"><div style="font-family:Arial,sans-serif;font-size:14px;font-weight:700;color:#0f2744;">${escapeHtml(i.title)}</div><div style="font-family:Arial,sans-serif;font-size:13px;color:#2f4a6a;line-height:1.5;margin-top:2px;">${escapeHtml(i.body)}</div></td></tr>`,
-      )
-      .join('')
     return {
       subject: `You have ${d.items.length} new updates on Lekaya Rentals`,
-      text: `Hi ${d.name ?? 'there'}, you have ${d.items.length} new updates:\n` + items.map((i) => `- ${i.title}: ${i.body}`).join('\n'),
+      text:
+        `Hi ${d.name ?? 'there'}, you have ${d.items.length} new updates:\n` +
+        digestText(items) +
+        (more > 0 ? `\nAnd ${more} more in your notifications.` : '') +
+        `\n\n${buttonText('See all notifications', '/workspace')}`,
       html: layout(
         `${d.items.length} new updates`,
         hi(d.name) +
           para('Here is what happened since we last wrote:') +
-          `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px;">${list}</table>` +
+          `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px;">${digestRows(items)}</table>` +
           (more > 0 ? note(`And ${more} more in your notifications.`) : '') +
           button('See all notifications', '/workspace'),
         { manageNotifications: true },
+      ),
+    }
+  },
+
+  admin_daily_digest: (d) => {
+    const items = d.items.slice(0, 25)
+    const more = d.items.length - items.length
+    const n = d.items.length
+    const where = d.agencyName ? ` at ${d.agencyName}` : ''
+    return {
+      subject: `Your daily summary: ${n} update${n === 1 ? '' : 's'} on Lekaya Rentals`,
+      text:
+        `Hi ${d.name ?? 'there'}, here ${n === 1 ? 'is the routine update' : `are the ${n} routine updates`}${where} from the last day that did not need you straight away. Anything urgent was emailed to you when it happened.\n` +
+        digestText(items) +
+        (more > 0 ? `\nAnd ${more} more in your notifications.` : '') +
+        `\n\n${buttonText('Open my dashboard', '/workspace')}`,
+      html: layout(
+        'Your daily summary',
+        hi(d.name) +
+          para(`Here ${n === 1 ? 'is the routine update' : `are the ${n} routine updates`}${escapeHtml(where)} from the last day. Your agents handled these; anything that needs your decision was emailed to you when it happened.`) +
+          `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px;">${digestRows(items)}</table>` +
+          (more > 0 ? note(`And ${more} more in your notifications.`) : '') +
+          button('Open my dashboard', '/workspace'),
+        { preheader: `${n} update${n === 1 ? '' : 's'} from your agency on Lekaya Rentals.`, manageNotifications: true },
       ),
     }
   },
@@ -268,6 +352,15 @@ export async function sendTemplateEmail<K extends TemplateId>(id: K, data: Templ
   return deliverEmail({ to: data.to, toName: data.name, subject: r.subject, text: r.text, html: r.html, category: id, userId: data.userId ?? null })
 }
 
+/** Sample property for previews (the public demo listing). */
+export const SAMPLE_CARD: PropertyCard = {
+  title: 'Humewood Beach Apartment B14',
+  area: 'Humewood, Gqeberha · 2 bed · 1 bath',
+  price: 'R 8 500 / month',
+  imageUrl: 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=1072&h=600&fit=crop&q=78',
+  viewUrl: '/listing/PR-1011',
+}
+
 /** Names, descriptions and sample data for the admin preview page. */
 export const TEMPLATE_CATALOG: Array<{ [K in TemplateId]: { id: K; name: string; group: string; description: string; sample: TemplateData[K] } }[TemplateId]> = [
   { id: 'welcome', name: 'Welcome', group: 'Account', description: 'Sent when someone creates an account.', sample: { to: 'thandi@example.com', name: 'Thandi', role: 'tenant' } },
@@ -278,7 +371,8 @@ export const TEMPLATE_CATALOG: Array<{ [K in TemplateId]: { id: K; name: string;
   { id: 'email_change_notice', name: 'Email change requested', group: 'Security', description: 'Sent to the current address when an admin asks to change it.', sample: { to: 'sipho@example.com', name: 'Sipho', newEmail: 'sipho.new@example.com', changedBy: 'Lerato Nkosi' } },
   { id: 'password_reset_by_staff', name: 'Password reset by staff', group: 'Security', description: 'Sent when an admin resets someone’s password: a temporary password that must be changed at the next sign-in.', sample: { to: 'sipho@example.com', name: 'Sipho', link: '/login', tempPassword: 'Sample-Temp-9241', resetBy: 'Horizon Realty' } },
   { id: 'password_changed', name: 'Password changed', group: 'Security', description: 'Security notice after any password change.', sample: { to: 'thandi@example.com', name: 'Thandi' } },
-  { id: 'notification', name: 'Notification', group: 'Notifications', description: 'Every in-app notification is also emailed with this template (people can turn this off).', sample: { to: 'thandi@example.com', name: 'Thandi', title: 'Your viewing is confirmed', body: 'Your viewing at Humewood Beach Apartment B14 is booked for Saturday at 10:00.', link: '/workspace/portals/tenant/viewings' } },
-  { id: 'notification_digest', name: 'Notification summary', group: 'Notifications', description: 'When several notifications arrive together, one summary email is sent instead.', sample: { to: 'thandi@example.com', name: 'Thandi', items: [ { title: 'Application received', body: 'Your application for Humewood B14 was received.' }, { title: 'Document needed', body: 'Please upload your latest payslip.' }, { title: 'Viewing confirmed', body: 'Saturday at 10:00.' } ] } },
+  { id: 'notification', name: 'Notification', group: 'Notifications', description: 'Every in-app notification is also emailed with this template (people can turn this off): the property it is about and a button straight to the item. Agency admins only get the important ones; the rest go into their daily summary.', sample: { to: 'thandi@example.com', name: 'Thandi', title: 'Your viewing is confirmed', body: 'Your viewing at Humewood Beach Apartment B14 is booked for Saturday at 10:00.', link: '/workspace/portals/tenant/viewings', card: SAMPLE_CARD, action: { label: 'See my viewing', href: '/workspace/portals/tenant/viewings' } } },
+  { id: 'notification_digest', name: 'Notification summary', group: 'Notifications', description: 'When several notifications arrive together, one summary email is sent instead.', sample: { to: 'thandi@example.com', name: 'Thandi', items: [ { title: 'Application received', body: 'Your application for Humewood B14 was received.', card: SAMPLE_CARD, action: { label: 'Open my application', href: '/workspace/portals/tenant/applications/APP-1042' } }, { title: 'Document needed', body: 'Please upload your latest payslip.', card: SAMPLE_CARD, action: { label: 'Upload documents', href: '/workspace/portals/tenant/applications/APP-1042?tab=documents' } }, { title: 'Viewing confirmed', body: 'Saturday at 10:00.', action: { label: 'See my viewing', href: '/workspace/portals/tenant/viewings' } } ] } },
+  { id: 'admin_daily_digest', name: 'Daily summary (agency admins)', group: 'Notifications', description: 'Once a day (07:30 SAST cron) to agency admins: the routine updates that were not emailed one by one. Important items are still emailed straight away.', sample: { to: 'lerato@example.com', name: 'Lerato', agencyName: 'Horizon Realty', items: [ { title: 'New application', body: 'Thandi Mokoena applied for Humewood Beach Apartment B14 (Rent).', card: SAMPLE_CARD, action: { label: 'Review the application', href: '/workspace/sales/applications/APP-1042' } }, { title: 'Viewing booked', body: 'Saturday 10:00 with Sipho Dlamini.', card: SAMPLE_CARD, action: { label: 'Open the viewing', href: '/workspace/sales/viewings/property/PR-1011' } }, { title: 'Maintenance job updated', body: 'Leaking geyser: contractor on site.', action: { label: 'Open the job', href: '/workspace/operations/maintenance/TCK-88' } } ] } },
   { id: 'test', name: 'Test email', group: 'System', description: 'Used to check that email is set up.', sample: { to: 'you@example.com', name: 'there' } },
 ]

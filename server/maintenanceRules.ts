@@ -463,7 +463,7 @@ export async function applyTicketRule(
       await deps.query(
         `INSERT INTO notifications (client_id, user_id, title, body, link_path, resource_type, action_type)
          VALUES ($1::uuid, $2::uuid, $3, $4, $5, 'maintenance', 'task')`,
-        [ctx.unit.clientId, ctx.unit.agentId, t.title, t.body, `/workspace/maintenance?ticket=${encodeURIComponent(ctx.reference)}`],
+        [ctx.unit.clientId, ctx.unit.agentId, t.title, t.body, `/workspace/operations/maintenance?ticket=${encodeURIComponent(ctx.reference)}`],
       )
     }
   }

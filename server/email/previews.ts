@@ -4,7 +4,8 @@
  * function inside captureEmails(), so the preview is exactly what goes out.
  */
 import { captureEmails, type OutgoingEmail, type SendResult, deliverEmail } from './send.js'
-import { renderTemplate, TEMPLATE_CATALOG, type TemplateId } from './templates.js'
+import { renderTemplate, SAMPLE_CARD, TEMPLATE_CATALOG, type TemplateId } from './templates.js'
+import { withSampleCard } from './propertyContext.js'
 
 export type EmailPreview = {
   id: string
@@ -21,16 +22,16 @@ type BusinessPreview = { id: string; name: string; group: string; description: s
 async function business(): Promise<BusinessPreview[]> {
   const m = await import('../mailtrap.js')
   return [
-    { id: 'enquiry_confirmation', name: 'Enquiry received', group: 'Enquiries & viewings', description: 'To a visitor after they enquire or book a viewing on a listing.', run: () => m.sendListingEnquiryConfirmation({ email: 'thandi@example.com', firstName: 'Thandi', propertyTitle: 'Humewood Beach Apartment B14', action: 'viewing' }) },
-    { id: 'lead_alert', name: 'New lead for the agent', group: 'Enquiries & viewings', description: 'To the listing agent when a new enquiry comes in (landlord copy only with ALERT_LANDLORDS=1).', run: () => m.sendListingLeadAlert({ agentEmail: 'agent@example.com', agentName: 'James', propertyTitle: 'Humewood Beach Apartment B14', leadName: 'Thandi Mokoena', leadEmail: 'thandi@example.com', leadPhone: '082 555 0101', action: 'lead' }) },
-    { id: 'application_received', name: 'Application received', group: 'Applications', description: 'To the applicant right after they apply.', run: () => m.sendApplicationReceived({ email: 'thandi@example.com', applicantName: 'Thandi', propertyTitle: 'Humewood Beach Apartment B14', referenceCode: 'APP-1042' }) },
-    { id: 'application_approved', name: 'Application approved', group: 'Applications', description: 'To the applicant when the agency approves.', run: () => m.sendApplicationApproved({ email: 'thandi@example.com', applicantName: 'Thandi', propertyTitle: 'Humewood Beach Apartment B14' }) },
-    { id: 'application_declined', name: 'Application declined', group: 'Applications', description: 'To the applicant when the agency declines.', run: () => m.sendApplicationDeclined({ email: 'thandi@example.com', applicantName: 'Thandi', propertyTitle: 'Humewood Beach Apartment B14', reason: 'The property was let to another applicant.' }) },
+    { id: 'enquiry_confirmation', name: 'Enquiry received', group: 'Enquiries & viewings', description: 'To a visitor after they enquire or book a viewing on a listing.', run: () => m.sendListingEnquiryConfirmation({ email: 'thandi@example.com', firstName: 'Thandi', propertyTitle: 'Humewood Beach Apartment B14', action: 'viewing', property: { propertyId: 'PR-1011' } }) },
+    { id: 'lead_alert', name: 'New lead for the agent', group: 'Enquiries & viewings', description: 'To the listing agent when a new enquiry or viewing request comes in (landlord copy only with ALERT_LANDLORDS=1). The button opens the viewing or the lead.', run: () => m.sendListingLeadAlert({ agentEmail: 'agent@example.com', agentName: 'James', propertyTitle: 'Humewood Beach Apartment B14', leadName: 'Thandi Mokoena', leadEmail: 'thandi@example.com', leadPhone: '082 555 0101', action: 'viewing', property: { propertyId: 'PR-1011' }, propertyId: 'PR-1011', bookingId: 'BK-2207' }) },
+    { id: 'application_received', name: 'Application received', group: 'Applications', description: 'To the applicant right after they apply.', run: () => m.sendApplicationReceived({ email: 'thandi@example.com', applicantName: 'Thandi', propertyTitle: 'Humewood Beach Apartment B14', referenceCode: 'APP-1042', property: { applicationId: 'APP-1042' }, applicationId: 'APP-1042' }) },
+    { id: 'application_approved', name: 'Application approved', group: 'Applications', description: 'To the applicant when the agency approves.', run: () => m.sendApplicationApproved({ email: 'thandi@example.com', applicantName: 'Thandi', propertyTitle: 'Humewood Beach Apartment B14', property: { applicationId: 'APP-1042' }, applicationId: 'APP-1042' }) },
+    { id: 'application_declined', name: 'Application declined', group: 'Applications', description: 'To the applicant when the agency declines.', run: () => m.sendApplicationDeclined({ email: 'thandi@example.com', applicantName: 'Thandi', propertyTitle: 'Humewood Beach Apartment B14', reason: 'The property was let to another applicant.', property: { applicationId: 'APP-1042' }, applicationId: 'APP-1042' }) },
     { id: 'verification_decision', name: 'Documents checked', group: 'Account', description: 'To a landlord or contractor when the platform team approves or rejects their documents.', run: () => m.sendVerificationDecision({ email: 'sipho@example.com', firstName: 'Sipho', role: 'landlord', approved: true }) },
     { id: 'payment_receipt', name: 'Payment receipt', group: 'Payments', description: 'After an online payment.', run: () => m.sendPaymentReceipt({ email: 'thandi@example.com', payerName: 'Thandi', paymentId: 'PAY-2291', amountDisplay: 'R 8 500.00', status: 'Paid' }) },
-    { id: 'dunning_notice', name: 'Rent reminder', group: 'Payments', description: 'Rent arrears reminder (when ENABLE_EMAIL_DUNNING is on).', run: () => m.sendDunningNoticeEmail({ email: 'thandi@example.com', tenantName: 'Thandi', title: 'Rent is overdue', body: 'Your rent for October is 5 days late.', stage: 'reminder', propertyTitle: 'Humewood Beach Apartment B14', amountDisplay: 'R 8 500.00', dueDate: '2026-10-01' }) },
-    { id: 'lease_signed', name: 'Lease signed', group: 'Leases', description: 'When every party has signed (when ENABLE_EMAIL_LEASE_SIGNED is on).', run: () => m.sendLeaseSignedEmail({ to: 'thandi@example.com', name: 'Thandi', propertyTitle: 'Humewood Beach Apartment B14', leaseLink: 'https://lekayarentals.site/workspace/portals/tenant/leases' }) },
-    { id: 'lease_end_reminder', name: 'Lease ending', group: 'Leases', description: 'Before a lease ends (when ENABLE_EMAIL_LEASE_REMINDER is on).', run: () => m.sendLeaseEndReminder({ email: 'thandi@example.com', name: 'Thandi', title: 'Your lease ends in 60 days', body: 'Your lease at Humewood Beach Apartment B14 ends on 31 December. Let your agent know if you want to renew.' }) },
+    { id: 'dunning_notice', name: 'Rent reminder', group: 'Payments', description: 'Rent arrears reminder (when ENABLE_EMAIL_DUNNING is on).', run: () => m.sendDunningNoticeEmail({ email: 'thandi@example.com', tenantName: 'Thandi', title: 'Rent is overdue', body: 'Your rent for October is 5 days late.', stage: 'reminder', propertyTitle: 'Humewood Beach Apartment B14', amountDisplay: 'R 8 500.00', dueDate: '2026-10-01', property: { paymentId: 'PAY-2291' } }) },
+    { id: 'lease_signed', name: 'Lease signed', group: 'Leases', description: 'When every party has signed (when ENABLE_EMAIL_LEASE_SIGNED is on).', run: () => m.sendLeaseSignedEmail({ to: 'thandi@example.com', name: 'Thandi', propertyTitle: 'Humewood Beach Apartment B14', leaseLink: 'https://lekayarentals.site/workspace/portals/tenant/leases', property: { leaseId: 'TEN-77' } }) },
+    { id: 'lease_end_reminder', name: 'Lease ending', group: 'Leases', description: 'Before a lease ends (when ENABLE_EMAIL_LEASE_REMINDER is on).', run: () => m.sendLeaseEndReminder({ email: 'thandi@example.com', name: 'Thandi', title: 'Your lease ends in 60 days', body: 'Your lease at Humewood Beach Apartment B14 ends on 31 December. Let your agent know if you want to renew.', leaseId: 'TEN-77', link: '/workspace/leases?tenancy=TEN-77', role: 'LANDLORD' }) },
   ]
 }
 
@@ -41,7 +42,7 @@ async function captureOne(run: () => Promise<unknown>): Promise<OutgoingEmail | 
     const saved = keys.map((k) => process.env[k])
     keys.forEach((k) => (process.env[k] = '1'))
     try {
-      await run()
+      await withSampleCard(SAMPLE_CARD, run)
     } finally {
       keys.forEach((k, i) => (saved[i] === undefined ? delete process.env[k] : (process.env[k] = saved[i])))
     }

@@ -316,7 +316,16 @@ async function notifyLeaseCompletedInApp(lease: LeaseSignRow, tenancyFeId: strin
     if (r.tenant_id) {
       await notifyUsers([r.tenant_id], { clientId: r.client_id, title, body, link: '/workspace/portals/tenant/leases', resource: 'lease', action: 'updated' })
     }
-    await notifyUsers([r.landlord_id, r.agent_id], {
+    // Landlords read signed leases in the owner portal (they cannot open the agency's lease list).
+    await notifyUsers([r.landlord_id], {
+      clientId: r.client_id,
+      title,
+      body,
+      link: '/workspace/portals/owner',
+      resource: 'lease',
+      action: 'updated',
+    }, r.tenant_id)
+    await notifyUsers([r.agent_id], {
       clientId: r.client_id,
       title,
       body,
@@ -363,16 +372,23 @@ export async function notifyLeaseCompleted(lease: LeaseSignRow, tenancyFeId: str
       console.warn('[lease-signed email] skipped: no absolute PUBLIC_APP_URL / PAYFAST_PUBLIC_URL', { tenancyFeId })
       return 0
     }
-    const leaseLink = `${base}/workspace/people/leases?lease=${encodeURIComponent(tenancyFeId)}`
     const propertyTitle = r.property_title || 'your property'
-    const to: Array<{ email: string; name: string | null }> = []
-    if (r.tenant_email) to.push({ email: r.tenant_email, name: r.tenant_name })
-    if (r.landlord_email) to.push({ email: r.landlord_email, name: r.landlord_name })
-    else if (r.agent_email) to.push({ email: r.agent_email, name: r.agent_name })
+    // Each party's own place to read the signed lease.
+    const to: Array<{ email: string; name: string | null; leaseLink: string; audience: 'tenant' | 'landlord' | 'staff' }> = []
+    if (r.tenant_email) to.push({ email: r.tenant_email, name: r.tenant_name, leaseLink: `${base}/workspace/portals/tenant/leases`, audience: 'tenant' })
+    if (r.landlord_email) to.push({ email: r.landlord_email, name: r.landlord_name, leaseLink: `${base}/workspace/portals/owner`, audience: 'landlord' })
+    else if (r.agent_email) to.push({ email: r.agent_email, name: r.agent_name, leaseLink: `${base}/workspace/people/leases?lease=${encodeURIComponent(tenancyFeId)}`, audience: 'staff' })
     let sent = 0
     for (const x of to) {
       try {
-        const res = await sendLeaseSignedEmail({ to: x.email, name: x.name, propertyTitle, leaseLink })
+        const res = await sendLeaseSignedEmail({
+          to: x.email,
+          name: x.name,
+          propertyTitle,
+          leaseLink: x.leaseLink,
+          property: { leaseId: lease.id },
+          audience: x.audience,
+        })
         if (res.sent) sent++
       } catch {
         /* best effort */

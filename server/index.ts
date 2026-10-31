@@ -1733,6 +1733,7 @@ app.post('/api/public/listing-enquiry', async (c) => {
         email: String(body.email ?? ''),
         firstName: String(body.firstName ?? '').trim(),
         action: body.action === 'viewing' ? 'viewing' : 'lead',
+        property: { unitUuid: result.unitId ?? null },
       })
     }
     // Agent (+ landlord when resolvable) alert — same fire-and-forget contract.
@@ -1750,6 +1751,10 @@ app.post('/api/public/listing-enquiry', async (c) => {
             leadPhone: body.phone ? String(body.phone).trim() : undefined,
             action: body.action === 'viewing' ? 'viewing' : 'lead',
             ...(noteAppended ? { repeatNote: noteAppended } : {}),
+            property: { unitUuid: result.unitId ?? null },
+            leadId: result.leadId ?? null,
+            bookingId: result.bookingId ?? null,
+            propertyId: String(body.propertyId ?? '') || null,
           })
         }
       } catch (alertErr) {
@@ -2067,6 +2072,8 @@ app.post('/api/applications/:id/approve', async (c) => {
             email: applicant.email,
             applicantName: applicant.first_name,
             propertyTitle: applicant.unit_title ?? undefined,
+            property: { applicationId: result.applicationUuid },
+            applicationId,
           })
         }
       } catch (emailErr) {
@@ -2104,14 +2111,16 @@ app.post('/api/notify/application-received', async (c) => {
     if (!ref) {
       return c.json({ error: 'reference_required' }, 400)
     }
-    if (!databaseConfigured()) {
+    if (!databaseConfigured) {
       return c.json({ ok: true, emailed: false, reason: 'no_database' }, 202)
     }
     const rows = await query<{
+      id: string
+      fe_id: string | null
       applicant_id: string | null
       db_email: string | null
     }>(
-      `SELECT a.applicant_id::text AS applicant_id,
+      `SELECT a.id::text AS id, a.metadata->>'frontend_id' AS fe_id, a.applicant_id::text AS applicant_id,
               COALESCE(u.email, a.metadata->>'applicant_email') AS db_email
          FROM applications a
          LEFT JOIN users u ON u.id = a.applicant_id
@@ -2144,6 +2153,8 @@ app.post('/api/notify/application-received', async (c) => {
         applicantName: body.applicantName ? String(body.applicantName).trim() : undefined,
         propertyTitle: body.propertyTitle ? String(body.propertyTitle).trim() : undefined,
         referenceCode: ref,
+        property: { applicationId: row.id },
+        applicationId: row.fe_id || ref,
       })
     }
     return c.json({ ok: true }, 202)
@@ -2151,6 +2162,30 @@ app.post('/api/notify/application-received', async (c) => {
     return c.json({ ok: true }, 202)
   }
 })
+
+/**
+ * The application's uuid when `email` is its applicant's address, else null:
+ * the decision emails only show a property card (and its photo) to the
+ * applicant of that application.
+ */
+async function applicationOfRecipient(applicationId: unknown, email: string): Promise<string | null> {
+  const ref = typeof applicationId === 'string' ? applicationId.trim() : ''
+  if (!ref || !email || !databaseConfigured) return null
+  try {
+    const uuid = (await resolveUuid('application', ref).catch(() => null)) ?? null
+    const rows = await query<{ id: string }>(
+      `SELECT a.id::text AS id
+         FROM applications a LEFT JOIN users u ON u.id = a.applicant_id
+        WHERE (a.id = $1::uuid OR a.reference_code = $2 OR a.metadata->>'frontend_id' = $2)
+          AND lower(COALESCE(u.email, a.metadata->>'applicant_email', '')) = lower($3)
+        LIMIT 1`,
+      [uuid ?? '00000000-0000-0000-0000-000000000000', ref, email],
+    )
+    return rows[0]?.id ?? null
+  } catch {
+    return null
+  }
+}
 
 app.post('/api/notify/application-declined', async (c) => {
   try {
@@ -2172,11 +2207,13 @@ app.post('/api/notify/application-declined', async (c) => {
       const rl = tooManyRequests(gate.retryAfterSec)
       return c.json(rl.body, rl.status, rl.headers)
     }
+    const own = await applicationOfRecipient(body.applicationId, email)
     void sendApplicationDeclined({
       email,
       applicantName: body.applicantName?.trim(),
       propertyTitle: body.propertyTitle?.trim(),
       reason: body.reason?.trim(),
+      ...(own ? { property: { applicationId: own }, applicationId: body.applicationId } : {}),
     })
     return c.json({ ok: true }, 202)
   } catch {
@@ -2203,10 +2240,12 @@ app.post('/api/notify/application-approved', async (c) => {
       const rl = tooManyRequests(gate.retryAfterSec)
       return c.json(rl.body, rl.status, rl.headers)
     }
+    const own = await applicationOfRecipient(body.applicationId, email)
     void sendApplicationApproved({
       email,
       applicantName: body.applicantName?.trim(),
       propertyTitle: body.propertyTitle?.trim(),
+      ...(own ? { property: { applicationId: own }, applicationId: body.applicationId } : {}),
     })
     return c.json({ ok: true }, 202)
   } catch {
@@ -2250,7 +2289,21 @@ app.post('/api/notify/dunning-notice', async (c) => {
       const rl = tooManyRequests(gate.retryAfterSec)
       return c.json(rl.body, rl.status, rl.headers)
     }
+    let duePayment: string | null = null
+    if (body.paymentId && databaseConfigured) {
+      // Property card only when the payment is this tenant's.
+      const uuid = await resolveUuid('payment', String(body.paymentId)).catch(() => null)
+      const rows = uuid
+        ? await query<{ id: string }>(
+            `SELECT p.id::text AS id FROM payments p JOIN users u ON u.id = p.party_user_id
+              WHERE p.id = $1::uuid AND lower(u.email) = lower($2) LIMIT 1`,
+            [uuid, email],
+          ).catch(() => [])
+        : []
+      duePayment = rows[0]?.id ?? null
+    }
     void sendDunningNoticeEmail({
+      ...(duePayment ? { property: { paymentId: duePayment } } : {}),
       email,
       tenantName: body.tenantName ? String(body.tenantName).trim() : undefined,
       title: String(body.title ?? 'Rent notice').trim() || 'Rent notice',

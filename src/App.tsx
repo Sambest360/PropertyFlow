@@ -173,6 +173,12 @@ function RedirectPropertyAsset() {
   return <Navigate to={`/workspace/properties/${id}`} replace />
 }
 
+/** Lead notifications (and their emails) link /sales/crm/leads/:id; the page is /sales/crm/:id. */
+function RedirectLeadAlias() {
+  const { id } = useParams()
+  return <Navigate to={`/workspace/sales/crm/${encodeURIComponent(id ?? '')}`} replace />
+}
+
 export default function App() {
   return (
     <ThemeProvider>
@@ -366,6 +372,7 @@ export default function App() {
                     </CanonicalIdRedirect>
                   }
                 />
+                <Route path="sales/crm/leads/:id" element={<RedirectLeadAlias />} />
                 <Route path="sales/pipeline" element={<Navigate to="/workspace/sales/crm?view=board" replace />} />
                 <Route path="sales/applications" element={<Guard permission="applications.view"><Applications /></Guard>} />
                 <Route

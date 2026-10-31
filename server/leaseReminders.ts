@@ -49,7 +49,16 @@ export type LeaseReminderDeps = {
   withTransaction: <T>(fn: (client: TxClient) => Promise<T>) => Promise<T>
   resolveFrontendId: (type: 'user' | 'tenancy', backendId: string) => Promise<string | null>
   resolveUuid: (type: 'user', frontendId: string) => Promise<string | null>
-  sendEmail?: (input: { email: string; name?: string; title: string; body: string }) => Promise<unknown>
+  sendEmail?: (input: {
+    email: string
+    name?: string
+    title: string
+    body: string
+    /** For the property card, the button and email routing (server/email/routing.ts). */
+    leaseId?: string
+    link?: string
+    role?: string
+  }) => Promise<unknown>
   emailEnabled?: () => boolean
   todayIso?: () => string
   log?: (msg: string, err?: unknown) => void
@@ -318,7 +327,7 @@ async function processLease(lease: LeaseRow, today: string, deps: LeaseReminderD
     band,
   })
   const tenancyFe = (await deps.resolveFrontendId('tenancy', lease.id)) ?? lease.id
-  const linkPath = `/leases?tenancy=${encodeURIComponent(tenancyFe)}`
+  const linkPath = `/workspace/leases?tenancy=${encodeURIComponent(tenancyFe)}`
 
   const inserted = await deps.withTransaction(async (client) => {
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [key])
@@ -358,7 +367,7 @@ async function processLease(lease: LeaseRow, today: string, deps: LeaseReminderD
     for (const r of recipients) {
       if (!r.email) continue
       try {
-        await deps.sendEmail({ email: r.email, name: r.first_name ?? undefined, ...copy })
+        await deps.sendEmail({ email: r.email, name: r.first_name ?? undefined, ...copy, leaseId: lease.id, link: linkPath, role: r.role })
       } catch (err) {
         ;(deps.log ?? defaultLog)(`[lease-reminders] email failed for lease ${lease.id}`, err)
       }
@@ -521,7 +530,7 @@ async function processInspectionLease(lease: InspectionLeaseRow, today: string, 
       for (const r of recipients) {
         if (!r.email) continue
         try {
-          await deps.sendEmail({ email: r.email, name: r.first_name ?? undefined, ...copy })
+          await deps.sendEmail({ email: r.email, name: r.first_name ?? undefined, ...copy, leaseId: lease.id, link: linkPath, role: r.role })
         } catch (err) {
           ;(deps.log ?? defaultLog)(`[lease-reminders] inspection email failed for lease ${lease.id}`, err)
         }

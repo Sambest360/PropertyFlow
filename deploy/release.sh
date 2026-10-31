@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-step release on the server: backup, pull, add-only migrations, build, restart.
+# One-step release on the server: backup, pull, add-only migrations, build, crons, restart.
 #   cd /var/www/propertyflow && git pull && bash deploy/release.sh
 # Migrations listed below must be add-only and safe to run again (IF NOT EXISTS).
 set -euo pipefail
@@ -31,6 +31,9 @@ done
 echo "== Build"
 npm ci
 NODE_OPTIONS=--max-old-space-size=2048 npx vite build
+
+echo "== Crons"
+bash deploy/crons.sh
 
 echo "== Restart"
 pm2 restart propertyflow-api

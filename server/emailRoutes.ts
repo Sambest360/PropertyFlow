@@ -164,4 +164,27 @@ export function registerEmailRoutes(app: Hono): void {
     const { emailPendingNotifications } = await import('./notificationMailer.js')
     return c.json(await emailPendingNotifications())
   })
+
+  /** Daily summary email for agency admins (see server/email/routing.ts). */
+  app.get('/api/cron/admin-digest', async (c) => {
+    const secret = process.env.CRON_SECRET
+    if (!secret) return c.json({ error: 'cron_disabled' }, 503)
+    if (c.req.header('authorization') !== `Bearer ${secret}`) return c.json({ error: 'unauthorized' }, 401)
+    const { sendAdminDailyDigests } = await import('./notificationMailer.js')
+    return c.json(await sendAdminDailyDigests())
+  })
+
+  /** A listing's cover photo, resized, for the property card in emails (read-only). */
+  app.get('/api/email/photo/:file', async (c) => {
+    const { emailPhoto } = await import('./email/photoRoute.js')
+    const r = await emailPhoto(c.req.param('file'), c.req.query('s')).catch(() => ({ status: 404 as const }))
+    if (r.status !== 200) return c.body(null, 404, { 'Cache-Control': 'public, max-age=300' })
+    return new Response(new Uint8Array(r.body), {
+      headers: {
+        'Content-Type': 'image/jpeg',
+        'Cache-Control': 'public, max-age=604800',
+        'X-Content-Type-Options': 'nosniff',
+      },
+    })
+  })
 }
