@@ -17,6 +17,12 @@ export type NearestOrigin = {
   /** Suburb / city names for ordering listings that have no coordinates. */
   suburbs?: readonly string[]
   cities?: readonly string[]
+  /**
+   * The point the marketplace list is fetched around (server picks the nearest
+   * listings). Unset when the origin is derived from the loaded listings
+   * themselves, so a refetch cannot move it.
+   */
+  fetchPoint?: GeoPoint
 }
 
 export type NearestRankable = {

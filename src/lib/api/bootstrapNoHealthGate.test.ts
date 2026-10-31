@@ -54,4 +54,18 @@ describe('postgres bootstrap client', () => {
     expect(calls.map((c) => c.url)).toEqual(['/api/public/marketplace'])
     expect(calls[0]!.init?.headers).toBeUndefined()
   })
+
+  it('nearest-first browse: only the rounded point, in a header (never the URL), until cleared', async () => {
+    const { fetchPublicMarketplaceFromApi, setMarketplaceNearPoint } = await import('./postgresClient')
+    expect(setMarketplaceNearPoint({ lat: -33.98456, lng: 25.58321, mode: 'rent' })).toBe(true)
+    expect(setMarketplaceNearPoint({ lat: -33.9849, lng: 25.5801, mode: 'rent' })).toBe(false)
+    calls.length = 0
+    await fetchPublicMarketplaceFromApi()
+    expect(calls.map((c) => c.url)).toEqual(['/api/public/marketplace'])
+    expect(calls[0]!.init?.headers).toEqual({ 'X-Browse-Near': '-33.98,25.58,rent' })
+    expect(setMarketplaceNearPoint(null)).toBe(true)
+    calls.length = 0
+    await fetchPublicMarketplaceFromApi()
+    expect(calls[0]!.init?.headers).toBeUndefined()
+  })
 })

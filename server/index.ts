@@ -158,6 +158,7 @@ app.use(
       'X-User-Id',
       'X-Role',
       'X-Agency-Id',
+      'X-Browse-Near',
     ],
     exposeHeaders: ['Content-Type'],
   }),
@@ -919,6 +920,21 @@ app.get('/api/public/marketplace', async (c) => {
           })) as unknown as Record<string, unknown>,
       })
       return c.json(out.body, out.status)
+    }
+    // Nearest-first browse: with a point (header, rounded to ~1 km, never
+    // logged), the nearest published units instead of the newest window.
+    const { BROWSE_NEAR_HEADER, nearestPublicUnitIds, parseNearHeader } = await import('./marketplaceNear.js')
+    const near = parseNearHeader(c.req.header(BROWSE_NEAR_HEADER))
+    if (near) {
+      c.header('Cache-Control', 'private, no-store')
+      c.header('Vary', BROWSE_NEAR_HEADER)
+      const unitIds = await nearestPublicUnitIds(near)
+      const nearData = await buildBootstrap({
+        lite,
+        unitIds,
+        limits: { messages: 1, notifications: 1, leads: 1, applications: 1, tickets: 1, payments: 1, documents: 1 },
+      })
+      return c.json(filterBootstrapForGuest(nearData as unknown as Record<string, unknown>))
     }
     const data = await buildBootstrap({
       lite,

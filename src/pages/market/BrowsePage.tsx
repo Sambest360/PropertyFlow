@@ -38,6 +38,8 @@ import {
   type Place,
 } from '../../lib/placeCatalog'
 import { geocodeAddress } from '../../lib/api/geocoding'
+import { setMarketplaceNearPoint } from '../../lib/api/postgresClient'
+import { hasMappedCoordinates } from '../../lib/mapCoords'
 import { isLoadSheddingFreeListing } from '../../lib/loadShedding'
 import { matchesBrowseMode } from '../../lib/browseMode'
 import { hasModeFilters, matchesModeFilters, translateFiltersForMode } from '../../lib/browseFilterModes'
@@ -436,11 +438,12 @@ export default function BrowsePage() {
    */
   const nearestOrigin = useMemo((): NearestOrigin | null => {
     if (savedOnly) return null
-    if (near) return { points: [near], source: 'address' }
+    if (near) return { points: [near], source: 'address', fetchPoint: near }
     const device: NearestOrigin | null = deviceLoc
       ? {
           points: [deviceLoc],
           source: 'device',
+          fetchPoint: deviceLoc,
           suburbs: nearestPlaces(deviceLoc.lat, deviceLoc.lng, { limit: 1, maxKm: 5 }).map((p) => p.label),
         }
       : null
@@ -451,9 +454,11 @@ export default function BrowsePage() {
     if (searched.length) {
       const points = areaOriginPoints(searched, rankables)
       if (points.length) {
+        const centre = searched.find((p) => hasMappedCoordinates(p))
         return {
           points,
           source: 'area',
+          fetchPoint: centre ? { lat: centre.lat, lng: centre.lng } : undefined,
           suburbs: searched.filter((p) => p.kind === 'suburb').map((p) => p.label),
           cities: searched.filter((p) => p.kind === 'city').map((p) => p.label),
         }
@@ -461,6 +466,16 @@ export default function BrowsePage() {
     }
     return device
   }, [savedOnly, near, deviceLoc, filters.sort, cards, toNearestRankable, areaPlaces, textQ])
+
+  // Fetch the nearest listings from the server once the first load has settled
+  // (newest 60 otherwise), so "Show more" keeps going nearest-first past them.
+  const fetchLat = nearestOrigin?.fetchPoint?.lat
+  const fetchLng = nearestOrigin?.fetchPoint?.lng
+  useEffect(() => {
+    if (savedOnly || !state.publicMarketplaceSettled) return
+    const point = fetchLat != null && fetchLng != null ? { lat: fetchLat, lng: fetchLng, mode } : null
+    if (setMarketplaceNearPoint(point)) void refreshMarketplaceListings({ force: true })
+  }, [savedOnly, state.publicMarketplaceSettled, fetchLat, fetchLng, mode, refreshMarketplaceListings])
 
   /** Nearest first by default once we know where the visitor is; an explicit price / newest / beds sort wins. */
   const nearestActive = Boolean(nearestOrigin) && (filters.sort === 'nearest' || filters.sort === 'featured')
