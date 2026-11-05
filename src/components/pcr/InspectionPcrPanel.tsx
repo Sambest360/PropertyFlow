@@ -44,6 +44,25 @@ const CONDITIONS: ItemCondition[] = [
   'missing',
 ]
 
+const CONDITION_LABEL: Record<ItemCondition, string> = {
+  not_checked: 'Not checked',
+  excellent: 'Excellent',
+  good: 'Good',
+  fair: 'Fair',
+  poor: 'Poor',
+  damaged: 'Damaged',
+  missing: 'Missing',
+}
+const CONDITION_TONE: Record<ItemCondition, 'neutral' | 'success' | 'warning' | 'danger'> = {
+  not_checked: 'neutral',
+  excellent: 'success',
+  good: 'success',
+  fair: 'warning',
+  poor: 'warning',
+  damaged: 'danger',
+  missing: 'danger',
+}
+
 function nowIso() {
   return new Date().toISOString()
 }
@@ -125,6 +144,23 @@ export function InspectionPcrPanel({
     if (!inspection || !canReview) return
     const next = updateItemNotes(inspection, roomId, itemId, patch, nowIso())
     persist(next, 'Item updated.')
+  }
+
+  /** One tap: every unchecked item (in one room, or everywhere) becomes Good. */
+  const markRemainingGood = (roomId?: string) => {
+    if (!inspection || !canReview) return
+    const now = nowIso()
+    let next = inspection
+    let n = 0
+    for (const room of inspection.rooms) {
+      if (roomId && room.id !== roomId) continue
+      for (const item of room.items) {
+        if (item.condition !== 'not_checked') continue
+        next = updateItemNotes(next, room.id, item.id, { condition: 'good' }, now)
+        n++
+      }
+    }
+    if (n) persist(next, `${n} item${n === 1 ? '' : 's'} marked Good. Change any that differ.`)
   }
 
   // Photos are shrunk, uploaded to photo storage and saved as a link: a raw
@@ -325,6 +361,15 @@ export function InspectionPcrPanel({
               />
             </label>
 
+            {canReview && !allChecked ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-primary-100 bg-primary-50/40 px-3 py-2">
+                <p className="text-xs text-ink-600">Tap a condition for each item. Most items are usually fine:</p>
+                <Button type="button" size="sm" variant="secondary" onClick={() => markRemainingGood()}>
+                  Mark all unchecked items Good
+                </Button>
+              </div>
+            ) : null}
+
             <div className="space-y-3">
               {inspection.rooms.map((room) => (
                 <details key={room.id} className="rounded-xl border border-primary-100 bg-white p-3" open={room === inspection.rooms[0]}>
@@ -334,27 +379,38 @@ export function InspectionPcrPanel({
                       ({room.items.filter((i) => i.condition !== 'not_checked').length}/{room.items.length})
                     </span>
                   </summary>
+                  {canReview && room.items.some((i) => i.condition === 'not_checked') ? (
+                    <button type="button" className="mt-2 text-xs font-semibold text-primary" onClick={() => markRemainingGood(room.id)}>
+                      Mark the rest of this room Good
+                    </button>
+                  ) : null}
                   <ul className="mt-3 space-y-3">
                     {room.items.map((item) => (
                       <li key={item.id} className="rounded-lg border border-primary-50 bg-primary-50/20 p-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <p className="text-sm font-medium text-ink">{item.label}</p>
-                          <select
-                            className="rounded-lg border border-primary-100 bg-white px-2 py-1 text-xs"
-                            value={item.condition}
-                            disabled={!canReview}
-                            onChange={(e) =>
-                              patchItem(room.id, item.id, {
-                                condition: e.target.value as ItemCondition,
-                              })
-                            }
-                          >
-                            {CONDITIONS.map((c) => (
-                              <option key={c} value={c}>
-                                {c}
-                              </option>
-                            ))}
-                          </select>
+                          {item.condition !== 'not_checked' ? (
+                            <Badge tone={CONDITION_TONE[item.condition]}>{CONDITION_LABEL[item.condition]}</Badge>
+                          ) : null}
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-1.5" role="radiogroup" aria-label={`Condition of ${item.label}`}>
+                          {CONDITIONS.filter((c) => c !== 'not_checked').map((c) => (
+                            <button
+                              key={c}
+                              type="button"
+                              role="radio"
+                              aria-checked={item.condition === c}
+                              disabled={!canReview}
+                              onClick={() => patchItem(room.id, item.id, { condition: item.condition === c ? 'not_checked' : c })}
+                              className={
+                                item.condition === c
+                                  ? 'min-h-9 rounded-full bg-primary px-3 text-xs font-semibold text-white'
+                                  : 'min-h-9 rounded-full border border-primary-100 bg-white px-3 text-xs font-medium text-ink-600 hover:bg-primary-50 disabled:opacity-60'
+                              }
+                            >
+                              {CONDITION_LABEL[c]}
+                            </button>
+                          ))}
                         </div>
                         <textarea
                           className="mt-2 w-full rounded-lg border border-primary-100 bg-white px-2 py-1.5 text-xs"

@@ -1,4 +1,5 @@
 import { LeaseSignCard } from '../../components/lease/LeaseSignCard'
+import { TenantPcrSignOff } from '../../components/pcr/TenantPcrSignOff'
 import { useMemo, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowRight, CheckCircle2, FileText, Home, KeyRound, MapPin, MessageSquare } from 'lucide-react'
@@ -495,6 +496,12 @@ export default function TenantApplicationDetailPage() {
                 }}
               />
             ) : null}
+            <TenantPcrSignOff
+              application={application}
+              tenantName={user.name || application.applicantName}
+              tenantUserId={user.id}
+              onSave={(patch) => updateApplication(application.id, patch)}
+            />
             <TenantApplicationDetailsForm
               application={application}
               onSave={(patch) => updateApplication(application.id, patch)}

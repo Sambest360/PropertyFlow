@@ -269,10 +269,45 @@ async function assertOwnSlotBooking(actor: DemoActor, slotFe: string): Promise<v
 /** Agency records on the application; an applicant's write never sets them. */
 const AGENCY_ONLY_FIELDS = ['pcrInspections', 'purchaseClosing', 'blockReason', 'blockedAt'] as const
 
+/**
+ * The one PCR change an applicant may make: their own sign-off on an inspection
+ * the agent finished (every item checked). Everything else in the stored
+ * inspections is kept as stored. Returns null when nothing of theirs changed.
+ */
+export function mergeApplicantPcrSignOff(stored: unknown, sent: unknown, actor: { userId: string }): Row[] | null {
+  if (!Array.isArray(stored) || !Array.isArray(sent)) return null
+  let changed = false
+  const out = (stored as Row[]).map((ins) => {
+    const mine = (sent as Row[]).find((x) => x && x.id === ins.id)
+    const sig = mine?.tenantSignature as Row | undefined
+    if (!sig || ins.tenantSignature) return ins
+    const rooms = Array.isArray(ins.rooms) ? (ins.rooms as Row[]) : []
+    const unchecked = rooms.some((r) => (Array.isArray(r.items) ? (r.items as Row[]) : []).some((i) => i.condition === 'not_checked'))
+    if (unchecked) return ins
+    changed = true
+    const now = new Date().toISOString()
+    return {
+      ...ins,
+      tenantSignature: {
+        role: 'tenant',
+        signedByUserId: actor.userId,
+        signedByName: str(sig.signedByName) ?? 'Tenant',
+        signedAt: now,
+        method: 'in_app_ack',
+        note: str(sig.note) ?? 'Tenant signed off in the tenant portal (I agree checkbox, ECTA s13).',
+      },
+      updatedAt: now,
+    }
+  })
+  return changed ? out : null
+}
+
 /** Locked non-workflow fields: unchanged -> dropped, changed -> 403. */
 async function enforceLockedFields(actor: DemoActor, data: Row, meta: Row | null): Promise<void> {
+  const pcr = mergeApplicantPcrSignOff(meta?.pcrInspections, data.pcrInspections, actor)
   // The applicant's client sends its whole copy back; drop (not refuse) these.
   for (const k of AGENCY_ONLY_FIELDS) delete data[k]
+  if (pcr) data.pcrInspections = pcr
   if (Object.prototype.hasOwnProperty.call(data, 'applicantUserId')) {
     const sent = data.applicantUserId
     if (sent != null && sent !== '' && sent !== actor.userId) {

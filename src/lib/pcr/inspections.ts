@@ -1,6 +1,6 @@
 /**
  * Mode A PCR inspection lifecycle — create, items/photos/notes, soft sign / no-show override.
- * Sets `ingoingPcrSigned` when staff+tenant soft-ack OR documented no-show + admin override.
+ * Sets `ingoingPcrSigned` when the agent signs off (tenant sign-off is recorded too) OR documented no-show + admin override.
  */
 
 import type { Application } from '../../types/domain'
@@ -255,7 +255,9 @@ function uncheckedItemsError(inspection: PropertyConditionInspection): string | 
 function recomputeIngoingSigned(inspection: PropertyConditionInspection): boolean {
   if (inspection.kind !== 'incoming') return false
   if (inspection.noShowOverride) return true
-  return Boolean(inspection.staffSignature && inspection.tenantSignature)
+  // For now the agent's sign-off is enough for the application to continue;
+  // the tenant signs off too (tenant portal) before the lease, but it no longer blocks.
+  return Boolean(inspection.staffSignature)
 }
 
 /** Staff soft sign / ack (in-app). */
