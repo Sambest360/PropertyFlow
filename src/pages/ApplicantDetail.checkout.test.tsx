@@ -14,7 +14,6 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Application, PaymentRecord } from '../types/domain'
 import { buildDocumentChecklist } from '../lib/workflow'
-import { AGENT_PAY_LABEL } from '../lib/payfast/applicationCheckout'
 
 const STAFF = { id: 'u-staff', role: 'agent_admin', name: 'Staff', email: 's@test.example', agencyId: 'ag-1' }
 const mock = vi.hoisted(() => ({
@@ -189,7 +188,7 @@ async function approve() {
 
 const flashCard = () => host.querySelector('[data-testid="checkout-row-PAY-dep"]')?.closest('ul')?.parentElement ?? null
 
-describe('applicant page: approve flash pays only persisted, same-agency rows', () => {
+describe('applicant page: approve flash lists only persisted, same-agency rows', () => {
   it('C1/C2/A1: rows the approval saved, own agency, exact on-behalf label with payments.manage', async () => {
     seed([
       pay({ id: 'PAY-dep', type: 'Deposit', amount: 37000 }),
@@ -203,10 +202,10 @@ describe('applicant page: approve flash pays only persisted, same-agency rows', 
     await approve()
     const card = flashCard()
     expect(card, 'checkout card in the approve flash').not.toBeNull()
-    const buttons = Array.from(card!.querySelectorAll('button'))
-    expect(buttons.map((b) => b.textContent?.trim())).toEqual([AGENT_PAY_LABEL, AGENT_PAY_LABEL])
-    expect(card!.querySelector('[data-testid="pay-PAY-dep"]')).not.toBeNull()
-    expect(card!.querySelector('[data-testid="pay-PAY-rent"]')).not.toBeNull()
+    // No online payment: the rows are listed, without Pay buttons.
+    expect(card!.querySelectorAll('button')).toHaveLength(0)
+    expect(card!.querySelector('[data-testid="checkout-row-PAY-dep"]')).not.toBeNull()
+    expect(card!.querySelector('[data-testid="checkout-row-PAY-rent"]')).not.toBeNull()
     // C1: a Due row this approval did not persist is never offered.
     expect(host.querySelector('[data-testid="checkout-row-PAY-stale"]')).toBeNull()
     // C2: same agency only, this application only.
@@ -226,6 +225,6 @@ describe('applicant page: approve flash pays only persisted, same-agency rows', 
     const card = flashCard()
     expect(card).not.toBeNull()
     expect(card!.querySelectorAll('button')).toHaveLength(0)
-    expect(card!.textContent).toContain('The applicant pays from their portal')
+    expect(card!.textContent).toContain('uploads proof of payment')
   })
 })

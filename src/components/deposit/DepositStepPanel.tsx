@@ -31,6 +31,7 @@ export function DepositStepPanel({
   actorName,
   onSave,
   onReviewProof,
+  alwaysShow = false,
 }: {
   application: Application
   agency: Agency | undefined
@@ -42,6 +43,8 @@ export function DepositStepPanel({
   onReviewProof?: (
     decision: { approve: true; amount: number } | { approve: false; reason: string },
   ) => Promise<{ ok: boolean; error?: string }>
+  /** Show even before the old workflow reaches the deposit (the Deposit stage). */
+  alwaysShow?: boolean
 }) {
   const banking = application.depositRequest?.banking ?? agency?.settings?.depositBanking ?? {}
   const [amount, setAmount] = useState(String(application.depositRequest?.amount ?? depositAmount ?? ''))
@@ -55,7 +58,7 @@ export function DepositStepPanel({
   const [declining, setDeclining] = useState(false)
   const [declineReason, setDeclineReason] = useState('')
   const [paidConfirmed, setPaidConfirmed] = useState(false)
-  if (!depositStepVisible(application)) return null
+  if (!alwaysShow && !depositStepVisible(application)) return null
   const req = application.depositRequest
   const proof = application.depositProof
 

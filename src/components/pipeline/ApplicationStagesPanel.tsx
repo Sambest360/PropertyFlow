@@ -305,10 +305,24 @@ function CurrentStage({
 
       {ownActions ? null : declining ? (
         <div className="space-y-2 rounded-xl border border-rose-200 bg-rose-50 p-3">
-          <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why is the application declined? The applicant sees this." />
+          <Textarea
+            rows={2}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder={stage.kind === 'deposit' ? 'Why is the proof of payment declined? The tenant sees this and uploads a new one.' : 'Why is the application declined? The applicant sees this.'}
+          />
           <div className="flex gap-2">
-            <Button size="sm" variant="danger" disabled={busy || !reason.trim()} onClick={() => void onDecline(stage, reason.trim())}>
-              Decline application
+            <Button
+              size="sm"
+              variant="danger"
+              disabled={busy || !reason.trim()}
+              onClick={() => {
+                void onDecline(stage, reason.trim())
+                setDeclining(false)
+                setReason('')
+              }}
+            >
+              {stage.kind === 'deposit' ? 'Decline proof of payment' : 'Decline application'}
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setDeclining(false)}>
               Cancel

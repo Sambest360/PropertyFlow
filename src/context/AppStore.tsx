@@ -6161,7 +6161,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             userId: app.applicantUserId,
             agencyId: app.agencyId,
             title: 'Application approved',
-            body: `Checkout ready via ${ok.checkout?.provider ?? 'PayFast'}. Pay deposit to proceed.`,
+            body: 'Your application was approved. Pay the deposit by EFT and upload your proof of payment.',
             at: new Date().toISOString(),
             read: false,
             link: '/workspace/portals/tenant',

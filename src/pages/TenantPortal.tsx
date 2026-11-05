@@ -12,7 +12,6 @@ import {
 import { Link, Navigate, useLocation } from 'react-router-dom'
 import { usePublicProperties, useStore } from '../context/AppStore'
 import { useAuth } from '../context/AuthContext'
-import { startPayfastCheckout } from '../lib/payfast/checkout'
 import { RequirePermission } from '../components/RequirePermission'
 import {
   AttentionHero,
@@ -77,31 +76,13 @@ export default function TenantPortal() {
 function TenantPortalContent() {
   const { state, setDocumentStatus, hydratedForUserId, updatePayment } = useStore()
   const publicProperties = usePublicProperties()
-  const { user, has, authReady } = useAuth()
+  const { user, authReady } = useAuth()
   const dashboardPending =
     authReady && user.id !== 'guest' && hydratedForUserId !== user.id
   const location = useLocation()
   const view = resolveTenantView(location.pathname)
   const portal = useTenantPortalState()
   const { ids: wishlistIds } = useWishlist(user.id)
-  const [payBusyId, setPayBusyId] = useState<string | null>(null)
-  const [payError, setPayError] = useState<string | null>(null)
-
-  /** Portal Pay button: launches PayFast checkout; ledger settles via ITN. */
-  const handlePortalPay = async (id: string) => {
-    if (payBusyId) return
-    setPayBusyId(id)
-    setPayError(null)
-    const result = await startPayfastCheckout(id, {
-      itemName: `Lekaya · ${state.payments.find((p) => p.id === id)?.type ?? 'Payment'}`,
-    })
-    if (!result.ok) {
-      setPayBusyId(null)
-      setPayError(result.userMessage ?? 'Checkout could not be started.')
-    }
-    // On success the browser navigates to PayFast's hosted page.
-  }
-
   const wishlistProperties = useMemo(
     () =>
       publicProperties.filter((p) => wishlistIds.includes(p.id) && !portal.blockedIds.has(p.id)),
@@ -195,19 +176,8 @@ function TenantPortalContent() {
           </div>
         ) : view === 'payments' ? (
           <div data-tip-target="tenant-payments" className="space-y-5">
-            {payError && (
-              <p
-                className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-                role="alert"
-              >
-                {payError}
-              </p>
-            )}
             <PaymentsPanel
               payments={portal.payments}
-              onPay={handlePortalPay}
-              canPay={has('payments.manage')}
-              payBusyId={payBusyId}
               expanded
               onSubmitProof={(paymentId, input) => {
                 const cur = portal.payments.find((x) => x.id === paymentId)
@@ -222,14 +192,6 @@ function TenantPortalContent() {
           </div>
         ) : (
           <>
-            {payError && (
-              <p
-                className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-                role="alert"
-              >
-                {payError}
-              </p>
-            )}
             {view === 'home' && (
               <>
                 {portal.occupancyReady && portal.tenancy && portal.property?.advertiseWhileOccupied && (
@@ -334,12 +296,7 @@ function TenantPortalContent() {
                       properties={state.properties}
                       onUpload={(appId, key) => setDocumentStatus(appId, key, 'uploaded')}
                     />
-                    <PaymentsPanel
-                      payments={portal.payments}
-                      onPay={handlePortalPay}
-                      canPay={has('payments.manage')}
-                      payBusyId={payBusyId}
-                    />
+                    <PaymentsPanel payments={portal.payments} />
                   </div>
                 )}
               </>
@@ -501,17 +458,11 @@ function OccupancyQuickLinks({
 
 function PaymentsPanel({
   payments,
-  onPay,
-  canPay,
-  payBusyId,
   expanded,
   onSubmitProof,
   uploaderName,
 }: {
   payments: ReturnType<typeof useTenantPortalState>['payments']
-  onPay: (id: string) => void
-  canPay: boolean
-  payBusyId: string | null
   expanded?: boolean
   onSubmitProof?: (paymentId: string, input: import('../components/payments/ProofOfPaymentForm').ProofInput) => void
   uploaderName?: string
@@ -521,6 +472,9 @@ function PaymentsPanel({
   return (
     <Card className="p-5">
       <h2 className="font-display text-lg font-semibold">{expanded ? 'Payments' : 'Payments due'}</h2>
+      {expanded ? (
+        <p className="mt-1 text-sm text-ink-500">Pay the agency by EFT, then upload your proof of payment here. The agency confirms it.</p>
+      ) : null}
       <ul className="mt-3 space-y-2">
         {list.map((p) => (
           <li key={p.id} className="rounded-xl bg-primary-50 px-3 py-2 text-sm">
@@ -541,15 +495,10 @@ function PaymentsPanel({
               <span className="tabular font-semibold">{formatZAR(p.amount)}</span>
               {p.status === 'Paid' ? (
                 <Badge tone="success">Paid</Badge>
-              ) : canPay ? (
-                <Button
-                  size="sm"
-                  className="cursor-pointer"
-                  disabled={payBusyId === p.id}
-                  onClick={() => void onPay(p.id)}
-                >
-                  {payBusyId === p.id ? 'Opening…' : 'Pay'}
-                </Button>
+              ) : !expanded ? (
+                <Link to="/workspace/portals/tenant/payments" className="text-xs font-semibold text-primary hover:underline">
+                  Upload proof
+                </Link>
               ) : (
                 <Badge tone="warning">{p.status}</Badge>
               )}

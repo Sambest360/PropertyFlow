@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CreditCard, Upload } from 'lucide-react'
+import { Upload } from 'lucide-react'
 import type { PaymentRecord } from '../../types/domain'
 import { formatZAR } from '../../data/seed'
 import { Badge, Button, Card, statusTone } from '../ui'
@@ -11,11 +11,9 @@ const ICON_STROKE = 1.6
 export function TenantApplicationPaymentsPanel({
   payments,
   onSubmitProof,
-  onOpenCheckout,
 }: {
   payments: PaymentRecord[]
   onSubmitProof: (paymentId: string, input: ProofInput) => void
-  onOpenCheckout?: () => void
 }) {
   const [activeId, setActiveId] = useState<string | null>(null)
 
@@ -34,16 +32,9 @@ export function TenantApplicationPaymentsPanel({
         <div>
           <h2 className="font-display text-lg font-semibold text-ink">Payments</h2>
           <p className="mt-1 text-sm text-ink-500">
-            Pay the agency directly, then record your reference here. The agency verifies before your
-            application advances.
+            Pay the agency by EFT, then upload your proof of payment here. The agency confirms it.
           </p>
         </div>
-        {onOpenCheckout ? (
-          <Button type="button" className="min-h-11 cursor-pointer" onClick={onOpenCheckout}>
-            <CreditCard className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-            Pay online
-          </Button>
-        ) : null}
       </div>
 
       <ul className="mt-4 space-y-3">

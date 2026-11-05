@@ -1,89 +1,53 @@
-import { useMemo, useRef, useState } from 'react'
-import { CreditCard } from 'lucide-react'
+import { useState } from 'react'
+import { CreditCard, Upload } from 'lucide-react'
 import { Badge, Button, Card } from '../ui'
 import { formatZAR } from '../../data/seed'
 import type { PaymentRecord } from '../../types/domain'
-import { startPayfastCheckout } from '../../lib/payfast/checkout'
-import {
-  AGENT_PAY_LABEL,
-  APPLICANT_PAYS_COPY,
-  SALE_DEPOSIT_EFT_COPY,
-  createCheckoutLauncher,
-  isOpenRow,
-  isPayableOnline,
-  outstandingTotal,
-  paymentTypeLabel,
-  rowStateLabel,
-  type StartCheckout,
-} from '../../lib/payfast/applicationCheckout'
+import { isOpenRow, outstandingTotal, rowStateLabel } from '../../lib/payfast/applicationCheckout'
+import { ProofOfPaymentForm, type ProofInput } from './ProofOfPaymentForm'
 
 /**
- * Pay card for one application (open-checkout-real).
+ * Payments for one application. There is no online card payment: the payer
+ * pays the agency by EFT and uploads proof of payment; the agency checks it
+ * and marks the payment paid.
  *
- * `rows` must be LIVE ledger rows from the store, already filtered with
- * applicationLedgerRows (this application; tenant: own rows only). Every row is
- * listed with its state; a Pay button appears only on Due/Overdue rows. A click
- * sends only that row's id to POST /api/payfast/create; the server signs and
- * reads the amount from the ledger, then the browser posts the signed form to
- * PayFast in the same tab. With no rows the card renders nothing.
+ * `rows` are live ledger rows from the store, already filtered with
+ * applicationLedgerRows (this application; tenant: own rows only).
  */
 export function ApplicationCheckoutCard({
   rows,
   mode,
-  canPay,
-  start = startPayfastCheckout,
+  onSubmitProof,
+  uploaderName,
 }: {
   rows: readonly PaymentRecord[]
   mode: 'tenant' | 'agent'
-  /** Tenant: their own rows. Staff: payments.manage (same gate as Mark paid). */
-  canPay: boolean
-  start?: StartCheckout
+  /** Kept for callers: payments are no longer paid online. */
+  canPay?: boolean
+  /** Tenant: upload proof of payment for a row. */
+  onSubmitProof?: (paymentId: string, input: ProofInput) => void
+  uploaderName?: string
 }) {
-  const startRef = useRef(start)
-  startRef.current = start
-  const launch = useMemo(() => createCheckoutLauncher((id, opts) => startRef.current(id, opts)), [])
-  const [busyId, setBusyId] = useState<string | null>(null)
-  const [errors, setErrors] = useState<Record<string, string>>({})
-
+  const [proofFor, setProofFor] = useState<string | null>(null)
   if (rows.length === 0) return null
 
   const total = outstandingTotal(rows)
   const anyOpen = rows.some(isOpenRow)
 
-  const onPay = (p: PaymentRecord) => {
-    if (busyId) return
-    const pending = launch(p)
-    setBusyId(p.id)
-    setErrors((e) => {
-      if (!(p.id in e)) return e
-      const next = { ...e }
-      delete next[p.id]
-      return next
-    })
-    void pending.then((r) => {
-      if (r === null) return // already starting / navigating
-      if (!r.ok) {
-        setErrors((e) => ({ ...e, [p.id]: r.userMessage || 'We could not start the PayFast checkout.' }))
-        setBusyId((b) => (b === p.id ? null : b))
-      }
-      // ok: the browser is leaving for PayFast; keep the buttons held.
-    })
-  }
-
   return (
     <Card className="p-5">
       <div className="flex items-center gap-2">
         <CreditCard className="h-4 w-4 text-primary" strokeWidth={1.6} aria-hidden />
-        <h3 className="font-display text-base font-semibold">
-          {mode === 'agent' ? 'Applicant payments' : 'Your payments'}
-        </h3>
+        <h3 className="font-display text-base font-semibold">{mode === 'agent' ? 'Applicant payments' : 'Your payments'}</h3>
       </div>
+      <p className="mt-1 text-sm text-ink-500">
+        {mode === 'agent'
+          ? 'The applicant pays by EFT and uploads proof of payment. Check it, then mark the payment paid.'
+          : 'Pay the agency by EFT, then upload your proof of payment. The agency confirms it.'}
+      </p>
       <ul className="mt-4 divide-y divide-primary-100/70">
         {rows.map((p) => {
-          const payable = isPayableOnline(p)
-          const saleEft = isOpenRow(p) && p.type === 'Sale Deposit' && !payable
-          const typeLabel = paymentTypeLabel(p.type)
-          const isBusy = busyId === p.id
+          const proof = Boolean(p.attachments?.length || p.reference)
           return (
             <li key={p.id} data-testid={`checkout-row-${p.id}`} className="py-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -93,29 +57,24 @@ export function ApplicationCheckoutCard({
                 </div>
                 {p.status === 'Paid' ? <Badge tone="success">Paid</Badge> : null}
                 {p.status === 'Cancelled' ? <Badge tone="neutral">Cancelled</Badge> : null}
-                {payable && canPay ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    data-testid={`pay-${p.id}`}
-                    disabled={busyId !== null}
-                    aria-busy={isBusy ? true : undefined}
-                    aria-label={
-                      mode === 'agent'
-                        ? `${AGENT_PAY_LABEL}: ${typeLabel} ${formatZAR(p.amount)}`
-                        : undefined
-                    }
-                    onClick={() => onPay(p)}
-                  >
-                    {mode === 'agent' ? AGENT_PAY_LABEL : `Pay ${String(p.type).toLowerCase()} · ${formatZAR(p.amount)}`}
+                {isOpenRow(p) && proof ? <Badge tone="warning">Proof uploaded</Badge> : null}
+                {mode === 'tenant' && isOpenRow(p) && !proof && onSubmitProof ? (
+                  <Button type="button" size="sm" variant="secondary" data-testid={`proof-${p.id}`} onClick={() => setProofFor(proofFor === p.id ? null : p.id)}>
+                    <Upload className="h-3.5 w-3.5" aria-hidden /> Upload proof of payment
                   </Button>
                 ) : null}
               </div>
-              {saleEft ? <p className="mt-1 text-xs text-ink-500">{SALE_DEPOSIT_EFT_COPY}</p> : null}
-              {errors[p.id] ? (
-                <p role="alert" className="mt-2 text-xs text-accent-700">
-                  {errors[p.id]}
-                </p>
+              {proofFor === p.id && onSubmitProof ? (
+                <div className="mt-2">
+                  <ProofOfPaymentForm
+                    uploadedByName={uploaderName}
+                    onSubmit={(input) => {
+                      onSubmitProof(p.id, input)
+                      setProofFor(null)
+                    }}
+                    onCancel={() => setProofFor(null)}
+                  />
+                </div>
               ) : null}
             </li>
           )
@@ -126,9 +85,6 @@ export function ApplicationCheckoutCard({
           <span className="text-ink-500">Total outstanding</span>
           <span className="tabular font-semibold">{formatZAR(total)}</span>
         </p>
-      ) : null}
-      {mode === 'agent' && !canPay && anyOpen ? (
-        <p className="mt-2 text-xs text-ink-500">{APPLICANT_PAYS_COPY}</p>
       ) : null}
     </Card>
   )

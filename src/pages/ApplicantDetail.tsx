@@ -39,12 +39,13 @@ import type { HateoasAction } from '../lib/api/contracts'
 import type { WorkflowActionCapture } from '../lib/workflowActionForms'
 import type { PropertyEvent } from '../types/domain'
 import { sweetWarning } from '../lib/sweetAlert'
+import { openApplicationDocumentFile } from '../lib/applicationDocumentFile'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
 import { ApplicationStagesPanel, type StageApproveInput } from '../components/pipeline/ApplicationStagesPanel'
 import { useAgencyPipeline } from '../hooks/useApplicationPipeline'
 import type { PipelineStage, StageRecord } from '../lib/pipeline/applicationPipeline'
 import { workflowProgress, workflowStageLabel, type WorkflowStatusKey } from '../lib/applicationWorkflow'
-import { STATUS_AFTER_APPROVAL, effectiveStageRecords } from '../lib/pipeline/stageProgress'
+import { STATUS_AFTER_APPROVAL, currentStage, effectiveStageRecords } from '../lib/pipeline/stageProgress'
 import { applicationPassesScreeningSoftGate } from '../lib/screening'
 import { findInspection } from '../lib/pcr'
 import { LeaseSignCard } from '../components/lease/LeaseSignCard'
@@ -83,6 +84,8 @@ export default function ApplicantDetail() {
     notify,
     issueLeasePackage,
     updateTenancy,
+    markPaymentPaid,
+    updatePayment,
   } = useStore()
   const { user, has } = useAuth()
   const { dealVisible, role } = usePropertyScope()
@@ -98,15 +101,19 @@ export default function ApplicantDetail() {
   const pipeline = useAgencyPipeline(application?.agencyId)
   const [stageBusy, setStageBusy] = useState(false)
   const [moveInDraft, setMoveInDraft] = useState<string | null>(null)
+  const [depositDraft, setDepositDraft] = useState<string | null>(null)
   const [keyPlaceDraft, setKeyPlaceDraft] = useState<string | null>(null)
   useMarkOpened('application', application?.id)
   // Opening the application counts as opening its compliance (document check) item.
   useMarkOpened('compliance', application?.id)
 
   const tabParam = params.get('tab')
-  const tab: ApplicantDetailTab = isApplicantDetailTab(tabParam)
+  const askedTab: ApplicantDetailTab = isApplicantDetailTab(tabParam)
     ? tabParam
     : DEFAULT_APPLICANT_DETAIL_TAB
+  // Rentals (staff): the stages on Overview are the application, so there is no separate Application tab.
+  const tab: ApplicantDetailTab =
+    askedTab === 'application' && application?.type === 'Rental' && has('applications.review') ? 'overview' : askedTab
   const setTab = (next: string) => {
     const sp = new URLSearchParams(params)
     if (next === DEFAULT_APPLICANT_DETAIL_TAB) sp.delete('tab')
@@ -483,6 +490,10 @@ export default function ApplicantDetail() {
         })
         return
       }
+      if (stage.kind === 'deposit') {
+        await approveDeposit(input.records, input.notes)
+        return
+      }
       if (stage.kind === 'lease') {
         saveStageApproval(stage, input.records, record, 'inspection_scheduled')
         tellApplicant('Your lease is signed', 'Your lease is signed by everyone. Next: the move-in inspection and your keys.')
@@ -501,6 +512,10 @@ export default function ApplicantDetail() {
   }
 
   const declineStage = async (stage: PipelineStage, reason: string) => {
+    if (stage.kind === 'deposit') {
+      declineDeposit(reason)
+      return
+    }
     setStageBusy(true)
     try {
       const prevStage = application.stage
@@ -523,43 +538,75 @@ export default function ApplicantDetail() {
   }
 
   const depositStage = pipeline.stages.find((s) => s.kind === 'deposit')
-  const reviewDepositProof = async (
-    decision: { approve: true; amount: number } | { approve: false; reason: string },
-  ): Promise<{ ok: boolean; error?: string }> => {
-    const proof = application.depositProof
-    if (!proof) return { ok: false, error: 'There is no proof of payment yet.' }
-    const now = new Date().toISOString()
-    if (decision.approve === false) {
-      updateApplication(application.id, {
-        depositProof: { ...proof, status: 'declined', declineReason: decision.reason, reviewedAt: now, reviewedByName: user.name },
-      })
-      tellApplicant('Proof of payment declined', `Your deposit proof of payment was declined: ${decision.reason}. Please upload a new one.`)
-      return { ok: true }
+  // The deposit invoice raised on approval; the tenant may upload proof on it (Payments) or on the Deposit step.
+  const depositPayments = state.payments.filter(
+    (p) => p.applicationId === application.id && (p.type === 'Deposit' || p.type === 'Sale Deposit') && p.status !== 'Cancelled',
+  )
+  const depositProofFiles = [
+    ...(application.depositProof && application.depositProof.status !== 'declined'
+      ? [{ name: application.depositProof.name, mimeType: application.depositProof.mimeType, dataUrl: application.depositProof.dataUrl, at: application.depositProof.uploadedAt }]
+      : []),
+    ...depositPayments.flatMap((p) => (p.attachments ?? []).map((a) => ({ name: a.name, mimeType: a.mimeType, dataUrl: a.dataUrl, at: a.uploadedAt }))),
+  ]
+  const depositDefault =
+    depositPayments[0]?.amount ?? application.depositRequest?.amount ?? application.depositProof?.amount ?? Number((property as { deposit?: number } | undefined)?.deposit ?? 0)
+  const depositAmountText = depositDraft ?? (depositDefault ? String(depositDefault) : '')
+
+  /** Approve the deposit: held in Trust & Banking, invoice marked paid, stage approved. */
+  const approveDeposit = async (records: Record<string, StageRecord>, notes: string): Promise<boolean> => {
+    const amount = Number(depositAmountText)
+    if (!Number.isFinite(amount) || amount <= 0) {
+      await sweetWarning('Amount needed', 'Enter the deposit amount that reached the account.')
+      return false
     }
-    const expected = application.depositRequest?.amount ?? decision.amount
     const held = await upsertHeldDeposit({
       agencyId: application.agencyId,
       actorUserId: user.id,
       occupancyId: linkedTenancy?.id ?? application.id,
-      expectedCents: Math.round(expected * 100),
-      heldCents: Math.round(decision.amount * 100),
+      expectedCents: Math.round((depositDefault || amount) * 100),
+      heldCents: Math.round(amount * 100),
     })
-    if (!held.ok) return { ok: false, error: held.error ?? 'Trust & Banking could not record the deposit.' }
-    updateApplication(application.id, {
-      depositProof: { ...proof, status: 'approved', amount: decision.amount, reviewedAt: now, reviewedByName: user.name, declineReason: undefined },
-    })
+    if (!held.ok) {
+      await sweetWarning('Not saved', held.error ?? 'Trust & Banking could not record the deposit.')
+      return false
+    }
+    for (const p of depositPayments) {
+      if (p.status !== 'Paid') {
+        markPaymentPaid(p.id, { method: 'EFT', paidAmount: amount, notes: 'Deposit approved in the application stages.', recordedByUserId: user.id, recordedByName: user.name })
+      }
+    }
+    if (application.depositProof) {
+      updateApplication(application.id, {
+        depositProof: { ...application.depositProof, status: 'approved', amount, reviewedAt: new Date().toISOString(), reviewedByName: user.name, declineReason: undefined },
+      })
+    }
     if (depositStage) {
       saveStageApproval(
         depositStage,
-        effectiveStageRecords(pipeline, application),
-        stageRecord('approved', { notes: `Deposit of R ${decision.amount.toLocaleString('en-ZA')} approved and recorded in Trust & Banking.` }),
+        records,
+        stageRecord('approved', { notes: notes || `Deposit of R ${amount.toLocaleString('en-ZA')} received and recorded in Trust & Banking.` }),
         'deposit_verified',
       )
     }
     tellApplicant('Deposit received', 'Your deposit was received. Next: your lease, which you can read and sign in the app.')
-    return { ok: true }
+    return true
   }
 
+  /** Decline the deposit proof: the tenant uploads a new one (the application carries on). */
+  const declineDeposit = (reason: string) => {
+    const now = new Date().toISOString()
+    if (application.depositProof) {
+      updateApplication(application.id, {
+        depositProof: { ...application.depositProof, status: 'declined', declineReason: reason, reviewedAt: now, reviewedByName: user.name },
+      })
+    }
+    for (const p of depositPayments) {
+      if (p.status !== 'Paid' && p.attachments?.length) {
+        updatePayment(p.id, { attachments: [], notes: `Proof of payment declined: ${reason}. Please upload a new one.` })
+      }
+    }
+    tellApplicant('Proof of payment declined', `Your deposit proof of payment was declined: ${reason}. Please upload a new one.`)
+  }
   const sendLease = async () => {
     if (!linkedTenancy) return
     setStageBusy(true)
@@ -616,6 +663,29 @@ export default function ApplicantDetail() {
           ) : (
             <p className="text-sm text-amber-800">Waiting for the applicant to accept the offer. You can send the deposit details now.</p>
           )}
+          <div className="space-y-2 rounded-xl border border-primary-100 bg-white p-3">
+            <p className="text-sm font-semibold text-ink">Proof of payment</p>
+            {depositProofFiles.length ? (
+              <ul className="space-y-1">
+                {depositProofFiles.map((f, i) => (
+                  <li key={`${f.name}-${i}`} className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="min-w-0 flex-1 truncate text-ink">{f.name}</span>
+                    {f.at ? <span className="text-xs text-ink-500">{new Date(f.at).toLocaleDateString('en-ZA')}</span> : null}
+                    <button type="button" className="text-xs font-semibold text-primary hover:underline" onClick={() => openApplicationDocumentFile(f)}>
+                      View
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-amber-800">No proof uploaded yet. Approve only once you have confirmed the money is in the account.</p>
+            )}
+            <label className="block text-sm">
+              <span className="mb-1 block text-xs font-semibold text-ink-500">Amount received (R)</span>
+              <Input type="number" className="w-48" value={depositAmountText} onChange={(e) => setDepositDraft(e.target.value)} />
+            </label>
+            <p className="text-xs text-ink-500">Approve records the deposit as held in Trust &amp; Banking and marks the deposit invoice paid. Decline asks the tenant for a new proof.</p>
+          </div>
           <DepositStepPanel
             application={application}
             agency={state.agencies.find((a) => a.id === application.agencyId)}
@@ -623,7 +693,7 @@ export default function ApplicantDetail() {
             mode="staff"
             actorName={user.name}
             onSave={(patch) => updateApplication(application.id, patch)}
-            onReviewProof={reviewDepositProof}
+            alwaysShow
           />
           <AssignRoomCard
             application={application}
@@ -708,7 +778,8 @@ export default function ApplicantDetail() {
     { id: 'documents', label: 'Documents', count: application.documents.length },
     { id: 'residences', label: 'Residences', count: residences.length },
     { id: 'blocks', label: 'Blocks', count: blocks.length },
-    { id: 'application', label: 'Application' },
+    // Rentals: the stages on Overview are the application; the Application tab is for purchases.
+    ...(application.type === 'Rental' && !isTenant ? [] : [{ id: 'application', label: 'Application' }]),
     { id: 'history', label: 'History', count: historyEvents.length },
   ]
 
@@ -778,9 +849,13 @@ export default function ApplicantDetail() {
               onDecline={declineStage}
               stageBody={stageBody}
               approveBlocked={approveBlocked}
-              ownActions={(s) => s.kind === 'deposit'}
               onUploadDocument={(key, file) => uploadApplicationDocument(application.id, key, file, { userId: user.id, name: user.name })}
             />
+            {linkedTenancy && currentStage(pipeline, application).stage?.kind !== 'lease' ? (
+              <div className="mt-4">
+                <LeaseSignCard tenancy={linkedTenancy} party={linkedTenancy.eSign?.landlord ? 'landlord' : 'tenant'} title="Lease agreement" staff />
+              </div>
+            ) : null}
           </div>
         )}
         {tab === 'overview' && (

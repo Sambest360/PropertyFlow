@@ -103,6 +103,9 @@ export function TenantApplicationSteps({
           )
         })}
       </ol>
+      {tenancy?.eSign?.envelopeId && stages[at]?.kind !== 'lease' ? (
+        <LeaseSignCard tenancy={tenancy} party="tenant" title="Your lease agreement" />
+      ) : null}
       {!stopped && at >= stages.length ? (
         <p className="rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-900">Your tenancy is active. Welcome home.</p>
       ) : null}

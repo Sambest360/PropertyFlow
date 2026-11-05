@@ -74,7 +74,6 @@ export default function PrivacyPage() {
           items={[
             'The agency, landlord or contractor involved in your enquiry, application, tenancy or maintenance job, limited to what they need.',
             'A screening or credit check provider, if an agency runs a check through a provider, and only for checks you consented to.',
-            'PayFast, to process payments (we do not store full card details).',
             'Our email provider, to deliver messages, and Google Maps, to show maps and look up addresses.',
             'Our hosting provider, which stores the platform and its database.',
             'Authorities, when the law requires it.',

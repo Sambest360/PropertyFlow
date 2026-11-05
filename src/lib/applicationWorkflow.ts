@@ -428,7 +428,7 @@ export const RENTAL_WORKFLOW: WorkflowTemplate = {
       guard: (app) => approveLeaseSoftGate(app),
     },
     { from: 'deposit_invoice_sent', to: 'deposit_paid', actionKey: 'CONFIRM_DEPOSIT_PAID', label: 'Confirm deposit paid', hint: 'Payment received on platform or EFT', tone: 'secondary', requires: ['applications.review'] },
-    { from: 'deposit_invoice_sent', to: 'deposit_paid', actionKey: 'OPEN_CHECKOUT', label: 'Pay deposit online', hint: 'Open PayFast / Peach checkout', tone: 'primary', requires: ['portal.tenant'], effect: 'open_checkout' },
+    { from: 'deposit_invoice_sent', to: 'deposit_paid', actionKey: 'OPEN_CHECKOUT', label: 'Upload proof of payment', hint: 'Pay by EFT, then upload proof of payment', tone: 'primary', requires: ['portal.tenant'], effect: 'open_checkout' },
     { from: 'deposit_paid', to: 'deposit_verified', actionKey: 'VERIFY_DEPOSIT', label: 'Verify deposit', hint: 'Finance confirms cleared funds', tone: 'secondary', requires: ['applications.review'] },
     { from: 'deposit_verified', to: 'first_rent_paid', actionKey: 'CONFIRM_FIRST_RENT', label: "Confirm first month's rent", hint: 'First rental payment received', tone: 'secondary', requires: ['applications.review'] },
     { from: 'first_rent_paid', to: 'rent_verified', actionKey: 'VERIFY_RENT', label: 'Verify rent payment', hint: 'Finance clears first month', tone: 'secondary', requires: ['applications.review'] },

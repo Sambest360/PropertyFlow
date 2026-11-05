@@ -26,7 +26,7 @@ export function PaymentDetailHeader({
   canMaintain: boolean
   canSelfPay: boolean
   onMarkPaid: () => void
-  /** Present when online checkout is available for this viewer. */
+  /** The payer uploads their proof of payment (EFT / cash deposit slip). */
   onPayOnline?: () => void
   payOnlineBusy?: boolean
   onCancel: () => void
@@ -62,20 +62,18 @@ export function PaymentDetailHeader({
         <ActionButtonRow className="sm:w-auto">
           {(canMaintain || canSelfPay) && open ? (
             <>
-              {onPayOnline && (canSelfPay || canMaintain) ? (
-                <Button
-                  className="min-h-11 gap-2"
-                  onClick={onPayOnline}
-                  disabled={payOnlineBusy}
-                >
+              {onPayOnline && canSelfPay && !canMaintain ? (
+                <Button className="min-h-11 gap-2" onClick={onPayOnline} disabled={payOnlineBusy}>
                   <CreditCard className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                  {payOnlineBusy ? 'Opening PayFast…' : 'Pay with PayFast'}
+                  Upload proof of payment
                 </Button>
               ) : null}
-              <Button className="min-h-11 gap-2" onClick={onMarkPaid}>
-                <CheckCircle2 className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                Mark paid
-              </Button>
+              {canMaintain ? (
+                <Button className="min-h-11 gap-2" onClick={onMarkPaid}>
+                  <CheckCircle2 className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                  Mark paid
+                </Button>
+              ) : null}
               {canMaintain ? (
                 <>
                   {onSendDunning ? (

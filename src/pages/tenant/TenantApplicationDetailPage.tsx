@@ -3,7 +3,7 @@ import { DepositStepPanel } from '../../components/deposit/DepositStepPanel'
 import { TenantApplicationSteps } from '../../components/tenant/TenantApplicationSteps'
 import { useAgencyPipeline } from '../../hooks/useApplicationPipeline'
 import { applicationStopped, currentStage } from '../../lib/pipeline/stageProgress'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowRight, CheckCircle2, FileText, Home, KeyRound, MapPin, MessageSquare } from 'lucide-react'
 import { useStore, usePublicProperties } from '../../context/AppStore'
@@ -24,14 +24,7 @@ import { TenantApplicationPaymentsPanel } from '../../components/tenant/TenantAp
 import { Badge, Button, Card, statusTone } from '../../components/ui'
 import { getApplicantTasks } from '../../lib/applicantPortalActions'
 import { ownTenancyForApplication } from '../../lib/tenantOccupancy'
-import { resolveWorkflowStatus } from '../../lib/applicationWorkflow'
-import { guidedTransitionError } from '../../lib/api/applicationStatusApi'
-import { ApplicationCheckoutCard } from '../../components/payments/ApplicationCheckoutCard'
-import { TENANT_NO_ROWS_COPY, applicationLedgerRows } from '../../lib/payfast/applicationCheckout'
-import { sweetError } from '../../lib/sweetAlert'
 import { hideBackendUuid, labelOrReference } from '../../lib/displayIds'
-import type { HateoasAction } from '../../lib/api/contracts'
-import type { WorkflowActionCapture } from '../../lib/workflowActionForms'
 import { formatZAR } from '../../data/seed'
 
 const ICON_STROKE = 1.6
@@ -47,7 +40,6 @@ export default function TenantApplicationDetailPage() {
     uploadApplicationDocument,
     updateApplication,
     updatePayment,
-    advanceApplicationWorkflow,
     captureApplicationScreeningConsent,
   } = useStore()
   const { user, authReady } = useAuth()
@@ -107,9 +99,6 @@ export default function TenantApplicationDetailPage() {
     [application, payments],
   )
 
-  // open-checkout-real: OPEN_CHECKOUT only reveals the pay card over the LIVE
-  // ledger rows (own rows only); nothing is invented.
-  const [checkoutOpen, setCheckoutOpen] = useState(false)
   const pipeline = useAgencyPipeline(application?.agencyId)
 
 
@@ -141,52 +130,11 @@ export default function TenantApplicationDetailPage() {
     return <Navigate to="/workspace/portals/tenant/applications" replace />
   }
 
-  const workflowStatus = resolveWorkflowStatus(application)
   // The summary follows the agency's stages (the same steps listed below).
   const pipelineStages = pipeline.stages.filter((s) => s.enabled)
   const here = currentStage(pipeline, application)
   const stopped = applicationStopped(application, here.records) || application.offerResponse?.status === 'declined'
   const progress = stopped ? 0 : Math.round((here.index / Math.max(1, pipelineStages.length)) * 100)
-
-  const runAction = async (action: HateoasAction, capture?: WorkflowActionCapture) => {
-    const workflowTarget = action.payload_hint?.workflowStatus as string | undefined
-    const effect = action.payload_hint?.effect as string | undefined
-
-    if (workflowTarget && action.key !== 'OPEN_CHECKOUT') {
-      const result = await advanceApplicationWorkflow({
-        applicationId: application.id,
-        actorUserId: user.id,
-        targetStatus: workflowTarget as import('../../lib/applicationWorkflow').WorkflowStatusKey,
-        signature: capture
-          ? {
-              signatureDataUrl: capture.signatureDataUrl,
-              method: capture.signatureMethod,
-              onBehalfConfirmation: capture.onBehalfConfirmation,
-              ectaConsent: capture.ectaConsent,
-              signerName: capture.signerName,
-            }
-          : undefined,
-      })
-      if ('application' in result && result.status === 'SUCCESS') {
-        setCheckoutOpen(false)
-      } else if ('error' in result && result.error) {
-        // P0-1 (R4): actionable copy instead of a raw engine error alert.
-        void sweetError('Action not available', guidedTransitionError(result))
-      }
-      return
-    }
-
-    if (action.key === 'OPEN_CHECKOUT' || effect === 'open_checkout') {
-      setCheckoutOpen(true)
-      setTab('payments')
-    }
-  }
-
-  // C2: the applicant only sees (and can only pay) rows raised against them.
-  const checkoutRows = applicationLedgerRows(state.payments, {
-    applicationId: application.id,
-    viewer: { mode: 'tenant', userId: user.id },
-  })
 
   const milestones = pipelineStages
   const stepIndex = here.index
@@ -514,16 +462,6 @@ export default function TenantApplicationDetailPage() {
           </div>
         ) : null}
 
-        {tab === 'payments' && checkoutOpen && (
-          <div className="mb-5" data-testid="tenant-checkout">
-            {checkoutRows.length > 0 ? (
-              <ApplicationCheckoutCard mode="tenant" canPay rows={checkoutRows} />
-            ) : (
-              <p className="rounded-xl bg-primary-50 px-3 py-2 text-sm text-ink-600">{TENANT_NO_ROWS_COPY}</p>
-            )}
-          </div>
-        )}
-
         {tab === 'payments' && (
           <TenantApplicationPaymentsPanel
             payments={payments}
@@ -535,19 +473,6 @@ export default function TenantApplicationDetailPage() {
                 recordedByUserId: user.id,
                 recordedByName: user.name,
               })
-            }
-            onOpenCheckout={
-              workflowStatus === 'deposit_invoice_sent' || workflowStatus === 'deposit_requested'
-                ? () =>
-                    void runAction({
-                      key: 'OPEN_CHECKOUT',
-                      label: 'Pay online',
-                      method: 'PATCH',
-                      href: '',
-                      requires: ['portal.tenant'],
-                      payload_hint: { effect: 'open_checkout' },
-                    })
-                : undefined
             }
           />
         )}

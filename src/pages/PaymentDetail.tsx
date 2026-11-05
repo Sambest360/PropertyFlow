@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react'
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { startPayfastCheckout } from '../lib/payfast/checkout'
+import { ProofOfPaymentForm } from '../components/payments/ProofOfPaymentForm'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { RequirePermission } from '../components/RequirePermission'
 import { DashboardTabs } from '../components/dashboard/DashboardTabs'
-import { Card } from '../components/ui'
+import { Card, Modal } from '../components/ui'
 import { PaymentDetailHeader } from '../components/payment-detail/PaymentDetailHeader'
 import { PaymentOverviewPanel } from '../components/payment-detail/PaymentOverviewPanel'
 import { PaymentDocumentsPanel } from '../components/payment-detail/PaymentDocumentsPanel'
@@ -29,8 +29,8 @@ export default function PaymentDetail() {
   const alert = useSuiteAlert()
 
   const [markPaidOpen, setMarkPaidOpen] = useState(false)
-  const [payOnlineBusy, setPayOnlineBusy] = useState(false)
-  const [payOnlineError, setPayOnlineError] = useState<string | null>(null)
+  const [proofOpen, setProofOpen] = useState(false)
+  const [proofSent, setProofSent] = useState<string | null>(null)
 
   const payment = state.payments.find((p) => p.id === id)
   useMarkOpened('payment', payment?.id)
@@ -66,20 +66,18 @@ export default function PaymentDetail() {
     isOpenPayment(payment.status) &&
     (payment.partyUserId === user.id || payment.partyName === user.name)
 
-  const handlePayOnline = async () => {
-    if (!payment || payOnlineBusy) return
-    setPayOnlineBusy(true)
-    setPayOnlineError(null)
-    const result = await startPayfastCheckout(payment.id, {
-      itemName: `Lekaya · ${payment.type}`,
-      payer: { firstName: user.name.split(' ')[0], lastName: user.name.split(' ').slice(1).join(' ') },
+  /** The payer uploads proof of an EFT / deposit; the agency then marks it paid. */
+  const handleProof = (input: import('../components/payments/ProofOfPaymentForm').ProofInput) => {
+    if (!payment) return
+    updatePayment(payment.id, {
+      reference: input.reference || payment.reference || undefined,
+      attachments: [...(payment.attachments ?? []), ...input.attachments],
+      notes: input.notes ?? 'Proof of payment uploaded by the payer. Waiting for the agency to confirm.',
+      recordedByUserId: user.id,
+      recordedByName: user.name,
     })
-    if (result.ok) {
-      // Form submitted — browser navigates to PayFast.
-      return
-    }
-    setPayOnlineBusy(false)
-    setPayOnlineError(result.userMessage ?? 'Checkout could not be started.')
+    setProofOpen(false)
+    setProofSent('Thank you. Your proof of payment is uploaded; the agency confirms it and marks the payment paid.')
   }
 
   const handleMarkPaid = (details: MarkPaymentPaidDetails) => {
@@ -187,8 +185,7 @@ export default function PaymentDetail() {
           canMaintain={canMaintain}
           canSelfPay={canSelfPay}
           onMarkPaid={() => setMarkPaidOpen(true)}
-          onPayOnline={handlePayOnline}
-          payOnlineBusy={payOnlineBusy}
+          onPayOnline={() => setProofOpen(true)}
           onCancel={handleCancel}
           onRemove={handleRemove}
           onSendDunning={
@@ -215,14 +212,14 @@ export default function PaymentDetail() {
           </p>
         )}
 
-        {payOnlineError && (
-          <p
-            className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-            role="alert"
-          >
-            {payOnlineError}
+        {proofSent && (
+          <p className="mb-5 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">
+            {proofSent}
           </p>
         )}
+        <Modal open={proofOpen} onClose={() => setProofOpen(false)} title="Upload proof of payment">
+          <ProofOfPaymentForm uploadedByName={user.name} onSubmit={handleProof} onCancel={() => setProofOpen(false)} />
+        </Modal>
 
         <DashboardTabs
           tabs={[

@@ -58,7 +58,7 @@ export default function TermsPage() {
 
       <Section title="6. Payments and fees">
         <p>
-          Payments made through the platform are processed by PayFast under its terms. Fees for agencies and other
+          Rent, deposits and other payments are paid directly to the agency or landlord (for example by EFT); proof of payment is uploaded on the platform. Fees for agencies and other
           paying users are as shown when they subscribe or as agreed in writing. Refunds of rent, deposits or other
           amounts between users are handled between those users and their agency.
         </p>

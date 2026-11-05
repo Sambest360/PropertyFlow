@@ -606,7 +606,7 @@ export function patchApplicationStatus(params: {
       success_state: 'APPROVED_CHECKOUT',
       badges,
       next_step_copy:
-        'Lease draft created and unit reserved. The applicant pays the deposit from their portal (PayFast).',
+        'Lease draft created and unit reserved. The applicant pays the deposit by EFT and uploads proof of payment in their portal.',
     },
   }
 }
