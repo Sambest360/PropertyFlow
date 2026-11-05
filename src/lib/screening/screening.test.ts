@@ -266,7 +266,7 @@ describe('DQ-C3 screening soft-gate Mode A', () => {
     const pending = rentalApp({ screening: { status: 'pending', provider: 'mock' } })
     expect(isScreeningClearedForLease(pending)).toBe(false)
     expect(applicationPassesScreeningSoftGate(pending)).toBe(false)
-    expect(screeningSoftGate(pending)).toMatch(/blocked until screening/i)
+    expect(screeningSoftGate(pending)).toMatch(/approve the credit check stage first/i)
 
     const failed = rentalApp({ screening: { status: 'failed', provider: 'mock' } })
     expect(isScreeningClearedForLease(failed)).toBe(false)
@@ -431,7 +431,7 @@ describe('DQ-C3 screening soft-gate Mode A', () => {
     expect(blocked.status).toBe('ERROR')
     if (blocked.status === 'ERROR') {
       expect(blocked.code).toBe('SCREENING_INCOMPLETE')
-      expect(blocked.error).toMatch(/blocked until screening/i)
+      expect(blocked.error).toMatch(/approve the credit check stage first/i)
     }
 
     const ok = patchApplicationStatus({

@@ -1059,6 +1059,7 @@ export async function buildBootstrap(opts?: {
       depositProof: meta.depositProof && typeof meta.depositProof === 'object' ? meta.depositProof : undefined,
       assignedRoom: meta.assignedRoom && typeof meta.assignedRoom === 'object' ? meta.assignedRoom : undefined,
       stageRecords: meta.stageRecords && typeof meta.stageRecords === 'object' ? meta.stageRecords : undefined,
+      offerResponse: meta.offerResponse && typeof meta.offerResponse === 'object' ? meta.offerResponse : undefined,
       purchaseClosing:
         meta.purchaseClosing && typeof meta.purchaseClosing === 'object' && !Array.isArray(meta.purchaseClosing)
           ? meta.purchaseClosing

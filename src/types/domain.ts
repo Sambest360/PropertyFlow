@@ -531,6 +531,8 @@ export type Application = {
   viewingEvidence?: import('../lib/applyEligibility.js').ViewingEvidence | null
   notes: string
   /** Staff decline / reject reason surfaced to applicant comms. */
+  /** The applicant's answer to the approval (accept the offer and continue, or decline). */
+  offerResponse?: { status: 'accepted' | 'declined'; at: string; reason?: string }
   declineReason?: string
   /** Frozen journey config at application create (Phase 2). */
   journeySnapshot?: import('../lib/journey/types.js').JourneySnapshot

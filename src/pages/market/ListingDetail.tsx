@@ -16,7 +16,7 @@ import { ShareListingButton } from '../../components/listing/ShareListingButton'
 import { ListingContactCards, useListingContact } from '../../components/listing/ListingContactCards'
 import { formatZAR } from '../../data/seed'
 import { PropertyCard } from '../../components/PropertyCard'
-import { ApproximateAreaMap } from '../../components/ApproximateAreaMap'
+import { PropertyMap } from '../../components/PropertyMap'
 import { ListingPhotoGallery } from '../../components/listing/ListingPhotoGallery'
 import { ListingReviewsSection } from '../../components/reviews/ListingReviewsSection'
 import { propertyListingRating } from '../../components/reviews/StarRating'
@@ -932,7 +932,12 @@ export default function ListingDetail() {
               </p>
               {hasMappedCoordinates(p) ? (
                 <div className="mt-4 h-64 overflow-hidden rounded-2xl sm:h-80">
-                  <ApproximateAreaMap lat={toPublicListing(p).lat} lng={toPublicListing(p).lng} label={publicAreaLabel(p)} className="h-full" />
+                  <PropertyMap
+                    properties={[toPublicListing(p)]}
+                    mode={p.listingMode === 'sale' ? 'buy' : 'rent'}
+                    className="h-full"
+                    approximateArea
+                  />
                 </div>
               ) : (
                 <div className="mt-4 flex h-48 items-center justify-center rounded-2xl bg-primary-100">

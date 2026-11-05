@@ -54,6 +54,7 @@ export function DepositStepPanel({
   const [received, setReceived] = useState(String(application.depositProof?.amount ?? application.depositRequest?.amount ?? depositAmount ?? ''))
   const [declining, setDeclining] = useState(false)
   const [declineReason, setDeclineReason] = useState('')
+  const [paidConfirmed, setPaidConfirmed] = useState(false)
   if (!depositStepVisible(application)) return null
   const req = application.depositRequest
   const proof = application.depositProof
@@ -77,6 +78,7 @@ export function DepositStepPanel({
     setError('')
     const typeErr = applicationDocTypeError(file)
     if (typeErr) return setError(typeErr)
+    if (mode === 'tenant' && !paidConfirmed) return setError('Tick the box to confirm you paid the deposit.')
     setBusy(true)
     try {
       const read = await readDocumentFile(file, 1_500_000)
@@ -205,9 +207,19 @@ export function DepositStepPanel({
         <div className="space-y-2 border-t border-primary-100 pt-3">
           <p className="text-sm font-medium text-ink">{proof ? 'Replace your proof of payment' : 'Paid? Upload your proof of payment'}</p>
           <Input placeholder="Payment reference you used (optional)" value={payRef} onChange={(e) => setPayRef(e.target.value)} />
-          <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-white">
-            <Upload className="h-4 w-4" aria-hidden /> {busy ? 'Uploading…' : 'Upload proof (PDF, JPG or PNG)'}
-            <input type="file" accept={APPLICATION_DOC_ACCEPT} className="hidden" disabled={busy} onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); e.target.value = '' }} />
+          <label className="flex items-start gap-2 text-sm text-ink">
+            <input type="checkbox" className="mt-1" checked={paidConfirmed} onChange={(e) => setPaidConfirmed(e.target.checked)} />
+            <span>
+              I confirm I paid {req?.amount ? <strong>{formatZAR(req.amount)}</strong> : 'the deposit'} into the account above
+              {req?.reference ? <> with the reference <strong>{req.reference}</strong></> : null}.
+            </span>
+          </label>
+          <label
+            className={`inline-flex min-h-11 items-center gap-2 rounded-xl px-4 text-sm font-semibold text-white ${paidConfirmed ? 'cursor-pointer bg-primary' : 'cursor-not-allowed bg-primary/50'}`}
+            aria-disabled={!paidConfirmed}
+          >
+            <Upload className="h-4 w-4" aria-hidden /> {busy ? 'Uploading…' : 'Upload proof of payment (PDF, JPG or PNG)'}
+            <input type="file" accept={APPLICATION_DOC_ACCEPT} className="hidden" disabled={busy || !paidConfirmed} onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); e.target.value = '' }} />
           </label>
         </div>
       ) : null}

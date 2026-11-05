@@ -1,7 +1,8 @@
 import { LeaseSignCard } from '../../components/lease/LeaseSignCard'
 import { DepositStepPanel } from '../../components/deposit/DepositStepPanel'
-import { ApplicationStagesPanel } from '../../components/pipeline/ApplicationStagesPanel'
-import { TenantPcrSignOff } from '../../components/pcr/TenantPcrSignOff'
+import { TenantApplicationSteps } from '../../components/tenant/TenantApplicationSteps'
+import { useAgencyPipeline } from '../../hooks/useApplicationPipeline'
+import { applicationStopped, currentStage } from '../../lib/pipeline/stageProgress'
 import { useMemo, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowRight, CheckCircle2, FileText, Home, KeyRound, MapPin, MessageSquare } from 'lucide-react'
@@ -14,7 +15,6 @@ import { ActionButtonRow } from '../../components/ActionButtonRow'
 import { BackButton } from '../../components/BackButton'
 import { DashboardBreadcrumb, DashboardPage } from '../../components/dashboard'
 import { DashboardTabs } from '../../components/dashboard/DashboardTabs'
-import { ApplicationLifecycleHub } from '../../components/workflow/ApplicationLifecycleHub'
 import { ApplicantDocumentsPanel } from '../../components/applicant-detail/ApplicantDocumentsPanel'
 import { TenantApplicationDetailsForm } from '../../components/tenant/TenantApplicationDetailsForm'
 import { TenantCreditConsentPanel } from '../../components/tenant/TenantCreditConsentPanel'
@@ -22,16 +22,9 @@ import { screeningApiAvailable } from '../../lib/api/screeningApi'
 import { needsCreditConsentTask } from '../../lib/screening/creditConsent'
 import { TenantApplicationPaymentsPanel } from '../../components/tenant/TenantApplicationPaymentsPanel'
 import { Badge, Button, Card, statusTone } from '../../components/ui'
-import { rolePermissions } from '../../lib/permissions'
 import { getApplicantTasks } from '../../lib/applicantPortalActions'
 import { ownTenancyForApplication } from '../../lib/tenantOccupancy'
-import {
-  getLifecycleMilestones,
-  getStageRequirements,
-  resolveWorkflowStatus,
-  workflowProgress,
-  workflowStageLabel,
-} from '../../lib/applicationWorkflow'
+import { resolveWorkflowStatus } from '../../lib/applicationWorkflow'
 import { guidedTransitionError } from '../../lib/api/applicationStatusApi'
 import { ApplicationCheckoutCard } from '../../components/payments/ApplicationCheckoutCard'
 import { TENANT_NO_ROWS_COPY, applicationLedgerRows } from '../../lib/payfast/applicationCheckout'
@@ -117,16 +110,8 @@ export default function TenantApplicationDetailPage() {
   // open-checkout-real: OPEN_CHECKOUT only reveals the pay card over the LIVE
   // ledger rows (own rows only); nothing is invented.
   const [checkoutOpen, setCheckoutOpen] = useState(false)
+  const pipeline = useAgencyPipeline(application?.agencyId)
 
-  const actor = useMemo(
-    () => ({
-      userId: user.id,
-      role: user.role,
-      agencyId: user.agencyId,
-      permissions: rolePermissions[user.role] ?? [],
-    }),
-    [user],
-  )
 
   const awaitingHydration =
     authReady && user.id !== 'guest' && hydratedForUserId !== user.id
@@ -157,7 +142,11 @@ export default function TenantApplicationDetailPage() {
   }
 
   const workflowStatus = resolveWorkflowStatus(application)
-  const progress = workflowProgress(application.type, workflowStatus)
+  // The summary follows the agency's stages (the same steps listed below).
+  const pipelineStages = pipeline.stages.filter((s) => s.enabled)
+  const here = currentStage(pipeline, application)
+  const stopped = applicationStopped(application, here.records) || application.offerResponse?.status === 'declined'
+  const progress = stopped ? 0 : Math.round((here.index / Math.max(1, pipelineStages.length)) * 100)
 
   const runAction = async (action: HateoasAction, capture?: WorkflowActionCapture) => {
     const workflowTarget = action.payload_hint?.workflowStatus as string | undefined
@@ -199,12 +188,23 @@ export default function TenantApplicationDetailPage() {
     viewer: { mode: 'tenant', userId: user.id },
   })
 
-  const milestones = getLifecycleMilestones(application.type, application)
-  const stepIndex = Math.max(0, milestones.findIndex((m) => m.key === workflowStatus))
-  const onMilestone = milestones.some((m) => m.key === workflowStatus)
-  const stageLabel = workflowStageLabel(application.type, workflowStatus)
-  const waitingNote = getStageRequirements(workflowStatus)?.waitingLabel ?? null
-  const nextTask = tasks[0] ?? null
+  const milestones = pipelineStages
+  const stepIndex = here.index
+  const onMilestone = !stopped && here.stage !== null
+  const stageLabel = stopped ? 'Closed' : here.stage?.label ?? 'Tenancy active'
+  const tenantActs = here.stage
+    ? (here.stage.kind === 'documents' || here.stage.kind === 'identity'
+        ? (here.stage.requiredDocs ?? []).some((k) => !['uploaded', 'verified'].includes(application.documents.find((d) => d.key === k)?.status ?? ''))
+        : here.stage.kind === 'deposit'
+          ? !application.offerResponse || !application.depositProof || application.depositProof.status === 'declined'
+          : here.stage.kind === 'lease'
+            ? Boolean(linkedTenancy?.eSign?.envelopeId && linkedTenancy.eSign.tenant?.status !== 'signed')
+            : here.stage.kind === 'move_in'
+              ? Boolean(application.pcrInspections?.find((i) => i.kind === 'incoming')?.staffSignature && !application.pcrInspections?.find((i) => i.kind === 'incoming')?.tenantSignature)
+              : false)
+    : false
+  const waitingNote = stopped ? null : tenantActs ? null : here.stage ? 'Your agent is working on this step.' : null
+  const nextTask = tenantActs && here.stage ? { id: 'step', label: here.stage.label, detail: 'See what to do in Your steps below.', section: 'steps' as const } : null
   const docsToUpload = application.documents.filter(
     (d) => d.status === 'required' || d.status === 'rejected',
   ).length
@@ -225,7 +225,14 @@ export default function TenantApplicationDetailPage() {
     ...(linkedTenancy ? [{ id: 'tenancy', label: 'Tenancy' }] : []),
   ]
 
-  const goToTask = (section: string) => setTab(section === 'application' ? 'overview' : section)
+  const goToTask = (section: string) => {
+    if (section === 'steps') {
+      setTab('overview')
+      requestAnimationFrame(() => document.querySelector('[data-testid="tenant-application-steps"]')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+      return
+    }
+    setTab(section === 'application' ? 'overview' : section)
+  }
 
   return (
     <RequirePermission permission="portal.tenant">
@@ -339,7 +346,6 @@ export default function TenantApplicationDetailPage() {
 
           <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
             <div className="min-w-0 space-y-5">
-              <ApplicationStagesPanel application={application} mode="applicant" />
               {tasks.length > 1 ? (
                 <Card className="p-5">
                   <h2 className="font-display text-base font-semibold text-ink">To do</h2>
@@ -362,25 +368,14 @@ export default function TenantApplicationDetailPage() {
                   </ul>
                 </Card>
               ) : null}
-              <ApplicationLifecycleHub
+              <TenantApplicationSteps
                 application={application}
-                property={property}
-                agentName={agentName}
-                actor={actor}
-                canReview={false}
-                applicantMode
-                compact
+                tenancy={linkedTenancy ?? null}
+                property={property ?? null}
+                agency={state.agencies.find((a) => a.id === application.agencyId)}
+                user={{ id: user.id, name: user.name }}
+                onSave={(patch) => updateApplication(application.id, patch)}
                 onOpenDocuments={() => setTab('documents')}
-                tasks={tasks}
-                onRunAction={runAction}
-                onSetDocument={(key, next, note) => setDocumentStatus(application.id, key, next, note)}
-                onUploadDocument={(key, file) =>
-                  uploadApplicationDocument(application.id, key, file, {
-                    userId: user.id,
-                    name: user.name,
-                  })
-                }
-                onSaveDetails={(patch) => updateApplication(application.id, patch)}
               />
             </div>
 
@@ -499,12 +494,6 @@ export default function TenantApplicationDetailPage() {
                 }}
               />
             ) : null}
-            <TenantPcrSignOff
-              application={application}
-              tenantName={user.name || application.applicantName}
-              tenantUserId={user.id}
-              onSave={(patch) => updateApplication(application.id, patch)}
-            />
             <TenantApplicationDetailsForm
               application={application}
               onSave={(patch) => updateApplication(application.id, patch)}
@@ -512,7 +501,7 @@ export default function TenantApplicationDetailPage() {
           </div>
         )}
 
-        {tab === 'payments' || tab === 'details' ? (
+        {tab === 'payments' ? (
           <div className="mb-5">
             <DepositStepPanel
               application={application}

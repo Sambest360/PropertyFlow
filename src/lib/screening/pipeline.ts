@@ -393,7 +393,7 @@ export function screeningSoftGateMessage(
   if (app.type === 'Purchase') return null
   if (isScreeningClearedForLease(app)) return null
   const status = resolveScreening(app as Application).status
-  return `Approve / lease / move-in blocked until screening is passed or recorded via audited manual override (current: ${status}).`
+  return `Approve the Credit check stage first: run the check outside the system, then upload the findings (now: ${status}).`
 }
 
 /** Guard helper for workflow transitions — returns true or a clear block reason. */

@@ -58,6 +58,9 @@ export const PIPELINE_DOCUMENTS: Array<{ key: string; label: string }> = [
   { key: 'fica', label: 'FICA declaration' },
 ]
 
+/** Identity documents (FICA): only ever on the Identity stage. */
+export const IDENTITY_DOC_KEYS: ReadonlySet<string> = new Set(['id', 'address', 'fica'])
+
 export const STAGE_KIND_LABEL: Record<StageKind, string> = {
   viewing: 'Viewing',
   submitted: 'Application submitted',
@@ -102,6 +105,9 @@ export function sanitizeStage(raw: unknown, i: number): PipelineStage | null {
   const label = str(o.label, 80) || STAGE_KIND_LABEL[kind]
   const key = (str(o.key, 60) || `${kind}-${i}`).replace(/[^a-z0-9_-]/gi, '_').toLowerCase()
   const docKeys = new Set(PIPELINE_DOCUMENTS.map((d) => d.key))
+  // ID, proof of address and the FICA declaration belong to the Identity
+  // stage only, so the Documents stage never asks for them twice.
+  const skip = kind === 'documents' ? IDENTITY_DOC_KEYS : new Set<string>()
   return {
     key,
     label,
@@ -109,7 +115,7 @@ export function sanitizeStage(raw: unknown, i: number): PipelineStage | null {
     locked: LOCKED_KINDS.has(kind),
     enabled: o.enabled !== false,
     description: str(o.description, 400) || undefined,
-    requiredDocs: (strList(o.requiredDocs) ?? []).filter((k) => docKeys.has(k)),
+    requiredDocs: (strList(o.requiredDocs) ?? []).filter((k) => docKeys.has(k) && !skip.has(k)),
     checklist: strList(o.checklist),
     allowAttachments: o.allowAttachments === true,
     notesRequired: o.notesRequired === true,
@@ -168,6 +174,8 @@ export type StageRecord = {
   notes?: string
   checklist?: string[]
   attachments?: Array<{ name: string; mimeType: string; dataUrl: string }>
+  /** Filled in from the old workflow status (the application predates the pipeline). */
+  inferred?: boolean
 }
 
 export type StageGate = { ok: true } | { ok: false; reason: string }
@@ -175,17 +183,23 @@ export type StageGate = { ok: true } | { ok: false; reason: string }
 /** Can staff approve this stage now? */
 export function stageApprovalGate(
   stage: PipelineStage,
-  input: { documents: Array<{ key: string; status: string }>; ticked: string[]; notes: string },
+  input: { documents: Array<{ key: string; status: string }>; ticked: string[]; notes: string; attachments?: number },
 ): StageGate {
+  // Documents only need to be in: approving the stage marks them verified.
   const docs = new Map(input.documents.map((d) => [d.key, d.status]))
-  const missing = (stage.requiredDocs ?? []).filter((k) => docs.get(k) !== 'verified')
+  const missing = (stage.requiredDocs ?? []).filter((k) => !['uploaded', 'verified'].includes(docs.get(k) ?? ''))
   if (missing.length) {
     const names = missing.map((k) => PIPELINE_DOCUMENTS.find((d) => d.key === k)?.label ?? k)
-    return { ok: false, reason: `Verify these documents first: ${names.join(', ')}.` }
+    return { ok: false, reason: `Still needed: ${names.join(', ')}. Upload ${missing.length === 1 ? 'it' : 'them'} above, then approve.` }
   }
   const unticked = (stage.checklist ?? []).filter((c) => !input.ticked.includes(c))
-  if (unticked.length) return { ok: false, reason: `Tick every checklist item first: ${unticked.join(', ')}.` }
-  if (stage.notesRequired && !input.notes.trim()) return { ok: false, reason: 'Add a note with the outcome first.' }
+  if (unticked.length) return { ok: false, reason: `Tick: ${unticked.join(', ')}.` }
+  if (stage.notesRequired) {
+    const hasFile = (input.attachments ?? 0) > 0
+    if (!input.notes.trim() && !(stage.allowAttachments && hasFile)) {
+      return { ok: false, reason: stage.allowAttachments ? 'Upload the findings or write the outcome, then approve.' : 'Write the outcome, then approve.' }
+    }
+  }
   return { ok: true }
 }
 

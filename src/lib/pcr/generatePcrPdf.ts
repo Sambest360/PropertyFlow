@@ -163,7 +163,7 @@ export async function generatePcrPdf(input: PcrPdfInput): Promise<PcrPdfResult> 
       `Staff: ${inspection.staffSignature.signedByName} @ ${inspection.staffSignature.signedAt.slice(0, 19).replace('T', ' ')} (${inspection.staffSignature.method})`,
     )
   } else {
-    drawLine(ctx, 'Staff: (not soft-signed)', { color: ctx.muted })
+    drawLine(ctx, 'Agency: (not signed yet)', { color: ctx.muted })
   }
   if (inspection.tenantSignature) {
     drawLine(

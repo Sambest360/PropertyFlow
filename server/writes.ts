@@ -1725,6 +1725,8 @@ async function upsertApplication(
     ['assignedRoom', 'assignedRoom'],
     // Application Pipeline: each stage's approve / decline record (staff only).
     ['stageRecords', 'stageRecords'],
+    // The applicant's answer to the approval (accept the offer / decline).
+    ['offerResponse', 'offerResponse'],
     ['purchaseClosing', 'purchaseClosing'],
     // Staff block (blockApplication); read back so the Blocks tab survives a reload.
     ['blockReason', 'blockReason'],
@@ -1734,6 +1736,13 @@ async function upsertApplication(
     ['employerName', 'employerName'],
     ['jobTitle', 'jobTitle'],
   ]
+  if (has('offerResponse')) {
+    const o = d.offerResponse as Record<string, unknown> | null | undefined
+    d.offerResponse =
+      o && (o.status === 'accepted' || o.status === 'declined')
+        ? { status: o.status, at: String(o.at ?? new Date().toISOString()).slice(0, 40), ...(typeof o.reason === 'string' && o.reason.trim() ? { reason: o.reason.trim().slice(0, 500) } : {}) }
+        : null
+  }
   const keepWhenBlank: ReadonlySet<string> = new Set(KEEP_STORED_WHEN_BLANK)
   for (const [key, field] of metaFields) {
     if (!stored) {

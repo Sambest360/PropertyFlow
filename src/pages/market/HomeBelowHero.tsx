@@ -1,8 +1,9 @@
 /**
- * Home page below the hero: browse by type, latest listings, "everything
- * property" by audience, how renting works, property by area, calculators,
- * the agency/landlord pitch and a short about. Property24's home page is the
- * loose blueprint; the content is what Lekaya Rentals actually does.
+ * Home page below the hero, in reading order: browse by type and popular
+ * searches, latest listings, "everything property" by audience (beside a real
+ * listing photo), property by area (photo cards per city), the landlord and
+ * agency pitch, about, how renting works and the calculators. Sections
+ * alternate white and tinted so the page reads as a sequence, not a stack.
  */
 import { useMemo, useState, type ComponentType } from 'react'
 import { Link } from 'react-router-dom'
@@ -17,11 +18,8 @@ import {
   KeyRound,
   LandPlot,
   Landmark,
-  MessageSquareText,
   Search,
-  ShieldCheck,
   Store,
-  Upload,
   Users,
   Wrench,
 } from 'lucide-react'
@@ -32,6 +30,7 @@ import { ListingCardGridSkeleton } from '../../components/loading/PageSkeleton'
 import { matchesBrowseMode, isCommercialType } from '../../lib/browseMode'
 import { isSharedAccommodation } from '../../lib/sharedAccommodation'
 import { areaToPlace, buildBrowseSearchUrl } from '../../lib/placeCatalog'
+import { seoPath } from '../../lib/seoPages'
 import type { ListingArea } from '../../lib/listingAreas'
 
 type Icon = ComponentType<{ className?: string; 'aria-hidden'?: boolean }>
@@ -56,37 +55,37 @@ const TYPE_TILES: TypeTile[] = [
   { label: 'All property', icon: Search, to: '/browse', match: () => true },
 ]
 
-type Feature = { icon: Icon; title: string; body: string; to: string; cta: string }
+type Feature = { title: string; body: string; to: string; cta: string }
 
 const DISCOVER: Record<'renting' | 'buying' | 'letting', { label: string; intro: string; items: Feature[] }> = {
   renting: {
     label: 'Renting',
     intro: 'Find a place, apply and move in without the paper chase.',
     items: [
-      { icon: Search, title: 'Search by area or near you', body: 'Filter by price, bedrooms, pets, furnishing and load-shedding backup.', to: '/browse?mode=rent', cta: 'Find a rental' },
-      { icon: Users, title: 'Rent a room', body: 'Shared houses show how many rooms are free. Apply for a room and the agency places you.', to: '/browse?mode=shared', cta: 'See rooms' },
-      { icon: Upload, title: 'Apply online', body: 'Upload your ID, payslips and bank statements once. Track every step of your application.', to: '/register', cta: 'Create an account' },
-      { icon: FileSignature, title: 'Sign the lease online', body: 'Leases are signed electronically under ECTA, then the deposit details and your proof of payment stay on file.', to: '/login', cta: 'Sign in' },
+      { title: 'Search by area or near you', body: 'Filter by price, bedrooms, pets, furnishing and load-shedding backup.', to: '/browse?mode=rent', cta: 'Find a rental' },
+      { title: 'Rent a room', body: 'Shared houses show how many rooms are free. Apply for a room and the agency places you.', to: '/browse?mode=shared', cta: 'See rooms' },
+      { title: 'Apply online', body: 'Upload your ID, payslips and bank statements once. Track every step of your application.', to: '/register', cta: 'Create an account' },
+      { title: 'Sign the lease online', body: 'Leases are signed electronically under ECTA, then the deposit details and your proof of payment stay on file.', to: '/login', cta: 'Sign in' },
     ],
   },
   buying: {
     label: 'Buying',
     intro: 'Work out what you can afford before you fall in love with a house.',
     items: [
-      { icon: Home, title: 'Homes for sale', body: 'Houses, apartments, land and farms listed by verified agencies and landlords.', to: '/browse?mode=buy', cta: 'Browse for sale' },
-      { icon: Calculator, title: 'What can I afford?', body: 'See the bond you could qualify for from your income and expenses.', to: '/calculators/affordability', cta: 'Check affordability' },
-      { icon: Landmark, title: 'Bond and transfer costs', body: 'Add up transfer duty, attorney and bond registration fees.', to: '/calculators/bond-transfer', cta: 'Work out costs' },
-      { icon: Store, title: 'Commercial property', body: 'Offices, retail and industrial space for sale or to rent.', to: '/browse?mode=commercial', cta: 'See commercial' },
+      { title: 'Homes for sale', body: 'Houses, apartments, land and farms listed by verified agencies and landlords.', to: '/browse?mode=buy', cta: 'Browse for sale' },
+      { title: 'What can I afford?', body: 'See the bond you could qualify for from your income and expenses.', to: '/calculators/affordability', cta: 'Check affordability' },
+      { title: 'Bond and transfer costs', body: 'Add up transfer duty, attorney and bond registration fees.', to: '/calculators/bond-transfer', cta: 'Work out costs' },
+      { title: 'Commercial property', body: 'Offices, retail and industrial space for sale or to rent.', to: '/browse?mode=commercial', cta: 'See commercial' },
     ],
   },
   letting: {
     label: 'Letting your property',
     intro: 'For landlords and agencies: one workspace from listing to move-out.',
     items: [
-      { icon: ShieldCheck, title: 'List with checked quality', body: 'Every listing is reviewed by Lekaya Rentals before it goes live, so tenants trust what they see.', to: '/register?role=landlord', cta: 'List your property' },
-      { icon: ClipboardCheck, title: 'Applications and leases', body: 'Review documents, approve with a reason, send ECTA leases and deposit details, and record the move-in inspection.', to: '/register?role=landlord', cta: 'Get started' },
-      { icon: Wrench, title: 'Maintenance and contractors', body: 'Tenants log faults; you assign contractors and follow every job to done.', to: '/login', cta: 'Sign in' },
-      { icon: MessageSquareText, title: 'Rent, trust and reports', body: 'Rent roll, arrears, trust accounting and owner statements in one place.', to: '/contact', cta: 'Talk to us' },
+      { title: 'List with checked quality', body: 'Every listing is reviewed by Lekaya Rentals before it goes live, so tenants trust what they see.', to: '/register?role=landlord', cta: 'List your property' },
+      { title: 'Applications and leases', body: 'Review documents, approve with a reason, send ECTA leases and deposit details, and record the move-in inspection.', to: '/register?role=landlord', cta: 'Get started' },
+      { title: 'Maintenance and contractors', body: 'Tenants log faults; you assign contractors and follow every job to done.', to: '/login', cta: 'Sign in' },
+      { title: 'Rent, trust and reports', body: 'Rent roll, arrears, trust accounting and owner statements in one place.', to: '/contact', cta: 'Talk to us' },
     ],
   },
 }
@@ -122,6 +121,7 @@ export function HomeBelowHero({
   const typeCounts = useMemo(() => TYPE_TILES.map((t) => liveListings.filter(t.match).length), [liveListings])
   const tabListings = useMemo(() => featured.filter((p) => matchesBrowseMode(p, listTab)).slice(0, 8), [featured, listTab])
   const loading = featured.length === 0 && !state.publicMarketplaceFetchFailed && (state.marketplaceRefreshing || !state.publicMarketplaceSettled)
+  const pool = liveListings.length ? liveListings : featured
 
   /** Suburbs grouped under their city, busiest cities first (P24-style area lists). */
   const byCity = useMemo(() => {
@@ -139,18 +139,55 @@ export function HomeBelowHero({
       groups.set(key, g)
     }
     return [...groups.entries()]
-      .map(([name, g]) => ({ name, ...g, suburbs: g.suburbs.sort((x, y) => y.total - x.total).slice(0, 8) }))
+      .map(([name, g]) => ({
+        name,
+        ...g,
+        suburbs: g.suburbs.sort((x, y) => y.total - x.total).slice(0, 6),
+        photo: photoOf(pool.filter((p) => sameText(p.city, name))),
+      }))
       .sort((x, y) => y.total - x.total)
       .slice(0, 6)
-  }, [listingAreas])
+  }, [listingAreas, pool])
+
+  /** Searches people actually make, from what is listed now (busiest city first). */
+  const popular = useMemo(() => {
+    const top = byCity[0]?.name
+    const out: Array<{ label: string; to: string }> = []
+    if (top && top !== 'Other areas') {
+      const slug = citySlug(top)
+      out.push({ label: `Property to rent in ${top}`, to: seoPath('rent', slug) })
+      out.push({ label: `Rooms to rent in ${top}`, to: seoPath('rooms', slug) })
+      out.push({ label: `Property for sale in ${top}`, to: seoPath('sale', slug) })
+    }
+    for (const g of byCity.slice(1, 4)) {
+      if (g.name !== 'Other areas') out.push({ label: `To rent in ${g.name}`, to: seoPath('rent', citySlug(g.name)) })
+    }
+    out.push({ label: '2-bedroom rentals', to: buildBrowseSearchUrl({ mode: 'rent', beds: 2 }) })
+    out.push({ label: 'Rentals under R8 000', to: buildBrowseSearchUrl({ mode: 'rent', maxPrice: 8000 }) })
+    out.push({ label: 'Student accommodation', to: '/browse?mode=rent&type=Student%20Accommodation' })
+    return out
+  }, [byCity])
 
   const d = DISCOVER[discover]
+  const discoverPhoto = useMemo(() => {
+    const want = discover === 'buying' ? 'buy' : 'rent'
+    const p = pool.find((x) => x.images?.[0] && matchesBrowseMode(x, want)) ?? pool.find((x) => x.images?.[0])
+    return p ? { src: p.images[0], place: [p.suburb, p.city].filter(Boolean).join(', '), title: p.title } : null
+  }, [discover, pool])
 
   return (
     <>
       <section id="home-story" className="relative z-10 -mt-1 overflow-x-clip border-b border-primary-100 bg-white">
         <div className={`${wrap} py-10 sm:py-12`}>
-          <h2 className="text-lg font-semibold text-ink">Browse by type</h2>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-lg font-semibold text-ink">Browse by type</h2>
+            {liveListings.length ? (
+              <p className="text-sm tabular-nums text-ink-500">
+                {liveListings.length} listing{liveListings.length === 1 ? '' : 's'} live
+                {byCity.length === 1 ? ` in ${byCity[0].name}` : byCity.length ? ` in ${byCity.length} cities` : ''}
+              </p>
+            ) : null}
+          </div>
           <ul className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-primary-100 bg-primary-100 sm:grid-cols-4 lg:grid-cols-8">
             {TYPE_TILES.map((t, i) => (
               <li key={t.label} className="bg-white">
@@ -167,6 +204,18 @@ export function HomeBelowHero({
               </li>
             ))}
           </ul>
+          <div className="mt-6 flex flex-wrap items-center gap-2">
+            <span className="mr-1 text-sm font-medium text-ink-500">Popular searches</span>
+            {popular.map((q) => (
+              <Link
+                key={q.label}
+                to={q.to}
+                className="inline-flex min-h-9 items-center rounded-full border border-primary-100 px-3.5 text-sm text-ink-700 hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                {q.label}
+              </Link>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -218,113 +267,115 @@ export function HomeBelowHero({
       </section>
 
       <section className="py-14 sm:py-20">
-        <div className={wrap}>
-          <h2 className={h2}>Everything property, in one place</h2>
-          <div className="mt-5 flex flex-wrap gap-2" role="tablist" aria-label="What are you here to do?">
-            {(Object.keys(DISCOVER) as Array<keyof typeof DISCOVER>).map((k) => (
-              <button key={k} type="button" role="tab" aria-selected={discover === k} className={tabBtn(discover === k)} onClick={() => setDiscover(k)}>
-                {DISCOVER[k].label}
-              </button>
-            ))}
-          </div>
-          <p className="mt-4 max-w-2xl text-base text-ink-600">{d.intro}</p>
-          <ul className="mt-8 grid gap-x-10 gap-y-8 md:grid-cols-2">
-            {d.items.map((f) => (
-              <li key={f.title} className="flex gap-4">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary">
-                  <f.icon className="h-5 w-5" aria-hidden />
-                </span>
-                <div>
-                  <h3 className="font-semibold text-ink">{f.title}</h3>
-                  <p className="mt-1 max-w-md text-sm leading-relaxed text-ink-500">{f.body}</p>
-                  <Link to={f.to} className="mt-2 inline-flex min-h-9 items-center text-sm font-semibold text-primary hover:underline">
-                    {f.cta}
-                  </Link>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </section>
-
-      <section className="border-y border-primary-100 bg-white py-14 sm:py-16">
-        <div className={wrap}>
-          <h2 className={h2}>How renting works on Lekaya</h2>
-          <ol className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-5">
-            {STEPS.map((s, i) => (
-              <li key={s.title} className="relative lg:pr-4">
-                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-sm font-bold text-white" aria-hidden>
-                  {i + 1}
-                </span>
-                {i < STEPS.length - 1 ? <span className="absolute left-11 right-0 top-[18px] hidden h-px bg-primary-100 lg:block" aria-hidden /> : null}
-                <h3 className="mt-3 font-semibold text-ink">{s.title}</h3>
-                <p className="mt-1 text-sm text-ink-500">{s.body}</p>
-              </li>
-            ))}
-          </ol>
-        </div>
-      </section>
-
-      {byCity.length ? (
-        <section className="py-14 sm:py-16">
-          <div className={wrap}>
-            <h2 className={h2}>Property by area</h2>
-            <p className="mt-1 text-sm text-ink-500">Where our listings are right now.</p>
-            <div className="mt-8 grid gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
-              {byCity.map((g) => (
-                <div key={g.name}>
-                  <h3 className="border-b border-primary-100 pb-2 font-semibold text-ink">
-                    {g.city ? (
-                      <Link to={buildBrowseSearchUrl({ areas: [areaToPlace(g.city)] })} className="hover:text-primary">
-                        {g.name}
-                      </Link>
-                    ) : (
-                      g.name
-                    )}{' '}
-                    <span className="text-sm font-normal tabular-nums text-ink-400">({g.total})</span>
-                  </h3>
-                  {g.suburbs.length ? (
-                    <ul className="mt-2 columns-2 gap-4">
-                      {g.suburbs.map((a) => (
-                        <li key={a.label} className="break-inside-avoid">
-                          <Link
-                            to={buildBrowseSearchUrl({ areas: [areaToPlace(a)] })}
-                            className="inline-flex min-h-9 items-center gap-1 text-sm text-ink-600 hover:text-primary"
-                          >
-                            {a.label} <span className="tabular-nums text-ink-400">{a.total}</span>
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </div>
+        <div className={`${wrap} grid gap-10 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-14`}>
+          <div className="flex flex-col">
+            <h2 className={h2}>Everything property, in one place</h2>
+            <p className="mt-3 max-w-md text-base leading-relaxed text-ink-600">{d.intro}</p>
+            <div className="mt-5 flex flex-wrap gap-2" role="tablist" aria-label="What are you here to do?">
+              {(Object.keys(DISCOVER) as Array<keyof typeof DISCOVER>).map((k) => (
+                <button key={k} type="button" role="tab" aria-selected={discover === k} className={tabBtn(discover === k)} onClick={() => setDiscover(k)}>
+                  {DISCOVER[k].label}
+                </button>
               ))}
             </div>
+            <figure className="relative mt-8 hidden min-h-[280px] flex-1 overflow-hidden rounded-3xl bg-primary lg:block">
+              {discoverPhoto ? (
+                <>
+                  <Photo src={discoverPhoto.src} className="absolute inset-0 h-full w-full object-cover" />
+                  <figcaption className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-ink/80 to-transparent px-5 pb-4 pt-12 text-sm text-white">
+                    <span className="block font-semibold">{discoverPhoto.title}</span>
+                    {discoverPhoto.place ? <span className="text-white/80">{discoverPhoto.place}</span> : null}
+                  </figcaption>
+                </>
+              ) : (
+                <figcaption className="absolute inset-0 flex items-end p-6 font-display text-2xl font-semibold leading-snug text-white">
+                  Homes checked by people, before they go live.
+                </figcaption>
+              )}
+            </figure>
           </div>
-        </section>
-      ) : null}
-
-      <section className="bg-primary-50/60 py-14 sm:py-16">
-        <div className={`${wrap} grid gap-10 lg:grid-cols-[1fr_1.4fr]`}>
-          <div>
-            <h2 className={h2}>Property calculators</h2>
-            <p className="mt-2 max-w-sm text-sm leading-relaxed text-ink-500">Know the numbers before you make an offer or sign a bond.</p>
-          </div>
-          <ul className="grid gap-px overflow-hidden rounded-2xl border border-primary-100 bg-primary-100 sm:grid-cols-2">
-            {CALCULATORS.map((c) => (
-              <li key={c.to} className="bg-white">
-                <Link to={c.to} className="flex h-full gap-3 px-5 py-4 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary">
-                  <Calculator className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden />
-                  <span>
-                    <span className="block font-semibold text-ink">{c.title}</span>
-                    <span className="block text-sm text-ink-500">{c.body}</span>
-                  </span>
+          <ul className="divide-y divide-primary-100 border-y border-primary-100" role="tabpanel">
+            {d.items.map((f) => (
+              <li key={f.title} className="grid gap-2 py-6 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end sm:gap-8">
+                <div>
+                  <h3 className="text-lg font-semibold text-ink">{f.title}</h3>
+                  <p className="mt-1.5 max-w-lg text-sm leading-relaxed text-ink-500">{f.body}</p>
+                </div>
+                <Link
+                  to={f.to}
+                  className="inline-flex min-h-10 items-center justify-self-start whitespace-nowrap rounded-full border border-primary-200 px-4 text-sm font-semibold text-primary hover:border-primary hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  {f.cta}
                 </Link>
               </li>
             ))}
           </ul>
         </div>
       </section>
+
+      {byCity.length ? (
+        <section className="bg-primary-50/60 py-14 sm:py-16">
+          <div className={wrap}>
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h2 className={h2}>Property by area</h2>
+                <p className="mt-1 text-sm text-ink-500">Where our listings are right now.</p>
+              </div>
+              <Link to="/browse" className="text-sm font-semibold text-primary hover:underline">
+                Search all areas
+              </Link>
+            </div>
+            <div className={`mt-8 grid gap-5 ${byCity.length === 1 ? '' : byCity.length === 2 ? 'md:grid-cols-2' : 'sm:grid-cols-2 lg:grid-cols-3'}`}>
+              {byCity.map((g) => {
+                const wide = byCity.length === 1
+                const cityUrl = g.city ? buildBrowseSearchUrl({ areas: [areaToPlace(g.city)] }) : '/browse'
+                return (
+                  <article key={g.name} className={`overflow-hidden rounded-2xl border border-primary-100 bg-white ${wide ? 'md:grid md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]' : ''}`}>
+                    <Link
+                      to={cityUrl}
+                      className={`group relative block overflow-hidden bg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary ${wide ? 'h-48 md:h-auto md:min-h-[220px]' : 'h-40'}`}
+                    >
+                      {g.photo ? <Photo src={g.photo} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" /> : null}
+                      <span className="absolute inset-0 bg-gradient-to-t from-ink/75 via-ink/20 to-transparent" aria-hidden />
+                      <span className="absolute bottom-3 left-4 right-4 flex items-baseline justify-between gap-2 text-white">
+                        <span className="font-display text-xl font-semibold">{g.name}</span>
+                        <span className="text-sm tabular-nums text-white/85">
+                          {g.total} listing{g.total === 1 ? '' : 's'}
+                        </span>
+                      </span>
+                    </Link>
+                    <div className={wide ? 'flex flex-col justify-center px-5 py-4 md:px-8 md:py-6' : 'px-4 py-3'}>
+                      {wide ? <p className="mb-3 text-sm font-medium text-ink-500">Suburbs with listings</p> : null}
+                      {g.suburbs.length ? (
+                        <ul className={`grid gap-x-6 ${wide ? 'grid-cols-2 lg:grid-cols-3' : 'grid-cols-2'}`}>
+                          {g.suburbs.map((a) => (
+                            <li key={a.label}>
+                              <Link
+                                to={buildBrowseSearchUrl({ areas: [areaToPlace(a)] })}
+                                className="flex min-h-9 items-center justify-between gap-2 text-sm text-ink-600 hover:text-primary"
+                              >
+                                <span className="truncate">{a.label}</span>
+                                <span className="tabular-nums text-ink-400">{a.total}</span>
+                              </Link>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      {g.name !== 'Other areas' ? (
+                        <div className="mt-2 flex gap-4 border-t border-primary-50 pt-3 text-sm font-semibold">
+                          <Link to={seoPath('rent', citySlug(g.name))} className="text-primary hover:underline">To rent</Link>
+                          <Link to={seoPath('sale', citySlug(g.name))} className="text-primary hover:underline">For sale</Link>
+                          <Link to={seoPath('rooms', citySlug(g.name))} className="text-primary hover:underline">Rooms</Link>
+                        </div>
+                      ) : null}
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       <section className="bg-primary py-14 text-white sm:py-20">
         <div className={`${wrap} grid gap-10 lg:grid-cols-2 lg:items-center`}>
@@ -392,6 +443,73 @@ export function HomeBelowHero({
           </div>
         </div>
       </section>
+
+      <section className="border-t border-primary-100 bg-primary-50/60 py-14 sm:py-16">
+        <div className={wrap}>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <h2 className={h2}>How renting works on Lekaya</h2>
+            <Link to="/register" className="text-sm font-semibold text-primary hover:underline">
+              Create a free account
+            </Link>
+          </div>
+          <ol className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-5">
+            {STEPS.map((s, i) => (
+              <li key={s.title} className="relative lg:pr-4">
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-sm font-bold text-white" aria-hidden>
+                  {i + 1}
+                </span>
+                {i < STEPS.length - 1 ? <span className="absolute left-11 right-0 top-[18px] hidden h-px bg-primary-200 lg:block" aria-hidden /> : null}
+                <h3 className="mt-3 font-semibold text-ink">{s.title}</h3>
+                <p className="mt-1 text-sm text-ink-500">{s.body}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
+
+      <section className="py-14 sm:py-16">
+        <div className={`${wrap} grid gap-10 lg:grid-cols-[1fr_1.4fr]`}>
+          <div>
+            <h2 className={h2}>Property calculators</h2>
+            <p className="mt-2 max-w-sm text-sm leading-relaxed text-ink-500">Know the numbers before you make an offer or sign a bond.</p>
+            <Link to="/calculators" className="mt-4 inline-flex text-sm font-semibold text-primary hover:underline">
+              All calculators
+            </Link>
+          </div>
+          <ul className="grid gap-px overflow-hidden rounded-2xl border border-primary-100 bg-primary-100 sm:grid-cols-2">
+            {CALCULATORS.map((c) => (
+              <li key={c.to} className="bg-white">
+                <Link to={c.to} className="flex h-full gap-3 px-5 py-4 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary">
+                  <Calculator className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden />
+                  <span>
+                    <span className="block font-semibold text-ink">{c.title}</span>
+                    <span className="block text-sm text-ink-500">{c.body}</span>
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
     </>
   )
+}
+
+function sameText(a: string | null | undefined, b: string): boolean {
+  return (a ?? '').trim().toLowerCase() === b.trim().toLowerCase()
+}
+
+function citySlug(name: string): string {
+  return name.trim().toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+}
+
+/** A listing photo that disappears (leaving the tinted panel) if it fails to load. */
+function Photo({ src, className }: { src: string; className: string }) {
+  const [failed, setFailed] = useState(false)
+  if (failed) return null
+  return <img src={src} alt="" className={className} loading="lazy" onError={() => setFailed(true)} />
+}
+
+function photoOf(list: PropertyAsset[]): string | null {
+  return list.find((p) => p.images?.[0])?.images[0] ?? null
 }

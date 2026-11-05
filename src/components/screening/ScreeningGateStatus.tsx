@@ -23,19 +23,16 @@ export function ScreeningGateStatus({
     <div className="flex flex-wrap items-center gap-2" role="status" data-testid="screening-soft-gate">
       <ProviderBadge kind="screening" />
       <Badge tone={cleared ? 'success' : 'neutral'}>
-        {cleared ? 'Screening cleared' : 'Screening gate open'}
+        {cleared ? 'Credit check done' : 'Credit check to do'}
       </Badge>
       <p className="text-sm text-ink-500">
         {cleared ? (
           <>
-            Screening cleared ({screeningStatusLabel(status)}). Approve / lease / move-in soft gate
-            clear.
+            Credit check recorded ({screeningStatusLabel(status)}).
           </>
         ) : (
           <>
-            Soft gate: approve / lease / move-in blocked until screening is{' '}
-            <strong>passed</strong> or recorded via audited <strong>manual override</strong>{' '}
-            (current: {status ? screeningStatusLabel(status) : 'pending'}).
+            Run the credit check outside the system, then upload the findings and approve the Credit check stage.
           </>
         )}
       </p>

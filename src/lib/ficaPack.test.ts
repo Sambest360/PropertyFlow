@@ -57,8 +57,8 @@ describe('DQ-C2 FICA pack Mode A', () => {
     const docs = withPackStatus('uploaded')
     expect(isFicaPackVerified(docs)).toBe(false)
     expect(ficaPackGaps(docs)).toEqual(['id', 'address', 'fica'])
-    expect(ficaPackSoftGateMessage(docs)).toMatch(/blocked until staff verify/i)
-    expect(ficaPackSoftGate({ documents: docs })).toMatch(/blocked/i)
+    expect(ficaPackSoftGateMessage(docs)).toMatch(/check the identity documents first/i)
+    expect(ficaPackSoftGate({ documents: docs })).toMatch(/identity documents/i)
 
     const verified = withPackStatus('verified')
     expect(isFicaPackVerified(verified)).toBe(true)
@@ -199,7 +199,7 @@ describe('DQ-C2 FICA pack Mode A', () => {
     expect(blocked.status).toBe('ERROR')
     if (blocked.status === 'ERROR') {
       expect(blocked.code).toBe('FICA_PACK_INCOMPLETE')
-      expect(blocked.error).toMatch(/blocked until staff verify/i)
+      expect(blocked.error).toMatch(/check the identity documents first/i)
     }
 
     const ok = patchApplicationStatus({

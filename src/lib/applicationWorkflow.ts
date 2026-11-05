@@ -19,7 +19,7 @@ function approveLeaseSoftGate(app: Application): true | string {
   const fica = ficaPackSoftGate(app)
   if (fica !== true) return fica
   const screening = screeningSoftGate(app)
-  if (screening !== true && /current: failed/.test(screening)) return 'Screening was recorded as failed. Record a new outcome before approving.'
+  if (screening !== true && /now: failed\)/.test(screening)) return 'Screening was recorded as failed. Record a new outcome before approving.'
   return true
 }
 
@@ -434,8 +434,8 @@ export const RENTAL_WORKFLOW: WorkflowTemplate = {
     { from: 'first_rent_paid', to: 'rent_verified', actionKey: 'VERIFY_RENT', label: 'Verify rent payment', hint: 'Finance clears first month', tone: 'secondary', requires: ['applications.review'] },
     { from: 'rent_verified', to: 'inspection_scheduled', actionKey: 'SCHEDULE_MOVE_IN', label: 'Schedule move-in inspection', hint: 'Book ingoing condition inspection', tone: 'secondary', requires: ['applications.review'], effect: 'schedule_move_in', guard: (app) => approveLeaseSoftGate(app) },
     { from: 'inspection_scheduled', to: 'inspection_completed', actionKey: 'COMPLETE_INSPECTION', label: 'Complete inspection', hint: 'Record ingoing condition report (in-app PCR pack — stage flip; soft-sign / override still required for keys)', tone: 'secondary', requires: ['applications.review'] },
-    { from: 'inspection_completed', to: 'keys_ready', actionKey: 'KEYS_READY', label: 'Keys ready', hint: 'Keys cut and ready for collection — requires incoming PCR soft-sign or audited override', tone: 'secondary', requires: ['applications.review'], guard: (app) => keysMoveInPcrSoftGate(app) },
-    { from: 'keys_ready', to: 'keys_handed_over', actionKey: 'COMPLETE_KEY_HANDOVER', label: 'Hand over keys', hint: 'Confirm keys collected by tenant — requires incoming PCR soft-sign or audited override', tone: 'primary', requires: ['applications.review'], effect: 'key_handover', guard: (app) => keysMoveInPcrSoftGate(app) },
+    { from: 'inspection_completed', to: 'keys_ready', actionKey: 'KEYS_READY', label: 'Keys ready', hint: 'Keys cut and ready — the move-in inspection must be signed by the agency and the tenant', tone: 'secondary', requires: ['applications.review'], guard: (app) => keysMoveInPcrSoftGate(app) },
+    { from: 'keys_ready', to: 'keys_handed_over', actionKey: 'COMPLETE_KEY_HANDOVER', label: 'Hand over keys', hint: 'Confirm the tenant collected the keys — the move-in inspection must be signed by both', tone: 'primary', requires: ['applications.review'], effect: 'key_handover', guard: (app) => keysMoveInPcrSoftGate(app) },
     { from: 'keys_handed_over', to: 'active_tenancy', actionKey: 'ACTIVATE_TENANCY', label: 'Activate tenancy', hint: 'Lease is live — start rent cycle (FICA + screening + incoming PCR soft-gate)', tone: 'primary', requires: ['applications.review'], guard: (app) => activateTenancySoftGate(app) },
     { from: 'active_tenancy', to: 'renewal_offered', actionKey: 'OFFER_RENEWAL', label: 'Offer renewal', hint: 'Record in-app renewal terms before expiry (in-app book — not CPA legal service / not live notice)', tone: 'secondary', requires: ['applications.review'] },
     { from: 'renewal_offered', to: 'renewed', actionKey: 'ACCEPT_RENEWAL', label: 'Renewal accepted', hint: 'Extend term + rent on book (in-app — does not auto-sign a new e-sign package)', tone: 'primary', requires: ['applications.review'] },
@@ -463,7 +463,7 @@ export const RENTAL_WORKFLOW: WorkflowTemplate = {
       to: 'conditionally_approved',
       actionKey: 'RECOVER_APPROVE',
       label: 'Approve & create lease',
-      hint: 'No lease exists for this application — run approval to create one (requires verified FICA pack + screening passed or audited override)',
+      hint: 'No lease exists for this application — run approval to create one (the identity documents and credit check must be approved)',
       tone: 'primary',
       requires: ['applications.review'],
       effect: 'approve',

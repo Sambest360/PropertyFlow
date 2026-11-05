@@ -10,7 +10,7 @@ import { rolePermissions } from '../lib/permissions'
 import { RequirePermission } from '../components/RequirePermission'
 import { BackButton } from '../components/BackButton'
 import { DashboardTabs } from '../components/dashboard/DashboardTabs'
-import { Badge, Card } from '../components/ui'
+import { Badge, Button, Card, Input } from '../components/ui'
 import { ApplicantDetailHeader } from '../components/applicant-detail/ApplicantDetailHeader'
 import { ApplicantOverviewPanel } from '../components/applicant-detail/ApplicantOverviewPanel'
 import { ApplicantDetailsPanel } from '../components/applicant-detail/ApplicantDetailsPanel'
@@ -38,28 +38,20 @@ import { AGENT_NO_ROWS_COPY, applicationLedgerRows } from '../lib/payfast/applic
 import type { HateoasAction } from '../lib/api/contracts'
 import type { WorkflowActionCapture } from '../lib/workflowActionForms'
 import type { PropertyEvent } from '../types/domain'
+import { sweetWarning } from '../lib/sweetAlert'
 import { useSuiteAlert } from '../components/alerts/SuiteAlert'
 import { ApplicationStagesPanel, type StageApproveInput } from '../components/pipeline/ApplicationStagesPanel'
 import { useAgencyPipeline } from '../hooks/useApplicationPipeline'
 import type { PipelineStage, StageRecord } from '../lib/pipeline/applicationPipeline'
-import { getAvailableTransitions, resolveWorkflowStatus, type WorkflowStatusKey } from '../lib/applicationWorkflow'
+import { workflowProgress, workflowStageLabel, type WorkflowStatusKey } from '../lib/applicationWorkflow'
+import { STATUS_AFTER_APPROVAL, effectiveStageRecords } from '../lib/pipeline/stageProgress'
+import { applicationPassesScreeningSoftGate } from '../lib/screening'
+import { findInspection } from '../lib/pcr'
+import { LeaseSignCard } from '../components/lease/LeaseSignCard'
+import { IdentityDocRows } from '../components/pipeline/IdentityDocRows'
+import { Link } from 'react-router-dom'
+import type { Application } from '../types/domain'
 
-/**
- * When a pipeline stage is approved, the matching step of the underlying
- * workflow moves on too, if it is the very next step from where the file is.
- */
-const STAGE_WORKFLOW_TARGETS: Partial<Record<PipelineStage['kind'], WorkflowStatusKey[]>> = {
-  viewing: ['viewing_completed', 'application_started'],
-  submitted: ['documents_requested'],
-  documents: ['documents_uploaded', 'fica_verification'],
-  identity: ['fica_verification', 'employment_verification'],
-  deposit: ['deposit_paid', 'deposit_verified'],
-  move_in: ['active_tenancy'],
-}
-const LEASE_SIGNED: ReadonlySet<string> = new Set([
-  'tenant_signed', 'landlord_signed', 'deposit_invoice_sent', 'deposit_paid', 'deposit_verified', 'first_rent_paid',
-  'rent_verified', 'inspection_scheduled', 'inspection_completed', 'keys_ready', 'keys_handed_over', 'active_tenancy',
-])
 import { useMarkOpened } from '../context/UnopenedContext'
 
 function isApplicantRelatedEvent(ev: PropertyEvent, applicantName: string, applicationId: string) {
@@ -88,6 +80,9 @@ export default function ApplicantDetail() {
     overrideApplicationScreening,
     approveApplication,
     upsertHeldDeposit,
+    notify,
+    issueLeasePackage,
+    updateTenancy,
   } = useStore()
   const { user, has } = useAuth()
   const { dealVisible, role } = usePropertyScope()
@@ -102,6 +97,8 @@ export default function ApplicantDetail() {
   const application = state.applications.find((a) => a.id === id)
   const pipeline = useAgencyPipeline(application?.agencyId)
   const [stageBusy, setStageBusy] = useState(false)
+  const [moveInDraft, setMoveInDraft] = useState<string | null>(null)
+  const [keyPlaceDraft, setKeyPlaceDraft] = useState<string | null>(null)
   useMarkOpened('application', application?.id)
   // Opening the application counts as opening its compliance (document check) item.
   useMarkOpened('compliance', application?.id)
@@ -379,66 +376,121 @@ export default function ApplicantDetail() {
     ...extra,
   })
 
-  const leaseSigned = LEASE_SIGNED.has(String(application.workflowStatus ?? ''))
-  const depositStage = pipeline.stages.find((s) => s.kind === 'deposit')
-  const stageHint = (stage: PipelineStage): string | null => {
-    if (stage.kind === 'deposit' && application.depositProof?.status !== 'approved') {
-      return 'Approve the proof of payment in the Deposit panel above. That records the deposit in Trust & Banking and approves this stage.'
-    }
-    if (stage.kind === 'lease' && !leaseSigned) {
-      return 'The lease must be signed before this stage can be approved. Generate and send it from the Application tab.'
-    }
+  const linkedTenancy = state.tenancies.find((t) => t.applicationId === application.id && t.status !== 'Ended') ?? null
+  const incomingPcr = findInspection(application, 'incoming')
+  const leaseBothSigned =
+    linkedTenancy?.eSign?.tenant?.status === 'signed' && linkedTenancy?.eSign?.landlord?.status === 'signed'
+  const tellApplicant = (title: string, body: string) => {
+    if (!application.applicantUserId) return
+    notify({ userId: application.applicantUserId, agencyId: application.agencyId, title, body, link: `/workspace/portals/tenant/applications/${application.id}` })
+  }
+
+  /** Save the stage decision (with any earlier progress filled in) and move the old status on. */
+  const saveStageApproval = (
+    stage: PipelineStage,
+    records: Record<string, StageRecord>,
+    record: StageRecord,
+    nextStatus?: WorkflowStatusKey,
+  ) => {
+    updateApplication(application.id, {
+      stageRecords: { ...records, [stage.key]: record },
+      ...(nextStatus
+        ? {
+            workflowStatus: nextStatus,
+            stage: workflowStageLabel(application.type, nextStatus) as Application['stage'],
+            progress: workflowProgress(application.type, nextStatus),
+          }
+        : {}),
+    })
+    addPropertyEvent({
+      agencyId: application.agencyId,
+      propertyId: application.propertyId,
+      actorUserId: user.id,
+      actorName: user.name,
+      action: `approved the ${stage.label} stage`,
+      changes: [{ field: 'Stage', from: stage.label, to: 'Approved' }],
+    })
+  }
+
+  const approveBlocked = (stage: PipelineStage): string | null => {
     if (stage.kind === 'approval') {
-      return 'Approving issues the approval to the applicant and creates their lease and invoices.'
+      const missing = ['id', 'address', 'fica'].filter((k) => !['uploaded', 'verified'].includes(application.documents.find((d) => d.key === k)?.status ?? ''))
+      if (missing.length) return 'Upload the identity documents below first.'
+    }
+    if (stage.kind === 'lease') {
+      if (!linkedTenancy) return 'The lease is created when the application is approved.'
+      if (!linkedTenancy.eSign?.envelopeId) return 'Send the lease to the tenant first.'
+      if (!leaseBothSigned) {
+        const waiting = [
+          linkedTenancy.eSign?.tenant?.status !== 'signed' ? 'the tenant' : null,
+          linkedTenancy.eSign?.landlord?.status !== 'signed' ? 'the landlord' : null,
+        ].filter(Boolean)
+        return `Waiting for ${waiting.join(' and ')} to sign.`
+      }
+    }
+    if (stage.kind === 'move_in') {
+      if (!incomingPcr) return 'Set the move-in date to open the move-in inspection.'
+      if (!incomingPcr.staffSignature) return 'Complete the move-in inspection and sign it off as the agency.'
+      if (!incomingPcr.tenantSignature) return 'Waiting for the tenant to sign the move-in inspection.'
     }
     return null
   }
 
   const approveStage = async (stage: PipelineStage, input: StageApproveInput) => {
-    if (stage.kind === 'deposit' && application.depositProof?.status !== 'approved') {
-      window.alert('Approve the proof of payment in the Deposit panel first.')
-      return
-    }
-    if (stage.kind === 'lease' && !leaseSigned) {
-      window.alert('The lease is not signed yet.')
-      return
-    }
+    const blockedBy = approveBlocked(stage)
+    if (blockedBy) return void (await sweetWarning('Not yet', blockedBy))
     setStageBusy(true)
     try {
-      const prevStage = application.stage
+      const record = stageRecord('approved', {
+        notes: input.notes || undefined,
+        checklist: input.ticked.length ? input.ticked : undefined,
+        attachments: input.attachments.length ? input.attachments : undefined,
+      })
+      // Approving the documents confirms them as checked.
+      const verifyKeys = stage.kind === 'approval' ? ['id', 'address', 'fica'] : (stage.requiredDocs ?? [])
+      for (const key of verifyKeys) {
+        if (application.documents.find((d) => d.key === key)?.status === 'uploaded') setDocumentStatus(application.id, key, 'verified')
+      }
+      if ((stage.kind === 'credit_check' || stage.kind === 'approval') && !applicationPassesScreeningSoftGate(application)) {
+        // The credit check is done outside the system: approving it is the record.
+        await overrideApplicationScreening({
+          applicationId: application.id,
+          actorUserId: user.id,
+          newStatus: 'passed',
+          reason: input.notes || 'Credit check done outside the system and approved in the application stages.',
+        })
+      }
       if (stage.kind === 'approval') {
         const result = await approveApplication(application.id, { actorUserId: user.id })
         setFlash(result)
         if (result.status !== 'SUCCESS') return
+        updateApplication(application.id, { stageRecords: { ...input.records, [stage.key]: record } })
+        tellApplicant(
+          'Your application was approved',
+          'Good news: your rental application was approved. Open your application to accept the offer, then pay the deposit and sign your lease.',
+        )
+        addPropertyEvent({
+          agencyId: application.agencyId,
+          propertyId: application.propertyId,
+          actorUserId: user.id,
+          actorName: user.name,
+          action: 'approved the application',
+          changes: [{ field: 'Stage', from: stage.label, to: 'Approved' }],
+        })
+        return
       }
-      updateApplication(application.id, {
-        stageRecords: {
-          ...(application.stageRecords ?? {}),
-          [stage.key]: stageRecord('approved', {
-            notes: input.notes || undefined,
-            checklist: input.ticked.length ? input.ticked : undefined,
-            attachments: input.attachments.length ? input.attachments : undefined,
-          }),
-        },
-      })
-      const targets = STAGE_WORKFLOW_TARGETS[stage.kind]
-      if (targets) {
-        const perms = rolePermissions[user.role] ?? []
-        const next = getAvailableTransitions(application, perms, true).find((t) => targets.includes(t.to) && (!t.guard || t.guard(application) === true))
-        const target = next?.to ?? null
-        if (target && target !== resolveWorkflowStatus(application)) {
-          const result = await advanceApplicationWorkflow({ applicationId: application.id, actorUserId: user.id, targetStatus: target })
-          if ('application' in result && result.status === 'SUCCESS') logStageChange(prevStage, result.application.stage)
-        }
+      if (stage.kind === 'lease') {
+        saveStageApproval(stage, input.records, record, 'inspection_scheduled')
+        tellApplicant('Your lease is signed', 'Your lease is signed by everyone. Next: the move-in inspection and your keys.')
+        return
       }
-      addPropertyEvent({
-        agencyId: application.agencyId,
-        propertyId: application.propertyId,
-        actorUserId: user.id,
-        actorName: user.name,
-        action: `approved the ${stage.label} stage`,
-        changes: [{ field: 'Stage', from: stage.label, to: 'Approved' }],
-      })
+      if (stage.kind === 'move_in') {
+        saveStageApproval(stage, input.records, record, 'active_tenancy')
+        if (linkedTenancy && linkedTenancy.status !== 'Active') updateTenancy(linkedTenancy.id, { status: 'Active' })
+        tellApplicant('Welcome home', 'Your move-in is complete and your tenancy is active. Your tenant portal has your lease, payments and maintenance.')
+        return
+      }
+      saveStageApproval(stage, input.records, record, STATUS_AFTER_APPROVAL[stage.kind])
     } finally {
       setStageBusy(false)
     }
@@ -448,6 +500,7 @@ export default function ApplicantDetail() {
     setStageBusy(true)
     try {
       const prevStage = application.stage
+      const records = effectiveStageRecords(pipeline, application)
       const result = await patchApplicationStatus({
         applicationId: application.id,
         actorUserId: user.id,
@@ -455,15 +508,17 @@ export default function ApplicantDetail() {
       })
       updateApplication(application.id, {
         declineReason: reason,
-        stageRecords: { ...(application.stageRecords ?? {}), [stage.key]: stageRecord('declined', { reason }) },
+        stageRecords: { ...records, [stage.key]: stageRecord('declined', { reason }) },
         ...(result.status === 'SUCCESS' ? {} : { workflowStatus: 'rejected' as WorkflowStatusKey, stage: 'Rejected' }),
       })
+      tellApplicant('Your application was declined', `Your rental application was declined. Reason: ${reason}`)
       logStageChange(prevStage, 'Rejected', `declined the application at ${stage.label}`)
     } finally {
       setStageBusy(false)
     }
   }
 
+  const depositStage = pipeline.stages.find((s) => s.kind === 'deposit')
   const reviewDepositProof = async (
     decision: { approve: true; amount: number } | { approve: false; reason: string },
   ): Promise<{ ok: boolean; error?: string }> => {
@@ -474,31 +529,165 @@ export default function ApplicantDetail() {
       updateApplication(application.id, {
         depositProof: { ...proof, status: 'declined', declineReason: decision.reason, reviewedAt: now, reviewedByName: user.name },
       })
+      tellApplicant('Proof of payment declined', `Your deposit proof of payment was declined: ${decision.reason}. Please upload a new one.`)
       return { ok: true }
     }
-    const tenancy = state.tenancies.find((t) => t.applicationId === application.id)
     const expected = application.depositRequest?.amount ?? decision.amount
     const held = await upsertHeldDeposit({
       agencyId: application.agencyId,
       actorUserId: user.id,
-      occupancyId: tenancy?.id ?? application.id,
+      occupancyId: linkedTenancy?.id ?? application.id,
       expectedCents: Math.round(expected * 100),
       heldCents: Math.round(decision.amount * 100),
     })
     if (!held.ok) return { ok: false, error: held.error ?? 'Trust & Banking could not record the deposit.' }
     updateApplication(application.id, {
       depositProof: { ...proof, status: 'approved', amount: decision.amount, reviewedAt: now, reviewedByName: user.name, declineReason: undefined },
-      stageRecords: depositStage
-        ? {
-            ...(application.stageRecords ?? {}),
-            [depositStage.key]: stageRecord('approved', { notes: `Deposit of R ${decision.amount.toLocaleString('en-ZA')} approved and recorded in Trust & Banking.` }),
-          }
-        : application.stageRecords,
     })
-    const perms = rolePermissions[user.role] ?? []
-    const next = getAvailableTransitions(application, perms, true).find((t) => t.to === 'deposit_paid' || t.to === 'deposit_verified')
-    if (next) await advanceApplicationWorkflow({ applicationId: application.id, actorUserId: user.id, targetStatus: next.to })
+    if (depositStage) {
+      saveStageApproval(
+        depositStage,
+        effectiveStageRecords(pipeline, application),
+        stageRecord('approved', { notes: `Deposit of R ${decision.amount.toLocaleString('en-ZA')} approved and recorded in Trust & Banking.` }),
+        'deposit_verified',
+      )
+    }
+    tellApplicant('Deposit received', 'Your deposit was received. Next: your lease, which you can read and sign in the app.')
     return { ok: true }
+  }
+
+  const sendLease = async () => {
+    if (!linkedTenancy) return
+    setStageBusy(true)
+    try {
+      const res = await issueLeasePackage(linkedTenancy.id, { userId: user.id, name: user.name })
+      if (!res.ok) return void (await sweetWarning('The lease was not sent', res.error ?? 'Try again.'))
+      updateApplication(application.id, {
+        workflowStatus: 'lease_sent',
+        stage: workflowStageLabel(application.type, 'lease_sent') as Application['stage'],
+        progress: workflowProgress(application.type, 'lease_sent'),
+      })
+      tellApplicant('Your lease is ready to sign', 'Your lease agreement is ready. Open your application to read it, download it and sign it in the app.')
+    } finally {
+      setStageBusy(false)
+    }
+  }
+
+  const moveInDate = moveInDraft ?? application.moveInDate ?? linkedTenancy?.startDate ?? ''
+  const keyPlace = keyPlaceDraft ?? application.keyCollection?.location ?? ''
+  const setMoveInDate = setMoveInDraft
+  const setKeyPlace = setKeyPlaceDraft
+  const saveMoveIn = () => {
+    if (!moveInDate) return
+    const agent = application.agentId ? state.users.find((u) => u.id === application.agentId) : null
+    scheduleMoveIn(application.id, moveInDate, {
+      location: keyPlace.trim() || 'Agency office',
+      instructions: 'Bring your ID. We walk through the move-in inspection together, then you collect your keys.',
+      contactName: agent?.name ?? 'Agency office',
+      contactPhone: agent?.phone ?? '',
+    })
+    const ensured = ensureIngoingInspection({ ...application, moveInDate }, new Date().toISOString(), moveInDate)
+    updateApplication(application.id, { pcrInspections: ensured.application.pcrInspections })
+  }
+
+  const stageBody = (stage: PipelineStage) => {
+    if (stage.kind === 'approval') {
+      return (
+        <div className="space-y-2">
+          <IdentityDocRows
+            application={application}
+            onUpload={(key, file) => uploadApplicationDocument(application.id, key, file, { userId: user.id, name: user.name })}
+          />
+          <p className="text-sm text-ink-600">
+            Approving creates the lease and the deposit and rent invoices, and emails the applicant to accept the offer.
+          </p>
+        </div>
+      )
+    }
+    if (stage.kind === 'deposit') {
+      return (
+        <div className="space-y-3">
+          {application.offerResponse?.status === 'accepted' ? (
+            <p className="text-sm text-emerald-700">The applicant accepted the offer on {new Date(application.offerResponse.at).toLocaleDateString('en-ZA')}.</p>
+          ) : (
+            <p className="text-sm text-amber-800">Waiting for the applicant to accept the offer. You can send the deposit details now.</p>
+          )}
+          <DepositStepPanel
+            application={application}
+            agency={state.agencies.find((a) => a.id === application.agencyId)}
+            depositAmount={Number((property as { deposit?: number } | undefined)?.deposit ?? 0)}
+            mode="staff"
+            actorName={user.name}
+            onSave={(patch) => updateApplication(application.id, patch)}
+            onReviewProof={reviewDepositProof}
+          />
+          <AssignRoomCard
+            application={application}
+            property={property ?? undefined}
+            actorName={user.name}
+            onSave={(patch) => updateApplication(application.id, patch)}
+          />
+        </div>
+      )
+    }
+    if (stage.kind === 'lease') {
+      if (!linkedTenancy) return <p className="text-sm text-ink-600">The lease is created when the application is approved.</p>
+      return (
+        <div className="space-y-3">
+          {!linkedTenancy.eSign?.envelopeId ? (
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-primary-100 bg-white p-3">
+              <p className="min-w-0 flex-1 text-sm text-ink-600">The lease is ready. Send it to the tenant to read and sign.</p>
+              <Button size="sm" disabled={stageBusy} onClick={() => void sendLease()}>
+                Send lease to the tenant
+              </Button>
+            </div>
+          ) : (
+            <ul className="grid gap-2 text-sm sm:grid-cols-2">
+              <li className="rounded-xl border border-primary-100 bg-white px-3 py-2">
+                Tenant: <strong>{linkedTenancy.eSign?.tenant?.status === 'signed' ? 'Signed' : 'Not signed yet'}</strong>
+              </li>
+              <li className="rounded-xl border border-primary-100 bg-white px-3 py-2">
+                Landlord: <strong>{linkedTenancy.eSign?.landlord?.status === 'signed' ? 'Signed' : 'Not signed yet'}</strong>
+              </li>
+            </ul>
+          )}
+          <LeaseSignCard tenancy={linkedTenancy} party="landlord" title="Lease agreement" staff />
+        </div>
+      )
+    }
+    if (stage.kind === 'move_in') {
+      return (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="text-sm">
+              <span className="mb-1 block text-xs font-semibold text-ink-500">Move-in date</span>
+              <Input type="date" value={moveInDate} onChange={(e) => setMoveInDate(e.target.value)} />
+            </label>
+            <label className="min-w-0 flex-1 text-sm">
+              <span className="mb-1 block text-xs font-semibold text-ink-500">Where to collect the keys</span>
+              <Input value={keyPlace} placeholder="e.g. Agency office, 12 Main Road" onChange={(e) => setKeyPlace(e.target.value)} />
+            </label>
+            <Button size="sm" variant="secondary" disabled={!moveInDate} onClick={saveMoveIn}>
+              {application.moveInDate ? 'Update move-in' : 'Save move-in date'}
+            </Button>
+          </div>
+          {incomingPcr ? (
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-primary-100 bg-white p-3 text-sm">
+              <span className="min-w-0 flex-1">
+                Move-in inspection: agency{' '}
+                <strong>{incomingPcr.staffSignature ? 'signed' : 'not signed yet'}</strong>, tenant{' '}
+                <strong>{incomingPcr.tenantSignature ? 'signed' : 'not signed yet'}</strong>
+              </span>
+              <Link to={`/workspace/sales/applications/${application.id}/inspection`} className="font-semibold text-primary hover:underline">
+                Open the inspection
+              </Link>
+            </div>
+          ) : null}
+          <p className="text-xs text-ink-500">You complete and sign the inspection first; the tenant then signs it in their portal.</p>
+        </div>
+      )
+    }
+    return null
   }
 
   // C2: staff see this application's rows of the application's own agency.
@@ -575,37 +764,17 @@ export default function ApplicantDetail() {
           </p>
         )}
 
-        {canReview && !isTenant ? (
-          <div className="mb-5">
-            <DepositStepPanel
-              application={application}
-              agency={state.agencies.find((a) => a.id === application.agencyId)}
-              depositAmount={Number((property as { deposit?: number } | undefined)?.deposit ?? 0)}
-              mode="staff"
-              actorName={user.name}
-              onSave={(patch) => updateApplication(application.id, patch)}
-              onReviewProof={reviewDepositProof}
-            />
-            <div className="mt-3">
-              <AssignRoomCard
-                application={application}
-                property={property ?? undefined}
-                actorName={user.name}
-                onSave={(patch) => updateApplication(application.id, patch)}
-              />
-            </div>
-          </div>
-        ) : null}
-
-        {tab === 'overview' && !isTenant && (
+        {(tab === 'overview' || (tab === 'application' && application.type === 'Rental')) && !isTenant && canReview && (
           <div className="mb-5">
             <ApplicationStagesPanel
               application={application}
-              mode={canReview ? 'staff' : 'applicant'}
               busy={stageBusy}
               onApprove={approveStage}
               onDecline={declineStage}
-              stageHint={stageHint}
+              stageBody={stageBody}
+              approveBlocked={approveBlocked}
+              ownActions={(s) => s.kind === 'deposit'}
+              onUploadDocument={(key, file) => uploadApplicationDocument(application.id, key, file, { userId: user.id, name: user.name })}
             />
           </div>
         )}
@@ -664,7 +833,7 @@ export default function ApplicantDetail() {
             onBlock={() => setBlockOpen(true)}
           />
         )}
-        {tab === 'application' && (
+        {tab === 'application' && (application.type !== 'Rental' || isTenant || !canReview) && (
           <ApplicantApplicationPanel
             application={application}
             property={property}

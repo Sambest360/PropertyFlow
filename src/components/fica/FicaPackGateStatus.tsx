@@ -20,14 +20,14 @@ export function FicaPackGateStatus({
   return (
     <div className="flex flex-wrap items-center gap-2" role="status" data-testid="fica-pack-soft-gate">
       <Badge tone={packOk ? 'success' : 'neutral'}>
-        {packOk ? 'FICA pack verified' : 'FICA pack incomplete'}
+        {packOk ? 'Identity documents checked' : 'Identity documents to check'}
       </Badge>
       <p className="text-sm text-ink-500">
         {packOk ? (
-          <>Lease / move-in soft gate clear.</>
+          <>ID, proof of address and FICA declaration are checked.</>
         ) : (
           <>
-            Soft gate: lease creation / move-in blocked until staff verify {gapLabels.join(', ')}.
+            Still to check: {gapLabels.join(', ')}.
           </>
         )}
       </p>

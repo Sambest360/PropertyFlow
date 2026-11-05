@@ -195,7 +195,7 @@ export function guidedTransitionError(result: PatchApplicationStatusError): stri
     return `${result.error} Open the Documents / FICA pack panel and verify ID, proof of address, and FICA declaration (staff action — not live bureau).`
   }
   if (result.code === 'SCREENING_INCOMPLETE') {
-    return `${result.error} Open Screening details: capture POPIA consent, run mock screening or record an audited manual override (in-app — not live TPN).`
+    return `${result.error} Approve the Credit check stage on the Overview tab (upload the findings), then try again.`
   }
   if (result.code === 'INVALID_TRANSITION') {
     const lower = (result.error ?? '').toLowerCase()

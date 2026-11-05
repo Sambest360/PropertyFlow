@@ -65,7 +65,7 @@ export function ficaPackSoftGateMessage(
   const gaps = ficaPackGaps(documents)
   if (!gaps.length) return null
   const labels = gaps.map((k) => (k === 'id' ? 'ID' : k === 'address' ? 'proof of address' : 'FICA declaration'))
-  return `Lease / move-in blocked until staff verify ${labels.join(', ')} (in-app FICA pack — not live bureau).`
+  return `Check the identity documents first: ${labels.join(', ')}.`
 }
 
 /** Guard helper for workflow transitions — returns true or a clear block reason. */

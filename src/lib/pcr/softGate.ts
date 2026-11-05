@@ -34,9 +34,9 @@ export function pcrSoftGateMessage(
   if (isIngoingPcrClearedForKeys(app)) return null
   const incoming = findInspection(app, 'incoming')
   if (!incoming) {
-    return 'Keys / move-in blocked until an incoming PCR pack is soft-signed (staff + tenant ack) or recorded via audited no-show / admin override (in-app PCR — not PropertyInspect parity).'
+    return 'The move-in inspection must be signed by the agency and the tenant before keys are handed over.'
   }
-  return `Keys / move-in blocked until incoming PCR is soft-signed or audited override (current: ${incoming.status} — in-app, not RHA legal advice).`
+  return `The move-in inspection must be signed by the agency and the tenant before keys are handed over (now: ${incoming.status}).`
 }
 
 /** Guard helper — returns true or a clear block reason. */

@@ -105,9 +105,9 @@ export default function HelpPage() {
         <h2 className="font-display text-lg font-semibold text-ink">Quick guide</h2>
         <div className="grid gap-3 text-sm text-ink-500 sm:grid-cols-2">
           <p>
-            <strong className="text-ink">Applications:</strong> track FICA pack, screening, and PCR
-            soft gates from the application lifecycle. Gate status shows under each section when
-            you have review permission.
+            <strong className="text-ink">Applications:</strong> every stage has Approve and Decline on the
+            application&apos;s Overview. Approve moves it to the next stage; Decline needs a reason. Set the
+            stages in Admin → Application Pipeline.
           </p>
           <p>
             <strong className="text-ink">Trust:</strong> cashbook import/export and allocate are

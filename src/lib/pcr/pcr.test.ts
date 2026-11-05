@@ -221,7 +221,7 @@ describe('keys/move-in soft-gate', () => {
     expect(isPcrSoftGatedAction('COMPLETE_INSPECTION')).toBe(false)
 
     const app = rentalApp()
-    expect(pcrSoftGate(app)).toMatch(/blocked until/i)
+    expect(pcrSoftGate(app)).toMatch(/must be signed/i)
     expect(isIngoingPcrClearedForKeys(app)).toBe(false)
 
     const now = '2026-10-01T14:00:00+02:00'

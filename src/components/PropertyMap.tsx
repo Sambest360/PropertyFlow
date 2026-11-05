@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { GoogleMap, InfoWindowF, MarkerF } from '@react-google-maps/api'
+import { CircleF, GoogleMap, InfoWindowF, MarkerF } from '@react-google-maps/api'
 import {
   MapContainer,
   TileLayer,
+  Circle,
   Marker,
   Popup,
   useMap,
@@ -43,7 +44,7 @@ function priceIcon(label: string, active: boolean) {
   })
 }
 
-function FitToMarkers({ positions }: { positions: [number, number][] }) {
+function FitToMarkers({ positions, maxZoom }: { positions: [number, number][]; maxZoom?: number }) {
   const map = useMap()
 
   useEffect(() => {
@@ -53,7 +54,7 @@ function FitToMarkers({ positions }: { positions: [number, number][] }) {
       return
     }
     if (positions.length === 1) {
-      map.setView(positions[0], 13)
+      map.setView(positions[0], maxZoom ?? 13)
       return
     }
     map.fitBounds(L.latLngBounds(positions), { padding: [48, 48], maxZoom: 12 })
@@ -165,18 +166,24 @@ function MapListingPreview({
   )
 }
 
+/** Radius of the shaded area shown instead of a pin (public listing pages). */
+export const AREA_CIRCLE_RADIUS_M = 900
+const AREA_COLOR = '#1d5fd0'
+
 function LeafletPropertyMap({
   withCoords,
   mode,
   detailBase,
   cardsByPropertyId,
   className,
+  approximateArea = false,
 }: {
   withCoords: PropertyAsset[]
   mode: string
   detailBase: string
   cardsByPropertyId?: Record<string, UnitCardPayload>
   className?: string
+  approximateArea?: boolean
 }) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const positions = useMemo(
@@ -199,9 +206,18 @@ function LeafletPropertyMap({
         <ZoomControl position="bottomright" />
         <MapResize />
         <MapClickClearActive onClear={() => setActiveId(null)} />
-        <FitToMarkers key={positionsKey} positions={positions} />
+        <FitToMarkers key={positionsKey} positions={positions} maxZoom={approximateArea ? 14 : undefined} />
 
-        {withCoords.map((p) => {
+        {approximateArea
+          ? withCoords.map((p) => (
+              <Circle
+                key={p.id}
+                center={[p.lat, p.lng]}
+                radius={AREA_CIRCLE_RADIUS_M}
+                pathOptions={{ color: AREA_COLOR, weight: 2, fillColor: AREA_COLOR, fillOpacity: 0.16 }}
+              />
+            ))
+          : withCoords.map((p) => {
           const card = resolveCardForProperty(p, cardsByPropertyId)
           const label = formatMapPinLabel(p, mode, card)
           return (
@@ -252,12 +268,14 @@ function GooglePropertyMap({
   detailBase,
   cardsByPropertyId,
   className,
+  approximateArea = false,
 }: {
   withCoords: PropertyAsset[]
   mode: string
   detailBase: string
   cardsByPropertyId?: Record<string, UnitCardPayload>
   className?: string
+  approximateArea?: boolean
 }) {
   const { enabled, isLoaded, loadError } = useGoogleMaps()
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -272,14 +290,14 @@ function GooglePropertyMap({
       }
       if (withCoords.length === 1) {
         map.setCenter({ lat: withCoords[0].lat, lng: withCoords[0].lng })
-        map.setZoom(13)
+        map.setZoom(approximateArea ? 14 : 13)
         return
       }
       const bounds = new google.maps.LatLngBounds()
       for (const p of withCoords) bounds.extend({ lat: p.lat, lng: p.lng })
       map.fitBounds(bounds, 48)
     },
-    [withCoords],
+    [withCoords, approximateArea],
   )
 
   if (!enabled || loadError) {
@@ -290,6 +308,7 @@ function GooglePropertyMap({
         detailBase={detailBase}
         cardsByPropertyId={cardsByPropertyId}
         className={className}
+        approximateArea={approximateArea}
       />
     )
   }
@@ -321,7 +340,16 @@ function GooglePropertyMap({
           gestureHandling: 'greedy',
         }}
       >
-        {withCoords.map((p) => {
+        {approximateArea
+          ? withCoords.map((p) => (
+              <CircleF
+                key={p.id}
+                center={{ lat: p.lat, lng: p.lng }}
+                radius={AREA_CIRCLE_RADIUS_M}
+                options={{ strokeColor: AREA_COLOR, strokeWeight: 2, fillColor: AREA_COLOR, fillOpacity: 0.16, clickable: false }}
+              />
+            ))
+          : withCoords.map((p) => {
           const card = resolveCardForProperty(p, cardsByPropertyId)
           return (
           <MarkerF
@@ -421,10 +449,13 @@ export function PropertyMap({
   className,
   detailBase = '/listing',
   cardsByPropertyId,
+  approximateArea = false,
 }: {
   properties: PropertyAsset[]
   mode?: string
   className?: string
+  /** Guests: a shaded area around the (already rounded) position, no pin or popup. */
+  approximateArea?: boolean
   /** Path prefix for marker CTA — workspace uses `/workspace/properties` */
   detailBase?: string
   /** Browse unit cards keyed by property id — aligns popup with grid cards */
@@ -443,6 +474,7 @@ export function PropertyMap({
         detailBase={detailBase}
         cardsByPropertyId={cardsByPropertyId}
         className={className}
+        approximateArea={approximateArea}
       />
     )
   }
@@ -454,6 +486,7 @@ export function PropertyMap({
       detailBase={detailBase}
       cardsByPropertyId={cardsByPropertyId}
       className={className}
+      approximateArea={approximateArea}
     />
   )
 }

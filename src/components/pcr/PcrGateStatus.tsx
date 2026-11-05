@@ -21,20 +21,18 @@ export function PcrGateStatus({
   return (
     <div className="flex flex-wrap items-center gap-2" role="status" data-testid="pcr-soft-gate">
       <Badge tone={cleared ? 'success' : 'neutral'}>
-        {cleared ? 'Incoming PCR cleared' : 'PCR gate open'}
+        {cleared ? 'Move-in inspection signed' : 'Move-in inspection to sign'}
       </Badge>
       <p className="text-sm text-ink-500">
         {cleared ? (
           <>
-            Incoming PCR cleared
-            {incoming ? ` (${inspectionStatusLabel(incoming.status)})` : ''}. Keys / move-in soft
-            gate clear.
+            Signed by the agency and the tenant
+            {incoming ? ` (${inspectionStatusLabel(incoming.status)})` : ''}.
           </>
         ) : (
           <>
-            Soft gate: keys / move-in blocked until incoming PCR is <strong>soft-signed</strong>{' '}
-            (staff + tenant ack) or recorded via audited <strong>no-show / admin override</strong>{' '}
-            (current: {incoming ? inspectionStatusLabel(incoming.status) : 'no inspection yet'}).
+            The agency signs the move-in inspection first, then the tenant signs it in their portal
+            (now: {incoming ? inspectionStatusLabel(incoming.status) : 'not started'}).
           </>
         )}
       </p>

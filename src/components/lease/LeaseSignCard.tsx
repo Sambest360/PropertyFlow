@@ -8,15 +8,18 @@ import { LeaseDocumentActions } from './LeaseDocument'
 import { LeaseSignDialog } from './LeaseSignDialog'
 import type { LeaseSignCapture } from '../../lib/lease/signaturePrefill'
 
-/** One lease for a tenant or landlord: view, download and sign their own part. */
-export function LeaseSignCard({ tenancy, party, title }: { tenancy: Tenancy; party: 'tenant' | 'landlord'; title?: string }) {
+/**
+ * One lease for a tenant or landlord: view, download and sign their own part.
+ * `staff`: agency staff sign the landlord part for the landlord (on behalf).
+ */
+export function LeaseSignCard({ tenancy, party, title, staff = false }: { tenancy: Tenancy; party: 'tenant' | 'landlord'; title?: string; staff?: boolean }) {
   const { state, recordTenancyLeaseSign } = useStore()
   const { user } = useAuth()
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const block = party === 'tenant' ? tenancy.eSign?.tenant : tenancy.eSign?.landlord
-  const mine = party === 'tenant' ? tenancy.tenantUserId === user.id : tenancy.landlordId === user.id
+  const mine = party === 'tenant' ? tenancy.tenantUserId === user.id : tenancy.landlordId === user.id || (staff && party === 'landlord')
   const canSign = Boolean(tenancy.eSign?.envelopeId && block && block.status === 'pending' && mine)
   const property = state.properties.find((p) => p.id === tenancy.propertyId)
 
@@ -31,6 +34,7 @@ export function LeaseSignCard({ tenancy, party, title }: { tenancy: Tenancy; par
         signatureDataUrl: capture.signatureDataUrl,
         method: capture.method,
         ectaConsent: capture.ectaConsent,
+        onBehalfConfirmation: capture.onBehalfConfirmation,
         actorUserId: user.id,
       })
       if (res.ok) {
@@ -51,7 +55,11 @@ export function LeaseSignCard({ tenancy, party, title }: { tenancy: Tenancy; par
           <p className="text-sm text-ink-500">
             {property?.title ?? tenancy.propertyId} · {tenancy.startDate} to {tenancy.endDate ?? 'month to month'}
           </p>
-          {canSign ? <p className="mt-1 text-sm font-semibold text-amber-800">Your signature is needed. Read the lease, then sign.</p> : null}
+          {canSign ? (
+            <p className="mt-1 text-sm font-semibold text-amber-800">
+              {staff && tenancy.landlordId !== user.id ? 'The landlord part is waiting. Sign it here for the landlord.' : 'Your signature is needed. Read the lease, then sign.'}
+            </p>
+          ) : null}
         </div>
       </div>
       <LeaseDocumentActions tenancy={tenancy} onSign={canSign ? () => setOpen(true) : undefined} />

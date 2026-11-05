@@ -18,7 +18,6 @@ import {
     recordNoShowOrAdminOverride,
   setGeneralNotes,
   softSignStaff,
-  softSignTenant,
   updateItemNotes,
   upsertInspectionOnApplication,
   depositDamageWithoutOutgoingSoftWarn,
@@ -201,31 +200,7 @@ export function InspectionPcrPanel({
       setFlash(res.error)
       return
     }
-    persist(res.inspection, res.inspection.ingoingPcrSigned ? 'Incoming PCR soft-signed (ingoing_pcr_signed).' : 'Staff soft-signed.')
-  }
-
-  const onTenantAck = () => {
-    if (!inspection || !canReview) return
-    const res = softSignTenant(
-      inspection,
-      {
-        userId: application.applicantUserId,
-        name: application.applicantName,
-        method: 'staff_recorded',
-      },
-      nowIso(),
-      'Staff-recorded tenant ack (in-app).',
-    )
-    if (res.ok === false) {
-      setFlash(res.error)
-      return
-    }
-    persist(
-      res.inspection,
-      res.inspection.ingoingPcrSigned
-        ? 'Tenant ack recorded — incoming PCR soft-signed (ingoing_pcr_signed).'
-        : 'Tenant soft-ack recorded.',
-    )
+    persist(res.inspection, res.inspection.ingoingPcrSigned ? 'Signed by the agency and the tenant.' : 'Signed off by the agency. The tenant signs next, in their portal.')
   }
 
   const onOverride = (overrideKind: 'tenant_no_show' | 'admin_override') => {
@@ -241,7 +216,7 @@ export function InspectionPcrPanel({
       setFlash(res.error)
       return
     }
-    persist(res.inspection, 'Audited override recorded — ingoing_pcr_signed set.')
+    persist(res.inspection, 'Recorded without the tenant signature, with your reason.')
     setOverrideReason('')
   }
 
@@ -331,9 +306,9 @@ export function InspectionPcrPanel({
                 </dd>
               </div>
               <div>
-                <dt className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">ingoing_pcr_signed</dt>
+                <dt className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">Signed by both</dt>
                 <dd className="mt-1 text-sm font-medium tabular-nums">
-                  {kind === 'incoming' ? (inspection.ingoingPcrSigned ? 'Yes' : 'No') : 'n/a (outgoing)'}
+                  {inspection.staffSignature && inspection.tenantSignature ? 'Yes' : inspection.staffSignature ? 'Agency only' : 'Not yet'}
                 </dd>
               </div>
               <div>
@@ -493,6 +468,11 @@ export function InspectionPcrPanel({
                     Check every item ({counts?.checked ?? 0} of {counts?.total ?? 0} done) before signing off.
                   </p>
                 ) : null}
+                <p className="text-sm text-ink-500" role="status">
+                  {inspection.tenantSignature
+                    ? `The tenant signed on ${new Date(inspection.tenantSignature.signedAt).toLocaleDateString('en-ZA')}.`
+                    : 'The tenant signs in their own portal at move-in, after you sign off.'}
+                </p>
                 <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
@@ -500,15 +480,7 @@ export function InspectionPcrPanel({
                     disabled={!allChecked || Boolean(inspection.staffSignature)}
                     onClick={onStaffSign}
                   >
-                    {inspection.staffSignature ? 'Agent signed off ✓' : 'Agent sign-off'}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    disabled={!allChecked || Boolean(inspection.tenantSignature)}
-                    onClick={onTenantAck}
-                  >
-                    {inspection.tenantSignature ? 'Tenant signed off ✓' : 'Tenant sign-off'}
+                    {inspection.staffSignature ? 'Signed off by the agency ✓' : 'Sign off as the agency'}
                   </Button>
                   <Button type="button" variant="primary" disabled={busy} onClick={() => void onDownloadPdf()}>
                     {busy ? 'Building PDF…' : 'Download PCR PDF'}
@@ -519,20 +491,21 @@ export function InspectionPcrPanel({
 
             {canReview && kind === 'incoming' && !inspection.ingoingPcrSigned ? (
               <div className="space-y-2 rounded-xl border border-primary-100 bg-primary-50/50 p-3">
-                <p className="text-sm font-medium text-ink">No-show / admin override (audited)</p>
+                <p className="text-sm font-medium text-ink">Tenant can&apos;t sign?</p>
+                <p className="text-xs text-ink-500">Only if the tenant didn&apos;t attend or can&apos;t sign in the app. Give the reason; it is kept on the record.</p>
                 <textarea
                   className="w-full rounded-lg border border-primary-200 bg-white px-2 py-1.5 text-sm"
                   rows={2}
-                  placeholder="Documented reason (required)…"
+                  placeholder="Reason (required)"
                   value={overrideReason}
                   onChange={(e) => setOverrideReason(e.target.value)}
                 />
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" variant="secondary" onClick={() => onOverride('tenant_no_show')}>
-                    Tenant no-show
+                    Tenant didn&apos;t attend
                   </Button>
                   <Button type="button" variant="secondary" onClick={() => onOverride('admin_override')}>
-                    Admin override
+                    Record without tenant signature
                   </Button>
                 </div>
               </div>
@@ -567,7 +540,7 @@ export function InspectionPcrPanel({
                   {damageWarn}
                 </p>
               ) : claimDamage ? (
-                <p className="mt-2 text-ink-600">Outgoing PCR on file — soft-warn cleared.</p>
+                <p className="mt-2 text-ink-600">The move-out inspection is on file.</p>
               ) : null}
             </div>
           </div>

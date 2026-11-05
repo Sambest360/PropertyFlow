@@ -4,8 +4,8 @@
  * after Approve, the flash card shows the LIVE store rows of this application,
  * restricted to the ids the approval persisted (checkout.payment_ids) and to
  * the application's own agency; the Pay button carries the exact on-behalf
- * label and needs payments.manage. Staff are not offered OPEN_CHECKOUT by the
- * lifecycle hub (it is a portal.tenant action), so Approve is the staff path.
+ * label and needs payments.manage. Approve here is the Approval stage's
+ * Approve button in the application stages.
  * Store and auth stubbed; fetch is stubbed (rejects) so nothing leaves the test.
  */
 import { act } from 'react'
@@ -30,6 +30,7 @@ vi.mock('../context/AppStore', () => ({
         state: mock.state,
         advanceApplicationWorkflow: async () => mock.approveResult,
         patchApplicationStatus: async () => mock.approveResult,
+        approveApplication: async () => mock.approveResult,
       } as Record<string, unknown>,
       {
         get: (t, k: string) => (k in t ? t[k] : vi.fn(async () => ({}))),
@@ -67,8 +68,9 @@ function app(): Application {
     email: 'a@test.example',
     phone: '0820000000',
     type: 'Rental',
-    workflowStatus: 'application_submitted',
-    stage: 'Application submitted',
+    // Credit check and agent review done: the Approval stage is next.
+    workflowStatus: 'landlord_review',
+    stage: 'Owner / landlord approval',
     progress: 20,
     submittedAt: '2026-10-01',
     updatedAt: '2026-10-02',
