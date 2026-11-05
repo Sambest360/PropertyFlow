@@ -6,7 +6,13 @@ set -euo pipefail
 cd /var/www/propertyflow
 
 MIGRATIONS=(
+  database/postgres/migrations/032_reviews.sql
+  database/postgres/migrations/033_complaints_warnings.sql
+  database/postgres/migrations/034_contractor_bookings.sql
+  database/postgres/migrations/035_email_system.sql
+  database/postgres/migrations/036_saas_billing.sql
   database/postgres/migrations/037_units_erf_size.sql
+  database/postgres/migrations/038_sms_listing_approvals.sql
 )
 
 echo "== Backup"
