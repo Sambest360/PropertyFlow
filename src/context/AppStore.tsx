@@ -5227,7 +5227,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       return { ok: true as const, application: updated }
     },
     updateApplication: (id, p) => {
-      const prev = state.applications.find((a) => a.id === id)
+      const prev = stateRef.current.applications.find((a) => a.id === id) ?? state.applications.find((a) => a.id === id)
+      if (prev) {
+        // Seen at once by the next change made in the same click.
+        const eager = { ...prev, ...p, updatedAt: new Date().toISOString().slice(0, 10) } as Application
+        stateRef.current = { ...stateRef.current, applications: stateRef.current.applications.map((a) => (a.id === id ? eager : a)) }
+      }
       patch((s) => ({
         ...s,
         applications: s.applications.map((a) =>
@@ -5299,11 +5304,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       // so LiveSync cannot wipe verified pack after LOCAL_WRITE_TTL.
       const preSnap = stateRef.current.applications.find((a) => a.id === applicationId) ?? null
       if (!preSnap) return false
-      let persisted: Application | null = null
-      patch((s) => ({
-        ...s,
-        applications: s.applications.map((a) => {
-          if (a.id !== applicationId) return a
+      // Built from the latest copy now, not inside a deferred state update,
+      // so the save below always carries this change.
+      const compute = (a: Application): Application => {
           const documents = a.documents.map((d) =>
             d.key === key
               ? {
@@ -5348,11 +5351,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
               note: 'Consent document uploaded / verified',
             })
           }
-          persisted = result
           return result
-        }),
+        }
+      const persisted: Application = compute(preSnap)
+      stateRef.current = {
+        ...stateRef.current,
+        applications: stateRef.current.applications.map((a) => (a.id === applicationId ? persisted : a)),
+      }
+      patch((s) => ({
+        ...s,
+        applications: s.applications.map((a) => (a.id === applicationId ? persisted : a)),
       }))
-      if (!persisted) return false
       try {
         const { persistToApi } = await import('../lib/api/persist')
         const ok = await persistToApi({

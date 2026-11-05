@@ -31,4 +31,27 @@ describe('persistToApiDetailed', () => {
 
     expect(result).toEqual({ ok: false, error: 'agent not resolved: u-missing' })
   })
+
+  it('saves of the same record go out one at a time, in order', async () => {
+    const order: string[] = []
+    let release: () => void = () => {}
+    vi.mocked(fetch)
+      .mockImplementationOnce(async (_u, init) => {
+        order.push(`start ${JSON.parse(String(init?.body)).data.step}`)
+        await new Promise<void>((r) => (release = r))
+        order.push('end 1')
+        return { ok: true, status: 200, headers: { get: () => 'application/json' }, text: async () => '{"ok":true}' } as Response
+      })
+      .mockImplementationOnce(async (_u, init) => {
+        order.push(`start ${JSON.parse(String(init?.body)).data.step}`)
+        return { ok: true, status: 200, headers: { get: () => 'application/json' }, text: async () => '{"ok":true}' } as Response
+      })
+    const a = persistToApiDetailed({ resource: 'application', action: 'upsert', id: 'APP-1', data: { id: 'APP-1', step: 1 } })
+    const b = persistToApiDetailed({ resource: 'application', action: 'upsert', id: 'APP-1', data: { id: 'APP-1', step: 2 } })
+    await new Promise((r) => setTimeout(r, 10))
+    expect(order).toEqual(['start 1'])
+    release()
+    await Promise.all([a, b])
+    expect(order).toEqual(['start 1', 'end 1', 'start 2'])
+  })
 })

@@ -236,12 +236,25 @@ export function persistErrorMessage(result: PersistApiResult): string | undefine
 
 /** POST /api/persist using DATABASE_URL (bypasses browser RLS). */
 export async function persistViaServerApiDetailed(op: PersistOp): Promise<PersistApiResult> {
+  return (await persistWithStatus(op)).result
+}
+
+/** The save plus the HTTP status (0 when the server was not reached). */
+async function persistWithStatus(op: PersistOp): Promise<{ result: PersistApiResult; status: number }> {
+  const result = await persistViaServerOnce(op)
+  return { result: result.result, status: result.status }
+}
+
+async function persistViaServerOnce(op: PersistOp): Promise<{ result: PersistApiResult; status: number }> {
+  let status = 0
+  const out = await (async (): Promise<PersistApiResult> => {
   try {
     const res = await fetch(`${API_BASE}/api/persist`, {
       method: 'POST',
       headers: await jsonHeaders(),
       body: JSON.stringify(op),
     })
+    status = res.status
     const text = await res.text().catch(() => '')
     const contentType = res.headers.get('content-type')
     if (!isPersistApiSuccessResponse(res.status, contentType, text)) {
@@ -263,6 +276,8 @@ export async function persistViaServerApiDetailed(op: PersistOp): Promise<Persis
     console.warn('[persist] offline / failed', op.resource, op.id, err)
     return { ok: false, error: apiUnreachableMessage() }
   }
+  })()
+  return { result: out, status }
 }
 
 export async function persistViaServerApi(op: PersistOp): Promise<boolean> {
@@ -369,11 +384,35 @@ export function preferServerPersistForTenancy(
   return resource === 'tenancy' && action === 'upsert'
 }
 
+/**
+ * Writes to the same record go out one at a time, in the order they were
+ * made. Several saves of one application at once (approving a stage also
+ * checks its documents) could otherwise land out of order, an older copy
+ * overwriting the newer one, or collide on the server and fail.
+ */
+const recordChains = new Map<string, Promise<unknown>>()
+
 export async function persistToApiDetailed(op: PersistOp): Promise<PersistApiResult> {
   if (!apiConfigured()) {
     return { ok: false, error: apiUnreachableMessage() }
   }
-  return persistViaServerApiDetailed(op)
+  const key = `${op.resource}:${op.id}`
+  const before = recordChains.get(key) ?? Promise.resolve()
+  const run = before.catch(() => undefined).then(async () => {
+    const first = await persistWithStatus(op)
+    // One retry for a passing server error (a busy row); never for a refusal or a bad request.
+    if (!first.result.ok && first.status >= 500) {
+      await new Promise((r) => setTimeout(r, 400))
+      return persistViaServerApiDetailed(op)
+    }
+    return first.result
+  })
+  recordChains.set(key, run)
+  try {
+    return await run
+  } finally {
+    if (recordChains.get(key) === run) recordChains.delete(key)
+  }
 }
 
 export async function persistToApi(op: PersistOp): Promise<boolean> {

@@ -458,7 +458,8 @@ export default function ApplicantDetail() {
       // Approving the documents confirms them as checked.
       const verifyKeys = stage.kind === 'approval' ? ['id', 'address', 'fica'] : (stage.requiredDocs ?? [])
       for (const key of verifyKeys) {
-        if (application.documents.find((d) => d.key === key)?.status === 'uploaded') setDocumentStatus(application.id, key, 'verified')
+        // One at a time: each save must finish before the next one starts.
+        if (application.documents.find((d) => d.key === key)?.status === 'uploaded') await setDocumentStatus(application.id, key, 'verified')
       }
       if ((stage.kind === 'credit_check' || stage.kind === 'approval') && !applicationPassesScreeningSoftGate(application)) {
         // The credit check is done outside the system: approving it is the record.
