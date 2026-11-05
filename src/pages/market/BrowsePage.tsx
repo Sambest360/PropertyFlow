@@ -302,8 +302,20 @@ export default function BrowsePage() {
     title: browseTitle,
     description: savedOnly
       ? 'Your saved property wishlist on Lekaya.'
-      : 'Filter buy, rent, and commercial listings by area, price, beds, and amenities across South Africa.',
-    path: savedOnly ? '/saved' : '/browse',
+      : mode === 'shared'
+        ? 'Rooms to rent in shared accommodation across South Africa. Apply online for a room with Lekaya Rentals.'
+        : 'Filter buy, rent, and commercial listings by area, price, beds, and amenities across South Africa.',
+    path: savedOnly ? '/saved' : mode === 'all' ? '/browse' : `/browse?mode=${mode}`,
+    keywords:
+      mode === 'rent'
+        ? ['houses to rent', 'flats to rent', 'apartments to rent South Africa', 'rental property']
+        : mode === 'buy'
+          ? ['houses for sale', 'property for sale South Africa', 'buy a home']
+          : mode === 'commercial'
+            ? ['commercial property', 'office space to rent', 'commercial property for sale']
+            : mode === 'shared'
+              ? ['rooms to rent', 'shared accommodation', 'room to let', 'student accommodation']
+              : ['property listings South Africa'],
   })
 
   const blockedIds = useMemo(() => {

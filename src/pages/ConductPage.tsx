@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, ShieldAlert } from 'lucide-react'
-import { useAuth } from '../context/AuthContext'
+import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { useStore } from '../context/AppStore'
 import { isApiEnabled } from '../lib/api/config'
 import { roleLabels } from '../lib/permissions'
@@ -72,6 +72,28 @@ function ComplainForm({ onDone }: { onDone: () => void }) {
   const [subject, setSubject] = useState(params.get('about') ?? '')
   const [category, setCategory] = useState('unprofessional')
   const [listingId, setListingId] = useState('')
+  // Only properties this person is linked to: tenants and applicants see the
+  // ones they applied for or live in; landlords their own; staff their agency's.
+  const { allowedPropertyIds } = usePropertyScope()
+  const myProperties = useMemo(() => {
+    const email = (user.email ?? '').toLowerCase()
+    if (user.role === 'tenant' || user.role === 'contractor') {
+      const ids = new Set<string>()
+      for (const a of state.applications) {
+        if (a.applicantUserId === user.id || (email && (a.email ?? '').toLowerCase() === email)) ids.add(a.propertyId)
+      }
+      for (const t of state.tenancies) {
+        if (t.tenantUserId === user.id || (email && t.tenantEmail.toLowerCase() === email)) ids.add(t.propertyId)
+      }
+      for (const tk of state.tickets ?? []) {
+        if ((tk as { contractorId?: string }).contractorId === user.id) ids.add((tk as { propertyId: string }).propertyId)
+      }
+      return state.properties.filter((p) => ids.has(p.id))
+    }
+    if (user.role === 'landlord') return state.properties.filter((p) => p.landlordId === user.id || allowedPropertyIds.has(p.id))
+    if (user.role === 'super_admin') return state.properties.slice(0, 300)
+    return state.properties.filter((p) => allowedPropertyIds.has(p.id) || p.agencyId === user.agencyId).slice(0, 300)
+  }, [state.applications, state.tenancies, state.tickets, state.properties, user, allowedPropertyIds])
   const [description, setDescription] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -113,7 +135,7 @@ function ComplainForm({ onDone }: { onDone: () => void }) {
           <span className="font-medium text-ink">Property (optional)</span>
           <Select className="mt-1 w-full" value={listingId} onChange={(e) => setListingId(e.target.value)}>
             <option value="">Not about a property</option>
-            {state.properties.slice(0, 300).map((p) => (
+            {myProperties.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.title}
               </option>

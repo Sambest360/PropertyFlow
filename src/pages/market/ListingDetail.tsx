@@ -209,6 +209,36 @@ export default function ListingDetail() {
     image: p?.images[0],
     path: id ? `/listing/${id}` : undefined,
     preloadImage: p?.images[0],
+    keywords: p
+      ? [
+          `${p.type} ${p.listingMode === 'sale' ? 'for sale' : 'to rent'} in ${p.suburb || p.city}`,
+          `property ${p.listingMode === 'sale' ? 'for sale' : 'to rent'} ${p.city}`,
+          `${p.suburb} ${p.city}`.trim(),
+        ].filter(Boolean)
+      : undefined,
+    jsonLd: p
+      ? {
+          '@context': 'https://schema.org',
+          '@type': 'RealEstateListing',
+          name: p.title,
+          description: listingDescription,
+          url: typeof window !== 'undefined' ? `${window.location.origin}/listing/${p.id}` : undefined,
+          image: p.images.slice(0, 5),
+          datePosted: p.createdAt,
+          offers: {
+            '@type': 'Offer',
+            priceCurrency: 'ZAR',
+            price: p.listingMode === 'sale' ? p.price : p.rent,
+            businessFunction: p.listingMode === 'sale' ? 'http://purl.org/goodrelations/v1#Sell' : 'http://purl.org/goodrelations/v1#LeaseOut',
+          },
+          about: {
+            '@type': 'Accommodation',
+            numberOfRooms: p.beds,
+            numberOfBathroomsTotal: p.baths,
+            address: { '@type': 'PostalAddress', addressLocality: p.suburb || p.city, addressRegion: p.city, addressCountry: 'ZA' },
+          },
+        }
+      : null,
   })
 
   // P3a: list/bootstrap may carry one photo; detail loads the full gallery from the API.

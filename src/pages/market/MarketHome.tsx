@@ -148,9 +148,10 @@ const HERO_LCP =
 export default function MarketHome() {
   const navigate = useNavigate()
   usePageMeta({
-    title: 'Buy & rent property in South Africa',
+    title: 'Property to rent & buy, and property management in South Africa',
     description:
-      'Search homes for sale and rent across South Africa. Filter by area, price, and property type — then book viewings or apply online.',
+      'Lekaya Rentals: search homes, flats, rooms and shared accommodation to rent or buy across South Africa, book viewings and apply online. Agencies and landlords manage tenants, leases and rent in one place.',
+    keywords: ['Lekaya Rentals', 'property management', 'rental property South Africa', 'homes to rent', 'property for sale'],
     path: '/',
     preloadImage: HERO_LCP,
   })

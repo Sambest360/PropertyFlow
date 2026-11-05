@@ -11,7 +11,9 @@ export const SITEMAP_STATIC_PATHS = [
   '/browse?mode=rent',
   '/browse?mode=buy',
   '/browse?mode=commercial',
+  '/browse?mode=shared',
   '/calculators',
+  '/contact',
   '/privacy',
   '/terms',
 ] as const
