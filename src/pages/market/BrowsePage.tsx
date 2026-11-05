@@ -241,9 +241,19 @@ export default function BrowsePage() {
   }, [params, q, areaPlaces.length])
   const textQ = near ? '' : q
   // "Nearest" is remembered for the visit (the choice only, never the position).
-  const [filters, setFilters] = useState<BrowseFilterState>(() =>
-    readNearestChoice() ? { ...defaultBrowseFilters(), sort: 'nearest' } : defaultBrowseFilters(),
-  )
+  const [filters, setFilters] = useState<BrowseFilterState>(() => {
+    const base = readNearestChoice() ? { ...defaultBrowseFilters(), sort: 'nearest' as const } : defaultBrowseFilters()
+    // Links from the home page and footer can preset type, max price and bedrooms.
+    const types = (params.get('type') ?? '').split(',').map((t) => t.trim()).filter(Boolean)
+    const maxPrice = params.get('maxPrice') ?? ''
+    const beds = Number(params.get('beds'))
+    return {
+      ...base,
+      ...(types.length ? { types } : {}),
+      ...(/^\d+$/.test(maxPrice) ? { maxPrice } : {}),
+      ...(Number.isInteger(beds) && beds > 0 ? { beds } : {}),
+    }
+  })
   // The visitor's own position: memory only, never stored, logged or sent.
   const [deviceLoc, setDeviceLoc] = useState<GeoPoint | null>(null)
   const [locStatus, setLocStatus] = useState<LocationStatus>('idle')

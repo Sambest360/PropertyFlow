@@ -216,11 +216,18 @@ export function buildBrowseSearchUrl(opts: {
   mode?: string
   areas?: readonly Place[]
   q?: string
+  /** Property types, e.g. ['House'] (BrowsePage reads `type`). */
+  types?: readonly string[]
+  maxPrice?: number | null
+  beds?: number | null
 }): string {
   const params = new URLSearchParams()
   if (opts.mode && opts.mode !== 'all') params.set('mode', opts.mode)
   if (opts.areas?.length) params.set('areas', encodeAreasParam(opts.areas))
   if (opts.q?.trim()) params.set('q', opts.q.trim())
+  if (opts.types?.length) params.set('type', opts.types.join(','))
+  if (opts.maxPrice) params.set('maxPrice', String(opts.maxPrice))
+  if (opts.beds) params.set('beds', String(opts.beds))
   const qs = params.toString()
   return qs ? `/browse?${qs}` : '/browse'
 }

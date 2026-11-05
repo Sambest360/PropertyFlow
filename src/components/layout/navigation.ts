@@ -978,34 +978,56 @@ export const marketplaceCategories: MarketplaceNavItem[] = [
   { to: '/calculators', label: 'Calculators', icon: Calculator },
 ]
 
+/**
+ * Public site footer (MarketplaceFooter). Every link is a public page: no
+ * workspace or portal links (Sign in routes each role to its own portal).
+ * Type / price links use the browse page's `type`, `maxPrice` and `beds` params.
+ */
 export const marketplaceFooter = [
   {
-    title: 'Explore',
+    title: 'To rent',
     links: [
-      ['Buy', '/browse?mode=buy'],
-      ['Rent', '/browse?mode=rent'],
-      ['Commercial', '/browse?mode=commercial'],
-      ['Shared accommodation', '/browse?mode=shared'],
-      ['Calculators', '/calculators'],
+      ['All property to rent', '/browse?mode=rent'],
+      ['Houses to rent', '/browse?mode=rent&type=House'],
+      ['Apartments & flats', '/browse?mode=rent&type=Apartment'],
+      ['Townhouses to rent', '/browse?mode=rent&type=Townhouse'],
+      ['Rooms & shared accommodation', '/browse?mode=shared'],
+      ['Student accommodation', '/browse?mode=rent&type=Student%20Accommodation'],
     ],
   },
   {
-    title: 'Home loans',
+    title: 'For sale',
     links: [
-      ['Mortgage bond', '/calculators/mortgage-bond'],
-      ['Affordability', '/calculators/affordability'],
-      ['Additional payments', '/calculators/additional-payment'],
-      ['Bond & transfer', '/calculators/bond-transfer'],
+      ['All property for sale', '/browse?mode=buy'],
+      ['Houses for sale', '/browse?mode=buy&type=House'],
+      ['Apartments for sale', '/browse?mode=buy&type=Apartment'],
+      ['Vacant land & farms', '/browse?mode=buy&type=Vacant%20Land,Farm'],
+      ['Commercial property', '/browse?mode=commercial'],
     ],
   },
-  // T5: the public footer carries no staff or portal links. Sign in routes each
-  // role to its own portal (resolvePostLoginPath, src/lib/workspaceRoutes.ts).
+  {
+    title: 'Landlords & agencies',
+    links: [
+      ['List with us', '/register?role=landlord'],
+      ['Sign in', '/login'],
+      ['Create an account', '/register'],
+      ['Talk to us', '/contact'],
+    ],
+  },
+  {
+    title: 'Calculators',
+    links: [
+      ['Bond repayments', '/calculators/mortgage-bond'],
+      ['What can I afford?', '/calculators/affordability'],
+      ['Extra bond payments', '/calculators/additional-payment'],
+      ['Bond & transfer costs', '/calculators/bond-transfer'],
+    ],
+  },
   {
     title: 'Company',
     links: [
-      ['Sign in', '/login'],
-      ['List with us', '/register?role=landlord'],
       ['Contact', '/contact'],
+      ['Saved homes', '/saved'],
       ['Privacy', '/privacy'],
       ['Terms', '/terms'],
     ],

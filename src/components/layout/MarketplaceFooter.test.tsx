@@ -44,20 +44,14 @@ describe('T5 public footer', () => {
     expect(html).not.toContain('>Portals<')
   })
 
-  it("keeps the public 'Explore' and 'Home loans' groups unchanged (C9)", () => {
+  it('has rent, sale, landlord, calculator and company groups with the calculators unchanged (C9)', () => {
     const byTitle = Object.fromEntries(marketplaceFooter.map((g) => [g.title, g.links.map(([l, t]) => [l, t])]))
-    expect(byTitle['Explore']).toEqual([
-      ['Buy', '/browse?mode=buy'],
-      ['Rent', '/browse?mode=rent'],
-      ['Commercial', '/browse?mode=commercial'],
-      ['Shared accommodation', '/browse?mode=shared'],
-      ['Calculators', '/calculators'],
-    ])
-    expect(byTitle['Home loans']).toEqual([
-      ['Mortgage bond', '/calculators/mortgage-bond'],
-      ['Affordability', '/calculators/affordability'],
-      ['Additional payments', '/calculators/additional-payment'],
-      ['Bond & transfer', '/calculators/bond-transfer'],
+    expect(Object.keys(byTitle)).toEqual(['To rent', 'For sale', 'Landlords & agencies', 'Calculators', 'Company'])
+    expect(byTitle['Calculators'].map(([, t]) => t)).toEqual([
+      '/calculators/mortgage-bond',
+      '/calculators/affordability',
+      '/calculators/additional-payment',
+      '/calculators/bond-transfer',
     ])
   })
 
@@ -74,7 +68,7 @@ describe('T5 public footer', () => {
     expect(patterns).toContain('/privacy')
     expect(patterns).toContain('/terms')
     const unresolved = hrefs
-      .filter((h) => !h.startsWith('mailto:'))
+      .filter((h) => !h.startsWith('mailto:') && !h.startsWith('#'))
       .map((h) => h.split(/[?#]/)[0])
       .filter((path) => !patterns.some((p) => matchPath({ path: p, end: true }, path)))
     expect(unresolved).toEqual([])

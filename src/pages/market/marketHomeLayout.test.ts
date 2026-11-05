@@ -9,7 +9,7 @@ describe('MarketHome layout guards', () => {
   })
 
   it('MarketHome story section uses overflow containment', () => {
-    const src = readFileSync('src/pages/market/MarketHome.tsx', 'utf8')
+    const src = readFileSync('src/pages/market/HomeBelowHero.tsx', 'utf8')
     expect(src).toContain('id="home-story"')
     expect(src).toContain('overflow-x-clip')
   })
