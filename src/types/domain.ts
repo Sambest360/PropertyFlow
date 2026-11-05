@@ -272,6 +272,8 @@ export type PropertyAsset = {
   title: string
   type: string
   status: 'Draft' | 'Published' | 'Featured' | 'Under Offer' | 'Sold' | 'Rented' | 'Archived' | 'Maintenance'
+  /** Going live needs a super admin's approval (server/listingApprovals.ts). */
+  liveApproval?: { status: 'pending' | 'approved' | 'declined'; requestedAt: string; reviewedAt?: string; note?: string }
   advertiseWhileOccupied?: boolean
   availableFrom?: string | null
   listingMode: 'sale' | 'rent' | 'both'

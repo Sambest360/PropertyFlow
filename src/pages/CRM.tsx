@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, Fragment } from 'react'
+import { Pager, usePaged } from '../components/Pager'
 import { acquireSubmitLock, releaseSubmitLock } from '../lib/wizardSubmitGuard'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
@@ -254,6 +255,10 @@ export default function CRM() {
     })
     return rows
   }, [portfolio, q, stage, type, channel, attention, sort, leadTab])
+
+  // Long lists show a page at a time.
+
+  const paged = usePaged(filtered)
 
   const filtersActive =
     Boolean(q.trim()) || stage !== 'all' || type !== 'all' || channel !== 'all' || attention !== 'all'
@@ -553,8 +558,9 @@ export default function CRM() {
             }
           />
         ) : view === 'board' && leadTab === 'active' ? (
+          <>
           <LeadBoard
-            items={filtered}
+            items={paged.pageItems}
             stages={boardStages}
             canManage={canManageLeads}
             mayClose={mayCloseLead}
@@ -563,9 +569,12 @@ export default function CRM() {
             onOpen={openLead}
             reducedMotion={reducedMotion}
           />
+          <Pager {...paged} />
+          </>
         ) : view === 'list' ? (
+          <>
           <LeadList
-            items={filtered}
+            items={paged.pageItems}
             expandedId={expandedId}
             onToggle={toggleExpand}
             mayClose={mayCloseLead}
@@ -576,9 +585,12 @@ export default function CRM() {
             timeLabel={leadTab === 'history' ? 'Closed' : 'Received'}
             propertyForLead={propertyForLead}
           />
+          <Pager {...paged} />
+          </>
         ) : (
+          <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {filtered.map((item) => (
+            {paged.pageItems.map((item) => (
               <LeadCard
                 key={item.lead.id}
                 item={item}
@@ -592,6 +604,8 @@ export default function CRM() {
               />
             ))}
           </div>
+          <Pager {...paged} />
+          </>
         )}
 
         <CloseLeadModal

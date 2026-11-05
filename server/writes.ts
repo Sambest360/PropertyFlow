@@ -660,7 +660,7 @@ async function upsertEntity(
       return upsertBuilding(frontendId, data)
     case 'property':
     case 'unit':
-      return upsertProperty(frontendId, data, actorRole)
+      return upsertProperty(frontendId, data, actorRole, actorUserId)
     case 'room':
       return upsertRoom(frontendId, data)
     case 'asset':
@@ -1054,6 +1054,7 @@ async function upsertProperty(
   feId: string,
   d: Record<string, unknown>,
   actorRole: string | null = null,
+  actorUserId: string | null = null,
 ): Promise<string> {
   // Flat PropertyAsset → units row (+ ensure building if provided)
   const canon = canonicalListingId(feId)
@@ -1183,11 +1184,22 @@ async function upsertProperty(
     typeof d.idempotencyKey === 'string' && d.idempotencyKey.trim()
       ? d.idempotencyKey.trim()
       : null
-  const statusKey = isArchive
+  const requestedStatusKey = isArchive
     ? 'DELETED'
     : isRestore
       ? str(d.statusKey) || unitStatusFromProperty(d.status, undefined)
       : str(d.statusKey) || unitStatusFromProperty(d.status, d.deletedAt)
+  // Only a super admin makes a listing live; anyone else's publish waits for approval.
+  const statusKey =
+    actorRole === null
+      ? requestedStatusKey
+      : await (await import('./listingApprovals.js')).gateListingLive({
+          unitUuid: uuid,
+          statusKey: requestedStatusKey,
+          storedStatus,
+          actorRole,
+          actorUserId,
+        })
 
   await query(
     `INSERT INTO units (

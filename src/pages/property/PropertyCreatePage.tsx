@@ -1154,6 +1154,20 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       navigate(detailTarget)
       return
     }
+    const before = state.properties.find((p) => p.id === propertyId)
+    const heldForApproval =
+      shouldPublish &&
+      user.role !== 'super_admin' &&
+      before?.liveApproval?.status !== 'approved' &&
+      !['Published', 'Featured', 'Under Offer'].includes(before?.status ?? 'Draft')
+    if (heldForApproval) {
+      await sweetSuccess(
+        'Waiting for approval',
+        'Your property is saved and pending verification. A Lekaya Rentals admin will review it and approve it (it then goes live) or tell you what to fix. We will notify you.',
+      )
+      navigate(detailTarget)
+      return
+    }
     const successTitle = shouldPublish
       ? 'Listing published'
       : isEdit

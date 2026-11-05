@@ -344,6 +344,13 @@ export default function PropertyDetail() {
         )
         return
       }
+      if (user.role !== 'super_admin' && p.liveApproval?.status !== 'approved') {
+        await sweetSuccess(
+          'Waiting for approval',
+          'Your property is pending verification. A Lekaya Rentals admin will review it and either approve it (it then goes live) or tell you what to fix.',
+        )
+        return
+      }
       const stillHidden = getGuestMarketplaceBlockReason(
         { ...p, status: 'Published' },
         {
@@ -427,6 +434,26 @@ export default function PropertyDetail() {
 
   return (
     <div className="animate-fade-in">
+      {p.liveApproval && p.liveApproval.status !== 'approved' && p.status === 'Draft' ? (
+        <div
+          role="status"
+          className={
+            p.liveApproval.status === 'declined'
+              ? 'mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900'
+              : 'mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900'
+          }
+        >
+          {p.liveApproval.status === 'declined' ? (
+            <>
+              <span className="font-semibold">Not approved to go live.</span> {p.liveApproval.note ? `Reason: ${p.liveApproval.note}. ` : ''}Fix it and publish again to resend it for approval.
+            </>
+          ) : (
+            <>
+              <span className="font-semibold">Pending verification.</span> A Lekaya Rentals admin is reviewing this property. It goes live once approved.
+            </>
+          )}
+        </div>
+      ) : null}
       <PropertyDetailHeader
         property={p}
         occupancy={unit?.statusKey}

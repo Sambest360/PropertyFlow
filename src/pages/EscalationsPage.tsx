@@ -3,6 +3,7 @@
  * increases, and the agency's escalation rules. The server engine
  * (server/escalations.ts) runs hourly and whenever this page loads.
  */
+import { Pager, usePaged } from '../components/Pager'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, CheckCircle2, RefreshCw, TrendingUp } from 'lucide-react'
@@ -309,6 +310,10 @@ export default function EscalationsPage() {
         .sort((a, b) => b.level - a.level || b.updatedAt.localeCompare(a.updatedAt)),
     [data, showResolved],
   )
+
+  // Long lists show a page at a time.
+
+  const paged = usePaged(issues)
   const openCount = (data?.escalations ?? []).filter((e) => e.status === 'open').length
 
   const tabs: Array<{ id: Tab; label: string }> = [
@@ -355,11 +360,14 @@ export default function EscalationsPage() {
               <CheckCircle2 className="h-5 w-5 text-emerald-600" aria-hidden /> Nothing is overdue right now.
             </Card>
           ) : (
+            <>
             <div className="grid gap-3 lg:grid-cols-2">
-              {issues.map((e) => (
+              {paged.pageItems.map((e) => (
                 <IssueCard key={e.id} e={e} onChanged={() => void load()} />
               ))}
             </div>
+            <Pager {...paged} />
+            </>
           )}
         </div>
       ) : null}

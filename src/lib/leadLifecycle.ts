@@ -1,3 +1,4 @@
+import { relativeAge } from './relativeTime'
 export const CLOSED_LEAD_STAGES = ['Lease Signed', 'Sale Completed', 'Rejected'] as const
 
 export type ClosedLeadStage = (typeof CLOSED_LEAD_STAGES)[number]
@@ -74,14 +75,9 @@ export function formatLeadTime(
   if (Number.isNaN(parsed.getTime())) return raw
 
   if (mode === 'relative') {
-    const diffMs = Date.now() - parsed.getTime()
-    const mins = Math.floor(diffMs / (1000 * 60))
-    if (mins < 1) return 'Just now'
-    if (mins < 60) return `${mins}m ago`
-    const hours = Math.floor(mins / 60)
-    if (hours < 24) return `${hours}h ago`
-    const days = Math.floor(hours / 24)
-    if (days < 7) return `${days}d ago`
+    // Counts whole days once past the first day ("yesterday", "3 days ago").
+    const rel = relativeAge(hasTime ? raw : raw.slice(0, 10))
+    return rel === 'today' ? 'Today' : rel.charAt(0).toUpperCase() + rel.slice(1)
   }
 
   return parsed.toLocaleString(undefined, {

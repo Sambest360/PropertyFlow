@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
 import {
+  BadgeCheck,
   Banknote,
   CalendarClock,
   Flag,
@@ -273,6 +274,15 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
         label: 'Agencies',
         permission: 'platform.manage',
         icon: Landmark,
+      },
+    },
+    {
+      type: 'link',
+      item: {
+        to: '/workspace/admin/listing-approvals',
+        label: 'Listing approvals',
+        permission: 'platform.manage',
+        icon: BadgeCheck,
       },
     },
     {

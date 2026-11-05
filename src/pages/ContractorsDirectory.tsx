@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Pager, usePaged } from '../components/Pager'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { HardHat, Mail, Phone, Plus, Star, Wrench } from 'lucide-react'
 import { useStore } from '../context/AppStore'
@@ -99,6 +100,8 @@ export default function ContractorsDirectory() {
       .filter((c) => !a || c.areas.some((x) => x.toLowerCase().includes(a)))
       .sort((x, y) => Number(y.verified) - Number(x.verified) || (y.rating ?? 0) - (x.rating ?? 0) || x.user.name.localeCompare(y.user.name))
   }, [state.users, state.agencyContractors, agencyId, rosterIds, search, area, trade])
+  // Long lists show a page at a time.
+  const paged = usePaged(marketplace)
 
   const canManage = has('contractors.manage')
   const canCreateUser = has('users.manage') || has('roles.assign')
@@ -205,7 +208,7 @@ export default function ContractorsDirectory() {
               </Select>
             </Card>
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {marketplace.map((c) => (
+              {paged.pageItems.map((c) => (
                 <Card key={c.user.id} className="flex flex-col gap-2 p-5">
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="font-semibold text-ink">{c.user.name}</h3>
@@ -248,6 +251,7 @@ export default function ContractorsDirectory() {
                 </Card>
               ))}
             </div>
+            <Pager {...paged} />
             {marketplace.length === 0 ? <Card className="p-8 text-center text-sm text-ink-500">No contractors match. Try another trade or area.</Card> : null}
           </>
         ) : null}

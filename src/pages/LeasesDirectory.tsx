@@ -1,4 +1,5 @@
 import { LeaseDocumentActions } from '../components/lease/LeaseDocument'
+import { Pager, usePaged } from '../components/Pager'
 import { useMemo, useRef, useState } from 'react'
 import { acquireSubmitLock, releaseSubmitLock } from '../lib/wizardSubmitGuard'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -198,6 +199,10 @@ export default function LeasesDirectory() {
     })
     return list
   }, [rows, q, signFilter, sort])
+
+  // Long lists show a page at a time.
+
+  const paged = usePaged(filtered)
 
   const clearFilters = () => {
     setQ('')
@@ -577,8 +582,9 @@ export default function LeasesDirectory() {
                 }
               />
             ) : view === 'cards' ? (
+              <>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {filtered.map((row) => (
+                {paged.pageItems.map((row) => (
                   <LeaseCard
                     key={row.tenancy.id}
                     row={row}
@@ -589,7 +595,10 @@ export default function LeasesDirectory() {
                   />
                 ))}
               </div>
+              <Pager {...paged} />
+              </>
             ) : (
+              <>
               <div className="overflow-x-auto rounded-2xl border border-primary-100 bg-white">
                 <table className="min-w-full text-left text-sm">
                   <thead className="bg-primary-50/60 text-xs font-semibold uppercase tracking-wide text-ink-500">
@@ -602,7 +611,7 @@ export default function LeasesDirectory() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.map((row) => (
+                    {paged.pageItems.map((row) => (
                       <tr key={row.tenancy.id} className="border-t border-primary-50 align-top">
                         <td className="px-4 py-3">
                           <div className="font-semibold text-ink">{row.tenancy.tenantName}</div>
@@ -658,6 +667,8 @@ export default function LeasesDirectory() {
                   </tbody>
                 </table>
               </div>
+              <Pager {...paged} />
+              </>
             )}
           </>
         )}

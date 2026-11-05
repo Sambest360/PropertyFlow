@@ -843,6 +843,7 @@ export async function buildBootstrap(opts?: {
     }
   })
 
+  const listingApprovals = await (await import('./listingApprovals.js')).loadListingApprovals()
   const limitByUnit = new Map<string, ReturnType<typeof fieldsFromLimitSnapshot>>()
   if (units.length > 0) {
     const snapRows = await optionalLimitSnapshots(
@@ -891,6 +892,7 @@ export async function buildBootstrap(opts?: {
         ? u.listingType
         : 'rent',
       ...limitByUnit.get(u._unitUuid),
+      ...(listingApprovals.get(u._unitUuid) ? { liveApproval: listingApprovals.get(u._unitUuid) } : {}),
       price: u.price,
       rent: u.rent,
       beds: u.bedrooms,
@@ -961,8 +963,9 @@ export async function buildBootstrap(opts?: {
     value: l.value_amount != null ? Number(l.value_amount) : 0,
     notes: stripIdPassportLines((l.notes as string) ?? ''),
     metadata: (l.metadata as Lead['metadata'] | null) ?? undefined,
-    createdAt: dateOnly(l.created_at as Date),
-    updatedAt: dateOnly(l.updated_at as Date),
+    // Full timestamps so "2 h ago" / "3 days ago" are right (a bare date read as noon was not).
+    createdAt: iso(l.created_at as Date) ?? dateOnly(l.created_at as Date),
+    updatedAt: iso(l.updated_at as Date) ?? dateOnly(l.updated_at as Date),
   }))
 
   const mappedApps = (applications as Array<Record<string, unknown>>).map((a) => {

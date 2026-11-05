@@ -3923,6 +3923,22 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         if (!unitOk) return false
       }
       if (pe) void persistUpsert('property_event', pe.id, pe as unknown as Record<string, unknown>)
+      // Only a super admin makes a listing live: anyone else's publish is held
+      // as a draft until a super admin approves it (server/listingApprovals.ts).
+      if (
+        prev &&
+        PUBLIC_ON.includes(status) &&
+        getApiActor()?.role !== 'super_admin' &&
+        prev.liveApproval?.status !== 'approved' &&
+        !PUBLIC_ON.includes(prev.status)
+      ) {
+        const liveApproval = { status: 'pending' as const, requestedAt: new Date().toISOString() }
+        patch((s) => ({
+          ...s,
+          properties: s.properties.map((x) => (x.id === id ? { ...x, status: 'Draft', liveApproval } : x)),
+        }))
+        return true
+      }
       if (prev && PUBLIC_ON.includes(status)) {
         const hasOpenSlot = stateRef.current.viewingSlots.some(
           (s) => s.propertyId === id && s.status === 'Open',
