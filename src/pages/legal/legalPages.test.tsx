@@ -100,7 +100,8 @@ describe('legal pages', () => {
     expect(section).not.toMatch(/decides? why and how/i)
     expect(section).not.toMatch(/(?:<p[^>]*>|[.;]\s+)(we are|we're|lekaya rentals is|lekaya is)\b[^.<]{0,40}responsible party for (the |your |all )?(personal information|enquir|rental|application|lease|agency)/i)
     expect(section).toContain('data-testid="legal-missing-informationOfficer"')
-    expect(section).toContain('data-testid="legal-missing-privacyEmail"')
+    // privacyEmail is filled in (info@lekayarentals.site), so it links instead of a marker.
+    expect(section).toContain('mailto:info@lekayarentals.site')
     // Jim #118 C3: the public listing shows only "listed by <agent>", no agency name,
     // so the page must not promise that the agency is named there.
     // Michael #118 ruling 3: true today (listings show only the agent), so "manages the listing".

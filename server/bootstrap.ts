@@ -744,6 +744,8 @@ export async function buildBootstrap(opts?: {
       agencyId: agencyFe(u.client_id),
       phone: u.phone ?? undefined,
       active: u.active,
+      // Pending until the owner confirms the address (accountEmails.markVerified).
+      emailVerified: meta.emailVerification === 'pending' ? false : undefined,
       enabledPermissions:
         normalizeStoredPermissions(meta.enabledPermissions, meta.permissionsVersion) ?? undefined,
       licenseStatus: meta.licenseStatus ?? undefined,

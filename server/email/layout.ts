@@ -183,26 +183,15 @@ export function layout(title: string, bodyHtml: string, opts: LayoutOptions = {}
     ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">${escapeHtml(opts.preheader)}</div>`
     : ''
   return `<!doctype html>
-<html lang="en" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark"><title>${escapeHtml(title)}</title>
+<html lang="en" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light"><title>${escapeHtml(title)}</title>
 <style>
 @media (max-width:620px){.pf-pad{padding-left:18px !important;padding-right:18px !important}.pf-outer{padding:12px 6px !important}}
-@media (prefers-color-scheme:dark){
-.pf-bg{background:#0b1622 !important}
-.pf-frame,.pf-card{background:#13202f !important;border-color:#24364a !important}
-.pf-frame h1,.pf-frame p,.pf-card-title a{color:#e6eef7 !important}
-.pf-frame a{color:#8cc2ff !important}
-.pf-frame a.pf-btn{color:#ffffff !important;background:#0B63C8 !important}
-.pf-foot{background:#0f1a27 !important;border-color:#24364a !important}
-.pf-frame .pf-foot p{color:#a9bccf !important}
-.pf-logo{background:#ffffff !important;border-radius:8px;padding:6px 10px !important}
-}
 </style></head>
-<body class="pf-bg" style="margin:0;padding:0;background:${BRAND.soft};">
+<body class="pf-bg" style="margin:0;padding:0;background:#ffffff;">
 ${pre}
-<table role="presentation" class="pf-bg pf-outer" width="100%" cellpadding="0" cellspacing="0" style="background:${BRAND.soft};padding:28px 12px;">
+<table role="presentation" class="pf-bg pf-outer" width="100%" cellpadding="0" cellspacing="0" style="background:#ffffff;padding:28px 12px;">
   <tr><td align="center">
     <table role="presentation" class="pf-frame" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#ffffff;border:1px solid ${BRAND.border};border-radius:14px;overflow:hidden;">
-      <tr><td style="height:4px;background:${BRAND.primary};font-size:0;line-height:0;">&nbsp;</td></tr>
       <tr><td class="pf-pad" style="padding:22px 32px 6px;">
         <a href="${escapeHtml(appUrl())}" style="text-decoration:none;"><img class="pf-logo" src="${escapeHtml(logo)}" alt="${BRAND.name}" width="150" style="display:block;border:0;height:auto;max-width:150px;" /></a>
       </td></tr>
@@ -210,8 +199,8 @@ ${pre}
         <h1 style="margin:0 0 16px;font-family:${FONT};font-size:22px;line-height:1.3;color:${BRAND.ink};font-weight:700;">${escapeHtml(title)}</h1>
         ${bodyHtml}
       </td></tr>
-      <tr><td class="pf-pad pf-foot" style="padding:18px 32px;background:${BRAND.soft};border-top:1px solid ${BRAND.border};">
-        <p style="margin:0 0 6px;color:${BRAND.muted};font-size:12px;line-height:1.5;font-family:${FONT};">This email was sent from a no-reply address. Please don't reply to it. For help, open <a href="${escapeHtml(appLink('/workspace/help'))}" style="color:${BRAND.primary};">Help &amp; support</a> in your account.</p>
+      <tr><td class="pf-pad pf-foot" style="padding:18px 32px;background:#ffffff;border-top:1px solid ${BRAND.border};">
+        <p style="margin:0 0 6px;color:${BRAND.muted};font-size:12px;line-height:1.5;font-family:${FONT};">This email was sent from a no-reply address. Please don't reply to it. For help, open <a href="${escapeHtml(appLink('/workspace/help'))}" style="color:${BRAND.primary};">Help &amp; support</a> in your account, or email <a href="mailto:info@lekayarentals.site" style="color:${BRAND.primary};">info@lekayarentals.site</a>.</p>
         ${
           opts.manageNotifications
             ? `<p style="margin:0 0 6px;color:${BRAND.muted};font-size:12px;line-height:1.5;font-family:${FONT};">You get this because notifications are on. <a href="${escapeHtml(settings)}" style="color:${BRAND.primary};">Change your notification settings</a>.</p>`

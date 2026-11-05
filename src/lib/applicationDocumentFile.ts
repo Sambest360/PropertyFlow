@@ -37,9 +37,27 @@ function blobFromFile(file: ApplicationDocumentFile): Blob | null {
 
 function openBlob(blob: Blob): boolean {
   const url = URL.createObjectURL(blob)
-  const win = window.open(url, '_blank', 'noopener')
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
-  return Boolean(win)
+  // No 'noopener' feature: with it window.open always returns null, so the
+  // document opened but the page then showed "could not open" when you came
+  // back. Cut the opener link by hand instead.
+  const win = window.open(url, '_blank')
+  if (win) {
+    try {
+      win.opener = null
+    } catch {
+      /* cross-origin: nothing to cut */
+    }
+  } else {
+    // Pop-up blocked (or an installed app): download it rather than fail.
+    const a = document.createElement('a')
+    a.href = url
+    a.target = '_blank'
+    a.rel = 'noopener'
+    a.click()
+  }
+  // Keep the blob alive long enough to come back to the tab / reload it.
+  window.setTimeout(() => URL.revokeObjectURL(url), 10 * 60_000)
+  return true
 }
 
 /** Open an application document in a new tab (works for large PDFs; avoids raw data: navigation). */

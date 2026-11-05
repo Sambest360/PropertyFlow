@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { BellRing, Mail } from 'lucide-react'
+import { BellRing, Mail, MessageSquareText } from 'lucide-react'
 import { Card } from '../ui'
 import { useNotificationPrefs } from '../../hooks/useNotificationPrefs'
 import { NOTIFICATION_CATEGORIES, type NotificationCategoryId, type NotificationPrefs } from '../../lib/notificationCategories'
@@ -21,7 +21,7 @@ export function NotificationSettingsCard() {
   }
   const toggleTopic = (id: NotificationCategoryId, on: boolean) =>
     void update({ ...prefs, muted: on ? prefs.muted.filter((m) => m !== id) : [...prefs.muted, id] })
-  const allOff = !prefs.inApp && !prefs.email
+  const allOff = !prefs.inApp && !prefs.email && !prefs.sms
 
   return (
     <Card className="space-y-4 p-5" data-tip-target="notification-settings">
@@ -46,6 +46,15 @@ export function NotificationSettingsCard() {
           <span>
             <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-ink"><Mail className="h-4 w-4" aria-hidden /> By email</span>
             <span className="block text-xs text-ink-500">A copy of each update sent to your inbox.</span>
+          </span>
+        </label>
+        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-primary-100 p-3 sm:col-span-2">
+          <input type="checkbox" className="mt-1" checked={prefs.sms} onChange={(e) => void update({ ...prefs, sms: e.target.checked })} />
+          <span>
+            <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-ink"><MessageSquareText className="h-4 w-4" aria-hidden /> By SMS</span>
+            <span className="block text-xs text-ink-500">
+              Only the urgent ones: viewing changes, application decisions, lease and deposit steps, rent overdue, contractor jobs and urgent escalations. Sent to the phone number on your account.
+            </span>
           </span>
         </label>
       </div>

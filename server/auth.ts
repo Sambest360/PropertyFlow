@@ -677,7 +677,12 @@ export async function changeUserPassword(opts: {
     `UPDATE users
         SET password_hash = $2,
             metadata = COALESCE(metadata, '{}'::jsonb)
-              || jsonb_build_object('mustChangePassword', false, 'passwordChangedAt', $3::text),
+              || jsonb_build_object('mustChangePassword', false, 'passwordChangedAt', $3::text)
+              -- A staff-made account signs in with the temporary password that was
+              -- emailed to it, so choosing its own password proves the address.
+              || CASE WHEN COALESCE((metadata->>'mustChangePassword')::boolean, false)
+                      THEN jsonb_build_object('emailVerification', 'verified', 'emailVerifiedAt', $3::text)
+                      ELSE '{}'::jsonb END,
             updated_at = NOW()
       WHERE id = $1::uuid`,
     [row.id, hash, new Date().toISOString()],

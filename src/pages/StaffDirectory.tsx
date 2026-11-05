@@ -22,6 +22,7 @@ import { Badge, Button, PageHeader, cn } from '../components/ui'
 import type { AppUser } from '../types/domain'
 import { usePortalHydrating } from '../components/PortalHydrationGate'
 import { DataTableSkeleton } from '../components/loading/PageSkeleton'
+import { accountStatusLabel } from '../lib/accountStatus'
 
 const ICON_STROKE = 1.6
 const VIEW_KEY = 'propertyflow-staff-view'
@@ -578,7 +579,7 @@ function TeamExpansion({
     { label: 'Phone', value: item.user.phone || '—' },
     { label: 'Role', value: roleLabels[item.user.role] ?? item.user.role },
     { label: 'Agency', value: item.agencyName },
-    { label: 'Status', value: item.user.active ? 'Active' : 'Inactive' },
+    { label: 'Status', value: accountStatusLabel(item.user, 'Inactive') },
     { label: 'Closed deals', value: String(item.closedDeals) },
     { label: 'Open leads', value: String(item.openLeads) },
     { label: 'Properties', value: String(item.assignedProperties) },

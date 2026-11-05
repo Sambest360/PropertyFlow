@@ -20,6 +20,7 @@ import { usePrefersReducedMotion } from '../../hooks/useScrollMotion'
 import { withReturnTo } from '../../lib/returnTo'
 import type { AppUser, Role } from '../../types/domain'
 import { buildLandlordWaitingList } from '../../lib/landlordWaiting'
+import { accountStatusLabel } from '../../lib/accountStatus'
 
 const ICON_STROKE = 1.6
 
@@ -367,8 +368,8 @@ export function AllAccountsDirectory({
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-semibold text-ink">{item.user.name}</p>
-                        <Badge tone={item.user.active ? 'success' : 'danger'}>
-                          {item.user.active ? 'Active' : 'Disabled'}
+                        <Badge tone={!item.user.active ? 'danger' : item.user.emailVerified === false ? 'warning' : 'success'}>
+                          {accountStatusLabel(item.user)}
                         </Badge>
                         <VerificationStatusBadge user={item.user} />
                       </div>

@@ -51,6 +51,8 @@ const REJECT_ACTIONS = new Set([
   'CANCEL_VIEWING',
   'REJECT_OFFER',
   'BOND_DECLINED',
+  'AGENT_APPROVE',
+  'CONDITIONALLY_APPROVE',
 ])
 
 export function actionNeedsModal(actionKey: string): boolean {

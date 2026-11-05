@@ -60,7 +60,7 @@ export function resendVerificationEmail() {
 }
 
 export type NotificationCategory = { id: string; label: string; resources: string[] }
-export type NotificationPrefs = { inApp: boolean; email: boolean; muted: string[] }
+export type NotificationPrefs = { inApp: boolean; email: boolean; sms?: boolean; muted: string[] }
 
 export function fetchNotificationPrefs() {
   return call<{ prefs: NotificationPrefs; categories: NotificationCategory[] }>('/api/account/notification-prefs')

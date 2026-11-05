@@ -2,6 +2,7 @@ import type { AppUser } from '../../types/domain'
 import { hideBackendUuid } from '../../lib/displayIds'
 import { roleLabels } from '../../lib/permissions'
 import { DetailSection, DetailStack, FlatField, FlatFieldGrid } from '../detail/FlatFields'
+import { accountStatusLabel } from '../../lib/accountStatus'
 
 export function TeamOverviewPanel({
   user,
@@ -26,7 +27,7 @@ export function TeamOverviewPanel({
           <FlatField label="Person ID" value={hideBackendUuid(user.id)} />
           <FlatField label="Role" value={roleLabels[user.role] ?? user.role} />
           <FlatField label="Agency" value={agencyName} />
-          <FlatField label="Status" value={user.active ? 'Active' : 'Inactive'} />
+          <FlatField label="Status" value={accountStatusLabel(user, 'Inactive')} />
         </FlatFieldGrid>
       </DetailSection>
 

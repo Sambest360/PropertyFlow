@@ -793,8 +793,18 @@ async function upsertUserWithResult(
     // password (generated here or set by the admin). upsertUser flags it
     // mustChangePassword, so the account must pick its own at first sign-in.
     const tempPassword = typeof d.tempPassword === 'string' && d.tempPassword ? d.tempPassword : undefined
+    // The account stays Pending until its owner confirms the email address
+    // (verify link, or signing in with the emailed temp password).
+    await query(
+      `UPDATE users SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('emailVerification', 'pending')
+        WHERE id = $1::uuid AND COALESCE(metadata->>'emailVerification', '') <> 'verified'`,
+      [resultUuid],
+    )
     void import('./accountEmails.js')
-      .then(({ sendAccountSetupEmail }) => sendAccountSetupEmail(resultUuid, { tempPassword }))
+      .then(async ({ sendAccountSetupEmail, sendVerificationEmail }) => {
+        await sendAccountSetupEmail(resultUuid, { tempPassword })
+        await sendVerificationEmail(resultUuid)
+      })
       .catch((err) => console.warn('[account-setup email] failed:', err instanceof Error ? err.message : err))
   }
   return generatedTempPassword ? { uuid: resultUuid, generatedTempPassword } : { uuid: resultUuid }

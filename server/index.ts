@@ -2497,6 +2497,7 @@ if (shouldListen) {
     })
     // Email new notifications every minute (people can switch this off in Settings).
     void import('./notificationMailer.js').then(({ startNotificationMailer }) => startNotificationMailer())
+    void import('./sms.js').then(({ startSmsWorker }) => startSmsWorker())
     // Copy any inline or old-bucket listing photos onto this server's disk.
     void import('./photoStorage.js').then(({ moveOldPhotosToDisk }) => moveOldPhotosToDisk())
   })
