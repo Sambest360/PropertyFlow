@@ -12,7 +12,6 @@ export const PROPERTY_DETAIL_TABS = [
   'payments',
   'documents',
   'messages',
-  'portals',
   'history',
 ] as const
 

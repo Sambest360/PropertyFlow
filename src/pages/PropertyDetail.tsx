@@ -1,4 +1,5 @@
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { PropertyApplicationsList } from '../components/property-detail/PropertyApplicationsList'
 import { PropertyTenantsPanel } from '../components/tenants/PropertyTenantsPanel'
 import { useMemo, useRef, useState } from 'react'
 import { acquireSubmitLock, releaseSubmitLock } from '../lib/wizardSubmitGuard'
@@ -10,16 +11,12 @@ import { inspectionsAvailable } from '../lib/inspections/api'
 import { LeaseInspectionsPanel } from '../components/inspections/LeaseInspectionsPanel'
 import { BackButton } from '../components/BackButton'
 import { Card } from '../components/ui'
-import { normalizeApplication } from '../lib/applicationWorkflow'
-import { rolePermissions } from '../lib/permissions'
-import { useSuiteAlert } from '../components/alerts/SuiteAlert'
 import { PropertyDetailHeader } from '../components/property-detail/PropertyDetailHeader'
 import { OccupiedAdvertCard } from '../components/property-detail/OccupiedAdvertCard'
 import { PropertyOverviewPanel } from '../components/property-detail/PropertyOverviewPanel'
 import { PropertyMapPanel } from '../components/property-detail/PropertyMapPanel'
 import { PropertyFloorPlanPanel } from '../components/property-detail/PropertyFloorPlanPanel'
 import { PropertyInventoryPanel } from '../components/property-detail/PropertyInventoryPanel'
-import { PropertyApplicantsPanel } from '../components/property-detail/PropertyApplicantsPanel'
 import { PropertyViewingsPanel } from '../components/property-detail/PropertyViewingsPanel'
 import { ListingLimitsPanel } from '../components/property-detail/ListingLimitsPanel'
 import { PropertyRulesPanel } from '../components/property-detail/PropertyRulesPanel'
@@ -28,7 +25,6 @@ import { PropertyPaymentsPanel } from '../components/property-detail/PropertyPay
 import { PropertyDocumentsPanel } from '../components/property-detail/PropertyDocumentsPanel'
 import { PropertyMessagesPanel } from '../components/property-detail/PropertyMessagesPanel'
 import { PropertyHistoryTimeline } from '../components/property-detail/PropertyHistoryTimeline'
-import { PropertySyndicationPanel } from '../components/syndication/PropertySyndicationPanel'
 import { siblingUnitsInBuilding } from '../lib/buildingHierarchy'
 import {
   isPropertyDetailTab,
@@ -71,10 +67,6 @@ export default function PropertyDetail() {
     patchMaintenanceTicket,
     updateTicket,
     removeTicket,
-    approveApplication,
-    advanceApplicationWorkflow,
-    updateApplication,
-    blockApplication,
     setDocumentStatus,
     updateViewing,
     createViewingSlot,
@@ -90,8 +82,6 @@ export default function PropertyDetail() {
   } = useStore()
   const { has, user, agencyId } = useAuth()
   const { inPropertyScope } = usePropertyScope()
-  const alert = useSuiteAlert()
-  const reviewPermissions = rolePermissions[user.role] ?? []
 
   const p = state.properties.find((x) => x.id === id)
 
@@ -238,10 +228,7 @@ export default function PropertyDetail() {
   const [publishBusy, setPublishBusy] = useState(false)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [restoreBusy, setRestoreBusy] = useState(false)
-  const [approvingApplicationId, setApprovingApplicationId] = useState<string | null>(null)
-  const approveLockRef = useRef(false)
   const deleteLockRef = useRef(false)
-  const canReview = has('applications.review')
   const canMaintenance = has('maintenance.manage')
   const canPayments = has('payments.manage')
   const canMessages = has('messages.manage')
@@ -301,7 +288,6 @@ export default function PropertyDetail() {
     { id: 'payments', label: 'Payments', count: overduePayments },
     { id: 'documents', label: 'Documents', count: acceptedDocCount },
     { id: 'messages', label: 'Messages', count: threads.length },
-    { id: 'portals', label: 'Portals' },
     { id: 'history', label: 'History', count: events.length },
   ]
 
@@ -612,123 +598,7 @@ export default function PropertyDetail() {
         />
       )}
 
-      {tab === 'applicants' && (
-        <PropertyApplicantsPanel
-          applications={apps}
-          canReview={canReview}
-          reviewPermissions={reviewPermissions}
-          leaseExistsForApplication={(appId) =>
-            state.tenancies.some((t) => t.applicationId === appId)
-          }
-          onAdvance={async (appId, targetStatus) => {
-            const result = await advanceApplicationWorkflow({
-              applicationId: appId,
-              actorUserId: user.id,
-              targetStatus,
-            })
-            if (result.status === 'ERROR') {
-              await alert.success({
-                title: 'Could not advance',
-                text: result.error ?? 'This workflow step is not available yet.',
-                tone: 'danger',
-              })
-              return
-            }
-            const prev = apps.find((a) => a.id === appId)
-            if (prev && result.application.stage !== prev.stage) {
-              addPropertyEvent({
-                agencyId: p.agencyId,
-                propertyId: p.id,
-                actorUserId: user.id,
-                actorName: user.name,
-                action: 'advanced an Application',
-                changes: [{ field: 'Stage', from: prev.stage, to: result.application.stage }],
-              })
-            }
-            await alert.success({
-              title: 'Application updated',
-              text: result.application.stage,
-            })
-          }}
-          approvingApplicationId={approvingApplicationId}
-          onApprove={async (appId) => {
-            if (!acquireSubmitLock(approveLockRef)) return
-            setApprovingApplicationId(appId)
-            try {
-            // P0-approve: approveApplication now awaits the durable write and
-            // returns ERROR when it fails, so the success dialog (and the
-            // property-event log entry) only run after the stage is committed.
-            const result = await approveApplication(appId, { actorUserId: user.id })
-            if (result.status === 'ERROR') {
-              await alert.success({
-                title: 'Approval failed',
-                text: result.error ?? 'Could not approve this application.',
-                tone: 'danger',
-              })
-              return
-            }
-            const prev = apps.find((a) => a.id === appId)
-            if (prev) {
-              addPropertyEvent({
-                agencyId: p.agencyId,
-                propertyId: p.id,
-                actorUserId: user.id,
-                actorName: user.name,
-                action: 'approved an Applicant',
-                changes: [{ field: 'Stage', from: prev.stage, to: result.application.stage }],
-              })
-            }
-            await alert.success({
-              title: 'Applicant approved',
-              text: 'Deposit invoice and lease steps are ready on the application profile.',
-            })
-            } finally {
-              setApprovingApplicationId(null)
-              releaseSubmitLock(approveLockRef)
-            }
-          }}
-          onSetDocStatus={setDocumentStatus}
-          onSetWorkflowStage={(appId, workflowStatus) => {
-            const prev = apps.find((a) => a.id === appId)
-            if (!prev) return
-            const updated = normalizeApplication({ ...prev, workflowStatus })
-            updateApplication(appId, {
-              workflowStatus: updated.workflowStatus,
-              stage: updated.stage,
-              progress: updated.progress,
-              documents: updated.documents,
-              docs: updated.docs,
-            })
-            if (prev.stage !== updated.stage) {
-              addPropertyEvent({
-                agencyId: p.agencyId,
-                propertyId: p.id,
-                actorUserId: user.id,
-                actorName: user.name,
-                action: 'changed the Application stage',
-                changes: [{ field: 'Stage', from: prev.stage, to: updated.stage }],
-              })
-            }
-          }}
-          onBlock={(appId, reason) => {
-            const prev = apps.find((a) => a.id === appId)
-            blockApplication(appId, reason)
-            if (prev) {
-              addPropertyEvent({
-                agencyId: p.agencyId,
-                propertyId: p.id,
-                actorUserId: user.id,
-                actorName: user.name,
-                action: 'blocked an Applicant',
-                changes: [
-                  { field: 'Stage', from: prev.stage, to: 'Blocked' },
-                  { field: 'Reason', from: '—', to: reason },
-                ],
-              })
-            }
-          }}
-        />
-      )}
+      {tab === 'applicants' && <PropertyApplicationsList applications={apps} />}
 
       {tab === 'viewings' && (
         <>
@@ -936,14 +806,6 @@ export default function PropertyDetail() {
             void thread
           }}
           onSend={(threadId, body) => sendMessage(threadId, user.id, body)}
-        />
-      )}
-
-      {tab === 'portals' && (
-        <PropertySyndicationPanel
-          property={p}
-          canManage={canManage}
-          onPropertyPatch={(patch) => updateProperty(p.id, patch)}
         />
       )}
 
