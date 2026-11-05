@@ -153,10 +153,10 @@ export function PropertyMessagesPanel({
                     className={cn('flex gap-2', mine ? 'flex-row-reverse' : 'flex-row')}
                   >
                     <span
-                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-white"
+                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary text-[11px] font-bold text-white"
                       aria-hidden
                     >
-                      {initials(from?.name ?? '?')}
+                      {from?.avatar ? <img src={from.avatar} alt="" className="h-full w-full object-cover" /> : initials(from?.name ?? '?')}
                     </span>
                     <div
                       className={cn(

@@ -984,7 +984,7 @@ export async function enforceUserWritePolicy(
       throw signatureInvalidError()
     }
   }
-  const role = normaliseRoleField(data)
+  let role = normaliseRoleField(data)
   // Designated super-admin addresses are reserved: no write (any actor) may
   // move a row onto one unless that row already has it.
   if (body.action !== 'delete' && isReservedSuperAdminEmail(data.email as string | undefined)) {
@@ -1019,6 +1019,13 @@ export async function enforceUserWritePolicy(
   stripFields(data, CREDENTIAL_USER_FIELDS)
 
   const own = body.id === actor.userId
+  // Nobody changes their own role or agency (admins included): an edit of
+  // your own profile keeps them as stored. Another admin, or a super admin,
+  // makes that change.
+  if (own && existing) {
+    stripFields(data, ['role', 'agencyId', 'active', 'enabledPermissions', 'licenseStatus', 'commissionSharePct', 'mentorId'])
+    role = undefined
+  }
   if (actor.agencyId && (await actorHasUsersManage(actor))) {
     if (existing && existing.agencyId !== actor.agencyId) {
       throw deny('user is outside your agency')

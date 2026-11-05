@@ -21,7 +21,7 @@ export const MY_SIGNATURE_COPY = {
   failed: 'The signature could not be saved. Try again.',
 } as const
 
-export default function AccountSignaturePage() {
+export default function AccountSignaturePage({ embedded = false }: { embedded?: boolean } = {}) {
   const { user } = useAuth()
   const { state, saveMySignature } = useStore()
   const me = state.users.find((u) => u.id === user.id)
@@ -64,6 +64,43 @@ export default function AccountSignaturePage() {
     }
   }
 
+  const grid = (
+      <div className="grid gap-4 lg:grid-cols-2">
+      <Card className="p-5">
+        <h2 className="text-sm font-semibold text-ink-900">{MY_SIGNATURE_COPY.savedHeading}</h2>
+        {saved ? (
+          <div className="mt-3 space-y-3">
+            <img
+              src={saved}
+              alt="Your saved signature"
+              className="h-36 w-full rounded-2xl border border-primary-100 bg-white object-contain"
+              data-testid="saved-signature-preview"
+            />
+            <Button type="button" variant="secondary" disabled={busy} onClick={onRemove}>
+              Remove saved signature
+            </Button>
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-ink-500">{MY_SIGNATURE_COPY.noneSaved}</p>
+        )}
+      </Card>
+      <Card className="p-5">
+        <h2 className="mb-3 text-sm font-semibold text-ink-900">{MY_SIGNATURE_COPY.drawHeading}</h2>
+        <SignaturePad value={null} onChange={setDraft} />
+        <div className="mt-3 flex items-center gap-3">
+          <Button type="button" disabled={!draft || busy} onClick={onSave}>
+            Save signature
+          </Button>
+          {message ? (
+            <p className="text-sm text-ink-600" role="status">
+              {message}
+            </p>
+          ) : null}
+        </div>
+      </Card>
+    </div>
+  )
+  if (embedded) return grid
   return (
     <DashboardPage>
       <DashboardBreadcrumb items={[homeCrumb, { label: MY_SIGNATURE_COPY.title }]} />
@@ -71,40 +108,7 @@ export default function AccountSignaturePage() {
         <h1 className="font-display text-2xl font-semibold text-ink-900">{MY_SIGNATURE_COPY.title}</h1>
         <p className="mt-1 max-w-2xl text-sm text-ink-600">{MY_SIGNATURE_COPY.intro}</p>
       </div>
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="p-5">
-          <h2 className="text-sm font-semibold text-ink-900">{MY_SIGNATURE_COPY.savedHeading}</h2>
-          {saved ? (
-            <div className="mt-3 space-y-3">
-              <img
-                src={saved}
-                alt="Your saved signature"
-                className="h-36 w-full rounded-2xl border border-primary-100 bg-white object-contain"
-                data-testid="saved-signature-preview"
-              />
-              <Button type="button" variant="secondary" disabled={busy} onClick={onRemove}>
-                Remove saved signature
-              </Button>
-            </div>
-          ) : (
-            <p className="mt-3 text-sm text-ink-500">{MY_SIGNATURE_COPY.noneSaved}</p>
-          )}
-        </Card>
-        <Card className="p-5">
-          <h2 className="mb-3 text-sm font-semibold text-ink-900">{MY_SIGNATURE_COPY.drawHeading}</h2>
-          <SignaturePad value={null} onChange={setDraft} />
-          <div className="mt-3 flex items-center gap-3">
-            <Button type="button" disabled={!draft || busy} onClick={onSave}>
-              Save signature
-            </Button>
-            {message ? (
-              <p className="text-sm text-ink-600" role="status">
-                {message}
-              </p>
-            ) : null}
-          </div>
-        </Card>
-      </div>
+      {grid}
     </DashboardPage>
   )
 }

@@ -1,5 +1,6 @@
 import { cn } from '../ui'
 import { initials } from './formatShortDate'
+import { useStore } from '../../context/AppStore'
 
 export type AvatarPerson = {
   id: string
@@ -17,16 +18,18 @@ export function AvatarStack({
   emptyLabel?: string
   className?: string
 }) {
+  const { state } = useStore()
   const shown = people.slice(0, max)
+  const photo = (id: string) => state.users.find((x) => x.id === id)?.avatar
   return (
     <div className={cn('flex -space-x-2', className)}>
       {shown.map((u) => (
         <span
           key={u.id}
           title={u.name}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-primary-100 text-[10px] font-bold text-primary"
+          className="inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-primary-100 text-[10px] font-bold text-primary"
         >
-          {initials(u.name)}
+          {photo(u.id) ? <img src={photo(u.id)} alt="" className="h-full w-full object-cover" /> : initials(u.name)}
         </span>
       ))}
       {shown.length === 0 && (
@@ -38,15 +41,15 @@ export function AvatarStack({
   )
 }
 
-export function AvatarChip({ name, className }: { name: string; className?: string }) {
+export function AvatarChip({ name, avatar, className }: { name: string; avatar?: string | null; className?: string }) {
   return (
     <span
       className={cn(
-        'inline-flex h-8 w-8 items-center justify-center rounded-full bg-white text-xs font-bold text-primary',
+        'inline-flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-white text-xs font-bold text-primary',
         className,
       )}
     >
-      {initials(name)}
+      {avatar ? <img src={avatar} alt="" className="h-full w-full object-cover" /> : initials(name)}
     </span>
   )
 }

@@ -13,6 +13,8 @@ MIGRATIONS=(
   database/postgres/migrations/036_saas_billing.sql
   database/postgres/migrations/037_units_erf_size.sql
   database/postgres/migrations/038_sms_listing_approvals.sql
+  database/postgres/migrations/039_application_pipeline.sql
+  database/postgres/migrations/040_shared_room_slots.sql
 )
 
 echo "== Check .env"

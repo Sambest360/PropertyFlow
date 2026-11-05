@@ -42,7 +42,7 @@ export function TenantEnquiriesView() {
   const list = withStatus.filter((e) => (filter === 'all' ? true : filter === 'open' ? e.status.open : !e.status.open))
 
   const propertyFor = (id: string) =>
-    publicProperties.find((p) => p.id === id) ?? state.properties.find((p) => p.id === id) ?? null
+    state.properties.find((p) => p.id === id) ?? publicProperties.find((p) => p.id === id) ?? null
   const agentName = (id: string | null) => (id ? state.users.find((u) => u.id === id)?.name ?? null : null)
 
   if (!enquiries.length) {

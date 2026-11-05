@@ -93,12 +93,15 @@ const EscalationsPage = lazy(() => import('./pages/EscalationsPage'))
 const ReviewModerationPage = lazy(() => import('./pages/admin/ReviewModerationPage'))
 const ConductPage = lazy(() => import('./pages/ConductPage'))
 const AccountSettingsPage = lazy(() => import('./pages/account/AccountSettingsPage'))
+const MyProfilePage = lazy(() => import('./pages/account/MyProfilePage'))
 const ContractorBookingsPage = lazy(() => import('./pages/ContractorBookingsPage'))
 const PublicProfilePage = lazy(() => import('./pages/market/PublicProfilePage'))
 const AdminAgencyCreatePage = lazy(() => import('./pages/admin/AdminAgencyCreatePage'))
 const AgencyDetailPage = lazy(() => import('./pages/admin/AgencyDetailPage'))
 const AdminConfigPage = lazy(() => import('./pages/admin/AdminConfigPage'))
 const LeadPipelineSettingsPage = lazy(() => import('./pages/admin/LeadPipelineSettingsPage'))
+const ApplicationConfigurationPage = lazy(() => import('./pages/admin/ApplicationConfigurationPage'))
+const LeaseTemplatePage = lazy(() => import('./pages/admin/LeaseTemplatePage'))
 const ApplicationJourneySettingsPage = lazy(
   () => import('./pages/admin/ApplicationJourneySettingsPage'),
 )
@@ -506,6 +509,7 @@ export default function App() {
                 <Route path="account/signature" element={<AccountSignaturePage />} />
                 <Route path="account/password" element={<ChangePasswordPage />} />
                 <Route path="account/settings" element={<AccountSettingsPage />} />
+                <Route path="account/profile" element={<MyProfilePage />} />
                 <Route path="portals/contractor" element={<Guard permission="portal.contractor"><ContractorPortal /></Guard>} />
                 <Route path="portals/contractor/bookings" element={<Guard permission="portal.contractor"><ContractorBookingsPage /></Guard>} />
 
@@ -572,7 +576,9 @@ export default function App() {
                   }
                 />
                 <Route path="admin/config" element={<AgencyOpsGuard anyOf={['config.manage', 'tenant.manage', 'platform.manage']}><AdminConfigPage /></AgencyOpsGuard>} />
-                <Route path="admin/pipeline" element={<AgencyOpsGuard anyOf={['config.manage', 'tenant.manage', 'platform.manage']}><LeadPipelineSettingsPage /></AgencyOpsGuard>} />
+                <Route path="admin/pipeline" element={<AgencyOpsGuard anyOf={['config.manage', 'tenant.manage', 'platform.manage']}><ApplicationConfigurationPage /></AgencyOpsGuard>} />
+                <Route path="admin/lease-template" element={<AgencyOpsGuard anyOf={['config.manage', 'tenant.manage', 'platform.manage']}><LeaseTemplatePage /></AgencyOpsGuard>} />
+                <Route path="admin/lead-stages" element={<AgencyOpsGuard anyOf={['config.manage', 'tenant.manage', 'platform.manage']}><LeadPipelineSettingsPage /></AgencyOpsGuard>} />
                 <Route path="admin/inventory-templates" element={<AgencyOpsGuard anyOf={['config.manage', 'tenant.manage', 'platform.manage']}><InventoryTemplatesPage /></AgencyOpsGuard>} />
                 <Route path="admin/application-journey" element={<AgencyOpsGuard anyOf={['config.manage', 'tenant.manage', 'platform.manage']}><ApplicationJourneySettingsPage /></AgencyOpsGuard>} />
                 <Route path="admin/roles" element={<Navigate to="/workspace/admin/users" replace />} />

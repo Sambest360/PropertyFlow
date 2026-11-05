@@ -1,3 +1,4 @@
+import { toPublicListing } from '../lib/publicLocation'
 import { setTicketAccessNotesSupported, ticketAccessNotesSupportedFromBootstrap } from '../lib/ticketAccessNotes'
 import { erfSizeForUnitPersist, setUnitErfSizeSupported, unitErfSizeSupportedFromBootstrap } from '../lib/unitErfSizeSupport'
 import {
@@ -648,6 +649,8 @@ type StoreContextValue = {
     | { ok: false; error: string; user?: AppUser }
   >
   updateUser: (id: string, patch: Partial<AppUser>) => void
+  /** The server already saved this photo: show it everywhere now, no write. */
+  setUserAvatarLocal: (id: string, avatar: string | null) => void
   /** Drop a user the server deleted from this browser's lists (no server write). */
   removeUserLocally: (id: string) => void
   /**
@@ -2040,6 +2043,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         tenancy: lease,
         property,
         agencyName: agency?.name ?? 'Agency',
+        leaseTemplateHtml: agency?.settings?.leaseTemplate ?? null,
         landlordUser,
         documentId,
         actorUserId: actor?.userId,
@@ -2076,9 +2080,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           {
             field: 'E-sign',
             from: 'None',
-            to: `${issued.eSign.status} (${issued.eSign.provider}${
-              issued.eSign.nonProduction ? ', non-production' : ''
-            })`,
+            to: `${issued.eSign.status} (${issued.eSign.provider === 'mock' ? 'in-app e-signature' : issued.eSign.provider})`,
           },
         ],
       }
@@ -3092,6 +3094,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     removeUserLocally: (id) => {
       patch((s) => ({ ...s, users: s.users.filter((u) => u.id !== id) }))
     },
+    setUserAvatarLocal: (id, avatar) => {
+      patch((s) => ({ ...s, users: s.users.map((u) => (u.id === id ? { ...u, avatar: avatar ?? undefined } : u)) }))
+    },
     updateUser: (id, p) => {
       patch((s) => ({ ...s, users: s.users.map((u) => (u.id === id ? { ...u, ...p } : u)) }))
       const next = { ...state.users.find((u) => u.id === id), ...p, id }
@@ -3159,6 +3164,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           depositPaid: input.depositPaid,
           roomLabel: input.roomLabel?.trim() || undefined,
         },
+        ...(input.roomLabel?.trim() ? { roomSlot: input.roomLabel.trim() } : {}),
       }
       patch((s) => ({ ...s, tenancies: [tenancy, ...s.tenancies] }))
       const result = await persistUpsertResult('tenancy', tenancy.id, tenancy as unknown as Record<string, unknown>)
@@ -8250,9 +8256,18 @@ export function useStore() {
   return ctx
 }
 
+/**
+ * Marketplace listings, as anyone may see them: suburb and city only, with
+ * the map position rounded to the area (~1 km). The street address goes only
+ * to people who book a viewing or enquire, by email.
+ */
 export function usePublicProperties() {
   const { state } = useStore()
-  return state.properties.filter((p) =>
-    isPubliclyListed(p, { units: state.units, users: state.users }),
+  return useMemo(
+    () =>
+      state.properties
+        .filter((p) => isPubliclyListed(p, { units: state.units, users: state.users }))
+        .map(toPublicListing),
+    [state.properties, state.units, state.users],
   )
 }

@@ -257,9 +257,9 @@ describe('DQ-C3 screening soft-gate Mode A', () => {
   const verifiedDocs = () =>
     buildDocumentChecklist('Rental').map((d) => ({ ...d, status: 'verified' as const }))
 
-  it('honesty copy denies live TPN', () => {
-    expect(SCREENING_MODE_A_COPY).toMatch(/not live TPN/i)
-    expect(SCREENING_MODE_A_COPY).toMatch(/mock or manual/i)
+  it('copy says credit checks happen outside the system (no "mock" wording)', () => {
+    expect(SCREENING_MODE_A_COPY).toMatch(/outside the system/i)
+    expect(SCREENING_MODE_A_COPY).not.toMatch(/mock/i)
   })
 
   it('clears soft-gate only for passed or manual_override', () => {
@@ -431,7 +431,7 @@ describe('DQ-C3 screening soft-gate Mode A', () => {
     expect(blocked.status).toBe('ERROR')
     if (blocked.status === 'ERROR') {
       expect(blocked.code).toBe('SCREENING_INCOMPLETE')
-      expect(blocked.error).toMatch(/not live TPN/i)
+      expect(blocked.error).toMatch(/blocked until screening/i)
     }
 
     const ok = patchApplicationStatus({

@@ -5,7 +5,7 @@
  * unsigned draft and is never relabelled as signed.
  */
 export const SIGNED_COPY_COPY = {
-  mock: 'Signed copy not available in this environment.',
+  mock: 'Download the lease to see the signatures recorded in the app.',
   pending: 'Signed copy not available yet.',
 } as const
 

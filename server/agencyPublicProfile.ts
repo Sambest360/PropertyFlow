@@ -46,8 +46,10 @@ const EMPTY_PROFILE: AgencyPublicProfile = {
 
 /** Agency roles that manage their own agency. */
 export const AGENCY_ADMIN_ROLES: ReadonlySet<string> = new Set(['client_admin', 'agent_admin'])
-/** Roles that may upload their own profile photo. */
-export const PHOTO_SELF_ROLES: ReadonlySet<string> = new Set(['super_admin', 'client_admin', 'agent_admin', 'ground_agent', 'agent'])
+/** Roles that may upload their own profile photo: everyone with an account. */
+export const PHOTO_SELF_ROLES: ReadonlySet<string> = new Set([
+  'super_admin', 'client_admin', 'agent_admin', 'ground_agent', 'agent', 'landlord', 'tenant', 'contractor', 'applicant',
+])
 /** DB roles shown as a listing contact when assigned as the agent. */
 const DB_STAFF_ROLES = ['AGENCY_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT']
 const DB_ROLE_LABEL: Record<string, string> = {

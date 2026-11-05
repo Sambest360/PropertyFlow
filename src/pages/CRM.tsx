@@ -122,6 +122,18 @@ export default function CRM() {
     searchParams.get('tab') === 'history' ? 'history' : 'active',
   )
   const [sort, setSort] = useState('created')
+  const [propertyId, setPropertyIdState] = useState(() => searchParams.get('property') || 'all')
+  useEffect(() => {
+    const prop = searchParams.get('property')
+    if (prop) setPropertyIdState(prop)
+  }, [searchParams])
+  const setPropertyId = (id: string) => {
+    setPropertyIdState(id)
+    const params = new URLSearchParams(searchParams)
+    if (id === 'all') params.delete('property')
+    else params.set('property', id)
+    setSearchParams(params, { replace: true })
+  }
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [closeTarget, setCloseTarget] = useState<PortfolioLead | null>(null)
   const hideAgentColumn = useHideAgentColumn()
@@ -203,14 +215,27 @@ export default function CRM() {
   const propertyForLead = (lead: Lead): PropertyAsset | null =>
     propertyById.get(lead.propertyId) ?? null
 
+  const propertyOptions = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const it of portfolio) m.set(it.lead.propertyId, it.propertyTitle)
+    if (propertyId !== 'all' && !m.has(propertyId)) {
+      m.set(propertyId, propertyById.get(propertyId)?.title ?? propertyRefLabel(propertyId))
+    }
+    return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]))
+  }, [portfolio, propertyId, propertyById])
+  const scoped = useMemo(
+    () => (propertyId === 'all' ? portfolio : portfolio.filter((p) => p.lead.propertyId === propertyId)),
+    [portfolio, propertyId],
+  )
+
   const channels = useMemo(() => {
     const set = new Set(portfolio.map((p) => p.lead.channel))
     return [...set].sort()
   }, [portfolio])
 
   const counts = useMemo(() => {
-    const open = portfolio.filter((p) => isOpenLeadStage(p.lead.stage))
-    const closed = portfolio.filter((p) => isClosedLeadStage(p.lead.stage))
+    const open = scoped.filter((p) => isOpenLeadStage(p.lead.stage))
+    const closed = scoped.filter((p) => isClosedLeadStage(p.lead.stage))
     const neu = open.filter((p) => p.lead.stage === 'New Lead').length
     const active = open.filter((p) => isActiveStage(p.lead.stage)).length
     const closing = open.filter((p) => isClosingStage(p.lead.stage)).length
@@ -220,13 +245,13 @@ export default function CRM() {
       closing,
       open: open.length,
       closed: closed.length,
-      total: portfolio.length,
+      total: scoped.length,
     }
-  }, [portfolio])
+  }, [scoped])
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
-    let rows = portfolio.filter((item) => {
+    let rows = scoped.filter((item) => {
       const l = item.lead
       const inTab =
         leadTab === 'active' ? isOpenLeadStage(l.stage) : isClosedLeadStage(l.stage)
@@ -254,15 +279,16 @@ export default function CRM() {
       return b.lead.createdAt.localeCompare(a.lead.createdAt)
     })
     return rows
-  }, [portfolio, q, stage, type, channel, attention, sort, leadTab])
+  }, [scoped, q, stage, type, channel, attention, sort, leadTab])
 
   // Long lists show a page at a time.
 
   const paged = usePaged(filtered)
 
   const filtersActive =
-    Boolean(q.trim()) || stage !== 'all' || type !== 'all' || channel !== 'all' || attention !== 'all'
+    Boolean(q.trim()) || propertyId !== 'all' || stage !== 'all' || type !== 'all' || channel !== 'all' || attention !== 'all'
   const activeFilterCount =
+    (propertyId !== 'all' ? 1 : 0) +
     (stage !== 'all' ? 1 : 0) +
     (type !== 'all' ? 1 : 0) +
     (channel !== 'all' ? 1 : 0) +
@@ -274,6 +300,7 @@ export default function CRM() {
     setType('all')
     setChannel('all')
     setAttention('all')
+    setPropertyId('all')
   }
 
   const createWalkIn = () => {
@@ -455,6 +482,18 @@ export default function CRM() {
           onClearFilters={clearFilters}
           filters={
             <>
+              <DirectoryFilterSelect
+                value={propertyId}
+                onChange={(e) => setPropertyId(e.target.value)}
+                aria-label="Filter by property"
+              >
+                <option value="all">All properties</option>
+                {propertyOptions.map(([id, title]) => (
+                  <option key={id} value={id}>
+                    {title}
+                  </option>
+                ))}
+              </DirectoryFilterSelect>
               <DirectoryFilterSelect
                 value={attention}
                 onChange={(e) => setAttention(e.target.value as AttentionFilter)}

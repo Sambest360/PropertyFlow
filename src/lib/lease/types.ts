@@ -90,6 +90,8 @@ export type LeasePdfInput = {
   rentDueDay?: number | null
   escalationPct?: number | null
   parkingBays?: number | null
+  /** The agency's own lease text (see leaseTemplate.ts). */
+  customTemplateHtml?: string | null
   /** Signed copy: each signature and its electronic-signing record. */
   signatures?: LeasePdfSignature[]
 }

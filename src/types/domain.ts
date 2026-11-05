@@ -136,6 +136,12 @@ export type Agency = {
     requireViewingToApply?: boolean
     buildingViewingCountsForAllUnits?: boolean
     mainApplicantViewingCoversCoApplicants?: boolean
+    /** The agency's Application Pipeline (src/lib/pipeline/applicationPipeline.ts). */
+    applicationPipeline?: import('../lib/pipeline/applicationPipeline.js').ApplicationPipeline
+    /** The agency's lease agreement template (HTML with {{merge fields}}). */
+    leaseTemplate?: string
+    /** When the lease template was last saved (ISO). */
+    leaseTemplateSavedAt?: string
     /** Where tenants pay the deposit (agency admin sets this once). */
     depositBanking?: DepositBanking
   }
@@ -171,6 +177,31 @@ export type DepositProof = {
   uploadedAt: string
   reference?: string
   amount?: number
+  /** Set by the agency: approved updates Trust & Banking; declined asks for a new proof. */
+  status?: 'approved' | 'declined'
+  reviewedAt?: string
+  reviewedByName?: string
+  declineReason?: string
+}
+
+/** Personal details a person adds to their own profile. All optional. */
+export type UserProfileDetails = {
+  preferredName?: string
+  gender?: string
+  nationality?: string
+  occupation?: string
+  addressLine1?: string
+  addressLine2?: string
+  suburb?: string
+  city?: string
+  province?: string
+  postalCode?: string
+  country?: string
+  emergencyName?: string
+  emergencyRelationship?: string
+  emergencyPhone?: string
+  alternatePhone?: string
+  bio?: string
 }
 
 export type AppUser = {
@@ -203,6 +234,8 @@ export type AppUser = {
   /** Session-only: false while a self-registered account has not confirmed its email. */
   emailVerified?: boolean
   avatar?: string
+  /** Extra details the person keeps on their own profile (users.metadata.profileDetails). */
+  profileDetails?: UserProfileDetails
   /**
    * When set, replaces the role’s default permission pack for this user
    * (still intersected with the agency’s enabledPermissions).
@@ -535,6 +568,8 @@ export type Application = {
   /** Deposit step: details the agent sent, and the applicant's proof of payment. */
   depositRequest?: DepositRequest
   depositProof?: DepositProof
+  /** Application Pipeline: approve / decline record per stage key. */
+  stageRecords?: Record<string, import('../lib/pipeline/applicationPipeline.js').StageRecord>
   /** Shared accommodation: the room the agency assigned (after the deposit). */
   assignedRoom?: { label: string; assignedAt: string; assignedByName: string }
 }
@@ -743,6 +778,10 @@ export type Tenancy = {
   billingSchedule?: BillingSchedule | null
   /** Existing tenant added straight to the property (onboarding, no application). */
   directAdd?: { addedAt: string; addedByName: string; note?: string; leaseSigned: boolean; depositPaid: boolean; roomLabel?: string }
+  /** Shared accommodation: the bed this lease is for, e.g. "Room 2 · Bed 1". */
+  roomSlot?: string
+  /** The agency lease text frozen when the first party signed ('' = the standard lease). */
+  leaseTemplateHtml?: string | null
   /** Tenant removed from the property by staff. */
   removal?: { removedAt: string; removedByName: string; reason?: string }
 }

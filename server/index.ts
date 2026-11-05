@@ -94,6 +94,7 @@ import { registerInspectionRoutes } from './inspectionRoutes.js'
 import { registerAgencyProfileRoutes } from './agencyProfileRoutes.js'
 import { registerAdminDashboardRoutes } from './adminDashboardRoutes.js'
 import { registerListingApprovalRoutes } from './listingApprovals.js'
+import { registerApplicationPipelineRoutes } from './applicationPipelineRoutes.js'
 
 // Self-hosted (PM2 runs this file directly, not api/index.ts): error reporting
 // starts here. No-op without SENTRY_DSN; idempotent when api/index.ts ran it.
@@ -1505,6 +1506,7 @@ registerInspectionRoutes(app)
 registerAgencyProfileRoutes(app)
 registerAdminDashboardRoutes(app, { commit: runningCommitSha, authMode: serverAuthMode })
 registerListingApprovalRoutes(app)
+registerApplicationPipelineRoutes(app)
 
 /** Help desk: system tickets to the super admins (server/supportDesk.ts). */
 app.post('/api/support-tickets', async (c) => {

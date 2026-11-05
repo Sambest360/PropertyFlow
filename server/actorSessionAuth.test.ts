@@ -236,7 +236,7 @@ vi.mock('pg', () => {
       ]
     }
     // bootstrap users
-    if (sql.startsWith('SELECT id, client_id, email, first_name, last_name, phone, role, active, metadata FROM users')) {
+    if (sql.startsWith('SELECT id, client_id, email, first_name, last_name, phone, role, active, metadata, avatar_url FROM users')) {
       return db.users.map((u) => ({
         id: u.id,
         client_id: u.client,

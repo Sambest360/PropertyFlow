@@ -16,7 +16,7 @@ import { ShareListingButton } from '../../components/listing/ShareListingButton'
 import { ListingContactCards, useListingContact } from '../../components/listing/ListingContactCards'
 import { formatZAR } from '../../data/seed'
 import { PropertyCard } from '../../components/PropertyCard'
-import { PropertyMap } from '../../components/PropertyMap'
+import { ApproximateAreaMap } from '../../components/ApproximateAreaMap'
 import { ListingPhotoGallery } from '../../components/listing/ListingPhotoGallery'
 import { ListingReviewsSection } from '../../components/reviews/ListingReviewsSection'
 import { propertyListingRating } from '../../components/reviews/StarRating'
@@ -928,15 +928,11 @@ export default function ListingDetail() {
               <h2 className="text-lg font-semibold">Location</h2>
               {/* Guests see the area only — never the street address or an exact pin. */}
               <p className="mt-1 text-sm text-ink-500">
-                {publicAreaLabel(p)} · Approximate location — contact the agent for the exact address.
+                {publicAreaLabel(p)}. The map shows the general area only. Book a viewing or send an enquiry and we&apos;ll email you the exact address.
               </p>
               {hasMappedCoordinates(p) ? (
                 <div className="mt-4 h-64 overflow-hidden rounded-2xl sm:h-80">
-                  <PropertyMap
-                    properties={[toPublicListing(p)]}
-                    mode={p.listingMode === 'sale' ? 'buy' : 'rent'}
-                    className="h-full"
-                  />
+                  <ApproximateAreaMap lat={toPublicListing(p).lat} lng={toPublicListing(p).lng} label={publicAreaLabel(p)} className="h-full" />
                 </div>
               ) : (
                 <div className="mt-4 flex h-48 items-center justify-center rounded-2xl bg-primary-100">

@@ -387,8 +387,9 @@ export async function buildBootstrap(opts?: {
           role: RoleDb
           active: boolean
           metadata: Record<string, unknown> | null
+          avatar_url: string | null
         }>(
-          'SELECT id, client_id, email, first_name, last_name, phone, role, active, metadata FROM users ORDER BY email',
+          'SELECT id, client_id, email, first_name, last_name, phone, role, active, metadata, avatar_url FROM users ORDER BY email',
         ),
       () =>
         query<{
@@ -721,6 +722,15 @@ export async function buildBootstrap(opts?: {
         ? { listingLimits: listingLimitsFromSettings(c.settings) }
         : {}),
       ...agencyViewingSettingsFromJson(c.settings),
+      ...(c.settings && typeof (c.settings as Record<string, unknown>).applicationPipeline === 'object'
+        ? { applicationPipeline: (c.settings as Record<string, unknown>).applicationPipeline }
+        : {}),
+      ...(c.settings && typeof (c.settings as Record<string, unknown>).leaseTemplate === 'string'
+        ? {
+            leaseTemplate: (c.settings as Record<string, unknown>).leaseTemplate,
+            leaseTemplateSavedAt: (c.settings as Record<string, unknown>).leaseTemplateSavedAt as string | undefined,
+          }
+        : {}),
       ...(c.settings && typeof (c.settings as Record<string, unknown>).depositBanking === 'object'
         ? { depositBanking: (c.settings as Record<string, unknown>).depositBanking }
         : {}),
@@ -772,6 +782,13 @@ export async function buildBootstrap(opts?: {
       verification,
       // CR10: own signature only; scopeGate strips it from every other user.
       signature: typeof meta.signature === 'string' ? meta.signature : undefined,
+      // Profile photo (users.avatar_url, a stored file link): shown everywhere the person appears.
+      avatar: typeof u.avatar_url === 'string' && u.avatar_url && !u.avatar_url.startsWith('data:') ? u.avatar_url : undefined,
+      dateOfBirth: typeof meta.dateOfBirth === 'string' ? meta.dateOfBirth : undefined,
+      profileDetails:
+        meta.profileDetails && typeof meta.profileDetails === 'object' && !Array.isArray(meta.profileDetails)
+          ? (meta.profileDetails as Record<string, string>)
+          : undefined,
       // Set by userDelete.ts when an account is anonymised; only super admins receive these users.
       deletedAt: typeof meta.deletedAt === 'string' ? meta.deletedAt : undefined,
     }
@@ -1041,6 +1058,7 @@ export async function buildBootstrap(opts?: {
       depositRequest: meta.depositRequest && typeof meta.depositRequest === 'object' ? meta.depositRequest : undefined,
       depositProof: meta.depositProof && typeof meta.depositProof === 'object' ? meta.depositProof : undefined,
       assignedRoom: meta.assignedRoom && typeof meta.assignedRoom === 'object' ? meta.assignedRoom : undefined,
+      stageRecords: meta.stageRecords && typeof meta.stageRecords === 'object' ? meta.stageRecords : undefined,
       purchaseClosing:
         meta.purchaseClosing && typeof meta.purchaseClosing === 'object' && !Array.isArray(meta.purchaseClosing)
           ? meta.purchaseClosing
@@ -1130,6 +1148,8 @@ export async function buildBootstrap(opts?: {
       rent: Number(l.rent_amount),
       deposit: Number(l.deposit_amount),
       rentDueDay: Math.min(28, Math.max(1, Number(l.rent_due_day) || 1)),
+      // Shared accommodation: the bed this lease is for ('pending:…' = none yet).
+      ...(typeof l.room_slot === 'string' && !l.room_slot.startsWith('pending:') ? { roomSlot: l.room_slot } : {}),
       status: (l.status as string) === 'ACTIVE' ? ('Active' as const) : ('Pending Move-In' as const),
       leaseStatus: String(l.status ?? '').toLowerCase() as
         | 'pending'
@@ -1143,6 +1163,7 @@ export async function buildBootstrap(opts?: {
       eSign: lite ? stripESignImages(meta.eSign) : ((meta.eSign as Record<string, unknown> | null | undefined) ?? null),
       renewalOps: (meta.renewalOps as Record<string, unknown> | null | undefined) ?? null,
       directAdd: meta.directAdd && typeof meta.directAdd === 'object' ? meta.directAdd : undefined,
+      ...(typeof meta.leaseTemplateHtml === 'string' ? { leaseTemplateHtml: meta.leaseTemplateHtml } : {}),
       removal: meta.removal && typeof meta.removal === 'object' ? meta.removal : undefined,
       billingSchedule: (meta.billingSchedule as Record<string, unknown> | null | undefined) ?? null,
     }

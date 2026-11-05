@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Pager, usePaged } from '../components/Pager'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
@@ -40,6 +41,19 @@ export default function Applications() {
   const [type, setType] = useState('all')
   const [pipeline, setPipeline] = useState<ApplicationPipelineBucket>('all')
   const [sort, setSort] = useState('updated')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [propertyId, setPropertyIdState] = useState(() => searchParams.get('property') || 'all')
+  useEffect(() => {
+    const prop = searchParams.get('property')
+    if (prop) setPropertyIdState(prop)
+  }, [searchParams])
+  const setPropertyId = (id: string) => {
+    setPropertyIdState(id)
+    const next = new URLSearchParams(searchParams)
+    if (id === 'all') next.delete('property')
+    else next.set('property', id)
+    setSearchParams(next, { replace: true })
+  }
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const portfolio: PortfolioApplicant[] = useMemo(() => {
@@ -86,6 +100,7 @@ export default function Applications() {
     const needle = q.trim().toLowerCase()
     let rows = portfolio.filter((item) => {
       const a = item.application
+      if (propertyId !== 'all' && a.propertyId !== propertyId) return false
       if (!matchesPipelineBucketFilter(item, pipeline)) return false
       if (stage !== 'all' && a.stage !== stage) return false
       if (type !== 'all' && a.type !== type) return false
@@ -112,15 +127,16 @@ export default function Applications() {
       return b.application.updatedAt.localeCompare(a.application.updatedAt)
     })
     return rows
-  }, [portfolio, q, stage, type, pipeline, sort])
+  }, [portfolio, q, stage, type, pipeline, sort, propertyId])
 
   // Long lists show a page at a time.
 
   const paged = usePaged(filtered)
 
   const filtersActive =
-    Boolean(q.trim()) || stage !== 'all' || type !== 'all' || pipeline !== 'all'
+    Boolean(q.trim()) || propertyId !== 'all' || stage !== 'all' || type !== 'all' || pipeline !== 'all'
   const activeFilterCount =
+    (propertyId !== 'all' ? 1 : 0) +
     (stage !== 'all' ? 1 : 0) +
     (type !== 'all' ? 1 : 0) +
     (pipeline !== 'all' ? 1 : 0) +
@@ -130,7 +146,16 @@ export default function Applications() {
     setStage('all')
     setType('all')
     setPipeline('all')
+    setPropertyId('all')
   }
+  const propertyOptions = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const it of portfolio) m.set(it.application.propertyId, it.propertyTitle)
+    if (propertyId !== 'all' && !m.has(propertyId)) {
+      m.set(propertyId, state.properties.find((p) => p.id === propertyId)?.title ?? propertyRefLabel(propertyId))
+    }
+    return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]))
+  }, [portfolio, propertyId, state.properties])
 
   const resultLabel =
     filtered.length === portfolio.length
@@ -170,6 +195,18 @@ export default function Applications() {
           onClearFilters={clearFilters}
           filters={
             <>
+              <DirectoryFilterSelect
+                value={propertyId}
+                onChange={(e) => setPropertyId(e.target.value)}
+                aria-label="Filter by property"
+              >
+                <option value="all">All properties</option>
+                {propertyOptions.map(([id, title]) => (
+                  <option key={id} value={id}>
+                    {title}
+                  </option>
+                ))}
+              </DirectoryFilterSelect>
               <DirectoryFilterSelect
                 value={pipeline}
                 onChange={(e) => setPipeline(e.target.value as ApplicationPipelineBucket)}

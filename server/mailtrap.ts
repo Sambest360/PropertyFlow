@@ -18,7 +18,7 @@ import {
   textLink,
   type PropertyCard,
 } from './email/layout.js'
-import { audienceForRole, propertyCardFor, type CardAudience, type PropertyRef } from './email/propertyContext.js'
+import { audienceForRole, propertyCardFor, streetAddressFor, type CardAudience, type PropertyRef } from './email/propertyContext.js'
 import { emailActionFor } from './email/actions.js'
 import { routeNotificationEmail } from './email/routing.js'
 
@@ -101,6 +101,9 @@ export async function sendListingEnquiryConfirmation(input: {
       ? 'Your viewing request has been received'
       : 'Your property enquiry has been received'
   const card = await cardFor(input.property, 'public', input.propertyTitle)
+  // The listing shows the area only; the person who booked or enquired gets
+  // the street address here, and nowhere public.
+  const address = await streetAddressFor(input.property)
   const title = card?.title ?? input.propertyTitle
   const propertyLine = title ? ` for <strong>${escapeHtml(title)}</strong>` : ''
   const b = blocks(card, card?.viewUrl ? { label: 'View the property', href: card.viewUrl } : { label: 'Browse more homes', href: '/browse' })
@@ -109,13 +112,17 @@ export async function sendListingEnquiryConfirmation(input: {
     toName: input.firstName,
     subject,
     category: 'listing-enquiry',
-    text: `Hi ${input.firstName}, we received your ${input.action === 'viewing' ? 'viewing request' : 'enquiry'}${title ? ` for ${title}` : ''}. The listing agent will contact you shortly.\n\n${b.text}`,
+    text: `Hi ${input.firstName}, we received your ${input.action === 'viewing' ? 'viewing request' : 'enquiry'}${title ? ` for ${title}` : ''}. The listing agent will contact you shortly.${address ? `\n\nAddress: ${address}\nPlease keep the address private.` : ''}\n\n${b.text}`,
     html: shell(
       subject,
       p(`Hi <strong>${escapeHtml(input.firstName)}</strong>,`) +
         p(
           `Thanks for your ${input.action === 'viewing' ? 'viewing request' : 'enquiry'}${propertyLine}. The listing agent will be in touch shortly.`,
         ) +
+        (address
+          ? p(`<strong>Address:</strong> ${escapeHtml(address)}`) +
+            p('We only share the street address with people who booked a viewing or sent an enquiry. Please keep it private.')
+          : '') +
         b.html +
         p('Keep this email for your records — no reply is needed.'),
     ),

@@ -177,7 +177,9 @@ export function referencedUserIds(
  * dates only (listing visibility + contractor roster read the status).
  */
 export function redactBootstrapUser(u: BootstrapUser): BootstrapUser {
-  const { email: _e, phone: _p, idNumberOrPassport: _id, signature: _sig, verification, ...rest } = u
+  const { email: _e, phone: _p, idNumberOrPassport: _id, signature: _sig, verification, profileDetails: _pd, dateOfBirth: _dob, ...rest } = u as BootstrapUser & { profileDetails?: unknown; dateOfBirth?: unknown }
+  void _pd
+  void _dob
   void _sig
   void _e
   void _p

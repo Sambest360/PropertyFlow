@@ -113,6 +113,7 @@ export async function generateLeasePdf(input: LeasePdfInput): Promise<LeasePdfRe
     rentDueDay: input.rentDueDay,
     escalationPct: input.escalationPct,
     parkingBays: input.parkingBays,
+    customTemplateHtml: input.customTemplateHtml,
   })
   const fingerprint = await sha256Hex(leaseContractText(contract)).catch(() => '')
   const doc = await PDFDocument.create()
@@ -128,12 +129,13 @@ export async function generateLeasePdf(input: LeasePdfInput): Promise<LeasePdfRe
   for (const [k, v] of contract.summary) w.text(`${k}: ${v}`, { size: 10 })
   w.rule()
 
-  for (const s of contract.sections) {
+  contract.sections.forEach((s, si) => {
+    const num = /^(\d+)\./.exec(s.title)?.[1] ?? String(si + 1)
     w.need(40)
-    w.text(s.title, { size: 11.5, bold: true, gap: 2 })
-    s.clauses.forEach((c, i) => w.text(`${s.title.split('.')[0]}.${i + 1}  ${c}`, { size: 9.5, indent: 8 }))
+    if (s.title) w.text(s.title, { size: 11.5, bold: true, gap: 2 })
+    s.clauses.forEach((c, i) => w.text(`${num}.${i + 1}  ${c}`, { size: 9.5, indent: 8 }))
     w.y -= 4
-  }
+  })
 
   // Signature blocks
   w.need(200)

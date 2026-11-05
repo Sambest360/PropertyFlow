@@ -149,7 +149,7 @@ export function TenantLeasePanel({ tenancy }: { tenancy: Tenancy }) {
 
       <DetailSection
         title="Lease PDF & e-sign"
-        subtitle="Generated on approve. Mock e-sign is non-production; live SigniFlow needs server keys. DocuSign stays placeholder."
+        subtitle="Generated on approval. Signed electronically in the app under ECTA (25 of 2002)."
       >
         <FlatFieldGrid className="lg:grid-cols-2">
           <FlatField label="E-sign status" value={signLabel} />
@@ -157,7 +157,9 @@ export function TenantLeasePanel({ tenancy }: { tenancy: Tenancy }) {
             label="Provider"
             value={
               eSign
-                ? `${eSign.provider}${eSign.nonProduction ? ' (non-production)' : eSign.live ? ' (live)' : ''}`
+                ? eSign.provider === 'mock' || eSign.nonProduction
+                  ? 'In-app e-signature (ECTA)'
+                  : eSign.provider
                 : '—'
             }
           />

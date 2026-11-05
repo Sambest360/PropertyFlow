@@ -36,6 +36,7 @@ describe('account menu shortcuts', () => {
     const agent = shortcutSections({ role: 'ground_agent', userId: 'u-a', ...can([]) })[0]
     expect(agent.items.map((i) => i.label)).toEqual(['Dashboard'])
     const admin = shortcutSections({ role: 'agent_admin', userId: 'u-ad', ...can(['users.manage', 'roles.assign']) })[0]
-    expect(admin.items.map((i) => i.label)).toEqual(['Dashboard', 'My profile', 'Administration'])
+    // My profile now sits with Settings in the account menu, for every role.
+    expect(admin.items.map((i) => i.label)).toEqual(['Dashboard', 'Administration'])
   })
 })

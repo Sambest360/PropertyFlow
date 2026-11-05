@@ -267,7 +267,7 @@ async function assertOwnSlotBooking(actor: DemoActor, slotFe: string): Promise<v
 }
 
 /** Agency records on the application; an applicant's write never sets them. */
-const AGENCY_ONLY_FIELDS = ['pcrInspections', 'purchaseClosing', 'blockReason', 'blockedAt', 'depositRequest', 'assignedRoom'] as const
+const AGENCY_ONLY_FIELDS = ['pcrInspections', 'purchaseClosing', 'blockReason', 'blockedAt', 'depositRequest', 'assignedRoom', 'stageRecords'] as const
 
 /**
  * The one PCR change an applicant may make: their own sign-off on an inspection
@@ -302,12 +302,31 @@ export function mergeApplicantPcrSignOff(stored: unknown, sent: unknown, actor: 
   return changed ? out : null
 }
 
+const DEPOSIT_REVIEW_FIELDS = ['status', 'reviewedAt', 'reviewedByName', 'declineReason'] as const
+
+/**
+ * The agency's review of a deposit proof (approved / declined) is theirs.
+ * The same file keeps the stored review; a new file starts unreviewed.
+ */
+export function lockDepositProofReview(stored: unknown, sent: Row): Row {
+  const out: Row = { ...sent }
+  for (const k of DEPOSIT_REVIEW_FIELDS) delete out[k]
+  const prev = stored && typeof stored === 'object' ? (stored as Row) : null
+  if (prev && prev.dataUrl === sent.dataUrl) {
+    for (const k of DEPOSIT_REVIEW_FIELDS) if (prev[k] != null) out[k] = prev[k]
+  }
+  return out
+}
+
 /** Locked non-workflow fields: unchanged -> dropped, changed -> 403. */
 async function enforceLockedFields(actor: DemoActor, data: Row, meta: Row | null): Promise<void> {
   const pcr = mergeApplicantPcrSignOff(meta?.pcrInspections, data.pcrInspections, actor)
   // The applicant's client sends its whole copy back; drop (not refuse) these.
   for (const k of AGENCY_ONLY_FIELDS) delete data[k]
   if (pcr) data.pcrInspections = pcr
+  if (data.depositProof && typeof data.depositProof === 'object') {
+    data.depositProof = lockDepositProofReview(meta?.depositProof, data.depositProof as Row)
+  }
   if (Object.prototype.hasOwnProperty.call(data, 'applicantUserId')) {
     const sent = data.applicantUserId
     if (sent != null && sent !== '' && sent !== actor.userId) {

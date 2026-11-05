@@ -16,6 +16,8 @@ export type IssueLeaseContext = {
   tenancy: Tenancy
   property?: PropertyAsset | null
   agencyName?: string
+  /** The agency's lease template, when it has one. */
+  leaseTemplateHtml?: string | null
   landlordUser?: AppUser | null
   /** Document id to assign (caller may pre-mint with uid). */
   documentId: string
@@ -175,6 +177,7 @@ export async function issueLeaseOnTenancyCreate(
       rentDueDay: tenancy.rentDueDay ?? 1,
       escalationPct: tenancy.billingSchedule?.escalationPct ?? null,
       parkingBays: property?.parking ?? null,
+      customTemplateHtml: ctx.leaseTemplateHtml ?? null,
       generatedAt: now,
     })
   } catch (err) {
@@ -196,9 +199,7 @@ export async function issueLeaseOnTenancyCreate(
     category: 'Lease',
     status: 'uploaded',
     uploadedAt: now.slice(0, 10),
-    note: `Auto-generated on approve (${tenancy.id}). E-sign via ${provider.id}${
-      provider.nonProduction ? ' — non-production mock' : ''
-    }.`,
+    note: `Auto-generated on approval (${tenancy.id}). Signed ${provider.id === 'mock' ? 'in the app (ECTA e-signature)' : `via ${provider.id}`}.`,
     fileUrl: pdf.dataUrl,
     applicationId: tenancy.applicationId,
     applicantName: tenancy.tenantName,
@@ -287,9 +288,7 @@ export async function issueLeaseOnTenancyCreate(
         summary: envelope.summary ?? `Envelope ${envelope.envelopeId}`,
       },
     ],
-    note: envelope.nonProduction
-      ? 'Mock e-sign provider — non-production. Live SigniFlow needs server keys (DQ-C1); DocuSign stays placeholder.'
-      : undefined,
+    note: envelope.nonProduction ? 'Signed in the app with an ECTA electronic signature.' : undefined,
   }
 
   return {

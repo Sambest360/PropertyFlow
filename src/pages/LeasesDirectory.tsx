@@ -228,7 +228,7 @@ export default function LeasesDirectory() {
           userId: user?.id ?? 'system',
           agencyId: user?.agencyId ?? null,
           title: 'Lease issued',
-          body: 'PDF generated and e-sign envelope opened (mock unless partner keys set).',
+          body: 'Lease PDF generated and sent for signing in the app.',
         })
     } finally {
       setBusyId(null)
@@ -626,11 +626,7 @@ export default function LeasesDirectory() {
                         <td className="px-4 py-3 tabular">{formatZAR(row.tenancy.rent)}</td>
                         <td className="px-4 py-3">
                           <Badge tone={statusTone(row.signLabel)}>{row.signLabel}</Badge>
-                          {row.tenancy.eSign?.nonProduction ? (
-                            <div className="mt-1 text-[10px] font-medium uppercase tracking-wide text-amber-700">
-                              Test signing
-                            </div>
-                          ) : null}
+
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex flex-wrap items-center justify-end gap-2">
@@ -817,11 +813,7 @@ function LeaseCard({
           </dd>
         </div>
       </dl>
-      {row.tenancy.eSign?.nonProduction ? (
-        <p className="rounded-lg bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-800">
-          Test signing — not a live e-signature.
-        </p>
-      ) : null}
+
       <div className="mt-auto flex flex-wrap gap-2">
         {row.pdfUrl ? (
           <a

@@ -52,7 +52,7 @@ export class MockDevScreeningProvider implements ScreeningProvider {
       status: 'in_progress',
       provider: this.id,
       externalReference: ref,
-      summary: 'Mock screening queued (dev provider — no bureau call).',
+      summary: 'Credit check recorded for an off-system check.',
     }
   }
 

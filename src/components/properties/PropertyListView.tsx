@@ -243,7 +243,7 @@ export function PropertyExpansion({
                 )}
               </Button>
             </Link>
-            <Link to={openTickets === 1 ? `/workspace/operations/maintenance/${encodeURIComponent(openTicketsList[0].id)}` : `/workspace/operations/maintenance?property=${encodeURIComponent(p.id)}`}>
+            <Link to={`/workspace/operations/maintenance?property=${encodeURIComponent(p.id)}`}>
               <Button
                 variant={openTickets > 0 ? 'danger' : 'secondary'}
                 className="min-h-10 rounded-xl px-3 text-sm"
@@ -255,7 +255,7 @@ export function PropertyExpansion({
                 )}
               </Button>
             </Link>
-            <Link to={openLeads === 1 ? `/workspace/sales/crm/${encodeURIComponent(openLeadsList[0].id)}` : `/workspace/sales/crm`}>
+            <Link to={`/workspace/sales/crm?property=${encodeURIComponent(p.id)}`}>
               <Button
                 variant="secondary"
                 className={cn(
@@ -270,7 +270,7 @@ export function PropertyExpansion({
                 )}
               </Button>
             </Link>
-            <Link to={waitingApps === 1 ? `/workspace/sales/applications/${encodeURIComponent(waitingAppsList[0].id)}` : `/workspace/sales/applications?property=${encodeURIComponent(p.id)}`}>
+            <Link to={`/workspace/sales/applications?property=${encodeURIComponent(p.id)}`}>
               <Button
                 variant="secondary"
                 className={cn(

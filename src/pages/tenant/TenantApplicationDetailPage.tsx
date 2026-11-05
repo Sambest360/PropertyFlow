@@ -1,5 +1,6 @@
 import { LeaseSignCard } from '../../components/lease/LeaseSignCard'
 import { DepositStepPanel } from '../../components/deposit/DepositStepPanel'
+import { ApplicationStagesPanel } from '../../components/pipeline/ApplicationStagesPanel'
 import { TenantPcrSignOff } from '../../components/pcr/TenantPcrSignOff'
 import { useMemo, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
@@ -80,8 +81,8 @@ export default function TenantApplicationDetailPage() {
   const property = useMemo(
     () =>
       application
-        ? publicProperties.find((p) => p.id === application.propertyId) ??
-          state.properties.find((p) => p.id === application.propertyId) ??
+        ? state.properties.find((p) => p.id === application.propertyId) ??
+          publicProperties.find((p) => p.id === application.propertyId) ??
           null
         : null,
     [application, publicProperties, state.properties],
@@ -338,6 +339,7 @@ export default function TenantApplicationDetailPage() {
 
           <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
             <div className="min-w-0 space-y-5">
+              <ApplicationStagesPanel application={application} mode="applicant" />
               {tasks.length > 1 ? (
                 <Card className="p-5">
                   <h2 className="font-display text-base font-semibold text-ink">To do</h2>

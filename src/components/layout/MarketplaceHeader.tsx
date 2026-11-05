@@ -148,7 +148,7 @@ export function MarketplaceHeader() {
                   aria-label="Go to your dashboard"
                   className="hidden min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-full bg-primary-100 text-sm font-semibold text-primary transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:inline-flex"
                 >
-                  {avatarInitials || '?'}
+                  {user?.avatar ? <img src={user.avatar} alt="" className="h-11 w-11 rounded-full object-cover" /> : avatarInitials || '?'}
                 </Link>
               </>
             ) : null}
@@ -224,7 +224,7 @@ export function MarketplaceHeader() {
                 aria-label="Go to your dashboard"
                 className="mx-auto flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-full bg-primary-100 text-sm font-semibold text-primary transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
-                {avatarInitials || '?'}
+                {user?.avatar ? <img src={user.avatar} alt="" className="h-11 w-11 rounded-full object-cover" /> : avatarInitials || '?'}
               </Link>
             </>
           ) : (

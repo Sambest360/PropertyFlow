@@ -265,7 +265,13 @@ export async function stampLeaseSignature(input: StampInput): Promise<StampResul
     await clientQuery(
       client,
       `UPDATE leases
-          SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('eSign', $2::jsonb),
+          SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('eSign', $2::jsonb)
+                -- The lease text is frozen when the first party signs: the
+                -- agency's template at that moment ('' = standard lease).
+                || CASE WHEN COALESCE(metadata, '{}'::jsonb) ? 'leaseTemplateHtml' THEN '{}'::jsonb
+                        ELSE jsonb_build_object('leaseTemplateHtml',
+                               COALESCE((SELECT c.settings->>'leaseTemplate' FROM clients c WHERE c.id = leases.client_id), ''))
+                   END,
               updated_at = NOW()
         WHERE id = $1::uuid`,
       [lease.id, JSON.stringify(merged)],

@@ -374,9 +374,15 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
           },
           {
             to: '/workspace/admin/pipeline',
-            label: 'Lead pipeline',
+            label: 'Application Pipeline',
             anyOf: ['config.manage', 'tenant.manage', 'platform.manage'],
             icon: GitBranch,
+          },
+          {
+            to: '/workspace/admin/lease-template',
+            label: 'Lease template',
+            anyOf: ['config.manage', 'tenant.manage', 'platform.manage'],
+            icon: FileSignature,
           },
           {
             to: '/workspace/admin/inventory-templates',

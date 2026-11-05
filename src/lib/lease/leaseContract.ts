@@ -9,7 +9,10 @@
  * should have their attorney review it for their own needs.
  */
 
+import { leaseTemplateIsEmpty, leaseTemplateSections, type LeaseMergeValues } from './leaseTemplate'
+
 export const LEASE_TEMPLATE_VERSION = 'Lekaya residential lease 2026.10'
+export const AGENCY_LEASE_TEMPLATE_VERSION = 'Agency lease template'
 
 export type LeaseContractInput = {
   leaseReference: string
@@ -30,6 +33,8 @@ export type LeaseContractInput = {
   occupants?: string | null
   petsAllowed?: boolean | null
   parkingBays?: number | null
+  /** The agency's own lease (rich text). Empty: the standard Lekaya lease. */
+  customTemplateHtml?: string | null
 }
 
 export type LeaseSection = { title: string; clauses: string[] }
@@ -50,6 +55,27 @@ function ordinal(n: number): string {
   return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`
 }
 
+function mergeValues(i: LeaseContractInput, landlord: string, due: number, escalation: string): LeaseMergeValues {
+  return {
+    tenantName: i.tenantName,
+    tenantEmail: i.tenantEmail,
+    tenantIdNumber: i.tenantIdNumber ?? '',
+    landlordName: landlord,
+    agencyName: i.agencyName,
+    agencyContact: i.agencyContact ?? '',
+    propertyTitle: i.propertyTitle,
+    propertyAddress: i.propertyAddress,
+    startDate: i.startDate,
+    endDate: i.endDate ?? 'month to month',
+    rent: zar(i.rent),
+    deposit: zar(i.deposit),
+    rentDueDay: ordinal(due),
+    escalation,
+    parkingBays: i.parkingBays != null ? String(i.parkingBays) : '',
+    leaseReference: i.leaseReference,
+  }
+}
+
 export function buildLeaseContract(i: LeaseContractInput): LeaseContract {
   const landlord = i.landlordName?.trim() || 'the owner of the Premises, represented by the Agent'
   const due = Math.min(Math.max(i.rentDueDay ?? 1, 1), 28)
@@ -61,7 +87,11 @@ export function buildLeaseContract(i: LeaseContractInput): LeaseContract {
       ? `The rent increases by ${i.escalationPct}% on each anniversary of the start date. The Tenant will be told the new amount at least 60 days before it applies.`
       : 'The rent stays the same for the fixed term. Any increase on renewal is agreed in writing before it applies.'
 
-  const sections: LeaseSection[] = [
+  const custom = i.customTemplateHtml && !leaseTemplateIsEmpty(i.customTemplateHtml)
+    ? leaseTemplateSections(i.customTemplateHtml, mergeValues(i, landlord, due, escalation))
+    : null
+
+  const sections: LeaseSection[] = custom ?? [
     {
       title: '1. Parties and interpretation',
       clauses: [
@@ -186,7 +216,7 @@ export function buildLeaseContract(i: LeaseContractInput): LeaseContract {
   return {
     title: 'Residential lease agreement',
     reference: i.leaseReference,
-    version: LEASE_TEMPLATE_VERSION,
+    version: custom ? AGENCY_LEASE_TEMPLATE_VERSION : LEASE_TEMPLATE_VERSION,
     summary: [
       ['Landlord', i.landlordName?.trim() || 'Represented by the Agent'],
       ['Managing agent', i.agencyName],

@@ -28,5 +28,22 @@ export function contractInputForTenancy(
     rentDueDay: tenancy.rentDueDay ?? 1,
     escalationPct: tenancy.billingSchedule?.escalationPct ?? null,
     parkingBays: property?.parking ?? null,
+    customTemplateHtml: leaseTemplateForTenancy(tenancy, agency),
   }
+}
+
+/**
+ * Which lease text applies: the copy frozen when the first party signed;
+ * a lease signed before the agency saved its template stays on the standard
+ * lease; otherwise the agency's current template.
+ */
+export function leaseTemplateForTenancy(tenancy: Tenancy, agency: Agency | undefined): string | null {
+  if (typeof tenancy.leaseTemplateHtml === 'string') return tenancy.leaseTemplateHtml || null
+  const template = agency?.settings?.leaseTemplate || null
+  if (!template) return null
+  const savedAt = agency?.settings?.leaseTemplateSavedAt ?? ''
+  const signedBefore = [tenancy.eSign?.tenant, tenancy.eSign?.landlord].some(
+    (p) => p?.status === 'signed' && (!p.signedAt || !savedAt || p.signedAt < savedAt),
+  )
+  return signedBefore ? null : template
 }

@@ -159,7 +159,7 @@ export default function LeadPipelineSettingsPage() {
     <RequirePermission anyOf={['config.manage', 'tenant.manage', 'platform.manage']}>
       <div className="animate-fade-in space-y-5">
         <PageHeader
-          title="Lead pipeline"
+          title="Lead stages"
           subtitle="Set the steps a lead moves through, and what must be done at each step before it can move forward."
           actions={
             isPlatform ? (

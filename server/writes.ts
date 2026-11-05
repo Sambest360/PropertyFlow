@@ -39,6 +39,8 @@ import {
 } from './maintenanceRules.js'
 import { checkTicketPhotos } from '../src/lib/photoLimits.js'
 import { propertyTypeToDb } from '../src/lib/propertyType.js'
+import { sanitizePipeline } from '../src/lib/pipeline/applicationPipeline.js'
+import { sanitizeLeaseHtml } from '../src/lib/lease/leaseTemplate.js'
 import { notifyWaitlistSpotOpen } from './listingLimits.js'
 import { mapAgencyStatusToDb } from '../src/lib/agencyStatus.js'
 import { resolveLiveListing } from './listingResolve.js'
@@ -747,6 +749,18 @@ async function upsertAgency(feId: string, d: Record<string, unknown>): Promise<s
               !Array.isArray((d.settings as { listingLimits?: unknown }).listingLimits)
                 ? { listingLimits: (d.settings as { listingLimits: unknown }).listingLimits }
                 : {}),
+              // The agency's Application Pipeline (locked stages are re-applied on read).
+              ...((d.settings as { applicationPipeline?: unknown }).applicationPipeline &&
+              typeof (d.settings as { applicationPipeline?: unknown }).applicationPipeline === 'object'
+                ? { applicationPipeline: sanitizePipeline((d.settings as { applicationPipeline: unknown }).applicationPipeline) }
+                : {}),
+              // The agency's lease template (rich text with merge fields).
+              ...(typeof (d.settings as { leaseTemplate?: unknown }).leaseTemplate === 'string'
+                ? {
+                    leaseTemplate: sanitizeLeaseHtml((d.settings as { leaseTemplate: string }).leaseTemplate),
+                    leaseTemplateSavedAt: String((d.settings as { leaseTemplateSavedAt?: unknown }).leaseTemplateSavedAt ?? new Date().toISOString()).slice(0, 40),
+                  }
+                : {}),
               // Where tenants pay the deposit (agency admin, Application journey settings).
               ...((d.settings as { depositBanking?: unknown }).depositBanking &&
               typeof (d.settings as { depositBanking?: unknown }).depositBanking === 'object'
@@ -885,6 +899,15 @@ async function upsertUser(feId: string, uuid: string, d: Record<string, unknown>
     meta.verification = v
   }
   if (d.company) meta.company = d.company
+  if (typeof d.dateOfBirth === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.dateOfBirth)) meta.dateOfBirth = d.dateOfBirth
+  // Extra details people add to their own profile: short strings only.
+  if (d.profileDetails && typeof d.profileDetails === 'object' && !Array.isArray(d.profileDetails)) {
+    const clean: Record<string, string> = {}
+    for (const [k, v] of Object.entries(d.profileDetails as Record<string, unknown>).slice(0, 30)) {
+      if (/^[a-zA-Z0-9]{1,40}$/.test(k) && typeof v === 'string') clean[k] = v.trim().slice(0, k === 'bio' ? 1000 : 160)
+    }
+    meta.profileDetails = clean
+  }
   // A masked ID ('•', maskIdNumber) never overwrites the stored one.
   if (d.idNumberOrPassport && !(typeof d.idNumberOrPassport === 'string' && d.idNumberOrPassport.includes('\u2022'))) {
     meta.idNumberOrPassport = d.idNumberOrPassport
@@ -1700,6 +1723,8 @@ async function upsertApplication(
     ['depositRequest', 'depositRequest'],
     ['depositProof', 'depositProof'],
     ['assignedRoom', 'assignedRoom'],
+    // Application Pipeline: each stage's approve / decline record (staff only).
+    ['stageRecords', 'stageRecords'],
     ['purchaseClosing', 'purchaseClosing'],
     // Staff block (blockApplication); read back so the Blocks tab survives a reload.
     ['blockReason', 'blockReason'],
@@ -1853,6 +1878,23 @@ function rethrowLeaseOverlap(err: unknown): never {
   throw leaseOverlapFromDbError(err) ?? err
 }
 
+/**
+ * SQL for leases.room_slot (migration 040). Shared accommodation: the bed the
+ * lease is for, or a slot unique to the lease until a bed is assigned. Whole
+ * property: NULL, so it clashes with any other overlapping lease on the unit.
+ */
+function roomSlotSql(idParam: string, unitParam: string, slotParam: string): string {
+  return `CASE WHEN (SELECT COALESCE(property_type, '') FROM units WHERE id = ${unitParam}::uuid) ~* 'shared'
+               THEN COALESCE(NULLIF(TRIM(${slotParam}::text), ''), 'pending:' || ${idParam}::text)
+               ELSE NULL END`
+}
+
+/** True when the unit is let room by room (shared accommodation). */
+async function unitIsShared(run: (sql: string, params: unknown[]) => Promise<Array<Record<string, unknown>>>, unitId: string): Promise<boolean> {
+  const rows = await run(`SELECT COALESCE(property_type, '') ~* 'shared' AS shared FROM units WHERE id = $1::uuid`, [unitId])
+  return rows[0]?.shared === true
+}
+
 async function upsertTenancy(feId: string, d: Record<string, unknown>): Promise<string> {
   const uuid = await ensureUuid('tenancy', feId)
   const client = await clientId(d.agencyId)
@@ -1923,13 +1965,14 @@ async function upsertTenancy(feId: string, d: Record<string, unknown>): Promise<
   await query(
     `INSERT INTO leases (
        id, client_id, unit_id, application_id, tenant_id, landlord_id, agent_id,
-       lease_reference, status, start_date, end_date, rent_amount, deposit_amount, rent_due_day, metadata, updated_at
+       lease_reference, status, start_date, end_date, rent_amount, deposit_amount, rent_due_day, metadata, room_slot, updated_at
      ) VALUES (
        $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::uuid,
-       $8, $9, $10::date, $11::date, $12, $13, $14, $15::jsonb, NOW()
+       $8, $9, $10::date, $11::date, $12, $13, $14, $15::jsonb, ${roomSlotSql('$1', '$3', '$16')}, NOW()
      )
      ON CONFLICT (id) DO UPDATE SET
        status = EXCLUDED.status,
+       room_slot = CASE WHEN NULLIF(TRIM($16::text), '') IS NOT NULL OR leases.room_slot IS NULL THEN EXCLUDED.room_slot ELSE leases.room_slot END,
        start_date = EXCLUDED.start_date,
        end_date = EXCLUDED.end_date,
        rent_amount = EXCLUDED.rent_amount,
@@ -1968,6 +2011,7 @@ async function upsertTenancy(feId: string, d: Record<string, unknown>): Promise<
         ...(d.directAdd && typeof d.directAdd === 'object' ? { directAdd: d.directAdd } : {}),
         ...(d.removal && typeof d.removal === 'object' ? { removal: d.removal } : {}),
       }),
+      typeof d.roomSlot === 'string' ? d.roomSlot.slice(0, 120) : '',
     ],
   ).catch(rethrowLeaseOverlap)
   await syncAdvertAfterLeaseSave({
@@ -2913,21 +2957,20 @@ export async function approveApplicationTx(params: {
       }
       const leaseStart = str(t.startDate, new Date().toISOString().slice(0, 10))
       const leaseEnd = t.endDate ? str(t.endDate) : null
-      await assertNoLeaseOverlap(
-        (sql, params) => clientQuery(client, sql, params ?? []),
-        app.unit_id,
-        leaseStart,
-        leaseEnd,
-        leaseUuid,
-      )
+      const run = (sql: string, params?: unknown[]) => clientQuery(client, sql, params ?? [])
+      // Shared accommodation: several leases at once, one per bed (the
+      // database constraint checks the bed once one is assigned).
+      if (!(await unitIsShared(run as never, app.unit_id))) {
+        await assertNoLeaseOverlap(run, app.unit_id, leaseStart, leaseEnd, leaseUuid)
+      }
       await clientQuery(
         client,
         `INSERT INTO leases (
            id, client_id, unit_id, application_id, tenant_id, landlord_id, agent_id,
-           lease_reference, status, start_date, end_date, rent_amount, deposit_amount, rent_due_day, metadata, updated_at
+           lease_reference, status, start_date, end_date, rent_amount, deposit_amount, rent_due_day, metadata, room_slot, updated_at
          ) VALUES (
            $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::uuid,
-           $8, 'PENDING', $9::date, $10::date, $11, $12, $13, $14::jsonb, NOW()
+           $8, 'PENDING', $9::date, $10::date, $11, $12, $13, $14::jsonb, ${roomSlotSql('$1', '$3', '$15')}, NOW()
          )
          ON CONFLICT (id) DO UPDATE SET
            status = EXCLUDED.status,
@@ -2950,6 +2993,7 @@ export async function approveApplicationTx(params: {
           num(t.deposit) ?? 0,
           Math.min(28, Math.max(1, num(t.rentDueDay) ?? 1)),
           JSON.stringify({ frontend_id: str(t.id), from_approval: true }),
+          typeof t.roomSlot === 'string' ? t.roomSlot.slice(0, 120) : '',
         ],
       ).catch(rethrowLeaseOverlap)
       await clientQuery(

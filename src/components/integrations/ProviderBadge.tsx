@@ -20,7 +20,7 @@ async function fetchProvider(path: string): Promise<ProviderPayload | null> {
   }
 }
 
-/** Honest label when screening/e-sign runs in demo/mock mode. */
+/** Names the external screening / e-sign provider when one is connected. */
 export function ProviderBadge({
   kind,
   className,
@@ -35,13 +35,13 @@ export function ProviderBadge({
     void fetchProvider(path).then(setInfo)
   }, [kind])
 
-  if (!info) return null
-  const mock = info.provider === 'mock' || info.live === false
-  if (!mock) return null
+  // In-app ECTA signing and off-system credit checks are how the system works,
+  // so there is nothing to flag: only an external provider's live state shows.
+  if (!info || info.provider === 'mock' || info.live === false) return null
 
   return (
     <Badge tone="neutral" className={className} data-testid={`provider-badge-${kind}`}>
-      {kind === 'screening' ? 'Screening' : 'E-sign'}: demo / manual ({info.provider ?? 'mock'})
+      {kind === 'screening' ? 'Screening' : 'E-sign'}: {info.provider}
     </Badge>
   )
 }

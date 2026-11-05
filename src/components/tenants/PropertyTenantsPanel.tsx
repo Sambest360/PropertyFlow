@@ -10,9 +10,10 @@ import type { PropertyAsset, Tenancy } from '../../types/domain'
 import { useStore } from '../../context/AppStore'
 import { useAuth } from '../../context/AuthContext'
 import { formatZAR } from '../../data/seed'
-import { Badge, Button, Card, Input, Modal, Textarea } from '../ui'
+import { Badge, Button, Card, Input, Modal, Select, Textarea } from '../ui'
 import { sweetSuccess } from '../../lib/sweetAlert'
 import { RemoveTenantDialog } from './RemoveTenantDialog'
+import { isSharedAccommodation, sharedBedSlots, takenBedLabels } from '../../lib/sharedAccommodation'
 
 export function PropertyTenantsPanel({ property, canManage }: { property: PropertyAsset; canManage: boolean }) {
   const { state } = useStore()
@@ -27,6 +28,10 @@ export function PropertyTenantsPanel({ property, canManage }: { property: Proper
   const [removing, setRemoving] = useState<Tenancy | null>(null)
   const current = tenancies.filter((t) => t.status !== 'Ended')
   const past = tenancies.filter((t) => t.status === 'Ended')
+  const shared = isSharedAccommodation(property.type)
+  const slots = shared ? sharedBedSlots(property) : []
+  const taken = shared ? takenBedLabels(property.id, state.tenancies, state.applications) : new Set<string>()
+  const full = shared ? slots.length > 0 && current.length >= slots.length : current.length >= 1
 
   return (
     <div className="space-y-4">
@@ -35,16 +40,26 @@ export function PropertyTenantsPanel({ property, canManage }: { property: Proper
           <h2 className="inline-flex items-center gap-2 font-display text-lg font-semibold text-ink">
             <Users className="h-5 w-5 text-primary" aria-hidden /> Tenants
           </h2>
-          <p className="text-sm text-ink-500">Who lives here now. Already have a tenant in the property? Add them directly — no application needed.</p>
+          <p className="text-sm text-ink-500">
+            {shared
+              ? `Shared accommodation: one tenant per bed. ${current.length} of ${slots.length || '—'} beds let.`
+              : 'Who lives here now. The whole property is let to one tenant.'}{' '}
+            Already have a tenant? Add them directly — no application needed.
+          </p>
         </div>
         {canManage ? (
-          <Button onClick={() => setAdding(true)}>
+          <Button
+            disabled={full}
+            title={full ? (shared ? 'Every bed is let.' : 'This property already has a tenant. Remove them first, or set the property up as shared accommodation.') : undefined}
+            onClick={() => setAdding(true)}
+          >
             <UserPlus className="h-4 w-4" aria-hidden /> Add tenant
           </Button>
         ) : null}
       </div>
 
       {current.length === 0 ? <Card className="p-6 text-sm text-ink-500">No current tenants.</Card> : null}
+      {shared && slots.length ? <BedBoard slots={slots} taken={taken} tenancies={current} /> : null}
       <ul className="space-y-2">
         {current.map((t) => (
           <TenantRow key={t.id} t={t} canManage={canManage} onRemove={() => setRemoving(t)} />
@@ -61,7 +76,7 @@ export function PropertyTenantsPanel({ property, canManage }: { property: Proper
         </details>
       ) : null}
 
-      <AddTenantModal open={adding} onClose={() => setAdding(false)} property={property} />
+      <AddTenantModal open={adding} onClose={() => setAdding(false)} property={property} freeSlots={slots.filter((s) => !taken.has(s.label)).map((s) => s.label)} />
       <RemoveTenantDialog tenancy={removing} onClose={() => setRemoving(null)} />
     </div>
   )
@@ -78,7 +93,7 @@ function TenantRow({ t, canManage, onRemove }: { t: Tenancy; canManage: boolean;
           <p className="text-xs text-ink-500">
             {t.tenantEmail} · from {t.startDate}
             {t.endDate ? ` to ${t.endDate}` : ''} · {formatZAR(t.rent)} /month
-            {t.directAdd?.roomLabel ? ` · ${t.directAdd.roomLabel}` : ''}
+            {t.roomSlot || t.directAdd?.roomLabel ? ` · ${t.roomSlot || t.directAdd?.roomLabel}` : ''}
           </p>
           {t.directAdd ? (
             <p className="text-xs text-ink-500">
@@ -103,7 +118,35 @@ function TenantRow({ t, canManage, onRemove }: { t: Tenancy; canManage: boolean;
   )
 }
 
-function AddTenantModal({ open, onClose, property }: { open: boolean; onClose: () => void; property: PropertyAsset }) {
+/** Each room and its beds, and who sleeps in each. */
+function BedBoard({ slots, taken, tenancies }: { slots: ReturnType<typeof sharedBedSlots>; taken: Set<string>; tenancies: Tenancy[] }) {
+  const rooms = [...new Set(slots.map((s) => s.roomName))]
+  const who = (label: string) => tenancies.find((t) => (t.roomSlot || t.directAdd?.roomLabel) === label)?.tenantName
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {rooms.map((room) => {
+        const beds = slots.filter((s) => s.roomName === room)
+        return (
+          <Card key={room} className="p-3">
+            <p className="text-sm font-semibold text-ink">
+              {room} <span className="font-normal text-ink-500">· {beds.length} bed{beds.length === 1 ? '' : 's'}</span>
+            </p>
+            <ul className="mt-2 space-y-1 text-sm">
+              {beds.map((b) => (
+                <li key={b.label} className="flex items-center justify-between gap-2">
+                  <span className="text-ink-600">{b.bedsInRoom > 1 ? `Bed ${b.bed}` : 'Bed'}</span>
+                  {taken.has(b.label) ? <span className="truncate font-medium text-ink">{who(b.label) ?? 'Assigned to an applicant'}</span> : <Badge tone="success">Free</Badge>}
+                </li>
+              ))}
+            </ul>
+          </Card>
+        )
+      })}
+    </div>
+  )
+}
+
+function AddTenantModal({ open, onClose, property, freeSlots }: { open: boolean; onClose: () => void; property: PropertyAsset; freeSlots: string[] }) {
   const { addDirectTenant } = useStore()
   const { user } = useAuth()
   const today = new Date().toISOString().slice(0, 10)
@@ -116,7 +159,7 @@ function AddTenantModal({ open, onClose, property }: { open: boolean; onClose: (
   const [busy, setBusy] = useState(false)
   const set = (k: keyof typeof blank) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }))
   const missing = [!leaseSigned && 'no signed lease agreement', !depositPaid && 'no deposit paid'].filter(Boolean) as string[]
-  const shared = /shared|room|commune/i.test(String(property.type))
+  const shared = isSharedAccommodation(property.type)
 
   const close = () => {
     setF(blank)
@@ -129,6 +172,7 @@ function AddTenantModal({ open, onClose, property }: { open: boolean; onClose: (
   const submit = async () => {
     setError('')
     if (!understood) return setError('Tick the box to confirm you understand the warning.')
+    if (shared && !f.roomLabel.trim()) return setError('Choose the room and bed this tenant sleeps in.')
     setBusy(true)
     const res = await addDirectTenant({
       propertyId: property.id,
@@ -169,7 +213,21 @@ function AddTenantModal({ open, onClose, property }: { open: boolean; onClose: (
           <label className="text-sm"><span className="mb-1 block text-xs font-semibold text-ink-500">Email</span><Input type="email" value={f.email} onChange={set('email')} /></label>
           <label className="text-sm"><span className="mb-1 block text-xs font-semibold text-ink-500">Phone (optional)</span><Input value={f.phone} onChange={set('phone')} /></label>
           {shared ? (
-            <label className="text-sm"><span className="mb-1 block text-xs font-semibold text-ink-500">Room</span><Input placeholder="e.g. Room 3" value={f.roomLabel} onChange={set('roomLabel')} /></label>
+            <label className="text-sm">
+              <span className="mb-1 block text-xs font-semibold text-ink-500">Room and bed</span>
+              {freeSlots.length ? (
+                <Select value={f.roomLabel} onChange={set('roomLabel')}>
+                  <option value="">Choose a free bed…</option>
+                  {freeSlots.map((l) => (
+                    <option key={l} value={l}>
+                      {l}
+                    </option>
+                  ))}
+                </Select>
+              ) : (
+                <Input placeholder="e.g. Room 3 · Bed 1" value={f.roomLabel} onChange={set('roomLabel')} />
+              )}
+            </label>
           ) : null}
           <label className="text-sm"><span className="mb-1 block text-xs font-semibold text-ink-500">Lease start</span><Input type="date" value={f.startDate} onChange={set('startDate')} /></label>
           <label className="text-sm"><span className="mb-1 block text-xs font-semibold text-ink-500">Lease end (optional)</span><Input type="date" value={f.endDate} onChange={set('endDate')} /></label>

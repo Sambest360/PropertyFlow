@@ -82,7 +82,7 @@ export function shortcutSections(input: {
     return [{ title: 'Go to', items: [{ label: 'My jobs', to: '/workspace/portals/contractor', icon: Wrench }] }]
   }
   const items: MenuLink[] = [{ label: 'Dashboard', to: '/workspace', icon: LayoutDashboard }]
-  if (has('roles.assign')) items.push({ label: 'My profile', to: `/workspace/admin/users/${userId}`, icon: UserRound })
+  void userId
   if (hasAny(['users.manage', 'roles.assign', 'config.manage', 'tenant.manage', 'platform.manage'])) {
     items.push({ label: 'Administration', to: '/workspace/admin', icon: Settings })
   }
@@ -203,6 +203,7 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
       to: `/workspace/help?from=${encodeURIComponent(location.pathname + location.search)}#report`,
       icon: LifeBuoy,
     },
+    { label: 'My profile', to: '/workspace/account/profile', icon: UserRound },
     { label: 'Settings', to: '/workspace/account/settings', icon: Settings },
     { label: 'Help and Support', to: '/workspace/help', icon: HelpCircle },
     { label: 'Complaints & warnings', to: '/workspace/conduct', icon: Flag },

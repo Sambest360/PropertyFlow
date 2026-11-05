@@ -349,3 +349,35 @@ export function audienceForRole(role: string | null | undefined): CardAudience {
   if (r === 'END_USER' || r === 'TENANT') return 'tenant'
   return 'public'
 }
+
+/**
+ * The full street address of a unit. Listings only ever show "Suburb, City";
+ * the street address goes only to someone who booked a viewing or sent an
+ * enquiry, in their confirmation email.
+ */
+export async function streetAddressForUnit(unitUuid: string): Promise<string | null> {
+  const rows = await query<{ address: string | null }>(
+    `SELECT COALESCE(
+              NULLIF(TRIM(u.formatted_address), ''),
+              NULLIF(TRIM(b.formatted_address), ''),
+              NULLIF(CONCAT_WS(', ',
+                NULLIF(TRIM(CASE WHEN COALESCE(u.unit_number::text, '') <> '' THEN 'Unit ' || u.unit_number::text END), ''),
+                NULLIF(TRIM(b.address), ''), NULLIF(TRIM(b.suburb), ''), NULLIF(TRIM(b.city), '')), '')
+            ) AS address
+       FROM units u LEFT JOIN buildings b ON b.id = u.building_id
+      WHERE u.id = $1::uuid`,
+    [unitUuid],
+  )
+  return rows[0]?.address ?? null
+}
+
+/** Street address for whatever an email is about, or null. */
+export async function streetAddressFor(ref: PropertyRef | undefined): Promise<string | null> {
+  if (!ref) return null
+  try {
+    const resolved = await resolvePropertyRef(ref)
+    return resolved ? await streetAddressForUnit(resolved.unitUuid) : null
+  } catch {
+    return null
+  }
+}

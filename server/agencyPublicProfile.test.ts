@@ -146,7 +146,9 @@ describe('profile photos', () => {
     expect(canSetUserPhoto({ role: 'client_admin', uuid: ADMIN_A, clientId: AG_A, usersManage: false }, target)).toBe(false)
     expect(canSetUserPhoto({ role: 'client_admin', uuid: ADMIN_A, clientId: AG_B, usersManage: true }, target)).toBe(false)
     expect(canSetUserPhoto({ role: 'client_admin', uuid: ADMIN_A, clientId: AG_A, usersManage: true }, { id: LANDLORD, clientId: AG_A, dbRole: 'LANDLORD' })).toBe(false)
-    expect(canSetUserPhoto({ role: 'tenant', uuid: LANDLORD, clientId: AG_A, usersManage: false }, { id: LANDLORD, clientId: AG_A, dbRole: 'END_USER' })).toBe(false)
+    // Everyone may set their own photo (tenants and landlords too).
+    expect(canSetUserPhoto({ role: 'tenant', uuid: LANDLORD, clientId: AG_A, usersManage: false }, { id: LANDLORD, clientId: AG_A, dbRole: 'END_USER' })).toBe(true)
+    expect(canSetUserPhoto({ role: 'tenant', uuid: AGENT_B, clientId: AG_A, usersManage: false }, { id: LANDLORD, clientId: AG_A, dbRole: 'END_USER' })).toBe(false)
     expect(canSetUserPhoto({ role: 'super_admin', uuid: null, clientId: null, usersManage: false }, target)).toBe(true)
   })
 

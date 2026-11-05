@@ -6,6 +6,7 @@ import { fetchUserPhoto, saveUserPhoto } from '../../lib/api/agencyProfileApi'
 import { AVATAR_RESIZE, resizeImageFile } from '../../lib/imageResize'
 import { initials } from '../../lib/contactLinks'
 import { sweetError, sweetSuccess } from '../../lib/sweetAlert'
+import { useStore } from '../../context/AppStore'
 
 /**
  * Round profile photo shown on the listings this person is linked to. The
@@ -17,6 +18,7 @@ export function ProfilePhotoCard({ userId, name, own }: { userId: string; name: 
   const [canEdit, setCanEdit] = useState(false)
   const [busy, setBusy] = useState(false)
   const input = useRef<HTMLInputElement>(null)
+  const { setUserAvatarLocal } = useStore()
 
   useEffect(() => {
     if (!isApiEnabled) return
@@ -40,7 +42,9 @@ export function ProfilePhotoCard({ userId, name, own }: { userId: string; name: 
     try {
       const r = await saveUserPhoto(userId, photo)
       setUrl(r.avatarUrl)
-      await sweetSuccess(photo ? 'Photo saved' : 'Photo removed', photo ? 'It now shows on the listings you are linked to.' : '')
+      // Header, people lists, messages: every place that shows this person.
+      setUserAvatarLocal(userId, r.avatarUrl)
+      await sweetSuccess(photo ? 'Photo saved' : 'Photo removed', photo ? 'Your photo now shows across Lekaya Rentals.' : '')
     } catch (err) {
       await sweetError('Could not save the photo', err instanceof Error ? err.message : String(err))
     } finally {
@@ -70,7 +74,9 @@ export function ProfilePhotoCard({ userId, name, own }: { userId: string; name: 
         <h2 className="inline-flex items-center gap-2 font-semibold text-ink">
           <Camera className="h-5 w-5 text-primary" aria-hidden /> {own ? 'Your profile photo' : 'Profile photo'}
         </h2>
-        <p className="text-sm text-ink-500">Shown on public listings this person is the contact for. A clear head-and-shoulders photo works best.</p>
+        <p className="text-sm text-ink-500">
+          {own ? 'Shown across Lekaya Rentals: your profile, messages and the listings you are the contact for.' : 'Shown on public listings this person is the contact for.'} A clear head-and-shoulders photo works best.
+        </p>
         {canEdit ? (
           <div className="flex flex-wrap gap-2">
             <input

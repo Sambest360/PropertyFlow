@@ -3,8 +3,8 @@
  *  - staff send the deposit details (amount, reference, the agency's bank
  *    account) to the applicant, then see the uploaded proof and confirm it;
  *  - the applicant sees what to pay and where, and uploads proof of payment.
- * The workflow buttons (Issue deposit invoice / Confirm deposit paid / Verify)
- * still move the stage; this panel carries the information between them.
+ * Staff approve the proof (the amount lands in Trust & Banking as a held
+ * deposit) or decline it with a reason (the applicant uploads a new one).
  */
 import { useState } from 'react'
 import { Banknote, FileCheck2, Upload } from 'lucide-react'
@@ -30,6 +30,7 @@ export function DepositStepPanel({
   mode,
   actorName,
   onSave,
+  onReviewProof,
 }: {
   application: Application
   agency: Agency | undefined
@@ -37,6 +38,10 @@ export function DepositStepPanel({
   mode: 'staff' | 'tenant'
   actorName: string
   onSave: (patch: Partial<Application>) => void | Promise<unknown>
+  /** Staff: approve (records the held deposit in Trust & Banking) or decline the proof. */
+  onReviewProof?: (
+    decision: { approve: true; amount: number } | { approve: false; reason: string },
+  ) => Promise<{ ok: boolean; error?: string }>
 }) {
   const banking = application.depositRequest?.banking ?? agency?.settings?.depositBanking ?? {}
   const [amount, setAmount] = useState(String(application.depositRequest?.amount ?? depositAmount ?? ''))
@@ -46,6 +51,9 @@ export function DepositStepPanel({
   const [payRef, setPayRef] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [received, setReceived] = useState(String(application.depositProof?.amount ?? application.depositRequest?.amount ?? depositAmount ?? ''))
+  const [declining, setDeclining] = useState(false)
+  const [declineReason, setDeclineReason] = useState('')
   if (!depositStepVisible(application)) return null
   const req = application.depositRequest
   const proof = application.depositProof
@@ -82,13 +90,34 @@ export function DepositStepPanel({
     }
   }
 
+  const review = async (decision: { approve: true; amount: number } | { approve: false; reason: string }) => {
+    if (!onReviewProof) return
+    setError('')
+    if (decision.approve && (!Number.isFinite(decision.amount) || decision.amount <= 0)) return setError('Enter the amount that reached the account.')
+    setBusy(true)
+    try {
+      const r = await onReviewProof(decision)
+      if (!r.ok) setError(r.error ?? 'Could not save the review.')
+      else {
+        setDeclining(false)
+        setDeclineReason('')
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <Card className="space-y-3 p-4" data-testid="deposit-step-panel">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="inline-flex items-center gap-2 font-semibold text-ink">
           <Banknote className="h-5 w-5 text-primary" aria-hidden /> Deposit
         </h3>
-        {proof ? <Badge tone="success">Proof of payment uploaded</Badge> : req ? <Badge tone="warning">Waiting for payment</Badge> : <Badge>Details not sent yet</Badge>}
+        {proof?.status === 'approved' ? (
+          <Badge tone="success">Deposit approved</Badge>
+        ) : proof?.status === 'declined' ? (
+          <Badge tone="danger">Proof declined</Badge>
+        ) : proof ? <Badge tone="info">Proof uploaded, waiting for review</Badge> : req ? <Badge tone="warning">Waiting for payment</Badge> : <Badge>Details not sent yet</Badge>}
       </div>
 
       {req ? (
@@ -134,9 +163,45 @@ export function DepositStepPanel({
           </Button>
         </div>
       ) : null}
-      {mode === 'staff' && proof ? <p className="text-xs text-ink-500">Check the money is in the account, then use Confirm deposit paid / Verify deposit.</p> : null}
+      {proof?.status === 'approved' ? (
+        <p className="text-sm text-emerald-800">
+          Approved{proof.reviewedByName ? ` by ${proof.reviewedByName}` : ''}{proof.reviewedAt ? ` on ${new Date(proof.reviewedAt).toLocaleDateString('en-ZA')}` : ''}
+          {proof.amount ? `: ${formatZAR(proof.amount)} recorded in Trust & Banking.` : '.'}
+        </p>
+      ) : null}
+      {proof?.status === 'declined' ? (
+        <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-900">
+          {mode === 'tenant' ? 'Your proof of payment was declined' : 'Declined'}
+          {proof.declineReason ? `: ${proof.declineReason}` : '.'} {mode === 'tenant' ? 'Please upload a new proof below.' : 'The applicant can upload a new proof.'}
+        </p>
+      ) : null}
+      {mode === 'staff' && proof && !proof.status && onReviewProof ? (
+        <div className="space-y-2 border-t border-primary-100 pt-3">
+          <p className="text-sm text-ink-600">Check the money is in the account, then approve it. Approving records the deposit as held in Trust &amp; Banking.</p>
+          {declining ? (
+            <div className="space-y-2 rounded-xl border border-rose-200 bg-rose-50 p-3">
+              <Textarea rows={2} value={declineReason} onChange={(e) => setDeclineReason(e.target.value)} placeholder="Why is this proof declined? The applicant sees this." />
+              <div className="flex gap-2">
+                <Button size="sm" variant="danger" disabled={busy || !declineReason.trim()} onClick={() => void review({ approve: false, reason: declineReason.trim() })}>
+                  Decline proof
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setDeclining(false)}>Cancel</Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="text-sm">
+                <span className="mb-1 block text-xs font-semibold text-ink-500">Amount received (R)</span>
+                <Input type="number" value={received} onChange={(e) => setReceived(e.target.value)} className="w-40" />
+              </label>
+              <Button size="sm" disabled={busy} onClick={() => void review({ approve: true, amount: Number(received) })}>Approve deposit</Button>
+              <Button size="sm" variant="secondary" disabled={busy} onClick={() => setDeclining(true)}>Decline</Button>
+            </div>
+          )}
+        </div>
+      ) : null}
 
-      {mode === 'tenant' && req ? (
+      {mode === 'tenant' && req && proof?.status !== 'approved' ? (
         <div className="space-y-2 border-t border-primary-100 pt-3">
           <p className="text-sm font-medium text-ink">{proof ? 'Replace your proof of payment' : 'Paid? Upload your proof of payment'}</p>
           <Input placeholder="Payment reference you used (optional)" value={payRef} onChange={(e) => setPayRef(e.target.value)} />

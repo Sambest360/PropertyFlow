@@ -59,14 +59,14 @@ export const CONFIG_TYPE_DEFS: ConfigTypeDef[] = [
   {
     type: 'LEAD_STAGE',
     label: 'Lead stages',
-    description: 'The columns of your Leads pipeline. Step requirements are set in Admin → Lead pipeline.',
+    description: 'The columns of your Leads pipeline. Step requirements are set in Admin → Application Pipeline → Lead stages.',
     group: 'sales',
     requiredKeys: ['New Lead', 'Contacted', 'Viewing Scheduled', 'Viewing Completed'],
   },
   {
     type: 'DOC_TYPE',
     label: 'Document types',
-    description: 'Documents a lead stage can require (set in Admin → Lead pipeline).',
+    description: 'Documents a lead stage can require (set in Admin → Application Pipeline → Lead stages).',
     group: 'documents',
     requiredKeys: ['ID', 'Lease'],
   },

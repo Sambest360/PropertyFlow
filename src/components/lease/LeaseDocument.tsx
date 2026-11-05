@@ -20,16 +20,19 @@ export function LeaseContractView({ contract, compact }: { contract: LeaseContra
           <div key={k} className="flex gap-2"><dt className="shrink-0 text-ink-500">{k}:</dt><dd className="font-medium text-ink">{v}</dd></div>
         ))}
       </dl>
-      {contract.sections.map((s) => (
-        <section key={s.title}>
-          <h3 className="font-semibold text-ink">{s.title}</h3>
+      {contract.sections.map((s, si) => {
+        const num = /^(\d+)\./.exec(s.title)?.[1] ?? String(si + 1)
+        return (
+        <section key={`${si}-${s.title}`}>
+          {s.title ? <h3 className="font-semibold text-ink">{s.title}</h3> : null}
           <ol className="mt-1 space-y-1.5 text-ink-700">
             {s.clauses.map((c, i) => (
-              <li key={i}><span className="mr-1 text-ink-400">{s.title.split('.')[0]}.{i + 1}</span>{c}</li>
+              <li key={i}><span className="mr-1 text-ink-400">{num}.{i + 1}</span>{c}</li>
             ))}
           </ol>
         </section>
-      ))}
+        )
+      })}
     </article>
   )
 }
