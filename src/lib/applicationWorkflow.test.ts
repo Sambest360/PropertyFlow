@@ -229,14 +229,14 @@ describe('applicationWorkflow', () => {
       expect(transitions.find((t) => t.actionKey === 'RECOVER_APPROVE')).toBeUndefined()
     })
 
-    it('hides Approve & create lease when screening is incomplete (DQ-C3)', () => {
+    it('hides Approve & create lease when screening failed (DQ-C3)', () => {
       const incomplete = normalizeApplication(
         rentalApp({
           workflowStatus: 'deposit_invoice_sent',
           stage: 'Deposit invoice issued',
           documents: verifiedFicaPackDocs(),
-          screening: { status: 'pending', provider: 'mock' },
-          creditCheck: 'Not Started',
+          screening: { status: 'failed', provider: 'manual' },
+          creditCheck: 'Failed',
           creditConsent: true,
         }),
       )
@@ -378,7 +378,7 @@ describe('P0 Approve→occupancy from document stages', () => {
     expect(transitions.some((t) => t.actionKey === 'AGENT_APPROVE')).toBe(true)
   })
 
-  it('hides AGENT_APPROVE from documents_uploaded when screening pending', () => {
+  it('offers AGENT_APPROVE from documents_uploaded while screening is pending (off-system checks)', () => {
     const app = rentalApp({
       workflowStatus: 'documents_uploaded',
       documents: verifiedFicaPackDocs(),
@@ -386,7 +386,7 @@ describe('P0 Approve→occupancy from document stages', () => {
       creditCheck: 'In Progress',
     })
     const transitions = getAvailableTransitions(app, ['applications.review'])
-    expect(transitions.some((t) => t.actionKey === 'AGENT_APPROVE')).toBe(false)
+    expect(transitions.some((t) => t.actionKey === 'AGENT_APPROVE')).toBe(true)
   })
 })
 

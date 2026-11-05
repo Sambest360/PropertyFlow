@@ -70,12 +70,12 @@ describe('P0-3: Submitted stage machine', () => {
     expect(withoutPack.map((t) => t.actionKey)).toContain('REJECT_APPLICATION')
     expect(withoutPack.map((t) => t.actionKey)).toContain('REQUEST_DOCUMENTS')
 
-    // DQ-C3: also needs screening passed|manual_override
+    // Credit checks are done off the system: a verified FICA pack is enough to approve.
     const withPackOnly = getAvailableTransitions(
       app({ documents: verifiedFicaPackDocs() }),
       STAFF_PERMS,
     )
-    expect(withPackOnly.map((t) => t.actionKey)).not.toContain('AGENT_APPROVE')
+    expect(withPackOnly.map((t) => t.actionKey)).toContain('AGENT_APPROVE')
 
     const withPackAndScreening = getAvailableTransitions(
       app({ documents: verifiedFicaPackDocs(), ...clearedScreeningFields() }),

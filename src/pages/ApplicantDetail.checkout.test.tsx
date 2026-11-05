@@ -164,7 +164,15 @@ async function approve() {
   await act(async () => {
     b!.click()
   })
-  // Approve asks for confirmation first.
+  // Approve asks for a reason first.
+  const reason = document.querySelector('[role="dialog"] textarea') as HTMLTextAreaElement | null
+  if (reason) {
+    await act(async () => {
+      const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+      set.call(reason, 'Off-system credit check clear')
+      reason.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
   const confirm = Array.from(document.querySelectorAll('[role="dialog"] button, [role="alertdialog"] button')).find((x) =>
     /^(confirm|continue|approve|yes)/i.test(x.textContent?.trim() ?? ''),
   )

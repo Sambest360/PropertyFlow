@@ -128,8 +128,7 @@ describe('application lifecycle walk', () => {
       'income_verification',
       'reference_checks',
       'credit_check',
-      'affordability_assessment',
-      'agent_review',
+      // Credit check and agent review are done off the system: approve straight from credit_check.
       'conditionally_approved',
       'lease_generated',
       'lease_sent',
