@@ -52,9 +52,16 @@ export function isLocalhostDatabaseUrl(url: string): boolean {
 export function resolveDatabaseUrl(opts: {
   envUrl?: string | undefined
   localFallback?: string
+  nodeEnv?: string | undefined
 }): { url: string; configured: boolean; error?: string } {
   const trimmed = opts.envUrl?.trim() || ''
   if (trimmed) return { url: trimmed, configured: true }
+  // Production never guesses: a missing DATABASE_URL (e.g. a broken .env) must
+  // say so, not quietly try a local database with no password.
+  const nodeEnv = 'nodeEnv' in opts ? opts.nodeEnv : process.env.NODE_ENV
+  if (nodeEnv === 'production' && !opts.localFallback) {
+    return { url: '', configured: false, error: 'DATABASE_URL is not set — check /var/www/propertyflow/.env' }
+  }
   const url = opts.localFallback || 'postgresql://127.0.0.1:5432/propertyflow'
   return { url, configured: true }
 }

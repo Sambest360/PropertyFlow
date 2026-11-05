@@ -49,6 +49,10 @@ describe('resolveDatabaseUrl', () => {
   })
 
   it('falls back to the local database', () => {
-    expect(resolveDatabaseUrl({}).url).toBe('postgresql://127.0.0.1:5432/propertyflow')
+    expect(resolveDatabaseUrl({ nodeEnv: 'development' }).url).toBe('postgresql://127.0.0.1:5432/propertyflow')
+  })
+
+  it('refuses to guess in production', () => {
+    expect(resolveDatabaseUrl({ nodeEnv: 'production' })).toMatchObject({ configured: false })
   })
 })

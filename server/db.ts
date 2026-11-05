@@ -16,7 +16,8 @@ loadEnv({ path: resolve(process.cwd(), '.env') })
 
 const { Pool } = pg
 
-const resolved = resolveDatabaseUrl({ envUrl: process.env.DATABASE_URL, localFallback: undefined })
+const resolved = resolveDatabaseUrl({ envUrl: process.env.DATABASE_URL })
+if (!resolved.configured) console.error(`[propertyflow-api] ${resolved.error}`)
 
 export const databaseConfigured = resolved.configured
 export const databaseConfigError = resolved.error

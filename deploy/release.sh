@@ -15,6 +15,9 @@ MIGRATIONS=(
   database/postgres/migrations/038_sms_listing_approvals.sql
 )
 
+echo "== Check .env"
+node --env-file=.env -e 'if (!process.env.DATABASE_URL) { console.error("DATABASE_URL is missing from .env — stopping before any change."); process.exit(1) }'
+
 echo "== Backup"
 bash deploy/backup.sh
 
@@ -42,7 +45,11 @@ echo "== Crons"
 bash deploy/crons.sh
 
 echo "== Restart"
-pm2 restart propertyflow-api
-sleep 3
-curl -fsS "http://127.0.0.1:${API_PORT:-8787}/api/health?db=1" && echo
+# --update-env: pick up any .env / environment change.
+pm2 restart propertyflow-api --update-env
+for i in $(seq 1 20); do
+  if curl -fsS "http://127.0.0.1:${API_PORT:-8787}/api/health?db=1"; then echo; break; fi
+  [ "$i" = 20 ] && { echo "API did not come up — see: pm2 logs propertyflow-api --lines 50"; exit 1; }
+  sleep 3
+done
 echo "Released $(git rev-parse --short HEAD)."
