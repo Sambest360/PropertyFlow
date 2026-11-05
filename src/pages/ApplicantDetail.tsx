@@ -461,6 +461,8 @@ export default function ApplicantDetail() {
         })
       }
       if (stage.kind === 'approval') {
+        // Let the document checks and the credit check record above land first.
+        await new Promise((r) => setTimeout(r, 60))
         const result = await approveApplication(application.id, { actorUserId: user.id })
         setFlash(result)
         if (result.status !== 'SUCCESS') return

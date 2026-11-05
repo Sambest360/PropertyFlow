@@ -158,6 +158,16 @@ const ALLOWED: Record<string, string[]> = {
   'Viewing scheduled': ['UNDER_REVIEW', 'CREDIT_CHECK', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
   'Viewing completed': ['UNDER_REVIEW', 'CREDIT_CHECK', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
   'Agent review': ['CREDIT_CHECK', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
+  // Application stages: approving the Approval stage works from every
+  // screening / review step the old workflow can be at.
+  'Owner / landlord approval': ['CREDIT_CHECK', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
+  'FICA verification': ['UNDER_REVIEW', 'CREDIT_CHECK', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
+  'Employment verification': ['UNDER_REVIEW', 'CREDIT_CHECK', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
+  'Income verification': ['UNDER_REVIEW', 'CREDIT_CHECK', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
+  'Reference checks': ['UNDER_REVIEW', 'CREDIT_CHECK', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
+  'Affordability assessment': ['UNDER_REVIEW', 'CREDIT_CHECK', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
+  'Viewing requested': ['UNDER_REVIEW', 'CREDIT_CHECK', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
+  'Enquiry received': ['UNDER_REVIEW', 'APPROVED', 'REJECTED', 'WITHDRAWN'],
   'Credit check': ['APPROVED', 'REJECTED', 'UNDER_REVIEW'],
   'Conditionally approved': ['APPROVED', 'LEASE_SIGNED', 'REJECTED'],
   'Deposit invoice issued': ['APPROVED', 'LEASE_SIGNED', 'REJECTED', 'WITHDRAWN'],
@@ -257,7 +267,9 @@ export function patchApplicationStatus(params: {
   }
 
   const allowed = ALLOWED[application.stage] ?? []
-  if (!allowed.includes(request.status) && request.status !== apiStatusFromStage(application.stage)) {
+  // A decline (with its reason) is allowed at any stage until the application is closed.
+  const declineAnywhere = request.status === 'REJECTED' && !['Rejected', 'Withdrawn', 'Active Tenancy', 'Active tenancy'].includes(application.stage)
+  if (!declineAnywhere && !allowed.includes(request.status) && request.status !== apiStatusFromStage(application.stage)) {
     return {
       status: 'ERROR',
       httpStatus: 422,

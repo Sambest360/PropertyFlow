@@ -183,7 +183,8 @@ async function approve() {
       ;(confirm as HTMLButtonElement).click()
     })
   }
-  for (let i = 0; i < 5; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
+  // The Approval stage waits briefly for the document checks to land before approving.
+  for (let i = 0; i < 5; i++) await act(async () => { await new Promise((r) => setTimeout(r, 40)) })
 }
 
 const flashCard = () => host.querySelector('[data-testid="checkout-row-PAY-dep"]')?.closest('ul')?.parentElement ?? null

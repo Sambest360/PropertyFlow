@@ -5434,7 +5434,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       } as PatchApplicationStatusResult
       let createdNotifications: AppNotification[] = []
 
-      setState((s) => {
+      // The result is worked out from the latest state up front (not inside
+      // the state updater, which React may run later: then the result read
+      // below was still "Application not found").
+      const computeApproval = (s: AppState): PatchApplicationStatusResult => {
         const current = s.applications.find((a) => a.id === id)
         const actor = s.users.find((u) => u.id === (actorUserId ?? ''))
         const property = current ? s.properties.find((p) => p.id === current.propertyId) : undefined
@@ -5446,7 +5449,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             ? s.buildings.find((b) => b.id === property.buildingId)
             : undefined
 
-        result = patchApplicationStatus({
+        return patchApplicationStatus({
           application: current,
           property,
           unit,
@@ -5463,21 +5466,28 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           },
         })
 
-        if (result.status === 'ERROR') return s
-        const ok = result
-        createdNotifications = []
-        if (current?.applicantUserId) {
-          createdNotifications.push({
+      }
+      result = computeApproval(stateRef.current)
+      const approvedFor = stateRef.current.applications.find((a) => a.id === id)
+      if (result.status !== 'ERROR' && approvedFor?.applicantUserId) {
+        createdNotifications = [
+          {
             id: uid('N'),
-            userId: current.applicantUserId,
-            agencyId: current.agencyId,
+            userId: approvedFor.applicantUserId,
+            agencyId: approvedFor.agencyId,
             title: 'Application approved',
-            body: `Checkout ready via ${ok.checkout?.provider ?? 'PayFast'}. Pay deposit to proceed.`,
+            body: 'Your application was approved. Open it to accept the offer, then pay the deposit and sign your lease.',
             at: new Date().toISOString(),
             read: false,
-            link: '/workspace/portals/tenant',
-          })
-        }
+            link: `/workspace/portals/tenant/applications/${id}`,
+          },
+        ]
+      }
+
+      setState((s) => {
+        const current = s.applications.find((a) => a.id === id)
+        if (result.status === 'ERROR') return s
+        const ok = result
 
         return {
           ...s,
