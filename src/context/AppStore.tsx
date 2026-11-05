@@ -5118,6 +5118,30 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           })
         }
       }
+      // Deposit step: tell the other side.
+      if (prev && p.depositRequest && p.depositRequest.sentAt !== prev.depositRequest?.sentAt && prev.applicantUserId) {
+        notify({
+          userId: prev.applicantUserId,
+          agencyId: prev.agencyId,
+          title: 'Deposit details sent',
+          body: `Pay R ${p.depositRequest.amount.toLocaleString('en-ZA')} (ref ${p.depositRequest.reference}) and upload your proof of payment.`,
+          link: `/workspace/portals/tenant/applications/${encodeURIComponent(id)}`,
+          resource: 'applicant',
+          action: 'created',
+        })
+      }
+      if (prev && p.depositProof && p.depositProof.uploadedAt !== prev.depositProof?.uploadedAt) {
+        const property = state.properties.find((x) => x.id === prev.propertyId)
+        emitSuiteEvent({
+          agencyId: prev.agencyId,
+          resource: 'applicant',
+          action: 'updated',
+          title: 'Deposit proof uploaded',
+          body: `${prev.applicantName} uploaded proof of the deposit payment. Check it and confirm the deposit.`,
+          link: `/workspace/sales/applications/${encodeURIComponent(id)}`,
+          recipientUserIds: applicationStakeholderIds(state.users, prev, property),
+        })
+      }
       if (prev) {
         const nextApp = {
           ...prev,

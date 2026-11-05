@@ -1,4 +1,5 @@
 import { LeaseSignCard } from '../../components/lease/LeaseSignCard'
+import { DepositStepPanel } from '../../components/deposit/DepositStepPanel'
 import { TenantPcrSignOff } from '../../components/pcr/TenantPcrSignOff'
 import { useMemo, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
@@ -508,6 +509,19 @@ export default function TenantApplicationDetailPage() {
             />
           </div>
         )}
+
+        {tab === 'payments' || tab === 'details' ? (
+          <div className="mb-5">
+            <DepositStepPanel
+              application={application}
+              agency={state.agencies.find((a) => a.id === application.agencyId)}
+              depositAmount={Number((property as { deposit?: number } | undefined)?.deposit ?? 0)}
+              mode="tenant"
+              actorName={user.name}
+              onSave={(patch) => updateApplication(application.id, patch)}
+            />
+          </div>
+        ) : null}
 
         {tab === 'payments' && checkoutOpen && (
           <div className="mb-5" data-testid="tenant-checkout">

@@ -719,6 +719,9 @@ export async function buildBootstrap(opts?: {
         ? { listingLimits: listingLimitsFromSettings(c.settings) }
         : {}),
       ...agencyViewingSettingsFromJson(c.settings),
+      ...(c.settings && typeof (c.settings as Record<string, unknown>).depositBanking === 'object'
+        ? { depositBanking: (c.settings as Record<string, unknown>).depositBanking }
+        : {}),
     },
   }))
 
@@ -1021,6 +1024,8 @@ export async function buildBootstrap(opts?: {
       moveInDate: dateOnly(a.move_in_date as Date | null) || undefined,
       keyCollection: (meta.keyCollection as Record<string, unknown> | undefined) ?? undefined,
       pcrInspections: Array.isArray(meta.pcrInspections) ? meta.pcrInspections : undefined,
+      depositRequest: meta.depositRequest && typeof meta.depositRequest === 'object' ? meta.depositRequest : undefined,
+      depositProof: meta.depositProof && typeof meta.depositProof === 'object' ? meta.depositProof : undefined,
       purchaseClosing:
         meta.purchaseClosing && typeof meta.purchaseClosing === 'object' && !Array.isArray(meta.purchaseClosing)
           ? meta.purchaseClosing

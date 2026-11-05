@@ -747,6 +747,11 @@ async function upsertAgency(feId: string, d: Record<string, unknown>): Promise<s
               !Array.isArray((d.settings as { listingLimits?: unknown }).listingLimits)
                 ? { listingLimits: (d.settings as { listingLimits: unknown }).listingLimits }
                 : {}),
+              // Where tenants pay the deposit (agency admin, Application journey settings).
+              ...((d.settings as { depositBanking?: unknown }).depositBanking &&
+              typeof (d.settings as { depositBanking?: unknown }).depositBanking === 'object'
+                ? { depositBanking: sanitizeDepositBanking((d.settings as { depositBanking: unknown }).depositBanking) }
+                : {}),
               ...((d.settings as { applicationJourney?: unknown }).applicationJourney
                 ? { applicationJourney: (d.settings as { applicationJourney: unknown }).applicationJourney }
                 : {}),
@@ -769,6 +774,16 @@ async function upsertAgency(feId: string, d: Record<string, unknown>): Promise<s
     ],
   )
   return uuid
+}
+
+/** Agency deposit bank details: plain short strings only. */
+function sanitizeDepositBanking(raw: unknown): Record<string, string> {
+  const o = (raw ?? {}) as Record<string, unknown>
+  const out: Record<string, string> = {}
+  for (const k of ['bankName', 'accountName', 'accountNumber', 'branchCode', 'accountType', 'referenceHint', 'notes']) {
+    if (typeof o[k] === 'string') out[k] = (o[k] as string).trim().slice(0, k === 'notes' ? 500 : 120)
+  }
+  return out
 }
 
 async function upsertUserWithResult(
@@ -1668,6 +1683,10 @@ async function upsertApplication(
     ['screening', 'screening'],
     // Agency records kept on the application (staff-only; applicant writes drop them).
     ['pcrInspections', 'pcrInspections'],
+    // Deposit step: the agent sends the bank details (depositRequest); the
+    // applicant uploads proof of payment (depositProof).
+    ['depositRequest', 'depositRequest'],
+    ['depositProof', 'depositProof'],
     ['purchaseClosing', 'purchaseClosing'],
     // Staff block (blockApplication); read back so the Blocks tab survives a reload.
     ['blockReason', 'blockReason'],

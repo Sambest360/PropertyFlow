@@ -121,6 +121,29 @@ export function getActionFormSpec(actionKey: string, application: Application): 
     }
   }
 
+  if (actionKey === 'AGENT_APPROVE' || actionKey === 'CONDITIONALLY_APPROVE') {
+    const conditional = actionKey === 'CONDITIONALLY_APPROVE'
+    return {
+      kind: 'reject',
+      title: conditional ? 'Conditionally approve' : 'Approve application',
+      description: conditional
+        ? 'Say why you are approving and the conditions the applicant must meet. Both go in the file history.'
+        : 'Say why you are approving (for example the off-system credit check and agent review outcome). It goes in the file history.',
+      confirmLabel: conditional ? 'Conditionally approve' : 'Approve',
+      fields: [
+        {
+          key: 'reason',
+          label: conditional ? 'Reason and conditions' : 'Reason for approving',
+          type: 'textarea',
+          required: true,
+          placeholder: conditional
+            ? 'e.g. Credit check fair. Approved on condition of a surety and a 2-month deposit.'
+            : 'e.g. Credit check clear (TPN ref 1234), references good, affordability 28%.',
+        },
+      ],
+    }
+  }
+
   if (REJECT_ACTIONS.has(actionKey)) {
     const bureauTemplate =
       actionKey === 'DECLINE_CREDIT'
@@ -128,7 +151,7 @@ export function getActionFormSpec(actionKey: string, application: Application): 
         : undefined
     return {
       kind: 'reject',
-      title: actionKey === 'DECLINE_CREDIT' ? 'Decline (credit)' : 'Confirm outcome',
+      title: actionKey === 'DECLINE_CREDIT' || actionKey === 'REJECT_APPLICATION' || actionKey === 'LANDLORD_REJECTED' ? 'Decline application' : 'Confirm outcome',
       description:
         actionKey === 'DECLINE_CREDIT'
           ? 'Applicant receives the reason below plus standard bureau referral wording.'
@@ -137,10 +160,10 @@ export function getActionFormSpec(actionKey: string, application: Application): 
       fields: [
         {
           key: 'reason',
-          label: 'Reason',
+          label: 'Reason (required)',
           type: 'textarea',
           required: true,
-          placeholder: bureauTemplate ?? 'Brief explanation for the applicant and audit trail',
+          placeholder: bureauTemplate ?? 'Why? The applicant sees this and it goes in the file history.',
         },
       ],
     }

@@ -134,7 +134,41 @@ export type Agency = {
     requireViewingToApply?: boolean
     buildingViewingCountsForAllUnits?: boolean
     mainApplicantViewingCoversCoApplicants?: boolean
+    /** Where tenants pay the deposit (agency admin sets this once). */
+    depositBanking?: DepositBanking
   }
+}
+
+export type DepositBanking = {
+  bankName?: string
+  accountName?: string
+  accountNumber?: string
+  branchCode?: string
+  accountType?: string
+  /** e.g. "Use your application number" */
+  referenceHint?: string
+  notes?: string
+}
+
+/** The agent sent the deposit details to the applicant. */
+export type DepositRequest = {
+  amount: number
+  reference: string
+  banking: DepositBanking
+  dueDate?: string
+  note?: string
+  sentAt: string
+  sentByName?: string
+}
+
+/** The applicant's proof of deposit payment. */
+export type DepositProof = {
+  name: string
+  mimeType: string
+  dataUrl: string
+  uploadedAt: string
+  reference?: string
+  amount?: number
 }
 
 export type AppUser = {
@@ -492,6 +526,9 @@ export type Application = {
    * Not PropertyInspect parity / not RHA legal advice / not a full field PCR product.
    */
   pcrInspections?: PropertyConditionInspectionRecord[]
+  /** Deposit step: details the agent sent, and the applicant's proof of payment. */
+  depositRequest?: DepositRequest
+  depositProof?: DepositProof
 }
 
 /** Soft Mode A PCR inspection row (mirrors src/lib/pcr types). */

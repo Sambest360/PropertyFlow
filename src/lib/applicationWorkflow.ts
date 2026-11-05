@@ -3,18 +3,24 @@ import type { Permission } from '../types/domain'
 import { allDocsUploaded, allDocsVerified, ensureApplicationDocuments } from './workflow.js'
 import { ficaPackSoftGate } from './ficaPack.js'
 import {
-  hasAllAdultCreditConsents,
   markScreeningInProgressOnWorkflow,
   screeningSoftGate,
 } from './screening/index.js'
 import { pcrSoftGate } from './pcr/softGate.js'
 import { canTransition as journeyCanTransition } from './journey/journeyGates.js'
 
-/** DQ-C2 + DQ-C3: FICA pack then screening soft-gate for approve / lease / move-in. */
+/**
+ * DQ-C2: FICA pack soft-gate for approve / lease / move-in. Credit checks and
+ * the agent review are done off the system, so there is no in-app screening
+ * result to wait for: the staff decision (with its reason) is the record.
+ * A screening that was recorded and FAILED still blocks.
+ */
 function approveLeaseSoftGate(app: Application): true | string {
   const fica = ficaPackSoftGate(app)
   if (fica !== true) return fica
-  return screeningSoftGate(app)
+  const screening = screeningSoftGate(app)
+  if (screening !== true && /current: failed/.test(screening)) return 'Screening was recorded as failed. Record a new outcome before approving.'
+  return true
 }
 
 /** Mode A PCR: keys / move-in soft-gate on incoming soft-sign or audited override. */
@@ -397,14 +403,14 @@ export const RENTAL_WORKFLOW: WorkflowTemplate = {
     { from: 'fica_verification', to: 'employment_verification', actionKey: 'VERIFY_EMPLOYMENT', label: 'Verify employment', hint: 'Confirm employer and role', tone: 'secondary', requires: ['applications.review'] },
     { from: 'employment_verification', to: 'income_verification', actionKey: 'VERIFY_INCOME', label: 'Verify income', hint: 'Validate payslips and bank statements', tone: 'secondary', requires: ['applications.review'] },
     { from: 'income_verification', to: 'reference_checks', actionKey: 'RUN_REFERENCES', label: 'Run reference checks', hint: 'Contact previous landlord or agent', tone: 'secondary', requires: ['applications.review'] },
-    { from: 'reference_checks', to: 'credit_check', actionKey: 'START_CREDIT_CHECK', label: 'Start credit check (mock/manual)', hint: 'Requires POPIA consent — starts in-app mock/manual screening (not live TPN / not live bureau)', tone: 'secondary', requires: ['applications.review'], guard: (app) => hasAllAdultCreditConsents(app) || 'Capture POPIA credit-check consent for every adult before starting screening (in-app mock/manual — not live TPN)' },
-    { from: 'credit_check', to: 'affordability_assessment', actionKey: 'ASSESS_AFFORDABILITY', label: 'Assess affordability', hint: 'Rent-to-income and debt review', tone: 'secondary', requires: ['applications.review'] },
-    { from: 'credit_check', to: 'conditionally_approved', actionKey: 'AGENT_APPROVE', label: 'Approve (off-system check)', hint: 'Credit check run off-system — approve with reason', tone: 'primary', requires: ['applications.review'], requiresReason: true, effect: 'approve', guard: (app) => approveLeaseSoftGate(app) },
+    { from: 'reference_checks', to: 'credit_check', actionKey: 'START_CREDIT_CHECK', label: 'Credit check & agent review (off the system)', hint: 'Run the credit check and agent review outside the app, then approve, conditionally approve or decline here', tone: 'secondary', requires: ['applications.review'] },
+    { from: 'credit_check', to: 'conditionally_approved', actionKey: 'AGENT_APPROVE', label: 'Approve', hint: 'Credit check and agent review were done off the system — approve with a reason', tone: 'primary', requires: ['applications.review'], requiresReason: true, effect: 'approve', guard: (app) => approveLeaseSoftGate(app) },
+    { from: 'credit_check', to: 'conditionally_approved', actionKey: 'CONDITIONALLY_APPROVE', label: 'Conditionally approve', hint: 'Approve subject to conditions (e.g. a surety or a bigger deposit) — give the reason and the conditions', tone: 'secondary', requiresAny: ['applications.review', 'portal.owner'], requiresReason: true, effect: 'approve', guard: (app) => approveLeaseSoftGate(app) },
     { from: 'affordability_assessment', to: 'agent_review', actionKey: 'SUBMIT_AGENT_REVIEW', label: 'Submit for agent review', hint: 'Package file for manual decision', tone: 'primary', requires: ['applications.review'] },
     { from: 'agent_review', to: 'landlord_review', actionKey: 'SEND_LANDLORD_REVIEW', label: 'Send to landlord', hint: 'Owner approves or declines tenant', tone: 'secondary', requires: ['applications.review'] },
-    { from: 'agent_review', to: 'conditionally_approved', actionKey: 'AGENT_APPROVE', label: 'Approve (agent authority)', hint: 'Skip landlord when mandated — requires verified FICA pack + screening passed or audited override', tone: 'primary', requires: ['applications.review'], requiresReason: true, guard: (app) => approveLeaseSoftGate(app) },
+    { from: 'agent_review', to: 'conditionally_approved', actionKey: 'AGENT_APPROVE', label: 'Approve', hint: 'Approve with a reason (agent authority — skips the landlord when mandated)', tone: 'primary', requires: ['applications.review'], requiresReason: true, guard: (app) => approveLeaseSoftGate(app) },
     { from: 'landlord_review', to: 'conditionally_approved', actionKey: 'CONDITIONALLY_APPROVE', label: 'Conditionally approve', hint: 'Approve subject to lease and payments — requires verified FICA pack + screening passed or audited override', tone: 'primary', requiresAny: ['applications.review', 'portal.owner'], requiresReason: true, guard: (app) => approveLeaseSoftGate(app) },
-    { from: 'agent_review', to: 'conditionally_approved', actionKey: 'AGENT_APPROVE', label: 'Approve (agent authority)', hint: 'Skip landlord when mandated — requires verified FICA pack + screening passed or audited override', tone: 'primary', requires: ['applications.review'], guard: (app) => approveLeaseSoftGate(app) },
+    { from: 'agent_review', to: 'conditionally_approved', actionKey: 'CONDITIONALLY_APPROVE', label: 'Conditionally approve', hint: 'Approve subject to conditions — give the reason and the conditions', tone: 'secondary', requiresAny: ['applications.review', 'portal.owner'], requiresReason: true, guard: (app) => approveLeaseSoftGate(app) },
     { from: 'conditionally_approved', to: 'lease_generated', actionKey: 'GENERATE_LEASE', label: 'Generate lease', hint: 'Create lease from agency template', tone: 'primary', requires: ['applications.review'], guard: (app) => approveLeaseSoftGate(app) },
     { from: 'lease_generated', to: 'lease_sent', actionKey: 'SEND_LEASE', label: 'Send lease for signing', hint: 'Email lease to tenant and landlord', tone: 'secondary', requires: ['applications.review'], guard: (app) => approveLeaseSoftGate(app) },
     // CR10 nit 5: staff never sign the tenant block; the staff step is the paper mark (the tenant signs in their portal).
@@ -441,7 +447,7 @@ export const RENTAL_WORKFLOW: WorkflowTemplate = {
     // Branch / exit paths
     { from: 'documents_requested', to: 'withdrawn', actionKey: 'WITHDRAW', label: 'Applicant withdraws', hint: 'Applicant cancels application', tone: 'ghost', requires: ['applications.review'], confirm: 'Mark this application as withdrawn?' },
     { from: 'viewing_scheduled', to: 'cancelled', actionKey: 'CANCEL_VIEWING', label: 'Cancel viewing', hint: 'Viewing cancelled — reschedule or close', tone: 'ghost', requires: ['applications.review'] },
-    { from: 'credit_check', to: 'rejected', actionKey: 'DECLINE_CREDIT', label: 'Decline (credit)', hint: 'Credit declined — notify applicant', tone: 'danger', requires: ['applications.review'], requiresReason: true, confirm: 'Reject due to credit outcome?' },
+    { from: 'credit_check', to: 'rejected', actionKey: 'DECLINE_CREDIT', label: 'Decline', hint: 'Decline after the off-system credit check / agent review — the applicant gets your reason', tone: 'danger', requires: ['applications.review'], requiresReason: true, confirm: 'Reject due to credit outcome?' },
     { from: 'agent_review', to: 'rejected', actionKey: 'REJECT_APPLICATION', label: 'Reject application', hint: 'Decline after manual review', tone: 'danger', requires: ['applications.review'], requiresReason: true, confirm: 'Reject this application?' },
     { from: 'landlord_review', to: 'rejected', actionKey: 'LANDLORD_REJECTED', label: 'Landlord rejected', hint: 'Owner declined this applicant', tone: 'danger', requiresAny: ['applications.review', 'portal.owner'], requiresReason: true, confirm: 'Record landlord rejection?' },
     { from: 'deposit_invoice_sent', to: 'cancelled', actionKey: 'CANCEL_NO_DEPOSIT', label: 'Cancel (no deposit)', hint: 'Deposit not received in time', tone: 'danger', requires: ['applications.review'], confirm: 'Cancel — deposit not received?' },
