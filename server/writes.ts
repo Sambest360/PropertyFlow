@@ -660,7 +660,7 @@ async function upsertEntity(
       return upsertBuilding(frontendId, data)
     case 'property':
     case 'unit':
-      return upsertProperty(frontendId, data, actorRole)
+      return upsertProperty(frontendId, data, actorRole, actorUserId)
     case 'room':
       return upsertRoom(frontendId, data)
     case 'asset':
@@ -747,6 +747,11 @@ async function upsertAgency(feId: string, d: Record<string, unknown>): Promise<s
               !Array.isArray((d.settings as { listingLimits?: unknown }).listingLimits)
                 ? { listingLimits: (d.settings as { listingLimits: unknown }).listingLimits }
                 : {}),
+              // Where tenants pay the deposit (agency admin, Application journey settings).
+              ...((d.settings as { depositBanking?: unknown }).depositBanking &&
+              typeof (d.settings as { depositBanking?: unknown }).depositBanking === 'object'
+                ? { depositBanking: sanitizeDepositBanking((d.settings as { depositBanking: unknown }).depositBanking) }
+                : {}),
               ...((d.settings as { applicationJourney?: unknown }).applicationJourney
                 ? { applicationJourney: (d.settings as { applicationJourney: unknown }).applicationJourney }
                 : {}),
@@ -771,6 +776,16 @@ async function upsertAgency(feId: string, d: Record<string, unknown>): Promise<s
   return uuid
 }
 
+/** Agency deposit bank details: plain short strings only. */
+function sanitizeDepositBanking(raw: unknown): Record<string, string> {
+  const o = (raw ?? {}) as Record<string, unknown>
+  const out: Record<string, string> = {}
+  for (const k of ['bankName', 'accountName', 'accountNumber', 'branchCode', 'accountType', 'referenceHint', 'notes']) {
+    if (typeof o[k] === 'string') out[k] = (o[k] as string).trim().slice(0, k === 'notes' ? 500 : 120)
+  }
+  return out
+}
+
 async function upsertUserWithResult(
   feId: string,
   input: Record<string, unknown>,
@@ -793,8 +808,18 @@ async function upsertUserWithResult(
     // password (generated here or set by the admin). upsertUser flags it
     // mustChangePassword, so the account must pick its own at first sign-in.
     const tempPassword = typeof d.tempPassword === 'string' && d.tempPassword ? d.tempPassword : undefined
+    // The account stays Pending until its owner confirms the email address
+    // (verify link, or signing in with the emailed temp password).
+    await query(
+      `UPDATE users SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('emailVerification', 'pending')
+        WHERE id = $1::uuid AND COALESCE(metadata->>'emailVerification', '') <> 'verified'`,
+      [resultUuid],
+    )
     void import('./accountEmails.js')
-      .then(({ sendAccountSetupEmail }) => sendAccountSetupEmail(resultUuid, { tempPassword }))
+      .then(async ({ sendAccountSetupEmail, sendVerificationEmail }) => {
+        await sendAccountSetupEmail(resultUuid, { tempPassword })
+        await sendVerificationEmail(resultUuid)
+      })
       .catch((err) => console.warn('[account-setup email] failed:', err instanceof Error ? err.message : err))
   }
   return generatedTempPassword ? { uuid: resultUuid, generatedTempPassword } : { uuid: resultUuid }
@@ -1029,6 +1054,7 @@ async function upsertProperty(
   feId: string,
   d: Record<string, unknown>,
   actorRole: string | null = null,
+  actorUserId: string | null = null,
 ): Promise<string> {
   // Flat PropertyAsset → units row (+ ensure building if provided)
   const canon = canonicalListingId(feId)
@@ -1158,11 +1184,22 @@ async function upsertProperty(
     typeof d.idempotencyKey === 'string' && d.idempotencyKey.trim()
       ? d.idempotencyKey.trim()
       : null
-  const statusKey = isArchive
+  const requestedStatusKey = isArchive
     ? 'DELETED'
     : isRestore
       ? str(d.statusKey) || unitStatusFromProperty(d.status, undefined)
       : str(d.statusKey) || unitStatusFromProperty(d.status, d.deletedAt)
+  // Only a super admin makes a listing live; anyone else's publish waits for approval.
+  const statusKey =
+    actorRole === null
+      ? requestedStatusKey
+      : await (await import('./listingApprovals.js')).gateListingLive({
+          unitUuid: uuid,
+          statusKey: requestedStatusKey,
+          storedStatus,
+          actorRole,
+          actorUserId,
+        })
 
   await query(
     `INSERT INTO units (
@@ -1658,6 +1695,11 @@ async function upsertApplication(
     ['screening', 'screening'],
     // Agency records kept on the application (staff-only; applicant writes drop them).
     ['pcrInspections', 'pcrInspections'],
+    // Deposit step: the agent sends the bank details (depositRequest); the
+    // applicant uploads proof of payment (depositProof).
+    ['depositRequest', 'depositRequest'],
+    ['depositProof', 'depositProof'],
+    ['assignedRoom', 'assignedRoom'],
     ['purchaseClosing', 'purchaseClosing'],
     // Staff block (blockApplication); read back so the Blocks tab survives a reload.
     ['blockReason', 'blockReason'],
@@ -1922,6 +1964,9 @@ async function upsertTenancy(feId: string, d: Record<string, unknown>): Promise<
         eSign: d.eSign ?? null,
         renewalOps: d.renewalOps ?? null,
         billingSchedule: d.billingSchedule ?? null,
+        // Onboarding an existing tenant (no application) and removing one: kept for the record.
+        ...(d.directAdd && typeof d.directAdd === 'object' ? { directAdd: d.directAdd } : {}),
+        ...(d.removal && typeof d.removal === 'object' ? { removal: d.removal } : {}),
       }),
     ],
   ).catch(rethrowLeaseOverlap)

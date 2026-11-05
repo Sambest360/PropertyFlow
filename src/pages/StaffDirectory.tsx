@@ -1,4 +1,5 @@
 import { useMemo, useState, Fragment } from 'react'
+import { Pager, usePaged } from '../components/Pager'
 import { Link, useSearchParams } from 'react-router-dom'
 import { ArrowRight, ChevronDown, UserPlus } from 'lucide-react'
 import { useStore } from '../context/AppStore'
@@ -22,6 +23,7 @@ import { Badge, Button, PageHeader, cn } from '../components/ui'
 import type { AppUser } from '../types/domain'
 import { usePortalHydrating } from '../components/PortalHydrationGate'
 import { DataTableSkeleton } from '../components/loading/PageSkeleton'
+import { accountStatusLabel } from '../lib/accountStatus'
 
 const ICON_STROKE = 1.6
 const VIEW_KEY = 'propertyflow-staff-view'
@@ -200,6 +202,10 @@ function StaffDirectoryView({ onShowAllAccounts }: { onShowAllAccounts?: () => v
     return rows
   }, [portfolio, q, roleFilter, attention, sort])
 
+  // Long lists show a page at a time.
+
+  const paged = usePaged(filtered)
+
   const filtersActive = Boolean(q.trim()) || roleFilter !== 'all' || attention !== 'all'
   const activeFilterCount =
     (roleFilter !== 'all' ? 1 : 0) + (attention !== 'all' ? 1 : 0) + (sort !== 'name' ? 1 : 0)
@@ -313,15 +319,19 @@ function StaffDirectoryView({ onShowAllAccounts }: { onShowAllAccounts?: () => v
             action={<ClearFiltersButton onClick={clearFilters} reducedMotion={reducedMotion} />}
           />
         ) : view === 'list' ? (
+          <>
           <TeamListView
-            items={filtered}
+            items={paged.pageItems}
             expandedId={expandedId}
             onToggle={toggleExpand}
             reducedMotion={reducedMotion}
           />
+          <Pager {...paged} />
+          </>
         ) : (
+          <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {filtered.map((item) => (
+            {paged.pageItems.map((item) => (
               <Link
                 key={item.user.id}
                 to={`/workspace/people/staff/${encodeURIComponent(item.user.id)}`}
@@ -361,6 +371,8 @@ function StaffDirectoryView({ onShowAllAccounts }: { onShowAllAccounts?: () => v
               </Link>
             ))}
           </div>
+          <Pager {...paged} />
+          </>
         )}
 
         {filtersActive && filtered.length > 0 && (
@@ -578,7 +590,7 @@ function TeamExpansion({
     { label: 'Phone', value: item.user.phone || '—' },
     { label: 'Role', value: roleLabels[item.user.role] ?? item.user.role },
     { label: 'Agency', value: item.agencyName },
-    { label: 'Status', value: item.user.active ? 'Active' : 'Inactive' },
+    { label: 'Status', value: accountStatusLabel(item.user, 'Inactive') },
     { label: 'Closed deals', value: String(item.closedDeals) },
     { label: 'Open leads', value: String(item.openLeads) },
     { label: 'Properties', value: String(item.assignedProperties) },

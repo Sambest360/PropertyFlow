@@ -153,10 +153,10 @@ describe('screening pipeline', () => {
         })),
       }),
     )
-    // Soft-gate hides approve until passed|manual_override
+    // Credit checks are off the system: a pending in-app screening no longer hides Approve.
     expect(
       getAvailableTransitions(app, ['applications.review']).some((a) => a.actionKey === 'AGENT_APPROVE'),
-    ).toBe(false)
+    ).toBe(true)
     // Direct status jump (legacy helper) still must not invent Passed
     app = applyWorkflowTransition(app, 'conditionally_approved')
     expect(app.workflowStatus).toBe('conditionally_approved')
@@ -182,7 +182,7 @@ describe('screening pipeline', () => {
     expect(app.screening?.status).toBe('in_progress')
   })
 
-  it('START_CREDIT_CHECK is guarded without consent', () => {
+  it('START_CREDIT_CHECK is offered without in-app consent (checks are done off the system)', () => {
     const app = normalizeApplication(
       rentalApp({
         creditConsent: false,
@@ -197,7 +197,7 @@ describe('screening pipeline', () => {
     const start = actions.find((a) => a.actionKey === 'START_CREDIT_CHECK')
     // Guarded transitions are filtered out or present with guard failure via getAvailableTransitions
     // getAvailableTransitions typically filters by guard — ensure start is absent or blocked
-    expect(start).toBeUndefined()
+    expect(start).toBeDefined()
   })
 
   it('maps async status to legacy creditCheck labels', () => {
@@ -286,7 +286,7 @@ describe('DQ-C3 screening soft-gate Mode A', () => {
     ).toBe(true)
   })
 
-  it('soft-gates AGENT_APPROVE / GENERATE_LEASE until screening cleared', () => {
+  it('only a failed screening blocks AGENT_APPROVE / GENERATE_LEASE', () => {
     const incomplete = normalizeApplication(
       rentalApp({
         workflowStatus: 'conditionally_approved',
@@ -295,8 +295,11 @@ describe('DQ-C3 screening soft-gate Mode A', () => {
         creditConsent: true,
       }),
     )
-    const blocked = getAvailableTransitions(incomplete, ['applications.review'])
-    expect(blocked.some((t) => t.actionKey === 'GENERATE_LEASE')).toBe(false)
+    // A pending in-app screening no longer blocks (off-system checks); a failed one does.
+    const pendingOk = getAvailableTransitions(incomplete, ['applications.review'])
+    expect(pendingOk.some((t) => t.actionKey === 'GENERATE_LEASE')).toBe(true)
+    const failed = normalizeApplication({ ...incomplete, screening: { status: 'failed', provider: 'manual' } } as typeof incomplete)
+    expect(getAvailableTransitions(failed, ['applications.review']).some((t) => t.actionKey === 'GENERATE_LEASE')).toBe(false)
 
     const ready = normalizeApplication(
       rentalApp({
@@ -322,14 +325,14 @@ describe('DQ-C3 screening soft-gate Mode A', () => {
       getAvailableTransitions(review, ['applications.review']).some(
         (t) => t.actionKey === 'AGENT_APPROVE',
       ),
-    ).toBe(false)
+    ).toBe(true)
 
     expect(isScreeningSoftGatedAction('AGENT_APPROVE')).toBe(true)
     expect(isScreeningSoftGatedAction('GENERATE_LEASE')).toBe(true)
     expect(isScreeningSoftGatedAction('SCHEDULE_MOVE_IN')).toBe(true)
   })
 
-  it('START_CREDIT_CHECK copy clarifies mock/manual not live bureau', () => {
+  it('START_CREDIT_CHECK copy says the check is done off the system', () => {
     const app = normalizeApplication(
       withPrimaryAdultConsent(
         rentalApp({
@@ -344,8 +347,8 @@ describe('DQ-C3 screening soft-gate Mode A', () => {
       (a) => a.actionKey === 'START_CREDIT_CHECK',
     )
     expect(start).toBeDefined()
-    expect(start!.label).toMatch(/mock\/manual/i)
-    expect(start!.hint).toMatch(/not live TPN/i)
+    expect(start!.label).toMatch(/off the system/i)
+    expect(start!.hint).toMatch(/outside the app/i)
   })
 
   it('manual override accepts optional score and external ref', () => {

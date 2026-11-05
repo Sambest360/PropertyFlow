@@ -24,6 +24,7 @@ import { sweetWarning } from '../../lib/sweetAlert'
 import { withReturnTo } from '../../lib/returnTo'
 import { AgencyPublicProfileCard } from '../../components/agency/AgencyPublicProfileCard'
 import type { Permission } from '../../types/domain'
+import { accountStatusLabel } from '../../lib/accountStatus'
 
 const ICON_STROKE = 1.6
 
@@ -267,8 +268,8 @@ export default function AgencyDetailPage() {
                     key: 'status',
                     header: 'Status',
                     render: (u) => (
-                      <Badge tone={u.active ? 'success' : 'danger'}>
-                        {u.active ? 'Active' : 'Disabled'}
+                      <Badge tone={!u.active ? 'danger' : u.emailVerified === false ? 'warning' : 'success'}>
+                        {accountStatusLabel(u)}
                       </Badge>
                     ),
                   },
@@ -304,8 +305,8 @@ export default function AgencyDetailPage() {
                         <p className="text-xs text-ink-500">{u.email}</p>
                         <p className="mt-1 text-xs text-ink-500">{roleLabels[u.role]}</p>
                       </div>
-                      <Badge tone={u.active ? 'success' : 'danger'}>
-                        {u.active ? 'Active' : 'Disabled'}
+                      <Badge tone={!u.active ? 'danger' : u.emailVerified === false ? 'warning' : 'success'}>
+                        {accountStatusLabel(u)}
                       </Badge>
                     </div>
                     <p className="mt-2 text-xs text-ink-500">

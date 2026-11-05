@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Mail, RefreshCw, Send } from 'lucide-react'
 import { Badge, Button, Card, PageHeader } from '../../components/ui'
+import { ComposeEmailCard } from '../../components/admin/ComposeEmailCard'
 import {
   fetchEmailLog,
   fetchEmailTemplates,
@@ -74,13 +75,15 @@ export default function AdminEmailsPage() {
     <div className="space-y-5">
       <PageHeader
         title="Emails"
-        subtitle="Every email Lekaya sends, how it looks, and what went out recently."
+        subtitle="Write an email to anyone on the platform, see every email Lekaya sends, and what went out recently."
         actions={
           <Button variant="secondary" onClick={() => void load()}>
             <RefreshCw className="h-4 w-4" aria-hidden /> Refresh
           </Button>
         }
       />
+
+      <ComposeEmailCard senderEmail={sender?.email} />
 
       <Card className="flex flex-wrap items-start gap-3 p-4" data-tip-target="email-provider">
         {provider === 'log' ? (

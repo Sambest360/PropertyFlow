@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Pager, usePaged } from '../components/Pager'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
@@ -153,6 +154,10 @@ export default function Payments() {
     return rows
   }, [portfolio, q, status, type, propertyId, attention, sort])
 
+  // Long lists show a page at a time.
+
+  const paged = usePaged(filtered)
+
   const filtersActive =
     Boolean(q.trim()) ||
     status !== 'all' ||
@@ -264,16 +269,20 @@ export default function Payments() {
             </button>
           </Card>
         ) : view === 'list' ? (
+          <>
           <PaymentsListView
-            items={filtered}
+            items={paged.pageItems}
             expandedId={expandedId}
             onToggle={toggleExpand}
             hideParty={hideParty}
             reducedMotion={reducedMotion}
           />
+          <Pager {...paged} />
+          </>
         ) : (
+          <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {filtered.map((item) => (
+            {paged.pageItems.map((item) => (
               <PaymentPortfolioCard
                 key={item.payment.id}
                 item={item}
@@ -284,6 +293,8 @@ export default function Payments() {
               />
             ))}
           </div>
+          <Pager {...paged} />
+          </>
         )}
 
         {filtersActive && filtered.length > 0 && (

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { DepositBankingCard } from '../../components/deposit/DepositBankingCard'
 import { useStore } from '../../context/AppStore'
 import { useAgencyScope, useAuth } from '../../context/AuthContext'
 import { RequirePermission } from '../../components/RequirePermission'
@@ -230,6 +231,13 @@ export default function ApplicationJourneySettingsPage() {
             }
           />
         ) : null}
+        {agency ? (
+          <DepositBankingCard
+            agency={agency}
+            onSave={(depositBanking) => updateAgency(agency.id, { settings: { ...agency.settings, depositBanking } })}
+          />
+        ) : null}
+
         <Card className="space-y-3 p-4">
           <h2 className="font-display text-lg font-semibold text-ink">Viewing before apply</h2>
           <label className="flex items-center gap-2 text-sm">

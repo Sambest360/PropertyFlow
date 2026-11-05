@@ -22,11 +22,13 @@ export type NotificationPrefs = {
   inApp: boolean
   /** Also send them by email. */
   email: boolean
+  /** Text the important, time-sensitive ones (see smsRules.ts) to the phone on the account. */
+  sms: boolean
   /** Categories switched off (in the app and by email). */
   muted: NotificationCategoryId[]
 }
 
-export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = { inApp: true, email: true, muted: [] }
+export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = { inApp: true, email: true, sms: true, muted: [] }
 
 export function categoryForResource(resource: string | null | undefined): NotificationCategoryId {
   const r = String(resource ?? '').toLowerCase()
@@ -43,6 +45,7 @@ export function normalizeNotificationPrefs(raw: unknown): NotificationPrefs {
   return {
     inApp: v.inApp !== false,
     email: v.email !== false,
+    sms: v.sms !== false,
     muted: Array.isArray(v.muted) ? (v.muted.filter((m) => ids.has(String(m))) as NotificationCategoryId[]) : [],
   }
 }

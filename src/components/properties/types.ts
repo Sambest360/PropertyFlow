@@ -39,6 +39,7 @@ export const PROPERTY_TYPES = [
   'Vacant Land',
   'Farm',
   'Student Accommodation',
+  'Shared Accommodation',
 ] as const
 
 /** Filter options — raw listing statuses from data model */

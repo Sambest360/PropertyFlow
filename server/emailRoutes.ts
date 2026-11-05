@@ -156,6 +156,69 @@ export function registerEmailRoutes(app: Hono): void {
     return c.json({ emails: rows })
   })
 
+  // ---- Platform team: write an email to chosen people (sent from info@lekayarentals.site) ----
+
+  app.get('/api/admin/email/recipients', async (c) => {
+    const gate = await requireSuperAdmin(c)
+    if (gate.error) return gate.error
+    const q = String(c.req.query('q') ?? '').trim()
+    const rows = await query(
+      `SELECT u.id::text AS id, trim(u.first_name || ' ' || u.last_name) AS name, u.email, u.role, c.company_name AS agency
+         FROM users u LEFT JOIN clients c ON c.id = u.client_id
+        WHERE u.active = TRUE AND u.email NOT LIKE '%@propertyflow.local'
+          AND ($1 = '' OR u.email ILIKE '%' || $1 || '%' OR (u.first_name || ' ' || u.last_name) ILIKE '%' || $1 || '%' OR c.company_name ILIKE '%' || $1 || '%')
+        ORDER BY u.first_name LIMIT 25`,
+      [q],
+    )
+    return c.json({ recipients: rows })
+  })
+
+  app.post('/api/admin/email/compose', async (c) => {
+    const gate = await requireSuperAdmin(c)
+    if (gate.error) return gate.error
+    const body = (await c.req.json().catch(() => ({}))) as { userIds?: unknown; group?: unknown; subject?: unknown; message?: unknown }
+    const subject = String(body.subject ?? '').trim().slice(0, 200)
+    const text = String(body.message ?? '').trim().slice(0, 20000)
+    if (!subject || !text) return c.json({ error: 'invalid', message: 'Add a subject and a message.' }, 400)
+    const ids = Array.isArray(body.userIds) ? body.userIds.map(String).filter((x) => /^[0-9a-f-]{36}$/i.test(x)).slice(0, 500) : []
+    const group = String(body.group ?? '')
+    const groupRole: Record<string, string[]> = {
+      agency_admins: ['AGENCY_ADMIN', 'AGENT_ADMIN'],
+      landlords: ['LANDLORD'],
+      agents: ['GROUND_AGENT'],
+      contractors: ['CONTRACTOR'],
+      tenants: ['END_USER'],
+    }
+    const roles = groupRole[group] ?? []
+    if (!ids.length && !roles.length) return c.json({ error: 'invalid', message: 'Choose who to send it to.' }, 400)
+    const people = await query<{ id: string; email: string; first_name: string }>(
+      `SELECT id::text AS id, email, first_name FROM users
+        WHERE active = TRUE AND email NOT LIKE '%@propertyflow.local'
+          AND (id = ANY($1::uuid[]) OR role = ANY($2::text[]))
+        LIMIT 2000`,
+      [ids, roles],
+    )
+    const { layout, para, escapeHtml } = await import('./email/layout.js')
+    const { deliverEmail } = await import('./email/send.js')
+    let sent = 0
+    let failed = 0
+    for (const p of people) {
+      const greeting = `Hi ${p.first_name || 'there'},`
+      const htmlBody = [greeting, ...text.split(/\n{2,}/)].map((chunk) => para(escapeHtml(chunk).replace(/\n/g, '<br>'))).join('')
+      const r = await deliverEmail({
+        to: p.email,
+        subject,
+        text: `${greeting}\n\n${text}\n\n— Lekaya Rentals`,
+        html: layout(subject, htmlBody, { preheader: text.slice(0, 120) }),
+        category: 'admin_message',
+        userId: p.id,
+      })
+      if (r.sent) sent++
+      else failed++
+    }
+    return c.json({ ok: true, recipients: people.length, sent, failed, sentBy: gate.user.email })
+  })
+
   /** Cron fallback for the in-process notification mailer. */
   app.get('/api/cron/notification-emails', async (c) => {
     const secret = process.env.CRON_SECRET

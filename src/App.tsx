@@ -84,6 +84,7 @@ const AdminUserDetailPage = lazy(() => import('./pages/admin/AdminUserDetailPage
 const AdminUserCreatePage = lazy(() => import('./pages/admin/AdminUserCreatePage'))
 const AdminAgenciesPage = lazy(() => import('./pages/admin/AdminAgenciesPage'))
 const AdminStoragePage = lazy(() => import('./pages/admin/AdminStoragePage'))
+const ListingApprovalsPage = lazy(() => import('./pages/admin/ListingApprovalsPage'))
 const AdminEmailsPage = lazy(() => import('./pages/admin/AdminEmailsPage'))
 const AgencySubscriptionPage = lazy(() => import('./pages/admin/AgencySubscriptionPage'))
 const InvoicePage = lazy(() => import('./pages/billing/InvoicePage'))
@@ -549,6 +550,7 @@ export default function App() {
                 />
                 <Route path="admin/agencies" element={<Guard permission="platform.manage"><AdminAgenciesPage /></Guard>} />
                 <Route path="admin/storage" element={<Guard permission="platform.manage"><AdminStoragePage /></Guard>} />
+                <Route path="admin/listing-approvals" element={<Guard permission="platform.manage"><ListingApprovalsPage /></Guard>} />
                 <Route path="admin/emails" element={<Guard permission="platform.manage"><AdminEmailsPage /></Guard>} />
                 <Route path="admin/subscription" element={<Guard permission="billing.view"><AgencySubscriptionPage /></Guard>} />
                 <Route path="billing/invoices/:id" element={<Guard permission="billing.view"><InvoicePage /></Guard>} />

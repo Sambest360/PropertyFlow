@@ -50,6 +50,7 @@ describe('T5 public footer', () => {
       ['Buy', '/browse?mode=buy'],
       ['Rent', '/browse?mode=rent'],
       ['Commercial', '/browse?mode=commercial'],
+      ['Shared accommodation', '/browse?mode=shared'],
       ['Calculators', '/calculators'],
     ])
     expect(byTitle['Home loans']).toEqual([
@@ -73,6 +74,7 @@ describe('T5 public footer', () => {
     expect(patterns).toContain('/privacy')
     expect(patterns).toContain('/terms')
     const unresolved = hrefs
+      .filter((h) => !h.startsWith('mailto:'))
       .map((h) => h.split(/[?#]/)[0])
       .filter((path) => !patterns.some((p) => matchPath({ path: p, end: true }, path)))
     expect(unresolved).toEqual([])

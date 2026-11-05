@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Pager, usePaged } from '../components/Pager'
 import { acquireSubmitLock, releaseSubmitLock } from '../lib/wizardSubmitGuard'
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { CalendarDays, Plus, Search } from 'lucide-react'
@@ -245,6 +246,9 @@ export default function Viewings() {
       .sort((a, b) => viewingWhenLabel(a).localeCompare(viewingWhenLabel(b)))
   }, [agendaItems, selectedDate, q, kind, status])
 
+  // A busy day pages instead of pushing everything off-screen.
+  const dayPaged = usePaged(dayItems, 15)
+
   const weekAhead = useMemo(() => {
     const props = new Set<string>()
     for (const item of agendaItems) {
@@ -352,134 +356,121 @@ export default function Viewings() {
 
         <DataRefreshBanner active={state.sessionRefreshing} label="Syncing viewings…" />
 
-        <section className="grid gap-3 sm:grid-cols-3">
-          <div className="rounded-[1.25rem] border border-primary-100 bg-gradient-to-br from-primary-50 to-white px-4 py-4">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">This day</p>
-            <p className="mt-1 tabular font-display text-2xl font-semibold text-ink">
-              {dayItems.length}
-            </p>
-            <p className="text-xs text-ink-500">slots & invites on the agenda</p>
-          </div>
-          <div className="rounded-[1.25rem] border border-primary-100 bg-white px-4 py-4">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">
-              Properties ahead
-            </p>
-            <p className="mt-1 tabular font-display text-2xl font-semibold text-ink">{weekAhead}</p>
-            <p className="text-xs text-ink-500">with viewings from this day forward</p>
-          </div>
-          <div className="rounded-[1.25rem] border border-primary-100 bg-white px-4 py-4">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">Tip</p>
-            <p className="mt-1 text-sm text-ink-600">
-              Open any row to manage that property’s slots, group invites, and attendance.
-            </p>
-          </div>
-        </section>
-
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(280px,340px)]">
-          <ViewingsDayStrip
-            selectedDate={selectedDate}
-            onSelectDate={selectDate}
-            countsByDate={countsByDate}
-            reducedMotion={reducedMotion}
-          />
-          <MiniCalendar
-            selected={selectedDateObj}
-            onSelect={(d) => selectDate(dateKey(d))}
-            markers={calendarMarkers}
-            months={1}
-            layout="stack"
-            dayViewTo={`/workspace/sales/viewings?date=${selectedDate}`}
-            className="h-fit"
-          />
-        </div>
-
-        <div className="flex flex-col gap-3 rounded-[1.25rem] border border-primary-100/80 bg-white p-3 shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)] sm:flex-row sm:items-center sm:p-4">
-          <div className="relative min-w-0 flex-1" role="search" aria-label="Filter agenda">
-            <Search
-              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400"
-              strokeWidth={ICON_STROKE}
-              aria-hidden
+        {/* The agenda gets most of the page; the calendar sits beside it. */}
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="min-w-0 space-y-4">
+            <ViewingsDayStrip
+              selectedDate={selectedDate}
+              onSelectDate={selectDate}
+              countsByDate={countsByDate}
+              reducedMotion={reducedMotion}
             />
-            <Input
-              className="min-h-11 pl-9"
-              placeholder="Filter this day’s agenda…"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              aria-label="Filter agenda"
-            />
-          </div>
-          <Select
-            className="min-h-11 sm:w-40"
-            value={kind}
-            onChange={(e) => setKind(e.target.value as ViewingKindFilter)}
-            aria-label="Kind"
-          >
-            <option value="all">All kinds</option>
-            <option value="slots">Open slots</option>
-            <option value="bookings">Invites</option>
-          </Select>
-          <Select
-            className="min-h-11 sm:w-44"
-            value={status}
-            onChange={(e) => setStatus(e.target.value as ViewingStatusFilter)}
-            aria-label="Status"
-          >
-            <option value="all">All statuses</option>
-            <option value="Open">Open</option>
-            <option value="Full">Full</option>
-            <option value="Scheduled">Scheduled</option>
-            <option value="Completed">Completed</option>
-            <option value="No-show">No-show</option>
-            <option value="Cancelled">Cancelled</option>
-          </Select>
-        </div>
-
-        <div className="flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-ink">
-              <CalendarDays className="h-5 w-5 text-primary" strokeWidth={ICON_STROKE} aria-hidden />
-              {formattedDay}
-            </h2>
-            <p className="text-xs text-ink-500">
-              {dayItems.length === 0
-                ? 'No entries — schedule a slot or invite people.'
-                : `${dayItems.length} timed ${dayItems.length === 1 ? 'entry' : 'entries'} · tap to open desk`}
-            </p>
-          </div>
-          {selectedDate !== todayIso() && (
-            <button
-              type="button"
-              onClick={() => selectDate(todayIso())}
-              className={cn(
-                'inline-flex min-h-11 cursor-pointer items-center rounded-2xl px-3 text-sm font-semibold text-primary transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-                reducedMotion && 'transition-none',
-              )}
+          <div className="flex flex-col gap-3 rounded-[1.25rem] border border-primary-100/80 bg-white p-3 shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)] sm:flex-row sm:items-center sm:p-4">
+            <div className="relative min-w-0 flex-1" role="search" aria-label="Filter agenda">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400"
+                strokeWidth={ICON_STROKE}
+                aria-hidden
+              />
+              <Input
+                className="min-h-11 pl-9"
+                placeholder="Filter this day’s agenda…"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                aria-label="Filter agenda"
+              />
+            </div>
+            <Select
+              className="min-h-11 sm:w-40"
+              value={kind}
+              onChange={(e) => setKind(e.target.value as ViewingKindFilter)}
+              aria-label="Kind"
             >
-              Jump to today
-            </button>
-          )}
-        </div>
+              <option value="all">All kinds</option>
+              <option value="slots">Open slots</option>
+              <option value="bookings">Invites</option>
+            </Select>
+            <Select
+              className="min-h-11 sm:w-44"
+              value={status}
+              onChange={(e) => setStatus(e.target.value as ViewingStatusFilter)}
+              aria-label="Status"
+            >
+              <option value="all">All statuses</option>
+              <option value="Open">Open</option>
+              <option value="Full">Full</option>
+              <option value="Scheduled">Scheduled</option>
+              <option value="Completed">Completed</option>
+              <option value="No-show">No-show</option>
+              <option value="Cancelled">Cancelled</option>
+            </Select>
+          </div>
 
-        {dataLoading ? (
-          <DataTableSkeleton />
-        ) : portfolio.length === 0 ? (
-          <Card className="p-10 text-center">
-            <p className="text-sm text-ink-500">No viewing slots or bookings in your scope yet.</p>
-            {has('viewings.manage') && (
-              <Button className="mt-4 min-h-11" onClick={() => setCreateOpen(true)}>
-                <Plus className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden /> Schedule first
-                viewing
-              </Button>
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-ink">
+                <CalendarDays className="h-5 w-5 text-primary" strokeWidth={ICON_STROKE} aria-hidden />
+                {formattedDay}
+              </h2>
+              <p className="text-xs text-ink-500">
+                {dayItems.length === 0
+                  ? 'No entries — schedule a slot or invite people.'
+                  : `${dayItems.length} ${dayItems.length === 1 ? 'entry' : 'entries'} · ${weekAhead} propert${weekAhead === 1 ? 'y' : 'ies'} with viewings ahead · tap a row to open its desk`}
+              </p>
+            </div>
+            {selectedDate !== todayIso() && (
+              <button
+                type="button"
+                onClick={() => selectDate(todayIso())}
+                className={cn(
+                  'inline-flex min-h-11 cursor-pointer items-center rounded-2xl px-3 text-sm font-semibold text-primary transition-colors duration-200 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                  reducedMotion && 'transition-none',
+                )}
+              >
+                Jump to today
+              </button>
             )}
-          </Card>
-        ) : (
-          <ViewingsAgenda
-            items={dayItems}
-            reducedMotion={reducedMotion}
-            emptyLabel="Nothing on this day matches your filters."
-            onAttendance={(id, status, mode) => void markAttendance(id, status, mode)}
-          />
-        )}
+          </div>
+
+          {dataLoading ? (
+            <DataTableSkeleton />
+          ) : portfolio.length === 0 ? (
+            <Card className="p-10 text-center">
+              <p className="text-sm text-ink-500">No viewing slots or bookings in your scope yet.</p>
+              {has('viewings.manage') && (
+                <Button className="mt-4 min-h-11" onClick={() => setCreateOpen(true)}>
+                  <Plus className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden /> Schedule first
+                  viewing
+                </Button>
+              )}
+            </Card>
+          ) : (
+            <>
+            <ViewingsAgenda
+              items={dayPaged.pageItems}
+              reducedMotion={reducedMotion}
+              emptyLabel="Nothing on this day matches your filters."
+              onAttendance={(id, status, mode) => void markAttendance(id, status, mode)}
+            />
+            <Pager {...dayPaged} label="entries" />
+            </>
+          )}
+
+          </div>
+          <aside className="hidden xl:block">
+            <div className="sticky top-20">
+              <MiniCalendar
+                selected={selectedDateObj}
+                onSelect={(d) => selectDate(dateKey(d))}
+                markers={calendarMarkers}
+                months={1}
+                layout="stack"
+                dayViewTo={`/workspace/sales/viewings?date=${selectedDate}`}
+                className="h-fit"
+              />
+            </div>
+          </aside>
+        </div>
 
         <CreateViewingModal
           open={createOpen}

@@ -15,9 +15,9 @@ export const LEGAL_ENTITY = {
   /** POPIA Information Officer (name), registered with the Information Regulator. */
   informationOfficer: '',
   /** Where privacy requests and complaints go. */
-  privacyEmail: '',
+  privacyEmail: 'info@lekayarentals.site',
   /** General support address. */
-  supportEmail: '',
+  supportEmail: 'info@lekayarentals.site',
   /**
    * Date these documents take effect (YYYY-MM-DD). Pending: the values PR sets it to the
    * publish date of the final reviewed text (Jim #118 C5). Blank shows "to be confirmed".

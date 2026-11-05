@@ -121,6 +121,7 @@ export const PLATFORM_CATALOGUE: Record<string, SeedItem[]> = {
     { key: 'Vacant Land', label: 'Vacant Land' },
     { key: 'Farm', label: 'Farm' },
     { key: 'Student Accommodation', label: 'Student Accommodation' },
+    { key: 'Shared Accommodation', label: 'Shared Accommodation' },
   ],
   LEAD_STAGE: [
     { key: 'New Lead', label: 'New Lead' },

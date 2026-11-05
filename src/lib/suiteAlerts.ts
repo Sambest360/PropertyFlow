@@ -1,3 +1,4 @@
+import { relativeAge } from './relativeTime'
 import type { Role, SuiteAlertAction, SuiteAlertResource, SuiteAlertRule } from '../types/domain'
 
 export type NotificationToast = {
@@ -97,16 +98,6 @@ export function toastToneForAction(
 }
 
 export function formatRelativeTime(iso: string): string {
-  const then = new Date(iso).getTime()
-  const now = Date.now()
-  const diff = Math.max(0, now - then)
-  const sec = Math.floor(diff / 1000)
-  if (sec < 45) return 'Just now'
-  const min = Math.floor(sec / 60)
-  if (min < 60) return `${min}m ago`
-  const hr = Math.floor(min / 60)
-  if (hr < 24) return `${hr}h ago`
-  const day = Math.floor(hr / 24)
-  if (day < 7) return `${day}d ago`
-  return new Intl.DateTimeFormat('en-ZA', { day: 'numeric', month: 'short' }).format(new Date(iso))
+  const rel = relativeAge(iso)
+  return rel.charAt(0).toUpperCase() + rel.slice(1)
 }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Pager, usePaged } from '../components/Pager'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Plus, Archive } from 'lucide-react'
 import { useStore } from '../context/AppStore'
@@ -266,6 +267,10 @@ export default function Properties() {
     storeIndex,
   ])
 
+  // Long lists show a page at a time.
+
+  const paged = usePaged(filtered)
+
   const buildingGroupCount = useMemo(
     () => groupPortfolioByBuilding(filtered, state.buildings).length,
     [filtered, state.buildings],
@@ -396,12 +401,15 @@ export default function Properties() {
           </button>
         </Card>
       ) : view === 'list' ? (
+        <>
         <PropertyListView
-          items={filtered}
+          items={paged.pageItems}
           expandedId={expandedId}
           onToggle={toggleExpand}
           reducedMotion={reducedMotion}
         />
+        <Pager {...paged} />
+        </>
       ) : view === 'map' ? (
         <Card className="overflow-hidden p-0">
           <div className="h-[min(70vh,640px)] min-h-[360px] w-full">
@@ -414,8 +422,9 @@ export default function Properties() {
           </div>
         </Card>
       ) : (
+        <>
         <div className="space-y-6">
-          {groupPortfolioByBuilding(filtered, state.buildings, { keepOrder: sort === 'recent' }).map((group) => {
+          {groupPortfolioByBuilding(paged.pageItems, state.buildings, { keepOrder: sort === 'recent' }).map((group) => {
             const cards = group.items.map((item) => (
               <PropertyPortfolioCard
                 key={item.property.id}
@@ -448,6 +457,8 @@ export default function Properties() {
             )
           })}
         </div>
+        <Pager {...paged} />
+        </>
       )}
 
       {filtersActive && filtered.length > 0 && (

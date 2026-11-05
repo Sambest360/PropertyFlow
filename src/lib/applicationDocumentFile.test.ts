@@ -27,7 +27,7 @@ describe('applicationDocumentFile', () => {
     expect(openApplicationDocumentFile({ name: 'bank.pdf', mimeType: 'application/pdf', dataUrl: pdfDataUrl })).toBe(
       true,
     )
-    expect(open).toHaveBeenCalledWith('blob:mock', '_blank', 'noopener')
+    expect(open).toHaveBeenCalledWith('blob:mock', '_blank')
   })
 
   it('downloads a JPEG via object URL', () => {

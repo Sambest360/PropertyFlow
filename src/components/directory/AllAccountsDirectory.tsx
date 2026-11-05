@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Pager, usePaged } from '../../components/Pager'
 import { Link, useSearchParams } from 'react-router-dom'
 import { ChevronRight, UserPlus } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
@@ -20,6 +21,7 @@ import { usePrefersReducedMotion } from '../../hooks/useScrollMotion'
 import { withReturnTo } from '../../lib/returnTo'
 import type { AppUser, Role } from '../../types/domain'
 import { buildLandlordWaitingList } from '../../lib/landlordWaiting'
+import { accountStatusLabel } from '../../lib/accountStatus'
 
 const ICON_STROKE = 1.6
 
@@ -181,6 +183,10 @@ export function AllAccountsDirectory({
       })
       .sort((a, b) => a.user.name.localeCompare(b.user.name))
   }, [portfolio, q, roleFilter, status])
+
+  // Long lists show a page at a time.
+
+  const paged = usePaged(filtered)
 
   const filtersActive =
     Boolean(q.trim()) ||
@@ -353,7 +359,7 @@ export function AllAccountsDirectory({
       ) : (
         <Card className="overflow-hidden p-0">
           <ul className="divide-y divide-primary-50" role="list">
-            {filtered.map((item) => (
+            {paged.pageItems.map((item) => (
               <li key={item.user.id}>
                 <div className="flex items-center gap-1">
                   <Link
@@ -367,8 +373,8 @@ export function AllAccountsDirectory({
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-semibold text-ink">{item.user.name}</p>
-                        <Badge tone={item.user.active ? 'success' : 'danger'}>
-                          {item.user.active ? 'Active' : 'Disabled'}
+                        <Badge tone={!item.user.active ? 'danger' : item.user.emailVerified === false ? 'warning' : 'success'}>
+                          {accountStatusLabel(item.user)}
                         </Badge>
                         <VerificationStatusBadge user={item.user} />
                       </div>
@@ -407,6 +413,7 @@ export function AllAccountsDirectory({
               </li>
             ))}
           </ul>
+          <Pager {...paged} />
         </Card>
       )}
 

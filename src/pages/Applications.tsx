@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Pager, usePaged } from '../components/Pager'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
 import { usePrefersReducedMotion } from '../hooks/useScrollMotion'
@@ -113,6 +114,10 @@ export default function Applications() {
     return rows
   }, [portfolio, q, stage, type, pipeline, sort])
 
+  // Long lists show a page at a time.
+
+  const paged = usePaged(filtered)
+
   const filtersActive =
     Boolean(q.trim()) || stage !== 'all' || type !== 'all' || pipeline !== 'all'
   const activeFilterCount =
@@ -211,15 +216,19 @@ export default function Applications() {
             action={<ClearFiltersButton onClick={clearFilters} reducedMotion={reducedMotion} />}
           />
         ) : view === 'list' ? (
+          <>
           <ApplicantsListView
-            items={filtered}
+            items={paged.pageItems}
             expandedId={expandedId}
             onToggle={toggleExpand}
             reducedMotion={reducedMotion}
           />
+          <Pager {...paged} />
+          </>
         ) : (
+          <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {filtered.map((item) => (
+            {paged.pageItems.map((item) => (
               <ApplicantPortfolioCard
                 key={item.application.id}
                 item={item}
@@ -227,6 +236,8 @@ export default function Applications() {
               />
             ))}
           </div>
+          <Pager {...paged} />
+          </>
         )}
 
         {filtersActive && filtered.length > 0 && (

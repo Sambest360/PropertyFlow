@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react'
+import { AssignRoomCard } from '../components/deposit/AssignRoomCard'
+import { DepositStepPanel } from '../components/deposit/DepositStepPanel'
 import { Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
@@ -418,6 +420,27 @@ export default function ApplicantDetail() {
             {guidedTransitionError(flash)}
           </p>
         )}
+
+        {canReview && !isTenant ? (
+          <div className="mb-5">
+            <DepositStepPanel
+              application={application}
+              agency={state.agencies.find((a) => a.id === application.agencyId)}
+              depositAmount={Number((property as { deposit?: number } | undefined)?.deposit ?? 0)}
+              mode="staff"
+              actorName={user.name}
+              onSave={(patch) => updateApplication(application.id, patch)}
+            />
+            <div className="mt-3">
+              <AssignRoomCard
+                application={application}
+                property={property ?? undefined}
+                actorName={user.name}
+                onSave={(patch) => updateApplication(application.id, patch)}
+              />
+            </div>
+          </div>
+        ) : null}
 
         {tab === 'overview' && (
           <ApplicantOverviewPanel

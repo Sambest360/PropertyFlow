@@ -49,6 +49,7 @@ import {
   type UserVerification,
 } from '../../lib/verification'
 import { maskIdNumber } from '../../lib/screening/consentTerms'
+import { accountStatusLabel } from '../../lib/accountStatus'
 
 const ICON_STROKE = 1.6
 
@@ -173,8 +174,8 @@ export default function AdminUserDetailPage() {
                   <h1 className="font-display text-2xl font-semibold tracking-tight text-ink sm:text-[1.75rem]">
                     {user.name}
                   </h1>
-                  <Badge tone={user.active ? 'success' : 'danger'}>
-                    {user.active ? 'Active' : 'Disabled'}
+                  <Badge tone={!user.active ? 'danger' : user.emailVerified === false ? 'warning' : 'success'}>
+                    {accountStatusLabel(user)}
                   </Badge>
                   <VerificationStatusBadge user={user} />
                 </div>
@@ -393,7 +394,7 @@ function OverviewTab({
           <FlatField label="Company" value={user.company ?? '—'} />
           <FlatField label="Role" value={roleLabels[user.role]} />
           <FlatField label="Agency" value={agencyName} />
-          <FlatField label="Status" value={user.active ? 'Active' : 'Disabled'} />
+          <FlatField label="Status" value={accountStatusLabel(user)} />
           {mentorName ? <FlatField label="Mentor" value={mentorName} /> : null}
           {user.commissionSharePct != null ? (
             <FlatField label="Commission share" value={`${user.commissionSharePct}%`} />

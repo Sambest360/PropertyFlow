@@ -24,6 +24,7 @@ export function propertyTypesForMode(mode: string): string[] {
   if (mode === 'rent') return ['House', 'Apartment', 'Townhouse', 'Student Accommodation']
   if (mode === 'buy') return ['House', 'Apartment', 'Townhouse', 'Vacant Land', 'Farm']
   if (mode === 'commercial') return ['Commercial', 'Office']
+  if (mode === 'shared') return ['Shared Accommodation']
   return [
     'House',
     'Apartment',
@@ -33,6 +34,7 @@ export function propertyTypesForMode(mode: string): string[] {
     'Vacant Land',
     'Farm',
     'Student Accommodation',
+    'Shared Accommodation',
   ]
 }
 

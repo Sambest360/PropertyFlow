@@ -140,6 +140,7 @@ function browsePageHeading(mode: string, q: string, savedOnly: boolean): string 
   if (mode === 'rent') return 'Browse rental properties'
   if (mode === 'buy') return 'Browse properties for sale'
   if (mode === 'commercial') return 'Browse commercial properties'
+  if (mode === 'shared') return 'Shared accommodation — rent a room'
   return 'Browse properties'
 }
 
@@ -301,8 +302,20 @@ export default function BrowsePage() {
     title: browseTitle,
     description: savedOnly
       ? 'Your saved property wishlist on Lekaya.'
-      : 'Filter buy, rent, and commercial listings by area, price, beds, and amenities across South Africa.',
-    path: savedOnly ? '/saved' : '/browse',
+      : mode === 'shared'
+        ? 'Rooms to rent in shared accommodation across South Africa. Apply online for a room with Lekaya Rentals.'
+        : 'Filter buy, rent, and commercial listings by area, price, beds, and amenities across South Africa.',
+    path: savedOnly ? '/saved' : mode === 'all' ? '/browse' : `/browse?mode=${mode}`,
+    keywords:
+      mode === 'rent'
+        ? ['houses to rent', 'flats to rent', 'apartments to rent South Africa', 'rental property']
+        : mode === 'buy'
+          ? ['houses for sale', 'property for sale South Africa', 'buy a home']
+          : mode === 'commercial'
+            ? ['commercial property', 'office space to rent', 'commercial property for sale']
+            : mode === 'shared'
+              ? ['rooms to rent', 'shared accommodation', 'room to let', 'student accommodation']
+              : ['property listings South Africa'],
   })
 
   const blockedIds = useMemo(() => {
@@ -340,7 +353,7 @@ export default function BrowsePage() {
       filters: {
         q: textQ || undefined,
         area_places: areaPlaces.length ? areaPlaces : undefined,
-        listing_type: mode === 'rent' ? 'rent' : mode === 'buy' ? 'sale' : 'all',
+        listing_type: mode === 'rent' || mode === 'shared' ? 'rent' : mode === 'buy' ? 'sale' : 'all',
         marketplace_public: true,
         types: filters.types.length ? [...filters.types] : undefined,
         min_rent: mode === 'rent' && filters.minPrice ? Number(filters.minPrice) : undefined,

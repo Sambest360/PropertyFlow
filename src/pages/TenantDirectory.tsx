@@ -1,4 +1,5 @@
 import { useMemo, useState, Fragment } from 'react'
+import { Pager, usePaged } from '../components/Pager'
 import { Link } from 'react-router-dom'
 import { ArrowRight, ChevronDown } from 'lucide-react'
 import { useStore } from '../context/AppStore'
@@ -114,6 +115,10 @@ export default function TenantDirectory() {
     return rows
   }, [portfolio, q, attention, sort])
 
+  // Long lists show a page at a time.
+
+  const paged = usePaged(filtered)
+
   const filtersActive = Boolean(q.trim()) || attention !== 'all'
   const activeFilterCount = (attention !== 'all' ? 1 : 0) + (sort !== 'name' ? 1 : 0)
   const clearFilters = () => {
@@ -200,15 +205,19 @@ export default function TenantDirectory() {
             action={<ClearFiltersButton onClick={clearFilters} reducedMotion={reducedMotion} />}
           />
         ) : view === 'list' ? (
+          <>
           <TenantsListView
-            items={filtered}
+            items={paged.pageItems}
             expandedId={expandedId}
             onToggle={toggleExpand}
             reducedMotion={reducedMotion}
           />
+          <Pager {...paged} />
+          </>
         ) : (
+          <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {filtered.map((item) => (
+            {paged.pageItems.map((item) => (
               <Link
                 key={item.tenancy.id}
                 to={`/workspace/people/tenants/${encodeURIComponent(item.tenancy.id)}`}
@@ -236,6 +245,8 @@ export default function TenantDirectory() {
               </Link>
             ))}
           </div>
+          <Pager {...paged} />
+          </>
         )}
 
         {filtersActive && filtered.length > 0 && (

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Pager, usePaged } from '../components/Pager'
 import { Link } from 'react-router-dom'
 import { labelOrReference } from '../lib/displayIds'
 import { FileText, History } from 'lucide-react'
@@ -63,6 +64,10 @@ export default function Documents() {
       })
   }, [scoped, q, category, categoryOptions, propertyTitle])
 
+  // Long lists show a page at a time.
+
+  const paged = usePaged(filtered)
+
   const subtitle =
     role === 'landlord'
       ? 'Title, compliance, and lease files for properties you own.'
@@ -98,7 +103,7 @@ export default function Documents() {
         </div>
 
         <ResponsiveDataList
-          rows={filtered}
+          rows={paged.pageItems}
           rowKey={(d) => d.id}
           minTableWidth="800px"
           columns={[
@@ -219,6 +224,7 @@ export default function Documents() {
             </Card>
           }
         />
+        <Pager {...paged} />
       </div>
     </RequirePermission>
   )

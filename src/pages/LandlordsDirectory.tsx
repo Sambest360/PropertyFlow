@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Pager, usePaged } from '../components/Pager'
 import { Link } from 'react-router-dom'
 import { UserPlus } from 'lucide-react'
 import { useStore } from '../context/AppStore'
@@ -98,6 +99,10 @@ export default function LandlordsDirectory() {
     return rows
   }, [portfolio, q, attention, sort])
 
+  // Long lists show a page at a time.
+
+  const paged = usePaged(filtered)
+
   const resultLabel = directoryResultLabel(filtered.length, portfolio.length, 'landlord', 'landlords')
 
   const clearFilters = () => {
@@ -194,7 +199,7 @@ export default function LandlordsDirectory() {
         ) : view === 'list' ? (
           <div className="overflow-hidden rounded-[1.25rem] border border-primary-100/80 bg-white shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)]">
             <ul className="divide-y divide-primary-50">
-              {filtered.map((item) => (
+              {paged.pageItems.map((item) => (
                 <li key={item.user.id} className="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-5">
                   <PersonAvatar name={item.user.name} />
                   <div className="min-w-0 flex-1">
@@ -230,10 +235,12 @@ export default function LandlordsDirectory() {
                 </li>
               ))}
             </ul>
+            <Pager {...paged} />
           </div>
         ) : (
+          <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {filtered.map((item) => (
+            {paged.pageItems.map((item) => (
               <div
                 key={item.user.id}
                 className={cn(
@@ -279,6 +286,8 @@ export default function LandlordsDirectory() {
               </div>
             ))}
           </div>
+          <Pager {...paged} />
+          </>
         )}
       </div>
     </RequirePermission>

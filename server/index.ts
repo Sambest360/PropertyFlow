@@ -93,6 +93,7 @@ import { captureServerError, initServerSentry } from './sentry.js'
 import { registerInspectionRoutes } from './inspectionRoutes.js'
 import { registerAgencyProfileRoutes } from './agencyProfileRoutes.js'
 import { registerAdminDashboardRoutes } from './adminDashboardRoutes.js'
+import { registerListingApprovalRoutes } from './listingApprovals.js'
 
 // Self-hosted (PM2 runs this file directly, not api/index.ts): error reporting
 // starts here. No-op without SENTRY_DSN; idempotent when api/index.ts ran it.
@@ -1503,6 +1504,7 @@ app.post('/api/contractor-bookings/:id', async (c) => {
 registerInspectionRoutes(app)
 registerAgencyProfileRoutes(app)
 registerAdminDashboardRoutes(app, { commit: runningCommitSha, authMode: serverAuthMode })
+registerListingApprovalRoutes(app)
 
 /** Help desk: system tickets to the super admins (server/supportDesk.ts). */
 app.post('/api/support-tickets', async (c) => {
@@ -2497,6 +2499,7 @@ if (shouldListen) {
     })
     // Email new notifications every minute (people can switch this off in Settings).
     void import('./notificationMailer.js').then(({ startNotificationMailer }) => startNotificationMailer())
+    void import('./sms.js').then(({ startSmsWorker }) => startSmsWorker())
     // Copy any inline or old-bucket listing photos onto this server's disk.
     void import('./photoStorage.js').then(({ moveOldPhotosToDisk }) => moveOldPhotosToDisk())
   })

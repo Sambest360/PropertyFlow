@@ -719,6 +719,9 @@ export async function buildBootstrap(opts?: {
         ? { listingLimits: listingLimitsFromSettings(c.settings) }
         : {}),
       ...agencyViewingSettingsFromJson(c.settings),
+      ...(c.settings && typeof (c.settings as Record<string, unknown>).depositBanking === 'object'
+        ? { depositBanking: (c.settings as Record<string, unknown>).depositBanking }
+        : {}),
     },
   }))
 
@@ -744,6 +747,8 @@ export async function buildBootstrap(opts?: {
       agencyId: agencyFe(u.client_id),
       phone: u.phone ?? undefined,
       active: u.active,
+      // Pending until the owner confirms the address (accountEmails.markVerified).
+      emailVerified: meta.emailVerification === 'pending' ? false : undefined,
       enabledPermissions:
         normalizeStoredPermissions(meta.enabledPermissions, meta.permissionsVersion) ?? undefined,
       licenseStatus: meta.licenseStatus ?? undefined,
@@ -838,6 +843,15 @@ export async function buildBootstrap(opts?: {
     }
   })
 
+  const listingApprovals = await (await import('./listingApprovals.js')).loadListingApprovals()
+  // Shared accommodation: rooms let = current leases per unit.
+  const roomsLetByUnit = new Map<string, number>()
+  for (const l of leases as Array<Record<string, unknown>>) {
+    const st = String(l.status ?? '').toUpperCase()
+    if (!['ACTIVE', 'PENDING', 'NOTICE'].includes(st)) continue
+    const u = String(l.unit_id ?? '')
+    if (u) roomsLetByUnit.set(u, (roomsLetByUnit.get(u) ?? 0) + 1)
+  }
   const limitByUnit = new Map<string, ReturnType<typeof fieldsFromLimitSnapshot>>()
   if (units.length > 0) {
     const snapRows = await optionalLimitSnapshots(
@@ -886,6 +900,8 @@ export async function buildBootstrap(opts?: {
         ? u.listingType
         : 'rent',
       ...limitByUnit.get(u._unitUuid),
+      ...(listingApprovals.get(u._unitUuid) ? { liveApproval: listingApprovals.get(u._unitUuid) } : {}),
+      ...(roomsLetByUnit.get(u._unitUuid) ? { roomsLet: roomsLetByUnit.get(u._unitUuid) } : {}),
       price: u.price,
       rent: u.rent,
       beds: u.bedrooms,
@@ -956,8 +972,9 @@ export async function buildBootstrap(opts?: {
     value: l.value_amount != null ? Number(l.value_amount) : 0,
     notes: stripIdPassportLines((l.notes as string) ?? ''),
     metadata: (l.metadata as Lead['metadata'] | null) ?? undefined,
-    createdAt: dateOnly(l.created_at as Date),
-    updatedAt: dateOnly(l.updated_at as Date),
+    // Full timestamps so "2 h ago" / "3 days ago" are right (a bare date read as noon was not).
+    createdAt: iso(l.created_at as Date) ?? dateOnly(l.created_at as Date),
+    updatedAt: iso(l.updated_at as Date) ?? dateOnly(l.updated_at as Date),
   }))
 
   const mappedApps = (applications as Array<Record<string, unknown>>).map((a) => {
@@ -1019,6 +1036,9 @@ export async function buildBootstrap(opts?: {
       moveInDate: dateOnly(a.move_in_date as Date | null) || undefined,
       keyCollection: (meta.keyCollection as Record<string, unknown> | undefined) ?? undefined,
       pcrInspections: Array.isArray(meta.pcrInspections) ? meta.pcrInspections : undefined,
+      depositRequest: meta.depositRequest && typeof meta.depositRequest === 'object' ? meta.depositRequest : undefined,
+      depositProof: meta.depositProof && typeof meta.depositProof === 'object' ? meta.depositProof : undefined,
+      assignedRoom: meta.assignedRoom && typeof meta.assignedRoom === 'object' ? meta.assignedRoom : undefined,
       purchaseClosing:
         meta.purchaseClosing && typeof meta.purchaseClosing === 'object' && !Array.isArray(meta.purchaseClosing)
           ? meta.purchaseClosing
@@ -1120,6 +1140,8 @@ export async function buildBootstrap(opts?: {
       leasePdfUrl: (meta.leasePdfUrl as string | null | undefined) ?? null,
       eSign: lite ? stripESignImages(meta.eSign) : ((meta.eSign as Record<string, unknown> | null | undefined) ?? null),
       renewalOps: (meta.renewalOps as Record<string, unknown> | null | undefined) ?? null,
+      directAdd: meta.directAdd && typeof meta.directAdd === 'object' ? meta.directAdd : undefined,
+      removal: meta.removal && typeof meta.removal === 'object' ? meta.removal : undefined,
       billingSchedule: (meta.billingSchedule as Record<string, unknown> | null | undefined) ?? null,
     }
   })

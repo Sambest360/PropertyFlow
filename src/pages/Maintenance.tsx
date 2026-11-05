@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Pager, usePaged } from '../components/Pager'
 import { matchesResponsibleFilter, type ResponsibleFilter } from '../components/maintenance/TicketResponsibilityCard'
 import { checkTicketPhotos } from '../lib/photoLimits'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
@@ -206,6 +207,10 @@ export default function Maintenance() {
     return rows
   }, [portfolio, q, priority, propertyId, contractorFilter, attention, responsible, sort])
 
+  // Long lists show a page at a time.
+
+  const paged = usePaged(filtered)
+
   const filtersActive =
     Boolean(q.trim()) ||
     priority !== 'all' ||
@@ -410,23 +415,30 @@ export default function Maintenance() {
           </button>
         </Card>
       ) : view === 'board' ? (
+        <>
         <MaintenanceBoardView
-          items={filtered}
+          items={paged.pageItems}
           canDrag={has('maintenance.manage')}
           onOpen={openTicketDetail}
           onMove={onBoardMove}
           reducedMotion={reducedMotion}
         />
+        <Pager {...paged} />
+        </>
       ) : view === 'list' ? (
+        <>
         <MaintenanceListView
-          items={filtered}
+          items={paged.pageItems}
           expandedId={expandedId}
           onToggle={toggleExpand}
           reducedMotion={reducedMotion}
         />
+        <Pager {...paged} />
+        </>
       ) : (
+        <>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {filtered.map((item) => (
+          {paged.pageItems.map((item) => (
             <MaintenancePortfolioCard
               key={item.ticket.id}
               item={item}
@@ -436,6 +448,8 @@ export default function Maintenance() {
             />
           ))}
         </div>
+        <Pager {...paged} />
+        </>
       )}
 
       {filtersActive && filtered.length > 0 && (

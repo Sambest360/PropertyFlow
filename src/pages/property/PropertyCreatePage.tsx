@@ -9,6 +9,7 @@ import {
   Building,
   LandPlot,
   GraduationCap,
+  Users,
   KeyRound,
   Tag,
   BedDouble,
@@ -145,10 +146,11 @@ const TYPE_OPTIONS = [
   { value: 'Vacant Land', label: 'Vacant land', icon: LandPlot },
   { value: 'Farm', label: 'Farm', icon: LandPlot },
   { value: 'Student Accommodation', label: 'Student', icon: GraduationCap },
+  { value: 'Shared Accommodation', label: 'Shared (rooms)', icon: Users },
 ]
 
 function defaultUnitNumber(propertyType: string): string {
-  if (['House', 'Townhouse', 'Vacant Land', 'Student Accommodation'].includes(propertyType)) {
+  if (['House', 'Townhouse', 'Vacant Land', 'Student Accommodation', 'Shared Accommodation'].includes(propertyType)) {
     return 'Main'
   }
   return '1'
@@ -1151,6 +1153,20 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       })
       const msg = publishRequestMessage(count)
       await sweetSuccess(msg.title, msg.body)
+      navigate(detailTarget)
+      return
+    }
+    const before = state.properties.find((p) => p.id === propertyId)
+    const heldForApproval =
+      shouldPublish &&
+      user.role !== 'super_admin' &&
+      before?.liveApproval?.status !== 'approved' &&
+      !['Published', 'Featured', 'Under Offer'].includes(before?.status ?? 'Draft')
+    if (heldForApproval) {
+      await sweetSuccess(
+        'Waiting for approval',
+        'Your property is saved and pending verification. A Lekaya Rentals admin will review it and approve it (it then goes live) or tell you what to fix. We will notify you. Already have a tenant living there? Add them from the property’s Tenants tab.',
+      )
       navigate(detailTarget)
       return
     }

@@ -95,9 +95,9 @@ describe('notification categories', () => {
     expect(categoryForResource('payment')).toBe('payments')
     expect(categoryForResource('ticket')).toBe('maintenance')
     expect(categoryForResource(null)).toBe('other')
-    expect(showsInApp({ inApp: true, email: true, muted: ['payments'] }, 'payment')).toBe(false)
-    expect(showsInApp({ inApp: false, email: true, muted: [] }, 'application')).toBe(false)
-    expect(showsInApp({ inApp: true, email: true, muted: [] }, 'application')).toBe(true)
+    expect(showsInApp({ inApp: true, email: true, sms: true, muted: ['payments'] }, 'payment')).toBe(false)
+    expect(showsInApp({ inApp: false, email: true, sms: true, muted: [] }, 'application')).toBe(false)
+    expect(showsInApp({ inApp: true, email: true, sms: true, muted: [] }, 'application')).toBe(true)
   })
 })
 

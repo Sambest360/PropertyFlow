@@ -87,7 +87,7 @@ export function propertyTypeLayout(type: string | null | undefined): PropertyTyp
           : [room('Trading floor', 'living'), room('Storage', 'garage'), room('Office', 'study'), room('Restroom', 'bathroom', 0, 1)],
     }
   }
-  if (t === 'student accommodation' || t === 'room' || t === 'commune') {
+  if (t === 'student accommodation' || t === 'shared accommodation' || t === 'room' || t === 'commune') {
     return {
       family: 'student',
       title: 'Rooms & shared spaces',

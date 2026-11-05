@@ -2,6 +2,7 @@ import { Mail, Phone } from 'lucide-react'
 import type { AppUser } from '../../types/domain'
 import { roleLabels } from '../../lib/permissions'
 import { DetailSection, FlatField, FlatFieldGrid } from '../detail/FlatFields'
+import { accountStatusLabel } from '../../lib/accountStatus'
 
 export function TeamDetailsPanel({
   user,
@@ -21,7 +22,7 @@ export function TeamDetailsPanel({
         <FlatField icon={Phone} label="Phone" value={user.phone || '—'} />
         <FlatField label="Role" value={roleLabels[user.role] ?? user.role} />
         <FlatField label="Agency" value={agencyName} />
-        <FlatField label="Account status" value={user.active ? 'Active' : 'Inactive'} />
+        <FlatField label="Account status" value={accountStatusLabel(user, 'Inactive')} />
       </FlatFieldGrid>
     </DetailSection>
   )

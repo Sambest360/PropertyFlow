@@ -657,6 +657,30 @@ type StoreContextValue = {
    */
   saveMySignature: (userId: string, signature: string | null) => Promise<boolean>
   updateTenancy: (id: string, patch: Partial<Tenancy>) => void
+  /**
+   * Onboarding: put an existing tenant straight onto a property (or room) with
+   * no application. Finds the tenant by email or creates their account.
+   */
+  addDirectTenant: (input: {
+    propertyId: string
+    name: string
+    email: string
+    phone?: string
+    startDate: string
+    endDate?: string | null
+    rent: number
+    deposit: number
+    leaseSigned: boolean
+    depositPaid: boolean
+    note?: string
+    roomLabel?: string
+    actor: { userId: string; name: string }
+  }) => Promise<{ ok: true; tenancy: Tenancy } | { ok: false; error: string }>
+  /** Take a tenant off a property (ends the tenancy today) with an optional reason. */
+  removeTenantFromProperty: (
+    tenancyId: string,
+    input: { reason?: string; actor: { userId: string; name: string } },
+  ) => Promise<{ ok: boolean; error?: string }>
   /** Issue lease PDF + e-sign envelope for an existing tenancy (approve path / manual). */
   issueLeasePackage: (tenancyId: string, actor?: { userId?: string; name?: string }) => Promise<{
     ok: boolean
@@ -3091,6 +3115,97 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const next = { ...state.tenancies.find((t) => t.id === id), ...p, id }
       persistUpsert('tenancy', id, next as Record<string, unknown>)
     },
+    addDirectTenant: async (input) => {
+      const property = stateRef.current.properties.find((p) => p.id === input.propertyId)
+      if (!property) return { ok: false, error: 'Property not found.' }
+      const email = input.email.trim().toLowerCase()
+      if (!input.name.trim() || !email.includes('@')) return { ok: false, error: 'Enter the tenant’s name and email.' }
+      let tenantUser = stateRef.current.users.find((u) => (u.email ?? '').toLowerCase() === email)
+      if (!tenantUser) {
+        const created = await value.createUserDurable({
+          name: input.name.trim(),
+          email,
+          phone: input.phone?.trim() || undefined,
+          role: 'tenant',
+          agencyId: property.agencyId,
+        } as Parameters<typeof value.createUserDurable>[0])
+        if (created.ok === false) return { ok: false, error: created.error }
+        tenantUser = created.user
+      }
+      const now = new Date().toISOString()
+      const tenancy: Tenancy = {
+        id: uid('L'),
+        agencyId: property.agencyId,
+        propertyId: property.id,
+        landlordId: property.landlordId ?? '',
+        agentId: property.agentId ?? null,
+        applicationId: null,
+        tenantUserId: tenantUser.id,
+        tenantName: input.name.trim(),
+        tenantEmail: email,
+        startDate: input.startDate,
+        endDate: input.endDate || null,
+        rent: input.rent,
+        deposit: input.deposit,
+        status: input.startDate > now.slice(0, 10) ? 'Pending Move-In' : 'Active',
+        keyCollection: { location: '', instructions: '', contactName: '', contactPhone: '' },
+        directAdd: {
+          addedAt: now,
+          addedByName: input.actor.name,
+          note: input.note?.trim() || undefined,
+          leaseSigned: input.leaseSigned,
+          depositPaid: input.depositPaid,
+          roomLabel: input.roomLabel?.trim() || undefined,
+        },
+      }
+      patch((s) => ({ ...s, tenancies: [tenancy, ...s.tenancies] }))
+      const result = await persistUpsertResult('tenancy', tenancy.id, tenancy as unknown as Record<string, unknown>)
+      if (!result.ok) {
+        patch((s) => ({ ...s, tenancies: s.tenancies.filter((t) => t.id !== tenancy.id) }))
+        const { persistErrorMessage } = await import('../lib/api/persist')
+        return { ok: false, error: persistErrorMessage(result) ?? 'Could not add the tenant.' }
+      }
+      notify({
+        userId: tenantUser.id,
+        agencyId: property.agencyId,
+        title: 'You have been added as a tenant',
+        body: `${input.actor.name} added you as the tenant of ${property.title}. Your tenant portal is ready.`,
+        link: '/workspace/portals/tenant',
+        resource: 'property',
+        action: 'created',
+      })
+      return { ok: true, tenancy }
+    },
+    removeTenantFromProperty: async (tenancyId, input) => {
+      const prev = stateRef.current.tenancies.find((t) => t.id === tenancyId)
+      if (!prev) return { ok: false, error: 'Tenancy not found.' }
+      const today = new Date().toISOString().slice(0, 10)
+      const next: Tenancy = {
+        ...prev,
+        status: 'Ended',
+        endDate: prev.endDate && prev.endDate < today ? prev.endDate : today,
+        removal: { removedAt: new Date().toISOString(), removedByName: input.actor.name, reason: input.reason?.trim() || undefined },
+      }
+      patch((s) => ({ ...s, tenancies: s.tenancies.map((t) => (t.id === tenancyId ? next : t)) }))
+      const result = await persistUpsertResult('tenancy', tenancyId, next as unknown as Record<string, unknown>)
+      if (!result.ok) {
+        patch((s) => ({ ...s, tenancies: s.tenancies.map((t) => (t.id === tenancyId ? prev : t)) }))
+        const { persistErrorMessage } = await import('../lib/api/persist')
+        return { ok: false, error: persistErrorMessage(result) ?? 'Could not remove the tenant.' }
+      }
+      if (prev.tenantUserId) {
+        notify({
+          userId: prev.tenantUserId,
+          agencyId: prev.agencyId,
+          title: 'Removed from a property',
+          body: `${input.actor.name} ended your tenancy record for this property.${input.reason?.trim() ? ` Reason: ${input.reason.trim()}` : ''}`,
+          link: '/workspace/portals/tenant',
+          resource: 'property',
+          action: 'updated',
+        })
+      }
+      return { ok: true }
+    },
     issueLeasePackage: async (tenancyId, actor) => {
       const lease = stateRef.current.tenancies.find((t) => t.id === tenancyId)
       if (!lease) return { ok: false, error: 'Tenancy not found' }
@@ -3923,6 +4038,22 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         if (!unitOk) return false
       }
       if (pe) void persistUpsert('property_event', pe.id, pe as unknown as Record<string, unknown>)
+      // Only a super admin makes a listing live: anyone else's publish is held
+      // as a draft until a super admin approves it (server/listingApprovals.ts).
+      if (
+        prev &&
+        PUBLIC_ON.includes(status) &&
+        getApiActor()?.role !== 'super_admin' &&
+        prev.liveApproval?.status !== 'approved' &&
+        !PUBLIC_ON.includes(prev.status)
+      ) {
+        const liveApproval = { status: 'pending' as const, requestedAt: new Date().toISOString() }
+        patch((s) => ({
+          ...s,
+          properties: s.properties.map((x) => (x.id === id ? { ...x, status: 'Draft', liveApproval } : x)),
+        }))
+        return true
+      }
       if (prev && PUBLIC_ON.includes(status)) {
         const hasOpenSlot = stateRef.current.viewingSlots.some(
           (s) => s.propertyId === id && s.status === 'Open',
@@ -5117,6 +5248,30 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             action: 'updated',
           })
         }
+      }
+      // Deposit step: tell the other side.
+      if (prev && p.depositRequest && p.depositRequest.sentAt !== prev.depositRequest?.sentAt && prev.applicantUserId) {
+        notify({
+          userId: prev.applicantUserId,
+          agencyId: prev.agencyId,
+          title: 'Deposit details sent',
+          body: `Pay R ${p.depositRequest.amount.toLocaleString('en-ZA')} (ref ${p.depositRequest.reference}) and upload your proof of payment.`,
+          link: `/workspace/portals/tenant/applications/${encodeURIComponent(id)}`,
+          resource: 'applicant',
+          action: 'created',
+        })
+      }
+      if (prev && p.depositProof && p.depositProof.uploadedAt !== prev.depositProof?.uploadedAt) {
+        const property = state.properties.find((x) => x.id === prev.propertyId)
+        emitSuiteEvent({
+          agencyId: prev.agencyId,
+          resource: 'applicant',
+          action: 'updated',
+          title: 'Deposit proof uploaded',
+          body: `${prev.applicantName} uploaded proof of the deposit payment. Check it and confirm the deposit.`,
+          link: `/workspace/sales/applications/${encodeURIComponent(id)}`,
+          recipientUserIds: applicationStakeholderIds(state.users, prev, property),
+        })
       }
       if (prev) {
         const nextApp = {
