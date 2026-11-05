@@ -378,8 +378,10 @@ export default function ApplicantDetail() {
 
   const linkedTenancy = state.tenancies.find((t) => t.applicationId === application.id && t.status !== 'Ended') ?? null
   const incomingPcr = findInspection(application, 'incoming')
-  const leaseBothSigned =
-    linkedTenancy?.eSign?.tenant?.status === 'signed' && linkedTenancy?.eSign?.landlord?.status === 'signed'
+  // No landlord on file: the agency is the lessor, so only the tenant signs.
+  const hasLandlordBlock = Boolean(linkedTenancy?.eSign?.landlord)
+  const landlordSigned = !hasLandlordBlock || linkedTenancy?.eSign?.landlord?.status === 'signed'
+  const leaseBothSigned = linkedTenancy?.eSign?.tenant?.status === 'signed' && landlordSigned
   const tellApplicant = (title: string, body: string) => {
     if (!application.applicantUserId) return
     notify({ userId: application.applicantUserId, agencyId: application.agencyId, title, body, link: `/workspace/portals/tenant/applications/${application.id}` })
@@ -423,7 +425,7 @@ export default function ApplicantDetail() {
       if (!leaseBothSigned) {
         const waiting = [
           linkedTenancy.eSign?.tenant?.status !== 'signed' ? 'the tenant' : null,
-          linkedTenancy.eSign?.landlord?.status !== 'signed' ? 'the landlord' : null,
+          !landlordSigned ? 'the landlord' : null,
         ].filter(Boolean)
         return `Waiting for ${waiting.join(' and ')} to sign.`
       }
@@ -649,11 +651,12 @@ export default function ApplicantDetail() {
                 Tenant: <strong>{linkedTenancy.eSign?.tenant?.status === 'signed' ? 'Signed' : 'Not signed yet'}</strong>
               </li>
               <li className="rounded-xl border border-primary-100 bg-white px-3 py-2">
-                Landlord: <strong>{linkedTenancy.eSign?.landlord?.status === 'signed' ? 'Signed' : 'Not signed yet'}</strong>
+                Landlord:{' '}
+                <strong>{!hasLandlordBlock ? 'Not needed (the agency is the lessor)' : landlordSigned ? 'Signed' : 'Not signed yet'}</strong>
               </li>
             </ul>
           )}
-          <LeaseSignCard tenancy={linkedTenancy} party="landlord" title="Lease agreement" staff />
+          <LeaseSignCard tenancy={linkedTenancy} party={hasLandlordBlock ? 'landlord' : 'tenant'} title="Lease agreement" staff />
         </div>
       )
     }

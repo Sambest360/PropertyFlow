@@ -161,7 +161,7 @@ function StepAction({
     return (
       <div className="space-y-2">
         <LeaseSignCard tenancy={tenancy} party="tenant" title="Your lease agreement" />
-        {tenancy.eSign?.tenant?.status === 'signed' && tenancy.eSign?.landlord?.status !== 'signed' ? (
+        {tenancy.eSign?.tenant?.status === 'signed' && tenancy.eSign?.landlord && tenancy.eSign.landlord.status !== 'signed' ? (
           <p className="text-sm text-ink-500">You have signed. Waiting for the landlord to sign.</p>
         ) : null}
       </div>

@@ -299,7 +299,7 @@ describe('P0-approve (R10): lease recovery from Deposit invoice issued', () => {
     }
   })
 
-  it('rejects an ownerless listing with fail-fast NO_LANDLORD instead of a leaseless 71%', () => {
+  it('approves a listing with no landlord on file: the lease is made, with the agency as lessor', () => {
     const { unit } = mkListing()
     const ownerless = { ...mkListing().property, landlordId: '' } as import('../types/domain').PropertyAsset
     const result = patchApplicationStatus({
@@ -317,9 +317,10 @@ describe('P0-approve (R10): lease recovery from Deposit invoice issued', () => {
       request: { status: 'APPROVED', payment_provider: 'auto' },
       actor: STAFF_ACTOR,
     })
-    expect(result.status).toBe('ERROR')
-    if (result.status === 'ERROR') {
-      expect(result.code).toBe('NO_LANDLORD')
+    expect(result.status).toBe('SUCCESS')
+    if (result.status === 'SUCCESS') {
+      expect(result.side_effects.lease).toBeTruthy()
+      expect(result.side_effects.lease?.landlordId).toBe('')
     }
   })
 })
