@@ -12,7 +12,7 @@
  * status, sets the priority, and (super admin) assigns a super admin. The
  * reporter replies, closes, reopens a resolved ticket and rates it.
  */
-import { can, isAgencyStaff } from './permissions.js'
+import { can } from './permissions.js'
 import type { Role } from '../types/domain.js'
 
 export const SUPPORT_STATUSES = ['new', 'in_progress', 'waiting_on_user', 'resolved', 'closed'] as const
@@ -39,6 +39,17 @@ export const SUPPORT_CATEGORIES = [
   { key: 'other', label: 'Other' },
 ] as const
 export type SupportCategory = (typeof SUPPORT_CATEGORIES)[number]['key']
+
+/**
+ * Who a new request goes to. 'system': the Lekaya Rentals platform team (super
+ * admins). 'agency': the reporter's agency (their lease, payments, property,
+ * application). With no agency to send to it goes to the platform team.
+ */
+export const SUPPORT_TOPICS = [
+  { key: 'system', label: 'The Lekaya Rentals system', hint: 'Errors, sign-in, account, billing, ideas' },
+  { key: 'agency', label: 'My rental, property or agency', hint: 'Lease, payments, deposit, application, your agent' },
+] as const
+export type SupportTopic = (typeof SUPPORT_TOPICS)[number]['key']
 
 export const SUPPORT_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const
 export type SupportPriority = (typeof SUPPORT_PRIORITIES)[number]
@@ -79,6 +90,8 @@ export type SupportTicket = {
   rating?: number | null
   ratingComment?: string | null
   updatedAt?: string | null
+  /** 'agency' requests went to the reporter's agency; 'system' to the platform team. */
+  topic?: SupportTopic
   /** Agency of the reporter at submit time (context only; not routing). */
   reporterAgencyId?: string | null
   resolvedByUserId?: string | null
@@ -176,10 +189,10 @@ export function canResolveSupportTicket(
   if (viewer.role === 'super_admin') return true
   // Agency desk: own agency only. Platform (null) tickets are super admin only.
   if (!ticket.agencyId || !viewer.agencyId) return false
-  // Staff tickets always belong to platform support, even if a stored row
-  // carries an agency.
+  // An agency admin's own tickets always go to platform support. Tenants,
+  // landlords, contractors and agents can send rental questions to their agency.
   const sr = ticket.submitterRole as Role | null | undefined
-  if (sr && (sr === 'super_admin' || isAgencyStaff(sr))) return false
+  if (sr && (sr === 'super_admin' || sr === 'client_admin' || sr === 'agent_admin')) return false
   return ticket.agencyId === viewer.agencyId
 }
 
@@ -395,6 +408,7 @@ export function supportTicketFromRow(
     ratingComment: text(p.ratingComment) || null,
     updatedAt: text(p.updatedAt) || null,
     reporterAgencyId: text(p.reporterAgencyId) || null,
+    topic: p.topic === 'agency' ? 'agency' : 'system',
     resolvedByUserId: text(p.resolvedByUserId) || null,
     resolvedByName: text(p.resolvedByName) || null,
     resolvedAt: text(p.resolvedAt) || null,

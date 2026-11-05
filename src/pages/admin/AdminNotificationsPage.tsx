@@ -1,4 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react'
+import { realAgencies } from '../../lib/agencyKinds'
 import { BellRing, Send } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
 import { useAgencyScope, useAuth } from '../../context/AuthContext'
@@ -159,7 +160,7 @@ export default function AdminNotificationsPage() {
                   disabled={!isPlatform}
                   aria-label="Agency"
                 >
-                  {state.agencies
+                  {realAgencies(state.agencies)
                     .filter((a) => isPlatform || a.id === agencyId)
                     .map((a) => (
                       <option key={a.id} value={a.id}>

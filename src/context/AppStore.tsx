@@ -1001,6 +1001,8 @@ type StoreContextValue = {
     subject: string
     body: string
     category?: string
+    /** 'agency': to the reporter's agency; 'system': to the Lekaya Rentals team. */
+    topic?: 'system' | 'agency'
     attachments?: string[]
     pageUrl?: string | null
     userAgent?: string | null
@@ -7804,7 +7806,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         emergencyQueued,
       }
     },
-    submitSupportTicket: async ({ actor, subject, body, category, attachments, pageUrl, userAgent }) => {
+    submitSupportTicket: async ({ actor, subject, body, category, topic, attachments, pageUrl, userAgent }) => {
       const cleanSubject = subject.trim().slice(0, SUPPORT_SUBJECT_MAX)
       const cleanBody = body.trim().slice(0, SUPPORT_BODY_MAX)
       if (!actor.id || actor.id === 'guest') {
@@ -7820,6 +7822,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           subject: cleanSubject,
           body: cleanBody,
           category: category ?? 'other',
+          topic: topic ?? 'system',
           pageUrl: pageUrl ?? null,
           userAgent: userAgent ?? null,
           attachments: attachments ?? [],

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { realAgencies } from '../../lib/agencyKinds'
 import { useNavigate } from 'react-router-dom'
 import {
   ArrowDown,
@@ -117,7 +118,7 @@ export default function AdminConfigPage() {
                 aria-label="Agency context"
                 className="min-h-11 min-w-48 cursor-pointer"
               >
-                {state.agencies.map((a) => (
+                {realAgencies(state.agencies).map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name}
                   </option>

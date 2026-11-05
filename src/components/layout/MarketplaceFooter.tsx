@@ -2,9 +2,12 @@ import { Link } from 'react-router-dom'
 import { Mail } from 'lucide-react'
 import { BrandWordmark } from './BrandLogo'
 import { marketplaceFooter } from './navigation'
+import { seoCity, seoPath } from '../../lib/seoPages'
 
-/** Cities with the most South African rental demand; each opens a search there. */
-const FOOTER_CITIES = ['Gqeberha', 'Johannesburg', 'Cape Town', 'Durban', 'Pretoria', 'Bloemfontein', 'East London', 'Polokwane']
+/** Area pages (src/lib/seoPages.ts) for the biggest rental markets. */
+const FOOTER_CITIES = ['gqeberha', 'johannesburg', 'cape-town', 'durban', 'pretoria', 'bloemfontein', 'east-london', 'polokwane', 'sandton', 'stellenbosch']
+  .map((slug) => seoCity(slug)!)
+  .filter(Boolean)
 
 const linkClass =
   'inline-flex min-h-8 items-center py-1 text-sm text-white/70 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 rounded'
@@ -62,9 +65,9 @@ export function MarketplaceFooter() {
           <h3 className="text-sm font-semibold text-white">Property to rent by city</h3>
           <ul className="mt-2 flex flex-wrap gap-x-5 gap-y-1">
             {FOOTER_CITIES.map((city) => (
-              <li key={city}>
-                <Link to={`/browse?mode=rent&q=${encodeURIComponent(city)}`} className={linkClass}>
-                  {city}
+              <li key={city.slug}>
+                <Link to={seoPath('rent', city.slug)} className={linkClass}>
+                  {city.name}
                 </Link>
               </li>
             ))}

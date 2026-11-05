@@ -204,7 +204,7 @@ export function RoleSwitcher({ variant = 'full' }: { variant?: 'full' | 'avatar'
       icon: LifeBuoy,
     },
     { label: 'Settings', to: '/workspace/account/settings', icon: Settings },
-    { label: 'Help & support', to: '/workspace/help', icon: HelpCircle },
+    { label: 'Help and Support', to: '/workspace/help', icon: HelpCircle },
     { label: 'Complaints & warnings', to: '/workspace/conduct', icon: Flag },
   ]
 

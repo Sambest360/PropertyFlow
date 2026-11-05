@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { realAgencies } from '../../lib/agencyKinds'
 import { Pager, usePaged } from '../../components/Pager'
 import { Link, useSearchParams } from 'react-router-dom'
 import { ChevronRight, UserPlus } from 'lucide-react'
@@ -338,7 +339,7 @@ export function AllAccountsDirectory({
               >
                 <option value="all">All agencies</option>
                 <option value="platform">Platform</option>
-                {state.agencies.map((a) => (
+                {realAgencies(state.agencies).map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name}
                   </option>

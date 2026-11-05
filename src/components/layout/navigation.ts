@@ -880,7 +880,7 @@ function buildContractorNav(portalHome: string): WorkspaceNavEntry[] {
     link('/workspace/portals/contractor/bookings', 'Bookings', CalendarClock),
     link('/workspace/conduct', 'Complaints & warnings', Flag),
     link('/workspace/account/settings', 'Settings', Settings),
-    link('/workspace/help', 'Help & support', LifeBuoy),
+    link('/workspace/help', 'Help and Support', LifeBuoy),
   ]
 }
 
@@ -893,7 +893,17 @@ export type WorkspaceNavActorInput = {
 }
 
 /** Permission-filtered nav with portal-actor dedupe and cross-portal link stripping. */
+/** Every signed-in user gets Help and Support as the last menu item. */
+function withHelpAndSupport(entries: WorkspaceNavEntry[]): WorkspaceNavEntry[] {
+  const has = flattenAllNavGroups(entries).some((e) => e.type === 'link' && e.item.to === '/workspace/help')
+  return has ? entries : [...entries, { type: 'link', item: { to: '/workspace/help', label: 'Help and Support', icon: LifeBuoy } }]
+}
+
 export function buildWorkspaceNavForActor(input: WorkspaceNavActorInput): WorkspaceNavEntry[] {
+  return withHelpAndSupport(buildWorkspaceNavForActorInner(input))
+}
+
+function buildWorkspaceNavForActorInner(input: WorkspaceNavActorInput): WorkspaceNavEntry[] {
   const filtered = filterWorkspaceNav(getWorkspaceNav(), input.has, input.hasAny)
 
   if (input.role === 'ground_agent' || input.role === 'agent') {

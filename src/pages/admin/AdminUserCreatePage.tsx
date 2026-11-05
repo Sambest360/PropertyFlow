@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { realAgencies } from '../../lib/agencyKinds'
 import { useFreshCreateDraft } from '../../hooks/useFreshCreateDraft'
 import { acquireSubmitLock, releaseSubmitLock } from '../../lib/wizardSubmitGuard'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
@@ -134,7 +135,7 @@ export default function AdminUserCreatePage() {
 
   const agencies = useMemo(() => {
     if (isPlatform && !queryAgencyId) {
-      return state.agencies.filter((a) => a.status !== 'Cancelled')
+      return realAgencies(state.agencies).filter((a) => a.status !== 'Cancelled')
     }
     const locked = queryAgencyId ?? scopeAgencyId
     return state.agencies.filter((a) => a.id === locked)
@@ -160,7 +161,7 @@ export default function AdminUserCreatePage() {
   const [phone, setPhone] = useState('')
   const [streetAddress, setStreetAddress] = useState('')
   const [addressCity, setAddressCity] = useState('')
-  const [addressProvince, setAddressProvince] = useState('Eastern Cape')
+  const [addressProvince, setAddressProvince] = useState('')
   const [idNumberOrPassport, setIdNumberOrPassport] = useState('')
   const [dateOfBirth, setDateOfBirth] = useState('')
   const [dobFromId, setDobFromId] = useState(false)

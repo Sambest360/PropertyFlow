@@ -122,6 +122,8 @@ export type Agency = {
   province?: string
   countryCode?: string
   timezone?: string
+  /** A landlord's own portfolio record, not an estate agency (src/lib/agencyKinds.ts). */
+  isLandlordPortfolio?: boolean
   settings?: {
     applicationJourney?: import('../lib/journey/types.js').AgencyJourneyOverride
     /** Blank caps are unlimited. Unit NULL inherits these. */

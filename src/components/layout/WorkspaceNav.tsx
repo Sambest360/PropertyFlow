@@ -713,11 +713,11 @@ export function WorkspaceSidebar({
       >
         <Link
           to="/workspace/help"
-          title={collapsed ? 'Help' : undefined}
+          title={collapsed ? 'Help and Support' : undefined}
           className={footerClass(collapsed)}
         >
           <CircleHelp className="h-5 w-5 shrink-0" strokeWidth={ICON_STROKE} aria-hidden />
-          {!collapsed && <span>Help</span>}
+          {!collapsed && <span>Help and Support</span>}
         </Link>
         <button
           type="button"

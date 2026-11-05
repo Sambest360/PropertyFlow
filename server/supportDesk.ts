@@ -131,6 +131,48 @@ export type CreateSupportTicketInput = {
   userAgent?: unknown
   attachments?: unknown
   submitterName?: unknown
+  /** 'agency' sends it to the reporter's agency; anything else to the platform team. */
+  topic?: unknown
+}
+
+/**
+ * The agency a rental question goes to: the actor's own agency, else the
+ * agency on their latest lease or application. Agency admins' own requests,
+ * system requests, and landlords' private portfolios (no agency desk) go to
+ * the platform team (null).
+ */
+async function routingClientUuid(actor: DemoActor, actorUuid: string | null, topic: unknown): Promise<string | null> {
+  if (topic !== 'agency') return null
+  if (actor.role === 'super_admin' || actor.role === 'client_admin' || actor.role === 'agent_admin') return null
+  let client: string | null = actor.agencyId ? await resolveUuid('agency', actor.agencyId) : null
+  if (!client && actorUuid) {
+    const lease = await query<{ client_id: string }>(
+      `SELECT client_id::text AS client_id FROM leases WHERE tenant_id = $1::uuid
+        ORDER BY (upper(status) IN ('ACTIVE', 'PENDING', 'NOTICE')) DESC, updated_at DESC NULLS LAST LIMIT 1`,
+      [actorUuid],
+    )
+    client = lease[0]?.client_id ?? null
+  }
+  if (!client && actorUuid) {
+    const app = await query<{ client_id: string }>(
+      `SELECT client_id::text AS client_id FROM applications WHERE applicant_id = $1::uuid ORDER BY updated_at DESC NULLS LAST LIMIT 1`,
+      [actorUuid],
+    )
+    client = app[0]?.client_id ?? null
+  }
+  if (!client) return null
+  const row = await query<{ portfolio: string | null }>(`SELECT settings->>'portfolio' AS portfolio FROM clients WHERE id = $1::uuid`, [client])
+  if (!row[0] || row[0].portfolio === 'true') return null
+  return client
+}
+
+/** Agency admins who work that agency's Help and Support requests. */
+async function agencyDeskUuids(clientUuid: string): Promise<string[]> {
+  const rows = await query<{ id: string }>(
+    `SELECT id::text AS id FROM users WHERE client_id = $1::uuid AND active = TRUE AND role IN ('AGENCY_ADMIN', 'AGENT_ADMIN')`,
+    [clientUuid],
+  )
+  return rows.map((r) => r.id)
 }
 
 export async function createSupportTicket(
@@ -153,6 +195,10 @@ export async function createSupportTicket(
   }
   const actorUuid = await resolveUuid('user', actor.userId)
   const name = text(input.submitterName, 120) || (await displayName(actorUuid)) || 'User'
+  const routedClient = await routingClientUuid(actor, actorUuid, input.topic)
+  const agencyDesk = routedClient ? await agencyDeskUuids(routedClient) : []
+  // An agency with no admin on file cannot answer: send it to the platform team.
+  const clientForTicket = agencyDesk.length ? routedClient : null
   const now = new Date().toISOString()
   const payload = {
     frontendId: feId,
@@ -167,6 +213,7 @@ export async function createSupportTicket(
     submitterName: name,
     submitterRole: actor.role,
     reporterAgencyId: (await agencyFeId(actor.agencyId)) ?? null,
+    topic: clientForTicket ? 'agency' : 'system',
     status: 'new',
     replies: [],
     updatedAt: now,
@@ -174,15 +221,15 @@ export async function createSupportTicket(
   const uuid = await ensureUuid('support_ticket', feId)
   const rows = await query<Row>(
     `INSERT INTO event_log (id, client_id, event_type, subject_type, subject_id, actor_user_id, payload, created_at)
-     VALUES ($1::uuid, NULL, 'support_ticket', 'support_ticket', NULL, $2::uuid, $3::jsonb, NOW())
+     VALUES ($1::uuid, $4::uuid, 'support_ticket', 'support_ticket', NULL, $2::uuid, $3::jsonb, NOW())
      RETURNING id::text AS id, client_id::text AS client_id, event_type, actor_user_id::text AS actor_user_id, payload, created_at`,
-    [uuid, actorUuid, JSON.stringify(payload)],
+    [uuid, actorUuid, JSON.stringify(payload), clientForTicket],
   )
   await notifyUsers(
-    await superAdminUuids(),
+    clientForTicket ? agencyDesk : await superAdminUuids(),
     {
-      clientId: null,
-      title: `New support ticket: ${subject}`,
+      clientId: clientForTicket,
+      title: `New help request: ${subject}`,
       body: `${name} (${actor.role.replace(/_/g, ' ')}) · ${body.slice(0, 160)}`,
       link: HELP_LINK(feId),
       resource: 'support',

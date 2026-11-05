@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { realAgencies } from '../../lib/agencyKinds'
 import { ArrowDown, ArrowUp, Plus, X } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
 import { useAgencyScope, useAuth } from '../../context/AuthContext'
@@ -168,7 +169,7 @@ export default function LeadPipelineSettingsPage() {
                 aria-label="Agency context"
                 className="min-h-11 min-w-48 cursor-pointer"
               >
-                {state.agencies.map((a) => (
+                {realAgencies(state.agencies).map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name}
                   </option>

@@ -100,7 +100,7 @@ async function localFileBytesByClient(): Promise<Map<string, number>> {
 export async function listAgencyStorage(): Promise<AgencyStorageRow[]> {
   const clients = await query<{ id: string; fe: string; name: string; settings: unknown }>(
     `SELECT id::text AS id, COALESCE(settings->>'frontend_id', id::text) AS fe, company_name AS name, settings
-       FROM clients WHERE status <> 'cancelled' ORDER BY company_name`,
+       FROM clients WHERE status <> 'cancelled' AND COALESCE(settings->>'portfolio', '') <> 'true' ORDER BY company_name`,
   )
   const [db, local] = await Promise.all([dbBytesByClient(), localFileBytesByClient()])
   return clients.map((c) => {

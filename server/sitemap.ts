@@ -4,6 +4,8 @@
  * /api/sitemap.xml and named in public/robots.txt.
  */
 
+import { allSeoLandingPages, staticSeoPages } from '../src/lib/seoPages.js'
+
 /** Public pages worth indexing (no workspace, account or auth pages). */
 export const SITEMAP_STATIC_PATHS = [
   '/',
@@ -44,6 +46,12 @@ export function buildSitemapXml(origin: string, listings: Array<{ id: string; la
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
     ...SITEMAP_STATIC_PATHS.map((p) => url(p)),
+    // Area landing pages (/to-rent/gqeberha …) and the calculators.
+    ...allSeoLandingPages().map((p) => url(p.path)),
+    ...staticSeoPages()
+      .map((p) => p.path)
+      .filter((p) => p.startsWith('/calculators/'))
+      .map((p) => url(p)),
     ...listings.map((l) => url(`/listing/${encodeURIComponent(l.id)}`, l.lastmod)),
     '</urlset>',
     '',

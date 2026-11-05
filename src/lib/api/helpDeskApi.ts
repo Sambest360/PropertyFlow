@@ -26,6 +26,7 @@ export type NewSupportTicket = {
   subject: string
   body: string
   category: string
+  topic?: 'system' | 'agency'
   pageUrl: string | null
   userAgent: string | null
   attachments: string[]

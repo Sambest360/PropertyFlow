@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { realAgencies } from '../../lib/agencyKinds'
 import { Building2, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useStore } from '../../context/AppStore'
@@ -20,20 +21,22 @@ const ICON_STROKE = 1.6
 export default function AdminAgenciesPage() {
   const dataLoading = usePortalHydrating()
   const { state, updateAgency, cancelAgency, resetDemo } = useStore()
+  // Landlord portfolios are not agencies; landlords are under People → Landlords.
+  const agenciesOnly = useMemo(() => realAgencies(state.agencies), [state.agencies])
   const navigate = useNavigate()
   const alert = useSuiteAlert()
   const [editId, setEditId] = useState<string | null>(null)
   const [showCancelled, setShowCancelled] = useState(false)
 
   const cancelledCount = useMemo(
-    () => state.agencies.filter((a) => a.status === 'Cancelled').length,
-    [state.agencies],
+    () => agenciesOnly.filter((a) => a.status === 'Cancelled').length,
+    [agenciesOnly],
   )
 
   const visibleAgencies = useMemo(
     () =>
-      showCancelled ? state.agencies : state.agencies.filter((a) => agencyIsSelectable(a.status)),
-    [state.agencies, showCancelled],
+      showCancelled ? agenciesOnly : agenciesOnly.filter((a) => agencyIsSelectable(a.status)),
+    [agenciesOnly, showCancelled],
   )
 
   const rows = useMemo(
@@ -66,7 +69,7 @@ export default function AdminAgenciesPage() {
     })
   }
 
-  const editing = editId ? state.agencies.find((a) => a.id === editId) : null
+  const editing = editId ? agenciesOnly.find((a) => a.id === editId) : null
 
   return (
     <RequirePermission permission="platform.manage">
@@ -97,18 +100,18 @@ export default function AdminAgenciesPage() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Card className="p-4">
             <p className="text-xs text-ink-500">Agencies</p>
-            <p className="tabular text-2xl font-semibold">{state.agencies.length}</p>
+            <p className="tabular text-2xl font-semibold">{agenciesOnly.length}</p>
           </Card>
           <Card className="p-4">
             <p className="text-xs text-ink-500">Active</p>
             <p className="tabular text-2xl font-semibold">
-              {state.agencies.filter((a) => a.status === 'Active').length}
+              {agenciesOnly.filter((a) => a.status === 'Active').length}
             </p>
           </Card>
           <Card className="p-4">
             <p className="text-xs text-ink-500">Suspended</p>
             <p className="tabular text-2xl font-semibold">
-              {state.agencies.filter((a) => a.status === 'Suspended').length}
+              {agenciesOnly.filter((a) => a.status === 'Suspended').length}
             </p>
           </Card>
           <Card className="p-4">
@@ -374,7 +377,7 @@ function AgencyFormModal({
     onSubmit({
       name: name.trim(),
       slug: slug.trim() || name.trim().toLowerCase().replace(/\s+/g, '-'),
-      city: city.trim() || 'Port Elizabeth',
+      city: city.trim(),
       enabledPermissions: perms,
     })
   }

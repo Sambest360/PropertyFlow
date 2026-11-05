@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { realAgencies } from '../../lib/agencyKinds'
 import { DepositBankingCard } from '../../components/deposit/DepositBankingCard'
 import { useStore } from '../../context/AppStore'
 import { useAgencyScope, useAuth } from '../../context/AuthContext'
@@ -182,7 +183,7 @@ export default function ApplicationJourneySettingsPage() {
               value={effectiveAgencyId}
               onChange={(e) => setViewAgencyId(e.target.value)}
             >
-              {state.agencies.map((a) => (
+              {realAgencies(state.agencies).map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}
                 </option>

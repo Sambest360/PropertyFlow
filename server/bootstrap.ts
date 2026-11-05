@@ -712,6 +712,8 @@ export async function buildBootstrap(opts?: {
     phone: c.phone ?? undefined,
     province: c.province ?? undefined,
     status: mapAgencyStatusFromDb(c.status),
+    // Landlord sign-ups get a private portfolio record; it is not an agency.
+    ...((c.settings as Record<string, unknown> | null)?.portfolio === true ? { isLandlordPortfolio: true } : {}),
     createdAt: dateOnly(c.created_at),
     enabledPermissions: null as null, // AppStore fills defaults
     settings: {

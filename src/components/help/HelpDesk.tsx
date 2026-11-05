@@ -15,6 +15,8 @@ import {
   SUPPORT_ATTACHMENTS_MAX,
   SUPPORT_BODY_MAX,
   SUPPORT_CATEGORIES,
+  SUPPORT_TOPICS,
+  type SupportTopic,
   SUPPORT_PRIORITIES,
   SUPPORT_REPLY_MAX,
   SUPPORT_STATUSES,
@@ -383,10 +385,37 @@ function TicketRow({
           {desk && ticket.assigneeName ? ` · ${ticket.assigneeName}` : ''}
           {replyCount ? ` · ${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}` : ''}
           {unread && ticket.status === 'waiting_on_user' ? ' · support is waiting for you' : ''}
+          {' · '}
+          {ticket.agencyId ? 'Handled by the agency' : 'Handled by Lekaya Rentals'}
         </p>
+        <StageTracker status={ticket.status} />
       </button>
       {expanded ? <TicketConversation ticket={ticket} viewer={viewer} desk={desk} superAdmins={superAdmins} /> : null}
     </li>
+  )
+}
+
+const STAGES: Array<{ key: SupportTicketStatus; label: string }> = [
+  { key: 'new', label: 'Received' },
+  { key: 'in_progress', label: 'Being worked on' },
+  { key: 'resolved', label: 'Resolved' },
+  { key: 'closed', label: 'Closed' },
+]
+
+/** Where the request is: Received → Being worked on → Resolved → Closed (waiting on you sits in the middle). */
+function StageTracker({ status }: { status: SupportTicketStatus }) {
+  const at = status === 'waiting_on_user' ? 1 : STAGES.findIndex((s) => s.key === status)
+  return (
+    <ol className="mt-2 flex items-center gap-1.5" aria-label="Progress">
+      {STAGES.map((s, i) => (
+        <li key={s.key} className="flex flex-1 items-center gap-1.5">
+          <span className={cn('h-1.5 w-full rounded-full', i <= at ? 'bg-primary' : 'bg-primary-100')} aria-hidden />
+          <span className={cn('hidden whitespace-nowrap text-[11px] sm:inline', i === at ? 'font-semibold text-ink' : 'text-ink-400')}>
+            {i === at && status === 'waiting_on_user' ? 'Waiting on you' : s.label}
+          </span>
+        </li>
+      ))}
+    </ol>
   )
 }
 
@@ -471,6 +500,9 @@ export function HelpDesk() {
   const toggle = (id: string) => setExpandedId((cur) => (cur === id ? null : id))
 
   const [category, setCategory] = useState<string>('bug')
+  // Agency admins ask the platform team; everyone else can ask their agency too.
+  const canAskAgency = user.role !== 'super_admin' && user.role !== 'client_admin' && user.role !== 'agent_admin'
+  const [topic, setTopic] = useState<SupportTopic>('system')
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
   const [attachments, setAttachments] = useState<string[]>([])
@@ -490,6 +522,7 @@ export function HelpDesk() {
       subject,
       body,
       category,
+      topic: canAskAgency ? topic : 'system',
       attachments,
       pageUrl: fromPath && fromPath.startsWith('/') ? `${origin}${fromPath}` : typeof window !== 'undefined' ? window.location.href : null,
       userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
@@ -505,7 +538,9 @@ export function HelpDesk() {
     setExpandedId(res.ticket.id)
     setSubmitMsg({
       tone: 'ok',
-      text: `Ticket ${res.ticket.id} sent to platform support. You will get a notification when they reply.`,
+      text: res.ticket.agencyId
+        ? `Request ${res.ticket.id} sent to your agency. You will get a notification when they reply, and you can follow it below.`
+        : `Request ${res.ticket.id} sent to the Lekaya Rentals team. You will get a notification when they reply, and you can follow it below.`,
     })
   }
 
@@ -524,12 +559,12 @@ export function HelpDesk() {
           <Card className="space-y-3 p-4 sm:p-5">
             <div className="flex items-center gap-2">
               <Inbox className="h-5 w-5 text-primary" strokeWidth={ICON_STROKE} aria-hidden />
-              <h2 className="font-display text-lg font-semibold text-ink">Support inbox</h2>
+              <h2 className="font-display text-lg font-semibold text-ink">Help and Support inbox</h2>
             </div>
             <p className="text-sm text-ink-500">
               {user.role === 'super_admin'
-                ? 'System tickets from every user on the platform. Overdue = no reply within the response window for its priority.'
-                : 'Earlier tickets from tenants, landlords and contractors at your agency. New tickets go to platform support.'}
+                ? 'System requests from every user, plus every agency request (for oversight). Overdue = no reply within the response window for its priority.'
+                : 'Requests from your tenants, landlords, contractors and agents about their rentals. System problems go to the Lekaya Rentals team.'}
             </p>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
               <DashboardTabs
@@ -582,13 +617,32 @@ export function HelpDesk() {
           <Card className="space-y-3 p-4 sm:p-5">
             <div className="flex items-center gap-2">
               <Send className="h-5 w-5 text-primary" strokeWidth={ICON_STROKE} aria-hidden />
-              <h2 className="font-display text-lg font-semibold text-ink">Report a problem</h2>
+              <h2 className="font-display text-lg font-semibold text-ink">Ask for help</h2>
             </div>
             <p className="text-sm leading-relaxed text-ink-500">
-              For problems with the app itself — errors, access, billing, ideas. It goes to platform support.
-              {user.role === 'tenant' ? ' Something broken in your home? Report it under Faults instead.' : ''}
+              Tell us what is wrong and follow every step of your request below.
+              {user.role === 'tenant' ? ' Something broken in your home? Report it under Faults so the right person fixes it.' : ''}
             </p>
             <form className="space-y-3" onSubmit={submit}>
+              {canAskAgency ? (
+                <fieldset className="space-y-2" data-testid="help-ticket-topic">
+                  <legend className="text-sm font-medium text-ink">Who should help?</legend>
+                  {SUPPORT_TOPICS.map((t) => (
+                    <label
+                      key={t.key}
+                      className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 text-sm ${topic === t.key ? 'border-primary bg-primary-50' : 'border-primary-100'}`}
+                    >
+                      <input type="radio" name="help-topic" className="mt-1" checked={topic === t.key} onChange={() => setTopic(t.key)} />
+                      <span>
+                        <span className="block font-semibold text-ink">{t.key === 'agency' ? 'My rental, property or agency' : 'The Lekaya Rentals system'}</span>
+                        <span className="block text-xs text-ink-500">
+                          {t.key === 'agency' ? 'Your agency answers: lease, payments, deposit, application, your agent.' : 'Our team answers: errors, sign-in, account, billing, ideas.'}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </fieldset>
+              ) : null}
               <label className="block text-sm font-medium text-ink">
                 What is it about?
                 <Select className="mt-1" value={category} onChange={(e) => setCategory(e.target.value)} data-testid="help-ticket-category">

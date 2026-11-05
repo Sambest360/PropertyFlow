@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { sentryVitePlugin } from '@sentry/vite-plugin'
 import { legalBuildGate } from './src/lib/legalBuildGate.ts'
+import { writeSeoPages } from './server/prerenderSeo.ts'
 
 function isChartsChunk(id: string): boolean {
   return (
@@ -44,6 +45,15 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       tailwindcss(),
+      {
+        // Pre-filled HTML per public page for search engines (src/lib/prerenderSeo.ts).
+        name: 'lekaya-seo-pages',
+        apply: 'build' as const,
+        closeBundle() {
+          const n = writeSeoPages('dist')
+          console.log(`[seo] wrote ${n} pre-filled pages`)
+        },
+      },
       ...(uploadMaps
         ? [
             sentryVitePlugin({

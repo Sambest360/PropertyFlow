@@ -161,7 +161,7 @@ async function peopleKpis(c: string | null) {
 
 async function agencyKpis() {
   const rows = await query<{ status: string; count: string }>(
-    `SELECT status, COUNT(*) AS count FROM clients GROUP BY status`,
+    `SELECT status, COUNT(*) AS count FROM clients WHERE COALESCE(settings->>'portfolio', '') <> 'true' GROUP BY status`,
   )
   const byStatus: Record<string, number> = {}
   for (const r of rows) byStatus[r.status] = n(r.count)
@@ -452,6 +452,7 @@ async function agencyTable(): Promise<AgencyRow[]> {
        LEFT JOIN (SELECT client_id, MAX(created_at) AS last_at FROM leads GROUP BY client_id) ld ON ld.client_id = c.id
        LEFT JOIN (SELECT client_id, MAX(created_at) AS last_at FROM event_log
                    WHERE client_id IS NOT NULL AND event_type <> 'impersonation' GROUP BY client_id) ev ON ev.client_id = c.id
+      WHERE COALESCE(c.settings->>'portfolio', '') <> 'true'
       ORDER BY name`,
   )
   return Promise.all(

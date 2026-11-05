@@ -32,6 +32,7 @@ const CalculatorsPage = lazy(() => import('./pages/market/CalculatorsPage'))
 const PrivacyPage = lazy(() => import('./pages/legal/PrivacyPage'))
 const TermsPage = lazy(() => import('./pages/legal/TermsPage'))
 const ContactPage = lazy(() => import('./pages/ContactPage'))
+const SeoLandingPage = lazy(() => import('./pages/market/SeoLandingPage'))
 const LoginPage = lazy(() => import('./pages/auth/LoginPage'))
 const ForgotPasswordPage = lazy(() => import('./pages/auth/ForgotPasswordPage'))
 const SetPasswordPage = lazy(() => import('./pages/auth/SetPasswordPage'))
@@ -293,6 +294,10 @@ export default function App() {
                     </Suspense>
                   }
                 />
+                {/* Area pages for search engines: /to-rent/gqeberha, /for-sale/cape-town, /rooms-to-rent/durban */}
+                <Route path="to-rent/:city" element={<Suspense fallback={<PageFallback />}><SeoLandingPage kind="rent" /></Suspense>} />
+                <Route path="for-sale/:city" element={<Suspense fallback={<PageFallback />}><SeoLandingPage kind="sale" /></Suspense>} />
+                <Route path="rooms-to-rent/:city" element={<Suspense fallback={<PageFallback />}><SeoLandingPage kind="rooms" /></Suspense>} />
               </Route>
 
               <Route

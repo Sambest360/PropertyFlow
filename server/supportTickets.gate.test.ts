@@ -409,8 +409,8 @@ describe('CR7 support tickets — scope gate + writer', () => {
     }
   })
 
-  it('gives 403 when an agency admin resolves a staff ticket, even one stored with their agency', async () => {
-    // A staff row that carries an agency (legacy / hand-written) is still Lekaya support's.
+  it("lets an agency admin resolve their agent's request sent to the agency", async () => {
+    // Agents can send rental questions to their own agency (Help and Support routing).
     db.map.push({ entity_type: 'support_ticket', frontend_id: 'HD-staff-legacy', backend_id: 'e1000001-0001-4000-8000-0000000000aa' })
     db.events.set('e1000001-0001-4000-8000-0000000000aa', {
       id: 'e1000001-0001-4000-8000-0000000000aa',
@@ -426,12 +426,7 @@ describe('CR7 support tickets — scope gate + writer', () => {
         id: 'HD-staff-legacy',
         data: { status: 'resolved', resolutionNote: 'mine now' },
       }),
-    ).rejects.toMatchObject({ status: 403 })
-    await gateAndPersist(superAdmin, {
-      action: 'upsert',
-      id: 'HD-staff-legacy',
-      data: { status: 'resolved', resolutionNote: 'support' },
-    })
+    ).resolves.toBeTruthy()
     expect(db.events.get('e1000001-0001-4000-8000-0000000000aa')?.payload.status).toBe('resolved')
   })
 
@@ -529,7 +524,8 @@ describe('CR7 support tickets — bootstrap filter', () => {
   })
 
   it('shows an agency admin their agency desk plus their own, never other platform or other agency tickets', async () => {
-    expect((await run(horizonAdmin)).sort()).toEqual(['HD-p1', 'HD-t1', 'HD-t2'])
+    // HD-s1: an agent's request sent to their own agency is on the agency desk.
+    expect((await run(horizonAdmin)).sort()).toEqual(['HD-p1', 'HD-s1', 'HD-t1', 'HD-t2'])
     expect(await run(capeAdmin)).toEqual(['HD-c1'])
   })
 
@@ -541,9 +537,9 @@ describe('CR7 support tickets — bootstrap filter', () => {
     expect((await run(superAdmin)).sort()).toEqual(['HD-c1', 'HD-p1', 'HD-p2', 'HD-s1', 'HD-t1', 'HD-t2'])
   })
 
-  it('gives an agency admin only own-agency portal tickets: no null-agency, other-agency or staff tickets', async () => {
+  it('gives an agency admin only own-agency portal tickets: plus requests their agents sent to the agency; no null-agency or other-agency tickets', async () => {
     const other = { userId: 'u-admin-h2', role: 'client_admin', agencyId: 'ag-horizon' } as DemoActor
-    expect((await run(other, true)).sort()).toEqual(['HD-t1', 'HD-t2'])
+    expect((await run(other, true)).sort()).toEqual(['HD-s1', 'HD-t1', 'HD-t2'])
   })
 
   it('matches a reporter through actorIdAliases, and a seed-email squatter gets none of the seed user’s tickets', async () => {

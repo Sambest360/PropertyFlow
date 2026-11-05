@@ -371,18 +371,24 @@ export function HomeBelowHero({
       </section>
 
       <section className="py-14 sm:py-16">
-        <div className={wrap}>
-          <h2 className="font-display text-xl font-semibold text-ink sm:text-2xl">About Lekaya Rentals</h2>
-          <div className="mt-3 max-w-3xl space-y-3 text-sm leading-relaxed text-ink-600">
-            <p>
-              Lekaya Rentals is a South African property website and rental management platform. Search houses, apartments, townhouses, rooms in
-              shared accommodation, student housing, commercial property and land to rent or buy, from agencies and landlords whose listings our team
-              checks before they go live.
-            </p>
-            <p>
-              Tenants apply online, sign their lease electronically and keep their deposit, inspection and maintenance records in one tenant portal.
-              Agencies and landlords use the same system to manage the whole rental, from the first enquiry to the move-out inspection.
-            </p>
+        <div className={`${wrap} flex flex-col gap-8 md:flex-row md:items-center md:gap-12`}>
+          {/* The logo is about 2.3 wide to 1 tall, so this width makes it as tall as the text beside it. */}
+          <div className="w-full max-w-sm shrink-0 self-center md:max-w-none md:w-[48%]">
+            <img src="/brand/lekaya-logo.svg" alt="Lekaya Rentals logo" width={1208} height={521} className="h-auto w-full" loading="lazy" />
+          </div>
+          <div className="max-w-2xl">
+            <h2 className="font-display text-xl font-semibold text-ink sm:text-2xl">About Lekaya Rentals</h2>
+            <div className="mt-3 space-y-3 text-sm leading-relaxed text-ink-600 sm:text-base">
+              <p>
+                Lekaya Rentals is a South African property website and rental management platform. Search houses, apartments, townhouses, rooms in
+                shared accommodation, student housing, commercial property and land to rent or buy, from agencies and landlords whose listings our team
+                checks before they go live.
+              </p>
+              <p>
+                Tenants apply online, sign their lease electronically and keep their deposit, inspection and maintenance records in one tenant portal.
+                Agencies and landlords use the same system to manage the whole rental, from the first enquiry to the move-out inspection.
+              </p>
+            </div>
           </div>
         </div>
       </section>

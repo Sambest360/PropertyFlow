@@ -3,6 +3,7 @@
  * increases, and the agency's escalation rules. The server engine
  * (server/escalations.ts) runs hourly and whenever this page loads.
  */
+import { realAgencies } from '../lib/agencyKinds'
 import { Pager, usePaged } from '../components/Pager'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -194,7 +195,7 @@ function RulesForm({ canEdit }: { canEdit: boolean }) {
         <label className="block text-sm">
           <span className="font-medium text-ink">Agency</span>
           <Select className="mt-1 block" value={target} onChange={(e) => setTarget(e.target.value)}>
-            {state.agencies
+            {realAgencies(state.agencies)
               .filter((a) => a.status !== 'Cancelled')
               .map((a) => (
                 <option key={a.id} value={a.id}>
