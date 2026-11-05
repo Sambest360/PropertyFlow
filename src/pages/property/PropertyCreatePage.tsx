@@ -1163,7 +1163,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     if (heldForApproval) {
       await sweetSuccess(
         'Waiting for approval',
-        'Your property is saved and pending verification. A Lekaya Rentals admin will review it and approve it (it then goes live) or tell you what to fix. We will notify you.',
+        'Your property is saved and pending verification. A Lekaya Rentals admin will review it and approve it (it then goes live) or tell you what to fix. We will notify you. Already have a tenant living there? Add them from the property’s Tenants tab.',
       )
       navigate(detailTarget)
       return

@@ -4,6 +4,7 @@ export const PROPERTY_DETAIL_TABS = [
   'floorplan',
   'inventory',
   'inspections',
+  'tenants',
   'applicants',
   'viewings',
   'maintenance',

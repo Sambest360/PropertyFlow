@@ -1963,6 +1963,9 @@ async function upsertTenancy(feId: string, d: Record<string, unknown>): Promise<
         eSign: d.eSign ?? null,
         renewalOps: d.renewalOps ?? null,
         billingSchedule: d.billingSchedule ?? null,
+        // Onboarding an existing tenant (no application) and removing one: kept for the record.
+        ...(d.directAdd && typeof d.directAdd === 'object' ? { directAdd: d.directAdd } : {}),
+        ...(d.removal && typeof d.removal === 'object' ? { removal: d.removal } : {}),
       }),
     ],
   ).catch(rethrowLeaseOverlap)

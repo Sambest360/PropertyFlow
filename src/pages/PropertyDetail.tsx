@@ -1,4 +1,5 @@
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { PropertyTenantsPanel } from '../components/tenants/PropertyTenantsPanel'
 import { useMemo, useRef, useState } from 'react'
 import { acquireSubmitLock, releaseSubmitLock } from '../lib/wizardSubmitGuard'
 import { useStore } from '../context/AppStore'
@@ -292,6 +293,7 @@ export default function PropertyDetail() {
     { id: 'floorplan', label: 'Floor plan', count: rooms.length },
     { id: 'inventory', label: 'Inventory', count: assets.length },
     ...(inspectionsAvailable && landlordLease ? [{ id: 'inspections', label: 'Inspections' }] : []),
+    { id: 'tenants', label: 'Tenants', count: state.tenancies.filter((t) => t.propertyId === p.id && t.status !== 'Ended').length },
     { id: 'applicants', label: 'Applicants', count: waitingApps },
     { id: 'viewings', label: 'Viewings', count: openSlots },
     { id: 'maintenance', label: 'Maintenance', count: openTickets },
@@ -944,6 +946,8 @@ export default function PropertyDetail() {
           onPropertyPatch={(patch) => updateProperty(p.id, patch)}
         />
       )}
+
+      {tab === 'tenants' && <PropertyTenantsPanel property={p} canManage={canManage} />}
 
       {tab === 'history' && (
         <PropertyHistoryTimeline events={events} propertyTitle={p.title} />

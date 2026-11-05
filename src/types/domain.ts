@@ -735,6 +735,10 @@ export type Tenancy = {
    * Persisted in leases.metadata.billingSchedule. Staff-set %; not live CPI.
    */
   billingSchedule?: BillingSchedule | null
+  /** Existing tenant added straight to the property (onboarding, no application). */
+  directAdd?: { addedAt: string; addedByName: string; note?: string; leaseSigned: boolean; depositPaid: boolean; roomLabel?: string }
+  /** Tenant removed from the property by staff. */
+  removal?: { removedAt: string; removedByName: string; reason?: string }
 }
 
 /** Soft Mode A renewal ops (mirrors src/lib/renewals TenancyRenewalOps). */

@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { useStore } from '../context/AppStore'
 import { useAuth, usePropertyScope } from '../context/AuthContext'
@@ -14,13 +14,16 @@ import { LeaseInspectionsPanel } from '../components/inspections/LeaseInspection
 import { inspectionsAvailable } from '../lib/inspections/api'
 import { isTenantDetailTab, type TenantDetailTab } from '../components/tenant-detail/types'
 import type { PropertyEvent } from '../types/domain'
+import { RemoveTenantDialog } from '../components/tenants/RemoveTenantDialog'
+import { Button } from '../components/ui'
 
 export default function OccupantDetail() {
   const { id } = useParams()
   const [params, setParams] = useSearchParams()
   const { state } = useStore()
   const { dealVisible } = usePropertyScope()
-  const { user } = useAuth()
+  const { user, has } = useAuth()
+  const [removeOpen, setRemoveOpen] = useState(false)
 
   const tenancy = state.tenancies.find((t) => t.id === id)
   const property = tenancy
@@ -120,6 +123,14 @@ export default function OccupantDetail() {
     <RequirePermission permission="occupants.view">
       <div className="animate-fade-in">
         <TenantDetailHeader tenancy={tenancy} />
+        {has('assets.manage') && tenancy.status !== 'Ended' ? (
+          <div className="-mt-2 mb-4 flex justify-end">
+            <Button size="sm" variant="ghost" className="text-rose-700" onClick={() => setRemoveOpen(true)}>
+              Remove tenant from property
+            </Button>
+          </div>
+        ) : null}
+        {removeOpen ? <RemoveTenantDialog tenancy={tenancy} onClose={() => setRemoveOpen(false)} /> : null}
 
         <div className="sticky top-0 z-20 -mx-1 mb-5 bg-white/95 px-1 backdrop-blur-md">
           <DashboardTabs tabs={tabs} value={tab} onChange={setTab} />

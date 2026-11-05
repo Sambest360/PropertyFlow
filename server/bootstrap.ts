@@ -1130,6 +1130,8 @@ export async function buildBootstrap(opts?: {
       leasePdfUrl: (meta.leasePdfUrl as string | null | undefined) ?? null,
       eSign: lite ? stripESignImages(meta.eSign) : ((meta.eSign as Record<string, unknown> | null | undefined) ?? null),
       renewalOps: (meta.renewalOps as Record<string, unknown> | null | undefined) ?? null,
+      directAdd: meta.directAdd && typeof meta.directAdd === 'object' ? meta.directAdd : undefined,
+      removal: meta.removal && typeof meta.removal === 'object' ? meta.removal : undefined,
       billingSchedule: (meta.billingSchedule as Record<string, unknown> | null | undefined) ?? null,
     }
   })
