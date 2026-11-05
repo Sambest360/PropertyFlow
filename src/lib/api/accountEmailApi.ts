@@ -84,3 +84,17 @@ export function sendTestEmail(templateId: string) {
 export function fetchEmailLog() {
   return call<{ emails: EmailLogRow[] }>('/api/admin/email/log')
 }
+
+export type EmailRecipient = { id: string; name: string; email: string; role: string; agency: string | null }
+export type EmailGroup = '' | 'agency_admins' | 'landlords' | 'agents' | 'contractors' | 'tenants'
+
+export function searchEmailRecipients(q: string) {
+  return call<{ recipients: EmailRecipient[] }>(`/api/admin/email/recipients?q=${encodeURIComponent(q)}`)
+}
+
+export function sendComposedEmail(input: { userIds: string[]; group: EmailGroup; subject: string; message: string }) {
+  return call<{ ok: true; recipients: number; sent: number; failed: number }>('/api/admin/email/compose', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
