@@ -272,6 +272,8 @@ export type PropertyAsset = {
   title: string
   type: string
   status: 'Draft' | 'Published' | 'Featured' | 'Under Offer' | 'Sold' | 'Rented' | 'Archived' | 'Maintenance'
+  /** Shared accommodation: rooms currently let (current leases on the property). */
+  roomsLet?: number
   /** Going live needs a super admin's approval (server/listingApprovals.ts). */
   liveApproval?: { status: 'pending' | 'approved' | 'declined'; requestedAt: string; reviewedAt?: string; note?: string }
   advertiseWhileOccupied?: boolean
@@ -531,6 +533,8 @@ export type Application = {
   /** Deposit step: details the agent sent, and the applicant's proof of payment. */
   depositRequest?: DepositRequest
   depositProof?: DepositProof
+  /** Shared accommodation: the room the agency assigned (after the deposit). */
+  assignedRoom?: { label: string; assignedAt: string; assignedByName: string }
 }
 
 /** Soft Mode A PCR inspection row (mirrors src/lib/pcr types). */

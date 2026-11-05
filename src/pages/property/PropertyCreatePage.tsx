@@ -9,6 +9,7 @@ import {
   Building,
   LandPlot,
   GraduationCap,
+  Users,
   KeyRound,
   Tag,
   BedDouble,
@@ -145,10 +146,11 @@ const TYPE_OPTIONS = [
   { value: 'Vacant Land', label: 'Vacant land', icon: LandPlot },
   { value: 'Farm', label: 'Farm', icon: LandPlot },
   { value: 'Student Accommodation', label: 'Student', icon: GraduationCap },
+  { value: 'Shared Accommodation', label: 'Shared (rooms)', icon: Users },
 ]
 
 function defaultUnitNumber(propertyType: string): string {
-  if (['House', 'Townhouse', 'Vacant Land', 'Student Accommodation'].includes(propertyType)) {
+  if (['House', 'Townhouse', 'Vacant Land', 'Student Accommodation', 'Shared Accommodation'].includes(propertyType)) {
     return 'Main'
   }
   return '1'

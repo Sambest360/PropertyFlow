@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { AssignRoomCard } from '../components/deposit/AssignRoomCard'
 import { DepositStepPanel } from '../components/deposit/DepositStepPanel'
 import { Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { useStore } from '../context/AppStore'
@@ -430,6 +431,14 @@ export default function ApplicantDetail() {
               actorName={user.name}
               onSave={(patch) => updateApplication(application.id, patch)}
             />
+            <div className="mt-3">
+              <AssignRoomCard
+                application={application}
+                property={property ?? undefined}
+                actorName={user.name}
+                onSave={(patch) => updateApplication(application.id, patch)}
+              />
+            </div>
           </div>
         ) : null}
 

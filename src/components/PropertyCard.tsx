@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { sharedRoomsLabel } from '../lib/sharedAccommodation'
 import { browseCardPrice } from '../lib/browseMode'
 import { NO_PHOTOS_YET } from '../lib/listingPhotos'
 import { availableFromLabel } from '../lib/availableFromLabel'
@@ -258,6 +259,9 @@ export function PropertyCard({
           {card?.display_metadata.updated_relative && (
             <p className="mt-1 text-[11px] text-ink-400">{card.display_metadata.updated_relative}</p>
           )}
+          {sharedRoomsLabel(property) ? (
+            <p className="mt-1 text-xs font-semibold text-primary">{sharedRoomsLabel(property)}</p>
+          ) : null}
           <div className="mt-3 flex items-center gap-3 border-t border-primary-100 pt-3 text-xs text-ink-500">
             {bedFact && (
               <span className="inline-flex items-center gap-1">

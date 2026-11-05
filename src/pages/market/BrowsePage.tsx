@@ -140,6 +140,7 @@ function browsePageHeading(mode: string, q: string, savedOnly: boolean): string 
   if (mode === 'rent') return 'Browse rental properties'
   if (mode === 'buy') return 'Browse properties for sale'
   if (mode === 'commercial') return 'Browse commercial properties'
+  if (mode === 'shared') return 'Shared accommodation — rent a room'
   return 'Browse properties'
 }
 
@@ -340,7 +341,7 @@ export default function BrowsePage() {
       filters: {
         q: textQ || undefined,
         area_places: areaPlaces.length ? areaPlaces : undefined,
-        listing_type: mode === 'rent' ? 'rent' : mode === 'buy' ? 'sale' : 'all',
+        listing_type: mode === 'rent' || mode === 'shared' ? 'rent' : mode === 'buy' ? 'sale' : 'all',
         marketplace_public: true,
         types: filters.types.length ? [...filters.types] : undefined,
         min_rent: mode === 'rent' && filters.minPrice ? Number(filters.minPrice) : undefined,

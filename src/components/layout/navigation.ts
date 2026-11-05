@@ -974,6 +974,7 @@ export const marketplaceCategories: MarketplaceNavItem[] = [
   { to: '/browse?mode=buy', label: 'Buy', icon: Landmark },
   { to: '/browse?mode=rent', label: 'Rent', icon: KeyRound },
   { to: '/browse?mode=commercial', label: 'Commercial', icon: Building2 },
+  { to: '/browse?mode=shared', label: 'Shared', icon: Users },
   { to: '/calculators', label: 'Calculators', icon: Calculator },
 ]
 
@@ -984,6 +985,7 @@ export const marketplaceFooter = [
       ['Buy', '/browse?mode=buy'],
       ['Rent', '/browse?mode=rent'],
       ['Commercial', '/browse?mode=commercial'],
+      ['Shared accommodation', '/browse?mode=shared'],
       ['Calculators', '/calculators'],
     ],
   },

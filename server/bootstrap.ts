@@ -844,6 +844,14 @@ export async function buildBootstrap(opts?: {
   })
 
   const listingApprovals = await (await import('./listingApprovals.js')).loadListingApprovals()
+  // Shared accommodation: rooms let = current leases per unit.
+  const roomsLetByUnit = new Map<string, number>()
+  for (const l of leases as Array<Record<string, unknown>>) {
+    const st = String(l.status ?? '').toUpperCase()
+    if (!['ACTIVE', 'PENDING', 'NOTICE'].includes(st)) continue
+    const u = String(l.unit_id ?? '')
+    if (u) roomsLetByUnit.set(u, (roomsLetByUnit.get(u) ?? 0) + 1)
+  }
   const limitByUnit = new Map<string, ReturnType<typeof fieldsFromLimitSnapshot>>()
   if (units.length > 0) {
     const snapRows = await optionalLimitSnapshots(
@@ -893,6 +901,7 @@ export async function buildBootstrap(opts?: {
         : 'rent',
       ...limitByUnit.get(u._unitUuid),
       ...(listingApprovals.get(u._unitUuid) ? { liveApproval: listingApprovals.get(u._unitUuid) } : {}),
+      ...(roomsLetByUnit.get(u._unitUuid) ? { roomsLet: roomsLetByUnit.get(u._unitUuid) } : {}),
       price: u.price,
       rent: u.rent,
       beds: u.bedrooms,
@@ -1029,6 +1038,7 @@ export async function buildBootstrap(opts?: {
       pcrInspections: Array.isArray(meta.pcrInspections) ? meta.pcrInspections : undefined,
       depositRequest: meta.depositRequest && typeof meta.depositRequest === 'object' ? meta.depositRequest : undefined,
       depositProof: meta.depositProof && typeof meta.depositProof === 'object' ? meta.depositProof : undefined,
+      assignedRoom: meta.assignedRoom && typeof meta.assignedRoom === 'object' ? meta.assignedRoom : undefined,
       purchaseClosing:
         meta.purchaseClosing && typeof meta.purchaseClosing === 'object' && !Array.isArray(meta.purchaseClosing)
           ? meta.purchaseClosing

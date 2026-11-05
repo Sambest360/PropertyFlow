@@ -21,6 +21,7 @@ export const PROPERTY_TYPES = [
   'Vacant Land',
   'Farm',
   'Student Accommodation',
+  'Shared Accommodation',
 ] as const
 
 export const AMENITY_OPTIONS = AMENITY_FILTER_OPTIONS

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { isSharedAccommodation, sharedRoomsLabel } from '../../lib/sharedAccommodation'
 import { JobTitleSelect } from '../../components/JobTitleSelect'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Heart, MapPin, Star } from 'lucide-react'
@@ -545,8 +546,14 @@ export default function ListingDetail() {
         </p>
       )}
       <Badge className="mt-2" tone="brand">
-        {p.listingMode === 'both' ? 'Sale or rent' : p.listingMode === 'sale' ? 'For sale' : 'To rent'}
+        {isSharedAccommodation(p.type) ? 'Room to rent' : p.listingMode === 'both' ? 'Sale or rent' : p.listingMode === 'sale' ? 'For sale' : 'To rent'}
       </Badge>
+      {sharedRoomsLabel(p) ? (
+        <p className="mt-2 text-sm font-semibold text-ink" data-testid="shared-rooms">
+          {sharedRoomsLabel(p)}
+          <span className="block text-xs font-normal text-ink-500">You apply for a room; the agency assigns which one.</span>
+        </p>
+      ) : null}
       {availability.badge ? (
         <Badge className="mt-2 ml-2" tone="neutral">
           {availability.badge}

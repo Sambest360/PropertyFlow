@@ -267,7 +267,7 @@ async function assertOwnSlotBooking(actor: DemoActor, slotFe: string): Promise<v
 }
 
 /** Agency records on the application; an applicant's write never sets them. */
-const AGENCY_ONLY_FIELDS = ['pcrInspections', 'purchaseClosing', 'blockReason', 'blockedAt', 'depositRequest'] as const
+const AGENCY_ONLY_FIELDS = ['pcrInspections', 'purchaseClosing', 'blockReason', 'blockedAt', 'depositRequest', 'assignedRoom'] as const
 
 /**
  * The one PCR change an applicant may make: their own sign-off on an inspection

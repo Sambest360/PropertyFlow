@@ -1699,6 +1699,7 @@ async function upsertApplication(
     // applicant uploads proof of payment (depositProof).
     ['depositRequest', 'depositRequest'],
     ['depositProof', 'depositProof'],
+    ['assignedRoom', 'assignedRoom'],
     ['purchaseClosing', 'purchaseClosing'],
     // Staff block (blockApplication); read back so the Blocks tab survives a reload.
     ['blockReason', 'blockReason'],
