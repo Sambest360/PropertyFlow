@@ -303,3 +303,83 @@ describe('T7 CSP form-action (deploy/nginx-security-headers.conf)', () => {
     )
   })
 })
+
+
+// Kelly PR D / spec §4 (Jim D-1–D-7): index.html no-cache, GET / no-cache,
+// assets =404 with no SPA fallback, TLS index.html re-includes security headers.
+describe('Kelly PR D nginx (spec §4, D-N1 D-N2 D-N3 D-5 D-6)', () => {
+  const installed = read('nginx-propertyflow.conf')
+  const tpl = read('nginx-propertyflow.tls.conf.example')
+  const instServer = servers(installed)[0]
+  const tlsServer = servers(tpl).filter((b) => listensOn(b, '443 ssl'))[0]
+
+  const fileServers: { name: string; block: Block }[] = [
+    { name: ':80 installed', block: instServer },
+    { name: '443 template', block: tlsServer },
+  ]
+
+  it('D-N1 both files: /assets/ uses try_files $uri =404 and has no SPA fallback (mutant: assets end in /index.html)', () => {
+    for (const { name, block } of fileServers) {
+      const assets = locations(block).find((l) => l.head === 'location /assets/')
+      expect(assets, `${name} location /assets/`).toBeDefined()
+      const d = ownDirectives(assets!.body)
+      expect(d, name).toContain('try_files $uri =404')
+      expect(
+        d.some((x) => /^try_files\b/.test(x) && /\/index\.html/.test(x)),
+        `${name} /assets/ must not SPA-fallback to /index.html`,
+      ).toBe(false)
+    }
+  })
+
+  it('D-N2 both files: location = /index.html has expires -1 or Cache-Control no-cache (mutant: block absent / no no-cache)', () => {
+    for (const { name, block } of fileServers) {
+      const idx = locations(block).find((l) => l.head === 'location = /index.html')
+      expect(idx, `${name} location = /index.html`).toBeDefined()
+      const d = ownDirectives(idx!.body)
+      const noCache =
+        d.includes('expires -1') || d.some((x) => /Cache-Control/i.test(x) && /no-cache/i.test(x))
+      expect(noCache, `${name} index.html no-cache`).toBe(true)
+    }
+  })
+
+  it('D-4 :80 location = /index.html is expires -1 only (no add_header, no include)', () => {
+    const idx = locations(instServer).find((l) => l.head === 'location = /index.html')
+    expect(idx).toBeDefined()
+    expect(ownDirectives(idx!.body)).toEqual(['expires -1'])
+  })
+
+  it('D-N3 TLS location = /index.html re-includes the security-header snippet (mutant: add_header without include)', () => {
+    const idx = locations(tlsServer).find((l) => l.head === 'location = /index.html')
+    expect(idx).toBeDefined()
+    const d = ownDirectives(idx!.body)
+    expect(d).toContain('expires -1')
+    expect(d).toContain('add_header Cache-Control "no-cache, no-store, must-revalidate"')
+    expect(d).toContain(HEADERS_INCLUDE)
+  })
+
+  it('D-5 location = /index.html does not use SPA try_files (redirect-loop 500)', () => {
+    for (const { name, block } of fileServers) {
+      const idx = locations(block).find((l) => l.head === 'location = /index.html')
+      expect(idx, name).toBeDefined()
+      const d = ownDirectives(idx!.body)
+      expect(
+        d.some((x) => x === 'try_files $uri $uri/ /index.html'),
+        `${name} must not put SPA try_files inside exact-match /index.html`,
+      ).toBe(false)
+    }
+  })
+
+  it('D-6 both files: location / has expires -1 and no add_header so GET / is no-cache without dropping inherited headers', () => {
+    for (const { name, block } of fileServers) {
+      const root = locations(block).find((l) => l.head === 'location /')
+      expect(root, `${name} location /`).toBeDefined()
+      const d = ownDirectives(root!.body)
+      expect(d, name).toContain('expires -1')
+      expect(
+        d.some((x) => x.startsWith('add_header ')),
+        `${name} location / must not use add_header (would drop inherited security headers)`,
+      ).toBe(false)
+      expect(d, name).toContain('try_files $uri $uri/ /index.html')
+    }
+  })
+})
