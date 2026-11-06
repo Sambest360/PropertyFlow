@@ -75,6 +75,8 @@ export const PNG = 'data:image/png;base64,' + 'iVBORw0KGgo'.repeat(8)
 export const PNG2 = 'data:image/png;base64,' + 'AAAABBBB'.repeat(8)
 
 let leaseESign: Record<string, unknown>
+/** The lease row's landlord (null: the agency is the lessor). */
+let leaseLandlordId: string | null = 'uuid-ll'
 const storedSig: Record<string, string> = {}
 
 const ECTA = {
@@ -110,6 +112,7 @@ beforeEach(() => {
   issuedSql.length = 0
   lockedOverride = null
   leaseESign = baseESign()
+  leaseLandlordId = 'uuid-ll'
   for (const k of Object.keys(storedSig)) delete storedSig[k]
   query.mockReset()
   query.mockImplementation(async (sql: string, params: unknown[] = []) => {
@@ -119,7 +122,7 @@ beforeEach(() => {
           id: 'lease-1',
           client_id: 'client-a',
           tenant_id: 'uuid-t',
-          landlord_id: 'uuid-ll',
+          landlord_id: leaseLandlordId,
           metadata: { eSign: leaseESign },
         },
       ]
@@ -770,3 +773,22 @@ describe('ECTA 25 of 2002 consent', () => {
     expect(storedAfter().tenant!.ectaConsent).toMatchObject({ typedName: 'Test Signer', documentHash: 'a'.repeat(64) })
   })
 })
+
+describe('a lease with no landlord (the agency is the lessor)', () => {
+  it("is completed by the tenant's signature", async () => {
+    leaseLandlordId = null
+    leaseESign = { ...baseESign(), landlord: null }
+    const res = await stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG })
+    expect(res.signed).toBe(true)
+    expect(res.completedNow).toBe(true)
+    expect(storedAfter().status).toBe('completed')
+    expect(storedAfter().landlord).toBeNull()
+  })
+
+  it('a lease that has a landlord still waits for the landlord', async () => {
+    leaseESign = { ...baseESign(), landlord: { status: 'pending' } }
+    await stamp(TENANT, 'tenant', { status: 'signed', method: 'drawn', ectaConsent: ECTA, signatureDataUrl: PNG })
+    expect(storedAfter().status).toBe('partially_signed')
+  })
+})
+

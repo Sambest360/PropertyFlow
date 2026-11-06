@@ -230,7 +230,14 @@ export async function stampLeaseSignature(input: StampInput): Promise<StampResul
   const buildMerge = (base: Row) => {
     const other: SignPartyKey = party === 'tenant' ? 'landlord' : 'tenant'
     const m: Row = { ...base, [party]: nextParty, [other]: base[other] ?? null }
-    m.status = envelopeStatus(String(base.status ?? 'sent'), asRow(m.tenant), asRow(m.landlord))
+    // A lease with no landlord (the agency is the lessor: no landlord on the
+    // lease and no landlord block) is complete once the tenant signs.
+    const noLandlord = !lease.landlord_id && !asRow(m.landlord)
+    m.status = envelopeStatus(
+      String(base.status ?? 'sent'),
+      asRow(m.tenant),
+      noLandlord ? { status: 'waived' } : asRow(m.landlord),
+    )
     const done = m.status === 'completed' && base.status !== 'completed'
     // Part 8: once per envelope. The sent flag is set in the same UPDATE that
     // reaches completed; a later write never sends again.
