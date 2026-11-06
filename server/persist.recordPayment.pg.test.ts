@@ -444,7 +444,7 @@ describe.skipIf(!url)('A2 record-a-payment: mark-paid rules via the real app, se
     const fe = 'PAY-a2r-debit'
     const created = await persist('adminA', {
       resource: 'payment', action: 'upsert', id: fe,
-      data: { id: fe, amount: 5000, status: 'Due', type: 'Rent', partyName: 'Tenant', dueDate: '2026-11-01', agencyId: AG_A, propertyId: UNIT.a1.fe, partyUserId: USERS.tenA.fe, method: 'Debit order' },
+      data: { id: fe, amount: 5000, status: 'Due', type: 'Rent', partyName: 'Tenant', dueDate: '2026-11-01', agencyId: AG_A, propertyId: UNIT.a1.fe, partyUserId: USERS.tenA.fe, tenancyId: LEASE.a1.fe, method: 'Debit order' }, // MUST 11: tenA is LEASE.a1's tenant — name tenancyId so arm (b) links
     })
     const stored = (await q<{ method: string | null; paid_at_sast: string | null }>(
       `SELECT method, to_char((paid_at AT TIME ZONE 'Africa/Johannesburg')::date, 'YYYY-MM-DD') AS paid_at_sast
