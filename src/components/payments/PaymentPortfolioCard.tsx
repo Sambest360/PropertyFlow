@@ -2,7 +2,7 @@ import { CalendarDays, ChevronDown, MapPin, User } from 'lucide-react'
 import { Badge, Card, cn, statusTone } from '../ui'
 import { formatZAR } from '../../data/seed'
 import { PaymentExpansion } from './PaymentsListView'
-import { paymentAmountLabel, type PortfolioPayment } from './types'
+import { isTenantReportedPayment, paymentAmountLabel, TENANT_REPORTED_LABEL, type PortfolioPayment } from './types'
 import { UnopenedDot } from '../../context/UnopenedContext'
 
 const ICON_STROKE = 1.6
@@ -108,6 +108,7 @@ export function PaymentPortfolioCard({
                 </p>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <Badge tone={statusTone(p.status)}>{p.status}</Badge>
+                  {isTenantReportedPayment(p) ? <Badge tone="warning">{TENANT_REPORTED_LABEL}</Badge> : null}
                   <AttentionBadges item={item} />
                 </div>
               </div>

@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import { formatZAR } from '../../data/seed'
 import { Badge, Button, cn, statusTone } from '../ui'
-import { paymentAmountLabel, type PortfolioPayment } from './types'
+import { isTenantReportedPayment, paymentAmountLabel, TENANT_REPORTED_LABEL, type PortfolioPayment } from './types'
 import { isRawUuid } from '../../lib/propertyRefs'
 import { UnopenedDot } from '../../context/UnopenedContext'
 
@@ -238,6 +238,9 @@ export function PaymentsListView({
                           className="cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
                           <Badge tone={statusTone(p.status)}>{p.status}</Badge>
+                          {isTenantReportedPayment(p) ? (
+                            <Badge tone="warning" className="ml-1">{TENANT_REPORTED_LABEL}</Badge>
+                          ) : null}
                         </button>
                       </td>
                       <td className="px-3 py-3">

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Upload } from 'lucide-react'
 import type { PaymentRecord } from '../../types/domain'
+import { isTenantReportedPayment, TENANT_REPORTED_LABEL } from '../payments/types'
 import { formatZAR } from '../../data/seed'
 import { Badge, Button, Card, statusTone } from '../ui'
 import { ProofOfPaymentForm, type ProofInput } from '../payments/ProofOfPaymentForm'
@@ -39,7 +40,8 @@ export function TenantApplicationPaymentsPanel({
 
       <ul className="mt-4 space-y-3">
         {payments.map((p) => {
-          const proofSubmitted = Boolean(p.reference || (p.attachments?.length ?? 0))
+          const proofSubmitted = Boolean(p.reference || (p.attachments?.length ?? 0) || p.tenantProofReported)
+          const reported = isTenantReportedPayment(p) || (proofSubmitted && p.status !== 'Paid' && p.status !== 'Cancelled')
           const isOpen = activeId === p.id
           return (
             <li key={p.id} className="rounded-2xl border border-primary-100 p-4">
@@ -50,7 +52,7 @@ export function TenantApplicationPaymentsPanel({
                   <p className="text-xs text-ink-400">Due {p.dueDate}</p>
                 </div>
                 <Badge tone={p.status === 'Paid' ? 'success' : proofSubmitted ? 'warning' : statusTone(p.status)}>
-                  {p.status === 'Paid' ? 'Verified' : proofSubmitted ? 'Awaiting verification' : p.status}
+                  {p.status === 'Paid' ? 'Verified' : reported ? TENANT_REPORTED_LABEL : p.status}
                 </Badge>
               </div>
 
@@ -66,7 +68,7 @@ export function TenantApplicationPaymentsPanel({
                 </div>
               ) : null}
 
-              {p.status !== 'Paid' && !proofSubmitted && (
+              {p.status !== 'Paid' && p.status !== 'Cancelled' && !proofSubmitted && (
                 <div className="mt-3">
                   {isOpen ? (
                     <ProofOfPaymentForm

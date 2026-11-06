@@ -482,12 +482,14 @@ function PaymentsPanel({
             <div>
               <p className="font-medium">{p.type}</p>
               <p className="text-xs text-ink-400">Due {p.dueDate}</p>
-              {p.attachments?.length && p.status !== 'Paid' ? (
+              {p.status === 'Paid' || p.status === 'Cancelled' ? (
+                <p className="text-xs text-ink-500">This payment has already been recorded. Contact your agency.</p>
+              ) : p.attachments?.length ? (
                 <p className="text-xs text-amber-700">Proof uploaded — waiting for the agency to confirm</p>
               ) : null}
             </div>
             <div className="flex items-center gap-2">
-              {expanded && onSubmitProof && p.status !== 'Paid' ? (
+              {expanded && onSubmitProof && p.status !== 'Paid' && p.status !== 'Cancelled' ? (
                 <Button size="sm" variant="secondary" className="cursor-pointer" onClick={() => setProofFor(proofFor === p.id ? null : p.id)}>
                   Upload proof
                 </Button>
@@ -495,7 +497,7 @@ function PaymentsPanel({
               <span className="tabular font-semibold">{formatZAR(p.amount)}</span>
               {p.status === 'Paid' ? (
                 <Badge tone="success">Paid</Badge>
-              ) : !expanded ? (
+              ) : !expanded && p.status !== 'Paid' && p.status !== 'Cancelled' ? (
                 <Link to="/workspace/portals/tenant/payments" className="text-xs font-semibold text-primary hover:underline">
                   Upload proof
                 </Link>

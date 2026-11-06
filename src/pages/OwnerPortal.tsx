@@ -75,7 +75,7 @@ function OwnerPortalContent() {
       .sort((a, b) => (b.dueDate ?? '').localeCompare(a.dueDate ?? ''))
   }, [state.payments, propertyById, paymentVisible])
 
-  const collected = payments.filter((p) => p.status === 'Paid').reduce((n, p) => n + p.amount, 0)
+  const collected = payments.filter((p) => p.status === 'Paid').reduce((n, p) => n + (p.paidAmount ?? p.amount), 0)
   const due = payments
     .filter((p) => p.status === 'Due' || p.status === 'Overdue')
     .reduce((n, p) => n + p.amount, 0)

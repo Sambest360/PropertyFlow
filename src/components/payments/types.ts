@@ -52,6 +52,40 @@ export type MarkPaymentPaidDetails = {
   attachments?: PaymentAttachment[]
   recordedByUserId?: string | null
   recordedByName?: string | null
+  amountChangeReason?: string
+  receivedDateReason?: string
+  confirmDuplicateReference?: boolean
+  duplicateReferenceReason?: string
+  createBalanceForShortfall?: boolean
+  shortfallReason?: string
+  /** Client-only: the UI already persisted this row (do not persist again). */
+  alreadyPersisted?: boolean
+}
+
+export const TENANT_REPORTED_LABEL = 'Reported by tenant, not confirmed'
+
+export const MARK_PAID_METHOD_LABELS = ['EFT', 'Cash', 'Card at the office', 'Other'] as const
+
+export function sastYmd(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Johannesburg',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now)
+}
+
+export function isTenantReportedPayment(p: {
+  status?: string
+  tenantProofReported?: boolean
+  notes?: string | null
+  attachments?: Array<{ uploadedByRole?: string | null }>
+}): boolean {
+  if (p.status === 'Paid' || p.status === 'Cancelled') return false
+  if (p.tenantProofReported) return true
+  if (p.attachments?.some((a) => a.uploadedByRole === 'tenant')) return true
+  if (typeof p.notes === 'string' && /proof of payment uploaded by the payer/i.test(p.notes)) return true
+  return false
 }
 
 export const VIEW_STORAGE_KEY = 'propertyflow-payments-view'

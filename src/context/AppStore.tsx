@@ -78,6 +78,8 @@ import {
 import type { AssetCondition, Building, InfraRoom, InternalAsset, LookupConfig, RoomKind, Unit, UnitTemplate } from '../data/infrastructure'
 import { UNIT_TEMPLATES } from '../data/infrastructure'
 import type { MarkPaymentPaidDetails } from '../components/payments/types'
+import { sastYmd } from '../components/payments/types'
+import { getApiActor, readStoredAuthUserId } from '../lib/api/actorAuth'
 import { isRequiredLookupKey, GLOBAL_CLIENT_ID } from '../data/platformLookups'
 import { agencyOverrideFor } from '../lib/lookups'
 import { DEFAULT_AGENCY_PERMISSIONS, defaultLicenseStatus, isAgencyStaff, rolePermissions, userBasePermissions } from '../lib/permissions'
@@ -943,7 +945,7 @@ type StoreContextValue = {
   createViewing: (input: Omit<Viewing, 'id' | 'status' | 'attendance' | 'slotId'> & Partial<Pick<Viewing, 'status' | 'attendance' | 'slotId'>>) => Viewing
   updateViewing: (id: string, patch: Partial<Viewing>) => void
   createPayment: (input: Omit<PaymentRecord, 'id' | 'paidAt' | 'method' | 'status'> & Partial<Pick<PaymentRecord, 'status' | 'paidAt' | 'method'>>) => PaymentRecord
-  markPaymentPaid: (id: string, details?: string | MarkPaymentPaidDetails) => void
+  markPaymentPaid: (id: string, details?: string | MarkPaymentPaidDetails) => Promise<boolean>
   /** Mode A: escalate overdue + ensure next Rent rows for Active tenancies (no live bank). */
   runRentCycle: (asOf?: string) => {
     escalated: number
@@ -7006,8 +7008,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       addPropertyEvent({
         agencyId: payment.agencyId,
         propertyId: payment.propertyId,
-        actorUserId: payment.partyUserId,
-        actorName: payment.partyName,
+        actorUserId: getApiActor()?.userId ?? readStoredAuthUserId() ?? payment.partyUserId,
+        actorName:
+          state.users.find((u) => u.id === (getApiActor()?.userId ?? readStoredAuthUserId()))?.name ??
+          payment.partyName,
         action: 'created a Payment due',
         changes: [
           { field: 'Type', from: 'None', to: payment.type },
@@ -7038,12 +7042,43 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       persistUpsert('payment', payment.id, payment as unknown as Record<string, unknown>)
       return payment
     },
-    markPaymentPaid: (id, details = 'EFT') => {
+    markPaymentPaid: async (id, details = 'EFT') => {
       const opts: MarkPaymentPaidDetails =
         typeof details === 'string' ? { method: details } : (details ?? { method: 'EFT' })
       const method = opts.method ?? 'EFT'
-      const paidAt = opts.paidAt ?? new Date().toISOString().slice(0, 10)
+      const paidAt = opts.paidAt ?? sastYmd()
       const before = state.payments.find((p) => p.id === id)
+      if (!before) return false
+      const sessionId = getApiActor()?.userId ?? readStoredAuthUserId()
+      const actor = state.users.find((u) => u.id === sessionId)
+      const actorUserId = actor?.id ?? sessionId ?? opts.recordedByUserId ?? before.partyUserId
+      const actorName = actor?.name ?? opts.recordedByName ?? before.partyName
+      const payload = {
+        ...before,
+        status: 'Paid' as const,
+        paidAt,
+        method,
+        reference: opts.reference ?? before.reference ?? null,
+        paidAmount: opts.paidAmount ?? before.amount,
+        notes: opts.notes ?? before.notes ?? null,
+        attachments: opts.attachments ?? before.attachments ?? [],
+        recordedByUserId: actorUserId ?? null,
+        recordedByName: actorName ?? null,
+        amountChangeReason: opts.amountChangeReason,
+        receivedDateReason: opts.receivedDateReason,
+        confirmDuplicateReference: opts.confirmDuplicateReference,
+        duplicateReferenceReason: opts.duplicateReferenceReason,
+        createBalanceForShortfall: opts.createBalanceForShortfall,
+        shortfallReason: opts.shortfallReason,
+      }
+      if (!opts.alreadyPersisted) {
+        const saved = await persistUpsert(
+          'payment',
+          id,
+          payload as unknown as Record<string, unknown>,
+        )
+        if (!saved) return false
+      }
       let paidEvent: PropertyEvent | null = null
       setState((s) => {
         const payment = s.payments.find((p) => p.id === id)
@@ -7059,8 +7094,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
                 paidAmount: opts.paidAmount ?? p.amount,
                 notes: opts.notes ?? p.notes ?? null,
                 attachments: opts.attachments ?? p.attachments ?? [],
-                recordedByUserId: opts.recordedByUserId ?? p.recordedByUserId ?? null,
-                recordedByName: opts.recordedByName ?? p.recordedByName ?? null,
+                recordedByUserId: actorUserId ?? p.recordedByUserId ?? null,
+                recordedByName: actorName ?? p.recordedByName ?? null,
+                tenantProofReported: false,
               }
             : p,
         )
@@ -7075,7 +7111,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
                     ...a,
                     stage: 'Deposit Paid' as ApplicationStage,
                     progress: STAGE_PROGRESS['Deposit Paid'],
-                    updatedAt: new Date().toISOString().slice(0, 10),
+                    updatedAt: sastYmd(),
                   }
                 : a,
             )
@@ -7085,8 +7121,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           id: uid('pe'),
           agencyId: payment.agencyId,
           propertyId: payment.propertyId,
-          actorUserId: payment.partyUserId,
-          actorName: payment.partyName,
+          actorUserId,
+          actorName: actorName ?? payment.partyName,
           action: 'marked a Payment as Paid',
           at: new Date().toISOString(),
           changes: [{ field: 'Status', from: payment.status, to: 'Paid' }],
@@ -7099,40 +7135,26 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           propertyEvents: [event, ...s.propertyEvents].slice(0, 400),
         }
       })
-      if (before) {
-        const paymentProperty = state.properties.find((p) => p.id === before.propertyId)
-        emitSuiteEvent({
+      const paymentProperty = state.properties.find((p) => p.id === before.propertyId)
+      emitSuiteEvent({
+        agencyId: before.agencyId,
+        resource: 'payment',
+        action: 'updated',
+        title: 'Payment marked paid',
+        body: `${before.type} · ${before.partyName} was marked paid.`,
+        link: `/workspace/properties/${before.propertyId}?tab=payments`,
+        recipientUserIds: paymentDeskStakeholderIds(state.users, before, paymentProperty),
+      })
+      if (before.partyUserId) {
+        notify({
+          userId: before.partyUserId,
           agencyId: before.agencyId,
+          title: 'Payment received',
+          body: `Your ${before.type.toLowerCase()} payment was recorded as paid.`,
+          link: '/workspace/portals/tenant',
           resource: 'payment',
           action: 'updated',
-          title: 'Payment marked paid',
-          body: `${before.type} · ${before.partyName} was marked paid.`,
-          link: `/workspace/properties/${before.propertyId}?tab=payments`,
-          recipientUserIds: paymentDeskStakeholderIds(state.users, before, paymentProperty),
         })
-        if (before.partyUserId) {
-          notify({
-            userId: before.partyUserId,
-            agencyId: before.agencyId,
-            title: 'Payment received',
-            body: `Your ${before.type.toLowerCase()} payment was recorded as paid.`,
-            link: '/workspace/portals/tenant',
-            resource: 'payment',
-            action: 'updated',
-          })
-        }
-        persistUpsert('payment', id, {
-          ...before,
-          status: 'Paid',
-          paidAt,
-          method,
-          reference: opts.reference ?? before.reference ?? null,
-          paidAmount: opts.paidAmount ?? before.amount,
-          notes: opts.notes ?? before.notes ?? null,
-          attachments: opts.attachments ?? before.attachments ?? [],
-          recordedByUserId: opts.recordedByUserId ?? before.recordedByUserId ?? null,
-          recordedByName: opts.recordedByName ?? before.recordedByName ?? null,
-        } as unknown as Record<string, unknown>)
       }
       if (paidEvent) {
         persistUpsert(
@@ -7141,6 +7163,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           paidEvent as unknown as Record<string, unknown>,
         )
       }
+      return true
     },
     removePayment: (id) => {
       const payment = state.payments.find((p) => p.id === id)
@@ -7242,8 +7265,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         addPropertyEvent({
           agencyId: payment.agencyId,
           propertyId: payment.propertyId,
-          actorUserId: payment.partyUserId,
-          actorName: payment.partyName,
+          actorUserId: getApiActor()?.userId ?? readStoredAuthUserId() ?? payment.partyUserId,
+          actorName:
+            state.users.find((u) => u.id === (getApiActor()?.userId ?? readStoredAuthUserId()))?.name ??
+            payment.partyName,
           action: 'created a Payment due',
           changes: [
             { field: 'Type', from: 'None', to: payment.type },

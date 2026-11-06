@@ -3,6 +3,7 @@ import { acquireSubmitLock, releaseSubmitLock } from '../../lib/wizardSubmitGuar
 import { useNavigate } from 'react-router-dom'
 import { Banknote, ChevronRight, Plus, Search } from 'lucide-react'
 import type { PaymentRecord } from '../../types/domain'
+import { isTenantReportedPayment, TENANT_REPORTED_LABEL } from '../payments/types'
 import { Badge, Button, Card, Input, Modal, Select, statusTone } from '../ui'
 import { formatZAR } from '../../data/seed'
 import { ListPagination, paginate } from './ListPagination'
@@ -124,6 +125,7 @@ export function PropertyPaymentsPanel({
                 </span>
               </span>
               <Badge tone={statusTone(p.status)}>{p.status}</Badge>
+              {isTenantReportedPayment(p) ? <Badge tone="warning">{TENANT_REPORTED_LABEL}</Badge> : null}
               <ChevronRight className="h-4 w-4 shrink-0 text-ink-400" strokeWidth={ICON_STROKE} aria-hidden />
             </button>
           </li>
