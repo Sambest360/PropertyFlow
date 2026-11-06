@@ -30,9 +30,22 @@ export type PaymentCode =
   | 'PAYMENT_PAID_REFERENCE_REQUIRED'
   | 'PAYMENT_AMOUNT_REASON_REQUIRED'
   | 'PAYMENT_AMOUNT_REQUIRED'
+  | 'PAYMENT_RECEIVED_DATE_INVALID'
+  | 'PAYMENT_RECEIVED_DATE_FUTURE'
+  | 'PAYMENT_RECEIVED_DATE_REASON_REQUIRED'
+  | 'PAYMENT_METHOD_INVALID'
+  | 'PAYMENT_METHOD_NOTE_REQUIRED'
+  | 'PAYMENT_REFERENCE_INVALID'
+  | 'PAYMENT_CARD_NUMBER_REFUSED'
+  | 'PAYMENT_REFERENCE_DUPLICATE'
 
-export function paymentError(status: number, code: PaymentCode, message: string): Error & { status: number; code: string } {
-  return Object.assign(new Error(message), { status, code })
+export function paymentError(
+  status: number,
+  code: PaymentCode,
+  message: string,
+  extra?: Record<string, unknown>,
+): Error & { status: number; code: string; extra?: Record<string, unknown> } {
+  return Object.assign(new Error(message), { status, code, extra })
 }
 
 /** A PAID or CANCELLED row is final for staff. */
@@ -73,19 +86,31 @@ async function unitUuidFor(propertyId: string): Promise<string | null> {
   return (await resolveUuid('property', propertyId)) ?? (await resolveUuid('unit', propertyId))
 }
 
-type StoredPayment = {
+export type StoredPayment = {
+  id: string
   status: string
   amount: string
   notes: string | null
   reference: string | null
   due_date: string
   client_id: string
+  created_at: Date | string
+  party_user_id: string | null
+  application_id: string | null
+  lease_id: string | null
+  unit_id: string | null
+  payment_type: string
+  attachments: unknown
+  party_name: string | null
 }
 
 /** Policy read of the stored row, locked until the transaction ends. */
 async function lockStoredPayment(uuid: string): Promise<StoredPayment | null> {
   const rows = await query<StoredPayment>(
-    `SELECT status, amount::text AS amount, notes, reference, due_date::text AS due_date, client_id::text AS client_id
+    `SELECT id::text AS id, status, amount::text AS amount, notes, reference, due_date::text AS due_date,
+            client_id::text AS client_id, created_at, party_user_id::text AS party_user_id,
+            application_id::text AS application_id, lease_id::text AS lease_id, unit_id::text AS unit_id,
+            payment_type, attachments, party_name
        FROM payments WHERE id = $1::uuid FOR UPDATE`,
     [uuid],
   )
@@ -211,6 +236,8 @@ export async function enforcePaymentWritePolicy(
   if (!stored) {
     if (await deps.canManage()) {
       enforceMarkPaidEvidence(null, data)
+      const { enforceRecordPaymentRules } = await import('./recordPaymentPolicy.js')
+      await enforceRecordPaymentRules(null, data)
       return
     }
     // A2 exception: a new approval entry row on an application the actor may write.
@@ -238,13 +265,19 @@ export async function enforcePaymentWritePolicy(
   if (toCentsValue !== null && toCentsValue !== fromCents && !trimmed(data.amountChangeReason)) {
     throw paymentError(400, 'PAYMENT_AMOUNT_REASON_REQUIRED', 'Bad request: give a reason for changing the amount')
   }
+  const { enforceRecordPaymentRules } = await import('./recordPaymentPolicy.js')
+  await enforceRecordPaymentRules(stored, data)
 }
 
 /** A3: marking paid needs a reference (typed or stored) or a typed note that is new. */
 function enforceMarkPaidEvidence(stored: StoredPayment | null, data: Record<string, unknown>): void {
   const next = requestedPaymentStatus(data) ?? stored?.status ?? 'DUE'
   if (next !== 'PAID' || stored?.status === 'PAID') return
-  const reference = trimmed(data.reference) || trimmed(stored?.reference)
+  const method = trimmed(data.method).toUpperCase().replace(/\s+/g, '_')
+  const typedRef = trimmed(data.reference)
+  const storedRef = trimmed(stored?.reference)
+  // CASH: a stored reference does not count (Q-R4 / T-R8).
+  const reference = method === 'CASH' ? (typedRef && typedRef !== storedRef ? typedRef : '') : typedRef || storedRef
   const notes = trimmed(data.notes)
   if (reference) return
   if (notes && notes !== trimmed(stored?.notes)) return

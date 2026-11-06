@@ -213,10 +213,16 @@ app.use('/api/*', async (c, next) => {
 })
 
 /** Machine-readable policy code on a refused write (e.g. APPLICATION_TRANSITION_FORBIDDEN). */
-function errCode(err: unknown): { code?: string } {
+function errCode(err: unknown): { code?: string; sharedReferenceCount?: unknown; otherPayments?: unknown } {
   if (err && typeof err === 'object' && 'code' in err && typeof (err as { code: unknown }).code === 'string') {
     const code = (err as { code: string }).code
-    if (/^[A-Z][A-Z0-9_]+$/.test(code)) return { code }
+    if (/^[A-Z][A-Z0-9_]+$/.test(code)) {
+      const extra = (err as { extra?: { sharedReferenceCount?: unknown; otherPayments?: unknown } }).extra
+      if (code === 'PAYMENT_REFERENCE_DUPLICATE' && extra) {
+        return { code, sharedReferenceCount: extra.sharedReferenceCount, otherPayments: extra.otherPayments }
+      }
+      return { code }
+    }
   }
   return {}
 }
@@ -284,7 +290,26 @@ async function gatedPersistInner(c: Parameters<typeof parseDemoActor>[0], body: 
   // server writes those notifications (a tenant may only notify themselves).
   const newTenantFault =
     body.resource === 'ticket' && body.action === 'upsert' && actor.role === 'tenant' && !(await resolveUuid('ticket', body.id))
-  const result = await handlePersist(body, actor.userId, actor.role)
+  let audit: { auditActorUserId: string; auditActorRole: string; impersonatedUserId: string | null } | undefined
+  if (body.resource === 'payment') {
+    try {
+      const session = await resolveSessionUser(c)
+      if (session) {
+        const { storedImpersonatedUserId } = await import('./paymentReversal.js')
+        audit = {
+          auditActorUserId: session.frontendId,
+          auditActorRole: session.role,
+          impersonatedUserId:
+            session.frontendId !== actor.userId
+              ? storedImpersonatedUserId(session.frontendId, actor.userId)
+              : null,
+        }
+      }
+    } catch {
+      audit = undefined
+    }
+  }
+  const result = await handlePersist(body, actor.userId, actor.role, audit)
   if (newTenantFault) {
     try {
       const { notifyFaultReported } = await import('./faultDesk.js')

@@ -556,13 +556,18 @@ describe.skipIf(!url)('A2 record-a-payment: mark-paid rules via the real app, se
     expect(first.status).toBe(200)
     const byApp = await mark('adminA', PAY.relatedApp, { paidAt: todaySast(), reference: 'EFT-SHARED' })
     expect({ status: byApp.status, count: (await marked(PAY.relatedApp.id))[0]?.payload?.sharedReferenceCount }).toEqual({ status: 200, count: 1 })
+    await resetLedger()
+    expect((await mark('adminA', PAY.a, { paidAt: todaySast(), reference: 'EFT-SHARED' })).status).toBe(200)
     const byLease = await mark('adminA', PAY.relatedLease, { paidAt: todaySast(), reference: 'EFT-SHARED' })
-    expect({ status: byLease.status, code: byLease.code }).toEqual({ status: 200, code: null })
+    expect({ status: byLease.status, code: byLease.code, count: (await marked(PAY.relatedLease.id))[0]?.payload?.sharedReferenceCount }).toEqual({
+      status: 200, code: null, count: 1,
+    })
+    await resetLedger()
+    expect((await mark('adminA', PAY.a, { paidAt: todaySast(), reference: 'EFT-SHARED' })).status).toBe(200)
     const byParty = await mark('adminA', PAY.samePartyDiffAmt, { paidAt: todaySast(), reference: 'EFT-SHARED' })
     expect({ status: byParty.status, count: (await marked(PAY.samePartyDiffAmt.id))[0]?.payload?.sharedReferenceCount }).toEqual({
-      status: 200, count: expect.any(Number),
+      status: 200, count: 1,
     })
-    expect(((await marked(PAY.samePartyDiffAmt.id))[0]?.payload?.sharedReferenceCount as number) >= 1).toBe(true)
   })
 
   it('T-R11b: same party + same amount + same received date → 409 PAYMENT_REFERENCE_DUPLICATE', async () => {
