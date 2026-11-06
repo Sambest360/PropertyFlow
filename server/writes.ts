@@ -1198,10 +1198,15 @@ async function upsertProperty(
   }
 
   const unitNumber = str(d.unitNumber ?? d.title, slug).slice(0, 40)
+  // A type the app only guessed (typeInferred, no stored type) is never
+  // saved as if someone had chosen it.
   const propertyTypeDb =
-    Object.prototype.hasOwnProperty.call(d, 'type') && d.type != null
+    Object.prototype.hasOwnProperty.call(d, 'type') && d.type != null && d.typeInferred !== true
       ? propertyTypeToDb(str(d.type))
       : null
+  // A save that leaves out a size field keeps the stored value (a partial
+  // write used to reset bedrooms to 0 and the floor size to nothing).
+  const sentSize = (a: string, b: string) => d[a] !== undefined || d[b] !== undefined
 
   const idempotencyKey =
     typeof d.idempotencyKey === 'string' && d.idempotencyKey.trim()
@@ -1241,10 +1246,10 @@ async function upsertProperty(
        client_id = EXCLUDED.client_id,
        unit_number = EXCLUDED.unit_number,
        property_type = COALESCE(EXCLUDED.property_type, units.property_type),
-       square_meters = EXCLUDED.square_meters,
-       bedrooms = EXCLUDED.bedrooms,
-       bathrooms = EXCLUDED.bathrooms,
-       parking = EXCLUDED.parking,
+       square_meters = CASE WHEN $28::boolean THEN EXCLUDED.square_meters ELSE units.square_meters END,
+       bedrooms = CASE WHEN $29::boolean THEN EXCLUDED.bedrooms ELSE units.bedrooms END,
+       bathrooms = CASE WHEN $30::boolean THEN EXCLUDED.bathrooms ELSE units.bathrooms END,
+       parking = CASE WHEN $31::boolean THEN EXCLUDED.parking ELSE units.parking END,
        listing_type = EXCLUDED.listing_type,
        price = EXCLUDED.price,
        rent = EXCLUDED.rent,
@@ -1303,6 +1308,10 @@ async function upsertProperty(
       idempotencyKey,
       viewingRule.value,
       viewingRule.sent,
+      sentSize('area', 'squareMeters'),
+      sentSize('beds', 'bedrooms'),
+      sentSize('baths', 'bathrooms'),
+      d.parking !== undefined,
     ],
   )
   // Separate from square_meters (floor): never merged or summed. No-op while 037 is not applied.

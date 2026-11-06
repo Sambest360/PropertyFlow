@@ -411,14 +411,14 @@ export default function RegisterPage() {
                 autoComplete="tel"
               />
             </AuthField>
-            <AuthField label="Password" htmlFor="reg-password" hint="At least 8 characters">
+            <AuthField label="Password" htmlFor="reg-password" hint={`At least ${MIN_PASSWORD_LENGTH} characters`}>
               <PasswordField
                 id="reg-password"
                 value={password}
                 onChange={setPassword}
                 autoComplete="new-password"
                 required
-                minLength={8}
+                minLength={MIN_PASSWORD_LENGTH}
                 showStrength
               />
             </AuthField>
@@ -429,7 +429,7 @@ export default function RegisterPage() {
                 onChange={setConfirmPassword}
                 autoComplete="new-password"
                 required
-                minLength={8}
+                minLength={MIN_PASSWORD_LENGTH}
               />
             </AuthField>
           </div>

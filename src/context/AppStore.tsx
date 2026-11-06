@@ -3782,6 +3782,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       return property
     },
     updateProperty: (id, p) => {
+      // Choosing a type makes it the listing's own (no longer a guess), so it is saved.
+      if (p.type !== undefined && p.typeInferred === undefined) p = { ...p, typeInferred: false }
       const prev = stateRef.current.properties.find((x) => x.id === id)
       let pe: PropertyEvent | null = null
       let unitPatch: Unit | null = null

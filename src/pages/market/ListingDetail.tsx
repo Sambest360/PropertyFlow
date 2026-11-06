@@ -57,6 +57,7 @@ import { formatEmploymentSummary } from '../../lib/employmentDisplay'
 import { prefillEnquiryContact } from './listingEnquiryPrefill'
 import { publicAreaLabel, toPublicListing } from '../../lib/publicLocation'
 import { listingDetailFacts } from '../../lib/listingSizes'
+import { propertyTypeFromText } from '../../lib/propertyType'
 
 type EnquiryIntent = 'lead' | 'viewing'
 
@@ -372,6 +373,10 @@ export default function ListingDetail() {
   const agentUser = p.agentId ? state.users.find((u) => u.id === p.agentId) : undefined
   // Guests get no users list; the public marketplace sends the agent's display name only.
   const agent = agentUser ?? (p.agentName ? { name: p.agentName } : undefined)
+  // A type nobody chose and the listing's words do not name is not shown as fact.
+  const shownType = !p.typeInferred || propertyTypeFromText(p.title, p.description) ? p.type : 'Property'
+  // Bedrooms: the listing's count, else the bedrooms set up in its rooms.
+  const shownBeds = p.beds || (p.rooms ?? []).filter((r) => (r.kind ?? '').toLowerCase() === 'bedroom').length
   const similar = publicProperties
     .filter(
       (x) =>
@@ -886,7 +891,7 @@ export default function ListingDetail() {
           <div>
             <div className="border-b border-primary-100 pb-6">
               <p className="text-lg font-semibold text-ink">
-                {listingHeadline(p.type, viewerId, p.agentId, agent?.name)}
+                {listingHeadline(shownType, viewerId, p.agentId, agent?.name)}
               </p>
               {p.agentId && agent?.name && p.agentId !== viewerId ? (
                 <Link to={`/profile/${encodeURIComponent(p.agentId)}`} className="text-sm font-semibold text-primary hover:underline">
@@ -894,7 +899,7 @@ export default function ListingDetail() {
                 </Link>
               ) : null}
               <p className="text-sm text-ink-500">
-                {listingDetailFacts(p).summary.join(' · ')}
+                {listingDetailFacts({ ...p, beds: shownBeds, type: p.typeInferred ? '' : p.type }).summary.join(' · ')}
               </p>
             </div>
 

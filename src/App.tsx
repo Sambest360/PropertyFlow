@@ -289,6 +289,8 @@ export default function App() {
                     </Suspense>
                   }
                 />
+                {/* /help: signed-in users get the workspace Help page, visitors the contact page. */}
+                <Route path="help" element={<PublicHelpRedirect />} />
                 <Route
                   path="contact"
                   element={
@@ -621,4 +623,10 @@ export default function App() {
       </GoogleMapsProvider>
     </ThemeProvider>
   )
+}
+
+function PublicHelpRedirect() {
+  const { isAuthenticated, authReady } = useAuth()
+  if (!authReady) return <PageFallback />
+  return <Navigate to={isAuthenticated ? '/workspace/help' : '/contact'} replace />
 }

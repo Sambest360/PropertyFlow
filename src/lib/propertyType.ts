@@ -39,12 +39,40 @@ export function derivePropertyTypeFromBedrooms(bedrooms: number): string {
   return bedrooms >= 3 ? 'House' : 'Apartment'
 }
 
-/** Resolve card / portfolio type from stored slug or bedroom fallback. */
+/** Words in a listing's title or description that name its type, most specific first. */
+const TYPE_WORDS: Array<[RegExp, string]> = [
+  [/\bstudent\b/i, 'Student Accommodation'],
+  [/\b(room|rooms|shared|commune|digs)\b/i, 'Shared Accommodation'],
+  [/\btown ?house\b|\bcluster\b|\bsimplex\b|\bduplex\b/i, 'Townhouse'],
+  [/\b(apartment|flat|penthouse|bachelor|studio)\b/i, 'Apartment'],
+  [/\b(office|offices|suite)\b/i, 'Office'],
+  [/\b(warehouse|factory|industrial|workshop)\b/i, 'Industrial'],
+  [/\b(shop|retail|commercial|showroom)\b/i, 'Commercial'],
+  [/\b(farm|smallholding|plot with)\b/i, 'Farm'],
+  [/\b(vacant land|stand|erf|plot)\b/i, 'Vacant Land'],
+  [/\b(house|home|cottage|bungalow|villa)\b/i, 'House'],
+]
+
+/** The type a listing's own words name, or null when they name none. */
+export function propertyTypeFromText(...texts: Array<string | null | undefined>): string | null {
+  for (const text of texts) {
+    if (!text) continue
+    for (const [re, label] of TYPE_WORDS) if (re.test(text)) return label
+  }
+  return null
+}
+
+/**
+ * Card / portfolio type: the stored type; without one, the type the title
+ * (then the description) names; only then a bedroom guess.
+ */
 export function resolvePropertyType(input: {
   stored?: string | null
   bedrooms?: number | null
+  title?: string | null
+  description?: string | null
 }): string {
   const stored = input.stored?.trim()
   if (stored) return labelFromSlug(stored.toLowerCase())
-  return derivePropertyTypeFromBedrooms(input.bedrooms ?? 0)
+  return propertyTypeFromText(input.title, input.description) ?? derivePropertyTypeFromBedrooms(input.bedrooms ?? 0)
 }

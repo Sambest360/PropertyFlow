@@ -37,6 +37,10 @@ export default defineConfig(({ mode }) => {
     (mode === 'development' && isLocalSupabaseConfigured(env)) ||
     (mode === 'production' && env.VITE_ENABLE_API !== '0')
 
+  // The release builds into a separate folder and swaps it in when done, so the
+  // live site is never left without its files mid-build (deploy/release.sh).
+  const outDir = process.env.BUILD_OUT_DIR || 'dist'
+
   return {
     define: {
       'import.meta.env.VITE_SENTRY_RELEASE': JSON.stringify(env.VERCEL_GIT_COMMIT_SHA || env.APP_COMMIT_SHA || ''),
@@ -50,7 +54,7 @@ export default defineConfig(({ mode }) => {
         name: 'lekaya-seo-pages',
         apply: 'build' as const,
         closeBundle() {
-          const n = writeSeoPages('dist')
+          const n = writeSeoPages(outDir)
           console.log(`[seo] wrote ${n} pre-filled pages`)
         },
       },
@@ -61,7 +65,7 @@ export default defineConfig(({ mode }) => {
               project: env.SENTRY_PROJECT,
               authToken: env.SENTRY_AUTH_TOKEN,
               release: { name: env.VERCEL_GIT_COMMIT_SHA || undefined },
-              sourcemaps: { filesToDeleteAfterUpload: ['./dist/**/*.map'] },
+              sourcemaps: { filesToDeleteAfterUpload: [`./${outDir}/**/*.map`] },
               telemetry: false,
             }),
           ]
@@ -114,6 +118,7 @@ export default defineConfig(({ mode }) => {
       ],
     },
     build: {
+      outDir,
       sourcemap: uploadMaps ? 'hidden' : false,
       rollupOptions: {
         output: {

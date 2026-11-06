@@ -25,7 +25,8 @@ export function buildRoomTiles(p: {
   rooms: Room[]
 }): Tile[] {
   // Fall back to the room configuration when the headline counts were never filled in.
-  const beds = p.beds || sum(p.rooms.filter(isBedroom), (r) => r.beds || 1)
+  // Bedrooms are rooms, not beds: a bedroom with two beds is still one bedroom.
+  const beds = p.beds || p.rooms.filter(isBedroom).length
   const baths = p.baths || sum(p.rooms.filter(isBathroom), (r) => r.baths || 1)
   const garages = p.garages || p.rooms.filter((r) => r.kind === 'garage').length
 

@@ -40,3 +40,5 @@ pnpm-debug.log*
 
 # Photos stored on the self-hosted server's disk
 uploads/
+dist-next
+dist-prev

@@ -109,7 +109,8 @@ export function PropertyCard({
         : `${rawTitle} · rental`
   const suburb = card?.building.suburb ?? property.suburb
   const city = card?.building.city ?? property.city
-  const beds = card?.bedrooms ?? property.beds
+  // Bedrooms: the listing's count, else the bedrooms set up in its rooms.
+  const beds = (card?.bedrooms ?? property.beds) || (property.rooms ?? []).filter((r) => (r.kind ?? '').toLowerCase() === 'bedroom').length
   const baths = card?.bathrooms ?? property.baths
   const parking = card?.parking ?? property.parking
   const area = card?.square_meters ?? property.area
@@ -120,7 +121,8 @@ export function PropertyCard({
   const highlightFeatures = property.amenities.slice(0, 3)
   // T2: floor (square_meters) and erf are separate facts; unset sizes are hidden.
   const sizes = listingSizeFacts({ floorSqm: area, erfSqm: property.erfSizeSqm })
-  const bedFact = bedsLabel(property.type, beds)
+  // "Bachelor/Studio" only for a type someone chose, not a guessed one.
+  const bedFact = bedsLabel(property.typeInferred ? null : property.type, beds)
 
   return (
     <Link to={href} className={cn('group block animate-slide-up', className)}>
