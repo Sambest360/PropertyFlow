@@ -41,6 +41,10 @@ import {
 } from './scopeGate.js'
 import type { PersistBody } from './writes.js'
 import { payfastCreate, payfastItn, type LoadedPayment } from './payfastRoutes.js'
+import {
+  ONLINE_PAYMENTS_ENABLED,
+  onlinePaymentsDisabledGate,
+} from './onlinePayments.js'
 import { registerScreeningRoutes, screeningProviderInfo, screeningWebhook } from './screeningRoutes.js'
 import { createProviderRegistry } from './screeningChecks.js'
 import { pgScreeningStore } from './screeningStore.js'
@@ -167,6 +171,10 @@ app.use(
     exposeHeaders: ['Content-Type'],
   }),
 )
+
+// Ruling 30: PayFast switch-off. BEFORE session middleware — no DB, no cookie.
+app.use('/api/payfast', onlinePaymentsDisabledGate)
+app.use('/api/payfast/*', onlinePaymentsDisabledGate)
 
 
 /**
@@ -2535,10 +2543,13 @@ if (shouldListen) {
     console.log(`[propertyflow-api] DATABASE_URL host from env or default local trust auth`)
     serve({ fetch: app.fetch, port: PORT, hostname: '127.0.0.1' })
     // H1 R2: production must take PayFast ITNs in live mode only.
-    void import('./payfast.js').then(({ payfastProductionModeError }) => {
-      const r2 = payfastProductionModeError()
-      if (r2) console.error(r2)
-    })
+    // Ruling 30: skip when online payments are switched off (C4).
+    if (ONLINE_PAYMENTS_ENABLED) {
+      void import('./payfast.js').then(({ payfastProductionModeError }) => {
+        const r2 = payfastProductionModeError()
+        if (r2) console.error(r2)
+      })
+    }
     // Email new notifications every minute (people can switch this off in Settings).
     void import('./notificationMailer.js').then(({ startNotificationMailer }) => startNotificationMailer())
     void import('./sms.js').then(({ startSmsWorker }) => startSmsWorker())
