@@ -99,7 +99,6 @@ async function mountWithInferredListing(): Promise<string> {
       email: 'admin@agency.test',
       role: 'agent_admin',
       agencyId: 'ag-144',
-      password: 'not-used-in-test',
     } as unknown as Parameters<Store['createUser']>[0])
     localStorage.setItem(AUTH_USER_STORAGE_KEY, admin.id)
   })
