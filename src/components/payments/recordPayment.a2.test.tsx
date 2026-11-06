@@ -20,6 +20,7 @@ vi.mock('./PaymentAttachmentsField', () => ({
 }))
 
 import { MarkPaymentPaidModal } from './MarkPaymentPaidModal'
+import type { MarkPaymentPaidDetails } from './types'
 import { PaymentDetailHeader } from '../payment-detail/PaymentDetailHeader'
 import { TenantApplicationPaymentsPanel } from '../tenant/TenantApplicationPaymentsPanel'
 
@@ -77,11 +78,17 @@ async function render(node: ReactNode) {
   })
 }
 
-async function mountModal(payment: PaymentRecord, onConfirm = vi.fn()) {
+async function mountModal(payment: PaymentRecord, onConfirm: ((d: MarkPaymentPaidDetails) => unknown) | ReturnType<typeof vi.fn> = vi.fn()) {
   await render(
-    <MarkPaymentPaidModal open payment={payment} actorName="Staff" onClose={() => {}} onConfirm={onConfirm} />,
+    <MarkPaymentPaidModal
+      open
+      payment={payment}
+      actorName="Staff"
+      onClose={() => {}}
+      onConfirm={onConfirm as (d: MarkPaymentPaidDetails) => void}
+    />,
   )
-  return onConfirm
+  return onConfirm as ReturnType<typeof vi.fn>
 }
 
 const field = (labelText: string) => {
@@ -195,6 +202,16 @@ describe('A2 persistRefusal copy', () => {
 })
 
 
+
+function firstCallDetails(fn: ReturnType<typeof vi.fn>): MarkPaymentPaidDetails {
+  const calls = fn.mock.calls as unknown as MarkPaymentPaidDetails[][]
+  return calls[0]![0]!
+}
+function lastCallDetails(fn: ReturnType<typeof vi.fn>): MarkPaymentPaidDetails {
+  const calls = fn.mock.calls as unknown as MarkPaymentPaidDetails[][]
+  return calls[calls.length - 1]![0]!
+}
+
 const saveButton = () =>
   Array.from(document.querySelectorAll('button')).find((b) => /^(Mark paid|Confirm payment)$/.test(b.textContent?.trim() ?? '')) as
     | HTMLButtonElement
@@ -238,7 +255,7 @@ describe('Q5 / R7 shortfall tick (default ON; unticked needs reason)', () => {
       saveButton()!.click()
     })
     expect(onConfirm).toHaveBeenCalled()
-    const details = onConfirm.mock.calls[0][0]
+    const details = firstCallDetails(onConfirm)
     expect(details.createBalanceForShortfall).toBe(true)
     expect(details.shortfallReason).toBeUndefined()
     expect(details.paidAmount).toBe(7000)
@@ -256,7 +273,7 @@ describe('Q5 / R7 shortfall tick (default ON; unticked needs reason)', () => {
     await act(async () => {
       saveButton()!.click()
     })
-    const details = onConfirm.mock.calls[0][0]
+    const details = firstCallDetails(onConfirm)
     expect(details.createBalanceForShortfall).toBeUndefined()
     expect(details.shortfallReason).toBe('Tenant paid what they could')
   })
@@ -282,9 +299,12 @@ describe('Q-R1 mark-paid method picker is the four closed labels', () => {
     expect(options).not.toContain('Cheque')
   })
 
-  it('preselects Card at the office for Card and Other for Cheque', async () => {
+  it('preselects Card at the office for Card', async () => {
     await mountModal(pay({ method: 'Card', reference: 'EFT-1' }))
     expect((field('Method') as HTMLSelectElement).value).toBe('Card at the office')
+  })
+
+  it('preselects Other for Cheque', async () => {
     await mountModal(pay({ method: 'Cheque', reference: 'EFT-1' }))
     expect((field('Method') as HTMLSelectElement).value).toBe('Other')
   })
@@ -315,7 +335,7 @@ describe('§8 duplicate-reference confirm UI', () => {
     expect(text).toContain('Yes, this reference is correct')
     expect(text).toContain('PAY-other')
     expect(text).toContain('Rent')
-    expect(onConfirm.mock.calls[0][0].confirmDuplicateReference).toBeUndefined()
+    expect(firstCallDetails(onConfirm).confirmDuplicateReference).toBeUndefined()
 
     await setCheckbox('Yes, this reference is correct', true)
     await act(async () => {
@@ -325,6 +345,6 @@ describe('§8 duplicate-reference confirm UI', () => {
       await Promise.resolve()
     })
     expect(onConfirm.mock.calls.length).toBeGreaterThanOrEqual(2)
-    expect(onConfirm.mock.calls.at(-1)![0].confirmDuplicateReference).toBe(true)
+    expect(lastCallDetails(onConfirm).confirmDuplicateReference).toBe(true)
   })
 })

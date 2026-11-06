@@ -66,6 +66,47 @@ export const TENANT_REPORTED_LABEL = 'Reported by tenant, not confirmed'
 
 export const MARK_PAID_METHOD_LABELS = ['EFT', 'Cash', 'Card at the office', 'Other'] as const
 
+/** Map a stored / legacy payment.method label onto the four mark-paid labels. */
+export function toClosedMarkPaidMethodLabel(raw: string | null | undefined): (typeof MARK_PAID_METHOD_LABELS)[number] {
+  const s = (raw ?? '').trim()
+  if (!s) return 'EFT'
+  const upper = s.toUpperCase().replace(/\s+/g, '_')
+  if (upper === 'CASH' || s === 'Cash') return 'Cash'
+  if (
+    upper === 'CARD_AT_OFFICE' ||
+    upper === 'CARD_AT_THE_OFFICE' ||
+    upper === 'CARD' ||
+    s === 'Card' ||
+    s === 'Card at the office'
+  ) {
+    return 'Card at the office'
+  }
+  if (upper === 'OTHER' || s === 'Other' || upper === 'CHEQUE' || s === 'Cheque') return 'Other'
+  // Debit order / Instant EFT / EFT / anything else that Q-R1 treats as EFT.
+  if (
+    upper === 'EFT' ||
+    upper === 'DEBIT_ORDER' ||
+    upper === 'INSTANT_EFT' ||
+    s === 'Debit order' ||
+    s === 'Instant EFT'
+  ) {
+    return 'EFT'
+  }
+  return 'EFT'
+}
+
+/** Outcome of markPaymentPaid so the modal can show a §8 duplicate confirm. */
+export type MarkPaymentPaidOutcome =
+  | true
+  | false
+  | {
+      ok: false
+      code: 'PAYMENT_REFERENCE_DUPLICATE'
+      message: string
+      sharedReferenceCount?: number
+      otherPayments: Array<{ id: string; type?: string; status?: string; dueDate?: string }>
+    }
+
 export function sastYmd(now: Date = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Africa/Johannesburg',

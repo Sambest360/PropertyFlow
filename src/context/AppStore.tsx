@@ -77,7 +77,8 @@ import {
 } from '../data/seed'
 import type { AssetCondition, Building, InfraRoom, InternalAsset, LookupConfig, RoomKind, Unit, UnitTemplate } from '../data/infrastructure'
 import { UNIT_TEMPLATES } from '../data/infrastructure'
-import type { MarkPaymentPaidDetails } from '../components/payments/types'
+import type { MarkPaymentPaidDetails, MarkPaymentPaidOutcome } from '../components/payments/types'
+import { toClosedMarkPaidMethodLabel } from '../components/payments/types'
 import { sastYmd } from '../components/payments/types'
 import { isRequiredLookupKey, GLOBAL_CLIENT_ID } from '../data/platformLookups'
 import { agencyOverrideFor } from '../lib/lookups'
@@ -944,7 +945,7 @@ type StoreContextValue = {
   createViewing: (input: Omit<Viewing, 'id' | 'status' | 'attendance' | 'slotId'> & Partial<Pick<Viewing, 'status' | 'attendance' | 'slotId'>>) => Viewing
   updateViewing: (id: string, patch: Partial<Viewing>) => void
   createPayment: (input: Omit<PaymentRecord, 'id' | 'paidAt' | 'method' | 'status'> & Partial<Pick<PaymentRecord, 'status' | 'paidAt' | 'method'>>) => PaymentRecord
-  markPaymentPaid: (id: string, details?: string | MarkPaymentPaidDetails) => Promise<boolean>
+  markPaymentPaid: (id: string, details?: string | MarkPaymentPaidDetails) => Promise<MarkPaymentPaidOutcome>
   /** Mode A: escalate overdue + ensure next Rent rows for Active tenancies (no live bank). */
   runRentCycle: (asOf?: string) => {
     escalated: number
@@ -7044,7 +7045,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     markPaymentPaid: async (id, details = 'EFT') => {
       const opts: MarkPaymentPaidDetails =
         typeof details === 'string' ? { method: details } : (details ?? { method: 'EFT' })
-      const method = opts.method ?? 'EFT'
+      const method = toClosedMarkPaidMethodLabel(opts.method ?? 'EFT')
       const paidAt = opts.paidAt ?? sastYmd()
       const before = state.payments.find((p) => p.id === id)
       if (!before) return false
@@ -7071,12 +7072,27 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         shortfallReason: opts.shortfallReason,
       }
       if (!opts.alreadyPersisted) {
-        const saved = await persistUpsert(
+        const result = await persistUpsertResult(
           'payment',
           id,
           payload as unknown as Record<string, unknown>,
         )
-        if (!saved) return false
+        if (result.ok === false) {
+          if (result.code === 'PAYMENT_REFERENCE_DUPLICATE') {
+            return {
+              ok: false as const,
+              code: 'PAYMENT_REFERENCE_DUPLICATE' as const,
+              message:
+                result.error ||
+                'This reference is already on another payment in your agency. Check it, then confirm to save.',
+              sharedReferenceCount: result.sharedReferenceCount,
+              otherPayments: result.otherPayments ?? [],
+            }
+          }
+          const { reportPersistFailure } = await import('../lib/api/persist')
+          reportPersistFailure({ resource: 'payment', id, action: 'upsert' }, result)
+          return false
+        }
       }
       let paidEvent: PropertyEvent | null = null
       setState((s) => {

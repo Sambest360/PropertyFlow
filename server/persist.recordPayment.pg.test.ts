@@ -895,7 +895,7 @@ describe.skipIf(!url)('A2 record-a-payment: mark-paid rules via the real app, se
 
   it('mutant pin: CASH note-only preserve would fail if plan.reference stayed null', async () => {
     await q(`UPDATE payments SET reference = 'KEEP-ME' WHERE id = $1::uuid`, [PAY.a.id])
-    const res = await mark('adminA', PAY.a, { method: 'CASH', notes: 'cash slip 99', paidAt: todaySast() })
+    const res = await mark('adminA', PAY.a, { method: 'CASH', reference: '', notes: 'cash slip 99', paidAt: todaySast() })
     expect(res.status).toBe(200)
     expect((await row(PAY.a.id))?.reference).toBe('KEEP-ME')
     expect((await row(PAY.a.id))?.reference).not.toBeNull()

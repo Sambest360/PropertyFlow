@@ -1,15 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { PaymentRecord } from '../../types/domain'
 import { formatZAR } from '../../data/seed'
 import { Button, Input, Modal, Select, Textarea } from '../ui'
 import { PaymentAttachmentsField, PaymentAttachmentsList } from './PaymentAttachmentsField'
-import { useLookupOptions } from '../../hooks/useLookupOptions'
 import {
   MARK_PAID_METHOD_LABELS,
-  PAY_METHODS,
   isTenantReportedPayment,
   sastYmd,
+  toClosedMarkPaidMethodLabel,
   type MarkPaymentPaidDetails,
+  type MarkPaymentPaidOutcome,
 } from './types'
 
 const DATE_REASON_CHOICES = [
@@ -20,6 +20,13 @@ const DATE_REASON_CHOICES = [
 
 function cents(v: number): number {
   return Math.round(v * 100)
+}
+
+export type DuplicatePaymentSummary = {
+  id: string
+  type?: string
+  status?: string
+  dueDate?: string
 }
 
 export function MarkPaymentPaidModal({
@@ -35,23 +42,13 @@ export function MarkPaymentPaidModal({
   actorName: string
   confirmLabel?: string
   onClose: () => void
-  onConfirm: (details: MarkPaymentPaidDetails) => void
+  onConfirm: (
+    details: MarkPaymentPaidDetails,
+  ) => void | boolean | MarkPaymentPaidOutcome | Promise<void | boolean | MarkPaymentPaidOutcome>
 }) {
   const confirmingTenant = isTenantReportedPayment(payment)
-  const [method, setMethod] = useState(payment.method ?? 'EFT')
-  const configured = useLookupOptions('PAY_METHOD', payment.agencyId || null)
-  const methods = useMemo(() => {
-    const base = configured.length ? configured.map((o) => o.label) : [...MARK_PAID_METHOD_LABELS]
-    const list = [...base]
-    for (const label of MARK_PAID_METHOD_LABELS) {
-      if (!list.includes(label)) list.push(label)
-    }
-    if (payment.method && !list.includes(payment.method)) list.unshift(payment.method)
-    for (const extra of PAY_METHODS) {
-      if (!list.includes(extra) && configured.length) list.push(extra)
-    }
-    return list
-  }, [configured, payment.method])
+  const [method, setMethod] = useState(toClosedMarkPaidMethodLabel(payment.method))
+  const methods = [...MARK_PAID_METHOD_LABELS]
   const [paidAt, setPaidAt] = useState(confirmingTenant ? '' : sastYmd())
   const [reference, setReference] = useState(payment.reference ?? '')
   const [paidAmount, setPaidAmount] = useState(String(payment.amount))
@@ -60,14 +57,22 @@ export function MarkPaymentPaidModal({
   const [amountChangeReason, setAmountChangeReason] = useState('')
   const [dateReason, setDateReason] = useState('')
   const [dateReasonOther, setDateReasonOther] = useState('')
-  const [createBalance, setCreateBalance] = useState(false)
+  const [createBalance, setCreateBalance] = useState(true)
   const [shortfallReason, setShortfallReason] = useState('')
   const [formError, setFormError] = useState('')
+  const [confirmDuplicate, setConfirmDuplicate] = useState(false)
+  const [duplicateReason, setDuplicateReason] = useState('')
+  const [duplicatePrompt, setDuplicatePrompt] = useState<{
+    message: string
+    sharedReferenceCount?: number
+    otherPayments: DuplicatePaymentSummary[]
+  } | null>(null)
+  const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     if (!open) return
     const confirm = isTenantReportedPayment(payment)
-    setMethod(payment.method ?? 'EFT')
+    setMethod(toClosedMarkPaidMethodLabel(payment.method))
     setPaidAt(confirm ? '' : sastYmd())
     setReference(payment.reference ?? '')
     setPaidAmount(String(payment.amount))
@@ -76,9 +81,13 @@ export function MarkPaymentPaidModal({
     setAmountChangeReason('')
     setDateReason('')
     setDateReasonOther('')
-    setCreateBalance(false)
+    setCreateBalance(true)
     setShortfallReason('')
     setFormError('')
+    setConfirmDuplicate(false)
+    setDuplicateReason('')
+    setDuplicatePrompt(null)
+    setSubmitting(false)
   }, [open, payment])
 
   const enteredAmount = Number.parseFloat(paidAmount)
@@ -86,6 +95,8 @@ export function MarkPaymentPaidModal({
   const amountDiffers = amountOk && cents(enteredAmount) !== cents(payment.amount)
   const shortfall = amountOk && cents(enteredAmount) < cents(payment.amount)
   const overpay = amountOk && cents(enteredAmount) > cents(payment.amount)
+  const balanceCents = shortfall ? cents(payment.amount) - cents(enteredAmount) : 0
+  const balanceZar = formatZAR(balanceCents / 100)
   const dateBeforeCreated = Boolean(paidAt && payment.createdAt && paidAt < payment.createdAt)
 
   // Slice A (server rule A3): a reference (typed, or the stored one shown
@@ -99,10 +110,13 @@ export function MarkPaymentPaidModal({
       dateReason === 'Captured late from statement' ||
       (dateReason === 'Other' && dateReasonOther.trim() !== ''))
   const amountReasonReady = !amountDiffers || amountChangeReason.trim() !== ''
-  const shortfallReady = !createBalance || !shortfall || shortfallReason.trim() !== ''
-  const canMarkPaid = hasEvidence && dateReady && dateReasonReady && amountReasonReady && shortfallReady
+  // Unticked shortfall needs a reason; ticked (default) creates the balance row.
+  const shortfallReady = !shortfall || createBalance || shortfallReason.trim() !== ''
+  const duplicateReady = !duplicatePrompt || confirmDuplicate
+  const canMarkPaid =
+    hasEvidence && dateReady && dateReasonReady && amountReasonReady && shortfallReady && duplicateReady && !submitting
 
-  const submit = () => {
+  const submit = async () => {
     if (!dateReady) {
       setFormError('Date received is required.')
       return
@@ -114,7 +128,7 @@ export function MarkPaymentPaidModal({
         ? `Other: ${dateReasonOther.trim()}`
         : dateReason
       : undefined
-    onConfirm({
+    const details: MarkPaymentPaidDetails = {
       method,
       paidAt,
       reference: reference.trim() || null,
@@ -125,8 +139,27 @@ export function MarkPaymentPaidModal({
       amountChangeReason: amountDiffers ? amountChangeReason.trim() : undefined,
       receivedDateReason,
       createBalanceForShortfall: createBalance && shortfall ? true : undefined,
-      shortfallReason: createBalance && shortfall ? shortfallReason.trim() : undefined,
-    })
+      shortfallReason: shortfall && !createBalance ? shortfallReason.trim() : undefined,
+      confirmDuplicateReference: confirmDuplicate ? true : undefined,
+      duplicateReferenceReason: confirmDuplicate && duplicateReason.trim() ? duplicateReason.trim() : undefined,
+    }
+    setSubmitting(true)
+    setFormError('')
+    try {
+      const outcome = await onConfirm(details)
+      if (outcome && typeof outcome === 'object' && outcome.ok === false && outcome.code === 'PAYMENT_REFERENCE_DUPLICATE') {
+        setDuplicatePrompt({
+          message: outcome.message,
+          sharedReferenceCount: outcome.sharedReferenceCount,
+          otherPayments: outcome.otherPayments ?? [],
+        })
+        setConfirmDuplicate(false)
+        return
+      }
+      // Parent closes on success; stay open on plain false.
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const title = confirmingTenant ? 'Confirm tenant payment' : 'Mark payment as paid'
@@ -145,7 +178,7 @@ export function MarkPaymentPaidModal({
           <Button variant="secondary" className="min-h-11" onClick={onClose}>
             Cancel
           </Button>
-          <Button className="min-h-11" onClick={submit} disabled={!canMarkPaid}>
+          <Button className="min-h-11" onClick={() => void submit()} disabled={!canMarkPaid}>
             {confirmLabel}
           </Button>
         </>
@@ -160,7 +193,7 @@ export function MarkPaymentPaidModal({
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-ink-500">Method</span>
-            <Select className="min-h-11" value={method} onChange={(e) => setMethod(e.target.value)}>
+            <Select className="min-h-11" value={method} onChange={(e) => setMethod(toClosedMarkPaidMethodLabel(e.target.value))}>
               {methods.map((m) => (
                 <option key={m} value={m}>
                   {m}
@@ -269,11 +302,11 @@ export function MarkPaymentPaidModal({
               checked={createBalance}
               onChange={(e) => setCreateBalance(e.target.checked)}
             />
-            <span>Create a balance row for the shortfall (same due date and type).</span>
+            <span>Create a payment for the balance of {balanceZar}</span>
           </label>
         ) : null}
 
-        {shortfall && createBalance ? (
+        {shortfall && !createBalance ? (
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-ink-500">Shortfall reason</span>
             <Input
@@ -282,6 +315,41 @@ export function MarkPaymentPaidModal({
               onChange={(e) => setShortfallReason(e.target.value)}
             />
           </label>
+        ) : null}
+
+        {duplicatePrompt ? (
+          <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50/60 p-3" role="status">
+            <p className="text-sm text-ink">{duplicatePrompt.message}</p>
+            {duplicatePrompt.otherPayments.length ? (
+              <ul className="list-disc space-y-1 pl-5 text-sm text-ink">
+                {duplicatePrompt.otherPayments.map((p) => (
+                  <li key={p.id}>
+                    {p.id}
+                    {p.type ? ` · ${p.type}` : ''}
+                    {p.status ? ` · ${p.status}` : ''}
+                    {p.dueDate ? ` · due ${p.dueDate}` : ''}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <label className="flex items-start gap-2 text-sm text-ink">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={confirmDuplicate}
+                onChange={(e) => setConfirmDuplicate(e.target.checked)}
+              />
+              <span>Yes, this reference is correct</span>
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-ink-500">Why? (optional)</span>
+              <Input
+                className="min-h-11"
+                value={duplicateReason}
+                onChange={(e) => setDuplicateReason(e.target.value)}
+              />
+            </label>
+          </div>
         ) : null}
 
         <p className="text-xs text-ink-500">Recorded by {actorName} (you)</p>

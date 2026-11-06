@@ -37,7 +37,10 @@ const present = (d: Record<string, unknown>, k: string) => d[k] != null && d[k] 
 
 export function normalizeMarkPaidMethod(raw: unknown): string {
   const s = trimmed(raw).toUpperCase().replace(/\s+/g, '_')
-  if (s === 'CARD_AT_THE_OFFICE') return 'CARD_AT_OFFICE'
+  // Q-R1 + Angela: legacy PAY_METHOD labels and underscore variants → closed codes.
+  if (s === 'CARD_AT_THE_OFFICE' || s === 'CARD') return 'CARD_AT_OFFICE'
+  if (s === 'DEBIT_ORDER' || s === 'INSTANT_EFT') return 'EFT'
+  if (s === 'CHEQUE') return 'OTHER'
   return s
 }
 
@@ -296,6 +299,10 @@ export async function enforceRecordPaymentRules(
     if (freshCashRef) {
       reference = typedRef
       referenceSource = 'TYPED'
+    } else if (storedRef) {
+      // Q-R4: stored ref is not CASH evidence, but never wipe it when note-only.
+      reference = storedRef
+      referenceSource = 'STORED'
     }
   } else if (typedRef) {
     reference = typedRef

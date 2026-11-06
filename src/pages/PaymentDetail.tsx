@@ -81,27 +81,31 @@ export default function PaymentDetail() {
   }
 
   const handleMarkPaid = async (details: MarkPaymentPaidDetails) => {
-    if (!payment) return
+    if (!payment) return false
     if (role === 'tenant') {
       void alert.success({
         title: 'Agency records payments',
         text: 'Tenants report a payment by uploading proof. The agency records it as paid.',
         tone: 'warning',
       })
-      return
+      return false
     }
-    if (!canMutate(payment.propertyId)) return
-    const ok = await markPaymentPaid(payment.id, {
+    if (!canMutate(payment.propertyId)) return false
+    const result = await markPaymentPaid(payment.id, {
       ...details,
       recordedByUserId: user.id,
       recordedByName: details.recordedByName ?? user.name,
     })
-    if (!ok) return
+    if (result && typeof result === 'object' && result.ok === false && result.code === 'PAYMENT_REFERENCE_DUPLICATE') {
+      return result
+    }
+    if (result !== true) return false
     setMarkPaidOpen(false)
     void alert.success({
       title: 'Payment marked paid',
       text: 'Payment details recorded.',
     })
+    return true
   }
 
   const handleCancel = () => {

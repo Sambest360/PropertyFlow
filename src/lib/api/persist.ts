@@ -141,6 +141,8 @@ export type PersistRefusal = {
   status: number
   code: string
   message: string
+  sharedReferenceCount?: number
+  otherPayments?: Array<{ id: string; type?: string; status?: string; dueDate?: string }>
 }
 
 /** Window event the store listens to so a coded refusal is never silent. */
@@ -179,9 +181,14 @@ export function parsePersistRefusal(
   // Coded 400 / 403 / 409: a policy refusal the UI must show (toast + refresh).
   if (status !== 400 && status !== 403 && status !== 409) return null
   try {
-    const body = JSON.parse(bodyText) as { code?: unknown; message?: unknown }
+    const body = JSON.parse(bodyText) as {
+      code?: unknown
+      message?: unknown
+      sharedReferenceCount?: unknown
+      otherPayments?: unknown
+    }
     if (typeof body.code !== 'string' || !body.code) return null
-    return {
+    const refusal: PersistRefusal = {
       resource: String(op.resource),
       id: String(op.id),
       action: String(op.action),
@@ -189,6 +196,21 @@ export function parsePersistRefusal(
       code: body.code,
       message: typeof body.message === 'string' ? body.message : body.code,
     }
+    if (typeof body.sharedReferenceCount === 'number') {
+      refusal.sharedReferenceCount = body.sharedReferenceCount
+    }
+    if (Array.isArray(body.otherPayments)) {
+      refusal.otherPayments = body.otherPayments
+        .filter((p): p is Record<string, unknown> => !!p && typeof p === 'object')
+        .map((p) => ({
+          id: typeof p.id === 'string' ? p.id : String(p.id ?? ''),
+          ...(typeof p.type === 'string' ? { type: p.type } : {}),
+          ...(typeof p.status === 'string' ? { status: p.status } : {}),
+          ...(typeof p.dueDate === 'string' ? { dueDate: p.dueDate } : {}),
+        }))
+        .filter((p) => p.id)
+    }
+    return refusal
   } catch {
     return null
   }
@@ -202,7 +224,16 @@ function reportPersistRefusal(refusal: PersistRefusal | null): void {
 }
 
 /** `refused`: the server sent a coded refusal, already shown via PERSIST_REFUSED_EVENT. */
-export type PersistApiResult = { ok: true; uuid?: string } | { ok: false; error?: string; refused?: boolean }
+export type PersistApiResult =
+  | { ok: true; uuid?: string }
+  | {
+      ok: false
+      error?: string
+      refused?: boolean
+      code?: string
+      sharedReferenceCount?: number
+      otherPayments?: Array<{ id: string; type?: string; status?: string; dueDate?: string }>
+    }
 
 /** A save that failed without a coded refusal (5xx, network, uncoded 4xx). */
 export type PersistFailure = { resource: string; id: string; action: string; message: string }
@@ -262,7 +293,18 @@ async function persistViaServerOnce(op: PersistOp): Promise<{ result: PersistApi
       const refusal = parsePersistRefusal(op, res.status, text)
       reportPersistRefusal(refusal)
       const message = messageFromPersistFailure(res.status, contentType, text, refusal?.message)
-      return refusal ? { ok: false, error: message, refused: true } : { ok: false, error: message }
+      return refusal
+        ? {
+            ok: false,
+            error: message,
+            refused: true,
+            code: refusal.code,
+            ...(refusal.sharedReferenceCount != null
+              ? { sharedReferenceCount: refusal.sharedReferenceCount }
+              : {}),
+            ...(refusal.otherPayments ? { otherPayments: refusal.otherPayments } : {}),
+          }
+        : { ok: false, error: message }
     }
     let uuid: string | undefined
     try {
