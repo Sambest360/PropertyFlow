@@ -5,23 +5,14 @@ import './index.css'
 import App from './App.tsx'
 import CrashFallback from './components/CrashFallback.tsx'
 import { scrubEvent } from './lib/monitoring/scrubPii'
+import { handleVitePreloadError } from './reloadOnPreloadError'
 
 /**
  * After a release, a tab opened before it can ask for a page file the new
  * release no longer has. Reload once to pick up the new release instead of
  * showing an error or loading forever (at most once a minute).
  */
-window.addEventListener('vite:preloadError', (event) => {
-  try {
-    const last = Number(sessionStorage.getItem('pf-reloaded-for-release') || 0)
-    if (Date.now() - last < 60_000) return
-    sessionStorage.setItem('pf-reloaded-for-release', String(Date.now()))
-  } catch {
-    /* storage blocked: still reload once */
-  }
-  event.preventDefault()
-  window.location.reload()
-})
+window.addEventListener('vite:preloadError', handleVitePreloadError)
 
 const sentryDsn = import.meta.env.VITE_SENTRY_DSN as string | undefined
 if (sentryDsn) {

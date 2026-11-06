@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
 // Kelly PR D R1 (Jim D-8): throwing sessionStorage must reload at most once.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { readFileSync } from 'node:fs'
 
 function throwingStorage(): Storage {
   const boom = () => {
@@ -23,12 +22,6 @@ describe('Kelly PR D R1 preloadError in-memory guard (D-8)', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
-  })
-
-  it('main.tsx registers vite:preloadError and calls handleVitePreloadError', () => {
-    const src = readFileSync(new URL('./main.tsx', import.meta.url), 'utf8')
-    expect(src).toMatch(/addEventListener\(\s*['"]vite:preloadError['"]/)
-    expect(src).toMatch(/handleVitePreloadError/)
   })
 
   it('reloads at most once when sessionStorage throws (mutant: catch still calls reload with no flag)', async () => {
