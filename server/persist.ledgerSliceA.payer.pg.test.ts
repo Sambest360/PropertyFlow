@@ -336,6 +336,13 @@ describe.skipIf(!url)('Slice A MUST 11: payer check on staff payment saves via t
     expect({ status: res.status, code: res.code, row: await row(PAY.lease.id) }).toEqual({ status: 403, code: 'PAYMENT_PARTY_MISMATCH', row: seededRow(PAY.lease) })
   })
 
+  // Mutant killer: payload names a linked tenancyId, but the stored row is application-tied.
+  // Correct behaviour judges the changed payer against the STORED application (not the payload tenancy).
+  it("M11 RED update naming the lease tenant on an application-tied row while sending that tenancyId: 403 PAYMENT_PARTY_MISMATCH (stored context, not payload)", async () => {
+    const res = await update(PAY.app, { partyUserId: USERS.leaseTenA.fe, tenancyId: LEASE.a1.fe, notes: 'ctx swap' })
+    expect({ status: res.status, code: res.code, row: await row(PAY.app.id) }).toEqual({ status: 403, code: 'PAYMENT_PARTY_MISMATCH', row: seededRow(PAY.app) })
+  })
+
   const passingUpdates: Array<[string, (typeof PAY)[keyof typeof PAY], Record<string, unknown>]> = [
     ['the stored applicant payer (full staff copy)', PAY.app, {}],
     ['the stored lease-tenant payer (full staff copy)', PAY.lease, {}],

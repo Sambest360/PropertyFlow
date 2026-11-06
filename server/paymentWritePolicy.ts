@@ -11,6 +11,7 @@
  *   403 PAYMENT_AGENCY_MISMATCH       another agency's row / unit / ledger
  *   403 PAYMENT_APPLICATION_MISMATCH  applicationId / tenancyId not this unit's
  *   403 PAYMENT_PERMISSION_REQUIRED   no effective payments.manage (or out of scope)
+ *   403 PAYMENT_PARTY_MISMATCH        MUST 11: the payer is not linked to the payment
  *   409 PAYMENT_TERMINAL              the row is PAID
  *   409 PAYMENT_CANCELLED             the row is CANCELLED
  *   400 PAYMENT_PAID_REFERENCE_REQUIRED, PAYMENT_AMOUNT_REASON_REQUIRED
@@ -38,6 +39,7 @@ export type PaymentCode =
   | 'PAYMENT_REFERENCE_INVALID'
   | 'PAYMENT_CARD_NUMBER_REFUSED'
   | 'PAYMENT_REFERENCE_DUPLICATE'
+  | 'PAYMENT_PARTY_MISMATCH'
 
 export function paymentError(
   status: number,
@@ -157,6 +159,7 @@ export async function enforcePaymentCreateScope(
   }
 
   const applicationFe = strOrNull(data.applicationId)
+  let applicationUuid: string | null = null
   if (applicationFe) {
     const appUuid = await resolveUuid('application', applicationFe)
     const app = appUuid && UUID_RE.test(appUuid)
@@ -168,6 +171,7 @@ export async function enforcePaymentCreateScope(
     if (!app) throw deny('PAYMENT_APPLICATION_MISMATCH', 'application does not resolve')
     if (app.client_id !== agencyUuid) throw deny('PAYMENT_APPLICATION_MISMATCH', "application is another agency's")
     if (unitUuid && app.unit_id !== unitUuid) throw deny('PAYMENT_APPLICATION_MISMATCH', 'application is on another unit')
+    applicationUuid = appUuid
     const partyRaw = strOrNull(data.partyUserId)
     if (partyRaw) {
       const party = await resolveUuid('user', partyRaw)
@@ -176,6 +180,7 @@ export async function enforcePaymentCreateScope(
   }
 
   const tenancyRaw = strOrNull(data.tenancyId)
+  let leaseUuidLinked: string | null = null
   if (tenancyRaw) {
     const leaseUuid = await resolveUuid('tenancy', tenancyRaw)
     if (leaseUuid && UUID_RE.test(leaseUuid)) {
@@ -184,9 +189,41 @@ export async function enforcePaymentCreateScope(
         [leaseUuid],
       ))[0]
       if (!lease || lease.client_id !== agencyUuid) throw deny('PAYMENT_APPLICATION_MISMATCH', "lease is not this agency's")
+      leaseUuidLinked = leaseUuid
+    }
+  }
+
+  // MUST 11: a named payer must be linked to this payment (arms a/b/c; users.client_id never a link).
+  const partyRaw = strOrNull(data.partyUserId)
+  if (partyRaw) {
+    const party = await resolveUuid('user', partyRaw)
+    if (!(await payerLinked(party, { agencyUuid, applicationUuid, leaseUuid: leaseUuidLinked }))) {
+      throw deny('PAYMENT_PARTY_MISMATCH', 'payer is not linked to this application, lease or agency')
     }
   }
   return { propertyId, applicationFe }
+}
+
+/**
+ * MUST 11: is the payer linked to the payment's context? One of
+ *   (a) the application's applicant, (b) the lease's tenant,
+ *   (c) the applicant of any application in the payment's agency.
+ * Every arm is pinned to the payment's agency. users.client_id is never a link.
+ */
+export async function payerLinked(
+  party: string | null,
+  ctx: { agencyUuid: string; applicationUuid: string | null; leaseUuid: string | null },
+): Promise<boolean> {
+  if (!party || !UUID_RE.test(party)) return false
+  const rows = await query<{ linked: boolean }>(
+    `SELECT (
+        EXISTS (SELECT 1 FROM applications WHERE $2::uuid IS NOT NULL AND id = $2::uuid AND client_id = $4::uuid AND applicant_id = $1::uuid)
+     OR EXISTS (SELECT 1 FROM leases WHERE $3::uuid IS NOT NULL AND id = $3::uuid AND client_id = $4::uuid AND tenant_id = $1::uuid)
+     OR EXISTS (SELECT 1 FROM applications WHERE client_id = $4::uuid AND applicant_id = $1::uuid)
+     ) AS linked`,
+    [party, ctx.applicationUuid, ctx.leaseUuid, ctx.agencyUuid],
+  )
+  return rows[0]?.linked === true
 }
 
 /**
@@ -259,6 +296,29 @@ export async function enforcePaymentWritePolicy(
   if (!(await deps.canManage())) throw permissionError()
   const terminal = terminalPaymentError(stored.status)
   if (terminal) throw terminal
+  // MUST 11 on update: the stored payer is kept (MUST 1), so only a payload
+  // payer OTHER than the stored one is judged, against the stored context.
+  {
+    const partyRaw = strOrNull(data.partyUserId)
+    if (partyRaw) {
+      const party = await resolveUuid('user', partyRaw)
+      const same = !!party && !!stored.party_user_id && party.toLowerCase() === stored.party_user_id.toLowerCase()
+      if (
+        !same &&
+        !(await payerLinked(party, {
+          agencyUuid: stored.client_id,
+          applicationUuid: stored.application_id,
+          leaseUuid: stored.lease_id,
+        }))
+      ) {
+        throw paymentError(
+          403,
+          'PAYMENT_PARTY_MISMATCH',
+          `Forbidden: ${actor.role} ${actor.userId} cannot ${body.action} payment ${body.id} (payer is not linked to this payment)`,
+        )
+      }
+    }
+  }
   enforceMarkPaidEvidence(stored, data)
   const fromCents = toCents(stored.amount)
   const toCentsValue = toCents(data.amount)

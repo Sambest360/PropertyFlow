@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 /**
  * Ruling 17, Slice A red tests: payment writes through the REAL HTTP app.
@@ -173,7 +173,7 @@ describe.skipIf(!url)('Slice A red tests: /api/persist payment writes via the re
       await q(`INSERT INTO entity_id_map (entity_type, frontend_id, backend_id) VALUES ('payment', $1, $2::uuid)`, [p.fe, p.id])
     }
     await q(`DELETE FROM leases WHERE client_id = ANY($1::uuid[])`, [[A, B]])
-    await q(`DELETE FROM applications WHERE id = $1::uuid`, [APP_A.id])
+    await q(`DELETE FROM applications WHERE id = ANY($1::uuid[])`, [[APP_A.id, 'a5170000-0000-4000-8000-0000000000a3']])
     await q(
       `INSERT INTO applications (id, client_id, unit_id, applicant_id, agent_id, reference_code, application_type, status, submitted_at)
        VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'LDG-A-001', 'RENTAL', 'UNDER_REVIEW', NOW())`,
@@ -201,6 +201,23 @@ describe.skipIf(!url)('Slice A red tests: /api/persist payment writes via the re
     return { status: res.status, code: (json?.code as string | undefined) ?? null, json }
   }
   const persist = (who: UserKey | null, body: Record<string, unknown>) => post('/api/persist', who, body)
+  // MUST 11 control fixture (Slice A, Michael's ruling; added in the MUST 11 commit, not by Angela):
+  // P5 CONTROL, J-U2 CONTROL and J-U2b CONTROL name tenA as the payer. Under MUST 11 a payer must be
+  // linked to the payment, so for those three controls tenA is made a real tenant-applicant of
+  // agency A: an APPROVED application on unit A (link (c)). Payloads and assertions are unchanged;
+  // the row is removed when the test finishes so no other test sees it. resetPayments also deletes it.
+  const TEN_A_APP = 'a5170000-0000-4000-8000-0000000000a3'
+  async function giveTenAnApplicationInA() {
+    await q(`DELETE FROM applications WHERE id = $1::uuid`, [TEN_A_APP])
+    await q(
+      `INSERT INTO applications (id, client_id, unit_id, applicant_id, agent_id, reference_code, application_type, status, submitted_at)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'LDG-A-TEN', 'RENTAL', 'APPROVED', NOW())`,
+      [TEN_A_APP, A, UNIT_A, USERS.tenA.id, USERS.groundA.id],
+    )
+    onTestFinished(async () => {
+      await q(`DELETE FROM applications WHERE id = $1::uuid`, [TEN_A_APP])
+    })
+  }
   const events = async (type: string) =>
     q<{ client_id: string | null; subject_type: string; subject_id: string | null; actor_user_id: string | null; payload: Record<string, unknown> }>(
       `SELECT client_id::text AS client_id, subject_type, subject_id::text AS subject_id, actor_user_id::text AS actor_user_id, payload
@@ -380,6 +397,7 @@ describe.skipIf(!url)('Slice A red tests: /api/persist payment writes via the re
   })
 
   it('P5 CONTROL (green on main): agent_admin of A creates a DUE payment in A\'s own ledger on A\'s unit for A\'s tenant, and it lands in A', async () => {
+    await giveTenAnApplicationInA() // MUST 11 control fixture (see giveTenAnApplicationInA)
     const res = await persist('adminA', {
       resource: 'payment', action: 'upsert', id: NEW_PAY_OK_FE,
       data: { amount: 999, status: 'Due', type: 'Rent', partyName: 'Tenant', dueDate: '2026-11-01', agencyId: AG_A, propertyId: P_A, partyUserId: USERS.tenA.fe },
@@ -611,6 +629,7 @@ describe.skipIf(!url)('Slice A red tests: /api/persist payment writes via the re
   })
 
   it('J-U2 CONTROL (green on main, must stay green; plan A1 "create with no unit, agencyId = actor agency"): agent_admin of A creates a unit-less payment in A with no propertyId and it lands in A with unit_id NULL', async () => {
+    await giveTenAnApplicationInA() // MUST 11 control fixture (see giveTenAnApplicationInA)
     const res = await persist('adminA', {
       resource: 'payment', action: 'upsert', id: 'PAY-ldgNOUNa',
       data: { id: 'PAY-ldgNOUNa', amount: 500, status: 'Due', type: 'Other', partyName: 'Tenant', dueDate: '2026-11-01', agencyId: AG_A, partyUserId: USERS.tenA.fe },
@@ -619,6 +638,7 @@ describe.skipIf(!url)('Slice A red tests: /api/persist payment writes via the re
   })
 
   it('J-U2b CONTROL (green on main, must stay green): agent_admin of A creates in A naming A\'s OWN unit by raw uuid and it lands on unit A', async () => {
+    await giveTenAnApplicationInA() // MUST 11 control fixture (see giveTenAnApplicationInA)
     const res = await createPay('PAY-ldgUUIDa', { agencyId: AG_A, propertyId: UNIT_A, partyUserId: USERS.tenA.fe })
     expect({ status: res.status, stored: await createdBy('PAY-ldgUUIDa') }).toEqual({ status: 200, stored: [{ client_id: A, unit_id: UNIT_A, amount: '777.00' }] })
   })
