@@ -13,7 +13,7 @@ describe('PropertyCreatePage T2 wiring', () => {
   it('has no default type and blocks submit without one', () => {
     expect(src).not.toMatch(/propertyType:\s*'Apartment'/)
     expect(src).toContain('propertyType: INITIAL_WIZARD_PROPERTY_TYPE')
-    expect(src).toMatch(/case 0:\s*return wizardTypeError\(draft\.propertyType\)/)
+    expect(src).toMatch(/case 0:\s*return wizardTypeError\(draft\.propertyType/)
     // Submit itself re-checks the type (and the rooms step) before any save.
     expect(submit).toMatch(/const typeErr = validateStep\(0\) \?\? validateStep\(3\)\s*if \(typeErr\) \{[\s\S]{0,160}return\s*\}/)
   })

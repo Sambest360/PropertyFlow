@@ -91,8 +91,23 @@ export function wizardCreateIdempotencyKey(
 /** T2 (spec r4): a new listing starts with NO property type; the agent must pick one. */
 export const INITIAL_WIZARD_PROPERTY_TYPE = ''
 
-export function wizardTypeError(propertyType: string | null | undefined): string | null {
+export function wizardTypeError(
+  propertyType: string | null | undefined,
+  opts?: { allowBlank?: boolean },
+): string | null {
+  if (opts?.allowBlank && !(propertyType ?? '').trim()) return null
   return propertyType && propertyType.trim() ? null : 'Select a property type.'
+}
+
+/** Display-only hint beside an empty type picker for a listing whose stored type is null. */
+export function suggestedTypeFromTitleHint(
+  property: { type?: string | null; typeInferred?: boolean } | null | undefined,
+  draftPropertyType: string,
+): string | null {
+  if (!property?.typeInferred) return null
+  if ((draftPropertyType ?? '').trim()) return null
+  const label = (property.type ?? '').trim()
+  return label ? `Suggested from title: ${label}` : null
 }
 
 /** Types the wizard always offers (T2), unless the agency hid them. */
@@ -304,7 +319,7 @@ export function draftFromProperty(
   const roomSum = effectiveFloorSizeSqm('', rooms)
   return {
     listingMode: property.listingMode,
-    propertyType: property.type,
+    propertyType: property.typeInferred ? INITIAL_WIZARD_PROPERTY_TYPE : property.type,
     buildingName: building?.name ?? '',
     existingBuildingId: property.buildingId ?? '',
     // The listing address carries a ", <unit>" suffix; edit the building's own address.

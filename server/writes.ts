@@ -38,7 +38,16 @@ import {
   type UnitContext,
 } from './maintenanceRules.js'
 import { checkTicketPhotos } from '../src/lib/photoLimits.js'
-import { propertyTypeToDb } from '../src/lib/propertyType.js'
+import {
+  explicitPersistType,
+  frontendIdForUnit,
+  insertTitleTypeConfirm,
+  isPublicUnitStatus,
+  loadTitleTypeConfirms,
+  titleTypeConfirmError,
+  titleTypeConfirmExists,
+} from './listingTitleTypeConfirm.js'
+import { titleTypeWarning } from '../src/lib/listingSizes.js'
 import { sanitizePipeline } from '../src/lib/pipeline/applicationPipeline.js'
 import { sanitizeLeaseHtml } from '../src/lib/lease/leaseTemplate.js'
 import { notifyWaitlistSpotOpen } from './listingLimits.js'
@@ -1168,7 +1177,9 @@ async function upsertProperty(
     listing_type: string
     agent_id: string | null
     featured: boolean | null
-  }>(`SELECT status_config_key, listing_type, agent_id, featured FROM units WHERE id = $1::uuid`, [uuid])
+    title: string | null
+    property_type: string | null
+  }>(`SELECT status_config_key, listing_type, agent_id, featured, title, property_type FROM units WHERE id = $1::uuid`, [uuid])
   const existingUnit = existingRows[0]
   const storedStatus = (existingUnit?.status_config_key ?? '').toUpperCase()
   const isRestore = d.restore === true
@@ -1198,12 +1209,8 @@ async function upsertProperty(
   }
 
   const unitNumber = str(d.unitNumber ?? d.title, slug).slice(0, 40)
-  // A type the app only guessed (typeInferred, no stored type) is never
-  // saved as if someone had chosen it.
-  const propertyTypeDb =
-    Object.prototype.hasOwnProperty.call(d, 'type') && d.type != null && d.typeInferred !== true
-      ? propertyTypeToDb(str(d.type))
-      : null
+  // Persist any non-empty explicit type; ignore typeInferred; never guess from the title.
+  const propertyTypeDb = explicitPersistType(d)
   // A save that leaves out a size field keeps the stored value (a partial
   // write used to reset bedrooms to 0 and the floor size to nothing).
   const sentSize = (a: string, b: string) => d[a] !== undefined || d[b] !== undefined
@@ -1229,6 +1236,24 @@ async function upsertProperty(
           actorUserId,
         })
 
+  const persistTitle = (d.title != null ? str(d.title, unitNumber) : existingUnit?.title) || str(d.title, unitNumber)
+  const effectiveType = propertyTypeDb ?? existingUnit?.property_type ?? null
+  let pendingTitleTypeConfirm: { title: string; type: string; warning: string } | null = null
+  if (isPublicUnitStatus(statusKey) && persistTitle && effectiveType) {
+    const warning = titleTypeWarning(persistTitle, effectiveType)
+    if (warning) {
+      const prior = await loadTitleTypeConfirms(uuid)
+      if (!titleTypeConfirmExists(prior, persistTitle, effectiveType)) {
+        if (d.titleTypeConfirmed === true) {
+          pendingTitleTypeConfirm = { title: persistTitle, type: effectiveType, warning }
+        } else {
+          throw titleTypeConfirmError(await frontendIdForUnit(uuid).then((id) => id || feId).catch(() => feId))
+        }
+      }
+    }
+  }
+
+  await withTransaction(async () => {
   await query(
     `INSERT INTO units (
        id, building_id, client_id, unit_number, property_type, square_meters, bedrooms, bathrooms, parking,
@@ -1316,6 +1341,17 @@ async function upsertProperty(
   )
   // Separate from square_meters (floor): never merged or summed. No-op while 037 is not applied.
   await writeUnitErfSize(uuid, d)
+  if (pendingTitleTypeConfirm && client) {
+    await insertTitleTypeConfirm({
+      clientId: client,
+      unitId: uuid,
+      actorUserId,
+      title: pendingTitleTypeConfirm.title,
+      type: pendingTitleTypeConfirm.type,
+      warning: pendingTitleTypeConfirm.warning,
+    })
+  }
+  })
   await revokeApplyOverridesForLetStatus(uuid, statusKey)
   return uuid
 }

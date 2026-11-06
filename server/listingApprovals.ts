@@ -10,6 +10,7 @@ import type { Hono } from 'hono'
 import { query } from './db.js'
 import { resolveUuid } from './entityMap.js'
 import { resolveRequestActor } from './requestActor.js'
+import { assertUnitTitleTypeConfirmed } from './listingTitleTypeConfirm.js'
 
 const PUBLIC_KEYS = new Set(['PUBLISHED', 'FEATURED', 'UNDER_OFFER', 'AVAILABLE'])
 
@@ -146,6 +147,47 @@ export function registerListingApprovalRoutes(app: Hono) {
     }
   })
 
+
+export async function applyListingApproval(opts: {
+  unitId: string
+  decision: 'approved' | 'declined'
+  note: string
+  reviewerUserId: string | null
+}): Promise<{ ok: true; status: string }> {
+  const decision = opts.decision
+  const note = String(opts.note ?? '').trim().slice(0, 1000)
+  await ensureListingApprovalsTable()
+  // A15: check before the approval status write so a 409 leaves the request pending.
+  if (decision === 'approved') {
+    await assertUnitTitleTypeConfirmed(opts.unitId)
+  }
+  const rows = await query<{ requested_by: string | null; client_id: string | null; title: string | null }>(
+    `UPDATE listing_approvals a SET status = $2, reviewed_at = NOW(), reviewed_by = $3::uuid, note = NULLIF($4, '')
+       FROM units u WHERE a.unit_id = $1::uuid AND u.id = a.unit_id
+     RETURNING a.requested_by::text AS requested_by, u.client_id::text AS client_id, u.title`,
+    [opts.unitId, decision, opts.reviewerUserId, note],
+  )
+  if (!rows[0]) throw Object.assign(new Error('Not found'), { status: 404 })
+  if (decision === 'approved') {
+    await query(
+      `UPDATE units SET status_config_key = 'PUBLISHED', updated_at = NOW() WHERE id = $1::uuid AND status_config_key IN ('DRAFT', 'OFF_MARKET', 'NOT_LISTED')`,
+      [opts.unitId],
+    )
+  }
+  const title = decision === 'approved' ? 'Listing approved — it is live' : 'Listing not approved'
+  const text =
+    decision === 'approved'
+      ? `"${rows[0].title ?? 'Your listing'}" was approved and is now live.${note ? ` Note: ${note}` : ''}`
+      : `"${rows[0].title ?? 'Your listing'}" was not approved. Reason: ${note}`
+  await query(
+    `INSERT INTO notifications (client_id, user_id, title, body, link_path, resource_type, action_type)
+     SELECT $1::uuid, id, $2, $3, '/workspace/properties', 'property', 'updated' FROM users
+      WHERE active = TRUE AND (id = $4::uuid OR (client_id = $1::uuid AND role IN ('AGENCY_ADMIN', 'AGENT_ADMIN')))`,
+    [rows[0].client_id, title, text, rows[0].requested_by],
+  )
+  return { ok: true, status: decision }
+}
+
   app.post('/api/admin/listing-approvals/:unitId', async (c) => {
     try {
       const actor = await superActor(c)
@@ -156,29 +198,14 @@ export function registerListingApprovalRoutes(app: Hono) {
       const note = String(body.note ?? '').trim().slice(0, 1000)
       if (!decision) return c.json({ ok: false, message: 'decision must be approve or decline' }, 400)
       if (decision === 'declined' && !note) return c.json({ ok: false, message: 'Give a reason for declining.' }, 400)
-      await ensureListingApprovalsTable()
       const reviewer = await resolveUuid('user', actor.userId).catch(() => null)
-      const rows = await query<{ requested_by: string | null; client_id: string | null; title: string | null }>(
-        `UPDATE listing_approvals a SET status = $2, reviewed_at = NOW(), reviewed_by = $3::uuid, note = NULLIF($4, '')
-           FROM units u WHERE a.unit_id = $1::uuid AND u.id = a.unit_id
-         RETURNING a.requested_by::text AS requested_by, u.client_id::text AS client_id, u.title`,
-        [unitId, decision, reviewer, note],
-      )
-      if (!rows[0]) return c.json({ ok: false, message: 'Not found' }, 404)
-      if (decision === 'approved') {
-        await query(`UPDATE units SET status_config_key = 'PUBLISHED', updated_at = NOW() WHERE id = $1::uuid AND status_config_key IN ('DRAFT', 'OFF_MARKET', 'NOT_LISTED')`, [unitId])
-      }
-      const title = decision === 'approved' ? 'Listing approved — it is live' : 'Listing not approved'
-      const text = decision === 'approved'
-        ? `"${rows[0].title ?? 'Your listing'}" was approved and is now live.${note ? ` Note: ${note}` : ''}`
-        : `"${rows[0].title ?? 'Your listing'}" was not approved. Reason: ${note}`
-      await query(
-        `INSERT INTO notifications (client_id, user_id, title, body, link_path, resource_type, action_type)
-         SELECT $1::uuid, id, $2, $3, '/workspace/properties', 'property', 'updated' FROM users
-          WHERE active = TRUE AND (id = $4::uuid OR (client_id = $1::uuid AND role IN ('AGENCY_ADMIN', 'AGENT_ADMIN')))`,
-        [rows[0].client_id, title, text, rows[0].requested_by],
-      )
-      return c.json({ ok: true, status: decision })
+      const result = await applyListingApproval({
+        unitId,
+        decision,
+        note,
+        reviewerUserId: reviewer,
+      })
+      return c.json({ ok: true, status: result.status })
     } catch (err) {
       const s = (err as { status?: number }).status ?? 500
       return c.json({ ok: false, message: err instanceof Error ? err.message : String(err) }, s as 401)

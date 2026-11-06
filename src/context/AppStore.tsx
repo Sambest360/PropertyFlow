@@ -776,6 +776,7 @@ type StoreContextValue = {
     id: string,
     status?: PropertyAsset['status'],
     created?: PropertyAsset,
+    opts?: { titleTypeConfirmed?: boolean },
   ) => Promise<boolean>
   deleteProperty: (
     id: string,
@@ -3783,7 +3784,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     },
     updateProperty: (id, p) => {
       // Choosing a type makes it the listing's own (no longer a guess), so it is saved.
-      if (p.type !== undefined && p.typeInferred === undefined) p = { ...p, typeInferred: false }
+      if (p.type !== undefined && p.typeInferred === undefined) {
+        const chosen = typeof p.type === 'string' && p.type.trim()
+        if (chosen) p = { ...p, typeInferred: false }
+        else {
+          const { type: _omit, ...rest } = p
+          p = rest
+        }
+      }
       const prev = stateRef.current.properties.find((x) => x.id === id)
       let pe: PropertyEvent | null = null
       let unitPatch: Unit | null = null
@@ -3956,7 +3964,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       for (const roomId of removedRoomIds) persistDelete('room', roomId)
       scheduleBootstrapRefreshAfterMutation()
     },
-    publishProperty: async (id, status = 'Published', created?: PropertyAsset) => {
+    publishProperty: async (id, status = 'Published', created?: PropertyAsset, opts?: { titleTypeConfirmed?: boolean }) => {
       let pe: PropertyEvent | null = null
       // P0-publish: read the freshest committed state, not the render-closure
       // snapshot. The wizard calls create → publish in the same tick, so `state`
@@ -4018,10 +4026,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       })
       // P0-5: await property + unit status writes; fail closed before "live".
       if (prev) {
+        const { type: prevType, typeInferred: prevTypeInferred, ...prevRest } = prev
         const propertyOk = await persistUpsert(
           'property',
           id,
-          { ...prev, status, id } as Record<string, unknown>,
+          {
+            ...prevRest,
+            status,
+            id,
+            ...(prevTypeInferred ? {} : prevType ? { type: prevType } : {}),
+            titleTypeConfirmed: opts?.titleTypeConfirmed === true,
+          } as Record<string, unknown>,
         )
         if (!propertyOk) return false
       }
@@ -4029,7 +4044,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         const unitOk = await persistUpsert(
           'unit',
           unitPatch.id,
-          unitPatch as unknown as Record<string, unknown>,
+          {
+            ...(unitPatch as unknown as Record<string, unknown>),
+            titleTypeConfirmed: opts?.titleTypeConfirmed === true,
+          },
         )
         if (!unitOk) return false
       } else if (prev && targetUnitId && PUBLIC_ON.includes(status)) {
@@ -4061,7 +4079,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         const unitOk = await persistUpsert(
           'unit',
           targetUnitId,
-          unitPayload as unknown as Record<string, unknown>,
+          {
+            ...(unitPayload as unknown as Record<string, unknown>),
+            titleTypeConfirmed: opts?.titleTypeConfirmed === true,
+          },
         )
         if (!unitOk) return false
       }

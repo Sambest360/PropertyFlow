@@ -15,14 +15,15 @@ describe('PropertyDetail and publishProperty title/type confirm wiring', () => {
   })
   it('publishProperty puts titleTypeConfirmed on property, unit, AND fallback persist', () => {
     const publish = store.slice(store.indexOf('publishProperty: async'))
-    const both = publish.slice(0, publish.indexOf('deleteProperty:') || 2500)
+    const both = publish.slice(0, publish.indexOf('deleteProperty:') || 8000)
     const flags = both.split('titleTypeConfirmed').length - 1
     expect(flags).toBeGreaterThanOrEqual(3)
     expect(both).toContain('persistUpsert')
   })
   it('AV3-3: publishProperty does not send a prefilled inferred type', () => {
-    const publish = store.slice(store.indexOf('publishProperty: async'), store.indexOf('deleteProperty:'))
-    expect(publish).toMatch(/typeInferred/)
-    expect(publish).not.toMatch(/\{ \.\.\.prev, status, id \}/)
+    const publish = store.slice(store.indexOf('publishProperty: async'))
+    const both = publish.slice(0, publish.indexOf('deleteProperty:') || 8000)
+    expect(both).toMatch(/typeInferred/)
+    expect(both).not.toMatch(/\{ \.\.\.prev, status, id \}/)
   })
 })

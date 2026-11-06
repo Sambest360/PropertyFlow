@@ -43,7 +43,28 @@ export const LAND_ROOM_NAME = 'Land (erf)'
 
 export function propertyTypeLayout(type: string | null | undefined): PropertyTypeLayout {
   const t = (type ?? '').trim().toLowerCase()
-  if (t === 'vacant land' || t === 'land' || t === 'farm') {
+  if (t === 'farm') {
+    return {
+      family: 'residential',
+      title: 'Farm',
+      description: 'Add each room by name and kind. Bedrooms and bathrooms are counted for the listing when you enter them.',
+      stats: ['bedrooms', 'bathrooms', 'parking', 'area'],
+      kinds: plain(ALL_KINDS),
+      showBeds: true,
+      showBaths: true,
+      showFurnished: true,
+      landOnly: false,
+      roomWord: 'room',
+      starterRooms: () => [
+        room('Main bedroom', 'bedroom', 1),
+        room('Bedroom 2', 'bedroom', 1),
+        room('Bathroom', 'bathroom', 0, 1),
+        room('Kitchen', 'kitchen'),
+        room('Lounge', 'living'),
+      ],
+    }
+  }
+  if (t === 'vacant land' || t === 'land') {
     return {
       family: 'land',
       title: 'Land',
@@ -159,4 +180,15 @@ export function roomsLookUntouched(rooms: WizardRoomDraft[]): boolean {
 
 export function kindLabelFor(layout: PropertyTypeLayout, kind: RoomKind): string {
   return layout.kinds.find((k) => k.kind === kind)?.label ?? roomKindLabel(kind)
+}
+
+/** Replace starter rooms when the type is first picked (blank → House) or the family changes. */
+export function shouldReplaceStarterRooms(
+  prevType: string,
+  nextType: string,
+  rooms: WizardRoomDraft[],
+): boolean {
+  if (!roomsLookUntouched(rooms)) return false
+  if (!(prevType ?? '').trim()) return true
+  return propertyTypeLayout(prevType).family !== propertyTypeLayout(nextType).family
 }

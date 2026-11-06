@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react'
 import { Bath, BedDouble, BookOpen, Car, CookingPot, DoorOpen, Ruler, Sofa, UtensilsCrossed, Warehouse } from 'lucide-react'
 import type { Room } from '../../types/domain'
+import { hidesBedsBathsFamily, isFarmType } from '../../lib/listingSizes'
 
 type Tile = { key: string; icon: LucideIcon; label: string; value: string | number }
 
@@ -23,16 +24,20 @@ export function buildRoomTiles(p: {
   garages?: number
   area?: number
   rooms: Room[]
+  type?: string | null
 }): Tile[] {
   // Fall back to the room configuration when the headline counts were never filled in.
   // Bedrooms are rooms, not beds: a bedroom with two beds is still one bedroom.
-  const beds = p.beds || p.rooms.filter(isBedroom).length
-  const baths = p.baths || sum(p.rooms.filter(isBathroom), (r) => r.baths || 1)
+  // T4: a bedroom room with beds: 0 does not count as 1.
+  const beds = p.beds || p.rooms.filter(isBedroom).filter((r) => (Number(r.beds) || 0) > 0).length
+  const baths = p.baths || sum(p.rooms.filter(isBathroom), (r) => Number(r.baths) || 0)
   const garages = p.garages || p.rooms.filter((r) => r.kind === 'garage').length
 
   const tiles: Tile[] = []
-  if (beds > 0) tiles.push({ key: 'beds', icon: BedDouble, label: beds === 1 ? 'Bedroom' : 'Bedrooms', value: beds })
-  if (baths > 0) tiles.push({ key: 'baths', icon: Bath, label: baths === 1 ? 'Bathroom' : 'Bathrooms', value: baths })
+  const hideBeds = hidesBedsBathsFamily(p.type) || (isFarmType(p.type) && !(p.beds > 0))
+  const hideBaths = hidesBedsBathsFamily(p.type) || (isFarmType(p.type) && !(p.baths > 0))
+  if (!hideBeds && beds > 0) tiles.push({ key: 'beds', icon: BedDouble, label: beds === 1 ? 'Bedroom' : 'Bedrooms', value: beds })
+  if (!hideBaths && baths > 0) tiles.push({ key: 'baths', icon: Bath, label: baths === 1 ? 'Bathroom' : 'Bathrooms', value: baths })
   if (garages > 0) tiles.push({ key: 'garages', icon: Warehouse, label: garages === 1 ? 'Garage' : 'Garages', value: garages })
   if (p.parking > 0) tiles.push({ key: 'parking', icon: Car, label: 'Parking', value: p.parking })
   if (p.area && p.area > 0) tiles.push({ key: 'area', icon: Ruler, label: 'Floor area', value: `${p.area} m²` })
