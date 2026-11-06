@@ -1177,9 +1177,7 @@ async function upsertProperty(
     listing_type: string
     agent_id: string | null
     featured: boolean | null
-    title: string | null
-    property_type: string | null
-  }>(`SELECT status_config_key, listing_type, agent_id, featured, title, property_type FROM units WHERE id = $1::uuid`, [uuid])
+  }>(`SELECT status_config_key, listing_type, agent_id, featured FROM units WHERE id = $1::uuid`, [uuid])
   const existingUnit = existingRows[0]
   const storedStatus = (existingUnit?.status_config_key ?? '').toUpperCase()
   const isRestore = d.restore === true
@@ -1236,10 +1234,18 @@ async function upsertProperty(
           actorUserId,
         })
 
-  const persistTitle = (d.title != null ? str(d.title, unitNumber) : existingUnit?.title) || str(d.title, unitNumber)
-  const effectiveType = propertyTypeDb ?? existingUnit?.property_type ?? null
   let pendingTitleTypeConfirm: { title: string; type: string; warning: string } | null = null
-  if (isPublicUnitStatus(statusKey) && persistTitle && effectiveType) {
+  if (isPublicUnitStatus(statusKey)) {
+    const storedTitleType = (
+      await query<{ title: string | null; property_type: string | null }>(
+        `SELECT title, property_type FROM units WHERE id = $1::uuid`,
+        [uuid],
+      )
+    )[0]
+    const persistTitle =
+      (d.title != null ? str(d.title, unitNumber) : storedTitleType?.title) || str(d.title, unitNumber)
+    const effectiveType = propertyTypeDb ?? storedTitleType?.property_type ?? null
+    if (persistTitle && effectiveType) {
     const warning = titleTypeWarning(persistTitle, effectiveType)
     if (warning) {
       const prior = await loadTitleTypeConfirms(uuid)
@@ -1250,6 +1256,7 @@ async function upsertProperty(
           throw titleTypeConfirmError(await frontendIdForUnit(uuid).then((id) => id || feId).catch(() => feId))
         }
       }
+    }
     }
   }
 
