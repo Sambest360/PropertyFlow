@@ -44,7 +44,7 @@ import { Button, Input, Select } from '../../components/ui'
 import { FormLabel, FieldHelp } from '../../components/onboarding/FieldHelp'
 import { uid } from '../../data/seed'
 import { type RoomKind } from '../../data/infrastructure'
-import { ZONING_OPTIONS, kindLabelFor, propertyTypeLayout, roomsLookUntouched } from '../../lib/propertyTypeLayout'
+import { ZONING_OPTIONS, kindLabelFor, propertyTypeLayout, shouldReplaceStarterRooms } from '../../lib/propertyTypeLayout'
 import { isFieldAgent } from '../../lib/permissions'
 import { pruneAmenitiesForMode } from '../../lib/propertyFeatures'
 import { readReturnTo } from '../../lib/returnTo'
@@ -56,6 +56,7 @@ import {
   ERF_SIZE_LABEL,
   FLOOR_SIZE_LABEL,
   effectiveFloorSizeSqm,
+  titleTypeConfirmPrompt,
   titleTypeWarning,
 } from '../../lib/listingSizes'
 import { erfSizeFieldState, useUnitErfSizeSupported } from '../../lib/unitErfSizeSupport'
@@ -76,13 +77,12 @@ import {
   clearUnfurnishedListingPreset,
   draftAfterAmenitiesChange,
   draftFromProperty,
-  defaultWizardRooms,
   emptyWizardAsset,
   type PropertyWizardDraft as PropertyDraft,
   type WizardAssetDraft,
-  type WizardRoomDraft as RoomDraft,
   wizardCreateIdempotencyKey,
   INITIAL_WIZARD_PROPERTY_TYPE,
+  suggestedTypeFromTitleHint,
   wizardRoomRowsForSave,
   wizardRoomsStepError,
   wizardSizesForSave,
@@ -96,7 +96,7 @@ import { acquireSubmitLock, releaseSubmitLock } from '../../lib/wizardSubmitGuar
 import { nextUniquePropertyId } from '../../lib/listingIds'
 import { shouldRetainWizardDraftPropertyId, shouldStartFreshWizard } from '../../lib/propertyWizardResume'
 import { propertyIdFromCreateError } from '../../lib/createPropertyBundleError'
-import { sweetError, sweetSuccess, sweetWarning } from '../../lib/sweetAlert'
+import { sweetError, sweetSuccess, sweetTitleTypeConfirm, sweetWarning } from '../../lib/sweetAlert'
 import { PropertyLoader } from '../../components/loading/PropertyLoader'
 import { isLoadSheddingFreeListing, withLoadSheddingFree } from '../../lib/loadShedding'
 import { publishRequestMessage, requestListingPublish } from '../../lib/publishRequest'
@@ -167,10 +167,6 @@ function roomCountsForKind(
     return { beds: 0, baths: current.baths > 0 ? current.baths : 1 }
   }
   return { beds: 0, baths: 0 }
-}
-
-function defaultRooms(): RoomDraft[] {
-  return defaultWizardRooms()
 }
 
 export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string }) {
@@ -253,7 +249,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     buildingImages: [],
     title: '',
     parking: 1,
-    rooms: defaultRooms(),
+    rooms: [],
     amenities: ['Fibre', 'Parking'],
     price: '',
     rent: '',
@@ -591,11 +587,10 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   const lastTypeRef = useRef(draft.propertyType)
   useEffect(() => {
     if (lastTypeRef.current === draft.propertyType) return
-    const prevFamily = propertyTypeLayout(lastTypeRef.current).family
+    const prevType = lastTypeRef.current
     lastTypeRef.current = draft.propertyType
-    if (prevFamily === typeLayout.family) return
     setDraft((d) =>
-      typeLayout.landOnly || roomsLookUntouched(d.rooms)
+      typeLayout.landOnly || shouldReplaceStarterRooms(prevType, draft.propertyType, d.rooms)
         ? { ...d, rooms: typeLayout.starterRooms(), ...(typeLayout.landOnly ? { parking: 0 } : {}) }
         : d,
     )
@@ -673,7 +668,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
   function validateStep(index: number): string | null {
     switch (index) {
       case 0:
-        return wizardTypeError(draft.propertyType)
+        return wizardTypeError(draft.propertyType, { allowBlank: Boolean(isEdit && editProperty?.typeInferred) })
       case 1:
         if (!draft.buildingName.trim() && !draft.existingBuildingId) return 'Enter a building name or pick an existing building.'
         if (!draft.address.trim()) return 'Street address is required.'
@@ -786,7 +781,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
           ? draft.agentId || user.id
           : assignedAgentId || null,
       title,
-      type: draft.propertyType,
+      type: draft.propertyType.trim() ? draft.propertyType : undefined,
       listingMode: draft.listingMode,
       // Only agency staff set the per-unit viewing rule; a landlord's save
       // leaves the stored value alone (the server refuses a landlord change).
@@ -987,6 +982,19 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       if (fromReview) goTo(validateStep(0) ? 0 : 3)
       return
     }
+    let titleTypeConfirmed = false
+    if (willPublish) {
+      const prompt = titleTypeConfirmPrompt(draft.title, draft.propertyType)
+      if (prompt) {
+        const choice = await sweetTitleTypeConfirm('Title and type do not match', prompt)
+        if (choice === 'change') {
+          goTo(0)
+          return
+        }
+        if (choice !== 'publish') return
+        titleTypeConfirmed = true
+      }
+    }
     const err = validateStep(6)
     if (err) {
       await sweetWarning('Check assignment & title', err)
@@ -1120,7 +1128,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
       // P0-publish (R7): pass the same-tick created snapshot so publish can
       // resolve the new property before React re-renders; a false result
       // means the listing did not go live.
-      const published = await publishProperty(propertyId, 'Published', createdProperty)
+      const published = await publishProperty(propertyId, 'Published', createdProperty, titleTypeConfirmed ? { titleTypeConfirmed: true } : undefined)
       if (!published) {
         await sweetWarning(
           'Saved as draft',
@@ -1240,6 +1248,12 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
                 onChange={(propertyType) => setDraft((d) => ({ ...d, propertyType }))}
                 columns={3}
               />
+              {suggestedTypeFromTitleHint(editProperty, draft.propertyType) ? (
+                <p className="mt-2 text-sm text-ink-400">
+                  {/* Suggested from title: display-only; never written into draft.propertyType */}
+                  {suggestedTypeFromTitleHint(editProperty, draft.propertyType)}
+                </p>
+              ) : null}
             </div>
           </WizardSectionCard>
         )

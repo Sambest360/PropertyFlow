@@ -21,7 +21,7 @@ import { useWishlist } from '../hooks/useWishlist'
 import { canonicalListingId } from '../lib/listingIds'
 import { propertyListingRating } from './reviews/StarRating'
 import { isLoadSheddingFreeListing } from '../lib/loadShedding'
-import { bedsLabel, listingSizeFacts } from '../lib/listingSizes'
+import { bedsLabel, hidesBedsBathsFamily, listingSizeFacts, typeForBedsDisplay } from '../lib/listingSizes'
 
 export function PropertyCard({
   property,
@@ -121,8 +121,8 @@ export function PropertyCard({
   const highlightFeatures = property.amenities.slice(0, 3)
   // T2: floor (square_meters) and erf are separate facts; unset sizes are hidden.
   const sizes = listingSizeFacts({ floorSqm: area, erfSqm: property.erfSizeSqm })
-  // "Bachelor/Studio" only for a type someone chose, not a guessed one.
-  const bedFact = bedsLabel(property.typeInferred ? null : property.type, beds)
+  // Inferred 0-bed residential suppresses Bachelor/Studio; resolved type still hides commercial leftovers.
+  const bedFact = bedsLabel(typeForBedsDisplay({ type: property.type, typeInferred: property.typeInferred, beds }), beds)
 
   return (
     <Link to={href} className={cn('group block animate-slide-up', className)}>
@@ -270,7 +270,7 @@ export function PropertyCard({
                 <BedDouble className="h-3.5 w-3.5" /> {bedFact}
               </span>
             )}
-            {baths > 0 && (
+            {baths > 0 && !hidesBedsBathsFamily(property.type) && (
               <span className="inline-flex items-center gap-1">
                 <Bath className="h-3.5 w-3.5" /> {baths} bath
               </span>

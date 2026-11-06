@@ -33,6 +33,7 @@ import {
 import type { AssetCondition } from '../data/infrastructure'
 import { isVerificationApproved } from '../lib/verification'
 import { validatePropertyReadyToPublish } from '../lib/propertyStatus'
+import { titleTypeConfirmPrompt } from '../lib/listingSizes'
 import { resolveInfraRoomsForUnit } from '../lib/infraRoomsFromBootstrap'
 import {
   getGuestMarketplaceBlockReason,
@@ -44,7 +45,7 @@ import {
   getPropertyDeleteBlockReason,
   isPropertyDeleted,
 } from '../lib/propertyDeletion'
-import { sweetConfirm, sweetSuccess, sweetWarning } from '../lib/sweetAlert'
+import { sweetConfirm, sweetSuccess, sweetTitleTypeConfirm, sweetWarning } from '../lib/sweetAlert'
 import { publishRequestMessage, requestListingPublish } from '../lib/publishRequest'
 import { canFeatureListing } from '../lib/featuredRanking'
 
@@ -322,9 +323,18 @@ export default function PropertyDetail() {
       )
       if (!proceed) return
     }
+    const prompt = titleTypeConfirmPrompt(p.title, p.typeInferred ? '' : p.type)
+    if (prompt) {
+      const choice = await sweetTitleTypeConfirm('Title and type do not match', prompt)
+      if (choice === 'change') {
+        navigate(`/workspace/properties/${p.id}/edit`)
+        return
+      }
+      if (choice !== 'publish') return
+    }
     setPublishBusy(true)
     try {
-      const published = await publishProperty(p.id, 'Published')
+      const published = await publishProperty(p.id, 'Published', undefined, prompt ? { titleTypeConfirmed: true } : undefined)
       if (!published) {
         await sweetWarning(
           'Could not publish',

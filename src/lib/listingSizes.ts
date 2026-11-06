@@ -62,11 +62,43 @@ export function isResidentialType(type: string | null | undefined): boolean {
   return RESIDENTIAL.has((type ?? '').trim().toLowerCase().replace(/\s+/g, '_'))
 }
 
-/** Card bed fact: "N bed", "Bachelor/Studio" for a residential type with 0 bedrooms, else nothing. */
+const HIDE_BEDS_BATHS = new Set(['office', 'commercial', 'industrial', 'warehouse', 'retail', 'vacant land', 'land'])
+
+function typeKey(type: string | null | undefined): string {
+  return (type ?? '').trim().toLowerCase()
+}
+
+/** Commercial and vacant-land families never show leftover bed/bath counts. Farm is not in this set. */
+export function hidesBedsBathsFamily(type: string | null | undefined): boolean {
+  return HIDE_BEDS_BATHS.has(typeKey(type))
+}
+
+export function isFarmType(type: string | null | undefined): boolean {
+  return typeKey(type) === 'farm'
+}
+
+/** Card bed fact: "N bed", "Bachelor/Studio" for a chosen residential type with 0 bedrooms, else nothing. */
 export function bedsLabel(type: string | null | undefined, beds: number | null | undefined): string | null {
   const n = Number(beds) || 0
+  if (hidesBedsBathsFamily(type)) return null
+  if (isFarmType(type)) return n > 0 ? `${n} bed` : null
   if (n > 0) return `${n} bed`
   return isResidentialType(type) ? BACHELOR_STUDIO : null
+}
+
+/**
+ * Type passed into bedsLabel / listingDetailFacts so an inferred 0-bed
+ * residential listing does not say Bachelor/Studio, while inferred
+ * commercial / Farm / Vacant Land still use the resolved type to hide or show.
+ */
+export function typeForBedsDisplay(p: {
+  type?: string | null
+  typeInferred?: boolean
+  beds?: number | null
+}): string | null {
+  const type = (p.type ?? '').trim() || null
+  if (p.typeInferred && !(Number(p.beds) || 0) && isResidentialType(type)) return null
+  return type
 }
 
 export function formatSqm(n: number): string {
@@ -97,10 +129,12 @@ export function listingDetailFacts(p: {
   rooms: unknown[]
 }): { summary: string[]; bedroomsValue: number | string } {
   const sizes = listingSizeFacts({ floorSqm: p.area, erfSqm: p.erfSizeSqm })
-  const studio = p.beds > 0 ? null : bedsLabel(p.type, 0)
+  const hideBeds = hidesBedsBathsFamily(p.type) || (isFarmType(p.type) && !(p.beds > 0))
+  const hideBaths = hidesBedsBathsFamily(p.type) || (isFarmType(p.type) && !(p.baths > 0))
+  const studio = hideBeds || p.beds > 0 ? null : bedsLabel(p.type, 0)
   const summary = [
-    p.beds > 0 ? `${p.beds} bedrooms` : studio,
-    p.baths > 0 ? `${p.baths} bathrooms` : null,
+    hideBeds ? null : p.beds > 0 ? `${p.beds} bedrooms` : studio,
+    hideBaths ? null : p.baths > 0 ? `${p.baths} bathrooms` : null,
     `${p.parking} parking`,
     sizes.floor ? `${sizes.floor} floor` : null,
     sizes.erf,
@@ -129,6 +163,20 @@ export function titleTypeWarning(title: string | null | undefined, type: string 
     const m = w.re.exec(title)
     if (m && !w.fits.includes(slug)) {
       return `The title says "${m[0].toLowerCase()}" but the property type is ${t}. Check the type before you save (this will not stop the save).`
+    }
+  }
+  return null
+}
+
+/** Short publish-dialog sentence (addendum1). Never includes the draft "will not stop the save" wording. */
+export function titleTypeConfirmPrompt(title: string | null | undefined, type: string | null | undefined): string | null {
+  const t = (type ?? '').trim()
+  if (!t || !title) return null
+  const slug = t.toLowerCase().replace(/\s+/g, '_')
+  for (const w of TITLE_WORDS) {
+    const m = w.re.exec(title)
+    if (m && !w.fits.includes(slug)) {
+      return `The title says "${m[0].toLowerCase()}" but the type is ${t}.`
     }
   }
   return null

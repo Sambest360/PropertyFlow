@@ -125,3 +125,24 @@ function escapeHtml(value: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
 }
+
+/** Publish dialog: Change type is the default-focus button; Publish anyway is deny. */
+export async function sweetTitleTypeConfirm(
+  title: string,
+  text: string,
+): Promise<'change' | 'publish' | 'dismiss'> {
+  const result = await fire({
+    icon: 'question',
+    title,
+    text,
+    showCancelButton: true,
+    showDenyButton: true,
+    confirmButtonText: 'Change type',
+    denyButtonText: 'Publish anyway',
+    cancelButtonText: 'Cancel',
+    focusConfirm: true,
+  })
+  if (result.isConfirmed) return 'change'
+  if (result.isDenied) return 'publish'
+  return 'dismiss'
+}

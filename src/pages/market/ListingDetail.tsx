@@ -56,7 +56,7 @@ import { fetchApplyEligibility } from '../../lib/api/viewingApply'
 import { formatEmploymentSummary } from '../../lib/employmentDisplay'
 import { prefillEnquiryContact } from './listingEnquiryPrefill'
 import { publicAreaLabel, toPublicListing } from '../../lib/publicLocation'
-import { listingDetailFacts } from '../../lib/listingSizes'
+import { listingDetailFacts, typeForBedsDisplay } from '../../lib/listingSizes'
 import { propertyTypeFromText } from '../../lib/propertyType'
 
 type EnquiryIntent = 'lead' | 'viewing'
@@ -899,11 +899,11 @@ export default function ListingDetail() {
                 </Link>
               ) : null}
               <p className="text-sm text-ink-500">
-                {listingDetailFacts({ ...p, beds: shownBeds, type: p.typeInferred ? '' : p.type }).summary.join(' · ')}
+                {listingDetailFacts({ ...p, beds: shownBeds, type: typeForBedsDisplay(p) }).summary.join(' · ')}
               </p>
             </div>
 
-            <RoomsAndFeatures beds={p.beds} baths={p.baths} parking={p.parking} garages={p.garages} area={p.area} rooms={p.rooms} />
+            <RoomsAndFeatures type={p.type} beds={p.beds} baths={p.baths} parking={p.parking} garages={p.garages} area={p.area} rooms={p.rooms} />
 
             <div className="border-b border-primary-100 py-6">
               <h2 className="text-lg font-semibold">About this property</h2>

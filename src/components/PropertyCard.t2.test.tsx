@@ -76,3 +76,47 @@ describe('T2 card (spec r4): type, sizes, Bachelor/Studio', () => {
     expect(t).not.toContain('Erf')
   })
 })
+
+describe('T-bath / A16: non-residential cards hide the bath span (Farm keeps a count above 0)', () => {
+  it('an Industrial card with baths=1 shows no bath span', () => {
+    const t = text({ type: 'Industrial', beds: 1, baths: 1, area: 217 })
+    expect(t).not.toMatch(/\b1 bath\b/)
+    expect(t).not.toMatch(/\b1 bed\b/)
+  })
+  it('A16: a Farm card with 4 beds and 2 baths shows them', () => {
+    const t = text({ type: 'Farm', beds: 4, baths: 2, area: 20000 })
+    expect(t).toMatch(/\b4 bed\b/)
+    expect(t).toMatch(/\b2 bath\b/)
+  })
+  it('A16: a Farm card with 0 beds and 0 baths hides them', () => {
+    const t = text({ type: 'Farm', beds: 0, baths: 0, area: 20000 })
+    expect(t).not.toMatch(/\b0 bed\b/)
+    expect(t).not.toMatch(/\bbath\b/)
+    expect(t).not.toContain('Bachelor/Studio')
+  })
+  it('A16: Vacant Land with a stray bath count still hides the bath span', () => {
+    const t = text({ type: 'Vacant Land', beds: 2, baths: 1, area: 1000 })
+    expect(t).not.toMatch(/\b1 bath\b/)
+    expect(t).not.toMatch(/\b2 bed\b/)
+  })
+})
+
+
+describe('Q2 / D2: inferred listings hide studio and leftover commercial counts', () => {
+  it('does not show Bachelor/Studio for an inferred 0-bed residential listing', () => {
+    const t = text({ type: 'House', beds: 0, baths: 0, typeInferred: true, title: '3 Bedroom House to Rent in Pinelands' })
+    expect(t).not.toContain('Bachelor/Studio')
+  })
+  it('hides leftover bed and bath counts on an inferred commercial listing', () => {
+    const t = text({ type: 'Industrial', beds: 1, baths: 1, typeInferred: true })
+    expect(t).not.toMatch(/\b1 bed\b/)
+    expect(t).not.toMatch(/\b1 bath\b/)
+  })
+  it('still shows beds on an inferred Farm with a count above 0', () => {
+    const t = text({ type: 'Farm', beds: 4, baths: 2, typeInferred: true })
+    expect(t).toMatch(/\b4 bed\b/)
+  })
+  it('a chosen House with 0 beds still shows Bachelor/Studio', () => {
+    expect(text({ type: 'House', beds: 0, typeInferred: false })).toContain('Bachelor/Studio')
+  })
+})

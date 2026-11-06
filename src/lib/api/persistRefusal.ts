@@ -55,6 +55,9 @@ export function persistRefusalMessage(r: PersistRefusal, role?: string | null): 
   if (r.code === 'EVENT_LOG_AGENCY_MISMATCH') {
     return "This record belongs to another agency and can't be changed. Your page has been refreshed."
   }
+  if (r.code === 'TITLE_TYPE_CONFIRMATION_REQUIRED') {
+    return "The listing title and the chosen type don't match. Change the type, or confirm you want to publish with this title."
+  }
   const payment = PAYMENT_REFUSALS[r.code]
   if (payment) return payment
   return `This change was refused (${r.code}). Your page has been refreshed with the saved version.`
