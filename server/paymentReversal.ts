@@ -15,14 +15,12 @@ import type { Context, Hono } from 'hono'
 import { afterCommit, databaseConfigured, databaseConfigError, query, withTransaction } from './db.js'
 import { resolveUuid, resolveFrontendId, isUuid } from './entityMap.js'
 import type { DemoActor } from './actor.js'
-import { actorRequiredError } from './actor.js'
-import { resolveRequestActor } from './requestActor.js'
-import { agencyFeId, enrichActor } from './scopeGate.js'
-import { resolveSessionUser } from './auth.js'
+import { actorRequiredError, parseDemoActor } from './actor.js'
+import { agencyFeId, enrichActor, resolveActorEffectiveCan } from './scopeGate.js'
+import { actorFromSession, resolveSessionUser } from './auth.js'
 import { ensureNotificationEmailColumns } from './notificationMailer.js'
 import { sendTemplateEmail } from './email/templates.js'
-import { effectiveCan, normalizeStoredPermissions } from '../src/lib/permissions.js'
-import type { Permission, Role } from '../src/types/domain.js'
+import type { Role } from '../src/types/domain.js'
 
 /* ------------------------------- constants ------------------------------- */
 
@@ -55,6 +53,12 @@ const TICKET_MAX = 120
 const TZ = 'Africa/Johannesburg'
 const TENANT_LINK = '/workspace/portals/tenant/payments'
 const IMPERSONATED_ID_RE = /^[\w-]{1,64}$/
+
+/** R2: only a plain front-end id that differs from the real session is stored. */
+export function storedImpersonatedUserId(sessionFrontendId: string, headerUserId: string | null | undefined): string | null {
+  if (!headerUserId || headerUserId === sessionFrontendId) return null
+  return IMPERSONATED_ID_RE.test(headerUserId) ? headerUserId : null
+}
 
 /* --------------------------------- errors -------------------------------- */
 
@@ -272,54 +276,14 @@ export function allowListPayload(
 
 const cents = (v: string | number | null | undefined): number | null => (v == null ? null : Math.round(Number(v) * 100))
 
-/* --------------------- SEAM(slice-a): effective permission ---------------- */
-
-function permissionList(v: unknown): Permission[] | null {
-  return Array.isArray(v) && v.length ? (v.filter((p) => typeof p === 'string') as Permission[]) : null
+async function actorCanManagePayments(actor: DemoActor): Promise<boolean> {
+  return resolveActorEffectiveCan(actor, 'payments.manage')
 }
-
-/**
- * // SEAM(slice-a): local copy of main's resolveActorUsersManage
- * (server/scopeGate.ts:1101-1132 at 9e1d072) with 'payments.manage'.
- * Slice A adds resolveActorEffectiveCan(actor, permission)
- * (slice-a scopeGate.ts:1114). At the fresh head after Slice A merges this
- * copy is deleted and the call below becomes
- * resolveActorEffectiveCan(actor, 'payments.manage'). Uses the exported
- * agencyFeId in place of main's private agencyFe (same result).
- */
-export async function actorCanManagePayments(actor: DemoActor): Promise<boolean> {
-  if (actor.role === 'super_admin') return true
-  const agency = await agencyFeId(actor.agencyId)
-  let agencyEnabled: Permission[] | null = null
-  if (agency) {
-    const clientUuid = await resolveUuid('agency', agency)
-    if (clientUuid) {
-      const rows = await query<{ enabled: unknown; version: unknown }>(
-        `SELECT settings->'enabledPermissions' AS enabled, settings->'permissionsVersion' AS version
-           FROM clients WHERE id = $1::uuid LIMIT 1`,
-        [clientUuid],
-      )
-      agencyEnabled = normalizeStoredPermissions(permissionList(rows[0]?.enabled), rows[0]?.version)
-    }
-  }
-  let userEnabled: Permission[] | null = null
-  const userUuid = await resolveUuid('user', actor.userId)
-  if (userUuid) {
-    const rows = await query<{ enabled: unknown; version: unknown }>(
-      `SELECT metadata->'enabledPermissions' AS enabled, metadata->'permissionsVersion' AS version
-         FROM users WHERE id = $1::uuid LIMIT 1`,
-      [userUuid],
-    )
-    userEnabled = normalizeStoredPermissions(permissionList(rows[0]?.enabled), rows[0]?.version)
-  }
-  return effectiveCan(actor.role, 'payments.manage', agencyEnabled, userEnabled)
-}
-// END SEAM(slice-a)
 
 /* ------------------------------ actor context ----------------------------- */
 
 export type ReversalActor = {
-  /** The actor whose role and agency apply (the impersonated user while impersonating). */
+  /** The real signed-in actor (the super_admin while impersonating). */
   actor: DemoActor
   /** A super_admin session (direct or impersonating): break-glass, section 2.1. */
   breakGlass: boolean
@@ -330,21 +294,19 @@ export type ReversalActor = {
 }
 
 async function reversalActor(c: Context): Promise<ReversalActor> {
-  const raw = await resolveRequestActor(c, null)
-  if (!raw) throw actorRequiredError()
-  const actor = await enrichActor(raw)
-  const session = await resolveSessionUser(c).catch(() => null)
-  const sessionSuper = session?.role === 'super_admin'
-  const breakGlass = actor.role === 'super_admin' || sessionSuper
-  let impersonatedUserId: string | null = null
-  if (sessionSuper && session && raw.userId !== session.frontendId && raw.userId !== session.id) {
-    impersonatedUserId = IMPERSONATED_ID_RE.test(raw.userId) ? raw.userId : null
-  }
-  const realUserUuid = sessionSuper && session ? session.id : await resolveUuid('user', actor.userId)
+  // R2: resolve the REAL session, not requestActor (which returns the impersonated user).
+  const session = await resolveSessionUser(c)
+  if (!session) throw actorRequiredError()
+  const actor = await enrichActor(actorFromSession(session))
+  const breakGlass = actor.role === 'super_admin'
+  const impersonatedUserId = breakGlass
+    ? storedImpersonatedUserId(session.frontendId, parseDemoActor(c, null)?.userId ?? null)
+    : null
+  const realUserUuid = session.id
   return {
     actor,
     breakGlass,
-    realUserUuid: realUserUuid && isUuid(realUserUuid) ? realUserUuid : null,
+    realUserUuid: isUuid(realUserUuid) ? realUserUuid : null,
     actorRole: breakGlass ? 'super_admin' : actor.role,
     impersonatedUserId,
   }
@@ -693,6 +655,8 @@ export type HistoryEntry = {
   reasonKind: string | null
   reason: string | null
   referenceLast4: string | null
+  /** Count of in-app admin notices written; null when the audit row has no such key. */
+  adminsNotified: number | null
 }
 
 export async function paymentHistory(ra: ReversalActor, feId: string): Promise<{ ok: true; history: HistoryEntry[] }> {
@@ -719,6 +683,7 @@ export async function paymentHistory(ra: ReversalActor, feId: string): Promise<{
     history: events.map((e) => {
       const p = e.payload ?? {}
       const str = (v: unknown) => (typeof v === 'string' ? v : null)
+      const notified = p.adminsNotified
       return {
         id: e.id,
         type: e.event_type,
@@ -727,6 +692,7 @@ export async function paymentHistory(ra: ReversalActor, feId: string): Promise<{
         reasonKind: str(p.reasonKind),
         reason: str(p.reason),
         referenceLast4: str(p.originalReferenceLast4) ?? referenceLast4(str(p.reference)),
+        adminsNotified: typeof notified === 'number' && Number.isFinite(notified) ? notified : null,
       }
     }),
   }

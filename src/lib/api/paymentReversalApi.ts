@@ -88,6 +88,8 @@ export type HistoryEntry = {
   reasonKind: string | null
   reason: string | null
   referenceLast4: string | null
+  /** Raw count from the audit; the line wording is historyLine, not this number. */
+  adminsNotified?: number | null
 }
 
 /** A uuid made when the dialog opens: a double click sends the same one (spec 8). */
@@ -174,7 +176,16 @@ export function historyLine(e: HistoryEntry): string {
   const who = e.actorName || 'an admin'
   const reason = e.reason ? `: ${e.reason}` : ''
   const ref = e.referenceLast4 ? ` (reference …${e.referenceLast4})` : ''
-  return `${verb} by ${who} on ${date}${reason}${ref}`
+  const n = e.adminsNotified
+  const notified =
+    typeof n !== 'number' || !Number.isFinite(n)
+      ? ''
+      : n === 0
+        ? '. No other admin notified'
+        : n === 1
+          ? '. 1 other admin notified'
+          : `. ${n} other admins notified`
+  return `${verb} by ${who} on ${date}${reason}${ref}${notified}`
 }
 
 /** Client-side form check (the server re-checks): returns the sentence to show, or null when the form can be sent. */

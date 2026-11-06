@@ -687,5 +687,17 @@ describe.skipIf(!url)('admin reversal Step 1: real app, session and Postgres', (
   })
 
   // ---- row 29 T-V17 (pin) ---------------------------------------------------
-  it.todo('T-V17 (pin, at the fresh head after Slice A): /api/persist on a PAID row still gives 409 PAYMENT_TERMINAL (Slice A paymentWritePolicy.ts)')
+  it('T-V17 (pin): persist on a PAID row is 409 PAYMENT_TERMINAL and persist on a CANCELLED row is 409 PAYMENT_CANCELLED; reverse and reopen still work', async () => {
+    const paid = await seedPayment(q)
+    const persistPaid = await call('POST', '/api/persist', 'caA1', { resource: 'payment', action: 'delete', id: paid.fe })
+    expect([persistPaid.status, persistPaid.code, (await paymentRow(q, paid.uuid))?.status]).toEqual([409, 'PAYMENT_TERMINAL', 'PAID'])
+    expect((await reverse('caA1', paid.fe, revBody(paid))).status).toBe(200)
+    expect((await paymentRow(q, paid.uuid))?.status).toBe('DUE')
+
+    const cancelled = await seedPayment(q, { status: 'CANCELLED' })
+    const persistCan = await call('POST', '/api/persist', 'caA1', { resource: 'payment', action: 'delete', id: cancelled.fe })
+    expect([persistCan.status, persistCan.code, (await paymentRow(q, cancelled.uuid))?.status]).toEqual([409, 'PAYMENT_CANCELLED', 'CANCELLED'])
+    expect((await reopen('caA1', cancelled.fe, reoBody(cancelled))).status).toBe(200)
+    expect((await paymentRow(q, cancelled.uuid))?.status).toBe('DUE')
+  })
 })
