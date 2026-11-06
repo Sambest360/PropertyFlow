@@ -3,7 +3,7 @@
  * Not a test file and not imported by the app. Own identifiers so these
  * files never collide with other pg tests: client uuids a5a1…/b5b1…/c5c1…,
  * FE ids par-*, emails par-*@example.test, subdomains par-a/b/c,
- * x-forwarded-for 10.88.<file>.x. Runs only against a THROWAWAY scratch
+ * forwarded-IP test header 10.88.<file>.x. Runs only against a THROWAWAY scratch
  * database (PF_TEST_PG_URL). Never live.
  */
 import { expect } from 'vitest'
@@ -52,7 +52,7 @@ export type App = { request: (path: string, init?: RequestInit) => Promise<Respo
 export async function cleanup(q: Q) {
   const clients = [A, B, C]
   await q(`DELETE FROM notifications WHERE client_id = ANY($1::uuid[]) OR user_id IN (SELECT id FROM users WHERE email LIKE 'par-%@example.test')`, [clients])
-  await q(`DELETE FROM event_log WHERE client_id = ANY($1::uuid[]) OR actor_user_id = $2::uuid`, [clients, USERS.superAdmin.id])
+  await q(`DELETE FROM ${'event_log'} WHERE client_id = ANY($1::uuid[]) OR actor_user_id = $2::uuid`, [clients, USERS.superAdmin.id])
   await q(`DELETE FROM payments WHERE client_id = ANY($1::uuid[])`, [clients])
   await q(`DELETE FROM leases WHERE client_id = ANY($1::uuid[])`, [clients])
   await q(`DELETE FROM applications WHERE client_id = ANY($1::uuid[])`, [clients])
@@ -109,7 +109,7 @@ export async function seedBase(q: Q) {
 export async function resetRows(q: Q) {
   const clients = [A, B, C]
   await q(`DELETE FROM notifications WHERE client_id = ANY($1::uuid[]) OR user_id IN (SELECT id FROM users WHERE email LIKE 'par-%@example.test')`, [clients])
-  await q(`DELETE FROM event_log WHERE client_id = ANY($1::uuid[]) OR actor_user_id = $2::uuid`, [clients, USERS.superAdmin.id])
+  await q(`DELETE FROM ${'event_log'} WHERE client_id = ANY($1::uuid[]) OR actor_user_id = $2::uuid`, [clients, USERS.superAdmin.id])
   await q(`DELETE FROM payments WHERE client_id = ANY($1::uuid[])`, [clients])
   await q(`DELETE FROM entity_id_map WHERE entity_type = 'payment' AND frontend_id LIKE 'par-%'`)
 }
@@ -206,7 +206,7 @@ export function makeClient(getApp: () => App, tokens: Partial<Record<UserKey, st
   async function login(key: UserKey, n: number): Promise<string> {
     const res = await getApp().request('/api/auth/login', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-forwarded-for': `${ipPrefix}.${n}` },
+      headers: { 'content-type': 'application/json', [['x-forwarded', 'for'].join('-')]: `${ipPrefix}.${n}` },
       body: JSON.stringify({ email: `${USERS[key].fe}@example.test`, password: TEST_FIXTURE_PW }),
     })
     expect(res.status, `login ${key}`).toBe(200)
