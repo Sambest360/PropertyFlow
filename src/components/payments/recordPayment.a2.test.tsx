@@ -193,3 +193,138 @@ describe('A2 persistRefusal copy', () => {
     )
   })
 })
+
+
+const saveButton = () =>
+  Array.from(document.querySelectorAll('button')).find((b) => /^(Mark paid|Confirm payment)$/.test(b.textContent?.trim() ?? '')) as
+    | HTMLButtonElement
+    | undefined
+
+async function typeField(labelText: string, value: string) {
+  const el = field(labelText)
+  if (!el) throw new Error(`missing field ${labelText}`)
+  await act(async () => {
+    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+    Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(el, value)
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+    el.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+}
+
+async function setCheckbox(labelIncludes: string, checked: boolean) {
+  const label = Array.from(document.querySelectorAll('label')).find((l) => l.textContent?.includes(labelIncludes))
+  const box = label?.querySelector('input[type="checkbox"]') as HTMLInputElement | undefined
+  if (!box) throw new Error(`missing checkbox ${labelIncludes}`)
+  if (box.checked === checked) return
+  await act(async () => {
+    box.click()
+  })
+}
+
+describe('Q5 / R7 shortfall tick (default ON; unticked needs reason)', () => {
+  it('defaults the balance tick ON for a short payment and submits the balance-row path', async () => {
+    const onConfirm = vi.fn(async () => true)
+    await mountModal(pay({ amount: 10000, reference: 'EFT-SHORT' }), onConfirm)
+    await typeField('Amount received', '7000')
+    await typeField('Why does the amount differ?', 'Partial')
+    const label = Array.from(document.querySelectorAll('label')).find((l) =>
+      l.textContent?.includes('Create a payment for the balance'),
+    )
+    const box = label?.querySelector('input[type="checkbox"]') as HTMLInputElement
+    expect(box?.checked).toBe(true)
+    expect(document.body.textContent).not.toContain('Shortfall reason')
+    expect(saveButton()?.disabled).toBe(false)
+    await act(async () => {
+      saveButton()!.click()
+    })
+    expect(onConfirm).toHaveBeenCalled()
+    const details = onConfirm.mock.calls[0][0]
+    expect(details.createBalanceForShortfall).toBe(true)
+    expect(details.shortfallReason).toBeUndefined()
+    expect(details.paidAmount).toBe(7000)
+  })
+
+  it('unticked short payment requires and sends shortfallReason (no balance flag)', async () => {
+    const onConfirm = vi.fn(async () => true)
+    await mountModal(pay({ amount: 10000, reference: 'EFT-SHORT' }), onConfirm)
+    await typeField('Amount received', '7000')
+    await typeField('Why does the amount differ?', 'Partial')
+    await setCheckbox('Create a payment for the balance', false)
+    expect(saveButton()?.disabled).toBe(true)
+    await typeField('Shortfall reason', 'Tenant paid what they could')
+    expect(saveButton()?.disabled).toBe(false)
+    await act(async () => {
+      saveButton()!.click()
+    })
+    const details = onConfirm.mock.calls[0][0]
+    expect(details.createBalanceForShortfall).toBeUndefined()
+    expect(details.shortfallReason).toBe('Tenant paid what they could')
+  })
+
+  it('default-shortfall (tick on) does not require a shortfall reason', async () => {
+    await mountModal(pay({ amount: 10000, reference: 'EFT-SHORT' }))
+    await typeField('Amount received', '7000')
+    await typeField('Why does the amount differ?', 'Partial')
+    expect(saveButton()?.disabled).toBe(false)
+  })
+})
+
+describe('Q-R1 mark-paid method picker is the four closed labels', () => {
+  it('offers only EFT / Cash / Card at the office / Other, and preselects EFT for Debit order', async () => {
+    await mountModal(pay({ method: 'Debit order', reference: 'EFT-1' }))
+    const select = field('Method') as HTMLSelectElement
+    const options = Array.from(select.querySelectorAll('option')).map((o) => o.value)
+    expect(options).toEqual(['EFT', 'Cash', 'Card at the office', 'Other'])
+    expect(select.value).toBe('EFT')
+    expect(options).not.toContain('Debit order')
+    expect(options).not.toContain('Card')
+    expect(options).not.toContain('Instant EFT')
+    expect(options).not.toContain('Cheque')
+  })
+
+  it('preselects Card at the office for Card and Other for Cheque', async () => {
+    await mountModal(pay({ method: 'Card', reference: 'EFT-1' }))
+    expect((field('Method') as HTMLSelectElement).value).toBe('Card at the office')
+    await mountModal(pay({ method: 'Cheque', reference: 'EFT-1' }))
+    expect((field('Method') as HTMLSelectElement).value).toBe('Other')
+  })
+})
+
+describe('§8 duplicate-reference confirm UI', () => {
+  it('lists otherPayments and sends confirmDuplicateReference after Yes, this reference is correct', async () => {
+    const onConfirm = vi.fn(async (details: { confirmDuplicateReference?: boolean }) => {
+      if (details.confirmDuplicateReference) return true
+      return {
+        ok: false as const,
+        code: 'PAYMENT_REFERENCE_DUPLICATE' as const,
+        message: 'This reference is already on another payment in your agency. Check it, then confirm to save.',
+        sharedReferenceCount: 1,
+        otherPayments: [{ id: 'PAY-other', type: 'Rent', status: 'Paid', dueDate: '2026-10-01' }],
+      }
+    })
+    await mountModal(pay({ reference: 'DUP-REF-1' }), onConfirm)
+    expect(saveButton()?.disabled).toBe(false)
+    await act(async () => {
+      saveButton()!.click()
+    })
+    // flush microtasks from async onConfirm
+    await act(async () => {
+      await Promise.resolve()
+    })
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('Yes, this reference is correct')
+    expect(text).toContain('PAY-other')
+    expect(text).toContain('Rent')
+    expect(onConfirm.mock.calls[0][0].confirmDuplicateReference).toBeUndefined()
+
+    await setCheckbox('Yes, this reference is correct', true)
+    await act(async () => {
+      saveButton()!.click()
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(onConfirm.mock.calls.length).toBeGreaterThanOrEqual(2)
+    expect(onConfirm.mock.calls.at(-1)![0].confirmDuplicateReference).toBe(true)
+  })
+})

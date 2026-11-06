@@ -429,12 +429,16 @@ describe.skipIf(!url)('A2 record-a-payment: mark-paid rules via the real app, se
     })
   })
 
-  it('T-R6: method Card/missing → PAYMENT_METHOD_INVALID; cash stored as CASH; a DUE create keeps Debit order; non-PAID save ignores paidAt', async () => {
-    const card = await mark('adminA', PAY.a, { method: 'Card', reference: 'EFT-A2-CARD' })
+  it('T-R6: method missing → PAYMENT_METHOD_INVALID; Card maps to CARD_AT_OFFICE; cash stored as CASH; a DUE create keeps Debit order; non-PAID save ignores paidAt', async () => {
     const missing = await mark('adminA', PAY.a, { method: '', reference: 'EFT-A2-MISS' })
-    expect({ card: [card.status, card.code], missing: [missing.status, missing.code], row: await row(PAY.a.id) }).toEqual({
-      card: [400, 'PAYMENT_METHOD_INVALID'], missing: [400, 'PAYMENT_METHOD_INVALID'], row: seededRow(PAY.a),
+    expect({ missing: [missing.status, missing.code], row: await row(PAY.a.id) }).toEqual({
+      missing: [400, 'PAYMENT_METHOD_INVALID'], row: seededRow(PAY.a),
     })
+    const card = await mark('adminA', PAY.a, { method: 'Card', reference: 'EFT-A2-CARD' })
+    expect({ status: card.status, method: (await row(PAY.a.id))?.method }).toEqual({
+      status: 200, method: 'CARD_AT_OFFICE',
+    })
+    await resetLedger()
     const cash = await mark('adminA', PAY.a, { method: 'cash', reference: 'RCPT-44', notes: 'Cash, receipt 44' })
     expect({ status: cash.status, method: (await row(PAY.a.id))?.method }).toEqual({ status: 200, method: 'CASH' })
     const fe = 'PAY-a2r-debit'
@@ -857,5 +861,43 @@ describe.skipIf(!url)('A2 record-a-payment: mark-paid rules via the real app, se
     }).toEqual({
       status: 200, paid: 'PAID', dueAfter: dueBefore, zeroRows: '0', balanceId: null,
     })
+  })
+
+  it('Q-R1: Debit order / Instant EFT / Cheque / Card on mark-paid map to EFT / EFT / OTHER / CARD_AT_OFFICE', async () => {
+    const debit = await mark('adminA', PAY.a, { method: 'Debit order', reference: 'EFT-A2-DO', paidAt: todaySast() })
+    expect({ status: debit.status, method: (await row(PAY.a.id))?.method }).toEqual({ status: 200, method: 'EFT' })
+    await resetLedger()
+    const instant = await mark('adminA', PAY.a, { method: 'Instant EFT', reference: 'EFT-A2-IE', paidAt: todaySast() })
+    expect({ status: instant.status, method: (await row(PAY.a.id))?.method }).toEqual({ status: 200, method: 'EFT' })
+    await resetLedger()
+    const cheque = await mark('adminA', PAY.a, {
+      method: 'Cheque', reference: 'CHQ-1', notes: 'Cheque cleared at the office', paidAt: todaySast(),
+    })
+    expect({ status: cheque.status, method: (await row(PAY.a.id))?.method }).toEqual({ status: 200, method: 'OTHER' })
+    await resetLedger()
+    const card = await mark('adminA', PAY.a, { method: 'Card', reference: 'CARD-SLIP-9', paidAt: todaySast() })
+    expect({ status: card.status, method: (await row(PAY.a.id))?.method }).toEqual({ status: 200, method: 'CARD_AT_OFFICE' })
+  })
+
+  it('Q-R4/Angela: CASH with only a fresh note keeps the stored payments.reference (does not write null)', async () => {
+    await q(`UPDATE payments SET reference = 'STORED-REF-1' WHERE id = $1::uuid`, [PAY.a.id])
+    const res = await mark('adminA', PAY.a, {
+      method: 'CASH',
+      reference: '',
+      notes: 'receipt 4411',
+      paidAt: todaySast(),
+    })
+    const r = await row(PAY.a.id)
+    expect({ status: res.status, paid: r?.status, reference: r?.reference, method: r?.method }).toEqual({
+      status: 200, paid: 'PAID', reference: 'STORED-REF-1', method: 'CASH',
+    })
+  })
+
+  it('mutant pin: CASH note-only preserve would fail if plan.reference stayed null', async () => {
+    await q(`UPDATE payments SET reference = 'KEEP-ME' WHERE id = $1::uuid`, [PAY.a.id])
+    const res = await mark('adminA', PAY.a, { method: 'CASH', notes: 'cash slip 99', paidAt: todaySast() })
+    expect(res.status).toBe(200)
+    expect((await row(PAY.a.id))?.reference).toBe('KEEP-ME')
+    expect((await row(PAY.a.id))?.reference).not.toBeNull()
   })
 })
