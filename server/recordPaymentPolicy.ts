@@ -36,7 +36,9 @@ const trimmed = (v: unknown) => (v == null ? '' : String(v).trim())
 const present = (d: Record<string, unknown>, k: string) => d[k] != null && d[k] !== ''
 
 export function normalizeMarkPaidMethod(raw: unknown): string {
-  return trimmed(raw).toUpperCase().replace(/\s+/g, '_')
+  const s = trimmed(raw).toUpperCase().replace(/\s+/g, '_')
+  if (s === 'CARD_AT_THE_OFFICE') return 'CARD_AT_OFFICE'
+  return s
 }
 
 export function isMarkPaidMethod(raw: unknown): raw is MarkPaidMethod {
