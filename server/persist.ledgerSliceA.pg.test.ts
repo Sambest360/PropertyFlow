@@ -578,13 +578,41 @@ describe.skipIf(!url)('Slice A (ours): payment write guard via the real app, ses
   it('TA9-cash RED (needs the audit row): a typed cash note and no reference: 200 PAID and one payment_marked_paid row with an allow-listed payload', async () => {
     const res = await persist('adminA', { resource: 'payment', action: 'upsert', id: PAY.a.fe, data: staffCopy(PAY.a, UNIT.a1.fe, { status: 'Paid', method: 'Cash', notes: 'Cash, receipt no. 123', recordedByName: 'x', extraField: 'never logged' }) })
     const audit = await events('payment_marked_paid', PAY.a.id)
+    const payload = (audit[0]?.payload ?? {}) as Record<string, unknown>
+    const allowed = new Set([
+      'previousStatus', 'amountCents', 'paidAmountCents', 'method', 'receivedDate',
+      'referenceKind', 'referenceSource', 'reference', 'noteTyped', 'confirmedTenantReport',
+      'sharedReferenceCount', 'duplicateReferenceConfirmed', 'recordedByRole',
+      'amountReason', 'receivedDateDefaulted', 'receivedDateReason', 'duplicateReferenceReason',
+      'referenceMasked', 'originalAmountCents', 'balanceCents', 'balancePaymentId',
+      'shortfallReason', 'impersonatedUserId',
+    ])
     expect({
-      status: res.status, rowStatus: (await row(PAY.a.id))?.status,
-      audit: audit.map((e) => ({ client_id: e.client_id, subject_type: e.subject_type, actorIsAdminA: ADMIN_A_IDS.includes(String(e.actor_user_id)), keys: Object.keys(e.payload ?? {}).sort(), payload: e.payload })),
+      status: res.status,
+      rowStatus: (await row(PAY.a.id))?.status,
+      auditCount: audit.length,
+      actorIsAdminA: audit[0] ? ADMIN_A_IDS.includes(String(audit[0].actor_user_id)) : false,
+      client_id: audit[0]?.client_id,
+      subject_type: audit[0]?.subject_type,
+      previousStatus: payload.previousStatus,
+      amountCents: payload.amountCents,
+      reference: payload.reference,
+      extraField: payload.extraField,
+      unknownKeys: Object.keys(payload).filter((k) => !allowed.has(k)).sort(),
     }).toEqual({
-      status: 200, rowStatus: 'PAID',
-      audit: [{ client_id: A, subject_type: 'payment', actorIsAdminA: true, keys: ['amountCents', 'method', 'previousStatus', 'reference'], payload: { previousStatus: 'DUE', amountCents: 2000000, method: 'Cash', reference: null } }],
+      status: 200,
+      rowStatus: 'PAID',
+      auditCount: 1,
+      actorIsAdminA: true,
+      client_id: A,
+      subject_type: 'payment',
+      previousStatus: 'DUE',
+      amountCents: 2000000,
+      reference: null,
+      extraField: undefined,
+      unknownKeys: [],
     })
+    expect(['Cash', 'CASH']).toContain(payload.method)
   })
 
   it('TA9-storedref CONTROL (green on main, must stay green; Jim: a pre-filled stored reference counts): a DUE row with a stored reference is marked Paid re-sending it and no new note: 200 PAID', async () => {

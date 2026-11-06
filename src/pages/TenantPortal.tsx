@@ -497,7 +497,7 @@ function PaymentsPanel({
               <span className="tabular font-semibold">{formatZAR(p.amount)}</span>
               {p.status === 'Paid' ? (
                 <Badge tone="success">Paid</Badge>
-              ) : !expanded && p.status !== 'Paid' && p.status !== 'Cancelled' ? (
+              ) : !expanded && p.status !== 'Cancelled' ? (
                 <Link to="/workspace/portals/tenant/payments" className="text-xs font-semibold text-primary hover:underline">
                   Upload proof
                 </Link>

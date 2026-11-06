@@ -79,7 +79,6 @@ import type { AssetCondition, Building, InfraRoom, InternalAsset, LookupConfig, 
 import { UNIT_TEMPLATES } from '../data/infrastructure'
 import type { MarkPaymentPaidDetails } from '../components/payments/types'
 import { sastYmd } from '../components/payments/types'
-import { getApiActor, readStoredAuthUserId } from '../lib/api/actorAuth'
 import { isRequiredLookupKey, GLOBAL_CLIENT_ID } from '../data/platformLookups'
 import { agencyOverrideFor } from '../lib/lookups'
 import { DEFAULT_AGENCY_PERMISSIONS, defaultLicenseStatus, isAgencyStaff, rolePermissions, userBasePermissions } from '../lib/permissions'
