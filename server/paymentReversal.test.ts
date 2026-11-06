@@ -163,3 +163,14 @@ describe('rule 1 roles (T-V2a-c, unit part)', () => {
     expect(roles.filter((r) => reversalRoleAllowed(r))).toEqual(['super_admin', 'client_admin', 'agent_admin'])
   })
 })
+
+describe('R2 impersonation helpers (Jim delta2)', () => {
+  it('impersonating a different plain id is stored; the same id or a missing id is not; a non-plain id is not stored', async () => {
+    const { storedImpersonatedUserId } = await load()
+    expect(storedImpersonatedUserId('par-super', 'par-ca-a1')).toBe('par-ca-a1')
+    expect(storedImpersonatedUserId('par-super', 'par-super')).toBeNull()
+    expect(storedImpersonatedUserId('par-super', null)).toBeNull()
+    expect(storedImpersonatedUserId('par-super', 'x'.repeat(65))).toBeNull()
+    expect(storedImpersonatedUserId('par-super', 'not a plain id!')).toBeNull()
+  })
+})

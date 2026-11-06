@@ -604,6 +604,9 @@ describe.skipIf(!url)('admin reversal Step 1: real app, session and Postgres', (
     expect((await reverse('caA1', p.fe, revBody(p))).status).toBe(200)
     await q(`UPDATE payments SET status = 'CANCELLED', updated_at = NOW() WHERE id = $1::uuid`, [p.uuid])
     expect((await reopen('caA1', p.fe, reoBody({ updatedAt: await updatedAt(q, p.uuid) }))).status).toBe(200)
+    const actsBefore = new Set(
+      ((((await call('GET', '/api/bootstrap', 'caA1')).json as { activities?: Array<{ id: string }> } | null)?.activities) ?? []).map((a) => a.id),
+    )
     const [rev, reo] = await audits(q, p.uuid)
     const before = JSON.stringify(await audits(q, p.uuid))
     const results = [
@@ -611,17 +614,75 @@ describe.skipIf(!url)('admin reversal Step 1: real app, session and Postgres', (
       await call('POST', '/api/persist', 'aaA', { resource: 'activity', action: 'upsert', id: reo!.id, data: { id: reo!.id, agencyId: AG.A, text: 'x', user: 'x' } }),
       await call('POST', '/api/persist', 'aaA', { resource: 'property_event', action: 'delete', id: reo!.id }),
     ].map((r) => [r.status, r.code])
-    const boot = JSON.stringify((await call('GET', '/api/bootstrap', 'caA1')).json)
+    const bootJson = (await call('GET', '/api/bootstrap', 'caA1')).json as { activities?: Array<{ id: string }> } | null
+    const boot = JSON.stringify(bootJson)
+    const extraActivities = (bootJson?.activities ?? []).filter((a) => !actsBefore.has(a.id)).length
     expect({
       results,
       unchanged: JSON.stringify(await audits(q, p.uuid)) === before,
       bootHasIds: boot.includes(rev!.id) || boot.includes(reo!.id),
       bootHasTypes: /payment_reversed_by_admin|payment_reopened/.test(boot),
+      extraActivities,
     }).toEqual({
       results: [[403, 'EVENT_LOG_TYPE_MISMATCH'], [403, 'EVENT_LOG_TYPE_MISMATCH'], [403, 'EVENT_LOG_TYPE_MISMATCH']],
       unchanged: true,
       bootHasIds: false,
       bootHasTypes: false,
+      extraActivities: 0,
+    })
+  })
+
+  // ---- T-V32 (Oscar / Jim R4) ----------------------------------------------
+  it('T-V32: when the actor is the agency\'s only client_admin, the audit row and history show adminsNotified 0', async () => {
+    const p = await seedPayment(q, { client: B, party: null, recordedBy: null })
+    expect((await reverse('caB', p.fe, revBody(p))).status).toBe(200)
+    const a = (await audits(q, p.uuid))[0]
+    const hist = await call('GET', `/api/payments/${p.fe}/history`, 'caB')
+    const row = ((hist.json?.history ?? []) as Array<{ type: string; adminsNotified?: number | null }>).find((h) => h.type === 'payment_reversed_by_admin')
+    expect({
+      audit: a?.payload.adminsNotified,
+      history: row?.adminsNotified ?? null,
+      notices: (await notices(q)).filter((n) => n.title === 'Payment record changed').length,
+    }).toEqual({ audit: 0, history: 0, notices: 0 })
+  })
+
+  // ---- R2 impersonation (Jim delta2; mirrors passwordReset.test.ts:446-477) -
+  it('R2: a super_admin reverse without impersonation has no impersonatedUserId', async () => {
+    const p = await seedPayment(q)
+    expect((await reverse('superAdmin', p.fe, revBody(p, { supportTicketRef: 'T-123' }))).status).toBe(200)
+    const a = (await audits(q, p.uuid))[0]!
+    expect({ actor: a.actor_user_id, impersonatedUserId: a.payload.impersonatedUserId ?? null, impersonatorUserId: a.payload.impersonatorUserId ?? null }).toEqual({
+      actor: USERS.superAdmin.id,
+      impersonatedUserId: null,
+      impersonatorUserId: null,
+    })
+  })
+
+  it('R2: impersonating gives the real actor plus impersonatedUserId and requires a ticket; a non-plain id is not stored', async () => {
+    const imp = { 'X-User-Id': USERS.caA1.fe, 'X-Role': 'client_admin', 'X-Agency-Id': AG.A }
+    const p = await seedPayment(q)
+    expect([ (await reverse('superAdmin', p.fe, revBody(p), imp)).status, (await reverse('superAdmin', p.fe, revBody(p), imp)).code ]).toEqual([400, 'PAYMENT_REVERSAL_TICKET_REQUIRED'])
+    const ok = await reverse('superAdmin', p.fe, revBody(p, { supportTicketRef: 'ticket from Sipho re Unit 4' }), imp)
+    expect(ok.status).toBe(200)
+    const a = (await audits(q, p.uuid))[0]!
+    expect({ actor: a.actor_user_id, role: a.payload.actorRole, impersonatedUserId: a.payload.impersonatedUserId ?? null }).toEqual({
+      actor: USERS.superAdmin.id,
+      role: 'super_admin',
+      impersonatedUserId: USERS.caA1.fe,
+    })
+
+    const q2 = await seedPayment(q)
+    const bad = await reverse(
+      'superAdmin',
+      q2.fe,
+      revBody(q2, { supportTicketRef: 'T-999' }),
+      { 'X-User-Id': 'x'.repeat(65), 'X-Role': 'client_admin', 'X-Agency-Id': AG.A },
+    )
+    expect(bad.status).toBe(200)
+    const b = (await audits(q, q2.uuid))[0]!
+    expect({ actor: b.actor_user_id, impersonatedUserId: b.payload.impersonatedUserId ?? null }).toEqual({
+      actor: USERS.superAdmin.id,
+      impersonatedUserId: null,
     })
   })
 

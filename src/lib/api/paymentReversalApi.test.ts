@@ -56,6 +56,15 @@ describe('paymentReversalApi', () => {
     expect(
       historyLine({ id: 'e', type: 'payment_reopened', createdAt: '2026-10-30T08:00:00.000Z', actorName: null, reasonKind: 'STILL_OWED', reason: 'Still owed by tenant', referenceLast4: null }),
     ).toBe('Reopened by an admin on 2026-10-30: Still owed by tenant')
+    expect(
+      historyLine({ id: 'e', type: 'payment_reversed_by_admin', createdAt: '2026-10-30T08:00:00.000Z', actorName: 'Bongani Principal', reasonKind: 'WRONG_ROW', reason: 'Wrong tenant row', referenceLast4: null, adminsNotified: 0 }),
+    ).toBe('Reversed by Bongani Principal on 2026-10-30: Wrong tenant row. No other admin notified')
+    expect(
+      historyLine({ id: 'e', type: 'payment_reversed_by_admin', createdAt: '2026-10-30T08:00:00.000Z', actorName: 'Lerato Nkosi', reasonKind: 'WRONG_ROW', reason: 'Wrong tenant row', referenceLast4: '7781', adminsNotified: 1 }),
+    ).toBe('Reversed by Lerato Nkosi on 2026-10-30: Wrong tenant row (reference …7781). 1 other admin notified')
+    expect(
+      historyLine({ id: 'e', type: 'payment_reopened', createdAt: '2026-10-30T08:00:00.000Z', actorName: 'Sipho Office', reasonKind: 'STILL_OWED', reason: 'Still owed by tenant', referenceLast4: null, adminsNotified: 2 }),
+    ).toBe('Reopened by Sipho Office on 2026-10-30: Still owed by tenant. 2 other admins notified')
   })
 
   it('form check: kind, 10 characters, ticket for break-glass, acknowledgement when needed', async () => {
