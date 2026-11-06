@@ -1,4 +1,4 @@
-import { MIN_PASSWORD_LENGTH } from '../../lib/auth/passwordPolicy'
+import { MIN_PASSWORD_LENGTH, passwordMinLengthHint } from '../../lib/auth/passwordPolicy'
 import { PlacesAddressInput } from '../../components/PlacesAddressInput'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { initialRegisterRole } from './registerRole'
@@ -411,7 +411,7 @@ export default function RegisterPage() {
                 autoComplete="tel"
               />
             </AuthField>
-            <AuthField label="Password" htmlFor="reg-password" hint={`At least ${MIN_PASSWORD_LENGTH} characters`}>
+            <AuthField label="Password" htmlFor="reg-password" hint={passwordMinLengthHint()}>
               <PasswordField
                 id="reg-password"
                 value={password}
