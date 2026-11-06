@@ -6,7 +6,8 @@
  * Some stages carry their own panel (deposit, lease, move-in) from the page.
  */
 import { useState, type ReactNode } from 'react'
-import { CheckCircle2, Circle, Eye, Paperclip, Upload, XCircle } from 'lucide-react'
+import { CheckCircle2, Circle, Eye, Paperclip, XCircle } from 'lucide-react'
+import { DocUploadButton } from '../applicant-detail/DocUploadButton'
 import type { Application } from '../../types/domain'
 import { useAgencyPipeline } from '../../hooks/useApplicationPipeline'
 import { PIPELINE_DOCUMENTS, stageApprovalGate, type PipelineStage, type StageRecord } from '../../lib/pipeline/applicationPipeline'
@@ -161,7 +162,6 @@ function CurrentStage({
   const [declining, setDeclining] = useState(false)
   const [reason, setReason] = useState('')
   const [error, setError] = useState('')
-  const [uploading, setUploading] = useState<string | null>(null)
   const docs = new Map(application.documents.map((d) => [d.key, d]))
   const gate = stageApprovalGate(stage, { documents: application.documents, ticked, notes, attachments: files.length })
   const why = blocked ?? (gate.ok === false ? gate.reason : null)
@@ -179,18 +179,6 @@ function CurrentStage({
     } catch {
       setError('Could not read that file.')
       return null
-    }
-  }
-
-  const uploadDoc = async (key: string, f: File) => {
-    if (!onUploadDocument) return
-    const file = await readFile(f)
-    if (!file) return
-    setUploading(key)
-    try {
-      await onUploadDocument(key, file)
-    } finally {
-      setUploading(null)
     }
   }
 
@@ -218,19 +206,7 @@ function CurrentStage({
                   </button>
                 ) : null}
                 {!inFile && onUploadDocument ? (
-                  <label className="inline-flex cursor-pointer items-center gap-1 text-xs font-semibold text-primary hover:underline">
-                    <Upload className="h-3.5 w-3.5" aria-hidden /> {uploading === k ? 'Uploading…' : 'Upload'}
-                    <input
-                      type="file"
-                      accept={APPLICATION_DOC_ACCEPT}
-                      className="hidden"
-                      onChange={(e) => {
-                        const f = e.target.files?.[0]
-                        if (f) void uploadDoc(k, f)
-                        e.target.value = ''
-                      }}
-                    />
-                  </label>
+                  <DocUploadButton variant="link" onUpload={(file) => onUploadDocument(k, file)} testId={`stage-upload-${k}`} />
                 ) : null}
               </li>
             )

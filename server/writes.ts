@@ -1604,6 +1604,9 @@ export function mergeRedactedApplicationFields(
       const merged: JsonRow = { ...prev, ...doc }
       // A redacted document has no file: keep the stored one.
       if (doc.file == null && prev.file != null) merged.file = prev.file
+      // A file sent back without its content (the bootstrap leaves it out) keeps the stored one.
+      const sentFile = asRow(doc.file)
+      if (sentFile && !sentFile.dataUrl && prev.file != null) merged.file = prev.file
       sentMerged.set(key, merged)
     }
     const out: unknown[] = []

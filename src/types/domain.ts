@@ -79,7 +79,10 @@ export type DocStatus = 'required' | 'uploaded' | 'verified' | 'rejected'
 export type ApplicationDocumentFile = {
   name: string
   mimeType: string
+  /** The file content; empty when loaded from the server (fetched from `src` on View / Download). */
   dataUrl: string
+  /** Where to fetch the content when `dataUrl` is empty. */
+  src?: string
   uploadedAt: string
   uploadedBy?: string | null
 }

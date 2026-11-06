@@ -78,14 +78,20 @@ export function Card({
   className,
   hover,
   onClick,
+  id,
+  'data-testid': testId,
 }: {
   children: ReactNode
   className?: string
   hover?: boolean
   onClick?: () => void
+  id?: string
+  'data-testid'?: string
 }) {
   return (
     <div
+      id={id}
+      data-testid={testId}
       onClick={onClick}
       className={cn(
         'rounded-[1.25rem] border border-primary-100/80 bg-white shadow-[0_8px_24px_-16px_rgba(15,39,68,0.18)]',

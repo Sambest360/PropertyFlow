@@ -903,7 +903,14 @@ function filterBootstrapEntitiesForActor(
     ...raw,
     scoped: true,
     actor: { userId: actor.userId, role: actor.role, agencyId: actor.agencyId },
-    agencies,
+    // The agency handling the actor's applications and leases (an applicant
+    // usually belongs to no agency, or another one): name, contact, deposit
+    // bank details and lease text, so the deposit step and the lease read the
+    // same for the applicant as for the agency.
+    agencies: withServingAgencies(raw.agencies, agencies, [
+      ...((portal?.applications ?? applications) as Array<{ agencyId?: string | null }>),
+      ...((portal?.tenancies ?? tenancies) as Array<{ agencyId?: string | null }>),
+    ]),
     properties: props,
     buildings: raw.buildings.filter(
       (b) => buildingIds.has(b.id) || (actor.agencyId ? b.clientId === actor.agencyId : false),
@@ -969,4 +976,35 @@ export function staffTicketAccessNotes<T extends Record<string, unknown>>(
   if (role === 'contractor' && typeof contractor === 'string' && contractor !== '' && actorIds.has(contractor)) return t
   const { accessNotes: _drop, ...rest } = t
   return rest as unknown as T
+}
+
+/** Public view of an agency for someone it serves (never staff-only settings). */
+function servedAgencyView(a: Record<string, unknown>): Record<string, unknown> {
+  const settings = (a.settings ?? {}) as Record<string, unknown>
+  return {
+    id: a.id,
+    name: a.name,
+    slug: a.slug,
+    city: a.city,
+    createdAt: a.createdAt,
+    enabledPermissions: [],
+    tradingAs: a.tradingAs,
+    email: a.email,
+    phone: a.phone,
+    status: a.status,
+    settings: {
+      // The agency's application stages, so the applicant's steps match.
+      applicationPipeline: settings.applicationPipeline,
+      depositBanking: settings.depositBanking,
+      leaseTemplate: settings.leaseTemplate,
+      leaseTemplateSavedAt: settings.leaseTemplateSavedAt,
+    },
+  }
+}
+
+function withServingAgencies<T extends { id: string }>(all: T[], current: T[], rows: Array<{ agencyId?: string | null }>): T[] {
+  const have = new Set(current.map((a) => a.id))
+  const want = new Set(rows.map((r) => r.agencyId).filter((x): x is string => typeof x === 'string' && x !== ''))
+  const extra = all.filter((a) => want.has(a.id) && !have.has(a.id)).map((a) => servedAgencyView(a as unknown as Record<string, unknown>) as unknown as T)
+  return extra.length ? [...current, ...extra] : current
 }

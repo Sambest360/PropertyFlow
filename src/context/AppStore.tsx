@@ -874,7 +874,8 @@ type StoreContextValue = {
     /** Skip income/availability guards (admin/demo only) */
     skipGuards?: boolean
   }) => Promise<Application | SubmitApplicationResult>
-  updateApplication: (id: string, patch: Partial<Application>) => void
+  /** Resolves true once saved; on a failed save the change is undone and the reason shown. */
+  updateApplication: (id: string, patch: Partial<Application>) => Promise<boolean>
   /** POPIA consent capture before bureau screening. */
   captureApplicationScreeningConsent: (
     applicationId: string,
@@ -1685,8 +1686,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     // (wizard create → publish; approve → persist) read stateRef.current
     // before React has re-rendered — a stale ref there made publish see the
     // pre-create/presave state and drop or duplicate the persist.
+    // Applied to the latest copy at once, so the next change in the same
+    // click (and every save built from stateRef) already sees it. React runs
+    // the updater later; when nothing else changed in between it reuses the
+    // result, otherwise it applies the change again on top of the newer state.
+    const base = stateRef.current
+    const eager = fn(base)
+    stateRef.current = eager
     setState((s) => {
-      const next = fn(s)
+      const next = s === base ? eager : fn(s)
       stateRef.current = next
       return next
     })
@@ -1911,13 +1919,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       previousApp: Application | null | undefined,
       userMessage?: { title: string; text?: string },
     ): Promise<boolean> => {
-      const ok = await persistUpsert(
-        'application',
-        applicationId,
-        nextApp as unknown as Record<string, unknown>,
-        { quiet: Boolean(userMessage) },
-      )
-      if (ok) return true
+      const result = await persistUpsertResult('application', applicationId, nextApp as unknown as Record<string, unknown>)
+      if (result.ok) return true
+      if (!userMessage) {
+        const { reportPersistFailure } = await import('../lib/api/persist')
+        reportPersistFailure({ resource: 'application', id: applicationId, action: 'upsert' }, result)
+      }
       if (previousApp) {
         patch((s) => ({
           ...s,
@@ -1926,11 +1933,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }
       if (userMessage) {
         const { sweetError } = await import('../lib/sweetAlert')
-        await sweetError(userMessage.title, userMessage.text)
+        // A refusal says why (e.g. consent missing); anything else asks to try again.
+        const reason = 'error' in result && result.error ? result.error : ''
+        await sweetError(userMessage.title, reason && 'refused' in result && result.refused ? reason : reason ? `${reason} Please try again.` : userMessage.text)
       }
       return false
     },
-    [persistUpsert, patch],
+    [persistUpsertResult, patch],
   )
 
   /**
@@ -2166,6 +2175,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         at: new Date().toISOString(),
       }
       patch((s) => ({ ...s, activities: [activity, ...s.activities].slice(0, 200) }))
+      // The agency feed is written by staff (and landlords); a tenant's or
+      // contractor's own actions are recorded by the server, not from here.
+      const role = getApiActor()?.role
+      if (role === 'tenant' || role === 'contractor') return
       queueUpsert('activity', activity.id, activity as unknown as Record<string, unknown>)
     },
     [patch],
@@ -5239,52 +5252,54 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           a.id === id ? { ...a, ...p, updatedAt: new Date().toISOString().slice(0, 10) } : a,
         ),
       }))
-      if (prev && p.stage && p.stage !== prev.stage) {
-        const property = state.properties.find((x) => x.id === prev.propertyId)
-        emitSuiteEvent({
-          agencyId: prev.agencyId,
-          resource: 'applicant',
-          action: 'updated',
-          title: 'Applicant stage changed',
-          body: `${prev.applicantName}: ${prev.stage} → ${p.stage}`,
-          link: `/workspace/sales/applications/${encodeURIComponent(id)}`,
-          recipientUserIds: applicationStakeholderIds(state.users, prev, property),
-        })
-        if (prev.applicantUserId) {
+      const announce = () => {
+        if (prev && p.stage && p.stage !== prev.stage) {
+          const property = state.properties.find((x) => x.id === prev.propertyId)
+          emitSuiteEvent({
+            agencyId: prev.agencyId,
+            resource: 'applicant',
+            action: 'updated',
+            title: 'Applicant stage changed',
+            body: `${prev.applicantName}: ${prev.stage} → ${p.stage}`,
+            link: `/workspace/sales/applications/${encodeURIComponent(id)}`,
+            recipientUserIds: applicationStakeholderIds(state.users, prev, property),
+          })
+          if (prev.applicantUserId) {
+            notify({
+              userId: prev.applicantUserId,
+              agencyId: prev.agencyId,
+              title: 'Application update',
+              body: `Your application for ${state.properties.find((x) => x.id === prev.propertyId)?.title ?? 'a listing'} is now: ${p.stage}.`,
+              link: `/workspace/portals/tenant/applications/${encodeURIComponent(id)}`,
+              resource: 'applicant',
+              action: 'updated',
+            })
+          }
+        }
+        // Deposit step: tell the other side.
+        if (prev && p.depositRequest && p.depositRequest.sentAt !== prev.depositRequest?.sentAt && prev.applicantUserId) {
           notify({
             userId: prev.applicantUserId,
             agencyId: prev.agencyId,
-            title: 'Application update',
-            body: `Your application for ${state.properties.find((x) => x.id === prev.propertyId)?.title ?? 'a listing'} is now: ${p.stage}.`,
+            title: 'Deposit details sent',
+            body: `Pay R ${p.depositRequest.amount.toLocaleString('en-ZA')} (ref ${p.depositRequest.reference}) and upload your proof of payment.`,
             link: `/workspace/portals/tenant/applications/${encodeURIComponent(id)}`,
             resource: 'applicant',
-            action: 'updated',
+            action: 'created',
           })
         }
-      }
-      // Deposit step: tell the other side.
-      if (prev && p.depositRequest && p.depositRequest.sentAt !== prev.depositRequest?.sentAt && prev.applicantUserId) {
-        notify({
-          userId: prev.applicantUserId,
-          agencyId: prev.agencyId,
-          title: 'Deposit details sent',
-          body: `Pay R ${p.depositRequest.amount.toLocaleString('en-ZA')} (ref ${p.depositRequest.reference}) and upload your proof of payment.`,
-          link: `/workspace/portals/tenant/applications/${encodeURIComponent(id)}`,
-          resource: 'applicant',
-          action: 'created',
-        })
-      }
-      if (prev && p.depositProof && p.depositProof.uploadedAt !== prev.depositProof?.uploadedAt) {
-        const property = state.properties.find((x) => x.id === prev.propertyId)
-        emitSuiteEvent({
-          agencyId: prev.agencyId,
-          resource: 'applicant',
-          action: 'updated',
-          title: 'Deposit proof uploaded',
-          body: `${prev.applicantName} uploaded proof of the deposit payment. Check it and confirm the deposit.`,
-          link: `/workspace/sales/applications/${encodeURIComponent(id)}`,
-          recipientUserIds: applicationStakeholderIds(state.users, prev, property),
-        })
+        if (prev && p.depositProof && p.depositProof.uploadedAt !== prev.depositProof?.uploadedAt) {
+          const property = state.properties.find((x) => x.id === prev.propertyId)
+          emitSuiteEvent({
+            agencyId: prev.agencyId,
+            resource: 'applicant',
+            action: 'updated',
+            title: 'Deposit proof uploaded',
+            body: `${prev.applicantName} uploaded proof of the deposit payment. Check it and confirm the deposit.`,
+            link: `/workspace/sales/applications/${encodeURIComponent(id)}`,
+            recipientUserIds: applicationStakeholderIds(state.users, prev, property),
+          })
+        }
       }
       if (prev) {
         const nextApp = {
@@ -5292,11 +5307,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           ...p,
           updatedAt: new Date().toISOString().slice(0, 10),
         } as Application
-        void persistApplicationOrRollback(id, nextApp, prev, {
+        // Notices go out only once the change is saved.
+        return persistApplicationOrRollback(id, nextApp, prev, {
           title: 'Application not saved',
           text: 'Please try again.',
+        }).then((ok) => {
+          if (ok) announce()
+          return ok
         })
       }
+      return Promise.resolve(false)
     },
     setDocumentStatus: async (applicationId, key, status, note) => {
       // P0 Approve→occupancy: await durable persist (R8 contract). Optimistic
@@ -5391,7 +5411,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const ok = await persistUpsert(
         'application',
         applicationId,
-        applicationUploadPayload(next, key, actor?.userId) as unknown as Record<string, unknown>,
+        { ...(applicationUploadPayload(next, key, actor?.userId) as unknown as Record<string, unknown>), __uploadDocKey: key },
       )
       if (!ok) return false
       patch((s) => ({
@@ -5616,6 +5636,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             code: 'PERSIST_FAILED',
           } as PatchApplicationStatusResult
         }
+
+        // Keep the saved workflow status in the page too: a later save of this
+        // application (e.g. the stage record) would otherwise send the old
+        // status back and undo the approval.
+        patch((s) => ({
+          ...s,
+          applications: s.applications.map((a) =>
+            a.id === id ? { ...a, workflowStatus: approvedApp.workflowStatus, agentId: approvedApp.agentId } : a,
+          ),
+        }))
 
         // Roadmap Step 5: lease PDF + e-sign on APPROVE (not deposit paid).
         if (ok.side_effects.lease) {

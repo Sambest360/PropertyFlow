@@ -7,7 +7,7 @@
  * deposit) or decline it with a reason (the applicant uploads a new one).
  */
 import { useState } from 'react'
-import { Banknote, FileCheck2, Upload } from 'lucide-react'
+import { Banknote, FileCheck2, Loader2, Upload } from 'lucide-react'
 import type { Agency, Application } from '../../types/domain'
 import { formatZAR } from '../../data/seed'
 import { readDocumentFile } from '../../lib/applicationDocDownscale'
@@ -59,8 +59,15 @@ export function DepositStepPanel({
   const [declineReason, setDeclineReason] = useState('')
   const [paidConfirmed, setPaidConfirmed] = useState(false)
   if (!alwaysShow && !depositStepVisible(application)) return null
-  const req = application.depositRequest
   const proof = application.depositProof
+  // The applicant can pay as soon as the application is approved: without
+  // details sent by the agent, the deposit invoice and the agency's bank
+  // details stand in.
+  const req =
+    application.depositRequest ??
+    (mode === 'tenant' && depositAmount > 0
+      ? { amount: depositAmount, reference: application.id, banking, sentAt: '', sentByName: undefined, dueDate: undefined, note: undefined }
+      : undefined)
 
   const send = async () => {
     setError('')
@@ -85,9 +92,11 @@ export function DepositStepPanel({
     setBusy(true)
     try {
       const read = await readDocumentFile(file, 1_500_000)
-      await onSave({
+      if (read.bytes > 2 * 1024 * 1024) return setError('That file is too big (over 2 MB). Upload a smaller PDF or a photo.')
+      const saved = await onSave({
         depositProof: { name: read.name, mimeType: read.mimeType, dataUrl: read.dataUrl, uploadedAt: new Date().toISOString(), reference: payRef.trim() || req?.reference, amount: req?.amount },
       })
+      if (saved === false) setError('Upload failed. Check your connection and try again.')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not upload that file.')
     } finally {
@@ -131,9 +140,17 @@ export function DepositStepPanel({
             {mode === 'tenant' ? 'Please pay' : 'Asked for'} <span className="font-semibold">{formatZAR(req.amount)}</span>
             {req.dueDate ? <> by <span className="font-semibold">{req.dueDate}</span></> : null} into:
           </p>
-          <BankingDetails banking={req.banking} reference={req.reference} />
+          {bankingIsComplete(req.banking) ? (
+            <BankingDetails banking={req.banking} reference={req.reference} />
+          ) : (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              The agency&apos;s bank details are not on file yet. Ask your agent where to pay (use the reference <strong>{req.reference}</strong>).
+            </p>
+          )}
           {req.note ? <p className="text-sm text-ink-600">{req.note}</p> : null}
-          <p className="text-xs text-ink-500">Sent {new Date(req.sentAt).toLocaleString('en-ZA')}{req.sentByName ? ` by ${req.sentByName}` : ''}.</p>
+          {req.sentAt ? (
+            <p className="text-xs text-ink-500">Sent {new Date(req.sentAt).toLocaleString('en-ZA')}{req.sentByName ? ` by ${req.sentByName}` : ''}.</p>
+          ) : null}
         </div>
       ) : mode === 'tenant' ? (
         <p className="text-sm text-ink-500">Your agent will send the deposit amount and bank details here.</p>
@@ -221,7 +238,8 @@ export function DepositStepPanel({
             className={`inline-flex min-h-11 items-center gap-2 rounded-xl px-4 text-sm font-semibold text-white ${paidConfirmed ? 'cursor-pointer bg-primary' : 'cursor-not-allowed bg-primary/50'}`}
             aria-disabled={!paidConfirmed}
           >
-            <Upload className="h-4 w-4" aria-hidden /> {busy ? 'Uploading…' : 'Upload proof of payment (PDF, JPG or PNG)'}
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Upload className="h-4 w-4" aria-hidden />}
+            {busy ? 'Uploading your proof of payment…' : 'Upload proof of payment (PDF, JPG or PNG)'}
             <input type="file" accept={APPLICATION_DOC_ACCEPT} className="hidden" disabled={busy || !paidConfirmed} onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); e.target.value = '' }} />
           </label>
         </div>

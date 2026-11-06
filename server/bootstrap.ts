@@ -68,10 +68,17 @@ const ROLE_MAP: Record<RoleDb, string> = {
   CONTRACTOR: 'contractor',
 }
 
-function dateOnly(v: Date | string | null | undefined): string {
+export function dateOnly(v: Date | string | null | undefined): string {
   if (!v) return ''
-  const s = typeof v === 'string' ? v : v.toISOString()
-  return s.slice(0, 10)
+  if (typeof v === 'string') return v.slice(0, 10)
+  // A DATE column arrives as local midnight. On a server whose clock is not on
+  // UTC (e.g. Africa/Johannesburg) toISOString() would give the day before, so
+  // read local midnight by its local date.
+  if (v.getHours() === 0 && v.getMinutes() === 0 && v.getSeconds() === 0 && v.getMilliseconds() === 0) {
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${v.getFullYear()}-${pad(v.getMonth() + 1)}-${pad(v.getDate())}`
+  }
+  return v.toISOString().slice(0, 10)
 }
 
 /**
@@ -1467,8 +1474,11 @@ export async function buildBootstrap(opts?: {
     id: mappedFe('payment', p.id as string, PAYMENT_IDS[p.id as string] ?? (p.id as string)),
     agencyId: agencyFe(p.client_id as string)!,
     propertyId: propertyFe(p.unit_id as string | null) ?? '',
-    applicationId: null as string | null,
-    tenancyId: p.lease_id ? (LEASE_IDS[p.lease_id as string] ?? (p.lease_id as string)) : null,
+    // The application the payment belongs to (deposit / first rent raised on approval).
+    applicationId: p.application_id ? (appUuidToFeId.get(p.application_id as string) ?? null) : (null as string | null),
+    tenancyId: p.lease_id
+      ? mappedFe('tenancy', p.lease_id as string, LEASE_IDS[p.lease_id as string] ?? (p.lease_id as string))
+      : null,
     partyName: p.party_name as string,
     partyUserId: mapUser(p.party_user_id as string | null),
     type: paymentType(p.payment_type as string),

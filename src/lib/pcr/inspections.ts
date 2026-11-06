@@ -255,9 +255,9 @@ function uncheckedItemsError(inspection: PropertyConditionInspection): string | 
 function recomputeIngoingSigned(inspection: PropertyConditionInspection): boolean {
   if (inspection.kind !== 'incoming') return false
   if (inspection.noShowOverride) return true
-  // For now the agent's sign-off is enough for the application to continue;
-  // the tenant signs off too (tenant portal) before the lease, but it no longer blocks.
-  return Boolean(inspection.staffSignature)
+  // Signed by both: the agency signs off first, then the tenant at move-in
+  // (or staff record that the tenant did not attend: noShowOverride above).
+  return Boolean(inspection.staffSignature && inspection.tenantSignature)
 }
 
 /** Staff soft sign / ack (in-app). */
@@ -386,9 +386,9 @@ export function inspectionStatusLabel(status: PropertyConditionInspection['statu
     case 'completed':
       return 'Completed (unsigned)'
     case 'signed':
-      return 'Soft-signed'
+      return 'Signed by both'
     case 'no_show_override':
-      return 'No-show / admin override'
+      return 'Recorded without the tenant'
     default:
       return status
   }

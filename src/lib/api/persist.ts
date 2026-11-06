@@ -392,9 +392,33 @@ export function preferServerPersistForTenancy(
  */
 const recordChains = new Map<string, Promise<unknown>>()
 
+/** Marks the one document whose file an application save is uploading. */
+export const UPLOAD_DOC_KEY_FIELD = '__uploadDocKey'
+
+/**
+ * An application save carries only the file being uploaded. The server keeps
+ * every stored file a save leaves out, so re-sending them (up to 2 MB each)
+ * only made each save slower and could push it past the upload size limit.
+ */
+export function slimApplicationPayload(data: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!data) return data
+  const keep = data[UPLOAD_DOC_KEY_FIELD]
+  const out: Record<string, unknown> = { ...data }
+  delete out[UPLOAD_DOC_KEY_FIELD]
+  if (Array.isArray(out.documents)) {
+    out.documents = (out.documents as Array<Record<string, unknown>>).map((d) =>
+      d && d.file && d.key !== keep ? { ...d, file: null } : d,
+    )
+  }
+  return out
+}
+
 export async function persistToApiDetailed(op: PersistOp): Promise<PersistApiResult> {
   if (!apiConfigured()) {
     return { ok: false, error: apiUnreachableMessage() }
+  }
+  if (op.resource === 'application' && op.action === 'upsert') {
+    op = { ...op, data: slimApplicationPayload(op.data as Record<string, unknown> | undefined) } as PersistOp
   }
   const key = `${op.resource}:${op.id}`
   const before = recordChains.get(key) ?? Promise.resolve()

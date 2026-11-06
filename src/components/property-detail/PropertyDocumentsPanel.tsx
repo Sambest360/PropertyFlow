@@ -304,12 +304,13 @@ export function PropertyDocumentsPanel({
                         className="min-h-11"
                         onClick={() => {
                           const file = applicantPackFile(applications, r)
-                          if (file?.dataUrl) {
+                          if (file?.dataUrl || file?.src) {
                             if (
                               !openApplicationDocumentFile({
                                 name: file.name,
                                 mimeType: file.mimeType,
                                 dataUrl: file.dataUrl,
+                                src: file.src,
                               })
                             ) {
                               void showAuthWarning('Could not open this file — try Download.')
@@ -328,12 +329,13 @@ export function PropertyDocumentsPanel({
                         disabled={!r.uploaded}
                         onClick={() => {
                           const file = applicantPackFile(applications, r)
-                          if (file?.dataUrl) {
+                          if (file?.dataUrl || file?.src) {
                             if (
                               !downloadApplicationDocumentFile({
                                 name: file.name,
                                 mimeType: file.mimeType,
                                 dataUrl: file.dataUrl,
+                                src: file.src,
                               })
                             ) {
                               void showAuthWarning('Could not download this file.')
@@ -398,7 +400,7 @@ export function PropertyDocumentsPanel({
             {viewRow.note ? (
               <p className="rounded-xl bg-primary-50 p-3 text-ink-600">{viewRow.note}</p>
             ) : null}
-            {!applicantPackFile(applications, viewRow)?.dataUrl ? (
+            {!(applicantPackFile(applications, viewRow)?.dataUrl || applicantPackFile(applications, viewRow)?.src) ? (
               <p className="rounded-xl bg-primary-50 p-3 text-ink-600">
                 No file is stored for this item yet — the applicant may still need to upload it, or
                 the agency view may not include file bytes for this application.

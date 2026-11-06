@@ -1,4 +1,5 @@
 import { Hono, type Context } from 'hono'
+import { findApplicationFile, withoutApplicationFiles } from './applicationFiles.js'
 import { cors } from 'hono/cors'
 import {
   databaseConfigError,
@@ -801,7 +802,13 @@ app.post('/api/admin/users/delete', async (c) => {
 registerEmailRoutes(app)
 registerBillingRoutes(app)
 
-app.get('/api/bootstrap', async (c) => {
+/**
+ * The signed-in actor's bootstrap, filtered to what they may see. Returns a
+ * Response for the unconfigured / signed-out cases.
+ */
+async function loadFilteredBootstrap(
+  c: Context,
+): Promise<{ filtered: Record<string, unknown>; started: number; lite: boolean; actorRole: string } | Response> {
   if (!databaseConfigured) {
     return c.json(
       {
@@ -811,81 +818,112 @@ app.get('/api/bootstrap', async (c) => {
       503,
     )
   }
-  try {
-    // Identity first: no verified actor → 401 before any table is read.
-    const rawActor = await resolveRequestActor(c, null)
-    if (!rawActor) {
-      return c.json(
-        { error: 'unauthorized', message: 'Sign in required (use /api/public/marketplace for listings)' },
-        401,
-      )
-    }
-    const lite = c.req.query('lite') === '1' || c.req.query('lite') === 'true'
-    const rowLimit = lite
-      ? 60
-      : Math.min(Math.max(Number(c.req.query('limit') || 250), 1), 500)
-    const actor = await enrichActor(rawActor)
-    const { agencyFeId, buildActorPropertyScope, filterBootstrapForActor, actorIdAliases, resolveActorUsersManage } =
-      await loadScopeGateModule()
-    const { buildBootstrap } = await loadBootstrapModule()
-    const bootstrapStarted = Date.now()
-    const aliases = await actorIdAliases(actor)
-    const data = await buildBootstrap({
-      lite,
-      notificationsFor:
-        actor.role === 'super_admin'
-          ? undefined
-          : {
-              userUuids: [...aliases],
-              clientUuid:
-                isAgencyWideRole(actor.role as Role) && actor.agencyId
-                  ? await resolveUuid('agency', actor.agencyId)
-                  : null,
-            },
-      refundAgencyFe:
-        actor.role === 'super_admin' ? undefined : actor.agencyId ? await agencyFeId(actor.agencyId) : null,
-      limits: {
-        units: rowLimit,
-        messages: rowLimit,
-        notifications: rowLimit,
-        leads: rowLimit,
-        applications: rowLimit,
-        tickets: rowLimit,
-        payments: rowLimit,
-        documents: rowLimit,
-      },
-    })
-    // actor already enriched above (D2 refundAgencyFe); main's CR7 adds resolveActorUsersManage.
-    const scope = await buildActorPropertyScope(actor)
-    // CR7: agency desk tickets only when users.manage is effective (agency pack applied).
-    const usersManage =
-      actor.role === 'client_admin' || actor.role === 'agent_admin'
-        ? await resolveActorUsersManage(actor)
-        : undefined
-    const { loadActorPermissionList, stripRestrictedCollections } = await import('./permissionGate.js')
-    // Collections an admin switched off for this user never reach the browser.
-    const { hideDeletedUsersForActor } = await import('./deletedUsers.js')
-    const filtered = stripRestrictedCollections(
-      filterBootstrapForActor(
-        hideDeletedUsersForActor(data, actor.role) as Parameters<typeof filterBootstrapForActor>[0],
-        actor,
-        scope,
-        aliases,
-        { usersManage },
-      ) as unknown as Record<string, unknown>,
-      actor.role,
-      await loadActorPermissionList(actor),
+  // Identity first: no verified actor → 401 before any table is read.
+  const rawActor = await resolveRequestActor(c, null)
+  if (!rawActor) {
+    return c.json(
+      { error: 'unauthorized', message: 'Sign in required (use /api/public/marketplace for listings)' },
+      401,
     )
+  }
+  const lite = c.req.query('lite') === '1' || c.req.query('lite') === 'true'
+  const rowLimit = lite
+    ? 60
+    : Math.min(Math.max(Number(c.req.query('limit') || 250), 1), 500)
+  const actor = await enrichActor(rawActor)
+  const { agencyFeId, buildActorPropertyScope, filterBootstrapForActor, actorIdAliases, resolveActorUsersManage } =
+    await loadScopeGateModule()
+  const { buildBootstrap } = await loadBootstrapModule()
+  const bootstrapStarted = Date.now()
+  const aliases = await actorIdAliases(actor)
+  const data = await buildBootstrap({
+    lite,
+    notificationsFor:
+      actor.role === 'super_admin'
+        ? undefined
+        : {
+            userUuids: [...aliases],
+            clientUuid:
+              isAgencyWideRole(actor.role as Role) && actor.agencyId
+                ? await resolveUuid('agency', actor.agencyId)
+                : null,
+          },
+    refundAgencyFe:
+      actor.role === 'super_admin' ? undefined : actor.agencyId ? await agencyFeId(actor.agencyId) : null,
+    limits: {
+      units: rowLimit,
+      messages: rowLimit,
+      notifications: rowLimit,
+      leads: rowLimit,
+      applications: rowLimit,
+      tickets: rowLimit,
+      payments: rowLimit,
+      documents: rowLimit,
+    },
+  })
+  // actor already enriched above (D2 refundAgencyFe); main's CR7 adds resolveActorUsersManage.
+  const scope = await buildActorPropertyScope(actor)
+  // CR7: agency desk tickets only when users.manage is effective (agency pack applied).
+  const usersManage =
+    actor.role === 'client_admin' || actor.role === 'agent_admin'
+      ? await resolveActorUsersManage(actor)
+      : undefined
+  const { loadActorPermissionList, stripRestrictedCollections } = await import('./permissionGate.js')
+  // Collections an admin switched off for this user never reach the browser.
+  const { hideDeletedUsersForActor } = await import('./deletedUsers.js')
+  const filtered = stripRestrictedCollections(
+    filterBootstrapForActor(
+      hideDeletedUsersForActor(data, actor.role) as Parameters<typeof filterBootstrapForActor>[0],
+      actor,
+      scope,
+      aliases,
+      { usersManage },
+    ) as unknown as Record<string, unknown>,
+    actor.role,
+    await loadActorPermissionList(actor),
+  )
+  return { filtered, started: bootstrapStarted, lite, actorRole: actor.role }
+}
+
+app.get('/api/bootstrap', async (c) => {
+  try {
+    const loaded = await loadFilteredBootstrap(c)
+    if (loaded instanceof Response) return loaded
+    const { started: bootstrapStarted, lite, actorRole } = loaded
+    // Document files are fetched one at a time (GET /api/application-file).
+    const filtered = withoutApplicationFiles(loaded.filtered)
     const bootstrapMs = Date.now() - bootstrapStarted
     c.header('Server-Timing', `bootstrap;dur=${bootstrapMs}`)
     if (lite && bootstrapMs > 2000) {
-      console.info(`[api/bootstrap] lite bootstrap ${bootstrapMs}ms actor=${actor.role}`)
+      console.info(`[api/bootstrap] lite bootstrap ${bootstrapMs}ms actor=${actorRole}`)
     }
     return c.json(filtered)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[api/bootstrap]', message)
     return c.json({ error: 'bootstrap_failed', message }, 500)
+  }
+})
+
+/**
+ * One application document file, for View / Download. Read through the same
+ * actor filter as the bootstrap, so a file is only returned to someone who
+ * can see that application.
+ */
+app.get('/api/application-file', async (c) => {
+  try {
+    const appId = c.req.query('app') ?? ''
+    const key = c.req.query('key') ?? ''
+    if (!appId || !key) return c.json({ error: 'bad_request', message: 'app and key are required' }, 400)
+    const loaded = await loadFilteredBootstrap(c)
+    if (loaded instanceof Response) return loaded
+    const file = findApplicationFile(loaded.filtered, appId, key)
+    if (!file) return c.json({ error: 'not_found', message: 'File not found' }, 404)
+    c.header('Cache-Control', 'private, no-store')
+    return c.json(file)
+  } catch (err) {
+    console.error('[api/application-file]', err instanceof Error ? err.message : String(err))
+    return c.json({ error: 'file_failed', message: 'Could not load the file' }, 500)
   }
 })
 

@@ -146,7 +146,7 @@ describe('incoming/outgoing inspection + template', () => {
 })
 
 describe('soft sign / no-show override → ingoing_pcr_signed', () => {
-  it('sets ingoingPcrSigned once the agent signs off; tenant sign-off is recorded too', () => {
+  it('sets ingoingPcrSigned once both the agent and the tenant have signed off', () => {
     const now = '2026-10-01T12:00:00+02:00'
     let insp = createInspection({
       id: 'pcr-sign',
@@ -164,7 +164,8 @@ describe('soft sign / no-show override → ingoing_pcr_signed', () => {
     const staff = softSignStaff(insp, { userId: 'u-staff', name: 'Lerato' }, now)
     expect(staff.ok).toBe(true)
     if (!staff.ok) return
-    expect(staff.inspection.ingoingPcrSigned).toBe(true)
+    // The agency alone does not complete it: the tenant signs next.
+    expect(staff.inspection.ingoingPcrSigned).toBe(false)
     // The tenant alone never sets it.
     const tenantOnly = softSignTenant(insp, { userId: 'u-tenant', name: 'Thandi Molefe' }, now)
     expect(tenantOnly.ok && tenantOnly.inspection.ingoingPcrSigned).toBe(false)

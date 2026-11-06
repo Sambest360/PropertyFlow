@@ -34,7 +34,10 @@ export const STATUS_AFTER_APPROVAL: Partial<Record<StageKind, WorkflowStatusKey>
   credit_check: 'agent_review',
   agent_review: 'landlord_review',
   // approval: the approve call itself moves the application on.
-  deposit: 'deposit_verified',
+  // Deposit comes before the lease here; the old workflow put 'deposit
+  // verified' after both lease signatures, which the server refuses until the
+  // lease is signed. Next step: the tenant signs the lease.
+  deposit: 'lease_sent',
   lease: 'inspection_scheduled',
   move_in: 'active_tenancy',
 }

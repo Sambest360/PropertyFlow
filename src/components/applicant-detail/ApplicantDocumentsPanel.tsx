@@ -57,7 +57,7 @@ export function ApplicantDocumentsPanel({
       </h2>
       <p className="mt-1 text-sm text-ink-500">
         {isTenant
-          ? 'For each document: choose a file (PDF or photo), check it, then press Save document.'
+          ? 'Choose a file (PDF or photo) for each document. It uploads straight away.'
           : 'Every document on this application. Approving the Documents or Identity stage marks the uploaded ones as checked.'}
       </p>
 

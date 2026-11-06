@@ -662,3 +662,9 @@ div:where(.swal2-icon).swal2-success .swal2-success-ring {
 @media (prefers-reduced-motion: reduce) {
   .pf-tip-ring { animation: none; }
 }
+
+/* Document upload in progress: a bar that sweeps across its track. */
+@keyframes docupload {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}

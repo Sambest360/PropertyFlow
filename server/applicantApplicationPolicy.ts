@@ -542,7 +542,16 @@ export async function enforceStaffCreditCheckConsent(body: {
         ? (meta.screeningConsent as Application['screeningConsent'])
         : undefined,
   } as Application
-  if (!hasAllAdultCreditConsents(app)) {
-    throw transitionError('credit_check requires POPIA / NCA consent for every adult on the application')
+  // A signed consent form uploaded as the credit-consent document is consent on file.
+  const docs = [
+    ...(Array.isArray(data.documents) ? (data.documents as Row[]) : []),
+    ...(Array.isArray(docsJson.documents) ? (docsJson.documents as Row[]) : []),
+  ]
+  const consentForm = docs.find((d) => asRow(d)?.key === 'credit_consent')
+  const formOnFile = consentForm && ['uploaded', 'verified'].includes(String(asRow(consentForm)?.status))
+  if (!formOnFile && !hasAllAdultCreditConsents(app)) {
+    throw transitionError(
+      'The applicant has not given credit check consent yet. Ask them to sign the consent under Your details in their portal, or upload the signed consent form under Documents.',
+    )
   }
 }

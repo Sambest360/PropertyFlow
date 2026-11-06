@@ -55,3 +55,24 @@ describe('persistToApiDetailed', () => {
     expect(order).toEqual(['start 1', 'end 1', 'start 2'])
   })
 })
+
+describe('slimApplicationPayload', () => {
+  it('sends only the file being uploaded; other documents go without their content', async () => {
+    const { slimApplicationPayload } = await import('./persist')
+    const out = slimApplicationPayload({
+      id: 'APP-1',
+      __uploadDocKey: 'fica',
+      documents: [
+        { key: 'id', status: 'verified', file: { name: 'id.pdf', dataUrl: 'data:x' } },
+        { key: 'fica', status: 'uploaded', file: { name: 'fica.pdf', dataUrl: 'data:y' } },
+        { key: 'bank', status: 'required' },
+      ],
+    })!
+    expect(out.__uploadDocKey).toBeUndefined()
+    expect(out.documents).toEqual([
+      { key: 'id', status: 'verified', file: null },
+      { key: 'fica', status: 'uploaded', file: { name: 'fica.pdf', dataUrl: 'data:y' } },
+      { key: 'bank', status: 'required' },
+    ])
+  })
+})

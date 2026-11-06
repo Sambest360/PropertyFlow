@@ -6,7 +6,9 @@ type Ctx = { properties: PropertyAsset[]; users: AppUser[]; agencies: Agency[] }
 
 function sigFor(role: 'Tenant' | 'Landlord', name: string, p: LeaseESignParty | null | undefined, users: AppUser[]): LeasePdfSignature | null {
   if (!p || p.status !== 'signed') return null
-  const by = p.signerUserId ? users.find((u) => u.id === p.signerUserId)?.name ?? null : null
+  // The name the signer typed (and confirmed as theirs) first, so everyone's
+  // copy names the same person, whoever can see that user.
+  const by = p.ectaConsent?.typedName?.trim() || (p.signerUserId ? users.find((u) => u.id === p.signerUserId)?.name ?? null : null)
   return {
     role,
     name,

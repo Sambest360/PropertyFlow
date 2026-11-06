@@ -395,13 +395,13 @@ export default function ApplicantDetail() {
   }
 
   /** Save the stage decision (with any earlier progress filled in) and move the old status on. */
-  const saveStageApproval = (
+  const saveStageApproval = async (
     stage: PipelineStage,
     records: Record<string, StageRecord>,
     record: StageRecord,
     nextStatus?: WorkflowStatusKey,
-  ) => {
-    updateApplication(application.id, {
+  ): Promise<boolean> => {
+    const ok = await updateApplication(application.id, {
       stageRecords: { ...records, [stage.key]: record },
       ...(nextStatus
         ? {
@@ -411,6 +411,7 @@ export default function ApplicantDetail() {
           }
         : {}),
     })
+    if (!ok) return false
     addPropertyEvent({
       agencyId: application.agencyId,
       propertyId: application.propertyId,
@@ -419,6 +420,7 @@ export default function ApplicantDetail() {
       action: `approved the ${stage.label} stage`,
       changes: [{ field: 'Stage', from: stage.label, to: 'Approved' }],
     })
+    return true
   }
 
   const approveBlocked = (stage: PipelineStage): string | null => {
@@ -496,17 +498,17 @@ export default function ApplicantDetail() {
         return
       }
       if (stage.kind === 'lease') {
-        saveStageApproval(stage, input.records, record, 'inspection_scheduled')
+        if (!(await saveStageApproval(stage, input.records, record, 'inspection_scheduled'))) return
         tellApplicant('Your lease is signed', 'Your lease is signed by everyone. Next: the move-in inspection and your keys.')
         return
       }
       if (stage.kind === 'move_in') {
-        saveStageApproval(stage, input.records, record, 'active_tenancy')
+        if (!(await saveStageApproval(stage, input.records, record, 'active_tenancy'))) return
         if (linkedTenancy && linkedTenancy.status !== 'Active') updateTenancy(linkedTenancy.id, { status: 'Active' })
         tellApplicant('Welcome home', 'Your move-in is complete and your tenancy is active. Your tenant portal has your lease, payments and maintenance.')
         return
       }
-      saveStageApproval(stage, input.records, record, STATUS_AFTER_APPROVAL[stage.kind])
+      await saveStageApproval(stage, input.records, record, STATUS_AFTER_APPROVAL[stage.kind])
     } finally {
       setStageBusy(false)
     }
@@ -526,11 +528,12 @@ export default function ApplicantDetail() {
         actorUserId: user.id,
         request: { status: 'REJECTED', reason, payment_provider: 'auto' },
       })
-      updateApplication(application.id, {
+      const saved = await updateApplication(application.id, {
         declineReason: reason,
         stageRecords: { ...records, [stage.key]: stageRecord('declined', { reason }) },
         ...(result.status === 'SUCCESS' ? {} : { workflowStatus: 'rejected' as WorkflowStatusKey, stage: 'Rejected' }),
       })
+      if (!saved && result.status !== 'SUCCESS') return
       tellApplicant('Your application was declined', `Your rental application was declined. Reason: ${reason}`)
       logStageChange(prevStage, 'Rejected', `declined the application at ${stage.label}`)
     } finally {
@@ -560,10 +563,16 @@ export default function ApplicantDetail() {
       await sweetWarning('Amount needed', 'Enter the deposit amount that reached the account.')
       return false
     }
+    const occupancyId = linkedTenancy?.id ?? application.id
+    // Approving again (e.g. after a failed save) updates the same register row.
+    const existingHolding = state.depositHoldings.find(
+      (d) => d.occupancyId === occupancyId && (d.status === 'held' || d.status === 'expected'),
+    )
     const held = await upsertHeldDeposit({
       agencyId: application.agencyId,
       actorUserId: user.id,
-      occupancyId: linkedTenancy?.id ?? application.id,
+      occupancyId,
+      ...(existingHolding ? { depositId: existingHolding.id } : {}),
       expectedCents: Math.round((depositDefault || amount) * 100),
       heldCents: Math.round(amount * 100),
     })
@@ -582,11 +591,11 @@ export default function ApplicantDetail() {
       })
     }
     if (depositStage) {
-      saveStageApproval(
+      await saveStageApproval(
         depositStage,
         records,
         stageRecord('approved', { notes: notes || `Deposit of R ${amount.toLocaleString('en-ZA')} received and recorded in Trust & Banking.` }),
-        'deposit_verified',
+        STATUS_AFTER_APPROVAL.deposit,
       )
     }
     tellApplicant('Deposit received', 'Your deposit was received. Next: your lease, which you can read and sign in the app.')
@@ -614,7 +623,7 @@ export default function ApplicantDetail() {
     try {
       const res = await issueLeasePackage(linkedTenancy.id, { userId: user.id, name: user.name })
       if (!res.ok) return void (await sweetWarning('The lease was not sent', res.error ?? 'Try again.'))
-      updateApplication(application.id, {
+      await updateApplication(application.id, {
         workflowStatus: 'lease_sent',
         stage: workflowStageLabel(application.type, 'lease_sent') as Application['stage'],
         progress: workflowProgress(application.type, 'lease_sent'),
@@ -852,7 +861,7 @@ export default function ApplicantDetail() {
               approveBlocked={approveBlocked}
               onUploadDocument={(key, file) => uploadApplicationDocument(application.id, key, file, { userId: user.id, name: user.name })}
             />
-            {linkedTenancy && currentStage(pipeline, application).stage?.kind !== 'lease' ? (
+            {linkedTenancy?.eSign?.envelopeId && currentStage(pipeline, application).index > pipeline.stages.filter((s) => s.enabled).findIndex((s) => s.kind === 'lease') ? (
               <div className="mt-4">
                 <LeaseSignCard tenancy={linkedTenancy} party={linkedTenancy.eSign?.landlord ? 'landlord' : 'tenant'} title="Lease agreement" staff />
               </div>

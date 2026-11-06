@@ -103,7 +103,8 @@ export function TenantApplicationSteps({
           )
         })}
       </ol>
-      {tenancy?.eSign?.envelopeId && stages[at]?.kind !== 'lease' ? (
+      {/* After the lease step: the signed lease stays here to read and download. */}
+      {tenancy?.eSign?.envelopeId && stages.findIndex((s) => s.kind === 'lease') >= 0 && at > stages.findIndex((s) => s.kind === 'lease') ? (
         <LeaseSignCard tenancy={tenancy} party="tenant" title="Your lease agreement" />
       ) : null}
       {!stopped && at >= stages.length ? (
@@ -132,6 +133,7 @@ function StepAction({
   onSave: (patch: Partial<Application>) => void | Promise<unknown>
   onOpenDocuments: () => void
 }) {
+  const { state } = useStore()
   if (stage.kind === 'documents' || stage.kind === 'identity') {
     const missing = (stage.requiredDocs ?? []).filter((k) => {
       const st = application.documents.find((d) => d.key === k)?.status
@@ -146,13 +148,17 @@ function StepAction({
       </div>
     )
   }
+  const depositInvoice = state.payments.find(
+    (p) => p.applicationId === application.id && (p.type === 'Deposit' || p.type === 'Sale Deposit') && p.status !== 'Cancelled',
+  )
   if (stage.kind === 'deposit') {
     if (!application.offerResponse) return <OfferAnswer application={application} onSave={onSave} applicantName={user.name} />
     return (
       <DepositStepPanel
         application={application}
         agency={agency}
-        depositAmount={Number((property as { deposit?: number } | null)?.deposit ?? 0)}
+        alwaysShow
+        depositAmount={depositInvoice?.amount ?? Number((property as { deposit?: number } | null)?.deposit ?? 0)}
         mode="tenant"
         actorName={user.name}
         onSave={onSave}

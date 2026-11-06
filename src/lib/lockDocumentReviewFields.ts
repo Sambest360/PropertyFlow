@@ -32,7 +32,10 @@ export function lockDocumentReviewFields(sent: unknown, storedDocs: Row[]): unkn
     if (!doc) return raw
     const prev = storedDocs.find((d) => d && d.key === doc.key) ?? null
     const next: Row = { ...doc }
-    const newUpload = doc.file != null && fileKey(doc.file) !== fileKey(prev?.file)
+    // A file sent back without its content (page data leaves it out) is not a new upload.
+    const sentContent = Boolean(asRow(doc.file)?.dataUrl)
+    const newUpload = doc.file != null && sentContent && fileKey(doc.file) !== fileKey(prev?.file)
+    if (doc.file != null && !sentContent && prev?.file != null) next.file = prev.file
     if (newUpload) {
       next.status = 'uploaded'
       for (const k of REVIEW_FIELDS) delete next[k]
