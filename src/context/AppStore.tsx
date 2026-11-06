@@ -4203,13 +4203,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         markLocalPersistWrite('unit', property.unitId)
       }
 
-      const propertyResult = await persistUpsertResult('property', id, {
-        ...property,
-        deletedAt,
-        status: 'Archived',
-        featured: false,
-        statusKey: 'DELETED',
-      } as Record<string, unknown>)
+      const propertyResult = await persistUpsertResult(
+        'property',
+        id,
+        propertyPersistPayload(property, {
+          deletedAt,
+          status: 'Archived',
+          featured: false,
+          statusKey: 'DELETED',
+        }) as Record<string, unknown>,
+      )
       if (!propertyResult.ok) {
         patch((s) => ({
           ...s,
@@ -4297,14 +4300,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         markLocalPersistWrite('unit', property.unitId)
       }
 
-      const propertyResult = await persistUpsertResult('property', id, {
-        ...property,
-        restore: true,
-        deletedAt: null,
-        status: 'Draft',
-        featured: false,
-        statusKey: 'DRAFT',
-      } as Record<string, unknown>)
+      const propertyResult = await persistUpsertResult(
+        'property',
+        id,
+        propertyPersistPayload(property, {
+          restore: true,
+          deletedAt: null,
+          status: 'Draft',
+          featured: false,
+          statusKey: 'DRAFT',
+        }) as Record<string, unknown>,
+      )
       if (!propertyResult.ok) {
         patch((s) => ({
           ...s,
