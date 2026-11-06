@@ -57,11 +57,11 @@ const APP = {
   b1: { id: 'd0a20005-0000-4000-8000-000000000001', fe: 'APP-a2r-B1', client: B, unit: UNIT.b1.id, applicant: USERS.tenB.id, agent: null as string | null },
 } as const
 const LEASE = {
-  a1: { id: 'c0a20006-0000-4000-8000-000000000001', fe: 'ten-a2r-A1', client: A, unit: UNIT.a1.id, tenant: USERS.tenA.id },
-  a2: { id: 'c0a20006-0000-4000-8000-000000000002', fe: 'ten-a2r-A2', client: A, unit: UNIT.a1.id, tenant: USERS.tenA.id },
-  a3: { id: 'c0a20006-0000-4000-8000-000000000003', fe: 'ten-a2r-A3', client: A, unit: UNIT.a1.id, tenant: USERS.tenA.id },
-  other: { id: 'c0a20006-0000-4000-8000-000000000004', fe: 'ten-a2r-AO', client: A, unit: UNIT.a1.id, tenant: USERS.tenOther.id },
-  b1: { id: 'd0a20006-0000-4000-8000-000000000001', fe: 'ten-a2r-B1', client: B, unit: UNIT.b1.id, tenant: USERS.tenB.id },
+  a1: { id: 'c0a20006-0000-4000-8000-000000000001', fe: 'ten-a2r-A1', client: A, unit: UNIT.a1.id, tenant: USERS.tenA.id, start: '2026-01-01', end: '2026-03-31' },
+  a2: { id: 'c0a20006-0000-4000-8000-000000000002', fe: 'ten-a2r-A2', client: A, unit: UNIT.a1.id, tenant: USERS.tenA.id, start: '2026-04-01', end: '2026-06-30' },
+  a3: { id: 'c0a20006-0000-4000-8000-000000000003', fe: 'ten-a2r-A3', client: A, unit: UNIT.a1.id, tenant: USERS.tenA.id, start: '2026-07-01', end: '2026-09-30' },
+  other: { id: 'c0a20006-0000-4000-8000-000000000004', fe: 'ten-a2r-AO', client: A, unit: UNIT.a1.id, tenant: USERS.tenOther.id, start: '2026-10-01', end: '2026-12-31' },
+  b1: { id: 'd0a20006-0000-4000-8000-000000000001', fe: 'ten-a2r-B1', client: B, unit: UNIT.b1.id, tenant: USERS.tenB.id, start: '2026-01-01', end: '2026-12-31' },
 } as const
 type PaySeed = {
   id: string
@@ -258,9 +258,9 @@ describe.skipIf(!url)('A2 record-a-payment: mark-paid rules via the real app, se
     n = 1
     for (const l of Object.values(LEASE)) {
       await q(
-        `INSERT INTO leases (id, client_id, unit_id, tenant_id, lease_reference, status, start_date, rent_amount)
-         VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, 'ACTIVE', DATE '2026-01-01', 10000)`,
-        [l.id, l.client, l.unit, l.tenant, `A2R-L-${n++}`],
+        `INSERT INTO leases (id, client_id, unit_id, tenant_id, lease_reference, status, start_date, end_date, rent_amount)
+         VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, 'ACTIVE', $6::date, $7::date, 10000)`,
+        [l.id, l.client, l.unit, l.tenant, `A2R-L-${n++}`, l.start, l.end],
       )
       await q(`INSERT INTO entity_id_map (entity_type, frontend_id, backend_id) VALUES ('tenancy', $1, $2::uuid) ON CONFLICT DO NOTHING`, [l.fe, l.id])
     }
