@@ -9,8 +9,8 @@
 # is included below with a path relative to /etc/nginx. nginx only inherits
 # add_header from the outer level when a block has none of its own, so the
 # snippet is included in the 443 server block AND in every location that adds
-# its own header (/assets/). The snippet owns HSTS; this file never sets it,
-# so it is sent once per response.
+# its own header (/assets/ and location = /index.html). The snippet owns HSTS;
+# this file never sets it, so it is sent once per response.
 
 # :80 is only the redirect (both names). Nothing else belongs here.
 server {
@@ -57,7 +57,14 @@ server {
         try_files $uri =404;
     }
 
+    location = /index.html {
+        expires -1;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        include conf.d/propertyflow-security-headers.conf;
+    }
+
     location / {
+        expires -1;
         try_files $uri $uri/ /index.html;
     }
 }

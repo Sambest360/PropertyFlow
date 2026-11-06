@@ -77,8 +77,9 @@ const locations = (b: Block) => blocks(b.body).filter((x) => x.head.startsWith('
 
 const HEADERS_INCLUDE = 'include conf.d/propertyflow-security-headers.conf'
 
-// origin/main 29ef6e8 deploy/nginx-propertyflow.conf, comments stripped. The
-// installed :80 block must not change behaviour in T7 (H5 owns gzip/caching).
+// Snapshot of deploy/nginx-propertyflow.conf (comments stripped). Updated
+// deliberately for Kelly PR D (D-7): location = /index.html expires -1, and
+// expires -1 on location / so GET / is no-cache (D-6). H5 still owns /assets/.
 const MAIN_INSTALLED = `server {
     listen 80;
     server_name lekayarentals.site www.lekayarentals.site;
@@ -99,7 +100,11 @@ const MAIN_INSTALLED = `server {
         add_header Cache-Control "public, immutable";
         try_files $uri =404;
     }
+    location = /index.html {
+        expires -1;
+    }
     location / {
+        expires -1;
         try_files $uri $uri/ /index.html;
     }
 }`
