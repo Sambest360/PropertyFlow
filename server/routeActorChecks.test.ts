@@ -234,7 +234,6 @@ const post = (path: string, headers: Record<string, string>, body: unknown) =>
 
 describe('no session in production gives 401 (forged super_admin headers included)', () => {
   const cases: Array<[string, () => Promise<Response>]> = [
-    ['payfast/create', () => post('/api/payfast/create', SA_HEADERS, { paymentId: 'PAY-mine' })],
     ['esign/create-envelope', () => post('/api/esign/create-envelope', SA_HEADERS, { tenancyId: 'TN-mine', tenant: { email: 't@x.test' } })],
     ['esign/status', () => post('/api/esign/status', SA_HEADERS, { tenancyId: 'TN-mine', envelopeId: 'SF-111' })],
     ['counts', () => app.request('/api/counts', { headers: SA_HEADERS })],
@@ -250,6 +249,16 @@ describe('no session in production gives 401 (forged super_admin headers include
   }
 })
 
+// Ruling 30: /api/payfast/* is gated to 410 before session. Retargeted from 401.
+describe('payfast/create with no session gives 410 (Ruling 30 switch-off)', () => {
+  it('forged super_admin headers still get 410 online_payments_disabled', async () => {
+    const res = await post('/api/payfast/create', SA_HEADERS, { paymentId: 'PAY-mine' })
+    expect(res.status).toBe(410)
+    expect(((await res.json()) as { error: string }).error).toBe('online_payments_disabled')
+    expect(db.writes).toEqual([])
+  })
+})
+
 describe('dunning-notice is staff-only', () => {
   for (const fe of ['u-tenant', 'u-ll', 'u-con']) {
     it(`${fe} gets 403`, async () => {
@@ -263,7 +272,7 @@ describe('dunning-notice is staff-only', () => {
   })
 })
 
-describe('payfast/create', () => {
+describe.skip('payfast/create (skipped: Ruling 30 switch-off; handler coverage stays in payfastRoutes unit tests until removal PR)', () => {
   it("a tenant cannot start checkout for someone else's payment", async () => {
     const res = await post('/api/payfast/create', { ...auth('u-tenant'), ...SA_HEADERS }, { paymentId: 'PAY-other' })
     expect(res.status).toBe(403)
@@ -397,7 +406,7 @@ describe('approve audits the verified actor', () => {
   })
 })
 
-describe('payfast/create amount comes from the payment record', () => {
+describe.skip('payfast/create amount comes from the payment record (skipped: Ruling 30 switch-off; removal PR)', () => {
   it('no amount sent: charges the stored amount', async () => {
     const res = await post('/api/payfast/create', auth('u-tenant'), { paymentId: 'PAY-mine' })
     expect(res.status).toBe(200)
