@@ -68,6 +68,21 @@ describe('persist refusals', () => {
     }
   })
 
+  it('TITLE_TYPE_CONFIRMATION_REQUIRED is one plain sentence, never the raw code', () => {
+    const r = parsePersistRefusal(
+      { resource: 'property', id: 'p-1', action: 'upsert' },
+      409,
+      JSON.stringify({ error: 'persist_failed', code: 'TITLE_TYPE_CONFIRMATION_REQUIRED', message: 'x' }),
+    )
+    expect(r).toMatchObject({ status: 409, code: 'TITLE_TYPE_CONFIRMATION_REQUIRED' })
+    const msg = persistRefusalMessage(r!)
+    expect(msg).toBe(
+      "The listing title and the chosen type don't match. Change the type, or confirm you want to publish with this title.",
+    )
+    expect(msg).not.toContain('TITLE_TYPE_CONFIRMATION_REQUIRED')
+    expect(msg).not.toMatch(/[A-Z_]{6,}/)
+  })
+
   it('ignores responses without a code, other statuses and non-JSON bodies', () => {
     expect(parsePersistRefusal(op, 403, JSON.stringify({ error: 'forbidden' }))).toBeNull()
     expect(parsePersistRefusal(op, 400, JSON.stringify({ error: 'bad' }))).toBeNull()
