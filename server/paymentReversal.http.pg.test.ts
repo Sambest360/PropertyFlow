@@ -600,13 +600,13 @@ describe.skipIf(!url)('admin reversal Step 1: real app, session and Postgres', (
 
   // ---- row 28 T-V14 (pin) ---------------------------------------------------
   it('T-V14 (pin): /api/persist on the new audit rows\' ids gives 403 EVENT_LOG_TYPE_MISMATCH; the bootstrap carries no row of the new types', async () => {
+    const actsBefore = new Set(
+      ((((await call('GET', '/api/bootstrap', 'caA1')).json as { activities?: Array<{ id: string }> } | null)?.activities) ?? []).map((a) => a.id),
+    )
     const p = await seedPayment(q)
     expect((await reverse('caA1', p.fe, revBody(p))).status).toBe(200)
     await q(`UPDATE payments SET status = 'CANCELLED', updated_at = NOW() WHERE id = $1::uuid`, [p.uuid])
     expect((await reopen('caA1', p.fe, reoBody({ updatedAt: await updatedAt(q, p.uuid) }))).status).toBe(200)
-    const actsBefore = new Set(
-      ((((await call('GET', '/api/bootstrap', 'caA1')).json as { activities?: Array<{ id: string }> } | null)?.activities) ?? []).map((a) => a.id),
-    )
     const [rev, reo] = await audits(q, p.uuid)
     const before = JSON.stringify(await audits(q, p.uuid))
     const results = [
