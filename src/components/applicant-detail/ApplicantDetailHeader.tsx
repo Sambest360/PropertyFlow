@@ -1,33 +1,57 @@
-import { Mail, Phone } from 'lucide-react'
-import type { Application } from '../../types/domain'
-import { ActionButtonRow } from '../ActionButtonRow'
-import { BackButton } from '../BackButton'
-import { ICON_STROKE } from './types'
+import { Mail, Phone } from "lucide-react";
+import type { Application } from "../../types/domain";
+import { ActionButtonRow } from "../ActionButtonRow";
+import { BackButton } from "../BackButton";
+import { ICON_STROKE } from "./types";
+import { PersonAvatar } from "../directory/DirectoryToolbar";
 
-export function ApplicantDetailHeader({ application }: { application: Application }) {
+export function ApplicantDetailHeader({
+  application,
+}: {
+  application: Application;
+}) {
   return (
     <div className="mb-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="font-display text-2xl font-semibold tracking-tight text-ink sm:text-[1.75rem]">
-            {application.applicantName}
-          </h1>
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink-600">
-            <span className="inline-flex items-center gap-1.5">
-              <Mail className="h-3.5 w-3.5 text-ink-400" strokeWidth={ICON_STROKE} aria-hidden />
-              {application.email}
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <Phone className="h-3.5 w-3.5 text-ink-400" strokeWidth={ICON_STROKE} aria-hidden />
-              {application.phone || '—'}
-            </span>
+        <div className="flex min-w-0 items-center gap-4">
+          <PersonAvatar
+            name={application.applicantName}
+            userId={application.applicantUserId}
+            shape="circle"
+            className="h-14 w-14 text-base"
+          />
+          <div className="min-w-0">
+            <h1 className="font-display text-2xl font-semibold tracking-tight text-ink sm:text-[1.75rem]">
+              {application.applicantName}
+            </h1>
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink-600">
+              <span className="inline-flex items-center gap-1.5">
+                <Mail
+                  className="h-3.5 w-3.5 text-ink-400"
+                  strokeWidth={ICON_STROKE}
+                  aria-hidden
+                />
+                {application.email}
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <Phone
+                  className="h-3.5 w-3.5 text-ink-400"
+                  strokeWidth={ICON_STROKE}
+                  aria-hidden
+                />
+                {application.phone || "—"}
+              </span>
+            </div>
           </div>
         </div>
 
         <ActionButtonRow className="sm:w-auto">
-          <BackButton to="/workspace/sales/applications" label="All applicants" />
+          <BackButton
+            to="/workspace/sales/applications"
+            label="All applicants"
+          />
         </ActionButtonRow>
       </div>
     </div>
-  )
+  );
 }

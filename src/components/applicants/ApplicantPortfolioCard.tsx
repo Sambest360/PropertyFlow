@@ -34,7 +34,7 @@ export function ApplicantPortfolioCard({
       )}
     >
       <div className="flex items-start gap-3">
-        <PersonAvatar name={a.applicantName} />
+        <PersonAvatar name={a.applicantName} userId={a.applicantUserId} />
         <div className="min-w-0 flex-1">
           <h3 className="font-semibold text-ink"><UnopenedDot kind="application" id={a.id} className="mr-1.5 align-middle" />{a.applicantName}</h3>
           <p className="truncate text-xs text-ink-500">{item.propertyTitle}</p>
@@ -101,7 +101,7 @@ export function ApplicantExpansion({
     <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
       <div className="min-w-0 space-y-2">
         <div className="flex items-center gap-3">
-          <PersonAvatar name={a.applicantName} />
+          <PersonAvatar name={a.applicantName} userId={a.applicantUserId} />
           <div className="min-w-0">
             <p className="font-display text-2xl font-semibold tracking-tight text-ink">
               {a.applicantName}

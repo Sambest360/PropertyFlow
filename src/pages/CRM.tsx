@@ -1049,7 +1049,7 @@ function LeadExpansion({
     <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
       <div className="min-w-0 space-y-2">
         <div className="flex items-center gap-3">
-          <PersonAvatar name={l.name} />
+          <PersonAvatar name={l.name} email={l.email} />
           <div className="min-w-0">
             <p className="font-display text-2xl font-semibold tracking-tight text-ink">{l.name}</p>
             <p className="truncate text-sm text-ink-500">{leadContactLine(l)}</p>
@@ -1147,7 +1147,7 @@ function LeadCard({
         className="w-full cursor-pointer p-4 pr-20 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       >
       <div className="flex items-start gap-3">
-        <PersonAvatar name={l.name} />
+        <PersonAvatar name={l.name} email={l.email} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             <h3 className="truncate font-semibold text-ink"><UnopenedDot kind="lead" id={l.id} className="mr-1.5 align-middle" />{l.name}</h3>

@@ -101,9 +101,9 @@ export default function ListingDetail() {
   const contactName = contactAgent?.name ?? p?.agentName
   const listingContact = useListingContact(p?.id, {
     agency: contactAgency
-      ? { name: contactAgency.tradingAs || contactAgency.name, area: contactAgency.city || null, phone: null, email: null, website: null, address: null, description: null, logoUrl: null }
+      ? { name: contactAgency.tradingAs || contactAgency.name, area: contactAgency.city || null, phone: null, email: null, website: null, address: null, description: null, logoUrl: contactAgency.logoUrl ?? null }
       : null,
-    person: contactName ? { name: contactName, role: 'Agent', photoUrl: null, phone: contactAgent?.phone ?? null } : null,
+    person: contactName ? { name: contactName, role: 'Agent', photoUrl: contactAgent?.avatar ?? null, phone: contactAgent?.phone ?? null } : null,
   })
 
   const [firstName, setFirstName] = useState('')

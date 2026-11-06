@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { ChevronDown, LayoutGrid, List, Search, SlidersHorizontal, X } from 'lucide-react'
 import { cn, Input } from '../ui'
 import { DirectoryFilterSelect } from './DirectoryFilters'
+import { useOptionalStore } from '../../context/AppStore'
 
 const ICON_STROKE = 1.6
 
@@ -235,11 +236,31 @@ export function DirectoryEmpty({
 
 export function PersonAvatar({
   name,
+  userId,
+  email,
+  shape = 'rounded',
+  photoUrl,
   className,
 }: {
   name: string
+  /** The person's account: their profile photo shows when they have one. */
+  userId?: string | null
+  /** For people known by email only (e.g. a lead who has an account). */
+  email?: string | null
+  photoUrl?: string | null
+  /** `circle` for timelines and chat; rounded square by default. */
+  shape?: 'rounded' | 'circle'
+  /** Size and text classes (default h-11 w-11 text-sm). */
   className?: string
 }) {
+  const store = useOptionalStore()
+  const mail = email?.trim().toLowerCase()
+  const person = userId
+    ? store?.state.users.find((u) => u.id === userId)
+    : mail
+      ? store?.state.users.find((u) => u.email?.toLowerCase() === mail)
+      : undefined
+  const photo = photoUrl || person?.avatar
   const initials = name
     .replace(/\([^)]*\)/g, '')
     .split(/\s+/)
@@ -251,12 +272,14 @@ export function PersonAvatar({
   return (
     <span
       className={cn(
-        'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary text-sm font-semibold text-white',
-        className,
+        'inline-flex shrink-0 items-center justify-center overflow-hidden bg-primary font-semibold text-white',
+        shape === 'circle' ? 'rounded-full' : 'rounded-2xl',
+        // Callers that size the avatar pass their own height / width / text size.
+        className && /(^|\s)h-/.test(className) ? className : cn('h-11 w-11 text-sm', className),
       )}
       aria-hidden
     >
-      {initials || '?'}
+      {photo ? <img src={photo} alt="" className="h-full w-full rounded-[inherit] object-cover" /> : initials || '?'}
     </span>
   )
 }

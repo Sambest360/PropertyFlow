@@ -165,7 +165,7 @@ export function MarketplaceHeader() {
         </div>
       </header>
 
-      <MobileDrawer open={mobileOpen} onClose={() => setMobileOpen(false)} title="Menu" side="right">
+      <MobileDrawer open={mobileOpen} onClose={() => setMobileOpen(false)} title="Menu">
         <form onSubmit={submitSearch} className="relative mb-4">
           <Search
             className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400"

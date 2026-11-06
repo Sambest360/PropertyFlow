@@ -90,7 +90,7 @@ export function WorkspaceBottomNav() {
         </ul>
       </nav>
 
-      <MobileDrawer open={moreOpen} onClose={() => setMoreOpen(false)} title="Menu" side="left">
+      <MobileDrawer open={moreOpen} onClose={() => setMoreOpen(false)} title="Menu">
         <div className="mb-5 px-1">
           <BrandLogo to="/workspace" size="sm" />
           <p className="mt-3 text-sm text-ink-500">{roleLabel}</p>

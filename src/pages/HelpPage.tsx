@@ -3,7 +3,7 @@
  * Short guide + Show page tips (reuses resetPageTipsForUser).
  * CR7: Raise a ticket, My tickets, and the help desk for desk roles.
  */
-import { CircleHelp, Lightbulb, LifeBuoy } from 'lucide-react'
+import { ChevronDown, CircleHelp } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { resetPageTipsForUser } from '../lib/pageTips'
@@ -12,6 +12,34 @@ import { useSuiteAlert } from '../components/alerts/SuiteAlert'
 import { HelpDesk } from '../components/help/HelpDesk'
 
 const ICON_STROKE = 1.6
+
+/** Short answers, closed until opened, so the page stays calm. */
+const GUIDES: Array<{ q: string; a: string }> = [
+  {
+    q: 'Find my way around',
+    a: 'Use the sidebar (or the More menu on a phone) for Properties, Applications, Leases, Messages, Trust and your portals. Admin settings sit under your role menu if you have admin access.',
+  },
+  {
+    q: 'Move an application on',
+    a: "Open the application's Overview. Every stage has Approve and Decline: Approve moves it to the next stage, Decline needs a reason the applicant sees. Set the stages in Admin → Application Pipeline.",
+  },
+  {
+    q: 'Get help on a form',
+    a: 'Look for the small question-mark icon next to a field or section title for a short explanation.',
+  },
+  {
+    q: 'Message a tenant, owner or the agency',
+    a: 'Use Messages. Conversations stay inside Lekaya Rentals, not WhatsApp or SMS.',
+  },
+  {
+    q: 'Renew a lease or set an escalation',
+    a: 'Open the Leases directory or the lease on the tenant’s page.',
+  },
+  {
+    q: 'Import, export or allocate trust money',
+    a: 'Use the Trust cashbook. The question-mark icons on the Trust pages explain the current limits.',
+  },
+]
 
 export default function HelpPage() {
   const { user } = useAuth()
@@ -31,7 +59,20 @@ export default function HelpPage() {
     <div className="animate-fade-in space-y-5" data-testid="workspace-help-page">
       <PageHeader
         title="Help & support"
-        subtitle="Quick guidance for Lekaya — tips, navigation, and support tickets."
+        subtitle="Raise a ticket, follow up a complaint, or find a quick answer."
+        actions={
+          <Button
+            type="button"
+            variant="secondary"
+            className="min-h-11 cursor-pointer"
+            onClick={showPageTips}
+            data-testid="help-show-page-tips"
+            title="Replay the walkthrough tips on each workspace page"
+          >
+            <CircleHelp className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+            Show page tips
+          </Button>
+        }
       />
 
       <HelpDesk />
@@ -48,80 +89,21 @@ export default function HelpPage() {
         </Link>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="space-y-3 p-5">
-          <div className="flex items-center gap-2">
-            <Lightbulb className="h-5 w-5 text-primary" strokeWidth={ICON_STROKE} aria-hidden />
-            <h2 className="font-display text-lg font-semibold text-ink">Show page tips</h2>
-          </div>
-          <p className="text-sm leading-relaxed text-ink-500">
-            Replay the in-app walkthrough tips for your account. Tips appear on key workspace
-            pages after you reset them.
-          </p>
-          <Button
-            type="button"
-            className="min-h-11 cursor-pointer"
-            onClick={showPageTips}
-            data-testid="help-show-page-tips"
-          >
-            <CircleHelp className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-            Show page tips
-          </Button>
-        </Card>
-
-        <Card className="space-y-3 p-5">
-          <div className="flex items-center gap-2">
-            <LifeBuoy className="h-5 w-5 text-primary" strokeWidth={ICON_STROKE} aria-hidden />
-            <h2 className="font-display text-lg font-semibold text-ink">Getting around</h2>
-          </div>
-          <ul className="list-disc space-y-2 pl-5 text-sm leading-relaxed text-ink-500">
-            <li>
-              Use the sidebar (or mobile More menu) to open Properties, Applications, Leases,
-              Messages, Trust, and portals for your role.
+      <Card className="p-0">
+        <h2 className="px-5 pb-1 pt-4 font-display text-lg font-semibold text-ink">How do I…?</h2>
+        <ul className="divide-y divide-primary-50">
+          {GUIDES.map((g) => (
+            <li key={g.q}>
+              <details className="group px-5 py-3">
+                <summary className="flex min-h-9 cursor-pointer list-none items-center justify-between gap-3 text-sm font-medium text-ink marker:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                  {g.q}
+                  <ChevronDown className="h-4 w-4 shrink-0 text-ink-400 transition-transform group-open:rotate-180" aria-hidden />
+                </summary>
+                <p className="mt-1 max-w-prose text-sm leading-relaxed text-ink-500">{g.a}</p>
+              </details>
             </li>
-            <li>
-              Circle-help icons on forms open short field tips — look for them next to labels and
-              section titles.
-            </li>
-            <li>
-              Administration stays under the role menu for staff with admin permissions — Help is
-              not Administration.
-            </li>
-          </ul>
-          <p className="text-sm text-ink-500">
-            Need your home screen?{' '}
-            <Link
-              to="/workspace"
-              className="font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            >
-              Back to workspace
-            </Link>
-            .
-          </p>
-        </Card>
-      </div>
-
-      <Card className="space-y-2 p-5">
-        <h2 className="font-display text-lg font-semibold text-ink">Quick guide</h2>
-        <div className="grid gap-3 text-sm text-ink-500 sm:grid-cols-2">
-          <p>
-            <strong className="text-ink">Applications:</strong> every stage has Approve and Decline on the
-            application&apos;s Overview. Approve moves it to the next stage; Decline needs a reason. Set the
-            stages in Admin → Application Pipeline.
-          </p>
-          <p>
-            <strong className="text-ink">Trust:</strong> cashbook import/export and allocate are
-            in-app book tools. Use field-help icons on Trust pages for current limits.
-          </p>
-          <p>
-            <strong className="text-ink">Messages:</strong> owner↔tenant and agency threads stay
-            inside Lekaya (not WhatsApp/SMS).
-          </p>
-          <p>
-            <strong className="text-ink">Leases:</strong> renewals and scheduled escalation live on
-            the Leases directory and tenant lease panels.
-          </p>
-        </div>
+          ))}
+        </ul>
       </Card>
     </div>
   )

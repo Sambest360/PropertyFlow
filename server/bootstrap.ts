@@ -68,6 +68,12 @@ const ROLE_MAP: Record<RoleDb, string> = {
   CONTRACTOR: 'contractor',
 }
 
+function agencyLogoUrl(settings: unknown): string | undefined {
+  const profile = (settings as { publicProfile?: { logoUrl?: unknown } } | null)?.publicProfile
+  const url = profile?.logoUrl
+  return typeof url === 'string' && url && !url.startsWith('data:') && isSafePhotoUrl(url) ? url : undefined
+}
+
 export function dateOnly(v: Date | string | null | undefined): string {
   if (!v) return ''
   if (typeof v === 'string') return v.slice(0, 10)
@@ -719,6 +725,8 @@ export async function buildBootstrap(opts?: {
     email: c.email ?? undefined,
     phone: c.phone ?? undefined,
     province: c.province ?? undefined,
+    // The logo saved on the agency profile (settings.publicProfile.logoUrl).
+    logoUrl: agencyLogoUrl(c.settings),
     status: mapAgencyStatusFromDb(c.status),
     // Landlord sign-ups get a private portfolio record; it is not an agency.
     ...((c.settings as Record<string, unknown> | null)?.portfolio === true ? { isLandlordPortfolio: true } : {}),

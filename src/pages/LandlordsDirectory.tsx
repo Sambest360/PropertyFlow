@@ -250,7 +250,7 @@ export default function LandlordsDirectory() {
                           </td>
                           <td className="px-4 py-2">
                             <div className="flex items-center gap-3">
-                              <PersonAvatar name={item.user.name} />
+                              <PersonAvatar name={item.user.name} userId={item.user.id} />
                               <span className="min-w-0">
                                 <span className="block truncate font-semibold text-ink">{item.user.name}</span>
                                 <span className="block truncate text-xs text-ink-500">{item.user.email}{item.user.phone ? ` · ${item.user.phone}` : ''}</span>
@@ -297,7 +297,7 @@ export default function LandlordsDirectory() {
                 )}
               >
                 <div className="flex items-start gap-3">
-                  <PersonAvatar name={item.user.name} />
+                  <PersonAvatar name={item.user.name} userId={item.user.id} />
                   <div className="min-w-0">
                     <h3 className="font-semibold text-ink">{item.user.name}</h3>
                     <p className="text-sm text-ink-500">{item.user.email}</p>

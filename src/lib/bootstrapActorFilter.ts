@@ -991,6 +991,7 @@ function servedAgencyView(a: Record<string, unknown>): Record<string, unknown> {
     tradingAs: a.tradingAs,
     email: a.email,
     phone: a.phone,
+    logoUrl: a.logoUrl,
     status: a.status,
     settings: {
       // The agency's application stages, so the applicant's steps match.

@@ -227,7 +227,7 @@ export default function TenantDirectory() {
                 )}
               >
                 <div className="flex items-start gap-3">
-                  <PersonAvatar name={item.tenancy.tenantName} />
+                  <PersonAvatar name={item.tenancy.tenantName} userId={item.tenancy.tenantUserId} />
                   <div className="min-w-0">
                     <h3 className="font-semibold text-ink">{item.tenancy.tenantName}</h3>
                     <p className="truncate text-xs text-ink-500">{item.tenancy.tenantEmail}</p>
@@ -334,7 +334,7 @@ function TenantsListView({
                             )}
                             aria-hidden
                           />
-                          <PersonAvatar name={item.tenancy.tenantName} />
+                          <PersonAvatar name={item.tenancy.tenantName} userId={item.tenancy.tenantUserId} />
                           <span className="min-w-0">
                             <span className="flex flex-wrap items-center gap-1.5">
                               <span className="truncate font-semibold text-ink group-hover:text-primary">
@@ -422,7 +422,7 @@ function TenantsListView({
                 aria-expanded={expanded}
                 className="flex w-full min-h-14 cursor-pointer items-center gap-3 px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
               >
-                <PersonAvatar name={item.tenancy.tenantName} />
+                <PersonAvatar name={item.tenancy.tenantName} userId={item.tenancy.tenantUserId} />
                 <span className="min-w-0 flex-1">
                   <span className="font-semibold text-ink">{item.tenancy.tenantName}</span>
                   <span className="mt-1 block truncate text-xs text-ink-500">
@@ -493,7 +493,7 @@ function TenantExpansion({
     <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
       <div className="min-w-0 space-y-2">
         <div className="flex items-center gap-3">
-          <PersonAvatar name={t.tenantName} />
+          <PersonAvatar name={t.tenantName} userId={t.tenantUserId} />
           <div className="min-w-0">
             <p className="font-display text-2xl font-semibold tracking-tight text-ink">{t.tenantName}</p>
             <p className="truncate text-sm text-ink-500">{t.id}</p>

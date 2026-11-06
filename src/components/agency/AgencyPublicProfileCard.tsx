@@ -6,6 +6,7 @@ import { fetchAgencyProfile, saveAgencyProfile } from '../../lib/api/agencyProfi
 import { LOGO_RESIZE, resizeImageFile } from '../../lib/imageResize'
 import { initials } from '../../lib/contactLinks'
 import { sweetError, sweetSuccess } from '../../lib/sweetAlert'
+import { useOptionalStore } from '../../context/AppStore'
 
 type Fields = { phone: string; email: string; website: string; address: string; description: string }
 const EMPTY: Fields = { phone: '', email: '', website: '', address: '', description: '' }
@@ -25,6 +26,7 @@ export function AgencyPublicProfileCard({ agencyId }: { agencyId: string }) {
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
   const input = useRef<HTMLInputElement>(null)
+  const store = useOptionalStore()
 
   useEffect(() => {
     if (!isApiEnabled || !agencyId) return
@@ -66,6 +68,8 @@ export function AgencyPublicProfileCard({ agencyId }: { agencyId: string }) {
       setFields({ phone: p.phone ?? '', email: p.email ?? '', website: p.website ?? '', address: p.address ?? '', description: p.description ?? '' })
       setLogoUrl(p.logoUrl)
       setLogo(undefined)
+      // Every place the agency shows picks up the new logo straight away.
+      store?.setAgencyLogoLocal(agencyId, p.logoUrl)
       await sweetSuccess('Saved', 'Your listings now show these details.')
     } catch (err) {
       await sweetError('Could not save', err instanceof Error ? err.message : String(err))

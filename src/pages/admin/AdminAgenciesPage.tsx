@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { realAgencies } from '../../lib/agencyKinds'
 import { Building2, Pencil, Plus, Trash2 } from 'lucide-react'
+import { AgencyLogo } from '../../components/agency/AgencyLogo'
 import { Link, useNavigate } from 'react-router-dom'
 import { useStore } from '../../context/AppStore'
 import { RequirePermission } from '../../components/RequirePermission'
@@ -158,7 +159,7 @@ export default function AdminAgenciesPage() {
                 header: 'Agency',
                 render: ({ agency: a }) => (
                   <div className="flex items-center gap-2">
-                    <Building2 className="h-4 w-4 text-ink-400" strokeWidth={ICON_STROKE} />
+                    <AgencyLogo agencyId={a.id} name={a.name} className="h-9 w-9" />
                     <div>
                       <p className="font-semibold text-ink">{a.name}</p>
                       <p className="text-xs text-ink-500">{a.slug}</p>

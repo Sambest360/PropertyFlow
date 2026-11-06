@@ -73,7 +73,7 @@ export function ApplicantsListView({
                           onClick={() => onToggle(item)}
                           className="group flex min-h-11 w-full cursor-pointer items-center gap-3 rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
-                          <PersonAvatar name={a.applicantName} />
+                          <PersonAvatar name={a.applicantName} userId={a.applicantUserId} />
                           <span className="min-w-0">
                             <span className="block truncate font-semibold text-ink group-hover:text-primary">
                               <UnopenedDot kind="application" id={a.id} className="mr-1.5 align-middle" />{a.applicantName}
@@ -155,7 +155,7 @@ export function ApplicantsListView({
                 aria-expanded={expanded}
                 className="flex w-full min-h-14 cursor-pointer items-center gap-3 px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
               >
-                <PersonAvatar name={a.applicantName} />
+                <PersonAvatar name={a.applicantName} userId={a.applicantUserId} />
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold text-ink"><UnopenedDot kind="application" id={a.id} className="mr-1.5 align-middle" />{a.applicantName}</span>

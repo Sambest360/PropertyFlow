@@ -36,6 +36,7 @@ vi.mock('../context/AppStore', () => ({
       },
     ),
   usePublicProperties: () => [],
+  useOptionalStore: () => null,
 }))
 vi.mock('../context/AuthContext', () => ({
   useAuth: () => ({

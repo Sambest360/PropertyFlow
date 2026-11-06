@@ -7,13 +7,11 @@ export function MobileDrawer({
   open,
   onClose,
   title,
-  side = 'left',
   children,
 }: {
   open: boolean
   onClose: () => void
   title: string
-  side?: 'left' | 'right'
   children: ReactNode
 }) {
   const reducedMotion = usePrefersReducedMotion()
@@ -44,9 +42,9 @@ export function MobileDrawer({
       />
       <div
         className={cn(
-          'absolute inset-y-0 flex w-[min(100%,20rem)] flex-col overflow-y-auto bg-white p-4 shadow-2xl shadow-ink/20',
-          side === 'right' ? 'right-0' : 'left-0',
-          !reducedMotion && 'animate-slide-up',
+          // Every mobile menu opens from the right.
+          'absolute inset-y-0 right-0 flex w-[min(100%,20rem)] flex-col overflow-y-auto bg-white p-4 shadow-2xl shadow-ink/20',
+          !reducedMotion && 'animate-drawer-in',
         )}
       >
         <div className="mb-4 flex items-center justify-between">

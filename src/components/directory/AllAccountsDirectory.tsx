@@ -229,7 +229,7 @@ export function AllAccountsDirectory({
                     !reducedMotion && 'transition-colors duration-200',
                   )}
                 >
-                  <PersonAvatar name={row.name} />
+                  <PersonAvatar name={row.name} userId={row.userId} />
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold text-ink">{row.name}</p>
                     <p className="truncate text-sm text-ink-500">
@@ -370,7 +370,7 @@ export function AllAccountsDirectory({
                       !reducedMotion && 'transition-colors duration-200',
                     )}
                   >
-                    <PersonAvatar name={item.user.name} />
+                    <PersonAvatar name={item.user.name} userId={item.user.id} />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-semibold text-ink">{item.user.name}</p>

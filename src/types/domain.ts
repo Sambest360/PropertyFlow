@@ -122,6 +122,8 @@ export type Agency = {
   tradingAs?: string
   email?: string
   phone?: string
+  /** The agency's logo (Agency profile settings). */
+  logoUrl?: string
   province?: string
   countryCode?: string
   timezone?: string

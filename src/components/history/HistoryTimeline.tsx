@@ -1,15 +1,9 @@
 import { ArrowRight } from 'lucide-react'
 import type { PropertyEvent } from '../../types/domain'
+import { PersonAvatar } from '../directory/DirectoryToolbar'
 import { Badge, Card } from '../ui'
 
 const ICON_STROKE = 1.6
-
-function initials(name: string) {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
-  if (!parts.length) return '?'
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
-}
 
 function formatWhen(iso: string) {
   const d = new Date(iso)
@@ -45,12 +39,7 @@ export function HistoryTimeline({
         <ol className="space-y-6">
           {sorted.map((ev) => (
             <li key={ev.id} className="flex gap-3">
-              <span
-                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-white"
-                aria-hidden
-              >
-                {initials(ev.actorName)}
-              </span>
+              <PersonAvatar name={ev.actorName} userId={ev.actorUserId} shape="circle" className="h-10 w-10 text-xs font-bold" />
               <div className="min-w-0 flex-1">
                 <p className="text-sm text-ink">
                   <span className="font-semibold">{ev.actorName}</span>{' '}

@@ -651,6 +651,8 @@ type StoreContextValue = {
   updateUser: (id: string, patch: Partial<AppUser>) => void
   /** The server already saved this photo: show it everywhere now, no write. */
   setUserAvatarLocal: (id: string, avatar: string | null) => void
+  /** Show a newly saved agency logo everywhere at once (the server already stored it). */
+  setAgencyLogoLocal: (id: string, logoUrl: string | null) => void
   /** Drop a user the server deleted from this browser's lists (no server write). */
   removeUserLocally: (id: string) => void
   /**
@@ -3109,6 +3111,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     },
     setUserAvatarLocal: (id, avatar) => {
       patch((s) => ({ ...s, users: s.users.map((u) => (u.id === id ? { ...u, avatar: avatar ?? undefined } : u)) }))
+    },
+    setAgencyLogoLocal: (id, logoUrl) => {
+      patch((s) => ({ ...s, agencies: s.agencies.map((a) => (a.id === id ? { ...a, logoUrl: logoUrl ?? undefined } : a)) }))
     },
     updateUser: (id, p) => {
       patch((s) => ({ ...s, users: s.users.map((u) => (u.id === id ? { ...u, ...p } : u)) }))
@@ -8297,6 +8302,11 @@ function formatClient(clientId: string) {
 function approvedApplicationFields(type: Application['type']): { workflowStatus: WorkflowStatusKey; stage: string; progress: number } {
   const status: WorkflowStatusKey = type === 'Purchase' ? 'deposit_requested' : 'lease_generated'
   return { workflowStatus: status, stage: workflowStageLabel(type, status), progress: workflowProgress(type, status) }
+}
+
+/** The store when inside the provider, else null (for shared display pieces). */
+export function useOptionalStore() {
+  return useContext(StoreContext)
 }
 
 export function useStore() {

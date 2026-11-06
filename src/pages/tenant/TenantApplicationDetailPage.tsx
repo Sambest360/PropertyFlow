@@ -1,4 +1,6 @@
 import { LeaseSignCard } from '../../components/lease/LeaseSignCard'
+import { AgencyLogo } from '../../components/agency/AgencyLogo'
+import { PersonAvatar } from '../../components/directory/DirectoryToolbar'
 import { DepositStepPanel } from '../../components/deposit/DepositStepPanel'
 import { TenantApplicationSteps } from '../../components/tenant/TenantApplicationSteps'
 import { useAgencyPipeline } from '../../hooks/useApplicationPipeline'
@@ -330,8 +332,16 @@ export default function TenantApplicationDetailPage() {
             <aside className="space-y-5">
               <Card className="p-5">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">Your agent</p>
-                <p className="mt-1 font-semibold text-ink">{agentName ?? 'Being assigned'}</p>
-                <p className="text-sm text-ink-500">{agencyName}</p>
+                <div className="mt-2 flex items-center gap-3">
+                  <PersonAvatar name={agentName ?? '?'} userId={application.agentId} shape="circle" className="h-11 w-11 text-sm" />
+                  <div className="min-w-0">
+                    <p className="font-semibold text-ink">{agentName ?? 'Being assigned'}</p>
+                    <p className="flex items-center gap-1.5 text-sm text-ink-500">
+                      <AgencyLogo agencyId={application.agencyId} name={agencyName ?? ''} className="h-5 w-5" />
+                      {agencyName}
+                    </p>
+                  </div>
+                </div>
                 <Link
                   to="/workspace/portals/tenant/messages"
                   className="mt-3 inline-flex min-h-11 items-center gap-1.5 text-sm font-semibold text-primary"

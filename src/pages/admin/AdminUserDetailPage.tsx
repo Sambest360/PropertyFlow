@@ -168,7 +168,7 @@ export default function AdminUserDetailPage() {
         <div>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex min-w-0 items-start gap-3">
-              <PersonAvatar name={user.name} className="h-14 w-14 text-base" />
+              <PersonAvatar name={user.name} userId={user.id} className="h-14 w-14 text-base" />
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <h1 className="font-display text-2xl font-semibold tracking-tight text-ink sm:text-[1.75rem]">
