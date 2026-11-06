@@ -47,6 +47,7 @@ import {
   insertTitleTypeConfirm,
   isPublicUnitStatus,
   loadTitleTypeConfirms,
+  normalizeTypeKey,
   titleTypeConfirmError,
   titleTypeConfirmExists,
 } from './listingTitleTypeConfirm.js'
@@ -1233,6 +1234,57 @@ async function upsertProperty(
     : isRestore
       ? str(d.statusKey) || unitStatusFromProperty(d.status, undefined)
       : str(d.statusKey) || unitStatusFromProperty(d.status, d.deletedAt)
+
+  let pendingTitleTypeConfirm: { title: string; type: string; warning: string } | null = null
+  // F1/F2: evaluate confirm against the *requested* public status BEFORE
+  // gateListingLive, so a missing flag 409s without queuing an unapprovable
+  // pending approval (CR-2b). Unchanged live mismatch saves skip (F1). A
+  // confirmed agency publish still stages the confirm even when the gate later
+  // stores DRAFT (F2).
+  {
+    const requestedIsPublic = isPublicUnitStatus(requestedStatusKey)
+    const alreadyPublic = isPublicUnitStatus(storedStatus)
+    if (requestedIsPublic || alreadyPublic) {
+      const storedTitleType = (
+        await query<{ title: string | null; property_type: string | null }>(
+          `SELECT title, property_type FROM units WHERE id = $1::uuid`,
+          [uuid],
+        )
+      )[0]
+      const persistTitle =
+        (d.title != null ? str(d.title, unitNumber) : storedTitleType?.title) ||
+        str(d.title, unitNumber)
+      const effectiveType = propertyTypeDb ?? storedTitleType?.property_type ?? null
+      if (persistTitle && effectiveType) {
+        const warning = titleTypeWarning(persistTitle, effectiveType)
+        if (warning) {
+          const prior = await loadTitleTypeConfirms(uuid)
+          if (!titleTypeConfirmExists(prior, persistTitle, effectiveType)) {
+            const titleUnchanged = (storedTitleType?.title ?? '') === persistTitle
+            const typeUnchanged =
+              normalizeTypeKey(storedTitleType?.property_type) === normalizeTypeKey(effectiveType)
+            const unchangedLive = alreadyPublic && titleUnchanged && typeUnchanged
+            if (d.titleTypeConfirmed === true) {
+              pendingTitleTypeConfirm = {
+                title: persistTitle,
+                type: effectiveType,
+                warning,
+              }
+            } else if (unchangedLive) {
+              // F1: ordinary Featured / agent / rooms save of a live mismatch.
+            } else if (requestedIsPublic) {
+              throw titleTypeConfirmError(
+                await frontendIdForUnit(uuid)
+                  .then((id) => id || feId)
+                  .catch(() => feId),
+              )
+            }
+          }
+        }
+      }
+    }
+  }
+
   // Only a super admin makes a listing live; anyone else's publish waits for approval.
   const statusKey =
     actorRole === null
@@ -1244,32 +1296,6 @@ async function upsertProperty(
           actorRole,
           actorUserId,
         })
-
-  let pendingTitleTypeConfirm: { title: string; type: string; warning: string } | null = null
-  if (isPublicUnitStatus(statusKey)) {
-    const storedTitleType = (
-      await query<{ title: string | null; property_type: string | null }>(
-        `SELECT title, property_type FROM units WHERE id = $1::uuid`,
-        [uuid],
-      )
-    )[0]
-    const persistTitle =
-      (d.title != null ? str(d.title, unitNumber) : storedTitleType?.title) || str(d.title, unitNumber)
-    const effectiveType = propertyTypeDb ?? storedTitleType?.property_type ?? null
-    if (persistTitle && effectiveType) {
-    const warning = titleTypeWarning(persistTitle, effectiveType)
-    if (warning) {
-      const prior = await loadTitleTypeConfirms(uuid)
-      if (!titleTypeConfirmExists(prior, persistTitle, effectiveType)) {
-        if (d.titleTypeConfirmed === true) {
-          pendingTitleTypeConfirm = { title: persistTitle, type: effectiveType, warning }
-        } else {
-          throw titleTypeConfirmError(await frontendIdForUnit(uuid).then((id) => id || feId).catch(() => feId))
-        }
-      }
-    }
-    }
-  }
 
   const writeUnitRow = async () => {
   await query(
@@ -1363,7 +1389,7 @@ async function upsertProperty(
     await insertTitleTypeConfirm({
       clientId: client,
       unitId: uuid,
-      actorUserId,
+      actorUserId: actorUserId ? await resolveUuid('user', actorUserId) : null,
       title: pendingTitleTypeConfirm.title,
       type: pendingTitleTypeConfirm.type,
       warning: pendingTitleTypeConfirm.warning,

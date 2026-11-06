@@ -182,6 +182,7 @@ import { isApiEnabled } from '../lib/api/config'
 import { ensureLeaseEnvelopeForSign, leaseSignatureSaved } from '../lib/leaseSignatureOrdering'
 import { persistRefusalMessage } from '../lib/api/persistRefusal'
 import { unitPersistPayload } from '../lib/unitPersistPayload'
+import { propertyPersistPayload } from '../lib/propertyPersistPayload'
 import { releaseRentCycleWrite, rentCycleRefusalHandling, trackRentCycleWrite } from '../lib/api/rentCycleRefusals'
 import {
   bootstrapActorKey,
@@ -3878,7 +3879,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         })
       }
       if (prev) {
-        persistUpsert('property', id, { ...prev, ...p, id } as Record<string, unknown>)
+        persistUpsert('property', id, propertyPersistPayload(prev, { ...p }) as Record<string, unknown>)
       }
       if (unitPatch) {
         persistUpsert('unit', unitPatch.id, unitPatch as unknown as Record<string, unknown>)
@@ -3900,7 +3901,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           units: s.units.map((u) => (u.id === unitId ? { ...u, agentId: value } : u)),
         }))
       apply(next)
-      const result = await persistUpsertResult('property', id, { ...prev, agentId: next, id } as Record<string, unknown>)
+      const result = await persistUpsertResult('property', id, propertyPersistPayload(prev, { agentId: next }) as Record<string, unknown>)
       if (!result.ok) {
         apply(before)
         const { persistErrorMessage } = await import('../lib/api/persist')
@@ -3952,7 +3953,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             )
           : s.units,
       }))
-      persistUpsert('property', id, { ...prev, rooms, beds, baths } as unknown as Record<string, unknown>)
+      persistUpsert('property', id, propertyPersistPayload(prev, { rooms, beds, baths }) as Record<string, unknown>)
       if (unit) {
         persistUpsert('unit', unit.id, {
           ...unitPersistPayload(unit, { ...prev, rooms, beds, baths }),
@@ -4202,13 +4203,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         markLocalPersistWrite('unit', property.unitId)
       }
 
-      const propertyResult = await persistUpsertResult('property', id, {
-        ...property,
-        deletedAt,
-        status: 'Archived',
-        featured: false,
-        statusKey: 'DELETED',
-      } as Record<string, unknown>)
+      const propertyResult = await persistUpsertResult(
+        'property',
+        id,
+        propertyPersistPayload(property, {
+          deletedAt,
+          status: 'Archived',
+          featured: false,
+          statusKey: 'DELETED',
+        }) as Record<string, unknown>,
+      )
       if (!propertyResult.ok) {
         patch((s) => ({
           ...s,
@@ -4296,14 +4300,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         markLocalPersistWrite('unit', property.unitId)
       }
 
-      const propertyResult = await persistUpsertResult('property', id, {
-        ...property,
-        restore: true,
-        deletedAt: null,
-        status: 'Draft',
-        featured: false,
-        statusKey: 'DRAFT',
-      } as Record<string, unknown>)
+      const propertyResult = await persistUpsertResult(
+        'property',
+        id,
+        propertyPersistPayload(property, {
+          restore: true,
+          deletedAt: null,
+          status: 'Draft',
+          featured: false,
+          statusKey: 'DRAFT',
+        }) as Record<string, unknown>,
+      )
       if (!propertyResult.ok) {
         patch((s) => ({
           ...s,
@@ -5630,10 +5637,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         if (app?.propertyId) {
           const prop = stateRef.current.properties.find((p) => p.id === app.propertyId)
           if (prop) {
-            void persistUpsert('property', prop.id, {
-              ...prop,
-              status: app.type === 'Rental' ? 'Rented' : prop.status,
-            } as unknown as Record<string, unknown>)
+            void persistUpsert(
+              'property',
+              prop.id,
+              propertyPersistPayload(prop, {
+                status: app.type === 'Rental' ? 'Rented' : prop.status,
+              }) as Record<string, unknown>,
+            )
           }
         }
         addActivity(
@@ -6459,7 +6469,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       await persistApplicationOrRollback(id, updatedApp, prevApp)
       await persistUpsert('tenancy', tenancy.id, tenancy as unknown as Record<string, unknown>)
       if (updatedProp) {
-        await persistUpsert('property', updatedProp.id, updatedProp as unknown as Record<string, unknown>)
+        await persistUpsert(
+          'property',
+          updatedProp.id,
+          propertyPersistPayload(updatedProp) as Record<string, unknown>,
+        )
       }
       addActivity(
         `Keys handed over — ${app.applicantName} is now an active occupant`,

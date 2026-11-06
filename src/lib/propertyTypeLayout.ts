@@ -182,13 +182,20 @@ export function kindLabelFor(layout: PropertyTypeLayout, kind: RoomKind): string
   return layout.kinds.find((k) => k.kind === kind)?.label ?? roomKindLabel(kind)
 }
 
-/** Replace starter rooms when the type is first picked (blank → House) or the family changes. */
+/** Replace starter rooms when the type is first picked (blank → House) or the family changes.
+ * In edit mode a blank prevType is the inferred-type hydrate (AV3-3), so keep stored rooms (F5).
+ * Create mode blank → House still replaces (T5).
+ */
 export function shouldReplaceStarterRooms(
   prevType: string,
   nextType: string,
   rooms: WizardRoomDraft[],
+  opts?: { isEdit?: boolean },
 ): boolean {
   if (!roomsLookUntouched(rooms)) return false
-  if (!(prevType ?? '').trim()) return true
+  if (!(prevType ?? '').trim()) {
+    if (opts?.isEdit) return false
+    return true
+  }
   return propertyTypeLayout(prevType).family !== propertyTypeLayout(nextType).family
 }

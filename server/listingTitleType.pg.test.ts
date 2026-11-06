@@ -358,4 +358,123 @@ describe.skipIf(!url)('listing title/type confirm (Test 6, A2, A15)', () => {
     expect(second.status).toBe(200)
     expect((await unitOf('p-ltt-av33'))?.property_type).toBeNull()
   })
+
+  it('CR-1: an ordinary featured save of a live listing with a legacy title/type mismatch and no confirm row should succeed', async () => {
+    expect((await persist('p-ltt-cr1', payload({ status: 'Draft', statusKey: 'DRAFT' }))).status).toBe(200)
+    const unit = await unitOf('p-ltt-cr1')
+    expect(unit).toBeTruthy()
+    await q(`UPDATE units SET status_config_key = 'PUBLISHED' WHERE id = $1::uuid`, [unit!.id])
+    expect(await confirms(unit!.id)).toEqual([])
+    const res = await persist(
+      'p-ltt-cr1',
+      payload({ status: 'Published', statusKey: 'PUBLISHED', featured: true }),
+    )
+    expect(res.status).toBe(200)
+    expect(res.code).not.toBe('TITLE_TYPE_CONFIRMATION_REQUIRED')
+    const after = await unitOf('p-ltt-cr1')
+    expect(after?.status).toBe('PUBLISHED')
+    expect(after?.title).toBe(HOUSE_TITLE)
+    expect(after?.property_type?.toLowerCase()).toMatch(/apartment/)
+    expect(await confirms(after!.id)).toEqual([])
+  })
+
+  it('CR-1b: changing title or type on a live mismatch without the flag still 409s', async () => {
+    expect((await persist('p-ltt-cr1b', payload({ status: 'Draft', statusKey: 'DRAFT' }))).status).toBe(200)
+    const unit = await unitOf('p-ltt-cr1b')
+    expect(unit).toBeTruthy()
+    await q(`UPDATE units SET status_config_key = 'PUBLISHED' WHERE id = $1::uuid`, [unit!.id])
+    const titleChange = await persist(
+      'p-ltt-cr1b',
+      payload({
+        status: 'Published',
+        statusKey: 'PUBLISHED',
+        title: '4 Bedroom House to Rent in Pinelands',
+      }),
+    )
+    expect(titleChange.status).toBe(409)
+    expect(titleChange.code).toBe('TITLE_TYPE_CONFIRMATION_REQUIRED')
+    const typeChange = await persist(
+      'p-ltt-cr1b',
+      payload({ status: 'Published', statusKey: 'PUBLISHED', type: 'Industrial' }),
+    )
+    expect(typeChange.status).toBe(409)
+    expect(typeChange.code).toBe('TITLE_TYPE_CONFIRMATION_REQUIRED')
+    expect((await unitOf('p-ltt-cr1b'))?.status).toBe('PUBLISHED')
+    expect(await confirms(unit!.id)).toEqual([])
+  })
+
+  it('CR-2: client_admin publish with titleTypeConfirmed records a confirm so super-admin approval succeeds', async () => {
+    expect(
+      (await persist('p-ltt-cr2', payload({ status: 'Draft', statusKey: 'DRAFT' }), AGENT, 'client_admin')).status,
+    ).toBe(200)
+    const pub = await persist(
+      'p-ltt-cr2',
+      payload({ status: 'Published', statusKey: 'PUBLISHED', titleTypeConfirmed: true }),
+      AGENT,
+      'client_admin',
+    )
+    expect(pub.status).toBe(200)
+    const unit = await unitOf('p-ltt-cr2')
+    expect(unit?.status).toBe('DRAFT')
+    expect(await confirms(unit!.id)).toHaveLength(1)
+    const approvals = await import('./listingApprovals.js')
+    const result = await approvals.applyListingApproval({
+      unitId: unit!.id,
+      decision: 'approved',
+      note: '',
+      reviewerUserId: SUPER,
+    })
+    expect(result.ok).toBe(true)
+    expect((await unitOf('p-ltt-cr2'))?.status).toBe('PUBLISHED')
+  })
+
+  it('CR-2b: client_admin publish without the flag is 409 and leaves no pending approval that A15 cannot pass', async () => {
+    expect(
+      (await persist('p-ltt-cr2b', payload({ status: 'Draft', statusKey: 'DRAFT' }), AGENT, 'client_admin')).status,
+    ).toBe(200)
+    const pub = await persist(
+      'p-ltt-cr2b',
+      payload({ status: 'Published', statusKey: 'PUBLISHED' }),
+      AGENT,
+      'client_admin',
+    )
+    expect(pub.status).toBe(409)
+    expect(pub.code).toBe('TITLE_TYPE_CONFIRMATION_REQUIRED')
+    const unit = await unitOf('p-ltt-cr2b')
+    expect(unit?.status).toBe('DRAFT')
+    expect(await confirms(unit!.id)).toEqual([])
+    const pending = await approvalSnap(unit!.id)
+    // Either no row, or not left as a pending approval that approve cannot pass.
+    expect(pending == null || pending.status !== 'pending').toBe(true)
+  })
+
+  it('CR-3: publish with titleTypeConfirmed and a front-end actor id should persist and store the confirm', async () => {
+    expect((await persist('p-ltt-cr3', payload({ status: 'Draft', statusKey: 'DRAFT' }))).status).toBe(200)
+    const res = await persist(
+      'p-ltt-cr3',
+      payload({ status: 'Published', statusKey: 'PUBLISHED', titleTypeConfirmed: true }),
+      SUPER_FE,
+      'super_admin',
+    )
+    expect(res.status).toBe(200)
+    const unit = await unitOf('p-ltt-cr3')
+    expect(unit?.status).toBe('PUBLISHED')
+    const rows = unit ? await confirms(unit.id) : []
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.actor_user_id).toBe(SUPER)
+  })
+
+  it('CR-4 companion: featured-style save that omits type on an inferred listing keeps property_type null', async () => {
+    const { type: _omit, ...noType } = payload({
+      title: HOUSE_TITLE,
+      status: 'Draft',
+      statusKey: 'DRAFT',
+      typeInferred: true,
+    })
+    expect((await persist('p-ltt-cr4', noType)).status).toBe(200)
+    expect((await unitOf('p-ltt-cr4'))?.property_type).toBeNull()
+    const featured = await persist('p-ltt-cr4', { ...noType, featured: true, rent: 9100 })
+    expect(featured.status).toBe(200)
+    expect((await unitOf('p-ltt-cr4'))?.property_type).toBeNull()
+  })
 })

@@ -590,11 +590,12 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     const prevType = lastTypeRef.current
     lastTypeRef.current = draft.propertyType
     setDraft((d) =>
-      typeLayout.landOnly || shouldReplaceStarterRooms(prevType, draft.propertyType, d.rooms)
+      typeLayout.landOnly ||
+      shouldReplaceStarterRooms(prevType, draft.propertyType, d.rooms, { isEdit })
         ? { ...d, rooms: typeLayout.starterRooms(), ...(typeLayout.landOnly ? { parking: 0 } : {}) }
         : d,
     )
-  }, [draft.propertyType, typeLayout, setDraft])
+  }, [draft.propertyType, typeLayout, setDraft, isEdit])
   const zoning = (draft.amenities.find((a) => a.startsWith('Zoning: ')) ?? '').replace('Zoning: ', '')
 
   const listingDescriptionContext = useMemo(
