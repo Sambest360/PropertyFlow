@@ -47,6 +47,24 @@ vi.mock('./mailtrap.js', async (orig) => ({
   sendPaymentReceipt: vi.fn(async () => undefined),
 }))
 
+const sessionResolve = vi.hoisted(() => ({
+  calls: 0,
+  reset() {
+    this.calls = 0
+  },
+}))
+
+vi.mock('./auth.js', async (orig) => {
+  const real = await orig<typeof import('./auth.js')>()
+  return {
+    ...real,
+    resolveSessionUser: ((c: Parameters<typeof real.resolveSessionUser>[0]) => {
+      sessionResolve.calls += 1
+      return real.resolveSessionUser(c)
+    }) as typeof real.resolveSessionUser,
+  }
+})
+
 type App = { request: (path: string, init?: RequestInit, env?: unknown) => Response | Promise<Response> }
 let app: App
 
@@ -61,6 +79,7 @@ beforeEach(async () => {
   query.mockClear()
   txQuery.mockClear()
   eventLogWrites.rows = []
+  sessionResolve.reset()
   fetchMock = vi.fn(async () => new Response('VALID', { status: 200 }))
   vi.stubGlobal('fetch', fetchMock)
   warns = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -151,6 +170,53 @@ describe('T-S1 create with session-looking headers → 410, 0 DB, no Set-Cookie'
     expect(txQuery).not.toHaveBeenCalled()
     expect(r.headers.get('set-cookie')).toBeNull()
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('T-S1b gate before session: resolveSessionUser never runs for /api/payfast/* (C1)', () => {
+  it('create with Authorization + cookie does not call resolveSessionUser', async () => {
+    const r = await postCreate({
+      headers: {
+        authorization: 'Bearer fake-staff-token',
+        cookie: 'pf_session=fake-staff-cookie',
+        'content-type': 'application/json',
+      },
+    })
+    expect(r.status).toBe(410)
+    assertDisabledBody(r.json)
+    expect(sessionResolve.calls).toBe(0)
+  })
+
+  it('ITN with Authorization + cookie does not call resolveSessionUser', async () => {
+    const r = await postItn(
+      {
+        m_payment_id: 'PAY-1',
+        pf_payment_id: '900001',
+        payment_status: 'COMPLETE',
+        signature: 'deadbeef',
+      },
+      {
+        authorization: 'Bearer fake-staff-token',
+        cookie: 'pf_session=fake-staff-cookie',
+      },
+    )
+    expect(r.status).toBe(410)
+    assertDisabledBody(r.json)
+    expect(sessionResolve.calls).toBe(0)
+  })
+
+  it('index.ts source order: payfast gate mounts before /api/* session middleware', () => {
+    const here = dirname(fileURLToPath(import.meta.url))
+    const index = readFileSync(join(here, 'index.ts'), 'utf8')
+    const gateBare = index.indexOf("app.use('/api/payfast', onlinePaymentsDisabledGate)")
+    const gateWild = index.indexOf("app.use('/api/payfast/*', onlinePaymentsDisabledGate)")
+    const session = index.indexOf("app.use('/api/*', async (c, next) => {")
+    expect(gateBare).toBeGreaterThan(-1)
+    expect(gateWild).toBeGreaterThan(-1)
+    expect(session).toBeGreaterThan(-1)
+    expect(gateBare).toBeLessThan(session)
+    expect(gateWild).toBeLessThan(session)
   })
 })
 

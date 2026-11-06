@@ -126,6 +126,7 @@ async function postItn(fields: Record<string, string>, opts: { env?: unknown; he
 
 const errorText = () => errors.mock.calls.map((c) => c.map(String).join(' ')).join('\n')
 
+// Delete this .skip when ONLINE_PAYMENTS_ENABLED flips true (removal PR).
 describe.skip('H1 PayFast ITN source check (live) (skipped: Ruling 30 app gate; DNS harness below still runs; removal PR)', () => {
   it('live mode with no forwarding header and no usable peer IP is rejected (no null bypass)', async () => {
     const r = await postItn(await signedItn())
@@ -194,6 +195,7 @@ describe.skip('H1 PayFast ITN source check (live) (skipped: Ruling 30 app gate; 
   })
 })
 
+// Delete this .skip when ONLINE_PAYMENTS_ENABLED flips true (removal PR).
 describe.skip('H1 PayFast merchant_id (skipped: Ruling 30 app gate; removal PR)', () => {
   it('a correctly signed ITN with a different merchant_id gives 400 and a rejected-ITN log', async () => {
     const r = await postItn(await signedItn({ merchant_id: 'FAKE-MERCHANT-9999' }), { env: peer('197.97.145.150') })
@@ -212,6 +214,7 @@ describe.skip('H1 PayFast merchant_id (skipped: Ruling 30 app gate; removal PR)'
   })
 })
 
+// Delete this .skip when ONLINE_PAYMENTS_ENABLED flips true (removal PR).
 describe.skip('H1 PayFast ITN has no per-IP cap (skipped: Ruling 30 app gate; removal PR)', () => {
   it('100 valid ITNs from one documented PayFast IP within a minute are all processed (no 429)', async () => {
     const statuses = new Set<number>()

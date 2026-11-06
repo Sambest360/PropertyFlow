@@ -272,6 +272,7 @@ describe('dunning-notice is staff-only', () => {
   })
 })
 
+// Delete this .skip when ONLINE_PAYMENTS_ENABLED flips true (removal PR).
 describe.skip('payfast/create (skipped: Ruling 30 switch-off; handler coverage stays in payfastRoutes unit tests until removal PR)', () => {
   it("a tenant cannot start checkout for someone else's payment", async () => {
     const res = await post('/api/payfast/create', { ...auth('u-tenant'), ...SA_HEADERS }, { paymentId: 'PAY-other' })
@@ -406,6 +407,7 @@ describe('approve audits the verified actor', () => {
   })
 })
 
+// Delete this .skip when ONLINE_PAYMENTS_ENABLED flips true (removal PR).
 describe.skip('payfast/create amount comes from the payment record (skipped: Ruling 30 switch-off; removal PR)', () => {
   it('no amount sent: charges the stored amount', async () => {
     const res = await post('/api/payfast/create', auth('u-tenant'), { paymentId: 'PAY-mine' })

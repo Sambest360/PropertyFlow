@@ -29,7 +29,14 @@ vi.mock('./db.js', async (orig) => {
       if (!db.client) throw new Error('no test client')
       return (await db.client.query(sql, params)).rows
     },
-    withTransaction: async (fn: (client: { query: typeof db.client.query }) => Promise<unknown>) => {
+    withTransaction: async (
+      fn: (client: {
+        query: (
+          sql: string,
+          params?: unknown[],
+        ) => Promise<{ rowCount: number | null; rows: unknown[] }>
+      }) => Promise<unknown>,
+    ) => {
       if (!db.client) throw new Error('no test client')
       await db.client.query('SAVEPOINT sw_tx')
       try {
